@@ -1,13 +1,14 @@
-import { dates, fileIcons } from "@valentinkolb/stdlib";
-import { clipboard, files } from "@valentinkolb/stdlib/browser";
 import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts";
 import { AppWorkspace, toast } from "@valentinkolb/cloud/ui";
+import { dates, fileIcons } from "@valentinkolb/stdlib";
+import { clipboard, files } from "@valentinkolb/stdlib/browser";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { apiClient } from "@/api/client";
+import type { NamedBlockSummary } from "../../../../lib/named-blocks";
 import type { Backlink } from "../../../../service/links";
 import { buildVersionsUrl } from "../../../params";
 import type { Attachment } from "../editor/attachments-client";
 import { buildAttachmentContentUrl, confirmAndDownload, formatBytes } from "../editor/attachments-client";
-import { apiClient } from "@/api/client";
 import { setDetailPanelOpen } from "../settings/NotebookSettingsStore";
 import {
   ATTACHMENTS_UPDATE_EVENT,
@@ -15,11 +16,11 @@ import {
   DETAIL_PANEL_TOGGLE_EVENT,
   EDITOR_COPY_EVENT,
   EDITOR_DOWNLOAD_EVENT,
-  NAMED_BLOCKS_UPDATE_EVENT,
   NAMED_BLOCK_SCROLL_EVENT,
+  NAMED_BLOCKS_UPDATE_EVENT,
+  NOTE_SOFT_NAVIGATED_EVENT,
   PRESENCE_EVENT,
   RICH_MODE_CHANGED_EVENT,
-  NOTE_SOFT_NAVIGATED_EVENT,
   TASKS_UPDATE_EVENT,
   TOC_SCROLL_EVENT,
   TOC_UPDATE_EVENT,
@@ -27,7 +28,6 @@ import {
 } from "./events";
 import type { TaskProgress } from "./tasks";
 import type { TocItem } from "./toc";
-import type { NamedBlockSummary } from "../../../../lib/named-blocks";
 
 type Props = {
   mode: "edit" | "read";
@@ -117,7 +117,7 @@ export default function NotebookDetailPanel(props: Props) {
   const [createdAt, setCreatedAt] = createSignal(props.createdAt);
   const [updatedAt, setUpdatedAt] = createSignal(props.updatedAt);
   const [lockedAt, setLockedAt] = createSignal(props.lockedAt);
-  const [isLocked, setIsLocked] = createSignal(props.isLocked);
+  const [, setIsLocked] = createSignal(props.isLocked);
   const [namedBlocks, setNamedBlocks] = createSignal<NamedBlockSummary[]>(props.namedBlocks);
 
   // Attachment state: a cache (shortId → Attachment) plus the ordered
@@ -376,7 +376,7 @@ export default function NotebookDetailPanel(props: Props) {
                   <button
                     type="button"
                     onClick={() => void confirmAndDownload(att.filename, buildAttachmentContentUrl(props.notebookId, att.shortId))}
-                    class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded transition-colors text-left"
+                    class="list-item w-full !px-2 !py-1.5 text-left text-xs"
                     title={att.filename}
                   >
                     <i

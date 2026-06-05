@@ -12,12 +12,12 @@
  * All primitives here are permission-blind. The API/page layer is
  * responsible for `notebook.permission.get(...)` checks before calling.
  */
-import { sql } from "bun";
+
 import { fileIcons } from "@valentinkolb/stdlib";
+import { sql } from "bun";
 import { generateUniqueShortId, isShortId } from "../lib/short-id";
 
-const escapeHtml = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 export type AttachmentKind = "image" | "file";
 
@@ -297,8 +297,7 @@ export const reindexAttachmentRefs = async (params: { noteId: string; notebookId
  * end-to-end — the URL stays short and stable through copy-paste, and
  * the route `:attId` param works either way.
  */
-const buildContentUrl = (notebookId: string, idOrShortId: string) =>
-  `/api/notebooks/${notebookId}/attachments/${idOrShortId}/content?v=1`;
+const buildContentUrl = (notebookId: string, idOrShortId: string) => `/api/notebooks/${notebookId}/attachments/${idOrShortId}/content?v=1`;
 
 export const transformAttachments = (html: string, params: { notebookId: string; shortIdToFilename?: Map<string, string> }): string => {
   const { notebookId, shortIdToFilename } = params;
@@ -309,15 +308,12 @@ export const transformAttachments = (html: string, params: { notebookId: string;
   });
 
   // 2) <a href="attach://<shortId>">label</a> → render as file pill
-  out = out.replace(
-    /<a[^>]*\bhref="attach:\/\/([0-9a-zA-Z]{6})"[^>]*>([^<]*)<\/a>/g,
-    (_m, shortId: string, label: string) => {
-      const filename = shortIdToFilename?.get(shortId) ?? label;
-      const icon = fileIcons.getFileIcon({ name: filename, type: "file" });
-      const href = buildContentUrl(notebookId, shortId);
-      return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="cm-attachment-pill inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 no-underline" title="${escapeHtml(filename)}"><i class="ti ${icon} text-xs"></i><span>${escapeHtml(label)}</span></a>`;
-    },
-  );
+  out = out.replace(/<a[^>]*\bhref="attach:\/\/([0-9a-zA-Z]{6})"[^>]*>([^<]*)<\/a>/g, (_m, shortId: string, label: string) => {
+    const filename = shortIdToFilename?.get(shortId) ?? label;
+    const icon = fileIcons.getFileIcon({ name: filename, type: "file" });
+    const href = buildContentUrl(notebookId, shortId);
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="cm-attachment-pill inline-flex items-center gap-1 rounded-md bg-zinc-100/80 px-1.5 py-0.5 text-zinc-700 no-underline shadow-[var(--theme-shadow-elevated)] hover:bg-zinc-200/80 dark:bg-zinc-800/80 dark:text-zinc-300 dark:hover:bg-zinc-700/80" title="${escapeHtml(filename)}"><i class="ti ${icon} text-xs"></i><span>${escapeHtml(label)}</span></a>`;
+  });
 
   return out;
 };

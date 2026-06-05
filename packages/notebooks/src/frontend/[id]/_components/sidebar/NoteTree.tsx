@@ -1,17 +1,15 @@
+import type { DropdownItem } from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts } from "@valentinkolb/cloud/ui";
+import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { navigateToNotebookNote } from "../../../lib/soft-navigation";
 import { buildNoteUrl } from "../../../params";
-import { Dropdown } from "@valentinkolb/cloud/ui";
-import type { DropdownItem } from "@valentinkolb/cloud/ui";
+import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";
 import SearchButton from "../search/SearchButton";
 import { listAccessibleNotebooks } from "./notebooks";
-import type { NoteTreeNode, Notebook } from "./types";
-import { navigateTo } from "@valentinkolb/ssr/nav";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
-import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";
-import { navigateToNotebookNote } from "../../../lib/soft-navigation";
+import type { Notebook, NoteTreeNode } from "./types";
 
 type Props = {
   tree: NoteTreeNode[];
@@ -221,11 +219,7 @@ export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
               <button
                 type="button"
                 onClick={() => setSelected(null)}
-                class={`text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                  selected() === null
-                    ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-medium"
-                    : "text-secondary hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                }`}
+                class={`list-item w-full !px-3 !py-2 text-left text-sm ${selected() === null ? "list-item-active" : ""}`}
               >
                 <i class="ti ti-home text-xs mr-1.5" />
                 Root Level
@@ -236,11 +230,7 @@ export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
                   <button
                     type="button"
                     onClick={() => setSelected(target.id)}
-                    class={`text-left px-3 py-2 rounded-md text-sm transition-colors ${
-                      selected() === target.id
-                        ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-medium"
-                        : "text-secondary hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                    }`}
+                    class={`list-item w-full !px-3 !py-2 text-left text-sm ${selected() === target.id ? "list-item-active" : ""}`}
                   >
                     <i class="ti ti-file-text text-xs mr-1.5" />
                     {getNodeDepthLabel(target, allFlat)}

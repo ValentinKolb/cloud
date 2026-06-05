@@ -1,14 +1,14 @@
-import { apiClient } from "@/api/client";
-import { Dropdown, SelectChip, prompts } from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts, SelectChip } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
+import { apiClient } from "@/api/client";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
-import type { NoteTreeNode, Notebook, TagSummary } from "./types";
+import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
 import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";
-import NotebookSettingsButton from "../settings/NotebookSettingsButton";
 import SearchButton from "../search/SearchButton";
+import NotebookSettingsButton from "../settings/NotebookSettingsButton";
 import { noteActionItems, useNoteActions } from "./NoteTree";
+import type { Notebook, NoteTreeNode, TagSummary } from "./types";
 
 type SortMode = "updated" | "created" | "title";
 type TreeMode = "deep" | "level";
@@ -45,6 +45,14 @@ const TREE_MODE_OPTIONS = [
   { value: "deep", label: "Descendants" },
   { value: "level", label: "Children" },
 ] satisfies { value: TreeMode; label: string }[];
+
+const navigatorRowClass = (active: boolean, extra = "") => `sidebar-item w-full text-xs ${active ? "sidebar-item-active" : ""} ${extra}`;
+
+const activateRowOnKey = (event: KeyboardEvent, action: () => void) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  action();
+};
 
 const flattenTree = (nodes: NoteTreeNode[]): NoteTreeNode[] => {
   const result: NoteTreeNode[] = [];
@@ -117,27 +125,29 @@ const NoteBranchPicker = (props: {
     <For each={props.nodes}>
       {(note) => (
         <>
-          <button
-            type="button"
-            class={`flex min-h-7 items-center gap-2 rounded-md px-2 text-left text-xs transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/80 ${
-              props.selectedId === note.id ? "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-200" : "text-dimmed"
-            }`}
+          <div
+            role="button"
+            tabIndex={0}
+            class={navigatorRowClass(props.selectedId === note.id, "cursor-pointer")}
             style={`padding-left:${1.25 + (props.depth ?? 0) * 0.75}rem`}
             onClick={() => props.onSelect(note.id)}
+            onKeyDown={(event) => activateRowOnKey(event, () => props.onSelect(note.id))}
           >
             <Show when={note.children.length > 0} fallback={<span class="h-4 w-4 shrink-0" />}>
-              <span
+              <button
+                type="button"
                 class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-dimmed hover:bg-zinc-200/70 hover:text-secondary dark:hover:bg-zinc-700"
+                aria-label={`${props.collapsedIds.has(note.id) ? "Expand" : "Collapse"} ${note.title || "Untitled"}`}
                 onClick={(event) => {
                   event.stopPropagation();
                   props.onToggle(note.id);
                 }}
               >
                 <i class={`ti ti-chevron-down text-[10px] transition-transform ${props.collapsedIds.has(note.id) ? "-rotate-90" : ""}`} />
-              </span>
+              </button>
             </Show>
             <span class="min-w-0 flex-1 truncate">{note.title || "Untitled"}</span>
-          </button>
+          </div>
           <Show when={!props.collapsedIds.has(note.id)}>
             <NoteBranchPicker
               nodes={note.children}
@@ -305,22 +315,14 @@ export default function NotebookNavigator(props: Props) {
           <div class="flex flex-col gap-1">
             <For each={ROOTS}>
               {(root) => (
-                <button
-                  type="button"
-                  class={`sidebar-item text-xs ${selectedRoot() === root.id ? "sidebar-item-active" : ""}`}
-                  onClick={() => setSelection({ root: root.id })}
-                >
+                <button type="button" class={navigatorRowClass(selectedRoot() === root.id)} onClick={() => setSelection({ root: root.id })}>
                   <i class={`${root.icon} text-sm`} />
                   <span class="min-w-0 flex-1 truncate text-left">{root.label}</span>
                   <Show when={root.id === "favorites"}>{favoriteIds().size}</Show>
                 </button>
               )}
             </For>
-            <button
-              type="button"
-              class={`sidebar-item text-xs ${homepageNote()?.id === activeNoteId() ? "sidebar-item-active" : ""}`}
-              onClick={openHomepage}
-            >
+            <button type="button" class={navigatorRowClass(homepageNote()?.id === activeNoteId())} onClick={openHomepage}>
               <i class="ti ti-home text-sm" />
               <span class="min-w-0 flex-1 truncate text-left">Homepage</span>
             </button>
@@ -328,27 +330,27 @@ export default function NotebookNavigator(props: Props) {
           </div>
 
           <div class="mt-3">
-            <button
-              type="button"
-              class={`mb-1 flex min-h-7 w-full items-center gap-2 rounded-md px-2 text-left text-xs transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/80 ${
-                selectedRoot() === "notes" && selectedNoteRootId() === null
-                  ? "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-200"
-                  : "text-dimmed"
-              }`}
+            <div
+              role="button"
+              tabIndex={0}
+              class={navigatorRowClass(selectedRoot() === "notes" && selectedNoteRootId() === null, "mb-1")}
               onClick={() => setSelection({ root: "notes", noteId: null })}
+              onKeyDown={(event) => activateRowOnKey(event, () => setSelection({ root: "notes", noteId: null }))}
             >
-              <span
+              <button
+                type="button"
                 class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-dimmed hover:bg-zinc-200/70 hover:text-secondary dark:hover:bg-zinc-700"
+                aria-label={`${notesExpanded() ? "Collapse" : "Expand"} all notes`}
                 onClick={(event) => {
                   event.stopPropagation();
                   setNotesExpanded((value) => !value);
                 }}
               >
                 <i class={`ti ti-chevron-down text-[10px] transition-transform ${notesExpanded() ? "" : "-rotate-90"}`} />
-              </span>
+              </button>
               <i class="ti ti-folder text-sm" />
               <span class="min-w-0 flex-1 truncate">All notes</span>
-            </button>
+            </div>
             <Show when={notesExpanded()}>
               <NoteBranchPicker
                 nodes={branchTree()}
@@ -361,11 +363,7 @@ export default function NotebookNavigator(props: Props) {
           </div>
 
           <div class="mt-3">
-            <button
-              type="button"
-              class="mb-1 flex min-h-7 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-dimmed transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/80"
-              onClick={() => setTagsExpanded((value) => !value)}
-            >
+            <button type="button" class={navigatorRowClass(false, "mb-1 font-medium")} onClick={() => setTagsExpanded((value) => !value)}>
               <span class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-dimmed">
                 <i class={`ti ti-chevron-down text-[10px] transition-transform ${tagsExpanded() ? "" : "-rotate-90"}`} />
               </span>
@@ -378,9 +376,7 @@ export default function NotebookNavigator(props: Props) {
                   {(tag) => (
                     <button
                       type="button"
-                      class={`flex min-h-7 items-center gap-2 rounded-md px-2 pl-8 text-left text-xs transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/80 ${
-                        selectedTag() === tag.tag ? "bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-200" : "text-dimmed"
-                      }`}
+                      class={navigatorRowClass(selectedTag() === tag.tag, "pl-8")}
                       onClick={() => setSelection({ root: "tags", tag: tag.tag })}
                     >
                       <i class="ti ti-tag text-sm" />
@@ -395,11 +391,11 @@ export default function NotebookNavigator(props: Props) {
         </div>
 
         <div class="mt-3 flex shrink-0 flex-col gap-1">
-          <a href="/app/notebooks" class="sidebar-item text-xs">
+          <a href="/app/notebooks" class="sidebar-item w-full text-xs">
             <i class="ti ti-library text-sm" />
             <span class="min-w-0 flex-1 truncate text-left">All Notebooks</span>
           </a>
-          <a href={attachmentsHref()} class="sidebar-item text-xs">
+          <a href={attachmentsHref()} class="sidebar-item w-full text-xs">
             <i class="ti ti-paperclip text-sm" />
             <span class="min-w-0 flex-1 truncate text-left">Attachments</span>
           </a>
@@ -426,14 +422,14 @@ export default function NotebookNavigator(props: Props) {
         <div class="min-h-0 flex-1 overflow-y-auto pr-1" data-scroll-preserve={`notebooks-navigator-list-${props.notebook.shortId}`}>
           <Show
             when={visibleNotes().length > 0 || pinnedNote()}
-            fallback={<p class="rounded-lg bg-zinc-50 px-3 py-3 text-xs text-dimmed dark:bg-zinc-900/60">No notes here yet.</p>}
+            fallback={<p class="paper px-3 py-3 text-xs text-dimmed">No notes here yet.</p>}
           >
             <div class="flex flex-col gap-1.5">
               <Show when={pinnedNote()}>
                 {(note) => (
                   <a
                     href={noteHref(note())}
-                    class={`group rounded-lg px-3 py-2 transition-colors ${"bg-zinc-50/80 hover:bg-zinc-100 dark:bg-zinc-900/45 dark:hover:bg-zinc-800/70"}`}
+                    class="notebook-note-card notebook-note-card-pinned group"
                     onClick={(event) => {
                       event.preventDefault();
                       setActiveNoteId(note().id);
@@ -476,11 +472,7 @@ export default function NotebookNavigator(props: Props) {
                   return (
                     <a
                       href={href()}
-                      class={`group rounded-lg px-3 py-2 transition-colors ${
-                        active()
-                          ? "bg-blue-50 text-blue-800 dark:bg-blue-950/50 dark:text-blue-100"
-                          : "bg-zinc-50/70 hover:bg-zinc-100 dark:bg-zinc-900/60 dark:hover:bg-zinc-800/80"
-                      }`}
+                      class={`notebook-note-card group ${active() ? "notebook-note-card-active" : ""}`}
                       onClick={(event) => {
                         event.preventDefault();
                         setActiveNoteId(note.id);

@@ -658,12 +658,12 @@ export const scriptsExtension = (config: ScriptsConfig): Extension => {
       border: "1px solid transparent",
       borderRadius: "6px",
       background:
-        "linear-gradient(rgb(255 255 255 / 0.92), rgb(255 255 255 / 0.92)) padding-box, linear-gradient(135deg, rgb(59 130 246 / 0.5), rgb(20 184 166 / 0.42), rgb(168 85 247 / 0.38)) border-box",
+        "linear-gradient(135deg, rgb(239 246 255 / 0.94), rgb(236 253 245 / 0.88), rgb(245 243 255 / 0.88)) padding-box, linear-gradient(135deg, rgb(59 130 246 / 0.5), rgb(20 184 166 / 0.42), rgb(168 85 247 / 0.38)) border-box",
       padding: "0.375rem",
     },
     ".cm-script-output-frame.cm-script-output-frame-editing": {
       background:
-        "linear-gradient(rgb(255 255 255 / 0.96), rgb(255 255 255 / 0.96)) padding-box, linear-gradient(135deg, rgb(37 99 235 / 0.42), rgb(20 184 166 / 0.34)) border-box",
+        "linear-gradient(135deg, rgb(239 246 255 / 0.96), rgb(236 253 245 / 0.9)) padding-box, linear-gradient(135deg, rgb(37 99 235 / 0.42), rgb(20 184 166 / 0.34)) border-box",
       boxShadow: "0 0 0 1px rgb(37 99 235 / 0.12) inset",
     },
     ".cm-script-output-header": {
@@ -698,11 +698,11 @@ export const scriptsExtension = (config: ScriptsConfig): Extension => {
     },
     ".dark .cm-script-output-frame": {
       background:
-        "linear-gradient(rgb(9 9 11 / 0.92), rgb(9 9 11 / 0.92)) padding-box, linear-gradient(135deg, rgb(59 130 246 / 0.52), rgb(20 184 166 / 0.38), rgb(168 85 247 / 0.34)) border-box",
+        "linear-gradient(135deg, rgb(15 23 42 / 0.98), rgb(12 24 28 / 0.98), rgb(24 18 43 / 0.98)) padding-box, linear-gradient(135deg, rgb(59 130 246 / 0.52), rgb(20 184 166 / 0.38), rgb(168 85 247 / 0.34)) border-box",
     },
     ".dark .cm-script-output-frame.cm-script-output-frame-editing": {
       background:
-        "linear-gradient(rgb(9 9 11 / 0.94), rgb(9 9 11 / 0.94)) padding-box, linear-gradient(135deg, rgb(147 197 253 / 0.44), rgb(45 212 191 / 0.32)) border-box",
+        "linear-gradient(135deg, rgb(15 23 42 / 0.99), rgb(12 24 28 / 0.98)) padding-box, linear-gradient(135deg, rgb(147 197 253 / 0.44), rgb(45 212 191 / 0.32)) border-box",
       boxShadow: "0 0 0 1px rgb(147 197 253 / 0.28) inset",
     },
     ".dark .cm-script-output-header": {

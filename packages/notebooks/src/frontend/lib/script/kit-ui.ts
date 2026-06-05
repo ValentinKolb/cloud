@@ -22,8 +22,8 @@
  * specific options (e.g. `button({ variant: "danger" })`). For
  * advanced cases scripts can drop down to `ui.html(...)`.
  */
-import { prompts, toast as platformToast } from "@valentinkolb/cloud/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
+import { toast as platformToast, prompts } from "@valentinkolb/cloud/ui";
 import { charts as stdCharts } from "@valentinkolb/stdlib";
 import { renderPrettyTableHtml } from "../pretty-table";
 import type {
@@ -38,9 +38,9 @@ import type {
   KitHeadingLevel,
   KitMetricOptions,
   KitNote,
+  KitPromptAPI,
   KitTableView,
   KitTodoItem,
-  KitPromptAPI,
   KitUI,
 } from "./kit-types";
 
@@ -356,19 +356,20 @@ const makeMetric = (label: string, value: string | number, options: KitMetricOpt
   const header = document.createElement("div");
   header.className = "md-script-ui-metric-header";
 
-  if (options?.icon) {
-    const icon = document.createElement("i");
-    icon.className = options.icon;
-    header.appendChild(icon);
-  }
-
   const labelEl = document.createElement("span");
   labelEl.textContent = label;
   header.appendChild(labelEl);
 
   const valueEl = document.createElement("div");
   valueEl.className = "md-script-ui-metric-value";
-  valueEl.textContent = String(value);
+  if (options?.icon) {
+    const icon = document.createElement("i");
+    icon.className = options.icon;
+    valueEl.appendChild(icon);
+  }
+  const valueText = document.createElement("span");
+  valueText.textContent = String(value);
+  valueEl.appendChild(valueText);
 
   el.append(header, valueEl);
 

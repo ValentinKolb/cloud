@@ -1,5 +1,5 @@
-import { sql } from "bun";
 import { logger } from "@valentinkolb/cloud/services";
+import { sql } from "bun";
 
 const log = logger("notebooks:links");
 
@@ -30,13 +30,10 @@ const MARKED_NOTE_LINK_HTML_REGEX =
   /<span class="md-link-widget[^"]*">\s*<span class="md-link-label[^"]*">\[([\s\S]*?)\]<\/span>\s*<a\s[^>]*\bhref="note:\/\/([0-9a-zA-Z]{6})"[^>]*>[\s\S]*?<\/a>\s*<\/span>/g;
 
 const NOTE_PILL_CLASS =
-  "cm-note-link note-link inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 no-underline hover:bg-blue-100 dark:hover:bg-blue-900/50 align-baseline font-medium";
+  "cm-note-link note-link inline-flex items-center gap-1 rounded-md bg-blue-50/80 px-1.5 py-0.5 text-blue-700 no-underline align-baseline font-medium shadow-[var(--theme-shadow-elevated)] hover:bg-blue-100/80 dark:bg-blue-950/35 dark:text-blue-300 dark:hover:bg-blue-900/35";
 
 const renderNotePill = (href: string, label: string): string =>
-  `<a class="${NOTE_PILL_CLASS}" href="${href}">` +
-  `<i class="ti ti-connection text-xs"></i>` +
-  `<span>${label}</span>` +
-  `</a>`;
+  `<a class="${NOTE_PILL_CLASS}" href="${href}">` + `<i class="ti ti-connection text-xs"></i>` + `<span>${label}</span>` + `</a>`;
 
 const renderBrokenNotePill = (shortId: string, label: string): string =>
   `<a class="cm-note-link note-link note-link-broken inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 no-underline align-baseline font-medium" title="Note ${shortId} not found">` +
@@ -55,10 +52,7 @@ const renderBrokenNotePill = (shortId: string, label: string): string =>
  * page render (see `[id]/page.tsx`) and lives only as long as the
  * SSR call.
  */
-export const transformNoteLinks = (
-  html: string,
-  params: { noteShortIdToHref: Map<string, string> },
-): string =>
+export const transformNoteLinks = (html: string, params: { noteShortIdToHref: Map<string, string> }): string =>
   html
     .replace(MARKED_NOTE_LINK_HTML_REGEX, (_match, label: string, shortId: string) => {
       const href = params.noteShortIdToHref.get(shortId);

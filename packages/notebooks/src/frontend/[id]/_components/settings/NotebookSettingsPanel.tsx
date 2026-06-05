@@ -130,7 +130,7 @@ function LocalSaveStrip(props: { dirty: boolean; loading: boolean; label?: strin
         </p>
       }
     >
-      <div class="flex flex-wrap items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-200">
+      <div class="paper flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-xs text-blue-700 dark:text-blue-200">
         <span class="flex items-center gap-1.5">
           <i class="ti ti-pencil" />
           Unsaved changes
@@ -149,6 +149,13 @@ function LocalSaveStrip(props: { dirty: boolean; loading: boolean; label?: strin
     </Show>
   );
 }
+
+const settingsChoiceClass = (active: boolean) =>
+  `paper relative rounded-lg p-4 text-left transition-[background-color,box-shadow,color] ${
+    active
+      ? "text-blue-700 dark:text-blue-300 before:absolute before:left-2 before:top-4 before:h-3.5 before:w-0.5 before:rounded-full before:bg-blue-500 dark:before:bg-blue-400"
+      : "text-secondary"
+  }`;
 
 function SaveStatus(props: { loading: boolean; saved: boolean; error?: string | null }) {
   if (props.loading) {
@@ -312,30 +319,14 @@ function ViewSection(props: { notebook: Notebook }) {
 
   return (
     <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-      <button
-        type="button"
-        class={`rounded-lg border p-4 text-left transition-colors ${
-          mode() === "simple"
-            ? "border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100"
-            : "border-zinc-200 bg-zinc-50 text-secondary hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/60 dark:hover:bg-zinc-800"
-        }`}
-        onClick={() => selectMode("simple")}
-      >
+      <button type="button" class={settingsChoiceClass(mode() === "simple")} onClick={() => selectMode("simple")}>
         <span class="flex items-center gap-2 text-sm font-semibold">
           <i class="ti ti-layout-sidebar" />
           Simple sidebar
         </span>
         <span class="mt-1 block text-xs text-dimmed">A compact note tree with quick actions.</span>
       </button>
-      <button
-        type="button"
-        class={`rounded-lg border p-4 text-left transition-colors ${
-          mode() === "navigator"
-            ? "border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100"
-            : "border-zinc-200 bg-zinc-50 text-secondary hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/60 dark:hover:bg-zinc-800"
-        }`}
-        onClick={() => selectMode("navigator")}
-      >
+      <button type="button" class={settingsChoiceClass(mode() === "navigator")} onClick={() => selectMode("navigator")}>
         <span class="flex items-center gap-2 text-sm font-semibold">
           <i class="ti ti-layout-list" />
           Navigator
@@ -485,7 +476,7 @@ function SnapshotConfigFields(props: {
         disabled={props.saving}
       />
 
-      <div class="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-secondary dark:bg-zinc-900/70">
+      <div class="paper px-3 py-2 text-xs text-secondary">
         Automatic schedule: <span class="font-mono text-primary">{props.status?.scheduleCron ?? "0 3 * * *"}</span>
         <span class="ml-2 text-dimmed">Cloud admins edit it in /admin/notebooks.</span>
       </div>
@@ -539,7 +530,7 @@ function SnapshotConfigFields(props: {
               password
             />
           </div>
-          <div class="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-secondary dark:bg-zinc-900/70">
+          <div class="paper px-3 py-2 text-xs text-secondary">
             Target: <span class="font-medium text-primary">{props.status?.target ?? "not configured"}</span>
             <Show when={props.missing !== "none"}>
               <span class="ml-2 text-amber-600 dark:text-amber-300">Missing: {props.missing}</span>
@@ -698,7 +689,7 @@ function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
 
   return (
     <div class="flex flex-col gap-4">
-      <div class="rounded-lg bg-zinc-50 p-4 text-sm text-secondary dark:bg-zinc-900/60">
+      <div class="paper p-4 text-sm text-secondary">
         Export this notebook as plain Markdown, raw attachments, and small JSON metadata files. Admin permission is required because the
         archive contains the full notebook.
       </div>

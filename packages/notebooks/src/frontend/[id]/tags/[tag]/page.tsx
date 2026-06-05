@@ -6,16 +6,17 @@
  * the `SearchBar` submits to the same URL with `?search=`, the page
  * handler re-renders, no client-side filtering.
  */
-import { ssr } from "../../../../config";
+
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { type AuthContext } from "@valentinkolb/cloud/server";
 import { Pagination } from "@valentinkolb/cloud/ui";
 import { notebooksService } from "@/service";
+import { ssr } from "../../../../config";
+import { buildNoteUrl, buildTagPageUrl } from "../../../params";
 import { parseSettings } from "../../_components/settings/NotebookSettingsStore";
 import NotebookSidebar from "../../_components/sidebar/NotebookSidebar.island";
 import type { NotebookContext } from "../../_components/sidebar/types";
-import { buildNoteUrl, buildTagPageUrl } from "../../../params";
 
 const PER_PAGE = 50;
 
@@ -146,7 +147,7 @@ export default ssr<AuthContext>(async (c) => {
                   <li>
                     <a
                       href={buildNoteUrl(notebook.shortId, n.shortId)}
-                      class="flex flex-col gap-1 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 no-underline"
+                      class="flex flex-col gap-1 px-3 py-2.5 no-underline transition-colors hover:bg-[var(--theme-list-hover-bg)]"
                     >
                       <div class="flex items-center gap-2">
                         <i class="ti ti-file-text text-sm shrink-0 text-dimmed" />

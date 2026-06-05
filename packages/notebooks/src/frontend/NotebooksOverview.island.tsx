@@ -1,7 +1,7 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
 import { AppOverview, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../service/notebooks";
 import { setLastNotebookId } from "./[id]/_components/settings/NotebookSettingsStore";
@@ -172,7 +172,7 @@ export default function NotebooksOverview(props: Props) {
                     href={`/app/notebooks/${notebook.shortId}`}
                     class="paper p-4 flex items-center gap-4 hover:paper-highlighted transition-all no-underline"
                   >
-                    <div class="w-10 h-10 thumbnail bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center shrink-0">
+                    <div class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
                       <i class={`${notebook.icon || "ti ti-notebook"} text-lg text-blue-600 dark:text-blue-400`} />
                     </div>
                     <div class="flex-1 min-w-0">
@@ -198,7 +198,7 @@ export default function NotebooksOverview(props: Props) {
                 onClick={() => createFromTemplate(template)}
                 disabled={createFromTemplateMutation.loading()}
               >
-                <span class="w-9 h-9 thumbnail bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center shrink-0">
+                <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
                   <i class={`${template.icon} text-lg text-primary`} />
                 </span>
                 <span class="min-w-0 flex-1">
@@ -215,7 +215,7 @@ export default function NotebooksOverview(props: Props) {
             onClick={createBlank}
             disabled={createNotebookMutation.loading()}
           >
-            <span class="w-9 h-9 thumbnail bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center shrink-0">
+            <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
               <i class="ti ti-plus text-lg text-blue-600 dark:text-blue-400" />
             </span>
             <span class="min-w-0 flex-1">

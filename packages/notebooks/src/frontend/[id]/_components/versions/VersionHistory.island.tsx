@@ -1,11 +1,11 @@
-import { createSignal, For, Show, onMount } from "solid-js";
-import { diffLines } from "diff";
-import { apiClient } from "@/api/client";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { prompts } from "@valentinkolb/cloud/ui";
-import { buildNoteUrl } from "../../../params";
 import { navigateTo } from "@valentinkolb/ssr/nav";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import dayjs from "dayjs";
+import { diffLines } from "diff";
+import { createSignal, For, onMount, Show } from "solid-js";
+import { apiClient } from "@/api/client";
+import { buildNoteUrl } from "../../../params";
 
 type NoteVersion = {
   id: string;
@@ -345,12 +345,12 @@ export default function VersionHistory(props: Props) {
                     <button
                       type="button"
                       onClick={() => handleVersionClick(version.id)}
-                      class={`text-left px-2.5 py-1.5 refined:rounded-lg text-xs transition-colors ${
+                      class={`list-item w-full !px-2.5 !py-1.5 text-left text-xs ${
                         role() === "a"
-                          ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-medium"
+                          ? "list-item-active"
                           : role() === "b"
-                            ? "bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 font-medium"
-                            : "text-secondary hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            ? "paper relative font-medium text-purple-600 before:absolute before:left-1 before:top-1/2 before:h-3.5 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-purple-500 dark:text-purple-300 dark:before:bg-purple-400"
+                            : ""
                       }`}
                     >
                       <div class="flex items-center gap-1.5">
