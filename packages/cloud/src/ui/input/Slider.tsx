@@ -80,7 +80,7 @@ const Slider = ({
         disabled={disabled}
         aria-describedby={descId}
         class="w-full h-1.5 appearance-none cursor-pointer
- rounded-full 
+ rounded-full [box-shadow:var(--theme-recess)]
  [&::-webkit-slider-thumb]:appearance-none
  [&::-webkit-slider-thumb]:w-3.5
  [&::-webkit-slider-thumb]:h-3.5

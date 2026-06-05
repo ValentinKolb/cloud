@@ -18,27 +18,27 @@ const blockConfig: Record<BlockType, { icon: string; label: string; classes: str
   note: {
     icon: "ti-chevron-right",
     label: "Note",
-    classes: "border-l-4 border-zinc-400 bg-zinc-50 dark:bg-zinc-800/50 text-zinc-800 dark:text-zinc-200",
+    classes: "info-block-note",
   },
   info: {
     icon: "ti-info-circle",
     label: "Info",
-    classes: "border-l-4 border-blue-400 bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-200",
+    classes: "info-block-info",
   },
   success: {
     icon: "ti-check",
     label: "Success",
-    classes: "border-l-4 border-green-400 bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200",
+    classes: "info-block-success",
   },
   warning: {
     icon: "ti-alert-circle",
     label: "Warning",
-    classes: "border-l-4 border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-200",
+    classes: "info-block-warning",
   },
   danger: {
     icon: "ti-alert-hexagon",
     label: "Danger",
-    classes: "border-l-4 border-red-400 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200",
+    classes: "info-block-danger",
   },
 };
 

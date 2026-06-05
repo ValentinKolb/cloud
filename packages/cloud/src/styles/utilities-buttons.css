@@ -9,9 +9,9 @@
 
 @utility btn-base {
   @apply inline-flex cursor-pointer items-center justify-center gap-1.5 select-none rounded-md font-medium border;
-  @apply transition-[background-color,color,border-color,opacity] duration-150 ease-out;
+  @apply transition-[background-color,color,border-color,box-shadow,opacity] duration-150 ease-out;
   @apply focus-ui;
-  @apply disabled:cursor-not-allowed disabled:opacity-40 disabled:transition-none;
+  @apply disabled:cursor-not-allowed disabled:opacity-40 disabled:transition-none disabled:shadow-none;
 }
 
 @utility btn-sm {
@@ -35,17 +35,21 @@
   @apply dark:active:bg-zinc-700;
 }
 
-/* Primary: outlined blue, fills on hover */
+/* Primary: filled blue + soft bevel; darkens on hover; sinks (inset) on press */
 @utility btn-primary {
-  @apply btn-base bg-white text-blue-600 border-blue-400;
-  @apply hover:bg-blue-500 hover:text-white hover:border-blue-500;
-  @apply active:bg-blue-600 active:border-blue-600;
-  @apply dark:bg-transparent dark:text-blue-400 dark:border-blue-400;
-  @apply dark:hover:bg-blue-500 dark:hover:text-white dark:hover:border-blue-500;
-  @apply dark:active:bg-blue-600;
+  @apply btn-base bg-blue-500 text-white border-blue-600;
+  @apply hover:bg-blue-600 hover:border-blue-700;
+  @apply active:bg-blue-700 active:border-blue-700;
+  @apply dark:bg-blue-500 dark:text-white dark:border-blue-600;
+  @apply dark:hover:bg-blue-600 dark:hover:border-blue-700;
+  @apply dark:active:bg-blue-700;
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.26), inset 0 -1px 1px 0 rgb(0 0 0 / 0.16);
+  &:active {
+    box-shadow: var(--theme-press);
+  }
 }
 
-/* Secondary: flat zinc, no border */
+/* Secondary: filled zinc + soft bevel; sinks on press */
 @utility btn-secondary {
   @apply btn-base bg-zinc-100 text-zinc-700 border-transparent;
   @apply hover:bg-zinc-200;
@@ -53,31 +57,43 @@
   @apply dark:bg-zinc-800 dark:text-zinc-200 dark:border-transparent;
   @apply dark:hover:bg-zinc-700;
   @apply dark:active:bg-zinc-600;
+  box-shadow: var(--theme-bevel-top), var(--theme-bevel-bottom);
+  &:active {
+    box-shadow: var(--theme-press);
+  }
 }
 
-/* Success: outlined green, fills on hover */
+/* Success: filled emerald + soft bevel; sinks on press */
 @utility btn-success {
-  @apply btn-base bg-white text-emerald-600 border-emerald-400;
-  @apply hover:bg-emerald-500 hover:text-white hover:border-emerald-500;
-  @apply active:bg-emerald-600 active:border-emerald-600;
-  @apply dark:bg-transparent dark:text-emerald-400 dark:border-emerald-400;
-  @apply dark:hover:bg-emerald-500 dark:hover:text-white dark:hover:border-emerald-500;
-  @apply dark:active:bg-emerald-600;
+  @apply btn-base bg-emerald-500 text-white border-emerald-600;
+  @apply hover:bg-emerald-600 hover:border-emerald-700;
+  @apply active:bg-emerald-700 active:border-emerald-700;
+  @apply dark:bg-emerald-500 dark:text-white dark:border-emerald-600;
+  @apply dark:hover:bg-emerald-600 dark:hover:border-emerald-700;
+  @apply dark:active:bg-emerald-700;
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.26), inset 0 -1px 1px 0 rgb(0 0 0 / 0.16);
+  &:active {
+    box-shadow: var(--theme-press);
+  }
 }
 
-/* Danger: outlined red, fills on hover */
+/* Danger: filled red + soft bevel; sinks on press */
 @utility btn-danger {
-  @apply btn-base bg-white text-red-600 border-red-400;
-  @apply hover:bg-red-500 hover:text-white hover:border-red-500;
-  @apply active:bg-red-600 active:border-red-600;
-  @apply dark:bg-transparent dark:text-red-400 dark:border-red-400;
-  @apply dark:hover:bg-red-500 dark:hover:text-white dark:hover:border-red-500;
-  @apply dark:active:bg-red-600;
+  @apply btn-base bg-red-500 text-white border-red-600;
+  @apply hover:bg-red-600 hover:border-red-700;
+  @apply active:bg-red-700 active:border-red-700;
+  @apply dark:bg-red-500 dark:text-white dark:border-red-600;
+  @apply dark:hover:bg-red-600 dark:hover:border-red-700;
+  @apply dark:active:bg-red-700;
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.26), inset 0 -1px 1px 0 rgb(0 0 0 / 0.16);
+  &:active {
+    box-shadow: var(--theme-press);
+  }
 }
 
 @utility btn-input {
   @apply inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium leading-5 select-none cursor-pointer;
-  @apply transition-[background-color,color,border-color] duration-150 border;
+  @apply transition-[background-color,color,border-color,box-shadow] duration-150 border;
   @apply bg-zinc-100 text-zinc-600 border-zinc-100;
   @apply hover:bg-zinc-200/70 hover:text-zinc-800 hover:border-zinc-200/70;
   @apply active:bg-zinc-200;
@@ -88,6 +104,29 @@
   @apply dark:active:bg-zinc-700;
   @apply dark:focus-visible:bg-zinc-900 dark:focus-visible:border-blue-400;
   @apply disabled:cursor-not-allowed disabled:opacity-40 disabled:transition-none;
+  box-shadow: var(--theme-bevel-top), var(--theme-bevel-bottom);
+  &:active {
+    box-shadow: var(--theme-press);
+  }
+  &:disabled {
+    box-shadow: none;
+  }
+}
+
+/* Recessed sibling of `btn-input`. Same filled surface + hover / focus /
+   disabled states, but sunk in (inset recess) instead of raised (bevel) — for
+   select / dropdown / picker triggers that should read as form fields rather
+   than press-buttons. Sinks deeper on :active. Compose with `btn-input-sm/-md`
+   for sizing, like `btn-input`. */
+@utility btn-input-recessed {
+  @apply btn-input;
+  box-shadow: var(--theme-recess);
+  &:active {
+    box-shadow: var(--theme-press);
+  }
+  &:disabled {
+    box-shadow: none;
+  }
 }
 
 @utility btn-input-sm {
@@ -157,6 +196,12 @@
   @apply dark:focus:!bg-zinc-900 dark:focus:!border-blue-400 dark:focus-within:!bg-zinc-900 dark:focus-within:!border-blue-400;
   @apply disabled:bg-zinc-50 disabled:text-zinc-400 disabled:border-zinc-50 disabled:cursor-not-allowed;
   @apply dark:disabled:bg-zinc-900 dark:disabled:text-zinc-500 dark:disabled:border-zinc-900;
+  @apply transition-[background-color,border-color,box-shadow] duration-150;
+  /* Recessed well (clip-safe). Stays recessed on focus while bg→white + blue border. */
+  box-shadow: var(--theme-recess);
+  &:disabled {
+    box-shadow: none;
+  }
 }
 
 @utility icon-btn {

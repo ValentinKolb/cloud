@@ -26,12 +26,18 @@ type WidgetProps = {
 };
 
 const Widget = (props: WidgetProps): JSX.Element => {
-  const headerClass = `flex items-center gap-2 px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800 ${
-    props.href ? "hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors" : ""
+  // Header reads as a tinted band (colour, not a divider line) so it separates
+  // from the white body without a hairline. The link variant darkens on hover.
+  const headerClass = `flex items-center gap-2 px-4 py-2.5 bg-zinc-50 dark:bg-zinc-800/40 ${
+    props.href ? "hover:bg-zinc-100 dark:hover:bg-zinc-800/70 transition-colors" : ""
   }`;
   const headerInner = (
     <>
-      {props.icon ? <i class={`${props.icon} text-dimmed text-sm shrink-0`} /> : null}
+      {props.icon ? (
+        <span class="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-600 dark:bg-blue-400/15 dark:text-blue-400">
+          <i class={`${props.icon} text-sm`} />
+        </span>
+      ) : null}
       <span class="text-xs font-semibold uppercase tracking-wider text-secondary truncate">
         {props.title}
       </span>
@@ -52,7 +58,9 @@ const Widget = (props: WidgetProps): JSX.Element => {
       ) : (
         <div class={headerClass}>{headerInner}</div>
       )}
-      <div class="flex-1 flex flex-col divide-y divide-zinc-100 dark:divide-zinc-800 min-h-0">
+      {/* Blocks separate by their own padding + tinted blocks (e.g. WidgetStatus)
+          carrying their own background — no hairline dividers. */}
+      <div class="flex-1 flex flex-col min-h-0">
         {props.children}
       </div>
     </div>

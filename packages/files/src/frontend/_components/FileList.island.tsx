@@ -527,7 +527,7 @@ export default function FileList(props: FileListProps) {
                 data-files-context-menu
                 role="menu"
                 aria-label="File actions"
-                class="fixed z-50 w-52 max-w-[min(22rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-zinc-300/60 bg-white/95 p-1 text-zinc-900 shadow-lg ring-1 ring-black/5 backdrop-blur-sm dark:border-zinc-600/50 dark:bg-zinc-950/95 dark:text-zinc-100"
+                class="fixed z-50 w-52 max-w-[min(22rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-zinc-300/60 bg-white/95 p-1 text-zinc-900 [box-shadow:var(--theme-shadow-float)] ring-1 ring-black/5 backdrop-blur-sm dark:border-zinc-600/50 dark:bg-zinc-950/95 dark:text-zinc-100"
                 style={{
                   left: `${Math.min(menu().x, window.innerWidth - 220)}px`,
                   top: `${Math.min(menu().y, window.innerHeight - 320)}px`,

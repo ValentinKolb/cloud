@@ -160,7 +160,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
         onMouseLeave={() => setHoveredColumn(null)}
       >
         <table class={tableClass()}>
-          <thead class={props.stickyHeader === false ? undefined : "sticky top-0 z-10 bg-white dark:bg-zinc-900"}>
+          <thead class={props.stickyHeader === false ? undefined : "sticky top-0 z-10 bg-zinc-50 dark:bg-zinc-950"}>
             <tr class="border-b border-zinc-100 dark:border-zinc-800">
               <For each={props.columns}>
                 {(col, index) => (
@@ -176,7 +176,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
           </thead>
           <Show when={props.footer}>
             {(footer) => (
-              <tfoot class="sticky bottom-0 z-10 bg-white dark:bg-zinc-900">
+              <tfoot class="sticky bottom-0 z-10 bg-zinc-50 dark:bg-zinc-950">
                 <tr class="border-t border-zinc-100 dark:border-zinc-800">
                   <For each={props.columns}>
                     {(col, index) => {
@@ -215,7 +215,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
                   return (
                     <tr
                       class={`border-b border-zinc-100 dark:border-zinc-800/60 last:border-0 ${
-                        shouldHoverRows() ? `${isInteractive() ? "cursor-pointer" : ""} hover:bg-zinc-200/55 dark:hover:bg-zinc-800/50` : ""
+                        shouldHoverRows() ? `${isInteractive() ? "cursor-pointer" : ""} hover:bg-blue-500/[0.08] dark:hover:bg-blue-400/[0.12]` : ""
                       } ${isSelected() ? "bg-blue-50 dark:bg-blue-900/20" : ""} ${rowClass(row)}`}
                       tabIndex={isInteractive() ? 0 : undefined}
                       onClick={() => props.onRowClick?.(row)}

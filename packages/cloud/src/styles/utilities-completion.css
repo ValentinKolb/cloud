@@ -56,6 +56,9 @@
   @apply dark:hover:bg-zinc-700 dark:hover:border-zinc-700;
   @apply transition-colors;
   @apply overflow-hidden;
+  /* Recessed well — same inset as the `input` utility (this editor mirrors its
+     colours, so it gets its depth too). The recess persists on focus. */
+  box-shadow: var(--theme-recess);
 }
 
 .ac-editor:focus-within {

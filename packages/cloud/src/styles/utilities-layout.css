@@ -19,6 +19,9 @@
   @apply rounded-lg transition-colors duration-150;
   @apply bg-white border border-zinc-100;
   @apply dark:bg-zinc-900 dark:border-zinc-800;
+  /* Gentle inset bevel (clip-safe). Flows through the token so the Layout
+     header's inline `box-shadow: var(--theme-shadow-elevated)` stays consistent. */
+  box-shadow: var(--theme-shadow-elevated);
 }
 
 @utility dialog-panel {
@@ -27,7 +30,8 @@
   @apply backdrop:bg-black/40;
   @apply rounded-lg bg-white dark:bg-zinc-900;
   @apply border border-zinc-200 dark:border-zinc-800;
-  @apply shadow-lg;
+  /* Floating dialog (portaled) — outer shadow is fine here. */
+  box-shadow: var(--theme-shadow-float);
 }
 
 @utility paper-highlighted {

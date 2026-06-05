@@ -63,8 +63,19 @@
 }
 
 :root {
-  --theme-shadow-elevated: none;
-  --theme-shadow-hover: none;
+  color-scheme: light;
+  /* Depth language (visual redesign). Inset bevel for in-flow surfaces (clip-safe),
+     recess for input wells, press for :active, float for PORTALED overlays only.
+     `--theme-shadow-elevated` flows the bevel through the token that `paper` and
+     the Layout header already consume, so they stay consistent. */
+  --theme-bevel-top: inset 0 1px 0 0 rgb(255 255 255 / 0.85);
+  --theme-bevel-bottom: inset 0 -1px 1px 0 rgb(0 0 0 / 0.05);
+  --theme-recess: inset 0 1px 2px rgb(0 0 0 / 0.08);
+  --theme-recess-sm: inset 0 1px 1px rgb(0 0 0 / 0.08);
+  --theme-press: inset 0 2px 4px rgb(0 0 0 / 0.19), inset 0 1px 1px rgb(0 0 0 / 0.1);
+  --theme-shadow-float: 0 12px 32px -10px rgb(0 0 0 / 0.22), 0 4px 10px -4px rgb(0 0 0 / 0.1);
+  --theme-shadow-elevated: var(--theme-bevel-top), var(--theme-bevel-bottom);
+  --theme-shadow-hover: var(--theme-bevel-top), var(--theme-bevel-bottom), 0 6px 16px -6px rgb(0 0 0 / 0.14);
   --theme-input-py: 0.375rem;
   --theme-input-px: 0.5rem;
   --theme-list-active-border: none;
@@ -153,6 +164,24 @@
   stroke: rgb(9 9 11);
 }
 
+/* stdlib charts — scientific data-viz refinement.
+
+   stdlib already renders the structure (gridlines, axes, ticks, flat
+   fills); the only thing missing for a precise "measurement" look is
+   the typography. Numeric axis ticks + bar values read as monospaced,
+   tabular figures so columns of numbers line up the way they do in a
+   plotting tool. Two-class selectors (`.stdlib-chart .stdlib-chart-…`)
+   beat stdlib's one-class embedded <style> the same way the dark-mode
+   overrides above do. font-family is otherwise unset by stdlib, so the
+   chart would inherit the app sans — we pin the numeric labels to the
+   platform mono stack (IBM Plex Mono via @fontsource). */
+.stdlib-chart .stdlib-chart-tick-label,
+.stdlib-chart .stdlib-chart-bar-value,
+.stdlib-chart .stdlib-chart-axis-label {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 *::-webkit-scrollbar {
   width: 0.5rem;
   height: 0.5rem;
@@ -202,8 +231,15 @@ body {
 }
 
 .dark {
-  --theme-shadow-elevated: none;
-  --theme-shadow-hover: none;
+  color-scheme: dark;
+  --theme-bevel-top: inset 0 1px 0 0 rgb(255 255 255 / 0.07);
+  --theme-bevel-bottom: inset 0 -1px 1px 0 rgb(0 0 0 / 0.4);
+  --theme-recess: inset 0 1px 2px rgb(0 0 0 / 0.45);
+  --theme-recess-sm: inset 0 1px 1px rgb(0 0 0 / 0.4);
+  --theme-press: inset 0 2px 4px rgb(0 0 0 / 0.5), inset 0 1px 1px rgb(0 0 0 / 0.3);
+  --theme-shadow-float: 0 14px 36px -10px rgb(0 0 0 / 0.6), 0 4px 12px -4px rgb(0 0 0 / 0.4);
+  --theme-shadow-elevated: var(--theme-bevel-top), var(--theme-bevel-bottom);
+  --theme-shadow-hover: var(--theme-bevel-top), var(--theme-bevel-bottom), 0 6px 18px -6px rgb(0 0 0 / 0.5);
   --theme-list-active-bg: rgb(39 39 42);
   --theme-list-hover-bg: rgb(30 30 33);
   --theme-tab-active-bg: rgb(39 39 42);

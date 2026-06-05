@@ -20,7 +20,7 @@ export type ContextMenuProps = ParentProps<{
 }>;
 
 const ITEM_BASE_CLASSES =
-  "flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-white/30 dark:hover:bg-white/10";
+  "flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-white/10";
 
 const getVariantClasses = (variant?: "danger") =>
   variant === "danger" ? "text-red-600 dark:text-red-400" : "text-zinc-700 dark:text-zinc-300";
@@ -178,7 +178,7 @@ export default function ContextMenu(props: ContextMenuProps) {
             ref={menuRef}
             role="menu"
             aria-label="Context menu"
-            class="fixed z-50 w-52 max-w-[min(22rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-zinc-300/60 bg-white/95 p-0 text-zinc-900 shadow-lg ring-1 ring-black/5 backdrop-blur-sm dark:border-zinc-600/50 dark:bg-zinc-950/95 dark:text-zinc-100"
+            class="fixed z-50 w-52 max-w-[min(22rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-zinc-300/60 bg-white/95 p-0 text-zinc-900 [box-shadow:var(--theme-shadow-float)] ring-1 ring-black/5 backdrop-blur-sm dark:border-zinc-600/50 dark:bg-zinc-950/95 dark:text-zinc-100"
             style={{
               left: `${Math.min(coords().x, window.innerWidth - 220)}px`,
               top: `${Math.min(coords().y, window.innerHeight - 320)}px`,

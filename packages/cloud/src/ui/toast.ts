@@ -17,15 +17,17 @@
  *
  * Visual language
  * ---------------
- * White card body, neutral zinc title, dimmed gray description. The
- * variant signal lives in a small leading element:
- *   - `default` → 3 px wide blue vertical bar (no icon)
- *   - `success` → solid green circle with white check icon
- *   - `error`   → solid red circle with white X icon
+ * White card body on a soft float, neutral zinc title, dimmed gray
+ * description. The variant signal lives in a leading soft-tinted disc
+ * with a colour-matched icon (the elevated, low-shout treatment from
+ * the redesign — a faint wash rather than a loud saturated fill):
+ *   - `default` → soft blue disc with info icon
+ *   - `success` → soft green disc with check icon
+ *   - `error`   → soft red disc with X icon
  *
- * Dark mode mirrors with `zinc-900` body, lighter zinc text;
- * circle / bar colors stay saturated so the variant signal reads
- * at a glance regardless of theme.
+ * Dark mode mirrors with `zinc-900` body, lighter zinc text; the disc
+ * tint + icon colour shift to the lighter 400-tones so the variant
+ * still reads at a glance against the dark surface.
  *
  * Every toast in the stack renders at the same fixed width
  * (`TOAST_WIDTH_CLASS`) so they line up neatly when stacked.
@@ -113,20 +115,18 @@ const CONTAINER_ID = "ui-toast-container";
  *  lift to an option. */
 const TOAST_WIDTH_CLASS = "w-80";
 
-/** Per-variant rendering recipe. The lead element is a thin colored
- *  bar for `default` (no icon — quiet visual treatment) and a solid
- *  colored circle with a white icon for `success` / `error` (loud
- *  affordance). Saturation stays high in both light + dark so the
- *  variant signal doesn't get washed out by theme. */
+/** Per-variant rendering recipe. The lead element is a 36 px soft-tinted
+ *  disc with a colour-matched icon — a faint wash (`/10`–`/15` alpha)
+ *  rather than a saturated fill, so it reads as elevated rather than
+ *  shouty. Tint + icon colour shift to the 400-tones in dark mode so
+ *  the variant signal survives the theme flip. */
 type VariantStyle = {
-  /** `lead` element kind. `bar` is a 3 px vertical pill that
-   *  stretches to the toast's full height; `circle` is a 36 px
-   *  filled disc with a white icon inside. */
-  lead: "bar" | "circle";
-  /** Tailwind classes for the lead element's background. */
-  leadBgClass: string;
-  /** Default `ti-…` class for the circle's icon (ignored when
-   *  `lead === "bar"`). Overridable via `options.iconClass`. */
+  /** Tailwind classes for the disc's soft-tinted background (light + dark). */
+  circleBgClass: string;
+  /** Tailwind classes for the icon colour inside the disc (light + dark). */
+  iconColorClass: string;
+  /** Default `ti-…` class for the disc's icon. Overridable via
+   *  `options.iconClass`. */
   iconClass: string;
   /** Default title shown when `options.title` is not set. */
   defaultTitle: string;
@@ -134,20 +134,20 @@ type VariantStyle = {
 
 const VARIANT_STYLES: Record<ToastVariant, VariantStyle> = {
   default: {
-    lead: "bar",
-    leadBgClass: "bg-blue-500 dark:bg-blue-400",
+    circleBgClass: "bg-blue-500/10 dark:bg-blue-400/15",
+    iconColorClass: "text-blue-600 dark:text-blue-400",
     iconClass: "ti-info-circle",
     defaultTitle: "Info",
   },
   success: {
-    lead: "circle",
-    leadBgClass: "bg-green-500 dark:bg-green-500",
+    circleBgClass: "bg-green-500/15 dark:bg-green-400/15",
+    iconColorClass: "text-green-600 dark:text-green-400",
     iconClass: "ti-check",
     defaultTitle: "Success",
   },
   error: {
-    lead: "circle",
-    leadBgClass: "bg-red-500 dark:bg-red-500",
+    circleBgClass: "bg-red-500/15 dark:bg-red-400/15",
+    iconColorClass: "text-red-600 dark:text-red-400",
     iconClass: "ti-x",
     defaultTitle: "Error",
   },
@@ -186,12 +186,12 @@ const ensureContainer = (): HTMLElement | null => {
 // Internals — element construction + style swap
 // =============================================================================
 
-/** Strip every variant's lead-bg classes from an element. Used in
+/** Strip every variant's disc-tint classes from an element. Used in
  *  the variant swap path so repeated `update()` calls don't
  *  accumulate stacked palettes. */
 const stripAllLeadBg = (el: HTMLElement): void => {
   for (const v of Object.values(VARIANT_STYLES)) {
-    for (const cls of splitClasses(v.leadBgClass)) el.classList.remove(cls);
+    for (const cls of splitClasses(v.circleBgClass)) el.classList.remove(cls);
   }
 };
 
@@ -201,35 +201,27 @@ const setClasses = (el: HTMLElement, cls: string): void => {
   el.className = cls;
 };
 
-/** Build / rebuild the lead element (the leftmost variant signal).
- *  For `bar`: a self-stretching vertical pill. For `circle`: a
- *  filled disc containing a white `<i>` icon. The DOM shape differs
- *  between the two; on variant swap we replace the lead's children
- *  + classes wholesale rather than try to morph in place.
+/** Build / rebuild the lead element (the leftmost variant signal): a
+ *  36 px soft-tinted disc containing a colour-matched `<i>` icon. On
+ *  variant swap we replace the disc's children + classes wholesale
+ *  rather than morph in place.
  *
- *  Returns the icon element (or null for `bar`) so the caller can
- *  override the icon-class later via `update({ iconClass: ... })`. */
+ *  Returns the icon element so the caller can override the icon-class
+ *  later via `update({ iconClass: ... })`. */
 const renderLead = (
   leadEl: HTMLElement,
   variant: ToastVariant,
   iconClassOverride?: string,
-): HTMLElement | null => {
+): HTMLElement => {
   const style = VARIANT_STYLES[variant];
   leadEl.replaceChildren();
-  if (style.lead === "bar") {
-    // `self-stretch` makes the bar match the toast's full height.
-    setClasses(leadEl, "self-stretch w-1 rounded-full shrink-0");
-    for (const cls of splitClasses(style.leadBgClass)) leadEl.classList.add(cls);
-    return null;
-  }
-  // Circle variant — solid filled disc, white icon centered.
   setClasses(
     leadEl,
     "shrink-0 self-start w-9 h-9 rounded-full flex items-center justify-center",
   );
-  for (const cls of splitClasses(style.leadBgClass)) leadEl.classList.add(cls);
+  for (const cls of splitClasses(style.circleBgClass)) leadEl.classList.add(cls);
   const iconEl = document.createElement("i");
-  iconEl.className = `ti ${iconClassOverride ?? style.iconClass} text-white text-base`;
+  iconEl.className = `ti ${iconClassOverride ?? style.iconClass} ${style.iconColorClass} text-base`;
   leadEl.appendChild(iconEl);
   return iconEl;
 };
@@ -258,7 +250,7 @@ const showToast = (description: string, options?: ToastOptions): ToastHandle => 
   const toastEl = document.createElement("div");
   toastEl.className =
     `pointer-events-auto cursor-pointer flex items-stretch gap-3 ${TOAST_WIDTH_CLASS} ` +
-    "p-3 rounded-md shadow-md " +
+    "p-3 rounded-md [box-shadow:var(--theme-shadow-float)] " +
     "bg-white dark:bg-zinc-900 " +
     "transition-all duration-200 ease-out " +
     // Initial off-screen state — flipped on the next frame so the

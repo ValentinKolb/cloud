@@ -67,7 +67,7 @@ const POSITION_STYLES: Record<string, string> = {
     "position-try: --flip-block-down-left { top: anchor(bottom); bottom: auto; margin-bottom: 0; margin-top: 4px; };",
 };
 
-const ITEM_BASE_CLASSES = "flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-white/30 dark:hover:bg-white/10";
+const ITEM_BASE_CLASSES = "flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-white/10";
 
 // ==========================
 // Component
@@ -173,7 +173,7 @@ export default function Dropdown(props: DropdownProps) {
         popover="auto"
         role="menu"
         aria-label="Dropdown menu"
-        class={`${width} overflow-y-auto max-h-[min(24rem,80dvh)] paper p-0 border! border-zinc-300/60! dark:border-zinc-600/50! ${props.className ?? ""}`}
+        class={`${width} overflow-y-auto max-h-[min(24rem,80dvh)] paper [box-shadow:var(--theme-shadow-float)]! p-0 border! border-zinc-300/60! dark:border-zinc-600/50! ${props.className ?? ""}`}
       >
         {props.elements.map((item, i) =>
           "items" in item ? (

@@ -17,6 +17,7 @@ button[disabled],
 /* Global Checkbox Styling */
 input[type="checkbox"] {
   @apply appearance-none w-4 h-4 bg-white dark:bg-black border border-zinc-300 dark:border-zinc-700 cursor-pointer transition-all duration-200 inline-flex items-center justify-center m-0 align-middle rounded;
+  box-shadow: var(--theme-recess-sm);
 }
 
 input[type="checkbox"]::before {
@@ -27,6 +28,7 @@ input[type="checkbox"]::before {
 
 input[type="checkbox"]:checked {
   @apply bg-blue-500 border-blue-500;
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.35);
 }
 
 input[type="checkbox"]:checked::before {

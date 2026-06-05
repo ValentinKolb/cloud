@@ -80,14 +80,23 @@ export const ButtonInputs = () => (
     id="btn-input"
     chip={[
       { kind: "utility", name: "btn-input" },
+      { kind: "utility", name: "btn-input-recessed" },
       { kind: "utility", name: "btn-input-primary" },
       { kind: "utility", name: "btn-input-success" },
       { kind: "utility", name: "btn-segment" },
     ]}
-    description="Input-shaped buttons match fields. Segment buttons match `SegmentedControl` in compact toolbars."
+    description="Input-shaped buttons match fields (raised + press). `btn-input-recessed` is the recessed sibling for inline select/dropdown/picker triggers — give the value `flex-1` so the chevron sits right. Segment buttons match `SegmentedControl` in compact toolbars."
     code={`<button class="btn-input btn-input-sm">Default</button>
 <button class="btn-input-primary btn-input-sm">Primary</button>
 <button class="btn-input-success btn-input-sm">Success</button>
+
+<!-- recessed trigger (select/dropdown/picker) -->
+<button class="btn-input-recessed btn-input-sm w-40 gap-2">
+  <i class="ti ti-flag" />
+  <span class="flex-1 truncate text-left">Priority</span>
+  <i class="ti ti-chevron-down text-xs" />
+</button>
+
 <button class="btn-segment">Today</button>
 <button class="btn-segment-icon" aria-label="Previous">
   <i class="ti ti-chevron-left" />
@@ -105,6 +114,11 @@ export const ButtonInputs = () => (
       <button type="button" class="btn-input-success btn-input-sm">
         <i class="ti ti-check" />
         Done
+      </button>
+      <button type="button" class="btn-input-recessed btn-input-sm w-40 gap-2">
+        <i class="ti ti-flag" />
+        <span class="flex-1 truncate text-left">Priority</span>
+        <i class="ti ti-chevron-down text-xs" />
       </button>
       <button type="button" class="btn-segment">
         Today

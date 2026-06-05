@@ -67,22 +67,33 @@
   padding-top: 4px;
 }
 
-/* Body cells: very light, near-page-background. The whole tile pattern
-   reads as "soft data" rather than a heavy data grid. */
+/* Body cells: filled zinc tiles. They intentionally avoid hairline
+   borders; the fill + crisp inset edge separates cells from the page
+   without reading like a button. */
 .md-table-cell {
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 0.35rem;
   height: 100%;
   box-sizing: border-box;
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.25rem;
-  background-color: rgb(250 250 250); /* zinc-50 */
+  padding: 0.46rem 0.68rem 0.52rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: color-mix(in oklab, rgb(244 244 245) 78%, white);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.56),
+    inset 0 -1px 0 rgb(24 24 27 / 0.035);
   font-size: 0.8125rem;
-  line-height: 1.4;
+  line-height: 1.35;
   color: rgb(24 24 27); /* zinc-900 */
 }
 
 .dark .md-table-cell {
-  background-color: rgb(24 24 27); /* zinc-900 */
+  background: color-mix(in oklab, rgb(24 24 27) 88%, rgb(39 39 42));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.045),
+    inset 0 -1px 0 rgb(0 0 0 / 0.26);
   color: rgb(244 244 245); /* zinc-100 */
 }
 
@@ -91,23 +102,25 @@
    get `nowrap` so they don't ever break char-by-char even if the
    widest body cell still pushes the column past the 7 rem floor. */
 .md-table thead .md-table-cell {
-  background-color: rgb(244 244 245); /* zinc-100 */
-  font-weight: 500;
+  background: color-mix(in oklab, rgb(244 244 245) 74%, rgb(228 228 231));
+  font-weight: 700;
   white-space: nowrap;
 }
 
 .dark .md-table thead .md-table-cell {
-  background-color: rgb(39 39 42); /* zinc-800 */
+  background: color-mix(in oklab, rgb(39 39 42) 88%, rgb(24 24 27));
 }
 
 /* Per-column alignment from `:---:` syntax. Marked / our parser map
    that to one of these classes; default is left. */
 .md-table-cell.md-align-right {
   text-align: right;
+  justify-content: flex-end;
 }
 
 .md-table-cell.md-align-center {
   text-align: center;
+  justify-content: center;
 }
 
 /* "Total" / summary rows — when ≥50 % of a row's formula cells are
@@ -117,11 +130,11 @@
    summary visually anchors the bottom of the table. */
 .md-table tbody tr.md-table-total-row .md-table-cell {
   font-weight: 600;
-  background-color: rgb(244 244 245); /* zinc-100 — same as header */
+  background: color-mix(in oklab, rgb(244 244 245) 74%, rgb(228 228 231));
 }
 
 .dark .md-table tbody tr.md-table-total-row .md-table-cell {
-  background-color: rgb(39 39 42); /* zinc-800 */
+  background: color-mix(in oklab, rgb(39 39 42) 88%, rgb(24 24 27));
 }
 
 /* Formula-OK cells: blue text + `ti-math-function` icon prefix so the
@@ -136,7 +149,8 @@
   margin-right: 0.25rem;
   font-size: 0.75rem;
   opacity: 0.7;
-  vertical-align: -1px;
+  line-height: 1.35;
+  transform: translateY(0.04em);
 }
 
 .dark .md-table-cell.md-formula-ok {

@@ -25,7 +25,8 @@ const Switch = ({ label, value, onChange, disabled = false }: SwitchInputProps) 
         class={`
  relative transition-colors
  w-9 h-5 rounded-full
- 
+ [box-shadow:var(--theme-recess)]
+
  bg-zinc-200 dark:bg-zinc-600/40
  peer-checked:bg-blue-500
  

@@ -1,6 +1,15 @@
 /* Feedback blocks, badges, and chips — flat, solid, border-based */
 @utility info-block {
   @apply rounded-lg border px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.46),
+    inset 0 -1px 0 rgb(0 0 0 / 0.025);
+}
+
+.dark .info-block {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.045),
+    inset 0 -1px 0 rgb(0 0 0 / 0.28);
 }
 
 @utility info-block-note {
@@ -41,7 +50,9 @@
 }
 
 @utility popup {
-  @apply rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-lg text-zinc-900 dark:text-zinc-100;
+  @apply rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100;
+  /* Floating layer (portaled) — outer shadow is fine here. */
+  box-shadow: var(--theme-shadow-float);
 }
 
 @utility tag {
