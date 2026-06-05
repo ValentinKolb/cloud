@@ -360,7 +360,7 @@ const selected = await prompts.search(
 All from `@valentinkolb/cloud/ui`. **Important:** Reactive props expect accessor functions, not direct values.
 
 ```jsx
-import { TextInput, NumberInput, Select, MultiSelectInput, Switch, Checkbox, TagsInput } from "@valentinkolb/cloud/ui";
+import { TextInput, NumberInput, Select, MultiSelectInput, Switch, Checkbox, TagsInput, FileDropzone } from "@valentinkolb/cloud/ui";
 
 <TextInput
   value={() => mySignal()}              // accessor function, NOT direct value
@@ -394,6 +394,29 @@ import { TextInput, NumberInput, Select, MultiSelectInput, Switch, Checkbox, Tag
   label="Enable feature"
 />
 ```
+
+#### FileDropzone
+
+Use `FileDropzone` for visible upload/drop surfaces in dialogs and forms. Source: `packages/cloud/src/ui/input/FileDropzone.tsx`; live reference: `/app/ui-lab/input/file-dropzone`; real usage: Notebooks `/upload` attachment dialog in `packages/notebooks/src/frontend/[id]/_components/editor/AttachmentPicker.tsx`.
+
+The component owns the drag/drop affordance, file-picker button, accepted-file UI states, busy styling, and error display. The app still owns persistence and upload mutations. Do not hand-write dashed dropzone boxes in apps; use this component and pass `onDrop`.
+
+```tsx
+import { FileDropzone } from "@valentinkolb/cloud/ui";
+
+<FileDropzone
+  title="Drop file or click to choose"
+  subtitle="Upload a new attachment and insert it at the cursor."
+  hint="Max 10 MB"
+  accept="image/*"
+  multiple={false}
+  busy={upload.loading}
+  error={() => upload.error()?.message}
+  onDrop={(files) => upload.mutate(files)}
+/>
+```
+
+Key props: `onDrop(files)`, `accept?`, `multiple?`, `busy?`, `error?`, `title?`, `subtitle?`, `hint?`, `icon?`, `label?`, `description?`, `required?`, `disabled?`.
 
 #### DateTimeInput and Timezones
 

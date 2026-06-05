@@ -66,6 +66,8 @@ import {
   DateRangePickerWithTimeDemo,
   DateTimeInputDemo,
   DateTimePickerDemo,
+  FileDropzoneAcceptDemo,
+  FileDropzoneDemo,
   IconInputDemo,
   ImageInputDemo,
   MarkdownEditorStandalone,
@@ -297,6 +299,20 @@ export const uiLabDocs: UiLabDocSection[] = [
           <ImageInputDemo />
         </DemoGrid>
       )),
+      page(
+        "input",
+        "file-dropzone",
+        "FileDropzone",
+        "ti ti-cloud-upload",
+        "Shared file picker and drag-drop surface for upload flows.",
+        ["filedropzone-basic", "filedropzone-accept"],
+        () => (
+          <DemoGrid>
+            <FileDropzoneDemo />
+            <FileDropzoneAcceptDemo />
+          </DemoGrid>
+        ),
+      ),
       page("input", "icon", "IconInput", "ti ti-icons", "Tabler icon picker input.", ["iconinput"], () => (
         <DemoGrid>
           <IconInputDemo />

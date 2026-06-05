@@ -8,10 +8,10 @@
  * Selecting (upload OR pick) dispatches `EDITOR_INSERT_ATTACHMENT_EVENT`
  * with {id, kind, filename}. The editor listens, inserts at cursor.
  */
+
+import { FileDropzone, prompts } from "@valentinkolb/cloud/ui";
 import { fileIcons } from "@valentinkolb/stdlib";
-import { dropzone } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { For, Show, createResource, createSignal } from "solid-js";
+import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { EDITOR_INSERT_ATTACHMENT_EVENT } from "../detail/events";
 import type { Attachment, AttachmentRef } from "./attachments-client";
@@ -28,8 +28,7 @@ const fetchList = async (notebookId: string): Promise<Attachment[]> => {
   return await res.json();
 };
 
-const dispatchInsert = (att: AttachmentRef) =>
-  window.dispatchEvent(new CustomEvent(EDITOR_INSERT_ATTACHMENT_EVENT, { detail: att }));
+const dispatchInsert = (att: AttachmentRef) => window.dispatchEvent(new CustomEvent(EDITOR_INSERT_ATTACHMENT_EVENT, { detail: att }));
 
 const AttachmentPicker = (props: Props) => {
   const [list] = createResource(() => props.notebookId, fetchList);
@@ -59,39 +58,14 @@ const AttachmentPicker = (props: Props) => {
     props.close();
   };
 
-  const dz = dropzone.create({ onDrop: handleFiles });
-
-  let fileInput: HTMLInputElement | undefined;
-
   return (
     <div class="w-full max-w-full flex flex-col gap-3">
-      {/* Dropzone */}
-      <button
-        type="button"
-        class={`flex flex-col items-center justify-center gap-1 rounded border-2 border-dashed py-6 text-xs transition-colors ${
-          dz.invalidDrag()
-            ? "border-red-400 bg-red-50 text-red-600 dark:border-red-500 dark:bg-red-950/30"
-            : dz.isDragging()
-              ? "border-blue-400 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-950/30"
-              : "border-zinc-300 dark:border-zinc-700 text-dimmed hover:border-zinc-400 dark:hover:border-zinc-600"
-        }`}
-        onClick={() => fileInput?.click()}
-        disabled={busy()}
-        {...dz.handlers}
-      >
-        <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : "ti-cloud-upload"} text-base`} />
-        <span>{busy() ? "Uploading…" : "Drop file or click to choose"}</span>
-        <span class="text-[10px] opacity-70">Max 10 MB</span>
-      </button>
-      <input
-        ref={fileInput}
-        type="file"
-        class="hidden"
-        onChange={(e) => {
-          const files = Array.from(e.currentTarget.files ?? []);
-          e.currentTarget.value = "";
-          void handleFiles(files);
-        }}
+      <FileDropzone
+        title="Drop file or click to choose"
+        subtitle="Upload a new attachment and insert it at the cursor."
+        hint="Max 10 MB"
+        busy={busy}
+        onDrop={handleFiles}
       />
 
       <Show when={error()}>
@@ -100,18 +74,16 @@ const AttachmentPicker = (props: Props) => {
 
       {/* Existing attachments — pick to reuse without re-upload */}
       <Show when={(list() ?? []).length > 0}>
-        <div class="flex flex-col gap-1">
-          <p class="text-[11px] uppercase tracking-wide text-dimmed">Reuse existing</p>
+        <div class="flex flex-col gap-1.5">
+          <p class="text-[11px] font-medium uppercase tracking-wide text-dimmed">Reuse existing</p>
           <ul class="flex flex-col gap-0.5 max-h-64 overflow-y-auto">
             <For each={list() ?? []}>
               {(att) => (
                 <li>
-                  <button
-                    type="button"
-                    onClick={() => pick(att)}
-                    class="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-left"
-                  >
-                    <i class={`ti ${fileIcons.getFileIcon({ name: att.filename, type: "file", mimeType: att.mimeType })} text-sm shrink-0`} />
+                  <button type="button" onClick={() => pick(att)} class="list-item w-full !px-2 !py-1.5 text-left text-xs">
+                    <i
+                      class={`ti ${fileIcons.getFileIcon({ name: att.filename, type: "file", mimeType: att.mimeType })} text-sm shrink-0`}
+                    />
                     <span class="flex-1 truncate">{att.filename}</span>
                     <span class="text-dimmed tabular-nums">{formatBytes(att.sizeBytes)}</span>
                   </button>
@@ -127,7 +99,6 @@ const AttachmentPicker = (props: Props) => {
 
 /** Open the picker dialog. Used by `/file` slash command + footer button. */
 export const openAttachmentPicker = (notebookId: string): Promise<void> =>
-  prompts.dialog<void>(
-    (close) => <AttachmentPicker notebookId={notebookId} close={close} />,
-    { title: "Attach", icon: "ti ti-paperclip" },
-  ).then(() => undefined);
+  prompts
+    .dialog<void>((close) => <AttachmentPicker notebookId={notebookId} close={close} />, { title: "Attach", icon: "ti ti-paperclip" })
+    .then(() => undefined);

@@ -25,6 +25,7 @@ export {
   type DurationPreset,
 } from "./DatePicker";
 export { default as DateTimeInput } from "./DateTimeInput";
+export { default as FileDropzone, type FileDropzoneProps } from "./FileDropzone";
 export { default as IconInput } from "./IconInput";
 export { default as ImageInput } from "./ImageInput";
 export {

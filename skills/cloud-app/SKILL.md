@@ -26,7 +26,7 @@ When building or reshaping a built-in app, copy the nearest existing Cloud shell
    - Contacts for list/detail panels.
    - Logging, OAuth, Contacts admin, or Notebooks admin for table/stat admin surfaces.
    - Notebooks, Contacts, or Grids for settings/access modals.
-3. Mirror the reference shell and shared component first: `AppOverview`, `AppWorkspace`, `SettingsModal`, `PanelDialog`, `Calendar`, `DataTable`, `StatGrid`.
+3. Mirror the reference shell and shared component first: `AppOverview`, `AppWorkspace`, `SettingsModal`, `PanelDialog`, `Calendar`, `DataTable`, `StatGrid`, `FileDropzone`.
 4. Build app domain logic inside the shell: service state, mutations, permissions, validation, API calls, and public modules stay in the app.
 5. Before reporting done, run `references/app-quality-checklist.md`.
 
@@ -807,7 +807,7 @@ Use `AppWorkspace` for full app shells with sidebar/main/detail. `app-cols` rema
 | `CopyButton` | Clipboard copy with feedback |
 
 **All input components** are also from `@valentinkolb/cloud/ui` (not a sub-path):
-`TextInput`, `NumberInput`, `Select`, `TagsInput`, `ImageInput`, `DateTimeInput`, `ColorInput`, `PinInput`, `Checkbox`, `Switch`, `SegmentedControl`, `Slider`
+`TextInput`, `NumberInput`, `Select`, `TagsInput`, `ImageInput`, `FileDropzone`, `DateTimeInput`, `ColorInput`, `PinInput`, `Checkbox`, `Switch`, `SegmentedControl`, `Slider`
 
 Note: Input components expect **accessor functions** for reactive props (e.g., `value={() => mySignal()}`, `error={() => errors().name}`).
 

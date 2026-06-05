@@ -13,6 +13,7 @@ import {
   DateRangePicker,
   DateTimeInput,
   DateTimePicker,
+  FileDropzone,
   IconInput,
   ImageInput,
   MarkdownEditor,
@@ -27,7 +28,7 @@ import {
   TextInput,
 } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
-import { createSignal, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import DemoCard from "./DemoCard";
 
 const FROM_UI = "@valentinkolb/cloud/ui";
@@ -1164,6 +1165,76 @@ export const ImageInputDemo = () => {
       code={`<ImageInput label="Avatar" value={v} onChange={setV} />`}
     >
       <ImageInput label="Avatar" value={v} onChange={setV} />
+    </DemoCard>
+  );
+};
+
+export const FileDropzoneDemo = () => {
+  const [files, setFiles] = createSignal<{ name: string; size: number }[]>([]);
+  return (
+    <DemoCard
+      id="filedropzone-basic"
+      chip={{ kind: "component", name: "FileDropzone", from: FROM_UI }}
+      description="Shared file drop surface for modal upload flows. The component owns picker/drop UI; the caller owns upload state and persistence."
+      code={`<FileDropzone
+  title="Drop file or click to choose"
+  subtitle="Upload and attach files."
+  hint="Max 10 MB"
+  onDrop={(files) => upload(files)}
+/>`}
+    >
+      <FileDropzone
+        title="Drop file or click to choose"
+        subtitle="Upload and attach files."
+        hint="Max 10 MB"
+        onDrop={(next) => {
+          setFiles(next.map((file) => ({ name: file.name, size: file.size })));
+        }}
+      />
+      <Show when={files().length > 0}>
+        <ul class="mt-2 flex flex-col gap-1 text-xs text-secondary">
+          <For each={files()}>
+            {(file) => (
+              <li class="list-item !px-2 !py-1.5">
+                <i class="ti ti-file text-sm" />
+                <span class="min-w-0 flex-1 truncate">{file.name}</span>
+                <span class="text-dimmed tabular-nums">{Math.round(file.size / 1024)} KB</span>
+              </li>
+            )}
+          </For>
+        </ul>
+      </Show>
+    </DemoCard>
+  );
+};
+
+export const FileDropzoneAcceptDemo = () => {
+  const [message, setMessage] = createSignal("No image selected");
+  return (
+    <DemoCard
+      id="filedropzone-accept"
+      chip={{ kind: "component", name: "FileDropzone", from: FROM_UI }}
+      variant="accept filter"
+      description="Pass `accept` for MIME filtering. Invalid drags get a distinct but quiet error state."
+      code={`<FileDropzone
+  accept="image/*"
+  multiple={false}
+  title="Drop an image"
+  subtitle="Only image files are accepted."
+  onDrop={(files) => setImage(files[0])}
+/>`}
+    >
+      <FileDropzone
+        accept="image/*"
+        multiple={false}
+        icon="ti-photo-plus"
+        title="Drop an image"
+        subtitle="Only image files are accepted."
+        hint={message()}
+        onDrop={(files) => {
+          setMessage(files[0] ? files[0].name : "No image selected");
+        }}
+      />
     </DemoCard>
   );
 };
