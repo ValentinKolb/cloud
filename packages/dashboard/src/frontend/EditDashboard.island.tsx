@@ -3,10 +3,11 @@ import { gradients } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../api/client";
-import type { DashboardAppSummary, DashboardSettings, DashboardShortcut, DashboardWidgetSummary } from "../shared";
+import type { DashboardAppSummary, DashboardLegalLink, DashboardSettings, DashboardShortcut, DashboardWidgetSummary } from "../shared";
 
 type Props = {
   apps: DashboardAppSummary[];
+  legalLinks: DashboardLegalLink[];
   settings: DashboardSettings;
   available: DashboardWidgetSummary[];
   inaccessible: DashboardWidgetSummary[];
@@ -91,20 +92,20 @@ const ShortcutBadge = (props: { icon: string; title: string; href?: string; tone
   );
 };
 
-const AppLaunchpad = (props: { apps: DashboardAppSummary[] }) => (
-  <div class="mx-auto max-w-4xl rounded-3xl border border-zinc-200/70 bg-white/80 p-4 shadow-[var(--theme-shadow-float)] backdrop-blur-xl sm:p-6 dark:border-zinc-800/70 dark:bg-zinc-900/80">
-    <div class="mb-8 text-center">
+const AppLaunchpad = (props: { apps: DashboardAppSummary[]; legalLinks: DashboardLegalLink[] }) => (
+  <div class="mx-auto max-w-4xl rounded-3xl bg-zinc-50/98 p-5 shadow-[var(--theme-shadow-float)] sm:p-7 dark:bg-zinc-950/98">
+    <div class="mb-7 text-center">
       <h2 class="text-xl font-semibold text-primary">Apps</h2>
       <p class="mt-1 text-sm text-dimmed">Open one of your available cloud apps.</p>
     </div>
-    <div class="grid justify-center gap-x-8 gap-y-10 [grid-template-columns:repeat(auto-fit,minmax(6rem,6rem))] sm:gap-x-10">
+    <div class="grid justify-center gap-x-7 gap-y-8 [grid-template-columns:repeat(auto-fit,minmax(6.25rem,6.25rem))] sm:gap-x-9">
       <For each={props.apps}>
         {(app) => (
           <a
             href={app.href}
-            class="group flex min-w-0 flex-col items-center gap-2 rounded-2xl p-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            class="group flex min-w-0 flex-col items-center gap-2 rounded-2xl p-2 text-center outline-none transition-colors hover:bg-white/65 focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-white/[0.04]"
           >
-            <span class="app-icon grid h-16 w-16 place-items-center rounded-[1.35rem] text-3xl" style={appIconStyle(app.id)}>
+            <span class="app-icon grid h-16 w-16 place-items-center rounded-[1.25rem] text-[1.7rem]" style={appIconStyle(app.id)}>
               <i class={app.icon} />
             </span>
             <span class="max-w-full truncate text-xs font-medium text-primary">{app.name}</span>
@@ -112,6 +113,21 @@ const AppLaunchpad = (props: { apps: DashboardAppSummary[] }) => (
         )}
       </For>
     </div>
+    <Show when={props.legalLinks.length > 0}>
+      <div class="mt-8 flex flex-wrap justify-center gap-x-4 gap-y-2 text-[11px] text-dimmed">
+        <For each={props.legalLinks}>
+          {(link) => (
+            <a
+              href={link.href}
+              class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors hover:bg-white/70 hover:text-secondary dark:hover:bg-white/[0.04]"
+            >
+              <i class={link.icon ?? "ti ti-file-text"} />
+              {link.label}
+            </a>
+          )}
+        </For>
+      </div>
+    </Show>
   </div>
 );
 
@@ -134,7 +150,7 @@ export default function DashboardControls(props: Props) {
   );
 
   const openApps = () => {
-    void prompts.dialog<void>((close) => <AppLaunchpad apps={props.apps} />, {
+    void prompts.dialog<void>((close) => <AppLaunchpad apps={props.apps} legalLinks={props.legalLinks} />, {
       surface: "bare",
       header: false,
       size: "large",

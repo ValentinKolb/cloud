@@ -1,4 +1,4 @@
-import { type DashboardWidget, listApps, listWidgets } from "@valentinkolb/cloud";
+import { type DashboardWidget, listApps, listLegalLinks, listWidgets } from "@valentinkolb/cloud";
 import type { WidgetBlock, WidgetResponse } from "@valentinkolb/cloud/contracts";
 import { type AppRegistryEntry, hasRole, type Role, type User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
@@ -179,15 +179,29 @@ export default ssr<AuthContext>(async (c) => {
   const gradient = gradients.getGradientById(settings.gradient);
 
   const [widgets, apps] = await Promise.all([listWidgets(), listApps()]);
-  const availableApps: DashboardAppSummary[] = apps
-    .filter((entry) => appIsAvailable(entry, user))
-    .map((entry) => ({
-      id: entry.id,
-      name: entry.name,
-      icon: entry.icon,
-      href: entry.nav?.href ?? entry.routes[0] ?? "#",
-      description: entry.description,
-    }));
+  const legalLinks = await listLegalLinks();
+  const availableApps: DashboardAppSummary[] = [
+    ...apps
+      .filter((entry) => appIsAvailable(entry, user))
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        icon: entry.icon,
+        href: entry.nav?.href ?? entry.routes[0] ?? "#",
+        description: entry.description,
+      })),
+    ...(hasRole(user, "admin")
+      ? [
+          {
+            id: "admin",
+            name: "Admin",
+            icon: "ti ti-shield-cog",
+            href: "/admin",
+            description: "Platform administration, app settings, logs, and gateway controls.",
+          },
+        ]
+      : []),
+  ];
   const hiddenSet = new Set(settings.hiddenWidgets);
   const widgetsToFetch = widgets.filter((w) => !hiddenSet.has(widgetKey(w)));
   const hiddenSummaries: DashboardWidgetSummary[] = widgets
@@ -236,7 +250,13 @@ export default ssr<AuthContext>(async (c) => {
             </h1>
           </div>
 
-          <DashboardControls apps={availableApps} settings={settings} available={availableSummaries} inaccessible={inaccessibleSummaries} />
+          <DashboardControls
+            apps={availableApps}
+            legalLinks={legalLinks}
+            settings={settings}
+            available={availableSummaries}
+            inaccessible={inaccessibleSummaries}
+          />
 
           {rendered.length === 0 ? (
             <div class="paper p-8 text-center text-sm text-dimmed">
@@ -264,6 +284,7 @@ export default ssr<AuthContext>(async (c) => {
 
           <DashboardEditButton
             apps={availableApps}
+            legalLinks={legalLinks}
             settings={settings}
             available={availableSummaries}
             inaccessible={inaccessibleSummaries}

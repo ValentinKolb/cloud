@@ -36,6 +36,12 @@ export type DashboardAppSummary = {
   description: string;
 };
 
+export type DashboardLegalLink = {
+  label: string;
+  href: string;
+  icon?: string;
+};
+
 export const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
   hiddenWidgets: [],
   gradient: "default",
