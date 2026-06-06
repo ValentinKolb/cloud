@@ -66,15 +66,10 @@ export default function LocationSidebar(props: Props) {
       </AppWorkspace.SidebarMobile>
 
       <AppWorkspace.SidebarDesktop>
-        <div class="flex flex-col gap-3">
-          <AppWorkspace.SidebarSection title="Actions">
-            <AppWorkspace.SidebarIconGrid>
-              <AddLocationButton variant="icon" />
-            </AppWorkspace.SidebarIconGrid>
-          </AppWorkspace.SidebarSection>
-        </div>
-
         <AppWorkspace.SidebarBody scrollPreserveKey="weather-locations">
+          <AppWorkspace.SidebarSection title="Actions">
+            <AddLocationButton variant="sidebar" />
+          </AppWorkspace.SidebarSection>
           <AppWorkspace.SidebarSection title="Locations">
             {props.locations.map((loc) => renderLocation(loc, "desktop"))}
           </AppWorkspace.SidebarSection>

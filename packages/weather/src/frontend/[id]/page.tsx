@@ -1,7 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { type WeatherData, weatherService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import { DailyForecast, HourlyForecast, RadarCard } from "../_components";
 import LocationSidebar from "../_components/LocationSidebar";
@@ -21,20 +21,6 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
 
   return (
     <article class="flex flex-col gap-4" aria-label={`Weather for ${location.name}`}>
-      {/* Header */}
-      <header class="flex items-center justify-between">
-        <div>
-          <h1 class="text-xl font-semibold" style="view-transition-name: location-name">
-            {location.name}
-          </h1>
-          {location.state && <p class="text-sm text-dimmed">{location.state}</p>}
-        </div>
-        <div class="flex items-center gap-2">
-          <DisplaySettingsButton lat={location.lat} lon={location.lon} />
-          <DeleteLocationButton id={location.id} />
-        </div>
-      </header>
-
       {/* Current - centered, no paper */}
       <section class="flex flex-col items-center gap-2 py-4" aria-label="Current weather">
         <div class="flex items-center gap-3">
@@ -94,32 +80,37 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
           )}
 
           {/* Current Conditions Details */}
-          <section class="paper p-4" aria-label="Current conditions">
-            <h2 class="section-label mb-3">Current Conditions</h2>
-            <dl class="grid grid-cols-2 gap-4 text-sm">
-              <div class="flex flex-col gap-1">
-                <div class="text-dimmed">
-                  <dt class="inline">Pressure</dt>{" "}
-                  <dd class="inline text-secondary font-medium">{current.pressure != null ? `${current.pressure} hPa` : "-"}</dd>
-                </div>
-                <div class="text-dimmed">
-                  <dt class="inline">Dew Point</dt>{" "}
-                  <dd class="inline text-secondary font-medium">{current.dewPoint != null ? `${current.dewPoint}°` : "-"}</dd>
-                </div>
-              </div>
-              <div class="flex flex-col gap-1">
-                <div class="text-dimmed">
-                  <dt class="inline">Visibility</dt>{" "}
-                  <dd class="inline text-secondary font-medium">
-                    {current.visibility != null ? `${(current.visibility / 1000).toFixed(1)} km` : "-"}
-                  </dd>
-                </div>
-                <div class="text-dimmed">
-                  <dt class="inline">Sunshine</dt>{" "}
-                  <dd class="inline text-secondary font-medium">{current.sunshine != null ? `${current.sunshine} min` : "-"}</dd>
-                </div>
-              </div>
-            </dl>
+          <section class="flex flex-col items-start gap-3" aria-label="Current conditions">
+            <div class="flex flex-wrap items-center gap-2">
+              <DisplaySettingsButton lat={location.lat} lon={location.lon} />
+              <DeleteLocationButton id={location.id} />
+            </div>
+            <StatGrid columns={2} size="sm">
+              <StatCell
+                size="sm"
+                label="Pressure"
+                value={current.pressure != null ? `${current.pressure} hPa` : "-"}
+                accent={{ tone: "zinc", icon: "ti ti-gauge" }}
+              />
+              <StatCell
+                size="sm"
+                label="Dew Point"
+                value={current.dewPoint != null ? `${current.dewPoint}°` : "-"}
+                accent={{ tone: "blue", icon: "ti ti-droplet" }}
+              />
+              <StatCell
+                size="sm"
+                label="Visibility"
+                value={current.visibility != null ? `${(current.visibility / 1000).toFixed(1)} km` : "-"}
+                accent={{ tone: "zinc", icon: "ti ti-eye" }}
+              />
+              <StatCell
+                size="sm"
+                label="Sunshine"
+                value={current.sunshine != null ? `${current.sunshine} min` : "-"}
+                accent={{ tone: "amber", icon: "ti ti-sun" }}
+              />
+            </StatGrid>
           </section>
         </div>
 
@@ -191,21 +182,14 @@ export default ssr<AuthContext>(async (c) => {
               <WeatherDetail location={activeLocation} data={activeWeather} />
             ) : (
               <div class="flex flex-col gap-4">
-                <header class="flex items-center justify-between">
-                  <div>
-                    <h1 class="text-xl font-semibold">{activeLocation.name}</h1>
-                    {activeLocation.state && <p class="text-sm text-dimmed">{activeLocation.state}</p>}
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <DisplaySettingsButton lat={activeLocation.lat} lon={activeLocation.lon} />
-                    <DeleteLocationButton id={activeLocation.id} />
-                  </div>
-                </header>
-
                 <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed" role="alert">
                   <i class="ti ti-cloud-off text-sm" aria-hidden="true" />
                   Weather data unavailable. DWD only provides data for Germany.
                 </p>
+                <div class="flex flex-wrap items-center justify-end gap-2">
+                  <DisplaySettingsButton lat={activeLocation.lat} lon={activeLocation.lon} />
+                  <DeleteLocationButton id={activeLocation.id} />
+                </div>
               </div>
             )}
           </div>

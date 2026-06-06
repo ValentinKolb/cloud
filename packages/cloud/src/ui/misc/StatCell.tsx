@@ -1,6 +1,7 @@
 import type { JSX } from "solid-js";
 import { Show } from "solid-js";
 import Chart from "./Chart";
+import { type StatGridSize, useStatGridSize } from "./StatGrid";
 
 /**
  * Single cell inside a {@link StatGrid}. Renders one stat: tiny
@@ -88,6 +89,10 @@ export type StatCellProps = {
    * omit to hide the sparkline.
    */
   trend?: number[];
+  /**
+   * Optional per-cell scale. Defaults to the parent StatGrid `size`.
+   */
+  size?: StatGridSize;
 };
 
 const ACCENT_PILL_CLASSES: Record<StatCellAccent["tone"], string> = {
@@ -123,15 +128,15 @@ const ACCENT_PILL_HOVER_CLASSES: Record<StatCellAccent["tone"], string> = {
  *  `accent.href` falls back to a static span pill. */
 const Body = (props: StatCellProps & { cellIsLink: boolean }): JSX.Element => {
   const valueClass = props.valueClass ?? "text-primary";
+  const gridSize = useStatGridSize();
+  const size = () => props.size ?? gridSize;
+  const valueSizeClass = () => (size() === "sm" ? "text-base" : "text-xl");
+  const labelSizeClass = () => (size() === "sm" ? "text-[9px]" : "text-[10px]");
+  const subSizeClass = () => (size() === "sm" ? "text-[9px]" : "text-[10px]");
   return (
     <>
-      <span class="text-[10px] uppercase tracking-wider text-dimmed truncate">
-        {props.label}
-      </span>
-      <span
-        class={`text-xl font-bold tabular-nums leading-tight truncate ${valueClass}`}
-        title={props.title}
-      >
+      <span class={`${labelSizeClass()} uppercase tracking-wider text-dimmed truncate`}>{props.label}</span>
+      <span class={`${valueSizeClass()} font-bold tabular-nums leading-tight truncate ${valueClass}`} title={props.title}>
         {props.value}
       </span>
       {/* Optional trend sparkline. Sits inline between the value and
@@ -151,14 +156,7 @@ const Body = (props: StatCellProps & { cellIsLink: boolean }): JSX.Element => {
           has visible anchor points (otherwise sparse data renders
           as nearly-invisible horizontal lines). */}
       <Show when={props.trend && props.trend.length > 1}>
-        <Chart
-          kind="sparkline"
-          class="-mx-4 self-stretch block"
-          style={{ height: "32px" }}
-          data={props.trend ?? []}
-          showLast
-          showMinMax
-        />
+        <Chart kind="sparkline" class="-mx-4 self-stretch block" style={{ height: "32px" }} data={props.trend ?? []} showLast showMinMax />
       </Show>
       {/* Sub row: rendered only when there's actual content. Keeping
           the row out entirely when both sub and accent are absent
@@ -166,9 +164,7 @@ const Body = (props: StatCellProps & { cellIsLink: boolean }): JSX.Element => {
           want forced equal heights should pass `sub=" "`. */}
       {props.sub || props.accent ? (
         <div class="flex items-center gap-1.5 min-w-0">
-          {props.sub ? (
-            <span class="text-[10px] text-dimmed truncate">{props.sub}</span>
-          ) : null}
+          {props.sub ? <span class={`${subSizeClass()} text-dimmed truncate`}>{props.sub}</span> : null}
           {props.accent ? (
             props.accent.text ? (
               // Pill variant. `accent.href` upgrades the span to an
@@ -191,9 +187,7 @@ const Body = (props: StatCellProps & { cellIsLink: boolean }): JSX.Element => {
                 </span>
               )
             ) : (
-              <i
-                class={`${props.accent.icon} ${ACCENT_ICON_CLASSES[props.accent.tone]} text-[11px] shrink-0`}
-              />
+              <i class={`${props.accent.icon} ${ACCENT_ICON_CLASSES[props.accent.tone]} text-[11px] shrink-0`} />
             )
           ) : null}
         </div>
@@ -207,7 +201,9 @@ const StatCell = (props: StatCellProps): JSX.Element => {
   // `bg-white` (and dark equivalent) is what tiles over the parent
   // grid's `bg-zinc-100` bleed; without it the cell would look
   // transparent on top of the divider colour.
-  const baseClass = "bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5 min-w-0";
+  const gridSize = useStatGridSize();
+  const size = () => props.size ?? gridSize;
+  const baseClass = () => `bg-white dark:bg-zinc-900 flex flex-col gap-0.5 min-w-0 ${size() === "sm" ? "px-3 py-2.5" : "px-4 py-4"}`;
   if (props.href) {
     // Link variant: adds a subtle top-right `external-link` icon as
     // an affordance — sits in dimmed zinc by default, shifts to the
@@ -217,10 +213,7 @@ const StatCell = (props: StatCellProps): JSX.Element => {
     // the icon (the icon is absolute, so it doesn't take a column
     // in the flex layout).
     return (
-      <a
-        href={props.href}
-        class={`${baseClass} group relative pr-7 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors`}
-      >
+      <a href={props.href} class={`${baseClass()} group relative pr-7 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors`}>
         <i
           class="ti ti-external-link absolute top-2 right-2 text-[11px] text-dimmed group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors"
           aria-hidden="true"
@@ -230,7 +223,7 @@ const StatCell = (props: StatCellProps): JSX.Element => {
     );
   }
   return (
-    <div class={baseClass}>
+    <div class={baseClass()}>
       <Body {...props} cellIsLink={false} />
     </div>
   );

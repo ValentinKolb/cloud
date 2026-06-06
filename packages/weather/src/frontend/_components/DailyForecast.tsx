@@ -22,37 +22,40 @@ type DailyForecastProps = {
 
 const sizeClasses = {
   sm: {
-    day: "text-xs w-16",
+    day: "text-xs",
     icon: "text-base",
-    temp: "text-xs w-6",
+    temp: "text-xs",
     rain: "text-[10px]",
     rainIcon: "text-[8px]",
     sun: "text-[10px]",
     sunIcon: "text-[8px]",
-    meta: "w-20",
-    py: "py-2",
+    meta: "min-w-[4.5rem]",
+    gap: "gap-2",
+    py: "py-1.5",
   },
   md: {
-    day: "text-sm w-20",
+    day: "text-sm",
     icon: "text-xl",
-    temp: "text-sm w-8",
+    temp: "text-sm",
     rain: "text-xs",
     rainIcon: "text-[10px]",
     sun: "text-xs",
     sunIcon: "text-[10px]",
-    meta: "w-24",
-    py: "py-3",
+    meta: "min-w-[5rem]",
+    gap: "gap-2.5",
+    py: "py-2",
   },
   lg: {
-    day: "text-lg w-28",
+    day: "text-lg",
     icon: "text-3xl",
-    temp: "text-lg w-12",
+    temp: "text-lg",
     rain: "text-base",
     rainIcon: "text-sm",
     sun: "text-base",
     sunIcon: "text-sm",
-    meta: "w-32",
-    py: "py-5",
+    meta: "min-w-[6.5rem]",
+    gap: "gap-3",
+    py: "py-3",
   },
 };
 
@@ -62,21 +65,24 @@ export default function DailyForecast({ daily, size = "md", showBar = true }: Da
   if (daily.length === 0) return null;
 
   return (
-    <div class="flex flex-col justify-between h-full" role="list">
+    <div class="flex min-w-0 flex-col gap-1" role="list">
       {daily.map((d) => (
-        <div class="flex items-center gap-4" role="listitem">
-          <span class={`${s.day} font-medium`}>{formatDay(d.date)}</span>
+        <div
+          class={`grid min-w-0 grid-cols-[minmax(4.75rem,6.5rem)_1.75rem_minmax(0,1fr)_auto] items-center ${s.gap} ${s.py}`}
+          role="listitem"
+        >
+          <span class={`${s.day} truncate font-medium`}>{formatDay(d.date)}</span>
           <i
             class={`ti ti-${weatherService.ui.getTablerIcon(d.icon)} ${
               s.icon
             } ${weatherService.ui.getAvgTempColorClass(d.tempMin, d.tempMax)}`}
             aria-hidden="true"
           />
-          <div class="flex-1 flex items-center gap-2">
-            <span class={`${s.temp} text-dimmed text-right`}>{weatherService.ui.formatTemp(d.tempMin)}</span>
+          <div class="flex min-w-0 items-center gap-2">
+            <span class={`${s.temp} w-8 shrink-0 text-right text-dimmed`}>{weatherService.ui.formatTemp(d.tempMin)}</span>
             {showBar && (
               <div
-                class="flex-1 h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden"
+                class="h-1.5 min-w-8 flex-1 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800"
                 role="img"
                 aria-label={`Temperature range from ${weatherService.ui.formatTemp(
                   d.tempMin,
@@ -91,18 +97,18 @@ export default function DailyForecast({ daily, size = "md", showBar = true }: Da
                 />
               </div>
             )}
-            <span class={`${s.temp} font-medium ${weatherService.ui.getTempColorClass(d.tempMax)}`}>
+            <span class={`${s.temp} w-8 shrink-0 font-medium ${weatherService.ui.getTempColorClass(d.tempMax)}`}>
               {weatherService.ui.formatTemp(d.tempMax)}
             </span>
           </div>
-          <div class={`flex items-center gap-3 ${s.meta} justify-end`}>
+          <div class={`flex items-center justify-end gap-2 ${s.meta}`}>
             {d.precipitationProbability != null && d.precipitationProbability > 0 && (
-              <span class={`${s.rain} text-blue-500`}>
+              <span class={`${s.rain} whitespace-nowrap text-blue-500`}>
                 <i class={`ti ti-droplet ${s.rainIcon}`} aria-hidden="true" /> {d.precipitationProbability}%
               </span>
             )}
             {d.sunshine > 0 && (
-              <span class={`${s.sun} text-amber-500`}>
+              <span class={`${s.sun} whitespace-nowrap text-amber-500`}>
                 <i class={`ti ti-sun ${s.sunIcon}`} aria-hidden="true" /> {Math.round(d.sunshine / 60)}h
               </span>
             )}

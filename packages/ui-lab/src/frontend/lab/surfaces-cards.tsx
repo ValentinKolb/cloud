@@ -309,7 +309,7 @@ export const StatGridDemo = () => (
   <DemoCard
     id="statgrid"
     chip={{ kind: "component", name: "StatGrid", from: FROM_UI }}
-    description="Paper-wrapped grid of `StatCell` children. Use explicit `columns` for known counts, optional title/action for admin summaries, and the default 6-column ladder for dense metric rows."
+    description="Paper-wrapped grid of `StatCell` children. Use explicit `columns` for known counts, optional title/action for admin summaries, and `size='sm'` for secondary stats in compact app surfaces."
     code={`<StatGrid title="Account requests" columns={3}>
   <StatCell label="Open" value={7} accent={{ tone: "amber", icon: "ti ti-clock" }} />
   <StatCell label="Approved" value={142} />
@@ -321,6 +321,11 @@ export const StatGridDemo = () => (
   <StatCell label="Large files" value={18} accent={{ tone: "amber", icon: "ti ti-alert-triangle" }} />
   <StatCell label="Shared" value={64} sub="folders" />
   <StatCell label="Health" value="OK" accent={{ tone: "emerald", icon: "ti ti-check" }} />
+</StatGrid>
+
+<StatGrid title="Compact conditions" columns={2} size="sm">
+  <StatCell label="Pressure" value="1014 hPa" accent={{ tone: "zinc", icon: "ti ti-gauge" }} />
+  <StatCell label="Visibility" value="75.0 km" accent={{ tone: "zinc", icon: "ti ti-eye" }} />
 </StatGrid>`}
   >
     <div class="flex flex-col gap-3">
@@ -335,6 +340,11 @@ export const StatGridDemo = () => (
         <StatCell label="Large files" value={18} accent={{ tone: "amber", icon: "ti ti-alert-triangle" }} />
         <StatCell label="Shared" value={64} sub="folders" />
         <StatCell label="Health" value="OK" accent={{ tone: "emerald", icon: "ti ti-check" }} />
+      </StatGrid>
+
+      <StatGrid title="Compact conditions" columns={2} size="sm">
+        <StatCell label="Pressure" value="1014 hPa" accent={{ tone: "zinc", icon: "ti ti-gauge" }} />
+        <StatCell label="Visibility" value="75.0 km" accent={{ tone: "zinc", icon: "ti ti-eye" }} />
       </StatGrid>
 
       <StatGrid title="Request pipeline">

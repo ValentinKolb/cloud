@@ -33,7 +33,7 @@ const searchLocations = async ({ query, abortSignal }: { query: string; abortSig
   }));
 };
 
-const AddLocationButton = (props: { variant?: "button" | "sidebar" | "icon" }) => {
+const AddLocationButton = (props: { variant?: "button" | "sidebar" }) => {
   const addMutation = mutations.create({
     mutation: async () => {
       const selected = await prompts.search<GeoResult>(searchLocations, {
@@ -81,17 +81,6 @@ const AddLocationButton = (props: { variant?: "button" | "sidebar" | "icon" }) =
       >
         Add Location
       </AppWorkspace.SidebarItem>
-    );
-  }
-
-  if (props.variant === "icon") {
-    return (
-      <AppWorkspace.SidebarIconAction
-        icon={addMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"}
-        label="Add Location"
-        disabled={addMutation.loading()}
-        onClick={() => addMutation.mutate({})}
-      />
     );
   }
 
