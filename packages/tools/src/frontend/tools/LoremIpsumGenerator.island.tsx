@@ -1,6 +1,7 @@
 import { createSignal, createMemo, createEffect } from "solid-js";
 import { SegmentedControl, Slider } from "@valentinkolb/cloud/ui";
 import { timed } from "@valentinkolb/stdlib/solid";
+import { ToolCodeBlock } from "./ToolOutput";
 
 type Mode = "paragraphs" | "sentences" | "words";
 
@@ -210,9 +211,7 @@ export default function LoremIpsumGenerator() {
       </div>
       {output() && (
         <div class="paper p-4 flex flex-col gap-3">
-          <div class="text-sm leading-relaxed whitespace-pre-wrap bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-4 max-h-96 overflow-y-auto select-all">
-            {output()}
-          </div>
+          <ToolCodeBlock class="max-h-96 overflow-y-auto text-sm leading-relaxed">{output()}</ToolCodeBlock>
           <button class="btn-primary btn-sm self-start" onClick={copy}>
             <i class={`ti ${copied() ? "ti-check" : "ti-copy"}`} /> {copied() ? "Copied" : "Copy Text"}
           </button>

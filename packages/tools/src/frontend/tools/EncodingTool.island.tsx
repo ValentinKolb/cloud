@@ -1,6 +1,7 @@
 import { createSignal, createMemo } from "solid-js";
 import { encoding } from "@valentinkolb/stdlib";
 import { TextInput, SegmentedControl } from "@valentinkolb/cloud/ui";
+import { ToolCodeBlock } from "./ToolOutput";
 
 type Direction = "encode" | "decode";
 type Format = "base64" | "hex" | "base32";
@@ -120,9 +121,7 @@ export default function EncodingTool() {
           <p class="text-xs font-medium text-dimmed">
             {direction() === "encode" ? `${format().charAt(0).toUpperCase() + format().slice(1)} Output` : "Decoded Text"}
           </p>
-          <div class="text-xs break-all bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3 font-mono select-all whitespace-pre-wrap">
-            {output()}
-          </div>
+          <ToolCodeBlock>{output()}</ToolCodeBlock>
           <button class="btn-primary btn-sm self-start" onClick={copy}>
             <i class={`ti ${copied() ? "ti-check" : "ti-copy"}`} />
             {copied() ? "Copied" : "Copy"}

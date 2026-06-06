@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, type JSX } from "solid-js";
 import { password as pwdGen } from "@valentinkolb/stdlib";
 import { clipboard } from "@valentinkolb/stdlib/browser";
-import { SegmentedControl, Switch } from "@valentinkolb/cloud/ui";
+import { SegmentedControl, Slider, Switch } from "@valentinkolb/cloud/ui";
 
 type PasswordMode = "random" | "memorable" | "pin";
 
@@ -20,11 +20,6 @@ const memorableCharTone = (char: string): string => {
 
 const pinCharTone = (): string => "text-blue-600 dark:text-blue-300";
 
-const sliderTrackBackground = (value: number, min: number, max: number): string => {
-  const percent = ((value - min) / (max - min)) * 100;
-  return `linear-gradient(to right, rgb(59 130 246) 0%, rgb(59 130 246) ${percent}%, rgb(161 161 170) ${percent}%, rgb(161 161 170) 100%)`;
-};
-
 const RangeField = (props: {
   label: string;
   value: () => number;
@@ -33,26 +28,15 @@ const RangeField = (props: {
   max: number;
   step?: number;
 }) => (
-  <div class="grid gap-3 sm:grid-cols-[13rem_minmax(0,1fr)] sm:items-center">
-    <span class="text-sm text-secondary">
-      {props.label} <span class="text-dimmed">({props.value()})</span>
-    </span>
-    <input
-      type="range"
-      min={props.min}
-      max={props.max}
-      step={props.step ?? 1}
-      value={props.value()}
-      onInput={(event) => props.onChange(Number(event.currentTarget.value))}
-      class="h-1.5 w-full cursor-pointer appearance-none rounded-full
-        [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:appearance-none
-        [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-zinc-400/70
-        [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-sm
-        [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:rounded-full
-        [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-zinc-400/70 [&::-moz-range-thumb]:bg-white"
-      style={{ background: sliderTrackBackground(props.value(), props.min, props.max) }}
-    />
-  </div>
+  <Slider
+    label={props.label}
+    value={props.value}
+    onChange={props.onChange}
+    min={props.min}
+    max={props.max}
+    step={props.step ?? 1}
+    showValue
+  />
 );
 
 const ToggleRow = (props: { children: JSX.Element; columns?: string }) => (

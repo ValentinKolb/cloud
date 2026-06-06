@@ -3,6 +3,7 @@ import { crypto } from "@valentinkolb/stdlib";
 import { TextInput } from "@valentinkolb/cloud/ui";
 import { SegmentedControl } from "@valentinkolb/cloud/ui";
 import { Switch } from "@valentinkolb/cloud/ui";
+import { ToolCodeBlock } from "./ToolOutput";
 type Tab = "symmetric" | "asymmetric";
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error && error.message) return error.message;
@@ -105,10 +106,7 @@ export default function EncryptionTool() {
       <p class="text-xs font-medium text-dimmed">{props.label}</p>{" "}
       <div class="flex items-start gap-2">
         {" "}
-        <code class="flex-1 text-xs bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-2 select-all break-all whitespace-pre-wrap max-h-40 overflow-y-auto">
-          {" "}
-          {props.value}{" "}
-        </code>{" "}
+        <ToolCodeBlock class="max-h-40 flex-1 overflow-y-auto">{props.value}</ToolCodeBlock>{" "}
         <CopyBtn value={props.value} field={props.field} />{" "}
       </div>{" "}
     </div>

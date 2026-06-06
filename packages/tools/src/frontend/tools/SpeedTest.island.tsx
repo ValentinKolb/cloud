@@ -1,6 +1,7 @@
 import { Chart, CopyButton } from "@valentinkolb/cloud/ui";
 import { batch, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import { ToolCodeBlock } from "./ToolOutput";
 
 type Phase = "idle" | "ping" | "download" | "upload" | "done" | "error";
 
@@ -377,9 +378,7 @@ export default function SpeedTest(props: SpeedTestProps) {
           </div>
 
           <div class="relative">
-            <pre class="text-xs bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3 pr-12 overflow-x-auto select-all font-mono">
-              {cliSnippet()}
-            </pre>
+            <ToolCodeBlock class="overflow-x-auto pr-12">{cliSnippet()}</ToolCodeBlock>
             <div class="absolute top-2 right-2">
               <CopyButton text={cliSnippet()} class="btn-simple text-xs px-2 py-1" />
             </div>

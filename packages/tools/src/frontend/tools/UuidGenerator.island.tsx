@@ -1,5 +1,6 @@
 import { createSignal, For } from "solid-js";
 import { Slider } from "@valentinkolb/cloud/ui";
+import { ToolCodeBlock } from "./ToolOutput";
 export default function UuidGenerator() {
   const [count, setCount] = createSignal(1);
   const [uuids, setUuids] = createSignal<string[]>([]);
@@ -53,7 +54,7 @@ export default function UuidGenerator() {
             <For each={uuids()}>
               {(uuid, idx) => (
                 <div class="flex items-center gap-2 group">
-                  <code class="flex-1 text-xs bg-zinc-50 dark:bg-zinc-800/50 rounded px-2 py-1 select-all break-all">{uuid}</code>
+                  <ToolCodeBlock class="flex-1 px-2 py-1">{uuid}</ToolCodeBlock>
                   <button
                     class="icon-btn opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                     onClick={() => copyOne(uuid, idx())}

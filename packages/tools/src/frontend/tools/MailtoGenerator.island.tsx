@@ -1,6 +1,7 @@
 import { createSignal, createMemo } from "solid-js";
 import { TextInput } from "@valentinkolb/cloud/ui";
 import { TagsInput } from "@valentinkolb/cloud/ui";
+import { ToolCodeBlock } from "./ToolOutput";
 
 export default function MailtoGenerator() {
   const [to, setTo] = createSignal("");
@@ -107,19 +108,19 @@ export default function MailtoGenerator() {
           {/* Raw mailto link */}
           <div class="flex flex-col gap-1">
             <p class="text-xs font-medium text-dimmed">Mailto Link</p>
-            <div class="text-xs break-all bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3 font-mono select-all">{mailto()}</div>
+            <ToolCodeBlock>{mailto()}</ToolCodeBlock>
           </div>
 
           {/* Markdown */}
           <div class="flex flex-col gap-1">
             <p class="text-xs font-medium text-dimmed">Markdown</p>
-            <div class="text-xs break-all bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3 font-mono select-all">{markdownLink()}</div>
+            <ToolCodeBlock>{markdownLink()}</ToolCodeBlock>
           </div>
 
           {/* HTML */}
           <div class="flex flex-col gap-1">
             <p class="text-xs font-medium text-dimmed">HTML</p>
-            <div class="text-xs break-all bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3 font-mono select-all">{htmlLink()}</div>
+            <ToolCodeBlock>{htmlLink()}</ToolCodeBlock>
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
