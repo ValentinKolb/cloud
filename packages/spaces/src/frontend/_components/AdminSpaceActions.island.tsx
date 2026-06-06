@@ -111,8 +111,12 @@ const AdminSpaceActions = (props: AdminSpaceActionsProps) => {
   return (
     <Dropdown
       trigger={
-        <button type="button" class="p-1.5 text-dimmed hover:text-primary transition-colors" aria-label={`Settings for ${props.spaceName}`}>
-          <i class="ti ti-settings text-sm" />
+        <button type="button" class="icon-btn h-7 w-7" aria-label={`Settings for ${props.spaceName}`}>
+          <i
+            class={
+              permissionsMutation.loading() || deleteMutation.loading() ? "ti ti-loader-2 animate-spin text-sm" : "ti ti-settings text-sm"
+            }
+          />
         </button>
       }
       position="bottom-left"
