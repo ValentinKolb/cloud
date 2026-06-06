@@ -1,7 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { type WeatherData, weatherService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { AppWorkspace, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import { DailyForecast, HourlyForecast, RadarCard } from "../_components";
 import LocationSidebar from "../_components/LocationSidebar";
@@ -15,6 +15,26 @@ type Location = {
   lat: number;
   lon: number;
 };
+
+const CONDITION_ICON_CLASSES = {
+  amber: "bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-300",
+  blue: "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300",
+  zinc: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800/70 dark:text-zinc-400",
+};
+
+function CurrentConditionStat(props: { label: string; value: string; icon: string; tone: keyof typeof CONDITION_ICON_CLASSES }) {
+  return (
+    <div class="flex min-w-0 items-start gap-2">
+      <span class={`mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md ${CONDITION_ICON_CLASSES[props.tone]}`}>
+        <i class={`${props.icon} text-sm`} aria-hidden="true" />
+      </span>
+      <div class="flex min-w-0 flex-col">
+        <span class="truncate text-[10px] font-medium uppercase tracking-wider text-dimmed">{props.label}</span>
+        <span class="truncate text-base font-semibold tabular-nums text-primary">{props.value}</span>
+      </div>
+    </div>
+  );
+}
 
 function WeatherDetail({ location, data }: { location: Location; data: WeatherData }) {
   const { current, hourly, daily } = data;
@@ -70,7 +90,7 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
       {/* Weekly + Radar */}
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Left column: Weekly Forecast + Details */}
-        <div class="flex flex-col gap-4">
+        <div class="flex flex-col gap-3">
           {/* Weekly Forecast */}
           {daily.length > 0 && (
             <section class="paper p-4" aria-label="7-day forecast">
@@ -80,37 +100,40 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
           )}
 
           {/* Current Conditions Details */}
-          <section class="flex flex-col items-start gap-3" aria-label="Current conditions">
+          <section class="flex flex-col gap-3" aria-label="Current conditions">
+            <div class="paper p-4">
+              <h2 class="section-label mb-3">Current Conditions</h2>
+              <div class="grid grid-cols-2 gap-x-6 gap-y-4">
+                <CurrentConditionStat
+                  label="Pressure"
+                  value={current.pressure != null ? `${current.pressure} hPa` : "-"}
+                  icon="ti ti-gauge"
+                  tone="zinc"
+                />
+                <CurrentConditionStat
+                  label="Dew Point"
+                  value={current.dewPoint != null ? `${current.dewPoint}°` : "-"}
+                  icon="ti ti-droplet"
+                  tone="blue"
+                />
+                <CurrentConditionStat
+                  label="Visibility"
+                  value={current.visibility != null ? `${(current.visibility / 1000).toFixed(1)} km` : "-"}
+                  icon="ti ti-eye"
+                  tone="zinc"
+                />
+                <CurrentConditionStat
+                  label="Sunshine"
+                  value={current.sunshine != null ? `${current.sunshine} min` : "-"}
+                  icon="ti ti-sun"
+                  tone="amber"
+                />
+              </div>
+            </div>
             <div class="flex flex-wrap items-center gap-2">
               <DisplaySettingsButton lat={location.lat} lon={location.lon} />
               <DeleteLocationButton id={location.id} />
             </div>
-            <StatGrid columns={2} size="sm">
-              <StatCell
-                size="sm"
-                label="Pressure"
-                value={current.pressure != null ? `${current.pressure} hPa` : "-"}
-                accent={{ tone: "zinc", icon: "ti ti-gauge" }}
-              />
-              <StatCell
-                size="sm"
-                label="Dew Point"
-                value={current.dewPoint != null ? `${current.dewPoint}°` : "-"}
-                accent={{ tone: "blue", icon: "ti ti-droplet" }}
-              />
-              <StatCell
-                size="sm"
-                label="Visibility"
-                value={current.visibility != null ? `${(current.visibility / 1000).toFixed(1)} km` : "-"}
-                accent={{ tone: "zinc", icon: "ti ti-eye" }}
-              />
-              <StatCell
-                size="sm"
-                label="Sunshine"
-                value={current.sunshine != null ? `${current.sunshine} min` : "-"}
-                accent={{ tone: "amber", icon: "ti ti-sun" }}
-              />
-            </StatGrid>
           </section>
         </div>
 
