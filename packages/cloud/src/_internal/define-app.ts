@@ -359,7 +359,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
         serveStatic({
           root: "./",
           onFound: (_path, c) => {
-            c.header("Cache-Control", "public, max-age=31536000, immutable");
+            c.header("Cache-Control", isDevelopment ? "no-store" : "public, max-age=31536000, immutable");
           },
         }),
       )
