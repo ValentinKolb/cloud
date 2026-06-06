@@ -128,6 +128,16 @@ type TimedEventLayout = {
   event: NormalizedEvent;
   lane: number;
   lanes: number;
+  groupId: number;
+  groupStartDate: Date;
+  groupEndDate: Date;
+};
+
+type TimedOverflowLayout = {
+  groupId: number;
+  hiddenEvents: NormalizedEvent[];
+  groupStartDate: Date;
+  groupEndDate: Date;
 };
 
 const labels: Required<CalendarLabels> = {
@@ -143,16 +153,13 @@ const labels: Required<CalendarLabels> = {
 };
 
 const colorClass: Record<CalendarEventColor, string> = {
-  blue: "bg-blue-50 text-blue-700 border-zinc-200 border-l-blue-500 dark:bg-blue-500/15 dark:text-blue-200 dark:border-zinc-700 dark:border-l-blue-400",
-  emerald:
-    "bg-emerald-50 text-emerald-700 border-zinc-200 border-l-emerald-500 dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-zinc-700 dark:border-l-emerald-400",
-  amber:
-    "bg-amber-50 text-amber-700 border-zinc-200 border-l-amber-500 dark:bg-amber-500/15 dark:text-amber-200 dark:border-zinc-700 dark:border-l-amber-400",
-  red: "bg-red-50 text-red-700 border-zinc-200 border-l-red-500 dark:bg-red-500/15 dark:text-red-200 dark:border-zinc-700 dark:border-l-red-400",
-  violet:
-    "bg-violet-50 text-violet-700 border-zinc-200 border-l-violet-500 dark:bg-violet-500/15 dark:text-violet-200 dark:border-zinc-700 dark:border-l-violet-400",
-  cyan: "bg-cyan-50 text-cyan-700 border-zinc-200 border-l-cyan-500 dark:bg-cyan-500/15 dark:text-cyan-200 dark:border-zinc-700 dark:border-l-cyan-400",
-  zinc: "bg-zinc-50 text-zinc-700 border-zinc-200 border-l-zinc-400 dark:bg-zinc-900 dark:text-zinc-200 dark:border-zinc-700 dark:border-l-zinc-500",
+  blue: "border-l-blue-500 text-blue-700 dark:border-l-blue-400 dark:text-blue-200",
+  emerald: "border-l-emerald-500 text-emerald-700 dark:border-l-emerald-400 dark:text-emerald-200",
+  amber: "border-l-amber-500 text-amber-700 dark:border-l-amber-400 dark:text-amber-200",
+  red: "border-l-red-500 text-red-700 dark:border-l-red-400 dark:text-red-200",
+  violet: "border-l-violet-500 text-violet-700 dark:border-l-violet-400 dark:text-violet-200",
+  cyan: "border-l-cyan-500 text-cyan-700 dark:border-l-cyan-400 dark:text-cyan-200",
+  zinc: "border-l-zinc-400 text-zinc-700 dark:border-l-zinc-500 dark:text-zinc-200",
 };
 
 const dotClass: Record<CalendarEventColor, string> = {
@@ -322,7 +329,7 @@ const timedEventLayouts = (events: NormalizedEvent[]): TimedEventLayout[] => {
   }
   if (currentGroup.length > 0) groups.push(currentGroup);
 
-  return groups.flatMap((group) => {
+  return groups.flatMap((group, groupId) => {
     const laneEnds: number[] = [];
     const assigned = group.map((event) => {
       const start = event.startDate.getTime();
@@ -332,7 +339,9 @@ const timedEventLayouts = (events: NormalizedEvent[]): TimedEventLayout[] => {
       return { event, lane: nextLane };
     });
     const lanes = Math.max(1, laneEnds.length);
-    return assigned.map((item) => ({ ...item, lanes }));
+    const groupStartDate = new Date(Math.min(...group.map((event) => event.startDate.getTime())));
+    const groupEndDate = new Date(Math.max(...group.map((event) => event.endDate.getTime())));
+    return assigned.map((item) => ({ ...item, lanes, groupId, groupStartDate, groupEndDate }));
   });
 };
 
@@ -348,7 +357,7 @@ const EventChip = (props: {
   const style = () => (props.event.colorHex ? { "border-left-color": props.event.colorHex } : undefined);
   const selected = () => props.owner.selectedEventId === props.event.id;
   const className = () =>
-    `block min-w-0 rounded border border-l-2 px-1.5 py-1 text-left leading-tight ${props.fill ? "h-full" : ""} ${props.owner.onEventDrop ? "cursor-grab active:cursor-grabbing" : ""} ${props.event.display === "background" ? "opacity-60" : ""} ${props.event.colorHex ? "border-zinc-200 bg-zinc-50 text-primary dark:border-zinc-700 dark:bg-zinc-900" : colorClass[color()]} ${selected() ? "outline outline-2 outline-blue-500 outline-offset-1" : ""}`;
+    `block min-w-0 rounded-lg border border-l-[3px] border-zinc-200 bg-white text-left leading-tight [box-shadow:var(--theme-bevel-top),var(--theme-bevel-bottom)] transition-[background-color,border-color,box-shadow] dark:border-zinc-700/70 dark:bg-zinc-900 ${props.compact ? "px-1 py-1" : "px-2 py-1.5"} ${props.fill ? "h-full" : ""} ${props.owner.onEventDrop ? "cursor-grab active:cursor-grabbing" : ""} ${props.event.display === "background" ? "opacity-60" : ""} ${props.event.colorHex ? "text-primary" : colorClass[color()]} ${selected() ? "border-blue-500 bg-blue-500/[0.08] ring-1 ring-blue-500 dark:border-blue-400 dark:bg-blue-400/10 dark:ring-blue-400" : "hover:border-blue-500/40 hover:bg-blue-500/[0.04] dark:hover:border-blue-400/45 dark:hover:bg-blue-400/[0.06]"}`;
   const durationHours = () => (props.event.endDate.getTime() - props.event.startDate.getTime()) / 3_600_000;
   const showTime = () => !props.event.allDay && !props.compact && durationHours() >= 0.75;
   const showLocation = () => Boolean(props.event.location && !props.compact && durationHours() >= 1.25);
@@ -380,12 +389,12 @@ const EventChip = (props: {
       : {};
   const defaultContent = (
     <>
-      <span class="block truncate text-[11px] font-semibold">{props.event.title}</span>
+      <span class="block truncate text-[11px] font-semibold text-primary">{props.event.title}</span>
       <Show when={showTime()}>
-        <span class="block truncate text-[10px] opacity-75">{timeLabel()}</span>
+        <span class="block truncate text-[10px] text-secondary">{timeLabel()}</span>
       </Show>
       <Show when={showLocation()}>
-        <span class="block truncate text-[10px] opacity-75">{props.event.location}</span>
+        <span class="block truncate text-[10px] text-secondary">{props.event.location}</span>
       </Show>
     </>
   );
@@ -597,13 +606,14 @@ const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Require
     ).filter((option) => !props.owner.views || props.owner.views.includes(option.value));
 
   return (
-    <header class="flex flex-col gap-2 border-b border-zinc-100 p-2 dark:border-zinc-800/70 sm:flex-row sm:items-center sm:justify-between">
+    <header class="grid gap-2 border-b border-zinc-100 bg-white p-2 dark:border-zinc-800/70 dark:bg-zinc-900 sm:grid-cols-[auto_1fr_auto] sm:items-center">
       <div class="flex items-center gap-1.5">
         {navButton(previous(), "ti-chevron-left", props.labels.previous)}
-        <div class="btn-segment min-w-36 font-semibold">{title()}</div>
+        <div class="btn-segment min-w-36 px-4 font-semibold">{title()}</div>
         {navButton(next(), "ti-chevron-right", props.labels.next)}
         {todayButton()}
       </div>
+      <div />
       <div class="w-full sm:w-auto">
         <SegmentedControl
           value={() => (props.view === "mobile-month" ? "month" : props.view)}
@@ -640,7 +650,7 @@ const MonthView = (props: {
   return (
     <div>
       <div
-        class={`grid ${props.owner.withWeekNumbers ? "grid-cols-[3rem_repeat(7,minmax(0,1fr))]" : "grid-cols-7"} border-b border-zinc-100 dark:border-zinc-800/70`}
+        class={`grid ${props.owner.withWeekNumbers ? "grid-cols-[3rem_repeat(7,minmax(0,1fr))]" : "grid-cols-7"} border-b border-zinc-100 bg-white dark:border-zinc-800/70 dark:bg-zinc-900`}
       >
         <Show when={props.owner.withWeekNumbers}>
           <div class="px-2 py-2 text-center text-[11px] font-semibold text-dimmed">Wk</div>
@@ -668,7 +678,7 @@ const MonthView = (props: {
                   const isToday = dayKey === todayKey();
                   return (
                     <div
-                      class={`relative min-w-0 p-1.5 ${sameMonth ? "" : "bg-zinc-50/60 dark:bg-zinc-900/30"}`}
+                      class={`relative min-w-0 p-1.5 ${sameMonth ? "" : "bg-zinc-50/60 dark:bg-zinc-950/25"}`}
                       classList={{
                         "bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === dayKey,
                         "cursor-pointer hover:bg-blue-500/5": Boolean(props.owner.onSlotClick || props.owner.onSlotDoubleClick),
@@ -752,6 +762,7 @@ const TimeGridView = (props: {
   const hours = () => Array.from({ length: gridEndHour() - gridStartHour() + 1 }, (_, index) => gridStartHour() + index);
   const [dropPreview, setDropPreview] = createSignal("");
   const [timePreview, setTimePreview] = createSignal<CalendarPreview | null>(null);
+  const [expandedOverflow, setExpandedOverflow] = createSignal("");
   let scrollContainer: HTMLDivElement | undefined;
   let defaultHourMarker: HTMLDivElement | undefined;
   const slotEnd = (start: Date) => addMinutes(start, 60);
@@ -787,14 +798,53 @@ const TimeGridView = (props: {
       },
     };
   };
-  const eventLayout = (event: NormalizedEvent) => {
-    const start = zonedHour(event.startDate, dateConfig());
-    const end = zonedHour(event.endDate, dateConfig());
+  const timeRangeLayout = (startDate: Date, endDate: Date) => {
+    const start = zonedHour(startDate, dateConfig());
+    const end = zonedHour(endDate, dateConfig());
     const visibleStart = Math.max(gridStartHour(), start);
     const visibleEnd = Math.min(gridEndHour() + 1, end);
     return {
       top: Math.max(0, (visibleStart - gridStartHour()) * 4),
       height: Math.max(2.5, (visibleEnd - visibleStart) * 4),
+    };
+  };
+  const eventLayout = (event: NormalizedEvent) => timeRangeLayout(event.startDate, event.endDate);
+  const isDayView = () => props.days.length === 1;
+  const visibleLaneCount = (lanes: number) => (isDayView() ? lanes : Math.min(lanes, 3));
+  const overflowLayouts = (layouts: TimedEventLayout[]): TimedOverflowLayout[] => {
+    if (isDayView()) return [];
+    const groups = new Map<number, TimedOverflowLayout>();
+    for (const layout of layouts) {
+      if (layout.lane < visibleLaneCount(layout.lanes)) continue;
+      const existing = groups.get(layout.groupId);
+      if (existing) existing.hiddenEvents.push(layout.event);
+      else
+        groups.set(layout.groupId, {
+          groupId: layout.groupId,
+          hiddenEvents: [layout.event],
+          groupStartDate: layout.groupStartDate,
+          groupEndDate: layout.groupEndDate,
+        });
+    }
+    return [...groups.values()];
+  };
+  const dayColumnMinWidth = (layouts: TimedEventLayout[]) => {
+    if (!isDayView()) return undefined;
+    const lanes = Math.max(1, ...layouts.map((layout) => layout.lanes));
+    return `${Math.max(32, lanes * 12)}rem`;
+  };
+  const laneStyle = (layoutItem: TimedEventLayout) => {
+    if (isDayView()) {
+      const laneWidth = 100 / layoutItem.lanes;
+      return {
+        left: `calc(${layoutItem.lane * laneWidth}% + 0.25rem)`,
+        width: `calc(${laneWidth}% - 0.5rem)`,
+      };
+    }
+    const visibleLanes = visibleLaneCount(layoutItem.lanes);
+    return {
+      left: `${layoutItem.lanes <= 1 ? 0 : (28 / Math.max(1, visibleLanes - 1)) * layoutItem.lane}%`,
+      width: `${layoutItem.lanes <= 1 ? 100 : layoutItem.lanes > visibleLanes ? 68 : 72}%`,
     };
   };
   const currentTimeLine = (day: Date) => {
@@ -814,7 +864,7 @@ const TimeGridView = (props: {
   return (
     <div class="flex min-h-0 min-w-160 flex-1 flex-col">
       <div
-        class="grid border-b border-zinc-100 dark:border-zinc-800/70"
+        class="grid border-b border-zinc-100 bg-white dark:border-zinc-800/70 dark:bg-zinc-900"
         style={{ "grid-template-columns": `4rem repeat(${props.days.length}, minmax(0, 1fr))` }}
       >
         <div />
@@ -829,7 +879,7 @@ const TimeGridView = (props: {
               >
                 <span
                   classList={{
-                    "inline-flex rounded-full bg-blue-600 px-2 py-0.5 text-white": today(),
+                    "inline-flex rounded-full bg-blue-600 px-2.5 py-0.5 text-white": today(),
                   }}
                 >
                   {formatDay(day, dateConfig())}
@@ -849,19 +899,17 @@ const TimeGridView = (props: {
       </div>
       <Show when={!props.owner.hideAllDay}>
         <div
-          class="grid overflow-y-auto border-b border-zinc-100 dark:border-zinc-800/70"
+          class="grid overflow-y-auto border-b border-zinc-200/80 bg-zinc-50/65 dark:border-zinc-800/80 dark:bg-zinc-950/40"
           style={{
             "grid-template-columns": `4rem repeat(${props.days.length}, minmax(0, 1fr))`,
             "max-height": `${props.owner.allDayMaxHeightRem ?? 7}rem`,
           }}
         >
-          <div class="sticky top-0 bg-white px-2 py-2 text-center text-[11px] font-semibold text-dimmed dark:bg-zinc-950">
-            {props.labels.allDay}
-          </div>
+          <div class="sticky top-0 bg-inherit px-2 py-2 text-center text-[11px] font-semibold text-dimmed">{props.labels.allDay}</div>
           <For each={props.days}>
             {(day) => {
               const dayKey = calendar.formatDateKey(day, dateConfig());
-              const allDay = props.events.filter((event) => event.dayKey === dayKey && event.allDay);
+              const allDay = () => props.events.filter((event) => event.dayKey === dayKey && event.allDay);
               const previewAllDay = previewEvents().filter((event) => event.dayKey === dayKey && event.allDay);
               return (
                 <div
@@ -887,12 +935,12 @@ const TimeGridView = (props: {
                   <div class="flex flex-col gap-1">
                     <For each={previewAllDay}>
                       {(event) => (
-                        <div class="rounded border border-dashed border-blue-500 bg-blue-500/10 px-1.5 py-1 text-[10px] font-semibold text-blue-600">
+                        <div class="rounded-lg border border-dashed border-blue-500 bg-blue-500/10 px-1.5 py-1 text-[10px] font-semibold text-blue-600">
                           {event.title}
                         </div>
                       )}
                     </For>
-                    <For each={allDay}>
+                    <For each={allDay()}>
                       {(event) => <EventChip event={event} owner={props.owner} href={eventHref(props.owner, event)} compact />}
                     </For>
                   </div>
@@ -902,7 +950,7 @@ const TimeGridView = (props: {
           </For>
         </div>
       </Show>
-      <div ref={scrollContainer} class="min-h-0 flex-1 overflow-auto">
+      <div ref={scrollContainer} class="min-h-0 flex-1 overflow-auto bg-white dark:bg-zinc-900">
         <div class="grid" style={{ "grid-template-columns": `4rem repeat(${props.days.length}, minmax(0, 1fr))` }}>
           <div class="border-r border-zinc-100 dark:border-zinc-800/70">
             <For each={hours()}>
@@ -911,8 +959,8 @@ const TimeGridView = (props: {
                   ref={(element) => {
                     if (hour === businessStartHour()) defaultHourMarker = element;
                   }}
-                  class="h-16 border-b border-zinc-100 pr-2 pt-1 text-right text-[11px] text-dimmed dark:border-zinc-800/70"
-                  classList={{ "bg-zinc-50/70 dark:bg-zinc-900/30": hour < businessStartHour() || hour > businessEndHour() }}
+                  class="h-16 border-b border-zinc-100 bg-zinc-50/60 pr-2 pt-1 text-right text-[11px] text-dimmed dark:border-zinc-800/70 dark:bg-zinc-950/35"
+                  classList={{ "bg-zinc-100/70 dark:bg-zinc-950/70": hour < businessStartHour() || hour > businessEndHour() }}
                 >
                   {`${hour}`.padStart(2, "0")}:00
                 </div>
@@ -922,10 +970,13 @@ const TimeGridView = (props: {
           <For each={props.days}>
             {(day) => {
               const dayKey = calendar.formatDateKey(day, dateConfig());
-              const timed = props.events.filter((event) => event.dayKey === dayKey && !event.allDay);
-              const layouts = () => timedEventLayouts(timed);
+              const timed = () => props.events.filter((event) => event.dayKey === dayKey && !event.allDay);
+              const layouts = () => timedEventLayouts(timed());
               return (
-                <div class="relative min-h-full border-r border-zinc-100 dark:border-zinc-800/70">
+                <div
+                  class="relative min-h-full border-r border-zinc-100 dark:border-zinc-800/70"
+                  style={{ "min-width": dayColumnMinWidth(layouts()) }}
+                >
                   <Show when={currentTimeLine(day)}>
                     {(top) => (
                       <div class="pointer-events-none absolute inset-x-0 z-40 border-t border-red-500" style={{ top: `${top()}rem` }} />
@@ -937,7 +988,7 @@ const TimeGridView = (props: {
                         class="relative h-16 border-b border-zinc-100 dark:border-zinc-800/70"
                         classList={{
                           "bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === `${dayKey}-${hour}`,
-                          "bg-zinc-50/70 dark:bg-zinc-900/30": hour < businessStartHour() || hour > businessEndHour(),
+                          "bg-zinc-50/70 dark:bg-zinc-950/45": hour < businessStartHour() || hour > businessEndHour(),
                           "cursor-pointer hover:bg-blue-500/5": Boolean(props.owner.onSlotClick || props.owner.onSlotDoubleClick),
                         }}
                         {...slotInteractionProps(props.owner, () => {
@@ -953,10 +1004,10 @@ const TimeGridView = (props: {
                       const layout = eventLayout(event);
                       return (
                         <div
-                          class="pointer-events-none absolute inset-x-1 z-30 rounded border border-dashed border-blue-500 bg-blue-500/10"
+                          class="pointer-events-none absolute inset-x-1.5 z-30 rounded-lg border border-dashed border-blue-500 bg-blue-500/10"
                           style={{ top: `${layout.top}rem`, height: `${layout.height}rem` }}
                         >
-                          <div class="px-1.5 py-1 text-[10px] font-semibold text-blue-600">
+                          <div class="px-2 py-1 text-[10px] font-semibold text-blue-600">
                             {formatTime(event.startDate, dateConfig())} - {formatTime(event.endDate, dateConfig())}
                           </div>
                         </div>
@@ -965,11 +1016,10 @@ const TimeGridView = (props: {
                   </For>
                   <For each={layouts()}>
                     {(layoutItem) => {
+                      if (!isDayView() && layoutItem.lane >= visibleLaneCount(layoutItem.lanes)) return null;
                       const event = layoutItem.event;
                       const layout = eventLayout(event);
-                      const visualLanes = Math.min(layoutItem.lanes, 3);
-                      const laneWidth = layoutItem.lanes <= 1 ? 100 : 72;
-                      const laneOffset = layoutItem.lanes <= 1 ? 0 : (28 / Math.max(1, visualLanes - 1)) * (layoutItem.lane % visualLanes);
+                      const position = laneStyle(layoutItem);
                       const [resizePreview, setResizePreview] = createSignal<Date | null>(null);
                       const resizeStart = (pointerEvent: PointerEvent) => {
                         if (!props.owner.onEventResize) return;
@@ -1003,8 +1053,8 @@ const TimeGridView = (props: {
                           style={{
                             top: `${layout.top}rem`,
                             height: `${layout.height}rem`,
-                            left: `${laneOffset}%`,
-                            width: `${laneWidth}%`,
+                            left: position.left,
+                            width: position.width,
                             "z-index": String(20 + layoutItem.lane),
                           }}
                         >
@@ -1030,7 +1080,7 @@ const TimeGridView = (props: {
                                 type="button"
                                 aria-label="Resize event"
                                 draggable={false}
-                                class="absolute inset-x-2 bottom-0.5 z-20 flex h-4 cursor-ns-resize items-center justify-center rounded-md bg-blue-50/90 text-blue-600 opacity-0 backdrop-blur transition-opacity group-hover:opacity-90 focus:opacity-100 hover:opacity-100 dark:bg-blue-500/20 dark:text-blue-200"
+                                class="absolute inset-x-3 bottom-1 z-20 flex h-4 cursor-ns-resize items-center justify-center rounded-full bg-blue-100/90 text-blue-600 opacity-0 backdrop-blur transition-opacity group-hover:opacity-90 focus:opacity-100 hover:opacity-100 dark:bg-blue-500/20 dark:text-blue-200"
                                 onPointerDown={resizeStart}
                                 onDragStart={(event) => event.preventDefault()}
                               >
@@ -1039,6 +1089,44 @@ const TimeGridView = (props: {
                             </Show>
                           </div>
                         </div>
+                      );
+                    }}
+                  </For>
+                  <For each={overflowLayouts(layouts())}>
+                    {(overflow) => {
+                      const layout = timeRangeLayout(overflow.groupStartDate, overflow.groupEndDate);
+                      const key = `${dayKey}-${overflow.groupId}`;
+                      const hiddenTitle = () =>
+                        overflow.hiddenEvents.map((event) => `${formatTime(event.startDate, dateConfig())} ${event.title}`).join("\n");
+                      return (
+                        <>
+                          <button
+                            type="button"
+                            class="absolute right-1 z-50 flex min-h-9 w-7 items-center justify-center rounded-lg border border-blue-500/35 bg-blue-500/10 text-[10px] font-black text-blue-700 transition-colors hover:bg-blue-500/15 dark:border-blue-300/30 dark:bg-blue-400/10 dark:text-blue-200 dark:hover:bg-blue-400/15"
+                            style={{ top: `${layout.top}rem`, height: `${layout.height}rem` }}
+                            title={hiddenTitle()}
+                            aria-label={`${overflow.hiddenEvents.length} hidden overlapping events`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setExpandedOverflow(expandedOverflow() === key ? "" : key);
+                            }}
+                          >
+                            <span class="[writing-mode:vertical-rl]">+{overflow.hiddenEvents.length}</span>
+                          </button>
+                          <Show when={expandedOverflow() === key}>
+                            <div
+                              class="absolute right-9 z-[70] flex w-56 flex-col gap-1 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-950"
+                              style={{ top: `${layout.top}rem` }}
+                            >
+                              <div class="px-1 pb-1 text-[10px] font-semibold text-dimmed">
+                                {formatTime(overflow.groupStartDate, dateConfig())} - {formatTime(overflow.groupEndDate, dateConfig())}
+                              </div>
+                              <For each={overflow.hiddenEvents}>
+                                {(event) => <EventChip event={event} owner={props.owner} href={eventHref(props.owner, event)} compact />}
+                              </For>
+                            </div>
+                          </Show>
+                        </>
                       );
                     }}
                   </For>
@@ -1084,12 +1172,12 @@ const YearView = (props: { owner: CalendarProps; date: Date; events: NormalizedE
                 return (
                   <a
                     href={props.owner.getDateHref?.(day, "day") ?? "#"}
-                    class={`relative flex aspect-square items-center justify-center rounded ${calendar.isToday(day, dateConfig) ? "bg-blue-500 text-white" : calendar.isSameMonth(day, monthDate, dateConfig) ? "text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800" : "text-zinc-300 dark:text-zinc-700"}`}
+                    class={`relative flex aspect-square items-center justify-center rounded-md ${calendar.isToday(day, dateConfig) ? "bg-blue-500 text-white" : calendar.isSameMonth(day, monthDate, dateConfig) ? "text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800" : "text-zinc-300 dark:text-zinc-700"}`}
                   >
                     {calendar.formatDayNumber(day, dateConfig)}
                     <Show when={events.length > 0}>
                       <span
-                        class={`absolute bottom-1 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full ${events[0]!.colorHex ? "" : yearIndicatorClass(day, events[0]!.color ?? "blue", dateConfig)}`}
+                        class={`absolute bottom-1 left-1/2 h-1.5 w-1.5 -translate-x-1/2 rounded-full ${events[0]!.colorHex ? "" : yearIndicatorClass(day, events[0]!.color ?? "blue", dateConfig)}`}
                         style={
                           events[0]!.colorHex
                             ? { "background-color": calendar.isToday(day, dateConfig) ? "white" : events[0]!.colorHex }

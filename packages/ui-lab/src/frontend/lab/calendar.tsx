@@ -1,10 +1,14 @@
 import { Calendar, type CalendarEvent } from "@valentinkolb/cloud/ui";
-import { createSignal } from "solid-js";
+import { createSignal, type JSX } from "solid-js";
 import DemoCard from "./DemoCard";
 
 const FROM_UI = "@valentinkolb/cloud/ui";
 
 const baseDate = new Date(2026, 4, 27);
+
+const CalendarFrame = (props: { children: JSX.Element }) => (
+  <div class="h-[min(70vh,50rem)] min-h-[26rem] overflow-hidden">{props.children}</div>
+);
 
 const events: CalendarEvent[] = [
   {
@@ -151,6 +155,90 @@ const overlapEvents: CalendarEvent[] = [
   },
 ];
 
+const denseStressEvents: CalendarEvent[] = [
+  ...allDayStressEvents,
+  {
+    id: "parallel-ops-a",
+    title: "Incident command",
+    start: "2026-05-27 09:00:00",
+    end: "2026-05-27 13:30:00",
+    color: "red",
+    location: "War room",
+  },
+  {
+    id: "parallel-ops-b",
+    title: "Customer bridge",
+    start: "2026-05-27 09:15:00",
+    end: "2026-05-27 12:45:00",
+    color: "blue",
+    location: "Meet",
+  },
+  {
+    id: "parallel-ops-c",
+    title: "Database repair",
+    start: "2026-05-27 09:30:00",
+    end: "2026-05-27 14:15:00",
+    color: "amber",
+    location: "Infra desk",
+  },
+  {
+    id: "parallel-ops-d",
+    title: "Release triage",
+    start: "2026-05-27 10:00:00",
+    end: "2026-05-27 15:00:00",
+    color: "violet",
+  },
+  {
+    id: "parallel-ops-e",
+    title: "Support escalation",
+    start: "2026-05-27 10:15:00",
+    end: "2026-05-27 12:15:00",
+    color: "emerald",
+  },
+  {
+    id: "parallel-ops-f",
+    title: "Security review",
+    start: "2026-05-27 11:00:00",
+    end: "2026-05-27 16:30:00",
+    color: "cyan",
+  },
+  {
+    id: "long-monday",
+    title: "Partner onsite",
+    start: "2026-05-25 08:00:00",
+    end: "2026-05-25 17:30:00",
+    color: "emerald",
+  },
+  {
+    id: "wide-tuesday",
+    title: "Architecture workshop",
+    start: "2026-05-26 07:30:00",
+    end: "2026-05-26 19:00:00",
+    color: "blue",
+  },
+  {
+    id: "late-thursday",
+    title: "Evening deploy",
+    start: "2026-05-28 18:00:00",
+    end: "2026-05-28 22:30:00",
+    color: "red",
+  },
+  {
+    id: "friday-focus",
+    title: "Deep work block",
+    start: "2026-05-29 09:00:00",
+    end: "2026-05-29 12:00:00",
+    color: "zinc",
+  },
+  {
+    id: "friday-sync",
+    title: "Program sync",
+    start: "2026-05-29 11:30:00",
+    end: "2026-05-29 15:30:00",
+    color: "violet",
+  },
+];
+
 const hrefForDate = (date: Date, view: string) => {
   const key = `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, "0")}-${`${date.getDate()}`.padStart(2, "0")}`;
   return `/app/ui-lab/surfaces/calendar?view=${view}&date=${key}`;
@@ -175,6 +263,8 @@ const dateFromUrl = () => {
 export const CalendarScheduleDemo = () => {
   const [view, setView] = createSignal<"day" | "week" | "month" | "year">(viewFromUrl());
   const [date, setDate] = createSignal(dateFromUrl());
+  const [demoEvents, setDemoEvents] = createSignal<CalendarEvent[]>(events);
+  const populated = () => demoEvents().length > events.length;
   const pushState = (nextView: string, nextDate: Date) => {
     const href = hrefForDate(nextDate, nextView);
     window.history.pushState(null, "", href);
@@ -185,11 +275,11 @@ export const CalendarScheduleDemo = () => {
       id="calendar-schedule"
       chip={{ kind: "component", name: "Calendar", from: FROM_UI }}
       variant="schedule shell, controlled view/date"
-      description="Unified calendar surface for app calendars: day/week/month/year views, all-day rows, timed events, overlapping lanes, real hrefs, and event metadata for attendees, resources, recurrence, and calendar names."
+      description="Unified calendar surface for app calendars: day/week/month/year views, all-day rows, timed events, overlapping lanes, real hrefs, and event metadata. Use the populate action to stress-test dense day and week layouts."
       code={`<Calendar
   view={view()}
   date={new Date(2026, 4, 27)}
-  events={events}
+  events={events()}
   startHour={8}
   endHour={18}
   withWeekNumbers
@@ -199,25 +289,39 @@ export const CalendarScheduleDemo = () => {
   onDateChange={(date) => setDate(date)}
 />`}
     >
-      <Calendar
-        view={view()}
-        date={date()}
-        events={events}
-        startHour={8}
-        endHour={18}
-        withWeekNumbers
-        getDateHref={hrefForDate}
-        getViewHref={(nextView) => `/app/ui-lab/surfaces/calendar?view=${nextView}`}
-        onViewChange={(nextView) => {
-          const normalized = nextView === "mobile-month" ? "month" : nextView;
-          setView(normalized);
-          pushState(normalized, date());
-        }}
-        onDateChange={(nextDate, currentView) => {
-          setDate(nextDate);
-          pushState(currentView, nextDate);
-        }}
-      />
+      <div class="flex items-center justify-between gap-3 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/70">
+        <span class="text-xs text-dimmed">{demoEvents().length} events visible</span>
+        <button
+          type="button"
+          class={populated() ? "btn-input btn-input-sm" : "btn-primary btn-sm"}
+          onClick={() => setDemoEvents(populated() ? events : denseStressEvents)}
+        >
+          <i class={`ti ${populated() ? "ti-refresh" : "ti-calendar-plus"}`} />
+          {populated() ? "Reset events" : "Populate calendar with many events"}
+        </button>
+      </div>
+      <CalendarFrame>
+        <Calendar
+          class="h-full"
+          view={view()}
+          date={date()}
+          events={demoEvents()}
+          startHour={8}
+          endHour={18}
+          withWeekNumbers
+          getDateHref={hrefForDate}
+          getViewHref={(nextView) => `/app/ui-lab/surfaces/calendar?view=${nextView}`}
+          onViewChange={(nextView) => {
+            const normalized = nextView === "mobile-month" ? "month" : nextView;
+            setView(normalized);
+            pushState(normalized, date());
+          }}
+          onDateChange={(nextDate, currentView) => {
+            setDate(nextDate);
+            pushState(currentView, nextDate);
+          }}
+        />
+      </CalendarFrame>
     </DemoCard>
   );
 };
@@ -236,7 +340,9 @@ export const CalendarMonthDemo = () => (
   getDateHref={(date) => buildDayHref(date)}
 />`}
   >
-    <Calendar view="month" date={baseDate} events={events} withWeekNumbers getDateHref={hrefForDate} />
+    <CalendarFrame>
+      <Calendar class="h-full" view="month" date={baseDate} events={events} withWeekNumbers getDateHref={hrefForDate} />
+    </CalendarFrame>
   </DemoCard>
 );
 
@@ -255,15 +361,18 @@ export const CalendarAllDayStressDemo = () => (
   endHour={18}
 />`}
   >
-    <Calendar
-      view="week"
-      date={baseDate}
-      events={allDayStressEvents}
-      allDayMaxHeightRem={5}
-      startHour={8}
-      endHour={18}
-      getDateHref={hrefForDate}
-    />
+    <CalendarFrame>
+      <Calendar
+        class="h-full"
+        view="week"
+        date={baseDate}
+        events={allDayStressEvents}
+        allDayMaxHeightRem={5}
+        startHour={8}
+        endHour={18}
+        getDateHref={hrefForDate}
+      />
+    </CalendarFrame>
   </DemoCard>
 );
 
@@ -308,21 +417,24 @@ export const CalendarOverlapDemo = () => {
   onEventResize={(event, next) => updateEvent(event, next)}
 />`}
     >
-      <Calendar
-        view="week"
-        date={baseDate}
-        events={demoEvents()}
-        visibleStartHour={6}
-        visibleEndHour={22}
-        startHour={8}
-        endHour={18}
-        getDateHref={hrefForDate}
-        onEventClick={(event) => setSelectedEventTitle(event.title)}
-        onEventDoubleClick={(event) => setEditorEventTitle(event.title)}
-        onSlotClick={(slot) => setSelectedSlotLabel(`${slot.start.toLocaleDateString("en")} ${slot.start.toLocaleTimeString("en")}`)}
-        onEventDrop={updateEventTime}
-        onEventResize={updateEventTime}
-      />
+      <CalendarFrame>
+        <Calendar
+          class="h-full"
+          view="week"
+          date={baseDate}
+          events={demoEvents()}
+          visibleStartHour={6}
+          visibleEndHour={22}
+          startHour={8}
+          endHour={18}
+          getDateHref={hrefForDate}
+          onEventClick={(event) => setSelectedEventTitle(event.title)}
+          onEventDoubleClick={(event) => setEditorEventTitle(event.title)}
+          onSlotClick={(slot) => setSelectedSlotLabel(`${slot.start.toLocaleDateString("en")} ${slot.start.toLocaleTimeString("en")}`)}
+          onEventDrop={updateEventTime}
+          onEventResize={updateEventTime}
+        />
+      </CalendarFrame>
       <div class="grid gap-1 border-t border-zinc-100 px-3 py-2 text-xs text-dimmed dark:border-zinc-800/70 sm:grid-cols-3">
         <div>
           Click event: <span class="font-semibold text-primary">{selectedEventTitle()}</span>
@@ -353,7 +465,9 @@ export const CalendarDayDemo = () => (
   getDateHref={(date) => buildDayHref(date)}
 />`}
   >
-    <Calendar view="day" date={baseDate} events={events} startHour={8} endHour={18} getDateHref={hrefForDate} />
+    <CalendarFrame>
+      <Calendar class="h-full" view="day" date={baseDate} events={events} startHour={8} endHour={18} getDateHref={hrefForDate} />
+    </CalendarFrame>
   </DemoCard>
 );
 
@@ -370,7 +484,9 @@ export const CalendarYearDemo = () => (
   getDateHref={(date) => buildDayHref(date)}
 />`}
   >
-    <Calendar view="year" date={baseDate} events={events} getDateHref={hrefForDate} />
+    <CalendarFrame>
+      <Calendar class="h-full" view="year" date={baseDate} events={events} getDateHref={hrefForDate} />
+    </CalendarFrame>
   </DemoCard>
 );
 
@@ -387,6 +503,8 @@ export const CalendarMobileDemo = () => (
   events={events}
 />`}
   >
-    <Calendar view="mobile-month" date={baseDate} selectedDate={baseDate} events={events} getDateHref={hrefForDate} />
+    <CalendarFrame>
+      <Calendar class="h-full" view="mobile-month" date={baseDate} selectedDate={baseDate} events={events} getDateHref={hrefForDate} />
+    </CalendarFrame>
   </DemoCard>
 );
