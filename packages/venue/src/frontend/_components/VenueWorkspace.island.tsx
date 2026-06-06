@@ -553,7 +553,7 @@ function PublicSectionDialog(props: {
               <div class="grid gap-2">
                 <For each={links()}>
                   {(link, index) => (
-                    <div class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+                    <div class="paper p-3">
                       <div class="mb-3 flex items-center justify-between gap-2">
                         <p class="text-xs font-semibold uppercase tracking-wide text-dimmed">Link {index() + 1}</p>
                         <button type="button" class="btn-secondary btn-sm px-2 py-1 text-xs" onClick={() => removeLink(link.id)}>
@@ -590,7 +590,7 @@ function PublicSectionDialog(props: {
           <div class="grid gap-2">
             <For each={items()}>
               {(item, index) => (
-                <div class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+                <div class="paper p-3">
                   <div class="mb-3 flex items-center justify-between gap-2">
                     <p class="text-xs font-semibold uppercase tracking-wide text-dimmed">Item {index() + 1}</p>
                     <button type="button" class="btn-secondary btn-sm px-2 py-1 text-xs" onClick={() => removeItem(item.id)}>
@@ -1174,7 +1174,7 @@ function SettingsDialog(props: { dashboard: VenueDashboard; accessEntries: Acces
               <div class="grid gap-2 sm:grid-cols-2">
                 <For each={openingRules()} fallback={<p class="text-sm text-dimmed">No regular hours.</p>}>
                   {(rule) => (
-                    <div class="rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-900">
+                    <div class="paper p-3 text-sm">
                       <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
                           <p class="font-medium text-primary">{weekdays[rule.weekday]}</p>
@@ -1220,7 +1220,7 @@ function SettingsDialog(props: { dashboard: VenueDashboard; accessEntries: Acces
               <div class="grid gap-2 sm:grid-cols-2">
                 <For each={overrides()} fallback={<p class="text-sm text-dimmed">No closed days.</p>}>
                   {(entry) => (
-                    <div class="rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-900">
+                    <div class="paper p-3 text-sm">
                       <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
                           <p class="font-medium text-primary">{entry.date}</p>
@@ -1266,7 +1266,7 @@ function SettingsDialog(props: { dashboard: VenueDashboard; accessEntries: Acces
               <div class="grid gap-2 sm:grid-cols-2">
                 <For each={shiftTemplates()} fallback={<p class="text-sm text-dimmed">No shifts configured.</p>}>
                   {(shift) => (
-                    <div class="rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-900">
+                    <div class="paper p-3 text-sm">
                       <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">
                           <p class="font-medium text-primary">{shift.title}</p>
@@ -1332,7 +1332,7 @@ function PublicSectionPreview(props: { section: PublicSection }) {
         <MarkdownView html={markdown.renderSync(sectionText(props.section, "markdown"))} class="text-sm" smallHeadings />
       </Show>
       <Show when={props.section.kind === "notice"}>
-        <div class="rounded-lg bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+        <div class="info-block-warning">
           {sectionText(props.section, "text") || sectionText(props.section, "markdown") || "No notice text yet."}
         </div>
       </Show>
@@ -1359,7 +1359,7 @@ function PublicSectionPreview(props: { section: PublicSection }) {
               const item = raw as Record<string, unknown>;
               const image = typeof item.image === "string" ? item.image : "";
               return (
-                <div class="rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-900">
+                <div class="paper p-3 text-sm">
                   <div class="flex items-start justify-between gap-3">
                     <Show when={image}>
                       <img src={image} alt="" class="h-14 w-14 shrink-0 rounded-lg object-cover" />
@@ -1683,14 +1683,22 @@ export default function VenueWorkspace(props: Props) {
         <AppWorkspace.SidebarDesktop>
           <div class="flex flex-col gap-3">
             <AppWorkspace.SidebarSection title="Actions">
-              <Show when={canWrite(venue())}>
-                <AppWorkspace.SidebarItem icon="ti ti-user-plus" tone="success" onClick={openSignup}>
-                  Sign up for a shift
-                </AppWorkspace.SidebarItem>
-              </Show>
-              <AppWorkspace.SidebarItem href="/app/venue" navigation="document" icon="ti ti-layout-grid">
-                All venues
-              </AppWorkspace.SidebarItem>
+              <AppWorkspace.SidebarIconGrid columns={3}>
+                <Show when={canWrite(venue())}>
+                  <AppWorkspace.SidebarIconAction icon="ti ti-user-plus" label="Sign up for a shift" tone="success" onClick={openSignup} />
+                </Show>
+                <AppWorkspace.SidebarIconAction href="/app/venue" navigation="document" icon="ti ti-layout-grid" label="All venues" />
+                <a
+                  href={`/app/venue/public/${venue().slug}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  class="sidebar-icon-action"
+                  title="Public page"
+                  aria-label="Public page"
+                >
+                  <i class="ti ti-external-link text-base" />
+                </a>
+              </AppWorkspace.SidebarIconGrid>
             </AppWorkspace.SidebarSection>
 
             <AppWorkspace.SidebarSection title="Navigation">
@@ -1731,12 +1739,6 @@ export default function VenueWorkspace(props: Props) {
             </AppWorkspace.SidebarSection>
           </AppWorkspace.SidebarBody>
 
-          <AppWorkspace.SidebarFooter>
-            <a href={`/app/venue/public/${venue().slug}`} target="_blank" rel="noreferrer" class="sidebar-item text-xs">
-              <i class="ti ti-external-link text-sm" />
-              <span class="min-w-0 flex-1 truncate text-left">Public page</span>
-            </a>
-          </AppWorkspace.SidebarFooter>
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>
 
@@ -1891,7 +1893,7 @@ export default function VenueWorkspace(props: Props) {
                   <div class="grid gap-2">
                     <For each={props.dashboard.myUpcomingShifts}>
                       {(shift) => (
-                        <div class="flex items-center justify-between gap-3 rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-900">
+                        <div class="paper flex items-center justify-between gap-3 p-3 text-sm">
                           <div class="min-w-0">
                             <p class="font-medium text-primary">{fmt(shift.startsAt)}</p>
                             <p class="text-xs text-dimmed">{shift.note || "Shift"}</p>

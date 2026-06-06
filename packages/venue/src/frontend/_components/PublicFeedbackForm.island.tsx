@@ -1,4 +1,4 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, For } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -31,7 +31,7 @@ function FeedbackDialog(props: { slug: string; accentColor: string; close: () =>
 
   return (
     <div class="grid gap-4">
-      <p class="text-sm text-zinc-600">
+      <p class="info-block-note">
         Your feedback is completely anonymous. We only store the rating, optional comment, and submission time.
       </p>
       <div class="grid grid-cols-5 gap-2">
@@ -52,16 +52,19 @@ function FeedbackDialog(props: { slug: string; accentColor: string; close: () =>
           )}
         </For>
       </div>
-      <textarea
-        class="min-h-24 w-full rounded-xl border border-zinc-200 p-3 text-sm outline-none focus:border-blue-400"
+      <TextInput
+        label="Comment"
+        icon="ti ti-message"
         placeholder="Optional comment"
-        value={comment()}
-        onInput={(event) => setComment(event.currentTarget.value)}
+        value={comment}
+        onInput={setComment}
+        multiline
+        lines={4}
       />
       <button
         type="button"
-        class="w-full rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-70"
-        style={{ "background-color": props.accentColor }}
+        class="btn-base btn-sm w-full border-transparent text-white disabled:opacity-70"
+        style={{ "background-color": props.accentColor, "border-color": props.accentColor }}
         disabled={submit.loading()}
         onClick={() => submit.mutate()}
       >
@@ -81,10 +84,10 @@ export default function PublicFeedbackForm(props: { slug: string; accentColor: s
   };
 
   return (
-    <section class="rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
+    <section class="paper overflow-hidden">
       <button
         type="button"
-        class="flex w-full items-center justify-between gap-3 rounded-2xl px-5 py-4 text-left transition-colors hover:bg-zinc-50"
+        class="flex w-full items-center justify-between gap-3 rounded-lg px-5 py-4 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
         onClick={openFeedback}
       >
         <span class="flex items-center gap-3">
