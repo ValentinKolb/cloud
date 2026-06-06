@@ -1,5 +1,14 @@
+import {
+  captureScroll,
+  documentNavigate,
+  type LinkNavigateEvent,
+  type LinkProps,
+  type NavigationScrollMode,
+  navigate,
+  restoreScroll,
+  startViewTransition,
+} from "@valentinkolb/ssr/nav";
 import { children, createContext, createMemo, type JSX, Show, useContext } from "solid-js";
-import { Link, type LinkNavigateEvent, type LinkProps, type NavigationScrollMode } from "@valentinkolb/ssr/nav";
 
 const SIDEBAR_HEADER = Symbol("AppWorkspace.SidebarHeader");
 const SIDEBAR_MOBILE = Symbol("AppWorkspace.SidebarMobile");
@@ -194,6 +203,52 @@ const linkEnhancementProps = (props: {
         nav.push();
       }),
   };
+};
+
+const shouldHandleEnhancedClick = (event: MouseEvent, anchor: HTMLAnchorElement): boolean => {
+  if (event.defaultPrevented || event.button !== 0) return false;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false;
+  if (anchor.target && anchor.target !== "_self") return false;
+  if (anchor.hasAttribute("download")) return false;
+  return new URL(anchor.href, window.location.href).origin === window.location.origin;
+};
+
+const handleEnhancedClick = (
+  event: MouseEvent & { currentTarget: HTMLAnchorElement },
+  href: string,
+  props: Pick<LinkProps, "replace" | "scroll" | "onNavigate">,
+) => {
+  if (!shouldHandleEnhancedClick(event, event.currentTarget)) return;
+
+  const url = new URL(href, window.location.href);
+  const scroll = props.scroll ?? "top";
+  const replace = Boolean(props.replace);
+  const scrollSnapshot = captureScroll();
+
+  event.preventDefault();
+
+  if (!props.onNavigate) {
+    navigate(href, { replace, scroll, scrollSnapshot });
+    return;
+  }
+
+  startViewTransition(() =>
+    props.onNavigate!({
+      event,
+      href,
+      url,
+      replace,
+      scroll,
+      push: (nextHref = href, options = {}) =>
+        navigate(nextHref, { replace: false, scroll, scrollSnapshot, viewTransition: false, ...options }),
+      replaceWith: (nextHref = href, options = {}) =>
+        navigate(nextHref, { replace: true, scroll, scrollSnapshot, viewTransition: false, ...options }),
+      fallback: (nextHref = href) => documentNavigate(nextHref, { replace }),
+      scrollSnapshot,
+      captureScroll,
+      restoreScroll,
+    }),
+  );
 };
 
 const detailWidthClass = (props: AppWorkspaceDetailProps): string => {
@@ -448,17 +503,19 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
           }
         >
           {(linkProps) => (
-            <Link
+            <a
               href={href()}
-              {...linkProps()}
               class={className()}
               title={props.title}
               style={style()}
-              onClick={props.onClick}
+              onClick={(event) => {
+                props.onClick?.(event);
+                handleEnhancedClick(event, href(), linkProps());
+              }}
               {...dataAttrs()}
             >
               {content}
-            </Link>
+            </a>
           )}
         </Show>
       )}
@@ -508,17 +565,19 @@ const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps
           }
         >
           {(linkProps) => (
-            <Link
+            <a
               href={href()}
-              {...linkProps()}
               class={className()}
               title={props.label}
               aria-label={props.label}
               style={style()}
-              onClick={props.onClick}
+              onClick={(event) => {
+                props.onClick?.(event);
+                handleEnhancedClick(event, href(), linkProps());
+              }}
             >
               {content}
-            </Link>
+            </a>
           )}
         </Show>
       )}
