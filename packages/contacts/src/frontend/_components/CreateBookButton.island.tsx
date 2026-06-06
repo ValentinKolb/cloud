@@ -7,6 +7,7 @@ import { readErrorMessage } from "./api";
 type Props = {
   buttonClass?: string;
   label?: string;
+  variant?: "button" | "icon";
 };
 
 /**
@@ -56,17 +57,20 @@ export default function CreateBookButton(props: Props) {
       prompts.error(error.message);
     },
   });
+  const isIcon = () => props.variant === "icon";
+  const buttonClass = () => props.buttonClass ?? (isIcon() ? "sidebar-icon-action" : "btn-primary btn-sm w-full");
 
   return (
     <button
       type="button"
-      class={props.buttonClass ?? "btn-primary btn-sm w-full"}
+      class={buttonClass()}
       disabled={mutation.loading()}
       onClick={() => mutation.mutate(undefined)}
       aria-label="Create new contact book"
+      title={props.label ?? "New Book"}
     >
       {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-plus" />}
-      {props.label ?? "New Book"}
+      {!isIcon() && (props.label ?? "New Book")}
     </button>
   );
 }

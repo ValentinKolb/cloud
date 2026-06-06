@@ -13,6 +13,7 @@ type Props = {
   defaultBookId?: string | null;
   buttonClass?: string;
   label?: string;
+  variant?: "button" | "icon";
 };
 
 export default function CreateContactButton(props: Props) {
@@ -69,16 +70,19 @@ export default function CreateContactButton(props: Props) {
     if (!created) return;
     navigateTo(`/app/contacts/${result.bookId}?contact=${created.id}&contactBook=${result.bookId}`);
   };
+  const isIcon = () => props.variant === "icon";
+  const buttonClass = () => props.buttonClass ?? (isIcon() ? "sidebar-icon-action sidebar-icon-action-success" : "btn-success btn-sm w-full");
 
   return (
     <button
       type="button"
-      class={props.buttonClass ?? "btn-success btn-sm w-full"}
+      class={buttonClass()}
       onClick={handleCreateContact}
       aria-label="Create new contact"
+      title={props.label ?? "Create Contact"}
     >
       <i class="ti ti-user-plus" />
-      {props.label ?? "Create Contact"}
+      {!isIcon() && (props.label ?? "Create Contact")}
     </button>
   );
 }

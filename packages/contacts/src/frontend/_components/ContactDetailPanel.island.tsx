@@ -1,8 +1,9 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Contact, ContactNote, ContactRef, ContactTree } from "../../service";
-import { resolveContactName, safeTagColor, safeWebsiteHref } from "../../shared";
+import { resolveContactName, safeWebsiteHref } from "../../shared";
 import ContactNotesSection from "./ContactNotesSection.island";
 import { createContactDetailActions } from "./ContactDetailPanel.actions";
+import ContactTagChip from "./ContactTagChip";
 import ContactOrgTreeView from "./ContactOrgTreeView";
 import {
   CONTACT_DETAIL_EVENT,
@@ -175,13 +176,7 @@ export default function ContactDetailPanel(props: Props) {
                       <div class="flex flex-wrap items-center gap-1.5">
                         <For each={c().tags}>
                           {(tag) => (
-                            <span
-                              class="inline-flex h-5 min-w-0 items-center gap-1 rounded px-1.5 text-xs font-medium"
-                              style={`background-color: ${safeTagColor(tag.color)}1f; color: ${safeTagColor(tag.color)}`}
-                            >
-                              <span class="h-1.5 w-1.5 shrink-0 rounded-full" style={`background-color: ${safeTagColor(tag.color)}`} />
-                              {tag.name}
-                            </span>
+                            <ContactTagChip name={tag.name} color={tag.color} size="sm" />
                           )}
                         </For>
                       </div>

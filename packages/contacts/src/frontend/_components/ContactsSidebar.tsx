@@ -77,12 +77,19 @@ export default function ContactsSidebar(props: Props) {
       <AppWorkspace.SidebarDesktop>
         <div class="flex flex-col gap-3">
           <AppWorkspace.SidebarSection title="Actions">
-            <CreateContactButton
-              writableBooks={props.writableBooks}
-              defaultBookId={props.defaultCreateBookId ?? null}
-              buttonClass="sidebar-item w-full text-green-600 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20"
-              label="Create Contact"
-            />
+            <AppWorkspace.SidebarIconGrid columns={2}>
+              <div style={`view-transition-name:${vt("create-contact-desktop")}`}>
+                <CreateContactButton
+                  writableBooks={props.writableBooks}
+                  defaultBookId={props.defaultCreateBookId ?? null}
+                  label="Create Contact"
+                  variant="icon"
+                />
+              </div>
+              <div style={`view-transition-name:${vt("create-book-desktop")}`}>
+                <CreateBookButton label="New Book" variant="icon" />
+              </div>
+            </AppWorkspace.SidebarIconGrid>
           </AppWorkspace.SidebarSection>
         </div>
 
@@ -128,10 +135,6 @@ export default function ContactsSidebar(props: Props) {
             {systemBooks.map((book) => renderBookItem(book, "desktop"))}
           </AppWorkspace.SidebarSection>
         </AppWorkspace.SidebarBody>
-
-        <AppWorkspace.SidebarFooter>
-          <CreateBookButton buttonClass="sidebar-item w-full" label="New Book" />
-        </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>
   );

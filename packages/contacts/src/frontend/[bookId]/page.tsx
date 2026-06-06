@@ -4,8 +4,8 @@ import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { AppWorkspace, Pagination } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import { contactsService } from "../../service";
-import { safeTagColor } from "../../shared";
 import ContactDetailPanel from "../_components/ContactDetailPanel.island";
+import ContactTagChip from "../_components/ContactTagChip";
 import ContactsList from "../_components/ContactsList.island";
 import ContactsSidebar from "../_components/ContactsSidebar";
 import DesktopDetailLayoutSync from "../_components/DesktopDetailLayoutSync.island";
@@ -33,14 +33,12 @@ export default ssr<AuthContext>(async (c) => {
   if (!book) {
     return () => (
       <Layout c={c} title="Not Found">
-        {" "}
-        <div class="max-w-md mx-auto mt-16">
-          {" "}
-          <div class="paper p-8 flex items-center justify-center text-dimmed text-xs gap-2">
-            {" "}
-            <i class="ti ti-alert-circle text-sm" /> Book not found{" "}
-          </div>{" "}
-        </div>{" "}
+        <div class="mx-auto mt-16 max-w-md">
+          <div class="info-block-note flex items-center justify-center gap-2 p-8 text-xs">
+            <i class="ti ti-alert-circle text-sm" />
+            Book not found
+          </div>
+        </div>
       </Layout>
     );
   }
@@ -53,14 +51,12 @@ export default ssr<AuthContext>(async (c) => {
   if (!hasReadAccess) {
     return () => (
       <Layout c={c} title="Access Denied">
-        {" "}
-        <div class="max-w-md mx-auto mt-16">
-          {" "}
-          <div class="paper p-8 flex items-center justify-center text-dimmed text-xs gap-2">
-            {" "}
-            <i class="ti ti-lock text-sm" /> You don&apos;t have access to this contact book{" "}
-          </div>{" "}
-        </div>{" "}
+        <div class="mx-auto mt-16 max-w-md">
+          <div class="info-block-warning flex items-center justify-center gap-2 p-8 text-xs">
+            <i class="ti ti-lock text-sm" />
+            You don&apos;t have access to this contact book
+          </div>
+        </div>
       </Layout>
     );
   }
@@ -107,29 +103,23 @@ export default ssr<AuthContext>(async (c) => {
             <div class="flex flex-wrap items-center gap-1.5 pt-2">
               <a
                 href={search.trim() ? `/app/contacts/${bookId}?search=${encodeURIComponent(search.trim())}` : `/app/contacts/${bookId}`}
-                class={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                class={`inline-flex h-6 items-center gap-1 rounded-full border px-2 text-xs font-medium transition-colors ${
                   activeTagId
-                    ? "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 hover:text-primary dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
-                    : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                    ? "border-zinc-200 bg-zinc-100/80 text-zinc-600 hover:bg-zinc-200/80 hover:text-primary dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                    : "border-blue-300/70 bg-blue-500/12 text-blue-700 dark:border-blue-700/70 dark:bg-blue-500/18 dark:text-blue-300"
                 }`}
               >
                 All
               </a>
               {bookTags.map((tag) => {
                 const active = activeTagId === tag.id;
-                const color = safeTagColor(tag.color);
                 const params = new URLSearchParams();
                 if (search.trim()) params.set("search", search.trim());
                 params.set("tag_id", tag.id);
                 const href = `/app/contacts/${bookId}?${params.toString()}`;
                 return (
-                  <a
-                    href={href}
-                    class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-opacity"
-                    style={`background-color: ${color}${active ? "33" : "1f"}; color: ${color}${active ? "" : "cc"}; ${active ? "outline: 1.5px solid " + color + ";" : ""}`}
-                  >
-                    <span class="h-1.5 w-1.5 rounded-full" style={`background-color: ${color}`} />
-                    {tag.name}
+                  <a href={href} class="inline-flex transition-opacity hover:opacity-85">
+                    <ContactTagChip name={tag.name} color={tag.color} active={active} size="sm" />
                   </a>
                 );
               })}
