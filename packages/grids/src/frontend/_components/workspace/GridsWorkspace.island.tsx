@@ -34,16 +34,28 @@ const urlWithParam = (href: string, key: string, value: string) => {
 const keepEdit = (href: string, adminMode: boolean) => (adminMode ? urlWithParam(href, "edit", "true") : href);
 
 const sidebarStateClass = (active: boolean, adminMode: boolean) =>
-  active
-    ? adminMode
-      ? "bg-emerald-50 text-emerald-700 font-medium hover:bg-emerald-100 hover:text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/40 dark:hover:text-emerald-200"
-      : "sidebar-item-active"
-    : adminMode
-      ? "text-emerald-700 hover:bg-emerald-50/70 hover:text-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-200"
-      : "";
+  active ? "sidebar-item-active" : adminMode ? "text-secondary" : "";
 
 const formOnlyEmptyText = (count: number) =>
   count === 1 ? "You have access to 1 form. Click it in the sidebar to fill it out." : `You have access to ${count} forms. Click one in the sidebar to fill it out.`;
+
+const captureScrollPreserve = () =>
+  new Map(
+    Array.from(document.querySelectorAll("[data-scroll-preserve]"))
+      .filter((element): element is HTMLElement => element instanceof HTMLElement)
+      .map((element) => [element.dataset.scrollPreserve ?? "", element.scrollTop] as const)
+      .filter(([key]) => key.length > 0),
+  );
+
+const restoreScrollPreserve = (snapshot: Map<string, number> | null) => {
+  if (!snapshot) return;
+  requestAnimationFrame(() => {
+    for (const [key, scrollTop] of snapshot) {
+      const element = document.querySelector(`[data-scroll-preserve="${CSS.escape(key)}"]`);
+      if (element instanceof HTMLElement) element.scrollTop = scrollTop;
+    }
+  });
+};
 
 export default function GridsWorkspace(props: Props) {
   const [state, setState] = createSignal(props.initialState);
@@ -68,12 +80,14 @@ export default function GridsWorkspace(props: Props) {
     return next;
   };
 
-  const applyWorkspaceHref = async (href: string): Promise<boolean> => {
+  const applyWorkspaceHref = async (href: string, options?: { preserveScroll?: boolean }): Promise<boolean> => {
     const requestId = ++routeRequest;
+    const scrollSnapshot = options?.preserveScroll ? captureScrollPreserve() : null;
     const next = await loadWorkspaceState(href);
     if (requestId !== routeRequest) return false;
     setState(next);
     layout.update({ breadcrumbs: next.title, title: next.title.at(-1)?.title });
+    restoreScrollPreserve(scrollSnapshot);
     return true;
   };
 
@@ -85,7 +99,7 @@ export default function GridsWorkspace(props: Props) {
     const cursorToApply = metadataPendingCursor;
     let applied = false;
     try {
-      applied = await applyWorkspaceHref(currentWorkspaceHref());
+      applied = await applyWorkspaceHref(currentWorkspaceHref(), { preserveScroll: true });
       if (applied) {
         metadataProvider?.markApplied(cursorToApply);
         if (metadataPendingCursor === cursorToApply) metadataPendingCursor = null;
@@ -129,7 +143,7 @@ export default function GridsWorkspace(props: Props) {
     const cursorsToApply = new Map(dashboardRecordPendingCursors);
     let applied = false;
     try {
-      applied = await applyWorkspaceHref(currentWorkspaceHref());
+      applied = await applyWorkspaceHref(currentWorkspaceHref(), { preserveScroll: true });
       if (applied) {
         for (const [tableId, cursor] of cursorsToApply) {
           dashboardRecordProviders.get(tableId)?.markApplied(cursor);
@@ -642,11 +656,7 @@ export default function GridsWorkspace(props: Props) {
                   href={state().editModeToggleHref}
                   icon={state().adminModeRequested ? "ti ti-check" : "ti ti-tool"}
                   onNavigate={handleNavigate}
-                  class={
-                    state().adminModeRequested
-                      ? "bg-emerald-50 text-emerald-700 font-medium hover:bg-emerald-100 hover:text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/40"
-                      : undefined
-                  }
+                  class={state().adminModeRequested ? "grids-sidebar-edit-active" : undefined}
                 >
                   {state().adminModeRequested ? "Done editing" : "Edit mode"}
                 </AppWorkspace.SidebarItem>

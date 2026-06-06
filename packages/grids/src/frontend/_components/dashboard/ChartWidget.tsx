@@ -98,7 +98,7 @@ function ChartBody(props: {
             return (
               <Chart
                 kind="donut"
-                class="flex-1 min-h-0"
+                class="h-full max-h-full min-h-0 flex-1"
                 data={rd.data}
                 showLabels
               />
@@ -107,7 +107,7 @@ function ChartBody(props: {
             return (
               <Chart
                 kind="bar"
-                class="flex-1 min-h-0"
+                class="h-full max-h-full min-h-0 flex-1"
                 data={rd.data}
                 yAxis={{ format: yFormat(), label: props.widget.yAxisLabel }}
               />
@@ -116,7 +116,7 @@ function ChartBody(props: {
             return (
               <Chart
                 kind="line"
-                class="flex-1 min-h-0"
+                class="h-full max-h-full min-h-0 flex-1"
                 series={rd.series}
                 xAxis={{ format: rd.xAxisFormat, label: props.widget.xAxisLabel }}
                 yAxis={{ format: yFormat(), label: props.widget.yAxisLabel }}
@@ -128,7 +128,7 @@ function ChartBody(props: {
             return (
               <Chart
                 kind="scatter"
-                class="flex-1 min-h-0"
+                class="h-full max-h-full min-h-0 flex-1"
                 series={rd.series}
                 xAxis={{ label: props.widget.xAxisLabel }}
                 yAxis={{ format: yFormat(), label: props.widget.yAxisLabel }}

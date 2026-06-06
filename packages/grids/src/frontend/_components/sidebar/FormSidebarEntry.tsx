@@ -83,11 +83,7 @@ export default function FormSidebarEntry(props: Props) {
   return (
     <button
       type="button"
-      class={`sidebar-item w-full text-left ${
-        props.editMode
-          ? "text-emerald-700 hover:bg-emerald-50/70 hover:text-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
-          : ""
-      }`}
+      class={`sidebar-item w-full text-left ${props.editMode ? "text-secondary" : ""}`}
       onClick={handleClick}
       title={props.editMode ? `Edit ${props.form.name}` : `Submit ${props.form.name}`}
     >

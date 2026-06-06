@@ -285,7 +285,7 @@ function TextConstraints(props: { config: () => FieldConfigState; onChange: (nex
             {(preset) => (
               <button
                 type="button"
-                class="rounded border border-zinc-200 bg-white px-2 py-1 text-[11px] font-medium text-secondary hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                class="btn-input btn-input-sm"
                 onClick={() => update({ regex: preset.value })}
               >
                 {preset.label}
@@ -493,7 +493,7 @@ function SelectConstraints(props: { config: () => FieldConfigState; onChange: (n
       />
       <div class="flex items-center justify-between">
         <span class="text-xs text-secondary">Options</span>
-        <button type="button" class="btn-simple btn-sm text-xs" onClick={addOption}>
+        <button type="button" class="btn-input-success btn-input-sm" onClick={addOption}>
           <i class="ti ti-plus" /> Add option
         </button>
       </div>
@@ -783,7 +783,7 @@ function FileConstraints(props: { config: () => FieldConfigState; onChange: (nex
           {(preset) => (
             <button
               type="button"
-              class="rounded border border-zinc-200 bg-white px-2 py-1 text-[11px] font-medium text-secondary hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+              class="btn-input btn-input-sm"
               onClick={() => appendAccept(preset.values)}
             >
               {preset.label}

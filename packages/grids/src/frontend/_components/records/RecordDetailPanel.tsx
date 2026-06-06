@@ -458,7 +458,7 @@ function FileFieldCell(props: { tableId: string; recordId: string; field: Field;
         <div class="flex flex-col gap-1">
           <For each={files()?.items ?? []}>
             {(file) => (
-              <div class="flex items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900/40">
+              <div class="paper flex items-center gap-2 px-2.5 py-1.5 text-xs">
                 <i class="ti ti-paperclip text-dimmed" />
                 <a
                   class="min-w-0 flex-1 truncate text-secondary hover:text-primary"

@@ -132,7 +132,7 @@ export default function FilterPanel(props: Props) {
       {/* Bottom row — Add only. Apply is owned by the GridToolbar's
           floating Apply/Cancel chips (one for the whole query state). */}
       <div class="flex items-center gap-1">
-        <button type="button" class="btn-simple btn-sm text-emerald-600 hover:text-emerald-700" onClick={addLeaf}>
+        <button type="button" class="btn-input-success btn-input-sm" onClick={addLeaf}>
           <i class="ti ti-plus" /> Add
         </button>
       </div>

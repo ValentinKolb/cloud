@@ -42,6 +42,9 @@ const ROW_MIN_HEIGHT_PX = {
   lg: 360,
 } as const;
 
+const DASHBOARD_CELL_MAX_HEIGHT = "min(70vh, 820px)";
+const EDIT_ICON_CLASS = "icon-btn text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-200";
+
 type RowDragMeta = { rowIdx: number };
 type RowDropMeta = { insertionIdx: number };
 type RowDropIntent = { fromRowIdx: number; toRowIdx: number };
@@ -59,7 +62,7 @@ const widgetSpan = (widget: Widget, cellCount: number) => clampSpan(widget.span 
 const cellFlexStyle = (span: number, minHeight: number) => {
   const s = clampSpan(span);
   const basis = `${(s / 12) * 100}%`;
-  return `flex: ${s} 1 calc(${basis} - 0.75rem); min-height: ${minHeight}px`;
+  return `flex: ${s} 1 calc(${basis} - 0.75rem); min-height: ${minHeight}px; max-height: ${DASHBOARD_CELL_MAX_HEIGHT}`;
 };
 
 const emptyRowMinHeightStyle = (row: DashboardRow) => `min-height: ${Math.max(144, ROW_MIN_HEIGHT_PX[row.height])}px`;
@@ -146,15 +149,8 @@ export default function DashboardLayout(props: Props) {
           <Show when={props.edit}>
             {(edit) => (
               <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                <button type="button" class="btn-input-success btn-input-sm" onClick={edit().onGeneral}>
+                <button type="button" class="btn-input btn-input-sm" onClick={edit().onGeneral}>
                   <i class="ti ti-settings" /> General
-                </button>
-                <button
-                  type="button"
-                  class="btn-input-success btn-input-sm"
-                  onClick={() => edit().onAddRowAt(props.dashboard.config.rows.length)}
-                >
-                  <i class="ti ti-plus" /> Add row
                 </button>
               </div>
             )}
@@ -162,7 +158,10 @@ export default function DashboardLayout(props: Props) {
         </div>
       </header>
 
-      <Show when={props.dashboard.config.rows.length > 0} fallback={<EmptyDashboardState />}>
+      <Show
+        when={props.dashboard.config.rows.length > 0}
+        fallback={<EmptyDashboardState edit={props.edit} />}
+      >
         <Show when={props.edit}>
           {(edit) => <AddRowRail label="Add row" insertionIdx={0} rowDnd={rowDnd} onAdd={() => edit().onAddRowAt(0)} />}
         </Show>
@@ -259,7 +258,7 @@ function DashboardRowGrid(props: {
       style={props.edit && props.row.cells.length === 0 ? emptyRowMinHeightStyle(props.row) : undefined}
     >
       <Show when={props.edit}>
-        <RowEditRail row={props.row} rowIdx={props.rowIdx} rowCount={props.rowCount} edit={props.edit} rowDnd={props.rowDnd} />
+        <RowEditRail row={props.row} rowIdx={props.rowIdx} edit={props.edit} rowDnd={props.rowDnd} />
       </Show>
       <div
         ref={(element) => {
@@ -294,7 +293,7 @@ function DashboardRowGrid(props: {
                     handleSelector: "[data-dashboard-cell-drag]",
                   }));
                 }}
-                class={`group/cell relative min-w-0 flex flex-col ${
+                class={`group/cell relative min-w-0 flex flex-col overflow-hidden ${
                   props.cellDnd.activeId() === `dashboard-cell-drag:${cell.id}` ? "opacity-40" : ""
                 }`}
                 style={cellFlexStyle(widgetSpan(cell, props.row.cells.length), ROW_MIN_HEIGHT_PX[props.row.height])}
@@ -302,8 +301,6 @@ function DashboardRowGrid(props: {
                 <EditCellControls
                   rowIdx={props.rowIdx}
                   cellIdx={cellIdx()}
-                  cell={cell}
-                  cellCount={props.row.cells.length}
                   edit={props.edit}
                 />
                 <CellRenderer
@@ -332,9 +329,9 @@ function DashboardRowGrid(props: {
                 }));
               }}
               type="button"
-              class={`min-h-16 w-16 shrink-0 rounded-lg border border-dashed border-emerald-400/70 bg-emerald-50/60 text-emerald-700 transition hover:bg-emerald-100/80 dark:border-emerald-500/50 dark:bg-emerald-950/25 dark:text-emerald-300 dark:hover:bg-emerald-950/40 ${
+              class={`btn-input-success min-h-16 w-16 shrink-0 justify-center ${
                 props.cellDnd.intent()?.toRowIdx === props.rowIdx && (props.cellDnd.intent()?.toCellIdx ?? 0) >= props.row.cells.length
-                  ? "ring-2 ring-inset ring-emerald-500/60"
+                  ? "bg-emerald-50 dark:bg-emerald-950"
                   : ""
               }`}
               onClick={() => edit().onAddCell(props.rowIdx)}
@@ -373,10 +370,10 @@ function AddRowRail(props: {
     >
       <button
         type="button"
-        class={`flex min-h-10 w-full items-center justify-center rounded-lg border border-dashed px-2 py-2 text-xs font-medium transition ${
+        class={`btn-input-success btn-input-sm flex min-h-9 w-full items-center justify-center ${
           active() || props.active
-            ? "border-emerald-500 bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
-            : "border-emerald-400/70 bg-emerald-50/60 text-emerald-700 hover:bg-emerald-100/80 dark:border-emerald-500/50 dark:bg-emerald-950/25 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+            ? "bg-emerald-50 dark:bg-emerald-950"
+            : ""
         }`}
         onClick={props.onAdd}
       >
@@ -389,7 +386,6 @@ function AddRowRail(props: {
 function RowEditRail(props: {
   row: DashboardRow;
   rowIdx: number;
-  rowCount: number;
   edit?: Props["edit"];
   rowDnd: ReturnType<typeof dnd.create<RowDragMeta, RowDropMeta, RowDropIntent>>;
 }) {
@@ -407,28 +403,10 @@ function RowEditRail(props: {
       }}
       class="absolute left-0 top-0 z-20 flex w-9 flex-col items-center justify-start gap-1 pt-2"
     >
-      <button type="button" class="icon-btn text-emerald-600 cursor-grab active:cursor-grabbing" data-dashboard-row-drag title="Drag row">
+      <button type="button" class={`${EDIT_ICON_CLASS} cursor-grab active:cursor-grabbing`} data-dashboard-row-drag title="Drag row">
         <i class="ti ti-grip-vertical" />
       </button>
-      <button
-        type="button"
-        class="icon-btn text-emerald-600"
-        onClick={() => props.edit?.onMoveRow(props.rowIdx, props.rowIdx - 1)}
-        disabled={props.rowIdx <= 0}
-        title="Move row up"
-      >
-        <i class="ti ti-arrow-up" />
-      </button>
-      <button
-        type="button"
-        class="icon-btn text-emerald-600"
-        onClick={() => props.edit?.onMoveRow(props.rowIdx, props.rowIdx + 2)}
-        disabled={props.rowIdx >= props.rowCount - 1}
-        title="Move row down"
-      >
-        <i class="ti ti-arrow-down" />
-      </button>
-      <button type="button" class="icon-btn text-emerald-600" onClick={() => props.edit?.onEditRow(props.rowIdx)} title="Row settings">
+      <button type="button" class={EDIT_ICON_CLASS} onClick={() => props.edit?.onEditRow(props.rowIdx)} title="Row settings">
         <i class="ti ti-settings" />
       </button>
     </div>
@@ -437,42 +415,24 @@ function RowEditRail(props: {
 
 function DropIndicator() {
   return (
-    <div class="pointer-events-none my-2 min-h-16 w-1.5 shrink-0 self-stretch rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.14)]" />
+    <div class="pointer-events-none my-2 min-h-16 w-1.5 shrink-0 self-stretch rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]" />
   );
 }
 
-function EditCellControls(props: { rowIdx: number; cellIdx: number; cell: Widget; cellCount: number; edit?: Props["edit"] }) {
+function EditCellControls(props: { rowIdx: number; cellIdx: number; edit?: Props["edit"] }) {
   return (
     <Show when={props.edit}>
       {(edit) => (
-        <div class="absolute right-2 top-2 z-20 flex items-center gap-0 rounded-lg bg-white/90 p-1 shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-950/90 dark:ring-zinc-800">
+        <div class="grids-edit-control-surface absolute right-2 top-2 z-20 flex items-center gap-0 rounded-lg bg-white p-1 dark:bg-zinc-950">
           <button
             type="button"
-            class="icon-btn text-emerald-600 cursor-grab active:cursor-grabbing"
+            class={`${EDIT_ICON_CLASS} cursor-grab active:cursor-grabbing`}
             data-dashboard-cell-drag
             title="Drag widget"
           >
             <i class="ti ti-grip-vertical" />
           </button>
-          <button
-            type="button"
-            class="icon-btn text-emerald-600"
-            onClick={() => edit().onMoveCell(props.rowIdx, props.cellIdx, props.rowIdx, props.cellIdx - 1)}
-            disabled={props.cellIdx <= 0}
-            title="Move widget left"
-          >
-            <i class="ti ti-arrow-narrow-left" />
-          </button>
-          <button
-            type="button"
-            class="icon-btn text-emerald-600"
-            onClick={() => edit().onMoveCell(props.rowIdx, props.cellIdx, props.rowIdx, props.cellIdx + 2)}
-            disabled={props.cellIdx >= props.cellCount - 1}
-            title="Move widget right"
-          >
-            <i class="ti ti-arrow-narrow-right" />
-          </button>
-          <button type="button" class="icon-btn text-emerald-600" onClick={() => edit().onEditCell(props.rowIdx, props.cellIdx)}>
+          <button type="button" class={EDIT_ICON_CLASS} onClick={() => edit().onEditCell(props.rowIdx, props.cellIdx)}>
             <i class="ti ti-settings" />
           </button>
         </div>
@@ -533,12 +493,21 @@ function CellRenderer(props: {
   }
 }
 
-function EmptyDashboardState() {
+function EmptyDashboardState(props: { edit?: Props["edit"] }) {
   return (
-    <div class="paper px-6 py-10 text-center flex flex-col items-center gap-2">
-      <i class="ti ti-layout-dashboard text-3xl text-dimmed" />
+    <div class="flex min-h-40 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
+      <i class="ti ti-layout-dashboard text-2xl text-dimmed" />
       <p class="text-sm text-dimmed">This dashboard has no rows yet.</p>
-      <p class="text-xs text-dimmed">Open the editor to add a row and configure cells.</p>
+      <Show
+        when={props.edit}
+        fallback={<p class="text-xs text-dimmed">Open the editor to add rows and widgets.</p>}
+      >
+        {(edit) => (
+          <button type="button" class="btn-input-success btn-input-sm mt-1" onClick={() => edit().onAddRowAt(0)}>
+            <i class="ti ti-plus" /> Add row
+          </button>
+        )}
+      </Show>
     </div>
   );
 }

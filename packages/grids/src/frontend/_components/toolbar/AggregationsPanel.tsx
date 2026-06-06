@@ -138,7 +138,7 @@ export default function AggregationsPanel(props: Props) {
       </Index>
 
       <div class="flex items-center gap-1">
-        <button type="button" class="btn-simple btn-sm text-emerald-600 hover:text-emerald-700" onClick={addRow}>
+        <button type="button" class="btn-input-success btn-input-sm" onClick={addRow}>
           <i class="ti ti-plus" /> Add
         </button>
       </div>

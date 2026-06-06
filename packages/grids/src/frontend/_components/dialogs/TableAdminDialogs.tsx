@@ -119,35 +119,19 @@ const FIELD_TYPE_PICKER_DESCRIPTIONS: Record<string, string> = {
 const CREATE_TYPE_OPTIONS = TYPE_OPTIONS.filter((type) => type.value !== "json");
 
 const chooseFieldType = () =>
-  prompts.dialog<string>(
+  dialogCore.open<string | null>(
     (close) => (
-      <div class="max-h-[86vh] overflow-y-auto">
-        <div class="flex flex-col gap-2">
-          <section class="paper p-4">
-            <div class="flex items-start gap-3">
-              <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-dimmed dark:bg-zinc-800">
-                <i class="ti ti-plus text-lg" />
-              </span>
-              <div class="min-w-0">
-                <h2 class="text-lg font-semibold">Choose field type</h2>
-                <p class="mt-1 text-sm text-secondary">Pick the basic data shape first. You can tune details after the field exists.</p>
-              </div>
-              <button type="button" class="icon-btn ml-auto" onClick={() => close(undefined)} aria-label="Close">
-                <i class="ti ti-x" />
-              </button>
-            </div>
-          </section>
+      <PanelDialog>
+        <PanelDialog.Header title="Choose field type" icon="ti ti-plus" close={() => close(null)} />
+        <PanelDialog.Body>
+          <p class="text-sm text-secondary">Pick the basic data shape first. You can tune details after the field exists.</p>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <For each={CREATE_TYPE_OPTIONS}>
               {(type) => (
-                <button
-                  type="button"
-                  class="paper p-3 text-left transition hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-zinc-900"
-                  onClick={() => close(type.value)}
-                >
+                <button type="button" class="paper p-3 text-left hover:paper-highlighted transition" onClick={() => close(type.value)}>
                   <div class="flex items-start gap-3">
-                    <span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
-                      <i class={`${FIELD_TYPE_ICONS[type.value] ?? "ti ti-database"} text-base`} />
+                    <span class="thumbnail flex h-8 w-8 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
+                      <i class={`${FIELD_TYPE_ICONS[type.value] ?? "ti ti-database"} text-base text-dimmed`} />
                     </span>
                     <div class="min-w-0">
                       <div class="text-sm font-semibold text-primary">{type.label}</div>
@@ -161,10 +145,10 @@ const chooseFieldType = () =>
               )}
             </For>
           </div>
-        </div>
-      </div>
+        </PanelDialog.Body>
+      </PanelDialog>
     ),
-    { surface: "bare", header: false, size: "large" },
+    panelDialogOptions,
   );
 
 export const openFormsDialog = (args: {
@@ -322,7 +306,7 @@ function TableSettingsBody(props: {
         </PanelDialog.Section>
 
         <PanelDialog.Section title="Danger zone" subtitle="Remove this table from the active app." icon="ti ti-trash">
-          <button type="button" class="btn-danger btn-sm" onClick={deleteTable} disabled={deleteMut.loading()}>
+          <button type="button" class="btn-danger btn-sm self-start" onClick={deleteTable} disabled={deleteMut.loading()}>
             <i class="ti ti-trash" /> Delete table
           </button>
         </PanelDialog.Section>

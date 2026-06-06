@@ -82,7 +82,7 @@ export default function ViewStatsCell(props: Props) {
             );
           }
           return (
-            <div class="px-3 pb-3">
+            <div class="flex-1 min-h-0 overflow-auto px-3 pb-3">
               <StatGrid columns={2}>
                 <For each={d.cells}>
                   {(cell) => {

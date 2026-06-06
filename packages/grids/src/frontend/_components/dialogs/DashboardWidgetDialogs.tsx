@@ -452,13 +452,13 @@ function StatTrendSection(props: { widget: StatWidget; fields: Field[]; onUpdate
 
   return (
     <Show when={dateFields().length > 0}>
-      <div class="flex flex-col gap-2 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+      <div class="paper flex flex-col gap-2 p-3">
         <div class="flex items-center justify-between gap-2">
           <span class="text-xs font-semibold uppercase tracking-wider text-dimmed">Trend</span>
           <Show
             when={trend()}
             fallback={
-              <button type="button" class="btn-input btn-sm" onClick={enable}>
+              <button type="button" class="btn-input-success btn-sm" onClick={enable}>
                 <i class="ti ti-plus" /> Add trend
               </button>
             }

@@ -45,7 +45,7 @@ import { cleanRecordMetaQuery, openRecordMetadataDialog, recordMetaActiveCount }
  *  as an editable row. */
 const UI_AGG_KINDS: ReadonlySet<AggKindUI> = new Set(["count", "countEmpty", "countUnique", "sum", "avg", "min", "max"]);
 
-const ADMIN_BUTTON_CLASS = "btn-input-success btn-input-sm";
+const ADMIN_BUTTON_CLASS = "btn-input btn-input-sm";
 
 const isComputedColumn = (column: ColumnSpec): column is Extract<ColumnSpec, { kind: "computed" }> =>
   "kind" in column && column.kind === "computed";
@@ -1400,15 +1400,6 @@ export default function RecordsView(props: Props) {
                   label: "Show deleted",
                   href: `/app/grids/${props.baseShortId}/table/${props.tableShortId}?trash=1`,
                 },
-                ...(canUseEditMode()
-                  ? [
-                      {
-                        icon: adminMode() ? "ti ti-check" : "ti ti-tool",
-                        label: adminMode() ? "Exit edit mode" : isSavedView() ? "Edit view" : "Edit table",
-                        action: () => setAdminModeAndUrl(!adminMode()),
-                      },
-                    ]
-                  : []),
               ]}
             />
           </Show>
@@ -1453,7 +1444,7 @@ export default function RecordsView(props: Props) {
                   <button type="button" class={ADMIN_BUTTON_CLASS} onClick={openTableSettings}>
                     <i class="ti ti-settings" /> General
                   </button>
-                  <button type="button" class={ADMIN_BUTTON_CLASS} onClick={openAddField}>
+                  <button type="button" class="btn-input-success btn-input-sm" onClick={openAddField}>
                     <i class="ti ti-plus" /> Add field
                   </button>
                   <button type="button" class={ADMIN_BUTTON_CLASS} onClick={() => openForms()}>
@@ -1472,7 +1463,7 @@ export default function RecordsView(props: Props) {
                   <i class="ti ti-table-spark" /> View
                 </button>
                 <Show when={hiddenViewColumnCount() > 0}>
-                  <button type="button" class={ADMIN_BUTTON_CLASS} onClick={openAddViewColumnDialog}>
+                  <button type="button" class="btn-input-success btn-input-sm" onClick={openAddViewColumnDialog}>
                     <i class="ti ti-plus" /> Add column
                   </button>
                 </Show>
@@ -1480,7 +1471,7 @@ export default function RecordsView(props: Props) {
             </Show>
             <button
               type="button"
-              class="btn-simple btn-sm ml-auto text-emerald-700 hover:text-emerald-800 dark:text-emerald-300 dark:hover:text-emerald-200"
+              class="btn-simple btn-sm ml-auto"
               onClick={() => setAdminModeAndUrl(false)}
             >
               Done

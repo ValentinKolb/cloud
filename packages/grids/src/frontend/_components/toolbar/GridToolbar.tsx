@@ -311,7 +311,7 @@ export default function GridToolbar(props: Props) {
             when={activeForms().length > 0}
             fallback={
               <Show when={!props.disableDirectInsert}>
-                <button type="button" class="btn-input btn-input-sm" onClick={handleAddRow} disabled={addMut.loading()}>
+                <button type="button" class="btn-input-success btn-input-sm" onClick={handleAddRow} disabled={addMut.loading()}>
                   <Show when={addMut.loading()} fallback={<i class="ti ti-plus" />}>
                     <i class="ti ti-loader-2 animate-spin" />
                   </Show>
@@ -348,7 +348,7 @@ export default function GridToolbar(props: Props) {
               )}
             </Show>
             <Show when={!props.disableDirectInsert}>
-              <button type="button" class="btn-input btn-input-sm" onClick={handleAddRow} disabled={addMut.loading()}>
+              <button type="button" class="btn-input-success btn-input-sm" onClick={handleAddRow} disabled={addMut.loading()}>
                 <Show when={addMut.loading()} fallback={<i class="ti ti-plus" />}>
                   <i class="ti ti-loader-2 animate-spin" />
                 </Show>
@@ -416,7 +416,7 @@ export default function GridToolbar(props: Props) {
         <Show when={hasSaveableQuery()}>
           <button
             type="button"
-            class="btn-input btn-input-sm text-emerald-700 dark:text-emerald-300 ml-auto"
+            class="btn-input btn-input-sm ml-auto"
             onClick={handleSaveView}
             disabled={saveViewMut.loading()}
             title="Save current setup as a view"
@@ -429,28 +429,28 @@ export default function GridToolbar(props: Props) {
 
       {/* Filter panel — render iff there's at least one filter row */}
       <Show when={hasFilter()}>
-        <div class="paper p-3">
+        <div class="paper p-2.5">
           <FilterPanel fields={props.fields} rows={filterRows} onRowsChange={setFilterRows} dateConfig={props.dateConfig} />
         </div>
       </Show>
 
       {/* Sort panel */}
       <Show when={hasSort()}>
-        <div class="paper p-3">
+        <div class="paper p-2.5">
           <SortPanel fields={props.fields} rows={sortRows} onRowsChange={setSortRows} />
         </div>
       </Show>
 
       {/* Group-by panel */}
       <Show when={hasGroupBy()}>
-        <div class="paper p-3">
+        <div class="paper p-2.5">
           <GroupByPanel fields={props.fields} rows={groupByRows} onRowsChange={setGroupByRows} />
         </div>
       </Show>
 
       {/* Aggregations panel */}
       <Show when={hasAgg()}>
-        <div class="paper p-3">
+        <div class="paper p-2.5">
           <AggregationsPanel fields={props.fields} rows={aggRows} onRowsChange={setAggRows} />
         </div>
       </Show>

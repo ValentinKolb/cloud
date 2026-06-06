@@ -169,7 +169,7 @@ export default function AutomationsPage(props: Props) {
             <h1 class="min-w-0 text-base font-semibold text-primary">Automations</h1>
             <p class="mt-0.5 text-xs text-dimmed">Send webhooks when records change or on a schedule.</p>
           </div>
-          <button type="button" class="btn-input btn-input-sm shrink-0" onClick={() => void openEditor()}>
+          <button type="button" class="btn-input-success btn-input-sm shrink-0" onClick={() => void openEditor()}>
             <i class="ti ti-plus" /> Add automation
           </button>
         </div>
@@ -347,7 +347,7 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
               </div>
               <button
                 type="button"
-                class="btn-simple btn-sm"
+                class="btn-input-success btn-input-sm"
                 onClick={() => setFilterRows([...filterRows(), blankLeaf(fields())].filter(Boolean) as FilterLeaf[])}
               >
                 <i class="ti ti-plus" /> Add filter
@@ -435,7 +435,7 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
             <div class="mt-3 flex flex-col gap-2 text-xs">
               <For each={runs()?.items ?? []} fallback={<p class="text-dimmed">No runs yet.</p>}>
                 {(run) => (
-                  <div class="flex items-center justify-between gap-3 rounded border border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
+                  <div class="paper flex items-center justify-between gap-3 px-2.5 py-1.5">
                     <span class={run.status === "failed" ? "text-red-600 dark:text-red-400" : "text-secondary"}>{run.status}</span>
                     <span class="text-dimmed">{run.httpStatus ?? "-"}</span>
                     <span class="text-dimmed">{run.durationMs == null ? "-" : `${run.durationMs}ms`}</span>

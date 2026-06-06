@@ -150,10 +150,31 @@ const rebalanceEvenCells = (cells: Widget[]) => {
   return cells.map((cell) => withSpan(cell, span));
 };
 
+const dashboardScroller = () => document.querySelector('[data-scroll-preserve^="grids-main-"]');
+
+const captureDashboardScrollTop = () => {
+  const scroller = dashboardScroller();
+  return scroller instanceof HTMLElement ? scroller.scrollTop : null;
+};
+
+const restoreDashboardScrollTop = (scrollTop: number | null) => {
+  const scroller = dashboardScroller();
+  if (!(scroller instanceof HTMLElement) || scrollTop === null) return;
+  requestAnimationFrame(() => {
+    scroller.scrollTop = scrollTop;
+  });
+};
+
+const withDashboardScrollPreserved = (update: () => void, scrollTop = captureDashboardScrollTop()) => {
+  update();
+  restoreDashboardScrollTop(scrollTop);
+};
+
 export default function DashboardWysiwygEditor(props: Props) {
   const [config, setConfig] = createSignal<DashboardConfig>(props.initialDashboard.config);
   const [widgetData, setWidgetData] = createSignal<Record<string, WidgetData>>(props.widgetData);
   let saveToken = 0;
+  let pendingScrollTop: number | null | undefined;
 
   createEffect(() => {
     const incoming = props.widgetData;
@@ -163,13 +184,15 @@ export default function DashboardWysiwygEditor(props: Props) {
   const saveConfigMut = mutations.create<
     Dashboard,
     DashboardConfig,
-    { previous: DashboardConfig; widgetsToResolve: Widget[]; token: number }
+    { previous: DashboardConfig; widgetsToResolve: Widget[]; token: number; scrollTop: number | null }
   >({
     onBefore: (next) => {
       const previous = config();
       const token = ++saveToken;
-      setConfig(next);
-      return { previous, widgetsToResolve: changedServerWidgets(previous, next, widgetData()), token };
+      const scrollTop = pendingScrollTop ?? captureDashboardScrollTop();
+      pendingScrollTop = undefined;
+      withDashboardScrollPreserved(() => setConfig(next), scrollTop);
+      return { previous, widgetsToResolve: changedServerWidgets(previous, next, widgetData()), token, scrollTop };
     },
     mutation: async (next) => {
       const res = await apiClient.dashboards[":dashboardId"].$patch({
@@ -181,19 +204,17 @@ export default function DashboardWysiwygEditor(props: Props) {
     },
     onSuccess: (dashboard, ctx) => {
       if (ctx?.token !== saveToken) return;
-      setConfig(dashboard.config);
-      setWidgetData((current) => pruneWidgetData(current, dashboard.config));
-      if (ctx.widgetsToResolve.length) void resolveWidgets(ctx.widgetsToResolve, ctx.token);
-      props.onDashboardChanged?.();
+      withDashboardScrollPreserved(() => setWidgetData((current) => pruneWidgetData(current, dashboard.config)), ctx.scrollTop);
+      if (ctx.widgetsToResolve.length) void resolveWidgets(ctx.widgetsToResolve, ctx.token, ctx.scrollTop);
     },
     onError: (e, ctx) => {
       if (ctx?.token !== saveToken) return;
-      if (ctx?.previous) setConfig(ctx.previous);
+      if (ctx?.previous) withDashboardScrollPreserved(() => setConfig(ctx.previous), ctx.scrollTop);
       prompts.error(e.message);
     },
   });
 
-  const resolveWidgets = async (widgets: Widget[], token: number) => {
+  const resolveWidgets = async (widgets: Widget[], token: number, scrollTop: number | null) => {
     await Promise.all(
       widgets.map(async (widget) => {
         const res = await apiClient.dashboards[":dashboardId"].widgets.resolve.$post({
@@ -203,18 +224,19 @@ export default function DashboardWysiwygEditor(props: Props) {
         if (!res.ok) {
           const reason = await errorMessage(res, "Failed to refresh widget");
           if (token !== saveToken) return;
-          setWidgetData((current) => ({ ...current, [widget.id]: { kind: "error", reason } }));
+          withDashboardScrollPreserved(() => setWidgetData((current) => ({ ...current, [widget.id]: { kind: "error", reason } })), scrollTop);
           return;
         }
         const data = await res.json();
         if (token !== saveToken) return;
-        setWidgetData((current) => ({ ...current, [widget.id]: data }));
+        withDashboardScrollPreserved(() => setWidgetData((current) => ({ ...current, [widget.id]: data })), scrollTop);
       }),
     );
   };
 
   const commitRows = (rows: DashboardRow[]) => {
     const next = { ...config(), rows };
+    pendingScrollTop ??= captureDashboardScrollTop();
     void saveConfigMut.mutate(next);
   };
 
@@ -235,12 +257,16 @@ export default function DashboardWysiwygEditor(props: Props) {
   const editRow = async (rowIdx: number) => {
     const row = config().rows[rowIdx];
     if (!row) return;
+    const scrollTop = captureDashboardScrollTop();
     const result = await openRowSettingsDialog(row.height);
     if (!result) return;
     if (result.action === "delete") {
+      pendingScrollTop = scrollTop;
       commitRows(config().rows.filter((_, idx) => idx !== rowIdx));
       return;
     }
+    if (result.height === row.height) return;
+    pendingScrollTop = scrollTop;
     updateRow(rowIdx, { ...row, height: result.height });
   };
 
@@ -307,23 +333,29 @@ export default function DashboardWysiwygEditor(props: Props) {
   };
 
   const moveCell = (fromRowIdx: number, fromCellIdx: number, toRowIdx: number, toCellIdx: number) => {
-    const rows = config().rows.map((row) => ({ ...row, cells: [...row.cells] }));
-    const fromRow = rows[fromRowIdx];
-    const toRow = rows[toRowIdx];
+    const currentRows = config().rows;
+    const fromRow = currentRows[fromRowIdx];
+    const toRow = currentRows[toRowIdx];
     if (!fromRow || !toRow) return;
 
     if (fromRowIdx === toRowIdx) {
       const nextCells = moveItemByInsertionIndex(fromRow.cells, fromCellIdx, toCellIdx);
       if (nextCells === fromRow.cells) return;
+      const rows = [...currentRows];
       rows[fromRowIdx] = { ...fromRow, cells: nextCells };
       commitRows(rows);
       return;
     }
 
     const targetIdx = toCellIdx === Number.MAX_SAFE_INTEGER ? toRow.cells.length : clampInsertionIndex(toCellIdx, toRow.cells.length);
-    const [cell] = fromRow.cells.splice(fromCellIdx, 1);
+    const fromCells = [...fromRow.cells];
+    const toCells = [...toRow.cells];
+    const [cell] = fromCells.splice(fromCellIdx, 1);
     if (!cell) return;
-    toRow.cells.splice(targetIdx, 0, cell);
+    toCells.splice(targetIdx, 0, cell);
+    const rows = [...currentRows];
+    rows[fromRowIdx] = { ...fromRow, cells: fromCells };
+    rows[toRowIdx] = { ...toRow, cells: toCells };
     commitRows(rows);
   };
 

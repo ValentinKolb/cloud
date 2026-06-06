@@ -310,7 +310,7 @@ export default function DatabaseTable(props: Props) {
 
   const renderAdminHeader = (field: Field, subtitle: JSX.Element | undefined, computed: boolean) => (
     <div class="flex flex-col gap-0.5 leading-tight">
-      <span class={computed ? "font-semibold text-blue-600 dark:text-blue-300" : "font-semibold text-emerald-700 dark:text-emerald-300"}>
+      <span class={computed ? "font-semibold text-blue-600 dark:text-blue-300" : "font-semibold text-primary"}>
         {headerLabel(field, computed)}
       </span>
       <Show when={subtitle !== undefined}>
@@ -318,7 +318,7 @@ export default function DatabaseTable(props: Props) {
           class={
             computed
               ? "text-[10px] font-normal text-blue-500/80 dark:text-blue-300/80"
-              : "text-[10px] font-normal text-emerald-600/80 dark:text-emerald-300/80"
+              : "text-[10px] font-normal text-dimmed"
           }
         >
           {subtitle}
@@ -390,7 +390,7 @@ export default function DatabaseTable(props: Props) {
           const canMoveRight =
             index >= 0 && index < visibleFields().length - 1 && (isColumnOrderEdit || (!!props.onFieldMove && !props.viewColumns));
           const adminIconClass =
-            "icon-btn h-6 w-6 shrink-0 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300";
+            "icon-btn h-6 w-6 shrink-0 text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-200";
           return (
             <div class="flex min-w-0 items-start gap-2">
               <div class="min-w-0 flex-1">{renderAdminHeader(field, subtitle, computed)}</div>

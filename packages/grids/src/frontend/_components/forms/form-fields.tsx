@@ -479,7 +479,7 @@ function InlineRelationCreate(props: {
 
   return (
     <Show when={props.drafts().length > 0}>
-      <div class="mt-2 flex flex-col gap-2 rounded-md border border-dashed border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <div class="paper mt-2 flex flex-col gap-2 p-3">
         <div class="flex items-start justify-between gap-2">
           <div>
             <p class="text-xs font-semibold text-primary">New related record</p>

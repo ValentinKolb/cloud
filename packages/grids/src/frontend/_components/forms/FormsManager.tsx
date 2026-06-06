@@ -241,7 +241,7 @@ export default function FormsManager(props: Props) {
       </Show>
 
       <Show when={props.canManage}>
-        <button type="button" class="btn-input btn-input-sm self-start text-emerald-600 hover:text-emerald-700" onClick={handleCreate}>
+        <button type="button" class="btn-input-success btn-input-sm self-start" onClick={handleCreate}>
           <i class="ti ti-plus" /> New form
         </button>
       </Show>
@@ -640,9 +640,7 @@ function FormFieldsEditor(props: { tableFields: Field[]; entries: () => FormFiel
         </div>
         <Show
           when={props.entries().length > 0}
-          fallback={
-            <p class="rounded-md border border-dashed border-zinc-200 p-3 text-xs text-dimmed dark:border-zinc-800">No fields yet.</p>
-          }
+          fallback={<p class="paper p-3 text-xs text-dimmed">No fields yet.</p>}
         >
           <ul class="flex min-h-0 flex-col gap-1 overflow-y-auto">
             <Index each={props.entries()}>
@@ -652,10 +650,10 @@ function FormFieldsEditor(props: { tableFields: Field[]; entries: () => FormFiel
                 return (
                   <li>
                     <div
-                      class={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left transition-colors ${
+                      class={`paper flex w-full items-center gap-2 px-2 py-2 text-left transition-colors ${
                         selected()
                           ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300"
-                          : "border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+                          : "hover:paper-highlighted"
                       }`}
                     >
                       <button
@@ -1034,7 +1032,7 @@ function InlineCreateEditor(props: {
 
   return (
     <Show when={targetTableId()}>
-      <div class="mt-1 flex flex-col gap-2 rounded-md border border-dashed border-zinc-300 p-3 dark:border-zinc-700">
+      <div class="paper mt-1 flex flex-col gap-2 p-3">
         <Checkbox
           label="Create related records inline"
           description="Let this form create the linked record together with the main record. Nothing is saved until submit."

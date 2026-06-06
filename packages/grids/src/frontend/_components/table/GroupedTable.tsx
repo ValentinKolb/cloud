@@ -187,7 +187,7 @@ export default function GroupedTable(props: Props) {
           const move = props.onColumnMove;
           if (!settings && !move) return render();
           const adminIconClass =
-            "icon-btn h-6 w-6 shrink-0 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300";
+            "icon-btn h-6 w-6 shrink-0 text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-200";
           return (
             <div class="flex min-w-0 items-start gap-2">
               <div class="min-w-0 flex-1">{render()}</div>

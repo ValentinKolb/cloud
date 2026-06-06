@@ -132,46 +132,49 @@ function FormBody(props: {
 
   return (
     <>
-      <header class="px-3 py-2">
+      <header class="shrink-0 px-3 py-2">
         <span class="text-xs font-semibold text-primary truncate">{titleOf()}</span>
       </header>
-      <form class="flex-1 min-h-0 overflow-auto px-3 pb-3 flex flex-col gap-3" onSubmit={handleSubmit}>
-        <Show when={props.form.config.description}>
-          <p class="text-xs text-dimmed">{props.form.config.description}</p>
-        </Show>
+      <form class="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
+        <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-3 pb-3">
+          <Show when={props.form.config.description}>
+            <p class="text-xs text-dimmed">{props.form.config.description}</p>
+          </Show>
 
-        <For each={entries}>
-          {(entry) => {
-            const field = fieldsById.get(entry.fieldId);
-            if (!field || field.deletedAt) return null;
-            return (
-              <FieldInput
-                field={field}
-                entry={entry}
-                value={values()[entry.fieldId]}
-                onChange={(v) => setValue(entry.fieldId, v)}
-                inlineCreates={inlineCreates}
-                onInlineCreatesChange={setInlineDrafts}
-                dateConfig={props.dateConfig}
-              />
-            );
-          }}
-        </For>
+          <For each={entries}>
+            {(entry) => {
+              const field = fieldsById.get(entry.fieldId);
+              if (!field || field.deletedAt) return null;
+              return (
+                <FieldInput
+                  field={field}
+                  entry={entry}
+                  value={values()[entry.fieldId]}
+                  onChange={(v) => setValue(entry.fieldId, v)}
+                  inlineCreates={inlineCreates}
+                  onInlineCreatesChange={setInlineDrafts}
+                  dateConfig={props.dateConfig}
+                />
+              );
+            }}
+          </For>
+        </div>
 
-        <Show when={error()}>
-          <div class="info-block-error flex items-start gap-2 text-xs">
-            <i class="ti ti-alert-circle mt-0.5 shrink-0" />
-            <span>{error()}</span>
-          </div>
-        </Show>
-
-        <div class="mt-auto pt-2 flex justify-end">
+        <div class="shrink-0 border-t border-zinc-100 bg-white/95 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/95">
+          <Show when={error()}>
+            <div class="info-block-error mb-2 flex items-start gap-2 text-xs">
+              <i class="ti ti-alert-circle mt-0.5 shrink-0" />
+              <span>{error()}</span>
+            </div>
+          </Show>
+          <div class="flex justify-end">
           <button type="submit" class="btn-primary btn-sm" disabled={submitting()}>
             <Show when={submitting()} fallback={<i class="ti ti-send" />}>
               <i class="ti ti-loader-2 animate-spin" />
             </Show>
             {props.form.config.submitLabel ?? "Submit"}
           </button>
+          </div>
         </div>
       </form>
     </>
