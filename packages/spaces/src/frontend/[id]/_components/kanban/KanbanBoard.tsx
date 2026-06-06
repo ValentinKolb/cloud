@@ -1,24 +1,18 @@
-import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
-import { apiClient } from "@/api/client";
-import type { ItemFilter, ItemListResult, SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
+import { prompts } from "@valentinkolb/cloud/ui";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 import {
-  dnd,
-  mutation as mutations,
   type DndBuildIntentContext,
   type DndDraggableSnapshot,
   type DndDroppableSnapshot,
+  dnd,
+  mutation as mutations,
 } from "@valentinkolb/stdlib/solid";
-import { dates, type DateContext } from "@valentinkolb/stdlib";
-import { prompts } from "@valentinkolb/cloud/ui";
-import type { KanbanBucketInitial } from "./types";
-import {
-  getDetailItemFromUrl,
-  shouldHandleDetailClick,
-  shouldHandleItemEditDoubleClick,
-  subscribeToDetailSelection,
-} from "../../../lib/detail";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { apiClient } from "@/api/client";
+import type { ItemFilter, ItemListResult, SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
+import { getDetailItemFromUrl, shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
 import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
-import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
+import type { KanbanBucketInitial } from "./types";
 
 type Props = {
   spaceId: string;
@@ -60,6 +54,7 @@ type MoveContext = {
 };
 
 const RANK_STEP = 1024n;
+const boardScrollMemory = new Map<string, { left: number; top: number }>();
 
 const priorityMeta: Record<string, { icon: string; color: string }> = {
   urgent: { icon: "ti-alert-circle", color: "text-red-500" },
@@ -135,17 +130,12 @@ export default function KanbanBoard(props: Props) {
   const [loadingBucketKey, setLoadingBucketKey] = createSignal<string | null>(null);
   const [movingItemId, setMovingItemId] = createSignal<string | null>(null);
   const [selectedItemId, setSelectedItemId] = createSignal<string | null>(props.selectedItemId ?? null);
+  let boardScrollContainer: HTMLDivElement | undefined;
   createEffect(() => {
     setSelectedItemId(props.selectedItemId ?? null);
   });
 
   const getBucketByKey = (bucketKey: string) => buckets().find((bucket) => bucket.key === bucketKey) ?? null;
-  const editMutation = mutations.create<boolean, SpaceItem>({
-    mutation: (item) =>
-      editItemWithDialog({ spaceId: props.spaceId, item, columns: props.columns, tags: props.tags, dateConfig: props.dateConfig }),
-    onSuccess: handleEditItemSuccess,
-    onError: (err) => prompts.error(err.message),
-  });
   const withViewTransition = (update: () => void) => {
     if (typeof document === "undefined") {
       update();
@@ -160,6 +150,31 @@ export default function KanbanBoard(props: Props) {
     }
     doc.startViewTransition(() => {
       update();
+    });
+  };
+  const boardScrollKey = () => `spaces-kanban-board-${props.spaceId}`;
+  const rememberBoardScroll = () => {
+    if (!boardScrollContainer) return;
+    boardScrollMemory.set(boardScrollKey(), {
+      left: boardScrollContainer.scrollLeft,
+      top: boardScrollContainer.scrollTop,
+    });
+  };
+  const restoreBoardScroll = (position = boardScrollMemory.get(boardScrollKey())) => {
+    if (!boardScrollContainer || !position) return;
+    boardScrollContainer.scrollLeft = position.left;
+    boardScrollContainer.scrollTop = position.top;
+  };
+  const withBoardScrollPreserved = (update: () => void) => {
+    const position = {
+      left: boardScrollContainer?.scrollLeft ?? 0,
+      top: boardScrollContainer?.scrollTop ?? 0,
+    };
+    boardScrollMemory.set(boardScrollKey(), position);
+    update();
+    requestAnimationFrame(() => {
+      restoreBoardScroll(position);
+      requestAnimationFrame(() => restoreBoardScroll(position));
     });
   };
   const resolveTargetColumnId = (bucket: KanbanBucketInitial) => {
@@ -298,11 +313,16 @@ export default function KanbanBoard(props: Props) {
   });
 
   onMount(() => {
+    requestAnimationFrame(() => restoreBoardScroll());
+    boardScrollContainer?.addEventListener("scroll", rememberBoardScroll, { passive: true });
     setSelectedItemId(getDetailItemFromUrl());
     const unsubscribe = subscribeToDetailSelection(({ itemId }) => {
       setSelectedItemId(itemId);
     });
-    onCleanup(unsubscribe);
+    onCleanup(() => {
+      boardScrollContainer?.removeEventListener("scroll", rememberBoardScroll);
+      unsubscribe();
+    });
   });
 
   const loadMoreMutation = mutations.create<ItemListResult, { bucketKey: string }, LoadMoreContext>({
@@ -381,25 +401,27 @@ export default function KanbanBoard(props: Props) {
         completedAt: resolved.targetBucket.kind === "completed" ? new Date().toISOString() : null,
       };
 
-      withViewTransition(() => {
-        setBuckets((current) =>
-          current.map((bucket) => {
-            const hadItem = bucket.items.some((item) => item.id === itemId);
-            const nextItems = bucket.items.filter((item) => item.id !== itemId);
-            let total = bucket.total - (hadItem ? 1 : 0);
+      withBoardScrollPreserved(() => {
+        withViewTransition(() => {
+          setBuckets((current) =>
+            current.map((bucket) => {
+              const hadItem = bucket.items.some((item) => item.id === itemId);
+              const nextItems = bucket.items.filter((item) => item.id !== itemId);
+              let total = bucket.total - (hadItem ? 1 : 0);
 
-            if (bucket.key === resolved.targetBucket.key) {
-              nextItems.splice(targetIndexClamped, 0, optimisticUpdated);
-              total += 1;
-            }
+              if (bucket.key === resolved.targetBucket.key) {
+                nextItems.splice(targetIndexClamped, 0, optimisticUpdated);
+                total += 1;
+              }
 
-            return {
-              ...bucket,
-              items: nextItems,
-              total: Math.max(total, 0),
-            };
-          }),
-        );
+              return {
+                ...bucket,
+                items: nextItems,
+                total: Math.max(total, 0),
+              };
+            }),
+          );
+        });
       });
 
       setMovingItemId(itemId);
@@ -429,32 +451,36 @@ export default function KanbanBoard(props: Props) {
       return (await moveRes.json()) as SpaceItem;
     },
     onSuccess: (updated, ctx) => {
-      withViewTransition(() => {
-        setBuckets((current) =>
-          current.map((bucket) => {
-            const hadItem = bucket.items.some((item) => item.id === updated.id);
-            const nextItems = bucket.items.filter((item) => item.id !== updated.id);
-            let total = bucket.total - (hadItem ? 1 : 0);
+      withBoardScrollPreserved(() => {
+        withViewTransition(() => {
+          setBuckets((current) =>
+            current.map((bucket) => {
+              const hadItem = bucket.items.some((item) => item.id === updated.id);
+              const nextItems = bucket.items.filter((item) => item.id !== updated.id);
+              let total = bucket.total - (hadItem ? 1 : 0);
 
-            if (bucket.key === ctx?.targetBucketKey) {
-              const insertIndex = clamp(ctx.targetIndex, 0, nextItems.length);
-              nextItems.splice(insertIndex, 0, updated);
-              total += 1;
-            }
+              if (bucket.key === ctx?.targetBucketKey) {
+                const insertIndex = clamp(ctx.targetIndex, 0, nextItems.length);
+                nextItems.splice(insertIndex, 0, updated);
+                total += 1;
+              }
 
-            return {
-              ...bucket,
-              items: nextItems,
-              total: Math.max(total, 0),
-            };
-          }),
-        );
+              return {
+                ...bucket,
+                items: nextItems,
+                total: Math.max(total, 0),
+              };
+            }),
+          );
+        });
       });
     },
     onError: (error, ctx) => {
       if (ctx?.previousBuckets) {
-        withViewTransition(() => {
-          setBuckets(ctx.previousBuckets);
+        withBoardScrollPreserved(() => {
+          withViewTransition(() => {
+            setBuckets(ctx.previousBuckets);
+          });
         });
       }
       prompts.error(error.message);
@@ -468,7 +494,11 @@ export default function KanbanBoard(props: Props) {
     boardDnd.isDragging() && boardDnd.intent()?.bucketKey === bucketKey && boardDnd.intent()?.previewIndex === index;
 
   return (
-    <div class="h-full overflow-x-auto overflow-y-hidden px-3 py-1" data-scroll-preserve={`spaces-kanban-board-${props.spaceId}`}>
+    <div
+      ref={boardScrollContainer}
+      class="h-full overflow-x-auto overflow-y-hidden px-3 py-1"
+      data-scroll-preserve={`spaces-kanban-board-${props.spaceId}`}
+    >
       <div class="flex h-full min-w-max items-stretch gap-3">
         <For each={buckets()}>
           {(bucket) => {
@@ -494,10 +524,10 @@ export default function KanbanBoard(props: Props) {
                       meta: { kind: "column", bucketKey: bucket.key },
                     }));
                   }}
-                  class={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-md p-1.5 transition-colors ${
+                  class={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-lg p-1.5 transition-colors ${
                     boardDnd.isDragging() && boardDnd.intent()?.bucketKey === bucket.key
-                      ? "bg-blue-500/5 ring-1 ring-inset ring-blue-500/30 dark:bg-blue-400/5 dark:ring-blue-400/25"
-                      : ""
+                      ? "bg-blue-500/10 dark:bg-blue-400/10 [box-shadow:var(--theme-recess),inset_0_0_0_2px_rgb(59_130_246/0.45)] dark:[box-shadow:var(--theme-recess),inset_0_0_0_2px_rgb(96_165_250/0.45)]"
+                      : "bg-zinc-100/60 dark:bg-zinc-950/40 [box-shadow:var(--theme-recess)]"
                   }`}
                   data-scroll-preserve={`spaces-kanban-column-${props.spaceId}-${bucket.key}`}
                 >
@@ -510,10 +540,6 @@ export default function KanbanBoard(props: Props) {
                         const dropId = `drop:item:${bucket.key}:${item.id}`;
                         const isDraggingThis = () => boardDnd.activeId() === dragId;
                         const isMovingThis = () => moveMutation.loading() && movingItemId() === item.id;
-                        let detailClickTimer: number | undefined;
-                        onCleanup(() => {
-                          if (detailClickTimer) window.clearTimeout(detailClickTimer);
-                        });
 
                         return (
                           <>
@@ -542,37 +568,45 @@ export default function KanbanBoard(props: Props) {
                                   meta: { itemId: item.id },
                                 }));
                               }}
-                              data-dnd-card-handle
                               data-card-index={itemIndex()}
-                              class={`group/card relative rounded-md p-2.5 transition-colors ${
+                              class={`group/card relative rounded-md border p-2.5 transition-colors ${
                                 isSelected()
-                                  ? "bg-blue-50/80 ring-2 ring-inset ring-blue-500/65 dark:bg-blue-900/30 dark:ring-blue-400/60"
-                                  : "bg-white/90 ring-1 ring-inset ring-zinc-300/65 hover:bg-blue-50/25 hover:ring-blue-500/40 dark:bg-zinc-900/65 dark:ring-zinc-700/65 dark:hover:bg-blue-950/12 dark:hover:ring-blue-400/40"
+                                  ? "border-blue-500 bg-blue-500/[0.08] ring-1 ring-blue-500 dark:border-blue-400 dark:bg-blue-400/10 dark:ring-blue-400"
+                                  : "border-zinc-200 bg-white [box-shadow:var(--theme-bevel-top),var(--theme-bevel-bottom)] hover:border-blue-500/45 hover:bg-blue-500/[0.04] dark:border-zinc-700/70 dark:bg-zinc-900 dark:hover:border-blue-400/45 dark:hover:bg-blue-400/[0.06]"
                               } ${isDraggingThis() ? "opacity-40" : ""}`}
                             >
+                              <Show
+                                when={isMovingThis()}
+                                fallback={
+                                  <button
+                                    type="button"
+                                    data-dnd-card-handle
+                                    aria-label={`Drag ${item.title}`}
+                                    title="Drag"
+                                    class="absolute right-1.5 top-1.5 inline-flex h-5 w-5 cursor-grab items-center justify-center rounded-md text-dimmed opacity-0 transition-colors hover:bg-zinc-100 hover:text-primary group-hover/card:opacity-100 active:cursor-grabbing dark:hover:bg-zinc-800"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                    }}
+                                  >
+                                    <i class="ti ti-grip-vertical text-[13px]" />
+                                  </button>
+                                }
+                              >
+                                <div class="pointer-events-none absolute right-1.5 top-1.5 inline-flex h-5 w-5 items-center justify-center text-dimmed">
+                                  <i class="ti ti-loader-2 animate-spin text-[11px]" />
+                                </div>
+                              </Show>
                               <a
                                 href={buildItemUrl(props.baseUrl, item.id)}
                                 onClick={(event) => {
                                   if (!shouldHandleDetailClick(event, event.currentTarget)) return;
                                   event.preventDefault();
-                                  if (detailClickTimer) window.clearTimeout(detailClickTimer);
-                                  detailClickTimer = window.setTimeout(() => {
-                                    setSelectedItemId(item.id);
-                                    requestSpacesRouteNavigation(buildItemUrl(props.baseUrl, item.id), { scroll: "preserve" });
-                                    detailClickTimer = undefined;
-                                  }, 220);
+                                  const href = buildItemUrl(props.baseUrl, item.id);
+                                  setSelectedItemId(item.id);
+                                  requestSpacesRouteNavigation(href, { scroll: "preserve" });
                                 }}
-                                onDblClick={(event) => {
-                                  if (!shouldHandleItemEditDoubleClick(event)) return;
-                                  event.preventDefault();
-                                  event.stopPropagation();
-                                  if (detailClickTimer) {
-                                    window.clearTimeout(detailClickTimer);
-                                    detailClickTimer = undefined;
-                                  }
-                                  editMutation.mutate(item);
-                                }}
-                                class="block"
+                                class="block pr-5"
                               >
                                 <div class="flex items-start gap-2">
                                   <Show when={priority}>
@@ -604,11 +638,6 @@ export default function KanbanBoard(props: Props) {
                                   </Show>
                                 </div>
                               </a>
-                              <Show when={isMovingThis()}>
-                                <div class="pointer-events-none absolute right-1.5 top-1.5 inline-flex h-5 w-5 items-center justify-center text-dimmed">
-                                  <i class="ti ti-loader-2 animate-spin text-[11px]" />
-                                </div>
-                              </Show>
                             </article>
                           </>
                         );
