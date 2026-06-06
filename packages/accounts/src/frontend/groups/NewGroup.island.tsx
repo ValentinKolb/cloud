@@ -37,9 +37,9 @@ const PROVIDER_CARDS: Array<{
 ];
 
 const PROVIDER_CARD_CLASS =
-  "group flex min-h-36 flex-col items-start gap-3 rounded-xl bg-zinc-50/85 px-4 py-4 text-left ring-1 ring-inset ring-zinc-200/65 transition hover:bg-blue-50/45 hover:ring-blue-400/45 dark:bg-zinc-900/70 dark:ring-zinc-800/80 dark:hover:bg-blue-950/20 dark:hover:ring-blue-500/35";
+  "group flex min-h-36 flex-col items-start gap-3 rounded-xl bg-zinc-50/85 px-4 py-4 text-left transition hover:bg-blue-50/45 dark:bg-zinc-900/70 dark:hover:bg-blue-950/20";
 const PROVIDER_CARD_ICON_CLASS =
-  "flex h-10 w-10 items-center justify-center rounded-lg bg-white text-zinc-600 ring-1 ring-inset ring-zinc-200/70 transition group-hover:text-blue-600 group-hover:ring-blue-300/70 dark:bg-zinc-950/75 dark:text-zinc-300 dark:ring-zinc-800 dark:group-hover:text-blue-300 dark:group-hover:ring-blue-700/70";
+  "flex h-10 w-10 items-center justify-center rounded-lg bg-white text-zinc-600 shadow-sm shadow-zinc-950/[0.04] transition group-hover:text-blue-600 dark:bg-zinc-950/75 dark:text-zinc-300 dark:shadow-none dark:group-hover:text-blue-300";
 
 type CreateGroupPayload = {
   provider: ProviderChoice;
