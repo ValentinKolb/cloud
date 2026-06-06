@@ -1,5 +1,5 @@
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
-import { createSignal } from "solid-js";
+import { AppWorkspace, layout } from "@valentinkolb/cloud/ui";
+import { createSignal, onCleanup, onMount } from "solid-js";
 import { docHref, findDocPage, uiLabDocs } from "./registry";
 
 type UiLabDocsProps = {
@@ -19,6 +19,23 @@ export default function UiLabDocs(props: UiLabDocsProps) {
     const page = findDocPage(decodeURIComponent(match[1]), decodeURIComponent(match[2]));
     return page ? { page, href: url.pathname + url.search + url.hash } : null;
   };
+  const applyPage = (page: NonNullable<ReturnType<typeof findDocPage>>) => {
+    setRoute({ section: page.section, slug: page.slug });
+    layout.update({
+      breadcrumbs: [{ title: "Start", href: "/" }, { title: "UI Lab", href: "/app/ui-lab" }, { title: page.title }],
+      title: page.title,
+    });
+  };
+  const isActive = (page: NonNullable<ReturnType<typeof findDocPage>>) => route().section === page.section && route().slug === page.slug;
+  const applyCurrentLocation = () => {
+    const next = navigateDoc(window.location.href);
+    if (next) applyPage(next.page);
+  };
+
+  onMount(() => {
+    window.addEventListener("popstate", applyCurrentLocation);
+    onCleanup(() => window.removeEventListener("popstate", applyCurrentLocation));
+  });
 
   return (
     <AppWorkspace class="flex-1 min-h-0">
@@ -32,12 +49,17 @@ export default function UiLabDocs(props: UiLabDocsProps) {
                 <AppWorkspace.SidebarItem
                   href={docHref(page)}
                   icon={page.icon}
-                  active={page === current()}
+                  active={isActive(page)}
                   scroll="top"
+                  onClick={(event) => {
+                    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+                      return;
+                    applyPage(page);
+                  }}
                   onNavigate={(nav) => {
                     const next = navigateDoc(nav.href);
                     if (!next) return nav.fallback();
-                    setRoute({ section: next.page.section, slug: next.page.slug });
+                    applyPage(next.page);
                     nav.push(next.href);
                   }}
                 >
@@ -56,12 +78,17 @@ export default function UiLabDocs(props: UiLabDocsProps) {
                   <AppWorkspace.SidebarItem
                     href={docHref(page)}
                     icon={page.icon}
-                    active={page === current()}
+                    active={isActive(page)}
                     scroll="top"
+                    onClick={(event) => {
+                      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+                        return;
+                      applyPage(page);
+                    }}
                     onNavigate={(nav) => {
                       const next = navigateDoc(nav.href);
                       if (!next) return nav.fallback();
-                      setRoute({ section: next.page.section, slug: next.page.slug });
+                      applyPage(next.page);
                       nav.push(next.href);
                     }}
                   >
