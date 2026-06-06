@@ -36,6 +36,11 @@ const PROVIDER_CARDS: Array<{
   },
 ];
 
+const PROVIDER_CARD_CLASS =
+  "group flex min-h-36 flex-col items-start gap-3 rounded-xl bg-zinc-50/85 px-4 py-4 text-left ring-1 ring-inset ring-zinc-200/65 transition hover:bg-blue-50/45 hover:ring-blue-400/45 dark:bg-zinc-900/70 dark:ring-zinc-800/80 dark:hover:bg-blue-950/20 dark:hover:ring-blue-500/35";
+const PROVIDER_CARD_ICON_CLASS =
+  "flex h-10 w-10 items-center justify-center rounded-lg bg-white text-zinc-600 ring-1 ring-inset ring-zinc-200/70 transition group-hover:text-blue-600 group-hover:ring-blue-300/70 dark:bg-zinc-950/75 dark:text-zinc-300 dark:ring-zinc-800 dark:group-hover:text-blue-300 dark:group-hover:ring-blue-700/70";
+
 type CreateGroupPayload = {
   provider: ProviderChoice;
   name: string;
@@ -58,13 +63,9 @@ function ProviderSelectionDialog(props: { close: (provider?: ProviderChoice) => 
 
       <div class="grid gap-3 md:grid-cols-2">
         {PROVIDER_CARDS.map((provider) => (
-          <button
-            type="button"
-            class="group flex min-h-36 flex-col items-start gap-3 rounded-2xl border border-zinc-200/80 bg-gradient-to-br from-white to-zinc-50 px-4 py-4 text-left transition hover:border-blue-300 hover:from-blue-50/70 hover:to-white dark:border-zinc-700 dark:from-zinc-950 dark:to-zinc-900 dark:hover:border-blue-700 dark:hover:from-blue-950/30 dark:hover:to-zinc-950"
-            onClick={() => props.close(provider.value)}
-          >
+          <button type="button" class={PROVIDER_CARD_CLASS} onClick={() => props.close(provider.value)}>
             <div class="flex items-center gap-3">
-              <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700 transition group-hover:bg-blue-100 group-hover:text-blue-700 dark:bg-zinc-800 dark:text-zinc-200 dark:group-hover:bg-blue-900/40 dark:group-hover:text-blue-200">
+              <div class={PROVIDER_CARD_ICON_CLASS}>
                 <i class={`${provider.icon} text-lg`} />
               </div>
               <div class="flex flex-col gap-0.5">

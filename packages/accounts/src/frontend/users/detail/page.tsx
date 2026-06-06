@@ -6,6 +6,7 @@ import { dates } from "@valentinkolb/stdlib";
 import type { JSX } from "solid-js/jsx-runtime";
 import type { BaseGroup } from "@/contracts";
 import { ssr } from "../../../config";
+import AccountsFactGrid from "../../AccountsFactGrid";
 import AccountsWorkspace from "../../AccountsWorkspace";
 import RemoveMember from "../../groups/detail/RemoveMember.island";
 import {
@@ -265,16 +266,7 @@ export default ssr<AuthContext>(async (c) => {
             <UserActions user={user} listHref={buildUsersUrl(listState)} freeIpaEnabled={freeIpaEnabled} />
           </div>
 
-          <div class="paper overflow-hidden" style="view-transition-name: accounts-user-facts">
-            <dl class="grid gap-px bg-zinc-100 dark:bg-zinc-800 sm:grid-cols-2 xl:grid-cols-3">
-              {facts.map((fact) => (
-                <div class="min-w-0 bg-white px-3 py-2.5 dark:bg-zinc-900">
-                  <dt class="text-[11px] uppercase tracking-[0.22em] text-dimmed">{fact.label}</dt>
-                  <dd class="mt-1 min-w-0 truncate text-xs text-primary">{fact.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
+          <AccountsFactGrid facts={facts} columns={3} viewTransitionName="accounts-user-facts" />
 
           {isIpaUser && (ipa?.sshFingerprints.length ?? 0) > 0 && (
             <div class="paper overflow-hidden" style="view-transition-name: accounts-user-ssh">

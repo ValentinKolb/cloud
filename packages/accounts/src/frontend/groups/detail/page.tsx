@@ -5,6 +5,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import type { JSX } from "solid-js/jsx-runtime";
 import { createPagination } from "@/contracts";
 import { ssr } from "../../../config";
+import AccountsFactGrid from "../../AccountsFactGrid";
 import AccountsWorkspace from "../../AccountsWorkspace";
 import { getProviderBadge } from "../../lib/account-badges";
 import { buildGroupDetailUrl, buildGroupsUrl, GROUPS_CONTEXT_QUERY_KEYS, parseGroupsListState } from "../../lib/url-state";
@@ -317,16 +318,7 @@ export default ssr<AuthContext>(async (c) => {
             )}
           </div>
 
-          <div class="paper overflow-hidden" style="view-transition-name: accounts-group-facts">
-            <dl class="grid gap-px bg-zinc-100 dark:bg-zinc-800 sm:grid-cols-2 xl:grid-cols-4">
-              {facts.map((fact) => (
-                <div class="min-w-0 bg-white px-3 py-2.5 dark:bg-zinc-900">
-                  <dt class="text-[11px] uppercase tracking-[0.22em] text-dimmed">{fact.label}</dt>
-                  <dd class="mt-1 min-w-0 truncate text-xs text-primary">{fact.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
+          <AccountsFactGrid facts={facts} columns={4} viewTransitionName="accounts-group-facts" />
 
           {canManageMutations && !isAdmin && <p class="text-xs text-dimmed">You can manage members and managers here.</p>}
           {!canMutateGroup && (
@@ -345,11 +337,7 @@ export default ssr<AuthContext>(async (c) => {
                     page: null,
                     indirect: null,
                   })}
-                  class={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-colors ${
-                    tab === entryTab
-                      ? "border-blue-500/35 bg-blue-50 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
-                      : "text-dimmed hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-800"
-                  }`}
+                  class={`btn-input btn-input-sm ${tab === entryTab ? "btn-input-active" : ""}`}
                   role="tab"
                   aria-selected={tab === entryTab}
                 >

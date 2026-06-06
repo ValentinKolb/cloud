@@ -134,16 +134,16 @@ export default function AdminOperations(props: { freeIpaEnabled: boolean }) {
   };
 
   return (
-    <div class="paper overflow-hidden">
-      <div class="divide-y divide-zinc-200/70 dark:divide-zinc-800/80">
+    <div class="paper p-2">
+      <div class="flex flex-col gap-2">
         {OPERATIONS.filter((operation) => props.freeIpaEnabled || (operation.key !== "sync" && operation.key !== "ipa-backfill")).map(
           (operation) => {
             const isLoading = () => runMutation.loading() && activeOperationKey === operation.key;
             const buttonClass = operation.key === "sync" ? "btn-primary" : "btn-secondary";
             return (
-              <section class="flex flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:gap-4">
+              <section class="flex flex-col gap-3 rounded-lg bg-zinc-50/80 px-4 py-4 ring-1 ring-inset ring-zinc-200/60 md:flex-row md:items-center md:gap-4 dark:bg-zinc-900/65 dark:ring-zinc-800/80">
                 <div class="flex min-w-0 flex-1 items-start gap-3">
-                  <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                  <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-zinc-600 ring-1 ring-inset ring-zinc-200/70 dark:bg-zinc-950/75 dark:text-zinc-300 dark:ring-zinc-800">
                     <i class={isLoading() ? "ti ti-loader-2 animate-spin text-sm" : `${operation.icon} text-sm`} />
                   </div>
                   <div class="min-w-0">
