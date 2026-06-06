@@ -50,7 +50,7 @@ export default ssr<AuthContext>(async (c) => {
               label="Books"
               value={summary.total}
               sub={search ? "filtered" : "manual books"}
-              accent={{ tone: "blue", icon: "ti ti-address-book" }}
+              accent={{ tone: "blue", icon: "ti ti-cube" }}
             />
             <StatCell
               label="Orphaned"
@@ -82,7 +82,7 @@ export default ssr<AuthContext>(async (c) => {
                   if (col.id === "book") {
                     return (
                       <div class="flex min-w-52 items-center gap-2">
-                        <i class="ti ti-address-book text-dimmed" />
+                        <i class="ti ti-cube text-dimmed" />
                         <span class="truncate font-medium text-primary">{book.name}</span>
                       </div>
                     );

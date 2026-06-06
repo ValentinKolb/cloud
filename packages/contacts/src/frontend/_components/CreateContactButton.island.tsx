@@ -44,7 +44,7 @@ export default function CreateContactButton(props: Props) {
           options: props.writableBooks.map((book) => ({
             id: book.id,
             label: book.name,
-            icon: "ti ti-address-book",
+            icon: "ti ti-cube",
           })),
         },
       },
@@ -71,7 +71,8 @@ export default function CreateContactButton(props: Props) {
     navigateTo(`/app/contacts/${result.bookId}?contact=${created.id}&contactBook=${result.bookId}`);
   };
   const isIcon = () => props.variant === "icon";
-  const buttonClass = () => props.buttonClass ?? (isIcon() ? "sidebar-icon-action sidebar-icon-action-success" : "btn-success btn-sm w-full");
+  const buttonClass = () =>
+    props.buttonClass ?? (isIcon() ? "sidebar-icon-action sidebar-icon-action-success" : "btn-success btn-sm w-full");
 
   return (
     <button

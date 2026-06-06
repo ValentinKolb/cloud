@@ -57,7 +57,7 @@ export default function BookSettingsForm(props: Props) {
       <SettingsModal
         title="Contact book settings"
         subtitle={name().trim() || props.initialName}
-        icon="ti ti-address-book"
+        icon="ti ti-cube"
         onClose={() => navigateTo(`/app/contacts/${props.bookId}`)}
         closeLabel="Close settings"
       >
@@ -65,7 +65,7 @@ export default function BookSettingsForm(props: Props) {
           <div class="space-y-3">
             <TextInput
               label="Book Name"
-              icon="ti ti-address-book"
+              icon="ti ti-cube"
               placeholder="Sales Contacts"
               required
               value={name}

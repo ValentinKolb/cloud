@@ -18,7 +18,7 @@ export default function CreateBookButton(props: Props) {
     mutation: async () => {
       const result = await prompts.form({
         title: "New Contact Book",
-        icon: "ti ti-address-book",
+        icon: "ti ti-cube-plus",
         confirmText: "Create",
         fields: {
           name: {
@@ -69,7 +69,7 @@ export default function CreateBookButton(props: Props) {
       aria-label="Create new contact book"
       title={props.label ?? "New Book"}
     >
-      {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-plus" />}
+      {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-cube-plus" />}
       {!isIcon() && (props.label ?? "New Book")}
     </button>
   );

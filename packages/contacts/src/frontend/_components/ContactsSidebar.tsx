@@ -27,7 +27,7 @@ export default function ContactsSidebar(props: Props) {
   const renderBookItem = (book: ContactBook, mode: "mobile" | "desktop") => {
     const href = `/app/contacts/${book.id}`;
     const isActive = props.active === book.id;
-    const icon = book.isSystem ? "ti ti-building-community" : "ti ti-address-book";
+    const icon = "ti ti-cube";
 
     return (
       <AppWorkspace.SidebarItem
@@ -115,7 +115,7 @@ export default function ContactsSidebar(props: Props) {
                   style={`view-transition-name:${vt(`book-${book.id}-desktop`)}`}
                 >
                   <a href={href} class="flex min-w-0 flex-1 items-center gap-2" aria-current={isActive ? "page" : undefined}>
-                    <i class="ti ti-address-book text-sm" />
+                    <i class="ti ti-cube text-sm" />
                     <span class="truncate">{book.name}</span>
                   </a>
                   {canManage && (

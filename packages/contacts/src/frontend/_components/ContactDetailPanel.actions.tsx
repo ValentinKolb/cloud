@@ -35,7 +35,7 @@ export const createContactDetailActions = (config: {
       if (targetOptions.length === 0) {
         await prompts.alert("There is no other writable contact book available.", {
           title: "No target book",
-          icon: "ti ti-address-book-off",
+          icon: "ti ti-cube-off",
         });
         return null;
       }
@@ -52,7 +52,7 @@ export const createContactDetailActions = (config: {
             options: targetOptions.map((entry) => ({
               id: entry.id,
               label: entry.name,
-              icon: "ti ti-address-book",
+              icon: "ti ti-cube",
             })),
           },
         },
