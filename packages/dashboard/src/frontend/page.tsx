@@ -1,5 +1,6 @@
-import { type DashboardWidget, listWidgets } from "@valentinkolb/cloud";
+import { type DashboardWidget, listApps, listWidgets } from "@valentinkolb/cloud";
 import type { WidgetBlock, WidgetResponse } from "@valentinkolb/cloud/contracts";
+import { type AppRegistryEntry, hasRole, type Role, type User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { logger } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
@@ -7,7 +8,15 @@ import { Widget, WidgetHero, WidgetList, WidgetPills, WidgetStat, WidgetStatus }
 import { gradients } from "@valentinkolb/stdlib";
 import type { JSX } from "solid-js";
 import { ssr } from "../config";
-import EditDashboard, { DASHBOARD_COOKIE, type DashboardSettings, type DashboardWidgetSummary } from "./EditDashboard.island";
+import { dashboardSettingsService } from "../service";
+import {
+  DASHBOARD_COOKIE,
+  type DashboardAppSummary,
+  type DashboardSettings,
+  type DashboardWidgetSummary,
+  normalizeDashboardSettings,
+} from "../shared";
+import DashboardControls, { DashboardEditButton } from "./EditDashboard.island";
 
 const log = logger("dashboard");
 const WIDGET_TIMEOUT_MS = 500;
@@ -139,31 +148,46 @@ const renderBlock = (block: WidgetBlock): JSX.Element => {
  * the cookie key + shape lives in `EditDashboard.island.tsx` so client-write
  * and server-read can't drift apart.
  */
-const readDashboardSettings = (cookieHeader: string): DashboardSettings => {
+const readLegacyDashboardSettings = (cookieHeader: string): DashboardSettings | null => {
   const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${DASHBOARD_COOKIE}=([^;]+)`));
-  if (!match?.[1]) return { hiddenWidgets: [], gradient: "default" };
+  if (!match?.[1]) return null;
   try {
-    const parsed = JSON.parse(decodeURIComponent(match[1])) as Partial<DashboardSettings>;
-    return {
-      hiddenWidgets: Array.isArray(parsed.hiddenWidgets) ? parsed.hiddenWidgets : [],
-      gradient: typeof parsed.gradient === "string" ? parsed.gradient : "default",
-    };
+    return normalizeDashboardSettings(JSON.parse(decodeURIComponent(match[1])));
   } catch {
-    return { hiddenWidgets: [], gradient: "default" };
+    return null;
   }
 };
 
 const widgetKey = (w: DashboardWidget): string => `${w.appId}/${w.widgetId}`;
+
+const appIsAvailable = (app: AppRegistryEntry, user: User) => {
+  const nav = app.nav;
+  if (!nav || nav.section === "hidden") return false;
+  if (nav.requiresRoles?.length && !nav.requiresRoles.some((role) => hasRole(user, role as Role))) return false;
+  return true;
+};
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
   const greeting = user?.displayName || user?.uid || "there";
   const cookie = c.req.raw.headers.get("Cookie") ?? "";
 
-  const settings = readDashboardSettings(cookie);
+  const storedSettings = await dashboardSettingsService.get(user.id);
+  const legacySettings = !storedSettings.exists ? readLegacyDashboardSettings(cookie) : null;
+  if (legacySettings) await dashboardSettingsService.save(user.id, legacySettings);
+  const settings = legacySettings ?? storedSettings.settings;
   const gradient = gradients.getGradientById(settings.gradient);
 
-  const widgets = await listWidgets();
+  const [widgets, apps] = await Promise.all([listWidgets(), listApps()]);
+  const availableApps: DashboardAppSummary[] = apps
+    .filter((entry) => appIsAvailable(entry, user))
+    .map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      icon: entry.icon,
+      href: entry.nav?.href ?? entry.routes[0] ?? "#",
+      description: entry.description,
+    }));
   const hiddenSet = new Set(settings.hiddenWidgets);
   const widgetsToFetch = widgets.filter((w) => !hiddenSet.has(widgetKey(w)));
   const hiddenSummaries: DashboardWidgetSummary[] = widgets
@@ -212,6 +236,8 @@ export default ssr<AuthContext>(async (c) => {
             </h1>
           </div>
 
+          <DashboardControls apps={availableApps} settings={settings} available={availableSummaries} inaccessible={inaccessibleSummaries} />
+
           {rendered.length === 0 ? (
             <div class="paper p-8 text-center text-sm text-dimmed">
               No widgets to show. Open <em>Edit dashboard</em> below to enable any you have access to.
@@ -236,17 +262,12 @@ export default ssr<AuthContext>(async (c) => {
             </div>
           )}
 
-          {/* Edit dashboard — centered button, shown when there's anything to edit. */}
-          {availableSummaries.length + inaccessibleSummaries.length > 0 ? (
-            <div class="flex justify-center">
-              <EditDashboard
-                available={availableSummaries}
-                inaccessible={inaccessibleSummaries}
-                initialHidden={settings.hiddenWidgets}
-                initialGradient={settings.gradient}
-              />
-            </div>
-          ) : null}
+          <DashboardEditButton
+            apps={availableApps}
+            settings={settings}
+            available={availableSummaries}
+            inaccessible={inaccessibleSummaries}
+          />
         </div>
       </div>
     </Layout>

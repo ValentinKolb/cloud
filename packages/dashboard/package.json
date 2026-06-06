@@ -10,7 +10,9 @@
   "dependencies": {
     "@valentinkolb/cloud": "workspace:*",
     "@valentinkolb/stdlib": "0.9.1",
-    "hono": "^4.11.1"
+    "hono": "^4.11.1",
+    "solid-js": "^1.9.10",
+    "zod": "^4.3.4"
   },
   "devDependencies": {
     "@types/bun": "1.3.9",

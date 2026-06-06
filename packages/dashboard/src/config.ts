@@ -10,7 +10,7 @@ export const app = defineApp({
   // `section: "hidden"` keeps the dashboard out of the rail (users land here
   // via `/` → `/app/dashboard`).
   nav: { href: "/app/dashboard", match: "/app/dashboard", section: "hidden" },
-  routes: ["/app/dashboard", "/public/dashboard"],
+  routes: ["/api/dashboard", "/app/dashboard", "/public/dashboard"],
 });
 
 export const { ssr, plugin } = app;

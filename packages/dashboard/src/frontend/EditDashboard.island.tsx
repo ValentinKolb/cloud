@@ -1,80 +1,306 @@
-import { createSignal, For, Show } from "solid-js";
-import { cookies } from "@valentinkolb/stdlib/browser";
+import { CheckboxCard, IconInput, prompts, SelectInput, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { gradients } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-
-/**
- * Lightweight summary the SSR passes per widget — just enough to render a
- * checkbox row in the modal. Title + icon mirror what the user sees on the
- * dashboard.
- */
-export type DashboardWidgetSummary = {
-  /** Composite "appId/widgetId" — stable, matches what we store in the cookie. */
-  key: string;
-  title: string;
-  icon: string;
-};
+import { createMemo, createSignal, For, Show } from "solid-js";
+import { apiClient } from "../api/client";
+import type { DashboardAppSummary, DashboardSettings, DashboardShortcut, DashboardWidgetSummary } from "../shared";
 
 type Props = {
-  /** Widgets the user can see (HTTP 200). Some may currently be cookie-hidden. */
+  apps: DashboardAppSummary[];
+  settings: DashboardSettings;
   available: DashboardWidgetSummary[];
-  /** Widgets registered but locked out by permission (HTTP 204). */
   inaccessible: DashboardWidgetSummary[];
-  initialHidden: string[];
-  initialGradient: string;
 };
 
-/** Single source of truth for the cookie format. SSR reads this same key. */
-export const DASHBOARD_COOKIE = "dashboard_settings";
-
-export type DashboardSettings = {
-  hiddenWidgets: string[];
-  gradient: string;
+type ResolvedShortcut = {
+  id: string;
+  title: string;
+  icon: string;
+  href: string;
 };
 
-export default function EditDashboard(props: Props) {
-  const open = async () => {
-    await prompts.dialog<void>(
-      (close) => <EditForm props={props} close={close} />,
-      { title: "Edit dashboard", icon: "ti ti-adjustments" },
-    );
+const errorMessage = async (response: Response, fallback: string): Promise<string> => {
+  const body = await response.json().catch(() => null);
+  if (body && typeof body === "object" && "message" in body && typeof body.message === "string") return body.message;
+  return fallback;
+};
+
+const saveSettings = async (settings: DashboardSettings): Promise<void> => {
+  const response = await apiClient.settings.$put({ json: settings });
+  if (!response.ok) throw new Error(await errorMessage(response, "Failed to save dashboard settings"));
+};
+
+const isExternalHref = (href: string): boolean => /^https?:\/\//i.test(href);
+
+type AppIconPaletteEntry = { from: string; to: string; text: string };
+
+const appIconPalette: readonly [AppIconPaletteEntry, ...AppIconPaletteEntry[]] = [
+  { from: "#3b82f6", to: "#2563eb", text: "#ffffff" },
+  { from: "#10b981", to: "#059669", text: "#ffffff" },
+  { from: "#8b5cf6", to: "#7c3aed", text: "#ffffff" },
+  { from: "#fbbf24", to: "#f59e0b", text: "#18181b" },
+  { from: "#f43f5e", to: "#e11d48", text: "#ffffff" },
+  { from: "#06b6d4", to: "#0891b2", text: "#ffffff" },
+  { from: "#52525b", to: "#27272a", text: "#ffffff" },
+];
+
+// Deterministic local palette until app registry entries expose brand colors.
+const paletteForId = (id: string) => {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash + id.charCodeAt(i)) % appIconPalette.length;
+  return appIconPalette[hash] ?? appIconPalette[0];
+};
+
+const appIconStyle = (id: string) => {
+  const tone = paletteForId(id);
+  // The `.app-icon` class derives the whole tile (incl. glyph colour) from this
+  // single base colour via OKLCH — no per-app text colour needed.
+  return `--app-icon-color:${tone.from}`;
+};
+
+const ShortcutBadge = (props: { icon: string; title: string; href?: string; tone?: "blue" | "emerald" | "zinc"; onClick?: () => void }) => {
+  const iconClass = () => {
+    if (props.tone === "blue") return "bg-blue-500 text-white";
+    if (props.tone === "emerald") return "bg-emerald-500 text-white";
+    return "bg-zinc-100 text-zinc-600 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700";
+  };
+  const content = (
+    <>
+      <span class={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm ${iconClass()}`}>
+        <i class={props.icon} />
+      </span>
+      <span class="max-w-36 truncate text-sm font-medium text-primary">{props.title}</span>
+    </>
+  );
+  const className =
+    "paper inline-flex h-10 max-w-full items-center gap-2 rounded-lg px-1.5 transition-colors hover:border-zinc-300 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:border-zinc-700 dark:hover:bg-zinc-800/50";
+
+  return props.href ? (
+    <a
+      href={props.href}
+      class={className}
+      target={isExternalHref(props.href) ? "_blank" : undefined}
+      rel={isExternalHref(props.href) ? "noreferrer" : undefined}
+    >
+      {content}
+    </a>
+  ) : (
+    <button type="button" class={className} onClick={props.onClick}>
+      {content}
+    </button>
+  );
+};
+
+const AppLaunchpad = (props: { apps: DashboardAppSummary[] }) => (
+  <div class="mx-auto max-w-4xl rounded-3xl border border-zinc-200/70 bg-white/80 p-4 shadow-[var(--theme-shadow-float)] backdrop-blur-xl sm:p-6 dark:border-zinc-800/70 dark:bg-zinc-900/80">
+    <div class="mb-8 text-center">
+      <h2 class="text-xl font-semibold text-primary">Apps</h2>
+      <p class="mt-1 text-sm text-dimmed">Open one of your available cloud apps.</p>
+    </div>
+    <div class="grid justify-center gap-x-8 gap-y-10 [grid-template-columns:repeat(auto-fit,minmax(6rem,6rem))] sm:gap-x-10">
+      <For each={props.apps}>
+        {(app) => (
+          <a
+            href={app.href}
+            class="group flex min-w-0 flex-col items-center gap-2 rounded-2xl p-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          >
+            <span class="app-icon grid h-16 w-16 place-items-center rounded-[1.35rem] text-3xl" style={appIconStyle(app.id)}>
+              <i class={app.icon} />
+            </span>
+            <span class="max-w-full truncate text-xs font-medium text-primary">{app.name}</span>
+          </a>
+        )}
+      </For>
+    </div>
+  </div>
+);
+
+export default function DashboardControls(props: Props) {
+  const appById = createMemo(() => new Map(props.apps.map((app) => [app.id, app])));
+  const resolvedShortcuts = createMemo<ResolvedShortcut[]>(() =>
+    props.settings.shortcuts
+      .map((shortcut) => {
+        if (shortcut.kind === "link") return { id: shortcut.id, title: shortcut.title, icon: shortcut.icon, href: shortcut.href };
+        const app = appById().get(shortcut.appId);
+        if (!app) return null;
+        return {
+          id: shortcut.id,
+          title: shortcut.title ?? app.name,
+          icon: shortcut.icon ?? app.icon,
+          href: app.href,
+        };
+      })
+      .filter((shortcut): shortcut is ResolvedShortcut => Boolean(shortcut)),
+  );
+
+  const openApps = () => {
+    void prompts.dialog<void>((close) => <AppLaunchpad apps={props.apps} />, {
+      surface: "bare",
+      header: false,
+      size: "large",
+    });
+  };
+
+  const openAddShortcut = () => {
+    void prompts.dialog<void>((close) => <ShortcutForm apps={props.apps} settings={props.settings} close={close} />, {
+      title: "Add shortcut",
+      icon: "ti ti-plus",
+      size: "medium",
+    });
   };
 
   return (
-    <button type="button" class="btn-input btn-input-sm mx-auto" onClick={open}>
+    <div class="flex justify-center">
+      <div class="flex max-w-[68rem] flex-wrap justify-center gap-2">
+        <ShortcutBadge icon="ti ti-grid-dots" title="Apps" tone="blue" onClick={openApps} />
+        <ShortcutBadge icon="ti ti-plus" title="Add shortcut" tone="emerald" onClick={openAddShortcut} />
+        <For each={resolvedShortcuts()}>
+          {(shortcut) => <ShortcutBadge icon={shortcut.icon} title={shortcut.title} href={shortcut.href} />}
+        </For>
+      </div>
+    </div>
+  );
+}
+
+export function DashboardEditButton(props: Props) {
+  const openAddShortcut = () => {
+    void prompts.dialog<void>((close) => <ShortcutForm apps={props.apps} settings={props.settings} close={close} />, {
+      title: "Add shortcut",
+      icon: "ti ti-plus",
+      size: "medium",
+    });
+  };
+
+  const openEdit = () => {
+    void prompts.dialog<void>((close) => <EditForm props={props} close={close} onAddShortcut={openAddShortcut} />, {
+      title: "Edit dashboard",
+      icon: "ti ti-adjustments",
+      size: "large",
+    });
+  };
+
+  return (
+    <button type="button" class="btn-input btn-input-sm mx-auto" onClick={openEdit}>
       <i class="ti ti-adjustments" />
       Edit dashboard
     </button>
   );
 }
 
-const EditForm = (params: { props: Props; close: (r?: void) => void }) => {
-  const { props, close } = params;
-  const [hidden, setHidden] = createSignal<string[]>([...props.initialHidden]);
-  const [gradient, setGradient] = createSignal<string>(props.initialGradient);
+const ShortcutForm = (params: { apps: DashboardAppSummary[]; settings: DashboardSettings; close: (r?: void) => void }) => {
+  const { apps, settings, close } = params;
+  const [kind, setKind] = createSignal<"app" | "link">(apps.length > 0 ? "app" : "link");
+  const [appId, setAppId] = createSignal(apps[0]?.id ?? "");
+  const [title, setTitle] = createSignal("");
+  const [href, setHref] = createSignal("");
+  const [icon, setIcon] = createSignal("ti ti-link");
+  const canSubmit = () => (kind() === "app" ? Boolean(appId()) : title().trim().length > 0 && href().trim().length > 0);
 
-  const toggle = (key: string) => {
+  const save = mutations.create<void, void>({
+    mutation: async () => {
+      const shortcut: DashboardShortcut =
+        kind() === "app"
+          ? { id: crypto.randomUUID(), kind: "app", appId: appId() }
+          : { id: crypto.randomUUID(), kind: "link", title: title().trim(), href: href().trim(), icon: icon() || "ti ti-link" };
+      await saveSettings({ ...settings, shortcuts: [...settings.shortcuts, shortcut] });
+    },
+    onSuccess: () => {
+      close();
+      toast.success("Shortcut added.");
+      window.location.reload();
+    },
+    onError: (error) => prompts.error(error instanceof Error ? error.message : "Failed to add shortcut."),
+  });
+
+  return (
+    <div class="flex flex-col gap-5">
+      <div class="inline-flex w-full rounded-lg bg-zinc-100 p-1 text-sm dark:bg-zinc-800">
+        <button
+          type="button"
+          class={`flex-1 rounded-md px-3 py-2 ${kind() === "app" ? "bg-white text-primary shadow-sm dark:bg-zinc-900" : "text-secondary"}`}
+          onClick={() => setKind("app")}
+          disabled={apps.length === 0}
+        >
+          <i class="ti ti-apps mr-1.5" />
+          App
+        </button>
+        <button
+          type="button"
+          class={`flex-1 rounded-md px-3 py-2 ${kind() === "link" ? "bg-white text-primary shadow-sm dark:bg-zinc-900" : "text-secondary"}`}
+          onClick={() => setKind("link")}
+        >
+          <i class="ti ti-link mr-1.5" />
+          Link
+        </button>
+      </div>
+
+      <Show
+        when={kind() === "app"}
+        fallback={
+          <div class="grid gap-4 sm:grid-cols-2">
+            <TextInput label="Title" value={title} onInput={setTitle} icon="ti ti-text-caption" required placeholder="Docs" />
+            <TextInput label="URL" value={href} onInput={setHref} icon="ti ti-link" required placeholder="https://example.com" />
+            <div class="sm:col-span-2">
+              <IconInput label="Icon" value={icon} onChange={setIcon} required />
+            </div>
+          </div>
+        }
+      >
+        <SelectInput
+          label="App"
+          icon="ti ti-apps"
+          value={appId}
+          onChange={setAppId}
+          options={apps.map((app) => ({ id: app.id, label: app.name, description: app.description, icon: app.icon }))}
+          required
+        />
+      </Show>
+
+      <div class="flex justify-end gap-2">
+        <button type="button" class="btn-input btn-input-sm" onClick={() => close()}>
+          Cancel
+        </button>
+        <button type="button" class="btn-primary btn-sm" onClick={() => save.mutate()} disabled={save.loading() || !canSubmit()}>
+          {save.loading() ? "Saving..." : "Add shortcut"}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortcut: () => void }) => {
+  const { props, close, onAddShortcut } = params;
+  const [hidden, setHidden] = createSignal<string[]>([...props.settings.hiddenWidgets]);
+  const [gradient, setGradient] = createSignal<string>(props.settings.gradient);
+  const [shortcuts, setShortcuts] = createSignal<DashboardShortcut[]>([...props.settings.shortcuts]);
+
+  const toggleWidget = (key: string) => {
     const current = hidden();
     setHidden(current.includes(key) ? current.filter((k) => k !== key) : [...current, key]);
   };
 
+  const removeShortcut = (id: string) => setShortcuts(shortcuts().filter((shortcut) => shortcut.id !== id));
+
   const save = mutations.create<void, void>({
     mutation: async () => {
-      const settings: DashboardSettings = {
+      await saveSettings({
         hiddenWidgets: hidden(),
         gradient: gradient(),
-      };
-      cookies.writeJsonCookie(DASHBOARD_COOKIE, settings);
-      // Reload to apply the new settings server-side (gradient + filtering).
+        shortcuts: shortcuts(),
+      });
+    },
+    onSuccess: () => {
+      close();
+      toast.success("Dashboard updated.");
       window.location.reload();
     },
-    onError: (e) => prompts.error(e.message),
+    onError: (error) => prompts.error(error instanceof Error ? error.message : "Failed to save dashboard."),
   });
 
+  const appById = createMemo(() => new Map(props.apps.map((app) => [app.id, app])));
+
   return (
-    <div class="flex flex-col gap-5 px-1 pb-1">
-      {/* Name color */}
+    <div class="flex max-h-[70vh] flex-col gap-6 overflow-y-auto px-1 pb-1">
       <section class="flex flex-col gap-2">
         <span class="text-[11px] uppercase tracking-wider text-dimmed">Name color</span>
         <div class="flex flex-wrap gap-2">
@@ -84,10 +310,8 @@ const EditForm = (params: { props: Props; close: (r?: void) => void }) => {
                 type="button"
                 title={preset.label}
                 onClick={() => setGradient(preset.id)}
-                class={`w-7 h-7 rounded-full transition-all ${
-                  gradient() === preset.id
-                    ? "ring-2 ring-offset-2 ring-blue-500 dark:ring-offset-zinc-900"
-                    : "hover:scale-110"
+                class={`h-7 w-7 rounded-full transition-all ${
+                  gradient() === preset.id ? "ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-zinc-900" : "hover:scale-110"
                 }`}
                 style={`background:${preset.preview}`}
               />
@@ -96,44 +320,71 @@ const EditForm = (params: { props: Props; close: (r?: void) => void }) => {
         </div>
       </section>
 
-      {/* Available widgets — checkboxes */}
+      <section class="flex flex-col gap-3">
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-[11px] uppercase tracking-wider text-dimmed">Shortcuts</span>
+          <button type="button" class="btn-input btn-input-sm" onClick={onAddShortcut}>
+            <i class="ti ti-plus" />
+            Add
+          </button>
+        </div>
+        <Show when={shortcuts().length > 0} fallback={<p class="text-sm text-dimmed">No custom shortcuts yet.</p>}>
+          <ul class="flex flex-col gap-2">
+            <For each={shortcuts()}>
+              {(shortcut) => {
+                const app = shortcut.kind === "app" ? appById().get(shortcut.appId) : null;
+                const title = shortcut.kind === "link" ? shortcut.title : (shortcut.title ?? app?.name ?? "Unknown app");
+                const icon = shortcut.kind === "link" ? shortcut.icon : (shortcut.icon ?? app?.icon ?? "ti ti-apps");
+                const meta = shortcut.kind === "link" ? shortcut.href : (app?.description ?? shortcut.appId);
+                return (
+                  <li class="flex items-center gap-3 rounded-lg bg-zinc-100 p-2 dark:bg-zinc-800">
+                    <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-lg text-zinc-700 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-700">
+                      <i class={icon} />
+                    </span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-sm font-medium text-primary">{title}</span>
+                      <span class="block truncate text-xs text-dimmed">{meta}</span>
+                    </span>
+                    <button type="button" class="btn-ghost btn-sm" onClick={() => removeShortcut(shortcut.id)} title="Remove shortcut">
+                      <i class="ti ti-trash" />
+                    </button>
+                  </li>
+                );
+              }}
+            </For>
+          </ul>
+        </Show>
+      </section>
+
       <Show when={props.available.length > 0}>
         <section class="flex flex-col gap-2">
           <span class="text-[11px] uppercase tracking-wider text-dimmed">Widgets</span>
-          <ul class="flex flex-col">
+          <div class="grid gap-2 sm:grid-cols-2">
             <For each={props.available}>
-              {(w) => (
-                <li>
-                  <label class="flex items-center gap-3 py-1.5 px-2 -mx-2 rounded cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
-                    <input
-                      type="checkbox"
-                      checked={!hidden().includes(w.key)}
-                      onChange={() => toggle(w.key)}
-                      class="shrink-0"
-                    />
-                    <i class={`${w.icon} text-dimmed text-sm shrink-0`} />
-                    <span class="text-sm text-primary flex-1 min-w-0 truncate">{w.title}</span>
-                  </label>
-                </li>
+              {(widget) => (
+                <CheckboxCard
+                  variant="input"
+                  icon={widget.icon}
+                  label={widget.title}
+                  value={() => !hidden().includes(widget.key)}
+                  onChange={() => toggleWidget(widget.key)}
+                />
               )}
             </For>
-          </ul>
+          </div>
         </section>
       </Show>
 
-      {/* Inaccessible widgets — read-only */}
       <Show when={props.inaccessible.length > 0}>
         <section class="flex flex-col gap-2">
-          <span class="text-[11px] uppercase tracking-wider text-dimmed">
-            Not available at your access level
-          </span>
-          <ul class="flex flex-col gap-0.5">
+          <span class="text-[11px] uppercase tracking-wider text-dimmed">Not available at your access level</span>
+          <ul class="grid gap-2 sm:grid-cols-2">
             <For each={props.inaccessible}>
-              {(w) => (
-                <li class="flex items-center gap-3 py-1 px-2 -mx-2 opacity-60">
-                  <i class="ti ti-lock text-dimmed text-xs shrink-0" />
-                  <i class={`${w.icon} text-dimmed text-sm shrink-0`} />
-                  <span class="text-sm text-secondary truncate">{w.title}</span>
+              {(widget) => (
+                <li class="flex items-center gap-3 rounded-lg bg-zinc-100 p-2 opacity-60 dark:bg-zinc-800">
+                  <i class="ti ti-lock text-xs text-dimmed" />
+                  <i class={`${widget.icon} text-sm text-dimmed`} />
+                  <span class="min-w-0 truncate text-sm text-secondary">{widget.title}</span>
                 </li>
               )}
             </For>
@@ -141,21 +392,14 @@ const EditForm = (params: { props: Props; close: (r?: void) => void }) => {
         </section>
       </Show>
 
-      <p class="text-[11px] text-dimmed">
-        These settings live in a cookie on this browser only — other devices keep their own preferences.
-      </p>
+      <p class="text-[11px] text-dimmed">These settings are saved to your account and apply on every device.</p>
 
-      <div class="flex gap-2 justify-end">
+      <div class="flex justify-end gap-2 pt-2">
         <button type="button" class="btn-input btn-input-sm" onClick={() => close()}>
           Cancel
         </button>
-        <button
-          type="button"
-          class="btn-primary btn-sm"
-          onClick={() => save.mutate()}
-          disabled={save.loading()}
-        >
-          {save.loading() ? "Saving…" : "Save"}
+        <button type="button" class="btn-primary btn-sm" onClick={() => save.mutate()} disabled={save.loading()}>
+          {save.loading() ? "Saving..." : "Save"}
         </button>
       </div>
     </div>
