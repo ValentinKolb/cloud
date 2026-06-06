@@ -142,7 +142,7 @@ const chooseRecurringEditScope = async (): Promise<RecurringEditScope | null> =>
               ].map(([scope, label, description, icon]) => (
                 <button
                   type="button"
-                  class="flex items-start gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/60 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-blue-500/50 dark:hover:bg-blue-500/10"
+                  class="btn-input btn-input-md h-auto justify-start rounded-lg p-3 text-left [align-items:flex-start]"
                   onClick={() => close(scope as RecurringEditScope)}
                 >
                   <i class={`${icon} mt-0.5 text-base text-blue-500`} />
@@ -180,6 +180,12 @@ export default function Calendar(props: CalendarProps) {
         },
       ]),
     );
+  const tagChipClass = (active: boolean) =>
+    `inline-flex min-h-7 items-center justify-center gap-1.5 rounded-full border px-2.5 text-xs font-medium leading-5 transition-colors ${
+      active
+        ? "border-blue-300 bg-blue-500/[0.08] text-blue-700 dark:border-blue-400/45 dark:bg-blue-400/10 dark:text-blue-200"
+        : "border-zinc-200/80 bg-white/65 text-secondary hover:border-blue-300/70 hover:bg-blue-500/[0.04] hover:text-primary dark:border-zinc-700/70 dark:bg-zinc-900/45 dark:hover:border-blue-400/40 dark:hover:bg-blue-400/[0.06]"
+    }`;
   const routeTo = (view: CalendarView, date: Date, replace = false) => {
     requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, view, date, props.selectedTagIds, undefined, props.dateConfig), {
       replace,
@@ -425,22 +431,18 @@ export default function Calendar(props: CalendarProps) {
     <div id={rootId} class="flex min-h-0 flex-1 flex-col gap-2">
       <CalendarDetailNavigation rootId={rootId} />
       <Show when={props.tags.length > 0}>
-        <div class="flex flex-wrap items-center gap-1.5 px-1">
-          <button
-            type="button"
-            class={`btn-segment ${props.selectedTagIds.length === 0 ? "bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300" : ""}`}
-            onClick={clearTags}
-          >
+        <div class="flex flex-wrap items-center gap-2 px-1">
+          <button type="button" class={tagChipClass(props.selectedTagIds.length === 0)} onClick={clearTags}>
             All tags
           </button>
           <For each={props.tags}>
             {(tag) => (
               <button
                 type="button"
-                class={`btn-segment gap-1.5 ${props.selectedTagIds.includes(tag.id) ? "bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300" : ""}`}
+                class={`${tagChipClass(props.selectedTagIds.includes(tag.id))} gap-1.5`}
                 onClick={() => toggleTag(tag.id)}
               >
-                <span class="h-2 w-2 rounded-full" style={{ "background-color": tag.color }} />
+                <span class="h-2 w-2 shrink-0 rounded-full" style={{ "background-color": tag.color }} />
                 {tag.name}
               </button>
             )}

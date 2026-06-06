@@ -50,7 +50,7 @@ const PRIORITY_DROPDOWN_OPTIONS = PRIORITY_OPTIONS.map((priority) => ({
 }));
 
 const DROPDOWN_TRIGGER_CLASS =
-  "inline-flex items-center gap-2 btn-sm rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer transition-colors";
+  "btn-input-recessed btn-input-sm w-full gap-2 rounded-lg";
 
 const ICON_ACTION_BUTTON_CLASS =
   "inline-flex h-5 w-5 items-center justify-center text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors disabled:opacity-50";
@@ -198,8 +198,8 @@ function EditableDropdown(props: {
           <i class={`${props.icon} text-zinc-400`} />
         </Show>
       </Show>
-      <span class={selectedOption() ? "" : "text-dimmed"}>{selectedOption()?.label ?? `No ${props.label}`}</span>
-      <i class="ti ti-chevron-down text-zinc-400 text-xs" />
+      <span class={`flex-1 truncate text-left ${selectedOption() ? "" : "text-dimmed"}`}>{selectedOption()?.label ?? `No ${props.label}`}</span>
+      <i class="ti ti-chevron-down text-zinc-400 text-xs shrink-0" />
     </div>
   );
 
@@ -291,10 +291,10 @@ function TagsDropdown(props: { tags: SpaceTag[]; selectedIds: string[]; onChange
       <Show when={!props.loading}>
         <i class="ti ti-tags text-zinc-400" />
       </Show>
-      <span class={selectedTags().length > 0 ? "" : "text-dimmed"}>
+      <span class={`flex-1 truncate text-left ${selectedTags().length > 0 ? "" : "text-dimmed"}`}>
         {selectedTags().length > 0 ? `${selectedTags().length} Tags` : "No Tags"}
       </span>
-      <i class="ti ti-chevron-down text-zinc-400 text-xs" />
+      <i class="ti ti-chevron-down text-zinc-400 text-xs shrink-0" />
     </div>
   );
 

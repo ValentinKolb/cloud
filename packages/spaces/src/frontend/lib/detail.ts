@@ -1,5 +1,5 @@
+import { type DetailSelectPayload, detailPanel } from "@valentinkolb/stdlib/solid";
 import type { SpaceItem } from "@/contracts";
-import { detailPanel, type DetailSelectPayload } from "@valentinkolb/stdlib/solid";
 
 export const SPACE_DETAIL_PARAM = "item";
 export const SPACE_ITEM_SELECT_EVENT = "space-item-select";
@@ -7,6 +7,10 @@ export const SPACE_ITEM_SELECT_EVENT = "space-item-select";
 export const getDetailItemFromUrl = () => detailPanel.getUrlParam(SPACE_DETAIL_PARAM);
 
 export const shouldHandleDetailClick = detailPanel.shouldHandleClick;
+
+export const selectSpaceItemDetail = (item: SpaceItem | null, itemId: string | null) => {
+  detailPanel.select(SPACE_DETAIL_PARAM, SPACE_ITEM_SELECT_EVENT, item, itemId);
+};
 
 export const shouldHandleItemEditDoubleClick = (event: MouseEvent) => {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false;

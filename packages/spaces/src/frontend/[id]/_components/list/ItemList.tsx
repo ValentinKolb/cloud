@@ -242,7 +242,7 @@ export default function ItemList(props: ItemListProps) {
           {nonEmptyGroups().map((group) => {
             const items = grouped().itemsByGroup[group.key] ?? [];
             return (
-              <div class="rounded-lg bg-zinc-50/50 dark:bg-zinc-800/30">
+              <div class="rounded-lg bg-zinc-100/60 [box-shadow:var(--theme-recess)] dark:bg-zinc-950/40">
                 <GroupHeader config={group} count={items.length} />
                 <div class="flex flex-col gap-1 p-2">
                   {items.map((item) => (

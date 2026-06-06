@@ -418,7 +418,7 @@ export default function ItemForm(props: Props) {
               <Show when={recurrenceEnabled() && !showAdvanced()}>
                 <button
                   type="button"
-                  class="flex items-center justify-between gap-3 rounded-md bg-zinc-50 px-3 py-2 text-sm text-secondary transition-colors hover:bg-zinc-100 dark:bg-zinc-900/70 dark:hover:bg-zinc-800"
+                  class="btn-input btn-input-sm w-full justify-between text-secondary"
                   onClick={() => setAdvancedOpen(true)}
                 >
                   <span class="flex min-w-0 items-center gap-2">
@@ -473,9 +473,7 @@ export default function ItemForm(props: Props) {
                             type="button"
                             aria-label={day.fullLabel}
                             aria-pressed={recurrenceByDay().includes(day.id)}
-                            class={`btn-segment justify-center px-0 ${
-                              recurrenceByDay().includes(day.id) ? "bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300" : ""
-                            }`}
+                            class={`btn-input btn-input-sm justify-center px-0 ${recurrenceByDay().includes(day.id) ? "btn-input-active" : ""}`}
                             onClick={() => toggleRecurrenceDay(day.id)}
                           >
                             {day.label}

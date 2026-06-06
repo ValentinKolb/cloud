@@ -4,9 +4,8 @@ import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import { dates, type DateContext } from "@valentinkolb/stdlib";
-import { shouldHandleDetailClick, shouldHandleItemEditDoubleClick, subscribeToDetailSelection } from "../../../lib/detail";
+import { shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
 import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
-import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
 
 type ItemRowProps = {
   item: SpaceItem;
@@ -63,19 +62,6 @@ export default function ItemRow(props: ItemRowProps) {
     },
     onError: (err) => prompts.error(err.message),
   });
-  const editMutation = mutations.create<boolean, void>({
-    mutation: () =>
-      editItemWithDialog({
-        spaceId: props.spaceId,
-        item: props.item,
-        columns: props.columns,
-        tags: props.tags,
-        dateConfig: props.dateConfig,
-      }),
-    onSuccess: handleEditItemSuccess,
-    onError: (err) => prompts.error(err.message),
-  });
-
   const isCompleted = () => !!props.item.completedAt;
   const isEvent = () => !!(props.item.startsAt && props.item.endsAt);
   const priority = () => (props.item.priority ? PRIORITY_STYLES[props.item.priority] : null);
@@ -85,11 +71,6 @@ export default function ItemRow(props: ItemRowProps) {
     const sep = props.baseUrl.includes("?") ? "&" : "?";
     return `${props.baseUrl}${sep}item=${props.item.id}`;
   };
-  let detailClickTimer: number | undefined;
-  onCleanup(() => {
-    if (detailClickTimer) window.clearTimeout(detailClickTimer);
-  });
-
   return (
     <div
       role="link"
@@ -97,31 +78,17 @@ export default function ItemRow(props: ItemRowProps) {
       onClick={(event) => {
         if (!shouldHandleDetailClick(event)) return;
         event.preventDefault();
-        if (detailClickTimer) window.clearTimeout(detailClickTimer);
-        detailClickTimer = window.setTimeout(() => {
-          requestSpacesRouteNavigation(itemUrl(), { scroll: "preserve" });
-          detailClickTimer = undefined;
-        }, 220);
-      }}
-      onDblClick={(event) => {
-        if (!shouldHandleItemEditDoubleClick(event)) return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (detailClickTimer) {
-          window.clearTimeout(detailClickTimer);
-          detailClickTimer = undefined;
-        }
-        editMutation.mutate(undefined);
+        requestSpacesRouteNavigation(itemUrl(), { scroll: "preserve" });
       }}
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
         requestSpacesRouteNavigation(itemUrl(), { scroll: "preserve" });
       }}
-      class={`group flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 transition-colors ${
+      class={`group flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2.5 transition-colors ${
         isSelectedLocal()
-          ? "bg-blue-50 ring-2 ring-inset ring-blue-500/65 dark:bg-blue-900/30 dark:ring-blue-400/60"
-          : "bg-white ring-1 ring-inset ring-zinc-300/65 hover:bg-blue-50/25 hover:ring-blue-500/40 dark:bg-zinc-900/65 dark:ring-zinc-700/65 dark:hover:bg-blue-950/12 dark:hover:ring-blue-400/40"
+          ? "border-blue-500 bg-blue-500/[0.08] ring-1 ring-blue-500 dark:border-blue-400 dark:bg-blue-400/10 dark:ring-blue-400"
+          : "border-zinc-200 bg-white [box-shadow:var(--theme-bevel-top),var(--theme-bevel-bottom)] hover:border-blue-500/45 hover:bg-blue-500/[0.04] dark:border-zinc-700/70 dark:bg-zinc-900 dark:hover:border-blue-400/45 dark:hover:bg-blue-400/[0.06]"
       }`}
     >
       {/* Completion Toggle */}
@@ -133,8 +100,10 @@ export default function ItemRow(props: ItemRowProps) {
           completeMutation.mutate(!isCompleted());
         }}
         disabled={completeMutation.loading()}
-        class={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors shrink-0 ${
-          isCompleted() ? "border-emerald-500 bg-emerald-500 text-white" : "border-zinc-300 dark:border-zinc-600 hover:border-emerald-500"
+        class={`w-5 h-5 rounded border flex items-center justify-center transition-colors shrink-0 ${
+          isCompleted()
+            ? "border-emerald-500 bg-emerald-500 text-white [box-shadow:inset_0_1px_0_0_rgb(255_255_255/0.35)]"
+            : "border-zinc-300 bg-white hover:border-emerald-500 dark:border-zinc-600 dark:bg-zinc-900 [box-shadow:var(--theme-recess-sm)]"
         }`}
         aria-label={isCompleted() ? "Mark incomplete" : "Mark complete"}
       >
