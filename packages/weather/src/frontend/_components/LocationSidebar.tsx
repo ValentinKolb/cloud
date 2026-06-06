@@ -68,7 +68,9 @@ export default function LocationSidebar(props: Props) {
       <AppWorkspace.SidebarDesktop>
         <div class="flex flex-col gap-3">
           <AppWorkspace.SidebarSection title="Actions">
-            <AddLocationButton variant="sidebar" />
+            <AppWorkspace.SidebarIconGrid>
+              <AddLocationButton variant="icon" />
+            </AppWorkspace.SidebarIconGrid>
           </AppWorkspace.SidebarSection>
         </div>
 

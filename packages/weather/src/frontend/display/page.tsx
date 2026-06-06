@@ -216,6 +216,8 @@ const detailZoomClasses = {
   },
 };
 
+const displayCard = (padding: string) => `paper ${padding}`;
+
 function DetailDisplayView({
   data,
   location,
@@ -290,7 +292,7 @@ function DetailDisplayView({
 
           {/* Hourly forecast */}
           {hourly.length > 0 && (
-            <div class={`bg-zinc-50 dark:bg-zinc-900 rounded-xl ${s.cardPadding}`}>
+            <div class={displayCard(s.cardPadding)}>
               <h2 class={`${s.header} font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-3`}>Hourly</h2>
               <HourlyForecast hourly={hourly} limit={8} size={s.hourly} showNow={true} />
             </div>
@@ -298,7 +300,7 @@ function DetailDisplayView({
 
           {/* 7-day forecast */}
           {daily.length > 0 && (
-            <div class={`bg-zinc-50 dark:bg-zinc-900 rounded-xl ${s.cardPadding} flex-1 flex flex-col`}>
+            <div class={`${displayCard(s.cardPadding)} flex-1 flex flex-col`}>
               <h2 class={`${s.header} font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-3`}>7-Day Forecast</h2>
               <div class="flex-1">
                 <DailyForecast daily={daily} size={s.daily} />
@@ -307,7 +309,7 @@ function DetailDisplayView({
           )}
 
           {/* Current Conditions */}
-          <div class={`bg-zinc-50 dark:bg-zinc-900 rounded-xl ${s.cardPadding}`}>
+          <div class={displayCard(s.cardPadding)}>
             <h2 class={`${s.header} font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-3`}>Current Conditions</h2>
             <div class={`grid grid-cols-4 gap-4 ${s.conditions}`}>
               <div class="text-zinc-500 dark:text-zinc-400">
@@ -333,7 +335,7 @@ function DetailDisplayView({
         </div>
 
         {/* Right column: Radar (height matches left column) */}
-        <div class={`bg-zinc-50 dark:bg-zinc-900 rounded-xl ${s.cardPadding} flex flex-col min-h-0`}>
+        <div class={`${displayCard(s.cardPadding)} flex flex-col min-h-0`}>
           <h2 class={`${s.header} font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide mb-3`}>Rain Radar</h2>
           <div class="flex-1 min-h-0">
             <RadarCard size={s.radar} showLegend={true} />
