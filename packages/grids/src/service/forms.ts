@@ -232,7 +232,7 @@ export const getByShortId = async (tableId: string, shortId: string): Promise<Fo
 
 /**
  * Field types that the default form can render an input for. Excludes
- * computed / system / autonumber fields — those are server-managed and
+ * computed / system / ID fields — those are server-managed and
  * shouldn't surface as form inputs.
  */
 const DEFAULT_FORM_TYPES = new Set(["text", "longtext", "number", "boolean", "date", "select"]);

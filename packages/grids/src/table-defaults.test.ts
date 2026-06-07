@@ -29,7 +29,7 @@ describe("defaultTableAggregations", () => {
       field("d", "number"),
       field("p", "percent"),
       field("date", "date"),
-      field("auto", "autonumber"),
+      field("identifier", "id"),
       field("text", "text"),
       field("formula", "formula"),
     ])).toEqual([

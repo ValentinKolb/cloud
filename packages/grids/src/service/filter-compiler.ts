@@ -56,10 +56,10 @@ const RELATION_OPS = new Set(["containsAny", "isEmpty", "isNotEmpty"]);
 const opsForType = (type: string): Set<string> => {
   switch (type) {
     case "text":
+    case "id":
     case "longtext":
       return TEXT_OPS;
     case "number":
-    case "autonumber":
     case "percent":
     case "duration":
       return NUMBER_OPS;
@@ -148,7 +148,7 @@ const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const INSTANT_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:[zZ]|[+-]\d{2}:?\d{2})$/;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const VALUELESS_OPS = new Set(["isEmpty", "isNotEmpty", "today", "thisWeek", "thisMonth"]);
-const NUMBER_TYPES = new Set(["number", "autonumber", "percent", "duration"]);
+const NUMBER_TYPES = new Set(["number", "percent", "duration"]);
 
 const isValidDateValue = (value: unknown, dateIncludeTime?: boolean): boolean => {
   if (typeof value !== "string") return false;
@@ -479,10 +479,10 @@ const renderPredicate = (p: PredicateClause): any => {
   const projection = predicateProjection(p);
   switch (p.fieldType) {
     case "text":
+    case "id":
     case "longtext":
       return renderTextPredicate(p, projection);
     case "number":
-    case "autonumber":
     case "percent":
     case "duration":
       return renderNumberPredicate(p, projection);

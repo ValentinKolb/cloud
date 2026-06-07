@@ -4,7 +4,7 @@ import { formulaHandler } from "./formula";
 import { numberHandler } from "./number";
 import { lookupHandler, relationHandler, rollupHandler } from "./relations";
 import { selectHandler } from "./select";
-import { autonumberHandler, createdAtHandler, createdByHandler, updatedAtHandler, updatedByHandler } from "./system";
+import { createdAtHandler, createdByHandler, idHandler, updatedAtHandler, updatedByHandler } from "./system";
 import { longtextHandler, textHandler } from "./text";
 import { durationHandler, percentHandler } from "./tier2";
 import { fileHandler, jsonHandler } from "./tier3";
@@ -38,7 +38,7 @@ export const LINK_FIELD_TYPES: Record<string, LinkFieldType> = {
 };
 
 export const SERVER_GENERATED_FIELD_TYPES: Record<string, ServerGeneratedFieldKind> = {
-  autonumber: autonumberHandler,
+  id: idHandler,
 };
 
 export const COMPUTED_FIELD_TYPES: Record<string, ComputedFieldKind> = Object.fromEntries(

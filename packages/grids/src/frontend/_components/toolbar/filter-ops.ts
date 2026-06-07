@@ -86,10 +86,10 @@ const RELATION_OPS: FilterOp[] = [
 export const opsForType = (type: string): FilterOp[] => {
   switch (type) {
     case "text":
+    case "id":
     case "longtext":
       return TEXT_OPS;
     case "number":
-    case "autonumber":
     case "percent":
     case "duration":
       return NUMBER_OPS;

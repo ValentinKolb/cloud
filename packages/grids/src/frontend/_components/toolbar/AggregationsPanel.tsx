@@ -27,7 +27,7 @@ type Props = {
   onRowsChange: (next: AggregationRow[]) => void;
 };
 
-const NUMERIC_TYPES = new Set(["number", "percent", "duration", "autonumber"]);
+const NUMERIC_TYPES = new Set(["number", "percent", "duration"]);
 const DATE_TYPES = new Set(["date"]);
 
 /** Aggs that can be applied to a given field. Mirrors `isAggregatable`

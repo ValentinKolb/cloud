@@ -17,7 +17,7 @@ type AggregateColumn = {
 // Numeric-castable types all go through the same
 // `try_numeric(data->>id)` pipeline. Money is a number field with a
 // display-only unit in config, not its own storage type.
-const NUMERIC_TYPES = new Set(["number", "autonumber", "percent", "duration"]);
+const NUMERIC_TYPES = new Set(["number", "percent", "duration"]);
 const DATE_TYPES = new Set(["date"]);
 
 /** SQL fragment that extracts a numeric value for the given field.

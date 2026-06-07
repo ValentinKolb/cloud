@@ -16,8 +16,12 @@ const log = logger("grids:field-indexes");
 
 const indexName = (fieldId: string): string => `idx_grids_data_${fieldId.replace(/-/g, "")}`;
 const trgmIndexName = (fieldId: string): string => `idx_grids_trgm_${fieldId.replace(/-/g, "")}`;
-const uniqueIndexName = (fieldId: string): string => `uq_grids_data_${fieldId.replace(/-/g, "")}`;
-const autonumberSeqName = (fieldId: string): string => `grids_an_${fieldId.replace(/-/g, "")}`;
+export const fieldUniqueIndexName = (fieldId: string): string => `uq_grids_data_${fieldId.replace(/-/g, "")}`;
+const generatedIdSeqPrefix = (fieldId: string): string => `grids_id_${fieldId.replace(/-/g, "")}`;
+const generatedIdSeqName = (fieldId: string, scope?: string): string => {
+  const suffix = scope ? `_${scope.replace(/[^a-zA-Z0-9_]/g, "")}` : "";
+  return `${generatedIdSeqPrefix(fieldId)}${suffix}`;
+};
 
 /** Strict UUID-with-or-without-dashes validator. Used as the safety
  *  gate before embedding fieldId in DDL identifiers. */
@@ -26,7 +30,6 @@ const isSafeFieldId = (fieldId: string): boolean => /^[a-f0-9-]+$/i.test(fieldId
 const indexExpressionForType = (fieldId: string, type: string, config?: Record<string, unknown>): string | null => {
   switch (type) {
     case "number":
-    case "autonumber":
     case "percent":
     case "duration":
       // All numeric field types share the numeric expression index.
@@ -39,6 +42,7 @@ const indexExpressionForType = (fieldId: string, type: string, config?: Record<s
       return `((grids.try_boolean(data->>'${fieldId}')))`;
     case "text":
     case "longtext":
+    case "id":
       return `((data->>'${fieldId}'))`;
     case "select":
       // jsonb GIN with path_ops for containment.
@@ -156,7 +160,7 @@ export const dropFieldIndex = async (fieldId: string): Promise<void> => {
 // API boundary because their value isn't a scalar — uniqueness over
 // a JSONB array doesn't have a well-defined semantic.
 
-const UNIQUE_SUPPORTED_TYPES = new Set(["text", "longtext", "number", "percent", "date", "boolean", "autonumber"]);
+const UNIQUE_SUPPORTED_TYPES = new Set(["text", "longtext", "number", "percent", "date", "boolean", "id"]);
 
 export const isUniqueable = (type: string): boolean => UNIQUE_SUPPORTED_TYPES.has(type);
 
@@ -178,7 +182,7 @@ export const ensureFieldUniqueIndex = async (fieldId: string, type: string, tabl
     log.warn("unique_constraint skipped: type not supported", { fieldId, type });
     return;
   }
-  const idx = uniqueIndexName(fieldId);
+  const idx = fieldUniqueIndexName(fieldId);
   // Drop any pre-existing index by this name first. CONCURRENTLY+IF
   // NOT EXISTS would otherwise see an INVALID index left from a
   // previous failed build and skip re-creation, leaving the field
@@ -208,7 +212,7 @@ export const ensureFieldUniqueIndex = async (fieldId: string, type: string, tabl
 export const dropFieldUniqueIndex = async (fieldId: string): Promise<void> => {
   if (!isSafeFieldId(fieldId)) return;
   try {
-    await sql.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS grids.${uniqueIndexName(fieldId)}`);
+    await sql.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS grids.${fieldUniqueIndexName(fieldId)}`);
   } catch (e) {
     log.error("Failed to drop unique index", { fieldId, error: String(e) });
   }
@@ -233,11 +237,10 @@ export const findUniqueConflicts = async (fieldId: string, tableId: string): Pro
 };
 
 // =============================================================================
-// Autonumber sequence (Slice 7 bug fix — race-free counter)
+// Generated ID sequences
 // =============================================================================
-// Pre-v3 autonumber was `SELECT MAX(...) + 1` — two concurrent inserts
-// got the same number. v3 backs each autonumber field with a Postgres
-// sequence, lazily created on first use. nextval() is atomic.
+// Sequence-style generated IDs are backed by Postgres sequences, lazily
+// created on first use. nextval() is atomic.
 
 /**
  * Lazy CREATE SEQUENCE IF NOT EXISTS on first use. Idempotent. Safe
@@ -245,27 +248,37 @@ export const findUniqueConflicts = async (fieldId: string, tableId: string): Pro
  * which is the desired property: rolled-back inserts still consume a
  * sequence value, ensuring monotonicity even under failures).
  */
-const ensureAutonumberSequence = async (fieldId: string): Promise<string | null> => {
+const ensureGeneratedIdSequence = async (fieldId: string, scope?: string, client = sql): Promise<string | null> => {
   if (!isSafeFieldId(fieldId)) return null;
-  const seq = autonumberSeqName(fieldId);
-  await sql.unsafe(`CREATE SEQUENCE IF NOT EXISTS grids.${seq} AS BIGINT INCREMENT 1 MINVALUE 1`);
+  const seq = generatedIdSeqName(fieldId, scope);
+  await client.unsafe(`CREATE SEQUENCE IF NOT EXISTS grids.${seq} AS BIGINT INCREMENT 1 MINVALUE 1`);
   return seq;
 };
 
 /** Atomically returns the next value. Creates the sequence if missing. */
-export const nextAutonumberValue = async (fieldId: string): Promise<number> => {
-  const seq = await ensureAutonumberSequence(fieldId);
+export const nextGeneratedIdSequenceValue = async (fieldId: string, scope?: string, client = sql): Promise<number> => {
+  const seq = await ensureGeneratedIdSequence(fieldId, scope, client);
   if (!seq) return 1;
-  const rows = await sql.unsafe(`SELECT nextval('grids.${seq}') AS next`);
+  const rows = await client.unsafe(`SELECT nextval('grids.${seq}') AS next`);
   const next = (rows as Array<{ next: bigint | string | number }>)[0]?.next;
   return Number(next ?? 1);
 };
 
-export const dropAutonumberSequence = async (fieldId: string): Promise<void> => {
+export const dropGeneratedIdSequences = async (fieldId: string): Promise<void> => {
   if (!isSafeFieldId(fieldId)) return;
   try {
-    await sql.unsafe(`DROP SEQUENCE IF EXISTS grids.${autonumberSeqName(fieldId)}`);
+    const rows = await sql<{ sequence_name: string }[]>`
+      SELECT sequence_name
+      FROM information_schema.sequences
+      WHERE sequence_schema = 'grids'
+        AND sequence_name LIKE ${`${generatedIdSeqPrefix(fieldId)}%`}
+    `;
+    for (const row of rows) {
+      if (/^[a-zA-Z0-9_]+$/.test(row.sequence_name)) {
+        await sql.unsafe(`DROP SEQUENCE IF EXISTS grids.${row.sequence_name}`);
+      }
+    }
   } catch (e) {
-    log.error("Failed to drop autonumber sequence", { fieldId, error: String(e) });
+    log.error("Failed to drop generated ID sequence", { fieldId, error: String(e) });
   }
 };

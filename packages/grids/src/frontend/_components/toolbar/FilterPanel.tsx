@@ -182,7 +182,7 @@ function FilterValueInput(props: {
     if (field.type === "relation" && op.id === "containsAny") return "relation";
     if (field.type === "date" && op.id === "lastNDays") return "number-days";
     if (field.type === "date") return "date";
-    if (field.type === "number" || field.type === "autonumber" || field.type === "percent" || field.type === "duration") {
+    if (field.type === "number" || field.type === "percent" || field.type === "duration") {
       return "number";
     }
     return "text";

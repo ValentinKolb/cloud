@@ -43,7 +43,7 @@ describe("default value write policy", () => {
   test("rejects defaults for computed/system/external field kinds", () => {
     expect(validateDefaultValue("formula", {}, "1 + 1").ok).toBe(false);
     expect(validateDefaultValue("lookup", {}, "anything").ok).toBe(false);
-    expect(validateDefaultValue("autonumber", {}, 1).ok).toBe(false);
+    expect(validateDefaultValue("id", {}, "INV-1").ok).toBe(false);
     expect(validateDefaultValue("file", {}, "anything").ok).toBe(false);
   });
 

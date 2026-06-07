@@ -22,7 +22,7 @@ test("registry: covers all field kinds", () => {
     "boolean",
     "date",
     "select",
-    "autonumber",
+    "id",
     "created_at",
     "created_by",
     "updated_at",
@@ -42,7 +42,7 @@ test("registry: covers all field kinds", () => {
 test("field kind registries separate write policies", () => {
   expect(VALUE_FIELD_TYPES.text?.kind).toBe("value");
   expect(LINK_FIELD_TYPES.relation?.kind).toBe("link");
-  expect(SERVER_GENERATED_FIELD_TYPES.autonumber?.kind).toBe("serverGenerated");
+  expect(SERVER_GENERATED_FIELD_TYPES.id?.kind).toBe("serverGenerated");
   expect(COMPUTED_FIELD_TYPES.formula?.kind).toBe("computed");
   expect(SYSTEM_FIELD_TYPES.created_at?.kind).toBe("system");
   expect(EXTERNAL_FIELD_TYPES.file?.kind).toBe("external");
@@ -66,7 +66,7 @@ test("isKnownFieldType: discriminates", () => {
 test("recordWritableFieldTypes: includes value and link fields only", () => {
   const writable = recordWritableFieldTypes();
   expect(writable).not.toContain("created_at");
-  expect(writable).not.toContain("autonumber");
+  expect(writable).not.toContain("id");
   expect(writable).not.toContain("formula");
   expect(writable).not.toContain("file");
   expect(writable).toContain("text");

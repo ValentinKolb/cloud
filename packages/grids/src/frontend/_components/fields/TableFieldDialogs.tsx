@@ -23,9 +23,9 @@ import { errorMessage } from "../utils/api-helpers";
 import { RECORD_INPUT_FIELD_TYPES } from "./field-render";
 import { FIELD_TYPE_DESCRIPTIONS, FieldConfigEditor, type FieldConfigState, TYPE_LABELS } from "./field-config-editor";
 
-const PRESENTABLE_TYPES = new Set(["text", "number", "boolean", "date", "select", "autonumber", "percent", "duration"]);
-const INDEXABLE_TYPES = new Set(["text", "longtext", "number", "autonumber", "percent", "duration", "date", "boolean", "select"]);
-const UNIQUE_TYPES = new Set(["text", "longtext", "number", "percent", "date", "boolean", "autonumber"]);
+const PRESENTABLE_TYPES = new Set(["text", "id", "number", "boolean", "date", "select", "percent", "duration"]);
+const INDEXABLE_TYPES = new Set(["text", "longtext", "id", "number", "percent", "duration", "date", "boolean", "select"]);
+const UNIQUE_TYPES = new Set(["text", "longtext", "id", "number", "percent", "date", "boolean"]);
 
 export type TableHeader = {
   id: string;
@@ -156,6 +156,7 @@ function FieldEditor(props: {
   const supportsPresentable = () => PRESENTABLE_TYPES.has(props.field.type);
   const supportsIndexed = () => INDEXABLE_TYPES.has(props.field.type);
   const supportsUnique = () => UNIQUE_TYPES.has(props.field.type);
+  const forceUnique = () => props.field.type === "id";
 
   // Touch-tracker — any field-level edit flips the dirty bit.
   const wrap =
@@ -201,7 +202,7 @@ function FieldEditor(props: {
           hideInTable: hideInTable(),
           defaultValue: supportsDefaultValue() ? defaultValue() : null,
           indexed: supportsIndexed() ? indexed() : false,
-          uniqueConstraint: supportsUnique() ? uniqueConstraint() : false,
+          uniqueConstraint: forceUnique() ? true : supportsUnique() ? uniqueConstraint() : false,
           config: config() as Record<string, unknown>,
         },
       });
@@ -316,10 +317,11 @@ function FieldEditor(props: {
             <Show when={supportsUnique()}>
               <CheckboxCard
                 label="Unique values"
-                description="No two records can share the same value. Existing duplicates block saving."
+                description={forceUnique() ? "Generated IDs are always unique." : "No two records can share the same value. Existing duplicates block saving."}
                 icon="ti ti-fingerprint"
-                value={uniqueConstraint}
-                onChange={wrap(setUniqueConstraint)}
+                value={() => (forceUnique() ? true : uniqueConstraint())}
+                onChange={forceUnique() ? undefined : wrap(setUniqueConstraint)}
+                disabled={forceUnique()}
               />
             </Show>
           </div>

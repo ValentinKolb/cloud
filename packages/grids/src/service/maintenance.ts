@@ -1,6 +1,6 @@
 import { sql } from "bun";
 import {
-  dropAutonumberSequence,
+  dropGeneratedIdSequences,
   dropFieldIndex,
   dropFieldUniqueIndex,
 } from "./field-indexes";
@@ -88,7 +88,7 @@ export const purgeSoftDeleted = async (opts: {
     // calls are idempotent / IF EXISTS so a missing object is a no-op.
     await dropFieldIndex(f.id);
     await dropFieldUniqueIndex(f.id);
-    if (f.type === "autonumber") await dropAutonumberSequence(f.id);
+    if (f.type === "id") await dropGeneratedIdSequences(f.id);
   }
 
   // ── 2-6. hard-purge per entity (FK CASCADE handles child rows) ──────

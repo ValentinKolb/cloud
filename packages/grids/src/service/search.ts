@@ -12,7 +12,7 @@ export type SearchSpec = {
 
 type SearchClause = { clause: any };
 
-const SCALAR_SEARCH_TYPES = new Set(["text", "longtext", "number", "autonumber", "percent", "duration", "date", "boolean"]);
+const SCALAR_SEARCH_TYPES = new Set(["text", "longtext", "id", "number", "percent", "duration", "date", "boolean"]);
 
 const SELECT_SEARCH_TYPES = new Set(["select"]);
 

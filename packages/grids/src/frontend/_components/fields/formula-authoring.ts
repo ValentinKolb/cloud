@@ -291,7 +291,7 @@ export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
 const FUNCTION_BY_NAME = new Map(GRID_FORMULA_FUNCTIONS.map((fn) => [fn.name, fn]));
 
 const NUMERIC_TYPES = new Set(["number", "percent", "duration", "rollup", "formula"]);
-const TEXT_TYPES = new Set(["text", "longtext", "select", "autonumber", "lookup", "formula"]);
+const TEXT_TYPES = new Set(["text", "longtext", "select", "id", "lookup", "formula"]);
 const DATE_TYPES = new Set(["date", "created_at", "updated_at", "formula"]);
 const BOOLEAN_TYPES = new Set(["boolean", "formula"]);
 const UNSUITABLE_FIELD_TYPES = new Set(["file", "relation", "json"]);

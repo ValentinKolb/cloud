@@ -121,19 +121,20 @@ const STORAGE: Record<string, StorageDescriptor> = {
     cursorable: true,
     searchable: true,
   },
-  // ── Numeric family ───────────────────────────────────────────────
-  number: {
-    kind: "numeric",
-    project: (f, a) => tryNumeric(a, f.id),
-    formatKind: "number",
+  // ── Generated identifiers ────────────────────────────────────────
+  id: {
+    kind: "text",
+    project: (f, a) => textOf(a, f.id),
+    formatKind: "text",
     sortable: true,
     filterable: true,
     groupable: true,
-    aggregatable: true,
+    aggregatable: false,
     cursorable: true,
-    searchable: false,
+    searchable: true,
   },
-  autonumber: {
+  // ── Numeric family ───────────────────────────────────────────────
+  number: {
     kind: "numeric",
     project: (f, a) => tryNumeric(a, f.id),
     formatKind: "number",

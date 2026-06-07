@@ -75,6 +75,14 @@ export const financeTemplate: GridTemplate = {
       key: "transactions",
       name: "Transactions",
       fields: [
+        {
+          key: "transaction_ref",
+          name: "transaction_ref",
+          description: "Generated monthly reference for this transaction.",
+          type: "id",
+          config: { strategy: "date_sequence", prefix: "TX-", period: "month", padding: 4 },
+          icon: "ti ti-id",
+        },
         { key: "date", name: "date", type: "date", icon: "ti ti-calendar" },
         {
           key: "merchant",

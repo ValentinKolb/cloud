@@ -1,7 +1,7 @@
 import type { Field } from "../../../service";
 
 const SYSTEM_OR_COMPUTED_FIELD_TYPES = new Set([
-  "autonumber",
+  "id",
   "formula",
   "lookup",
   "rollup",

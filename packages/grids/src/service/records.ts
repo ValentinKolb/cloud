@@ -5,8 +5,8 @@ import { defaultTableAggregations } from "../table-defaults";
 import { type AggregateRequest, compileAggregates } from "./aggregate-compiler";
 import { logAudit, type SqlClient } from "./audit";
 import { applyComputedProjections, buildComputedProjections } from "./computed-projections";
-import { nextAutonumberValue } from "./field-indexes";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
+import { generateIdValue, generatedIdRequiresRetry, isGeneratedIdUniqueCollision } from "./generated-ids";
 import { compileFilter, type FilterTree, renderClause } from "./filter-compiler";
 import { compileGroupQuery, type GroupAggregationSpec, type GroupBucket, type GroupBySpec, type GroupSortSpec } from "./group-compiler";
 import { parseJsonbRow } from "./jsonb";
@@ -162,12 +162,12 @@ const preflightRelationTargets = async (
 /**
  * Create-path validation: every user-writable field is materialized using
  * either the provided value or the field's default. Required-checks apply.
- * Autonumber fields receive a sequence value derived from the existing rows.
+ * Generated ID fields receive a server-generated value.
  */
 const validateForCreate = async (
   tableId: string,
   payload: Record<string, unknown>,
-  options: { dateConfig?: DateContext } = {},
+  options: { dateConfig?: DateContext; client?: SqlClient } = {},
 ): Promise<Result<Record<string, unknown>>> => {
   const fields = await listFields(tableId);
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
@@ -182,11 +182,11 @@ const validateForCreate = async (
 
   const out: Record<string, unknown> = {};
   for (const field of fields) {
-    if (field.type === "autonumber") {
-      // v3: per-field Postgres sequence. nextval() is atomic so two
-      // concurrent inserts always get distinct numbers — replaces the
-      // previous MAX+1 race. Sequences are created lazily on first use.
-      out[field.id] = await nextAutonumberValue(field.id);
+    if (field.type === "id") {
+      out[field.id] = await generateIdValue(field, {
+        client: options.client,
+        dateConfig: options.dateConfig,
+      });
       continue;
     }
     const handler = getRecordWritableFieldType(field.type);
@@ -257,29 +257,56 @@ export const createInTransaction = async (
     }
   }
 
-  const validated = await validateForCreate(tableId, payload, { dateConfig: opts.dateConfig });
-  if (!validated.ok) return validated;
-
   const fields = await listFields(tableId);
-  const split = splitRelationsFromData(validated.data, fields);
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
-  const preflight = await preflightRelationTargets(split.relations, fieldsById, client);
-  if (!preflight.ok) return preflight;
+  const hasRetryGeneratedId = fields.some(generatedIdRequiresRetry);
+  const maxAttempts = hasRetryGeneratedId ? 10 : 1;
+  let row: DbRow | undefined;
+  let id = "";
+  let validated: Result<Record<string, unknown>> | null = null;
+  let split: { data: Record<string, unknown>; relations: Map<string, string[]> } | null = null;
 
-  const id = Bun.randomUUIDv7();
-  const [row] = await client<DbRow[]>`
-    INSERT INTO grids.records (id, table_id, data, version, created_by, updated_by)
-    VALUES (
-      ${id}::uuid,
-      ${tableId}::uuid,
-      ${split.data}::jsonb,
-      1,
-      ${actorId}::uuid,
-      ${actorId}::uuid
-    )
-    RETURNING *
-  `;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    validated = await validateForCreate(tableId, payload, {
+      dateConfig: opts.dateConfig,
+      client,
+    });
+    if (!validated.ok) return validated;
+
+    split = splitRelationsFromData(validated.data, fields);
+    const preflight = await preflightRelationTargets(split.relations, fieldsById, client);
+    if (!preflight.ok) return preflight;
+
+    id = Bun.randomUUIDv7();
+    if (hasRetryGeneratedId) await client`SAVEPOINT grids_generated_id_insert`;
+    try {
+      const rows = await client<DbRow[]>`
+        INSERT INTO grids.records (id, table_id, data, version, created_by, updated_by)
+        VALUES (
+          ${id}::uuid,
+          ${tableId}::uuid,
+          ${split.data}::jsonb,
+          1,
+          ${actorId}::uuid,
+          ${actorId}::uuid
+        )
+        RETURNING *
+      `;
+      row = rows[0];
+      if (hasRetryGeneratedId) await client`RELEASE SAVEPOINT grids_generated_id_insert`;
+      break;
+    } catch (e) {
+      if (hasRetryGeneratedId) {
+        await client`ROLLBACK TO SAVEPOINT grids_generated_id_insert`;
+        await client`RELEASE SAVEPOINT grids_generated_id_insert`;
+        if (isGeneratedIdUniqueCollision(e, fields)) continue;
+      }
+      throw e;
+    }
+  }
+  if (!row && hasRetryGeneratedId) return fail(err.conflict("Could not generate a unique ID. Try again."));
   if (!row) throw new Error("insert returned no row");
+  if (!validated?.ok || !split) throw new Error("record create validation state missing");
 
   for (const [fieldId, toIds] of split.relations) {
     await writeRecordLinks(id, fieldId, toIds, client);

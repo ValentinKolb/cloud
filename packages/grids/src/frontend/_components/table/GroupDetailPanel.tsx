@@ -348,7 +348,6 @@ const groupFilterLeaf = (spec: GroupBySpec, key: unknown, fields: Field[], dateC
         value: typeof key === "boolean" ? key : String(key).toLowerCase() === "true",
       };
     case "number":
-        case "autonumber":
     case "percent":
     case "duration":
       return Number.isFinite(Number(key)) ? { fieldId: field.id, op: "=", value: Number(key) } : null;

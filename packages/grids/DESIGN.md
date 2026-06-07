@@ -116,7 +116,7 @@ Resolve specificity in app code, cache per request.
 ## 6. Field types — three tiers
 
 ### Tier 1 (MVP)
-text, longtext, **number (decimal-safe, optional precision/decimalPlaces/unit)**, boolean, date (date or datetime), single-select, multi-select, rating, autonumber, created_at, updated_at, created_by, updated_by
+text, longtext, **number (decimal-safe, optional precision/decimalPlaces/unit)**, boolean, date (date or datetime), select, id, created_at, updated_at, created_by, updated_by
 
 ### Tier 1.5 (close behind, but in their own phases)
 relation, lookup, rollup, attachment (bytea), user-link, formula
@@ -232,7 +232,7 @@ Stored in `grids_forms`, JSONB config:
 ### Default form per table — VIRTUAL, not persisted
 **Codex correction**: don't persist a default form config. Derive on-the-fly from current field set:
 - All non-system fields, in `position` order
-- Excluded automatically: `formula, lookup, rollup, autonumber, created_at/by, updated_at/by`
+- Excluded automatically: `id, formula, lookup, rollup, created_at/by, updated_at/by`
 - Required from field-config carries over
 - Default-value from field-config carries over
 - When a field is added/removed/renamed, the default form auto-updates without action
@@ -355,7 +355,7 @@ Enforced at validation boundary. Rejected with helpful error messages including 
 
 | Phase | Scope |
 |---|---|
-| **1A — Data Core** | Bases, Tables, Fields (text/longtext/number/boolean/date/single-select/multi-select/rating/autonumber/timestamps), Records (JSONB + composite + partial indexes), validation+default+required, optimistic-lock via `version`, soft-delete, audit log, schema-evolution rules + `getFieldDependents()`, hard-limits enforcement |
+| **1A — Data Core** | Bases, Tables, Fields (text/longtext/number/boolean/date/select/id/timestamps), Records (JSONB + composite + partial indexes), validation+default+required, optimistic-lock via `version`, soft-delete, audit log, schema-evolution rules + `getFieldDependents()`, hard-limits enforcement |
 | **1B — Query Core** | Keyset pagination (with tuple-cursor for sorted), Filter-JSON-Compiler, Sort-Compiler, Aggregate-Compiler (footer aggregates), opt-in expression index lifecycle (CONCURRENTLY + retry), trgm indexes |
 | **1C — Product Shell** | Table-UI (read + edit + create), ACL UI (base + table + view), Schema-Evolution UI (add/rename/type-change/delete with dependents-warning), Restore-from-trash UI, basic permission resolver |
 | **2 — Power-Filter** | Pill-builder UI, JSON-advanced-mode editor, multi-sort UI, view ACL public/personal/shared, view-create/edit UI |

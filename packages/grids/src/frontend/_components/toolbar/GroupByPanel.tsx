@@ -29,10 +29,10 @@ type Props = {
 const GROUPABLE_TYPES = new Set([
   "text",
   "longtext",
+  "id",
   "number",
   "percent",
   "duration",
-  "autonumber",
   "boolean",
   "date",
   "select",

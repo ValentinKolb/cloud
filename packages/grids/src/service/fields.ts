@@ -9,7 +9,7 @@ import {
   dropFieldUniqueIndex,
   findUniqueConflicts,
   isUniqueable,
-  dropAutonumberSequence,
+  dropGeneratedIdSequences,
 } from "./field-indexes";
 import { parseJsonbRow } from "./jsonb";
 import { getFieldType, getRecordWritableFieldType, isKnownFieldType } from "../field-types";
@@ -276,6 +276,8 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   // jsonb. JSON.stringify on the wrapper produces a valid JSONB literal
   // for primitives (`true`, `42`, `"hello"`) and keeps objects working.
   const defaultValueJsonb = defaultValue === undefined || defaultValue === null ? null : JSON.stringify(defaultValue);
+  const uniqueConstraint = input.type === "id" ? true : input.uniqueConstraint ?? false;
+
   const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
       INSERT INTO grids.fields (
@@ -298,7 +300,7 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
         ${input.hideInTable ?? false},
         ${defaultValueJsonb}::jsonb,
         ${input.indexed ?? false},
-        ${input.uniqueConstraint ?? false}
+        ${uniqueConstraint}
       )
       RETURNING *
     `;
@@ -372,7 +374,7 @@ const validateFieldUpdate = async (existing: Field, input: UpdateFieldInput): Pr
     hideInTable: input.hideInTable ?? existing.hideInTable,
     defaultValue: defaultValid.data,
     indexed: input.indexed ?? existing.indexed,
-    uniqueConstraint: input.uniqueConstraint ?? existing.uniqueConstraint,
+    uniqueConstraint: existing.type === "id" ? true : input.uniqueConstraint ?? existing.uniqueConstraint,
   });
 };
 
@@ -587,6 +589,8 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
   await cleanupViewFieldRefs(existing.tableId, id);
   // Drop any expression index since the field is gone.
   if (existing.indexed) void dropFieldIndex(id);
+  if (existing.uniqueConstraint) void dropFieldUniqueIndex(id);
+  if (existing.type === "id") void dropGeneratedIdSequences(id);
   await emitTableMetadataEvent(existing.tableId, {
     type: "field.deleted",
     resource: { kind: "field", id, tableId: existing.tableId },

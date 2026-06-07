@@ -48,8 +48,8 @@ V1 field-type consolidation:
   lives in config; there are no separate decimal or currency field types.
 - `percent`: kept because it has a distinct range contract and percent display.
 - `duration`: kept because it accepts HH:MM:SS/MM:SS input and stores seconds.
-- `boolean`, `date`, `single-select`, `multi-select`, `json`, `relation`,
-  `file`, `formula`, `lookup`, `rollup`, `autonumber`, and system fields remain
+- `boolean`, `date`, `select`, `json`, `relation`, `file`, `formula`, `lookup`,
+  `rollup`, `id`, and system fields remain
   because their write/read/query behavior is materially distinct.
 
 File field values do not live in `records.data`. `grids.files` is the source of

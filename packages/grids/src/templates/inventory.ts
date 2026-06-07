@@ -65,6 +65,15 @@ export const inventoryTemplate: GridTemplate = {
       name: "Items",
       fields: [
         {
+          key: "asset_id",
+          name: "asset_id",
+          description: "Server-generated inventory number for this item.",
+          type: "id",
+          config: { strategy: "sequence", prefix: "ITEM-", padding: 4 },
+          presentable: true,
+          icon: "ti ti-id",
+        },
+        {
           key: "name",
           name: "name",
           type: "text",
@@ -202,6 +211,15 @@ export const inventoryTemplate: GridTemplate = {
       name: "Kits",
       fields: [
         {
+          key: "kit_code",
+          name: "kit_code",
+          description: "Short generated code for this kit.",
+          type: "id",
+          config: { strategy: "short_code", prefix: "KIT-", length: 6 },
+          presentable: true,
+          icon: "ti ti-id",
+        },
+        {
           key: "name",
           name: "name",
           type: "text",
@@ -265,6 +283,15 @@ export const inventoryTemplate: GridTemplate = {
       key: "loans",
       name: "Loans",
       fields: [
+        {
+          key: "loan_no",
+          name: "loan_no",
+          description: "Generated loan request number.",
+          type: "id",
+          config: { strategy: "date_sequence", prefix: "LOAN-", period: "year", padding: 4 },
+          presentable: true,
+          icon: "ti ti-id",
+        },
         {
           key: "requester_name",
           name: "requester_name",

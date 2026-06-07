@@ -18,7 +18,7 @@ type Props = {
   onRowsChange: (next: SortRow[]) => void;
 };
 
-const SORTABLE_TYPES = new Set(["text", "longtext", "number", "autonumber", "percent", "duration", "date", "boolean"]);
+const SORTABLE_TYPES = new Set(["text", "longtext", "id", "number", "percent", "duration", "date", "boolean"]);
 
 const RECORD_SORTS: Array<{ key: RecordMetaSortKey; label: string; description: string; icon: string }> = [
   { key: "createdAt", label: "Created time", description: "Record metadata", icon: "ti ti-clock-plus" },
@@ -54,7 +54,7 @@ const isTimeRow = (row: SortRow, fieldsById: Map<string, Field>): boolean =>
   row.source === "record" || fieldsById.get(row.fieldId)?.type === "date";
 
 const isNumericRow = (row: SortRow, fieldsById: Map<string, Field>): boolean =>
-  row.source !== "record" && ["number", "autonumber", "percent", "duration"].includes(fieldsById.get(row.fieldId)?.type ?? "");
+  row.source !== "record" && ["number", "percent", "duration"].includes(fieldsById.get(row.fieldId)?.type ?? "");
 
 const directionOptions = (row: SortRow, fieldsById: Map<string, Field>) => {
   if (isTimeRow(row, fieldsById)) {

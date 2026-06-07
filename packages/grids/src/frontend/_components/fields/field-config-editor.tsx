@@ -51,7 +51,7 @@ export const TYPE_OPTIONS = [
   { value: "boolean", label: "Boolean" },
   { value: "date", label: "Date" },
   { value: "select", label: "Select" },
-  { value: "autonumber", label: "Auto-number" },
+  { value: "id", label: "ID" },
   // Tier 2
   { value: "percent", label: "Percent" },
   { value: "duration", label: "Duration" },
@@ -87,8 +87,7 @@ export const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
   boolean: "A yes/no checkbox.",
   date: "A calendar date, optionally with a time. Bound it to a min and/or max date if you only want values in a certain range.",
   select: "A fixed list of choices. Use single mode for one choice, or multiple mode for tags/categories.",
-  autonumber:
-    'An auto-incrementing number that fills itself in on every new record. Add a prefix (e.g. "INV-") or zero-pad to a fixed width.',
+  id: "A server-generated identifier. Use it for inventory numbers, loan numbers, short codes, UUIDs, or other values users should not type manually.",
   percent: "A percentage from 0 to 100.",
   duration: "A length of time. Type as HH:MM:SS or seconds; displayed as HH:MM:SS.",
   json: "A free-form JSON value. Use this when no other type fits.",
@@ -105,8 +104,8 @@ export const defaultConfigForType = (type: string): FieldConfigState => {
   switch (type) {
     case "select":
       return { multiple: false, options: [] };
-    case "autonumber":
-      return { padding: 1 };
+    case "id":
+      return { strategy: "sequence", padding: 4 };
     case "date":
       return { includeTime: false };
     case "file":
@@ -152,7 +151,7 @@ const CONFIGURABLE = new Set([
   "duration",
   "date",
   "select",
-  "autonumber",
+  "id",
   "relation",
   "lookup",
   "rollup",
@@ -187,8 +186,8 @@ export function FieldConfigEditor(props: EditorProps) {
       <Show when={props.type === "select"}>
         <SelectConstraints config={props.config} onChange={props.onChange} />
       </Show>
-      <Show when={props.type === "autonumber"}>
-        <AutonumberConstraints config={props.config} onChange={props.onChange} />
+      <Show when={props.type === "id"}>
+        <IdConstraints config={props.config} onChange={props.onChange} />
       </Show>
       <Show when={props.type === "relation"}>
         <RelationConstraints
@@ -577,30 +576,170 @@ function SelectConstraints(props: { config: () => FieldConfigState; onChange: (n
   );
 }
 
-function AutonumberConstraints(props: { config: () => FieldConfigState; onChange: (next: FieldConfigState) => void }) {
+const ID_STRATEGY_OPTIONS = [
+  {
+    id: "sequence",
+    label: "Sequence",
+    icon: "ti ti-sort-ascending-numbers",
+    description: "Sequential, e.g. INV-0001. Best for internal numbers.",
+  },
+  {
+    id: "date_sequence",
+    label: "Date sequence",
+    icon: "ti ti-calendar-stats",
+    description: "Date scoped, e.g. ORD-2026-0001. Best for orders.",
+  },
+  {
+    id: "short_code",
+    label: "Short code",
+    icon: "ti ti-password",
+    description: "Short random, e.g. KIT-7K3Q9. Best for labels.",
+  },
+  {
+    id: "random_code",
+    label: "Random code",
+    icon: "ti ti-dice",
+    description: "Grouped random, e.g. AB7K-P9Q2. Best for sharing.",
+  },
+  {
+    id: "uuid",
+    label: "UUID",
+    icon: "ti ti-braces",
+    description: "Globally unique, e.g. 550e8400... Not friendly.",
+  },
+  {
+    id: "uuidv7",
+    label: "UUIDv7",
+    icon: "ti ti-clock-code",
+    description: "Time sortable, e.g. 019e7a2b... Good for APIs.",
+  },
+  {
+    id: "ulid",
+    label: "ULID",
+    icon: "ti ti-sort-descending-numbers",
+    description: "Time sortable, e.g. 01KTFTMH0E... Good for APIs.",
+  },
+];
+
+function IdConstraints(props: { config: () => FieldConfigState; onChange: (next: FieldConfigState) => void }) {
   const cfg = () => props.config();
   const update = (patch: FieldConfigState) => props.onChange({ ...cfg(), ...patch });
+  const strategy = () => (typeof cfg().strategy === "string" ? (cfg().strategy as string) : "sequence");
   const prefix = () => (typeof cfg().prefix === "string" ? (cfg().prefix as string) : "");
-  const padding = () => (typeof cfg().padding === "number" ? String(cfg().padding) : "1");
+  const padding = () => (typeof cfg().padding === "number" ? String(cfg().padding) : "4");
+  const period = () => (typeof cfg().period === "string" ? (cfg().period as string) : "year");
+  const length = () => (typeof cfg().length === "number" ? String(cfg().length) : "5");
+  const groups = () => (typeof cfg().groups === "number" ? String(cfg().groups) : "2");
+  const segmentLength = () => (typeof cfg().segmentLength === "number" ? String(cfg().segmentLength) : "4");
+
+  const PrefixInput = () => (
+    <TextInput
+      label="Prefix (optional)"
+      description="Text added before each generated ID."
+      value={prefix}
+      onInput={(v) => update({ prefix: v === "" ? undefined : v })}
+      placeholder="e.g. INV- or LOAN-"
+    />
+  );
+
+  const PaddingInput = () => (
+    <NumberField
+      label="Padding"
+      description="Minimum digits for the sequence part."
+      value={padding}
+      min={1}
+      max={16}
+      onInput={(v) => {
+        const n = Number(v);
+        if (Number.isInteger(n) && n >= 1 && n <= 16) update({ padding: n });
+      }}
+    />
+  );
 
   return (
-    <div class="grid grid-cols-2 gap-3">
-      <TextInput
-        label="Prefix (optional)"
-        value={prefix}
-        onInput={(v) => update({ prefix: v === "" ? undefined : v })}
-        placeholder="e.g. INV-"
-      />
-      <NumberField
-        label="Padding (zero-pad to N digits)"
-        value={padding}
-        min={1}
-        max={10}
-        onInput={(v) => {
-          const n = Number(v);
-          if (Number.isInteger(n) && n >= 1 && n <= 10) update({ padding: n });
+    <div class="flex flex-col gap-3">
+      <Select
+        label="ID type"
+        description="Choose how new record IDs are generated."
+        value={strategy}
+        onChange={(v) => {
+          if (v === "sequence") props.onChange({ strategy: v, prefix: prefix(), padding: 4 });
+          else if (v === "date_sequence") props.onChange({ strategy: v, prefix: prefix(), padding: 4, period: "year" });
+          else if (v === "short_code") props.onChange({ strategy: v, prefix: prefix(), length: 5 });
+          else if (v === "random_code") props.onChange({ strategy: v, prefix: prefix(), groups: 2, segmentLength: 4 });
+          else props.onChange({ strategy: v, prefix: prefix() });
         }}
+        options={ID_STRATEGY_OPTIONS}
       />
+      <Show when={strategy() === "sequence"}>
+        <div class="grid grid-cols-2 gap-3">
+          <PrefixInput />
+          <PaddingInput />
+        </div>
+      </Show>
+      <Show when={strategy() === "date_sequence"}>
+        <div class="grid grid-cols-2 gap-3">
+          <PrefixInput />
+          <PaddingInput />
+        </div>
+        <Select
+          label="Reset"
+          description="When the sequence number starts again."
+          value={period}
+          onChange={(v) => update({ period: v })}
+          options={[
+            { id: "year", label: "Yearly", description: "LOAN-2026-0001", icon: "ti ti-calendar" },
+            { id: "month", label: "Monthly", description: "LOAN-202606-0001", icon: "ti ti-calendar-month" },
+            { id: "day", label: "Daily", description: "LOAN-20260607-0001", icon: "ti ti-calendar-event" },
+          ]}
+        />
+      </Show>
+      <Show when={strategy() === "short_code"}>
+        <div class="grid grid-cols-2 gap-3">
+          <PrefixInput />
+          <NumberField
+            label="Code length"
+            description="Characters generated after the prefix."
+            value={length}
+            min={4}
+            max={12}
+            onInput={(v) => {
+              const n = Number(v);
+              if (Number.isInteger(n) && n >= 4 && n <= 12) update({ length: n });
+            }}
+          />
+        </div>
+      </Show>
+      <Show when={strategy() === "random_code"}>
+        <PrefixInput />
+        <div class="grid grid-cols-2 gap-3">
+          <NumberField
+            label="Groups"
+            description="How many readable code segments."
+            value={groups}
+            min={2}
+            max={4}
+            onInput={(v) => {
+              const n = Number(v);
+              if (Number.isInteger(n) && n >= 2 && n <= 4) update({ groups: n });
+            }}
+          />
+          <NumberField
+            label="Characters per group"
+            description="Characters inside each segment."
+            value={segmentLength}
+            min={3}
+            max={6}
+            onInput={(v) => {
+              const n = Number(v);
+              if (Number.isInteger(n) && n >= 3 && n <= 6) update({ segmentLength: n });
+            }}
+          />
+        </div>
+      </Show>
+      <Show when={strategy() === "uuid" || strategy() === "uuidv7" || strategy() === "ulid"}>
+        <PrefixInput />
+      </Show>
     </div>
   );
 }
@@ -831,7 +970,7 @@ function FormulaConstraints(props: {
  * here so the constraint forms keep their existing per-field
  * validation logic without rewriting.
  */
-function NumberField(props: { label: string; value: () => string; onInput: (v: string) => void; min?: number; max?: number }) {
+function NumberField(props: { label: string; description?: string; value: () => string; onInput: (v: string) => void; min?: number; max?: number }) {
   const numericValue = () => {
     const raw = props.value();
     if (raw === "" || raw === undefined) return undefined;
@@ -841,6 +980,7 @@ function NumberField(props: { label: string; value: () => string; onInput: (v: s
   return (
     <NumberInput
       label={props.label}
+      description={props.description}
       value={numericValue}
       onInput={(v) => props.onInput(Number.isFinite(v) ? String(v) : "")}
       min={props.min}

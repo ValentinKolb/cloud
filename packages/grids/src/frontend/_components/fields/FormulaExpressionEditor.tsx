@@ -129,7 +129,7 @@ export function FormulaExpressionEditor(props: {
     });
 
   const numericRefs = () => refs().filter((field) => ["number", "percent", "duration", "rollup", "formula"].includes(field.type));
-  const textRefs = () => refs().filter((field) => ["text", "longtext", "select", "autonumber", "lookup", "formula"].includes(field.type));
+  const textRefs = () => refs().filter((field) => ["text", "longtext", "select", "id", "lookup", "formula"].includes(field.type));
   const dateRefs = () => refs().filter((field) => ["date", "created_at", "updated_at", "formula"].includes(field.type));
   const boolRefs = () => refs().filter((field) => ["boolean", "formula"].includes(field.type));
   const refOr = (list: ReturnType<typeof refs>, fallback: string) => (list[0] ? formulaFieldToken(list[0]) : fallback);
