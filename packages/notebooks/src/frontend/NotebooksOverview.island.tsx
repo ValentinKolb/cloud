@@ -170,7 +170,7 @@ export default function NotebooksOverview(props: Props) {
                 {(notebook) => (
                   <a
                     href={`/app/notebooks/${notebook.shortId}`}
-                    class="paper p-4 flex items-center gap-4 hover:paper-highlighted transition-all no-underline"
+                    class="paper group p-4 flex items-center gap-4 hover:paper-highlighted transition-all no-underline"
                   >
                     <div class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
                       <i class={`${notebook.icon || "ti ti-notebook"} text-lg text-blue-600 dark:text-blue-400`} />
@@ -179,7 +179,7 @@ export default function NotebooksOverview(props: Props) {
                       <span class="text-sm font-semibold text-primary block truncate">{notebook.name}</span>
                       <p class="text-xs text-dimmed truncate">{notebook.description || "No description"}</p>
                     </div>
-                    <i class="ti ti-chevron-right text-dimmed" />
+                    <i class="ti ti-chevron-right text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
                   </a>
                 )}
               </For>
@@ -194,7 +194,7 @@ export default function NotebooksOverview(props: Props) {
             {(template) => (
               <button
                 type="button"
-                class="paper p-4 text-left flex items-start gap-3 hover:paper-highlighted transition-all"
+                class="paper group p-4 text-left flex items-start gap-3 hover:paper-highlighted transition-all"
                 onClick={() => createFromTemplate(template)}
                 disabled={createFromTemplateMutation.loading()}
               >
@@ -205,13 +205,14 @@ export default function NotebooksOverview(props: Props) {
                   <span class="block text-sm font-semibold text-primary">{template.name}</span>
                   <span class="block text-xs text-dimmed leading-snug line-clamp-2">{template.description}</span>
                 </span>
+                <i class="ti ti-chevron-right mt-1 shrink-0 text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
               </button>
             )}
           </For>
 
           <button
             type="button"
-            class="paper p-4 text-left flex items-start gap-3 hover:paper-highlighted transition-all"
+            class="paper group p-4 text-left flex items-start gap-3 hover:paper-highlighted transition-all"
             onClick={createBlank}
             disabled={createNotebookMutation.loading()}
           >
@@ -222,6 +223,7 @@ export default function NotebooksOverview(props: Props) {
               <span class="block text-sm font-semibold text-primary">Blank notebook</span>
               <span class="block text-xs text-dimmed leading-snug">Create an empty notebook with the standard welcome note.</span>
             </span>
+            <i class="ti ti-chevron-right mt-1 shrink-0 text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
           </button>
         </div>
       </AppOverview.Aside>

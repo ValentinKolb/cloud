@@ -35,7 +35,16 @@
 }
 
 @utility paper-highlighted {
-  @apply paper border-zinc-300 dark:border-zinc-700;
+  @apply paper;
+  background:
+    linear-gradient(90deg, rgb(239 246 255 / 0.34), rgb(255 255 255 / 0.82)),
+    var(--color-white);
+}
+
+.dark .paper-highlighted,
+.dark .hover\:paper-highlighted:hover {
+  background: rgb(23 37 84 / 0.2);
+  box-shadow: var(--theme-shadow-elevated);
 }
 
 @utility no-scrollbar {
