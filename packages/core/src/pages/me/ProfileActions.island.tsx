@@ -1,6 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
 import { TextInput } from "@valentinkolb/cloud/ui";
@@ -209,7 +209,7 @@ export default function ProfileActions(props: Props) {
               </div>
             </Show>
 
-            <div class="flex justify-end gap-3 border-t border-zinc-200 dark:border-zinc-700 pt-3">
+            <div class="flex justify-end gap-3 pt-1">
               <button type="button" onClick={() => close(undefined)} class="btn-secondary btn-sm">Cancel</button>
               <button type="button" class="btn-primary btn-sm" onClick={() => close({ phone: phone(), street: street(), postalCode: postalCode(), city: city(), state: state(), sshKeys: keys() })}>Save</button>
             </div>
@@ -264,26 +264,27 @@ export default function ProfileActions(props: Props) {
     onError: (err) => prompts.error(err.message),
   });
 
+  const actions = [
+    ...(canMutateAccount ? [{ icon: "ti ti-pencil", label: "Edit Profile", action: () => void handleEditProfile() }] : []),
+    ...(isIpa ? [{ icon: "ti ti-address-book", label: "Contact & Details", action: () => void handleEditDetails() }] : []),
+    ...(canMutateAccount
+      ? [{ icon: "ti ti-calendar-plus", label: extendMutation.loading() ? "Extending..." : "Extend Account", action: () => void extendMutation.mutate() }]
+      : []),
+  ];
+
   return (
-    <div class="flex flex-wrap gap-2">
-      <Show when={canMutateAccount}>
-        <button type="button" onClick={handleEditProfile} class="btn-secondary btn-sm">
-          <i class="ti ti-pencil text-sm" />
-          Edit Profile
-        </button>
-      </Show>
-      <Show when={isIpa}>
-        <button type="button" onClick={handleEditDetails} class="btn-secondary btn-sm">
-          <i class="ti ti-address-book text-sm" />
-          Contact & Details
-        </button>
-      </Show>
-      <Show when={canMutateAccount}>
-        <button type="button" onClick={() => void extendMutation.mutate()} class="btn-secondary btn-sm" disabled={extendMutation.loading()}>
-          <i class="ti ti-calendar-plus text-sm" />
-          Extend Account
-        </button>
-      </Show>
-    </div>
+    <Show when={actions.length > 0}>
+      <Dropdown
+        position="bottom-left"
+        width="w-56"
+        trigger={
+          <span class="btn-secondary btn-sm">
+            <i class="ti ti-dots text-sm" />
+            Profile actions
+          </span>
+        }
+        elements={actions}
+      />
+    </Show>
   );
 }

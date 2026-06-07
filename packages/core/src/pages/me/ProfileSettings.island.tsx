@@ -21,12 +21,12 @@ function ToggleGroup(props: {
   onChange: (value: string) => void;
 }) {
   return (
-    <div class="flex items-center justify-between gap-4">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div class="min-w-0">
         <span class="text-sm text-primary">{props.label}</span>
         <p class="text-xs text-dimmed">{props.description}</p>
       </div>
-      <div class="w-56 max-w-full shrink-0">
+      <div class="w-full max-w-full shrink-0 sm:w-56">
         <SegmentedControl
           value={props.value}
           onChange={(value) => props.onChange(value)}
@@ -49,8 +49,8 @@ function ActionRow(props: { icon: string; label: string; description: string; on
     <button
       type="button"
       onClick={props.onClick}
-      class={`flex items-center gap-3 p-3 -mx-1 transition-colors text-left w-full ${
-        props.variant === "danger" ? "hover:bg-red-50 dark:hover:bg-red-950/30" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+      class={`group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
+        props.variant === "danger" ? "hover:bg-red-50 dark:hover:bg-red-950/30" : "hover:bg-blue-50/45 dark:hover:bg-blue-950/20"
       }`}
     >
       <i class={`ti ${props.icon} text-base shrink-0 ${props.variant === "danger" ? "text-red-500" : "text-dimmed"}`} />
@@ -58,7 +58,7 @@ function ActionRow(props: { icon: string; label: string; description: string; on
         <span class={`text-sm block ${props.variant === "danger" ? "text-red-600 dark:text-red-400" : "text-primary"}`}>{props.label}</span>
         <span class="text-xs text-dimmed block">{props.description}</span>
       </div>
-      <i class="ti ti-chevron-right text-xs text-dimmed shrink-0" />
+      <i class={`ti ti-chevron-right shrink-0 text-xs text-dimmed transition-transform group-hover:translate-x-0.5 ${props.variant === "danger" ? "group-hover:text-red-500" : "group-hover:text-blue-600 dark:group-hover:text-blue-400"}`} />
     </button>
   );
 }
@@ -172,14 +172,16 @@ export default function ProfileSettings(props: Props) {
   const isGuest = props.profile === "guest";
 
   return (
-    <>
-      {/* Appearance */}
-      <div class="paper p-6 flex flex-col gap-5">
-        <h2 class="text-sm font-semibold text-primary flex items-center gap-1">
-          <i class="ti ti-palette text-sm" />
-          Appearance
+    <section class="paper p-5">
+      <div class="mb-5">
+        <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">
+          <i class="ti ti-user-cog text-sm" />
+          Account settings
         </h2>
+        <p class="mt-1 text-xs text-dimmed">Appearance, password, and session controls.</p>
+      </div>
 
+      <div class="flex flex-col gap-4">
         <ToggleGroup
           label="Color Mode"
           description="Switch between light and dark"
@@ -190,34 +192,25 @@ export default function ProfileSettings(props: Props) {
             { value: "dark", label: "Dark", icon: "ti-moon" },
           ]}
         />
+
+        <div class="flex flex-col gap-1">
+          <Show when={isIpa}>
+            <ActionRow icon="ti-lock" label="Change Password" description="Update your FreeIPA password" onClick={handleChangePassword} />
+          </Show>
+
+          <ActionRow icon="ti-logout" label="Sign Out" description="Log out of your account" onClick={handleLogout} variant="danger" />
+
+          <Show when={isGuest}>
+            <ActionRow
+              icon="ti-trash"
+              label="Delete Account"
+              description="Permanently delete your account and all data"
+              onClick={handleDelete}
+              variant="danger"
+            />
+          </Show>
+        </div>
       </div>
-
-
-      {/* Account */}
-      <div class="paper p-6 flex flex-col gap-1">
-        <h2 class="text-sm font-semibold text-primary flex items-center gap-1 mb-2">
-          <i class="ti ti-user-cog text-sm" />
-          Account
-        </h2>
-
-        <Show when={isIpa}>
-          <ActionRow icon="ti-lock" label="Change Password" description="Update your FreeIPA password" onClick={handleChangePassword} />
-        </Show>
-
-        <div class="border-t border-zinc-200 dark:border-zinc-700 my-2" />
-
-        <ActionRow icon="ti-logout" label="Sign Out" description="Log out of your account" onClick={handleLogout} variant="danger" />
-
-        <Show when={isGuest}>
-          <ActionRow
-            icon="ti-trash"
-            label="Delete Account"
-            description="Permanently delete your account and all data"
-            onClick={handleDelete}
-            variant="danger"
-          />
-        </Show>
-      </div>
-    </>
+    </section>
   );
 }
