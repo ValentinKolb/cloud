@@ -40,6 +40,13 @@ describe("formulaHandler config", () => {
     expect(r.success).toBe(true);
   });
 
+  test("preserves a display format", () => {
+    const format = { kind: "barcode", bcid: "code128", showText: true };
+    const r = parse({ expression: "#aB3kQ", format });
+    expect(r.success).toBe(true);
+    if (r.success) expect((r.data as { format?: unknown }).format).toEqual(format);
+  });
+
   test("rejects an unparseable expression with a useful error path", () => {
     const r = parse({ expression: "1 +" });
     expect(r.success).toBe(false);

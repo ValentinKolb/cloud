@@ -113,6 +113,13 @@ export const financeTemplate: GridTemplate = {
           config: { relationFieldId: field("transactions.merchant"), targetFieldId: field("merchants.name") },
         },
         {
+          key: "merchant_website",
+          name: "merchant_website",
+          type: "lookup",
+          icon: "ti ti-qrcode",
+          config: { relationFieldId: field("transactions.merchant"), targetFieldId: field("merchants.website") },
+        },
+        {
           key: "category_name",
           name: "category_name",
           type: "lookup",
@@ -177,13 +184,41 @@ export const financeTemplate: GridTemplate = {
     { key: "categories.books", table: "categories", values: { name: "Books", kind: ["expense"], fixed: false } },
     { key: "categories.food", table: "categories", values: { name: "Food & coffee", kind: ["expense"], fixed: false } },
     { key: "categories.utilities", table: "categories", values: { name: "Utilities", kind: ["expense"], fixed: true } },
-    { key: "merchants.employer", table: "merchants", values: { name: "Employer GmbH", default_category: [record("categories.salary")] } },
-    { key: "merchants.landlord", table: "merchants", values: { name: "Landlord", default_category: [record("categories.rent")] } },
-    { key: "merchants.market", table: "merchants", values: { name: "Local Market", default_category: [record("categories.groceries")] } },
-    { key: "merchants.transit", table: "merchants", values: { name: "City Transit", default_category: [record("categories.transport")] } },
-    { key: "merchants.bookshop", table: "merchants", values: { name: "Bookshop", default_category: [record("categories.books")] } },
-    { key: "merchants.cafe", table: "merchants", values: { name: "Corner Cafe", default_category: [record("categories.food")] } },
-    { key: "merchants.power", table: "merchants", values: { name: "Power Utility", default_category: [record("categories.utilities")] } },
+    {
+      key: "merchants.employer",
+      table: "merchants",
+      values: { name: "Employer GmbH", default_category: [record("categories.salary")], website: "https://employer.example" },
+    },
+    {
+      key: "merchants.landlord",
+      table: "merchants",
+      values: { name: "Landlord", default_category: [record("categories.rent")], website: "https://rent.example" },
+    },
+    {
+      key: "merchants.market",
+      table: "merchants",
+      values: { name: "Local Market", default_category: [record("categories.groceries")], website: "https://market.example" },
+    },
+    {
+      key: "merchants.transit",
+      table: "merchants",
+      values: { name: "City Transit", default_category: [record("categories.transport")], website: "https://transit.example" },
+    },
+    {
+      key: "merchants.bookshop",
+      table: "merchants",
+      values: { name: "Bookshop", default_category: [record("categories.books")], website: "https://bookshop.example" },
+    },
+    {
+      key: "merchants.cafe",
+      table: "merchants",
+      values: { name: "Corner Cafe", default_category: [record("categories.food")], website: "https://cafe.example" },
+    },
+    {
+      key: "merchants.power",
+      table: "merchants",
+      values: { name: "Power Utility", default_category: [record("categories.utilities")], website: "https://power.example" },
+    },
     {
       key: "transactions.salary_apr",
       table: "transactions",
@@ -391,6 +426,7 @@ export const financeTemplate: GridTemplate = {
         columns: [
           { fieldId: field("transactions.date") },
           { fieldId: field("transactions.merchant") },
+          { fieldId: field("transactions.merchant_website"), label: "Merchant QR", format: { kind: "barcode", bcid: "qrcode" } },
           { fieldId: field("transactions.category") },
           { fieldId: field("transactions.type") },
           { fieldId: field("transactions.amount") },

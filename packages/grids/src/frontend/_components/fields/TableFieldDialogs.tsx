@@ -15,6 +15,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { FieldColumnSpec } from "../../../contracts";
+import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field } from "../../../service";
 import { ColumnFormatControls, type ColumnFormatControlsHandle } from "../dialogs/ViewColumnSettingsDialog";
 import { FieldInput } from "../forms/form-fields";
@@ -358,10 +359,14 @@ function FieldEditor(props: {
               clearable
             />
             <ColumnFormatControls
-              field={{
+              field={effectiveDisplayField({
+                id: props.field.id,
+                tableId: props.field.tableId,
+                name: props.field.name,
+                icon: props.field.icon,
                 type: props.field.type,
                 config: config() as Record<string, unknown>,
-              }}
+              }, props.fieldsByTable)}
               currentFormat={initialColumn()?.format}
               expose={(handle) => {
                 formatControls = handle;

@@ -4,8 +4,11 @@ import { text, type DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import { effectiveDisplayField } from "../../../lookup-display";
 import type { AuditEntry, Field, GridFile, GridRecord } from "../../../service";
+import { FormatSpecSchema, type ColumnSpec, type FormatSpec } from "../../../contracts";
 import { isUserEditable } from "../fields/field-prompt-schema";
+import { BarcodeDisplay, barcodeValueText, canRenderBarcode } from "../table/BarcodeCell";
 import { formatCell } from "../table/format-cell";
 import { RecordLink } from "../table/RecordLink";
 import { SelectValueBadges } from "../table/select-badges";
@@ -32,6 +35,8 @@ type Props = {
    *  values instead of raw UUIDs. */
   relationLabels?: Record<string, string>;
   tableShortIds?: Record<string, string>;
+  fieldsByTable?: Record<string, Field[]>;
+  viewColumns?: ColumnSpec[];
   dateConfig?: DateContext;
   /** Close the panel (delegates URL writeback to RecordsView). */
   onClose: () => void;
@@ -65,12 +70,31 @@ export default function RecordDetailPanel(props: Props) {
     const titleId = titleField()?.id;
     return visibleFields().filter((f) => f.id !== titleId);
   };
-  const detailsFields = () => bodyFields().filter((f) => !["longtext", "json", "file", "relation"].includes(f.type));
+  const fieldBarcodeFormat = (field: Field): Extract<FormatSpec, { kind: "barcode" }> | undefined => {
+    const column = props.viewColumns?.find((item) => !("kind" in item) && item.fieldId === field.id);
+    if (column?.format?.kind === "barcode") return column.format;
+    const parsed = FormatSpecSchema.safeParse((field.config as { format?: unknown }).format);
+    return parsed.success && parsed.data.kind === "barcode" ? parsed.data : undefined;
+  };
+  const isBarcodeDisplayField = (field: Field, rec: GridRecord) => {
+    const format = fieldBarcodeFormat(field);
+    if (!format) return false;
+    if (!canRenderBarcode(effectiveDisplayField(field, props.fieldsByTable).type)) return false;
+    return barcodeValueText(rec.data[field.id]).trim().length > 0;
+  };
+  const barcodeFields = (rec: GridRecord) => bodyFields().filter((field) => isBarcodeDisplayField(field, rec));
+  const barcodeFieldIds = (rec: GridRecord) => new Set(barcodeFields(rec).map((field) => field.id));
+  const detailsFields = (rec: GridRecord) =>
+    bodyFields().filter((f) => !barcodeFieldIds(rec).has(f.id) && !["longtext", "json", "file", "relation"].includes(f.type));
   const relationFields = () => bodyFields().filter((f) => f.type === "relation");
   const textBlockFields = () => bodyFields().filter((f) => ["longtext", "json"].includes(f.type));
   const fileFields = () => bodyFields().filter((f) => f.type === "file");
-  const hasBodyFields = () =>
-    detailsFields().length > 0 || relationFields().length > 0 || textBlockFields().length > 0 || fileFields().length > 0;
+  const hasBodyFields = (rec: GridRecord) =>
+    barcodeFields(rec).length > 0 ||
+    detailsFields(rec).length > 0 ||
+    relationFields().length > 0 ||
+    textBlockFields().length > 0 ||
+    fileFields().length > 0;
 
   // ---- Mutations ---------------------------------------------------------
   const updateMut = mutations.create<GridRecord, { rec: GridRecord; payload: Record<string, unknown> }>({
@@ -176,12 +200,35 @@ export default function RecordDetailPanel(props: Props) {
   const renderLookupCell = (field: Field, rec: GridRecord) => {
     const cfg = field.config as { relationFieldId?: string };
     const relationField = cfg.relationFieldId ? props.fields.find((f) => f.id === cfg.relationFieldId && f.type === "relation") : undefined;
-    const value = formatCell(rec.data[field.id], field.type, field.config, undefined, props.dateConfig);
+    const displayField = effectiveDisplayField(field, props.fieldsByTable);
+    const raw = rec.data[field.id];
+    const value =
+      displayField.type === "select" ? (
+        <SelectValueBadges value={raw} type={displayField.type} fieldConfig={displayField.config} empty="—" />
+      ) : isMarkdownLongtext(displayField) && typeof raw === "string" ? (
+        <MarkdownView html={markdown.render(raw)} smallHeadings class="text-sm" />
+      ) : (
+        formatCell(raw, displayField.type, displayField.config, undefined, props.dateConfig)
+      );
     if (!value || !relationField) return value || "—";
     const targetTableId = (relationField.config as { targetTableId?: string }).targetTableId;
     const linked = rec.data[relationField.id];
     const targetId = Array.isArray(linked) ? (linked[0] as string | undefined) : typeof linked === "string" ? linked : undefined;
     if (!targetTableId || !targetId) return value;
+    if (typeof value !== "string") {
+      const tablePathId = props.tableShortIds?.[targetTableId] ?? targetTableId;
+      return (
+        <a
+          href={`/app/grids/${props.baseShortId ?? props.baseId}/table/${tablePathId}?record=${targetId}`}
+          class="inline-flex items-baseline gap-1 hover:underline"
+          onClick={(event) => event.stopPropagation()}
+          title="Open this record in the linked table"
+        >
+          <i class="ti ti-arrow-up-right text-[10px] text-dimmed self-center" />
+          <span>{value}</span>
+        </a>
+      );
+    }
     return (
       <RecordLink
         label={value}
@@ -282,6 +329,19 @@ export default function RecordDetailPanel(props: Props) {
       {sectionProps.children}
     </section>
   );
+  const renderBarcodePaper = (field: Field, rec: GridRecord) => {
+    const format = fieldBarcodeFormat(field);
+    if (!format) return null;
+    return (
+      <section class="paper p-4 flex flex-col gap-3">
+        <div class="flex min-w-0 items-center gap-1.5 truncate text-[11px] font-medium uppercase tracking-wide text-dimmed">
+          <i class={`${detailIcon(field)} shrink-0`} />
+          {field.name}
+        </div>
+        <BarcodeDisplay value={rec.data[field.id]} format={format} size="detail" showOpenAction />
+      </section>
+    );
+  };
 
   return (
     <Show when={record()} fallback={null} keyed>
@@ -352,10 +412,12 @@ export default function RecordDetailPanel(props: Props) {
             </div>
           </section>
 
-          <Show when={hasBodyFields()} fallback={<section class="paper p-4 text-sm text-dimmed">No fields to show.</section>}>
-            <Show when={detailsFields().length > 0}>
+          <Show when={hasBodyFields(rec)} fallback={<section class="paper p-4 text-sm text-dimmed">No fields to show.</section>}>
+            <For each={barcodeFields(rec)}>{(field) => renderBarcodePaper(field, rec)}</For>
+
+            <Show when={detailsFields(rec).length > 0}>
               <div class="grid grid-cols-2 gap-2">
-                <For each={detailsFields()}>{(field) => renderDetailsPaperTile(field, rec)}</For>
+                <For each={detailsFields(rec)}>{(field) => renderDetailsPaperTile(field, rec)}</For>
               </div>
             </Show>
 

@@ -2,9 +2,10 @@ import { markdown } from "@valentinkolb/cloud/shared";
 import { DataTable, type DataTableColumn, MarkdownView, ProgressBar } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show, type JSX } from "solid-js";
-import type { AggregationSpec } from "../../../contracts";
+import { FormatSpecSchema, type AggregationSpec } from "../../../contracts";
+import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field, GridRecord, RecordList } from "../../../service";
-import type { ColumnSpec } from "../../../service/views";
+import type { ColumnSpec, FormatSpec } from "../../../service/views";
 import { fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
 import { BarcodeCell, canRenderBarcode } from "./BarcodeCell";
 import { formatCell, progressRatio } from "./format-cell";
@@ -54,6 +55,8 @@ type Props = {
   baseId: string;
   /** Optional table UUID -> short id map so relation links use path routes. */
   tableShortIds?: Record<string, string>;
+  /** Optional field catalog for resolving lookup target display types. */
+  fieldsByTable?: Record<string, Field[]>;
   /**
    * Row click handler. Omit to render rows as non-interactive
    * (cursor stays default, no hover state). The records page passes
@@ -197,6 +200,13 @@ export default function DatabaseTable(props: Props) {
     return col && "format" in col ? col.format : undefined;
   };
 
+  const fieldConfigFormat = (field: Field): FormatSpec | undefined => {
+    const parsed = FormatSpecSchema.safeParse((field.config as { format?: unknown }).format);
+    return parsed.success ? parsed.data : undefined;
+  };
+
+  const displayFormat = (field: Field) => columnFormat(field.id) ?? fieldConfigFormat(field);
+
   const columnLabel = (fieldId: string, fallback: string) => {
     if (!props.viewColumns) return fallback;
     const column = props.viewColumns.find((c) => columnId(c) === fieldId);
@@ -239,45 +249,46 @@ export default function DatabaseTable(props: Props) {
     const relationField = cfg.relationFieldId
       ? props.result.fields.find((f) => f.id === cfg.relationFieldId && f.type === "relation" && !f.deletedAt)
       : undefined;
-    const value = formatCell(record.data[field.id], field.type, field.config, columnFormat(field.id), props.dateConfig);
-    if (!value || !relationField) return value;
+    const raw = record.data[field.id];
+    const displayField = effectiveDisplayField(field, props.fieldsByTable);
+    const format = displayFormat(field);
+    const value = renderDisplayValue(raw, displayField, format);
+    if (raw === null || raw === undefined || raw === "" || !relationField) return "—";
     const targetTableId = (relationField.config as { targetTableId?: string }).targetTableId;
     const linked = record.data[relationField.id];
     const targetId = Array.isArray(linked) ? (linked[0] as string | undefined) : typeof linked === "string" ? linked : undefined;
+    const isBarcodeLookup = format?.kind === "barcode";
+    if (isBarcodeLookup) return value;
     if (!targetTableId || !targetId) return value;
     return (
-      <RecordLink
-        label={value}
-        targetTableId={targetTableId}
-        targetTableShortId={props.tableShortIds?.[targetTableId]}
-        targetRecordId={targetId}
-        baseId={props.baseId}
-      />
+      <a
+        href={`/app/grids/${props.baseId}/table/${props.tableShortIds?.[targetTableId] ?? targetTableId}?record=${targetId}`}
+        class="inline-flex items-baseline gap-1 hover:underline"
+        onClick={(e) => e.stopPropagation()}
+        title="Open this record in the linked table"
+      >
+        <i class="ti ti-arrow-up-right text-[10px] text-dimmed self-center" />
+        <span>{value}</span>
+      </a>
     );
   };
 
-  /** Cell dispatcher — picks the relation/lookup specialisations or
-   *  falls back to formatCell for everything else (text, number, date,
-   *  select, currency, etc.). */
-  const renderCell = (record: GridRecord, field: Field) => {
-    if (field.type === "relation") return renderRelationCell(record, field);
-    if (field.type === "lookup") return renderLookupCell(record, field);
+  const renderDisplayValue = (value: unknown, field: Field, fmt = displayFormat(field)) => {
     if (field.type === "select") {
-      return <SelectValueBadges value={record.data[field.id]} type={field.type} fieldConfig={field.config} />;
+      return <SelectValueBadges value={value} type={field.type} fieldConfig={field.config} />;
     }
-    if (isMarkdownLongtext(field)) return renderMarkdownCell(record.data[field.id]);
-    const fmt = columnFormat(field.id);
+    if (isMarkdownLongtext(field)) return renderMarkdownCell(value);
     if (fmt?.kind === "barcode" && canRenderBarcode(field.type)) {
-      return <BarcodeCell value={record.data[field.id]} format={fmt} />;
+      return <BarcodeCell value={value} format={fmt} />;
     }
     if (fmt?.kind === "progress" && (field.type === "percent" || field.type === "formula")) {
-      const ratio = progressRatio(record.data[field.id], field.type, field.config);
+      const ratio = progressRatio(value, field.type, field.config);
       const percent = Math.round(ratio * 100);
       const label =
         fmt.label === "none"
           ? ""
           : fmt.label === "value"
-            ? formatCell(record.data[field.id], field.type, field.config, undefined, props.dateConfig)
+            ? formatCell(value, field.type, field.config, undefined, props.dateConfig)
             : `${percent}%`;
       return (
         <span class="flex min-w-36 items-center gap-3">
@@ -288,7 +299,16 @@ export default function DatabaseTable(props: Props) {
         </span>
       );
     }
-    return formatCell(record.data[field.id], field.type, field.config, columnFormat(field.id), props.dateConfig);
+    return formatCell(value, field.type, field.config, fmt, props.dateConfig);
+  };
+
+  /** Cell dispatcher — picks the relation/lookup specialisations or
+   *  falls back to formatCell for everything else (text, number, date,
+   *  select, currency, etc.). */
+  const renderCell = (record: GridRecord, field: Field) => {
+    if (field.type === "relation") return renderRelationCell(record, field);
+    if (field.type === "lookup") return renderLookupCell(record, field);
+    return renderDisplayValue(record.data[field.id], field);
   };
 
   const headerLabel = (field: Field, computed: boolean) => (
@@ -332,6 +352,7 @@ export default function DatabaseTable(props: Props) {
   );
 
   const footerCell = (field: Field) => {
+    const displayField = effectiveDisplayField(field, props.fieldsByTable);
     const index = visibleFields().findIndex((f) => f.id === field.id);
     return (
       <For each={(props.aggregationSpecs ?? []).filter((s) => (s.fieldId === "*" ? index === 0 : s.fieldId === field.id))}>
@@ -340,7 +361,7 @@ export default function DatabaseTable(props: Props) {
           const displayValue = () =>
             spec.fieldId === "*"
               ? String(value())
-              : formatCell(value(), field.type, field.config, columnFormat(field.id), props.dateConfig);
+              : formatCell(value(), displayField.type, displayField.config, displayFormat(field), props.dateConfig);
           const fallbackLabel = AGG_LABELS[spec.agg] ?? spec.agg;
           const label = spec.label?.trim() || fallbackLabel;
           return (

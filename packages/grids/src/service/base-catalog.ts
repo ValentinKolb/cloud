@@ -5,6 +5,7 @@ import { FieldColumnSpecSchema, type View, ViewQuerySchema } from "../contracts"
 import { listForBase as listDashboardsForBase } from "./dashboards";
 import { normalizeFormConfig, toRenderableForm, type Form } from "./forms";
 import { parseJsonbRow } from "./jsonb";
+import { withLookupTargetMetadata } from "./lookup-display";
 import type { Field, Table } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -258,7 +259,7 @@ export const listForBase = async (params: {
 
   const formOnlyTables = formOnlyTableRows.map((row) => ({ ...mapTable(row), level: "none" as const }));
   const tablesById = new Map([...tables, ...formOnlyTables].map((table) => [table.id, table]));
-  const fieldsByTable = byTable(fieldRows.map(mapField));
+  const fieldsByTable = byTable(await withLookupTargetMetadata(fieldRows.map(mapField)));
   const viewsByTable = byTable(viewRows.map(mapView));
   const forms = formRows.map((row) => {
     const form = mapForm(row);

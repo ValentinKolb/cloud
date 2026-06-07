@@ -135,11 +135,11 @@ type EditorProps = {
   fieldsByTable: Record<string, Field[]>;
 };
 
-/** Field types that can't sensibly serve as a presentable label or as
- *  a lookup/rollup target — they either nest deeper or render badly as
- *  a flat value. Filtering them out keeps target/displayField pickers
- *  focused on scalar fields. */
-const NON_PRESENTABLE_TYPES = new Set(["relation", "lookup", "rollup", "formula", "file"]);
+/** Field types that can't sensibly serve as a presentable label. Lookup
+ *  can target formula fields because the read pipeline resolves them;
+ *  rollup stays stricter because aggregation must stay SQL-native. */
+const NON_LOOKUP_TARGET_TYPES = new Set(["relation", "lookup", "rollup", "file"]);
+const NON_ROLLUP_TARGET_TYPES = new Set(["relation", "lookup", "rollup", "formula", "file", "select", "json", "longtext"]);
 
 // Set of types we know how to show a constraint form for. Anything outside
 // this set falls into the "no extra configuration" hint.
@@ -587,7 +587,7 @@ const ID_STRATEGY_OPTIONS = [
     id: "date_sequence",
     label: "Date sequence",
     icon: "ti ti-calendar-stats",
-    description: "Date scoped, e.g. ORD-2026-0001. Best for orders.",
+    description: "Date scoped, e.g. ORD-2026-0001. Best for ordering.",
   },
   {
     id: "short_code",
@@ -605,7 +605,7 @@ const ID_STRATEGY_OPTIONS = [
     id: "uuid",
     label: "UUID",
     icon: "ti ti-braces",
-    description: "Globally unique, e.g. 550e8400... Not friendly.",
+    description: "Globally unique, e.g. 550e8400... Not human readable.",
   },
   {
     id: "uuidv7",
@@ -812,14 +812,14 @@ function LookupRollupConstraints(props: {
   const selectedRelation = () => relationFields().find((f) => f.id === relationFieldId());
   const targetTableId = () => (selectedRelation()?.config as { targetTableId?: string } | undefined)?.targetTableId;
 
-  // Target-table fields, filtered to scalar types — projecting a
-  // lookup of a lookup or a relation-of-a-relation rarely renders
-  // sensibly. Rollup follows the same filter (the agg aggregator
-  // expects flat scalars too).
+  // Target-table fields, filtered by operation. Lookup can display most
+  // direct values, including formula. Rollup only offers flat fields the
+  // SQL aggregation path can handle.
   const targetFields = () => {
     const id = targetTableId();
     if (!id) return [];
-    return (props.fieldsByTable[id] ?? []).filter((f) => !f.deletedAt && !NON_PRESENTABLE_TYPES.has(f.type));
+    const blocked = props.isRollup ? NON_ROLLUP_TARGET_TYPES : NON_LOOKUP_TARGET_TYPES;
+    return (props.fieldsByTable[id] ?? []).filter((f) => !f.deletedAt && !blocked.has(f.type));
   };
 
   return (
@@ -854,7 +854,11 @@ function LookupRollupConstraints(props: {
       <Show when={targetTableId() && targetFields().length > 0}>
         <Select
           label="Target field"
-          description="Which field on the linked table to project. Relation/lookup/rollup/formula fields are excluded — they'd nest or render unpredictably."
+          description={
+            props.isRollup
+              ? "Numeric field on the linked table to aggregate."
+              : "Field on the linked table to show here. Formula fields are recalculated on read."
+          }
           value={targetFieldId}
           onChange={(v) => update({ targetFieldId: v || undefined })}
           options={targetFields().map((f) => ({ id: f.id, label: f.name }))}

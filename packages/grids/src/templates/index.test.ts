@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { isAggregatable } from "../service/group-compiler";
 import { templates } from ".";
+import { field, formula } from "./types";
 import type { GridTemplate, TemplateField, TemplateRef } from "./types";
 
 const isRef = (value: unknown): value is TemplateRef =>
@@ -90,6 +91,57 @@ describe("built-in grid templates", () => {
       templates.map((template) => template.id),
       "template ids"
     );
+  });
+
+  test("bookshop template is named without inventory suffix", () => {
+    const bookshop = templates.find((template) => template.id === "bookshop");
+    expect(bookshop?.name).toBe("Bookshop");
+  });
+
+  test("finance merchant QR column targets merchant websites", () => {
+    const finance = templates.find((template) => template.id === "finance");
+    expect(finance, "finance template").toBeDefined();
+    if (!finance) return;
+
+    const transactions = finance.tables.find((table) => table.key === "transactions");
+    const merchants = finance.tables.find((table) => table.key === "merchants");
+    const merchantWebsite = transactions?.fields.find((field) => field.key === "merchant_website");
+    const website = merchants?.fields.find((field) => field.key === "website");
+    expect(merchantWebsite?.type).toBe("lookup");
+    expect(website?.type).toBe("text");
+    expect((merchantWebsite?.config as { targetFieldId?: unknown } | undefined)?.targetFieldId).toEqual(field("merchants.website"));
+
+    const recentTransactions = finance.views?.find((view) => view.key === "recent_transactions");
+    const columns = (recentTransactions?.query as { columns?: Array<Record<string, unknown>> } | undefined)?.columns ?? [];
+    const qrColumn = columns.find((column) => column.fieldId && isRef(column.fieldId) && column.fieldId.key === "transactions.merchant_website");
+    expect(qrColumn?.label).toBe("Merchant QR");
+    expect(qrColumn?.format).toEqual({ kind: "barcode", bcid: "qrcode" });
+
+    const merchantRecords = (finance.records ?? []).filter((record) => record.table === "merchants");
+    expect(merchantRecords.length).toBeGreaterThan(0);
+    for (const record of merchantRecords) {
+      expect(String(record.values.website ?? "")).toMatch(/^https?:\/\//);
+    }
+  });
+
+  test("inventory template exposes asset id as a barcode field", () => {
+    const inventory = templates.find((template) => template.id === "inventory");
+    expect(inventory, "inventory template").toBeDefined();
+    if (!inventory) return;
+
+    const items = inventory.tables.find((table) => table.key === "items");
+    const barcode = items?.fields.find((field) => field.key === "asset_barcode");
+    expect(barcode?.type).toBe("formula");
+    expect(barcode?.hideInTable).not.toBe(true);
+    expect((barcode?.config as { expression?: unknown } | undefined)?.expression).toEqual(formula(field("items.asset_id")));
+    expect((barcode?.config as { format?: unknown } | undefined)?.format).toEqual({ kind: "barcode", bcid: "code128", showText: true });
+
+    const availableItems = inventory.views?.find((view) => view.key === "available_items");
+    const columns = (availableItems?.query as { columns?: Array<Record<string, unknown>> } | undefined)?.columns ?? [];
+    const firstColumn = columns[0];
+    expect(firstColumn?.fieldId).toEqual(field("items.asset_barcode"));
+    expect(firstColumn?.label).toBe("asset_id");
+    expect(firstColumn?.format).toEqual({ kind: "barcode", bcid: "code128", showText: true });
   });
 
   test("form input entries include help text", () => {

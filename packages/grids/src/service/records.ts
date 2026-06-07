@@ -1,5 +1,6 @@
 import { err, fail, ok, type DateContext, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import { lookupTargetMeta } from "../lookup-display";
 import { getRecordWritableFieldType, isRecordWritableFieldType } from "../field-types";
 import { defaultTableAggregations } from "../table-defaults";
 import { type AggregateRequest, compileAggregates } from "./aggregate-compiler";
@@ -18,6 +19,7 @@ import {
   listRecordActors,
   recordMetaRequiresDeletedRows,
 } from "./record-metadata";
+import { withLookupTargetMetadata } from "./lookup-display";
 import {
   attachRelationExpansion,
   type ExpansionViewer,
@@ -57,6 +59,63 @@ const mapRow = (row: DbRow): GridRecord => ({
   createdAt: (row.created_at as Date).toISOString(),
   updatedAt: (row.updated_at as Date).toISOString(),
 });
+
+const relationIdsFor = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : typeof value === "string" ? [value] : [];
+
+const enrichFormulaLookups = async (records: GridRecord[], fields: Field[], options: { dateConfig?: DateContext } = {}): Promise<void> => {
+  if (records.length === 0) return;
+  const specs = fields
+    .filter((field) => field.type === "lookup" && !field.deletedAt && lookupTargetMeta(field)?.type === "formula")
+    .map((lookupField) => {
+      const cfg = lookupField.config as { relationFieldId?: string };
+      const relationField = cfg.relationFieldId ? fields.find((field) => field.id === cfg.relationFieldId && field.type === "relation") : undefined;
+      const target = lookupTargetMeta(lookupField);
+      const targetTableId = (relationField?.config as { targetTableId?: string } | undefined)?.targetTableId;
+      return relationField && target && targetTableId ? { lookupField, relationField, target, targetTableId } : null;
+    })
+    .filter((spec): spec is NonNullable<typeof spec> => Boolean(spec));
+  if (specs.length === 0) return;
+
+  const idsByTable = new Map<string, Set<string>>();
+  for (const spec of specs) {
+    const ids = idsByTable.get(spec.targetTableId) ?? new Set<string>();
+    for (const record of records) {
+      for (const id of relationIdsFor(record.data[spec.relationField.id])) ids.add(id);
+    }
+    idsByTable.set(spec.targetTableId, ids);
+  }
+
+  const targetsByTable = new Map<string, Map<string, GridRecord>>();
+  for (const [tableId, ids] of idsByTable) {
+    if (ids.size === 0) continue;
+    const targetFields = await listFields(tableId);
+    const targetComputed = await buildComputedProjections(targetFields);
+    const projectionFragments =
+      targetComputed.length > 0 ? targetComputed.map((p) => sql`, ${p.fragment}`).reduce((acc, cur) => sql`${acc}${cur}`) : sql``;
+    const rows = await sql<DbRow[]>`
+      SELECT r.*${projectionFragments}
+      FROM grids.records r
+      WHERE r.table_id = ${tableId}::uuid
+        AND r.id = ANY(${sql.array([...ids], "UUID")})
+        AND r.deleted_at IS NULL
+    `;
+    const targetRecords = rows.map(mapRow);
+    await hydrateRelationsFromLinks(targetRecords, targetFields);
+    const recordsById = new Map(targetRecords.map((record) => [record.id, record]));
+    applyComputedProjections(rows as Array<Record<string, unknown>>, recordsById, targetComputed);
+    enrichRecordsWithFormulas(targetRecords, targetFields, { dateConfig: options.dateConfig });
+    targetsByTable.set(tableId, recordsById);
+  }
+
+  for (const spec of specs) {
+    const targetRecords = targetsByTable.get(spec.targetTableId);
+    for (const record of records) {
+      const firstId = relationIdsFor(record.data[spec.relationField.id])[0];
+      record.data[spec.lookupField.id] = firstId ? (targetRecords?.get(firstId)?.data[spec.target.fieldId] ?? null) : null;
+    }
+  }
+};
 
 const baseIdForTable = async (tableId: string): Promise<string | null> => {
   const [row] = await sql<{ base_id: string }[]>`
@@ -364,6 +423,7 @@ export const list = async (params: {
 }): Promise<Result<RecordList>> => {
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
   const fields = await listFields(params.tableId);
+  const fieldsWithLookupMeta = await withLookupTargetMetadata(fields);
 
   // Filter compilation
   const filterCompiled = compileFilter(params.filter ?? null, fields, { timeZone: params.dateConfig?.timeZone });
@@ -435,6 +495,7 @@ export const list = async (params: {
   await hydrateRelationsFromLinks(items, fields);
   const recordsById = new Map(items.map((r) => [r.id, r]));
   applyComputedProjections(rows.slice(0, limit) as Array<Record<string, unknown>>, recordsById, computed);
+  await enrichFormulaLookups(items, fieldsWithLookupMeta, { dateConfig: params.dateConfig });
 
   let nextCursor: string | null = null;
   if (hasMore) {
@@ -446,7 +507,7 @@ export const list = async (params: {
   }
   // Formulas still run in JS — they reference computed and base values
   // alike, and the formula engine is not SQL-projectable yet.
-  enrichRecordsWithFormulas(items, fields, { dateConfig: params.dateConfig });
+  enrichRecordsWithFormulas(items, fieldsWithLookupMeta, { dateConfig: params.dateConfig });
   enrichRecordsWithComputedColumns(items, fields, params.computedColumns, { dateConfig: params.dateConfig });
 
   // Optional relation expansion. Runs AFTER hydrateRelationsFromLinks
@@ -477,7 +538,7 @@ export const list = async (params: {
   // point and consumers (records page, dashboard view widget,
   // DatabaseTable) always need them to render. Saves a roundtrip vs
   // calling listFields separately.
-  return ok({ items, fields, nextCursor, aggregates: aggregatesResult.data });
+  return ok({ items, fields: fieldsWithLookupMeta, nextCursor, aggregates: aggregatesResult.data });
 };
 
 /**

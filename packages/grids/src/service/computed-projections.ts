@@ -31,8 +31,8 @@ type ComputedProjection = {
   fieldId: string;
   /** SQL alias under which the value is exposed in the SELECT list. */
   alias: string;
-  /** Effective output type — `text` for lookup, `numeric` or `int` for rollup. */
-  outputType: "text" | "numeric" | "int" | "date" | "timestamptz";
+  /** Effective output type — used to normalize bun-sql values into JSON-safe record.data. */
+  outputType: "text" | "numeric" | "int" | "date" | "timestamptz" | "boolean" | "json";
   /** The full SQL fragment to embed AFTER `r.*,` in the SELECT list. */
   fragment: any;
 };
@@ -84,22 +84,44 @@ export const buildComputedProjections = async (fields: Field[]): Promise<Compute
 
     if (field.type === "lookup") {
       if (!cfg.targetFieldId) continue;
-      // First non-null projected value, in link-position order. Returns
-      // text because we don't know the target field's storage type at
-      // SQL-emit time — the renderer / detail panel does the per-type
-      // formatting using the resolved target-field metadata anyway.
+      const targetField = await resolveTargetField(cfg.targetFieldId);
+      if (!targetField || targetField.deletedAt) continue;
+      const descriptor = storageOf(targetField);
+      const projected =
+        descriptor.kind === "jsonbArray" || descriptor.kind === "json"
+          ? sql`t.data->${cfg.targetFieldId}`
+          : descriptor.project(targetField, "t");
+      if (!projected) continue;
+      const outputType =
+        descriptor.kind === "numeric"
+          ? "numeric"
+          : descriptor.kind === "date"
+            ? (targetField.config as { includeTime?: boolean }).includeTime
+              ? "timestamptz"
+              : "date"
+            : descriptor.kind === "datetime"
+              ? "timestamptz"
+              : descriptor.kind === "boolean"
+                ? "boolean"
+                : descriptor.kind === "jsonbArray" || descriptor.kind === "json"
+                  ? "json"
+                  : "text";
+
+      // First non-null projected value, in link-position order. The target
+      // field drives the SQL projection so lookup values keep their real
+      // shape (number/date/select/json) instead of being flattened to text.
       out.push({
         fieldId: field.id,
         alias: lookupAlias(field.id),
-        outputType: "text",
+        outputType,
         fragment: sql`
-          (SELECT t.data->>${cfg.targetFieldId}
+          (SELECT ${projected}
            FROM grids.record_links rl
            JOIN grids.records t ON t.id = rl.to_record_id
            WHERE rl.from_record_id = r.id
              AND rl.from_field_id = ${cfg.relationFieldId}::uuid
              AND t.deleted_at IS NULL
-             AND t.data->>${cfg.targetFieldId} IS NOT NULL
+             AND t.data->${cfg.targetFieldId} IS NOT NULL
            ORDER BY rl.position
            LIMIT 1) AS ${sql.unsafe(lookupAlias(field.id))}
         `,
@@ -194,6 +216,18 @@ export const applyComputedProjections = (
       if (p.outputType === "numeric" || p.outputType === "int") {
         const n = typeof raw === "number" ? raw : Number(raw as string);
         rec.data[p.fieldId] = Number.isFinite(n) ? n : null;
+        continue;
+      }
+      if (p.outputType === "date") {
+        rec.data[p.fieldId] = raw instanceof Date ? raw.toISOString().slice(0, 10) : raw;
+        continue;
+      }
+      if (p.outputType === "timestamptz") {
+        rec.data[p.fieldId] = raw instanceof Date ? raw.toISOString() : raw;
+        continue;
+      }
+      if (p.outputType === "boolean") {
+        rec.data[p.fieldId] = typeof raw === "boolean" ? raw : raw === "true" ? true : raw === "false" ? false : null;
         continue;
       }
       rec.data[p.fieldId] = raw;

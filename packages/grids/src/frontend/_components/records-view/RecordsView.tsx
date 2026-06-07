@@ -1500,6 +1500,7 @@ export default function RecordsView(props: Props) {
                 }}
                 baseId={props.baseShortId}
                 tableShortIds={props.tableShortIds}
+                fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
                 selectedId={selectedRecordId()}
                 highlightedIds={highlightedRecordIds()}
                 onRecordClick={onSelectRecord}
@@ -1560,6 +1561,8 @@ export default function RecordsView(props: Props) {
                 canWrite={props.canWrite}
                 relationLabels={mergedRelationLabels()}
                 tableShortIds={props.tableShortIds}
+                fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
+                viewColumns={effectiveViewColumns()}
                 onClose={onCloseDetail}
                 onUpdated={onRecordUpdated}
                 onRemoved={onRecordRemoved}

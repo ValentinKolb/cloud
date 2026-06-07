@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FormatSpecSchema } from "../contracts";
 import { fail, ok, type ComputedFieldKind, type LinkFieldType } from "./types";
 
 // ─────────────────────────────────────────────────────────────────
@@ -93,6 +94,8 @@ const LookupConfigSchema = z.object({
   relationFieldId: z.string().uuid().optional(),
   /** ID of the field on the related table whose value we project. */
   targetFieldId: z.string().uuid().optional(),
+  /** Optional default display format for this lookup field. */
+  format: FormatSpecSchema.optional(),
 });
 
 export const lookupHandler: ComputedFieldKind = {
@@ -111,6 +114,8 @@ const RollupConfigSchema = z.object({
   relationFieldId: z.string().uuid().optional(),
   targetFieldId: z.string().uuid().optional(),
   agg: z.enum(["count", "sum", "avg", "min", "max"]).optional(),
+  /** Optional default display format for this rollup field. */
+  format: FormatSpecSchema.optional(),
 });
 
 export const rollupHandler: ComputedFieldKind = {

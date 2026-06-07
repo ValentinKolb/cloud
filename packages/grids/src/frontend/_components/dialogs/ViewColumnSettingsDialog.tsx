@@ -2,6 +2,7 @@ import { Checkbox, dialogCore, NumberInput, panelDialogOptions, PanelDialog, Sel
 import { createSignal, Show } from "solid-js";
 import type { Field } from "../../../service";
 import type { FormatSpec } from "../../../service/views";
+import { effectiveDisplayField } from "../../../lookup-display";
 import { TYPE_LABELS } from "../fields/field-config-editor";
 import { barcodeSelectedLabel, DEFAULT_BARCODE_BCID, searchBarcodeOptions } from "../table/barcode-options";
 
@@ -81,7 +82,8 @@ export function ColumnFormatControls(props: {
   expose?: (handle: ColumnFormatControlsHandle) => void;
   onChange?: () => void;
 }) {
-  const fieldType = () => props.field?.type;
+  const displayField = () => (props.field ? effectiveDisplayField(props.field) : null);
+  const fieldType = () => displayField()?.type;
   const [dateFormat, setDateFormat] = createSignal<DateFormatChoice>(
     props.currentFormat?.kind === "date" ? props.currentFormat.format : "default",
   );

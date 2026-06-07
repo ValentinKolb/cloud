@@ -2,7 +2,7 @@ import { field, form, type GridTemplate, record, table, view } from "./types";
 
 export const bookshopTemplate: GridTemplate = {
   id: "bookshop",
-  name: "Bookshop inventory",
+  name: "Bookshop",
   description:
     "Books, authors, customers, orders, relations, forms, charts, and dashboards.",
   icon: "ti ti-books",
@@ -120,6 +120,14 @@ export const bookshopTemplate: GridTemplate = {
           required: true,
           icon: "ti ti-tags",
           config: { targetTableId: table("genres"), cardinality: "single" },
+        },
+        {
+          key: "isbn",
+          name: "ISBN",
+          description: "International identifier used for book orders and barcode scans.",
+          type: "text",
+          config: { regex: "^97[89]-[0-9]-[0-9]{2,5}-[0-9]{3,7}-[0-9X]$" },
+          icon: "ti ti-barcode",
         },
         {
           key: "pages",
@@ -423,6 +431,7 @@ export const bookshopTemplate: GridTemplate = {
         description: "A compact fantasy classic.",
         author: [record("authors.tolkien")],
         genre: [record("genres.fantasy")],
+        isbn: "978-0-547-92822-7",
         pages: 310,
         price: "9.99",
         published: "1937-09-21",
@@ -438,6 +447,7 @@ export const bookshopTemplate: GridTemplate = {
         title: "The Left Hand of Darkness",
         author: [record("authors.le_guin")],
         genre: [record("genres.scifi")],
+        isbn: "978-0-441-47812-5",
         pages: 304,
         price: "11.99",
         published: "1969-03-01",
@@ -453,6 +463,7 @@ export const bookshopTemplate: GridTemplate = {
         title: "The ABC Murders",
         author: [record("authors.christie")],
         genre: [record("genres.mystery")],
+        isbn: "978-0-00-752752-6",
         pages: 220,
         price: "8.50",
         published: "1936-01-06",
@@ -554,6 +565,7 @@ export const bookshopTemplate: GridTemplate = {
       query: {
         columns: [
           { fieldId: field("books.title") },
+          { fieldId: field("books.isbn"), format: { kind: "barcode", bcid: "isbn", showText: true } },
           { fieldId: field("books.author") },
           { fieldId: field("books.price") },
           { fieldId: field("books.published") },
@@ -633,6 +645,12 @@ export const bookshopTemplate: GridTemplate = {
                 },
               ],
             },
+          },
+          {
+            kind: "user_input",
+            fieldId: field("books.isbn"),
+            label: "ISBN",
+            helpText: "Optional ISBN used for ordering and scans.",
           },
           {
             kind: "user_input",

@@ -136,12 +136,35 @@ describe("lookupHandler / rollupHandler — computed config only", () => {
     ).toBe(true);
   });
 
+  test("lookup configSchema preserves display format", () => {
+    const format = { kind: "barcode", bcid: "qrcode" };
+    const parsed = lookupHandler.configSchema.safeParse({
+      relationFieldId: UUID_A,
+      targetFieldId: UUID_B,
+      format,
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect((parsed.data as { format?: unknown }).format).toEqual(format);
+  });
+
   test("rollup configSchema accepts empty / partial config", () => {
     expect(rollupHandler.kind).toBe("computed");
     expect(rollupHandler.configSchema.safeParse({}).success).toBe(true);
     expect(
       rollupHandler.configSchema.safeParse({ agg: "sum" }).success,
     ).toBe(true);
+  });
+
+  test("rollup configSchema preserves display format", () => {
+    const format = { kind: "decimal", precision: 2, thousandsSeparator: true };
+    const parsed = rollupHandler.configSchema.safeParse({
+      relationFieldId: UUID_A,
+      targetFieldId: UUID_B,
+      agg: "sum",
+      format,
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect((parsed.data as { format?: unknown }).format).toEqual(format);
   });
 
   test("rollup rejects unknown agg kind", () => {

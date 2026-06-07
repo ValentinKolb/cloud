@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { parseFormula } from "../formula/parser";
+import { FormatSpecSchema } from "../contracts";
 import { type ComputedFieldKind } from "./types";
 
 // Expression is optional at create-time so a brand-new formula field
@@ -7,18 +8,23 @@ import { type ComputedFieldKind } from "./types";
 // expression is present, the superRefine parse-checks it so typos like
 // `1 +` get rejected at save-time rather than disappearing at record-
 // enrichment time.
-const FormulaConfigSchema = z.object({ expression: z.string().optional() }).superRefine((cfg, ctx) => {
-  const expr = cfg.expression?.trim();
-  if (!expr) return;
-  const result = parseFormula(expr);
-  if (!result.ok) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: `formula parse error: ${result.error}`,
-      path: ["expression"],
-    });
-  }
-});
+const FormulaConfigSchema = z
+  .object({
+    expression: z.string().optional(),
+    format: FormatSpecSchema.optional(),
+  })
+  .superRefine((cfg, ctx) => {
+    const expr = cfg.expression?.trim();
+    if (!expr) return;
+    const result = parseFormula(expr);
+    if (!result.ok) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `formula parse error: ${result.error}`,
+        path: ["expression"],
+      });
+    }
+  });
 
 /**
  * Formula field — read-only, computed at records.list time. Save-time

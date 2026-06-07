@@ -74,6 +74,17 @@ export const inventoryTemplate: GridTemplate = {
           icon: "ti ti-id",
         },
         {
+          key: "asset_barcode",
+          name: "asset_barcode",
+          description: "Scannable barcode for the asset ID.",
+          type: "formula",
+          config: {
+            expression: formula(field("items.asset_id")),
+            format: { kind: "barcode", bcid: "code128", showText: true },
+          },
+          icon: "ti ti-barcode",
+        },
+        {
           key: "name",
           name: "name",
           type: "text",
@@ -176,10 +187,9 @@ export const inventoryTemplate: GridTemplate = {
               field("items.replacement_value")
             ),
             format: {
-              kind: "number",
-              unit: "EUR",
-              unitPosition: "suffix",
-              decimalPlaces: 2,
+              kind: "decimal",
+              precision: 2,
+              thousandsSeparator: true,
             },
           },
           icon: "ti ti-calculator",
@@ -481,6 +491,7 @@ export const inventoryTemplate: GridTemplate = {
           value: "available",
         },
         columns: [
+          { fieldId: field("items.asset_barcode"), label: "asset_id", format: { kind: "barcode", bcid: "code128", showText: true } },
           { fieldId: field("items.name") },
           { fieldId: field("items.category") },
           { fieldId: field("items.location") },
