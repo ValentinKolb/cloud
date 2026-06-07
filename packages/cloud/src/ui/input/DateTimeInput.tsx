@@ -21,7 +21,11 @@ type DateTimeInputProps = {
 const hasInstantOffset = (value: string) => /[T\s].*([zZ]|[+-]\d{2}:?\d{2})$/.test(value);
 
 /**
- * Date/DateTime input component using native browser inputs
+ * Date/DateTime input component using native browser inputs.
+ *
+ * @deprecated Use `DatePicker` or `DateTimePicker` from `@valentinkolb/cloud/ui`
+ * for new UI. This component stays exported for compatibility with older apps.
+ *
  * @param label - Optional label text
  * @param description - Optional description text
  * @param placeholder - Placeholder text (not shown in date inputs)

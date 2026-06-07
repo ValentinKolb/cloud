@@ -247,9 +247,9 @@ export const uiLabDocs: UiLabDocSection[] = [
       page(
         "input",
         "date-time",
-        "DateTimeInput",
-        "ti ti-calendar",
-        "Date-time and date-only input variants.",
+        "DateTimeInput (deprecated)",
+        "ti ti-alert-triangle",
+        "Deprecated native date input wrapper kept for compatibility. Prefer DatePicker and DateTimePicker.",
         ["datetimeinput-basic", "datetimeinput-date-only"],
         () => (
           <DemoGrid>

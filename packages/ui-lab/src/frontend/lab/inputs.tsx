@@ -867,15 +867,32 @@ export const DateRangePickerWithTimeDemo = () => {
   );
 };
 
+const DateTimeInputDeprecatedNotice = () => (
+  <div class="info-block-warning text-xs">
+    <strong>Deprecated.</strong> `DateTimeInput` is kept for compatibility only. Use{" "}
+    <a class="link" href="/app/ui-lab/input/date-picker#datepicker-basic">
+      DatePicker
+    </a>{" "}
+    for date-only values and{" "}
+    <a class="link" href="/app/ui-lab/input/date-picker#datetimepicker-basic">
+      DateTimePicker
+    </a>{" "}
+    for date-time values.
+  </div>
+);
+
 export const DateTimeInputDemo = () => {
   const [v, setV] = createSignal("2026-02-18T10:30");
   return (
     <DemoCard
       id="datetimeinput-basic"
       chip={{ kind: "component", name: "DateTimeInput", from: FROM_UI }}
-      variant="date + time"
-      code={`<DateTimeInput label="Starts at" value={v} onChange={setV} />`}
+      variant="deprecated date + time"
+      description="Legacy native datetime-local wrapper. Prefer `DateTimePicker` for new UI."
+      code={`// Deprecated: use DateTimePicker for new UI.
+<DateTimeInput label="Starts at" value={v} onChange={setV} />`}
     >
+      <DateTimeInputDeprecatedNotice />
       <DateTimeInput label="Starts at" value={v} onChange={setV} />
     </DemoCard>
   );
@@ -887,9 +904,12 @@ export const DateInputDemo = () => {
     <DemoCard
       id="datetimeinput-date-only"
       chip={{ kind: "component", name: "DateTimeInput", from: FROM_UI }}
-      variant="date only"
-      code={`<DateTimeInput dateOnly label="Birthday" value={v} onChange={setV} />`}
+      variant="deprecated date only"
+      description="Legacy native date wrapper. Prefer `DatePicker` for new UI."
+      code={`// Deprecated: use DatePicker for new UI.
+<DateTimeInput dateOnly label="Birthday" value={v} onChange={setV} />`}
     >
+      <DateTimeInputDeprecatedNotice />
       <DateTimeInput dateOnly label="Birthday" value={v} onChange={setV} />
     </DemoCard>
   );

@@ -7,7 +7,7 @@ import { TextInput } from "@valentinkolb/cloud/ui";
 import { Select } from "@valentinkolb/cloud/ui";
 import { Slider } from "@valentinkolb/cloud/ui";
 import { ColorInput } from "@valentinkolb/cloud/ui";
-import { DateTimeInput } from "@valentinkolb/cloud/ui";
+import { DateTimePicker } from "@valentinkolb/cloud/ui";
 import { SwitchInput } from "@valentinkolb/cloud/ui";
 
 type Mode = "text" | "wifi" | "email" | "tel" | "vcard" | "event";
@@ -340,8 +340,8 @@ export default function QrCodeGenerator() {
               onInput={setEvLocation}
             />
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <DateTimeInput label="Start" value={evStart} onChange={setEvStart} />
-              <DateTimeInput label="End" value={evEnd} onChange={setEvEnd} />
+              <DateTimePicker label="Start" value={() => evStart() || null} onChange={(value) => setEvStart(value ?? "")} clearable />
+              <DateTimePicker label="End" value={() => evEnd() || null} onChange={(value) => setEvEnd(value ?? "")} clearable />
             </div>
             <TextInput
               label="Description"

@@ -8,7 +8,7 @@ import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show 
 import { createStore } from "solid-js/store";
 import { dialogCore } from "./dialog-core";
 import CheckboxInput from "./input/Checkbox";
-import DateTimeInput from "./input/DateTimeInput";
+import { DatePicker, DateTimePicker } from "./input/DatePicker";
 import ImageInput from "./input/ImageInput";
 import NumberInput from "./input/NumberInput";
 import PinInput from "./input/PinInput";
@@ -749,7 +749,15 @@ export const prompts = {
           ),
           tags: (props, field) => <TagsInput {...props} icon={field.icon} activeIcon={field.activeIcon} />,
           boolean: (props) => <CheckboxInput {...props} />,
-          datetime: (props, field) => <DateTimeInput {...props} dateOnly={field.dateOnly} />,
+          datetime: (props, field) => {
+            const pickerProps = {
+              ...props,
+              value: () => props.value?.() || null,
+              onChange: (value: string | null) => props.onChange?.(value ?? ""),
+              clearable: true,
+            };
+            return field.dateOnly ? <DatePicker {...pickerProps} /> : <DateTimePicker {...pickerProps} />;
+          },
         };
 
         const submit = () => {

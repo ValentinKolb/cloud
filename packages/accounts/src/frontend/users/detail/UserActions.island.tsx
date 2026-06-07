@@ -1,6 +1,6 @@
 import { createSignal, type JSX } from "solid-js";
 import { Dropdown } from "@valentinkolb/cloud/ui";
-import { DateTimeInput } from "@valentinkolb/cloud/ui";
+import { DatePicker } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
@@ -380,12 +380,12 @@ export default function UserActions(props: UserActionsProps) {
 
         return (
           <div class="flex flex-col gap-4">
-            <DateTimeInput
+            <DatePicker
               label="Expiry Date"
               description="Leave empty and click 'Remove Expiry' to make the account never expire."
-              value={expiryDate}
-              onChange={setExpiryDate}
-              dateOnly
+              value={() => expiryDate() || null}
+              onChange={(value) => setExpiryDate(value ?? "")}
+              clearable
             />
 
             <div class="flex justify-end gap-2">
