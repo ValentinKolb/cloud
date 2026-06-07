@@ -121,7 +121,7 @@ const app = new Hono<AuthContext>()
         const token = c.get("sessionToken");
         const ipaSession = user.provider === "ipa" ? await auth.session.getIpaSession(token) : null;
         const result = await accountLifecycle.extendCurrentUserAccount({ user, ipaSession });
-        return ok(result);
+        return result;
       }),
   )
 

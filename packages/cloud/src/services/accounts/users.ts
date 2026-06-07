@@ -528,6 +528,7 @@ export const setAdmin = async (params: {
 };
 
 export const setExpiry = async (params: {
+  actor?: { userId: string; uid: string; roles: string[] };
   ipaSession?: string | null;
   id: string;
   expiryDate: string | null;
@@ -535,6 +536,15 @@ export const setExpiry = async (params: {
   const user = await getMinimal({ id: params.id });
   if (!user) return { ok: false, error: "User not found", status: 404 };
 
+  const selfTarget = params.actor?.userId === params.id;
+  if (selfTarget && !params.actor?.roles.includes("admin")) {
+    return { ok: false, error: "Only admins can change their own account expiry.", status: 403 };
+  }
+
+  // Explicit account-expiry management is allowed to target the acting admin
+  // as well. Automatic self-extension remains handled separately by the
+  // account-lifecycle service and must not turn non-expiring accounts back into
+  // expiring ones implicitly.
   if (user.provider === "ipa") {
     if (!params.ipaSession) return { ok: false, error: "IPA session required to update IPA-backed expiry", status: 401 };
     return providers.ipa.users.setExpiry({

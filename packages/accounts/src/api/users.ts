@@ -460,26 +460,20 @@ const app = new Hono<AuthContext>()
     v(
       "json",
       z.object({
-        expiryDate: z.iso.datetime().nullable().describe("ISO date string or null to remove expiry"),
+        expiryDate: z.string().nullable().describe("ISO date or date-time string, or null to remove expiry"),
       }),
     ),
     async (c) => {
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const { expiryDate } = c.req.valid("json");
-      // Guard fires for any self-targeted change, including `null` (remove expiry)
-      // — otherwise an admin could bypass account-lifecycle controls on their own
-      // account by sending `null` instead of a date.
-      const selfActionError = await preventSelfDestructiveAction(c, {
-        targetUserId: id,
-        message: "You cannot change your own account expiry from the admin users API.",
-      });
-      if (selfActionError) return selfActionError;
+      const actor = c.get("user");
       const token = c.get("sessionToken");
       const ipaSession = await auth.session.getIpaSession(token);
 
       return respond(c, async () => {
         const result = await accountsService.user.setExpiry({
+          actor: { userId: actor.id, uid: actor.uid, roles: actor.roles },
           ipaSession,
           id,
           expiryDate,

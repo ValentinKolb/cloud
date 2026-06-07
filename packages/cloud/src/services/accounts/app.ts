@@ -387,7 +387,7 @@ export const accountsAppService = {
     update: async (config: { ipaSession?: string | null; id: string; data: Parameters<typeof users.update>[0]["data"] }) =>
       fromMutationResult(await users.update(config)),
     resetPassword: async (config: { ipaSession: string; id: string }) => fromMutationResult(await users.resetPassword(config)),
-    setExpiry: async (config: { ipaSession?: string | null; id: string; expiryDate: string | null }) =>
+    setExpiry: async (config: { actor?: { userId: string; uid: string; roles: string[] }; ipaSession?: string | null; id: string; expiryDate: string | null }) =>
       fromMutationResult(await users.setExpiry(config)),
     setProfile: async (config: { id: string; profile: UserProfile }) => fromMutationResult(await users.setProfile(config)),
     setAdmin: async (config: { id: string; admin: boolean }) => fromMutationResult(await users.setAdmin(config)),

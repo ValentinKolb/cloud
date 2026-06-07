@@ -10,7 +10,7 @@ import { getConfiguredExpiryDays, parseIpaAccountTransitionPolicy } from "../acc
 import { getFreeIpaConfig } from "../freeipa-config";
 import { parsePgJsonRecord } from "../postgres";
 import { dates } from "../../shared";
-import { freeipa } from "../../server/services";
+import { err, fail, freeipa, ok, type Result } from "../../server/services";
 import { writeDeletedAccountAudit } from "./audit";
 import { getIpaUrl } from "../ipa/guard";
 
@@ -676,19 +676,23 @@ export const accountLifecycle = {
   extendCurrentUserAccount: async (config: {
     user: User;
     ipaSession?: string | null;
-  }): Promise<{ message: string; newExpiry?: string }> => {
+  }): Promise<Result<{ message: string; newExpiry?: string }>> => {
+    if (config.user.accountExpires === null) {
+      return fail(err.badInput("Accounts without an expiration date cannot be extended."));
+    }
+
     if (config.user.provider === "ipa") {
       const freeIpaConfig = (await getFreeIpaConfig());
       if (!freeIpaConfig.enabled) {
-        return { message: "FreeIPA is disabled." };
+        return ok({ message: "FreeIPA is disabled." });
       }
       const configuredDays = await getIpaExpiresDays();
       if (configuredDays <= 0) {
-        return { message: "Automatic account expiry is disabled for IPA accounts." };
+        return ok({ message: "Automatic account expiry is disabled for IPA accounts." });
       }
 
       if (!config.ipaSession) {
-        throw new Error("IPA session required to extend an IPA-backed account.");
+        return fail(err.unauthenticated("IPA session required to extend an IPA-backed account."));
       }
 
       const expiresAt = new Date(Date.now() + configuredDays * DAY_MS);
@@ -703,7 +707,7 @@ export const accountLifecycle = {
         options: { krbprincipalexpiration: ipaExpiry },
       });
       if (response.error) {
-        throw new Error(response.error.message || "Failed to extend IPA account.");
+        return fail(err.badInput(response.error.message || "Failed to extend IPA account."));
       }
 
       await sql`
@@ -717,10 +721,10 @@ export const accountLifecycle = {
         ON CONFLICT (user_id) DO UPDATE SET synced_at = EXCLUDED.synced_at
       `;
 
-      return {
+      return ok({
         message: `Account extended until ${dates.formatDate(expiresAt)}.`,
         newExpiry: expiresAt.toISOString(),
-      };
+      });
     }
 
     if (config.user.provider === "local" && config.user.profile === "guest") {
@@ -731,7 +735,7 @@ export const accountLifecycle = {
           SET account_expires = NULL
           WHERE id = ${config.user.id}::uuid
         `;
-        return { message: "Guest account expiry is disabled." };
+        return ok({ message: "Guest account expiry is disabled." });
       }
 
       const expiresAt = new Date(Date.now() + guestDays * DAY_MS);
@@ -741,10 +745,10 @@ export const accountLifecycle = {
         WHERE id = ${config.user.id}::uuid
       `;
 
-      return {
+      return ok({
         message: `Guest account extended until ${dates.formatDate(expiresAt)}.`,
         newExpiry: expiresAt.toISOString(),
-      };
+      });
     }
 
     if (config.user.provider === "local" && config.user.profile === "user") {
@@ -755,7 +759,7 @@ export const accountLifecycle = {
           SET account_expires = NULL
           WHERE id = ${config.user.id}::uuid
         `;
-        return { message: "Local user account expiry is disabled." };
+        return ok({ message: "Local user account expiry is disabled." });
       }
 
       const expiresAt = new Date(Date.now() + localUserDays * DAY_MS);
@@ -765,13 +769,13 @@ export const accountLifecycle = {
         WHERE id = ${config.user.id}::uuid
       `;
 
-      return {
+      return ok({
         message: `Account extended until ${dates.formatDate(expiresAt)}.`,
         newExpiry: expiresAt.toISOString(),
-      };
+      });
     }
 
-    return { message: "Your account does not support extension." };
+    return ok({ message: "Your account does not support extension." });
   },
 
   listDeletedAccounts: async (config: { page: number; perPage: number; reason?: string; search?: string }) => {
