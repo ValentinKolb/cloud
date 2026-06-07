@@ -165,10 +165,24 @@ title={[
 - On startup, each app container calls `appRegistry.upsert()` with its nav config (icon, href, section, roles) and sends heartbeats every 60s
 - Every container maintains a live streaming listener on the registry — when any app registers/deregisters, `currentRuntime` refreshes within milliseconds
 - `Layout` reads `runtime.apps` from the Hono context and calls `buildNavLinks()` which:
-  - Filters by `nav.section`: `"primary"` apps show in the rail, `"more"` apps in a dropdown, `"hidden"` apps are excluded
+  - Filters by `nav.section`: `"primary"` apps show in the rail, `"more"` apps stay out of the rail, and `"hidden"` apps are excluded
+  - Builds one core app launchpad containing all visible `"primary"` and `"more"` apps plus the admin link for admin users
+  - Opens that launchpad from the rail "apps" button on desktop and from the header app-grid button on mobile; mobile does not render a separate app dropdown
   - Applies role-based filtering (`requiresAuth`, `requiresRoles`) per user
-  - Adds an admin link if the user has the admin role
+  - Adds `/me` as a Profile footer link and aggregates app `legalLinks` for the launchpad footer
 - You never hardcode navigation — adding a new app container with a `nav` config is enough for it to appear everywhere
+
+**Opening the app launchpad from an island:**
+
+Use the core launchpad API instead of re-implementing an app picker. Without
+arguments it opens the current `Layout` context; with arguments it can open a
+custom app/link set for the current island.
+
+```typescript
+import { openAppLaunchpad } from "@valentinkolb/cloud/ssr/islands";
+
+openAppLaunchpad();
+```
 
 ### AdminLayout
 

@@ -16,7 +16,8 @@ import {
   type DashboardWidgetSummary,
   normalizeDashboardSettings,
 } from "../shared";
-import DashboardControls, { DashboardEditButton } from "./EditDashboard.island";
+import DashboardEditButton from "./DashboardEditButton.island";
+import DashboardControls from "./EditDashboard.island";
 
 const log = logger("dashboard");
 const WIDGET_TIMEOUT_MS = 500;
@@ -195,7 +196,7 @@ export default ssr<AuthContext>(async (c) => {
           {
             id: "admin",
             name: "Admin",
-            icon: "ti ti-shield-cog",
+            icon: "ti ti-settings",
             href: "/admin",
             description: "Platform administration, app settings, logs, and gateway controls.",
           },

@@ -41,7 +41,7 @@ export const saveUserSettings = async (userId: string, input: DashboardSettings)
       ${userId},
       ${settings.gradient},
       ${toPgTextArray(settings.hiddenWidgets)}::text[],
-      ${JSON.stringify(settings.shortcuts)}::jsonb,
+      (${JSON.stringify(settings.shortcuts)}::text)::jsonb,
       now()
     )
     ON CONFLICT (user_id)

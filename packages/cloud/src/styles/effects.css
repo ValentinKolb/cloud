@@ -62,8 +62,12 @@
 /* Dashboard launchpad panel. Scoped through :has() so the calmer backdrop only
    applies to the dashboard app picker, not every bare dialog. */
 dialog:has(.launchpad-panel)::backdrop {
-  background: rgb(0 0 0 / 0.24);
-  backdrop-filter: none;
+  background: rgb(0 0 0 / 0.45);
+  backdrop-filter: blur(8px);
+}
+
+.dark dialog:has(.launchpad-panel)::backdrop {
+  background: rgb(0 0 0 / 0.35);
 }
 
 .launchpad-panel {
@@ -83,53 +87,60 @@ dialog:has(.launchpad-panel)::backdrop {
     0 28px 68px -36px rgb(0 0 0 / 0.82);
 }
 
-/* Launchpad app-icon tile (dashboard). A single inline `--app-icon-color` keeps
-   apps recognisable while the tile stays restrained. Depth lives mostly in the
-   border and inset edge, not in a glossy fill. */
-.app-icon {
-  background: oklch(from var(--app-icon-color) 0.64 calc(c * 1.12) h / 0.98);
-  border: 1px solid oklch(from var(--app-icon-color) 0.48 calc(c * 1.18) h / 0.94);
-  box-shadow:
-    inset 0 1px 0 0 rgb(255 255 255 / 0.5),
-    inset 0 -1px 0 0 oklch(from var(--app-icon-color) 0.4 calc(c * 0.9) h / 0.58),
-    0 12px 26px -22px oklch(from var(--app-icon-color) 0.38 calc(c * 0.74) h / 0.78);
-  color: white;
+/* Dashboard launchpad app icon. One app colour drives the glyph and graded rim;
+   the face stays clean so the tile feels crisp instead of plastic. */
+.launchpad-panel .app-icon {
+  --icon-face: #ffffff;
+  --rim-top: color-mix(in oklab, var(--app-icon-color), white 34%);
+  --rim-bottom: color-mix(in oklab, var(--app-icon-color), black 12%);
+  --rim-top-hover: color-mix(in oklab, var(--app-icon-color), white 2%);
+  --rim-bottom-hover: color-mix(in oklab, var(--app-icon-color), black 30%);
+  --glyph: var(--app-icon-color);
+  --glyph-hover: var(--app-icon-color);
+  --drop: none;
+
+  background:
+    linear-gradient(var(--icon-face), var(--icon-face)) padding-box,
+    linear-gradient(180deg, var(--rim-top), var(--rim-bottom)) border-box;
+  border: 2.5px solid transparent;
+  box-shadow: var(--drop);
+  color: var(--glyph);
   transition:
-    background-color 0.14s ease,
-    border-color 0.14s ease,
-    color 0.14s ease,
-    box-shadow 0.14s ease;
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    color 0.18s ease;
 }
 
-.dark .app-icon {
-  background: oklch(from var(--app-icon-color) 0.28 calc(c * 0.36) h / 0.96);
-  border-color: oklch(from var(--app-icon-color) 0.52 calc(c * 0.62) h / 0.74);
-  box-shadow:
-    inset 0 1px 0 0 rgb(255 255 255 / 0.09),
-    inset 0 -1px 0 0 rgb(0 0 0 / 0.5),
-    0 11px 22px -17px rgb(0 0 0 / 0.9);
-  color: white;
+@supports (color: oklch(from red l c h)) {
+  .launchpad-panel .app-icon {
+    --glyph: oklch(from var(--app-icon-color) min(l, 0.5) c h);
+    --glyph-hover: oklch(from var(--app-icon-color) min(l, 0.4) c h);
+  }
+}
+
+.dark .launchpad-panel .app-icon {
+  --icon-face: #202026;
+  --rim-top: color-mix(in oklab, var(--app-icon-color), white 30%);
+  --rim-bottom: color-mix(in oklab, var(--app-icon-color), black 24%);
+  --rim-top-hover: color-mix(in oklab, var(--app-icon-color), white 54%);
+  --rim-bottom-hover: color-mix(in oklab, var(--app-icon-color), white 6%);
+  --glyph: var(--app-icon-color);
+  --glyph-hover: color-mix(in oklab, var(--app-icon-color), white 32%);
+  --drop: 0 10px 20px -12px rgb(0 0 0 / 0.7);
+}
+
+@supports (color: oklch(from red l c h)) {
+  .dark .launchpad-panel .app-icon {
+    --glyph: oklch(from var(--app-icon-color) max(l, 0.82) c h);
+    --glyph-hover: oklch(from var(--app-icon-color) max(l, 0.96) c h);
+  }
 }
 
 /* Hover changes only the icon tile, never the whole icon+label item. */
-.group:hover > .app-icon,
-.app-icon:hover {
-  background: oklch(from var(--app-icon-color) 0.58 calc(c * 1.22) h / 0.99);
-  border-color: oklch(from var(--app-icon-color) 0.42 calc(c * 1.26) h / 0.96);
-  box-shadow:
-    inset 0 1px 0 0 rgb(255 255 255 / 0.44),
-    inset 0 -1px 0 0 oklch(from var(--app-icon-color) 0.34 calc(c * 0.98) h / 0.62),
-    0 14px 30px -20px oklch(from var(--app-icon-color) 0.34 calc(c * 0.84) h / 0.8);
-  color: white;
-}
-
-.dark .group:hover > .app-icon,
-.dark .app-icon:hover {
-  background: oklch(from var(--app-icon-color) 0.34 calc(c * 0.42) h / 0.98);
-  border-color: oklch(from var(--app-icon-color) 0.64 calc(c * 0.72) h / 0.88);
-  box-shadow:
-    inset 0 1px 0 0 rgb(255 255 255 / 0.12),
-    inset 0 -1px 0 0 rgb(0 0 0 / 0.46),
-    0 13px 28px -17px oklch(from var(--app-icon-color) 0.3 calc(c * 0.4) h / 0.52);
-  color: white;
+.launchpad-panel .group:hover > .app-icon,
+.launchpad-panel .app-icon:hover {
+  background:
+    linear-gradient(var(--icon-face), var(--icon-face)) padding-box,
+    linear-gradient(180deg, var(--rim-top-hover), var(--rim-bottom-hover)) border-box;
+  color: var(--glyph-hover);
 }

@@ -1,13 +1,13 @@
 import { hasRole, type User } from "../contracts/shared";
 import type { JSX } from "solid-js/jsx-runtime";
 import NavMenu from "./NavMenu.island";
-import MoreAppsDropdown from "./MoreAppsDropdown.island";
 import ThemeToggleRail from "./ThemeToggleRail.island";
 import HotkeysHelpRail from "./HotkeysHelpRail.island";
 import GlobalSearchTrigger from "./GlobalSearchTrigger.island";
 import Footer from "./Footer.island";
 import TimezoneCookie from "./TimezoneCookie.island";
 import LayoutBreadcrumbs from "./LayoutBreadcrumbs.island";
+import AppLaunchpad, { type AppLaunchpadApp } from "./AppLaunchpad.island";
 import { dates } from "../shared";
 import { getRuntimeContext, type RuntimeContext } from "./runtime";
 import { resolveNavMatch } from "../contracts/app"; // ==========================
@@ -15,7 +15,7 @@ import type { GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
 import type { LayoutBreadcrumb } from "../ui/layout";
 // Types
 type Breadcrumb = LayoutBreadcrumb;
-type AppLink = { iconClass: string; label: string; href: string; match: string };
+type AppLink = { id: string; iconClass: string; label: string; href: string; match: string; description?: string };
 type LayoutContext = {
   get(key: "user"): User | undefined;
   get(key: "page"): { theme?: "light" | "dark" };
@@ -41,6 +41,8 @@ type LayoutProps = {
 function active(pathname: string, match: string): string {
   return pathname.startsWith(match) ? "active" : "";
 }
+const jsonScript = (value: unknown): string => JSON.stringify(value).replace(/</g, "\\u003c");
+
 function buildNavLinks(apps: RuntimeContext["apps"], user: User | undefined): { primary: AppLink[]; more: AppLink[] } {
   const links = apps
     .filter((app) => !!app.nav && app.nav.section !== "hidden")
@@ -62,15 +64,17 @@ function buildNavLinks(apps: RuntimeContext["apps"], user: User | undefined): { 
       section: app.nav!.section,
       link: {
         iconClass: app.icon,
+        id: app.id,
         label: app.name,
         href: app.nav!.href,
         match: resolveNavMatch(app) ?? app.nav!.href.split("?")[0] ?? app.nav!.href,
+        description: app.description,
       } satisfies AppLink,
     }));
   const primary = links.filter((entry) => entry.section === "primary").map((entry) => entry.link);
   const more = links.filter((entry) => entry.section === "more").map((entry) => entry.link);
   if (user && hasRole(user, "admin")) {
-    more.push({ iconClass: "ti ti-settings", label: "Admin", href: "/admin", match: "/admin" });
+    more.push({ id: "admin", iconClass: "ti ti-settings", label: "Admin", href: "/admin", match: "/admin", description: "Platform administration." });
   }
   return { primary, more };
 } // ==========================
@@ -136,7 +140,13 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
   const pathname = new URL(c.req.raw.url).pathname;
   const { primary: primaryApps, more: moreApps } = buildNavLinks(runtime.apps, user);
   const allApps = [...primaryApps, ...moreApps];
-  const mobileApps = allApps.filter((app) => app.href !== "/admin");
+  const launchpadApps: AppLaunchpadApp[] = allApps.map((app) => ({
+    id: app.id,
+    iconClass: app.iconClass,
+    label: app.label,
+    href: app.href,
+    description: app.description,
+  }));
   const searchHelpApps: GlobalSearchHelpApp[] = runtime.apps
     .filter((app) => (app.searchTags?.length ?? 0) > 0)
     .map((app) => ({
@@ -165,6 +175,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
   // Aggregate legalLinks from every running app (last-wins on duplicate href).
   const legalLinks = (() => {
     const seen = new Map<string, { label: string; href: string; icon?: string }>();
+    if (user) seen.set("/me", { label: "Profile", href: "/me", icon: "ti ti-user-circle" });
     for (const app of runtime.apps) {
       for (const link of app.legalLinks ?? []) seen.set(link.href, { ...link });
     }
@@ -185,6 +196,8 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
       class={`grid min-h-screen w-screen relative md:h-screen md:overflow-hidden bg-zinc-50 dark:bg-zinc-950 ${gridClass}`}
     >
       <TimezoneCookie />
+      {showRail && <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} />}
+      {showRail && <script id="cloud-app-launchpad-data" type="application/json">{jsonScript({ apps: launchpadApps, legalLinks })}</script>}
       {" "}
       {/* ── Rail: logo cell (row 1, col 1) — grid gives it the same height as the header ── */}{" "}
       {showRail && (
@@ -254,11 +267,13 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
               </a>{" "}
               <div class="md:hidden">
                 {" "}
-                <NavMenu user={navMenuUser} mobileApps={mobileApps} />{" "}
+                <div class="flex items-center gap-1">
+                  <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} variant="header" label="Open apps" />
+                </div>{" "}
               </div>{" "}
             </>
           ) : (
-            <NavMenu user={navMenuUser} mobileApps={mobileApps} />
+            <NavMenu user={navMenuUser} />
           )}{" "}
         </div>{" "}
       </header>{" "}
@@ -272,7 +287,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
               <i class={`${app.iconClass} text-base`} />{" "}
             </a>
           ))}{" "}
-          <MoreAppsDropdown apps={moreApps} legalLinks={legalLinks} />
+          <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} variant="rail" label="Open apps" />
           <div class="mt-auto pb-1 flex flex-col items-center gap-1">
             {" "}
             <GlobalSearchTrigger variant="rail" searchHelpApps={searchHelpApps} />{" "}

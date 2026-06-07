@@ -1,12 +1,6 @@
 import type { Role } from "../contracts/shared";
 import { Dropdown } from "../ui";
 
-type MobileAppLink = {
-  href: string;
-  iconClass: string;
-  label: string;
-};
-
 /**
  * Minimal user projection for the nav menu — covers exactly what's rendered
  * (initials, display name, uid, profile flag, admin role check). Avoids
@@ -22,10 +16,7 @@ export type NavMenuUser = {
 
 type NavMenuProps = {
   user?: NavMenuUser;
-  mobileApps: MobileAppLink[];
 };
-
-const hasRole = (roles: Role[], ...required: Role[]) => required.some((role) => roles.includes(role));
 
 /** Navigation dropdown menu - always visible, adapts to auth state. */
 export default function NavMenu(props: NavMenuProps) {
@@ -61,36 +52,6 @@ export default function NavMenu(props: NavMenuProps) {
             href: "/auth/login",
           },
         ]),
-    // Section: Apps (mobile only — on desktop, tabs/rail handle this)
-    ...(props.user
-      ? [
-          {
-            element: (
-              <div class="md:hidden">
-                <div class="px-4 pt-3 pb-1 text-xs uppercase tracking-wider font-medium text-zinc-500">Apps</div>
-                {props.mobileApps.map((app) => (
-                  <a
-                    href={app.href}
-                    class="flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-white/30 dark:hover:bg-white/10 text-zinc-700 dark:text-zinc-300"
-                  >
-                    <i class={app.iconClass} />
-                    <span>{app.label}</span>
-                  </a>
-                ))}
-                {hasRole(props.user.roles, "admin") && (
-                  <a
-                    href="/admin"
-                    class="flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-white/30 dark:hover:bg-white/10 text-zinc-700 dark:text-zinc-300"
-                  >
-                    <i class="ti ti-shield-cog" />
-                    <span>Admin</span>
-                  </a>
-                )}
-              </div>
-            ),
-          },
-        ]
-      : []),
   ];
 
   return (

@@ -48,9 +48,26 @@ export const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
   shortcuts: [],
 };
 
+export const normalizeDashboardShortcutHref = (href: string): string => {
+  const trimmed = href.trim();
+  if (!trimmed || /^(https?:\/\/|\/|mailto:)/i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+};
+
 const uniqueStrings = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0))];
+};
+
+const parseJsonString = (value: unknown): unknown => {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
 };
 
 const normalizeShortcut = (value: unknown): DashboardShortcut | null => {
@@ -71,17 +88,19 @@ const normalizeShortcut = (value: unknown): DashboardShortcut | null => {
   if (raw.kind === "link" && typeof raw.href === "string" && raw.href.trim()) {
     const title = typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : "Shortcut";
     const icon = typeof raw.icon === "string" && raw.icon.trim() ? raw.icon.trim() : "ti ti-link";
-    return { id, kind: "link", href: raw.href.trim(), title, icon };
+    return { id, kind: "link", href: normalizeDashboardShortcutHref(raw.href), title, icon };
   }
 
   return null;
 };
 
 export const normalizeDashboardSettings = (value: unknown): DashboardSettings => {
-  const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const parsed = parseJsonString(value);
+  const raw = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  const shortcuts = parseJsonString(raw.shortcuts);
   return {
     hiddenWidgets: uniqueStrings(raw.hiddenWidgets),
     gradient: typeof raw.gradient === "string" && raw.gradient.trim() ? raw.gradient.trim() : DEFAULT_DASHBOARD_SETTINGS.gradient,
-    shortcuts: Array.isArray(raw.shortcuts) ? raw.shortcuts.map(normalizeShortcut).filter((s): s is DashboardShortcut => Boolean(s)) : [],
+    shortcuts: Array.isArray(shortcuts) ? shortcuts.map(normalizeShortcut).filter((s): s is DashboardShortcut => Boolean(s)) : [],
   };
 };

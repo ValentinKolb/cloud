@@ -1,9 +1,10 @@
 import { CheckboxCard, IconInput, prompts, SelectInput, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { openAppLaunchpad } from "@valentinkolb/cloud/ssr/islands";
 import { gradients } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../api/client";
-import type { DashboardAppSummary, DashboardLegalLink, DashboardSettings, DashboardShortcut, DashboardWidgetSummary } from "../shared";
+import { normalizeDashboardShortcutHref, type DashboardAppSummary, type DashboardLegalLink, type DashboardSettings, type DashboardShortcut, type DashboardWidgetSummary } from "../shared";
 
 type Props = {
   apps: DashboardAppSummary[];
@@ -32,32 +33,6 @@ const saveSettings = async (settings: DashboardSettings): Promise<void> => {
 };
 
 const isExternalHref = (href: string): boolean => /^https?:\/\//i.test(href);
-
-type AppIconPaletteEntry = { from: string; to: string; text: string };
-
-const appIconPalette: readonly [AppIconPaletteEntry, ...AppIconPaletteEntry[]] = [
-  { from: "#3b82f6", to: "#2563eb", text: "#ffffff" },
-  { from: "#10b981", to: "#059669", text: "#ffffff" },
-  { from: "#8b5cf6", to: "#7c3aed", text: "#ffffff" },
-  { from: "#fbbf24", to: "#f59e0b", text: "#18181b" },
-  { from: "#f43f5e", to: "#e11d48", text: "#ffffff" },
-  { from: "#06b6d4", to: "#0891b2", text: "#ffffff" },
-  { from: "#52525b", to: "#27272a", text: "#ffffff" },
-];
-
-// Deterministic local palette until app registry entries expose brand colors.
-const paletteForId = (id: string) => {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash + id.charCodeAt(i)) % appIconPalette.length;
-  return appIconPalette[hash] ?? appIconPalette[0];
-};
-
-const appIconStyle = (id: string) => {
-  const tone = paletteForId(id);
-  // The `.app-icon` class derives the whole tile (incl. glyph colour) from this
-  // single base colour via OKLCH — no per-app text colour needed.
-  return `--app-icon-color:${tone.from}`;
-};
 
 const ShortcutBadge = (props: { icon: string; title: string; href?: string; tone?: "blue" | "emerald" | "zinc"; onClick?: () => void }) => {
   const iconClass = () => {
@@ -92,45 +67,6 @@ const ShortcutBadge = (props: { icon: string; title: string; href?: string; tone
   );
 };
 
-const AppLaunchpad = (props: { apps: DashboardAppSummary[]; legalLinks: DashboardLegalLink[] }) => (
-  <div class="mx-auto max-w-4xl rounded-3xl bg-zinc-50/98 p-5 shadow-[var(--theme-shadow-float)] sm:p-7 dark:bg-zinc-950/98">
-    <div class="mb-7 text-center">
-      <h2 class="text-xl font-semibold text-primary">Apps</h2>
-      <p class="mt-1 text-sm text-dimmed">Open one of your available cloud apps.</p>
-    </div>
-    <div class="grid justify-center gap-x-7 gap-y-8 [grid-template-columns:repeat(auto-fit,minmax(6.25rem,6.25rem))] sm:gap-x-9">
-      <For each={props.apps}>
-        {(app) => (
-          <a
-            href={app.href}
-            class="group flex min-w-0 flex-col items-center gap-2 rounded-2xl p-2 text-center outline-none transition-colors hover:bg-white/65 focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-white/[0.04]"
-          >
-            <span class="app-icon grid h-16 w-16 place-items-center rounded-[1.25rem] text-[1.7rem]" style={appIconStyle(app.id)}>
-              <i class={app.icon} />
-            </span>
-            <span class="max-w-full truncate text-xs font-medium text-primary">{app.name}</span>
-          </a>
-        )}
-      </For>
-    </div>
-    <Show when={props.legalLinks.length > 0}>
-      <div class="mt-8 flex flex-wrap justify-center gap-x-4 gap-y-2 text-[11px] text-dimmed">
-        <For each={props.legalLinks}>
-          {(link) => (
-            <a
-              href={link.href}
-              class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors hover:bg-white/70 hover:text-secondary dark:hover:bg-white/[0.04]"
-            >
-              <i class={link.icon ?? "ti ti-file-text"} />
-              {link.label}
-            </a>
-          )}
-        </For>
-      </div>
-    </Show>
-  </div>
-);
-
 export default function DashboardControls(props: Props) {
   const appById = createMemo(() => new Map(props.apps.map((app) => [app.id, app])));
   const resolvedShortcuts = createMemo<ResolvedShortcut[]>(() =>
@@ -150,11 +86,16 @@ export default function DashboardControls(props: Props) {
   );
 
   const openApps = () => {
-    void prompts.dialog<void>((close) => <AppLaunchpad apps={props.apps} legalLinks={props.legalLinks} />, {
-      surface: "bare",
-      header: false,
-      size: "large",
-    });
+    openAppLaunchpad(
+      props.apps.map((app) => ({
+        id: app.id,
+        iconClass: app.icon,
+        label: app.name,
+        href: app.href,
+        description: app.description,
+      })),
+      props.legalLinks,
+    );
   };
 
   const openAddShortcut = () => {
@@ -217,7 +158,7 @@ const ShortcutForm = (params: { apps: DashboardAppSummary[]; settings: Dashboard
       const shortcut: DashboardShortcut =
         kind() === "app"
           ? { id: crypto.randomUUID(), kind: "app", appId: appId() }
-          : { id: crypto.randomUUID(), kind: "link", title: title().trim(), href: href().trim(), icon: icon() || "ti ti-link" };
+          : { id: crypto.randomUUID(), kind: "link", title: title().trim(), href: normalizeDashboardShortcutHref(href()), icon: icon() || "ti ti-link" };
       await saveSettings({ ...settings, shortcuts: [...settings.shortcuts, shortcut] });
     },
     onSuccess: () => {
@@ -255,7 +196,7 @@ const ShortcutForm = (params: { apps: DashboardAppSummary[]; settings: Dashboard
         fallback={
           <div class="grid gap-4 sm:grid-cols-2">
             <TextInput label="Title" value={title} onInput={setTitle} icon="ti ti-text-caption" required placeholder="Docs" />
-            <TextInput label="URL" value={href} onInput={setHref} icon="ti ti-link" required placeholder="https://example.com" />
+            <TextInput label="URL" value={href} onInput={setHref} icon="ti ti-link" required placeholder="example.com" />
             <div class="sm:col-span-2">
               <IconInput label="Icon" value={icon} onChange={setIcon} required />
             </div>

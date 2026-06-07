@@ -553,6 +553,7 @@ export default async (c: { get: (key: string) => any; req: any }) => {
 - Return a **render function** `() => JSX` (not JSX directly)
 - Use `Layout` from `@valentinkolb/cloud/ssr` as the outermost wrapper
 - `title` prop accepts breadcrumbs: `[{ title: "Parent", href: "/parent" }, { title: "Current" }]`
+- App navigation is registry-driven: primary apps show in the rail, all visible primary/more apps show in the core launchpad, and app code should use `openAppLaunchpad` from `@valentinkolb/cloud/ssr/islands` when it needs to open the platform app picker.
 
 ### Islands (Client Components)
 

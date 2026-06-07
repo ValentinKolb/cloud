@@ -2,6 +2,7 @@ import { type AuthContext, auth, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { z } from "zod";
 import { dashboardSettingsService } from "../service";
+import { normalizeDashboardShortcutHref } from "../shared";
 
 const safeLinkHref = (href: string): boolean => /^(\/|https?:\/\/|mailto:)/i.test(href);
 
@@ -16,7 +17,7 @@ const ShortcutSchema = z.discriminatedUnion("kind", [
   z.object({
     id: z.string().min(1),
     kind: z.literal("link"),
-    href: z.string().trim().min(1).max(2_000).refine(safeLinkHref, "Use a relative, HTTP(S), or mailto link."),
+    href: z.string().trim().min(1).max(2_000).transform(normalizeDashboardShortcutHref).refine(safeLinkHref, "Use a relative, HTTP(S), or mailto link."),
     title: z.string().trim().min(1).max(80),
     icon: z.string().trim().min(1).max(120),
   }),
