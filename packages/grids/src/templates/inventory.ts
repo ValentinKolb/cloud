@@ -1,4 +1,12 @@
-import { field, form, formula, type GridTemplate, record, table, view } from "./types";
+import {
+  field,
+  form,
+  formula,
+  type GridTemplate,
+  record,
+  table,
+  view,
+} from "./types";
 
 export const inventoryTemplate: GridTemplate = {
   id: "inventory",
@@ -12,25 +20,58 @@ export const inventoryTemplate: GridTemplate = {
       key: "categories",
       name: "Categories",
       fields: [
-        { key: "name", name: "name", type: "text", required: true, presentable: true, icon: "ti ti-tag" },
-        { key: "description", name: "description", type: "longtext", config: { markdown: true }, icon: "ti ti-align-left" },
+        {
+          key: "name",
+          name: "name",
+          type: "text",
+          required: true,
+          presentable: true,
+          icon: "ti ti-tag",
+        },
+        {
+          key: "description",
+          name: "description",
+          type: "longtext",
+          config: { markdown: true },
+          icon: "ti ti-align-left",
+        },
       ],
     },
     {
       key: "locations",
       name: "Locations",
       fields: [
-        { key: "name", name: "name", type: "text", required: true, presentable: true, icon: "ti ti-map-pin" },
+        {
+          key: "name",
+          name: "name",
+          type: "text",
+          required: true,
+          presentable: true,
+          icon: "ti ti-map-pin",
+        },
         { key: "room", name: "room", type: "text", icon: "ti ti-door" },
         { key: "shelf", name: "shelf", type: "text", icon: "ti ti-stack" },
-        { key: "notes", name: "notes", type: "longtext", config: { markdown: true }, icon: "ti ti-notes" },
+        {
+          key: "notes",
+          name: "notes",
+          type: "longtext",
+          config: { markdown: true },
+          icon: "ti ti-notes",
+        },
       ],
     },
     {
       key: "items",
       name: "Items",
       fields: [
-        { key: "name", name: "name", type: "text", required: true, presentable: true, icon: "ti ti-package" },
+        {
+          key: "name",
+          name: "name",
+          type: "text",
+          required: true,
+          presentable: true,
+          icon: "ti ti-package",
+        },
         {
           key: "category",
           name: "category",
@@ -73,7 +114,12 @@ export const inventoryTemplate: GridTemplate = {
             ],
           },
         },
-        { key: "serial_no", name: "serial_no", type: "text", icon: "ti ti-barcode" },
+        {
+          key: "serial_no",
+          name: "serial_no",
+          type: "text",
+          icon: "ti ti-barcode",
+        },
         {
           key: "tags",
           name: "tags",
@@ -89,12 +135,25 @@ export const inventoryTemplate: GridTemplate = {
             ],
           },
         },
-        { key: "quantity", name: "quantity", type: "number", required: true, defaultValue: "1", config: { min: "0", decimalPlaces: 0 }, icon: "ti ti-hash" },
+        {
+          key: "quantity",
+          name: "quantity",
+          type: "number",
+          required: true,
+          defaultValue: "1",
+          config: { min: "0", decimalPlaces: 0 },
+          icon: "ti ti-hash",
+        },
         {
           key: "replacement_value",
           name: "replacement_value",
           type: "number",
-          config: { precision: 16, decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
+          config: {
+            precision: 16,
+            decimalPlaces: 2,
+            unit: "EUR",
+            unitPosition: "suffix",
+          },
           icon: "ti ti-currency-euro",
         },
         {
@@ -102,21 +161,54 @@ export const inventoryTemplate: GridTemplate = {
           name: "total_value",
           type: "formula",
           config: {
-            expression: formula(field("items.quantity"), " * ", field("items.replacement_value")),
-            format: { kind: "number", unit: "EUR", unitPosition: "suffix", decimalPlaces: 2 },
+            expression: formula(
+              field("items.quantity"),
+              " * ",
+              field("items.replacement_value")
+            ),
+            format: {
+              kind: "number",
+              unit: "EUR",
+              unitPosition: "suffix",
+              decimalPlaces: 2,
+            },
           },
           icon: "ti ti-calculator",
         },
-        { key: "purchase_date", name: "purchase_date", type: "date", icon: "ti ti-calendar" },
-        { key: "files", name: "files", type: "file", icon: "ti ti-paperclip", config: { maxFiles: 5 } },
-        { key: "notes", name: "notes", type: "longtext", config: { markdown: true }, icon: "ti ti-notes" },
+        {
+          key: "purchase_date",
+          name: "purchase_date",
+          type: "date",
+          icon: "ti ti-calendar",
+        },
+        {
+          key: "files",
+          name: "files",
+          type: "file",
+          icon: "ti ti-paperclip",
+          config: { maxFiles: 5 },
+        },
+        {
+          key: "notes",
+          name: "notes",
+          type: "longtext",
+          config: { markdown: true },
+          icon: "ti ti-notes",
+        },
       ],
     },
     {
       key: "kits",
       name: "Kits",
       fields: [
-        { key: "name", name: "name", type: "text", required: true, presentable: true, icon: "ti ti-briefcase" },
+        {
+          key: "name",
+          name: "name",
+          type: "text",
+          required: true,
+          presentable: true,
+          icon: "ti ti-briefcase",
+        },
         {
           key: "category",
           name: "category",
@@ -146,18 +238,54 @@ export const inventoryTemplate: GridTemplate = {
           },
           defaultValue: ["available"],
         },
-        { key: "requestable", name: "requestable", type: "boolean", defaultValue: true, icon: "ti ti-world-check" },
-        { key: "description", name: "description", type: "longtext", config: { markdown: true }, icon: "ti ti-align-left" },
-        { key: "notes", name: "admin_notes", type: "longtext", config: { markdown: true }, icon: "ti ti-notes" },
+        {
+          key: "requestable",
+          name: "requestable",
+          type: "boolean",
+          defaultValue: true,
+          icon: "ti ti-world-check",
+        },
+        {
+          key: "description",
+          name: "description",
+          type: "longtext",
+          config: { markdown: true },
+          icon: "ti ti-align-left",
+        },
+        {
+          key: "notes",
+          name: "admin_notes",
+          type: "longtext",
+          config: { markdown: true },
+          icon: "ti ti-notes",
+        },
       ],
     },
     {
       key: "loans",
       name: "Loans",
       fields: [
-        { key: "requester_name", name: "requester_name", type: "text", required: true, presentable: true, icon: "ti ti-user" },
-        { key: "requester_email", name: "requester_email", type: "text", config: { regex: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }, icon: "ti ti-mail" },
-        { key: "organization", name: "organization", type: "text", icon: "ti ti-building" },
+        {
+          key: "requester_name",
+          name: "requester_name",
+          type: "text",
+          required: true,
+          presentable: true,
+          icon: "ti ti-user",
+        },
+        {
+          key: "requester_email",
+          name: "requester_email",
+          type: "text",
+          config: { regex: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" },
+          icon: "ti ti-mail",
+        },
+        {
+          key: "organization",
+          name: "organization",
+          type: "text",
+          icon: "ti ti-building",
+        },
         {
           key: "kits",
           name: "kits",
@@ -165,9 +293,24 @@ export const inventoryTemplate: GridTemplate = {
           icon: "ti ti-briefcase",
           config: { targetTableId: table("kits"), cardinality: "multiple" },
         },
-        { key: "start_date", name: "requested_from", type: "date", icon: "ti ti-calendar-plus" },
-        { key: "due_date", name: "due_date", type: "date", icon: "ti ti-calendar-due" },
-        { key: "returned_at", name: "returned_at", type: "date", icon: "ti ti-calendar-check" },
+        {
+          key: "start_date",
+          name: "requested_from",
+          type: "date",
+          icon: "ti ti-calendar-plus",
+        },
+        {
+          key: "due_date",
+          name: "due_date",
+          type: "date",
+          icon: "ti ti-calendar-due",
+        },
+        {
+          key: "returned_at",
+          name: "returned_at",
+          type: "date",
+          icon: "ti ti-calendar-check",
+        },
         {
           key: "status",
           name: "status",
@@ -184,17 +327,44 @@ export const inventoryTemplate: GridTemplate = {
           },
           defaultValue: ["requested"],
         },
-        { key: "purpose", name: "purpose", type: "longtext", icon: "ti ti-message" },
-        { key: "notes", name: "admin_notes", type: "longtext", config: { markdown: true }, icon: "ti ti-notes" },
+        {
+          key: "purpose",
+          name: "purpose",
+          type: "longtext",
+          icon: "ti ti-message",
+        },
+        {
+          key: "notes",
+          name: "admin_notes",
+          type: "longtext",
+          config: { markdown: true },
+          icon: "ti ti-notes",
+        },
       ],
     },
   ],
   records: [
-    { key: "categories.cameras", table: "categories", values: { name: "Cameras" } },
+    {
+      key: "categories.cameras",
+      table: "categories",
+      values: { name: "Cameras" },
+    },
     { key: "categories.audio", table: "categories", values: { name: "Audio" } },
-    { key: "categories.cables", table: "categories", values: { name: "Cables" } },
-    { key: "locations.studio", table: "locations", values: { name: "Studio shelf", room: "Studio", shelf: "A2" } },
-    { key: "locations.storage", table: "locations", values: { name: "Storage cabinet", room: "Storage", shelf: "C1" } },
+    {
+      key: "categories.cables",
+      table: "categories",
+      values: { name: "Cables" },
+    },
+    {
+      key: "locations.studio",
+      table: "locations",
+      values: { name: "Studio shelf", room: "Studio", shelf: "A2" },
+    },
+    {
+      key: "locations.storage",
+      table: "locations",
+      values: { name: "Storage cabinet", room: "Storage", shelf: "C1" },
+    },
     {
       key: "items.camera",
       table: "items",
@@ -245,10 +415,15 @@ export const inventoryTemplate: GridTemplate = {
       values: {
         name: "Video interview kit",
         category: [record("categories.cameras")],
-        items: [record("items.camera"), record("items.mic"), record("items.hdmi")],
+        items: [
+          record("items.camera"),
+          record("items.mic"),
+          record("items.hdmi"),
+        ],
         status: ["available"],
         requestable: true,
-        description: "Camera body, wireless mic set, and HDMI cable for interviews.",
+        description:
+          "Camera body, wireless mic set, and HDMI cable for interviews.",
       },
     },
     {
@@ -273,7 +448,11 @@ export const inventoryTemplate: GridTemplate = {
       name: "Available items",
       shared: true,
       query: {
-        filter: { op: "is", fieldId: field("items.status"), value: "available" },
+        filter: {
+          op: "is",
+          fieldId: field("items.status"),
+          value: "available",
+        },
         columns: [
           { fieldId: field("items.name") },
           { fieldId: field("items.category") },
@@ -284,15 +463,15 @@ export const inventoryTemplate: GridTemplate = {
       },
     },
     {
-      key: "items_by_category",
+      key: "stock_by_category",
       table: "items",
-      name: "Items by category",
+      name: "Stock by category",
       shared: true,
       query: {
         groupBy: [{ fieldId: field("items.category") }],
         aggregations: [
-          { fieldId: "*", agg: "count", label: "items" },
           { fieldId: field("items.quantity"), agg: "sum", label: "quantity" },
+          { fieldId: "*", agg: "count", label: "items" },
         ],
       },
     },
@@ -302,7 +481,11 @@ export const inventoryTemplate: GridTemplate = {
       name: "Open loans",
       shared: true,
       query: {
-        filter: { op: "isAnyOf", fieldId: field("loans.status"), value: ["requested", "approved", "active"] },
+        filter: {
+          op: "isAnyOf",
+          fieldId: field("loans.status"),
+          value: ["requested", "approved", "active"],
+        },
         columns: [
           { fieldId: field("loans.requester_name") },
           { fieldId: field("loans.organization") },
@@ -325,7 +508,13 @@ export const inventoryTemplate: GridTemplate = {
         submitLabel: "Add item",
         successMessage: "Item added.",
         fields: [
-          { kind: "user_input", fieldId: field("items.name"), label: "Item name", helpText: "Name shown in inventory lists.", required: true },
+          {
+            kind: "user_input",
+            fieldId: field("items.name"),
+            label: "Item name",
+            helpText: "Name shown in inventory lists.",
+            required: true,
+          },
           {
             kind: "user_input",
             fieldId: field("items.category"),
@@ -333,7 +522,14 @@ export const inventoryTemplate: GridTemplate = {
             helpText: "Pick an existing category or create one inline.",
             inlineCreate: {
               enabled: true,
-              fields: [{ fieldId: field("categories.name"), label: "Category name", helpText: "Short category name, for example Cameras.", required: true }],
+              fields: [
+                {
+                  fieldId: field("categories.name"),
+                  label: "Category name",
+                  helpText: "Short category name, for example Cameras.",
+                  required: true,
+                },
+              ],
             },
           },
           {
@@ -344,18 +540,64 @@ export const inventoryTemplate: GridTemplate = {
             inlineCreate: {
               enabled: true,
               fields: [
-                { fieldId: field("locations.name"), label: "Location name", helpText: "Readable location label.", required: true },
-                { fieldId: field("locations.room"), label: "Room", helpText: "Room or area." },
-                { fieldId: field("locations.shelf"), label: "Shelf", helpText: "Shelf, box, or cabinet." },
+                {
+                  fieldId: field("locations.name"),
+                  label: "Location name",
+                  helpText: "Readable location label.",
+                  required: true,
+                },
+                {
+                  fieldId: field("locations.room"),
+                  label: "Room",
+                  helpText: "Room or area.",
+                },
+                {
+                  fieldId: field("locations.shelf"),
+                  label: "Shelf",
+                  helpText: "Shelf, box, or cabinet.",
+                },
               ],
             },
           },
-          { kind: "user_input", fieldId: field("items.status"), label: "Status", helpText: "Current availability.", defaultValue: ["available"] },
-          { kind: "user_input", fieldId: field("items.condition"), label: "Condition", helpText: "Physical state of the item." },
-          { kind: "user_input", fieldId: field("items.tags"), label: "Tags", helpText: "Optional handling or usage labels." },
-          { kind: "user_input", fieldId: field("items.quantity"), label: "Quantity", helpText: "How many units are available.", required: true, defaultValue: "1" },
-          { kind: "user_input", fieldId: field("items.replacement_value"), label: "Replacement value", helpText: "Cost to replace one unit." },
-          { kind: "user_input", fieldId: field("items.notes"), label: "Notes", helpText: "Extra context for admins." },
+          {
+            kind: "user_input",
+            fieldId: field("items.status"),
+            label: "Status",
+            helpText: "Current availability.",
+            defaultValue: ["available"],
+          },
+          {
+            kind: "user_input",
+            fieldId: field("items.condition"),
+            label: "Condition",
+            helpText: "Physical state of the item.",
+          },
+          {
+            kind: "user_input",
+            fieldId: field("items.tags"),
+            label: "Tags",
+            helpText: "Optional handling or usage labels.",
+          },
+          {
+            kind: "user_input",
+            fieldId: field("items.quantity"),
+            label: "Quantity",
+            helpText: "How many units are available.",
+            required: true,
+            defaultValue: "1",
+          },
+          {
+            kind: "user_input",
+            fieldId: field("items.replacement_value"),
+            label: "Replacement value",
+            helpText: "Cost to replace one unit.",
+          },
+          {
+            kind: "user_input",
+            fieldId: field("items.notes"),
+            label: "Notes",
+            helpText: "Extra context for admins.",
+          },
         ],
       },
     },
@@ -366,18 +608,61 @@ export const inventoryTemplate: GridTemplate = {
       isPublic: true,
       config: {
         title: "Request kit loan",
-        description: "Choose one or more kits. An admin reviews and approves the request.",
+        description:
+          "Choose one or more kits. An admin reviews and approves the request.",
         submitLabel: "Request loan",
         successMessage: "Loan requested.",
         fields: [
-          { kind: "user_input", fieldId: field("loans.requester_name"), label: "Name", helpText: "Who should receive the kit.", required: true },
-          { kind: "user_input", fieldId: field("loans.requester_email"), label: "Email", helpText: "Contact address for questions and approval.", required: true },
-          { kind: "user_input", fieldId: field("loans.organization"), label: "Organization", helpText: "Team, company, or project." },
-          { kind: "user_input", fieldId: field("loans.kits"), label: "Kits", helpText: "Choose one or more kits to borrow.", required: true },
-          { kind: "user_input", fieldId: field("loans.start_date"), label: "Start date", helpText: "First planned day of use." },
-          { kind: "user_input", fieldId: field("loans.due_date"), label: "Due date", helpText: "Planned return date." },
-          { kind: "user_input", fieldId: field("loans.purpose"), label: "Purpose", helpText: "What the kit will be used for." },
-          { kind: "form_value", fieldId: field("loans.status"), value: ["requested"] },
+          {
+            kind: "user_input",
+            fieldId: field("loans.requester_name"),
+            label: "Name",
+            helpText: "Who should receive the kit.",
+            required: true,
+          },
+          {
+            kind: "user_input",
+            fieldId: field("loans.requester_email"),
+            label: "Email",
+            helpText: "Contact address for questions and approval.",
+            required: true,
+          },
+          {
+            kind: "user_input",
+            fieldId: field("loans.organization"),
+            label: "Organization",
+            helpText: "Team, company, or project.",
+          },
+          {
+            kind: "user_input",
+            fieldId: field("loans.kits"),
+            label: "Kits",
+            helpText: "Choose one or more kits to borrow.",
+            required: true,
+          },
+          {
+            kind: "user_input",
+            fieldId: field("loans.start_date"),
+            label: "Start date",
+            helpText: "First planned day of use.",
+          },
+          {
+            kind: "user_input",
+            fieldId: field("loans.due_date"),
+            label: "Due date",
+            helpText: "Planned return date.",
+          },
+          {
+            kind: "user_input",
+            fieldId: field("loans.purpose"),
+            label: "Purpose",
+            helpText: "What the kit will be used for.",
+          },
+          {
+            kind: "form_value",
+            fieldId: field("loans.status"),
+            value: ["requested"],
+          },
         ],
       },
     },
@@ -401,7 +686,10 @@ export const inventoryTemplate: GridTemplate = {
                 title: "Items",
                 icon: "ti ti-packages",
                 format: "integer",
-                source: { tableId: table("items"), aggregations: [{ fieldId: "*", agg: "count" }] },
+                source: {
+                  tableId: table("items"),
+                  aggregations: [{ fieldId: "*", agg: "count" }],
+                },
               },
               {
                 id: "w_kits",
@@ -409,7 +697,10 @@ export const inventoryTemplate: GridTemplate = {
                 title: "Kits",
                 icon: "ti ti-briefcase",
                 format: "integer",
-                source: { tableId: table("kits"), aggregations: [{ fieldId: "*", agg: "count" }] },
+                source: {
+                  tableId: table("kits"),
+                  aggregations: [{ fieldId: "*", agg: "count" }],
+                },
               },
               {
                 id: "w_open_loans",
@@ -419,7 +710,11 @@ export const inventoryTemplate: GridTemplate = {
                 format: "integer",
                 source: {
                   tableId: table("loans"),
-                  filter: { op: "isAnyOf", fieldId: field("loans.status"), value: ["requested", "approved", "active"] },
+                  filter: {
+                    op: "isAnyOf",
+                    fieldId: field("loans.status"),
+                    value: ["requested", "approved", "active"],
+                  },
                   aggregations: [{ fieldId: "*", agg: "count" }],
                 },
               },
@@ -430,8 +725,26 @@ export const inventoryTemplate: GridTemplate = {
             kind: "row",
             height: "md",
             cells: [
-              { id: "w_open", kind: "view", title: "Open loans", source: { kind: "view", viewId: view("open_loans") } },
-              { id: "w_add", kind: "form", title: "Add item", formId: form("add_item") },
+              {
+                id: "w_available",
+                kind: "view",
+                title: "Available items",
+                source: { kind: "view", viewId: view("available_items") },
+              },
+              {
+                id: "w_add",
+                kind: "form",
+                title: "Add item",
+                formId: form("add_item"),
+              },
+              {
+                id: "w_stock_by_category",
+                kind: "chart",
+                title: "Stock by category",
+                subtitle: "Available units per category",
+                chartType: "bar",
+                viewId: view("stock_by_category"),
+              },
             ],
           },
           {
@@ -439,20 +752,20 @@ export const inventoryTemplate: GridTemplate = {
             kind: "row",
             height: "md",
             cells: [
-              { id: "w_items_by_category", kind: "view-stats", title: "Items by category", viewId: view("items_by_category") },
-              { id: "w_available", kind: "view", title: "Available items", source: { kind: "view", viewId: view("available_items") } },
-            ],
-          },
-          {
-            id: "r_rules",
-            kind: "row",
-            height: "sm",
-            cells: [
+              {
+                id: "w_open",
+                kind: "view",
+                title: "Open loans",
+                source: { kind: "view", viewId: view("open_loans") },
+                span: 6,
+              },
               {
                 id: "w_rules",
                 kind: "markdown",
                 title: "Loan rules",
-                markdown: "### Loan rules\n\n- Requests start as **requested**.\n- Admins approve requests before pickup.\n- Mark a loan as returned when all kits are back.",
+                markdown:
+                  "### Loan rules\n\n- Requests start as **requested**.\n- Admins approve requests before pickup.\n- Mark a loan as returned when all kits are back.",
+                span: 6,
               },
             ],
           },

@@ -45,7 +45,7 @@ import { cleanRecordMetaQuery, openRecordMetadataDialog, recordMetaActiveCount }
  *  as an editable row. */
 const UI_AGG_KINDS: ReadonlySet<AggKindUI> = new Set(["count", "countEmpty", "countUnique", "sum", "avg", "min", "max"]);
 
-const ADMIN_BUTTON_CLASS = "btn-input btn-input-sm";
+const ADMIN_BUTTON_CLASS = "btn-input-success btn-input-sm";
 
 const isComputedColumn = (column: ColumnSpec): column is Extract<ColumnSpec, { kind: "computed" }> =>
   "kind" in column && column.kind === "computed";
