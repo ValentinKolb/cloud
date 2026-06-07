@@ -14,6 +14,7 @@
     "soak:100k": "bun run scripts/soak-100k.ts"
   },
   "dependencies": {
+    "@bwip-js/generic": "4.11.1",
     "@valentinkolb/cloud": "workspace:*",
     "@valentinkolb/ssr": "0.10.0",
     "@valentinkolb/stdlib": "0.11.0",

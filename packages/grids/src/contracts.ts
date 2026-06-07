@@ -320,7 +320,7 @@ export const GroupResponseSchema = z.object({
 
 /**
  * Per-column display override. `kind` distinguishes format families
- * (date / decimal / percent). Renderer is lenient:
+ * (date / decimal / percent / barcode). Renderer is lenient:
  * if the format kind doesn't match the field's actual type, it's a
  * no-op (a `percent` format on a text field renders as plain text).
  */
@@ -329,6 +329,7 @@ export const FormatSpecSchema: z.ZodType<
   | { kind: "decimal"; precision?: number; thousandsSeparator?: boolean }
   | { kind: "percent"; precision?: number }
   | { kind: "progress"; label?: "value" | "percent" | "none" }
+  | { kind: "barcode"; bcid: string; showText?: boolean }
 > = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("date"),
@@ -347,6 +348,11 @@ export const FormatSpecSchema: z.ZodType<
   z.object({
     kind: z.literal("progress"),
     label: z.enum(["value", "percent", "none"]).optional(),
+  }),
+  z.object({
+    kind: z.literal("barcode"),
+    bcid: z.string().regex(/^[a-z0-9]+$/).min(1).max(80),
+    showText: z.boolean().optional(),
   }),
 ]);
 export type FormatSpec = z.infer<typeof FormatSpecSchema>;
@@ -723,7 +729,7 @@ export const StatWidgetSchema = z.object({
 
 /**
  * Chart widget — visualizes a saved view's bucketed output as a
- * donut, bar, line, or scatter SVG via the `<Chart>` primitive from
+ * donut, bar, line, sparkline, or scatter SVG via the `<Chart>` primitive from
  * `cloud/ui`.
  *
  * **Source: a viewId.** The view supplies the filter, sort, groupBy
@@ -736,6 +742,7 @@ export const StatWidgetSchema = z.object({
  * **chartType → expected view shape:**
  *  - `donut`/`bar`: view with 1 groupBy + ≥1 aggregation (first wins).
  *  - `line`:        view with 1 groupBy + N aggregations (one series each).
+ *  - `sparkline`:   view with 1 groupBy + ≥1 aggregation (first wins).
  *  - `scatter`:     view with 1 groupBy + ≥2 aggregations (agg1=x, agg2=y).
  *
  * **`limit`** caps the most-recent N buckets — handy when a view holds
@@ -750,7 +757,7 @@ export const ChartWidgetSchema = z.object({
   title: z.string().max(200).optional(),
   /** Small grey line under the title in the chart frame. */
   subtitle: z.string().max(200).optional(),
-  chartType: z.enum(["donut", "bar", "line", "scatter"]),
+  chartType: z.enum(["donut", "bar", "line", "sparkline", "scatter"]),
   /** Saved view that supplies the buckets (filter / groupBy / aggs). */
   viewId: z.string().uuid(),
   /** Optional cap on bucket count — keeps the most-recent N. */

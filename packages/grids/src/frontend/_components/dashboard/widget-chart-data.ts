@@ -19,7 +19,8 @@ import type { AggregationSpec, ChartWidget, Field, GroupBySpec } from "../../../
  *
  * The transformers in this module take one bucket array + the
  * relevant widget metadata, and emit either a list of slices/bars
- * (donut, bar) or one-or-more series of points (line, scatter).
+ * (donut, bar), a tiny numeric trend (sparkline), or one-or-more
+ * series of points (line, scatter).
  */
 
 /** Bucket shape as produced by `gridsService.record.group()`. */
@@ -149,6 +150,16 @@ export const bucketsToBars = (
   relationLabels?: Record<string, string>,
 ): BarItem[] => bucketsToSlices(buckets, primaryAgg, groupBy, relationLabels) as BarItem[];
 
+export const bucketsToSparklineData = (buckets: ChartBucket[], primaryAgg: AggregationSpec): number[] => {
+  const key = aggKey(primaryAgg);
+  const data: number[] = [];
+  for (const bucket of buckets) {
+    const value = toNumber(bucket.values[key]);
+    if (value !== null) data.push(value);
+  }
+  return data;
+};
+
 /**
  * Line — one `Series` per aggregation. x is the bucket index (0..N)
  * so categorical groupBys (strings, mixed types) work without
@@ -229,6 +240,7 @@ export const chartXAxisFormat = (
 type ChartRenderData =
   | { kind: "donut"; data: SliceItem[] }
   | { kind: "bar"; data: BarItem[] }
+  | { kind: "sparkline"; data: number[] }
   | {
       kind: "line";
       series: Series[];
@@ -278,6 +290,11 @@ export const buildChartRenderData = (input: ChartRenderInput): ChartRenderData =
       return {
         kind: "bar",
         data: bucketsToBars(input.buckets, primary, groupBy, relLabels),
+      };
+    case "sparkline":
+      return {
+        kind: "sparkline",
+        data: bucketsToSparklineData(input.buckets, primary),
       };
     case "line":
       return {

@@ -100,7 +100,7 @@ function ChartBody(props: {
                 kind="donut"
                 class="h-full max-h-full min-h-0 flex-1"
                 data={rd.data}
-                showLabels
+                legend
               />
             );
           case "bar":
@@ -122,6 +122,16 @@ function ChartBody(props: {
                 yAxis={{ format: yFormat(), label: props.widget.yAxisLabel }}
                 legend={rd.series.length > 1}
                 smooth
+              />
+            );
+          case "sparkline":
+            return (
+              <Chart
+                kind="sparkline"
+                class="h-full max-h-full min-h-0 flex-1 text-blue-600 dark:text-blue-300"
+                data={rd.data}
+                area
+                showLast
               />
             );
           case "scatter":

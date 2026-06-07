@@ -7,6 +7,7 @@ import {
   bucketsToLineSeries,
   bucketsToScatterSeries,
   bucketsToSlices,
+  bucketsToSparklineData,
   buildChartRenderData,
   chartXAxisFormat,
   formatCategoryKey,
@@ -280,6 +281,14 @@ describe("buildChartRenderData", () => {
   test("bar → BarItem[]", () => {
     const out = buildChartRenderData(renderInput(widget("bar"), [countStar], sliceBuckets));
     expect(out.kind).toBe("bar");
+  });
+
+  test("sparkline → first aggregation numeric trend", () => {
+    expect(bucketsToSparklineData(lineBuckets, sumAmount)).toEqual([120.5, 180, 95.25]);
+    const out = buildChartRenderData(renderInput(widget("sparkline"), [sumAmount], lineBuckets));
+    expect(out.kind).toBe("sparkline");
+    if (out.kind !== "sparkline") throw new Error("unreachable");
+    expect(out.data).toEqual([120.5, 180, 95.25]);
   });
 
   test("line → series + xAxisFormat callback wired up", () => {

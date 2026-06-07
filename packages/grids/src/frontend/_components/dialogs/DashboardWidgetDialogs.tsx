@@ -665,6 +665,7 @@ const CHART_TYPE_OPTIONS: { id: ChartWidget["chartType"]; label: string; icon: s
   { id: "donut", label: "Donut", icon: "ti ti-chart-donut-4" },
   { id: "bar", label: "Bar", icon: "ti ti-chart-bar" },
   { id: "line", label: "Line", icon: "ti ti-chart-line" },
+  { id: "sparkline", label: "Sparkline", icon: "ti ti-chart-arcs" },
   { id: "scatter", label: "Scatter", icon: "ti ti-chart-dots" },
 ];
 
@@ -686,6 +687,12 @@ const CHART_TYPE_INFO: Record<ChartWidget["chartType"], { title: string; body: s
     body: "Use this when you want to show change over time or another ordered list, for example monthly income.",
     requirement: "The source view must group rows for the x-axis and include one or more summary values for the lines.",
     example: "Example: group by Month, summarize Amount with Sum.",
+  },
+  sparkline: {
+    title: "Sparkline",
+    body: "Use this when you want a compact trend without axes, for example daily signups or stock over time.",
+    requirement: "The source view must group rows in the desired order and include one summary value for the line.",
+    example: "Example: group by Day, summarize Quantity with Sum.",
   },
   scatter: {
     title: "Scatter chart",
@@ -782,7 +789,7 @@ function ChartCellBody(props: {
           }}
           placeholder="e.g. 12"
         />
-        <Show when={props.widget.chartType !== "donut"}>
+        <Show when={props.widget.chartType !== "donut" && props.widget.chartType !== "sparkline"}>
           <Select
             label="Y-axis format"
             value={() => props.widget.format ?? "plain"}
@@ -806,7 +813,7 @@ function ChartCellBody(props: {
 }
 
 function withChartType(widget: ChartWidget, chartType: ChartWidget["chartType"]): ChartWidget {
-  if (chartType !== "donut") return { ...widget, chartType };
+  if (chartType !== "donut" && chartType !== "sparkline") return { ...widget, chartType };
   const { format: _format, xAxisLabel: _xAxisLabel, yAxisLabel: _yAxisLabel, ...rest } = widget;
   return { ...rest, chartType };
 }
@@ -822,6 +829,7 @@ function chartViewDescription(chartType: ChartWidget["chartType"], view: View, f
 
   if (chartType === "donut") return `Slices ${category} by ${firstValue} · ${counts}`;
   if (chartType === "scatter") return `Plots ${firstValue} against ${secondValue} by ${category} · ${counts}`;
+  if (chartType === "sparkline") return `Trends ${firstValue} over ${category} · ${counts}`;
   return `Plots ${category} against ${firstValue} · ${counts}`;
 }
 

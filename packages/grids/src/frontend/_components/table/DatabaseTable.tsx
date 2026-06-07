@@ -6,6 +6,7 @@ import type { AggregationSpec } from "../../../contracts";
 import type { Field, GridRecord, RecordList } from "../../../service";
 import type { ColumnSpec } from "../../../service/views";
 import { fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
+import { BarcodeCell, canRenderBarcode } from "./BarcodeCell";
 import { formatCell, progressRatio } from "./format-cell";
 import { RecordLink } from "./RecordLink";
 import { SelectValueBadges } from "./select-badges";
@@ -266,6 +267,9 @@ export default function DatabaseTable(props: Props) {
     }
     if (isMarkdownLongtext(field)) return renderMarkdownCell(record.data[field.id]);
     const fmt = columnFormat(field.id);
+    if (fmt?.kind === "barcode" && canRenderBarcode(field.type)) {
+      return <BarcodeCell value={record.data[field.id]} format={fmt} />;
+    }
     if (fmt?.kind === "progress" && (field.type === "percent" || field.type === "formula")) {
       const ratio = progressRatio(record.data[field.id], field.type, field.config);
       const percent = Math.round(ratio * 100);
