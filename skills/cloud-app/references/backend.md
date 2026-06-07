@@ -781,4 +781,12 @@ await events.pub({
 
 Keep the database as the only source of truth. Emit from service functions after successful DB mutations, never from HTTP routes, so scripts, jobs, templates, and APIs all share the same event path. WebSocket handlers should subscribe with `topic.live({ tenantId, after, signal })` per connection; do not keep process-local broadcaster maps.
 
+When a client needs to start at the current end of a stream, use `topic.latestCursor({ tenantId })` and fall back at the call site if needed:
+
+```ts
+const startCursor = requestedCursor ?? (await events.latestCursor({ tenantId: resourceId })) ?? "0-0";
+```
+
+Do not read Redis stream keys directly in app code. The topic API owns stream key shape and empty-stream handling.
+
 Use small idempotent events for normal changes (`upsertItem`, `removeItem`). For bulk or uncertain changes, publish an `invalidated` event with scopes so the client refetches a slice. If an event is missed, reload or targeted refetch must reconstruct the correct state from the DB.

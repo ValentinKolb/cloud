@@ -5,7 +5,7 @@
  * mode = "local"    → render markdown from `legal.<kind>.content`
  * mode = "external" → 302-redirect to `legal.<kind>.url`
  *
- * One small helper, three mounts in `settings/src/index.ts` — KISS.
+ * One small helper, three mounts in `gateway-ops/src/index.ts` — KISS.
  */
 
 import { ssr } from "../../config";

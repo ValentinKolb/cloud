@@ -110,9 +110,9 @@ Every app container:
 
 **Core set (5, no profile — started by `bun run dev`):** `gateway`, `app-gateway-ops`, `app-core`, `app-dashboard`, `app-accounts`.
 
-**Extras (13, `profiles: [extra]` — `bun run dev:full` or ad-hoc via `dev:start`):** `app-api-docs`, `app-notebooks`, `app-contacts`, `app-faq`, `app-files`, `app-ipa-hosts`, `app-oauth`, `app-proxy-auth`, `app-quotes`, `app-spaces`, `app-tools`, `app-ui-lab`, `app-weather`.
+**Extras (16, `profiles: [extra]` — `bun run dev:full` or ad-hoc via `dev:start`):** `app-notebooks`, `app-contacts`, `app-faq`, `app-grids`, `app-files`, `app-ipa-hosts`, `app-oauth`, `app-proxy-auth`, `app-quotes`, `app-invoices`, `app-spaces`, `app-tools`, `app-ui-lab`, `app-venue`, `app-weather`, `app-api-docs`.
 
-`gateway` is router-only: it reads the Redis app registry, builds a local prefix trie, proxies HTTP/WS traffic, exposes minimal `/health`, and publishes telemetry/snapshot data. `app-gateway-ops` is a normal Cloud app that owns `/admin/gateway`, `/api/gateway`, dashboard widgets, telemetry rollups, health webhooks, cleanup, and registry observability.
+`gateway` is router-only: it reads the Redis app registry, builds a local prefix trie, proxies HTTP/WS traffic, exposes minimal `/health`, and publishes telemetry/snapshot data. `app-gateway-ops` is a normal Cloud app that owns `/admin/gateway`, `/admin/observability/*`, `/admin/settings`, `/api/gateway`, `/api/logging`, `/api/notifications`, dashboard widgets, telemetry rollups, health webhooks, legacy-settings cleanup, and registry observability.
 
 ### Volume Mounts (Dev)
 
@@ -222,13 +222,13 @@ Two workflows, separate tag namespaces so they don't collide.
 
 ### `.github/workflows/docker.yml` — per-app docker images
 
-One single parametrised `Dockerfile` (3 stages: deps → build → runtime, `oven/bun:1-alpine`, `--build-arg APP_ID=<id>`). Multi-arch (linux/amd64 + linux/arm64). Packages produce images: `gateway`, `core`, plus `app-<id>` for the rest (including `app-gateway-ops` and `app-api-docs`). `ui-lab` is dev-only and intentionally skipped. The standalone reference app lives in [cloud-template](https://github.com/ValentinKolb/cloud-template).
+One single parametrised `Dockerfile` (3 stages: deps → build → runtime, `oven/bun:1-alpine`, `--build-arg APP_ID=<id>`). Multi-arch (linux/amd64 + linux/arm64). The workflow builds the configured image allowlist: `gateway`, `core`, plus `app-<id>` images for built-in apps such as `app-gateway-ops` and `app-api-docs`. `ui-lab` is dev-only and intentionally skipped. The standalone reference app lives in [cloud-template](https://github.com/ValentinKolb/cloud-template).
 
 | Trigger | What's built | Image tags |
 |---|---|---|
-| push to `main` | only apps with changed source. Changes to `packages/cloud`, `Dockerfile`, `.dockerignore`, `bun.lock`, `package.json`, `styles.css` or this workflow file fan out to ALL 19 | `:sha-<short>`, `:main` |
-| tag `cloud-<image>-v<X.Y.Z>` (e.g. `cloud-app-notebooks-v0.1.2`, `cloud-gateway-v0.1.2`) | only that one image, validated against the 19-app allowlist | `:v<X.Y.Z>`, `:latest` |
-| `workflow_dispatch` | all 19 on demand | `:sha-<short>` |
+| push to `main` | only images with changed source. Changes to `packages/cloud`, `Dockerfile`, `.dockerignore`, `bun.lock`, `package.json`, `styles.css` or this workflow file fan out to the full configured allowlist | `:sha-<short>`, `:main` |
+| tag `cloud-<image>-v<X.Y.Z>` (e.g. `cloud-app-notebooks-v0.1.2`, `cloud-gateway-v0.1.2`) | only that one image, validated against the workflow allowlist | `:v<X.Y.Z>`, `:latest` |
+| `workflow_dispatch` | the full configured allowlist on demand | `:sha-<short>` |
 
 Pushed to `ghcr.io/valentinkolb/cloud-<image>`. **Bulk-tag-push gotcha:** GitHub Actions silently drops events past the first 3 tags in a single `git push --tags`. For multi-app releases, push tags **one at a time** with a small delay (`for tag in ...; do git push origin "$tag"; sleep 3; done`).
 
@@ -251,7 +251,7 @@ OIDC trusted publisher (no `NPM_TOKEN` secret). The trusted publisher is configu
 
 ## Production Deployment
 
-`compose.prod.yml` at the repo root pulls all 19 images from ghcr. Companion `.env.prod.example`.
+`compose.prod.yml` at the repo root pulls the configured Cloud service images from ghcr. Companion `.env.prod.example`.
 
 Shape:
 - One YAML anchor `x-shared-env` declares `DATABASE_URL`/`REDIS_URL`/`APP_SECRET`; merged into every service's `environment` via `x-app-defaults`.
@@ -265,7 +265,7 @@ Shape:
 
 - **Version:** 15 (Alpine)
 - **Max connections:** 300 (configured in compose)
-- **Schemas:** One per app domain (`auth.*`, `logging.*`, `settings.*`, `notifications.*`, plus app-specific)
+- **Schemas:** app-specific schemas plus platform-owned schemas such as `auth.*`, `logging.*`, `settings.*`, `notifications.*`, and `gateway.*`
 - **Migrations:** Run on every app startup via `lifecycle.setup()` (idempotent DDL)
 - **Connection:** Via Bun's native `sql` template tag (no connection pool library needed — Bun manages it)
 

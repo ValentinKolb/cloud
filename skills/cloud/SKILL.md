@@ -63,7 +63,7 @@ These are standalone packages on GitHub. Each has its own Claude skill — prefe
 - **Keep edge routers thin** — the gateway router owns only route discovery, local trie matching, proxying, minimal health, and telemetry publication. Gateway admin UI, rollups, health webhooks, and cleanup live in the normal `gateway-ops` app lifecycle.
 - **Horizontal scaling** — apps are stateless; scale by running more containers behind the gateway
 - **Service discovery via Redis** — apps register themselves in a Redis-based registry with heartbeats; the gateway watches for changes and routes accordingly
-- **Schema isolation** — most apps own their own PostgreSQL schema (e.g. `logging.*`, `files.*`, `notebooks.*`). The `auth.*` schema is an exception: it belongs to the platform core, not to any app (see "Core-Owned Domains" below).
+- **Schema isolation** — most apps own their own PostgreSQL schema (e.g. `files.*`, `notebooks.*`, `spaces.*`). Platform schemas such as `auth.*`, `logging.*`, `settings.*`, and `notifications.*` belong to core services, not to standalone app packages.
 - **SSR-first** — pages render server-side; only interactive parts become client-side "islands"
 
 ### Core-Owned Domains
@@ -75,7 +75,7 @@ Some domains are deliberately NOT apps — they live in `@valentinkolb/cloud` (`
 | **Accounts / auth** | `packages/cloud/src/services/{accounts,account-lifecycle,auth-flows,ipa,providers,session}/` + `packages/core/src/migrate/core/auth.ts` | Auth is a platform invariant. Every app depends on the same user/role/session model. Provider switching, IPA sync, magic-link, account lifecycle, and session semantics must not diverge between deployments. |
 | **Logging, notifications, settings** | `packages/cloud/src/services/{logging,notifications,settings}/` + `packages/core/src/migrate/core/*.ts` | Same reasoning — platform primitives, not app features. |
 
-The `packages/accounts/` app is **pure admin UI** on top of `@valentinkolb/cloud/services/accounts`. It owns no schema, no service logic, no auth flows. A user may fork it or write a completely different admin frontend, but the underlying authentication, authorization, and account-lifecycle rules stay identical. Same applies to the other "admin-face" apps.
+The `packages/accounts/` app is **pure admin UI** on top of `@valentinkolb/cloud/services/accounts`. It owns no schema, no service logic, no auth flows. A user may fork it or write a completely different admin frontend, but the underlying authentication, authorization, and account-lifecycle rules stay identical. `packages/gateway-ops/` plays the same role for gateway operations, logging, notifications, and settings UI: it renders and schedules platform operations, while the reusable service logic stays in `@valentinkolb/cloud`.
 
 Rule of thumb: if it touches `auth.*` tables, implements an auth flow, or defines role/permission semantics — it belongs in `packages/cloud/`, never in an app.
 
@@ -273,13 +273,12 @@ Built-in apps serve as reference implementations. The most instructive ones:
 | App | Good example of... |
 |-----|-------------------|
 | [cloud-template](https://github.com/ValentinKolb/cloud-template) | Standalone reference app (separate repo) — tenancy, child items, permissions, admin, widget, email, logging |
-| `logging` | Admin table layout, filters, pagination |
+| `gateway-ops` | Admin sidebar grouping, gateway apps/routes, logs, telemetry, webhooks, settings, notifications |
 | `files` | Sidebar layout, file operations, Filegate integration |
 | `spaces` | Card grid layout, CRUD with forms, permissions |
 | `contacts` | Multi-column layout, sidebar + list + detail panel |
 | `weather` | Simple sidebar + detail, external API integration |
 | `quotes` | Minimal app (API-only, widget, no frontend pages) |
-| `settings` | Admin forms, encrypted settings, dynamic inputs |
 | `accounts` | Complex CRUD, FreeIPA integration, group management |
 
 Source: `packages/{app-id}/src/`

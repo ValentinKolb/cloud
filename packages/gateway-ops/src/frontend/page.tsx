@@ -279,7 +279,7 @@ export default ssr<AuthContext>(async (c) => {
             />
           ) : null}
 
-          {/* ── Routes: title + search + table (same pattern as logging app) ── */}
+          {/* ── Routes: title + search + table (same pattern as logs) ── */}
           {isRoutesPage ? (
             <>
               <div class="min-w-0">

@@ -8,7 +8,7 @@ import type { AppRegistryEntry } from "@valentinkolb/cloud/contracts";
 // special cases — apps own the convention, the gateway owns nothing.
 //
 // Standard apps follow a four-prefix convention (`/api/<id>`, `/app/<id>`,
-// `/admin/<id>`, `/public/<id>`). Specials (core, oauth, settings) list
+// `/admin/<id>`, `/public/<id>`). Specials (core, oauth, gateway-ops) list
 // whatever top-level paths they actually own (e.g. `/auth`, `/oauth`,
 // `/.well-known/openid-configuration`, `/legal/terms`, `/`).
 
