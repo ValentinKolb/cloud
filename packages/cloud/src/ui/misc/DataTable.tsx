@@ -43,6 +43,7 @@ export type DataTableProps<T> = {
   density?: "compact" | "normal";
   stickyHeader?: boolean;
   highlightColumns?: boolean;
+  verticalAlign?: "top" | "middle" | "bottom";
   cellContentClass?: string;
   fillHeight?: boolean;
   class?: string;
@@ -81,6 +82,8 @@ export default function DataTable<T>(props: DataTableProps<T>) {
   const cellPadding = () => (props.density === "compact" ? "px-3 py-1.5" : "px-3 py-2");
   const headerPadding = () => (props.density === "compact" ? "px-3 py-1.5" : "px-3 py-2");
   const cellContentClass = () => props.cellContentClass ?? "truncate";
+  const cellVerticalAlignClass = () =>
+    props.verticalAlign === "top" ? "align-top" : props.verticalAlign === "bottom" ? "align-bottom" : "align-middle";
   const tableClass = () => props.tableClass ?? `w-full text-xs ${props.fillHeight ? "h-full" : ""}`;
   const columnHoverClass = (index: number) =>
     props.highlightColumns !== false && shouldHoverRows() && hoveredColumn() === index ? "bg-zinc-950/[0.015] dark:bg-black/[0.12]" : "";
@@ -227,7 +230,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
                           const value = () => valueOf(row, col);
                           return (
                             <td
-                              class={`${cellPadding()} align-top max-w-[260px] ${columnHoverClass(index())} ${col.cellClass ?? ""} ${col.class ?? ""}`}
+                              class={`${cellPadding()} ${cellVerticalAlignClass()} max-w-[260px] ${columnHoverClass(index())} ${col.cellClass ?? ""} ${col.class ?? ""}`}
                               onMouseEnter={() => setHoveredColumnIfEnabled(index())}
                             >
                               <div class={cellContentClass()}>
