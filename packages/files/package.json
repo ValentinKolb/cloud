@@ -11,7 +11,7 @@
     "@valentinkolb/cloud": "workspace:*",
     "@valentinkolb/ssr": "0.10.0",
     "@valentinkolb/filegate": "^2.4.0",
-    "@valentinkolb/stdlib": "0.9.1",
+    "@valentinkolb/stdlib": "0.11.0",
     "hono": "^4.11.1",
     "hono-openapi": "^1.1.2",
     "solid-js": "^1.9.10",

@@ -5,7 +5,7 @@
     "": {
       "name": "@valentinkolb/cloud-workspace",
       "dependencies": {
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "bun-plugin-tailwind": "^0.1.2",
         "tailwindcss": "^4.1.18",
       },
@@ -22,7 +22,7 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
         "solid-js": "^1.9.10",
@@ -56,7 +56,7 @@
         "@tabler/icons-webfont": "^3.36.1",
         "@tailwindcss/typography": "^0.5.19",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "@valentinkolb/sync": "^5.0.0",
         "bun-plugin-tailwind": "^0.1.2",
         "hono": "^4.11.1",
@@ -89,7 +89,7 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
         "solid-js": "^1.9.10",
@@ -105,7 +105,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "solid-js": "^1.9.10",
       },
@@ -119,7 +119,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "solid-js": "^1.9.10",
         "zod": "^4.3.4",
@@ -135,7 +135,7 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
         "zod": "^4.3.4",
@@ -152,7 +152,7 @@
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/filegate": "^2.4.0",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
         "solid-js": "^1.9.10",
@@ -169,7 +169,7 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "@valentinkolb/sync": "^5.0.0",
         "hono": "^4.11.1",
         "solid-js": "^1.9.10",
@@ -186,7 +186,7 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "@valentinkolb/sync": "^5.0.0",
         "decimal.js": "^10.6.0",
         "hono": "^4.11.1",
@@ -206,7 +206,7 @@
         "@stackforge-eu/factur-x": "1.1.0",
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
         "pdf-lib": "1.17.1",
@@ -224,7 +224,7 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "@valentinkolb/sync": "^5.0.0",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
@@ -242,7 +242,7 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
         "solid-js": "^1.9.10",
@@ -283,7 +283,7 @@
         "@uiw/codemirror-themes": "^4.25.4",
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "@valentinkolb/sync": "^5.0.0",
         "d3-force": "^3.0.0",
         "dayjs": "^1.11.19",
@@ -311,7 +311,7 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
         "solid-js": "^1.9.10",
@@ -328,7 +328,7 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
         "jose": "^6.1.3",
@@ -346,7 +346,7 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
         "solid-js": "^1.9.10",
@@ -362,7 +362,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
         "zod": "^4.3.4",
@@ -377,7 +377,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
       },
       "devDependencies": {
@@ -391,7 +391,7 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "dayjs": "^1.11.19",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
@@ -410,7 +410,7 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "lean-qr": "^2.4.0",
         "solid-js": "^1.9.10",
@@ -440,7 +440,7 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
         "solid-js": "^1.9.10",
@@ -457,7 +457,7 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/ssr": "0.10.0",
-        "@valentinkolb/stdlib": "0.9.1",
+        "@valentinkolb/stdlib": "0.11.0",
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
         "solid-js": "^1.9.10",
@@ -1030,7 +1030,7 @@
 
     "@valentinkolb/ssr": ["@valentinkolb/ssr@0.10.0", "", { "dependencies": { "@babel/core": "^7.24.0", "@babel/preset-typescript": "^7.24.0", "@types/babel__core": "^7.20.5", "babel-preset-solid": "^1.8.0", "seroval": "^1.0.0" }, "peerDependencies": { "@elysiajs/static": "^1.0.0", "elysia": "^1.0.0", "hono": "^4.0.0", "solid-js": "^1.9.0" }, "optionalPeers": ["@elysiajs/static", "elysia", "hono"] }, "sha512-X+o39uWUmfoqwAT9NA1Gaag5yZ5EKSz9kzfxctWJY2frhOOGF2YVZN7Zauwua1TbpsYcpt9GwCsZqXmj6QpjMg=="],
 
-    "@valentinkolb/stdlib": ["@valentinkolb/stdlib@0.9.1", "", { "dependencies": { "dayjs": "^1.11.0" }, "peerDependencies": { "lean-qr": "", "solid-js": "" }, "optionalPeers": ["lean-qr", "solid-js"] }, "sha512-JhUnQ7CWr0i+idhAMMtOrWIyATqer1B/F/YzfSLSCRTBc3MoCgbFy1zjQaQkXWAdsJr4vMvYMm53FKRMku3RoA=="],
+    "@valentinkolb/stdlib": ["@valentinkolb/stdlib@0.11.0", "", { "dependencies": { "dayjs": "^1.11.0" }, "peerDependencies": { "lean-qr": "", "solid-js": "" }, "optionalPeers": ["lean-qr", "solid-js"] }, "sha512-dbUzjqXt5T1yXVWy0ArOXTeZ2X+25diVE8zibLiVHitvA0jePMhbRDZ+PLe3szvtduRLn0NHUTV7mIcbKUCgwg=="],
 
     "@valentinkolb/sync": ["@valentinkolb/sync@5.2.0", "", {}, "sha512-iGRheT2OqSnbOLmdGK/1KGUlLobXpFo8MkyTUwWjjDMOrITiSRP4xTPRgWXemRTs3S5sV8rOQYojd73NWUn9HA=="],
 

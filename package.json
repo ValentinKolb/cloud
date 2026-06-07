@@ -76,7 +76,7 @@
     "check:service-api-contracts": "bun run scripts/check-service-api-contracts.ts"
   },
   "dependencies": {
-    "@valentinkolb/stdlib": "0.9.1",
+    "@valentinkolb/stdlib": "0.11.0",
     "bun-plugin-tailwind": "^0.1.2",
     "tailwindcss": "^4.1.18"
   },
