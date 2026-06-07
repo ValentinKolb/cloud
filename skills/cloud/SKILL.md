@@ -45,21 +45,22 @@ These are standalone packages on GitHub. Each has its own Claude skill — prefe
           ┌────────────────┼────────────────┐
           ▼                ▼                ▼
    ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-   │  cloud-core │ │ app-files   │ │ app-weather  │ ...  ← each app = min 1 container
+   │  cloud-core │ │ app-files   │ │ app-weather  │ ...  ← each app = min 1 HTTP container
    │  (auth,home)│ │             │ │              │
    └──────┬──────┘ └──────┬──────┘ └──────┬──────┘
           │                │                │
           ▼                ▼                ▼
-   ┌─────────────┐  ┌─────────────┐
-   │ PostgreSQL  │  │   Valkey    │
-   │  (schemas)  │  │  (sessions, │
-   │             │  │   registry) │
+   ┌─────────────┐  ┌─────────────┐  ┌────────────────┐
+   │ PostgreSQL  │  │   Valkey    │◄─┤ gateway-ops    │
+   │  (schemas)  │  │  (sessions, │  │ admin, bg jobs │
+   │             │  │   registry) │  └────────────────┘
    └─────────────┘  └─────────────┘
 ```
 
 ### Key Principles
 
-- **One container per app** — each app runs as an independent Bun process with its own Hono server on port 3000
+- **One HTTP container per app** — each app runs as an independent Bun process with its own Hono server on port 3000
+- **Keep edge routers thin** — the gateway router owns only route discovery, local trie matching, proxying, minimal health, and telemetry publication. Gateway admin UI, rollups, health webhooks, and cleanup live in the normal `gateway-ops` app lifecycle.
 - **Horizontal scaling** — apps are stateless; scale by running more containers behind the gateway
 - **Service discovery via Redis** — apps register themselves in a Redis-based registry with heartbeats; the gateway watches for changes and routes accordingly
 - **Schema isolation** — most apps own their own PostgreSQL schema (e.g. `logging.*`, `files.*`, `notebooks.*`). The `auth.*` schema is an exception: it belongs to the platform core, not to any app (see "Core-Owned Domains" below).

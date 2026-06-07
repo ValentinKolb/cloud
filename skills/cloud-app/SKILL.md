@@ -86,6 +86,20 @@ packages/my-app/
 
 The app self-registers in the Redis app registry via `createHeartbeat()` on startup; the gateway picks it up within ~5 s. There is no central registration file.
 
+### Background Work
+
+Most app background work belongs in the app's `lifecycle.start()` / `lifecycle.stop()` hooks. The canonical platform example is `packages/gateway-ops`: the gateway router only publishes minimized telemetry to Redis-backed `@valentinkolb/sync` topics and route snapshots, while the normal Gateway Ops app consumes, persists, rolls up, cleans, and renders admin UI.
+
+Use a separate worker package only when the work is high-volume, latency-sensitive, or should scale independently from the HTTP app.
+
+Worker package conventions:
+
+- Add the worker to the workspace and Docker install layer just like an app package.
+- Give it a dedicated compose service (`my-app-worker`) instead of overloading the HTTP app with mode env vars.
+- Do not register workers in the app registry unless they expose HTTP routes. Workers are operational containers, not routable apps.
+- Keep the hot HTTP path minimal: publish to Redis/topic and return; batching, DB writes, rollups, cleanup, retries, and lag checks live in the worker.
+- Use `@valentinkolb/sync` primitives for distributed coordination. Prefer `topic` for high-volume event streams, `job`/`scheduler` for bounded work and periodic maintenance, and `queue` for durable discrete work items.
+
 ## The App Entry Point
 
 ### config.ts — App Definition
@@ -717,7 +731,7 @@ const columns: DataTableColumn<Item>[] = [
 </Layout>
 ```
 
-Use `DataTable` for real tabular lists/dataviews before writing custom table markup. It owns sticky headers, density, row hover/selection, custom cell/header renderers, footer rows, empty state, and infinite-load sentinel behavior. Existing source-backed examples: `packages/logging/src/frontend/_components/LogTable.island.tsx`, `packages/gateway/src/frontend/page.tsx`, and UI Lab `/app/ui-lab/content/table`.
+Use `DataTable` for real tabular lists/dataviews before writing custom table markup. It owns sticky headers, density, row hover/selection, custom cell/header renderers, footer rows, empty state, and infinite-load sentinel behavior. Existing source-backed examples: `packages/gateway-ops/src/observability/logs/_components/LogTable.island.tsx`, `packages/gateway-ops/src/frontend/page.tsx`, and UI Lab `/app/ui-lab/content/table`.
 
 #### AppWorkspace Sidebar + Content Layout
 

@@ -1261,8 +1261,8 @@ a long description onto its own row.
 Use `DataTable` instead of hand-writing `<table>` markup for tabular rows and
 dataviews. Source: `packages/cloud/src/ui/misc/DataTable.tsx`. Live UI Lab
 route: `/app/ui-lab/content/table`. Real usages include
-`packages/logging/src/frontend/_components/LogTable.island.tsx`,
-`packages/gateway/src/frontend/page.tsx`, `packages/oauth/src/frontend/page.tsx`,
+`packages/gateway-ops/src/observability/logs/_components/LogTable.island.tsx`,
+`packages/gateway-ops/src/frontend/page.tsx`, `packages/oauth/src/frontend/page.tsx`,
 and `packages/spaces/src/frontend/admin.tsx`.
 
 ```tsx

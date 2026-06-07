@@ -37,6 +37,10 @@ services:
       - "traefik.http.services.cloud.loadbalancer.server.port=3000"
       - "traefik.docker.network=traefik"
 
+  app-gateway-ops:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-gateway-ops:latest
+
   # Apps — internal only, reached through the gateway.
   app-core:
     <<: *app-defaults
@@ -74,17 +78,9 @@ services:
     <<: *app-defaults
     image: ghcr.io/valentinkolb/cloud-app-ipa-hosts:latest
 
-  app-logging:
-    <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-logging:latest
-
   app-notebooks:
     <<: *app-defaults
     image: ghcr.io/valentinkolb/cloud-app-notebooks:latest
-
-  app-notifications:
-    <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-notifications:latest
 
   app-oauth:
     <<: *app-defaults
@@ -97,10 +93,6 @@ services:
   app-quotes:
     <<: *app-defaults
     image: ghcr.io/valentinkolb/cloud-app-quotes:latest
-
-  app-settings:
-    <<: *app-defaults
-    image: ghcr.io/valentinkolb/cloud-app-settings:latest
 
   app-spaces:
     <<: *app-defaults

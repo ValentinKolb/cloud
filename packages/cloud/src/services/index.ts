@@ -8,6 +8,18 @@ export { toPgTextArray, toPgUuidArray, escapeLikePattern, isUniqueViolation } fr
 export { logger, logging } from "./logging";
 export type { LogEntry } from "./logging";
 
+export {
+  GATEWAY_TELEMETRY_TENANT,
+  buildGatewayRouteSnapshot,
+  gatewayTelemetryTopic,
+  latestGatewayRouteSnapshot,
+  listGatewayRouteSnapshots,
+  publishGatewayRouteSnapshot,
+  publishRequestTelemetry,
+  removeGatewayRouteSnapshot,
+} from "./gateway";
+export type { GatewayRouteSnapshot, GatewayRouteSnapshotInput, GatewayRouteWarning, GatewayTelemetryEvent } from "./gateway";
+
 export { notifications } from "./notifications";
 export type {
   NotificationType,
@@ -36,7 +48,16 @@ export type { SettingsService } from "./settings/app";
 // Typed async API + cache-aside primitives.
 export { coreSettings, createSettingsAPI } from "./settings/api";
 export type { SettingsAPI } from "./settings/api";
-export { readKey as settingsReadKey, writeKey as settingsWriteKey, deleteKey as settingsDeleteKey, bulkRead as settingsBulkRead, allKnownKeys as settingsAllKnownKeys } from "./settings/store";
+export {
+  readKey as settingsReadKey,
+  writeKey as settingsWriteKey,
+  deleteKey as settingsDeleteKey,
+  bulkRead as settingsBulkRead,
+  allKnownKeys as settingsAllKnownKeys,
+  listLegacyKeys as settingsListLegacyKeys,
+  deleteLegacyKeys as settingsDeleteLegacyKeys,
+} from "./settings/store";
+export type { LegacySettingRow } from "./settings/store";
 export { loadSnapshot as loadSettingsSnapshot } from "./settings/snapshot";
 
 export { weatherService } from "./weather";

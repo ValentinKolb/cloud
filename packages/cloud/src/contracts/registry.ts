@@ -47,6 +47,8 @@ export type AppRegistryEntry = {
   search?: AppRegistrySearch;
   legalLinks?: AppRegistryLegalLink[];
   widgets?: AppRegistryWidget[];
+  /** Setting keys declared by this app. Used by admin tooling to avoid treating live app-owned settings as legacy. */
+  settingKeys?: readonly string[];
   /** Gateway-relative URL where this app serves its OpenAPI JSON spec. */
   openapi?: string;
 };

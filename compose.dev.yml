@@ -1,6 +1,6 @@
 # Dev containers — run with:
-#   bun run dev          (core set, 6 containers)
-#   bun run dev:full     (core + extras, 19 containers; --profile extra)
+#   bun run dev          (core set, 5 containers)
+#   bun run dev:full     (core + extras, 21 containers; --profile extra)
 #   bun run dev:app FOO  (ad-hoc: start a single extra app in the running stack)
 #
 # Requires infra running: bun run infra
@@ -40,6 +40,18 @@ services:
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/gateway/src/index.ts
 
+  app-gateway-ops:
+    <<: *app
+    container_name: app-gateway-ops
+    environment: { <<: *env, APP_ID: gateway-ops }
+    volumes:
+      - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
+      - ./packages/gateway/src:/app/packages/gateway/src
+      - ./packages/gateway-ops/src:/app/packages/gateway-ops/src
+      - ./styles.css:/app/styles.css
+    command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/gateway-ops/src/index.ts
+
   app-core:
     <<: *app
     container_name: app-core
@@ -73,39 +85,6 @@ services:
       - ./packages/accounts/src:/app/packages/accounts/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/accounts/src/index.ts
-
-  app-logging:
-    <<: *app
-    container_name: app-logging
-    environment: { <<: *env, APP_ID: logging }
-    volumes:
-      - ./packages/cloud/src:/app/packages/cloud/src
-      - ./packages/cloud/scripts:/app/packages/cloud/scripts
-      - ./packages/logging/src:/app/packages/logging/src
-      - ./styles.css:/app/styles.css
-    command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/logging/src/index.ts
-
-  app-settings:
-    <<: *app
-    container_name: app-settings
-    environment: { <<: *env, APP_ID: settings }
-    volumes:
-      - ./packages/cloud/src:/app/packages/cloud/src
-      - ./packages/cloud/scripts:/app/packages/cloud/scripts
-      - ./packages/settings/src:/app/packages/settings/src
-      - ./styles.css:/app/styles.css
-    command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/settings/src/index.ts
-
-  app-notifications:
-    <<: *app
-    container_name: app-notifications
-    environment: { <<: *env, APP_ID: notifications }
-    volumes:
-      - ./packages/cloud/src:/app/packages/cloud/src
-      - ./packages/cloud/scripts:/app/packages/cloud/scripts
-      - ./packages/notifications/src:/app/packages/notifications/src
-      - ./styles.css:/app/styles.css
-    command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/notifications/src/index.ts
 
   # ══════════════════════════════════════════════════════════════════
   # Extras — only started with `--profile extra` or ad-hoc via dev:app

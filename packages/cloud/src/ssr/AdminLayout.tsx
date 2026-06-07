@@ -18,7 +18,8 @@ type Props = {
   stretch?: boolean;
 };
 export default function AdminLayout({ children, c, title, stretch }: Props) {
-  const pathname = new URL(c.req.raw.url).pathname;
+  const url = new URL(c.req.raw.url);
+  const currentPath = `${url.pathname}${url.search}`;
   const runtime = getRuntimeContext(c);
   const breadcrumbs: Breadcrumb[] = [
     { title: "Start", href: "/" },
@@ -30,7 +31,7 @@ export default function AdminLayout({ children, c, title, stretch }: Props) {
   return (
     <Layout c={c} fullWidth title={breadcrumbs}>
       <div class="app-cols flex-1 min-h-0">
-        <AdminSidebar pathname={pathname} apps={runtime.apps} />
+        <AdminSidebar currentPath={currentPath} apps={runtime.apps} />
         <div class="flex-1 min-w-0 min-h-0 flex flex-col">
           <div class={`flex-1 min-h-0 ${stretch ? "flex flex-col" : "overflow-y-auto"}`} style="scrollbar-gutter: stable">
             {children}

@@ -15,7 +15,7 @@ Pick the closest existing app shell before writing JSX. The default is to mirror
 | Complex editor modal | `PanelDialog` opened with `dialogCore.open(..., panelDialogOptions)` or equivalent prompt bare surface | `packages/spaces/src/frontend/[id]/_components/shared/ItemForm.tsx`, `packages/contacts/src/frontend/_components/ContactUpsertForm.island.tsx`, `packages/grids/src/frontend/_components/records/RecordUpsertDialog.tsx` | Nested papers inside the modal body, small prompts forced into `PanelDialog` |
 | Calendar workspace | Core `Calendar` with date/view in URL route state | `packages/spaces/src/frontend/[id]/_components/calendar/index.tsx` | Static shift/event list pretending to be a calendar |
 | Dashboard metrics | `StatGrid` + `StatCell` | `packages/notebooks/src/frontend/admin.tsx`, `packages/contacts/src/frontend/admin.tsx`, `packages/oauth/src/frontend/page.tsx` | Raw stat grids or contextless numbers |
-| Data table or log-like list | `DataTable` with URL-backed search/filter chips where server data changes | `packages/logging/src/frontend/_components/LogTable.island.tsx`, `packages/oauth/src/frontend/page.tsx`, `packages/contacts/src/frontend/admin.tsx` | Hand-written `<table>` markup for app dataviews |
+| Data table or log-like list | `DataTable` with URL-backed search/filter chips where server data changes | `packages/gateway-ops/src/observability/logs/_components/LogTable.island.tsx`, `packages/oauth/src/frontend/page.tsx`, `packages/contacts/src/frontend/admin.tsx` | Hand-written `<table>` markup for app dataviews |
 
 If none of these rows fit, inspect `/app/ui-lab` and `packages/cloud/src/ui/` before creating local layout code.
 

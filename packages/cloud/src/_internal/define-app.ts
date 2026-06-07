@@ -287,6 +287,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     nav: opts.nav,
     legalLinks: opts.legalLinks ? [...opts.legalLinks] : undefined,
     widgets: opts.widgets ? opts.widgets.map((w) => ({ ...w })) : undefined,
+    settingKeys: opts.settings ? Object.keys(opts.settings) : undefined,
     openapi: opts.openapi,
   };
 
@@ -330,6 +331,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
         : undefined,
       legalLinks: meta.legalLinks ? meta.legalLinks.map((l) => ({ ...l })) : undefined,
       widgets: meta.widgets ? meta.widgets.map((w) => ({ ...w })) : undefined,
+      settingKeys: meta.settingKeys ? [...meta.settingKeys] : undefined,
       openapi: advertiseOpenapi ? opts.openapi : undefined,
     };
 

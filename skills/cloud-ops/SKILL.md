@@ -15,7 +15,7 @@ description: >
 # 1. Infrastructure (PostgreSQL, Valkey, Geo, Filegate)
 bun run infra
 
-# 2. Core dev stack — 7 containers, enough to log in, see the dashboard, and manage accounts
+# 2. Core dev stack — 5 containers, enough to log in, see the dashboard, and manage accounts
 bun run dev
 
 # 3. Open the platform
@@ -32,8 +32,8 @@ The compose file uses **profiles** so `bun run dev` stays light. Full spin-up is
 
 | Command | What it does |
 |---------|--------------|
-| `bun run dev` | Core set only — `gateway`, `app-core`, `app-dashboard`, `app-accounts`, `app-logging`, `app-settings`, `app-notifications` (7 containers) |
-| `bun run dev:full` | Core + all extras via `--profile extra` (20 containers total) |
+| `bun run dev` | Core set only — `gateway`, `app-gateway-ops`, `app-core`, `app-dashboard`, `app-accounts` (5 containers) |
+| `bun run dev:full` | Core + all extras via `--profile extra` (21 containers total) |
 | `bun run dev:down` | Tear down the dev stack |
 | `bun run dev:rebuild:all` | Rebuild every image in the stack |
 
@@ -62,7 +62,7 @@ Why the split: the core set gives you login + dashboard + admin panel + log view
 │                 docker compose                  │
 │                                                 │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐      │
-│  │ gateway  │  │ app-core │  │app-files │ ...   │  ← app containers (compose.dev.yml)
+│  │ gateway  │  │app-gw-ops│  │app-files │ ...   │  ← router + HTTP app containers
 │  │ :3000    │  │ :3000    │  │ :3000    │       │
 │  └────┬─────┘  └──────────┘  └──────────┘      │
 │       │ proxy                                   │
@@ -80,7 +80,8 @@ Both compose files share the same **Docker Compose project name** (= folder name
 
 Every app registers itself in Redis via `createHeartbeat` (60s interval, 2min TTL), carrying id, nav metadata, and `baseUrl` (e.g. `http://app-files:3000`). The gateway watches the registry and rebuilds its prefix-trie route table on change — usually within ≤5s of a new container appearing.
 
-Gateway source: [`packages/gateway/src/index.ts`](../../packages/gateway/src/index.ts).
+Gateway router source: [`packages/gateway/src/index.ts`](../../packages/gateway/src/index.ts).
+Gateway Ops app source: [`packages/gateway-ops/src/index.ts`](../../packages/gateway-ops/src/index.ts).
 
 ## Infrastructure Services (compose.yml)
 
@@ -107,9 +108,11 @@ Every app container:
 - Runs the CSS preload: `--preload=/app/packages/cloud/scripts/preload.ts`
 - Shares env via YAML anchors (`x-env`, `x-app`)
 
-**Core set (7, no profile — started by `bun run dev`):** `gateway`, `app-core`, `app-dashboard`, `app-accounts`, `app-logging`, `app-settings`, `app-notifications`.
+**Core set (5, no profile — started by `bun run dev`):** `gateway`, `app-gateway-ops`, `app-core`, `app-dashboard`, `app-accounts`.
 
 **Extras (13, `profiles: [extra]` — `bun run dev:full` or ad-hoc via `dev:start`):** `app-api-docs`, `app-notebooks`, `app-contacts`, `app-faq`, `app-files`, `app-ipa-hosts`, `app-oauth`, `app-proxy-auth`, `app-quotes`, `app-spaces`, `app-tools`, `app-ui-lab`, `app-weather`.
+
+`gateway` is router-only: it reads the Redis app registry, builds a local prefix trie, proxies HTTP/WS traffic, exposes minimal `/health`, and publishes telemetry/snapshot data. `app-gateway-ops` is a normal Cloud app that owns `/admin/gateway`, `/api/gateway`, dashboard widgets, telemetry rollups, health webhooks, cleanup, and registry observability.
 
 ### Volume Mounts (Dev)
 
@@ -141,6 +144,8 @@ app-my-app:
 
 2. Add a `COPY packages/my-app/package.json packages/my-app/` line in `Dockerfile.dev` so the install layer caches the new workspace.
 3. Start it standalone during development: `bun run dev:start my-app`. The app self-registers in Redis via `createHeartbeat()` on startup; the gateway picks it up within ~5 s without any central registration step. After code changes that affect the build (Dockerfile, dependencies), use `bun run dev:rebuild my-app` to rebuild + restart in one step.
+
+For non-HTTP workers, add a standalone service name without the `app-` prefix for platform infrastructure or with a clear app prefix for app-owned workers. Workers usually should not set `profiles: [extra]` when they support the core stack. Prefer a normal app lifecycle when the same package also owns HTTP admin/API routes.
 
 ## Environment Variables
 
@@ -217,7 +222,7 @@ Two workflows, separate tag namespaces so they don't collide.
 
 ### `.github/workflows/docker.yml` — per-app docker images
 
-One single parametrised `Dockerfile` (3 stages: deps → build → runtime, `oven/bun:1-alpine`, `--build-arg APP_ID=<id>`). Multi-arch (linux/amd64 + linux/arm64). 19 apps produce images: `gateway`, `core`, plus `app-<id>` for the rest (including `app-api-docs`). `ui-lab` is dev-only and intentionally skipped. The standalone reference app lives in [cloud-template](https://github.com/ValentinKolb/cloud-template).
+One single parametrised `Dockerfile` (3 stages: deps → build → runtime, `oven/bun:1-alpine`, `--build-arg APP_ID=<id>`). Multi-arch (linux/amd64 + linux/arm64). Packages produce images: `gateway`, `core`, plus `app-<id>` for the rest (including `app-gateway-ops` and `app-api-docs`). `ui-lab` is dev-only and intentionally skipped. The standalone reference app lives in [cloud-template](https://github.com/ValentinKolb/cloud-template).
 
 | Trigger | What's built | Image tags |
 |---|---|---|

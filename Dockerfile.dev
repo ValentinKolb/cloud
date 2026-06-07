@@ -14,15 +14,13 @@ COPY packages/faq/package.json packages/faq/
 COPY packages/files/package.json packages/files/
 COPY packages/grids/package.json packages/grids/
 COPY packages/gateway/package.json packages/gateway/
+COPY packages/gateway-ops/package.json packages/gateway-ops/
 COPY packages/ipa-hosts/package.json packages/ipa-hosts/
 COPY packages/invoices/package.json packages/invoices/
-COPY packages/logging/package.json packages/logging/
 COPY packages/notebooks/package.json packages/notebooks/
-COPY packages/notifications/package.json packages/notifications/
 COPY packages/oauth/package.json packages/oauth/
 COPY packages/proxy-auth/package.json packages/proxy-auth/
 COPY packages/quotes/package.json packages/quotes/
-COPY packages/settings/package.json packages/settings/
 COPY packages/spaces/package.json packages/spaces/
 COPY packages/tools/package.json packages/tools/
 COPY packages/ui-lab/package.json packages/ui-lab/

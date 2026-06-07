@@ -43,6 +43,8 @@ export type AppMeta = {
    * silently skip rendering for the current user.
    */
   widgets?: WidgetEndpoint[];
+  /** Setting keys declared by this app. Used by admin tooling to protect active app-owned settings. */
+  settingKeys?: readonly string[];
   /** Gateway-relative URL where this app's OpenAPI JSON is served, or undefined. */
   openapi?: string;
 };

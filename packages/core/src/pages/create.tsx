@@ -41,8 +41,8 @@ export const createPagesRouter = (
     .get("/auth/extend", auth.requireRole("authenticated", auth.redirectToLogin), async (c) => {
       return c.redirect("/me?action=extend", 302);
     })
-    // Legal pages (Imprint / Privacy / Terms) live in the settings app — see
-    // packages/settings/src/index.ts and the `legal.*` settings group.
+    // Legal pages (Imprint / Privacy / Terms) live in gateway-ops and are
+    // driven by the `legal.*` settings group.
     // Branding assets (public, no auth, cached)
     .get("/branding/logo", async (c) => {
       return serveBranding(c, "app.logo", join(brandingPublicDir, "logo.svg"), "image/svg+xml");

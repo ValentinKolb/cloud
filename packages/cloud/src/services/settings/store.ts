@@ -22,6 +22,13 @@ const REDIS_KEY = (k: string) => `settings:${k}`;
 const REDIS_TTL_SEC = 300;
 
 type StoredRow = { key: string; value: string };
+type LegacyStoredRow = { key: string; value: string; updated_at: Date | string | null };
+
+export type LegacySettingRow = {
+  key: string;
+  updatedAt: string | null;
+  decryptable: boolean;
+};
 
 /**
  * Resolve the env-fallback or default value for a key whose DB row is missing
@@ -146,6 +153,46 @@ export const bulkRead = async (keys: readonly string[]): Promise<Map<string, unk
  * Used by snapshot loader to determine what to bulk-read.
  */
 export const allKnownKeys = (): string[] => SETTINGS.map((d) => d.key);
+
+const knownKeysWith = (extraKnownKeys: readonly string[]) => Array.from(new Set([...allKnownKeys(), ...extraKnownKeys]));
+
+export const listLegacyKeys = async (extraKnownKeys: readonly string[] = []): Promise<LegacySettingRow[]> => {
+  const knownKeys = knownKeysWith(extraKnownKeys);
+  const rows = await sql<LegacyStoredRow[]>`
+    SELECT key, value, updated_at
+    FROM settings.entries
+    WHERE NOT (key = ANY(${toPgTextArray(knownKeys)}::text[]))
+    ORDER BY updated_at DESC NULLS LAST, key ASC
+  `;
+
+  const legacy: LegacySettingRow[] = [];
+  for (const row of rows) {
+    let decryptable = true;
+    try {
+      await decryptValue(row.value);
+    } catch {
+      decryptable = false;
+    }
+    legacy.push({
+      key: row.key,
+      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+      decryptable,
+    });
+  }
+  return legacy;
+};
+
+export const deleteLegacyKeys = async (extraKnownKeys: readonly string[] = []): Promise<{ deleted: string[] }> => {
+  const knownKeys = knownKeysWith(extraKnownKeys);
+  const rows = await sql<{ key: string }[]>`
+    DELETE FROM settings.entries
+    WHERE NOT (key = ANY(${toPgTextArray(knownKeys)}::text[]))
+    RETURNING key
+  `;
+  const deleted = rows.map((row) => row.key);
+  if (deleted.length > 0) await redis.del(...deleted.map(REDIS_KEY));
+  return { deleted };
+};
 
 /**
  * Encrypt the value, upsert the DB row, invalidate the Redis key.

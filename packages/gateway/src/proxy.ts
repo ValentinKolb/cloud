@@ -1,5 +1,6 @@
 import type { RouteTable } from "./trie";
 import { matchRoute } from "./trie";
+import { publishRequestTelemetry } from "@valentinkolb/cloud/services";
 
 // ─── Proxy statistics ────────────────────────────────────────────────────────
 
@@ -80,6 +81,14 @@ export const proxyRequest = async (
 
   if (!match) {
     stats.noRouteCount++;
+    publishRequestTelemetry({
+      appId: "gateway",
+      routePrefix: "(unmatched)",
+      method: req.method,
+      status: 502,
+      durationMs: performance.now() - start,
+      errorKind: "unmatched_route",
+    });
     return new Response("Bad Gateway — no app registered for this path", {
       status: 502,
       headers: { "Retry-After": "5" },
@@ -116,6 +125,14 @@ export const proxyRequest = async (
 
     const ms = performance.now() - start;
     appStats.totalMs += ms;
+    publishRequestTelemetry({
+      appId: match.appId,
+      routePrefix: match.matchedPrefix,
+      method: req.method,
+      status: proxyRes.status,
+      durationMs: ms,
+      errorKind: null,
+    });
 
     // Copy response headers, add gateway headers
     const headers = new Headers(proxyRes.headers);
@@ -132,6 +149,14 @@ export const proxyRequest = async (
     appStats.totalMs += ms;
     appStats.errors++;
     trackRoute(stats, match.matchedPrefix, true);
+    publishRequestTelemetry({
+      appId: match.appId,
+      routePrefix: match.matchedPrefix,
+      method: req.method,
+      status: 502,
+      durationMs: ms,
+      errorKind: "upstream_unavailable",
+    });
 
     // Throttled logging — at most once per 5s per app
     if (shouldLogError(match.appId)) {
