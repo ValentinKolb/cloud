@@ -20,15 +20,6 @@ const spaceTopic = topic<SpaceServiceEvent>({
   limits: { payloadBytes: 16_000 },
 });
 
-const streamKey = (spaceId: string): string => `${TOPIC_PREFIX}:${spaceId}:${TOPIC_ID}:stream`;
-
-const parseLatestCursor = (raw: unknown): string | null => {
-  if (!Array.isArray(raw)) return null;
-  const first = raw[0];
-  if (!Array.isArray(first)) return null;
-  return typeof first[0] === "string" ? first[0] : null;
-};
-
 export const publishSpaceEvent = async (event: Omit<SpaceServiceEvent, "at">): Promise<void> => {
   const payload: SpaceServiceEvent = { ...event, at: new Date().toISOString() };
   try {
@@ -56,11 +47,5 @@ export const liveSpaceEvents = (config: { spaceId: string; after?: string | null
   });
 
 export const latestSpaceEventCursor = async (spaceId: string): Promise<string | null> => {
-  try {
-    return parseLatestCursor(await Bun.redis.send("XREVRANGE", [streamKey(spaceId), "+", "-", "COUNT", "1"]));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("no such key") || message.includes("ERR no such key")) return null;
-    throw error;
-  }
+  return spaceTopic.latestCursor({ tenantId: spaceId });
 };
