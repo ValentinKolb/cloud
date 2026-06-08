@@ -38,13 +38,21 @@ export type TemplateTable = {
   key: string;
   name: string;
   description?: string | null;
+  displayConfig?: unknown;
   fields: TemplateField[];
+};
+
+export type TemplateRecordFile = {
+  field: string;
+  filename: string;
+  dataUrl: string;
 };
 
 export type TemplateRecord = {
   key: string;
   table: string;
   values: Record<string, unknown>;
+  files?: TemplateRecordFile[];
 };
 
 export type TemplateView = {
@@ -52,6 +60,7 @@ export type TemplateView = {
   table: string;
   name: string;
   query?: unknown;
+  displayConfig?: unknown;
   shared?: boolean;
 };
 

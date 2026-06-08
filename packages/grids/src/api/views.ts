@@ -67,6 +67,7 @@ const app = new Hono<AuthContext>()
               name: body.name,
               icon: body.icon ?? null,
               query: body.query,
+              displayConfig: body.displayConfig,
               ownerUserId: body.shared ? null : user.id,
             },
             user.id,

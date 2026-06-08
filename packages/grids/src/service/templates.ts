@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import { logger } from "@valentinkolb/cloud/services";
+import { parseDataUrl } from "@valentinkolb/cloud/shared";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { templates, getTemplate, type GridTemplate, type TemplateRef } from "../templates";
 import type { Base, Field } from "./types";
@@ -7,6 +8,7 @@ import type { FormConfig } from "./forms";
 import * as bases from "./bases";
 import * as dashboards from "./dashboards";
 import * as fields from "./fields";
+import * as files from "./files";
 import * as forms from "./forms";
 import * as records from "./records";
 import * as tables from "./tables";
@@ -68,9 +70,7 @@ const isRef = (value: unknown): value is TemplateRef =>
   typeof (value as Record<string, unknown>).key === "string";
 
 const isFormulaExpression = (value: unknown): value is { $formula: Array<string | TemplateRef> } =>
-  !!value &&
-  typeof value === "object" &&
-  Array.isArray((value as { $formula?: unknown }).$formula);
+  !!value && typeof value === "object" && Array.isArray((value as { $formula?: unknown }).$formula);
 
 const resolveRef = (ref: TemplateRef, ctx: TemplateContext): string => {
   const value =
@@ -98,9 +98,7 @@ const resolveValue = (value: unknown, ctx: TemplateContext): unknown => {
   }
   if (Array.isArray(value)) return value.map((item) => resolveValue(item, ctx));
   if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, nested]) => [key, resolveValue(nested, ctx)]),
-    );
+    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, resolveValue(nested, ctx)]));
   }
   return value;
 };
@@ -151,6 +149,21 @@ const createFields = async (template: GridTemplate, actorId: string | null, ctx:
   }
 };
 
+const applyTableDisplayConfigs = async (template: GridTemplate, actorId: string | null, ctx: TemplateContext) => {
+  for (const table of template.tables) {
+    if (!table.displayConfig) continue;
+    const tableId = ctx.tables.get(table.key);
+    if (!tableId) throw new TemplateError(err.badInput(`template table not found: ${table.key}`));
+    requireResult(
+      await tables.update(
+        tableId,
+        { displayConfig: resolveValue(table.displayConfig, ctx) as Parameters<typeof tables.update>[1]["displayConfig"] },
+        actorId,
+      ),
+    );
+  }
+};
+
 const createRecords = async (template: GridTemplate, actorId: string | null, ctx: TemplateContext) => {
   for (const record of template.records ?? []) {
     const tableId = ctx.tables.get(record.table);
@@ -167,6 +180,28 @@ const createRecords = async (template: GridTemplate, actorId: string | null, ctx
 
     const created = requireResult(await records.create(tableId, data, actorId));
     ctx.records.set(record.key, created.id);
+
+    for (const attachment of record.files ?? []) {
+      const field = ctx.fields.get(`${record.table}.${attachment.field}`);
+      if (!field) {
+        throw new TemplateError(err.badInput(`template file field not found: ${record.table}.${attachment.field}`));
+      }
+      const parsed = parseDataUrl(attachment.dataUrl);
+      if (!parsed) {
+        throw new TemplateError(err.badInput(`template file is not a base64 data URL: ${record.table}.${attachment.field}`));
+      }
+      requireResult(
+        await files.upload({
+          tableId,
+          recordId: created.id,
+          fieldId: field.id,
+          filename: attachment.filename,
+          mimeType: parsed.mimeType,
+          bytes: parsed.bytes,
+          userId: actorId,
+        }),
+      );
+    }
   }
 };
 
@@ -181,6 +216,7 @@ const createViews = async (template: GridTemplate, actorId: string | null, ctx: 
           tableId,
           name: view.name,
           query: (resolveValue(view.query ?? {}, ctx) as Parameters<typeof views.create>[0]["query"]) ?? {},
+          displayConfig: resolveValue(view.displayConfig ?? { mode: "table" }, ctx) as Parameters<typeof views.create>[0]["displayConfig"],
           ownerUserId: view.shared === false ? actorId : null,
         },
         actorId,
@@ -228,11 +264,7 @@ const createDashboards = async (template: GridTemplate, baseId: string, actorId:
   }
 };
 
-export const instantiate = async (
-  templateId: string,
-  input: InstantiateTemplateInput,
-  actorId: string | null,
-): Promise<Result<Base>> => {
+export const instantiate = async (templateId: string, input: InstantiateTemplateInput, actorId: string | null): Promise<Result<Base>> => {
   const template = getTemplate(templateId);
   if (!template) return fail(err.notFound("Template"));
 
@@ -259,6 +291,7 @@ export const instantiate = async (
   try {
     await createTables(template, base.id, actorId, ctx);
     await createFields(template, actorId, ctx);
+    await applyTableDisplayConfigs(template, actorId, ctx);
     if (input.withSampleData !== false) await createRecords(template, actorId, ctx);
     await createViews(template, actorId, ctx);
     await createForms(template, actorId, ctx);

@@ -14,6 +14,7 @@ import { apiClient } from "@/api/client";
 import type { ColumnSpec, ViewQuery } from "../../../contracts";
 import type { Field, Form, GridRecord, View } from "../../../service";
 import { isUserEditable } from "../fields/field-prompt-schema";
+import type { CardSize } from "../records-view/query-url";
 import { openFormModal } from "../records/FormSubmitModal";
 import { openRecordUpsertDialog } from "../records/RecordUpsertDialog";
 import { errorMessage } from "../utils/api-helpers";
@@ -21,6 +22,7 @@ import AggregationsPanel, {
   type AggregationRow,
   isAggregationRowComplete,
 } from "./AggregationsPanel";
+import { CardSizeDropdown } from "./CardSizeDropdown";
 import FilterPanel, {
   blankLeaf,
   type FilterLeaf,
@@ -78,6 +80,9 @@ type Props = {
    *  intent; the parent just refetches the records resource. */
   onRecordsChanged?: () => void;
   dateConfig?: DateContext;
+  showCardSize?: boolean;
+  cardSize?: CardSize;
+  onCardSizeChange?: (size: CardSize) => void;
 };
 
 /**
@@ -505,6 +510,10 @@ export default function GridToolbar(props: Props) {
             <i class="ti ti-calculator" />
             Computed
           </button>
+        </Show>
+
+        <Show when={props.showCardSize && props.onCardSizeChange}>
+          <CardSizeDropdown value={props.cardSize ?? "medium"} onChange={(size) => props.onCardSizeChange?.(size)} />
         </Show>
 
         {/* Smart Clear — appears when any query dimension is active.

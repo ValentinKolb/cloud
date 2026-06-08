@@ -6,7 +6,17 @@ import { emitTableMetadataEvent } from "./metadata-events";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
 import { validateViewQueryForTable } from "./query-validation";
-import { ViewQuerySchema, type View, type ViewQuery, type ColumnSpec, type ComputedColumnSpec, type FieldColumnSpec, type FormatSpec } from "../contracts";
+import {
+  RecordDisplayConfigSchema,
+  ViewQuerySchema,
+  type View,
+  type ViewQuery,
+  type ColumnSpec,
+  type ComputedColumnSpec,
+  type FieldColumnSpec,
+  type FormatSpec,
+  type RecordDisplayConfig,
+} from "../contracts";
 
 type DbRow = Record<string, unknown>;
 
@@ -25,6 +35,8 @@ export type { View, ViewQuery, ColumnSpec, ComputedColumnSpec, FieldColumnSpec, 
 const mapRow = (row: DbRow): View => {
   const rawQuery = parseJsonbRow<unknown>(row.query, {});
   const parsed = ViewQuerySchema.safeParse(rawQuery);
+  const rawDisplay = parseJsonbRow<unknown>(row.display_config, { mode: "table" });
+  const display = RecordDisplayConfigSchema.safeParse(rawDisplay);
   return {
     id: row.id as string,
     shortId: row.short_id as string,
@@ -32,6 +44,7 @@ const mapRow = (row: DbRow): View => {
     name: row.name as string,
     icon: (row.icon as string | null) ?? null,
     query: parsed.success ? parsed.data : {},
+    displayConfig: display.success ? display.data : { mode: "table" },
     ownerUserId: (row.owner_user_id as string | null) ?? null,
     position: row.position as number,
     deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
@@ -102,7 +115,7 @@ export const listForTable = async (params: {
   // MAX(positive rank).
   const rows = await sql<DbRow[]>`
     WITH ranked AS (
-      SELECT v.id, v.short_id, v.table_id, v.name, v.icon, v.query, v.owner_user_id, v.position, v.deleted_at, v.created_at, v.updated_at,
+      SELECT v.id, v.short_id, v.table_id, v.name, v.icon, v.query, v.display_config, v.owner_user_id, v.position, v.deleted_at, v.created_at, v.updated_at,
         (
           SELECT CASE
             WHEN COUNT(*) = 0 THEN NULL
@@ -147,7 +160,7 @@ export const listForTable = async (params: {
       JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
       WHERE v.table_id = ${params.tableId}::uuid AND v.deleted_at IS NULL
     )
-    SELECT id, short_id, table_id, name, icon, query, owner_user_id, position, deleted_at, created_at, updated_at
+    SELECT id, short_id, table_id, name, icon, query, display_config, owner_user_id, position, deleted_at, created_at, updated_at
     FROM ranked
     WHERE COALESCE(user_rank, group_rank, auth_rank, public_rank) >= 1
        OR (
@@ -221,6 +234,7 @@ export type CreateViewServiceInput = {
   /** Canonical query — undefined means "empty preset" (just a named view
    *  with no filter/sort/etc, useful as a starting point in the UI). */
   query?: ViewQuery;
+  displayConfig?: RecordDisplayConfig;
   ownerUserId?: string | null;
 };
 
@@ -240,20 +254,23 @@ export const create = async (
   }
   const queryValid = await validateViewQueryForTable(input.tableId, queryParsed.data);
   if (!queryValid.ok) return queryValid;
+  const displayConfigParsed = RecordDisplayConfigSchema.safeParse(input.displayConfig ?? { mode: "table" });
+  if (!displayConfigParsed.success) return fail(err.badInput("invalid view display config"));
 
   const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
-      INSERT INTO grids.views (short_id, table_id, name, icon, query, owner_user_id, position)
+      INSERT INTO grids.views (short_id, table_id, name, icon, query, display_config, owner_user_id, position)
       VALUES (
         ${shortId},
         ${input.tableId}::uuid,
         ${name},
         ${input.icon ?? null},
         ${queryParsed.data}::jsonb,
+        ${displayConfigParsed.data}::jsonb,
         ${input.ownerUserId ?? null}::uuid,
         COALESCE((SELECT MAX(position) + 1 FROM grids.views WHERE table_id = ${input.tableId}::uuid), 0)
       )
-      RETURNING id, short_id, table_id, name, icon, query, owner_user_id, position, deleted_at, created_at, updated_at
+      RETURNING id, short_id, table_id, name, icon, query, display_config, owner_user_id, position, deleted_at, created_at, updated_at
     `;
     if (!r) throw new Error("insert returned no row");
     return r;
@@ -272,6 +289,7 @@ export type UpdateViewServiceInput = {
   name?: string;
   icon?: string | null;
   query?: ViewQuery;
+  displayConfig?: RecordDisplayConfig;
   position?: number;
   /** Shared toggle: true → ownerUserId becomes null (anyone can read);
    *  false → ownerUserId becomes `actorId` (the editor takes ownership). */
@@ -306,11 +324,14 @@ export const update = async (
     if (!queryValid.ok) return queryValid;
     nextQuery = queryParsed.data;
   }
+  const displayConfigParsed = RecordDisplayConfigSchema.safeParse(input.displayConfig ?? existing.displayConfig);
+  if (!displayConfigParsed.success) return fail(err.badInput("invalid view display config"));
 
   const next = {
     name: name ?? existing.name,
     icon: input.icon !== undefined ? input.icon : existing.icon,
     query: nextQuery,
+    displayConfig: displayConfigParsed.data,
     position: input.position ?? existing.position,
   };
 
@@ -319,11 +340,12 @@ export const update = async (
     SET name = ${next.name},
         icon = ${next.icon},
         query = ${next.query}::jsonb,
+        display_config = ${next.displayConfig}::jsonb,
         position = ${next.position},
         owner_user_id = ${ownerUserId}::uuid,
         updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
-    RETURNING id, short_id, table_id, name, icon, query, owner_user_id, position, deleted_at, created_at, updated_at
+    RETURNING id, short_id, table_id, name, icon, query, display_config, owner_user_id, position, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("update failed"));
   const view = mapRow(row);
@@ -360,7 +382,7 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   const [row] = await sql<DbRow[]>`
     UPDATE grids.views SET deleted_at = NULL, updated_at = now()
     WHERE id = ${id}::uuid
-    RETURNING id, short_id, table_id, name, icon, query, owner_user_id, position, deleted_at, created_at, updated_at
+    RETURNING id, short_id, table_id, name, icon, query, display_config, owner_user_id, position, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("restore failed"));
   const view = mapRow(row);

@@ -20,16 +20,18 @@ import { FIELD_TYPE_ICONS } from "../fields/field-type-meta";
 import { type TableHeader, TablePermissions } from "../fields/TableFieldDialogs";
 import FormsManager from "../forms/FormsManager";
 import { errorMessage } from "../utils/api-helpers";
+import { RecordDisplayConfigEditor } from "./RecordDisplayConfigEditor";
 
 export const openTableSettingsDialog = (args: {
   table: TableHeader;
+  fields: Field[];
   initialAccessEntries: AccessEntry[];
   onSaved: (table: Table) => void;
   onDeleted?: () => void;
 }) => dialogCore.open<void>((close) => <TableSettingsDialog args={args} close={close} />, panelDialogOptions);
 
 function TableSettingsDialog(props: {
-  args: { table: TableHeader; initialAccessEntries: AccessEntry[]; onSaved: (table: Table) => void; onDeleted?: () => void };
+  args: { table: TableHeader; fields: Field[]; initialAccessEntries: AccessEntry[]; onSaved: (table: Table) => void; onDeleted?: () => void };
   close: () => void;
 }) {
   const [dirty, setDirty] = createSignal(false);
@@ -41,6 +43,7 @@ function TableSettingsDialog(props: {
       <PanelDialog.Header title={`Table settings — ${props.args.table.name}`} icon="ti ti-settings" close={closeIfClean} />
       <TableSettingsBody
         table={props.args.table}
+        fields={props.args.fields}
         initialAccessEntries={props.args.initialAccessEntries}
         onDirtyChange={setDirty}
         onSaved={(table) => {
@@ -207,6 +210,7 @@ export const deleteFieldWithChecks = async (field: Field): Promise<boolean> => {
 
 function TableSettingsBody(props: {
   table: TableHeader;
+  fields: Field[];
   initialAccessEntries: AccessEntry[];
   onSaved: (table: Table) => void;
   onDeleted?: () => void;
@@ -217,6 +221,7 @@ function TableSettingsBody(props: {
     name: props.table.name,
     description: props.table.description ?? "",
     icon: props.table.icon ?? "",
+    displayConfig: props.table.displayConfig,
     disableDirectInsert: props.table.disableDirectInsert,
   });
   const patch = (partial: Partial<ReturnType<typeof draft.draft>>) => {
@@ -226,6 +231,7 @@ function TableSettingsBody(props: {
   const name = () => draft.draft().name;
   const description = () => draft.draft().description;
   const icon = () => draft.draft().icon;
+  const displayConfig = () => draft.draft().displayConfig;
   const disableDirectInsert = () => draft.draft().disableDirectInsert;
 
   const saveMut = mutations.create<Table, void>({
@@ -238,6 +244,7 @@ function TableSettingsBody(props: {
           name: trimmed,
           description: description().trim() || null,
           icon: icon() || null,
+          displayConfig: displayConfig(),
           disableDirectInsert: disableDirectInsert(),
         },
       });
@@ -249,6 +256,7 @@ function TableSettingsBody(props: {
         name: next.name,
         description: next.description ?? "",
         icon: next.icon ?? "",
+        displayConfig: next.displayConfig,
         disableDirectInsert: next.disableDirectInsert,
       });
       props.onDirtyChange?.(false);
@@ -299,6 +307,10 @@ function TableSettingsBody(props: {
             value={disableDirectInsert}
             onChange={(v) => patch({ disableDirectInsert: v })}
           />
+        </PanelDialog.Section>
+
+        <PanelDialog.Section title="Display" subtitle="Choose how records are shown on table pages." icon="ti ti-layout">
+          <RecordDisplayConfigEditor value={displayConfig} onChange={(value) => patch({ displayConfig: value })} fields={() => props.fields} />
         </PanelDialog.Section>
 
         <PanelDialog.Section title="Permissions" subtitle="These permissions apply only to this table." icon="ti ti-lock">

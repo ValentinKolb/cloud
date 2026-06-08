@@ -1,12 +1,5 @@
-import {
-  field,
-  form,
-  formula,
-  type GridTemplate,
-  record,
-  table,
-  view,
-} from "./types";
+import { createMockCover } from "@valentinkolb/cloud/shared";
+import { field, form, formula, type GridTemplate, record, table, view } from "./types";
 
 export const inventoryTemplate: GridTemplate = {
   id: "inventory",
@@ -63,6 +56,22 @@ export const inventoryTemplate: GridTemplate = {
     {
       key: "items",
       name: "Items",
+      displayConfig: {
+        mode: "cards",
+        cards: {
+          imageFieldId: field("items.files"),
+          fieldIds: [
+            field("items.asset_id"),
+            field("items.asset_barcode"),
+            field("items.name"),
+            field("items.category"),
+            field("items.location"),
+            field("items.status"),
+            field("items.condition"),
+            field("items.quantity"),
+          ],
+        },
+      },
       fields: [
         {
           key: "asset_id",
@@ -181,11 +190,7 @@ export const inventoryTemplate: GridTemplate = {
           name: "total_value",
           type: "formula",
           config: {
-            expression: formula(
-              field("items.quantity"),
-              " * ",
-              field("items.replacement_value")
-            ),
+            expression: formula(field("items.quantity"), " * ", field("items.replacement_value")),
             format: {
               kind: "decimal",
               precision: 2,
@@ -417,6 +422,13 @@ export const inventoryTemplate: GridTemplate = {
         replacement_value: "1800.00",
         purchase_date: "2025-09-12",
       },
+      files: [
+        {
+          field: "files",
+          filename: "sony-a7-body.svg",
+          dataUrl: createMockCover({ icon: "camera", theme: "blue", seed: "inventory:sony-a7-body", label: "Sony A7 body" }).dataUrl,
+        },
+      ],
     },
     {
       key: "items.mic",
@@ -431,6 +443,14 @@ export const inventoryTemplate: GridTemplate = {
         quantity: "2",
         replacement_value: "320.00",
       },
+      files: [
+        {
+          field: "files",
+          filename: "wireless-mic-set.svg",
+          dataUrl: createMockCover({ icon: "microphone", theme: "violet", seed: "inventory:wireless-mic-set", label: "Wireless mic set" })
+            .dataUrl,
+        },
+      ],
     },
     {
       key: "items.hdmi",
@@ -445,6 +465,13 @@ export const inventoryTemplate: GridTemplate = {
         quantity: "8",
         replacement_value: "18.00",
       },
+      files: [
+        {
+          field: "files",
+          filename: "hdmi-cable-5m.svg",
+          dataUrl: createMockCover({ icon: "package", theme: "slate", seed: "inventory:hdmi-cable-5m", label: "HDMI cable 5m" }).dataUrl,
+        },
+      ],
     },
     {
       key: "kits.video",
@@ -452,15 +479,10 @@ export const inventoryTemplate: GridTemplate = {
       values: {
         name: "Video interview kit",
         category: [record("categories.cameras")],
-        items: [
-          record("items.camera"),
-          record("items.mic"),
-          record("items.hdmi"),
-        ],
+        items: [record("items.camera"), record("items.mic"), record("items.hdmi")],
         status: ["available"],
         requestable: true,
-        description:
-          "Camera body, wireless mic set, and HDMI cable for interviews.",
+        description: "Camera body, wireless mic set, and HDMI cable for interviews.",
       },
     },
     {
@@ -499,6 +521,21 @@ export const inventoryTemplate: GridTemplate = {
           { fieldId: field("items.total_value") },
         ],
       },
+      displayConfig: {
+        mode: "cards",
+        cards: {
+          imageFieldId: field("items.files"),
+          fieldIds: [
+            field("items.asset_id"),
+            field("items.asset_barcode"),
+            field("items.name"),
+            field("items.category"),
+            field("items.location"),
+            field("items.status"),
+            field("items.quantity"),
+          ],
+        },
+      },
     },
     {
       key: "stock_by_category",
@@ -533,6 +570,10 @@ export const inventoryTemplate: GridTemplate = {
           { fieldId: field("loans.status") },
         ],
         sort: [{ fieldId: field("loans.due_date"), direction: "asc" }],
+      },
+      displayConfig: {
+        mode: "calendar",
+        calendar: { dateFieldId: field("loans.due_date") },
       },
     },
   ],
@@ -646,8 +687,7 @@ export const inventoryTemplate: GridTemplate = {
       isPublic: true,
       config: {
         title: "Request kit loan",
-        description:
-          "Choose one or more kits. An admin reviews and approves the request.",
+        description: "Choose one or more kits. An admin reviews and approves the request.",
         submitLabel: "Request loan",
         successMessage: "Loan requested.",
         fields: [

@@ -332,6 +332,7 @@ export default function GridsWorkspace(props: Props) {
         searchableFields={route.searchableFields}
         groupedExplode={route.groupedExplode}
         activeViewQuery={route.activeViewQuery}
+        displayConfig={route.displayConfig}
         dateConfig={state().dateConfig}
       />
     </div>

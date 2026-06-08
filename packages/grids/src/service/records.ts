@@ -7,6 +7,7 @@ import { type AggregateRequest, compileAggregates } from "./aggregate-compiler";
 import { logAudit, type SqlClient } from "./audit";
 import { applyComputedProjections, buildComputedProjections } from "./computed-projections";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
+import { listFirstImagePreviews } from "./files";
 import { generateIdValue, generatedIdRequiresRetry, isGeneratedIdUniqueCollision } from "./generated-ids";
 import { compileFilter, type FilterTree, renderClause } from "./filter-compiler";
 import { compileGroupQuery, type GroupAggregationSpec, type GroupBucket, type GroupBySpec, type GroupSortSpec } from "./group-compiler";
@@ -420,6 +421,7 @@ export const list = async (params: {
   includeAggregates?: boolean;
   dateConfig?: DateContext;
   computedColumns?: ComputedColumnSpec[];
+  filePreviewFieldIds?: string[];
 }): Promise<Result<RecordList>> => {
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
   const fields = await listFields(params.tableId);
@@ -519,6 +521,14 @@ export const list = async (params: {
     await attachRelationExpansion(items, fields, params.viewer);
   }
 
+  const filePreviews =
+    params.filePreviewFieldIds && params.filePreviewFieldIds.length > 0
+      ? await listFirstImagePreviews({
+          recordIds: items.map((record) => record.id),
+          fieldIds: params.filePreviewFieldIds,
+        })
+      : undefined;
+
   const aggregatesResult = params.includeAggregates
     ? await aggregate({
         tableId: params.tableId,
@@ -538,7 +548,7 @@ export const list = async (params: {
   // point and consumers (records page, dashboard view widget,
   // DatabaseTable) always need them to render. Saves a roundtrip vs
   // calling listFields separately.
-  return ok({ items, fields: fieldsWithLookupMeta, nextCursor, aggregates: aggregatesResult.data });
+  return ok({ items, fields: fieldsWithLookupMeta, nextCursor, aggregates: aggregatesResult.data, filePreviews });
 };
 
 /**

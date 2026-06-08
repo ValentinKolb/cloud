@@ -23,6 +23,8 @@ const empty: RecordsState = {
   cursor: null,
   selectedRecordId: null,
   search: { q: "", fieldIds: [], override: false },
+  calendar: { view: "month", date: new Date().toISOString().slice(0, 10) },
+  cardSize: "medium",
 };
 
 const fieldId = "11111111-1111-4111-8111-111111111111";
@@ -98,6 +100,12 @@ describe("parseRecordsState", () => {
   test("q + qFields parsed into search", () => {
     const r = parseRecordsState(params("q=hello&qFields=f1,f2"));
     expect(r.search).toEqual({ q: "hello", fieldIds: ["f1", "f2"], override: true });
+  });
+
+  test("cardSize parsed with invalid values falling back to medium", () => {
+    expect(parseRecordsState(params("cardSize=small")).cardSize).toBe("small");
+    expect(parseRecordsState(params("cardSize=large")).cardSize).toBe("large");
+    expect(parseRecordsState(params("cardSize=giant")).cardSize).toBe("medium");
   });
 
   test("empty q is kept as an explicit search override", () => {
@@ -220,5 +228,12 @@ describe("buildRecordsUrl", () => {
     const state: RecordsState = { ...empty, selectedRecordId: "rec-123" };
     const url = buildRecordsUrl(path, state);
     expect(url).toContain("record=rec-123");
+  });
+
+  test("non-default cardSize emitted as query param", () => {
+    const state: RecordsState = { ...empty, cardSize: "small" };
+    const url = buildRecordsUrl(path, state);
+    expect(url).toContain("cardSize=small");
+    expect(parseRecordsState(new URLSearchParams(url.split("?")[1])).cardSize).toBe("small");
   });
 });

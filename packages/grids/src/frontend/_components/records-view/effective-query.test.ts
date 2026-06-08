@@ -11,6 +11,8 @@ const state = (overrides: Partial<RecordsState> = {}): RecordsState => ({
   cursor: null,
   selectedRecordId: null,
   search: { q: "", fieldIds: [], override: false },
+  calendar: { view: "month", date: new Date().toISOString().slice(0, 10) },
+  cardSize: "medium",
   ...overrides,
 });
 
@@ -20,6 +22,7 @@ const view = (query: View["query"]): View => ({
   tableId: "33333333-3333-4333-8333-333333333333",
   name: "Saved",
   query,
+  displayConfig: { mode: "table" },
   ownerUserId: null,
   position: 0,
   deletedAt: null,

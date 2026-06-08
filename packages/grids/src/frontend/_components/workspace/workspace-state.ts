@@ -1,11 +1,12 @@
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
-import type { ComputedColumnSpec, GroupSortSpec, ViewQuery } from "../../../contracts";
+import type { ComputedColumnSpec, GroupSortSpec, RecordDisplayConfig, ViewQuery } from "../../../contracts";
 import type { Automation, Base, Dashboard, Field, Form, GridRecord, Table, View } from "../../../service";
 import { gridsService } from "../../../service";
 import { resolveWidgetData, type WidgetData } from "../../../service/dashboard-widget-data";
 import { filterSearchableFields } from "../../../service/search";
+import { activeDisplayConfig, calendarQueryFilter, cardImageFieldIds } from "../records-view/display-mode";
 import { resolveEffectiveQuery } from "../records-view/effective-query";
 import { parseRecordsState, type RecordsState } from "../records-view/query-url";
 
@@ -66,6 +67,7 @@ export type WorkspaceRecordsRoute = {
     aggregates?: Record<string, unknown>;
     nextCursor: string | null;
     explode?: boolean;
+    filePreviews?: Record<string, Record<string, { fileId: string; fieldId: string; recordId: string; filename: string; mimeType: string; sizeBytes: number }>>;
   };
   initialSelectedRecord: GridRecord | null;
   relationLabels: Record<string, string>;
@@ -73,6 +75,7 @@ export type WorkspaceRecordsRoute = {
   searchableFields: Field[];
   groupedExplode: boolean;
   activeViewQuery: ViewQuery | null;
+  displayConfig: RecordDisplayConfig;
 };
 
 export type WorkspaceDashboardRoute = {
@@ -313,6 +316,7 @@ type InitialRecordsArgs = {
   fields: Field[];
   recordsState: RecordsState;
   activeView: View | null;
+  displayConfig: RecordDisplayConfig;
   trashMode: boolean;
   user: AuthUser;
   dateConfig?: DateContext;
@@ -356,6 +360,7 @@ const emptyInitialRecords = () => ({
     items: GridRecord[];
     nextCursor: string | null;
     aggregates?: Record<string, unknown>;
+    filePreviews?: Record<string, Record<string, { fileId: string; fieldId: string; recordId: string; filename: string; mimeType: string; sizeBytes: number }>>;
   },
   aggregates: {} as Record<string, unknown>,
   groupedBuckets: [] as WorkspaceGroupBucket[],
@@ -414,6 +419,7 @@ const loadListedInitialRecords = async (
     viewer,
     dateConfig: args.dateConfig,
     computedColumns: query.effective.columns?.filter(isComputedColumn),
+    filePreviewFieldIds: cardImageFieldIds(args.displayConfig),
   });
   if (listResult.ok) {
     data.records = query.viewLimit !== undefined ? { ...listResult.data, nextCursor: null } : listResult.data;
@@ -439,6 +445,15 @@ const loadListedInitialRecords = async (
 
 const loadInitialRecords = async (args: InitialRecordsArgs) => {
   const query = resolveInitialQuery(args.recordsState, args.activeView);
+  query.effectiveFilter = calendarQueryFilter({
+    baseFilter: query.effectiveFilter ?? undefined,
+    fields: args.fields,
+    displayConfig: args.displayConfig,
+    calendar: args.recordsState.calendar,
+    dateConfig: args.dateConfig,
+  }) ?? null;
+  query.effective.filter = query.effectiveFilter ?? undefined;
+  if (args.displayConfig.mode === "calendar" && query.viewLimit === undefined) query.effectiveLimit = 500;
   const viewer = buildViewer(args.user);
   const data =
     query.effectiveGroupBy.length > 0 && !args.trashMode
@@ -458,11 +473,13 @@ const loadRecordsState = async (common: WorkspaceCommon, activeTable: Table, act
   const candidateView = activeViewSlug ? await gridsService.view.getByIdOrShortId(activeTable.id, activeViewSlug) : null;
   const activeView = candidateView ? (viewsForTable.find((v) => v.id === candidateView.id) ?? null) : null;
   const recordsState = parseRecordsState(common.chrome.url.searchParams);
+  const displayConfig = activeDisplayConfig(activeTable.displayConfig, activeView?.displayConfig);
   const initial = await loadInitialRecords({
     activeTable,
     fields,
     recordsState,
     activeView,
+    displayConfig,
     trashMode: common.chrome.trashMode,
     user: common.params.user,
     dateConfig: common.params.dateConfig,
@@ -510,6 +527,8 @@ const loadRecordsState = async (common: WorkspaceCommon, activeTable: Table, act
         cursor: recordsState.cursor,
         selectedRecordId: recordsState.selectedRecordId,
         search: initial.effectiveSearch,
+        calendar: recordsState.calendar,
+        cardSize: recordsState.cardSize,
       },
       initialData: {
         items: initial.records.items,
@@ -517,6 +536,7 @@ const loadRecordsState = async (common: WorkspaceCommon, activeTable: Table, act
         aggregates: initial.aggregates,
         nextCursor: initial.records.nextCursor,
         explode: initial.groupedExplode,
+        filePreviews: initial.records.filePreviews,
       },
       initialSelectedRecord: selectedRecord,
       relationLabels: initial.relationLabels,
@@ -524,6 +544,7 @@ const loadRecordsState = async (common: WorkspaceCommon, activeTable: Table, act
       searchableFields: filterSearchableFields(fields),
       groupedExplode: initial.groupedExplode,
       activeViewQuery: activeView?.query ?? null,
+      displayConfig,
     },
     [
       ...common.chrome.titleBase,

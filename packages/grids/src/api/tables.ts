@@ -71,6 +71,7 @@ const app = new Hono<AuthContext>()
               description: body.description ?? null,
               icon: body.icon ?? null,
               columns: body.columns,
+              displayConfig: body.displayConfig,
             },
             user.id,
           ),
@@ -184,7 +185,7 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-      const { query, cursor } = c.req.valid("json");
+      const { query, cursor, filePreviewFieldIds } = c.req.valid("json");
       const queryValid = await validateViewQueryForTable(tableId, query);
       if (!queryValid.ok) return c.json({ message: queryValid.error.message }, queryValid.error.status);
 
@@ -266,6 +267,7 @@ const app = new Hono<AuthContext>()
         viewer,
         dateConfig,
         computedColumns: query.columns?.filter((column): column is ComputedColumnSpec => "kind" in column && column.kind === "computed"),
+        filePreviewFieldIds,
       });
       if (!listResult.ok) return c.json({ message: listResult.error.message }, listResult.error.status);
 
@@ -292,6 +294,7 @@ const app = new Hono<AuthContext>()
         items: listResult.data.items,
         aggregates,
         nextCursor: listResult.data.nextCursor,
+        filePreviews: listResult.data.filePreviews,
       });
     },
   )

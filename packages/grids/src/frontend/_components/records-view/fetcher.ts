@@ -19,6 +19,7 @@ type FetchTableQueryArgs = {
   tableId: string;
   query: ViewQuery;
   cursor: string | null;
+  filePreviewFieldIds?: string[];
 };
 
 /**
@@ -41,6 +42,7 @@ export const fetchTableQuery = async (args: FetchTableQueryArgs, opts: { signal?
   const body: TableQueryBody = {
     query: args.query,
     cursor: args.cursor ?? undefined,
+    filePreviewFieldIds: args.filePreviewFieldIds,
   };
   // Hono's RPC client takes RequestInit as the second positional arg —
   // signal lives there alongside any future header / credentials needs.

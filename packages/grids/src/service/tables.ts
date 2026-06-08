@@ -3,16 +3,21 @@ import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
-import { FieldColumnSpecSchema } from "../contracts";
+import { FieldColumnSpecSchema, RecordDisplayConfigSchema } from "../contracts";
 import type { Table, CreateTableInput, UpdateTableInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 
-const COLS = sql`id, short_id, base_id, name, description, icon, columns, position, disable_direct_insert, deleted_at, created_at, updated_at`;
+const COLS = sql`id, short_id, base_id, name, description, icon, columns, display_config, position, disable_direct_insert, deleted_at, created_at, updated_at`;
 
 const parseColumns = (raw: unknown) => {
   const parsed = FieldColumnSpecSchema.array().safeParse(raw ?? []);
   return parsed.success ? parsed.data : [];
+};
+
+const parseDisplayConfig = (raw: unknown) => {
+  const parsed = RecordDisplayConfigSchema.safeParse(raw ?? { mode: "table" });
+  return parsed.success ? parsed.data : { mode: "table" as const };
 };
 
 const mapRow = (row: DbRow): Table => ({
@@ -23,6 +28,7 @@ const mapRow = (row: DbRow): Table => ({
   description: (row.description as string | null) ?? null,
   icon: (row.icon as string | null) ?? null,
   columns: parseColumns(row.columns),
+  displayConfig: parseDisplayConfig(row.display_config),
   position: row.position as number,
   disableDirectInsert: (row.disable_direct_insert as boolean | null) ?? false,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
@@ -144,10 +150,12 @@ export const create = async (input: CreateTableInput, actorId: string | null): P
   if (name.length === 0) return fail(err.badInput("name required"));
   const columnsParsed = FieldColumnSpecSchema.array().safeParse(input.columns ?? []);
   if (!columnsParsed.success) return fail(err.badInput("invalid table columns"));
+  const displayConfigParsed = RecordDisplayConfigSchema.safeParse(input.displayConfig ?? { mode: "table" });
+  if (!displayConfigParsed.success) return fail(err.badInput("invalid table display config"));
 
   const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
-      INSERT INTO grids.tables (short_id, base_id, name, description, icon, columns, position)
+      INSERT INTO grids.tables (short_id, base_id, name, description, icon, columns, display_config, position)
       VALUES (
         ${shortId},
         ${input.baseId}::uuid,
@@ -155,6 +163,7 @@ export const create = async (input: CreateTableInput, actorId: string | null): P
         ${input.description ?? null},
         ${input.icon ?? null},
         ${columnsParsed.data}::jsonb,
+        ${displayConfigParsed.data}::jsonb,
         COALESCE((SELECT MAX(position) + 1 FROM grids.tables WHERE base_id = ${input.baseId}::uuid AND deleted_at IS NULL), 0)
       )
       RETURNING ${COLS}
@@ -185,11 +194,14 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
     description: input.description !== undefined ? input.description : existing.description,
     icon: input.icon !== undefined ? input.icon : existing.icon,
     columns: input.columns !== undefined ? input.columns : existing.columns,
+    displayConfig: input.displayConfig !== undefined ? input.displayConfig : existing.displayConfig,
     disableDirectInsert:
       input.disableDirectInsert !== undefined ? input.disableDirectInsert : existing.disableDirectInsert,
   };
   const columnsParsed = FieldColumnSpecSchema.array().safeParse(next.columns);
   if (!columnsParsed.success) return fail(err.badInput("invalid table columns"));
+  const displayConfigParsed = RecordDisplayConfigSchema.safeParse(next.displayConfig);
+  if (!displayConfigParsed.success) return fail(err.badInput("invalid table display config"));
 
   const [row] = await sql<DbRow[]>`
     UPDATE grids.tables
@@ -197,6 +209,7 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
         description = ${next.description},
         icon = ${next.icon},
         columns = ${columnsParsed.data}::jsonb,
+        display_config = ${displayConfigParsed.data}::jsonb,
         disable_direct_insert = ${next.disableDirectInsert},
         updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
@@ -213,6 +226,9 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
   if (next.icon !== existing.icon) diff.icon = { old: existing.icon, new: next.icon };
   if (JSON.stringify(columnsParsed.data) !== JSON.stringify(existing.columns)) {
     diff.columns = { old: existing.columns, new: columnsParsed.data };
+  }
+  if (JSON.stringify(displayConfigParsed.data) !== JSON.stringify(existing.displayConfig)) {
+    diff.displayConfig = { old: existing.displayConfig, new: displayConfigParsed.data };
   }
   if (next.disableDirectInsert !== existing.disableDirectInsert) {
     diff.disableDirectInsert = { old: existing.disableDirectInsert, new: next.disableDirectInsert };

@@ -1,7 +1,7 @@
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import { FieldColumnSpecSchema, type View, ViewQuerySchema } from "../contracts";
+import { FieldColumnSpecSchema, RecordDisplayConfigSchema, type View, ViewQuerySchema } from "../contracts";
 import { listForBase as listDashboardsForBase } from "./dashboards";
 import { normalizeFormConfig, toRenderableForm, type Form } from "./forms";
 import { parseJsonbRow } from "./jsonb";
@@ -36,6 +36,11 @@ const parseColumns = (raw: unknown) => {
   return parsed.success ? parsed.data : [];
 };
 
+const parseDisplayConfig = (raw: unknown) => {
+  const parsed = RecordDisplayConfigSchema.safeParse(parseJsonbRow<unknown>(raw, { mode: "table" }));
+  return parsed.success ? parsed.data : { mode: "table" as const };
+};
+
 const mapTable = (row: DbRow): Table => ({
   id: row.id as string,
   shortId: row.short_id as string,
@@ -44,6 +49,7 @@ const mapTable = (row: DbRow): Table => ({
   description: (row.description as string | null) ?? null,
   icon: (row.icon as string | null) ?? null,
   columns: parseColumns(row.columns),
+  displayConfig: parseDisplayConfig(row.display_config),
   position: row.position as number,
   disableDirectInsert: (row.disable_direct_insert as boolean | null) ?? false,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
@@ -81,6 +87,7 @@ const mapView = (row: DbRow): View => {
     name: row.name as string,
     icon: (row.icon as string | null) ?? null,
     query: parsed.success ? parsed.data : {},
+    displayConfig: parseDisplayConfig(row.display_config),
     ownerUserId: (row.owner_user_id as string | null) ?? null,
     position: row.position as number,
     deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,

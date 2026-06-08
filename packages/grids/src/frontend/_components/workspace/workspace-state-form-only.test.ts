@@ -19,6 +19,7 @@ const formTable = {
   description: null,
   icon: null,
   columns: [],
+  displayConfig: { mode: "table" as const },
   position: 0,
   disableDirectInsert: false,
   deletedAt: null,

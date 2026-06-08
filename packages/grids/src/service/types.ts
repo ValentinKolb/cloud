@@ -1,4 +1,4 @@
-import type { FieldColumnSpec, FilterTree } from "../contracts";
+import type { FieldColumnSpec, FilterTree, RecordDisplayConfig } from "../contracts";
 
 export type Base = {
   id: string;
@@ -32,6 +32,7 @@ export type Table = {
    *  own ViewQuery.columns, but the renderer consumes the same
    *  ColumnSpec shape in both cases. */
   columns: FieldColumnSpec[];
+  displayConfig: RecordDisplayConfig;
   position: number;
   /** When true, records can only be added through a form (the
    *  authenticated `/forms/:formId/submit` and the public
@@ -102,6 +103,7 @@ export type RecordList = {
   items: GridRecord[];
   fields: Field[];
   nextCursor: string | null;
+  filePreviews?: Record<string, Record<string, GridFilePreview>>;
   /** SQL-computed footer-style aggregates over the full filtered result
    *  set, not just the current page. Keys follow `<fieldId>__<agg>` plus
    *  `*__count` for the filtered row count. */
@@ -178,6 +180,15 @@ export type GridFile = {
   createdAt: string;
 };
 
+export type GridFilePreview = {
+  fileId: string;
+  recordId: string;
+  fieldId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+};
+
 export type GridFileContent = GridFile & {
   bytes: Uint8Array;
 };
@@ -251,12 +262,14 @@ export type CreateTableInput = {
   description?: string | null;
   icon?: string | null;
   columns?: FieldColumnSpec[];
+  displayConfig?: RecordDisplayConfig;
 };
 export type UpdateTableInput = {
   name?: string;
   description?: string | null;
   icon?: string | null;
   columns?: FieldColumnSpec[];
+  displayConfig?: RecordDisplayConfig;
   disableDirectInsert?: boolean;
 };
 

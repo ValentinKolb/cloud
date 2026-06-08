@@ -4,7 +4,7 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { AggregationSpec, GroupBySpec, TableQueryResult, ViewQuery } from "../../../contracts";
+import type { AggregationSpec, GroupBySpec, RecordDisplayConfig, TableQueryResult, ViewQuery } from "../../../contracts";
 import type { Field, Form, GridRecord, Table, View } from "../../../service";
 import type { ColumnSpec, FieldColumnSpec } from "../../../service/views";
 import { defaultTableAggregations } from "../../../table-defaults";
@@ -19,6 +19,7 @@ import DatabaseTable from "../table/DatabaseTable";
 import GroupDetailPanel from "../table/GroupDetailPanel";
 import GroupedTable, { type GroupBucket, groupedAggregationColumnId, groupedGroupColumnId } from "../table/GroupedTable";
 import type { AggKindUI, AggregationRow } from "../toolbar/AggregationsPanel";
+import { CardSizeDropdown } from "../toolbar/CardSizeDropdown";
 import type { FilterLeaf } from "../toolbar/FilterPanel";
 import GridToolbar from "../toolbar/GridToolbar";
 // These were once-islands but are now plain components rendered inside
@@ -27,6 +28,7 @@ import GridToolbar from "../toolbar/GridToolbar";
 // children means they hydrate as part of RecordsView, sharing its state.
 import SearchBar from "../toolbar/SearchBar";
 import { errorMessage } from "../utils/api-helpers";
+import { activeDisplayConfig, calendarQueryFilter, cardImageFieldIds, removeCalendarQueryFilter } from "./display-mode";
 import { fetchTableQuery } from "./fetcher";
 import { createGridsRecordEventsProvider } from "./grids-record-events-provider";
 import {
@@ -36,8 +38,10 @@ import {
   shouldOptimisticallyRemoveDeletedRecord,
   visibleIdsFromResult,
 } from "./live-refresh";
-import { buildRecordsUrl, parseRecordsState, type RecordsState } from "./query-url";
+import { buildRecordsUrl, parseRecordsState, type CardSize, type RecordsState } from "./query-url";
 import { cleanRecordMetaQuery, openRecordMetadataDialog, recordMetaActiveCount } from "./RecordMetadataDialog";
+import { RecordCalendarView } from "./RecordCalendarView";
+import { RecordCardsView } from "./RecordCardsView";
 
 /** UI-supported agg kinds — narrower than the contract's AggregateKind
  *  (which also has median/earliest/latest, currently SQL-only). When a
@@ -228,6 +232,7 @@ type Props = {
    * of freezing the view's snapshot at navigation time. See post-cleanup #4.
    */
   activeViewQuery: ViewQuery | null;
+  displayConfig: RecordDisplayConfig;
   dateConfig?: DateContext;
 };
 
@@ -242,6 +247,11 @@ export default function RecordsView(props: Props) {
   const [tableDescription, setTableDescription] = createSignal(props.tableDescription);
   const [tableIcon, setTableIcon] = createSignal(props.tableIcon ?? null);
   const [tableColumns, setTableColumns] = createSignal<FieldColumnSpec[]>(props.tableColumns);
+  const [tableDisplayConfig, setTableDisplayConfig] = createSignal<RecordDisplayConfig>(
+    props.activeView ? { mode: "table" } : props.displayConfig,
+  );
+  const [viewDisplayConfig, setViewDisplayConfig] = createSignal<RecordDisplayConfig | null>(props.activeView?.displayConfig ?? null);
+  const displayConfig = () => activeDisplayConfig(tableDisplayConfig(), viewDisplayConfig());
   const [disableDirectInsert, setDisableDirectInsert] = createSignal(props.disableDirectInsert);
   const [fields, setFields] = createSignal<Field[]>([...props.fields].sort((a, b) => a.position - b.position));
   const [forms, setForms] = createSignal<Form[]>(props.forms);
@@ -264,6 +274,8 @@ export default function RecordsView(props: Props) {
     };
   };
   const [search, setSearch] = createSignal<RecordsState["search"]>(resolvedSearchState(props.initialState.search));
+  const [calendarState, setCalendarState] = createSignal<RecordsState["calendar"]>(props.initialState.calendar);
+  const [cardSize, setCardSize] = createSignal<CardSize>(props.initialState.cardSize);
   const groupBy = () => (query().groupBy ?? []) as GroupBySpec[];
   const aggregations = () => (query().aggregations ?? []) as AggregationSpec[];
   const toolbarFilterRows = createMemo(() => filterRowsFromQuery(query().filter));
@@ -285,6 +297,7 @@ export default function RecordsView(props: Props) {
           .sort((a, b) => a.position - b.position)
           .map((field) => ({ fieldId: field.id }));
   const effectiveViewColumns = () => (!isGrouped() ? (viewColumns() ?? defaultViewColumns()) : undefined);
+  const renderMode = () => (isGrouped() || props.trashMode ? "table" : displayConfig().mode);
 
   // ── Resource over POST /tables/:id/query ──────────────────────────
   // Source signal carries everything that affects the response shape;
@@ -304,11 +317,30 @@ export default function RecordsView(props: Props) {
   const queryWithSearch = (): ViewQuery => {
     const { search: _savedSearch, ...baseQuery } = query();
     const q = search().q.trim();
-    if (!q) return baseQuery;
-    return { ...baseQuery, search: { q, fieldIds: search().fieldIds } };
+    const withSearch = q ? { ...baseQuery, search: { q, fieldIds: search().fieldIds } } : baseQuery;
+    const withCalendar = {
+      ...withSearch,
+      filter: calendarQueryFilter({
+        baseFilter: withSearch.filter,
+        fields: fields(),
+        displayConfig: displayConfig(),
+        calendar: calendarState(),
+        dateConfig: props.dateConfig,
+      }),
+    };
+    return renderMode() === "calendar" && !withCalendar.limit ? { ...withCalendar, limit: 500 } : withCalendar;
   };
-  const [data, { refetch, mutate }] = createResource<RecordsTableQueryResult, { tableId: string; query: ViewQuery; cursor: string | null }>(
-    () => ({ tableId: props.tableId, query: queryWithSearch(), cursor: cursor() }),
+  const [data, { refetch, mutate }] = createResource<
+    RecordsTableQueryResult,
+    { tableId: string; query: ViewQuery; cursor: string | null; filePreviewFieldIds?: string[]; calendar: RecordsState["calendar"] }
+  >(
+    () => ({
+      tableId: props.tableId,
+      query: queryWithSearch(),
+      cursor: cursor(),
+      filePreviewFieldIds: renderMode() === "cards" ? cardImageFieldIds(displayConfig()) : [],
+      calendar: calendarState(),
+    }),
     async (args): Promise<RecordsTableQueryResult> => {
       const epoch = ++resourceFetchEpochCounter;
       const result = await fetchTableQuery(args);
@@ -319,6 +351,7 @@ export default function RecordsView(props: Props) {
 
   const [flatItems, setFlatItems] = createSignal<GridRecord[]>(props.initialData.items ?? []);
   const [flatNextCursor, setFlatNextCursor] = createSignal<string | null>(props.initialData.nextCursor ?? null);
+  const [flatFilePreviews, setFlatFilePreviews] = createSignal(props.initialData.filePreviews ?? {});
   const [livePending, setLivePending] = createSignal(false);
   const [liveRefreshing, setLiveRefreshing] = createSignal(false);
   const [highlightedRecordIds, setHighlightedRecordIds] = createSignal<Set<string>>(new Set());
@@ -360,21 +393,25 @@ export default function RecordsView(props: Props) {
     if (replaceNextFlatPage) {
       replaceNextFlatPage = false;
       setFlatItems(pageItems);
+      setFlatFilePreviews(response.filePreviews ?? {});
       return;
     }
     if (!didApplyFirstFlatPage) {
       didApplyFirstFlatPage = true;
       setFlatItems(pageItems);
+      setFlatFilePreviews(response.filePreviews ?? {});
       return;
     }
     if (!cursor()) {
       setFlatItems(pageItems);
+      setFlatFilePreviews(response.filePreviews ?? {});
       return;
     }
     setFlatItems((prev) => {
       const seen = new Set(prev.map((r) => r.id));
       return [...prev, ...pageItems.filter((r) => !seen.has(r.id))];
     });
+    setFlatFilePreviews((prev) => ({ ...prev, ...(response.filePreviews ?? {}) }));
   });
 
   const items = () => (isGrouped() ? (data()?.items ?? []) : flatItems());
@@ -434,11 +471,28 @@ export default function RecordsView(props: Props) {
   // for query churn (filter / sort / group / agg / search — frequent),
   // `replace=false` for semantic navigation (cursor pagination, detail
   // panel open) so back-button has the right semantics.
+  const queryForUrl = (): ViewQuery => {
+    const current = query();
+    if (renderMode() !== "calendar") return current;
+    return {
+      ...current,
+      filter: removeCalendarQueryFilter({
+        queryFilter: current.filter,
+        fields: fields(),
+        displayConfig: displayConfig(),
+        calendar: calendarState(),
+        dateConfig: props.dateConfig,
+      }),
+    };
+  };
+
   const currentUrlState = (): RecordsState => ({
-    query: query(),
+    query: queryForUrl(),
     cursor: null,
     selectedRecordId: selectedRecordId(),
     search: search(),
+    calendar: calendarState(),
+    cardSize: cardSize(),
   });
 
   const withAdminModeParam = (url: string) => {
@@ -523,6 +577,19 @@ export default function RecordsView(props: Props) {
     syncUrl({ replace: true });
   };
 
+  const onCalendarChange = (next: RecordsState["calendar"]) => {
+    invalidateLiveRefreshes();
+    setCalendarState(next);
+    setSelectedGroup(null);
+    setCursor(null);
+    syncUrl({ replace: true });
+  };
+
+  const onCardSizeChange = (next: CardSize) => {
+    setCardSize(next);
+    syncUrl({ replace: true });
+  };
+
   const openRecordMetaDialog = async () => {
     const next = await openRecordMetadataDialog({ tableId: props.tableId, initial: query().recordMeta });
     if (next === null) return;
@@ -568,6 +635,7 @@ export default function RecordsView(props: Props) {
           tableId: props.tableId,
           query: isGrouped() ? queryWithSearch() : liveRefreshQuery(queryWithSearch(), flatItems().length),
           cursor: null,
+          filePreviewFieldIds: renderMode() === "cards" ? cardImageFieldIds(displayConfig()) : [],
         },
         { signal: abort.signal },
       );
@@ -576,6 +644,7 @@ export default function RecordsView(props: Props) {
         const pageItems = (next.items ?? []) as GridRecord[];
         setFlatItems((current) => mergeLiveRefreshItems({ currentItems: current, nextItems: pageItems }));
         setFlatNextCursor(next.nextCursor ?? null);
+        setFlatFilePreviews(next.filePreviews ?? {});
       }
       liveCommitId++;
       staleResourceEpochFloor = resourceFetchEpochCounter;
@@ -730,6 +799,8 @@ export default function RecordsView(props: Props) {
       setSelectedRecordId(parsed.selectedRecordId);
       setSelectedGroup(null);
       setSearch(resolvedSearchState(parsed.search));
+      setCalendarState(parsed.calendar);
+      setCardSize(parsed.cardSize);
       setAdminMode(new URL(location.href).searchParams.get("edit") === "true" && props.canManageTable);
     };
     window.addEventListener("popstate", onPop);
@@ -866,6 +937,7 @@ export default function RecordsView(props: Props) {
     description: tableDescription(),
     icon: tableIcon(),
     columns: tableColumns(),
+    displayConfig: tableDisplayConfig(),
     disableDirectInsert: disableDirectInsert(),
   });
 
@@ -889,12 +961,14 @@ export default function RecordsView(props: Props) {
   const openTableSettings = () => {
     openTableSettingsDialog({
       table: tableHeader(),
+      fields: fields(),
       initialAccessEntries: props.initialAccessEntries,
       onSaved: (table) => {
         setTableName(table.name);
         setTableDescription(table.description ?? null);
         setTableIcon(table.icon ?? null);
         setTableColumns(table.columns);
+        setTableDisplayConfig(table.displayConfig);
         setDisableDirectInsert(table.disableDirectInsert);
       },
     });
@@ -945,6 +1019,7 @@ export default function RecordsView(props: Props) {
       fields: fields(),
       initialAccessEntries: props.activeViewAccessEntries ?? [],
       canEditAccess: props.canManageTable,
+      onSaved: (next) => setViewDisplayConfig(next.displayConfig),
     });
   };
 
@@ -1356,6 +1431,9 @@ export default function RecordsView(props: Props) {
               Updates available
             </button>
           </Show>
+          <Show when={renderMode() === "cards" && (props.viewMode || props.trashMode)}>
+            <CardSizeDropdown value={cardSize()} onChange={onCardSizeChange} />
+          </Show>
 
           <Show
             when={!props.trashMode}
@@ -1431,6 +1509,9 @@ export default function RecordsView(props: Props) {
               onRecordCreated={onRecordCreated}
               onRecordsChanged={() => void refreshVisibleRecords({ force: true })}
               dateConfig={props.dateConfig}
+              showCardSize={renderMode() === "cards"}
+              cardSize={cardSize()}
+              onCardSizeChange={onCardSizeChange}
             />
           </div>
         </Show>
@@ -1492,34 +1573,74 @@ export default function RecordsView(props: Props) {
           <Show
             when={isGrouped()}
             fallback={
-              <DatabaseTable
-                result={{
-                  items: items() as GridRecord[],
-                  fields: fields(),
-                  nextCursor: null,
-                }}
-                baseId={props.baseShortId}
-                tableShortIds={props.tableShortIds}
-                fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
-                selectedId={selectedRecordId()}
-                highlightedIds={highlightedRecordIds()}
-                onRecordClick={onSelectRecord}
-                viewColumns={effectiveViewColumns()}
-                aggregates={props.trashMode ? {} : aggregates()}
-                aggregationSpecs={tableAggregationSpecs()}
-                hasMore={!props.trashMode && !!flatNextCursor()}
-                loadingMore={data.loading && !!cursor()}
-                onLoadMore={loadNextFlatPage}
-                scrollPreserveKey={`grids-records-${props.tableId}-${props.viewShortId ?? "default"}`}
-                adminMode={adminMode()}
-                onFieldSettings={adminMode() && !isSavedView() && props.canManageTable ? openFieldSettings : undefined}
-                onFieldMove={undefined}
-                onViewColumnSettings={adminMode() && isSavedView() && props.canEditActiveView ? openViewColumnSettings : undefined}
-                onViewColumnMove={
-                  adminMode() && (isSavedView() ? props.canEditActiveView : props.canManageTable) ? moveViewColumnInline : undefined
+              <Show
+                when={renderMode() === "cards"}
+                fallback={
+                  <Show
+                    when={renderMode() === "calendar"}
+                    fallback={
+                      <DatabaseTable
+                        result={{
+                          items: items() as GridRecord[],
+                          fields: fields(),
+                          nextCursor: null,
+                        }}
+                        baseId={props.baseShortId}
+                        tableShortIds={props.tableShortIds}
+                        fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
+                        selectedId={selectedRecordId()}
+                        highlightedIds={highlightedRecordIds()}
+                        onRecordClick={onSelectRecord}
+                        viewColumns={effectiveViewColumns()}
+                        aggregates={props.trashMode ? {} : aggregates()}
+                        aggregationSpecs={tableAggregationSpecs()}
+                        hasMore={!props.trashMode && !!flatNextCursor()}
+                        loadingMore={data.loading && !!cursor()}
+                        onLoadMore={loadNextFlatPage}
+                        scrollPreserveKey={`grids-records-${props.tableId}-${props.viewShortId ?? "default"}`}
+                        adminMode={adminMode()}
+                        onFieldSettings={adminMode() && !isSavedView() && props.canManageTable ? openFieldSettings : undefined}
+                        onFieldMove={undefined}
+                        onViewColumnSettings={adminMode() && isSavedView() && props.canEditActiveView ? openViewColumnSettings : undefined}
+                        onViewColumnMove={
+                          adminMode() && (isSavedView() ? props.canEditActiveView : props.canManageTable) ? moveViewColumnInline : undefined
+                        }
+                        dateConfig={props.dateConfig}
+                      />
+                    }
+                  >
+                    <RecordCalendarView
+                      items={items() as GridRecord[]}
+                      fields={fields()}
+                      displayConfig={displayConfig()}
+                      calendarState={calendarState()}
+                      onCalendarChange={onCalendarChange}
+                      selectedRecordId={selectedRecordId()}
+                      onRecordClick={onSelectRecord}
+                      dateConfig={props.dateConfig}
+                    />
+                  </Show>
                 }
-                dateConfig={props.dateConfig}
-              />
+              >
+                <RecordCardsView
+                  items={items() as GridRecord[]}
+                  fields={fields()}
+                  displayConfig={displayConfig()}
+                  filePreviews={flatFilePreviews()}
+                  baseId={props.baseShortId}
+                  tableId={props.tableId}
+                  tableShortIds={props.tableShortIds}
+                  fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
+                  selectedId={selectedRecordId()}
+                  highlightedIds={highlightedRecordIds()}
+                  onRecordClick={onSelectRecord}
+                  cardSize={cardSize()}
+                  hasMore={!props.trashMode && !!flatNextCursor()}
+                  loadingMore={data.loading && !!cursor()}
+                  onLoadMore={loadNextFlatPage}
+                  dateConfig={props.dateConfig}
+                />
+              </Show>
             }
           >
             <GroupedTable

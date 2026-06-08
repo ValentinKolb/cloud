@@ -107,6 +107,7 @@ export const migrate = async (): Promise<void> => {
       description TEXT,
       icon TEXT,
       columns JSONB NOT NULL DEFAULT '[]'::jsonb,
+      display_config JSONB NOT NULL DEFAULT '{"mode":"table"}'::jsonb,
       position INT NOT NULL DEFAULT 0,
       disable_direct_insert BOOLEAN NOT NULL DEFAULT FALSE,
       deleted_at TIMESTAMPTZ,
@@ -114,6 +115,10 @@ export const migrate = async (): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT tables_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
     )
+  `.simple();
+  await sql`
+    ALTER TABLE grids.tables
+    ADD COLUMN IF NOT EXISTS display_config JSONB NOT NULL DEFAULT '{"mode":"table"}'::jsonb
   `.simple();
   // Hot-path index: list live tables of a base in order.
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_tables_base_live ON grids.tables(base_id, position) WHERE deleted_at IS NULL`.simple();
@@ -251,6 +256,7 @@ export const migrate = async (): Promise<void> => {
       name TEXT NOT NULL,
       icon TEXT,
       query JSONB NOT NULL DEFAULT '{}'::jsonb,
+      display_config JSONB NOT NULL DEFAULT '{"mode":"table"}'::jsonb,
       owner_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
       position INT NOT NULL DEFAULT 0,
       deleted_at TIMESTAMPTZ,
@@ -258,6 +264,10 @@ export const migrate = async (): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT views_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
     )
+  `.simple();
+  await sql`
+    ALTER TABLE grids.views
+    ADD COLUMN IF NOT EXISTS display_config JSONB NOT NULL DEFAULT '{"mode":"table"}'::jsonb
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_views_table_live ON grids.views(table_id, position) WHERE deleted_at IS NULL`.simple();
   console.log("  ✓ grids.views");

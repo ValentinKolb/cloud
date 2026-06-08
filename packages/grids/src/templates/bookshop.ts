@@ -1,10 +1,10 @@
+import { createMockCover } from "@valentinkolb/cloud/shared";
 import { field, form, type GridTemplate, record, table, view } from "./types";
 
 export const bookshopTemplate: GridTemplate = {
   id: "bookshop",
   name: "Bookshop",
-  description:
-    "Books, authors, customers, orders, relations, forms, charts, and dashboards.",
+  description: "Books, authors, customers, orders, relations, forms, charts, and dashboards.",
   icon: "ti ti-books",
   baseName: "Bookshop",
   baseDescription: "Inventory and order tracking for a small bookshop.",
@@ -74,8 +74,7 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "description",
           name: "Description",
-          description:
-            "Optional notes that explain what belongs in this genre.",
+          description: "Optional notes that explain what belongs in this genre.",
           type: "longtext",
           icon: "ti ti-align-left",
         },
@@ -85,7 +84,23 @@ export const bookshopTemplate: GridTemplate = {
       key: "books",
       name: "Books",
       description: "Catalog and inventory.",
+      displayConfig: {
+        mode: "cards",
+        cards: {
+          imageFieldId: field("books.cover"),
+          fieldIds: [field("books.title"), field("books.author"), field("books.genre"), field("books.price"), field("books.in_stock")],
+        },
+      },
       fields: [
+        {
+          key: "cover",
+          name: "Cover",
+          description: "Cover image used in card views.",
+          type: "file",
+          config: { maxFiles: 1, accept: ["image/*"] },
+          hideInTable: true,
+          icon: "ti ti-photo",
+        },
         {
           key: "title",
           name: "Title",
@@ -169,8 +184,7 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "tags",
           name: "Tags",
-          description:
-            "Optional catalog labels for merchandising and filtering.",
+          description: "Optional catalog labels for merchandising and filtering.",
           type: "select",
           icon: "ti ti-tags",
           config: {
@@ -439,6 +453,13 @@ export const bookshopTemplate: GridTemplate = {
         tags: ["classic", "recommended"],
         score: 5,
       },
+      files: [
+        {
+          field: "cover",
+          filename: "the-hobbit-cover.svg",
+          dataUrl: createMockCover({ icon: "book", theme: "emerald", seed: "bookshop:the-hobbit", label: "The Hobbit" }).dataUrl,
+        },
+      ],
     },
     {
       key: "books.left_hand",
@@ -455,6 +476,14 @@ export const bookshopTemplate: GridTemplate = {
         tags: ["recommended"],
         score: 5,
       },
+      files: [
+        {
+          field: "cover",
+          filename: "left-hand-of-darkness-cover.svg",
+          dataUrl: createMockCover({ icon: "book", theme: "violet", seed: "bookshop:left-hand", label: "The Left Hand of Darkness" })
+            .dataUrl,
+        },
+      ],
     },
     {
       key: "books.abc",
@@ -471,6 +500,13 @@ export const bookshopTemplate: GridTemplate = {
         tags: [],
         score: 4,
       },
+      files: [
+        {
+          field: "cover",
+          filename: "abc-murders-cover.svg",
+          dataUrl: createMockCover({ icon: "book", theme: "amber", seed: "bookshop:abc", label: "The ABC Murders" }).dataUrl,
+        },
+      ],
     },
     {
       key: "customers.alice",
@@ -573,6 +609,33 @@ export const bookshopTemplate: GridTemplate = {
         sort: [{ fieldId: field("books.published"), direction: "desc" }],
         limit: 20,
       },
+      displayConfig: {
+        mode: "cards",
+        cards: {
+          imageFieldId: field("books.cover"),
+          fieldIds: [field("books.title"), field("books.author"), field("books.genre"), field("books.price"), field("books.published")],
+        },
+      },
+    },
+    {
+      key: "publication_calendar",
+      table: "books",
+      name: "Publication calendar",
+      shared: true,
+      query: {
+        columns: [
+          { fieldId: field("books.title") },
+          { fieldId: field("books.author") },
+          { fieldId: field("books.genre") },
+          { fieldId: field("books.published") },
+        ],
+        sort: [{ fieldId: field("books.published"), direction: "asc" }],
+        limit: 100,
+      },
+      displayConfig: {
+        mode: "calendar",
+        calendar: { dateFieldId: field("books.published") },
+      },
     },
     {
       key: "monthly_revenue",
@@ -580,9 +643,7 @@ export const bookshopTemplate: GridTemplate = {
       name: "Monthly revenue",
       shared: true,
       query: {
-        groupBy: [
-          { fieldId: field("orders.ordered_at"), granularity: "month" },
-        ],
+        groupBy: [{ fieldId: field("orders.ordered_at"), granularity: "month" }],
         aggregations: [
           { fieldId: field("orders.line_total"), agg: "sum", label: "revenue" },
           { fieldId: "*", agg: "count", label: "orders" },
@@ -823,9 +884,7 @@ export const bookshopTemplate: GridTemplate = {
                 format: "currency",
                 source: {
                   tableId: table("orders"),
-                  aggregations: [
-                    { fieldId: field("orders.line_total"), agg: "sum" },
-                  ],
+                  aggregations: [{ fieldId: field("orders.line_total"), agg: "sum" }],
                 },
               },
               {

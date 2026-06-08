@@ -25,6 +25,8 @@
  *   ?record=<UUID — selected detail-panel record>
  *   ?trash=1                                — trash mode
  *   ?q=<text>&qFields=<csv UUIDs>           — free-text search
+ *   ?cv=<day|week|month|year>&cd=<YYYY-MM-DD> — calendar state
+ *   ?cardSize=<small|medium|large>          — card view density
  *
  * Note: `table` / `view` / `dashboard` are not query params — they live
  * in the path.
@@ -53,7 +55,12 @@ export type RecordsState = {
    *  subset, then folded into `query.search` for the server-side SQL
    *  search compiler. */
   search: { q: string; fieldIds: string[]; override?: boolean };
+  calendar: { view: "day" | "week" | "month" | "year"; date: string };
+  cardSize: CardSize;
 };
+
+export type CardSize = "small" | "medium" | "large";
+export const DEFAULT_CARD_SIZE: CardSize = "medium";
 
 const tryParseJson = <T>(raw: string | null | undefined): T | null => {
   if (!raw) return null;
@@ -160,6 +167,23 @@ const parseSearchState = (params: URLSearchParams): RecordsState["search"] => ({
   override: params.has("q") || params.has("qFields"),
 });
 
+const isCalendarView = (value: string | null): value is RecordsState["calendar"]["view"] =>
+  value === "day" || value === "week" || value === "month" || value === "year";
+
+const todayKey = () => new Date().toISOString().slice(0, 10);
+
+const parseCalendarState = (params: URLSearchParams): RecordsState["calendar"] => {
+  const view = params.get("cv");
+  const date = params.get("cd");
+  return {
+    view: isCalendarView(view) ? view : "month",
+    date: date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayKey(),
+  };
+};
+
+const parseCardSize = (value: string | null): CardSize =>
+  value === "small" || value === "large" || value === "medium" ? value : DEFAULT_CARD_SIZE;
+
 /**
  * Reads URLSearchParams and produces a typed RecordsState. Bad / missing
  * params produce empty fragments — never throws.
@@ -177,6 +201,8 @@ export const parseRecordsState = (params: URLSearchParams): RecordsState => ({
   // tree before the service call so ad-hoc typing layers cleanly on top of
   // saved-view filters).
   search: parseSearchState(params),
+  calendar: parseCalendarState(params),
+  cardSize: parseCardSize(params.get("cardSize")),
 });
 
 /**
@@ -271,6 +297,9 @@ export const buildRecordsUrl = (path: UrlPathContext, state: RecordsState, viewQ
   appendSearchOverride(url, search, viewQuery);
   if (state.cursor) url.searchParams.set("cursor", state.cursor);
   if (state.selectedRecordId) url.searchParams.set("record", state.selectedRecordId);
+  if (state.calendar.view !== "month") url.searchParams.set("cv", state.calendar.view);
+  if (state.calendar.date !== todayKey()) url.searchParams.set("cd", state.calendar.date);
+  if (state.cardSize !== DEFAULT_CARD_SIZE) url.searchParams.set("cardSize", state.cardSize);
 
   return `${url.pathname}${url.search}`;
 };

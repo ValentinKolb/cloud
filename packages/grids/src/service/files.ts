@@ -1,7 +1,7 @@
 import { sql } from "bun";
 import { createHash } from "node:crypto";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
-import type { GridFile, GridFileContent } from "./types";
+import type { GridFile, GridFileContent, GridFilePreview } from "./types";
 
 type FileFieldConfig = {
   maxFiles?: number;
@@ -109,6 +109,53 @@ export const listForRecordField = async (params: {
     ORDER BY position, created_at, id
   `;
   return ok(rows.map(mapRow));
+};
+
+export const listFirstImagePreviews = async (params: {
+  recordIds: string[];
+  fieldIds: string[];
+}): Promise<Record<string, Record<string, GridFilePreview>>> => {
+  const recordIds = [...new Set(params.recordIds)].filter(Boolean);
+  const fieldIds = [...new Set(params.fieldIds)].filter(Boolean);
+  if (recordIds.length === 0 || fieldIds.length === 0) return {};
+
+  const rows = await sql<
+    Array<{
+      id: string;
+      record_id: string;
+      field_id: string;
+      filename: string;
+      mime_type: string;
+      size_bytes: number | string;
+    }>
+  >`
+    SELECT DISTINCT ON (record_id, field_id)
+      id::text AS id,
+      record_id::text AS record_id,
+      field_id::text AS field_id,
+      filename,
+      mime_type,
+      size_bytes
+    FROM grids.files
+    WHERE record_id = ANY(${sql.array(recordIds, "UUID")})
+      AND field_id = ANY(${sql.array(fieldIds, "UUID")})
+      AND mime_type LIKE 'image/%'
+    ORDER BY record_id, field_id, position, created_at, id
+  `;
+
+  const out: Record<string, Record<string, GridFilePreview>> = {};
+  for (const row of rows) {
+    out[row.record_id] ??= {};
+    out[row.record_id]![row.field_id] = {
+      fileId: row.id,
+      recordId: row.record_id,
+      fieldId: row.field_id,
+      filename: row.filename,
+      mimeType: row.mime_type,
+      sizeBytes: Number(row.size_bytes),
+    };
+  }
+  return out;
 };
 
 export const upload = async (params: {

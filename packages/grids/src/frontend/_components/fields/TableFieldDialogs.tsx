@@ -14,7 +14,7 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { FieldColumnSpec } from "../../../contracts";
+import type { FieldColumnSpec, RecordDisplayConfig } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field } from "../../../service";
 import { ColumnFormatControls, type ColumnFormatControlsHandle } from "../dialogs/ViewColumnSettingsDialog";
@@ -40,6 +40,7 @@ export type TableHeader = {
   description: string | null;
   icon?: string | null;
   columns: FieldColumnSpec[];
+  displayConfig: RecordDisplayConfig;
   disableDirectInsert: boolean;
 };
 

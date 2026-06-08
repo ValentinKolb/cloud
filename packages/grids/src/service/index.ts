@@ -210,6 +210,7 @@ export type {
   AuditAction,
   GridFile,
   GridFileContent,
+  GridFilePreview,
   Automation,
   AutomationTrigger,
   AutomationAction,

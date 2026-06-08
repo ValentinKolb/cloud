@@ -19,6 +19,7 @@ import { createDraft } from "../editor-draft";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
 import { SectionCard } from "../utils/SectionCard";
+import { RecordDisplayConfigEditor } from "./RecordDisplayConfigEditor";
 
 type Props = {
   baseShortId: string;
@@ -39,6 +40,7 @@ type Props = {
   /** Whether the current user can mutate the view's ACL. The API gates
    *  this at table-admin; we mirror it client-side for the UI. */
   canEditAccess: boolean;
+  onSaved?: (view: View) => void;
 };
 
 export const openViewSettingsDialog = (props: Props) =>
@@ -65,6 +67,8 @@ function ViewSettingsBody(props: Props & { onDirtyChange?: (dirty: boolean) => v
         viewId={props.initialView.id}
         initial={props.initialView}
         tableName={props.tableName}
+        fields={props.fields}
+        onSaved={props.onSaved}
         onDirtyChange={props.onDirtyChange}
       />
 
@@ -90,10 +94,18 @@ function ViewSettingsBody(props: Props & { onDirtyChange?: (dirty: boolean) => v
 // General — name + shared
 // =============================================================================
 
-function GeneralSection(props: { viewId: string; initial: View; tableName: string; onDirtyChange?: (dirty: boolean) => void }) {
+function GeneralSection(props: {
+  viewId: string;
+  initial: View;
+  tableName: string;
+  fields: Field[];
+  onSaved?: (view: View) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const draft = createDraft({
     name: props.initial.name,
     icon: props.initial.icon ?? "",
+    displayConfig: props.initial.displayConfig,
     shared: props.initial.ownerUserId === null,
   });
   const patch = (partial: Partial<ReturnType<typeof draft.draft>>) => {
@@ -102,13 +114,14 @@ function GeneralSection(props: { viewId: string; initial: View; tableName: strin
   };
   const name = () => draft.draft().name;
   const icon = () => draft.draft().icon;
+  const displayConfig = () => draft.draft().displayConfig;
   const shared = () => draft.draft().shared;
 
   const mut = mutations.create<View, void>({
     mutation: async () => {
       const res = await apiClient.views[":viewId"].$patch({
         param: { viewId: props.viewId },
-        json: { name: name().trim(), icon: icon() || null, shared: shared() },
+        json: { name: name().trim(), icon: icon() || null, displayConfig: displayConfig(), shared: shared() },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save"));
       return res.json();
@@ -117,9 +130,11 @@ function GeneralSection(props: { viewId: string; initial: View; tableName: strin
       draft.markSaved({
         name: saved.name,
         icon: saved.icon ?? "",
+        displayConfig: saved.displayConfig,
         shared: saved.ownerUserId === null,
       });
       props.onDirtyChange?.(false);
+      props.onSaved?.(saved);
     },
     onError: (e) => prompts.error(e.message),
   });
@@ -128,6 +143,7 @@ function GeneralSection(props: { viewId: string; initial: View; tableName: strin
     <SectionCard title="General" subtitle="Name and visibility scope.">
       <TextInput label="Name" value={name} onInput={(v) => patch({ name: v })} icon="ti ti-typography" required />
       <IconInput label="Icon" value={icon} onChange={(v) => patch({ icon: v })} placeholder="Search icons..." />
+      <RecordDisplayConfigEditor value={displayConfig} onChange={(value) => patch({ displayConfig: value })} fields={() => props.fields} />
       <Checkbox
         label="Shared view"
         description={`Visible to users who can read ${props.tableName}. Permissions below can narrow access.`}

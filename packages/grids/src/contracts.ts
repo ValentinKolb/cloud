@@ -18,6 +18,33 @@ export {
 export const ShortIdSchema = z.string().regex(/^[A-Za-z0-9]{5}$/);
 const IconNameSchema = z.string().max(200).nullable().optional();
 
+// ── Record display ────────────────────────────────────────────────────────
+//
+// Presentation-only settings for records surfaces. Kept deliberately
+// separate from ViewQuery: filters, sort, grouping, search and aggregations
+// remain the SQL source of truth; this only decides how the returned records
+// are rendered.
+export const RecordDisplayModeSchema = z.enum(["table", "cards", "calendar"]);
+export type RecordDisplayMode = z.infer<typeof RecordDisplayModeSchema>;
+
+export const RecordDisplayConfigSchema = z
+  .object({
+    mode: RecordDisplayModeSchema.default("table"),
+    cards: z
+      .object({
+        imageFieldId: z.string().uuid().nullable().optional(),
+        fieldIds: z.array(z.string().uuid()).max(50).optional(),
+      })
+      .optional(),
+    calendar: z
+      .object({
+        dateFieldId: z.string().uuid().nullable().optional(),
+      })
+      .optional(),
+  })
+  .default({ mode: "table" });
+export type RecordDisplayConfig = z.infer<typeof RecordDisplayConfigSchema>;
+
 // ── Base ──────────────────────────────────────────────────────────────────
 export const BaseSchema = z.object({
   id: z.string().uuid(),
@@ -61,6 +88,7 @@ export const TableSchema = z.object({
   description: z.string().nullable(),
   icon: IconNameSchema,
   columns: z.array(z.lazy(() => FieldColumnSpecSchema)),
+  displayConfig: RecordDisplayConfigSchema,
   position: z.number().int(),
   disableDirectInsert: z.boolean(),
   deletedAt: z.string().datetime().nullable(),
@@ -74,6 +102,7 @@ export const CreateTableSchema = z.object({
   description: z.string().max(1000).nullable().optional(),
   icon: IconNameSchema,
   columns: z.array(z.lazy(() => FieldColumnSpecSchema)).optional(),
+  displayConfig: RecordDisplayConfigSchema.optional(),
 });
 
 export const UpdateTableSchema = z.object({
@@ -81,6 +110,7 @@ export const UpdateTableSchema = z.object({
   description: z.string().max(1000).nullable().optional(),
   icon: IconNameSchema,
   columns: z.array(z.lazy(() => FieldColumnSpecSchema)).optional(),
+  displayConfig: RecordDisplayConfigSchema.optional(),
   disableDirectInsert: z.boolean().optional(),
 });
 
@@ -499,6 +529,7 @@ export type ViewQuery = z.infer<typeof ViewQuerySchema>;
 export const TableQueryBodySchema = z.object({
   query: ViewQuerySchema,
   cursor: z.string().optional(),
+  filePreviewFieldIds: z.array(z.string().uuid()).max(3).optional(),
 });
 
 export const ExportRelationModeSchema = z.enum(["ids", "labels", "fields"]);
@@ -547,6 +578,23 @@ export const TableQueryResponseSchema = z.object({
    *  column doesn't show raw ids the way it would without a label
    *  resolver step on the response side. */
   relationLabels: z.record(z.string(), z.string()).optional(),
+  /** recordId → fieldId → first image file metadata for card covers. */
+  filePreviews: z
+    .record(
+      z.string().uuid(),
+      z.record(
+        z.string().uuid(),
+        z.object({
+          fileId: z.string().uuid(),
+          fieldId: z.string().uuid(),
+          recordId: z.string().uuid(),
+          filename: z.string(),
+          mimeType: z.string(),
+          sizeBytes: z.number().int(),
+        }),
+      ),
+    )
+    .optional(),
 });
 export type TableQueryBody = z.infer<typeof TableQueryBodySchema>;
 export type TableQueryResult = z.infer<typeof TableQueryResponseSchema>;
@@ -560,6 +608,7 @@ export const ViewSchema = z.object({
   icon: IconNameSchema,
   /** Canonical query — replaces the old loose `config: unknown` blob. */
   query: ViewQuerySchema,
+  displayConfig: RecordDisplayConfigSchema,
   /** null = shared (visible to all table-readers); else owner's user id. */
   ownerUserId: z.string().uuid().nullable(),
   position: z.number().int(),
@@ -573,6 +622,7 @@ export const CreateViewSchema = z.object({
   name: z.string().min(1).max(200),
   icon: IconNameSchema,
   query: ViewQuerySchema.optional(),
+  displayConfig: RecordDisplayConfigSchema.optional(),
   shared: z.boolean().optional(),
 });
 export type CreateViewInput = z.infer<typeof CreateViewSchema>;
@@ -581,6 +631,7 @@ export const UpdateViewSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   icon: IconNameSchema,
   query: ViewQuerySchema.optional(),
+  displayConfig: RecordDisplayConfigSchema.optional(),
   position: z.number().int().optional(),
   shared: z.boolean().optional(),
 });
