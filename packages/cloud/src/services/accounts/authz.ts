@@ -2,6 +2,8 @@ import type { Role, UserProfile, UserProvider } from "../../contracts/shared";
 
 export type AccountsActor = { userId: string; uid: string; roles: string[]; provider?: string | null };
 
+const SELF_UPDATE_FIELDS = new Set(["givenname", "sn", "displayName", "ipa"]);
+
 export const buildRoles = (params: {
   provider: UserProvider;
   profile: UserProfile;
@@ -32,4 +34,11 @@ export const canMutateManagedGroup = (params: {
   actor: AccountsActor | null | undefined;
   groupId: string;
   managedGroupIds: string[];
-}): boolean => isAdminActor(params.actor) || (!!params.actor && params.managedGroupIds.includes(params.groupId));
+}): boolean => {
+  if (isAdminActor(params.actor)) return true;
+  if (!params.actor?.roles.includes("user") || !params.actor.roles.includes("group-manager")) return false;
+  return params.managedGroupIds.includes(params.groupId);
+};
+
+export const hasOnlySelfUpdateFields = (data: Record<string, unknown>): boolean =>
+  Object.keys(data).every((field) => SELF_UPDATE_FIELDS.has(field));

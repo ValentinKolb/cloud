@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canMutateManagedGroup, isAdminActor, isSelfTarget, type AccountsActor } from "./authz";
+import { canMutateManagedGroup, hasOnlySelfUpdateFields, isAdminActor, isSelfTarget, type AccountsActor } from "./authz";
 
 const actor = (overrides: Partial<AccountsActor> = {}): AccountsActor => ({
   userId: "user-1",
@@ -33,7 +33,7 @@ describe("accounts service authorization helpers", () => {
 
     expect(
       canMutateManagedGroup({
-        actor: actor({ roles: ["group-manager"] }),
+        actor: actor({ roles: ["user", "group-manager"] }),
         groupId: "group-1",
         managedGroupIds: ["group-1", "child-group"],
       }),
@@ -41,12 +41,37 @@ describe("accounts service authorization helpers", () => {
 
     expect(
       canMutateManagedGroup({
-        actor: actor({ roles: ["group-manager"] }),
+        actor: actor({ roles: ["user", "group-manager"] }),
         groupId: "group-1",
         managedGroupIds: ["other-group"],
       }),
     ).toBe(false);
 
     expect(canMutateManagedGroup({ actor: null, groupId: "group-1", managedGroupIds: ["group-1"] })).toBe(false);
+  });
+
+  test("rejects managed group mutations for stale or guest manager relations", () => {
+    expect(
+      canMutateManagedGroup({
+        actor: actor({ roles: ["guest", "local/guest"] }),
+        groupId: "group-1",
+        managedGroupIds: ["group-1"],
+      }),
+    ).toBe(false);
+
+    expect(
+      canMutateManagedGroup({
+        actor: actor({ roles: ["user", "local/user"] }),
+        groupId: "group-1",
+        managedGroupIds: ["group-1"],
+      }),
+    ).toBe(false);
+  });
+
+  test("allows only self-service profile fields for self updates", () => {
+    expect(hasOnlySelfUpdateFields({ givenname: "Eva", sn: "Becker", displayName: "Eva Becker" })).toBe(true);
+    expect(hasOnlySelfUpdateFields({ ipa: { phone: "+49" } })).toBe(true);
+    expect(hasOnlySelfUpdateFields({ mail: "eva@example.com" })).toBe(false);
+    expect(hasOnlySelfUpdateFields({ givenname: "Eva", mail: "eva@example.com" })).toBe(false);
   });
 });

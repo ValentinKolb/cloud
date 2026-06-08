@@ -50,7 +50,7 @@ export const migrate = async (): Promise<void> => {
 
       IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
         BEGIN
-          PERFORM create_hypertable('audit.events', 'created_at', if_not_exists => TRUE);
+          PERFORM create_hypertable('audit.events', 'created_at', if_not_exists => TRUE, migrate_data => TRUE);
         EXCEPTION WHEN OTHERS THEN
           RAISE NOTICE 'Skipping optional TimescaleDB hypertable setup for audit.events: %', SQLERRM;
         END;

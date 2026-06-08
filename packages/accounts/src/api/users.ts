@@ -107,15 +107,6 @@ const requireIpaSession = async (c: Context<AuthContext>) => {
   return { ipaSession };
 };
 
-const preventSelfDestructiveAction = async (
-  c: Context<AuthContext>,
-  params: { targetUserId: string; message: string },
-) => {
-  const actor = c.get("user");
-  if (actor.id !== params.targetUserId) return null;
-  return await respond(c, fail(err.forbidden(params.message)));
-};
-
 const logLocalAdminMutation = (params: {
   actor: { id: string; uid: string };
   target: { id: string; uid: string; provider: string; profile: string; storedAdmin: boolean };
@@ -303,13 +294,8 @@ const app = new Hono<AuthContext>()
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const actor = c.get("user");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
-      const selfActionError = await preventSelfDestructiveAction(c, {
-        targetUserId: id,
-        message: "You cannot reset your own password from the admin users API.",
-      });
-      if (selfActionError) return selfActionError;
+      const token = c.get("sessionToken");
+      const ipaSession = await auth.session.getIpaSession(token);
 
       return respond(c, async () => {
         const targetUser = await accountsService.user.getMinimal({ id });
@@ -422,13 +408,8 @@ const app = new Hono<AuthContext>()
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const { provider } = c.req.valid("json");
-      const selfActionError = await preventSelfDestructiveAction(c, {
-        targetUserId: id,
-        message: "You cannot switch your own account provider.",
-      });
-      if (selfActionError) return selfActionError;
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
+      const token = c.get("sessionToken");
+      const ipaSession = await auth.session.getIpaSession(token);
 
       return respond(c, async () => {
         const actor = c.get("user");
@@ -514,13 +495,6 @@ const app = new Hono<AuthContext>()
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const { profile } = c.req.valid("json");
-      if (profile === "guest") {
-        const selfActionError = await preventSelfDestructiveAction(c, {
-          targetUserId: id,
-          message: "You cannot demote your own account to guest.",
-        });
-        if (selfActionError) return selfActionError;
-      }
       return respond(c, async () => {
         const actor = c.get("user");
         const targetUser = await accountsService.user.getMinimal({ id });
@@ -621,11 +595,6 @@ const app = new Hono<AuthContext>()
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const actor = c.get("user");
-      const selfActionError = await preventSelfDestructiveAction(c, {
-        targetUserId: id,
-        message: "You cannot delete your own account.",
-      });
-      if (selfActionError) return selfActionError;
       const token = c.get("sessionToken");
       const ipaSession = await auth.session.getIpaSession(token);
 
@@ -659,14 +628,8 @@ const app = new Hono<AuthContext>()
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const actor = c.get("user");
-      const selfActionError = await preventSelfDestructiveAction(c, {
-        targetUserId: id,
-        message: "You cannot demote your own account.",
-      });
-      if (selfActionError) return selfActionError;
       const token = c.get("sessionToken");
       const ipaSession = await auth.session.getIpaSession(token);
-      if (!ipaSession) return respond(c, fail(err.unauthenticated("IPA session expired")));
 
       return respond(c, async () => {
         const result = await accountsService.user.demoteToGuest({

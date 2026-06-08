@@ -121,6 +121,13 @@ export const sanitizeAuditMetadata = (value: unknown, depth = 0): unknown => {
   return out;
 };
 
+export const sanitizeAuditText = (value: string | null | undefined): string | null => {
+  const text = asString(value);
+  if (!text) return null;
+  if (SENSITIVE_KEY_PATTERN.test(text)) return REDACTED;
+  return text.length > MAX_STRING_LENGTH ? `${text.slice(0, MAX_STRING_LENGTH)}...` : text;
+};
+
 const mapRow = (row: DbAuditRow): AuditEvent => ({
   id: Number(row.id),
   createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
@@ -183,9 +190,9 @@ const record = async (params: AuditRecordParams): Promise<void> => {
         ${asString(params.target?.id)},
         ${asString(params.target?.label)},
         ${asString(params.target?.provider)},
-        ${asString(params.reason)},
+        ${sanitizeAuditText(params.reason)},
         ${asString(params.error?.code ?? null)},
-        ${asString(params.error?.message ?? null)},
+        ${sanitizeAuditText(params.error?.message ?? null)},
         ${asString(params.requestId)},
         ${JSON.stringify(metadata)}::jsonb
       )
@@ -196,6 +203,7 @@ const record = async (params: AuditRecordParams): Promise<void> => {
       outcome: params.outcome,
       error: error instanceof Error ? error.message : String(error),
     });
+    throw error;
   }
 };
 
@@ -250,6 +258,7 @@ const buildWhere = (filter: AuditListFilter = {}) => {
     const pattern = `%${escapeLikePattern(search)}%`;
     conditions.push(sql`(
       action ILIKE ${pattern} ESCAPE '\\'
+      OR COALESCE(actor_user_id::text, '') ILIKE ${pattern} ESCAPE '\\'
       OR COALESCE(actor_uid, '') ILIKE ${pattern} ESCAPE '\\'
       OR COALESCE(target_label, '') ILIKE ${pattern} ESCAPE '\\'
       OR COALESCE(target_id, '') ILIKE ${pattern} ESCAPE '\\'

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sanitizeAuditMetadata } from "./index";
+import { sanitizeAuditMetadata, sanitizeAuditText } from "./index";
 
 describe("sanitizeAuditMetadata", () => {
   test("redacts sensitive nested metadata keys", () => {
@@ -32,5 +32,11 @@ describe("sanitizeAuditMetadata", () => {
 
     expect(sanitized.text).toBe(`${"x".repeat(500)}...`);
     expect(sanitized.values).toEqual([...Array.from({ length: 50 }, (_, index) => index), "[2 more]"]);
+  });
+
+  test("redacts sensitive reason and error text", () => {
+    expect(sanitizeAuditText("IPA session required to update IPA-backed users")).toBe("[REDACTED]");
+    expect(sanitizeAuditText("Current password is incorrect.")).toBe("[REDACTED]");
+    expect(sanitizeAuditText("Access denied")).toBe("Access denied");
   });
 });

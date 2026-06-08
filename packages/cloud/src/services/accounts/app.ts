@@ -12,7 +12,7 @@ import { providers } from "../providers";
 import * as users from "./users";
 import * as groups from "./groups";
 import * as entities from "./entities";
-import { canMutateManagedGroup, isAdminActor, isSelfTarget, type AccountsActor } from "./authz";
+import { canMutateManagedGroup, hasOnlySelfUpdateFields, isAdminActor, isSelfTarget, type AccountsActor } from "./authz";
 import type {
   BaseGroup,
   BaseUser,
@@ -402,6 +402,26 @@ export const accountsAppService = {
         target: { type: "user", label: config.data.email, provider: config.data.provider },
       });
       if (adminError) return adminError;
+      if (config.data.requestId) {
+        const requestRows: DbRow[] = await sql`
+          SELECT r.id
+          FROM auth.account_requests r
+          JOIN auth.users u ON u.id = r.user_id
+          WHERE r.id = ${config.data.requestId}
+            AND r.status = 'pending'
+            AND lower(u.mail) = lower(${config.data.email})
+          LIMIT 1
+        `;
+        if (requestRows.length === 0) {
+          return audit.recordResult({
+            action: "accounts.user.create",
+            actor: auditActor(config.actor),
+            target: { type: "user", label: config.data.email, provider: config.data.provider },
+            metadata: { provider: config.data.provider, requestId: config.data.requestId },
+            result: fail(err.badInput("Account request not found, already processed, or not owned by the target email.")),
+          });
+        }
+      }
       const createResult = fromMutationResult(
         await users.create({
           ipaSession: config.ipaSession,
@@ -423,6 +443,38 @@ export const accountsAppService = {
       }
 
       const created = createResult.data;
+      let requestCompletionFailed = false;
+      if (config.data.requestId) {
+        // Require the pending request to belong to the user we just created.
+        // Without the user_id match an admin could pass any request ID and
+        // silently "complete" an unrelated request. If a concurrent actor
+        // processed it after our pre-check, keep the user-create audit truthful
+        // and record the request-completion failure separately.
+        const matched = await sql`
+          UPDATE auth.account_requests
+          SET status = 'completed', processed_at = now(), processed_by = ${config.processedBy}
+          WHERE id = ${config.data.requestId}
+            AND user_id = ${created.user.id}::uuid
+            AND status = 'pending'
+          RETURNING id
+        `;
+        if (matched.length === 0) {
+          requestCompletionFailed = true;
+          appLog.warn("Account request completion did not match", {
+            requestId: config.data.requestId,
+            createdUserId: created.user.id,
+            processedBy: config.processedBy,
+          });
+          await audit.recordResult({
+            action: "accounts.request.complete",
+            actor: auditActor(config.actor),
+            target: { type: "account_request", id: config.data.requestId },
+            metadata: { createdUserId: created.user.id, provider: config.data.provider },
+            result: fail(err.badInput("Account request not found, already processed, or not owned by the created user")),
+          });
+        }
+      }
+
       const autoSend = config.data.autoSendNotification ?? true;
       if (autoSend && created.user.mail) {
         if (config.data.provider === "ipa" && created.temporaryPassword) {
@@ -453,41 +505,11 @@ export const accountsAppService = {
         }
       }
 
-      if (config.data.requestId) {
-        // Require the pending request to belong to the user we just created.
-        // Without the user_id match an admin could pass any request ID and
-        // silently "complete" an unrelated request. Fail loudly on zero-match
-        // instead of ignoring it — the caller asked us to close this request.
-        const matched = await sql`
-          UPDATE auth.account_requests
-          SET status = 'completed', processed_at = now(), processed_by = ${config.processedBy}
-          WHERE id = ${config.data.requestId}
-            AND user_id = ${created.user.id}::uuid
-            AND status = 'pending'
-          RETURNING id
-        `;
-        if (matched.length === 0) {
-          appLog.warn("Account request completion did not match", {
-            requestId: config.data.requestId,
-            createdUserId: created.user.id,
-            processedBy: config.processedBy,
-          });
-          const result = fail(err.badInput("Account request not found, already processed, or not owned by the created user"));
-          return audit.recordResult({
-            action: "accounts.user.create",
-            actor: auditActor(config.actor),
-            target: userTarget(created.user),
-            metadata: { provider: config.data.provider, requestId: config.data.requestId },
-            result,
-          });
-        }
-      }
-
       return audit.recordResult({
         action: "accounts.user.create",
         actor: auditActor(config.actor),
         target: userTarget(created.user),
-        metadata: { provider: config.data.provider, requestId: config.data.requestId ?? null, notificationSent: autoSend },
+        metadata: { provider: config.data.provider, requestId: config.data.requestId ?? null, notificationSent: autoSend, requestCompletionFailed },
         result: ok({
           id: created.user.id,
           uid: created.user.uid,
@@ -499,7 +521,17 @@ export const accountsAppService = {
     update: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; data: Parameters<typeof users.update>[0]["data"] }) => {
       const target = await users.getMinimal({ id: config.id });
       const targetInfo = userTarget(target);
-      if (config.actor.userId !== config.id) {
+      const selfService = config.actor.userId === config.id;
+      if (selfService && !hasOnlySelfUpdateFields(config.data as Record<string, unknown>)) {
+        return audit.recordResult({
+          action: "accounts.user.update",
+          actor: auditActor(config.actor),
+          target: targetInfo,
+          metadata: { changedFields: Object.keys(config.data), selfService },
+          result: fail(err.forbidden("Only admins can update account management fields.")),
+        });
+      }
+      if (!selfService) {
         const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.update", target: targetInfo });
         if (adminError) return adminError;
       }
@@ -508,11 +540,11 @@ export const accountsAppService = {
         action: "accounts.user.update",
         actor: auditActor(config.actor),
         target: targetInfo,
-        metadata: { changedFields: Object.keys(config.data), selfService: config.actor.userId === config.id },
+        metadata: { changedFields: Object.keys(config.data), selfService },
         result,
       });
     },
-    resetPassword: async (config: { actor: AccountsActor; ipaSession: string; id: string }) => {
+    resetPassword: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string }) => {
       const target = await users.getMinimal({ id: config.id });
       const targetInfo = userTarget(target);
       const adminError = await requireAdminActor<{ password: string }>({ actor: config.actor, action: "accounts.user.password_reset", target: targetInfo });
@@ -585,7 +617,7 @@ export const accountsAppService = {
         result,
       });
     },
-    switchProvider: async (config: { actor: AccountsActor; ipaSession: string; id: string; provider: UserProvider }) => {
+    switchProvider: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider: UserProvider }) => {
       const target = await users.getMinimal({ id: config.id });
       const targetInfo = userTarget(target);
       const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.switch_provider", target: targetInfo });
@@ -607,7 +639,7 @@ export const accountsAppService = {
         result,
       });
     },
-    demoteToGuest: async (config: { actor: AccountsActor; ipaSession: string; id: string }) => {
+    demoteToGuest: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string }) => {
       const target = await users.getMinimal({ id: config.id });
       const targetInfo = userTarget(target);
       const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.demote_to_guest", target: targetInfo });
@@ -1117,10 +1149,10 @@ export const accountsAppService = {
       };
     },
     create: async (config: {
-      user: Pick<User, "id" | "mail" | "provider">;
+      user: Pick<User, "id" | "uid" | "mail" | "provider" | "roles">;
       data: { phone?: string; comment?: string; acceptedAgb: true };
     }) => {
-      const actor = { userId: config.user.id, uid: config.user.mail ?? config.user.id, roles: [] as string[], provider: config.user.provider };
+      const actor = { userId: config.user.id, uid: config.user.uid, roles: config.user.roles, provider: config.user.provider };
       if (!(await getFreeIpaConfig()).enabled) {
         const result = fail(err.badInput("FreeIPA is disabled"));
         return audit.recordResult({ action: "accounts.request.create", actor: auditActor(actor), target: { type: "account_request", label: config.user.mail }, result });
@@ -1181,34 +1213,40 @@ export const accountsAppService = {
         throw error;
       }
     },
-    withdraw: async (config: { id: string; userId: string }) => {
+    withdraw: async (config: { id: string; actor: AccountsActor }) => {
       const rows: DbRow[] = await sql`
         SELECT id, user_id, status FROM auth.account_requests WHERE id = ${config.id}
       `;
 
       if (rows.length === 0) {
         const result = fail(err.notFound("Request"));
-        return audit.recordResult({ action: "accounts.request.withdraw", actor: { userId: config.userId }, target: { type: "account_request", id: config.id }, result });
+        return audit.recordResult({ action: "accounts.request.withdraw", actor: auditActor(config.actor), target: { type: "account_request", id: config.id }, result });
       }
       const request = rows[0]!;
-      if (request.user_id !== config.userId) {
+      if (request.user_id !== config.actor.userId) {
         const result = fail(err.forbidden("Access denied"));
-        return audit.recordResult({ action: "accounts.request.withdraw", actor: { userId: config.userId }, target: { type: "account_request", id: config.id }, result });
+        return audit.recordResult({ action: "accounts.request.withdraw", actor: auditActor(config.actor), target: { type: "account_request", id: config.id }, result });
       }
       if (request.status !== "pending") {
         const result = fail(err.forbidden("Only pending requests can be withdrawn"));
-        return audit.recordResult({ action: "accounts.request.withdraw", actor: { userId: config.userId }, target: { type: "account_request", id: config.id }, result });
+        return audit.recordResult({ action: "accounts.request.withdraw", actor: auditActor(config.actor), target: { type: "account_request", id: config.id }, result });
       }
 
       await sql`DELETE FROM auth.account_requests WHERE id = ${config.id}`;
       return audit.recordResult({
         action: "accounts.request.withdraw",
-        actor: { userId: config.userId },
+        actor: auditActor(config.actor),
         target: { type: "account_request", id: config.id },
         result: ok(),
       });
     },
-    deny: async (config: { id: string; reason?: string; processedBy: string }) => {
+    deny: async (config: { id: string; reason?: string; actor: AccountsActor }) => {
+      const adminError = await requireAdminActor<void>({
+        actor: config.actor,
+        action: "accounts.request.deny",
+        target: { type: "account_request", id: config.id },
+      });
+      if (adminError) return adminError;
       const rows: DbRow[] = await sql`
         SELECT r.id, r.user_id, r.status, u.mail AS email, u.given_name AS first_name
         FROM auth.account_requests r
@@ -1218,18 +1256,18 @@ export const accountsAppService = {
 
       if (rows.length === 0) {
         const result = fail(err.notFound("Request"));
-        return audit.recordResult({ action: "accounts.request.deny", actor: { userId: config.processedBy }, target: { type: "account_request", id: config.id }, result });
+        return audit.recordResult({ action: "accounts.request.deny", actor: auditActor(config.actor), target: { type: "account_request", id: config.id }, result });
       }
 
       const request = rows[0]!;
       if (request.status !== "pending") {
         const result = fail(err.badInput("Only pending requests can be denied"));
-        return audit.recordResult({ action: "accounts.request.deny", actor: { userId: config.processedBy }, target: { type: "account_request", id: config.id }, result });
+        return audit.recordResult({ action: "accounts.request.deny", actor: auditActor(config.actor), target: { type: "account_request", id: config.id }, result });
       }
 
       await sql`
         UPDATE auth.account_requests
-        SET status = 'denied', denied_reason = ${config.reason ?? null}, processed_at = now(), processed_by = ${config.processedBy}
+        SET status = 'denied', denied_reason = ${config.reason ?? null}, processed_at = now(), processed_by = ${config.actor.userId}
         WHERE id = ${config.id}
       `;
 
@@ -1249,13 +1287,13 @@ export const accountsAppService = {
             APP_NAME: appName,
           }),
           autoSend: true,
-          sentBy: config.processedBy,
+          sentBy: config.actor.userId,
         });
       }
 
       return audit.recordResult({
         action: "accounts.request.deny",
-        actor: { userId: config.processedBy },
+        actor: auditActor(config.actor),
         target: { type: "account_request", id: config.id, label: request.email as string },
         metadata: { hasReason: !!config.reason },
         result: ok(),

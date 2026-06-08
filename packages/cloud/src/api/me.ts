@@ -149,9 +149,6 @@ const app = new Hono<AuthContext>()
     async (c) =>
       respond(c, async () => {
         const user = c.get("user");
-        if (user.profile !== "guest") {
-          return { ok: false, error: "Only guest accounts can be self-deleted.", status: 403 };
-        }
         const token = c.get("sessionToken");
         const ipaSession = user.provider === "ipa" ? await auth.session.getIpaSession(token) : null;
         const result = await accountsService.user.removeSelf({ user, ipaSession });
@@ -204,7 +201,7 @@ const app = new Hono<AuthContext>()
         if (!pending) {
           return { ok: false, error: "No pending request", status: 404 };
         }
-        const result = await accountsService.accountRequest.withdraw({ id: pending.id, userId: user.id });
+        const result = await accountsService.accountRequest.withdraw({ id: pending.id, actor: toAccountsActor(user) });
         if (!result.ok) return result;
         return ok({ message: "Request withdrawn" });
       }),

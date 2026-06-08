@@ -143,7 +143,12 @@ const app = new Hono<AuthContext>()
         const result = await accountsService.accountRequest.deny({
           id,
           reason,
-          processedBy: user.id,
+          actor: {
+            userId: user.id,
+            uid: user.uid,
+            roles: user.roles,
+            provider: user.provider,
+          },
         });
         if (!result.ok) return result;
         return ok({ message: "Request denied" });
