@@ -53,17 +53,21 @@ export const resolveIpaTransitionTarget = async (params: {
   currentProfile: UserProfile;
   policy: Exclude<IpaAccountTransitionPolicy, "delete">;
 }): Promise<{ targetProfile: UserProfile; accountExpires: Date | null }> => {
-  const targetProfile =
-    params.policy === "demote_to_local"
-      ? params.currentProfile
-      : params.policy === "demote_to_local_user"
-        ? "user"
-        : "guest";
+  const targetProfile = resolveIpaTransitionProfile(params);
 
   return {
     targetProfile,
     accountExpires: await resolveDefaultLocalAccountExpiry(targetProfile),
   };
+};
+
+export const resolveIpaTransitionProfile = (params: {
+  currentProfile: UserProfile;
+  policy: Exclude<IpaAccountTransitionPolicy, "delete">;
+}): UserProfile => {
+  if (params.policy === "demote_to_local") return params.currentProfile;
+  if (params.policy === "demote_to_local_user") return "user";
+  return "guest";
 };
 
 export const transitionIpaUserToLocal = async (params: {
