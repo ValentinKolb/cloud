@@ -1,19 +1,20 @@
+import {
+  DocCode,
+  DocConceptGrid,
+  DocInlineCode,
+  DocLead,
+  DocNote,
+  DocPage,
+  DocRows,
+  DocSection,
+} from "@valentinkolb/cloud/ui";
 import { Layout } from "@valentinkolb/cloud/ssr/islands";
-import { For, type JSX } from "solid-js";
+import { highlight } from "@valentinkolb/stdlib";
+import { For } from "solid-js";
 
-type HelpCardProps = {
+type Step = {
   title: string;
-  icon: string;
-  children: JSX.Element;
-};
-
-type HelpListProps = {
-  items: string[];
-};
-
-type RuleProps = {
-  title: string;
-  children: JSX.Element;
+  text: string;
 };
 
 type Recipe = {
@@ -22,548 +23,628 @@ type Recipe = {
   avoid?: string;
 };
 
-type Step = {
-  title: string;
-  text: string;
-};
-
-const HelpCard = (props: HelpCardProps) => (
-  <section class="rounded-lg bg-zinc-50/80 p-3 text-sm leading-relaxed text-zinc-700 ring-1 ring-inset ring-zinc-200/70 dark:bg-zinc-900/45 dark:text-zinc-300 dark:ring-zinc-800">
-    <h4 class="flex items-center gap-2 text-sm font-semibold text-primary">
-      <i class={`ti ${props.icon} text-blue-500`} aria-hidden="true" />
-      {props.title}
-    </h4>
-    <div class="mt-2 text-sm text-dimmed">{props.children}</div>
-  </section>
+const gridsFormulaHighlight = highlight.compile(
+  [
+    { kind: "string", match: /"(?:\\[\s\S]|[^"\\])*"/ },
+    { kind: "function", match: /\b(?:ABS|AND|AVG|CEIL|CONCAT|CONTAINS|COUNT|DATEDIFF|FLOOR|IF|IFEMPTY|IFERROR|LEFT|LEN|LOWER|MAX|MEDIAN|MIN|NOT|OR|POW|RIGHT|ROUND|SQRT|SUBSTRING|SUM|TODAY|UPPER)\b/ },
+    { kind: "placeholder", match: /#[A-Za-z0-9_-]+/ },
+    { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
+    { kind: "operator", match: /<=|>=|!=|=|<|>|\+|-|\*|\/|%|,|\(|\)/ },
+    { kind: "identifier", match: /[A-Za-z_][A-Za-z0-9_]*/ },
+  ],
+  { classPrefix: "doc-token-" },
 );
 
-const HelpGrid = (props: { children: JSX.Element }) => <div class="grid gap-3 md:grid-cols-2">{props.children}</div>;
-
-const Rule = (props: RuleProps) => (
-  <div class="rounded-md border border-zinc-200/70 bg-white/70 p-3 dark:border-zinc-800 dark:bg-zinc-950/35">
-    <p class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{props.title}</p>
-    <div class="mt-1.5 text-sm leading-relaxed text-dimmed">{props.children}</div>
-  </div>
+const gridsQueryHighlight = highlight.compile(
+  [
+    { kind: "string", match: /"(?:\\[\s\S]|[^"\\])*"/ },
+    { kind: "keyword", match: /\b(?:where|sort|group|aggregate|view|chart|calendar|cards|table)\b/i },
+    { kind: "aggregation", match: /\b(?:count|sum|avg|min|max|latest|earliest|unique)\b/i },
+    { kind: "operator", match: /\b(?:is|is not|one of|none of|empty|not empty|contains|before|after|between)\b/i },
+    { kind: "identifier", match: /[A-Za-z_][A-Za-z0-9_ -]*/ },
+  ],
+  { classPrefix: "doc-token-" },
 );
 
-const RuleStack = (props: { children: JSX.Element }) => <div class="flex flex-col gap-2">{props.children}</div>;
-
-const HelpList = (props: HelpListProps) => (
-  <ul class="space-y-1.5">
-    <For each={props.items}>
-      {(item) => (
-        <li class="flex gap-2">
-          <i class="ti ti-check mt-0.5 text-sm text-emerald-500" aria-hidden="true" />
-          <span>{item}</span>
-        </li>
-      )}
-    </For>
-  </ul>
+const FormulaSnippet = (props: { code: string; title?: string }) => (
+  <DocCode title={props.title} code={props.code} highlight={gridsFormulaHighlight} copy />
 );
 
-const WarningList = (props: HelpListProps) => (
-  <ul class="space-y-1.5">
-    <For each={props.items}>
-      {(item) => (
-        <li class="flex gap-2">
-          <i class="ti ti-minus mt-0.5 text-sm text-zinc-400" aria-hidden="true" />
-          <span>{item}</span>
-        </li>
-      )}
-    </For>
-  </ul>
-);
-
-const RecipeList = (props: { items: Recipe[] }) => (
-  <div class="overflow-hidden rounded-lg border border-zinc-200/70 dark:border-zinc-800">
-    <For each={props.items}>
-      {(item) => (
-        <div class="grid gap-2 border-b border-zinc-200/70 p-3 text-sm last:border-b-0 dark:border-zinc-800 md:grid-cols-[12rem_1fr]">
-          <p class="font-semibold text-primary">{item.problem}</p>
-          <div class="space-y-1 text-dimmed">
-            <p>{item.use}</p>
-            {item.avoid && <p class="text-xs text-zinc-500 dark:text-zinc-400">Avoid: {item.avoid}</p>}
-          </div>
-        </div>
-      )}
-    </For>
-  </div>
+const QuerySnippet = (props: { code: string; title?: string }) => (
+  <DocCode title={props.title} code={props.code} highlight={gridsQueryHighlight} copy />
 );
 
 const StepList = (props: { items: Step[] }) => (
-  <ol class="space-y-2">
+  <ol class="space-y-3">
     <For each={props.items}>
       {(item, index) => (
-        <li class="grid gap-2 rounded-md border border-zinc-200/70 bg-white/70 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-950/35 md:grid-cols-[2rem_1fr]">
-          <span class="flex h-7 w-7 items-center justify-center rounded-md bg-blue-50 text-xs font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+        <li class="grid grid-cols-[1.75rem_1fr] gap-3">
+          <span class="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
             {index() + 1}
           </span>
-          <div>
-            <p class="font-semibold text-primary">{item.title}</p>
-            <p class="mt-1 text-dimmed">{item.text}</p>
-          </div>
+          <span>
+            <span class="font-semibold text-primary">{item.title}</span>
+            <span class="mt-0.5 block text-dimmed">{item.text}</span>
+          </span>
         </li>
       )}
     </For>
   </ol>
 );
 
-const InlineCode = (props: { children: JSX.Element }) => (
-  <code class="rounded bg-zinc-100 px-1 py-px font-mono text-[11px] text-zinc-800 dark:bg-zinc-900 dark:text-zinc-200">
-    {props.children}
-  </code>
+const RecipeRows = (props: { items: Recipe[] }) => (
+  <div class="space-y-3">
+    <For each={props.items}>
+      {(item) => (
+        <article>
+          <p class="font-semibold text-primary">{item.problem}</p>
+          <p class="mt-1 text-dimmed">{item.use}</p>
+          {item.avoid && <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Avoid: {item.avoid}</p>}
+        </article>
+      )}
+    </For>
+  </div>
 );
 
 const StartTab = () => (
-  <div class="space-y-4">
-    <p class="text-sm leading-relaxed text-dimmed">
-      Grids is a database app for structured work: a base contains tables, tables contain records, and fields describe what each record can
-      store. Views, forms, dashboards, exports, and automations all work from that saved table data.
-    </p>
-    <HelpGrid>
-      <HelpCard title="Database" icon="ti-database">
-        A database is organized information you can trust, search, filter, and report on. In Grids, that information lives in bases,
-        tables, records, and fields.
-      </HelpCard>
-      <HelpCard title="Base" icon="ti-database">
-        A base is one workspace for one subject, such as invoices, hiring, inventory, or projects. Keep unrelated work in separate bases
-        when permissions, dashboards, or automations would not overlap.
-      </HelpCard>
-      <HelpCard title="Table" icon="ti-table">
-        A table is one kind of thing. Customers, invoices, tasks, and products are usually separate tables. A row is one record.
-      </HelpCard>
-      <HelpCard title="Field" icon="ti-columns">
-        A field is one fact about a record: status, amount, due date, owner, file, or relation. Choose the field type by how users must
-        filter, validate, calculate, and display that fact.
-      </HelpCard>
-      <HelpCard title="View" icon="ti-filter">
-        A view is a saved way to look at a table. It can choose table, card, or calendar display, then define columns, filters, sort,
-        group, aggregate, and report sources.
-      </HelpCard>
-    </HelpGrid>
-    <RuleStack>
-      <Rule title="Mental model">
-        Tables store data. Views summarize it. Forms collect it. Dashboards present it. Automations react to it.
-      </Rule>
-      <Rule title="First build path">
-        Create the main table, add only the fields users need today, enter a few real records, then add views, forms, dashboards, and
-        automations from that working table.
-      </Rule>
-      <Rule title="Keep rules in settings">
-        If a rule must be enforced, model it as a field setting, permission, form setting, or automation. If it only explains context, use a
-        description or Markdown widget.
-      </Rule>
-    </RuleStack>
-  </div>
+  <DocPage>
+    <DocLead>
+      Grids is a flexible database app for structured work. A base contains tables, tables contain records, and fields describe the facts
+      each record can store. Views, forms, dashboards, exports, search, aggregations, and automations all read from that saved table data.
+    </DocLead>
+
+    <DocSection title="Mental model" eyebrow="Start here">
+      <DocConceptGrid
+        items={[
+          {
+            title: "Base",
+            icon: "ti-database",
+            text: "One workspace for one subject, such as finance, inventory, hiring, or a bookshop.",
+          },
+          {
+            title: "Table",
+            icon: "ti-table",
+            text: "One kind of record. Customers, invoices, books, items, and loans usually belong in separate tables.",
+          },
+          {
+            title: "Field",
+            icon: "ti-columns",
+            text: "One fact about a record: status, amount, due date, owner, file, relation, formula, or ID.",
+          },
+          {
+            title: "View",
+            icon: "ti-filter",
+            text: "A saved way to inspect a table. Views can be table, card, or calendar based.",
+          },
+          {
+            title: "Form",
+            icon: "ti-forms",
+            text: "A guided create flow for a table, useful for dashboards, public intake, and repeatable internal entry.",
+          },
+          {
+            title: "Dashboard",
+            icon: "ti-layout-dashboard",
+            text: "A working page with stats, charts, forms, Markdown, links, and embedded views.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocSection title="First useful path">
+      <StepList
+        items={[
+          {
+            title: "Model the main table",
+            text: "Add the smallest set of fields that users need today. Make the table useful before adding dashboards.",
+          },
+          {
+            title: "Enter real sample records",
+            text: "Real records reveal bad field names, missing required rules, and select options that are too vague.",
+          },
+          {
+            title: "Add saved views",
+            text: "Create views for repeated work: open work, recent records, grouped reports, cards, and calendars.",
+          },
+          {
+            title: "Add forms and dashboards",
+            text: "Use forms for data entry and dashboards for team-facing summaries or operating pages.",
+          },
+          {
+            title: "Automate only stable workflows",
+            text: "Add webhook automations once the table and view rules are clear enough to be trusted.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocNote title="Source of truth">
+      Tables store data. Views shape queries. Forms create records. Dashboards present included data. Automations react to record events.
+    </DocNote>
+  </DocPage>
 );
 
 const BuildTab = () => (
-  <div class="space-y-4">
-    <p class="text-sm leading-relaxed text-dimmed">
-      Start with the user problem, then pick the smallest Grids feature that makes the work clear and repeatable.
-    </p>
-    <StepList
-      items={[
-        {
-          title: "Create the base",
-          text: "Open Grids from the app list and create a base for one topic, such as invoices, hiring, or inventory.",
-        },
-        {
-          title: "Add the first table",
-          text: "Use Add table in the sidebar. Name the table after the records it stores, for example Invoices or Customers.",
-        },
-        {
-          title: "Turn on edit mode",
-          text: "Use Edit table when you need to add fields, reorder columns, change field settings, create forms, or adjust sharing.",
-        },
-        {
-          title: "Enter real sample records",
-          text: "Add a few real records before building views. Real data shows whether field names, select options, and formulas make sense.",
-        },
-        {
-          title: "Add views, forms, and dashboards",
-          text: "Use views for saved subsets, forms for guided entry, and dashboards for summaries or team-facing pages.",
-        },
-      ]}
-    />
-    <RecipeList
-      items={[
-        {
-          problem: "Collect data",
-          use: "Create a table for the data, then a form for guided entry. Put helper text on form fields when users need examples.",
-          avoid: "Using a dashboard note as the only place where required input rules are explained.",
-        },
-        {
-          problem: "Track work",
-          use: "Use status select, owner relation or user field, due date, and filtered views such as Open, Waiting, and Done.",
-        },
-        {
-          problem: "Report numbers",
-          use: "Create a view with filters, Group by, and Aggregation. Use that view for stats, charts, exports, or dashboard summaries.",
-          avoid: "Building charts from raw ungrouped records.",
-        },
-        {
-          problem: "Connect tables",
-          use: "Use relation fields. Mark one short field on the linked table as the record label, for example Customer name. Grids uses that label wherever the relation is shown.",
-        },
-        {
-          problem: "Explain a dashboard",
-          use: "Add a Markdown widget for instructions, definitions, links, and ownership notes.",
-        },
-        {
-          problem: "Notify another system",
-          use: "Create an automation with a record trigger, optional filter, and webhook action. The receiving system should handle the same message twice without creating duplicates.",
-        },
-      ]}
-    />
-    <RuleStack>
-      <Rule title="Good table boundary">
-        Make a new table when records have their own lifecycle, permissions, forms, or dashboard reports. Use a field when it is only a
-        property of the same record.
-      </Rule>
-      <Rule title="Good view boundary">
-        Make a view when users need to revisit the same subset or report. Use toolbar filters for temporary inspection.
-      </Rule>
-    </RuleStack>
-  </div>
+  <DocPage>
+    <DocLead>
+      Pick the smallest Grids feature that makes the workflow clear. Add structure when it removes repeated manual work, not just because
+      it is available.
+    </DocLead>
+
+    <DocSection title="Common choices">
+      <RecipeRows
+        items={[
+          {
+            problem: "Collect data",
+            use: "Create a table, then a form for guided entry. Use field descriptions for examples and validation intent.",
+          },
+          {
+            problem: "Track work",
+            use: "Use status, owner, due date, and saved views such as Open, Waiting, Done, or Overdue.",
+          },
+          {
+            problem: "Report numbers",
+            use: "Create a grouped view with aggregations, then use it in stats, charts, exports, or dashboard widgets.",
+            avoid: "Building charts from raw ungrouped rows.",
+          },
+          {
+            problem: "Connect records",
+            use: "Use relation fields. Mark one short field on the target table as the record label.",
+          },
+          {
+            problem: "Explain a dashboard",
+            use: "Use a Markdown widget for instructions, links, definitions, and owner notes.",
+          },
+          {
+            problem: "Notify another system",
+            use: "Create a record-triggered automation with a filter and a webhook action.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocSection title="Boundaries">
+      <DocRows
+        items={[
+          {
+            title: "Make a table",
+            icon: "ti-table",
+            text: "Use a table when records have their own lifecycle, permissions, forms, dashboards, or relations.",
+          },
+          {
+            title: "Make a field",
+            icon: "ti-columns",
+            text: "Use a field when the value is just one property of the same record.",
+          },
+          {
+            title: "Make a view",
+            icon: "ti-filter",
+            text: "Use a view when people need to revisit the same subset, display mode, or report.",
+          },
+        ]}
+      />
+    </DocSection>
+  </DocPage>
 );
 
 const FieldsTab = () => (
-  <div class="space-y-4">
-    <HelpGrid>
-      <HelpCard title="Text and long text" icon="ti-text-size">
-        Use text for short labels and identifiers. Use long text for notes. Turn on Markdown when the content needs headings, links, lists,
-        or rich instructions.
-      </HelpCard>
-      <HelpCard title="Number, decimal, percent" icon="ti-123">
-        Use decimal for money and exact arithmetic. Percent values are stored as ratios, where <InlineCode>0.75</InlineCode> displays as
-        75%. Progress display clamps values below 0 to 0% and above 1 to 100%.
-      </HelpCard>
-      <HelpCard title="Date and time" icon="ti-calendar">
-        Date values represent a day. Date-time values represent an exact moment, such as a meeting start or created-at time. Use the
-        current-time default only when creation time is the right rule.
-      </HelpCard>
-      <HelpCard title="Select" icon="ti-tags">
-        Use select when values must come from a known list. Option colors help scanning; descriptions explain the choice in forms and
-        editors.
-      </HelpCard>
-      <HelpCard title="Relation" icon="ti-link">
-        A relation links records across tables. It does not copy the linked text. The visible text comes from the linked table's record
-        label.
-      </HelpCard>
-      <HelpCard title="Formula" icon="ti-function">
-        Formula fields calculate when records are shown. Pick fields from suggestions. The formula saves a short reference like{" "}
-        <InlineCode>#price</InlineCode>, so renaming a field does not break saved formulas.
-      </HelpCard>
-    </HelpGrid>
-    <HelpCard title="Formula examples" icon="ti-function">
-      <HelpList
+  <DocPage>
+    <DocLead>
+      Field type is a product decision. It controls validation, search, filtering, display, forms, relations, formulas, and dashboard
+      behavior.
+    </DocLead>
+
+    <DocSection title="Choosing field types">
+      <DocRows
         items={[
-          "Total: #price * #quantity",
-          "Label: CONCAT(#customer, \" - \", #status)",
-          "Fallback: IFEMPTY(#notes, \"No notes\")",
-          "Date age: DATEDIFF(#dueDate, TODAY(), \"days\")",
-          "Error handling: IFERROR(#total / #quantity, 0)",
+          {
+            title: "Text and long text",
+            icon: "ti-text-size",
+            text: "Use text for short labels and identifiers. Use long text for notes. Turn on Markdown when users need headings, links, or lists.",
+          },
+          {
+            title: "Number, decimal, percent",
+            icon: "ti-123",
+            text: "Use decimal for money and exact arithmetic. Percent values are stored as ratios, so 0.75 displays as 75%.",
+          },
+          {
+            title: "Date and date-time",
+            icon: "ti-calendar",
+            text: "Use date for days. Use date-time for exact moments. Current-time defaults are evaluated on the server when a record is created.",
+          },
+          {
+            title: "Select",
+            icon: "ti-tags",
+            text: "Use select when values must come from a known list. Colors help scanning; descriptions explain options in forms.",
+          },
+          {
+            title: "Relation and lookup",
+            icon: "ti-link",
+            text: "Relations link records. Lookups display values through a relation without copying the source value.",
+          },
+          {
+            title: "Formula",
+            icon: "ti-function",
+            text: "Formulas recalculate when records are read. Suggestions show names, but saved expressions store stable #refs.",
+          },
         ]}
       />
-    </HelpCard>
-    <RuleStack>
-      <Rule title="Record label">
-        Pick a short readable field as the record label. Do not use long Markdown text; it makes relation labels and detail titles noisy.
-      </Rule>
-      <Rule title="Required and default">
-        Required means a value must exist. Default only fills create requests that omit the field. It does not repair existing records.
-      </Rule>
-      <Rule title="Unique">
-        Unique is enforced when records are saved. Use it for identifiers such as invoice number, SKU, or email. Do not use it for labels that can
-        repeat.
-      </Rule>
-      <Rule title="Index">
-        Index fields that users filter, sort, search, or connect through often. Do not index every field; each index adds work when records
-        are saved.
-      </Rule>
-      <Rule title="Money values">
-        Decimal fields keep exact decimal values for calculations. Add currency formatting for display; do rounding intentionally in the
-        field or formula settings.
-      </Rule>
-    </RuleStack>
-  </div>
+    </DocSection>
+
+    <DocSection title="Formula examples">
+      <div class="space-y-3">
+        <FormulaSnippet title="Total" code="#price * #quantity" />
+        <FormulaSnippet title="Fallback text" code={'IFEMPTY(#notes, "No notes")'} />
+        <FormulaSnippet title="Conditional" code={'IF(#inStock, "Available", "Out of stock")'} />
+        <FormulaSnippet title="Date age" code={'DATEDIFF(#dueDate, TODAY(), "days")'} />
+        <FormulaSnippet title="Error fallback" code="IFERROR(#total / #quantity, 0)" />
+      </div>
+    </DocSection>
+
+    <DocSection title="Rules that matter">
+      <DocRows
+        items={[
+          {
+            title: "Record label",
+            icon: "ti-id",
+            text: "Pick a short readable field. Do not use long Markdown text as the title shown in relations and detail panels.",
+          },
+          {
+            title: "Required and default",
+            icon: "ti-asterisk",
+            text: "Required means a value must exist. Default only fills new create requests that omit the field.",
+          },
+          {
+            title: "Unique",
+            icon: "ti-fingerprint",
+            text: "Use unique for identifiers such as invoice number, SKU, asset ID, or email. Avoid it for names that can repeat.",
+          },
+          {
+            title: "Index",
+            icon: "ti-search",
+            text: "Index fields users filter, sort, search, or join often. Every index adds write cost, so do not index everything.",
+          },
+        ]}
+      />
+    </DocSection>
+  </DocPage>
 );
 
 const ViewsTab = () => (
-  <div class="space-y-4">
-    <div class="info-block-info flex items-start gap-2 text-xs">
-      <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
-      <span>Filter, sort, group, aggregate, export, and dashboard reads use the saved data result, not a browser-only copy.</span>
-    </div>
-    <HelpGrid>
-      <HelpCard title="Filter" icon="ti-filter">
-        Filters are exact rules. Use them for reporting, permissions review, exports, and saved workflows. Empty checks are available for
-        fields where missing data matters.
-      </HelpCard>
-      <HelpCard title="Sort" icon="ti-sort-ascending">
-        Sort decides the order after search and filters apply. Add the most important sort first, then tie-breakers such as created time or
-        name.
-      </HelpCard>
-      <HelpCard title="Group" icon="ti-category">
-        Group turns many records into one row per category. After grouping, rows are summaries, not editable source records.
-      </HelpCard>
-      <HelpCard title="Aggregate" icon="ti-sum">
-        Aggregations calculate count, unique count, sum, min, max, latest, earliest, or average per group. Footers use the same formatting
-        as the field where possible.
-      </HelpCard>
-      <HelpCard title="Display mode" icon="ti-layout-cards">
-        Table is best for dense editing. Cards are best when a few fields and an image should be scanned quickly. Calendar is best when one
-        date field drives the work.
-      </HelpCard>
-    </HelpGrid>
-    <RuleStack>
-      <Rule title="Card and calendar setup">
-        Admins choose the display mode in table or view settings. Cards should show only the fields people need at a glance. Calendar needs
-        one date or date-time field for placement.
-      </Rule>
-      <Rule title="Chart-ready view">
-        A chart source needs Group by for labels and at least one Aggregation for values. Donut shows parts of one total. Bar compares
-        categories. Line works best for ordered categories such as months. Scatter needs two numeric values.
-      </Rule>
-      <Rule title="Toolbar overrides">
-        Toolbar search, filters, sorts, groups, and aggregates refine the current table or view. Saved views keep their own saved rules.
-      </Rule>
-      <Rule title="Exports">
-        Export from the table for the broad result. Export from a filtered view when the saved subset is the report.
-      </Rule>
-    </RuleStack>
-  </div>
+  <DocPage>
+    <DocLead>
+      Views define how people inspect records. They can filter, sort, group, aggregate, and choose a display mode without duplicating data.
+    </DocLead>
+
+    <DocSection title="Query building blocks">
+      <DocRows
+        items={[
+          {
+            title: "Filter",
+            icon: "ti-filter",
+            text: "Use filters for exact reusable rules. Search is broad; filters are explicit.",
+          },
+          {
+            title: "Sort",
+            icon: "ti-sort-ascending",
+            text: "Sort decides the order after search and filters apply. Add tie-breakers when results need stable order.",
+          },
+          {
+            title: "Group",
+            icon: "ti-category",
+            text: "Group turns many records into one row per category. Grouped rows are summaries, not editable source records.",
+          },
+          {
+            title: "Aggregate",
+            icon: "ti-sum",
+            text: "Aggregations calculate count, unique count, sum, min, max, latest, earliest, or average per group.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocSection title="Display modes">
+      <DocRows
+        items={[
+          {
+            title: "Table",
+            icon: "ti-table",
+            text: "Best for dense editing, scanning many columns, and operational work.",
+          },
+          {
+            title: "Cards",
+            icon: "ti-layout-cards",
+            text: "Best when a few fields, a title, and optional image should be read at a glance.",
+          },
+          {
+            title: "Calendar",
+            icon: "ti-calendar-event",
+            text: "Best when one date or date-time field places each record on a calendar.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocSection title="Query examples">
+      <div class="space-y-3">
+        <QuerySnippet title="Open work" code={'where status is "Open"\nsort due_date ascending'} />
+        <QuerySnippet title="Monthly chart source" code={"group ordered_at by month\naggregate line_total sum"} />
+        <QuerySnippet title="Calendar view" code={"view calendar\nwhere status is not \"Cancelled\"\nsort ordered_at ascending"} />
+      </div>
+    </DocSection>
+
+    <DocNote title="Chart-ready views">
+      A chart source needs <DocInlineCode>Group by</DocInlineCode> for labels and at least one <DocInlineCode>Aggregation</DocInlineCode>{" "}
+      for values. Donut shows parts of a total, bar compares categories, line works best for ordered categories, and scatter needs two
+      numeric values.
+    </DocNote>
+  </DocPage>
 );
 
 const SearchTab = () => (
-  <div class="space-y-4">
-    <p class="text-sm leading-relaxed text-dimmed">
-      Search is broad and forgiving. It finds records by displayed values. Use filters when the rule must be exact or reusable.
-    </p>
-    <HelpGrid>
-      <HelpCard title="Included in search" icon="ti-search">
-        <HelpList
-          items={[
-            "text and long text values",
-            "numbers, decimals, dates, times, and booleans as displayed text",
-            "select option labels",
-            "relation labels when the current user can read the linked table",
-          ]}
-        />
-      </HelpCard>
-      <HelpCard title="Not searched yet" icon="ti-search-off">
-        <WarningList items={["files", "raw JSON values", "formula values", "lookup values", "rollup totals"]} />
-      </HelpCard>
-    </HelpGrid>
-    <RuleStack>
-      <Rule title="Example">
-        Searching <InlineCode>paid</InlineCode> can match a select label. Searching <InlineCode>100</InlineCode> can match a displayed
-        amount. Use Amount equals 100 when the number must be exact.
-      </Rule>
-      <Rule title="Relations">
-        Relation search uses the linked record label only when the current user can read the linked table. Hidden relation targets do not
-        leak labels through search.
-      </Rule>
-      <Rule title="Views">
-        Search respects the current view. If the view filters records out, search will not bring them back.
-      </Rule>
-    </RuleStack>
-  </div>
+  <DocPage>
+    <DocLead>
+      Search finds records by displayed values. Use it for exploration. Use filters when the rule must be exact, saved, exported, or reused
+      by a dashboard.
+    </DocLead>
+
+    <DocSection title="Search scope">
+      <DocConceptGrid
+        items={[
+          {
+            title: "Included",
+            icon: "ti-search",
+            text: "Text, long text, numbers, dates, booleans, select labels, and relation labels the user may read.",
+          },
+          {
+            title: "Not included",
+            icon: "ti-search-off",
+            text: "Files, raw JSON, formula output, lookup values, and rollup totals are not currently searched.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocSection title="Practical rules">
+      <DocRows
+        items={[
+          {
+            title: "Relation labels",
+            icon: "ti-link",
+            text: "Relation search uses the linked record label only when the current user can read the linked table.",
+          },
+          {
+            title: "Current view",
+            icon: "ti-filter",
+            text: "Search respects the current view. If the view filters records out, search will not bring them back.",
+          },
+          {
+            title: "Exact values",
+            icon: "ti-equal",
+            text: "Use a filter for exact numeric, date, select, empty, or permission-sensitive rules.",
+          },
+        ]}
+      />
+    </DocSection>
+  </DocPage>
 );
 
 const DashboardFormsTab = () => (
-  <div class="space-y-4">
-    <HelpGrid>
-      <HelpCard title="Forms" icon="ti-forms">
-        Forms are guided create flows for a table. They can rename fields, hide fields, set required rules, and open from dashboards or
-        links.
-      </HelpCard>
-      <HelpCard title="Stats" icon="ti-number">
-        Stat widgets show one value from one table or view. Use neutral colors for counts. Use thresholds only when higher or lower is
-        meaningful.
-      </HelpCard>
-      <HelpCard title="Charts" icon="ti-chart-bar">
-        Chart widgets read grouped views. The view decides the categories and values; the widget decides chart type, labels, and display
-        format.
-      </HelpCard>
-      <HelpCard title="Embedded views" icon="ti-window">
-        Embedded views show saved table results inside a dashboard. They stay table-based so dashboards remain compact and predictable.
-      </HelpCard>
-      <HelpCard title="Markdown" icon="ti-markdown">
-        Markdown widgets are for instructions, definitions, links, and owner notes directly on the dashboard.
-      </HelpCard>
-      <HelpCard title="Link widgets" icon="ti-external-link">
-        Links can target a table, view, form, dashboard, or external URL. External URLs open in a new tab. Internal targets keep normal
-        Grids permissions.
-      </HelpCard>
-    </HelpGrid>
-    <RuleStack>
-      <Rule title="Dashboard permissions">
-        Dashboard access controls data included directly on the dashboard. Opening a linked table or view, submitting a form, and writing a
-        record check the linked item again.
-      </Rule>
-      <Rule title="Form submit">
-        Embedded forms use the same submit rules as normal forms. A user who cannot submit the form or write to its table cannot bypass that
-        through a dashboard.
-      </Rule>
-    </RuleStack>
-  </div>
+  <DocPage>
+    <DocLead>
+      Forms collect records. Dashboards combine records, summaries, charts, instructions, links, and actions into a working page.
+    </DocLead>
+
+    <DocSection title="Dashboard widgets">
+      <DocRows
+        items={[
+          {
+            title: "Stats",
+            icon: "ti-number",
+            text: "Show one value from a table or view. Use thresholds only when higher or lower has meaning.",
+          },
+          {
+            title: "Charts",
+            icon: "ti-chart-bar",
+            text: "Read grouped views. The view decides categories and values; the widget decides chart type and labels.",
+          },
+          {
+            title: "Embedded views",
+            icon: "ti-window",
+            text: "Show saved table results inside a dashboard. Dashboard embeds stay table-based for predictable density.",
+          },
+          {
+            title: "Markdown",
+            icon: "ti-markdown",
+            text: "Add instructions, definitions, links, and ownership notes directly on the dashboard.",
+          },
+          {
+            title: "Links",
+            icon: "ti-external-link",
+            text: "Open tables, views, forms, dashboards, or external URLs. Internal targets check their own permissions.",
+          },
+          {
+            title: "Manual automation",
+            icon: "ti-player-play",
+            text: "Let dashboard users run a configured manual automation when the dashboard grants that action.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocNote title="Permission rule">
+      Data included directly on a dashboard follows dashboard access. Opening the original table or view, submitting a form, and writing a
+      record check the original resource.
+    </DocNote>
+  </DocPage>
 );
 
 const OperationsTab = () => (
-  <div class="space-y-4">
-    <HelpGrid>
-      <HelpCard title="Automations" icon="ti-bolt">
-        Automations run after configured record events and can call webhooks. Use filters so actions only run for the records that matter.
-      </HelpCard>
-      <HelpCard title="Webhooks" icon="ti-webhook">
-        Webhooks send a structured request to another system with the event, record, and changed fields. The receiving system should handle
-        the same request twice without creating duplicates.
-      </HelpCard>
-      <HelpCard title="Files" icon="ti-paperclip">
-        File fields attach files to records. Put searchable metadata in normal fields when users need to filter, aggregate, or export it.
-      </HelpCard>
-      <HelpCard title="Live refresh" icon="ti-refresh">
-        Tables and dashboards can refresh after record changes. The current view rules still decide whether a changed record should appear.
-      </HelpCard>
-    </HelpGrid>
-    <RuleStack>
-      <Rule title="Automation trigger">
-        Record created, updated, deleted, or restored events are table events. Manual and scheduled runs are useful for admin checks and
-        external sync jobs.
-      </Rule>
-      <Rule title="Retries">
-        When a webhook creates something outside Grids, send a unique request id if that system supports it. A repeated send must not create
-        duplicate invoices, messages, or orders.
-      </Rule>
-      <Rule title="Edit mode">
-        Edit mode changes structure: fields, views, forms, dashboards, widgets, sharing, and automations. Normal mode is for reading and
-        entering records.
-      </Rule>
-    </RuleStack>
-  </div>
-);
+  <DocPage>
+    <DocLead>
+      Operational features should make stable workflows repeatable: attach files, send webhooks, refresh live views, and keep record events
+      connected to dashboards.
+    </DocLead>
 
-const TroubleshootingTab = () => (
-  <div class="space-y-4">
-    <RecipeList
-      items={[
-        {
-          problem: "A chart source is missing",
-          use: "Open the source table, create or edit a view, add Group by, and add at least one Aggregation. Then select that view in the chart widget.",
-        },
-        {
-          problem: "A record edit fails",
-          use: "Reload the record and try again. If Grids says the record version does not match, another user or browser tab may have changed it first.",
-        },
-        {
-          problem: "Search misses a value",
-          use: "Check whether the value is searchable. Use a filter for formula output, files, values copied from another table, and exact numeric or date rules.",
-        },
-        {
-          problem: "A form on a dashboard will not submit",
-          use: "Check the form permission and the target table write permission. Dashboard access alone is not enough to write records.",
-        },
-        {
-          problem: "A dashboard number looks stale",
-          use: "Check the widget source table or view. If the source is grouped or filtered, those saved rules decide what the widget reads.",
-        },
-        {
-          problem: "A relation looks wrong",
-          use: "Check which field is marked as the linked table's record label. Relations show that label instead of copying text into the source table.",
-        },
-      ]}
-    />
-    <RuleStack>
-      <Rule title="When to ask an admin">
-        Ask an admin when you cannot see a table, view, form, dashboard, automation, or linked record that the workflow expects.
-      </Rule>
-      <Rule title="When to change the model">
-        If users keep adding the same text note to explain a value, add a field or option description. If users keep exporting and editing
-        spreadsheets, create the missing view or dashboard.
-      </Rule>
-    </RuleStack>
-  </div>
+    <DocSection title="Operations">
+      <DocRows
+        items={[
+          {
+            title: "Automations",
+            icon: "ti-bolt",
+            text: "Run after configured record events or manual triggers. Add filters so actions only run for relevant records.",
+          },
+          {
+            title: "Webhooks",
+            icon: "ti-webhook",
+            text: "Send structured event data to another system. Receivers should handle duplicate sends safely.",
+          },
+          {
+            title: "Files",
+            icon: "ti-paperclip",
+            text: "Attach files to records. Store searchable metadata in normal fields when users need filters or exports.",
+          },
+          {
+            title: "Live refresh",
+            icon: "ti-refresh",
+            text: "Tables, views, and dashboards can refresh after record changes. Current filters still decide what appears.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocSection title="Webhook payload idea">
+      <DocCode
+        code={`{
+  "event": "record.created",
+  "recordId": "019e...",
+  "tableId": "32b8...",
+  "changedFields": ["status"]
+}`}
+        copy
+      />
+    </DocSection>
+  </DocPage>
 );
 
 const PermissionsTab = () => (
-  <div class="space-y-4">
-    <p class="text-sm leading-relaxed text-dimmed">
-      Permissions are set on Grids items: base, table, view, form, and dashboard. Higher access on a base can allow work inside it, but
-      explicit access on a specific item can narrow what a user sees.
-    </p>
-    <HelpGrid>
-      <HelpCard title="Read" icon="ti-eye">
-        Read access lets a user see the item and the data included by that item. For dashboards, this can include embedded stats, charts,
-        views, and forms.
-      </HelpCard>
-      <HelpCard title="Write" icon="ti-pencil">
-        Write access lets a user add or change records where the item supports writing, such as tables and forms.
-      </HelpCard>
-      <HelpCard title="Admin" icon="ti-tool">
-        Admin access lets a user change structure and sharing. Use it for people who can edit fields, views, forms, dashboards, and
-        automations.
-      </HelpCard>
-      <HelpCard title="Linked items" icon="ti-link">
-        A dashboard link does not grant access to its target. The target table, view, form, or dashboard checks permissions when opened.
-      </HelpCard>
-    </HelpGrid>
-    <RuleStack>
-      <Rule title="Included vs linked">
-        Data shown inside a dashboard follows dashboard access. Opening the original table, opening a view in full, or submitting a form
-        checks the original item.
-      </Rule>
-      <Rule title="Edit mode">
-        If you cannot see edit controls, you probably do not have admin access for that item or its base.
-      </Rule>
-    </RuleStack>
-  </div>
+  <DocPage>
+    <DocLead>
+      Grids permissions are resource-based. A user can have access to a dashboard without automatically receiving open access to every
+      linked table, view, or form.
+    </DocLead>
+
+    <DocSection title="Access levels">
+      <DocRows
+        items={[
+          {
+            title: "Read",
+            icon: "ti-eye",
+            text: "Lets a user see the item and included data for that item.",
+          },
+          {
+            title: "Write",
+            icon: "ti-pencil",
+            text: "Lets a user add or change records where the resource supports writing.",
+          },
+          {
+            title: "Admin",
+            icon: "ti-tool",
+            text: "Lets a user change structure, sharing, views, forms, dashboards, and automations.",
+          },
+          {
+            title: "Linked resources",
+            icon: "ti-link",
+            text: "A dashboard link does not grant access to its target. The target checks permissions when opened.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocNote title="Included vs linked">
+      Data shown inside a dashboard follows dashboard access. Opening the original table, opening a full view, or submitting a form checks
+      the original resource.
+    </DocNote>
+  </DocPage>
+);
+
+const TroubleshootingTab = () => (
+  <DocPage>
+    <DocLead>
+      Most Grids issues are caused by a mismatch between the current view, the source table, permissions, or a field setting. Check those
+      first before changing the data model.
+    </DocLead>
+
+    <DocSection title="Common checks">
+      <RecipeRows
+        items={[
+          {
+            problem: "Chart source is missing",
+            use: "Open the source table, create or edit a grouped view, add an aggregation, then select that view in the chart widget.",
+          },
+          {
+            problem: "Record edit fails",
+            use: "Reload the record and try again. A version mismatch usually means another user or tab changed it first.",
+          },
+          {
+            problem: "Search misses a value",
+            use: "Check whether the value is searchable. Use a filter for formula output, lookups, files, and exact rules.",
+          },
+          {
+            problem: "Dashboard form will not submit",
+            use: "Check the form permission and target table write permission. Dashboard access alone is not enough to write records.",
+          },
+          {
+            problem: "Relation label looks wrong",
+            use: "Check the linked table's record label field. Relations show that label instead of copying arbitrary text.",
+          },
+        ]}
+      />
+    </DocSection>
+  </DocPage>
 );
 
 const ExampleTab = () => (
-  <div class="space-y-4">
-    <p class="text-sm leading-relaxed text-dimmed">
-      Example: build an invoice base that collects invoices, tracks payment, reports monthly income, and sends a webhook when an invoice is
-      paid.
-    </p>
-    <StepList
-      items={[
-        {
-          title: "Create tables",
-          text: "Create Customers and Invoices. In Customers, mark Customer name as the record label. In Invoices, add a relation field named Customer that links to Customers.",
-        },
-        {
-          title: "Add invoice fields",
-          text: "Add Invoice date (date), Due date (date), Status (select), Subtotal (decimal), Tax (decimal), Total (formula), Paid (boolean), and Receipt (file).",
-        },
-        {
-          title: "Add the total formula",
-          text: "In Total, reference Subtotal and Tax from the suggestion list. Use a formula like #subtotal + #tax. Preview the first rows before saving.",
-        },
-        {
-          title: "Create work views",
-          text: "Create Open invoices with Status is not Paid. Create Overdue invoices with Due date before today and Paid is false. Create Paid invoices with Paid is true.",
-        },
-        {
-          title: "Create monthly income",
-          text: "Create a view that groups Invoice date by month and aggregates Total with Sum. Use this view for a line or bar chart.",
-        },
-        {
-          title: "Create a form",
-          text: "Create New invoice form. Hide fields that should be calculated or filled later, such as total and paid.",
-        },
-        {
-          title: "Create a dashboard",
-          text: "Add stats for open count and income, a chart from Monthly income, an embedded Overdue invoices view, and Markdown instructions.",
-        },
-        {
-          title: "Add automation",
-          text: "Trigger on invoice update, filter to Paid is true, and send a webhook to the accounting or notification system. Ask a technical owner for the target URL.",
-        },
-      ]}
-    />
-  </div>
+  <DocPage>
+    <DocLead>
+      This example builds an invoice base that collects invoices, tracks payment, reports monthly income, and notifies another system when
+      an invoice is paid.
+    </DocLead>
+
+    <DocSection title="Invoice base recipe">
+      <StepList
+        items={[
+          {
+            title: "Create tables",
+            text: "Create Customers and Invoices. In Customers, mark Customer name as the record label.",
+          },
+          {
+            title: "Add invoice fields",
+            text: "Add Invoice date, Due date, Status, Subtotal, Tax, Total, Paid, and Receipt.",
+          },
+          {
+            title: "Add the total formula",
+            text: "Reference Subtotal and Tax from the suggestion list, then preview the first rows before saving.",
+          },
+          {
+            title: "Create work views",
+            text: "Create Open invoices, Overdue invoices, Paid invoices, and Monthly income.",
+          },
+          {
+            title: "Create a dashboard",
+            text: "Add open count, income stats, a monthly income line chart, overdue invoices, and Markdown instructions.",
+          },
+          {
+            title: "Add automation",
+            text: "Trigger when an invoice updates, filter to Paid is true, and send a webhook to accounting or notifications.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocSection title="Formula">
+      <FormulaSnippet code="#subtotal + #tax" />
+    </DocSection>
+  </DocPage>
 );
 
 export default function GridsLayoutHelp() {

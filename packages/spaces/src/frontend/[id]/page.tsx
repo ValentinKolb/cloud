@@ -1,6 +1,7 @@
 import { ssr } from "../../config";
 import { getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import SpacesLayoutHelp from "../_components/help/SpacesLayoutHelp";
 import SpacesWorkspace from "./_components/workspace/SpacesWorkspace.island";
 import { loadSpacesWorkspaceState } from "./_components/workspace/workspace-state";
 
@@ -33,6 +34,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullWidth title={state.title}>
+      <SpacesLayoutHelp />
       <SpacesWorkspace initialState={state} dateConfig={dateConfig} />
     </Layout>
   );
