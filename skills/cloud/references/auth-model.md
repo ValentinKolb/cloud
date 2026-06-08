@@ -267,6 +267,10 @@ migration is still in progress:
 - Admin UI should expose a searchable `DataTable` audit page with URL-backed
   filters for actor, target, action, outcome, provider, and time range.
 
+See [FreeIPA Subsession Removal Readiness](freeipa-subsession-readiness.md) for
+the current route-by-route assessment before removing stored `ipaSession` from
+Cloud sessions.
+
 ## Account Lifecycle
 
 The platform manages account expiry automatically:

@@ -12,6 +12,7 @@ import { providers } from "../providers";
 import * as users from "./users";
 import * as groups from "./groups";
 import * as entities from "./entities";
+import { canMutateManagedGroup, isAdminActor, isSelfTarget, type AccountsActor } from "./authz";
 import type {
   BaseGroup,
   BaseUser,
@@ -60,7 +61,6 @@ type CreateUserInput =
 
 type DbRow = Record<string, unknown>;
 type MutationErrorStatus = Extract<MutationResult, { ok: false }>["status"];
-type AccountsActor = { userId: string; uid: string; roles: string[]; provider?: string | null };
 type CreateUserResult = { id: string; uid: string; accountExpires: string | null; notificationSent: boolean };
 
 export type AccountRequestStatus = "pending" | "completed" | "denied";
@@ -241,8 +241,6 @@ const groupTarget = (group: { id?: string | null; name?: string | null; provider
   provider: group?.provider ?? null,
 });
 
-const isAdminActor = (actor: AccountsActor | null | undefined): boolean => !!actor?.roles.includes("admin");
-
 const requireAdminActor = async <T,>(params: {
   actor: AccountsActor | null | undefined;
   action: string;
@@ -264,7 +262,7 @@ const requireDifferentActor = async <T,>(params: {
   message: string;
   target?: AuditTarget;
 }): Promise<Result<T> | null> => {
-  if (params.actor?.userId !== params.targetUserId) return null;
+  if (!isSelfTarget({ actor: params.actor, targetUserId: params.targetUserId })) return null;
   return audit.deny<T>({
     action: params.action,
     actor: auditActor(params.actor),
@@ -278,7 +276,7 @@ const authorizeGroupMutation = async <T,>(params: {
   group: BaseGroup;
   action: string;
 }): Promise<Result<T> | null> => {
-  if (isAdminActor(params.actor)) return null;
+  if (canMutateManagedGroup({ actor: params.actor, groupId: params.group.id, managedGroupIds: [] })) return null;
   if (!params.actor) {
     return audit.deny<T>({
       action: params.action,
@@ -287,7 +285,7 @@ const authorizeGroupMutation = async <T,>(params: {
     });
   }
   const managedGroupIds = await users.getManagedGroupIds({ id: params.actor.userId, recursive: true });
-  if (managedGroupIds.includes(params.group.id)) return null;
+  if (canMutateManagedGroup({ actor: params.actor, groupId: params.group.id, managedGroupIds })) return null;
   return audit.deny<T>({
     action: params.action,
     actor: auditActor(params.actor),
