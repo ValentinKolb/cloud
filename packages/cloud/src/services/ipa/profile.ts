@@ -1,8 +1,9 @@
 /**
  * Centralized profile calculation for IPA-backed users.
  *
- * The calculation uses the local mirrored IPA group tree only and treats
- * `auth.groups.id` as the canonical group identity.
+ * Full sync writes `auth.ipa_user_effective_groups` from FreeIPA group_find.
+ * Local group mutations rebuild the same projection from the local mirror for
+ * immediate UI consistency until the next full sync reconciles it again.
  */
 
 import { sql } from "bun";
@@ -37,6 +38,17 @@ export const getAllUserGroups = async (userId: string): Promise<string[]> => {
   return rows.map((row) => row.name as string);
 };
 
+export const getEffectiveUserGroups = async (userId: string): Promise<string[]> => {
+  const rows: DbRow[] = await sql`
+    SELECT group_name
+    FROM auth.ipa_user_effective_groups
+    WHERE user_id = ${userId}::uuid
+    ORDER BY group_name
+  `;
+
+  return rows.map((row) => row.group_name as string);
+};
+
 /**
  * Calculate canonical IPA profile from effective group names. Reads
  * `freeipa.groups.base_ipa_realm` from settings (cache-aside).
@@ -54,11 +66,35 @@ export const calculateIpaProfileFromLocalDb = async (userId: string): Promise<"u
   return calculateIpaProfile(groups);
 };
 
+export const calculateIpaProfileFromEffectiveProjection = async (userId: string): Promise<"user" | "guest"> => {
+  const groups = await getEffectiveUserGroups(userId);
+  return calculateIpaProfile(groups);
+};
+
+const rebuildEffectiveProjectionFromLocalMirror = async (userId: string): Promise<string[]> => {
+  const groups = await getAllUserGroups(userId);
+  await sql`
+    DELETE FROM auth.ipa_user_effective_groups
+    WHERE user_id = ${userId}::uuid
+  `;
+
+  for (const group of groups) {
+    await sql`
+      INSERT INTO auth.ipa_user_effective_groups (user_id, group_name)
+      VALUES (${userId}::uuid, ${group})
+      ON CONFLICT DO NOTHING
+    `;
+  }
+
+  return groups;
+};
+
 /**
  * Update one IPA-backed user's canonical profile projection.
  */
 export const updateUserIpaProfile = async (userId: string): Promise<void> => {
-  const profile = await calculateIpaProfileFromLocalDb(userId);
+  const groups = await rebuildEffectiveProjectionFromLocalMirror(userId);
+  const profile = await calculateIpaProfile(groups);
   await sql`
     UPDATE auth.users
     SET provider = 'ipa',

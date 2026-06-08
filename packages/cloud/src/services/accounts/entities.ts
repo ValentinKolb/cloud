@@ -471,11 +471,9 @@ export const list = async (params: EntityListParams): Promise<{
             WHEN u.provider = 'local' THEN u.admin
             ELSE EXISTS(
               SELECT 1
-              FROM auth.user_groups_v2 ug_admin
-              JOIN auth.groups g_admin ON g_admin.id = ug_admin.group_id
-              WHERE ug_admin.user_id = u.id
-                AND g_admin.provider = 'ipa'
-                AND g_admin.name = ANY(${groupsAdminLiteral}::text[])
+              FROM auth.ipa_user_effective_groups eg
+              WHERE eg.user_id = u.id
+                AND eg.group_name = ANY(${groupsAdminLiteral}::text[])
             )
           END AS effective_admin,
           LOWER(COALESCE(NULLIF(u.display_name, ''), NULLIF(u.mail, ''), u.uid)) AS sort_label

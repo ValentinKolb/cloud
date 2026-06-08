@@ -113,17 +113,21 @@ const buildUser = (row: DbRow, groupsAdmin: string[]): User => {
   const memberofGroupIds = (row.member_group_ids as string[]) ?? [];
   const manages = (row.manages as string[]) ?? [];
   const managesGroupIds = (row.manages_group_ids as string[]) ?? [];
+  const effectiveAdmin =
+    row.effective_admin !== undefined
+      ? Boolean(row.effective_admin)
+      : resolveEffectiveAdminState({
+          provider,
+          storedAdmin: Boolean(row.admin),
+          memberofGroup,
+          groupsAdmin,
+        });
   const roles = buildRoles({
     provider,
     profile,
     memberofGroup,
     manages,
-    admin: resolveEffectiveAdminState({
-      provider,
-      storedAdmin: Boolean(row.admin),
-      memberofGroup,
-      groupsAdmin,
-    }),
+    admin: effectiveAdmin,
   });
   const common = {
     id: row.id as string,
@@ -160,9 +164,19 @@ const buildUser = (row: DbRow, groupsAdmin: string[]): User => {
 export const get = async (params: { id: string } | { uid: string }): Promise<User | null> => {
   const whereClause = "id" in params ? sql`u.id = ${params.id}` : sql`u.uid = ${params.uid}`;
   const userIdExpr = "id" in params ? sql`${params.id}` : sql`u.id`;
+  const { groupsAdmin } = await getFreeIpaConfig();
   const rows = await sql<DbRow[]>`
     SELECT u.*,
       ${userIpaDataColumns},
+      CASE
+        WHEN u.provider = 'local' THEN u.admin
+        ELSE EXISTS(
+          SELECT 1
+          FROM auth.ipa_user_effective_groups eg
+          WHERE eg.user_id = u.id
+            AND eg.group_name = ANY(${toPgTextArray(groupsAdmin)}::text[])
+        )
+      END AS effective_admin,
       COALESCE(ARRAY(
         SELECT g.name
         FROM auth.user_groups_v2 ug
@@ -188,7 +202,6 @@ export const get = async (params: { id: string } | { uid: string }): Promise<Use
     WHERE ${whereClause}
   `;
   if (rows.length === 0) return null;
-  const { groupsAdmin } = await getFreeIpaConfig();
   return buildUser(rows[0]!, groupsAdmin);
 };
 
@@ -203,13 +216,22 @@ export const getMinimal = async (params: { id: string } | { uid: string }): Prom
   return buildUserMutationTarget(rows[0]!);
 };
 
-/**
- * Minimal user lookup by UID. Returns id + roles WITHOUT group-derived roles.
- * IPA admin status from group membership is NOT resolved here.
- * Use the full `get()` for authorization decisions that depend on group-derived admin.
- */
 export const getByUid = async (params: { uid: string }): Promise<{ id: string; roles: Role[] } | null> => {
-  const rows = await sql<DbRow[]>`SELECT id, provider, profile, admin FROM auth.users WHERE uid = ${params.uid}`;
+  const { groupsAdmin } = await getFreeIpaConfig();
+  const rows = await sql<DbRow[]>`
+    SELECT u.id, u.provider, u.profile, u.admin,
+      CASE
+        WHEN u.provider = 'local' THEN u.admin
+        ELSE EXISTS(
+          SELECT 1
+          FROM auth.ipa_user_effective_groups eg
+          WHERE eg.user_id = u.id
+            AND eg.group_name = ANY(${toPgTextArray(groupsAdmin)}::text[])
+        )
+      END AS effective_admin
+    FROM auth.users u
+    WHERE u.uid = ${params.uid}
+  `;
   if (rows.length === 0) return null;
   const { provider, profile } = resolveProviderProfile(rows[0]!);
   const roles = buildRoles({
@@ -217,10 +239,7 @@ export const getByUid = async (params: { uid: string }): Promise<{ id: string; r
     profile,
     memberofGroup: [],
     manages: [],
-    admin: resolveEffectiveAdminState({
-      provider,
-      storedAdmin: Boolean(rows[0]!.admin),
-    }),
+    admin: Boolean(rows[0]!.effective_admin),
   });
   return { id: rows[0]!.id as string, roles };
 };
@@ -281,11 +300,9 @@ export const list = async (params: {
         WHEN u.provider = 'local' THEN u.admin
         ELSE EXISTS(
           SELECT 1
-            FROM auth.user_groups_v2 ug
-            JOIN auth.groups g_admin ON g_admin.id = ug.group_id
-            WHERE ug.user_id = u.id
-            AND g_admin.provider = 'ipa'
-            AND g_admin.name = ANY(${toPgTextArray(groupsAdmin)}::text[])
+          FROM auth.ipa_user_effective_groups eg
+          WHERE eg.user_id = u.id
+            AND eg.group_name = ANY(${toPgTextArray(groupsAdmin)}::text[])
         )
       END AS effective_admin
     FROM auth.users u

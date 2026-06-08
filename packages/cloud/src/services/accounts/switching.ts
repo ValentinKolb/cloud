@@ -88,6 +88,11 @@ export const transitionIpaUserToLocal = async (params: {
     WHERE user_id = ${params.userId}::uuid
   `;
 
+  await db`
+    DELETE FROM auth.ipa_user_effective_groups
+    WHERE user_id = ${params.userId}::uuid
+  `;
+
   await clearUserRelationsForProvider({
     userId: params.userId,
     provider: "ipa",

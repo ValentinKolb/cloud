@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import { applyIpaAccountTransitionPolicy } from "../accounts/switching";
 import {
+  calculateIpaProfileFromGroupNames,
   parseIpaAccountTransitionPolicy,
   parseIpaMatchMode,
 } from "../account-model";
@@ -10,7 +11,8 @@ import * as settings from "../settings";
 import { session } from "../session";
 import { freeipa } from "../../server/services";
 import { getFreeIpaConfig } from "../freeipa-config";
-import { calculateIpaProfile, calculateIpaProfileFromLocalDb } from "./profile";
+import { buildEffectiveIpaGroupsByUid } from "./effective-groups";
+import { calculateIpaProfileFromEffectiveProjection, getEffectiveUserGroups } from "./profile";
 
 type DbRow = Record<string, unknown>;
 
@@ -148,7 +150,7 @@ const transformSyncUser = (raw: Record<string, unknown>): SyncUser => {
  * `excludedGroupsSet` is hoisted to the caller so we don't re-read settings
  * once per group.
  */
-const transformSyncGroup = (raw: Record<string, unknown>, excludedGroupsSet: Set<string>): SyncGroup => ({
+const transformSyncGroup = (raw: Record<string, unknown>, excludedGroupsSet: Set<string> = new Set()): SyncGroup => ({
   cn: freeipa.util.str(raw.cn),
   description: freeipa.util.str(raw.description) || null,
   gidnumber: freeipa.util.num(raw.gidnumber),
@@ -224,15 +226,13 @@ export const syncFromIpa = async (): Promise<void> => {
   ]);
 
   const allRawUsers = readIpaList({ response: usersRes, entity: "users" });
-
-  const users = allRawUsers
-    .filter((raw) => {
-      const groups = (raw.memberof_group as string[]) ?? [];
-      return config.groupsBaseSync.some((g) => groups.includes(g));
-    })
-    .map(transformSyncUser);
-
+  const allUsers = allRawUsers.map(transformSyncUser);
   const allRawGroups = readIpaList({ response: groupsRes, entity: "groups" });
+  const effectiveGroupsByUid = buildEffectiveIpaGroupsByUid(allRawGroups.map((raw) => transformSyncGroup(raw)));
+  const users = allUsers.filter((user) => {
+    const effectiveGroups = effectiveGroupsByUid.get(user.uid) ?? [];
+    return config.groupsBaseSync.some((group) => effectiveGroups.includes(group));
+  });
   const groups = allRawGroups.map((raw) => transformSyncGroup(raw, excludedGroupsSet)).filter((g) => !excludedGroupsSet.has(g.cn));
 
   const activeUsers = users.filter((u) => !isExpired(u));
@@ -242,6 +242,7 @@ export const syncFromIpa = async (): Promise<void> => {
   // and their sessions are revoked. Treating expired users as in-scope would leave a stale
   // unexpired local row plus live sessions.
   const inScopeUids = new Set(activeUsers.map((u) => u.uid));
+  const remoteGroupCns = new Set(allRawGroups.map((raw) => freeipa.util.str(raw.cn)).filter(Boolean));
   const groupCns = new Set(groups.map((g) => g.cn));
   const matchMode = parseIpaMatchMode(await settings.get<string | null>("freeipa.user_match_mode"));
   const transitionPolicy = parseIpaAccountTransitionPolicy(
@@ -269,7 +270,7 @@ export const syncFromIpa = async (): Promise<void> => {
   if (activeUsers.length === 0 && localIpaUsers > 0) {
     throw new Error(`Refusing IPA sync: remote active users list is empty while local has ${localIpaUsers} IPA users`);
   }
-  if (groupCns.size === 0 && localGroups > 0) {
+  if (remoteGroupCns.size === 0 && localGroups > 0) {
     throw new Error(`Refusing IPA sync: remote groups list is empty while local has ${localGroups} groups`);
   }
 
@@ -279,6 +280,27 @@ export const syncFromIpa = async (): Promise<void> => {
     WHERE provider = 'ipa'
     ORDER BY uid
   `;
+  const currentProfileByUid = new Map(
+    localIpaRows.map((row) => [row.uid as string, row.profile as "user" | "guest"]),
+  );
+  let profileDriftCount = 0;
+  const profileDriftSamples: string[] = [];
+  let profilesPromoted = 0;
+  let profilesDemoted = 0;
+  for (const user of activeUsers) {
+    const effectiveGroups = effectiveGroupsByUid.get(user.uid) ?? [];
+    const graphProfile = calculateIpaProfileFromGroupNames(effectiveGroups, config.groupsBaseIpaRealm);
+    const userSideProfile = calculateIpaProfileFromGroupNames(user.memberofGroup, config.groupsBaseIpaRealm);
+    if (graphProfile !== userSideProfile) {
+      profileDriftCount += 1;
+      if (profileDriftSamples.length < 10) profileDriftSamples.push(user.uid);
+    }
+
+    const previousProfile = currentProfileByUid.get(user.uid);
+    if (previousProfile === "guest" && graphProfile === "user") profilesPromoted += 1;
+    if (previousProfile === "user" && graphProfile === "guest") profilesDemoted += 1;
+  }
+
   const staleLocalUsers = localIpaRows.filter((row) => !inScopeUids.has(row.uid as string));
   const staleLimit = Math.max(10, Math.ceil(Math.max(localIpaUsers, 1) * 0.2));
   if (staleLocalUsers.length > staleLimit) {
@@ -286,13 +308,29 @@ export const syncFromIpa = async (): Promise<void> => {
       `Refusing IPA sync: ${staleLocalUsers.length} local IPA users disappeared from sync scope (limit ${staleLimit})`,
     );
   }
+  if (profilesDemoted > staleLimit) {
+    throw new Error(
+      `Refusing IPA sync: ${profilesDemoted} IPA users would be downgraded from user to guest (limit ${staleLimit})`,
+    );
+  }
+  if (profilesDemoted > 0) {
+    log.warn("IPA sync will downgrade user profiles", { profilesDemoted, limit: staleLimit });
+  }
+  if (profileDriftCount > 0) {
+    log.warn("IPA user memberOf drift detected; using group graph projection", {
+      profileDriftCount,
+      sampleUids: profileDriftSamples,
+    });
+  }
 
   const staleDemotedUsers: Array<{ id: string; uid: string }> = [];
+  let effectiveGroupsRebuilt = 0;
   await sql.begin(async (tx) => {
     // 1. Upsert active IPA users
     //    Match order: mail (existing IPA user, handles UID renames) → mail (guest promotion) → uid (new or unchanged)
     for (const u of activeUsers) {
-      const profile = await calculateIpaProfile(u.memberofGroup);
+      const effectiveGroups = effectiveGroupsByUid.get(u.uid) ?? [];
+      const profile = calculateIpaProfileFromGroupNames(effectiveGroups, config.groupsBaseIpaRealm);
       const provider = "ipa";
 
       if (u.mail) {
@@ -473,6 +511,23 @@ export const syncFromIpa = async (): Promise<void> => {
     const userIdRows: DbRow[] = await tx`SELECT id, uid FROM auth.users WHERE provider = 'ipa'`;
     const uidToId = new Map<string, string>(userIdRows.map((r) => [r.uid as string, r.id as string]));
 
+    await tx`
+      DELETE FROM auth.ipa_user_effective_groups
+      WHERE user_id IN (SELECT id FROM auth.users WHERE provider = 'ipa')
+    `;
+    const effectiveGroupRows: { user_id: string; group_name: string }[] = [];
+    for (const [uid, groupNames] of effectiveGroupsByUid) {
+      const userId = uidToId.get(uid);
+      if (!userId) continue;
+      for (const groupName of groupNames) {
+        effectiveGroupRows.push({ user_id: userId, group_name: groupName });
+      }
+    }
+    if (effectiveGroupRows.length > 0) {
+      await tx`INSERT INTO auth.ipa_user_effective_groups ${sql(effectiveGroupRows, "user_id", "group_name")} ON CONFLICT DO NOTHING`;
+    }
+    effectiveGroupsRebuilt = effectiveGroupRows.length;
+
     // Bulk INSERT helper. Bun's `sql(rows)` only generates valid VALUES
     // syntax when fed an array of OBJECTS (it derives the column list from
     // object keys). Passing array-of-arrays produces broken SQL like
@@ -541,6 +596,11 @@ export const syncFromIpa = async (): Promise<void> => {
     skippedLocalMailConflicts,
     skippedLocalUidConflicts,
     staleUsersDemoted: staleDemotedUsers.length,
+    scopeTransitions: staleDemotedUsers.length,
+    profileDriftCount,
+    profilesPromoted,
+    profilesDemoted,
+    effectiveGroupsRebuilt,
     upsertedUsersByUid,
     insertedUsersByUid,
     updatedUsersByUid,
@@ -566,8 +626,9 @@ export type SyncUserOutcome =
 
 /**
  * Reconcile a local IPA mirror row after discovering the remote user is no
- * longer in sync scope (expired or removed from base-sync groups). Applies the
- * configured account-transition policy and revokes all sessions for the user.
+ * longer valid because the IPA account is expired. Full sync also uses this
+ * transition policy for graph-derived out-of-scope users; single-user sync does
+ * not demote based on FreeIPA user-side memberOf data.
  */
 const reconcileOutOfScopeUser = async (params: {
   userId: string;
@@ -632,12 +693,13 @@ const reconcileOutOfScopeUser = async (params: {
  * Called on login to ensure time-sensitive data is up-to-date.
  *
  * IMPORTANT: Only syncs user attributes (name, mail, expiry, aliases).
- * Does NOT sync group memberships - those are only synced via periodic syncFromIpa().
- * Realm is calculated from LOCAL DB group memberships (optimistically updated by mutations).
+ * Does NOT sync group memberships. Scope/profile come from the last full-sync
+ * effective group projection; user-side memberOf drift is logged but never used
+ * for destructive transitions here.
  *
  * Returns a typed outcome so callers (notably `authFlows.ipa.login`) can decide
- * whether to grant a session. Non-`synced` outcomes reconcile local mirror state
- * where possible (expired / out_of_scope → transition policy + session revocation).
+ * whether to grant a session. Expired users are reconciled immediately; group
+ * scope changes are handled by full sync.
  */
 export const syncUser = async (username: string): Promise<SyncUserOutcome> => {
   const config = await getFreeIpaConfig();
@@ -697,29 +759,30 @@ export const syncUser = async (username: string): Promise<SyncUserOutcome> => {
     return { status: "expired", userId: existingUserId };
   }
 
-  const inSyncGroups = config.groupsBaseSync.some((g) => user.memberofGroup.includes(g));
-  if (!inSyncGroups) {
-    log.warn("User not in sync groups during single-user sync", { username });
-    if (existingUserId) {
-      await reconcileOutOfScopeUser({
-        userId: existingUserId,
-        uid: user.uid,
-        mail: (existingRow?.mail as string | null) ?? user.mail,
-        displayName: (existingRow?.display_name as string | null) ?? user.displayName,
-        previousProfile,
-        reason: "sync_out_of_scope_demoted",
-        meta: { reason: "missing_from_ipa_sync_scope" },
-      });
-    }
-    return { status: "out_of_scope", userId: existingUserId };
-  }
-
   if (!existingUserId) {
     log.warn("User not found in local DB during single-user sync", { username });
     return { status: "not_found_local" };
   }
 
-  const profile = await calculateIpaProfileFromLocalDb(existingUserId);
+  const effectiveGroups = await getEffectiveUserGroups(existingUserId);
+  const inSyncGroups = config.groupsBaseSync.some((g) => effectiveGroups.includes(g));
+  if (!inSyncGroups) {
+    log.warn("User not in projected sync groups during single-user sync", {
+      username,
+      reason: "missing_from_last_full_sync_projection",
+    });
+    return { status: "out_of_scope", userId: existingUserId };
+  }
+
+  const profile = await calculateIpaProfileFromEffectiveProjection(existingUserId);
+  const userSideProfile = calculateIpaProfileFromGroupNames(user.memberofGroup, config.groupsBaseIpaRealm);
+  if (profile !== userSideProfile) {
+    log.warn("IPA user memberOf drift detected during single-user sync", {
+      username,
+      projectedProfile: profile,
+      userSideProfile,
+    });
+  }
   const provider = "ipa";
 
   // Update user attributes only (no group sync!)

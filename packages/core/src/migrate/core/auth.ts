@@ -145,6 +145,40 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ auth.user/group junction tables");
 
   await sql`
+    CREATE TABLE IF NOT EXISTS auth.ipa_user_effective_groups (
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      group_name TEXT NOT NULL,
+      PRIMARY KEY (user_id, group_name)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ipa_user_effective_groups_group
+    ON auth.ipa_user_effective_groups(group_name)
+  `.simple();
+  await sql`
+    INSERT INTO auth.ipa_user_effective_groups (user_id, group_name)
+    WITH RECURSIVE all_groups AS (
+      SELECT ug.user_id, ug.group_id
+      FROM auth.user_groups_v2 ug
+      JOIN auth.groups g ON g.id = ug.group_id
+      JOIN auth.users u ON u.id = ug.user_id
+      WHERE g.provider = 'ipa'
+        AND u.provider = 'ipa'
+      UNION
+      SELECT ag.user_id, gg.parent_group_id
+      FROM auth.group_groups_v2 gg
+      JOIN auth.groups g_parent ON g_parent.id = gg.parent_group_id
+      JOIN all_groups ag ON gg.child_group_id = ag.group_id
+      WHERE g_parent.provider = 'ipa'
+    )
+    SELECT DISTINCT ag.user_id, g.name
+    FROM all_groups ag
+    JOIN auth.groups g ON g.id = ag.group_id
+    ON CONFLICT DO NOTHING
+  `.simple();
+  console.log("  ✓ auth.ipa_user_effective_groups table");
+
+  await sql`
     CREATE OR REPLACE FUNCTION auth.enforce_provider_safe_group_relations()
     RETURNS trigger AS $$
     DECLARE

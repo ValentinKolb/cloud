@@ -63,11 +63,9 @@ export const search = async (query: string, options: SearchOptions): Promise<{ u
       SELECT u.id, u.uid, u.provider, u.profile, u.given_name, u.sn, u.display_name, u.mail,
         EXISTS(
           SELECT 1
-          FROM auth.user_groups_v2 ug_admin
-          JOIN auth.groups g_admin ON g_admin.id = ug_admin.group_id
-          WHERE ug_admin.user_id = u.id
-            AND g_admin.provider = 'ipa'
-            AND g_admin.name = ANY(${toPgTextArray(groupsAdmin)}::text[])
+          FROM auth.ipa_user_effective_groups eg
+          WHERE eg.user_id = u.id
+            AND eg.group_name = ANY(${toPgTextArray(groupsAdmin)}::text[])
         ) AS effective_admin
       FROM auth.users u
       WHERE u.provider = 'ipa'
