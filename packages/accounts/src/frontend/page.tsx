@@ -11,11 +11,11 @@ import { getAccountTypeLabel, getManagementBadge, getManagementLabel, getPrimary
 import { buildGroupsUrl } from "./lib/url-state";
 
 const BASE_QUICK_LINKS = [
-  { href: "/admin/logging?source=auth:ipa:sync", label: "Sync logs" },
-  { href: "/admin/logging?source=auth:ipa:backfill", label: "IPA backfill" },
-  { href: "/admin/logging?source=auth:local-user:backfill", label: "Local user backfill" },
-  { href: "/admin/logging?source=auth:guest:backfill", label: "Guest backfill" },
-  { href: "/admin/logging?source=auth:reminder:daily", label: "Reminder runs" },
+  { href: "/admin/observability/logs?source=auth:ipa:sync", label: "Sync logs" },
+  { href: "/admin/observability/logs?source=auth:ipa:backfill", label: "IPA backfill" },
+  { href: "/admin/observability/logs?source=auth:local-user:backfill", label: "Local user backfill" },
+  { href: "/admin/observability/logs?source=auth:guest:backfill", label: "Guest backfill" },
+  { href: "/admin/observability/logs?source=auth:reminder:daily", label: "Reminder runs" },
   { href: "/app/accounts/deleted-accounts", label: "Deleted accounts" },
   { href: "/app/accounts/reminders", label: "Reminder history" },
 ] as const;
@@ -136,6 +136,19 @@ export default ssr<AuthContext>(async (c) => {
                 <div class="h-px flex-1 bg-zinc-200/70 dark:bg-zinc-700/50" />
                 <span class="text-[10px] uppercase tracking-[0.2em] text-dimmed select-none">Admin</span>
                 <div class="h-px flex-1 bg-zinc-200/70 dark:bg-zinc-700/50" />
+              </div>
+
+              <div class="paper px-4 py-3">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div class="min-w-0">
+                    <p class="text-xs font-medium text-primary">Administrative account actions are recorded in the audit log.</p>
+                    <p class="mt-0.5 text-[11px] text-dimmed">Review user, group, and account request changes from one searchable history.</p>
+                  </div>
+                  <a href="/app/accounts/audit" class="btn-input btn-input-sm shrink-0">
+                    <i class="ti ti-clipboard-list" />
+                    Audit Log
+                  </a>
+                </div>
               </div>
 
               {/* Hero stats: Run Health (left, list of progress rows) + 2x2 stat grid (right).

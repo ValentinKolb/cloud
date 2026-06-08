@@ -263,7 +263,13 @@ export default ssr<AuthContext>(async (c) => {
                 {user.givenname || user.sn ? ` · ${[user.givenname, user.sn].filter(Boolean).join(" ")}` : ""}
               </p>
             </div>
-            <UserActions user={user} listHref={buildUsersUrl(listState)} freeIpaEnabled={freeIpaEnabled} />
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              <a href={`/app/accounts/audit?actor=${encodeURIComponent(user.id)}`} class="btn-input btn-input-sm">
+                <i class="ti ti-clipboard-list" />
+                Actions by user
+              </a>
+              <UserActions user={user} listHref={buildUsersUrl(listState)} freeIpaEnabled={freeIpaEnabled} />
+            </div>
           </div>
 
           <AccountsFactGrid facts={facts} columns={3} viewTransitionName="accounts-user-facts" />

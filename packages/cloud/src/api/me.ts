@@ -21,6 +21,13 @@ import {
   accountsAppService as accountsService,
 } from "../services";
 
+const toAccountsActor = (user: AuthContext["Variables"]["user"]) => ({
+  userId: user.id,
+  uid: user.uid,
+  roles: user.roles,
+  provider: user.provider,
+});
+
 const ExtendAccountResponseSchema = z.object({
   message: z.string(),
   newExpiry: z.string().datetime().optional(),
@@ -70,7 +77,7 @@ const app = new Hono<AuthContext>()
         const token = c.get("sessionToken");
         const data = c.req.valid("json");
         const ipaSession = user.provider === "ipa" ? await auth.session.getIpaSession(token) : null;
-        const result = await accountsService.user.update({ ipaSession, id: user.id, data });
+        const result = await accountsService.user.update({ actor: toAccountsActor(user), ipaSession, id: user.id, data });
         if (!result.ok) return result;
         return ok({ message: "Profile updated." });
       }),

@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import { accountLifecycle } from "../account-lifecycle";
+import { audit, type AuditActor, type AuditTarget } from "../audit";
 import { lifecycleJobs } from "../account-lifecycle/scheduler";
 import { logger, logging, type LogEntry } from "../logging";
 import { notifications } from "../notifications";
@@ -59,6 +60,8 @@ type CreateUserInput =
 
 type DbRow = Record<string, unknown>;
 type MutationErrorStatus = Extract<MutationResult, { ok: false }>["status"];
+type AccountsActor = { userId: string; uid: string; roles: string[]; provider?: string | null };
+type CreateUserResult = { id: string; uid: string; accountExpires: string | null; notificationSent: boolean };
 
 export type AccountRequestStatus = "pending" | "completed" | "denied";
 export type AccountRequestScope = "open" | "processed" | "all";
@@ -214,6 +217,85 @@ const mapSummary = (row: DbRow): AccountsDashboardSummary => {
 
 const appLog = logger("accounts:app");
 
+const auditActor = (actor: AccountsActor | null | undefined): AuditActor | null =>
+  actor
+    ? {
+        userId: actor.userId,
+        uid: actor.uid,
+        provider: actor.provider,
+        roles: actor.roles,
+      }
+    : null;
+
+const userTarget = (user: { id?: string | null; uid?: string | null; provider?: string | null } | null | undefined): AuditTarget => ({
+  type: "user",
+  id: user?.id ?? null,
+  label: user?.uid ?? null,
+  provider: user?.provider ?? null,
+});
+
+const groupTarget = (group: { id?: string | null; name?: string | null; provider?: string | null } | null | undefined): AuditTarget => ({
+  type: "group",
+  id: group?.id ?? null,
+  label: group?.name ?? null,
+  provider: group?.provider ?? null,
+});
+
+const isAdminActor = (actor: AccountsActor | null | undefined): boolean => !!actor?.roles.includes("admin");
+
+const requireAdminActor = async <T,>(params: {
+  actor: AccountsActor | null | undefined;
+  action: string;
+  target?: AuditTarget;
+}): Promise<Result<T> | null> => {
+  if (isAdminActor(params.actor)) return null;
+  return audit.deny<T>({
+    action: params.action,
+    actor: auditActor(params.actor),
+    target: params.target,
+    message: "Admin access required",
+  });
+};
+
+const requireDifferentActor = async <T,>(params: {
+  actor: AccountsActor | null | undefined;
+  targetUserId: string;
+  action: string;
+  message: string;
+  target?: AuditTarget;
+}): Promise<Result<T> | null> => {
+  if (params.actor?.userId !== params.targetUserId) return null;
+  return audit.deny<T>({
+    action: params.action,
+    actor: auditActor(params.actor),
+    target: params.target,
+    message: params.message,
+  });
+};
+
+const authorizeGroupMutation = async <T,>(params: {
+  actor: AccountsActor | null | undefined;
+  group: BaseGroup;
+  action: string;
+}): Promise<Result<T> | null> => {
+  if (isAdminActor(params.actor)) return null;
+  if (!params.actor) {
+    return audit.deny<T>({
+      action: params.action,
+      target: groupTarget(params.group),
+      message: "Access denied",
+    });
+  }
+  const managedGroupIds = await users.getManagedGroupIds({ id: params.actor.userId, recursive: true });
+  if (managedGroupIds.includes(params.group.id)) return null;
+  return audit.deny<T>({
+    action: params.action,
+    actor: auditActor(params.actor),
+    target: groupTarget(params.group),
+    message: "Access denied",
+  });
+};
+
 const buildAccountRequestWhereClause = (config: {
   access: { userId: string; isAdmin: boolean };
   filter?: { status?: AccountRequestStatus; scope?: AccountRequestScope };
@@ -310,7 +392,18 @@ export const accountsAppService = {
           recursive: config.recursive,
         }),
     },
-    create: async (config: { ipaSession?: string | null; data: CreateUserInput; processedBy: string }) => {
+    create: async (config: {
+      actor: AccountsActor;
+      ipaSession?: string | null;
+      data: CreateUserInput;
+      processedBy: string;
+    }): Promise<Result<CreateUserResult>> => {
+      const adminError = await requireAdminActor<{ id: string; uid: string; accountExpires: string | null; notificationSent: boolean }>({
+        actor: config.actor,
+        action: "accounts.user.create",
+        target: { type: "user", label: config.data.email, provider: config.data.provider },
+      });
+      if (adminError) return adminError;
       const createResult = fromMutationResult(
         await users.create({
           ipaSession: config.ipaSession,
@@ -321,7 +414,15 @@ export const accountsAppService = {
           },
         }),
       );
-      if (!createResult.ok) return createResult;
+      if (!createResult.ok) {
+        return audit.recordResult({
+          action: "accounts.user.create",
+          actor: auditActor(config.actor),
+          target: { type: "user", label: config.data.email, provider: config.data.provider },
+          metadata: { provider: config.data.provider, requestId: config.data.requestId ?? null },
+          result: createResult,
+        });
+      }
 
       const created = createResult.data;
       const autoSend = config.data.autoSendNotification ?? true;
@@ -373,32 +474,213 @@ export const accountsAppService = {
             createdUserId: created.user.id,
             processedBy: config.processedBy,
           });
-          return fail(err.badInput("Account request not found, already processed, or not owned by the created user"));
+          const result = fail(err.badInput("Account request not found, already processed, or not owned by the created user"));
+          return audit.recordResult({
+            action: "accounts.user.create",
+            actor: auditActor(config.actor),
+            target: userTarget(created.user),
+            metadata: { provider: config.data.provider, requestId: config.data.requestId },
+            result,
+          });
         }
       }
 
-      return ok({
-        id: created.user.id,
-        uid: created.user.uid,
-        accountExpires: created.user.accountExpires,
-        notificationSent: autoSend,
+      return audit.recordResult({
+        action: "accounts.user.create",
+        actor: auditActor(config.actor),
+        target: userTarget(created.user),
+        metadata: { provider: config.data.provider, requestId: config.data.requestId ?? null, notificationSent: autoSend },
+        result: ok({
+          id: created.user.id,
+          uid: created.user.uid,
+          accountExpires: created.user.accountExpires,
+          notificationSent: autoSend,
+        }),
       });
     },
-    update: async (config: { ipaSession?: string | null; id: string; data: Parameters<typeof users.update>[0]["data"] }) =>
-      fromMutationResult(await users.update(config)),
-    resetPassword: async (config: { ipaSession: string; id: string }) => fromMutationResult(await users.resetPassword(config)),
-    setExpiry: async (config: { actor?: { userId: string; uid: string; roles: string[] }; ipaSession?: string | null; id: string; expiryDate: string | null }) =>
-      fromMutationResult(await users.setExpiry(config)),
-    setProfile: async (config: { id: string; profile: UserProfile }) => fromMutationResult(await users.setProfile(config)),
-    setAdmin: async (config: { id: string; admin: boolean }) => fromMutationResult(await users.setAdmin(config)),
-    switchProvider: async (config: { ipaSession: string; id: string; provider: UserProvider }) =>
-      fromMutationResult(await users.switchProvider(config)),
-    demoteToGuest: async (config: { ipaSession: string; id: string; actor: { userId: string; uid: string } }) =>
-      fromMutationResult(await users.demoteToGuest(config)),
-    sendLoginLink: async (config: { id: string }) => fromMutationResult(await users.sendLoginLink(config)),
-    createLoginToken: async (config: { id: string }) => fromMutationResult(await users.createLoginToken(config)),
-    remove: async (config: { ipaSession?: string | null; id: string; actor: { userId: string; uid: string } }) =>
-      fromMutationResult(await users.remove(config)),
+    update: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; data: Parameters<typeof users.update>[0]["data"] }) => {
+      const target = await users.getMinimal({ id: config.id });
+      const targetInfo = userTarget(target);
+      if (config.actor.userId !== config.id) {
+        const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.update", target: targetInfo });
+        if (adminError) return adminError;
+      }
+      const result = fromMutationResult(await users.update(config));
+      return audit.recordResult({
+        action: "accounts.user.update",
+        actor: auditActor(config.actor),
+        target: targetInfo,
+        metadata: { changedFields: Object.keys(config.data), selfService: config.actor.userId === config.id },
+        result,
+      });
+    },
+    resetPassword: async (config: { actor: AccountsActor; ipaSession: string; id: string }) => {
+      const target = await users.getMinimal({ id: config.id });
+      const targetInfo = userTarget(target);
+      const adminError = await requireAdminActor<{ password: string }>({ actor: config.actor, action: "accounts.user.password_reset", target: targetInfo });
+      if (adminError) return adminError;
+      const selfError = await requireDifferentActor<{ password: string }>({
+        actor: config.actor,
+        targetUserId: config.id,
+        action: "accounts.user.password_reset",
+        target: targetInfo,
+        message: "You cannot reset your own password from the admin users API.",
+      });
+      if (selfError) return selfError;
+      const result = fromMutationResult(await users.resetPassword(config));
+      return audit.recordResult({
+        action: "accounts.user.password_reset",
+        actor: auditActor(config.actor),
+        target: targetInfo,
+        result: result.ok ? ok({ password: "[REDACTED]" }) : result,
+      }).then(() => result);
+    },
+    setExpiry: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; expiryDate: string | null }) => {
+      const target = await users.getMinimal({ id: config.id });
+      const targetInfo = userTarget(target);
+      const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.set_expiry", target: targetInfo });
+      if (adminError) return adminError;
+      const result = fromMutationResult(await users.setExpiry(config));
+      return audit.recordResult({
+        action: "accounts.user.set_expiry",
+        actor: auditActor(config.actor),
+        target: targetInfo,
+        metadata: { expiryDate: config.expiryDate },
+        result,
+      });
+    },
+    setProfile: async (config: { actor: AccountsActor; id: string; profile: UserProfile }) => {
+      const target = await users.getMinimal({ id: config.id });
+      const targetInfo = userTarget(target);
+      const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.set_profile", target: targetInfo });
+      if (adminError) return adminError;
+      const selfError = config.profile === "guest"
+        ? await requireDifferentActor<void>({
+            actor: config.actor,
+            targetUserId: config.id,
+            action: "accounts.user.set_profile",
+            target: targetInfo,
+            message: "You cannot demote your own account to guest.",
+          })
+        : null;
+      if (selfError) return selfError;
+      const result = fromMutationResult(await users.setProfile(config));
+      return audit.recordResult({
+        action: "accounts.user.set_profile",
+        actor: auditActor(config.actor),
+        target: targetInfo,
+        metadata: { profile: config.profile },
+        result,
+      });
+    },
+    setAdmin: async (config: { actor: AccountsActor; id: string; admin: boolean }) => {
+      const target = await users.getMinimal({ id: config.id });
+      const targetInfo = userTarget(target);
+      const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.set_admin", target: targetInfo });
+      if (adminError) return adminError;
+      const result = fromMutationResult(await users.setAdmin(config));
+      return audit.recordResult({
+        action: "accounts.user.set_admin",
+        actor: auditActor(config.actor),
+        target: targetInfo,
+        metadata: { admin: config.admin },
+        result,
+      });
+    },
+    switchProvider: async (config: { actor: AccountsActor; ipaSession: string; id: string; provider: UserProvider }) => {
+      const target = await users.getMinimal({ id: config.id });
+      const targetInfo = userTarget(target);
+      const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.switch_provider", target: targetInfo });
+      if (adminError) return adminError;
+      const selfError = await requireDifferentActor<void>({
+        actor: config.actor,
+        targetUserId: config.id,
+        action: "accounts.user.switch_provider",
+        target: targetInfo,
+        message: "You cannot switch your own account provider.",
+      });
+      if (selfError) return selfError;
+      const result = fromMutationResult(await users.switchProvider(config));
+      return audit.recordResult({
+        action: "accounts.user.switch_provider",
+        actor: auditActor(config.actor),
+        target: targetInfo,
+        metadata: { provider: config.provider },
+        result,
+      });
+    },
+    demoteToGuest: async (config: { actor: AccountsActor; ipaSession: string; id: string }) => {
+      const target = await users.getMinimal({ id: config.id });
+      const targetInfo = userTarget(target);
+      const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.demote_to_guest", target: targetInfo });
+      if (adminError) return adminError;
+      const selfError = await requireDifferentActor<void>({
+        actor: config.actor,
+        targetUserId: config.id,
+        action: "accounts.user.demote_to_guest",
+        target: targetInfo,
+        message: "You cannot demote your own account.",
+      });
+      if (selfError) return selfError;
+      const result = fromMutationResult(await users.demoteToGuest(config));
+      return audit.recordResult({
+        action: "accounts.user.demote_to_guest",
+        actor: auditActor(config.actor),
+        target: targetInfo,
+        result,
+      });
+    },
+    sendLoginLink: async (config: { actor: AccountsActor; id: string }) => {
+      const target = await users.getMinimal({ id: config.id });
+      const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.send_login_link", target: userTarget(target) });
+      if (adminError) return adminError;
+      const result = fromMutationResult(await users.sendLoginLink(config));
+      return audit.recordResult({
+        action: "accounts.user.send_login_link",
+        actor: auditActor(config.actor),
+        target: userTarget(target),
+        result,
+      });
+    },
+    createLoginToken: async (config: { actor: AccountsActor; id: string }) => {
+      const target = await users.getMinimal({ id: config.id });
+      const targetInfo = userTarget(target);
+      const adminError = await requireAdminActor<{ token: string; magicLink: string; expiresInSeconds: number }>({
+        actor: config.actor,
+        action: "accounts.user.create_login_token",
+        target: targetInfo,
+      });
+      if (adminError) return adminError;
+      const result = fromMutationResult(await users.createLoginToken(config));
+      await audit.recordResult({
+        action: "accounts.user.create_login_token",
+        actor: auditActor(config.actor),
+        target: targetInfo,
+        result: result.ok ? ok({ token: "[REDACTED]", magicLink: "[REDACTED]", expiresInSeconds: result.data.expiresInSeconds }) : result,
+      });
+      return result;
+    },
+    remove: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string }) => {
+      const target = await users.getMinimal({ id: config.id });
+      const targetInfo = userTarget(target);
+      const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.remove", target: targetInfo });
+      if (adminError) return adminError;
+      const selfError = await requireDifferentActor<void>({
+        actor: config.actor,
+        targetUserId: config.id,
+        action: "accounts.user.remove",
+        target: targetInfo,
+        message: "You cannot delete your own account.",
+      });
+      if (selfError) return selfError;
+      const result = fromMutationResult(await users.remove(config));
+      return audit.recordResult({
+        action: "accounts.user.remove",
+        actor: auditActor(config.actor),
+        target: targetInfo,
+        result,
+      });
+    },
 
     /**
      * Change an IPA user's own password. Verifies the current password via
@@ -408,14 +690,20 @@ export const accountsAppService = {
      * FreeIPA directly.
      */
     changeOwnPassword: async (config: { user: User; currentPassword: string; newPassword: string }): Promise<Result<void>> => {
-      if (!(await getFreeIpaConfig()).enabled) return fail(err.badInput("FreeIPA is disabled."));
+      const actor = { userId: config.user.id, uid: config.user.uid, roles: config.user.roles, provider: config.user.provider };
+      if (!(await getFreeIpaConfig()).enabled) {
+        const result = fail(err.badInput("FreeIPA is disabled."));
+        return audit.recordResult({ action: "accounts.user.change_own_password", actor: auditActor(actor), target: userTarget(config.user), result });
+      }
       if (config.user.provider !== "ipa") {
-        return fail(err.badInput("Password change is only available for IPA accounts."));
+        const result = fail(err.badInput("Password change is only available for IPA accounts."));
+        return audit.recordResult({ action: "accounts.user.change_own_password", actor: auditActor(actor), target: userTarget(config.user), result });
       }
 
       const verify = await providers.ipa.auth.login(config.user.uid, config.currentPassword);
       if (verify.status !== "success") {
-        return fail(err.unauthenticated("Current password is incorrect."));
+        const result = fail(err.unauthenticated("Current password is incorrect."));
+        return audit.recordResult({ action: "accounts.user.change_own_password", actor: auditActor(actor), target: userTarget(config.user), result });
       }
 
       const result = await providers.ipa.auth.changePassword({
@@ -423,8 +711,8 @@ export const accountsAppService = {
         uid: config.user.uid,
         newPassword: config.newPassword,
       });
-      if (!result.ok) return fail(toServiceError(result.status, result.error));
-      return ok(undefined);
+      const serviceResult = result.ok ? ok(undefined) : fail(toServiceError(result.status, result.error));
+      return audit.recordResult({ action: "accounts.user.change_own_password", actor: auditActor(actor), target: userTarget(config.user), result: serviceResult });
     },
 
     /**
@@ -433,12 +721,21 @@ export const accountsAppService = {
      * provider internally — callers should not branch on provider themselves.
      */
     removeSelf: async (config: { user: User; ipaSession: string | null }): Promise<Result<void>> => {
-      const actor = { userId: config.user.id, uid: config.user.uid };
-      if (config.user.provider === "ipa") {
-        if (!config.ipaSession) return fail(err.unauthenticated("IPA session required."));
-        return fromMutationResult(await providers.ipa.users.remove({ ipaSession: config.ipaSession, id: config.user.id, actor }));
+      const actor = { userId: config.user.id, uid: config.user.uid, roles: config.user.roles, provider: config.user.provider };
+      if (config.user.profile !== "guest") {
+        const result = fail(err.forbidden("Only guest accounts can be self-deleted."));
+        return audit.recordResult({ action: "accounts.user.remove_self", actor: auditActor(actor), target: userTarget(config.user), result });
       }
-      return fromMutationResult(await providers.local.users.remove({ id: config.user.id, actor }));
+      if (config.user.provider === "ipa") {
+        if (!config.ipaSession) {
+          const result = fail(err.unauthenticated("IPA session required."));
+          return audit.recordResult({ action: "accounts.user.remove_self", actor: auditActor(actor), target: userTarget(config.user), result });
+        }
+        const result = fromMutationResult(await providers.ipa.users.remove({ ipaSession: config.ipaSession, id: config.user.id, actor }));
+        return audit.recordResult({ action: "accounts.user.remove_self", actor: auditActor(actor), target: userTarget(config.user), result });
+      }
+      const result = fromMutationResult(await providers.local.users.remove({ id: config.user.id, actor }));
+      return audit.recordResult({ action: "accounts.user.remove_self", actor: auditActor(actor), target: userTarget(config.user), result });
     },
   },
 
@@ -490,8 +787,20 @@ export const accountsAppService = {
         });
         return paginateItems(filtered, config.pagination);
       },
-      add: async (config: { ipaSession?: string | null; id: string; provider?: UserProvider; userId?: string; groupId?: string }) =>
-        fromMutationResult(
+      add: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider?: UserProvider; userId?: string; groupId?: string }) => {
+        const group = await groups.get({ id: config.id });
+        if (!group) {
+          const result = fail(err.notFound("Group not found"));
+          return audit.recordResult({
+            action: "accounts.group.member.add",
+            actor: auditActor(config.actor),
+            target: { type: "group", id: config.id },
+            result,
+          });
+        }
+        const accessError = await authorizeGroupMutation<void>({ actor: config.actor, group, action: "accounts.group.member.add" });
+        if (accessError) return accessError;
+        const result = fromMutationResult(
           await groups.addMember({
             ipaSession: config.ipaSession,
             id: config.id,
@@ -499,9 +808,29 @@ export const accountsAppService = {
             user: config.userId,
             group: config.groupId,
           }),
-        ),
-      remove: async (config: { ipaSession?: string | null; id: string; provider?: UserProvider; userId?: string; groupId?: string }) =>
-        fromMutationResult(
+        );
+        return audit.recordResult({
+          action: "accounts.group.member.add",
+          actor: auditActor(config.actor),
+          target: groupTarget(group),
+          metadata: { userId: config.userId ?? null, groupId: config.groupId ?? null },
+          result,
+        });
+      },
+      remove: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider?: UserProvider; userId?: string; groupId?: string }) => {
+        const group = await groups.get({ id: config.id });
+        if (!group) {
+          const result = fail(err.notFound("Group not found"));
+          return audit.recordResult({
+            action: "accounts.group.member.remove",
+            actor: auditActor(config.actor),
+            target: { type: "group", id: config.id },
+            result,
+          });
+        }
+        const accessError = await authorizeGroupMutation<void>({ actor: config.actor, group, action: "accounts.group.member.remove" });
+        if (accessError) return accessError;
+        const result = fromMutationResult(
           await groups.removeMember({
             ipaSession: config.ipaSession,
             id: config.id,
@@ -509,7 +838,15 @@ export const accountsAppService = {
             user: config.userId,
             group: config.groupId,
           }),
-        ),
+        );
+        return audit.recordResult({
+          action: "accounts.group.member.remove",
+          actor: auditActor(config.actor),
+          target: groupTarget(group),
+          metadata: { userId: config.userId ?? null, groupId: config.groupId ?? null },
+          result,
+        });
+      },
     },
     manager: {
       list: async (config: {
@@ -529,8 +866,20 @@ export const accountsAppService = {
         });
         return paginateItems(filtered, config.pagination);
       },
-      add: async (config: { ipaSession?: string | null; id: string; provider?: UserProvider; userId?: string; groupId?: string }) =>
-        fromMutationResult(
+      add: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider?: UserProvider; userId?: string; groupId?: string }) => {
+        const group = await groups.get({ id: config.id });
+        if (!group) {
+          const result = fail(err.notFound("Group not found"));
+          return audit.recordResult({
+            action: "accounts.group.manager.add",
+            actor: auditActor(config.actor),
+            target: { type: "group", id: config.id },
+            result,
+          });
+        }
+        const accessError = await authorizeGroupMutation<void>({ actor: config.actor, group, action: "accounts.group.manager.add" });
+        if (accessError) return accessError;
+        const result = fromMutationResult(
           await groups.addManager({
             ipaSession: config.ipaSession,
             id: config.id,
@@ -538,9 +887,29 @@ export const accountsAppService = {
             user: config.userId,
             group: config.groupId,
           }),
-        ),
-      remove: async (config: { ipaSession?: string | null; id: string; provider?: UserProvider; userId?: string; groupId?: string }) =>
-        fromMutationResult(
+        );
+        return audit.recordResult({
+          action: "accounts.group.manager.add",
+          actor: auditActor(config.actor),
+          target: groupTarget(group),
+          metadata: { userId: config.userId ?? null, groupId: config.groupId ?? null },
+          result,
+        });
+      },
+      remove: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider?: UserProvider; userId?: string; groupId?: string }) => {
+        const group = await groups.get({ id: config.id });
+        if (!group) {
+          const result = fail(err.notFound("Group not found"));
+          return audit.recordResult({
+            action: "accounts.group.manager.remove",
+            actor: auditActor(config.actor),
+            target: { type: "group", id: config.id },
+            result,
+          });
+        }
+        const accessError = await authorizeGroupMutation<void>({ actor: config.actor, group, action: "accounts.group.manager.remove" });
+        if (accessError) return accessError;
+        const result = fromMutationResult(
           await groups.removeManager({
             ipaSession: config.ipaSession,
             id: config.id,
@@ -548,7 +917,15 @@ export const accountsAppService = {
             user: config.userId,
             group: config.groupId,
           }),
-        ),
+        );
+        return audit.recordResult({
+          action: "accounts.group.manager.remove",
+          actor: auditActor(config.actor),
+          target: groupTarget(group),
+          metadata: { userId: config.userId ?? null, groupId: config.groupId ?? null },
+          result,
+        });
+      },
     },
     parent: {
       list: async (config: {
@@ -574,14 +951,62 @@ export const accountsAppService = {
         return paginateItems(filtered, config.pagination);
       },
     },
-    create: async (config: { ipaSession?: string | null; provider: UserProvider; name: string; description?: string; posix?: boolean }) =>
-      fromMutationResult(await groups.create(config)),
-    update: async (config: { ipaSession?: string | null; id: string; provider?: UserProvider; description: string }) =>
-      fromMutationResult(await groups.update(config)),
-    remove: async (config: { ipaSession?: string | null; id: string; provider?: UserProvider }) =>
-      fromMutationResult(await groups.remove(config)),
-    makePosix: async (config: { ipaSession?: string | null; id: string; provider?: UserProvider }) =>
-      fromMutationResult(await groups.makePosix(config)),
+    create: async (config: { actor: AccountsActor; ipaSession?: string | null; provider: UserProvider; name: string; description?: string; posix?: boolean }) => {
+      const adminError = await requireAdminActor<BaseGroup>({
+        actor: config.actor,
+        action: "accounts.group.create",
+        target: { type: "group", label: config.name, provider: config.provider },
+      });
+      if (adminError) return adminError;
+      const result = fromMutationResult(await groups.create(config));
+      return audit.recordResult({
+        action: "accounts.group.create",
+        actor: auditActor(config.actor),
+        target: result.ok ? groupTarget(result.data) : { type: "group", label: config.name, provider: config.provider },
+        metadata: { posix: config.posix ?? false },
+        result,
+      });
+    },
+    update: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider?: UserProvider; description: string }) => {
+      const group = await groups.get({ id: config.id });
+      const target = groupTarget(group ?? { id: config.id, name: null, provider: config.provider ?? null });
+      const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.group.update", target });
+      if (adminError) return adminError;
+      const result = fromMutationResult(await groups.update(config));
+      return audit.recordResult({
+        action: "accounts.group.update",
+        actor: auditActor(config.actor),
+        target,
+        metadata: { changedFields: ["description"] },
+        result,
+      });
+    },
+    remove: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider?: UserProvider }) => {
+      const group = await groups.get({ id: config.id });
+      const target = groupTarget(group ?? { id: config.id, name: null, provider: config.provider ?? null });
+      const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.group.remove", target });
+      if (adminError) return adminError;
+      const result = fromMutationResult(await groups.remove(config));
+      return audit.recordResult({
+        action: "accounts.group.remove",
+        actor: auditActor(config.actor),
+        target,
+        result,
+      });
+    },
+    makePosix: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider?: UserProvider }) => {
+      const group = await groups.get({ id: config.id });
+      const target = groupTarget(group ?? { id: config.id, name: null, provider: config.provider ?? null });
+      const adminError = await requireAdminActor<{ gidnumber: number | null }>({ actor: config.actor, action: "accounts.group.make_posix", target });
+      if (adminError) return adminError;
+      const result = fromMutationResult(await groups.makePosix(config));
+      return audit.recordResult({
+        action: "accounts.group.make_posix",
+        actor: auditActor(config.actor),
+        target,
+        result,
+      });
+    },
   },
   entity: {
     list: async (config: {
@@ -697,14 +1122,18 @@ export const accountsAppService = {
       user: Pick<User, "id" | "mail" | "provider">;
       data: { phone?: string; comment?: string; acceptedAgb: true };
     }) => {
+      const actor = { userId: config.user.id, uid: config.user.mail ?? config.user.id, roles: [] as string[], provider: config.user.provider };
       if (!(await getFreeIpaConfig()).enabled) {
-        return fail(err.badInput("FreeIPA is disabled"));
+        const result = fail(err.badInput("FreeIPA is disabled"));
+        return audit.recordResult({ action: "accounts.request.create", actor: auditActor(actor), target: { type: "account_request", label: config.user.mail }, result });
       }
       if (config.user.provider !== "local") {
-        return fail(err.forbidden("Only local accounts can request IPA-backed access"));
+        const result = fail(err.forbidden("Only local accounts can request IPA-backed access"));
+        return audit.recordResult({ action: "accounts.request.create", actor: auditActor(actor), target: { type: "account_request", label: config.user.mail }, result });
       }
       if (!config.user.mail) {
-        return fail(err.badInput("Your account has no email address"));
+        const result = fail(err.badInput("Your account has no email address"));
+        return audit.recordResult({ action: "accounts.request.create", actor: auditActor(actor), target: { type: "account_request", id: config.user.id }, result });
       }
 
       const existingRows: DbRow[] = await sql`
@@ -712,11 +1141,12 @@ export const accountsAppService = {
         WHERE user_id = ${config.user.id} AND status = 'pending'
       `;
       if (existingRows.length > 0) {
-        return fail({
+        const result = fail({
           code: "CONFLICT",
           message: "You already have a pending account request",
           status: 409,
         });
+        return audit.recordResult({ action: "accounts.request.create", actor: auditActor(actor), target: { type: "account_request", label: config.user.mail }, result });
       }
 
       try {
@@ -726,20 +1156,29 @@ export const accountsAppService = {
           RETURNING id
         `;
 
-        return ok({
-          id: rows[0]!.id as string,
+        const requestId = rows[0]!.id as string;
+        const result = ok({
+          id: requestId,
           message: "FreeIPA account request submitted",
+        });
+        return audit.recordResult({
+          action: "accounts.request.create",
+          actor: auditActor(actor),
+          target: { type: "account_request", id: requestId, label: config.user.mail },
+          metadata: { hasPhone: !!config.data.phone, hasComment: !!config.data.comment },
+          result,
         });
       } catch (error) {
         // Belt-and-suspenders: the partial unique index
         // uq_account_requests_one_pending_per_user closes the race between the
         // check above and the insert under concurrent submissions.
         if (isUniqueViolation(error, "uq_account_requests_one_pending_per_user")) {
-          return fail({
+          const result = fail({
             code: "CONFLICT",
             message: "You already have a pending account request",
             status: 409,
           });
+          return audit.recordResult({ action: "accounts.request.create", actor: auditActor(actor), target: { type: "account_request", label: config.user.mail }, result });
         }
         throw error;
       }
@@ -749,13 +1188,27 @@ export const accountsAppService = {
         SELECT id, user_id, status FROM auth.account_requests WHERE id = ${config.id}
       `;
 
-      if (rows.length === 0) return fail(err.notFound("Request"));
+      if (rows.length === 0) {
+        const result = fail(err.notFound("Request"));
+        return audit.recordResult({ action: "accounts.request.withdraw", actor: { userId: config.userId }, target: { type: "account_request", id: config.id }, result });
+      }
       const request = rows[0]!;
-      if (request.user_id !== config.userId) return fail(err.forbidden("Access denied"));
-      if (request.status !== "pending") return fail(err.forbidden("Only pending requests can be withdrawn"));
+      if (request.user_id !== config.userId) {
+        const result = fail(err.forbidden("Access denied"));
+        return audit.recordResult({ action: "accounts.request.withdraw", actor: { userId: config.userId }, target: { type: "account_request", id: config.id }, result });
+      }
+      if (request.status !== "pending") {
+        const result = fail(err.forbidden("Only pending requests can be withdrawn"));
+        return audit.recordResult({ action: "accounts.request.withdraw", actor: { userId: config.userId }, target: { type: "account_request", id: config.id }, result });
+      }
 
       await sql`DELETE FROM auth.account_requests WHERE id = ${config.id}`;
-      return ok();
+      return audit.recordResult({
+        action: "accounts.request.withdraw",
+        actor: { userId: config.userId },
+        target: { type: "account_request", id: config.id },
+        result: ok(),
+      });
     },
     deny: async (config: { id: string; reason?: string; processedBy: string }) => {
       const rows: DbRow[] = await sql`
@@ -765,10 +1218,16 @@ export const accountsAppService = {
         WHERE r.id = ${config.id}
       `;
 
-      if (rows.length === 0) return fail(err.notFound("Request"));
+      if (rows.length === 0) {
+        const result = fail(err.notFound("Request"));
+        return audit.recordResult({ action: "accounts.request.deny", actor: { userId: config.processedBy }, target: { type: "account_request", id: config.id }, result });
+      }
 
       const request = rows[0]!;
-      if (request.status !== "pending") return fail(err.badInput("Only pending requests can be denied"));
+      if (request.status !== "pending") {
+        const result = fail(err.badInput("Only pending requests can be denied"));
+        return audit.recordResult({ action: "accounts.request.deny", actor: { userId: config.processedBy }, target: { type: "account_request", id: config.id }, result });
+      }
 
       await sql`
         UPDATE auth.account_requests
@@ -796,7 +1255,13 @@ export const accountsAppService = {
         });
       }
 
-      return ok();
+      return audit.recordResult({
+        action: "accounts.request.deny",
+        actor: { userId: config.processedBy },
+        target: { type: "account_request", id: config.id, label: request.email as string },
+        metadata: { hasReason: !!config.reason },
+        result: ok(),
+      });
     },
   },
 

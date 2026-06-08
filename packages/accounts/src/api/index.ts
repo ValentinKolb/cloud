@@ -4,6 +4,7 @@ import usersRoutes from "./users";
 import groupsRoutes from "./groups";
 import accountRequestsRoutes from "./account-requests";
 import widgetRoutes from "./widgets";
+import auditRoutes from "./audit";
 
 /** Accounts API — users, groups, account requests, and dashboard widget. */
 //
@@ -15,7 +16,8 @@ const app = new Hono()
   .use(rateLimit())
   .route("/users", usersRoutes)
   .route("/groups", groupsRoutes)
-  .route("/account-requests", accountRequestsRoutes);
+  .route("/account-requests", accountRequestsRoutes)
+  .route("/audit", auditRoutes);
 
 export default app;
 export type ApiType = typeof app;

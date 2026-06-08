@@ -7,6 +7,8 @@ export { toPgTextArray, toPgUuidArray, escapeLikePattern, isUniqueViolation } fr
 
 export { logger, logging } from "./logging";
 export type { LogEntry } from "./logging";
+export { audit } from "./audit";
+export type { AuditActor, AuditEvent, AuditListFilter, AuditOutcome, AuditRecordParams, AuditTarget } from "./audit";
 
 export {
   GATEWAY_TELEMETRY_TENANT,
@@ -44,6 +46,7 @@ export type { SettingDef, SettingKind, SettingOption } from "./settings/defaults
 export { renderTemplate } from "./settings/templates";
 export { settingsService } from "./settings/app";
 export type { SettingsService } from "./settings/app";
+export { decryptSecret, encryptSecret, secrets } from "./secrets";
 
 // Typed async API + cache-aside primitives.
 export { coreSettings, createSettingsAPI } from "./settings/api";

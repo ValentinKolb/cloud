@@ -228,6 +228,45 @@ if (!hasPermission(permission, "read")) {
 }
 ```
 
+## Audit Events
+
+Security-relevant account and identity mutations are recorded in `audit.events`.
+This is the Cloud-owned audit trail for Accounts admin operations, self-service
+account changes, account requests, and service-layer authorization denials.
+
+Storage is plain PostgreSQL by default:
+
+| Column group | Notes |
+|--------------|-------|
+| `created_at`, `action`, `outcome` | When it happened, stable action id, and `allowed` / `denied` / `failed` |
+| `actor_*` | Acting Cloud user id, uid, provider, and roles where available |
+| `target_*` | Target resource type/id/label/provider where available |
+| `reason`, `error_*`, `request_id` | Human-readable denial/failure context and request correlation |
+| `metadata` | Small JSONB payload with non-secret operational context |
+
+TimescaleDB can be enabled in production for retention/analytics, but local
+development must not require it. Core migrations should attempt optional
+Timescale setup defensively and continue on plain Postgres when the extension is
+not available.
+
+Audit writes must be performed from services, not only from HTTP routes. The
+service layer owns the decision and records both allowed and denied outcomes.
+Never write passwords, raw tokens, raw cookies, raw `ipa_session` values, or
+full sensitive request payloads to audit metadata. Use the shared audit
+sanitizer and pass minimal metadata such as changed field names, provider,
+request id, or booleans like `notificationSent`.
+
+For Accounts specifically, keep double enforcement while the FreeIPA subsession
+migration is still in progress:
+
+- Cloud service-layer checks run first for admin, self-service, and
+  group-manager mutations.
+- Existing HTTP-route checks remain as defense-in-depth.
+- Existing FreeIPA session/permission behavior remains until a reviewed follow-up
+  removes stored `ipaSession` from Cloud sessions.
+- Admin UI should expose a searchable `DataTable` audit page with URL-backed
+  filters for actor, target, action, outcome, provider, and time range.
+
 ## Account Lifecycle
 
 The platform manages account expiry automatically:

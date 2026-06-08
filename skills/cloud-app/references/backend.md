@@ -221,6 +221,43 @@ export const migrate = async () => {
 };
 ```
 
+## Service Authorization and Audit
+
+Route middleware is not the only authorization boundary. For security-relevant
+mutations, put the effective permission decision in the service that performs
+the mutation, then keep route checks as defense-in-depth.
+
+Use the central audit service for account, identity, permission, and other
+security-sensitive operations:
+
+```typescript
+import { audit } from "@valentinkolb/cloud/services";
+
+const denied = await audit.deny<void>({
+  action: "my_app.resource.delete",
+  actor: { userId: user.id, uid: user.uid, provider: user.provider, roles: user.roles },
+  target: { type: "resource", id: resource.id, label: resource.title },
+  message: "Admin access required",
+});
+if (denied) return denied;
+
+const result = await deleteResource(resource.id);
+return audit.recordResult({
+  action: "my_app.resource.delete",
+  actor: { userId: user.id, uid: user.uid, provider: user.provider, roles: user.roles },
+  target: { type: "resource", id: resource.id, label: resource.title },
+  metadata: { source: "admin_page" },
+  result,
+});
+```
+
+Audit metadata must be small and non-secret. Pass identifiers, changed field
+names, provider names, request ids, and booleans. Do not pass passwords, raw
+tokens, cookies, API keys, FreeIPA session cookies, or full request bodies.
+
+For admin-facing audit data, expose a server-rendered page with `DataTable`,
+URL-backed search and filters, and links to the affected resource where useful.
+
 ### Lifecycle Hook
 
 ```typescript

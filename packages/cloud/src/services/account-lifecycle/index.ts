@@ -3,6 +3,7 @@ import type { User } from "../../contracts/shared";
 import { logger } from "../logging";
 import { notifications } from "../notifications";
 import { applyIpaAccountTransitionPolicy } from "../accounts/switching";
+import { audit } from "../audit";
 import { get as getSetting } from "../settings";
 import { renderTemplate } from "../settings/templates";
 import { session } from "../session";
@@ -677,22 +678,35 @@ export const accountLifecycle = {
     user: User;
     ipaSession?: string | null;
   }): Promise<Result<{ message: string; newExpiry?: string }>> => {
+    const recordResult = (result: Result<{ message: string; newExpiry?: string }>) =>
+      audit.recordResult({
+        action: "accounts.user.extend_account",
+        actor: {
+          userId: config.user.id,
+          uid: config.user.uid,
+          provider: config.user.provider,
+          roles: config.user.roles,
+        },
+        target: { type: "user", id: config.user.id, label: config.user.uid, provider: config.user.provider },
+        result,
+      });
+
     if (config.user.accountExpires === null) {
-      return fail(err.badInput("Accounts without an expiration date cannot be extended."));
+      return recordResult(fail(err.badInput("Accounts without an expiration date cannot be extended.")));
     }
 
     if (config.user.provider === "ipa") {
       const freeIpaConfig = (await getFreeIpaConfig());
       if (!freeIpaConfig.enabled) {
-        return ok({ message: "FreeIPA is disabled." });
+        return recordResult(ok({ message: "FreeIPA is disabled." }));
       }
       const configuredDays = await getIpaExpiresDays();
       if (configuredDays <= 0) {
-        return ok({ message: "Automatic account expiry is disabled for IPA accounts." });
+        return recordResult(ok({ message: "Automatic account expiry is disabled for IPA accounts." }));
       }
 
       if (!config.ipaSession) {
-        return fail(err.unauthenticated("IPA session required to extend an IPA-backed account."));
+        return recordResult(fail(err.unauthenticated("IPA session required to extend an IPA-backed account.")));
       }
 
       const expiresAt = new Date(Date.now() + configuredDays * DAY_MS);
@@ -707,7 +721,7 @@ export const accountLifecycle = {
         options: { krbprincipalexpiration: ipaExpiry },
       });
       if (response.error) {
-        return fail(err.badInput(response.error.message || "Failed to extend IPA account."));
+        return recordResult(fail(err.badInput(response.error.message || "Failed to extend IPA account.")));
       }
 
       await sql`
@@ -721,10 +735,10 @@ export const accountLifecycle = {
         ON CONFLICT (user_id) DO UPDATE SET synced_at = EXCLUDED.synced_at
       `;
 
-      return ok({
+      return recordResult(ok({
         message: `Account extended until ${dates.formatDate(expiresAt)}.`,
         newExpiry: expiresAt.toISOString(),
-      });
+      }));
     }
 
     if (config.user.provider === "local" && config.user.profile === "guest") {
@@ -735,7 +749,7 @@ export const accountLifecycle = {
           SET account_expires = NULL
           WHERE id = ${config.user.id}::uuid
         `;
-        return ok({ message: "Guest account expiry is disabled." });
+        return recordResult(ok({ message: "Guest account expiry is disabled." }));
       }
 
       const expiresAt = new Date(Date.now() + guestDays * DAY_MS);
@@ -745,10 +759,10 @@ export const accountLifecycle = {
         WHERE id = ${config.user.id}::uuid
       `;
 
-      return ok({
+      return recordResult(ok({
         message: `Guest account extended until ${dates.formatDate(expiresAt)}.`,
         newExpiry: expiresAt.toISOString(),
-      });
+      }));
     }
 
     if (config.user.provider === "local" && config.user.profile === "user") {
@@ -759,7 +773,7 @@ export const accountLifecycle = {
           SET account_expires = NULL
           WHERE id = ${config.user.id}::uuid
         `;
-        return ok({ message: "Local user account expiry is disabled." });
+        return recordResult(ok({ message: "Local user account expiry is disabled." }));
       }
 
       const expiresAt = new Date(Date.now() + localUserDays * DAY_MS);
@@ -769,13 +783,13 @@ export const accountLifecycle = {
         WHERE id = ${config.user.id}::uuid
       `;
 
-      return ok({
+      return recordResult(ok({
         message: `Account extended until ${dates.formatDate(expiresAt)}.`,
         newExpiry: expiresAt.toISOString(),
-      });
+      }));
     }
 
-    return ok({ message: "Your account does not support extension." });
+    return recordResult(ok({ message: "Your account does not support extension." }));
   },
 
   listDeletedAccounts: async (config: { page: number; perPage: number; reason?: string; search?: string }) => {

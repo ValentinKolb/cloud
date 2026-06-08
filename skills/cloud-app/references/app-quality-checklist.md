@@ -33,6 +33,7 @@ export const apiClient = api.create<ApiType>({ baseUrl: "/api/my-app" });
 - API routes validate body/query/params with `v(...)` and app Zod schemas.
 - API routes return service `Result<T>` through `respond(...)` where the shared result model fits.
 - SSR pages repeat permission checks instead of assuming API routes protect server-side service calls.
+- Security-relevant mutations put authorization checks in the service layer and record allowed/denied/failed outcomes through the central audit service.
 
 ## Data and lifecycle
 
@@ -62,6 +63,7 @@ export const apiClient = api.create<ApiType>({ baseUrl: "/api/my-app" });
 - Complex editor modals use `PanelDialog`; small prompts stay with `prompts.form` or plain `prompts.dialog`.
 - Tables use `DataTable`; disable column hover with `highlightColumns={false}` when the design calls for row-only hover.
 - Stats use `StatGrid`/`StatCell`; calendars use `Calendar`.
+- Apps that create admin-relevant audit events expose a searchable admin `DataTable` with URL-backed filters and resource/user deep links.
 
 ## UX copy and visible behavior
 

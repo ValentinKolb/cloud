@@ -56,6 +56,13 @@ const UsersListResponseSchema = z.object({
 
 type CreateUserResponse = z.infer<typeof CreateUserResponseSchema>;
 
+const toAccountsActor = (actor: AuthContext["Variables"]["user"]) => ({
+  userId: actor.id,
+  uid: actor.uid,
+  roles: actor.roles,
+  provider: actor.provider,
+});
+
 const ResetPasswordResponseSchema = z.object({
   message: z.string().describe("Human-readable success message"),
   password: z.string().describe("Temporary password"),
@@ -223,6 +230,7 @@ const app = new Hono<AuthContext>()
         c,
         async () => {
           const result: Result<CreateUserResponse> = await accountsService.user.create({
+            actor: toAccountsActor(adminUser),
             ipaSession: ipaSessionResult?.ipaSession ?? null,
             data,
             processedBy: adminUser.id,
@@ -270,7 +278,7 @@ const app = new Hono<AuthContext>()
       const ipaSession = await auth.session.getIpaSession(token);
 
       return respond(c, async () => {
-        const result = await accountsService.user.update({ ipaSession, id, data });
+        const result = await accountsService.user.update({ actor: toAccountsActor(c.get("user")), ipaSession, id, data });
         if (!result.ok) return result;
         return ok({ message: "User updated." });
       });
@@ -307,6 +315,7 @@ const app = new Hono<AuthContext>()
         const targetUser = await accountsService.user.getMinimal({ id });
         if (!targetUser) return fail(err.notFound("User not found"));
         const result = await accountsService.user.resetPassword({
+          actor: toAccountsActor(actor),
           ipaSession,
           id,
         });
@@ -345,7 +354,7 @@ const app = new Hono<AuthContext>()
       return respond(c, async () => {
         const targetUser = await accountsService.user.getMinimal({ id });
         if (!targetUser) return fail(err.notFound("User not found"));
-        const result = await accountsService.user.createLoginToken({ id });
+        const result = await accountsService.user.createLoginToken({ actor: toAccountsActor(actor), id });
         if (!result.ok) return result;
         log.warn("Admin created local login token", {
           actorUserId: actor.id,
@@ -382,7 +391,7 @@ const app = new Hono<AuthContext>()
         const targetUser = await accountsService.user.getMinimal({ id });
         if (!targetUser) return fail(err.notFound("User not found"));
         const { admin } = c.req.valid("json");
-        const result = await accountsService.user.setAdmin({ id, admin });
+        const result = await accountsService.user.setAdmin({ actor: toAccountsActor(actor), id, admin });
         if (!result.ok) return result;
         logLocalAdminMutation({
           actor,
@@ -426,6 +435,7 @@ const app = new Hono<AuthContext>()
         const targetUser = await accountsService.user.getMinimal({ id });
         if (!targetUser) return fail(err.notFound("User not found"));
         const result = await accountsService.user.switchProvider({
+          actor: toAccountsActor(actor),
           ipaSession,
           id,
           provider,
@@ -473,7 +483,7 @@ const app = new Hono<AuthContext>()
 
       return respond(c, async () => {
         const result = await accountsService.user.setExpiry({
-          actor: { userId: actor.id, uid: actor.uid, roles: actor.roles },
+          actor: toAccountsActor(actor),
           ipaSession,
           id,
           expiryDate,
@@ -516,6 +526,7 @@ const app = new Hono<AuthContext>()
         const targetUser = await accountsService.user.getMinimal({ id });
         if (!targetUser) return fail(err.notFound("User not found"));
         const result = await accountsService.user.setProfile({
+          actor: toAccountsActor(actor),
           id,
           profile,
         });
@@ -583,7 +594,7 @@ const app = new Hono<AuthContext>()
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       return respond(c, async () => {
-        const result = await accountsService.user.sendLoginLink({ id });
+        const result = await accountsService.user.sendLoginLink({ actor: toAccountsActor(c.get("user")), id });
         if (!result.ok) return result;
         return ok({ message: "Login link sent." });
       });
@@ -622,7 +633,7 @@ const app = new Hono<AuthContext>()
         const result = await accountsService.user.remove({
           ipaSession,
           id,
-          actor: { userId: actor.id, uid: actor.uid },
+          actor: toAccountsActor(actor),
         });
         if (!result.ok) return result;
         return ok({ message: "User permanently deleted" });
@@ -661,7 +672,7 @@ const app = new Hono<AuthContext>()
         const result = await accountsService.user.demoteToGuest({
           ipaSession,
           id,
-          actor: { userId: actor.id, uid: actor.uid },
+          actor: toAccountsActor(actor),
         });
         if (!result.ok) return result;
         return ok({ message: "User demoted to guest" });

@@ -3,6 +3,7 @@
  * Migrations, background jobs — nothing generic here.
  */
 import { migrate as migrateAuth } from "./migrate/core/auth";
+import { migrate as migrateAudit } from "./migrate/core/audit";
 import { migrate as migrateLogging } from "./migrate/core/logging";
 import { migrate as migrateNotifications } from "./migrate/core/notifications";
 import { migrate as migrateSettings } from "./migrate/core/settings";
@@ -12,6 +13,7 @@ import { lifecycleJobs, migrateWeather } from "@valentinkolb/cloud/services";
 export const runCoreSetup = async (): Promise<void> => {
   const steps = [
     { name: "auth", run: migrateAuth },
+    { name: "audit", run: migrateAudit },
     { name: "notifications", run: migrateNotifications },
     { name: "settings", run: migrateSettings },
     { name: "logging", run: migrateLogging },

@@ -24,6 +24,13 @@ const GroupsListResponseSchema = z.object({
 type BaseGroupResponse = z.infer<typeof BaseGroupSchema>;
 type MessageResponse = z.infer<typeof MessageResponseSchema>;
 
+const toAccountsActor = (actor: AuthContext["Variables"]["user"]) => ({
+  userId: actor.id,
+  uid: actor.uid,
+  roles: actor.roles,
+  provider: actor.provider,
+});
+
 const requireLocalGroupManageAccess = async (
   c: Context<AuthContext>,
   group: NonNullable<Awaited<ReturnType<typeof accountsService.group.get>>>,
@@ -107,6 +114,7 @@ const requireGroupMutationContext = async (c: Context<AuthContext>, groupId: str
  * separate preserves OpenAPI docs; this helper consolidates the body.
  */
 type GroupRelationMutation = (config: {
+  actor: ReturnType<typeof toAccountsActor>;
   ipaSession: string | null;
   id: string;
   provider: "local" | "ipa";
@@ -128,6 +136,7 @@ const handleGroupRelation = async (
 
   return respond(c, async () => {
     const result = await mutation({
+      actor: toAccountsActor(c.get("user")),
       ipaSession,
       id: groupId,
       provider: group.provider,
@@ -291,6 +300,7 @@ const app = new Hono<AuthContext>()
       return respond(
         c,
         async (): Promise<Result<BaseGroupResponse>> => accountsService.group.create({
+          actor: toAccountsActor(c.get("user")),
           ipaSession: ipaSessionResult?.ipaSession ?? null,
           provider,
           name,
@@ -325,6 +335,7 @@ const app = new Hono<AuthContext>()
 
       return respond(c, async () => {
         const result = await accountsService.group.remove({
+          actor: toAccountsActor(c.get("user")),
           ipaSession: ipaSessionResult?.ipaSession ?? null,
           id,
           provider: group.provider,
@@ -360,6 +371,7 @@ const app = new Hono<AuthContext>()
 
       return respond(c, async () => {
         const result = await accountsService.group.update({
+          actor: toAccountsActor(c.get("user")),
           ipaSession: ipaSessionResult?.ipaSession ?? null,
           id,
           provider: group.provider,
@@ -394,6 +406,7 @@ const app = new Hono<AuthContext>()
 
       return respond(c, async () => {
         const result = await accountsService.group.makePosix({
+          actor: toAccountsActor(c.get("user")),
           ipaSession: ipaSessionResult?.ipaSession ?? null,
           id,
           provider: group.provider,
