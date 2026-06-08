@@ -402,36 +402,81 @@ export const accountsAppService = {
         target: { type: "user", label: config.data.email, provider: config.data.provider },
       });
       if (adminError) return adminError;
-      if (config.data.requestId) {
-        const requestRows: DbRow[] = await sql`
-          SELECT r.id
-          FROM auth.account_requests r
-          JOIN auth.users u ON u.id = r.user_id
-          WHERE r.id = ${config.data.requestId}
-            AND r.status = 'pending'
-            AND lower(u.mail) = lower(${config.data.email})
-          LIMIT 1
-        `;
-        if (requestRows.length === 0) {
-          return audit.recordResult({
-            action: "accounts.user.create",
+      let requestCompletionFailed = false;
+      const createFromRequest = async () => {
+        const txResult = await sql.begin(async (tx) => {
+          const requestRows: DbRow[] = await tx`
+            SELECT r.id
+            FROM auth.account_requests r
+            JOIN auth.users u ON u.id = r.user_id
+            WHERE r.id = ${config.data.requestId}
+              AND r.status = 'pending'
+              AND lower(u.mail) = lower(${config.data.email})
+            LIMIT 1
+            FOR UPDATE OF r
+          `;
+          if (requestRows.length === 0) {
+            return {
+              completed: false,
+              result: fail(err.badInput("Account request not found, already processed, or not owned by the target email.")),
+            };
+          }
+
+          const result = fromMutationResult(
+            await users.create({
+              ipaSession: config.ipaSession,
+              data: {
+                ...config.data,
+                profile: config.data.provider === "ipa" ? "user" : config.data.profile,
+                admin: config.data.provider === "local" ? config.data.admin : undefined,
+              },
+            }),
+          );
+          if (!result.ok) return { completed: false, result };
+
+          const completedRows: DbRow[] = await tx`
+            UPDATE auth.account_requests
+            SET status = 'completed', processed_at = now(), processed_by = ${config.processedBy}
+            WHERE id = ${config.data.requestId}
+              AND user_id = ${result.data.user.id}::uuid
+              AND status = 'pending'
+            RETURNING id
+          `;
+
+          return { completed: completedRows.length > 0, result };
+        });
+
+        if (txResult.result.ok && !txResult.completed) {
+          requestCompletionFailed = true;
+          appLog.warn("Account request completion did not match", {
+            requestId: config.data.requestId,
+            createdUserId: txResult.result.data.user.id,
+            processedBy: config.processedBy,
+          });
+          await audit.recordResult({
+            action: "accounts.request.complete",
             actor: auditActor(config.actor),
-            target: { type: "user", label: config.data.email, provider: config.data.provider },
-            metadata: { provider: config.data.provider, requestId: config.data.requestId },
-            result: fail(err.badInput("Account request not found, already processed, or not owned by the target email.")),
+            target: { type: "account_request", id: config.data.requestId },
+            metadata: { createdUserId: txResult.result.data.user.id, provider: config.data.provider },
+            result: fail(err.badInput("Account request not found, already processed, or not owned by the created user")),
           });
         }
-      }
-      const createResult = fromMutationResult(
-        await users.create({
-          ipaSession: config.ipaSession,
-          data: {
-            ...config.data,
-            profile: config.data.provider === "ipa" ? "user" : config.data.profile,
-            admin: config.data.provider === "local" ? config.data.admin : undefined,
-          },
-        }),
-      );
+
+        return txResult.result;
+      };
+
+      const createResult = config.data.requestId
+        ? await createFromRequest()
+        : fromMutationResult(
+            await users.create({
+              ipaSession: config.ipaSession,
+              data: {
+                ...config.data,
+                profile: config.data.provider === "ipa" ? "user" : config.data.profile,
+                admin: config.data.provider === "local" ? config.data.admin : undefined,
+              },
+            }),
+          );
       if (!createResult.ok) {
         return audit.recordResult({
           action: "accounts.user.create",
@@ -443,37 +488,6 @@ export const accountsAppService = {
       }
 
       const created = createResult.data;
-      let requestCompletionFailed = false;
-      if (config.data.requestId) {
-        // Require the pending request to belong to the user we just created.
-        // Without the user_id match an admin could pass any request ID and
-        // silently "complete" an unrelated request. If a concurrent actor
-        // processed it after our pre-check, keep the user-create audit truthful
-        // and record the request-completion failure separately.
-        const matched = await sql`
-          UPDATE auth.account_requests
-          SET status = 'completed', processed_at = now(), processed_by = ${config.processedBy}
-          WHERE id = ${config.data.requestId}
-            AND user_id = ${created.user.id}::uuid
-            AND status = 'pending'
-          RETURNING id
-        `;
-        if (matched.length === 0) {
-          requestCompletionFailed = true;
-          appLog.warn("Account request completion did not match", {
-            requestId: config.data.requestId,
-            createdUserId: created.user.id,
-            processedBy: config.processedBy,
-          });
-          await audit.recordResult({
-            action: "accounts.request.complete",
-            actor: auditActor(config.actor),
-            target: { type: "account_request", id: config.data.requestId },
-            metadata: { createdUserId: created.user.id, provider: config.data.provider },
-            result: fail(err.badInput("Account request not found, already processed, or not owned by the created user")),
-          });
-        }
-      }
 
       const autoSend = config.data.autoSendNotification ?? true;
       if (autoSend && created.user.mail) {
@@ -1214,10 +1228,26 @@ export const accountsAppService = {
       }
     },
     withdraw: async (config: { id: string; actor: AccountsActor }) => {
+      const deletedRows: DbRow[] = await sql`
+        DELETE FROM auth.account_requests
+        WHERE id = ${config.id}
+          AND user_id = ${config.actor.userId}::uuid
+          AND status = 'pending'
+        RETURNING id
+      `;
+
+      if (deletedRows.length > 0) {
+        return audit.recordResult({
+          action: "accounts.request.withdraw",
+          actor: auditActor(config.actor),
+          target: { type: "account_request", id: config.id },
+          result: ok(),
+        });
+      }
+
       const rows: DbRow[] = await sql`
         SELECT id, user_id, status FROM auth.account_requests WHERE id = ${config.id}
       `;
-
       if (rows.length === 0) {
         const result = fail(err.notFound("Request"));
         return audit.recordResult({ action: "accounts.request.withdraw", actor: auditActor(config.actor), target: { type: "account_request", id: config.id }, result });
@@ -1231,14 +1261,8 @@ export const accountsAppService = {
         const result = fail(err.forbidden("Only pending requests can be withdrawn"));
         return audit.recordResult({ action: "accounts.request.withdraw", actor: auditActor(config.actor), target: { type: "account_request", id: config.id }, result });
       }
-
-      await sql`DELETE FROM auth.account_requests WHERE id = ${config.id}`;
-      return audit.recordResult({
-        action: "accounts.request.withdraw",
-        actor: auditActor(config.actor),
-        target: { type: "account_request", id: config.id },
-        result: ok(),
-      });
+      const result = fail(err.conflict("Account request could not be withdrawn. Please retry."));
+      return audit.recordResult({ action: "accounts.request.withdraw", actor: auditActor(config.actor), target: { type: "account_request", id: config.id }, result });
     },
     deny: async (config: { id: string; reason?: string; actor: AccountsActor }) => {
       const adminError = await requireAdminActor<void>({
@@ -1248,28 +1272,28 @@ export const accountsAppService = {
       });
       if (adminError) return adminError;
       const rows: DbRow[] = await sql`
-        SELECT r.id, r.user_id, r.status, u.mail AS email, u.given_name AS first_name
-        FROM auth.account_requests r
-        JOIN auth.users u ON u.id = r.user_id
+        UPDATE auth.account_requests r
+        SET status = 'denied', denied_reason = ${config.reason ?? null}, processed_at = now(), processed_by = ${config.actor.userId}
+        FROM auth.users u
         WHERE r.id = ${config.id}
+          AND r.status = 'pending'
+          AND u.id = r.user_id
+        RETURNING r.id, r.user_id, r.status, u.mail AS email, u.given_name AS first_name
       `;
 
       if (rows.length === 0) {
-        const result = fail(err.notFound("Request"));
-        return audit.recordResult({ action: "accounts.request.deny", actor: auditActor(config.actor), target: { type: "account_request", id: config.id }, result });
-      }
-
-      const request = rows[0]!;
-      if (request.status !== "pending") {
+        const currentRows: DbRow[] = await sql`
+          SELECT id, status FROM auth.account_requests WHERE id = ${config.id}
+        `;
+        if (currentRows.length === 0) {
+          const result = fail(err.notFound("Request"));
+          return audit.recordResult({ action: "accounts.request.deny", actor: auditActor(config.actor), target: { type: "account_request", id: config.id }, result });
+        }
         const result = fail(err.badInput("Only pending requests can be denied"));
         return audit.recordResult({ action: "accounts.request.deny", actor: auditActor(config.actor), target: { type: "account_request", id: config.id }, result });
       }
 
-      await sql`
-        UPDATE auth.account_requests
-        SET status = 'denied', denied_reason = ${config.reason ?? null}, processed_at = now(), processed_by = ${config.actor.userId}
-        WHERE id = ${config.id}
-      `;
+      const request = rows[0]!;
 
       if (config.reason) {
         const template = await settings.get<string>("mail.account_request_denial");
