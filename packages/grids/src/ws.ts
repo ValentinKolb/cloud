@@ -8,6 +8,7 @@ import { upgradeWebSocket } from "hono/bun";
 import { z } from "zod";
 import { gridsWorkspace } from "./lib/workspace-events";
 import { gridsService } from "./service";
+import { canReadDashboardIncludedData } from "./service/dashboard-included-access";
 import { latestMetadataEventCursor, liveMetadataEvents } from "./service/metadata-events";
 import { latestRecordEventCursor, liveRecordEvents } from "./service/record-events";
 
@@ -148,16 +149,10 @@ const evaluateDashboardRecordAccess = async (
   }
   if (hasRole(user, "admin")) return { ok: true, user, baseId: dashboard.baseId, tableId };
 
-  const grants = await gridsService.permission.loadGrants({
+  const canRead = await canReadDashboardIncludedData(dashboard, {
     userId: user.id,
     userGroups: user.memberofGroupIds,
-    baseId: dashboard.baseId,
-    dashboardId: dashboard.id,
   });
-  const level = gridsService.permission.resolve(grants, { baseId: dashboard.baseId, dashboardId: dashboard.id });
-  const hasDefaultDashboardAccess = dashboard.ownerUserId === null || dashboard.ownerUserId === user.id;
-  const hasExplicitDashboardGrant = gridsService.permission.hasGrantsForResource(grants, "dashboard", dashboard.id);
-  const canRead = gridsService.permission.hasAtLeast(level, "read") && (hasDefaultDashboardAccess || hasExplicitDashboardGrant);
   if (!canRead) return { ok: false, code: "access_denied", message: "Access denied", tableId };
 
   return { ok: true, user, baseId: dashboard.baseId, tableId };
