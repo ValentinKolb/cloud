@@ -19,12 +19,12 @@ authority while FreeIPA remains the directory backend and operational guardrail.
 | Cloud session storage | `packages/cloud/src/services/session/index.ts` stores `{ userId, gen }` only. |
 | Login/password-change routes | IPA login still validates credentials through FreeIPA, syncs/loads the local user, then creates a Cloud session without storing `ipa_session`. |
 | `/me` profile update | `packages/cloud/src/api/me.ts` calls the Accounts service without session plumbing; the service verifies self-service fields before executing IPA updates with the service account. |
-| `/me` account extension | `accountLifecycle.extendCurrentUserAccount()` owns the extension rules and uses the service account for IPA expiry updates. Non-expiring accounts still cannot be extended. |
+| `/me` account extension | `accountLifecycle.extendCurrentUserAccount()` owns the extension rules, proves current `freeipa.groups.base_sync` membership from FreeIPA `group_find`, runs a single-user IPA sync/freshness check, then uses the service account for IPA expiry updates. Non-expiring, expired, missing, or out-of-scope accounts are not extended. |
 | `/me` self-delete | Guest self-delete is authorized in the Accounts service and uses service-account execution for IPA-backed guests. |
 | Own password change | `accountsService.user.changeOwnPassword()` verifies the current password with FreeIPA and uses only that fresh verification session for the password change RPC. Do not replace this with service-account execution. |
 | Accounts user admin routes | Admin user mutations no longer read `auth.session.getIpaSession()`; service methods obtain a service-account session when the target provider requires FreeIPA. |
-| Accounts group routes | Admin and non-admin manager mutations use the same Cloud authorization + service-account execution path. |
-| IPA Hosts admin routes | Host and hostgroup mutations use the service-account helper from the service layer; HTTP routes no longer require actor IPA sessions. |
+| Accounts group routes | Member add/remove supports admins and FreeIPA-style member managers through Cloud authorization. Changing the member-manager list itself is admin-only, matching FreeIPA behavior. |
+| IPA Hosts admin routes | Host and hostgroup mutations authorize admin actors in the service layer before acquiring a service-account session. HTTP routes no longer require actor IPA sessions. |
 | Low-level IPA providers | `packages/cloud/src/services/ipa/users.ts`, `packages/cloud/src/services/ipa/groups.ts`, and `packages/ipa-hosts/src/backend/provider.ts` still accept caller-provided `ipaSession` as low-level RPC primitives. Callers outside provider/sync/password-change code should use service-layer helpers instead. |
 
 ## Service-Account Permissions
@@ -38,7 +38,7 @@ mutation that Cloud authorizes:
 - group create, modify, delete, and lookup;
 - group POSIX conversion where enabled;
 - add/remove user and group members;
-- add/remove user and group managers;
+- add/remove user and group managers for admin-authorized manager-list changes;
 - host modify/delete and hostgroup membership mutations for the IPA Hosts app;
 - hostgroup create, modify, delete, and lookup;
 - read users, groups, hosts, memberships, and managers for sync and authorization
@@ -56,7 +56,7 @@ Covered by the current Accounts service facade:
 - self-service profile/password/self-delete operations;
 - account extension lifecycle outcomes;
 - group create/update/remove/POSIX operations;
-- group member and manager mutations, including denied manager checks;
+- group member mutations and admin-only manager-list mutations, including denied manager checks;
 - account request create/withdraw/deny/complete flows;
 - metadata sanitization for passwords, tokens, cookies, and `ipaSession`.
 
@@ -69,6 +69,9 @@ action, outcome, provider, and time-range inspection.
   directory-wide mutation capability. Keep authorization in services and do not
   let HTTP routes bypass it.
 - Manager authorization must compare stable group IDs, not display names.
+- FreeIPA service-account helpers are internal service plumbing. Do not expose
+  raw service-account sessions through broad app-facing APIs; package exports
+  should block direct app imports of service-account internals.
 - Password-change flows need fresh user credentials and should not be folded
   into generic service-account execution.
 - Local development without FreeIPA must keep working; service-account lookup

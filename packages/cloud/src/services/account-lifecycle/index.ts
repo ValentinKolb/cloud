@@ -10,6 +10,8 @@ import { session } from "../session";
 import { getConfiguredExpiryDays, parseIpaAccountTransitionPolicy } from "../account-model";
 import { getFreeIpaConfig } from "../freeipa-config";
 import { getServiceIpaSession } from "../ipa/service-account";
+import { buildEffectiveIpaGroupsByUid } from "../ipa/effective-groups";
+import { providers } from "../providers";
 import { parsePgJsonRecord } from "../postgres";
 import { dates } from "../../shared";
 import { err, fail, freeipa, ok, type Result } from "../../server/services";
@@ -56,6 +58,99 @@ const getGuestExpiresDays = async (): Promise<number> => {
 };
 const getDeletedAccountsRetentionDays = async (): Promise<number> => settingInt("user.account.deleted_accounts_retention_days", 365);
 const getReminderHistoryRetentionDays = async (): Promise<number> => settingInt("user.account.reminder_history_retention_days", 365);
+
+const readIpaList = (config: { response: Awaited<ReturnType<typeof freeipa.client.call>>; entity: string }): Result<Record<string, unknown>[]> => {
+  if (config.response.error) {
+    return fail(err.internal(`Could not verify FreeIPA ${config.entity} before extension.`));
+  }
+  const records = config.response.result?.result;
+  if (!Array.isArray(records)) {
+    return fail(err.internal(`Could not verify FreeIPA ${config.entity} before extension.`));
+  }
+  return ok(records as Record<string, unknown>[]);
+};
+
+const verifyCurrentIpaSyncScope = async (uid: string): Promise<Result<void>> => {
+  const config = await getFreeIpaConfig();
+  const serviceSession = await getServiceIpaSession();
+  if (!serviceSession.ok) {
+    return fail({
+      code: serviceSession.status === 400 ? "BAD_INPUT" : "INTERNAL",
+      message: serviceSession.error,
+      status: serviceSession.status,
+    });
+  }
+
+  const groupsRes = await freeipa.client.call({
+    url: config.url,
+    ipaSession: serviceSession.data,
+    method: "group_find",
+    args: [],
+    options: {
+      sizelimit: 0,
+      no_members: false,
+      all: true,
+    },
+  });
+  const groups = readIpaList({ response: groupsRes, entity: "groups" });
+  if (!groups.ok) return fail(groups.error);
+
+  const effectiveGroupsByUid = buildEffectiveIpaGroupsByUid(
+    groups.data.map((raw) => ({
+      cn: freeipa.util.str(raw.cn),
+      users: (raw.member_user as string[]) ?? [],
+      groups: (raw.member_group as string[]) ?? [],
+    })),
+  );
+  const effectiveGroups = effectiveGroupsByUid.get(uid) ?? [];
+  if (!config.groupsBaseSync.some((group) => effectiveGroups.includes(group))) {
+    return fail(err.forbidden("Your FreeIPA account is no longer in sync scope and cannot be extended."));
+  }
+
+  return ok();
+};
+
+const readFreshLocalIpaAccountExpiry = async (uid: string): Promise<Result<Date | null>> => {
+  const rows = await sql<DbRow[]>`
+    SELECT account_expires
+    FROM auth.users
+    WHERE uid = ${uid} AND provider = 'ipa'
+  `;
+  const row = rows[0];
+  if (!row) return fail(err.notFound("Your FreeIPA account was not found locally."));
+  return ok((row.account_expires as Date | null | undefined) ?? null);
+};
+
+const verifyIpaExtensionFreshness = async (uid: string): Promise<Result<{ accountExpires: Date }>> => {
+  const currentScope = await verifyCurrentIpaSyncScope(uid);
+  if (!currentScope.ok) return fail(currentScope.error);
+
+  const freshness = await providers.ipa.sync.user(uid).catch((error) => ({
+    status: "fetch_failed" as const,
+    error: error instanceof Error ? error.message : String(error),
+  }));
+
+  switch (freshness.status) {
+    case "synced": {
+      const accountExpires = await readFreshLocalIpaAccountExpiry(uid);
+      if (!accountExpires.ok) return accountExpires;
+      if (accountExpires.data === null) {
+        return fail(err.badInput("Accounts without an expiration date cannot be extended."));
+      }
+      return ok({ accountExpires: accountExpires.data });
+    }
+    case "expired":
+      return fail(err.badInput("Your FreeIPA account is expired and cannot be extended."));
+    case "out_of_scope":
+      return fail(err.forbidden("Your FreeIPA account is no longer in sync scope and cannot be extended."));
+    case "not_found_local":
+      return fail(err.notFound("Your FreeIPA account was not found locally."));
+    case "fetch_failed":
+      return fail(err.internal("Could not verify your FreeIPA account before extension."));
+    case "skipped_disabled":
+      return fail(err.badInput("FreeIPA is disabled."));
+  }
+};
 
 const parseReminderDays = async (): Promise<number[]> => {
   const raw = await getSetting<number[]>("user.account.reminder_days");
@@ -707,6 +802,9 @@ export const accountLifecycle = {
       if (configuredDays <= 0) {
         return recordResult(ok({ message: "Automatic account expiry is disabled for IPA accounts." }));
       }
+
+      const freshness = await verifyIpaExtensionFreshness(config.user.uid);
+      if (!freshness.ok) return recordResult(fail(freshness.error));
 
       const serviceSession = await getServiceIpaSession();
       if (!serviceSession.ok) {

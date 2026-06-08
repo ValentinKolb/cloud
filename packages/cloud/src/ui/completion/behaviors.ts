@@ -54,10 +54,10 @@ const findExpansion = (
     if (c.trigger !== undefined) continue;
     const list = suggestSync(c, word, ctx);
     if (!list) continue;
-    const exact = list.find((s) => s.text === word && s.expansion);
+    const exact = list.find((s) => s.text === word && s.expansion && s.expansion !== word);
     if (exact) return { suggestion: exact, completion: c };
     const lower = word.toLowerCase();
-    const ci = list.find((s) => s.text.toLowerCase() === lower && s.expansion);
+    const ci = list.find((s) => s.text.toLowerCase() === lower && s.expansion && s.expansion !== word);
     if (ci) return { suggestion: ci, completion: c };
   }
   return null;
@@ -106,7 +106,7 @@ export const tryExpand = (
   const hit = findExpansion(word, completions, ctx);
   if (!hit) return false;
   const { suggestion } = hit;
-  if (!suggestion.expansion) return false;
+  if (!suggestion.expansion || suggestion.expansion === word) return false;
 
   const replacement = suggestion.expansion + triggerChar;
   textarea.setSelectionRange(wordStart, caret);

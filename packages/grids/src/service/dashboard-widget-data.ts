@@ -12,6 +12,7 @@ import * as views from "./views";
 import * as dashboards from "./dashboards";
 import * as automations from "./automations";
 import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
+import { canReadDashboardIncludedData } from "./dashboard-included-access";
 
 const isComputedColumn = (column: ColumnSpec): column is ComputedColumnSpec => "kind" in column && column.kind === "computed";
 
@@ -343,17 +344,7 @@ const canReadViewTarget = async (
 };
 
 const canReadDashboardTarget = async (dashboard: SavedDashboard, viewer: ViewerContext): Promise<boolean> => {
-  if (viewer.isAdmin) return true;
-  const grants = await loadGrantsForUser({
-    userId: viewer.userId,
-    userGroups: viewer.userGroups,
-    baseId: dashboard.baseId,
-    dashboardId: dashboard.id,
-  });
-  const level = resolveEffectivePermission(grants, { baseId: dashboard.baseId, dashboardId: dashboard.id });
-  if (!hasAtLeast(level, "read")) return false;
-  if (dashboard.ownerUserId === null || dashboard.ownerUserId === viewer.userId) return true;
-  return hasGrantsForResource(grants, "dashboard", dashboard.id);
+  return canReadDashboardIncludedData(dashboard, viewer);
 };
 
 const iconForLinkTarget = (kind: Extract<Widget, { kind: "link" }>["target"]["kind"]) => {

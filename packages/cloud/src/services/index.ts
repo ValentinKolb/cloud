@@ -1,5 +1,4 @@
 export { ipa } from "./ipa";
-export { getServiceIpaSession } from "./ipa/service-account";
 export { accounts } from "./accounts";
 export { accountsAppService } from "./accounts";
 export { providers } from "./providers";

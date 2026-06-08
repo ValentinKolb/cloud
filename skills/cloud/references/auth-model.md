@@ -107,6 +107,14 @@ Single-user sync/login does not destructively change scope or profile from
 user-side `memberof*`. It uses the last full-sync projection and logs drift
 when FreeIPA user attributes disagree with the group graph.
 
+Self-service IPA account extension is stricter because it performs a real
+FreeIPA mutation through the service account. Before extending, Cloud rebuilds
+the current effective group view from FreeIPA `group_find` and requires the
+user to still be effectively in `freeipa.groups.base_sync`. It then runs the
+single-user sync and rechecks the synced local expiry. If the current graph
+cannot prove scope, the account is expired, or the synced account is
+non-expiring, the extension fails closed.
+
 **Note:** FreeIPA is optional. The platform works without it using local-only accounts and magic link login — useful for development.
 
 ### Admin Resolution
@@ -285,6 +293,9 @@ mutations:
 - Existing HTTP-route checks remain as defense-in-depth.
 - FreeIPA RPCs for user/group/host mutations use the configured service account;
   never require or store a human user's `ipa_session` in Cloud sessions.
+- IPA group member managers can add/remove members of groups they manage, but
+  changing the member-manager list itself is an admin operation, matching
+  FreeIPA's `group-add-member-manager` / `group-remove-member-manager` model.
 - Admin UI should expose a searchable `DataTable` audit page with URL-backed
   filters for actor, target, action, outcome, provider, and time range.
 
@@ -308,6 +319,12 @@ Lifecycle jobs run on a cron schedule:
 - `cleanupExpiredGuests()` — delete expired guest accounts
 - `sendExpiryReminders()` — send email reminders before expiry
 - `extendCurrentUserAccount()` — user self-service extension
+
+IPA self-service extension is fail-closed: before Cloud uses the FreeIPA
+service account to update expiry, it rebuilds the current FreeIPA group graph,
+requires effective membership in `freeipa.groups.base_sync`, runs a single-user
+FreeIPA sync, and rechecks the synced local expiry. Expired, missing,
+out-of-scope, or non-expiring users are not extended.
 
 Deleted accounts are archived to `auth.deleted_accounts` for audit:
 

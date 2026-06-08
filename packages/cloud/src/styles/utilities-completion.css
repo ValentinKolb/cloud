@@ -128,14 +128,20 @@
    show through. The preview underneath provides the visible glyphs. */
 .ac-editor-input--overlay {
   color: transparent !important;
-  caret-color: #18181b;
+  -webkit-text-fill-color: transparent !important;
+  caret-color: #18181b !important;
   background: transparent !important;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
 
 .dark .ac-editor-input--overlay {
-  caret-color: #f4f4f5;
+  caret-color: #f4f4f5 !important;
+}
+
+.ac-editor-input--overlay::selection {
+  background: rgb(59 130 246 / 0.35);
+  color: transparent;
 }
 
 .ac-editor-preview {

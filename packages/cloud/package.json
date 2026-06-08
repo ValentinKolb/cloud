@@ -26,6 +26,7 @@
     "./browser": "./src/server/api-client.ts",
     "./shared": "./src/shared/index.ts",
     "./services": "./src/services/index.ts",
+    "./services/ipa/service-account": null,
     "./services/*": "./src/services/*",
     "./ssr": "./src/ssr/index.ts",
     "./ssr/islands": "./src/ssr/islands/index.ts",

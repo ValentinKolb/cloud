@@ -175,7 +175,7 @@ const app = new Hono<AuthContext>()
         200: jsonResponse(MessageResponseSchema, "Member added"),
         400: jsonResponse(ErrorResponseSchema, "Failed to add member"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
-        403: jsonResponse(ErrorResponseSchema, "IPA access required"),
+        403: jsonResponse(ErrorResponseSchema, "Group management access required"),
       },
     }),
     v("json", GroupMemberInputSchema),
@@ -193,7 +193,7 @@ const app = new Hono<AuthContext>()
         200: jsonResponse(MessageResponseSchema, "Member removed"),
         400: jsonResponse(ErrorResponseSchema, "Failed to remove member"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
-        403: jsonResponse(ErrorResponseSchema, "IPA access required"),
+        403: jsonResponse(ErrorResponseSchema, "Group management access required"),
       },
     }),
     v("json", GroupMemberInputSchema),
@@ -201,17 +201,17 @@ const app = new Hono<AuthContext>()
   )
   .post(
     "/:id/managers",
-    auth.requireRole("user"),
+    auth.requireRole("admin"),
     describeRoute({
       tags: ["Groups"],
       summary: "Add manager to group",
-      description: "Add a user or group as a manager where the current user has permission.",
-      ...requiresAuth,
+      description: "Add a user or group as a member manager. This matches FreeIPA and requires admin access.",
+      ...requiresAdmin,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Manager added"),
         400: jsonResponse(ErrorResponseSchema, "Failed to add manager"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
-        403: jsonResponse(ErrorResponseSchema, "Full account required"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
     v("json", GroupMemberInputSchema),
@@ -219,17 +219,17 @@ const app = new Hono<AuthContext>()
   )
   .delete(
     "/:id/managers",
-    auth.requireRole("user"),
+    auth.requireRole("admin"),
     describeRoute({
       tags: ["Groups"],
       summary: "Remove manager from group",
-      description: "Remove a user or group manager where the current user has permission.",
-      ...requiresAuth,
+      description: "Remove a user or group member manager. This matches FreeIPA and requires admin access.",
+      ...requiresAdmin,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Manager removed"),
         400: jsonResponse(ErrorResponseSchema, "Failed to remove manager"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
-        403: jsonResponse(ErrorResponseSchema, "Full account required"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
     v("json", GroupMemberInputSchema),

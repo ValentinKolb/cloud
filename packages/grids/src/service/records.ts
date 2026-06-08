@@ -12,7 +12,7 @@ import { generateIdValue, generatedIdRequiresRetry, isGeneratedIdUniqueCollision
 import { compileFilter, type FilterTree, renderClause } from "./filter-compiler";
 import { compileGroupQuery, type GroupAggregationSpec, type GroupBucket, type GroupBySpec, type GroupSortSpec } from "./group-compiler";
 import { parseJsonbRow } from "./jsonb";
-import { requireTableAlive } from "./parent-checks";
+import { liveRecordParentJoinSql, requireTableAlive } from "./parent-checks";
 import { type GridsRecordEvent, publishRecordEvent } from "./record-events";
 import {
   cleanRecordMeta,
@@ -97,6 +97,7 @@ const enrichFormulaLookups = async (records: GridRecord[], fields: Field[], opti
     const rows = await sql<DbRow[]>`
       SELECT r.*${projectionFragments}
       FROM grids.records r
+      ${liveRecordParentJoinSql("r", "rt", "rb")}
       WHERE r.table_id = ${tableId}::uuid
         AND r.id = ANY(${sql.array([...ids], "UUID")})
         AND r.deleted_at IS NULL
@@ -728,6 +729,7 @@ export const get = async (
   opts: { includeRelations?: boolean; viewer?: ExpansionViewer; dateConfig?: DateContext } = {},
 ): Promise<GridRecord | null> => {
   const fields = await listFields(tableId);
+  const fieldsWithLookupMeta = await withLookupTargetMetadata(fields);
   const computed = await buildComputedProjections(fields);
   const projectionFragments =
     computed.length > 0 ? computed.map((p) => sql`, ${p.fragment}`).reduce((acc, cur) => sql`${acc}${cur}`) : sql``;
@@ -747,9 +749,10 @@ export const get = async (
   // mirrors the list-path shape exactly.
   await hydrateRelationsFromLinks([record], fields);
   applyComputedProjections([row as Record<string, unknown>], new Map([[record.id, record]]), computed);
-  enrichRecordsWithFormulas([record], fields, { dateConfig: opts.dateConfig });
+  await enrichFormulaLookups([record], fieldsWithLookupMeta, { dateConfig: opts.dateConfig });
+  enrichRecordsWithFormulas([record], fieldsWithLookupMeta, { dateConfig: opts.dateConfig });
   if (opts.includeRelations) {
-    await attachRelationExpansion([record], fields, opts.viewer);
+    await attachRelationExpansion([record], fieldsWithLookupMeta, opts.viewer);
   }
   return record;
 };
@@ -772,11 +775,8 @@ export const create = async (
     }),
   );
   if (!created.ok) return created;
-  const record = created.data.record;
-  if (opts.includeRelations) {
-    const fields = await listFields(tableId);
-    await attachRelationExpansion([record], fields, opts.viewer);
-  }
+  const record = await get(tableId, created.data.record.id, opts);
+  if (!record) return fail(err.notFound("Record"));
   await emitCreatedRecordEvent(tableId, record, created.data.changedFieldIds, actorId);
   return ok(record);
 };
@@ -811,7 +811,11 @@ export const update = async (
   // Relations are managed exclusively via record_links — they MUST NOT
   // re-enter the JSONB blob (otherwise the hydration step on read
   // would have to special-case "JSONB takes precedence" semantics).
-  const merged = { ...existing.data, ...split.data };
+  const persistableFieldIds = new Set(
+    fields.filter((field) => isRecordWritableFieldType(field.type) && field.type !== "relation" && !field.deletedAt).map((field) => field.id),
+  );
+  const persistedExistingData = Object.fromEntries(Object.entries(existing.data).filter(([key]) => persistableFieldIds.has(key)));
+  const merged = { ...persistedExistingData, ...split.data };
   // Drop any zombie relation keys that may still live in the existing
   // JSONB from pre-v3 writes.
   const relationFieldIds = new Set(fields.filter((f) => f.type === "relation" && !f.deletedAt).map((f) => f.id));
@@ -874,12 +878,8 @@ export const update = async (
     });
   if (!txResult) return fail(recordVersionConflict());
 
-  const record = mapRow(txResult);
-  await hydrateRelationsFromLinks([record], fields);
-  enrichRecordsWithFormulas([record], fields, { dateConfig: opts.dateConfig });
-  if (opts.includeRelations) {
-    await attachRelationExpansion([record], fields, opts.viewer);
-  }
+  const record = await get(tableId, recordId, opts);
+  if (!record) return fail(err.notFound("Record"));
   const baseId = await baseIdForTable(tableId);
   if (baseId) {
     await emitRecordEvent({

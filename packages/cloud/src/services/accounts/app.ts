@@ -920,7 +920,7 @@ export const accountsAppService = {
             result,
           });
         }
-        const accessError = await authorizeGroupMutation<void>({ actor: config.actor, group, action: "accounts.group.manager.add" });
+        const accessError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.group.manager.add", target: groupTarget(group) });
         if (accessError) return accessError;
         const result = fromMutationResult(
           await groups.addManager({
@@ -949,7 +949,7 @@ export const accountsAppService = {
             result,
           });
         }
-        const accessError = await authorizeGroupMutation<void>({ actor: config.actor, group, action: "accounts.group.manager.remove" });
+        const accessError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.group.manager.remove", target: groupTarget(group) });
         if (accessError) return accessError;
         const result = fromMutationResult(
           await groups.removeManager({

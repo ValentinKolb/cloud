@@ -19,6 +19,13 @@ import {
 } from "@/contracts";
 import { ipaHostsService } from "../service";
 
+const toAccountsActor = (actor: AuthContext["Variables"]["user"]) => ({
+  userId: actor.id,
+  uid: actor.uid,
+  roles: actor.roles,
+  provider: actor.provider,
+});
+
 const isServiceResult = (value: unknown): value is Result<unknown> => {
   return Boolean(value && typeof value === "object" && "ok" in value);
 };
@@ -88,6 +95,8 @@ const app = new Hono<AuthContext>()
         200: jsonResponse(MessageResponseSchema, "Host updated"),
         400: jsonResponse(ErrorResponseSchema, "Update failed"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
+        500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
     v("json", UpdateHostSchema),
@@ -95,7 +104,7 @@ const app = new Hono<AuthContext>()
       const fqdn = c.req.param("fqdn");
       if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
       const data = c.req.valid("json");
-      return respondMessage(c, ipaHostsService.host.update({ fqdn, data }), "Host updated");
+      return respondMessage(c, ipaHostsService.host.update({ actor: toAccountsActor(c.get("user")), fqdn, data }), "Host updated");
     },
   )
   .delete(
@@ -107,11 +116,13 @@ const app = new Hono<AuthContext>()
         200: jsonResponse(MessageResponseSchema, "Host deleted"),
         400: jsonResponse(ErrorResponseSchema, "Delete failed"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
+        500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
     async (c) => {
       const fqdn = c.req.param("fqdn");
-      return respondMessage(c, ipaHostsService.host.remove({ fqdn }), "Host deleted");
+      return respondMessage(c, ipaHostsService.host.remove({ actor: toAccountsActor(c.get("user")), fqdn }), "Host deleted");
     },
   )
   .post(
@@ -123,6 +134,8 @@ const app = new Hono<AuthContext>()
         200: jsonResponse(MessageResponseSchema, "Host added to group"),
         400: jsonResponse(ErrorResponseSchema, "Failed"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
+        500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
     v("json", z.object({ hostgroup: z.string().min(1) })),
@@ -130,7 +143,7 @@ const app = new Hono<AuthContext>()
       const fqdn = c.req.param("fqdn");
       if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
       const { hostgroup } = c.req.valid("json");
-      return respondMessage(c, ipaHostsService.host.addToGroup({ fqdn, hostgroup }), "Host added to group");
+      return respondMessage(c, ipaHostsService.host.addToGroup({ actor: toAccountsActor(c.get("user")), fqdn, hostgroup }), "Host added to group");
     },
   )
   .delete(
@@ -142,6 +155,8 @@ const app = new Hono<AuthContext>()
         200: jsonResponse(MessageResponseSchema, "Host removed from group"),
         400: jsonResponse(ErrorResponseSchema, "Failed"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
+        500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
     v("json", z.object({ hostgroup: z.string().min(1) })),
@@ -149,7 +164,7 @@ const app = new Hono<AuthContext>()
       const fqdn = c.req.param("fqdn");
       if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
       const { hostgroup } = c.req.valid("json");
-      return respondMessage(c, ipaHostsService.host.removeFromGroup({ fqdn, hostgroup }), "Host removed from group");
+      return respondMessage(c, ipaHostsService.host.removeFromGroup({ actor: toAccountsActor(c.get("user")), fqdn, hostgroup }), "Host removed from group");
     },
   )
   .get(
@@ -202,12 +217,15 @@ const app = new Hono<AuthContext>()
       responses: {
         201: jsonResponse(MessageResponseSchema, "Hostgroup created"),
         400: jsonResponse(ErrorResponseSchema, "Create failed"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
+        500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
     v("json", z.object({ name: z.string().min(1), description: z.string().optional() })),
     async (c) => {
       const { name, description } = c.req.valid("json");
-      return respondMessage(c, ipaHostsService.hostgroup.create({ name, description }), "Hostgroup created", 201);
+      return respondMessage(c, ipaHostsService.hostgroup.create({ actor: toAccountsActor(c.get("user")), name, description }), "Hostgroup created", 201);
     },
   )
   .patch(
@@ -218,6 +236,9 @@ const app = new Hono<AuthContext>()
       responses: {
         200: jsonResponse(MessageResponseSchema, "Hostgroup updated"),
         400: jsonResponse(ErrorResponseSchema, "Update failed"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
+        500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
     v("json", UpdateHostgroupSchema),
@@ -225,7 +246,7 @@ const app = new Hono<AuthContext>()
       const cn = c.req.param("cn");
       if (!cn) return respond(c, fail(err.badInput("Missing hostgroup name")));
       const data = c.req.valid("json");
-      return respondMessage(c, ipaHostsService.hostgroup.update({ cn, data }), "Hostgroup updated");
+      return respondMessage(c, ipaHostsService.hostgroup.update({ actor: toAccountsActor(c.get("user")), cn, data }), "Hostgroup updated");
     },
   )
   .delete(
@@ -236,11 +257,14 @@ const app = new Hono<AuthContext>()
       responses: {
         200: jsonResponse(MessageResponseSchema, "Hostgroup deleted"),
         400: jsonResponse(ErrorResponseSchema, "Delete failed"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
+        500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
     async (c) => {
       const cn = c.req.param("cn");
-      return respondMessage(c, ipaHostsService.hostgroup.remove({ cn }), "Hostgroup deleted");
+      return respondMessage(c, ipaHostsService.hostgroup.remove({ actor: toAccountsActor(c.get("user")), cn }), "Hostgroup deleted");
     },
   )
   .get(

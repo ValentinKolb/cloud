@@ -1,7 +1,9 @@
 import { ipaHosts } from "../backend";
-import { getServiceIpaSession } from "@valentinkolb/cloud/services";
+import { getFreeIpaConfig } from "@valentinkolb/cloud/services/freeipa-config";
 import {
+  err,
   fail,
+  freeipa,
   ok,
   paginate,
   type PageParams,
@@ -12,6 +14,7 @@ import {
 import type { IpaHost, IpaHostgroup } from "@/contracts";
 
 type IpaMutationResult = { ok: true } | { ok: false; error: string; status: 400 | 401 | 403 | 404 | 500 };
+type IpaHostsActor = { userId: string; uid: string; roles: string[]; provider?: string | null };
 
 const looksLikeCronValidationError = (error: unknown): boolean => {
   if (!(error instanceof Error)) return false;
@@ -52,13 +55,35 @@ const fromIpaMutation = (result: IpaMutationResult): Result<void> => {
 };
 
 const getServiceSession = async (): Promise<Result<string>> => {
-  const result = await getServiceIpaSession();
-  if (result.ok) return ok(result.data);
-  return fail({
-    code: toErrorCode(result.status === 409 ? 400 : result.status),
-    message: result.error,
-    status: result.status,
-  });
+  const config = await getFreeIpaConfig();
+  if (!config.enabled) return fail(err.badInput("FreeIPA is disabled."));
+  if (!config.configured) return fail(err.badInput("FreeIPA is enabled but not fully configured."));
+  try {
+    return ok(await freeipa.session.getServiceSession({
+      url: config.url,
+      serviceUser: config.serviceUser,
+      servicePassword: config.servicePassword,
+    }));
+  } catch {
+    return fail(err.internal("Internal FreeIPA service session unavailable."));
+  }
+};
+
+const isAdminActor = (actor: IpaHostsActor): boolean => actor.roles.includes("admin");
+
+const getAdminServiceSession = async (actor: IpaHostsActor): Promise<Result<string>> => {
+  if (!isAdminActor(actor)) return fail(err.forbidden("Admin access required"));
+  return getServiceSession();
+};
+
+const runAdminMutation = async (
+  actor: IpaHostsActor,
+  mutation: (ipaSession: string) => Promise<IpaMutationResult>,
+): Promise<Result<void>> => {
+  const serviceSession = await getAdminServiceSession(actor);
+  if (!serviceSession.ok) return serviceSession;
+  const result = await mutation(serviceSession.data);
+  return fromIpaMutation(result);
 };
 
 export const ipaHostsService = {
@@ -81,29 +106,17 @@ export const ipaHostsService = {
       });
       return toPaginated<IpaHost>(result.hosts, result.total, { page, perPage });
     },
-    update: async (config: { fqdn: string; data: { location?: string; locality?: string; description?: string; macAddress?: string[] } }) => {
-      const serviceSession = await getServiceSession();
-      if (!serviceSession.ok) return serviceSession;
-      const result = await ipaHosts.hosts.update(serviceSession.data, config.fqdn, config.data);
-      return fromIpaMutation(result);
+    update: async (config: { actor: IpaHostsActor; fqdn: string; data: { location?: string; locality?: string; description?: string; macAddress?: string[] } }) => {
+      return runAdminMutation(config.actor, (ipaSession) => ipaHosts.hosts.update(ipaSession, config.fqdn, config.data));
     },
-    remove: async (config: { fqdn: string }) => {
-      const serviceSession = await getServiceSession();
-      if (!serviceSession.ok) return serviceSession;
-      const result = await ipaHosts.hosts.delete(serviceSession.data, config.fqdn);
-      return fromIpaMutation(result);
+    remove: async (config: { actor: IpaHostsActor; fqdn: string }) => {
+      return runAdminMutation(config.actor, (ipaSession) => ipaHosts.hosts.delete(ipaSession, config.fqdn));
     },
-    addToGroup: async (config: { fqdn: string; hostgroup: string }) => {
-      const serviceSession = await getServiceSession();
-      if (!serviceSession.ok) return serviceSession;
-      const result = await ipaHosts.hosts.addToGroup(serviceSession.data, config.fqdn, config.hostgroup);
-      return fromIpaMutation(result);
+    addToGroup: async (config: { actor: IpaHostsActor; fqdn: string; hostgroup: string }) => {
+      return runAdminMutation(config.actor, (ipaSession) => ipaHosts.hosts.addToGroup(ipaSession, config.fqdn, config.hostgroup));
     },
-    removeFromGroup: async (config: { fqdn: string; hostgroup: string }) => {
-      const serviceSession = await getServiceSession();
-      if (!serviceSession.ok) return serviceSession;
-      const result = await ipaHosts.hosts.removeFromGroup(serviceSession.data, config.fqdn, config.hostgroup);
-      return fromIpaMutation(result);
+    removeFromGroup: async (config: { actor: IpaHostsActor; fqdn: string; hostgroup: string }) => {
+      return runAdminMutation(config.actor, (ipaSession) => ipaHosts.hosts.removeFromGroup(ipaSession, config.fqdn, config.hostgroup));
     },
   },
   hostgroup: {
@@ -138,25 +151,16 @@ export const ipaHostsService = {
         limit: config.limit,
       });
     },
-    create: async (config: { name: string; description?: string }) => {
-      const serviceSession = await getServiceSession();
-      if (!serviceSession.ok) return serviceSession;
-      const result = await ipaHosts.hostgroups.create(serviceSession.data, config.name, {
+    create: async (config: { actor: IpaHostsActor; name: string; description?: string }) => {
+      return runAdminMutation(config.actor, (ipaSession) => ipaHosts.hostgroups.create(ipaSession, config.name, {
         description: config.description,
-      });
-      return fromIpaMutation(result);
+      }));
     },
-    update: async (config: { cn: string; data: { description?: string } }) => {
-      const serviceSession = await getServiceSession();
-      if (!serviceSession.ok) return serviceSession;
-      const result = await ipaHosts.hostgroups.update(serviceSession.data, config.cn, config.data);
-      return fromIpaMutation(result);
+    update: async (config: { actor: IpaHostsActor; cn: string; data: { description?: string } }) => {
+      return runAdminMutation(config.actor, (ipaSession) => ipaHosts.hostgroups.update(ipaSession, config.cn, config.data));
     },
-    remove: async (config: { cn: string }) => {
-      const serviceSession = await getServiceSession();
-      if (!serviceSession.ok) return serviceSession;
-      const result = await ipaHosts.hostgroups.delete(serviceSession.data, config.cn);
-      return fromIpaMutation(result);
+    remove: async (config: { actor: IpaHostsActor; cn: string }) => {
+      return runAdminMutation(config.actor, (ipaSession) => ipaHosts.hostgroups.delete(ipaSession, config.cn));
     },
   },
   sync: {

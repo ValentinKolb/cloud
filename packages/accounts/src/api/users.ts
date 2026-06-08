@@ -163,6 +163,7 @@ const app = new Hono<AuthContext>()
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
         404: jsonResponse(ErrorResponseSchema, "User not found"),
+        500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
     async (c) => {
@@ -577,12 +578,12 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Users"],
       summary: "Demote IPA user to local guest",
-      description: "Converts an IPA-backed user into a local guest account, preserving the local identity row. Requires an IPA session.",
+      description: "Converts an IPA-backed user into a local guest account, preserving the local identity row. Requires admin access and FreeIPA service-account availability.",
       ...requiresAdmin,
       responses: {
         200: jsonResponse(MessageResponseSchema, "User demoted to guest"),
         400: jsonResponse(ErrorResponseSchema, "Failed to demote user"),
-        401: jsonResponse(ErrorResponseSchema, "Authentication or IPA session required"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
         404: jsonResponse(ErrorResponseSchema, "User not found"),
       },

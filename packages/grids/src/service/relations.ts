@@ -7,6 +7,7 @@ import type { ComputedColumnSpec } from "../contracts";
 import type { SqlClient } from "./audit";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
+import { liveRecordParentJoinSql } from "./parent-checks";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 import { get as getTable } from "./tables";
 import type { Field, GridRecord } from "./types";
@@ -48,11 +49,12 @@ export const validateRelationTargets = async (
 ): Promise<{ ok: true } | { ok: false; missing: string[] }> => {
   if (targetIds.length === 0) return { ok: true };
   const rows = await client<{ id: string }[]>`
-    SELECT id::text AS id
-    FROM grids.records
-    WHERE id = ANY(${client.array(targetIds, "UUID")})
-      AND table_id = ${targetTableId}::uuid
-      AND deleted_at IS NULL
+    SELECT r.id::text AS id
+    FROM grids.records r
+    ${liveRecordParentJoinSql("r", "rt", "rb")}
+    WHERE r.id = ANY(${client.array(targetIds, "UUID")})
+      AND r.table_id = ${targetTableId}::uuid
+      AND r.deleted_at IS NULL
   `;
   const found = new Set(rows.map((r) => r.id));
   const missing = targetIds.filter((id) => !found.has(id));
@@ -410,11 +412,12 @@ const resolveLabelsByTargetTable = async (idsByTargetTable: Map<string, Set<stri
     const labelFields = relationLabelFields(targetFields);
     const idArr = `{${[...idSet].join(",")}}`;
     const rows = await sql<DbRow[]>`
-      SELECT id, data
-      FROM grids.records
-      WHERE id = ANY(${idArr}::uuid[])
-        AND table_id = ${targetTableId}::uuid
-        AND deleted_at IS NULL
+      SELECT r.id, r.data
+      FROM grids.records r
+      ${liveRecordParentJoinSql("r", "rt", "rb")}
+      WHERE r.id = ANY(${idArr}::uuid[])
+        AND r.table_id = ${targetTableId}::uuid
+        AND r.deleted_at IS NULL
     `;
     for (const row of rows) {
       const id = row.id as string;
@@ -609,11 +612,12 @@ const resolveExpansionByTargetTable = async (
 
     const idArr = `{${[...idSet].join(",")}}`;
     const rows = await sql<DbRow[]>`
-      SELECT id, data
-      FROM grids.records
-      WHERE id = ANY(${idArr}::uuid[])
-        AND table_id = ${targetTableId}::uuid
-        AND deleted_at IS NULL
+      SELECT r.id, r.data
+      FROM grids.records r
+      ${liveRecordParentJoinSql("r", "rt", "rb")}
+      WHERE r.id = ANY(${idArr}::uuid[])
+        AND r.table_id = ${targetTableId}::uuid
+        AND r.deleted_at IS NULL
     `;
     for (const row of rows) {
       const id = row.id as string;
@@ -703,26 +707,27 @@ export const lookupRecords = async (params: {
 
   const searchTargets = presentable.filter((f) => LABEL_TEXT_TYPES.has(f.type));
 
-  const conditions: any[] = [sql`table_id = ${params.targetTableId}::uuid`, sql`deleted_at IS NULL`];
+  const conditions: any[] = [sql`r.table_id = ${params.targetTableId}::uuid`, sql`r.deleted_at IS NULL`];
 
   const q = params.q?.trim();
   if (q && searchTargets.length > 0) {
     const pattern = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-    const orClauses = searchTargets.map((f) => sql`data->>${f.id} ILIKE ${pattern}`);
+    const orClauses = searchTargets.map((f) => sql`r.data->>${f.id} ILIKE ${pattern}`);
     const orClause = orClauses.reduce((acc, cur) => sql`${acc} OR ${cur}`);
     conditions.push(sql`(${orClause})`);
   }
 
   if (params.excludeIds && params.excludeIds.length > 0) {
-    conditions.push(sql`id <> ALL(${sql.array(params.excludeIds, "UUID")})`);
+    conditions.push(sql`r.id <> ALL(${sql.array(params.excludeIds, "UUID")})`);
   }
 
   const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
   const rows = await sql<DbRow[]>`
-    SELECT id, data
-    FROM grids.records
+    SELECT r.id, r.data
+    FROM grids.records r
+    ${liveRecordParentJoinSql("r", "rt", "rb")}
     WHERE ${where}
-    ORDER BY created_at DESC
+    ORDER BY r.created_at DESC
     LIMIT ${limit}
   `;
 

@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import { storageOf } from "./field-storage";
 import { get as getField } from "./fields";
+import { liveRecordParentJoinSql } from "./parent-checks";
 import type { Field } from "./types";
 
 /**
@@ -118,6 +119,7 @@ export const buildComputedProjections = async (fields: Field[]): Promise<Compute
           (SELECT ${projected}
            FROM grids.record_links rl
            JOIN grids.records t ON t.id = rl.to_record_id
+           ${liveRecordParentJoinSql("t", "tt", "tb")}
            WHERE rl.from_record_id = r.id
              AND rl.from_field_id = ${cfg.relationFieldId}::uuid
              AND t.deleted_at IS NULL
@@ -141,6 +143,7 @@ export const buildComputedProjections = async (fields: Field[]): Promise<Compute
           (SELECT count(*)::bigint
            FROM grids.record_links rl
            JOIN grids.records t ON t.id = rl.to_record_id
+           ${liveRecordParentJoinSql("t", "tt", "tb")}
            WHERE rl.from_record_id = r.id
              AND rl.from_field_id = ${cfg.relationFieldId}::uuid
              AND t.deleted_at IS NULL) AS ${sql.unsafe(rollupAlias(field.id))}
@@ -178,6 +181,7 @@ export const buildComputedProjections = async (fields: Field[]): Promise<Compute
         (SELECT ${aggFn}(${targetProjection})
          FROM grids.record_links rl
          JOIN grids.records t ON t.id = rl.to_record_id
+         ${liveRecordParentJoinSql("t", "tt", "tb")}
          WHERE rl.from_record_id = r.id
            AND rl.from_field_id = ${cfg.relationFieldId}::uuid
            AND t.deleted_at IS NULL) AS ${sql.unsafe(rollupAlias(field.id))}

@@ -421,7 +421,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
   });
 
   const onInput = (e: InputEvent & { currentTarget: HTMLTextAreaElement }): void => {
-    if (tryExpand(e.currentTarget, completions())) return;
+    if (e.inputType.startsWith("insert") && tryExpand(e.currentTarget, completions())) return;
     const v = e.currentTarget.value;
     setLocalValue(v);
     props.onInput?.(v);
