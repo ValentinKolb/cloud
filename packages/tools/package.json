@@ -10,7 +10,7 @@
   "dependencies": {
     "@valentinkolb/cloud": "workspace:*",
     "@valentinkolb/ssr": "0.10.0",
-    "@valentinkolb/stdlib": "0.11.0",
+    "@valentinkolb/stdlib": "0.12.0",
     "hono": "^4.11.1",
     "lean-qr": "^2.4.0",
     "solid-js": "^1.9.10"

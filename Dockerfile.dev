@@ -19,6 +19,7 @@ COPY packages/ipa-hosts/package.json packages/ipa-hosts/
 COPY packages/invoices/package.json packages/invoices/
 COPY packages/notebooks/package.json packages/notebooks/
 COPY packages/oauth/package.json packages/oauth/
+COPY packages/pulse/package.json packages/pulse/
 COPY packages/proxy-auth/package.json packages/proxy-auth/
 COPY packages/quotes/package.json packages/quotes/
 COPY packages/spaces/package.json packages/spaces/

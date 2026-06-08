@@ -24,13 +24,16 @@ COPY packages/grids/package.json         packages/grids/
 COPY packages/gateway/package.json       packages/gateway/
 COPY packages/gateway-ops/package.json   packages/gateway-ops/
 COPY packages/ipa-hosts/package.json     packages/ipa-hosts/
+COPY packages/invoices/package.json      packages/invoices/
 COPY packages/notebooks/package.json     packages/notebooks/
 COPY packages/oauth/package.json         packages/oauth/
+COPY packages/pulse/package.json         packages/pulse/
 COPY packages/proxy-auth/package.json    packages/proxy-auth/
 COPY packages/quotes/package.json        packages/quotes/
 COPY packages/spaces/package.json        packages/spaces/
 COPY packages/tools/package.json         packages/tools/
 COPY packages/ui-lab/package.json        packages/ui-lab/
+COPY packages/venue/package.json         packages/venue/
 COPY packages/weather/package.json       packages/weather/
 
 # --ignore-scripts: bun-plugin-tailwind declares `bun` as a peer dep, which
