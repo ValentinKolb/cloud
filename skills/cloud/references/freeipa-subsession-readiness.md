@@ -48,6 +48,155 @@ These permissions are intentionally broad. Keep the Cloud service facade small,
 audited, and tested because Cloud decides whether a requested mutation is
 allowed.
 
+### FreeIPA Service Account Setup
+
+Use a dedicated FreeIPA user and role for the Cloud service account. Do not add
+the service account to broad human-admin roles such as `User Administrator`,
+`IT Specialist`, or `admins`.
+
+Set local shell variables first:
+
+```bash
+SA="cloud_service"
+ROLE="Cloud Service Account"
+```
+
+Create the service account user if it does not exist yet. If your organization
+provisions service users elsewhere, create the user there and continue with the
+role setup below.
+
+```bash
+ipa user-add "$SA" \
+  --first="Cloud" \
+  --last="Service Account" \
+  --homedir="/dev/null" \
+  --shell="/sbin/nologin" \
+  --password
+```
+
+Create the Cloud role:
+
+```bash
+ipa role-add "$ROLE" \
+  --desc="Service account role for Cloud-managed FreeIPA operations" || true
+```
+
+Add account-expiry permissions:
+
+```bash
+ipa privilege-add "Cloud User Expiry Management" \
+  --desc="Allow Cloud to set and clear IPA user account expiration" || true
+
+ipa privilege-add-permission "Cloud User Expiry Management" \
+  --permissions="Modify User Expiration"
+
+ipa role-add-privilege "$ROLE" \
+  --privileges="Cloud User Expiry Management"
+```
+
+Add Accounts user administration permissions. These are required for IPA user
+create, profile updates, admin password reset, user removal, and explicit
+expiry changes through the Accounts app.
+
+```bash
+ipa privilege-add "Cloud User Management" \
+  --desc="Allow Cloud to create, update, remove, and reset IPA users" || true
+
+ipa privilege-add-permission "Cloud User Management" \
+  --permissions="System: Add Users" \
+  --permissions="System: Modify Users" \
+  --permissions="System: Change User password" \
+  --permissions="System: Remove Users" \
+  --permissions="Modify User Expiration"
+
+ipa role-add-privilege "$ROLE" \
+  --privileges="Cloud User Management"
+```
+
+Add Accounts group administration permissions. These are required for IPA group
+create, edit, delete, and member changes through the Accounts app.
+
+```bash
+ipa privilege-add "Cloud Group Management" \
+  --desc="Allow Cloud to create, update, remove, and manage IPA group membership" || true
+
+ipa privilege-add-permission "Cloud Group Management" \
+  --permissions="System: Add Groups" \
+  --permissions="System: Modify Groups" \
+  --permissions="System: Remove Groups" \
+  --permissions="System: Modify Group Membership"
+
+ipa role-add-privilege "$ROLE" \
+  --privileges="Cloud Group Management"
+```
+
+Add IPA Hosts permissions. These are required for host metadata updates,
+hostgroup membership, and hostgroup create/edit/delete in the IPA Hosts app.
+
+```bash
+ipa privilege-add "Cloud Host Management" \
+  --desc="Allow Cloud to update IPA host metadata and hostgroup membership" || true
+
+ipa privilege-add-permission "Cloud Host Management" \
+  --permissions="System: Modify Hosts" \
+  --permissions="System: Modify Hostgroup Membership" \
+  --permissions="System: Add Hostgroups" \
+  --permissions="System: Modify Hostgroups" \
+  --permissions="System: Remove Hostgroups"
+
+ipa role-add-privilege "$ROLE" \
+  --privileges="Cloud Host Management"
+```
+
+Add the service account to the role:
+
+```bash
+ipa role-add-member "$ROLE" --users="$SA"
+```
+
+Add `System: Remove Hosts` only when Cloud should be allowed to delete IPA
+hosts:
+
+```bash
+ipa privilege-add-permission "Cloud Host Management" \
+  --permissions="System: Remove Hosts"
+```
+
+Verify effective membership:
+
+```bash
+ipa role-show "$ROLE" --all --raw
+ipa user-show "$SA" --all --raw | grep -Ei "memberof|memberofindirect|uid:"
+```
+
+Expected minimum output includes the Cloud role plus indirect membership in:
+
+- `Modify User Expiration`;
+- `System: Add Users`, `System: Modify Users`, `System: Change User password`,
+  and `System: Remove Users`;
+- `System: Add Groups`, `System: Modify Groups`, `System: Remove Groups`, and
+  `System: Modify Group Membership`;
+- `System: Modify Hosts`;
+- `System: Modify Hostgroup Membership`;
+- `System: Add Hostgroups`, `System: Modify Hostgroups`, and
+  `System: Remove Hostgroups`.
+
+After creating the service account, configure Cloud with the account's FreeIPA
+username and password through `freeipa.service_user` and
+`freeipa.service_password`.
+
+When the Cloud UI returns `Insufficient access: Insufficient 'write'
+privilege to ...`, map the mentioned LDAP attribute or operation back to the
+missing FreeIPA permission. For example:
+
+- `krbPrincipalExpiration` → `Modify User Expiration`;
+- `nsHostLocation`, `l`, `description`, or `macAddress` → `System: Modify Hosts`;
+- hostgroup membership changes → `System: Modify Hostgroup Membership`.
+- user create/update/delete/reset flows → the `Cloud User Management`
+  permissions above;
+- group create/update/delete/member flows → the `Cloud Group Management`
+  permissions above.
+
 ## Audit Coverage
 
 Covered by the current Accounts service facade:

@@ -69,6 +69,9 @@ scope, profile, or admin state.
 
 FreeIPA-backed directory mutations are executed with the configured FreeIPA
 service account after Cloud service-layer authorization and audit checks pass.
+That service account needs explicit FreeIPA role/permission membership for the
+mutations Cloud is allowed to execute; the operator setup commands live in
+[FreeIPA Subsession Removal Readiness](freeipa-subsession-readiness.md).
 The only user-session FreeIPA cookie still used intentionally is the fresh
 credential verification session inside `changeOwnPassword()`.
 
