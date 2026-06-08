@@ -13,8 +13,10 @@ import { freeipa } from "../../server/services";
 import { getFreeIpaConfig } from "../freeipa-config";
 import { buildEffectiveIpaGroupsByUid } from "./effective-groups";
 import { calculateIpaProfileFromEffectiveProjection, getEffectiveUserGroups } from "./profile";
+import { selectStaleLocalIpaRows } from "./sync-planning";
 
 type DbRow = Record<string, unknown>;
+type LocalIpaRow = DbRow & { uid: string; mail: string | null };
 
 const log = logger("auth:ipa:sync");
 
@@ -241,7 +243,6 @@ export const syncFromIpa = async (): Promise<void> => {
   // stale/transition branch so their local mirror is either demoted or deleted per policy,
   // and their sessions are revoked. Treating expired users as in-scope would leave a stale
   // unexpired local row plus live sessions.
-  const inScopeUids = new Set(activeUsers.map((u) => u.uid));
   const remoteGroupCns = new Set(allRawGroups.map((raw) => freeipa.util.str(raw.cn)).filter(Boolean));
   const groupCns = new Set(groups.map((g) => g.cn));
   const matchMode = parseIpaMatchMode(await settings.get<string | null>("freeipa.user_match_mode"));
@@ -301,7 +302,15 @@ export const syncFromIpa = async (): Promise<void> => {
     if (previousProfile === "user" && graphProfile === "guest") profilesDemoted += 1;
   }
 
-  const staleLocalUsers = localIpaRows.filter((row) => !inScopeUids.has(row.uid as string));
+  const localIpaIdentityRows: LocalIpaRow[] = localIpaRows.map((row) => ({
+    ...row,
+    uid: row.uid as string,
+    mail: (row.mail as string | null) ?? null,
+  }));
+  const staleLocalUsers = selectStaleLocalIpaRows({
+    localRows: localIpaIdentityRows,
+    activeRemoteUsers: activeUsers.map((user) => ({ uid: user.uid, mail: user.mail })),
+  });
   const staleLimit = Math.max(10, Math.ceil(Math.max(localIpaUsers, 1) * 0.2));
   if (staleLocalUsers.length > staleLimit) {
     throw new Error(

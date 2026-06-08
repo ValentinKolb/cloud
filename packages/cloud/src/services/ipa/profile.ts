@@ -2,8 +2,8 @@
  * Centralized profile calculation for IPA-backed users.
  *
  * Full sync writes `auth.ipa_user_effective_groups` from FreeIPA group_find.
- * Local group mutations rebuild the same projection from the local mirror for
- * immediate UI consistency until the next full sync reconciles it again.
+ * Local group mutations keep that projection as source of truth; the local
+ * display mirror is only a bootstrap fallback before the first full sync.
  */
 
 import { sql } from "bun";
@@ -89,11 +89,17 @@ const rebuildEffectiveProjectionFromLocalMirror = async (userId: string): Promis
   return groups;
 };
 
+const getEffectiveUserGroupsWithMirrorFallback = async (userId: string): Promise<string[]> => {
+  const projectedGroups = await getEffectiveUserGroups(userId);
+  if (projectedGroups.length > 0) return projectedGroups;
+  return rebuildEffectiveProjectionFromLocalMirror(userId);
+};
+
 /**
  * Update one IPA-backed user's canonical profile projection.
  */
 export const updateUserIpaProfile = async (userId: string): Promise<void> => {
-  const groups = await rebuildEffectiveProjectionFromLocalMirror(userId);
+  const groups = await getEffectiveUserGroupsWithMirrorFallback(userId);
   const profile = await calculateIpaProfile(groups);
   await sql`
     UPDATE auth.users
