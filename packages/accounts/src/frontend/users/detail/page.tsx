@@ -264,10 +264,6 @@ export default ssr<AuthContext>(async (c) => {
               </p>
             </div>
             <div class="flex flex-wrap items-center justify-end gap-2">
-              <a href={`/app/accounts/audit?actor=${encodeURIComponent(user.id)}`} class="btn-input btn-input-sm">
-                <i class="ti ti-clipboard-list" />
-                Actions by user
-              </a>
               <UserActions user={user} listHref={buildUsersUrl(listState)} freeIpaEnabled={freeIpaEnabled} />
             </div>
           </div>

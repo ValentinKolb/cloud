@@ -628,17 +628,35 @@ export default function UserActions(props: UserActionsProps) {
   const canCreateIpa = props.freeIpaEnabled && isLocalUser && Boolean(props.user.mail);
   const canCreateLoginToken = isLocalUser && Boolean(props.user.mail);
   const canSetExpiry = canMutateUser;
+  const auditByUserHref = `/app/accounts/audit?actor=${encodeURIComponent(props.user.id)}`;
+  const auditOnUserHref = `/app/accounts/audit?target=${encodeURIComponent(props.user.id)}`;
 
   return (
     <Dropdown
       trigger={
-        <button type="button" class="icon-btn h-7 w-7" aria-label="User actions">
+        <span class="btn-input btn-input-sm" aria-label="User actions">
           <i class="ti ti-dots-vertical text-sm" />
-        </button>
+          Actions
+        </span>
       }
       position="bottom-left"
-      width="w-48"
+      width="w-56"
       elements={[
+        {
+          sectionLabel: "Audit",
+          items: [
+            {
+              icon: "ti ti-clipboard-list",
+              label: "Actions by user",
+              href: auditByUserHref,
+            },
+            {
+              icon: "ti ti-user-search",
+              label: "Actions on user",
+              href: auditOnUserHref,
+            },
+          ],
+        },
         {
           items: [
             ...(canMutateUser
