@@ -3,13 +3,16 @@ import { parseDataUrl } from "@valentinkolb/cloud/shared";
 import { isAggregatable } from "../service/group-compiler";
 import { templates } from ".";
 import { field, formula } from "./types";
-import type { GridTemplate, TemplateField, TemplateRef } from "./types";
+import type { GridTemplate, TemplateDateExpression, TemplateField, TemplateRef } from "./types";
 
 const isRef = (value: unknown): value is TemplateRef =>
   !!value &&
   typeof value === "object" &&
   typeof (value as Record<string, unknown>).$ref === "string" &&
   typeof (value as Record<string, unknown>).key === "string";
+
+const isCurrentMonthDate = (value: unknown): value is TemplateDateExpression =>
+  !!value && typeof value === "object" && (value as { $date?: unknown }).$date === "current_month";
 
 const refsIn = (value: unknown): TemplateRef[] => {
   if (isRef(value)) return [value];
@@ -155,14 +158,14 @@ describe("built-in grid templates", () => {
       expect(parsed?.bytes.byteLength ?? 0, attachment.filename).toBeGreaterThan(100);
     }
 
-    const publicationCalendar = bookshop?.views?.find((view) => view.key === "publication_calendar");
+    const orderCalendar = bookshop?.views?.find((view) => view.key === "order_calendar");
     const loanCalendar = inventory?.views?.find((view) => view.key === "open_loans");
     const transactionCalendar = finance?.views?.find((view) => view.key === "transaction_calendar");
-    expect((publicationCalendar?.displayConfig as { mode?: unknown } | undefined)?.mode).toBe("calendar");
+    expect((orderCalendar?.displayConfig as { mode?: unknown } | undefined)?.mode).toBe("calendar");
     expect((loanCalendar?.displayConfig as { mode?: unknown } | undefined)?.mode).toBe("calendar");
     expect((transactionCalendar?.displayConfig as { mode?: unknown } | undefined)?.mode).toBe("calendar");
-    expect((publicationCalendar?.displayConfig as { calendar?: { dateFieldId?: unknown } } | undefined)?.calendar?.dateFieldId).toEqual(
-      field("books.published"),
+    expect((orderCalendar?.displayConfig as { calendar?: { dateFieldId?: unknown } } | undefined)?.calendar?.dateFieldId).toEqual(
+      field("orders.ordered_at"),
     );
     expect((loanCalendar?.displayConfig as { calendar?: { dateFieldId?: unknown } } | undefined)?.calendar?.dateFieldId).toEqual(
       field("loans.due_date"),
@@ -170,6 +173,24 @@ describe("built-in grid templates", () => {
     expect((transactionCalendar?.displayConfig as { calendar?: { dateFieldId?: unknown } } | undefined)?.calendar?.dateFieldId).toEqual(
       field("transactions.date"),
     );
+  });
+
+  test("calendar templates include current-month sample records", () => {
+    const expectations = [
+      { templateId: "bookshop", table: "orders", field: "ordered_at" },
+      { templateId: "finance", table: "transactions", field: "date" },
+      { templateId: "inventory", table: "loans", field: "due_date" },
+    ];
+
+    for (const expectation of expectations) {
+      const template = templates.find((item) => item.id === expectation.templateId);
+      const records = (template?.records ?? []).filter((record) => record.table === expectation.table);
+      const currentMonthDates = records.filter((record) => isCurrentMonthDate(record.values[expectation.field]));
+      expect(
+        currentMonthDates.length,
+        `${expectation.templateId}.${expectation.table}.${expectation.field} current-month samples`,
+      ).toBeGreaterThanOrEqual(2);
+    }
   });
 
   test("form input entries include help text", () => {

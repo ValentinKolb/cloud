@@ -2,7 +2,7 @@ import { sql } from "bun";
 import { logger } from "@valentinkolb/cloud/services";
 import { parseDataUrl } from "@valentinkolb/cloud/shared";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { templates, getTemplate, type GridTemplate, type TemplateRef } from "../templates";
+import { templates, getTemplate, type GridTemplate, type TemplateDateExpression, type TemplateRef } from "../templates";
 import type { Base, Field } from "./types";
 import type { FormConfig } from "./forms";
 import * as bases from "./bases";
@@ -72,6 +72,20 @@ const isRef = (value: unknown): value is TemplateRef =>
 const isFormulaExpression = (value: unknown): value is { $formula: Array<string | TemplateRef> } =>
   !!value && typeof value === "object" && Array.isArray((value as { $formula?: unknown }).$formula);
 
+const isDateExpression = (value: unknown): value is TemplateDateExpression =>
+  !!value && typeof value === "object" && (value as { $date?: unknown }).$date === "current_month";
+
+const formatTemplateDate = (expression: TemplateDateExpression, now = new Date()): string => {
+  const monthOffset = Number.isInteger(expression.monthOffset) ? expression.monthOffset ?? 0 : 0;
+  const base = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+  const lastDay = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+  const day = Math.min(Math.max(1, Math.trunc(expression.day)), lastDay);
+  const yyyy = String(base.getFullYear()).padStart(4, "0");
+  const mm = String(base.getMonth() + 1).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+};
+
 const resolveRef = (ref: TemplateRef, ctx: TemplateContext): string => {
   const value =
     ref.$ref === "table"
@@ -96,6 +110,7 @@ const resolveValue = (value: unknown, ctx: TemplateContext): unknown => {
   if (isFormulaExpression(value)) {
     return value.$formula.map((part) => (typeof part === "string" ? part : `{${resolveRef(part, ctx)}}`)).join("");
   }
+  if (isDateExpression(value)) return formatTemplateDate(value);
   if (Array.isArray(value)) return value.map((item) => resolveValue(item, ctx));
   if (value && typeof value === "object") {
     return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, resolveValue(nested, ctx)]));

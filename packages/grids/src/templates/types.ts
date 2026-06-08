@@ -9,6 +9,12 @@ export type TemplateFormulaExpression = {
   $formula: Array<string | TemplateRef>;
 };
 
+export type TemplateDateExpression = {
+  $date: "current_month";
+  day: number;
+  monthOffset?: number;
+};
+
 export type TemplateValue =
   | string
   | number
@@ -16,6 +22,7 @@ export type TemplateValue =
   | null
   | TemplateRef
   | TemplateFormulaExpression
+  | TemplateDateExpression
   | TemplateValue[]
   | { [key: string]: TemplateValue };
 
@@ -102,3 +109,8 @@ export const view = (key: string): TemplateRef => ({ $ref: "view", key });
 export const form = (key: string): TemplateRef => ({ $ref: "form", key });
 export const dashboard = (key: string): TemplateRef => ({ $ref: "dashboard", key });
 export const formula = (...parts: Array<string | TemplateRef>): TemplateFormulaExpression => ({ $formula: parts });
+export const currentMonthDate = (day: number, monthOffset = 0): TemplateDateExpression => ({
+  $date: "current_month",
+  day,
+  ...(monthOffset === 0 ? {} : { monthOffset }),
+});

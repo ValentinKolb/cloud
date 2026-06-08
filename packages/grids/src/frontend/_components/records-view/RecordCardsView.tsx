@@ -79,6 +79,8 @@ const plainCardValue = (record: GridRecord, field: Field): string => {
 
 const subtitleCandidate = (field: Field): boolean => ["text", "id", "relation", "select"].includes(field.type);
 
+const hasVisualFormat = (field: Field): boolean => fieldFormat(field)?.kind === "barcode";
+
 const selectWordStyle = (color?: string): JSX.CSSProperties => {
   const style = selectBadgeStyle(color);
   return style.color ? { color: style.color } : {};
@@ -154,9 +156,12 @@ function CardFieldValue(props: {
     if (props.field.type === "relation") return renderRelation();
     if (props.field.type === "lookup") return renderLookup();
     if (props.field.type === "select") return <CardSelectWords value={raw} fieldConfig={props.field.config} />;
-    if (isMarkdownLongtext(props.field)) {
-      return typeof raw === "string" && raw.trim() ? <MarkdownView html={markdown.render(raw)} smallHeadings class="text-sm" /> : "—";
-    }
+    if (isMarkdownLongtext(props.field))
+      return typeof raw === "string" && raw.trim() ? (
+        <MarkdownView html={markdown.render(raw)} smallHeadings class="line-clamp-3 text-sm" />
+      ) : (
+        "—"
+      );
     if (fmt?.kind === "barcode" && canRenderBarcode(props.field.type)) return <BarcodeDisplay value={raw} format={fmt} showOpenAction />;
     return formatCell(raw, props.field.type, props.field.config, fmt, props.dateConfig) || "—";
   };
@@ -253,7 +258,11 @@ export function RecordCardsView(props: {
                             <div class="max-w-[6.5rem] truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-dimmed">
                               {field.name}
                             </div>
-                            <div class="min-w-0 text-xs font-medium leading-snug text-primary">
+                            <div
+                              class={`min-w-0 overflow-hidden text-xs font-medium leading-snug text-primary [overflow-wrap:anywhere] ${
+                                hasVisualFormat(field) ? "" : "line-clamp-2"
+                              }`}
+                            >
                               <CardFieldValue
                                 record={record}
                                 field={field}

@@ -1,4 +1,4 @@
-import { field, form, type GridTemplate, record, table, view } from "./types";
+import { currentMonthDate, field, form, type GridTemplate, record, table, view } from "./types";
 
 export const financeTemplate: GridTemplate = {
   id: "finance",
@@ -288,7 +288,7 @@ export const financeTemplate: GridTemplate = {
       key: "transactions.salary_may",
       table: "transactions",
       values: {
-        date: "2026-05-01",
+        date: currentMonthDate(1),
         merchant: [record("merchants.employer")],
         account: [record("accounts.main")],
         category: [record("categories.salary")],
@@ -301,7 +301,7 @@ export const financeTemplate: GridTemplate = {
       key: "transactions.rent_may",
       table: "transactions",
       values: {
-        date: "2026-05-02",
+        date: currentMonthDate(2),
         merchant: [record("merchants.landlord")],
         account: [record("accounts.main")],
         category: [record("categories.rent")],
@@ -314,7 +314,7 @@ export const financeTemplate: GridTemplate = {
       key: "transactions.power_may",
       table: "transactions",
       values: {
-        date: "2026-05-03",
+        date: currentMonthDate(3),
         merchant: [record("merchants.power")],
         account: [record("accounts.main")],
         category: [record("categories.utilities")],
@@ -327,7 +327,7 @@ export const financeTemplate: GridTemplate = {
       key: "transactions.market_may_1",
       table: "transactions",
       values: {
-        date: "2026-05-04",
+        date: currentMonthDate(4),
         merchant: [record("merchants.market")],
         account: [record("accounts.card")],
         category: [record("categories.groceries")],
@@ -340,7 +340,7 @@ export const financeTemplate: GridTemplate = {
       key: "transactions.transit_may",
       table: "transactions",
       values: {
-        date: "2026-05-06",
+        date: currentMonthDate(6),
         merchant: [record("merchants.transit")],
         account: [record("accounts.card")],
         category: [record("categories.transport")],
@@ -353,7 +353,7 @@ export const financeTemplate: GridTemplate = {
       key: "transactions.cafe_may_1",
       table: "transactions",
       values: {
-        date: "2026-05-08",
+        date: currentMonthDate(8),
         merchant: [record("merchants.cafe")],
         account: [record("accounts.card")],
         category: [record("categories.food")],
@@ -366,7 +366,7 @@ export const financeTemplate: GridTemplate = {
       key: "transactions.bookshop_may",
       table: "transactions",
       values: {
-        date: "2026-05-09",
+        date: currentMonthDate(9),
         merchant: [record("merchants.bookshop")],
         account: [record("accounts.cash")],
         category: [record("categories.books")],
@@ -379,7 +379,7 @@ export const financeTemplate: GridTemplate = {
       key: "transactions.market_may_2",
       table: "transactions",
       values: {
-        date: "2026-05-11",
+        date: currentMonthDate(11),
         merchant: [record("merchants.market")],
         account: [record("accounts.card")],
         category: [record("categories.groceries")],
@@ -392,7 +392,7 @@ export const financeTemplate: GridTemplate = {
       key: "transactions.cafe_may_2",
       table: "transactions",
       values: {
-        date: "2026-05-12",
+        date: currentMonthDate(12),
         merchant: [record("merchants.cafe")],
         account: [record("accounts.card")],
         category: [record("categories.food")],
@@ -401,19 +401,19 @@ export const financeTemplate: GridTemplate = {
         cleared: false,
       },
     },
-    { key: "budgets.rent", table: "budgets", values: { month: "2026-05-01", category: [record("categories.rent")], limit: "980.00" } },
+    { key: "budgets.rent", table: "budgets", values: { month: currentMonthDate(1), category: [record("categories.rent")], limit: "980.00" } },
     {
       key: "budgets.groceries",
       table: "budgets",
-      values: { month: "2026-05-01", category: [record("categories.groceries")], limit: "450.00" },
+      values: { month: currentMonthDate(1), category: [record("categories.groceries")], limit: "450.00" },
     },
     {
       key: "budgets.transport",
       table: "budgets",
-      values: { month: "2026-05-01", category: [record("categories.transport")], limit: "120.00" },
+      values: { month: currentMonthDate(1), category: [record("categories.transport")], limit: "120.00" },
     },
-    { key: "budgets.books", table: "budgets", values: { month: "2026-05-01", category: [record("categories.books")], limit: "80.00" } },
-    { key: "budgets.food", table: "budgets", values: { month: "2026-05-01", category: [record("categories.food")], limit: "160.00" } },
+    { key: "budgets.books", table: "budgets", values: { month: currentMonthDate(1), category: [record("categories.books")], limit: "80.00" } },
+    { key: "budgets.food", table: "budgets", values: { month: currentMonthDate(1), category: [record("categories.food")], limit: "160.00" } },
   ],
   views: [
     {

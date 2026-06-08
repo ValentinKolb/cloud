@@ -137,7 +137,8 @@ const StartTab = () => (
         filter, validate, calculate, and display that fact.
       </HelpCard>
       <HelpCard title="View" icon="ti-filter">
-        A view is a saved way to look at a table. It can choose columns, filter, sort, group, aggregate, and define a report source.
+        A view is a saved way to look at a table. It can choose table, card, or calendar display, then define columns, filters, sort,
+        group, aggregate, and report sources.
       </HelpCard>
     </HelpGrid>
     <RuleStack>
@@ -311,8 +312,16 @@ const ViewsTab = () => (
         Aggregations calculate count, unique count, sum, min, max, latest, earliest, or average per group. Footers use the same formatting
         as the field where possible.
       </HelpCard>
+      <HelpCard title="Display mode" icon="ti-layout-cards">
+        Table is best for dense editing. Cards are best when a few fields and an image should be scanned quickly. Calendar is best when one
+        date field drives the work.
+      </HelpCard>
     </HelpGrid>
     <RuleStack>
+      <Rule title="Card and calendar setup">
+        Admins choose the display mode in table or view settings. Cards should show only the fields people need at a glance. Calendar needs
+        one date or date-time field for placement.
+      </Rule>
       <Rule title="Chart-ready view">
         A chart source needs Group by for labels and at least one Aggregation for values. Donut shows parts of one total. Bar compares
         categories. Line works best for ordered categories such as months. Scatter needs two numeric values.
@@ -379,8 +388,7 @@ const DashboardFormsTab = () => (
         format.
       </HelpCard>
       <HelpCard title="Embedded views" icon="ti-window">
-        Embedded views show saved table results inside a dashboard. They are useful for “top open items”, “latest invoices”, or “needs
-        review” lists.
+        Embedded views show saved table results inside a dashboard. They stay table-based so dashboards remain compact and predictable.
       </HelpCard>
       <HelpCard title="Markdown" icon="ti-markdown">
         Markdown widgets are for instructions, definitions, links, and owner notes directly on the dashboard.
@@ -601,7 +609,7 @@ export default function GridsLayoutHelp() {
         id="grids-views-query"
         title="Views & Query"
         icon="ti ti-filter"
-        description="Columns, filters, sort, group, aggregate, charts, and exports."
+        description="Display modes, columns, filters, sort, group, aggregate, charts, and exports."
         order={120}
       >
         <ViewsTab />

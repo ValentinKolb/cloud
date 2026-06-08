@@ -1,5 +1,5 @@
 import { createMockCover } from "@valentinkolb/cloud/shared";
-import { field, form, type GridTemplate, record, table, view } from "./types";
+import { currentMonthDate, field, form, type GridTemplate, record, table, view } from "./types";
 
 export const bookshopTemplate: GridTemplate = {
   id: "bookshop",
@@ -539,7 +539,7 @@ export const bookshopTemplate: GridTemplate = {
         book: [record("books.hobbit")],
         qty: 2,
         line_total: "19.98",
-        ordered_at: "2026-03-15",
+        ordered_at: currentMonthDate(3),
         status: ["delivered"],
       },
     },
@@ -551,7 +551,7 @@ export const bookshopTemplate: GridTemplate = {
         book: [record("books.abc")],
         qty: 1,
         line_total: "8.50",
-        ordered_at: "2026-04-02",
+        ordered_at: currentMonthDate(8),
         status: ["shipped"],
       },
     },
@@ -563,7 +563,7 @@ export const bookshopTemplate: GridTemplate = {
         book: [record("books.left_hand")],
         qty: 1,
         line_total: "11.99",
-        ordered_at: "2026-04-09",
+        ordered_at: currentMonthDate(13),
         status: ["new"],
       },
     },
@@ -575,7 +575,7 @@ export const bookshopTemplate: GridTemplate = {
         book: [record("books.hobbit")],
         qty: 1,
         line_total: "9.99",
-        ordered_at: "2026-05-03",
+        ordered_at: currentMonthDate(18),
         status: ["delivered"],
       },
     },
@@ -587,7 +587,7 @@ export const bookshopTemplate: GridTemplate = {
         book: [record("books.left_hand")],
         qty: 3,
         line_total: "35.97",
-        ordered_at: "2026-05-18",
+        ordered_at: currentMonthDate(23),
         status: ["shipped"],
       },
     },
@@ -618,23 +618,24 @@ export const bookshopTemplate: GridTemplate = {
       },
     },
     {
-      key: "publication_calendar",
-      table: "books",
-      name: "Publication calendar",
+      key: "order_calendar",
+      table: "orders",
+      name: "Order calendar",
       shared: true,
       query: {
         columns: [
-          { fieldId: field("books.title") },
-          { fieldId: field("books.author") },
-          { fieldId: field("books.genre") },
-          { fieldId: field("books.published") },
+          { fieldId: field("orders.ordered_at") },
+          { fieldId: field("orders.customer") },
+          { fieldId: field("orders.book") },
+          { fieldId: field("orders.qty") },
+          { fieldId: field("orders.status") },
         ],
-        sort: [{ fieldId: field("books.published"), direction: "asc" }],
+        sort: [{ fieldId: field("orders.ordered_at"), direction: "asc" }],
         limit: 100,
       },
       displayConfig: {
         mode: "calendar",
-        calendar: { dateFieldId: field("books.published") },
+        calendar: { dateFieldId: field("orders.ordered_at") },
       },
     },
     {

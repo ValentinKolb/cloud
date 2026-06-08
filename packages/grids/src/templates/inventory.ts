@@ -1,5 +1,5 @@
 import { createMockCover } from "@valentinkolb/cloud/shared";
-import { field, form, formula, type GridTemplate, record, table, view } from "./types";
+import { currentMonthDate, field, form, formula, type GridTemplate, record, table, view } from "./types";
 
 export const inventoryTemplate: GridTemplate = {
   id: "inventory",
@@ -493,10 +493,24 @@ export const inventoryTemplate: GridTemplate = {
         requester_email: "mara@example.com",
         organization: "Design team",
         kits: [record("kits.video")],
-        start_date: "2026-06-10",
-        due_date: "2026-06-12",
+        start_date: currentMonthDate(10),
+        due_date: currentMonthDate(12),
         status: ["requested"],
         purpose: "Record a short product interview.",
+      },
+    },
+    {
+      key: "loans.demo_2",
+      table: "loans",
+      values: {
+        requester_name: "Jonas Example",
+        requester_email: "jonas@example.com",
+        organization: "Training team",
+        kits: [record("kits.video")],
+        start_date: currentMonthDate(18),
+        due_date: currentMonthDate(20),
+        status: ["approved"],
+        purpose: "Prepare a team training recording.",
       },
     },
   ],

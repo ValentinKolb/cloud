@@ -357,7 +357,7 @@ const EventChip = (props: {
   const style = () => (props.event.colorHex ? { "border-left-color": props.event.colorHex } : undefined);
   const selected = () => props.owner.selectedEventId === props.event.id;
   const className = () =>
-    `block min-w-0 rounded-lg border border-l-[3px] border-zinc-200 bg-white text-left leading-tight [box-shadow:var(--theme-bevel-top),var(--theme-bevel-bottom)] transition-[background-color,border-color,box-shadow] dark:border-zinc-700/70 dark:bg-zinc-900 ${props.compact ? "px-1 py-1" : "px-2 py-1.5"} ${props.fill ? "h-full" : ""} ${props.owner.onEventDrop ? "cursor-grab active:cursor-grabbing" : ""} ${props.event.display === "background" ? "opacity-60" : ""} ${props.event.colorHex ? "text-primary" : colorClass[color()]} ${selected() ? "border-blue-500 bg-blue-500/[0.08] ring-1 ring-blue-500 dark:border-blue-400 dark:bg-blue-400/10 dark:ring-blue-400" : "hover:border-blue-500/40 hover:bg-blue-500/[0.04] dark:hover:border-blue-400/45 dark:hover:bg-blue-400/[0.06]"}`;
+    `block min-w-0 rounded-lg border border-l-[3px] border-zinc-200 bg-white text-left leading-tight [box-shadow:var(--theme-bevel-top),var(--theme-bevel-bottom)] transition-[background-color,border-color,box-shadow] dark:border-zinc-700/70 dark:bg-zinc-900 ${props.compact ? "px-1 py-1" : "px-2 py-1.5"} ${props.fill ? "h-full" : ""} ${props.owner.onEventDrop ? "cursor-grab active:cursor-grabbing" : ""} ${props.event.display === "background" ? "opacity-60" : ""} ${props.event.colorHex ? "text-primary" : colorClass[color()]} ${selected() ? "border-blue-400 bg-blue-50 shadow-[inset_0_0_0_1px_rgb(59_130_246_/_0.26)] dark:border-blue-400 dark:bg-blue-950/45 dark:shadow-[inset_0_0_0_1px_rgb(96_165_250_/_0.30)]" : "hover:border-blue-500/40 hover:bg-blue-500/[0.04] dark:hover:border-blue-400/45 dark:hover:bg-blue-400/[0.06]"}`;
   const durationHours = () => (props.event.endDate.getTime() - props.event.startDate.getTime()) / 3_600_000;
   const showTime = () => !props.event.allDay && !props.compact && durationHours() >= 0.75;
   const showLocation = () => Boolean(props.event.location && !props.compact && durationHours() >= 1.25);
@@ -389,7 +389,9 @@ const EventChip = (props: {
       : {};
   const defaultContent = (
     <>
-      <span class="block truncate text-[11px] font-semibold text-primary">{props.event.title}</span>
+      <span class={`block truncate text-[11px] font-semibold ${selected() ? "text-blue-700 dark:text-blue-200" : "text-primary"}`}>
+        {props.event.title}
+      </span>
       <Show when={showTime()}>
         <span class="block truncate text-[10px] text-secondary">{timeLabel()}</span>
       </Show>
