@@ -49,8 +49,15 @@ FreeIPA is the authoritative source for IPA users and groups. The cloud syncs da
 
 1. Service account authenticates via `POST /ipa/session/login_password`
 2. JSON-RPC calls to `/ipa/session/json` (API v2.251) fetch users and groups
-3. Users/groups are upserted into `auth.users` / `auth.groups`
-4. Group memberships synced to junction tables
+3. `user_find` provides user attributes; `group_find` provides the authoritative group graph
+4. Users/groups are upserted into `auth.users` / `auth.groups`
+5. The full FreeIPA group graph is projected into `auth.ipa_user_effective_groups`
+6. Display memberships are synced to junction tables, with `freeipa.groups.excluded` applied only to the UI/display mirror
+
+The effective group projection is the source of truth for IPA sync scope,
+`ipa/user` vs. `ipa/guest`, and IPA admin derivation. User-side
+`memberof*` values are treated as drift signals only; they must not decide
+scope, profile, or admin state.
 
 ### Login Flow (IPA User)
 
@@ -79,7 +86,7 @@ Roles are computed by `buildRoles()` in `packages/cloud/src/services/accounts/au
 **Guest profiles return early** — they cannot receive admin or group-manager roles.
 
 **For non-guest profiles:**
-- `"admin"` — if `admin` flag is true
+- `"admin"` — if the resolved admin state is true
 - `"group-manager"` — if user manages at least one group
 
 **Other roles in the schema:**
@@ -88,8 +95,12 @@ Roles are computed by `buildRoles()` in `packages/cloud/src/services/accounts/au
 - `"anonymous"` — special middleware role meaning "only non-logged-in users"
 
 **Profile derivation:**
-- **IPA users**: Profile is **automatically derived** from group membership. If the user belongs to any group in the `freeipa.groups.base_ipa_realm` setting (default: `"cloud"`), they get profile `"user"`, otherwise `"guest"`. The profile is recalculated on every group change.
+- **IPA users**: Profile is **automatically derived** by full sync from `auth.ipa_user_effective_groups`. If the user is effectively in any `freeipa.groups.base_ipa_realm` group (default: `"cloud"`), they get profile `"user"`; if they are in `freeipa.groups.base_sync` but not in the base realm, they get `"guest"`.
 - **Local users**: Profile is **manually set** by admins and stored permanently in the database. Attempting to change an IPA user's profile directly returns an error.
+
+Single-user sync/login does not destructively change scope or profile from
+user-side `memberof*`. It uses the last full-sync projection and logs drift
+when FreeIPA user attributes disagree with the group graph.
 
 **Note:** FreeIPA is optional. The platform works without it using local-only accounts and magic link login — useful for development.
 
@@ -97,7 +108,7 @@ Roles are computed by `buildRoles()` in `packages/cloud/src/services/accounts/au
 
 Admin status comes from two sources (OR logic):
 1. `admin` column in `auth.users` (set manually or during account creation)
-2. Membership in any group listed in the `freeipa.groups.admin` setting (default: `["admins"]`)
+2. For IPA users, effective membership in any group listed in `freeipa.groups.admin` (default: `["admins"]`)
 
 Note: The admin constraint enforces `admin = false` unless `provider = 'local' AND profile = 'user'`. IPA admin status is derived from group membership.
 
@@ -121,8 +132,13 @@ Groups live in `auth.groups`. Primary key is `id` (UUID):
 - `auth.group_groups_v2` — group ↔ group hierarchy (`parent_group_id UUID`, `child_group_id UUID`)
 - `auth.group_manager_users_v2` — user manages group (`user_id UUID`, `group_id UUID`)
 - `auth.group_manager_groups_v2` — group manages group (`manager_group_id UUID`, `group_id UUID`)
+- `auth.ipa_user_effective_groups` — full graph-derived IPA user ↔ group names, including excluded groups used for auth/profile decisions
 
 Database triggers enforce provider-safe relations (IPA groups can only contain IPA entities, etc.).
+
+`freeipa.groups.excluded` hides groups from the normal UI/display graph only.
+It must not remove those groups from effective scope, profile, or admin
+calculation, and traversal through excluded nested groups must still work.
 
 ### Transitive Queries
 
@@ -281,7 +297,7 @@ The platform manages account expiry automatically:
 | `user.account.local_user_expires_days` | Days until local user accounts expire (default: 0 = no expiry) |
 | `user.account.local_guest_expires_days` | Days until guest accounts expire (default: 365) |
 | `user.account.reminder_days` | Days before expiry to send reminder (default: `[30, 7]`) |
-| `freeipa.account_transition_policy` | What happens on IPA expiry: `"delete"`, `"demote_to_local"`, `"demote_to_local_guest"`, `"demote_to_local_user"` |
+| `freeipa.account_transition_policy` | What happens when an IPA user expires or leaves `freeipa.groups.base_sync`: `"delete"`, `"demote_to_local"`, `"demote_to_local_guest"`, `"demote_to_local_user"` |
 
 Lifecycle jobs run on a cron schedule:
 - `demoteExpiredIpaUsers()` — delete or demote expired IPA accounts per transition policy
@@ -377,9 +393,12 @@ Why the auth/accounts system looks the way it does. Keep in mind when
 extending it — the choices below are load-bearing.
 
 1. **FreeIPA is the single source of truth** for IPA users. The local
-   `auth.*` tables are a mirror for fast queries. On conflict, FreeIPA wins;
-   `syncUser()` returns a typed outcome so stale mirror state never grants a
-   fresh session (see `packages/cloud/src/services/ipa/sync.ts`).
+   `auth.*` tables are a mirror for fast queries. Full sync derives scope,
+   profile, and IPA-admin state from FreeIPA `group_find` via
+   `auth.ipa_user_effective_groups`; user-side `memberof*` is only drift
+   telemetry. On conflict, FreeIPA's group graph wins; `syncUser()` returns a
+   typed outcome so stale mirror state never grants a fresh session (see
+   `packages/cloud/src/services/ipa/sync.ts`).
 
 2. **Auth / sessions / account lifecycle are core, not app code.** Every
    container shares the same user, role, and session model. A new login flow
@@ -417,7 +436,8 @@ extending it — the choices below are load-bearing.
    `upsertUserIpaData` (destructive replace). Conflating them once wiped
    SSH keys on every profile edit.
 
-8. **Self-service account deletion is guest-only.** Destructive lifecycle
-   controls on full accounts always require another admin, so an admin can
-   never remove their own expiry or demote themselves (enforced by
-   `preventSelfDestructiveAction` in the accounts API).
+8. **Self-service destructive actions stay narrow.** Guest self-delete is
+   allowed; destructive lifecycle controls on full accounts still require
+   admin flows. A user whose account never expires cannot use self-service
+   extension, but an admin may intentionally set or remove expiry through the
+   Accounts admin service.

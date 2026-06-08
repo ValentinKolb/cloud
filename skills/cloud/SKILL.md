@@ -137,7 +137,7 @@ export default await app.start({
 | Provider | Profile | Description |
 |----------|---------|-------------|
 | `ipa`    | `user`  | Full Kerberos account managed in FreeIPA (single source of truth) |
-| `ipa`    | `guest` | Demoted IPA account (rare, after expiry) |
+| `ipa`    | `guest` | FreeIPA account in sync scope but outside the configured full-user realm |
 | `local`  | `user`  | Email-only local account, login via magic link |
 | `local`  | `guest` | Email-only visitor, auto-expiring, login via magic link |
 
@@ -145,7 +145,7 @@ All local users (both `user` and `guest`) authenticate via **magic link email lo
 
 **Special case: Admin token login.** When `ADMIN_LOGIN_TOKEN` is set, a hidden endpoint accepts the token as password. This auto-creates a `local|user` admin account (uid `"admin"`, admin flag `true`). Internally it's a regular local user — only the login mechanism is different.
 
-**FreeIPA is the single source of truth** for IPA users. The cloud mirrors user/group data in PostgreSQL for fast queries, but FreeIPA always wins on conflicts. Local users are fully managed in PostgreSQL.
+**FreeIPA is the single source of truth** for IPA users. Full sync derives IPA scope, profile, and admin state from the FreeIPA group graph and mirrors the result in PostgreSQL for fast queries. Local users are fully managed in PostgreSQL.
 
 ### Roles
 
@@ -154,7 +154,7 @@ Roles are **computed** by `buildRoles()` from a user's provider, profile, group 
 - `user` / `guest` — profile-based (always present)
 - `ipa` / `local` — provider-based (always present)
 - `ipa/user`, `ipa/guest`, `local/user`, `local/guest` — compound (always present)
-- `admin` — if admin flag is true OR member of admin groups (guests cannot be admin)
+- `admin` — if local admin flag is true OR an IPA user is effectively in an admin group (guests cannot be admin)
 - `group-manager` — manages at least one group (guests cannot be group-manager)
 - `authenticated` — special middleware role, not stored in roles array; checked implicitly by middleware for any logged-in user
 

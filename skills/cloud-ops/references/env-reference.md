@@ -30,7 +30,7 @@ These env vars provide **initial bootstrap values**. Once the platform is runnin
 | `GROUPS_ADMIN` | comma-list | `admins` | IPA groups that grant admin role |
 | `GROUPS_BASE_SYNC` | comma-list | `users` | IPA groups to sync |
 | `GROUPS_BASE_IPA_REALM` | comma-list | `cloud` | Default IPA realm groups |
-| `GROUPS_EXCLUDED` | comma-list | `editors,trust admins,admins` | IPA groups to ignore during sync |
+| `GROUPS_EXCLUDED` | comma-list | `editors,trust admins,admins` | IPA groups hidden from UI/display mirrors only; still used for effective auth/profile graph traversal |
 
 ## File Management
 
@@ -99,8 +99,8 @@ Each document has a `mode` (`local` renders markdown content, `external` redirec
 | `freeipa.groups.admin` | string_list | `["admins"]` | Groups granting admin role (envFallback: `GROUPS_ADMIN`) |
 | `freeipa.groups.base_sync` | string_list | `["users"]` | Groups to sync (envFallback: `GROUPS_BASE_SYNC`) |
 | `freeipa.groups.base_ipa_realm` | string_list | `["cloud"]` | Groups implying full-user profile (envFallback: `GROUPS_BASE_IPA_REALM`) |
-| `freeipa.groups.excluded` | string_list | `["editors","trust admins","admins"]` | Groups to ignore (envFallback: `GROUPS_EXCLUDED`) |
-| `freeipa.account_transition_policy` | enum | `"demote_to_local_guest"` | On IPA expiry: `delete`, `demote_to_local`, `demote_to_local_guest`, `demote_to_local_user` |
+| `freeipa.groups.excluded` | string_list | `["editors","trust admins","admins"]` | Groups hidden from UI/display mirrors only; still used for effective auth/profile graph traversal (envFallback: `GROUPS_EXCLUDED`) |
+| `freeipa.account_transition_policy` | enum | `"demote_to_local_guest"` | On IPA expiry or leaving `base_sync`: `delete`, `demote_to_local`, `demote_to_local_guest`, `demote_to_local_user` |
 | `freeipa.user_match_mode` | enum | `"ignore"` | How to handle local account match: `ignore` or `migrate` |
 | `freeipa.sync_cron` | cron | `"*/5 * * * *"` | FreeIPA sync schedule |
 
