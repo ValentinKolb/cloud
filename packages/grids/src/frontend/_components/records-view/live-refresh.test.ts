@@ -5,7 +5,7 @@ import {
   isLiveRecordEventForTable,
   isTerminalLiveErrorCode,
   liveRefreshQuery,
-  mergeLiveRefreshItems,
+  shouldLoadNextLiveRefreshPage,
   shouldOptimisticallyRemoveDeletedRecord,
   visibleIdsFromResult,
 } from "./live-refresh";
@@ -41,31 +41,17 @@ describe("records live refresh helpers", () => {
     ).toEqual(["b", "c"]);
   });
 
-  test("keeps live refetch limit large enough for already visible rows", () => {
+  test("keeps each live refetch page bounded while covering visible rows", () => {
     const query = { filter: undefined } as ViewQuery;
     expect(liveRefreshQuery(query, 140).limit).toBe(140);
     expect(liveRefreshQuery({ ...query, limit: 20 }, 5).limit).toBe(20);
     expect(liveRefreshQuery({ ...query, limit: 1000 }, 700).limit).toBe(500);
   });
 
-  test("merges capped live refresh pages without dropping already loaded tail rows", () => {
-    const record = (id: string) => ({
-      id,
-      tableId: "t",
-      data: {},
-      version: 1,
-      deletedAt: null,
-      createdBy: null,
-      updatedBy: null,
-      createdAt: "2026-05-31T00:00:00.000Z",
-      updatedAt: "2026-05-31T00:00:00.000Z",
-    });
-    expect(
-      mergeLiveRefreshItems({
-        currentItems: [record("a"), record("b"), record("c"), record("d")],
-        nextItems: [record("x"), record("b")],
-      }).map((r) => r.id),
-    ).toEqual(["x", "b", "c", "d"]);
+  test("continues live refetch pagination only while the visible slice is incomplete", () => {
+    expect(shouldLoadNextLiveRefreshPage({ loadedCount: 500, targetCount: 700, nextCursor: "next" })).toBe(true);
+    expect(shouldLoadNextLiveRefreshPage({ loadedCount: 700, targetCount: 700, nextCursor: "next" })).toBe(false);
+    expect(shouldLoadNextLiveRefreshPage({ loadedCount: 500, targetCount: 700, nextCursor: null })).toBe(false);
   });
 
   test("extracts visible record ids from query results", () => {

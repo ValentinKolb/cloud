@@ -34,7 +34,7 @@ import { createGridsRecordEventsProvider } from "./grids-record-events-provider"
 import {
   highlightedIdsForLiveRefresh,
   liveRefreshQuery,
-  mergeLiveRefreshItems,
+  shouldLoadNextLiveRefreshPage,
   shouldOptimisticallyRemoveDeletedRecord,
   visibleIdsFromResult,
 } from "./live-refresh";
@@ -42,6 +42,7 @@ import { buildRecordsUrl, parseRecordsState, type CardSize, type RecordsState } 
 import { cleanRecordMetaQuery, openRecordMetadataDialog, recordMetaActiveCount } from "./RecordMetadataDialog";
 import { RecordCalendarView } from "./RecordCalendarView";
 import { RecordCardsView } from "./RecordCardsView";
+import { applyToolbarQueryPatch, type ToolbarQueryPatch } from "./toolbar-query";
 
 /** UI-supported agg kinds — narrower than the contract's AggregateKind
  *  (which also has median/earliest/latest, currently SQL-only). When a
@@ -549,20 +550,9 @@ export default function RecordsView(props: Props) {
    * it into the canonical query, drop cursor (its domain depends on
    * sort + grouped-vs-flat), and replaceState the URL.
    */
-  const onToolbarCommit = (patch: {
-    filter?: ViewQuery["filter"];
-    sort?: ViewQuery["sort"];
-    groupBy?: ViewQuery["groupBy"];
-    aggregations?: ViewQuery["aggregations"];
-  }) => {
+  const onToolbarCommit = (patch: ToolbarQueryPatch) => {
     invalidateLiveRefreshes();
-    setQuery((prev) => ({
-      ...prev,
-      filter: patch.filter,
-      sort: patch.sort,
-      groupBy: patch.groupBy,
-      aggregations: patch.aggregations,
-    }));
+    setQuery((prev) => applyToolbarQueryPatch(prev, patch));
     setSelectedGroup(null);
     setCursor(null);
     syncUrl({ replace: true });
@@ -609,6 +599,44 @@ export default function RecordsView(props: Props) {
 
   const hasBlockingDialog = () => dialogCore.isOpen();
 
+  const fetchFlatLiveRefresh = async (baseQuery: ViewQuery, targetCount: number, signal: AbortSignal): Promise<TableQueryResult> => {
+    const filePreviewFieldIds = renderMode() === "cards" ? cardImageFieldIds(displayConfig()) : [];
+    const desiredCount = Math.max(targetCount, 1);
+    let nextCursor: string | null = null;
+    let firstPage: TableQueryResult | null = null;
+    const combinedItems: GridRecord[] = [];
+    const combinedFilePreviews: NonNullable<TableQueryResult["filePreviews"]> = {};
+
+    do {
+      const page = await fetchTableQuery(
+        {
+          tableId: props.tableId,
+          query: liveRefreshQuery(baseQuery, Math.max(desiredCount - combinedItems.length, 1)),
+          cursor: nextCursor,
+          filePreviewFieldIds,
+        },
+        { signal },
+      );
+      firstPage ??= page;
+      combinedItems.push(...((page.items ?? []) as GridRecord[]));
+      Object.assign(combinedFilePreviews, page.filePreviews ?? {});
+      nextCursor = page.nextCursor ?? null;
+    } while (
+      shouldLoadNextLiveRefreshPage({
+        loadedCount: combinedItems.length,
+        targetCount: desiredCount,
+        nextCursor,
+      })
+    );
+
+    return {
+      ...(firstPage ?? { nextCursor: null }),
+      items: combinedItems,
+      filePreviews: Object.keys(combinedFilePreviews).length > 0 ? combinedFilePreviews : undefined,
+      nextCursor,
+    };
+  };
+
   const refreshVisibleRecords = async (config: { recordIds?: Iterable<string>; force?: boolean } = {}) => {
     if (!config.force && (data.loading || hasBlockingDialog())) {
       if (config.recordIds) {
@@ -630,19 +658,21 @@ export default function RecordsView(props: Props) {
     setLiveRefreshing(true);
 
     try {
-      const next = await fetchTableQuery(
-        {
-          tableId: props.tableId,
-          query: isGrouped() ? queryWithSearch() : liveRefreshQuery(queryWithSearch(), flatItems().length),
-          cursor: null,
-          filePreviewFieldIds: renderMode() === "cards" ? cardImageFieldIds(displayConfig()) : [],
-        },
-        { signal: abort.signal },
-      );
+      const next = isGrouped()
+        ? await fetchTableQuery(
+            {
+              tableId: props.tableId,
+              query: queryWithSearch(),
+              cursor: null,
+              filePreviewFieldIds: renderMode() === "cards" ? cardImageFieldIds(displayConfig()) : [],
+            },
+            { signal: abort.signal },
+          )
+        : await fetchFlatLiveRefresh(queryWithSearch(), flatItems().length, abort.signal);
       if (requestId !== refreshRequestId) return;
       if (!isGrouped()) {
         const pageItems = (next.items ?? []) as GridRecord[];
-        setFlatItems((current) => mergeLiveRefreshItems({ currentItems: current, nextItems: pageItems }));
+        setFlatItems(pageItems);
         setFlatNextCursor(next.nextCursor ?? null);
         setFlatFilePreviews(next.filePreviews ?? {});
       }
@@ -801,7 +831,7 @@ export default function RecordsView(props: Props) {
       setSearch(resolvedSearchState(parsed.search));
       setCalendarState(parsed.calendar);
       setCardSize(parsed.cardSize);
-      setAdminMode(new URL(location.href).searchParams.get("edit") === "true" && props.canManageTable);
+      setAdminMode(new URL(location.href).searchParams.get("edit") === "true" && canUseEditMode());
     };
     window.addEventListener("popstate", onPop);
     onCleanup(() => {

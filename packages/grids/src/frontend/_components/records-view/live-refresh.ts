@@ -53,18 +53,14 @@ export const highlightedIdsForLiveRefresh = (params: {
   return [...highlighted];
 };
 
-export const mergeLiveRefreshItems = <T extends GridRecord>(params: { currentItems: T[]; nextItems: T[] }): T[] => {
-  if (params.currentItems.length <= params.nextItems.length) return params.nextItems;
-  const nextIds = new Set(params.nextItems.map((record) => record.id));
-  const preservedTail = params.currentItems.slice(params.nextItems.length).filter((record) => !nextIds.has(record.id));
-  return [...params.nextItems, ...preservedTail];
-};
-
 export const liveRefreshQuery = (query: ViewQuery, visibleCount: number): ViewQuery => {
   const currentLimit = typeof query.limit === "number" && Number.isFinite(query.limit) ? query.limit : 100;
   const limit = Math.min(Math.max(currentLimit, visibleCount, 1), 500);
   return { ...query, limit };
 };
+
+export const shouldLoadNextLiveRefreshPage = (params: { loadedCount: number; targetCount: number; nextCursor: string | null }): boolean =>
+  !!params.nextCursor && params.loadedCount < Math.max(params.targetCount, 1);
 
 export const shouldOptimisticallyRemoveDeletedRecord = (query: Pick<ViewQuery, "includeDeleted" | "deletedOnly">): boolean =>
   !query.includeDeleted && !query.deletedOnly;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { barcodeSvgForCell, barcodeSvgForDisplay, canRenderBarcode } from "./BarcodeCell";
+import { barcodeSvgForCell, barcodeSvgForDisplay, canRenderBarcode } from "./BarcodeRendering";
 
 const qrFormat = { kind: "barcode", bcid: "qrcode" } as const;
 const code128Format = { kind: "barcode", bcid: "code128", showText: true } as const;
