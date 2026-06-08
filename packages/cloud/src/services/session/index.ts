@@ -14,7 +14,6 @@ import * as settings from "../settings";
  */
 type SessionData = {
   userId: string;
-  ipaSession: string | null;
   gen: number;
 };
 
@@ -64,13 +63,13 @@ export const session = {
 
   parseToken,
 
-  create: async (c: Context, userId: string, ipaSession: string | null = null): Promise<string> => {
+  create: async (c: Context, userId: string): Promise<string> => {
     const randomToken = crypto.randomUUID();
     const expiryHours = await settings.get<number>("user.session.expiry_hours");
     const ttl = expiryHours * 60 * 60;
 
     const gen = await readGen(userId);
-    const data: SessionData = { userId, ipaSession, gen };
+    const data: SessionData = { userId, gen };
     await redis.set(sessionKey(userId, randomToken), JSON.stringify(data), "EX", ttl);
 
     await sql`UPDATE auth.users SET last_login_local = now() WHERE id = ${userId}`;
@@ -130,8 +129,4 @@ export const session = {
     return data;
   },
 
-  getIpaSession: async (token: string): Promise<string | null> => {
-    const data = await session.getData(token);
-    return data?.ipaSession ?? null;
-  },
 };

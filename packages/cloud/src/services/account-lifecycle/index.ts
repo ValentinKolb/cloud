@@ -9,6 +9,7 @@ import { renderTemplate } from "../settings/templates";
 import { session } from "../session";
 import { getConfiguredExpiryDays, parseIpaAccountTransitionPolicy } from "../account-model";
 import { getFreeIpaConfig } from "../freeipa-config";
+import { getServiceIpaSession } from "../ipa/service-account";
 import { parsePgJsonRecord } from "../postgres";
 import { dates } from "../../shared";
 import { err, fail, freeipa, ok, type Result } from "../../server/services";
@@ -676,7 +677,6 @@ export const accountLifecycle = {
 
   extendCurrentUserAccount: async (config: {
     user: User;
-    ipaSession?: string | null;
   }): Promise<Result<{ message: string; newExpiry?: string }>> => {
     const auditParams = (result: Result<{ message: string; newExpiry?: string }>) => ({
       action: "accounts.user.extend_account",
@@ -708,8 +708,13 @@ export const accountLifecycle = {
         return recordResult(ok({ message: "Automatic account expiry is disabled for IPA accounts." }));
       }
 
-      if (!config.ipaSession) {
-        return recordResult(fail(err.unauthenticated("IPA session required to extend an IPA-backed account.")));
+      const serviceSession = await getServiceIpaSession();
+      if (!serviceSession.ok) {
+        return recordResult(fail({
+          code: serviceSession.status === 400 ? "BAD_INPUT" : "INTERNAL",
+          message: serviceSession.error,
+          status: serviceSession.status,
+        }));
       }
 
       const expiresAt = new Date(Date.now() + configuredDays * DAY_MS);
@@ -718,7 +723,7 @@ export const accountLifecycle = {
 
       const response = await freeipa.client.call({
         url: freeIpaConfig.url,
-        ipaSession: config.ipaSession,
+        ipaSession: serviceSession.data,
         method: "user_mod",
         args: [config.user.uid],
         options: { krbprincipalexpiration: ipaExpiry },

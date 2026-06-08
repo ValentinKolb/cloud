@@ -2,6 +2,7 @@ import { sql } from "bun";
 import type { BaseGroup, GroupMember, MutationResult, UserProvider } from "../../contracts/shared";
 import * as localGroups from "./local-groups";
 import { providers } from "../providers";
+import { getServiceIpaSession } from "../ipa/service-account";
 import { freeipa } from "../../server/services";
 import { toPgUuidArray } from "../postgres";
 import { buildBaseGroup } from "./base-group";
@@ -138,7 +139,6 @@ export const getManagedGroups = async (params: { id: string; provider?: UserProv
 };
 
 export const create = async (params: {
-  ipaSession?: string | null;
   provider: UserProvider;
   name: string;
   description?: string;
@@ -148,9 +148,10 @@ export const create = async (params: {
     if (params.posix) return { ok: false, error: "Local groups do not support POSIX mode", status: 400 };
     return localGroups.create({ name: params.name, description: params.description });
   }
-  if (!params.ipaSession) return { ok: false, error: "IPA session required to create IPA groups", status: 401 };
+  const serviceSession = await getServiceIpaSession();
+  if (!serviceSession.ok) return serviceSession;
   return providers.ipa.groups.add({
-    ipaSession: params.ipaSession,
+    ipaSession: serviceSession.data,
     cn: params.name,
     description: params.description,
     posix: params.posix,
@@ -158,87 +159,92 @@ export const create = async (params: {
 };
 
 export const update = async (params: {
-  ipaSession?: string | null;
   id: string;
   provider?: UserProvider;
   description: string;
 }): Promise<MutationResult<void>> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return localGroups.update({ id: params.id, description: params.description });
-  if (!params.ipaSession) return { ok: false, error: "IPA session required to update IPA groups", status: 401 };
+  const serviceSession = await getServiceIpaSession();
+  if (!serviceSession.ok) return serviceSession;
   return providers.ipa.groups.update({
-    ipaSession: params.ipaSession,
+    ipaSession: serviceSession.data,
     id: params.id,
     description: params.description,
   });
 };
 
-export const remove = async (params: { ipaSession?: string | null; id: string; provider?: UserProvider }): Promise<MutationResult<void>> => {
+export const remove = async (params: { id: string; provider?: UserProvider }): Promise<MutationResult<void>> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return localGroups.remove({ id: params.id });
-  if (!params.ipaSession) return { ok: false, error: "IPA session required to delete IPA groups", status: 401 };
+  const serviceSession = await getServiceIpaSession();
+  if (!serviceSession.ok) return serviceSession;
   return providers.ipa.groups.remove({
-    ipaSession: params.ipaSession,
+    ipaSession: serviceSession.data,
     id: params.id,
   });
 };
 
 export const makePosix = async (params: {
-  ipaSession?: string | null;
   id: string;
   provider?: UserProvider;
 }): Promise<MutationResult<{ gidnumber: number | null }>> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return { ok: false, error: "Local groups do not support POSIX mode", status: 400 };
-  if (!params.ipaSession) return { ok: false, error: "IPA session required to change IPA groups", status: 401 };
+  const serviceSession = await getServiceIpaSession();
+  if (!serviceSession.ok) return serviceSession;
   return providers.ipa.groups.makePosix({
-    ipaSession: params.ipaSession,
+    ipaSession: serviceSession.data,
     id: params.id,
   });
 };
 
-export const addMember = async (params: { ipaSession?: string | null; id: string; provider?: UserProvider; user?: string; group?: string }): Promise<MutationResult<void>> => {
+export const addMember = async (params: { id: string; provider?: UserProvider; user?: string; group?: string }): Promise<MutationResult<void>> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return localGroups.addMember({ id: params.id, user: params.user, group: params.group });
-  if (!params.ipaSession) return { ok: false, error: "IPA session required to update IPA groups", status: 401 };
+  const serviceSession = await getServiceIpaSession();
+  if (!serviceSession.ok) return serviceSession;
   return providers.ipa.groups.addMember({
-    ipaSession: params.ipaSession,
+    ipaSession: serviceSession.data,
     id: params.id,
     user: params.user,
     group: params.group,
   });
 };
 
-export const removeMember = async (params: { ipaSession?: string | null; id: string; provider?: UserProvider; user?: string; group?: string }): Promise<MutationResult<void>> => {
+export const removeMember = async (params: { id: string; provider?: UserProvider; user?: string; group?: string }): Promise<MutationResult<void>> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return localGroups.removeMember({ id: params.id, user: params.user, group: params.group });
-  if (!params.ipaSession) return { ok: false, error: "IPA session required to update IPA groups", status: 401 };
+  const serviceSession = await getServiceIpaSession();
+  if (!serviceSession.ok) return serviceSession;
   return providers.ipa.groups.removeMember({
-    ipaSession: params.ipaSession,
+    ipaSession: serviceSession.data,
     id: params.id,
     user: params.user,
     group: params.group,
   });
 };
 
-export const addManager = async (params: { ipaSession?: string | null; id: string; provider?: UserProvider; user?: string; group?: string }): Promise<MutationResult<void>> => {
+export const addManager = async (params: { id: string; provider?: UserProvider; user?: string; group?: string }): Promise<MutationResult<void>> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return localGroups.addManager({ id: params.id, user: params.user, group: params.group });
-  if (!params.ipaSession) return { ok: false, error: "IPA session required to update IPA groups", status: 401 };
+  const serviceSession = await getServiceIpaSession();
+  if (!serviceSession.ok) return serviceSession;
   return providers.ipa.groups.addManager({
-    ipaSession: params.ipaSession,
+    ipaSession: serviceSession.data,
     id: params.id,
     user: params.user,
     group: params.group,
   });
 };
 
-export const removeManager = async (params: { ipaSession?: string | null; id: string; provider?: UserProvider; user?: string; group?: string }): Promise<MutationResult<void>> => {
+export const removeManager = async (params: { id: string; provider?: UserProvider; user?: string; group?: string }): Promise<MutationResult<void>> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return localGroups.removeManager({ id: params.id, user: params.user, group: params.group });
-  if (!params.ipaSession) return { ok: false, error: "IPA session required to update IPA groups", status: 401 };
+  const serviceSession = await getServiceIpaSession();
+  if (!serviceSession.ok) return serviceSession;
   return providers.ipa.groups.removeManager({
-    ipaSession: params.ipaSession,
+    ipaSession: serviceSession.data,
     id: params.id,
     user: params.user,
     group: params.group,

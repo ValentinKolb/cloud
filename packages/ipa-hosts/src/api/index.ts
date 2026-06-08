@@ -23,20 +23,6 @@ const isServiceResult = (value: unknown): value is Result<unknown> => {
   return Boolean(value && typeof value === "object" && "ok" in value);
 };
 
-const requireIpaSession = async (c: Context<AuthContext>) => {
-  const token = c.get("sessionToken");
-  const ipaSession = await auth.session.getIpaSession(token);
-
-  if (!ipaSession) {
-    return {
-      ipaSession: null,
-      error: await respond(c, fail(err.unauthenticated("IPA session expired"))),
-    };
-  }
-
-  return { ipaSession };
-};
-
 const respondMessage = async (
   c: Context,
   resultPromise: Promise<Result<unknown> | void>,
@@ -109,9 +95,7 @@ const app = new Hono<AuthContext>()
       const fqdn = c.req.param("fqdn");
       if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
       const data = c.req.valid("json");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
-      return respondMessage(c, ipaHostsService.host.update({ ipaSession, fqdn, data }), "Host updated");
+      return respondMessage(c, ipaHostsService.host.update({ fqdn, data }), "Host updated");
     },
   )
   .delete(
@@ -127,9 +111,7 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const fqdn = c.req.param("fqdn");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
-      return respondMessage(c, ipaHostsService.host.remove({ ipaSession, fqdn }), "Host deleted");
+      return respondMessage(c, ipaHostsService.host.remove({ fqdn }), "Host deleted");
     },
   )
   .post(
@@ -148,9 +130,7 @@ const app = new Hono<AuthContext>()
       const fqdn = c.req.param("fqdn");
       if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
       const { hostgroup } = c.req.valid("json");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
-      return respondMessage(c, ipaHostsService.host.addToGroup({ ipaSession, fqdn, hostgroup }), "Host added to group");
+      return respondMessage(c, ipaHostsService.host.addToGroup({ fqdn, hostgroup }), "Host added to group");
     },
   )
   .delete(
@@ -169,9 +149,7 @@ const app = new Hono<AuthContext>()
       const fqdn = c.req.param("fqdn");
       if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
       const { hostgroup } = c.req.valid("json");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
-      return respondMessage(c, ipaHostsService.host.removeFromGroup({ ipaSession, fqdn, hostgroup }), "Host removed from group");
+      return respondMessage(c, ipaHostsService.host.removeFromGroup({ fqdn, hostgroup }), "Host removed from group");
     },
   )
   .get(
@@ -229,9 +207,7 @@ const app = new Hono<AuthContext>()
     v("json", z.object({ name: z.string().min(1), description: z.string().optional() })),
     async (c) => {
       const { name, description } = c.req.valid("json");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
-      return respondMessage(c, ipaHostsService.hostgroup.create({ ipaSession, name, description }), "Hostgroup created", 201);
+      return respondMessage(c, ipaHostsService.hostgroup.create({ name, description }), "Hostgroup created", 201);
     },
   )
   .patch(
@@ -249,9 +225,7 @@ const app = new Hono<AuthContext>()
       const cn = c.req.param("cn");
       if (!cn) return respond(c, fail(err.badInput("Missing hostgroup name")));
       const data = c.req.valid("json");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
-      return respondMessage(c, ipaHostsService.hostgroup.update({ ipaSession, cn, data }), "Hostgroup updated");
+      return respondMessage(c, ipaHostsService.hostgroup.update({ cn, data }), "Hostgroup updated");
     },
   )
   .delete(
@@ -266,9 +240,7 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const cn = c.req.param("cn");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
-      return respondMessage(c, ipaHostsService.hostgroup.remove({ ipaSession, cn }), "Hostgroup deleted");
+      return respondMessage(c, ipaHostsService.hostgroup.remove({ cn }), "Hostgroup deleted");
     },
   )
   .get(

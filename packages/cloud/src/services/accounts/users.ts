@@ -5,6 +5,7 @@ import { renderTemplate } from "../settings/templates";
 import { session } from "../session";
 import { freeipa } from "../../server/services";
 import { providers } from "../providers";
+import { getServiceIpaSession } from "../ipa/service-account";
 import { transitionIpaUserToLocal } from "./switching";
 import {
   canPersistStoredAdmin,
@@ -401,7 +402,6 @@ export const getManagedGroupIds = async (params: { id: string; recursive?: boole
 };
 
 export const demoteToGuest = async (params: {
-  ipaSession?: string | null;
   id: string;
   actor: { userId: string; uid: string };
 }): Promise<MutationResult<void>> => {
@@ -410,19 +410,17 @@ export const demoteToGuest = async (params: {
   if (user.provider !== "ipa") {
     return { ok: false, error: "Only IPA-backed accounts can be demoted to local guests", status: 400 };
   }
-  if (!params.ipaSession) {
-    return { ok: false, error: "IPA session required to demote IPA-backed users", status: 401 };
-  }
+  const serviceSession = await getServiceIpaSession();
+  if (!serviceSession.ok) return serviceSession;
 
   return providers.ipa.users.demoteToGuest({
-    ipaSession: params.ipaSession,
+    ipaSession: serviceSession.data,
     id: params.id,
     actor: params.actor,
   });
 };
 
 export const create = async (params: {
-  ipaSession?: string | null;
   data: CreateUserData;
 }): Promise<MutationResult<{ user: User; temporaryPassword?: string }>> => {
   if (params.data.provider === "local" && params.data.admin && !canPersistStoredAdmin("local", params.data.profile)) {
@@ -453,12 +451,11 @@ export const create = async (params: {
     return { ok: true, data: { user } };
   }
 
-  if (!params.ipaSession) {
-    return { ok: false, error: "IPA session required to create IPA-backed users", status: 401 };
-  }
+  const serviceSession = await getServiceIpaSession();
+  if (!serviceSession.ok) return serviceSession;
 
   const created = await providers.ipa.users.create({
-    ipaSession: params.ipaSession,
+    ipaSession: serviceSession.data,
     profile: params.data.profile,
     accountExpires,
     data: {
@@ -483,7 +480,6 @@ export const create = async (params: {
 };
 
 export const update = async (params: {
-  ipaSession?: string | null;
   id: string;
   data: UpdateUserData;
 }): Promise<MutationResult<void>> => {
@@ -491,9 +487,10 @@ export const update = async (params: {
   if (!user) return { ok: false, error: "User not found", status: 404 };
 
   if (user.provider === "ipa") {
-    if (!params.ipaSession) return { ok: false, error: "IPA session required to update IPA-backed users", status: 401 };
+    const serviceSession = await getServiceIpaSession();
+    if (!serviceSession.ok) return serviceSession;
     return providers.ipa.users.update({
-      ipaSession: params.ipaSession,
+      ipaSession: serviceSession.data,
       id: params.id,
       data: params.data,
     });
@@ -546,7 +543,6 @@ export const setAdmin = async (params: {
 
 export const setExpiry = async (params: {
   actor?: { userId: string; uid: string; roles: string[] };
-  ipaSession?: string | null;
   id: string;
   expiryDate: string | null;
 }): Promise<MutationResult<void>> => {
@@ -563,9 +559,10 @@ export const setExpiry = async (params: {
   // account-lifecycle service and must not turn non-expiring accounts back into
   // expiring ones implicitly.
   if (user.provider === "ipa") {
-    if (!params.ipaSession) return { ok: false, error: "IPA session required to update IPA-backed expiry", status: 401 };
+    const serviceSession = await getServiceIpaSession();
+    if (!serviceSession.ok) return serviceSession;
     return providers.ipa.users.setExpiry({
-      ipaSession: params.ipaSession,
+      ipaSession: serviceSession.data,
       id: params.id,
       expiryDate: params.expiryDate,
     });
@@ -624,7 +621,6 @@ export const createLoginToken = async (params: {
 };
 
 export const resetPassword = async (params: {
-  ipaSession?: string | null;
   id: string;
 }): Promise<MutationResult<{ password: string }>> => {
   const user = await getMinimal({ id: params.id });
@@ -632,16 +628,16 @@ export const resetPassword = async (params: {
   if (user.provider !== "ipa") {
     return { ok: false, error: "Password resets are only available for IPA-backed accounts", status: 400 };
   }
-  if (!params.ipaSession) return { ok: false, error: "IPA session required to reset IPA-backed passwords", status: 401 };
+  const serviceSession = await getServiceIpaSession();
+  if (!serviceSession.ok) return serviceSession;
 
   return providers.ipa.users.resetPassword({
-    ipaSession: params.ipaSession,
+    ipaSession: serviceSession.data,
     id: params.id,
   });
 };
 
 export const switchProvider = async (params: {
-  ipaSession?: string | null;
   id: string;
   provider: UserProvider;
 }): Promise<MutationResult<void>> => {
@@ -661,9 +657,8 @@ export const switchProvider = async (params: {
     return { ok: false, error: "FreeIPA is disabled.", status: 400 };
   }
 
-  if (!params.ipaSession) {
-    return { ok: false, error: "IPA session required to switch account providers", status: 401 };
-  }
+  const serviceSession = await getServiceIpaSession();
+  if (!serviceSession.ok) return serviceSession;
 
   if (params.provider === "ipa") {
     if (!user.mail) {
@@ -671,7 +666,7 @@ export const switchProvider = async (params: {
     }
 
     const result = await providers.ipa.users.create({
-      ipaSession: params.ipaSession,
+      ipaSession: serviceSession.data,
       profile: currentProfile,
       accountExpires: currentExpiry,
       data: {
@@ -688,7 +683,7 @@ export const switchProvider = async (params: {
 
   const response = await freeipa.client.call({
     url: freeIpaConfig.url,
-    ipaSession: params.ipaSession,
+    ipaSession: serviceSession.data,
     method: "user_del",
     args: [user.uid],
     options: {},
@@ -718,7 +713,6 @@ export const switchProvider = async (params: {
 };
 
 export const remove = async (params: {
-  ipaSession?: string | null;
   id: string;
   actor: { userId: string; uid: string };
 }): Promise<MutationResult<void>> => {
@@ -726,9 +720,10 @@ export const remove = async (params: {
   if (!user) return { ok: false, error: "User not found", status: 404 };
 
   if (user.provider === "ipa") {
-    if (!params.ipaSession) return { ok: false, error: "IPA session required to delete IPA-backed users", status: 401 };
+    const serviceSession = await getServiceIpaSession();
+    if (!serviceSession.ok) return serviceSession;
     return providers.ipa.users.remove({
-      ipaSession: params.ipaSession,
+      ipaSession: serviceSession.data,
       id: params.id,
       actor: params.actor,
     });

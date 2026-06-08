@@ -74,10 +74,8 @@ const app = new Hono<AuthContext>()
     async (c) =>
       respond(c, async () => {
         const user = c.get("user");
-        const token = c.get("sessionToken");
         const data = c.req.valid("json");
-        const ipaSession = user.provider === "ipa" ? await auth.session.getIpaSession(token) : null;
-        const result = await accountsService.user.update({ actor: toAccountsActor(user), ipaSession, id: user.id, data });
+        const result = await accountsService.user.update({ actor: toAccountsActor(user), id: user.id, data });
         if (!result.ok) return result;
         return ok({ message: "Profile updated." });
       }),
@@ -125,9 +123,7 @@ const app = new Hono<AuthContext>()
     async (c) =>
       respond(c, async () => {
         const user = c.get("user");
-        const token = c.get("sessionToken");
-        const ipaSession = user.provider === "ipa" ? await auth.session.getIpaSession(token) : null;
-        const result = await accountLifecycle.extendCurrentUserAccount({ user, ipaSession });
+        const result = await accountLifecycle.extendCurrentUserAccount({ user });
         return result;
       }),
   )
@@ -149,9 +145,7 @@ const app = new Hono<AuthContext>()
     async (c) =>
       respond(c, async () => {
         const user = c.get("user");
-        const token = c.get("sessionToken");
-        const ipaSession = user.provider === "ipa" ? await auth.session.getIpaSession(token) : null;
-        const result = await accountsService.user.removeSelf({ user, ipaSession });
+        const result = await accountsService.user.removeSelf({ user });
         if (!result.ok) return result;
         await auth.session.delete(c);
         return ok({ message: "Account deleted." });

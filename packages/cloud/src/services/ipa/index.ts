@@ -1,8 +1,10 @@
 import { providers } from "../providers";
 import { search } from "./search";
+import { getServiceIpaSession } from "./service-account";
 
 export const ipa = {
   auth: providers.ipa.auth,
+  getServiceIpaSession,
   users: {
     ...providers.ipa.users,
     addIpa: providers.ipa.users.create,

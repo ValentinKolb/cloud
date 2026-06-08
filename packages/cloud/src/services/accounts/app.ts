@@ -400,7 +400,6 @@ export const accountsAppService = {
     },
     create: async (config: {
       actor: AccountsActor;
-      ipaSession?: string | null;
       data: CreateUserInput;
       processedBy: string;
     }): Promise<Result<CreateUserResult>> => {
@@ -432,7 +431,6 @@ export const accountsAppService = {
 
           const result = fromMutationResult(
             await users.create({
-              ipaSession: config.ipaSession,
               data: {
                 ...config.data,
                 profile: config.data.provider === "ipa" ? "user" : config.data.profile,
@@ -477,7 +475,6 @@ export const accountsAppService = {
         ? await createFromRequest()
         : fromMutationResult(
             await users.create({
-              ipaSession: config.ipaSession,
               data: {
                 ...config.data,
                 profile: config.data.provider === "ipa" ? "user" : config.data.profile,
@@ -540,7 +537,7 @@ export const accountsAppService = {
         }),
       });
     },
-    update: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; data: Parameters<typeof users.update>[0]["data"] }) => {
+    update: async (config: { actor: AccountsActor; id: string; data: Parameters<typeof users.update>[0]["data"] }) => {
       const target = await users.getMinimal({ id: config.id });
       const targetInfo = userTarget(target);
       const selfService = config.actor.userId === config.id;
@@ -566,7 +563,7 @@ export const accountsAppService = {
         result,
       });
     },
-    resetPassword: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string }) => {
+    resetPassword: async (config: { actor: AccountsActor; id: string }) => {
       const target = await users.getMinimal({ id: config.id });
       const targetInfo = userTarget(target);
       const adminError = await requireAdminActor<{ password: string }>({ actor: config.actor, action: "accounts.user.password_reset", target: targetInfo });
@@ -587,7 +584,7 @@ export const accountsAppService = {
         result: result.ok ? ok({ password: "[REDACTED]" }) : result,
       }).then(() => result);
     },
-    setExpiry: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; expiryDate: string | null }) => {
+    setExpiry: async (config: { actor: AccountsActor; id: string; expiryDate: string | null }) => {
       const target = await users.getMinimal({ id: config.id });
       const targetInfo = userTarget(target);
       const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.set_expiry", target: targetInfo });
@@ -639,7 +636,7 @@ export const accountsAppService = {
         result,
       });
     },
-    switchProvider: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider: UserProvider }) => {
+    switchProvider: async (config: { actor: AccountsActor; id: string; provider: UserProvider }) => {
       const target = await users.getMinimal({ id: config.id });
       const targetInfo = userTarget(target);
       const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.switch_provider", target: targetInfo });
@@ -661,7 +658,7 @@ export const accountsAppService = {
         result,
       });
     },
-    demoteToGuest: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string }) => {
+    demoteToGuest: async (config: { actor: AccountsActor; id: string }) => {
       const target = await users.getMinimal({ id: config.id });
       const targetInfo = userTarget(target);
       const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.demote_to_guest", target: targetInfo });
@@ -712,7 +709,7 @@ export const accountsAppService = {
       });
       return result;
     },
-    remove: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string }) => {
+    remove: async (config: { actor: AccountsActor; id: string }) => {
       const target = await users.getMinimal({ id: config.id });
       const targetInfo = userTarget(target);
       const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.remove", target: targetInfo });
@@ -772,18 +769,14 @@ export const accountsAppService = {
      * callers must enforce that before calling. Dispatches to the correct
      * provider internally — callers should not branch on provider themselves.
      */
-    removeSelf: async (config: { user: User; ipaSession: string | null }): Promise<Result<void>> => {
+    removeSelf: async (config: { user: User }): Promise<Result<void>> => {
       const actor = { userId: config.user.id, uid: config.user.uid, roles: config.user.roles, provider: config.user.provider };
       if (config.user.profile !== "guest") {
         const result = fail(err.forbidden("Only guest accounts can be self-deleted."));
         return audit.recordResult({ action: "accounts.user.remove_self", actor: auditActor(actor), target: userTarget(config.user), result });
       }
       if (config.user.provider === "ipa") {
-        if (!config.ipaSession) {
-          const result = fail(err.unauthenticated("IPA session required."));
-          return audit.recordResult({ action: "accounts.user.remove_self", actor: auditActor(actor), target: userTarget(config.user), result });
-        }
-        const result = fromMutationResult(await providers.ipa.users.remove({ ipaSession: config.ipaSession, id: config.user.id, actor }));
+        const result = fromMutationResult(await users.remove({ id: config.user.id, actor }));
         return recordCompletedMutation({ action: "accounts.user.remove_self", actor: auditActor(actor), target: userTarget(config.user), result });
       }
       const result = fromMutationResult(await providers.local.users.remove({ id: config.user.id, actor }));
@@ -839,7 +832,7 @@ export const accountsAppService = {
         });
         return paginateItems(filtered, config.pagination);
       },
-      add: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider?: UserProvider; userId?: string; groupId?: string }) => {
+      add: async (config: { actor: AccountsActor; id: string; provider?: UserProvider; userId?: string; groupId?: string }) => {
         const group = await groups.get({ id: config.id });
         if (!group) {
           const result = fail(err.notFound("Group not found"));
@@ -854,7 +847,6 @@ export const accountsAppService = {
         if (accessError) return accessError;
         const result = fromMutationResult(
           await groups.addMember({
-            ipaSession: config.ipaSession,
             id: config.id,
             provider: config.provider,
             user: config.userId,
@@ -869,7 +861,7 @@ export const accountsAppService = {
           result,
         });
       },
-      remove: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider?: UserProvider; userId?: string; groupId?: string }) => {
+      remove: async (config: { actor: AccountsActor; id: string; provider?: UserProvider; userId?: string; groupId?: string }) => {
         const group = await groups.get({ id: config.id });
         if (!group) {
           const result = fail(err.notFound("Group not found"));
@@ -884,7 +876,6 @@ export const accountsAppService = {
         if (accessError) return accessError;
         const result = fromMutationResult(
           await groups.removeMember({
-            ipaSession: config.ipaSession,
             id: config.id,
             provider: config.provider,
             user: config.userId,
@@ -918,7 +909,7 @@ export const accountsAppService = {
         });
         return paginateItems(filtered, config.pagination);
       },
-      add: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider?: UserProvider; userId?: string; groupId?: string }) => {
+      add: async (config: { actor: AccountsActor; id: string; provider?: UserProvider; userId?: string; groupId?: string }) => {
         const group = await groups.get({ id: config.id });
         if (!group) {
           const result = fail(err.notFound("Group not found"));
@@ -933,7 +924,6 @@ export const accountsAppService = {
         if (accessError) return accessError;
         const result = fromMutationResult(
           await groups.addManager({
-            ipaSession: config.ipaSession,
             id: config.id,
             provider: config.provider,
             user: config.userId,
@@ -948,7 +938,7 @@ export const accountsAppService = {
           result,
         });
       },
-      remove: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider?: UserProvider; userId?: string; groupId?: string }) => {
+      remove: async (config: { actor: AccountsActor; id: string; provider?: UserProvider; userId?: string; groupId?: string }) => {
         const group = await groups.get({ id: config.id });
         if (!group) {
           const result = fail(err.notFound("Group not found"));
@@ -963,7 +953,6 @@ export const accountsAppService = {
         if (accessError) return accessError;
         const result = fromMutationResult(
           await groups.removeManager({
-            ipaSession: config.ipaSession,
             id: config.id,
             provider: config.provider,
             user: config.userId,
@@ -1003,7 +992,7 @@ export const accountsAppService = {
         return paginateItems(filtered, config.pagination);
       },
     },
-    create: async (config: { actor: AccountsActor; ipaSession?: string | null; provider: UserProvider; name: string; description?: string; posix?: boolean }) => {
+    create: async (config: { actor: AccountsActor; provider: UserProvider; name: string; description?: string; posix?: boolean }) => {
       const adminError = await requireAdminActor<BaseGroup>({
         actor: config.actor,
         action: "accounts.group.create",
@@ -1019,7 +1008,7 @@ export const accountsAppService = {
         result,
       });
     },
-    update: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider?: UserProvider; description: string }) => {
+    update: async (config: { actor: AccountsActor; id: string; provider?: UserProvider; description: string }) => {
       const group = await groups.get({ id: config.id });
       const target = groupTarget(group ?? { id: config.id, name: null, provider: config.provider ?? null });
       const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.group.update", target });
@@ -1033,7 +1022,7 @@ export const accountsAppService = {
         result,
       });
     },
-    remove: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider?: UserProvider }) => {
+    remove: async (config: { actor: AccountsActor; id: string; provider?: UserProvider }) => {
       const group = await groups.get({ id: config.id });
       const target = groupTarget(group ?? { id: config.id, name: null, provider: config.provider ?? null });
       const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.group.remove", target });
@@ -1046,7 +1035,7 @@ export const accountsAppService = {
         result,
       });
     },
-    makePosix: async (config: { actor: AccountsActor; ipaSession?: string | null; id: string; provider?: UserProvider }) => {
+    makePosix: async (config: { actor: AccountsActor; id: string; provider?: UserProvider }) => {
       const group = await groups.get({ id: config.id });
       const target = groupTarget(group ?? { id: config.id, name: null, provider: config.provider ?? null });
       const adminError = await requireAdminActor<{ gidnumber: number | null }>({ actor: config.actor, action: "accounts.group.make_posix", target });
@@ -1455,21 +1444,6 @@ export const accountsAppService = {
     runLocalUserBackfill: async (): Promise<string> => lifecycleJobs.submitLocalUserBackfill(),
     runGuestBackfill: async (): Promise<string> => lifecycleJobs.submitGuestBackfill(),
     runReminders: async (): Promise<string> => lifecycleJobs.submitReminderRun(),
-  },
-
-  /**
-   * Obtain a privileged FreeIPA service session for operations performed on
-   * behalf of the system (e.g. a local group manager mutating an IPA group
-   * they don't personally own). Exposed through the facade so admin UIs
-   * never import `providers.*` directly.
-   */
-  getServiceIpaSession: async (): Promise<Result<string>> => {
-    if (!(await getFreeIpaConfig()).enabled) return fail(err.badInput("FreeIPA is disabled."));
-    try {
-      return ok(await providers.ipa.auth.getServiceSession());
-    } catch {
-      return fail(err.internal("Internal FreeIPA session unavailable."));
-    }
   },
 } as const;
 

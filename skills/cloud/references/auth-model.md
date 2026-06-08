@@ -64,15 +64,20 @@ scope, profile, or admin state.
 1. User submits credentials → `POST /ipa/session/login_password`
 2. FreeIPA validates → returns `ipa_session` cookie (or `password-expired` rejection via `X-IPA-Rejection-Reason` header)
 3. Cloud syncs user data from FreeIPA to local DB
-4. Cloud creates Redis session: `session:{userId}:{randomToken}` with TTL, **including the FreeIPA session cookie** (`ipa_session`) in the session data
+4. Cloud creates Redis session: `session:{userId}:{randomToken}` with TTL. The FreeIPA `ipa_session` is **not** stored in the Cloud session.
 5. Sets `session_token` cookie: `{userId}:{randomToken}`
+
+FreeIPA-backed directory mutations are executed with the configured FreeIPA
+service account after Cloud service-layer authorization and audit checks pass.
+The only user-session FreeIPA cookie still used intentionally is the fresh
+credential verification session inside `changeOwnPassword()`.
 
 ### Login Flow (Local User)
 
 1. User submits email → `POST /email-login` sends a magic link with a time-limited token (5 min TTL, stored in Redis as `email-login:{token}`)
 2. User clicks the link → `POST /verify-token` validates the token
 3. If user doesn't exist and `user.allow_self_registration` is enabled, a guest account is auto-created
-4. Cloud creates Redis session (same structure as IPA flow, but `ipaSession` is `null`)
+4. Cloud creates Redis session with the same `{ userId, gen }` structure as the IPA flow
 
 ## Role Derivation
 
@@ -152,7 +157,7 @@ Group queries support recursive traversal via PostgreSQL recursive CTEs:
 Sessions are stored in Redis:
 
 - **Key**: `session:{userId}:{randomToken}`
-- **Value**: JSON `{ userId: string, ipaSession: string | null, gen: number }`
+- **Value**: JSON `{ userId: string, gen: number }`
 - **TTL**: Configurable via `user.session.expiry_hours` setting
 
 `gen` is the user's session-generation counter at the time the session was created. `session.revokeAllForUser(userId)` is an atomic INCR on a separate `session:gen:{userId}` key — any stored session whose `gen` is below the current counter is rejected at lookup time without touching the session key itself.
@@ -272,20 +277,19 @@ full sensitive request payloads to audit metadata. Use the shared audit
 sanitizer and pass minimal metadata such as changed field names, provider,
 request id, or booleans like `notificationSent`.
 
-For Accounts specifically, keep double enforcement while the FreeIPA subsession
-migration is still in progress:
+For Accounts specifically, keep double enforcement around FreeIPA-backed
+mutations:
 
 - Cloud service-layer checks run first for admin, self-service, and
   group-manager mutations.
 - Existing HTTP-route checks remain as defense-in-depth.
-- Existing FreeIPA session/permission behavior remains until a reviewed follow-up
-  removes stored `ipaSession` from Cloud sessions.
+- FreeIPA RPCs for user/group/host mutations use the configured service account;
+  never require or store a human user's `ipa_session` in Cloud sessions.
 - Admin UI should expose a searchable `DataTable` audit page with URL-backed
   filters for actor, target, action, outcome, provider, and time range.
 
 See [FreeIPA Subsession Removal Readiness](freeipa-subsession-readiness.md) for
-the current route-by-route assessment before removing stored `ipaSession` from
-Cloud sessions.
+the current implementation notes and remaining low-level primitive boundaries.
 
 ## Account Lifecycle
 

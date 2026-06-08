@@ -1,9 +1,9 @@
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { v, jsonResponse, requiresAdmin, auth, type AuthContext, respond } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { accountsAppService as accountsService, logger, notifications, getFreeIpaConfig } from "@valentinkolb/cloud/services";
+import { accountsAppService as accountsService, logger, notifications } from "@valentinkolb/cloud/services";
 import { parsePagination, createPagination } from "@/contracts";
 import {
   PaginationQuerySchema,
@@ -86,26 +86,6 @@ const NotifyUserSchema = z.object({
   subject: z.string().min(1).describe("Notification subject"),
   rawHtml: z.string().min(1).describe("HTML content of the notification"),
 });
-
-const requireIpaSession = async (c: Context<AuthContext>) => {
-  if (!(await getFreeIpaConfig()).enabled) {
-    return {
-      ipaSession: null,
-      error: await respond(c, fail(err.badInput("FreeIPA is disabled."))),
-    };
-  }
-  const token = c.get("sessionToken");
-  const ipaSession = await auth.session.getIpaSession(token);
-
-  if (!ipaSession) {
-    return {
-      ipaSession: null,
-      error: await respond(c, fail(err.unauthenticated("IPA session expired"))),
-    };
-  }
-
-  return { ipaSession };
-};
 
 const logLocalAdminMutation = (params: {
   actor: { id: string; uid: string };
@@ -214,15 +194,12 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const data = c.req.valid("json");
       const adminUser = c.get("user");
-      const ipaSessionResult = data.provider === "ipa" ? await requireIpaSession(c) : null;
-      if (ipaSessionResult && "error" in ipaSessionResult) return ipaSessionResult.error;
 
       return respond(
         c,
         async () => {
           const result: Result<CreateUserResponse> = await accountsService.user.create({
             actor: toAccountsActor(adminUser),
-            ipaSession: ipaSessionResult?.ipaSession ?? null,
             data,
             processedBy: adminUser.id,
           });
@@ -265,11 +242,9 @@ const app = new Hono<AuthContext>()
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const data = c.req.valid("json");
-      const token = c.get("sessionToken");
-      const ipaSession = await auth.session.getIpaSession(token);
 
       return respond(c, async () => {
-        const result = await accountsService.user.update({ actor: toAccountsActor(c.get("user")), ipaSession, id, data });
+        const result = await accountsService.user.update({ actor: toAccountsActor(c.get("user")), id, data });
         if (!result.ok) return result;
         return ok({ message: "User updated." });
       });
@@ -294,15 +269,12 @@ const app = new Hono<AuthContext>()
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const actor = c.get("user");
-      const token = c.get("sessionToken");
-      const ipaSession = await auth.session.getIpaSession(token);
 
       return respond(c, async () => {
         const targetUser = await accountsService.user.getMinimal({ id });
         if (!targetUser) return fail(err.notFound("User not found"));
         const result = await accountsService.user.resetPassword({
           actor: toAccountsActor(actor),
-          ipaSession,
           id,
         });
         if (!result.ok) return result;
@@ -408,8 +380,6 @@ const app = new Hono<AuthContext>()
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const { provider } = c.req.valid("json");
-      const token = c.get("sessionToken");
-      const ipaSession = await auth.session.getIpaSession(token);
 
       return respond(c, async () => {
         const actor = c.get("user");
@@ -417,7 +387,6 @@ const app = new Hono<AuthContext>()
         if (!targetUser) return fail(err.notFound("User not found"));
         const result = await accountsService.user.switchProvider({
           actor: toAccountsActor(actor),
-          ipaSession,
           id,
           provider,
         });
@@ -459,13 +428,10 @@ const app = new Hono<AuthContext>()
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const { expiryDate } = c.req.valid("json");
       const actor = c.get("user");
-      const token = c.get("sessionToken");
-      const ipaSession = await auth.session.getIpaSession(token);
 
       return respond(c, async () => {
         const result = await accountsService.user.setExpiry({
           actor: toAccountsActor(actor),
-          ipaSession,
           id,
           expiryDate,
         });
@@ -595,12 +561,9 @@ const app = new Hono<AuthContext>()
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const actor = c.get("user");
-      const token = c.get("sessionToken");
-      const ipaSession = await auth.session.getIpaSession(token);
 
       return respond(c, async () => {
         const result = await accountsService.user.remove({
-          ipaSession,
           id,
           actor: toAccountsActor(actor),
         });
@@ -628,12 +591,9 @@ const app = new Hono<AuthContext>()
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const actor = c.get("user");
-      const token = c.get("sessionToken");
-      const ipaSession = await auth.session.getIpaSession(token);
 
       return respond(c, async () => {
         const result = await accountsService.user.demoteToGuest({
-          ipaSession,
           id,
           actor: toAccountsActor(actor),
         });

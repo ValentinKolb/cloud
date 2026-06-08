@@ -4,7 +4,7 @@ import { z } from "zod";
 import { isAdminUser } from "@valentinkolb/cloud/shared";
 import { v, jsonResponse, requiresAdmin, requiresAuth, auth, type AuthContext, respond } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { accountsAppService as accountsService, getFreeIpaConfig } from "@valentinkolb/cloud/services";
+import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
 import { parsePagination, createPagination } from "@/contracts";
 import {
   PaginationQuerySchema,
@@ -51,30 +51,6 @@ const requireLocalGroupManageAccess = async (
   return await respond(c, fail(err.forbidden("Access denied")));
 };
 
-const requireActorIpaSession = async (c: Context<AuthContext>) => {
-  if (!(await getFreeIpaConfig()).enabled) {
-    return {
-      error: await respond(c, fail(err.badInput("FreeIPA is disabled."))),
-    };
-  }
-  const token = c.get("sessionToken");
-  const ipaSession = await auth.session.getIpaSession(token);
-  if (ipaSession) return { ipaSession };
-  return {
-    error: await respond(c, fail(err.unauthenticated("Your FreeIPA session is required for this action."))),
-  };
-};
-
-const requireAdminIpaSession = async (c: Context<AuthContext>) => {
-  const result = await accountsService.getServiceIpaSession();
-  if (!result.ok) {
-    return {
-      error: await respond(c, fail(result.error)),
-    };
-  }
-  return { ipaSession: result.data };
-};
-
 const requireGroupMutationContext = async (c: Context<AuthContext>, groupId: string) => {
   const group = await accountsService.group.get({ id: groupId });
   if (!group) {
@@ -90,21 +66,7 @@ const requireGroupMutationContext = async (c: Context<AuthContext>, groupId: str
     };
   }
 
-  if (group.provider === "ipa" && !(await getFreeIpaConfig()).enabled) {
-    return {
-      error: await respond(c, fail(err.badInput("FreeIPA is disabled."))),
-    };
-  }
-
-  if (group.provider === "local") {
-    return { group, ipaSession: null };
-  }
-
-  const user = c.get("user");
-  const sessionResult = isAdminUser(user) ? await requireAdminIpaSession(c) : await requireActorIpaSession(c);
-  if ("error" in sessionResult) return { error: sessionResult.error };
-
-  return { group, ipaSession: sessionResult.ipaSession };
+  return { group };
 };
 
 /**
@@ -115,7 +77,6 @@ const requireGroupMutationContext = async (c: Context<AuthContext>, groupId: str
  */
 type GroupRelationMutation = (config: {
   actor: ReturnType<typeof toAccountsActor>;
-  ipaSession: string | null;
   id: string;
   provider: "local" | "ipa";
   userId?: string;
@@ -131,13 +92,12 @@ const handleGroupRelation = async (
   const groupId = c.req.param("id");
   if (!groupId) return respond(c, fail(err.badInput("Missing group ID")));
   const { type, id: principalId } = input;
-  const { group, ipaSession, error } = await requireGroupMutationContext(c, groupId);
+  const { group, error } = await requireGroupMutationContext(c, groupId);
   if (error || !group) return error!;
 
   return respond(c, async () => {
     const result = await mutation({
       actor: toAccountsActor(c.get("user")),
-      ipaSession,
       id: groupId,
       provider: group.provider,
       userId: type === "user" ? principalId : undefined,
@@ -294,14 +254,11 @@ const app = new Hono<AuthContext>()
     v("json", CreateGroupSchema),
     async (c) => {
       const { provider, name, description, posix } = c.req.valid("json");
-      const ipaSessionResult = provider === "ipa" ? await requireAdminIpaSession(c) : null;
-      if (ipaSessionResult && "error" in ipaSessionResult) return ipaSessionResult.error;
 
       return respond(
         c,
         async (): Promise<Result<BaseGroupResponse>> => accountsService.group.create({
           actor: toAccountsActor(c.get("user")),
-          ipaSession: ipaSessionResult?.ipaSession ?? null,
           provider,
           name,
           description,
@@ -330,13 +287,10 @@ const app = new Hono<AuthContext>()
       if (!id) return respond(c, fail(err.badInput("Missing group ID")));
       const group = await accountsService.group.get({ id });
       if (!group) return respond(c, fail(err.notFound("Group not found")));
-      const ipaSessionResult = group.provider === "ipa" ? await requireAdminIpaSession(c) : null;
-      if (ipaSessionResult && "error" in ipaSessionResult) return ipaSessionResult.error;
 
       return respond(c, async () => {
         const result = await accountsService.group.remove({
           actor: toAccountsActor(c.get("user")),
-          ipaSession: ipaSessionResult?.ipaSession ?? null,
           id,
           provider: group.provider,
         });
@@ -366,13 +320,10 @@ const app = new Hono<AuthContext>()
       const { description } = c.req.valid("json");
       const group = await accountsService.group.get({ id });
       if (!group) return respond(c, fail(err.notFound("Group not found")));
-      const ipaSessionResult = group.provider === "ipa" ? await requireAdminIpaSession(c) : null;
-      if (ipaSessionResult && "error" in ipaSessionResult) return ipaSessionResult.error;
 
       return respond(c, async () => {
         const result = await accountsService.group.update({
           actor: toAccountsActor(c.get("user")),
-          ipaSession: ipaSessionResult?.ipaSession ?? null,
           id,
           provider: group.provider,
           description,
@@ -401,13 +352,10 @@ const app = new Hono<AuthContext>()
       if (!id) return respond(c, fail(err.badInput("Missing group ID")));
       const group = await accountsService.group.get({ id });
       if (!group) return respond(c, fail(err.notFound("Group not found")));
-      const ipaSessionResult = group.provider === "ipa" ? await requireAdminIpaSession(c) : null;
-      if (ipaSessionResult && "error" in ipaSessionResult) return ipaSessionResult.error;
 
       return respond(c, async () => {
         const result = await accountsService.group.makePosix({
           actor: toAccountsActor(c.get("user")),
-          ipaSession: ipaSessionResult?.ipaSession ?? null,
           id,
           provider: group.provider,
         });

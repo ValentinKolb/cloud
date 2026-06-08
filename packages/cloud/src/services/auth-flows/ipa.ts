@@ -14,7 +14,6 @@ type IpaLoginFailure =
 
 type IpaLoginSuccess = {
   ok: true;
-  ipaSession: string;
   userId: string;
   user: User;
 };
@@ -103,7 +102,6 @@ export const login = async (params: { username: string; password: string }): Pro
 
   return {
     ok: true,
-    ipaSession: loginResult.session,
     userId: userResult.userId,
     user: userResult.user,
   };

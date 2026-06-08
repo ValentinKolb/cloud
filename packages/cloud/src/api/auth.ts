@@ -56,7 +56,7 @@ const app = new Hono<AuthContext>()
       }
 
       // Store minimal session in Redis
-      const sessionToken = await auth.session.create(c, loginResult.userId, loginResult.ipaSession);
+      const sessionToken = await auth.session.create(c, loginResult.userId);
 
       log.info("Login successful", { uid: username });
       return c.json({
@@ -116,7 +116,7 @@ const app = new Hono<AuthContext>()
         return jsonError(c, changeResult.message, changeResult.status === 401 ? 401 : 400);
       }
 
-      const sessionToken = await auth.session.create(c, changeResult.userId, changeResult.ipaSession);
+      const sessionToken = await auth.session.create(c, changeResult.userId);
 
       log.info("Password changed via expired flow", { uid: username });
       return c.json({ session_token: sessionToken, user: changeResult.user });
@@ -171,7 +171,7 @@ const app = new Hono<AuthContext>()
       }
 
       // Create session (no IPA session for email-only users)
-      const sessionToken = await auth.session.create(c, verifyResult.userId, null);
+      const sessionToken = await auth.session.create(c, verifyResult.userId);
 
       if (verifyResult.createdGuest) {
         log.info("Guest user created", { email: verifyResult.email, uid: verifyResult.user.uid });
@@ -221,7 +221,7 @@ const app = new Hono<AuthContext>()
       const user = await accounts.users.get({ uid: "admin" });
       if (!user) return jsonError(c, "Failed to resolve admin user.", 500);
 
-      const sessionToken = await auth.session.create(c, user.id, null);
+      const sessionToken = await auth.session.create(c, user.id);
       log.info("Admin login successful");
       return c.json({ session_token: sessionToken, user });
     },
