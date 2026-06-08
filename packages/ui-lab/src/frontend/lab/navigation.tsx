@@ -291,7 +291,7 @@ export const AppWorkspaceDemo = () => {
             </div>
           </AppWorkspace.Main>
 
-          <AppWorkspace.Detail open width="sm">
+          <AppWorkspace.Detail open width="sm" class="detail-stack">
             <div class="detail-section">
               <h3 class="detail-section-label">Details</h3>
               <p class="text-xs text-dimmed">Detail panels use the same shell across apps.</p>

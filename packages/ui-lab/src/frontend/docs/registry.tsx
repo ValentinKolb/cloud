@@ -32,6 +32,7 @@ import {
   DataTableMinimalDemo,
   MarkdownEditorFullDemo,
   MarkdownViewDemo,
+  StructuredDataPreviewDemo,
 } from "../lab/content";
 import {
   BadgesDemo,
@@ -693,6 +694,19 @@ export const uiLabDocs: UiLabDocSection[] = [
           <DemoGrid columns="one">
             <DataTableFullDemo />
             <DataTableMinimalDemo />
+          </DemoGrid>
+        ),
+      ),
+      page(
+        "content",
+        "structured-data",
+        "StructuredDataPreview",
+        "ti ti-braces",
+        "Formatted key-value and raw JSON preview for metadata, payloads, labels, and dimensions.",
+        ["structured-data-preview"],
+        () => (
+          <DemoGrid columns="one">
+            <StructuredDataPreviewDemo />
           </DemoGrid>
         ),
       ),

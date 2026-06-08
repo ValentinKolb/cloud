@@ -58,7 +58,7 @@ export const apiClient = api.create<ApiType>({ baseUrl: "/api/my-app" });
 - Create column uses `AppOverview.Aside title="Create"` with template/starter buttons and one blank/create-from-scratch button.
 - Full-height resource screens use `Layout fullWidth` + `AppWorkspace`; add `fullPage` only when the route should match an existing footerless full-height reference.
 - AppWorkspace main content does not add generic outer padding; use `gap-2` rhythm.
-- Detail panels are composed from section cards (`paper` or `detail-section`) inside `AppWorkspace.Detail`; do not wrap the whole detail panel in one large paper.
+- Detail panels are composed from section cards (`detail-section`) inside a `detail-stack`; do not wrap the whole detail panel in one large paper or mix section margins with parent gaps.
 - Resource settings use `SettingsModal` as their shell. Modal settings open it in a bare prompt dialog; route-backed settings still reuse the same shell instead of inventing a local layout.
 - Complex editor modals use `PanelDialog`; small prompts stay with `prompts.form` or plain `prompts.dialog`.
 - Tables use `DataTable`; disable column hover with `highlightColumns={false}` when the design calls for row-only hover.

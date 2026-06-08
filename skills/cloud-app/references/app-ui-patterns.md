@@ -75,7 +75,7 @@ Cloud-specific rules:
 - `AppWorkspace.SidebarBody` / `SidebarMobileBody` get stable `scrollPreserveKey` values for scrollable lists.
 - `AppWorkspace.Main` should not get a generic `p-3` or `p-4` wrapper. The shell owns the outer gutters.
 - Keep workspace vertical rhythm at `gap-2`.
-- Detail panels use `AppWorkspace.Detail` and a `flex h-full min-h-0 flex-col gap-2` inner wrapper with separate `paper`/`detail-section` cards.
+- Detail panels use `AppWorkspace.Detail` and a `detail-stack` wrapper with separate `detail-section` cards. The stack owns inter-card spacing; sections own only their surface and inner padding.
 - Links that require fresh SSR data use `navigation="document"` unless the mounted workspace owns an enhanced route-state loader.
 
 ## Settings

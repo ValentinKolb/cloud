@@ -88,10 +88,8 @@ const namedBlockSnippet = (block: NamedBlockSummary): string => {
 /**
  * Right-side detail panel — outline + backlinks + (edit-mode) online users +
  * actions + note metadata. Single island so the inner sections stay direct
- * children of the same flex container; `detail-section`'s `mt-2 first:mt-0`
- * convention then handles inter-section spacing the way `frontend.md`
- * documents (no `gap-*` needed, no per-section `<solid-island>` wrappers
- * fighting `:first-child`).
+ * children of the same `detail-stack` container; the stack owns inter-section
+ * spacing so per-section wrappers do not fight margins.
  *
  * Visibility is controlled via the toolbar's panel-toggle button and the
  * mobile-only "Close panel" action inside the panel.
@@ -280,7 +278,7 @@ export default function NotebookDetailPanel(props: Props) {
   });
 
   return (
-    <AppWorkspace.Detail open={open()} class="overflow-y-auto">
+    <AppWorkspace.Detail open={open()} class="detail-stack">
       {/* Contents */}
       <Show when={tocItems().length >= 1}>
         <section class="detail-section">

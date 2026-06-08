@@ -720,7 +720,10 @@ Only put `scrollbar-gutter: stable` on the element that actually owns page scrol
 
 Keep `AppWorkspace` column gaps at `gap-2`. Do not add margins between `AppWorkspace.Main` and `AppWorkspace.Detail`; let `app-cols` own that spacing.
 
-Detail panels should read like Grids record details: compose multiple small `paper` sections inside a `flex h-full min-h-0 flex-col gap-2` wrapper. Avoid wrapping the whole detail panel in one large `paper`; it makes the panel feel like a modal inside the workspace and breaks the shared app rhythm.
+Detail panels should read like Grids record details: compose multiple small
+`detail-section` cards inside a `detail-stack` wrapper. Avoid wrapping the whole
+detail panel in one large `paper`; it makes the panel feel like a modal inside
+the workspace and breaks the shared app rhythm.
 
 ```jsx
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
@@ -737,15 +740,9 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
     </AppWorkspace.SidebarDesktop>
   </AppWorkspace.Sidebar>
   <AppWorkspace.Main>{children}</AppWorkspace.Main>
-  <AppWorkspace.Detail open={Boolean(selectedId())} width="md">
-    <div class="flex h-full min-h-0 flex-col gap-2">
-      <section class="paper p-4">{detailHeader}</section>
-      <div class="min-h-0 flex-1 overflow-y-auto">
-        <div class="flex flex-col gap-2">
-          <section class="paper p-4">{detailBody}</section>
-        </div>
-      </div>
-    </div>
+  <AppWorkspace.Detail open={Boolean(selectedId())} width="md" class="detail-stack">
+    <section class="detail-section">{detailHeader}</section>
+    <section class="detail-section">{detailBody}</section>
   </AppWorkspace.Detail>
 </AppWorkspace>
 ```
@@ -1131,6 +1128,24 @@ import { CopyButton } from "@valentinkolb/cloud/ui";
 
 **Props:** `text`, `label?`, `class?`
 
+### StructuredDataPreview
+
+Use `StructuredDataPreview` for small JSON-like app data such as metadata,
+event payloads, labels, dimensions, and settings snapshots. It renders readable
+key-value rows by default, lets the user switch to raw JSON, and includes copy
+support.
+
+```jsx
+import { StructuredDataPreview } from "@valentinkolb/cloud/ui";
+
+<StructuredDataPreview title="Metadata" data={entry.metadata} empty="No metadata." />
+```
+
+**Props:** `title?`, `data`, `defaultMode?`, `copy?`, `empty?`, `maxRows?`, `class?`
+
+Prefer this over local `<pre>{JSON.stringify(...)}</pre>` blocks in detail panels
+and logs. Keep large tabular data in `DataTable`.
+
 ### MarkdownView
 
 Expects pre-rendered HTML (use `renderMarkdown()` from `@valentinkolb/cloud/shared` on the server):
@@ -1202,7 +1217,7 @@ old `paper`-around-`divide-y` stat-card pattern.
 Live reference: `packages/contacts/src/frontend/_components/ContactDetailPanel.island.tsx`.
 
 ```html
-<div class="flex flex-col">
+<div class="detail-stack">
 
   <section class="detail-section">
     <!-- Header section: title + chips + close. No detail-section-label here. -->
@@ -1242,7 +1257,9 @@ Live reference: `packages/contacts/src/frontend/_components/ContactDetailPanel.i
 
 | Class | Purpose |
 |---|---|
-| `detail-section` | Section card. Auto-applies `paper p-4 mt-2 first:mt-0`. The first content child sitting flush below the label gets `pt-0 mt-0` so the gap to the label is exactly the label's `mb-3`, regardless of which content type follows. |
+| `detail-stack` | Scrolling detail-panel stack. Owns `flex h-full min-h-0 flex-1 flex-col gap-2 overflow-y-auto`; use it as the parent for section cards. |
+| `detail-section` | Section card. Auto-applies `paper p-4`. The first content child sitting flush below the label gets `pt-0 mt-0` so the gap to the label is exactly the label's `mb-3`, regardless of which content type follows. |
+| `detail-section-compact` | Compact section card for headers/tool surfaces that intentionally need `paper p-3`. Use sparingly and explicitly. |
 | `detail-section-label` | Section heading: `mb-3 text-xs font-semibold uppercase tracking-wider text-secondary`. Use for "REACH", "WORK", "PERSONAL", … |
 | `detail-row` | Single-line row for emails / phones / websites / simple facts. Layout: leading icon column + optional small label slot + value. Composes with `detail-row-icon` and `detail-row-label`. |
 | `detail-row-icon` | Fixed-width icon slot for `detail-row` (keeps values aligned). Add a color utility (`text-blue-500`, `text-amber-500`, …) to colorize per data type. |

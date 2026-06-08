@@ -97,7 +97,7 @@ function ContactOrgTreeNode(props: {
 
 export default function ContactOrgTreeView(props: Props) {
   return (
-    <div class="flex h-full min-h-0 flex-col gap-2">
+    <div class="detail-stack">
       <section class="detail-section" style="view-transition-name: contacts-org-tree-panel">
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0">
@@ -109,20 +109,18 @@ export default function ContactOrgTreeView(props: Props) {
           </button>
         </div>
       </section>
-      <div class="flex-1 min-h-0 overflow-y-auto">
-        <section class="detail-section">
-          <ul class="flex flex-col gap-1">
-            <ContactOrgTreeNode
-              node={props.tree.root}
-              selectedId={props.tree.selectedId}
-              depth={0}
-              isFirst={true}
-              isLast={true}
-              onSelect={props.onSelect}
-            />
-          </ul>
-        </section>
-      </div>
+      <section class="detail-section">
+        <ul class="flex flex-col gap-1">
+          <ContactOrgTreeNode
+            node={props.tree.root}
+            selectedId={props.tree.selectedId}
+            depth={0}
+            isFirst={true}
+            isLast={true}
+            onSelect={props.onSelect}
+          />
+        </ul>
+      </section>
     </div>
   );
 }

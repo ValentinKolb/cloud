@@ -482,7 +482,7 @@ export default function ItemDetailPanel(props: Props) {
   const scheduleTitle = () => (isEvent() ? "Event Time" : "Deadline");
 
   return (
-    <div class="flex flex-col" style="view-transition-name: detail-panel">
+    <div class="detail-stack" style="view-transition-name: detail-panel">
       <section class="detail-section" style="view-transition-name: space-item-detail-header">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0 flex-1">

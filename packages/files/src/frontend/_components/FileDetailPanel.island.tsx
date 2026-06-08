@@ -162,7 +162,7 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
       }
     >
       {(currentFile) => (
-        <div class="flex h-full min-h-0 flex-col overflow-y-auto" data-scroll-preserve={detailScrollPreserveKey()}>
+        <div class="detail-stack" data-scroll-preserve={detailScrollPreserveKey()}>
           <section class="detail-section" style="view-transition-name: files-detail-panel">
             <div class="flex items-start justify-between gap-2">
               <div class="min-w-0 flex-1 flex flex-col items-center gap-3">

@@ -1,16 +1,26 @@
 /* Detail panels — flow layout for info-dense detail surfaces.
 
-   Convention: the outer panel is a SINGLE `paper p-4` (or equivalent surface).
-   Inside, every logical group is a `detail-section`. Sections auto-separate
-   with a hairline divider — no nested `paper` boxes, no manual <hr/>.
-   Empty sections must not render at all (use Show / conditional rendering)
-   so sparse records do not produce empty shells. */
+   Convention: the scrolling parent is `detail-stack`; every logical group is a
+   `detail-section`. The stack owns inter-section spacing, sections own their
+   inner padding and surface treatment. Empty sections must not render at all
+   (use Show / conditional rendering) so sparse records do not produce empty
+   shells. */
+
+@utility detail-stack {
+  @apply flex h-full min-h-0 flex-1 flex-col gap-2 overflow-y-auto;
+}
 
 @utility detail-section {
-  /* Each section is its own surface card. The first content child of a
-     section sits flush below the label so the gap is exactly the label's
-     bottom margin, regardless of which content type follows. */
-  @apply paper p-4 mt-2 first:mt-0;
+  /* Each section is its own surface card. The parent `detail-stack` owns
+     section-to-section spacing so callers do not mix margins and flex gaps. */
+  @apply paper p-4;
+  & > .detail-section-label + * {
+    @apply pt-0 mt-0;
+  }
+}
+
+@utility detail-section-compact {
+  @apply paper p-3;
   & > .detail-section-label + * {
     @apply pt-0 mt-0;
   }

@@ -120,8 +120,8 @@ export default function ContactDetailPanel(props: Props) {
             when={detailMode() === "tree" && orgTree()}
             fallback={
               <div class="flex h-full min-h-0 flex-col">
-                <div class="flex-1 min-h-0 overflow-y-auto">
-                  <section class="detail-section p-3" style="view-transition-name: contacts-detail-panel">
+                <div class="detail-stack">
+                  <section class="detail-section-compact" style="view-transition-name: contacts-detail-panel">
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0 flex-1 space-y-1">
                         <h2 class="truncate text-base font-semibold leading-5 text-primary">{resolveContactName(c())}</h2>
@@ -169,19 +169,17 @@ export default function ContactDetailPanel(props: Props) {
                         </button>
                       </div>
                     </div>
-                  </section>
 
-                  <Show when={c().tags.length > 0}>
-                    <div class="px-3 pt-2">
-                      <div class="flex flex-wrap items-center gap-1.5">
+                    <Show when={c().tags.length > 0}>
+                      <div class="mt-3 flex flex-wrap items-center gap-1.5">
                         <For each={c().tags}>
                           {(tag) => (
                             <ContactTagChip name={tag.name} color={tag.color} size="sm" />
                           )}
                         </For>
                       </div>
-                    </div>
-                  </Show>
+                    </Show>
+                  </section>
 
                   <Show when={hasReach()}>
                     <section class="detail-section">

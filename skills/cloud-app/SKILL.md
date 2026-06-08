@@ -802,6 +802,7 @@ Use `AppWorkspace` for full app shells with sidebar/main/detail. `app-cols` rema
 | `app-cols` | Low-level sidebar + content grid; prefer `AppWorkspace` for new app shells |
 | `info-block-info`, `info-block-warning`, `info-block-danger` | Banners |
 | `section-label` | Small uppercase label for sections |
+| `detail-stack`, `detail-section` | Detail-panel stack and section-card rhythm |
 
 **Essential components from `@valentinkolb/cloud/ui`:**
 
@@ -820,6 +821,7 @@ Use `AppWorkspace` for full app shells with sidebar/main/detail. `app-cols` rema
 | `AppWorkspace` | Shared sidebar + main + detail workspace shell |
 | `DialogHeader` | Standard dialog header |
 | `CopyButton` | Clipboard copy with feedback |
+| `StructuredDataPreview` | Formatted key-value plus raw JSON preview for metadata/payload/dimensions |
 
 **All input components** are also from `@valentinkolb/cloud/ui` (not a sub-path):
 `TextInput`, `NumberInput`, `Select`, `TagsInput`, `ImageInput`, `FileDropzone`, `DateTimeInput`, `ColorInput`, `PinInput`, `Checkbox`, `Switch`, `SegmentedControl`, `Slider`

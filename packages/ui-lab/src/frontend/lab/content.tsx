@@ -7,11 +7,20 @@
  * so light/dark mode works automatically.
  */
 
-import { Chart, DataTable, type DataTableColumn, MarkdownEditor, MarkdownView } from "@valentinkolb/cloud/ui";
+import { Chart, DataTable, type DataTableColumn, MarkdownEditor, MarkdownView, StructuredDataPreview } from "@valentinkolb/cloud/ui";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import DemoCard from "./DemoCard";
 
 const FROM_UI = "@valentinkolb/cloud/ui";
+
+const sampleMetadata = {
+  expiredCandidates: 0,
+  demotedToGuest: 0,
+  skipped: 0,
+  failed: 0,
+  source: "accounts.cleanup",
+  labels: { environment: "dev", runner: "scheduler" },
+};
 
 /* ── Chart variants ───────────────────────────────────────── */
 
@@ -309,6 +318,22 @@ export const DataTableMinimalDemo = () => {
   );
 };
 
+export const StructuredDataPreviewDemo = () => (
+  <DemoCard
+    id="structured-data-preview"
+    variant="formatted + raw JSON"
+    chip={{ kind: "component", name: "StructuredDataPreview", from: FROM_UI }}
+    description="Compact preview for metadata, payloads, labels, and dimensions. Shows key-value rows by default, with raw JSON and copy available on demand."
+    code={`<StructuredDataPreview
+  title="Metadata"
+  data={metadata}
+  maxRows={6}
+/>`}
+  >
+    <StructuredDataPreview title="Metadata" data={sampleMetadata} maxRows={6} />
+  </DemoCard>
+);
+
 /* ── Markdown rendering ───────────────────────────────────── */
 
 export const MarkdownViewDemo = (props: { html: string }) => (
@@ -358,6 +383,7 @@ export const ContentTab = (props: { markdownHtml: string }) => (
   <div class="grid grid-cols-1 gap-3">
     <DataTableFullDemo />
     <DataTableMinimalDemo />
+    <StructuredDataPreviewDemo />
     <ChartLive />
     <ChartLine />
     <ChartBar />

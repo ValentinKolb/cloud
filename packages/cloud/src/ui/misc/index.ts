@@ -70,3 +70,5 @@ export { default as SettingsModal } from "./SettingsModal";
 export type { StatCellAccent, StatCellProps } from "./StatCell";
 export { default as StatCell } from "./StatCell";
 export { default as StatGrid } from "./StatGrid";
+export type { StructuredDataPreviewMode, StructuredDataPreviewProps } from "./StructuredDataPreview";
+export { default as StructuredDataPreview } from "./StructuredDataPreview";
