@@ -241,6 +241,14 @@ const groupTarget = (group: { id?: string | null; name?: string | null; provider
   provider: group?.provider ?? null,
 });
 
+const recordCompletedMutation = <T,>(params: {
+  action: string;
+  actor?: AuditActor | null;
+  target?: AuditTarget | null;
+  metadata?: Record<string, unknown> | null;
+  result: Result<T>;
+}) => (params.result.ok ? audit.recordResultAfterSideEffect(params) : audit.recordResult(params));
+
 const requireAdminActor = async <T,>(params: {
   actor: AccountsActor | null | undefined;
   action: string;
@@ -453,7 +461,7 @@ export const accountsAppService = {
             createdUserId: txResult.result.data.user.id,
             processedBy: config.processedBy,
           });
-          await audit.recordResult({
+          await audit.recordResultAfterSideEffect({
             action: "accounts.request.complete",
             actor: auditActor(config.actor),
             target: { type: "account_request", id: config.data.requestId },
@@ -519,7 +527,7 @@ export const accountsAppService = {
         }
       }
 
-      return audit.recordResult({
+      return audit.recordResultAfterSideEffect({
         action: "accounts.user.create",
         actor: auditActor(config.actor),
         target: userTarget(created.user),
@@ -550,7 +558,7 @@ export const accountsAppService = {
         if (adminError) return adminError;
       }
       const result = fromMutationResult(await users.update(config));
-      return audit.recordResult({
+      return recordCompletedMutation({
         action: "accounts.user.update",
         actor: auditActor(config.actor),
         target: targetInfo,
@@ -572,7 +580,7 @@ export const accountsAppService = {
       });
       if (selfError) return selfError;
       const result = fromMutationResult(await users.resetPassword(config));
-      return audit.recordResult({
+      return recordCompletedMutation({
         action: "accounts.user.password_reset",
         actor: auditActor(config.actor),
         target: targetInfo,
@@ -585,7 +593,7 @@ export const accountsAppService = {
       const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.set_expiry", target: targetInfo });
       if (adminError) return adminError;
       const result = fromMutationResult(await users.setExpiry(config));
-      return audit.recordResult({
+      return recordCompletedMutation({
         action: "accounts.user.set_expiry",
         actor: auditActor(config.actor),
         target: targetInfo,
@@ -609,7 +617,7 @@ export const accountsAppService = {
         : null;
       if (selfError) return selfError;
       const result = fromMutationResult(await users.setProfile(config));
-      return audit.recordResult({
+      return recordCompletedMutation({
         action: "accounts.user.set_profile",
         actor: auditActor(config.actor),
         target: targetInfo,
@@ -623,7 +631,7 @@ export const accountsAppService = {
       const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.set_admin", target: targetInfo });
       if (adminError) return adminError;
       const result = fromMutationResult(await users.setAdmin(config));
-      return audit.recordResult({
+      return recordCompletedMutation({
         action: "accounts.user.set_admin",
         actor: auditActor(config.actor),
         target: targetInfo,
@@ -645,7 +653,7 @@ export const accountsAppService = {
       });
       if (selfError) return selfError;
       const result = fromMutationResult(await users.switchProvider(config));
-      return audit.recordResult({
+      return recordCompletedMutation({
         action: "accounts.user.switch_provider",
         actor: auditActor(config.actor),
         target: targetInfo,
@@ -667,7 +675,7 @@ export const accountsAppService = {
       });
       if (selfError) return selfError;
       const result = fromMutationResult(await users.demoteToGuest(config));
-      return audit.recordResult({
+      return recordCompletedMutation({
         action: "accounts.user.demote_to_guest",
         actor: auditActor(config.actor),
         target: targetInfo,
@@ -679,7 +687,7 @@ export const accountsAppService = {
       const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.user.send_login_link", target: userTarget(target) });
       if (adminError) return adminError;
       const result = fromMutationResult(await users.sendLoginLink(config));
-      return audit.recordResult({
+      return recordCompletedMutation({
         action: "accounts.user.send_login_link",
         actor: auditActor(config.actor),
         target: userTarget(target),
@@ -696,7 +704,7 @@ export const accountsAppService = {
       });
       if (adminError) return adminError;
       const result = fromMutationResult(await users.createLoginToken(config));
-      await audit.recordResult({
+      await recordCompletedMutation({
         action: "accounts.user.create_login_token",
         actor: auditActor(config.actor),
         target: targetInfo,
@@ -718,7 +726,7 @@ export const accountsAppService = {
       });
       if (selfError) return selfError;
       const result = fromMutationResult(await users.remove(config));
-      return audit.recordResult({
+      return recordCompletedMutation({
         action: "accounts.user.remove",
         actor: auditActor(config.actor),
         target: targetInfo,
@@ -756,7 +764,7 @@ export const accountsAppService = {
         newPassword: config.newPassword,
       });
       const serviceResult = result.ok ? ok(undefined) : fail(toServiceError(result.status, result.error));
-      return audit.recordResult({ action: "accounts.user.change_own_password", actor: auditActor(actor), target: userTarget(config.user), result: serviceResult });
+      return recordCompletedMutation({ action: "accounts.user.change_own_password", actor: auditActor(actor), target: userTarget(config.user), result: serviceResult });
     },
 
     /**
@@ -776,10 +784,10 @@ export const accountsAppService = {
           return audit.recordResult({ action: "accounts.user.remove_self", actor: auditActor(actor), target: userTarget(config.user), result });
         }
         const result = fromMutationResult(await providers.ipa.users.remove({ ipaSession: config.ipaSession, id: config.user.id, actor }));
-        return audit.recordResult({ action: "accounts.user.remove_self", actor: auditActor(actor), target: userTarget(config.user), result });
+        return recordCompletedMutation({ action: "accounts.user.remove_self", actor: auditActor(actor), target: userTarget(config.user), result });
       }
       const result = fromMutationResult(await providers.local.users.remove({ id: config.user.id, actor }));
-      return audit.recordResult({ action: "accounts.user.remove_self", actor: auditActor(actor), target: userTarget(config.user), result });
+      return recordCompletedMutation({ action: "accounts.user.remove_self", actor: auditActor(actor), target: userTarget(config.user), result });
     },
   },
 
@@ -853,7 +861,7 @@ export const accountsAppService = {
             group: config.groupId,
           }),
         );
-        return audit.recordResult({
+        return recordCompletedMutation({
           action: "accounts.group.member.add",
           actor: auditActor(config.actor),
           target: groupTarget(group),
@@ -883,7 +891,7 @@ export const accountsAppService = {
             group: config.groupId,
           }),
         );
-        return audit.recordResult({
+        return recordCompletedMutation({
           action: "accounts.group.member.remove",
           actor: auditActor(config.actor),
           target: groupTarget(group),
@@ -932,7 +940,7 @@ export const accountsAppService = {
             group: config.groupId,
           }),
         );
-        return audit.recordResult({
+        return recordCompletedMutation({
           action: "accounts.group.manager.add",
           actor: auditActor(config.actor),
           target: groupTarget(group),
@@ -962,7 +970,7 @@ export const accountsAppService = {
             group: config.groupId,
           }),
         );
-        return audit.recordResult({
+        return recordCompletedMutation({
           action: "accounts.group.manager.remove",
           actor: auditActor(config.actor),
           target: groupTarget(group),
@@ -1003,7 +1011,7 @@ export const accountsAppService = {
       });
       if (adminError) return adminError;
       const result = fromMutationResult(await groups.create(config));
-      return audit.recordResult({
+      return recordCompletedMutation({
         action: "accounts.group.create",
         actor: auditActor(config.actor),
         target: result.ok ? groupTarget(result.data) : { type: "group", label: config.name, provider: config.provider },
@@ -1017,7 +1025,7 @@ export const accountsAppService = {
       const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.group.update", target });
       if (adminError) return adminError;
       const result = fromMutationResult(await groups.update(config));
-      return audit.recordResult({
+      return recordCompletedMutation({
         action: "accounts.group.update",
         actor: auditActor(config.actor),
         target,
@@ -1031,7 +1039,7 @@ export const accountsAppService = {
       const adminError = await requireAdminActor<void>({ actor: config.actor, action: "accounts.group.remove", target });
       if (adminError) return adminError;
       const result = fromMutationResult(await groups.remove(config));
-      return audit.recordResult({
+      return recordCompletedMutation({
         action: "accounts.group.remove",
         actor: auditActor(config.actor),
         target,
@@ -1044,7 +1052,7 @@ export const accountsAppService = {
       const adminError = await requireAdminActor<{ gidnumber: number | null }>({ actor: config.actor, action: "accounts.group.make_posix", target });
       if (adminError) return adminError;
       const result = fromMutationResult(await groups.makePosix(config));
-      return audit.recordResult({
+      return recordCompletedMutation({
         action: "accounts.group.make_posix",
         actor: auditActor(config.actor),
         target,
@@ -1205,7 +1213,7 @@ export const accountsAppService = {
           id: requestId,
           message: "FreeIPA account request submitted",
         });
-        return audit.recordResult({
+        return audit.recordResultAfterSideEffect({
           action: "accounts.request.create",
           actor: auditActor(actor),
           target: { type: "account_request", id: requestId, label: config.user.mail },
@@ -1237,7 +1245,7 @@ export const accountsAppService = {
       `;
 
       if (deletedRows.length > 0) {
-        return audit.recordResult({
+        return audit.recordResultAfterSideEffect({
           action: "accounts.request.withdraw",
           actor: auditActor(config.actor),
           target: { type: "account_request", id: config.id },
@@ -1315,7 +1323,7 @@ export const accountsAppService = {
         });
       }
 
-      return audit.recordResult({
+      return audit.recordResultAfterSideEffect({
         action: "accounts.request.deny",
         actor: auditActor(config.actor),
         target: { type: "account_request", id: config.id, label: request.email as string },

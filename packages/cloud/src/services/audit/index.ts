@@ -226,6 +226,30 @@ const recordResult = async <T,>(params: {
   return params.result;
 };
 
+/**
+ * Use only after an irreversible side effect already happened. Authorization
+ * checks and pre-mutation validation must keep using `record`/`recordResult`
+ * so missing audit storage can still fail closed before anything changes.
+ */
+const recordResultAfterSideEffect = async <T,>(params: {
+  action: string;
+  actor?: AuditActor | null;
+  target?: AuditTarget | null;
+  metadata?: Record<string, unknown> | null;
+  result: Result<T>;
+}): Promise<Result<T>> => {
+  try {
+    await recordResult(params);
+  } catch (error) {
+    log.error("Post-side-effect audit write failed", {
+      action: params.action,
+      outcome: params.result.ok ? "allowed" : outcomeForError(params.result.error),
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return params.result;
+};
+
 const deny = async <T,>(params: {
   action: string;
   actor?: AuditActor | null;
@@ -314,6 +338,7 @@ const list = async (config: {
 export const audit = {
   record,
   recordResult,
+  recordResultAfterSideEffect,
   deny,
   list,
 };

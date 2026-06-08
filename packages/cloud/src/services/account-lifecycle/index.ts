@@ -678,18 +678,21 @@ export const accountLifecycle = {
     user: User;
     ipaSession?: string | null;
   }): Promise<Result<{ message: string; newExpiry?: string }>> => {
+    const auditParams = (result: Result<{ message: string; newExpiry?: string }>) => ({
+      action: "accounts.user.extend_account",
+      actor: {
+        userId: config.user.id,
+        uid: config.user.uid,
+        provider: config.user.provider,
+        roles: config.user.roles,
+      },
+      target: { type: "user", id: config.user.id, label: config.user.uid, provider: config.user.provider },
+      result,
+    });
     const recordResult = (result: Result<{ message: string; newExpiry?: string }>) =>
-      audit.recordResult({
-        action: "accounts.user.extend_account",
-        actor: {
-          userId: config.user.id,
-          uid: config.user.uid,
-          provider: config.user.provider,
-          roles: config.user.roles,
-        },
-        target: { type: "user", id: config.user.id, label: config.user.uid, provider: config.user.provider },
-        result,
-      });
+      audit.recordResult(auditParams(result));
+    const recordCompletedMutation = (result: Result<{ message: string; newExpiry?: string }>) =>
+      result.ok ? audit.recordResultAfterSideEffect(auditParams(result)) : audit.recordResult(auditParams(result));
 
     if (config.user.accountExpires === null) {
       return recordResult(fail(err.badInput("Accounts without an expiration date cannot be extended.")));
@@ -735,7 +738,7 @@ export const accountLifecycle = {
         ON CONFLICT (user_id) DO UPDATE SET synced_at = EXCLUDED.synced_at
       `;
 
-      return recordResult(ok({
+      return recordCompletedMutation(ok({
         message: `Account extended until ${dates.formatDate(expiresAt)}.`,
         newExpiry: expiresAt.toISOString(),
       }));
@@ -749,7 +752,7 @@ export const accountLifecycle = {
           SET account_expires = NULL
           WHERE id = ${config.user.id}::uuid
         `;
-        return recordResult(ok({ message: "Guest account expiry is disabled." }));
+        return recordCompletedMutation(ok({ message: "Guest account expiry is disabled." }));
       }
 
       const expiresAt = new Date(Date.now() + guestDays * DAY_MS);
@@ -759,7 +762,7 @@ export const accountLifecycle = {
         WHERE id = ${config.user.id}::uuid
       `;
 
-      return recordResult(ok({
+      return recordCompletedMutation(ok({
         message: `Guest account extended until ${dates.formatDate(expiresAt)}.`,
         newExpiry: expiresAt.toISOString(),
       }));
@@ -773,7 +776,7 @@ export const accountLifecycle = {
           SET account_expires = NULL
           WHERE id = ${config.user.id}::uuid
         `;
-        return recordResult(ok({ message: "Local user account expiry is disabled." }));
+        return recordCompletedMutation(ok({ message: "Local user account expiry is disabled." }));
       }
 
       const expiresAt = new Date(Date.now() + localUserDays * DAY_MS);
@@ -783,7 +786,7 @@ export const accountLifecycle = {
         WHERE id = ${config.user.id}::uuid
       `;
 
-      return recordResult(ok({
+      return recordCompletedMutation(ok({
         message: `Account extended until ${dates.formatDate(expiresAt)}.`,
         newExpiry: expiresAt.toISOString(),
       }));
