@@ -88,36 +88,36 @@ const SettingsModal = ((props: SettingsModalProps) => {
         </div>
       </section>
 
-      <div class="paper flex min-h-0 flex-1 gap-2 overflow-hidden p-2 max-md:flex-col">
-        <nav class="shrink-0 md:w-44" aria-label={`${props.title} sections`}>
-          <div class="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">
-            <For each={tabs()}>
-              {(tab) => (
-                <button
-                  type="button"
-                  class={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors md:w-full ${
-                    activeTabId() === tab.id
-                      ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-200"
-                      : tab.tone === "danger"
-                        ? "text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-                        : "text-dimmed hover:bg-zinc-50 hover:text-primary dark:hover:bg-zinc-900"
-                  }`}
-                  onClick={() => selectTab(tab.id)}
-                >
-                  <Show when={tab.icon}>
-                    <i class={`${tab.icon} text-sm`} />
-                  </Show>
-                  <span class="whitespace-nowrap">{tab.title}</span>
-                </button>
-              )}
-            </For>
-          </div>
+      <div class="grid min-h-0 flex-1 gap-3 md:grid-cols-[14rem_1fr]">
+        <nav class="paper flex gap-1 overflow-x-auto p-2 md:min-h-0 md:flex-col md:overflow-visible" aria-label={`${props.title} sections`}>
+          <For each={tabs()}>
+            {(tab) => (
+              <button
+                type="button"
+                class={`flex min-w-40 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors md:w-full md:min-w-0 ${
+                  activeTabId() === tab.id
+                    ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-200"
+                    : tab.tone === "danger"
+                      ? "text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+                      : "text-dimmed hover:bg-zinc-50 hover:text-primary dark:hover:bg-zinc-900"
+                }`}
+                onClick={() => selectTab(tab.id)}
+              >
+                <Show when={tab.icon}>
+                  <i class={`${tab.icon} shrink-0 text-base`} />
+                </Show>
+                <span class="min-w-0 flex-1 truncate whitespace-nowrap">{tab.title}</span>
+              </button>
+            )}
+          </For>
         </nav>
 
-        <main class="min-h-0 flex-1 overflow-y-auto rounded-lg p-4">
+        <main class="paper min-h-0 overflow-hidden">
           <Show when={activeTab()}>
             {(tab) => (
-              <section class={`min-h-full ${tab().tone === "danger" ? "rounded-lg ring-1 ring-red-200 dark:ring-red-900/50" : ""}`}>
+              <section
+                class={`h-full overflow-y-auto px-5 py-5 ${tab().tone === "danger" ? "rounded-lg ring-1 ring-red-200 dark:ring-red-900/50" : ""}`}
+              >
                 <div class="mb-4 flex items-start gap-3">
                   <span
                     class={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
