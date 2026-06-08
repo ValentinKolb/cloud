@@ -23,7 +23,7 @@ const SyncHosts = () => {
         },
       );
       if (showLogs) {
-        navigateTo("/admin/logging?source=ipa-hosts:sync");
+        navigateTo("/admin/observability/logs?source=ipa-hosts:sync");
       }
     },
     onError: (error) => prompts.error(error.message),
