@@ -421,7 +421,10 @@ function FieldEditor(props: {
                 options={[
                   { id: "none", label: "None" },
                   { id: "fixed", label: "Fixed date" },
-                  { id: "now", label: "Current date when created" },
+                  {
+                    id: "now",
+                    label: (config() as { includeTime?: boolean }).includeTime ? "Current date and time when created" : "Current date when created",
+                  },
                 ]}
               />
               <Show when={dateDefaultMode() === "fixed"}>

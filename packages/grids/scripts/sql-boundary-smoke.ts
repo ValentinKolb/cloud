@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { sql } from "bun";
+import { dates } from "@valentinkolb/stdlib";
 import { migrate as migrateAuth } from "../../core/src/migrate/core/auth";
 import { migrate as migrateGrids } from "../src/migrate";
 import { resolveWidgetData } from "../src/service/dashboard-widget-data";
@@ -158,6 +159,7 @@ const main = async (): Promise<void> => {
   assert(emptyVisiblePage.total === 0, `base.listVisible unmatched query total should be 0, got ${emptyVisiblePage.total}`);
 
   const recordsTable = must(await gridsService.table.create({ baseId: base.id, name: "Smoke Records" }, null));
+  const defaultsTable = must(await gridsService.table.create({ baseId: base.id, name: "Default Records" }, null));
   const hiddenTable = must(await gridsService.table.create({ baseId: base.id, name: "Hidden Records" }, null));
   const targetTable = must(await gridsService.table.create({ baseId: base.id, name: "Lookup Targets" }, null));
   await grant("table", hiddenTable.id, { type: "user", userId: userA }, "none");
@@ -184,6 +186,40 @@ const main = async (): Promise<void> => {
     type: "text",
     presentable: true,
   }, null));
+  const defaultDay = must(await gridsService.field.create({
+    tableId: defaultsTable.id,
+    name: "Default Day",
+    type: "date",
+    defaultValue: { kind: "now" },
+  }, null));
+  const defaultTime = must(await gridsService.field.create({
+    tableId: defaultsTable.id,
+    name: "Default Time",
+    type: "date",
+    config: { includeTime: true },
+    defaultValue: { kind: "now" },
+  }, null));
+
+  const defaultDateConfig = { timeZone: "Europe/Berlin" };
+  const beforeDefaultCreate = Date.now();
+  const defaultedRecord = must(await gridsService.record.create(defaultsTable.id, {}, null, { dateConfig: defaultDateConfig }));
+  const afterDefaultCreate = Date.now();
+  const expectedDefaultDays = new Set([
+    dates.formatDateKey(new Date(beforeDefaultCreate), defaultDateConfig),
+    dates.formatDateKey(new Date(afterDefaultCreate), defaultDateConfig),
+  ]);
+  assert(
+    expectedDefaultDays.has(String(defaultedRecord.data[defaultDay.id])),
+    `date now default should materialize in configured timezone, got ${String(defaultedRecord.data[defaultDay.id])}`,
+  );
+  const defaultTimeValue = defaultedRecord.data[defaultTime.id];
+  const defaultTimeMillis = typeof defaultTimeValue === "string" ? Date.parse(defaultTimeValue) : NaN;
+  assert(
+    Number.isFinite(defaultTimeMillis) &&
+      defaultTimeMillis >= beforeDefaultCreate - 1_000 &&
+      defaultTimeMillis <= afterDefaultCreate + 1_000,
+    `datetime now default should materialize server-side, got ${String(defaultTimeValue)}`,
+  );
 
   const sharedView = must(await gridsService.view.create({ tableId: recordsTable.id, name: "Shared View" }, null));
   const privateView = must(await gridsService.view.create({
