@@ -6,6 +6,7 @@ import { ssr } from "../../config";
 import { contactsService } from "../../service";
 import ContactDetailPanel from "../_components/ContactDetailPanel.island";
 import ContactTagChip from "../_components/ContactTagChip";
+import ContactsLayoutHelp from "../_components/help/ContactsLayoutHelp.island";
 import ContactsList from "../_components/ContactsList.island";
 import ContactsSidebar from "../_components/ContactsSidebar";
 import DesktopDetailLayoutSync from "../_components/DesktopDetailLayoutSync.island";
@@ -87,6 +88,7 @@ export default ssr<AuthContext>(async (c) => {
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts", href: "/app/contacts" }, { title: book.name }]}>
       <AppWorkspace>
+        <ContactsLayoutHelp />
         <ContactsSidebar
           books={books}
           active={book.id}

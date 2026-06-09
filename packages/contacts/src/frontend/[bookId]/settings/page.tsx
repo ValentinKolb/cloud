@@ -5,6 +5,7 @@ import { ssr } from "../../../config";
 import { contactsService } from "../../../service";
 import BookSettingsForm from "../../_components/BookSettingsForm.island";
 import ContactsSidebar from "../../_components/ContactsSidebar";
+import ContactsLayoutHelp from "../../_components/help/ContactsLayoutHelp.island";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
@@ -89,6 +90,7 @@ export default ssr<AuthContext>(async (c) => {
       fullWidth
     >
       <AppWorkspace>
+        <ContactsLayoutHelp />
         <ContactsSidebar
           books={books}
           active={book.id}
