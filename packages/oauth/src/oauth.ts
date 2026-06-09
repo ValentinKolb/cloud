@@ -8,6 +8,7 @@ import { oauth } from "./service/oauth";
 import { accounts, get } from "@valentinkolb/cloud/services";
 import { ErrorResponseSchema, type OAuthScope } from "@/contracts";
 import { logger } from "@valentinkolb/cloud/services";
+import { createLoginRedirectUrl } from "@valentinkolb/cloud/shared";
 
 const log = logger("oauth");
 
@@ -125,13 +126,7 @@ const app = new Hono<AuthContext>()
 
       const token = auth.session.getToken(c);
 
-      const buildLoginRedirect = () => {
-        const reqUrl = new URL(c.req.url);
-        const returnUrl = reqUrl.pathname + reqUrl.search;
-        const loginParams = new URLSearchParams();
-        loginParams.set("redirectTo", returnUrl);
-        return `/auth/login?${loginParams.toString()}`;
-      };
+      const buildLoginRedirect = () => createLoginRedirectUrl(c.req.url);
 
       if (!token) {
         return c.redirect(buildLoginRedirect());

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { join } from "node:path";
 import { auth, type AuthContext } from "@valentinkolb/cloud/server";
-import { coreSettings } from "@valentinkolb/cloud/services";
+import { authFlows, coreSettings } from "@valentinkolb/cloud/services";
 import profilePage from "./me/page";
 import notFoundPage from "./NotFound";
 import loginPage from "./auth/page";
@@ -38,6 +38,11 @@ export const createPagesRouter = (
     // Auth routes
     .get("/auth/login", auth.requireRole("anonymous", auth.redirect("/")), ...loginPage)
     .get("/auth/new-password", ...newPasswordPage)
+    .get("/auth/proxy-return", auth.requireRole("authenticated", auth.redirectToLogin), async (c) => {
+      const token = c.req.query("token");
+      const target = token ? await authFlows.proxyReturn.consume({ token }) : null;
+      return c.redirect(target?.url ?? "/", 302);
+    })
     .get("/auth/extend", auth.requireRole("authenticated", auth.redirectToLogin), async (c) => {
       return c.redirect("/me?action=extend", 302);
     })

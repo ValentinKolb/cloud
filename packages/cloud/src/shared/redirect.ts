@@ -22,6 +22,13 @@ export const redirectPathFromRequestUrl = (requestUrl: string): string => {
   return normalizeRedirectTo(`${url.pathname}${url.search}`) ?? "/";
 };
 
+/** Build the local login URL for an incoming protected request. */
+export const createLoginRedirectUrl = (requestUrl: string): string => {
+  const params = new URLSearchParams();
+  params.set("redirectTo", redirectPathFromRequestUrl(requestUrl));
+  return `/auth/login?${params.toString()}`;
+};
+
 /** Build an absolute auth login URL while preserving only safe local redirects. */
 export const createAuthLoginUrl = (appUrl: string, params: { token?: string; redirectTo?: string | null | undefined } = {}): string => {
   const url = new URL(`${appUrl.replace(/\/$/, "")}/auth/login`);

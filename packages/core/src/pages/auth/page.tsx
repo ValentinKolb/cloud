@@ -36,11 +36,13 @@ export default ssr(async (c) => {
   const isGuestHidden = freeIpaEnabled && hide === "guest";
 
   // Admin login: hidden method, no switch link, no cookie interaction
-  const isAdminLogin = method === "admin";
+  const isAdminLogin = method === "admin" && !token;
 
-  // Priority: hide=guest forces ipa > ?method= > cookie > fallback email
+  // Priority: magic-link token forces email > hide=guest forces ipa > ?method= > cookie > fallback email
   const activeMethod = !freeIpaEnabled
     ? "email"
+    : token
+      ? "email"
     : isGuestHidden
       ? "ipa"
       : method === "ipa" || method === "email"

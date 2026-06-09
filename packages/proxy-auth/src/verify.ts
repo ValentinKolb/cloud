@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { auth, type AuthContext } from "@valentinkolb/cloud/server";
+import { authFlows } from "@valentinkolb/cloud/services";
 import { proxyAuthService } from "./service";
 
 /**
@@ -30,16 +31,21 @@ const app = new Hono<AuthContext>().get("/verify/:clientId", auth.requireRole("*
     }
   })();
 
-  // Not logged in → redirect to login with return URL
-  if (!user) {
-    const loginUrl = `/auth/login?redirectTo=${encodeURIComponent(originalUrl)}`;
-    return c.redirect(loginUrl, 302);
-  }
-
-  // Look up proxy client
+  // Validate the forward-auth client before issuing any post-login return token.
   const client = await proxyAuthService.client.getByClientId({ clientId });
   if (!client) {
     return c.text("Unknown proxy auth client", 404);
+  }
+
+  // Not logged in → redirect to login with return URL
+  if (!user) {
+    const returnToken = await authFlows.proxyReturn.create({ clientId, url: originalUrl });
+    if (!returnToken) {
+      return c.text("Invalid proxy auth return URL", 400);
+    }
+    const returnPath = `/auth/proxy-return?token=${encodeURIComponent(returnToken)}`;
+    const loginUrl = `/auth/login?redirectTo=${encodeURIComponent(returnPath)}`;
+    return c.redirect(loginUrl, 302);
   }
 
   // Check if user is member of any allowed group
