@@ -68,7 +68,7 @@ const WorkTab = () => (
           {
             title: "Shifts",
             icon: "ti-calendar-event",
-            text: "Shows staffing slots in a week or month calendar. Writable users can sign up from the action button or by opening a slot.",
+            text: "Shows staffing slots in a week or month calendar. Staff users can sign up from the action button or by double-clicking a slot.",
           },
           {
             title: "My shifts",
@@ -112,8 +112,8 @@ const WorkTab = () => (
     </DocSection>
 
     <DocNote title="Permissions">
-      Read users can view the venue. Staff users can sign up and manage staffing actions. Admin users can change settings, access, schedule,
-      and public sections.
+      Read users can view the venue and cancel their own listed shifts. Staff users can sign up for shifts. Admin users can change settings,
+      access, schedule, public sections, and cancel any shift assignment.
     </DocNote>
   </DocPage>
 );

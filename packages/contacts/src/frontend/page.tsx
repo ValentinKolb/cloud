@@ -5,13 +5,13 @@ import { AppWorkspace, Pagination } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
 import { contactsService } from "../service";
 import ContactDetailPanel from "./_components/ContactDetailPanel.island";
-import ContactsLayoutHelp from "./_components/help/ContactsLayoutHelp.island";
 import ContactsList from "./_components/ContactsList.island";
 import ContactsSidebar from "./_components/ContactsSidebar";
 import DesktopDetailLayoutSync from "./_components/DesktopDetailLayoutSync.island";
+import ContactsLayoutHelp from "./_components/help/ContactsLayoutHelp.island";
 import {
-  CONTACTS_PER_PAGE,
   buildContactsPaginationBaseUrl,
+  CONTACTS_PER_PAGE,
   loadContactBookPermissions,
   parseContactsPage,
   resolveSelectedContact,
