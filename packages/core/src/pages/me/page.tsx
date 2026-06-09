@@ -3,7 +3,8 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { dates } from "@valentinkolb/stdlib";
 import { canManageAnyGroups, getAccountTypeLabel, getManagementLabel, getSupplementalRoleLabel } from "@valentinkolb/cloud/shared";
-import { accountsAppService, coreSettings, serviceAccountCredentials } from "@valentinkolb/cloud/services";
+import { accountsAppService, audit, coreSettings, serviceAccountCredentials } from "@valentinkolb/cloud/services";
+import AccountActivity from "./AccountActivity.island";
 import ApiKeysSettings from "./ApiKeysSettings.island";
 import ProfileActions from "./ProfileActions.island";
 import ProfileSettings from "./ProfileSettings.island";
@@ -25,6 +26,12 @@ const formatAddress = (a: {
   return parts.length > 0 ? parts.join(", ") : null;
 };
 
+const parseActivityDays = (value: string | undefined): 7 | 30 | 90 => {
+  if (value === "7") return 7;
+  if (value === "90") return 90;
+  return 30;
+};
+
 export default ssr<AuthContext>(async (c) => {
   const [rawAppName, freeIpaEnabledRaw] = await Promise.all([
     coreSettings.get<string>("app.name"),
@@ -36,6 +43,7 @@ export default ssr<AuthContext>(async (c) => {
   const manages = sessionUser.manages;
   const canManageGroups = canManageAnyGroups(sessionUser);
   const showAllGroups = c.req.query("groups") === "all";
+  const activityDays = parseActivityDays(c.req.query("activityDays"));
   const action = c.req.query("action");
   const isIpaUser = sessionUser.provider === "ipa";
   const ipaData = sessionUser.ipa;
@@ -43,9 +51,10 @@ export default ssr<AuthContext>(async (c) => {
   const directGroups = sessionUser.memberofGroup;
   const supplementalRoles = sessionUser.roles.filter((role) => role === "admin" || role === "group-manager");
   const isExpiredAccount = sessionUser.accountExpires ? new Date(sessionUser.accountExpires) < new Date() : false;
-  const [pendingRequest, apiKeys] = await Promise.all([
+  const [pendingRequest, apiKeys, activityPage] = await Promise.all([
     sessionUser.provider === "local" ? accountsAppService.accountRequest.getPendingForUser({ userId: sessionUser.id }) : Promise.resolve(null),
     serviceAccountCredentials.listForDelegatedUser({ userId: sessionUser.id }),
+    audit.listSelfServiceActivity({ userId: sessionUser.id, days: activityDays, pagination: { page: 1, perPage: 50 } }),
   ]);
   const address = formatAddress(ipaData?.address ?? { street: null, postalCode: null, city: null, state: null });
 
@@ -304,6 +313,7 @@ export default ssr<AuthContext>(async (c) => {
 
             <ProfileSettings provider={sessionUser.provider} profile={sessionUser.profile} freeIpaEnabled={freeIpaEnabled} />
             <ApiKeysSettings initialKeys={apiKeys} />
+            <AccountActivity initialItems={activityPage.items} days={activityDays} />
           </aside>
         </div>
       </div>

@@ -249,6 +249,21 @@ export const CreateUserApiKeyResponseSchema = z.object({
 });
 export type CreateUserApiKeyResponse = z.infer<typeof CreateUserApiKeyResponseSchema>;
 
+export const AccountActivitySchema = z.object({
+  id: z.number(),
+  createdAt: z.string(),
+  action: z.string(),
+  label: z.string(),
+  outcome: z.enum(["allowed", "denied", "failed"]),
+  context: z.string().nullable(),
+});
+export type AccountActivity = z.infer<typeof AccountActivitySchema>;
+
+export const AccountActivityListResponseSchema = z.object({
+  items: z.array(AccountActivitySchema),
+});
+export type AccountActivityListResponse = z.infer<typeof AccountActivityListResponseSchema>;
+
 export const PrincipalSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("user"), userId: z.uuid() }),
   z.object({ type: z.literal("group"), groupId: z.uuid() }),

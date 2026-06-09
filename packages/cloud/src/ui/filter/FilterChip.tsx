@@ -41,6 +41,8 @@ type FilterChipProps = {
    * Also hides the count in the trigger.
    */
   defaultValue?: string[];
+  /** Render only the trigger icon while keeping the label as accessible title text. */
+  iconOnly?: boolean;
 };
 
 // =============================================================================
@@ -175,13 +177,19 @@ export default function FilterChip(props: FilterChipProps) {
   };
 
   const trigger = (
-    <div class={`btn-input btn-input-sm ${isActive() ? "btn-input-active" : ""}`}>
+    <div
+      class={`btn-input btn-input-sm ${props.iconOnly ? "h-8 w-8 justify-center px-0" : ""} ${isActive() ? "btn-input-active" : ""}`}
+      aria-label={props.label}
+      title={props.iconOnly ? props.label : undefined}
+    >
       <i class={`${props.icon} ${isActive() ? "text-blue-600 dark:text-blue-300" : "text-zinc-500 dark:text-zinc-400"}`} />
-      <span class={isActive() ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-700 dark:text-zinc-300"}>
-        {props.label}
-        <Show when={!hasDefaultValue() && selectedCount() > 0}>{` (${selectedCount()})`}</Show>
-      </span>
-      <i class="ti ti-chevron-down text-zinc-400 text-[10px]" />
+      <Show when={!props.iconOnly}>
+        <span class={isActive() ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-700 dark:text-zinc-300"}>
+          {props.label}
+          <Show when={!hasDefaultValue() && selectedCount() > 0}>{` (${selectedCount()})`}</Show>
+        </span>
+        <i class="ti ti-chevron-down text-zinc-400 text-[10px]" />
+      </Show>
     </div>
   );
 

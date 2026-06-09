@@ -1,5 +1,6 @@
+import { sql } from "bun";
 import { describe, expect, test } from "bun:test";
-import { sanitizeAuditMetadata, sanitizeAuditText } from "./index";
+import { audit, sanitizeAuditMetadata, sanitizeAuditText } from "./index";
 
 describe("sanitizeAuditMetadata", () => {
   test("redacts sensitive nested metadata keys", () => {
@@ -38,5 +39,46 @@ describe("sanitizeAuditMetadata", () => {
     expect(sanitizeAuditText("IPA session required to update IPA-backed users")).toBe("[REDACTED]");
     expect(sanitizeAuditText("Current password is incorrect.")).toBe("[REDACTED]");
     expect(sanitizeAuditText("Access denied")).toBe("Access denied");
+  });
+
+  test("lists only safe actor-owned self-service activity", async () => {
+    const userId = crypto.randomUUID();
+    const otherUserId = crypto.randomUUID();
+    const requestId = `self-service-activity-${crypto.randomUUID()}`;
+
+    try {
+      await audit.record({
+        action: "service_account_credential.create",
+        outcome: "allowed",
+        actor: { userId, uid: "current-user", provider: "local" },
+        target: { type: "service_account_credential", id: crypto.randomUUID(), label: "Test key" },
+        requestId,
+      });
+      await audit.record({
+        action: "service_account_credential.create",
+        outcome: "allowed",
+        actor: { userId: otherUserId, uid: "other-user", provider: "local" },
+        target: { type: "service_account_credential", id: crypto.randomUUID(), label: "Other key" },
+        requestId,
+      });
+      await audit.record({
+        action: "accounts.user.set_expiry",
+        outcome: "allowed",
+        actor: { userId: otherUserId, uid: "admin", provider: "local" },
+        target: { type: "user", id: userId, label: "current-user" },
+        requestId,
+      });
+
+      const page = await audit.listSelfServiceActivity({ userId, days: 30, pagination: { page: 1, perPage: 20 } });
+
+      expect(page.total).toBe(1);
+      expect(page.items[0]).toMatchObject({
+        action: "service_account_credential.create",
+        label: "API key created",
+        context: "Test key",
+      });
+    } finally {
+      await sql`DELETE FROM audit.events WHERE request_id = ${requestId}`;
+    }
   });
 });

@@ -57,6 +57,15 @@ export type AuditListFilter = {
   days?: number;
 };
 
+export type SelfServiceAuditActivity = {
+  id: number;
+  createdAt: string;
+  action: string;
+  label: string;
+  outcome: AuditOutcome;
+  context: string | null;
+};
+
 export type AuditRecordParams = {
   action: string;
   outcome: AuditOutcome;
@@ -96,6 +105,18 @@ const REDACTED = "[REDACTED]";
 const MAX_STRING_LENGTH = 500;
 const MAX_ARRAY_LENGTH = 50;
 const MAX_DEPTH = 8;
+const SELF_SERVICE_ACTION_LABELS = {
+  "accounts.user.change_own_password": "Password changed",
+  "accounts.user.remove_self": "Account deleted",
+  "accounts.user.update": "Profile updated",
+  "accounts.request.create": "Account request submitted",
+  "accounts.request.withdraw": "Account request withdrawn",
+  "accounts.user.extend_account": "Account extended",
+  "service_account_credential.create": "API key created",
+  "service_account_credential.revoke": "API key revoked",
+  "service_account_credential.authenticate": "API key used",
+} as const satisfies Record<string, string>;
+const SELF_SERVICE_ACTIONS = Object.keys(SELF_SERVICE_ACTION_LABELS);
 
 const asString = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim();
@@ -155,6 +176,15 @@ const mapRow = (row: DbAuditRow): AuditEvent => ({
   errorMessage: row.error_message,
   requestId: row.request_id,
   metadata: parsePgJsonRecord(row.metadata) ?? {},
+});
+
+const mapSelfServiceActivityRow = (row: DbAuditRow): SelfServiceAuditActivity => ({
+  id: Number(row.id),
+  createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+  action: row.action,
+  label: SELF_SERVICE_ACTION_LABELS[row.action as keyof typeof SELF_SERVICE_ACTION_LABELS] ?? row.action,
+  outcome: row.outcome as AuditOutcome,
+  context: row.target_label ?? null,
 });
 
 const outcomeForError = (error: Pick<ServiceError, "status"> | null | undefined): AuditOutcome => {
@@ -355,10 +385,44 @@ const list = async (config: {
   };
 };
 
+const listSelfServiceActivity = async (config: {
+  userId: string;
+  pagination?: PageParams;
+  days?: number;
+}): Promise<Paginated<SelfServiceAuditActivity>> => {
+  const { page, perPage, offset } = paginate(config.pagination);
+  const days = config.days && Number.isFinite(config.days) && config.days > 0 ? Math.min(Math.floor(config.days), 365) : 30;
+  const where = sql`
+    actor_user_id = ${config.userId}::uuid
+    AND action = ANY(${toPgTextArray(SELF_SERVICE_ACTIONS)}::text[])
+    AND created_at >= now() - ${`${days} days`}::interval
+  `;
+  const [countRows, rows] = await Promise.all([
+    sql<{ count: number }[]>`SELECT COUNT(*)::int AS count FROM audit.events WHERE ${where}`,
+    sql<DbAuditRow[]>`
+      SELECT *
+      FROM audit.events
+      WHERE ${where}
+      ORDER BY created_at DESC, id DESC
+      LIMIT ${perPage}
+      OFFSET ${offset}
+    `,
+  ]);
+  const total = countRows[0]?.count ?? 0;
+  return {
+    items: rows.map(mapSelfServiceActivityRow),
+    page,
+    perPage,
+    total,
+    hasNext: page * perPage < total,
+  };
+};
+
 export const audit = {
   record,
   recordResult,
   recordResultAfterSideEffect,
   deny,
   list,
+  listSelfServiceActivity,
 };

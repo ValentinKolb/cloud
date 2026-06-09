@@ -10,6 +10,7 @@ import { auth, jsonResponse, rateLimit, requiresAuth, respond, v, type AuthConte
 import { ok } from "@valentinkolb/stdlib";
 import {
   ChangePasswordSchema,
+  AccountActivityListResponseSchema,
   CreateAccountRequestSchema,
   CreateUserApiKeyResponseSchema,
   CreateUserApiKeySchema,
@@ -22,6 +23,7 @@ import {
 import {
   accountLifecycle,
   accountsAppService as accountsService,
+  audit,
   serviceAccountCredentials,
 } from "../services";
 
@@ -46,9 +48,37 @@ const ListApiKeysResponseSchema = z.object({
   items: z.array(ServiceAccountCredentialSchema),
 });
 
+const AccountActivityQuerySchema = z.object({
+  days: z.coerce.number().int().pipe(z.union([z.literal(7), z.literal(30), z.literal(90)])).optional().default(30),
+});
+
 const app = new Hono<AuthContext>()
   .use(rateLimit())
   .use(auth.requireRole("authenticated"))
+
+  .get(
+    "/activity",
+    describeRoute({
+      tags: ["Me"],
+      summary: "List current user account activity",
+      description: "List safe self-service audit activity for the authenticated account.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(AccountActivityListResponseSchema, "Account activity"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+      },
+    }),
+    v("query", AccountActivityQuerySchema),
+    async (c) =>
+      respond(c, async () => {
+        const page = await audit.listSelfServiceActivity({
+          userId: c.get("user").id,
+          days: c.req.valid("query").days,
+          pagination: { page: 1, perPage: 50 },
+        });
+        return ok({ items: page.items });
+      }),
+  )
 
   .get(
     "/",
