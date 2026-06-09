@@ -1,22 +1,23 @@
-import { ssr } from "../../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import type { JSX } from "solid-js";
-import { ToolsWorkspace } from "../ToolsWorkspace";
-import { toolById } from "../tools/registry";
-import MailtoGenerator from "../tools/MailtoGenerator.island";
-import QrCodeGenerator from "../tools/QrCodeGenerator.island";
-import EncodingTool from "../tools/EncodingTool.island";
-import UuidGenerator from "../tools/UuidGenerator.island";
-import HashGenerator from "../tools/HashGenerator.island";
-import LoremIpsumGenerator from "../tools/LoremIpsumGenerator.island";
-import ColorConverter from "../tools/ColorConverter.island";
-import ImageProcessor from "../tools/ImageProcessor.island";
-import EncryptionTool from "../tools/EncryptionTool.island";
-import PasswordGenerator from "../tools/PasswordGenerator.island";
-import SpeedTest from "../tools/SpeedTest.island";
-import WebhookTester, { parseWebhookTesterState, type WebhookTesterInitialState } from "../tools/WebhookTester.island";
 import { resolveSpeedtestBase } from "../../api/_url";
+import { ssr } from "../../config";
+import ToolsLayoutHelp from "../_components/help/ToolsLayoutHelp.island";
+import { ToolsWorkspace } from "../ToolsWorkspace";
+import ColorConverter from "../tools/ColorConverter.island";
+import EncodingTool from "../tools/EncodingTool.island";
+import EncryptionTool from "../tools/EncryptionTool.island";
+import HashGenerator from "../tools/HashGenerator.island";
+import ImageProcessor from "../tools/ImageProcessor.island";
+import LoremIpsumGenerator from "../tools/LoremIpsumGenerator.island";
+import MailtoGenerator from "../tools/MailtoGenerator.island";
+import PasswordGenerator from "../tools/PasswordGenerator.island";
+import QrCodeGenerator from "../tools/QrCodeGenerator.island";
+import { toolById } from "../tools/registry";
+import SpeedTest from "../tools/SpeedTest.island";
+import UuidGenerator from "../tools/UuidGenerator.island";
+import WebhookTester, { parseWebhookTesterState, type WebhookTesterInitialState } from "../tools/WebhookTester.island";
 
 const toolComponents: Record<
   string,
@@ -54,6 +55,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullPage title={breadcrumbs}>
+      <ToolsLayoutHelp />
       <ToolsWorkspace activeToolId={tool.id}>
         <div
           class={

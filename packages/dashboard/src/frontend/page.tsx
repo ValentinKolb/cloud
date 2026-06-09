@@ -16,6 +16,7 @@ import {
   type DashboardWidgetSummary,
   normalizeDashboardSettings,
 } from "../shared";
+import DashboardLayoutHelp from "./_components/help/DashboardLayoutHelp.island";
 import DashboardEditButton from "./DashboardEditButton.island";
 import DashboardControls from "./EditDashboard.island";
 
@@ -239,6 +240,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title="Dashboard">
+      <DashboardLayoutHelp />
       <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
         <div class="max-w-[88rem] mx-auto p-4 sm:p-8 flex flex-col gap-8">
           {/* Welcome — large, centered */}

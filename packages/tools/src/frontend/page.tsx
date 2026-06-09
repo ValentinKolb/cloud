@@ -1,13 +1,15 @@
-import { ssr } from "../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { LinkCard } from "@valentinkolb/cloud/ui";
+import { ssr } from "../config";
+import ToolsLayoutHelp from "./_components/help/ToolsLayoutHelp.island";
 import { ToolsWorkspace } from "./ToolsWorkspace";
-import { categoryOrder, categories, tools } from "./tools/registry";
+import { categories, categoryOrder, tools } from "./tools/registry";
 
 export default ssr<AuthContext>(async (c) => {
   return () => (
     <Layout c={c} fullPage title={[{ title: "Start", href: "/" }, { title: "Tools" }]}>
+      <ToolsLayoutHelp />
       <ToolsWorkspace>
         <div class="mx-auto flex w-full max-w-5xl flex-col gap-4">
           <header class="flex flex-col gap-1">

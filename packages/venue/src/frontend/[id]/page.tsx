@@ -3,6 +3,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import type { CalendarView } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import { venueService } from "../../service";
+import VenueLayoutHelp from "../_components/help/VenueLayoutHelp.island";
 import VenueWorkspace from "../_components/VenueWorkspace.island";
 
 const calendarViews: CalendarView[] = ["week", "month"];
@@ -111,6 +112,7 @@ export default ssr<AuthContext>(async (c) => {
       fullWidth
       fullPage
     >
+      <VenueLayoutHelp />
       <VenueWorkspace
         dashboard={dashboard}
         userId={user.id}
