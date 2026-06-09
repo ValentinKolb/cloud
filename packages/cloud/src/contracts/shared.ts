@@ -93,7 +93,7 @@ export const BaseGroupSchema = z.object({
 });
 export type BaseGroup = z.infer<typeof BaseGroupSchema>;
 
-export const EntityKindSchema = z.enum(["user", "group"]);
+export const EntityKindSchema = z.enum(["user", "group", "service_account"]);
 export type EntityKind = z.infer<typeof EntityKindSchema>;
 
 export const EntityRelationSchema = z.object({
@@ -110,6 +110,22 @@ export const EntityListItemSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("group"),
     group: BaseGroupSchema,
+    relation: EntityRelationSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal("service_account"),
+    serviceAccount: z.object({
+      id: z.uuid(),
+      name: z.string(),
+      kind: z.enum(["user_delegated", "resource_bound"]),
+      status: z.enum(["active", "disabled"]),
+      delegatedUserId: z.uuid().nullable(),
+      appId: z.string().nullable(),
+      resourceType: z.string().nullable(),
+      resourceId: z.string().nullable(),
+      createdBy: z.uuid().nullable(),
+      createdAt: z.string(),
+    }),
     relation: EntityRelationSchema.optional(),
   }),
 ]);
@@ -181,9 +197,62 @@ export type MutationResult<T = void> = { ok: true; data: T } | { ok: false; erro
 export const PermissionLevelSchema = z.enum(["none", "read", "write", "admin"]);
 export type PermissionLevel = z.infer<typeof PermissionLevelSchema>;
 
+export const ServiceAccountKindSchema = z.enum(["user_delegated", "resource_bound"]);
+export type ServiceAccountKind = z.infer<typeof ServiceAccountKindSchema>;
+
+export const ServiceAccountStatusSchema = z.enum(["active", "disabled"]);
+export type ServiceAccountStatus = z.infer<typeof ServiceAccountStatusSchema>;
+
+export const ServiceAccountSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  kind: ServiceAccountKindSchema,
+  status: ServiceAccountStatusSchema,
+  delegatedUserId: z.uuid().nullable(),
+  appId: z.string().nullable(),
+  resourceType: z.string().nullable(),
+  resourceId: z.string().nullable(),
+  createdBy: z.uuid().nullable(),
+  createdAt: z.string(),
+});
+export type ServiceAccount = z.infer<typeof ServiceAccountSchema>;
+
+export const ServiceAccountCredentialStatusSchema = z.enum(["active", "revoked"]);
+export type ServiceAccountCredentialStatus = z.infer<typeof ServiceAccountCredentialStatusSchema>;
+
+export const ServiceAccountCredentialSchema = z.object({
+  id: z.uuid(),
+  serviceAccountId: z.uuid(),
+  name: z.string(),
+  kind: z.literal("api_token"),
+  status: ServiceAccountCredentialStatusSchema,
+  tokenPrefix: z.string(),
+  scopes: z.array(z.string()),
+  expiresAt: z.string().nullable(),
+  lastUsedAt: z.string().nullable(),
+  createdBy: z.uuid().nullable(),
+  createdAt: z.string(),
+  revokedAt: z.string().nullable(),
+  revokedBy: z.uuid().nullable(),
+});
+export type ServiceAccountCredential = z.infer<typeof ServiceAccountCredentialSchema>;
+
+export const CreateUserApiKeySchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  expiresAt: z.string().datetime().nullable().optional(),
+});
+export type CreateUserApiKey = z.infer<typeof CreateUserApiKeySchema>;
+
+export const CreateUserApiKeyResponseSchema = z.object({
+  credential: ServiceAccountCredentialSchema,
+  token: z.string(),
+});
+export type CreateUserApiKeyResponse = z.infer<typeof CreateUserApiKeyResponseSchema>;
+
 export const PrincipalSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("user"), userId: z.uuid() }),
   z.object({ type: z.literal("group"), groupId: z.uuid() }),
+  z.object({ type: z.literal("service_account"), serviceAccountId: z.uuid() }),
   z.object({ type: z.literal("authenticated") }),
   z.object({ type: z.literal("public") }),
 ]);

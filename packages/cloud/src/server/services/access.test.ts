@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
-import { listUsersWithAccess } from "./access";
+import { createAccess, deleteAccess, getEffectivePermission, listUsersWithAccess } from "./access";
 
 type Fixture = {
   accessIds: string[];
@@ -14,6 +14,7 @@ type Fixture = {
     parent: string;
     child: string;
   };
+  serviceAccountId: string;
 };
 
 const canUseDatabase = async () => {
@@ -56,6 +57,11 @@ const createFixture = async (): Promise<Fixture> => {
   const outsideUserId = await insertUser(suffix, "outside");
   const parentGroupId = await insertGroup(suffix, "parent");
   const childGroupId = await insertGroup(suffix, "child");
+  const [serviceAccount] = await sql<{ id: string }[]>`
+    INSERT INTO auth.service_accounts (name, kind, app_id, resource_type, resource_id)
+    VALUES (${`Access service ${suffix}`}, 'resource_bound', 'access-test', 'fixture', ${suffix})
+    RETURNING id
+  `;
 
   await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${groupUserId}::uuid, ${parentGroupId}::uuid)`;
   await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${nestedUserId}::uuid, ${childGroupId}::uuid)`;
@@ -94,6 +100,7 @@ const createFixture = async (): Promise<Fixture> => {
       parent: parentGroupId,
       child: childGroupId,
     },
+    serviceAccountId: serviceAccount!.id,
   };
 };
 
@@ -108,6 +115,7 @@ const cleanupFixture = async (fixture: Fixture) => {
   for (const groupId of Object.values(fixture.groupIds)) {
     await sql`DELETE FROM auth.groups WHERE id = ${groupId}::uuid`;
   }
+  await sql`DELETE FROM auth.service_accounts WHERE id = ${fixture.serviceAccountId}::uuid`;
   for (const userId of Object.values(fixture.userIds)) {
     await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
   }
@@ -151,6 +159,29 @@ describe("listUsersWithAccess", () => {
       const writers = await listUsersWithAccess({ accessIds: fixture.accessIds, minimumPermission: "write", limit: 20 });
       expect(writers.map((user) => user.id)).not.toContain(fixture.userIds.direct);
       expect(writers.map((user) => user.id)).toContain(fixture.userIds.group);
+
+      const serviceAccountAccess = await createAccess({
+        principal: { type: "service_account", serviceAccountId: fixture.serviceAccountId },
+        permission: "write",
+      });
+      expect(serviceAccountAccess.ok).toBe(true);
+      if (!serviceAccountAccess.ok) return;
+      fixture.accessIds.push(serviceAccountAccess.data.id);
+
+      const serviceAccountPermission = await getEffectivePermission({
+        accessIds: [serviceAccountAccess.data.id],
+        userId: null,
+        userGroups: [],
+        serviceAccountId: fixture.serviceAccountId,
+      });
+      expect(serviceAccountPermission).toBe("write");
+
+      const serviceAccountUsers = await listUsersWithAccess({ accessIds: [serviceAccountAccess.data.id], limit: 20 });
+      expect(serviceAccountUsers).toEqual([]);
+
+      const deleteResult = await deleteAccess({ id: serviceAccountAccess.data.id });
+      expect(deleteResult.ok).toBe(true);
+      fixture.accessIds = fixture.accessIds.filter((id) => id !== serviceAccountAccess.data.id);
     } finally {
       await cleanupFixture(fixture);
     }

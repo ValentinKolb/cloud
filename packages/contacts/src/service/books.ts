@@ -61,7 +61,7 @@ export const list = async (config: { userId: string | null; groups: string[] }):
         a.user_id = ${config.userId}::uuid
         OR a.group_id = ANY(${toPgUuidArray(config.groups)}::uuid[])
         OR (${config.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-        OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+        OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
       )
     ORDER BY b.name ASC
   `;

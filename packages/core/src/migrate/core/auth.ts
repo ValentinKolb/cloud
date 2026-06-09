@@ -321,6 +321,90 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ auth.account_requests table");
 
   await sql`
+    CREATE TABLE IF NOT EXISTS auth.service_accounts (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      delegated_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+      app_id TEXT,
+      resource_type TEXT,
+      resource_id TEXT,
+      created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT service_accounts_kind_check CHECK (kind IN ('user_delegated', 'resource_bound')),
+      CONSTRAINT service_accounts_status_check CHECK (status IN ('active', 'disabled')),
+      CONSTRAINT service_accounts_binding_check CHECK (
+        (
+          kind = 'user_delegated'
+          AND delegated_user_id IS NOT NULL
+          AND app_id IS NULL
+          AND resource_type IS NULL
+          AND resource_id IS NULL
+        ) OR (
+          kind = 'resource_bound'
+          AND delegated_user_id IS NULL
+          AND app_id IS NOT NULL
+          AND resource_type IS NOT NULL
+          AND resource_id IS NOT NULL
+        )
+      )
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_service_accounts_delegated_user
+    ON auth.service_accounts(delegated_user_id)
+    WHERE delegated_user_id IS NOT NULL
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_service_accounts_user_delegated
+    ON auth.service_accounts(delegated_user_id)
+    WHERE kind = 'user_delegated'
+      AND delegated_user_id IS NOT NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_service_accounts_resource
+    ON auth.service_accounts(app_id, resource_type, resource_id)
+    WHERE app_id IS NOT NULL AND resource_type IS NOT NULL AND resource_id IS NOT NULL
+  `.simple();
+  console.log("  ✓ auth.service_accounts table");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS auth.service_account_credentials (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      service_account_id UUID NOT NULL REFERENCES auth.service_accounts(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'api_token',
+      status TEXT NOT NULL DEFAULT 'active',
+      token_prefix TEXT NOT NULL UNIQUE,
+      secret_hash TEXT NOT NULL,
+      scopes TEXT[] NOT NULL DEFAULT '{}',
+      expires_at TIMESTAMPTZ,
+      last_used_at TIMESTAMPTZ,
+      created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      revoked_at TIMESTAMPTZ,
+      revoked_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      CONSTRAINT service_account_credentials_kind_check CHECK (kind IN ('api_token')),
+      CONSTRAINT service_account_credentials_status_check CHECK (status IN ('active', 'revoked')),
+      CONSTRAINT service_account_credentials_revoked_check CHECK (
+        (status = 'revoked' AND revoked_at IS NOT NULL)
+        OR (status = 'active' AND revoked_at IS NULL)
+      )
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_service_account_credentials_service_account
+    ON auth.service_account_credentials(service_account_id)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_service_account_credentials_active_prefix
+    ON auth.service_account_credentials(token_prefix)
+    WHERE status = 'active'
+  `.simple();
+  console.log("  ✓ auth.service_account_credentials table");
+
+  await sql`
     DO $$ BEGIN
       CREATE TYPE auth.permission_level AS ENUM ('none', 'read', 'write', 'admin');
     EXCEPTION
@@ -334,15 +418,35 @@ export const migrate = async (): Promise<void> => {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
       group_id UUID REFERENCES auth.groups(id) ON DELETE CASCADE,
+      service_account_id UUID REFERENCES auth.service_accounts(id) ON DELETE CASCADE,
       authenticated_only BOOLEAN NOT NULL DEFAULT false,
       permission auth.permission_level NOT NULL DEFAULT 'read',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT principal_check CHECK (
-        (user_id IS NOT NULL AND group_id IS NULL AND authenticated_only = false) OR
-        (user_id IS NULL AND group_id IS NOT NULL AND authenticated_only = false) OR
-        (user_id IS NULL AND group_id IS NULL AND authenticated_only = true) OR
-        (user_id IS NULL AND group_id IS NULL AND authenticated_only = false)
+        (user_id IS NOT NULL AND group_id IS NULL AND service_account_id IS NULL AND authenticated_only = false) OR
+        (user_id IS NULL AND group_id IS NOT NULL AND service_account_id IS NULL AND authenticated_only = false) OR
+        (user_id IS NULL AND group_id IS NULL AND service_account_id IS NOT NULL AND authenticated_only = false) OR
+        (user_id IS NULL AND group_id IS NULL AND service_account_id IS NULL AND authenticated_only = true) OR
+        (user_id IS NULL AND group_id IS NULL AND service_account_id IS NULL AND authenticated_only = false)
       )
+    )
+  `.simple();
+  await sql`
+    ALTER TABLE auth.access
+    ADD COLUMN IF NOT EXISTS service_account_id UUID REFERENCES auth.service_accounts(id) ON DELETE CASCADE
+  `.simple();
+  await sql`
+    ALTER TABLE auth.access
+    DROP CONSTRAINT IF EXISTS principal_check
+  `.simple();
+  await sql`
+    ALTER TABLE auth.access
+    ADD CONSTRAINT principal_check CHECK (
+      (user_id IS NOT NULL AND group_id IS NULL AND service_account_id IS NULL AND authenticated_only = false) OR
+      (user_id IS NULL AND group_id IS NOT NULL AND service_account_id IS NULL AND authenticated_only = false) OR
+      (user_id IS NULL AND group_id IS NULL AND service_account_id IS NOT NULL AND authenticated_only = false) OR
+      (user_id IS NULL AND group_id IS NULL AND service_account_id IS NULL AND authenticated_only = true) OR
+      (user_id IS NULL AND group_id IS NULL AND service_account_id IS NULL AND authenticated_only = false)
     )
   `.simple();
   await sql`
@@ -354,12 +458,16 @@ export const migrate = async (): Promise<void> => {
     ON auth.access(group_id) WHERE group_id IS NOT NULL
   `.simple();
   await sql`
+    CREATE INDEX IF NOT EXISTS idx_access_service_account
+    ON auth.access(service_account_id) WHERE service_account_id IS NOT NULL
+  `.simple();
+  await sql`
     CREATE INDEX IF NOT EXISTS idx_access_public
-    ON auth.access(id) WHERE user_id IS NULL AND group_id IS NULL AND authenticated_only = false
+    ON auth.access(id) WHERE user_id IS NULL AND group_id IS NULL AND service_account_id IS NULL AND authenticated_only = false
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_access_authenticated
-    ON auth.access(id) WHERE user_id IS NULL AND group_id IS NULL AND authenticated_only = true
+    ON auth.access(id) WHERE user_id IS NULL AND group_id IS NULL AND service_account_id IS NULL AND authenticated_only = true
   `.simple();
   console.log("  ✓ auth.access table");
 

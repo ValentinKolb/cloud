@@ -1,5 +1,10 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
+import {
+  accountsAppService as accountsService,
+  coreSettings,
+  serviceAccountCredentials,
+  type ServiceAccountCredentialOverview,
+} from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
@@ -21,6 +26,7 @@ import {
 import { buildUserDetailUrl, buildUsersUrl, parseUsersListState } from "../../lib/url-state";
 import AddToGroup from "./AddToGroup.island";
 import UserActions from "./UserActions.island";
+import ServiceAccountCredentialActions from "../../service-accounts/ServiceAccountCredentialActions.island";
 
 const formatAddress = (a: {
   street: string | null;
@@ -36,6 +42,8 @@ const formatAddress = (a: {
   if (a.state) parts.push(a.state);
   return parts.length > 0 ? parts.join(", ") : null;
 };
+
+const formatNullableDate = (value: string | null) => (value ? dates.formatDateTime(value) : "-");
 
 export default ssr<AuthContext>(async (c) => {
   const id = c.req.param("id")!;
@@ -79,7 +87,7 @@ export default ssr<AuthContext>(async (c) => {
   const isIpaUser = user.provider === "ipa";
   const isGuestProfile = user.profile === "guest";
 
-  const [pendingRequestsPage, recursiveGroupsPage, managedGroupsPage, directGroupIds] = await Promise.all([
+  const [pendingRequestsPage, recursiveGroupsPage, managedGroupsPage, directGroupIds, apiKeysPage] = await Promise.all([
     accountsService.accountRequest.list({
       access: { userId: c.get("user").id, isAdmin: true },
       filter: { status: "pending" },
@@ -95,6 +103,10 @@ export default ssr<AuthContext>(async (c) => {
     accountsService.user.groupId.list({
       userId: id,
       recursive: false,
+    }),
+    serviceAccountCredentials.listOverview({
+      pagination: { page: 1, perPage: 100 },
+      filter: { userId: id, serviceAccountKind: "user_delegated", credentialStatus: "active" },
     }),
   ]);
 
@@ -193,6 +205,7 @@ export default ssr<AuthContext>(async (c) => {
         <span>{managedGroups.length}</span>
       ),
     },
+    { label: "API keys", value: <span>{apiKeysPage.total}</span> },
   ];
 
   if (isIpaUser && ipa?.employeeType) {
@@ -218,6 +231,13 @@ export default ssr<AuthContext>(async (c) => {
     { id: "group", header: "Group", value: (group) => group.name },
     { id: "description", header: "Description", value: (group) => group.description, cellClass: "max-w-[24rem]" },
     { id: "provider", header: "Provider", value: (group) => group.provider },
+  ];
+  const apiKeyColumns: DataTableColumn<ServiceAccountCredentialOverview>[] = [
+    { id: "key", header: "API Key", value: (key) => key.name, cellClass: "min-w-[14rem]" },
+    { id: "expires", header: "Expires", value: (key) => key.expiresAt, cellClass: "whitespace-nowrap" },
+    { id: "lastUsed", header: "Last used", value: (key) => key.lastUsedAt, cellClass: "whitespace-nowrap" },
+    { id: "created", header: "Created", value: (key) => key.createdAt, cellClass: "whitespace-nowrap" },
+    { id: "actions", header: "Actions", headerClass: "text-right", cellClass: "text-right whitespace-nowrap max-w-none" },
   ];
 
   return () => (
@@ -291,24 +311,68 @@ export default ssr<AuthContext>(async (c) => {
             </div>
           )}
 
-          <div class="flex flex-col gap-2" style="view-transition-name: accounts-user-memberships">
-            <div class="min-w-0">
-              <h2 class="text-base font-semibold text-primary">Groups</h2>
-              <p class="mt-1 text-xs text-dimmed">
-                {totalMemberGroups} {recursive ? "memberships including inherited groups" : "direct group memberships"}
-              </p>
+          <div class="flex flex-col gap-2" style="view-transition-name: accounts-user-api-keys">
+            <div class="flex flex-wrap items-end justify-between gap-2">
+              <div class="min-w-0">
+                <h2 class="text-base font-semibold text-primary">API Keys</h2>
+                <p class="mt-1 text-xs text-dimmed">
+                  {apiKeysPage.total} active personal automation {apiKeysPage.total === 1 ? "key" : "keys"}
+                </p>
+              </div>
+              <a href={`/app/accounts/service-accounts?kind=user_delegated&status=active&search=${encodeURIComponent(user.uid)}`} class="btn-input btn-input-sm">
+                <i class="ti ti-external-link" />
+                View all
+              </a>
             </div>
 
-            <div class="flex flex-wrap items-center gap-2">
-              <a
-                href={toggleUrl}
-                class={`btn-input btn-input-sm ${recursive ? "!bg-violet-100 dark:!bg-violet-900/50 !text-violet-700 dark:!text-violet-300" : ""}`}
-                title={recursive ? "Show direct memberships only" : "Show all memberships including inherited ones"}
-              >
-                <i class="ti ti-git-branch" />
-                {recursive ? "All groups" : "Direct only"}
-              </a>
-              <div class="ml-auto">
+            {apiKeysPage.items.length > 0 ? (
+              <div class="paper overflow-hidden">
+                <DataTable
+                  rows={apiKeysPage.items}
+                  columns={apiKeyColumns}
+                  getRowId={(key) => key.id}
+                  hoverRows
+                  highlightColumns={false}
+                  class="overflow-x-auto"
+                  scrollPreserveKey="accounts-user-api-keys"
+                  renderCell={({ row: key, col }) => {
+                    if (col.id === "key")
+                      return (
+                        <div class="flex min-w-0 flex-col gap-1">
+                          <span class="truncate font-medium text-primary">{key.name}</span>
+                          <span class="truncate font-mono text-[11px] text-dimmed">cld_{key.tokenPrefix}_...</span>
+                        </div>
+                      );
+                    if (col.id === "expires") return <span class="text-dimmed">{formatNullableDate(key.expiresAt)}</span>;
+                    if (col.id === "lastUsed") return <span class="text-dimmed">{formatNullableDate(key.lastUsedAt)}</span>;
+                    if (col.id === "created") return <span class="text-dimmed">{dates.formatDateTime(key.createdAt)}</span>;
+                    if (col.id === "actions") return <ServiceAccountCredentialActions credentialId={key.id} name={key.name} />;
+                    return "";
+                  }}
+                />
+              </div>
+            ) : (
+              <div class="paper p-6 text-center text-sm text-dimmed">No active API keys for this user.</div>
+            )}
+          </div>
+
+          <div class="flex flex-col gap-2" style="view-transition-name: accounts-user-memberships">
+            <div class="flex flex-wrap items-end justify-between gap-2">
+              <div class="min-w-0">
+                <h2 class="text-base font-semibold text-primary">Groups</h2>
+                <p class="mt-1 text-xs text-dimmed">
+                  {totalMemberGroups} {recursive ? "memberships including inherited groups" : "direct group memberships"}
+                </p>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <a
+                  href={toggleUrl}
+                  class={`btn-input btn-input-sm ${recursive ? "!bg-violet-100 dark:!bg-violet-900/50 !text-violet-700 dark:!text-violet-300" : ""}`}
+                  title={recursive ? "Show direct memberships only" : "Show all memberships including inherited ones"}
+                >
+                  <i class="ti ti-git-branch" />
+                  {recursive ? "All groups" : "Direct only"}
+                </a>
                 <AddToGroup id={user.id} userProvider={user.provider} excludeGroups={allGroups.map((group) => group.id)} />
               </div>
             </div>

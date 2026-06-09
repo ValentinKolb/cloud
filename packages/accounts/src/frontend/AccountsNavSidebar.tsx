@@ -1,6 +1,15 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 
-export type AccountsNavActiveKey = "dashboard" | "users" | "groups" | "requests" | "audit" | "deleted-accounts" | "reminders" | null;
+export type AccountsNavActiveKey =
+  | "dashboard"
+  | "users"
+  | "groups"
+  | "requests"
+  | "audit"
+  | "service-accounts"
+  | "deleted-accounts"
+  | "reminders"
+  | null;
 
 type Props = {
   active: AccountsNavActiveKey;
@@ -43,6 +52,12 @@ export default function AccountsNavSidebar(props: Props) {
       badge: props.pendingRequests > 0 ? String(props.pendingRequests) : undefined,
     },
     { href: "/app/accounts/users", icon: "ti ti-users", label: "Users", active: props.active === "users" },
+    {
+      href: "/app/accounts/service-accounts",
+      icon: "ti ti-user-key",
+      label: "Service Accounts",
+      active: props.active === "service-accounts",
+    },
     { href: "/app/accounts/audit", icon: "ti ti-clipboard-list", label: "Audit Log", active: props.active === "audit" },
     {
       href: "/app/accounts/deleted-accounts",

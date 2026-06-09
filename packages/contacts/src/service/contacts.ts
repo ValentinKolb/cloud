@@ -644,7 +644,7 @@ const mapManualReadableAccessCondition = (userId: string, groups: string[]) => s
     a.user_id = ${userId}::uuid
     OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
     OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-    OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+    OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
   )
 `;
 

@@ -11,14 +11,18 @@ import { ok } from "@valentinkolb/stdlib";
 import {
   ChangePasswordSchema,
   CreateAccountRequestSchema,
+  CreateUserApiKeyResponseSchema,
+  CreateUserApiKeySchema,
   ErrorResponseSchema,
   MessageResponseSchema,
+  ServiceAccountCredentialSchema,
   UpdateProfileSchema,
   UserSchema,
 } from "../contracts";
 import {
   accountLifecycle,
   accountsAppService as accountsService,
+  serviceAccountCredentials,
 } from "../services";
 
 const toAccountsActor = (user: AuthContext["Variables"]["user"]) => ({
@@ -36,6 +40,10 @@ const ExtendAccountResponseSchema = z.object({
 const AccountRequestResponseSchema = z.object({
   id: z.uuid(),
   message: z.string(),
+});
+
+const ListApiKeysResponseSchema = z.object({
+  items: z.array(ServiceAccountCredentialSchema),
 });
 
 const app = new Hono<AuthContext>()
@@ -78,6 +86,75 @@ const app = new Hono<AuthContext>()
         const result = await accountsService.user.update({ actor: toAccountsActor(user), id: user.id, data });
         if (!result.ok) return result;
         return ok({ message: "Profile updated." });
+      }),
+  )
+
+  .post(
+    "/api-keys",
+    describeRoute({
+      tags: ["Me"],
+      summary: "Create current user API key",
+      description: "Create a user-bound API key for the authenticated account. The raw token is returned once.",
+      ...requiresAuth,
+      responses: {
+        201: jsonResponse(CreateUserApiKeyResponseSchema, "API key created"),
+        400: jsonResponse(ErrorResponseSchema, "Failed to create API key"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+      },
+    }),
+    v("json", CreateUserApiKeySchema),
+    async (c) =>
+      respond(c, async () => {
+        const user = c.get("user");
+        const data = c.req.valid("json");
+        return serviceAccountCredentials.createUserApiToken({
+          user,
+          name: data.name,
+          expiresAt: data.expiresAt ?? null,
+        });
+      }, 201),
+  )
+
+  .get(
+    "/api-keys",
+    describeRoute({
+      tags: ["Me"],
+      summary: "List current user API keys",
+      description: "List active user-bound API keys owned by the authenticated account.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(ListApiKeysResponseSchema, "API keys"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+      },
+    }),
+    async (c) =>
+      respond(c, async () => {
+        const items = await serviceAccountCredentials.listForDelegatedUser({ userId: c.get("user").id });
+        return ok({ items });
+      }),
+  )
+
+  .delete(
+    "/api-keys/:id",
+    describeRoute({
+      tags: ["Me"],
+      summary: "Revoke current user API key",
+      description: "Revoke an API key owned by the authenticated account.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "API key revoked"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        404: jsonResponse(ErrorResponseSchema, "API key not found"),
+      },
+    }),
+    async (c) =>
+      respond(c, async () => {
+        const result = await serviceAccountCredentials.revokeForDelegatedUser({
+          credentialId: c.req.param("id"),
+          user: c.get("user"),
+        });
+        if (!result.ok) return result;
+        return ok({ message: "API key revoked." });
       }),
   )
 

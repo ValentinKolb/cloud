@@ -42,6 +42,10 @@ type PermissionEditorProps = {
    *  authenticated principal is always allowed (no flag needed). */
   allowPublic?: boolean;
 
+  /** Allow granting service accounts. Off by default so ordinary
+   *  permission pickers stay user/group focused. */
+  allowServiceAccounts?: boolean;
+
   /** Which levels the UI offers — and what they're called. Bare strings
    *  use the default labels (View / Edit / Manage). Objects override
    *  label and/or icon for per-context vocabulary (e.g. forms call
@@ -102,6 +106,7 @@ const getEntryDisplayName = (entry: AccessEntry): string => {
   if (entry.principal.type === "authenticated") return "All users (incl. guests)";
   if (entry.principal.type === "public") return "Public";
   if (entry.principal.type === "user") return entry.principal.userId;
+  if (entry.principal.type === "service_account") return entry.principal.serviceAccountId;
   return entry.principal.groupId;
 };
 
@@ -111,6 +116,8 @@ const getPrincipalIcon = (principal: Principal): string => {
       return "ti-user";
     case "group":
       return "ti-users-group";
+    case "service_account":
+      return "ti-key";
     case "authenticated":
       return "ti-lock-open-2";
     case "public":
@@ -134,7 +141,8 @@ const getPermissionColor = (level: PermissionLevel): string => {
 // Backend `/api/accounts/entities` shape (the subset we consume).
 type ApiEntity =
   | { kind: "user"; user: { id: string; uid: string; displayName: string; mail: string | null } }
-  | { kind: "group"; group: { id: string; name: string; description: string | null } };
+  | { kind: "group"; group: { id: string; name: string; description: string | null } }
+  | { kind: "service_account"; serviceAccount: { id: string; name: string; kind: "user_delegated" | "resource_bound"; appId: string | null; resourceType: string | null; resourceId: string | null } };
 
 // ─────────────────────────────────────────────────────────────────────────
 // PermissionEditor
@@ -165,6 +173,10 @@ export default function PermissionEditor(props: PermissionEditorProps) {
     entries()
       .filter((e) => e.principal.type === "group")
       .map((e) => (e.principal as { type: "group"; groupId: string }).groupId);
+  const existingServiceAccountIds = () =>
+    entries()
+      .filter((e) => e.principal.type === "service_account")
+      .map((e) => (e.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId);
   const hasAuthenticatedEntry = () => entries().some((entry) => entry.principal.type === "authenticated");
   const hasPublicEntry = () => entries().some((entry) => entry.principal.type === "public");
 
@@ -242,12 +254,14 @@ export default function PermissionEditor(props: PermissionEditorProps) {
     if (q.length >= 2) {
       const url = new URL("/api/accounts/entities", window.location.origin);
       url.searchParams.set("search", q);
-      url.searchParams.set("kinds", "user,group");
+      url.searchParams.set("kinds", props.allowServiceAccounts ? "user,group,service_account" : "user,group");
       url.searchParams.set("per_page", "10");
       const userIds = existingUserIds();
       if (userIds.length) url.searchParams.set("exclude_user_ids", userIds.join(","));
       const groupIds = existingGroupIds();
       if (groupIds.length) url.searchParams.set("exclude_group_ids", groupIds.join(","));
+      const serviceAccountIds = existingServiceAccountIds();
+      if (serviceAccountIds.length) url.searchParams.set("exclude_service_account_ids", serviceAccountIds.join(","));
 
       const res = await fetch(url.toString(), { credentials: "same-origin", signal });
       if (res.ok) {
@@ -270,6 +284,18 @@ export default function PermissionEditor(props: PermissionEditorProps) {
               label: item.group.name,
               description: item.group.description ?? undefined,
               icon: "ti-users-group",
+            });
+          } else if (item.kind === "service_account") {
+            const id = `sa:${item.serviceAccount.id}`;
+            map.set(id, { type: "service_account", serviceAccountId: item.serviceAccount.id });
+            opts.push({
+              id,
+              label: item.serviceAccount.name,
+              description:
+                item.serviceAccount.kind === "user_delegated"
+                  ? "User-bound service account"
+                  : [item.serviceAccount.appId, item.serviceAccount.resourceType, item.serviceAccount.resourceId].filter(Boolean).join(" · "),
+              icon: "ti-key",
             });
           }
         }
@@ -314,7 +340,7 @@ export default function PermissionEditor(props: PermissionEditorProps) {
           a higher level. KISS: one decision per step. */}
       <Show when={canEdit()}>
         <Combobox
-          placeholder="Add user, group or audience..."
+          placeholder={props.allowServiceAccounts ? "Add user, group, service account or audience..." : "Add user, group or audience..."}
           fetchData={fetchPrincipals}
           onSelect={handleSelect}
           disabled={grantMut.loading()}

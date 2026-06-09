@@ -28,12 +28,13 @@ export default function MembersTab(props: MembersTabProps) {
     {
       id: "name",
       header: "Name",
-      value: (item) => (item.kind === "user" ? item.user.displayName || item.user.mail || item.user.uid : item.group.name),
+      value: (item) =>
+        item.kind === "user" ? item.user.displayName || item.user.mail || item.user.uid : item.kind === "group" ? item.group.name : item.serviceAccount.name,
     },
     {
       id: "detail",
       header: "Detail",
-      value: (item) => (item.kind === "user" ? item.user.mail : item.group.description),
+      value: (item) => (item.kind === "user" ? item.user.mail : item.kind === "group" ? item.group.description : item.serviceAccount.appId),
       cellClass: "max-w-[24rem]",
     },
     { id: "access", header: "Access" },
@@ -45,7 +46,8 @@ export default function MembersTab(props: MembersTabProps) {
       cellClass: "w-10 text-right whitespace-nowrap max-w-none",
     },
   ];
-  const rowId = (item: EntityListItem) => (item.kind === "user" ? `user:${item.user.id}` : `group:${item.group.id}`);
+  const rowId = (item: EntityListItem) =>
+    item.kind === "user" ? `user:${item.user.id}` : item.kind === "group" ? `group:${item.group.id}` : `service_account:${item.serviceAccount.id}`;
 
   return (
     <div class="flex flex-col gap-2" style="view-transition-name: accounts-group-members">
@@ -136,6 +138,8 @@ export default function MembersTab(props: MembersTabProps) {
                 }
                 return "";
               }
+
+              if (item.kind === "service_account") return "";
 
               const group = item.group;
               const providerBadge = getProviderBadge(group.provider);

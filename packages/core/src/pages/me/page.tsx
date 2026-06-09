@@ -3,7 +3,8 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { dates } from "@valentinkolb/stdlib";
 import { canManageAnyGroups, getAccountTypeLabel, getManagementLabel, getSupplementalRoleLabel } from "@valentinkolb/cloud/shared";
-import { accountsAppService, coreSettings } from "@valentinkolb/cloud/services";
+import { accountsAppService, coreSettings, serviceAccountCredentials } from "@valentinkolb/cloud/services";
+import ApiKeysSettings from "./ApiKeysSettings.island";
 import ProfileActions from "./ProfileActions.island";
 import ProfileSettings from "./ProfileSettings.island";
 import RequestFreeIpaAccount from "./RequestFreeIpaAccount.island";
@@ -42,7 +43,10 @@ export default ssr<AuthContext>(async (c) => {
   const directGroups = sessionUser.memberofGroup;
   const supplementalRoles = sessionUser.roles.filter((role) => role === "admin" || role === "group-manager");
   const isExpiredAccount = sessionUser.accountExpires ? new Date(sessionUser.accountExpires) < new Date() : false;
-  const pendingRequest = sessionUser.provider === "local" ? await accountsAppService.accountRequest.getPendingForUser({ userId: sessionUser.id }) : null;
+  const [pendingRequest, apiKeys] = await Promise.all([
+    sessionUser.provider === "local" ? accountsAppService.accountRequest.getPendingForUser({ userId: sessionUser.id }) : Promise.resolve(null),
+    serviceAccountCredentials.listForDelegatedUser({ userId: sessionUser.id }),
+  ]);
   const address = formatAddress(ipaData?.address ?? { street: null, postalCode: null, city: null, state: null });
 
   let displayGroups: string[] = [];
@@ -299,6 +303,7 @@ export default ssr<AuthContext>(async (c) => {
             )}
 
             <ProfileSettings provider={sessionUser.provider} profile={sessionUser.profile} freeIpaEnabled={freeIpaEnabled} />
+            <ApiKeysSettings initialKeys={apiKeys} />
           </aside>
         </div>
       </div>

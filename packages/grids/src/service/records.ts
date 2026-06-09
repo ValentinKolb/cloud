@@ -5,7 +5,7 @@ import { getRecordWritableFieldType, isRecordWritableFieldType } from "../field-
 import { defaultTableAggregations } from "../table-defaults";
 import { type AggregateRequest, compileAggregates } from "./aggregate-compiler";
 import { logAudit, type SqlClient } from "./audit";
-import { applyComputedProjections, buildComputedProjections } from "./computed-projections";
+import { applyComputedProjections, buildComputedProjections, buildFormulaSqlProjections, type ComputedProjection } from "./computed-projections";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import { listFirstImagePreviews } from "./files";
 import { generateIdValue, generatedIdRequiresRetry, isGeneratedIdUniqueCollision } from "./generated-ids";
@@ -45,6 +45,9 @@ const recordVersionConflict = () => ({
 
 const defaultListAggregates = (fields: Field[]): AggregateRequest[] =>
   defaultTableAggregations(fields).map((a) => ({ fieldId: a.fieldId, agg: a.agg }));
+
+const projectionFragmentsFor = (projections: ComputedProjection[]): unknown =>
+  projections.length > 0 ? projections.map((p) => sql`, ${p.fragment}`).reduce((acc, cur) => sql`${acc}${cur}`) : sql``;
 
 const formatFieldValidationError = (fieldName: string, validationError: string): string =>
   validationError === "required" ? `Field "${fieldName}" is required` : `Field "${fieldName}": ${validationError}`;
@@ -92,8 +95,9 @@ const enrichFormulaLookups = async (records: GridRecord[], fields: Field[], opti
     if (ids.size === 0) continue;
     const targetFields = await listFields(tableId);
     const targetComputed = await buildComputedProjections(targetFields);
-    const projectionFragments =
-      targetComputed.length > 0 ? targetComputed.map((p) => sql`, ${p.fragment}`).reduce((acc, cur) => sql`${acc}${cur}`) : sql``;
+    const targetFormulaSql = buildFormulaSqlProjections(targetFields, { dateConfig: options.dateConfig });
+    const targetProjections = [...targetComputed, ...targetFormulaSql];
+    const projectionFragments = projectionFragmentsFor(targetProjections);
     const rows = await sql<DbRow[]>`
       SELECT r.*${projectionFragments}
       FROM grids.records r
@@ -105,8 +109,11 @@ const enrichFormulaLookups = async (records: GridRecord[], fields: Field[], opti
     const targetRecords = rows.map(mapRow);
     await hydrateRelationsFromLinks(targetRecords, targetFields);
     const recordsById = new Map(targetRecords.map((record) => [record.id, record]));
-    applyComputedProjections(rows as Array<Record<string, unknown>>, recordsById, targetComputed);
-    enrichRecordsWithFormulas(targetRecords, targetFields, { dateConfig: options.dateConfig });
+    applyComputedProjections(rows as Array<Record<string, unknown>>, recordsById, targetProjections);
+    enrichRecordsWithFormulas(targetRecords, targetFields, {
+      dateConfig: options.dateConfig,
+      skipFormulaFieldIds: new Set(targetFormulaSql.map((projection) => projection.fieldId)),
+    });
     targetsByTable.set(tableId, recordsById);
   }
 
@@ -472,8 +479,9 @@ export const list = async (params: {
   // as correlated subqueries over record_links instead of a JS-side
   // batch-fetch pass. Single source of truth, single round-trip.
   const computed = await buildComputedProjections(fields);
-  const projectionFragments =
-    computed.length > 0 ? computed.map((p) => sql`, ${p.fragment}`).reduce((acc, cur) => sql`${acc}${cur}`) : sql``;
+  const formulaSql = buildFormulaSqlProjections(fields, { dateConfig: params.dateConfig });
+  const projections = [...computed, ...formulaSql];
+  const projectionFragments = projectionFragmentsFor(projections);
 
   // Live-parent JOIN: records of a trashed table or base never list,
   // even when the caller passes a leaked tableId UUID. The filter's
@@ -497,7 +505,7 @@ export const list = async (params: {
   // into record.data[fieldId] alongside the JSONB-derived columns.
   await hydrateRelationsFromLinks(items, fields);
   const recordsById = new Map(items.map((r) => [r.id, r]));
-  applyComputedProjections(rows.slice(0, limit) as Array<Record<string, unknown>>, recordsById, computed);
+  applyComputedProjections(rows.slice(0, limit) as Array<Record<string, unknown>>, recordsById, projections);
   await enrichFormulaLookups(items, fieldsWithLookupMeta, { dateConfig: params.dateConfig });
 
   let nextCursor: string | null = null;
@@ -508,9 +516,14 @@ export const list = async (params: {
     const lastRow = rows[limit - 1] as Record<string, unknown>;
     nextCursor = encodeCursorFromRow(lastRow);
   }
-  // Formulas still run in JS — they reference computed and base values
-  // alike, and the formula engine is not SQL-projectable yet.
-  enrichRecordsWithFormulas(items, fieldsWithLookupMeta, { dateConfig: params.dateConfig });
+  // SQL-projectable formulas are already in record.data. Keep the JS
+  // evaluator for formulas that need non-SQL values (relation/lookup/
+  // rollup/select/file/other formula refs) so no existing formula loses
+  // behavior while the query engine moves SQL-first.
+  enrichRecordsWithFormulas(items, fieldsWithLookupMeta, {
+    dateConfig: params.dateConfig,
+    skipFormulaFieldIds: new Set(formulaSql.map((projection) => projection.fieldId)),
+  });
   enrichRecordsWithComputedColumns(items, fields, params.computedColumns, { dateConfig: params.dateConfig });
 
   // Optional relation expansion. Runs AFTER hydrateRelationsFromLinks
@@ -731,8 +744,9 @@ export const get = async (
   const fields = await listFields(tableId);
   const fieldsWithLookupMeta = await withLookupTargetMetadata(fields);
   const computed = await buildComputedProjections(fields);
-  const projectionFragments =
-    computed.length > 0 ? computed.map((p) => sql`, ${p.fragment}`).reduce((acc, cur) => sql`${acc}${cur}`) : sql``;
+  const formulaSql = buildFormulaSqlProjections(fields, { dateConfig: opts.dateConfig });
+  const projections = [...computed, ...formulaSql];
+  const projectionFragments = projectionFragmentsFor(projections);
 
   const [row] = await sql<DbRow[]>`
     SELECT r.*${projectionFragments}
@@ -748,9 +762,12 @@ export const get = async (
   // Hydrate relation fields + lookup/rollup projections so the response
   // mirrors the list-path shape exactly.
   await hydrateRelationsFromLinks([record], fields);
-  applyComputedProjections([row as Record<string, unknown>], new Map([[record.id, record]]), computed);
+  applyComputedProjections([row as Record<string, unknown>], new Map([[record.id, record]]), projections);
   await enrichFormulaLookups([record], fieldsWithLookupMeta, { dateConfig: opts.dateConfig });
-  enrichRecordsWithFormulas([record], fieldsWithLookupMeta, { dateConfig: opts.dateConfig });
+  enrichRecordsWithFormulas([record], fieldsWithLookupMeta, {
+    dateConfig: opts.dateConfig,
+    skipFormulaFieldIds: new Set(formulaSql.map((projection) => projection.fieldId)),
+  });
   if (opts.includeRelations) {
     await attachRelationExpansion([record], fieldsWithLookupMeta, opts.viewer);
   }

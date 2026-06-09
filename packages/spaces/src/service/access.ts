@@ -19,6 +19,7 @@ type DbSpaceAccess = {
   access_id: string;
   user_id: string | null;
   group_id: string | null;
+  service_account_id: string | null;
   authenticated_only: boolean;
   permission: PermissionLevel;
   created_at: Date;
@@ -33,6 +34,7 @@ export const listSpaceAccess = async (spaceId: string): Promise<AccessEntry[]> =
       a.id as access_id,
       a.user_id,
       a.group_id,
+      a.service_account_id,
       a.authenticated_only,
       a.permission,
       a.created_at
@@ -41,9 +43,10 @@ export const listSpaceAccess = async (spaceId: string): Promise<AccessEntry[]> =
     WHERE sa.space_id = ${spaceId}::uuid
     ORDER BY
       CASE
-        WHEN a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false THEN 4
+        WHEN a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false THEN 4
         WHEN a.authenticated_only THEN 3
         WHEN a.group_id IS NOT NULL THEN 2
+        WHEN a.service_account_id IS NOT NULL THEN 2
         ELSE 1
       END,
       a.created_at
@@ -55,6 +58,8 @@ export const listSpaceAccess = async (spaceId: string): Promise<AccessEntry[]> =
       ? { type: "user" as const, userId: row.user_id }
       : row.group_id
         ? { type: "group" as const, groupId: row.group_id }
+        : row.service_account_id
+          ? { type: "service_account" as const, serviceAccountId: row.service_account_id }
         : row.authenticated_only
           ? { type: "authenticated" as const }
           : { type: "public" as const },
@@ -196,6 +201,13 @@ export const grantSpaceAccess = async (params: {
     if (principal.type === "authenticated" && e.principal.type === "authenticated") return true;
     if (principal.type === "user" && e.principal.type === "user" && principal.userId === e.principal.userId) return true;
     if (principal.type === "group" && e.principal.type === "group" && principal.groupId === e.principal.groupId) return true;
+    if (
+      principal.type === "service_account" &&
+      e.principal.type === "service_account" &&
+      principal.serviceAccountId === e.principal.serviceAccountId
+    ) {
+      return true;
+    }
     return false;
   });
 

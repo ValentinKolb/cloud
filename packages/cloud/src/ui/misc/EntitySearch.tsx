@@ -25,6 +25,15 @@ export type EntitySearchPrincipal =
       name: string;
       description: string | null;
     }
+  | {
+      type: "service_account";
+      serviceAccountId: string;
+      name: string;
+      kind: "user_delegated" | "resource_bound";
+      appId: string | null;
+      resourceType: string | null;
+      resourceId: string | null;
+    }
   | { type: "authenticated" }
   | { type: "public" };
 
@@ -34,6 +43,8 @@ type EntitySearchProps = {
   includeUsers?: boolean;
   /** Surface real groups in the result list. */
   includeGroups?: boolean;
+  /** Surface service accounts in the result list. Off by default. */
+  includeServiceAccounts?: boolean;
   /** Inject a synthetic "All authenticated users" row at the top. */
   includeAuthenticated?: boolean;
   /** Inject a synthetic "Public" row at the top. */
@@ -42,6 +53,7 @@ type EntitySearchProps = {
   // ── Exclude filters (apply only when the related kind is included) ──
   excludeUserIds?: string[];
   excludeGroupIds?: string[];
+  excludeServiceAccountIds?: string[];
 
   /** Provider filter — applies uniformly to BOTH users and groups.
    *  Whitelist semantics: `["local"]` shows only local accounts,
@@ -82,20 +94,29 @@ type ApiGroup = {
   name: string;
   description: string | null;
 };
+type ApiServiceAccount = {
+  id: string;
+  name: string;
+  kind: "user_delegated" | "resource_bound";
+  appId: string | null;
+  resourceType: string | null;
+  resourceId: string | null;
+};
 
 const EntitySearch = (props: EntitySearchProps) => {
   const [search, setSearch] = createSignal("");
   const [users, setUsers] = createSignal<ApiUser[]>([]);
   const [groups, setGroups] = createSignal<ApiGroup[]>([]);
+  const [serviceAccounts, setServiceAccounts] = createSignal<ApiServiceAccount[]>([]);
   const [loading, setLoading] = createSignal(false);
 
   // Defensive dev-warning: at least one principal kind must be enabled,
   // otherwise the component is decorative-only and the caller probably
   // forgot a flag.
-  if (!props.includeUsers && !props.includeGroups && !props.includeAuthenticated && !props.includePublic) {
+  if (!props.includeUsers && !props.includeGroups && !props.includeServiceAccounts && !props.includeAuthenticated && !props.includePublic) {
     if (typeof console !== "undefined") {
       console.warn(
-        "[EntitySearch] No `includeUsers / includeGroups / includeAuthenticated / includePublic` flag is set — the search will never produce a result.",
+        "[EntitySearch] No `includeUsers / includeGroups / includeServiceAccounts / includeAuthenticated / includePublic` flag is set — the search will never produce a result.",
       );
     }
   }
@@ -104,16 +125,22 @@ const EntitySearch = (props: EntitySearchProps) => {
     if (q.length < 2) {
       setUsers([]);
       setGroups([]);
+      setServiceAccounts([]);
       return;
     }
 
-    const kinds = [...(props.includeUsers ? ["user"] : []), ...(props.includeGroups ? ["group"] : [])];
+    const kinds = [
+      ...(props.includeUsers ? ["user"] : []),
+      ...(props.includeGroups ? ["group"] : []),
+      ...(props.includeServiceAccounts ? ["service_account"] : []),
+    ];
     if (kinds.length === 0) {
       // Special-principals-only mode (e.g. `includeAuthenticated`).
       // Nothing to fetch from the backend; the synthetic rows render
       // unconditionally.
       setUsers([]);
       setGroups([]);
+      setServiceAccounts([]);
       return;
     }
 
@@ -130,6 +157,9 @@ const EntitySearch = (props: EntitySearchProps) => {
       if (props.excludeGroupIds?.length) {
         url.searchParams.set("exclude_group_ids", props.excludeGroupIds.join(","));
       }
+      if (props.excludeServiceAccountIds?.length) {
+        url.searchParams.set("exclude_service_account_ids", props.excludeServiceAccountIds.join(","));
+      }
       if (props.onlyMembersOf?.length) {
         url.searchParams.set("user_member_of_group_ids", props.onlyMembersOf.join(","));
       }
@@ -142,9 +172,13 @@ const EntitySearch = (props: EntitySearchProps) => {
       const res = await fetch(url.toString(), { credentials: "same-origin" });
       if (res.ok) {
         const data = await res.json();
-        const items: { kind: "user" | "group"; user?: ApiUser; group?: ApiGroup }[] = data.items ?? [];
+        const items: { kind: "user" | "group" | "service_account"; user?: ApiUser; group?: ApiGroup; serviceAccount?: ApiServiceAccount }[] =
+          data.items ?? [];
         setUsers(items.filter((item) => item.kind === "user" && item.user).map((item) => item.user!));
         setGroups(items.filter((item) => item.kind === "group" && item.group).map((item) => item.group!));
+        setServiceAccounts(
+          items.filter((item) => item.kind === "service_account" && item.serviceAccount).map((item) => item.serviceAccount!),
+        );
       }
     } finally {
       setLoading(false);
@@ -164,7 +198,7 @@ const EntitySearch = (props: EntitySearchProps) => {
   // standing offer, not gated on the search query. They render at the
   // top of the list above real entities.
   const showSynthetic = () => props.includeAuthenticated || props.includePublic;
-  const hasRealResults = () => users().length > 0 || groups().length > 0;
+  const hasRealResults = () => users().length > 0 || groups().length > 0 || serviceAccounts().length > 0;
   const hasAnyResults = () => showSynthetic() || hasRealResults();
 
   return (
@@ -236,6 +270,31 @@ const EntitySearch = (props: EntitySearchProps) => {
                       provider: group.provider,
                       name: group.name,
                       description: group.description,
+                    })
+                  }
+                />
+              )}
+            </For>
+            <For each={serviceAccounts()}>
+              {(serviceAccount) => (
+                <ResultRow
+                  icon="ti-key"
+                  title={serviceAccount.name}
+                  subtitle={
+                    serviceAccount.kind === "user_delegated"
+                      ? "User-bound service account"
+                      : [serviceAccount.appId, serviceAccount.resourceType, serviceAccount.resourceId].filter(Boolean).join(" · ")
+                  }
+                  disabled={props.disabled}
+                  onSelect={() =>
+                    props.onSelect({
+                      type: "service_account",
+                      serviceAccountId: serviceAccount.id,
+                      name: serviceAccount.name,
+                      kind: serviceAccount.kind,
+                      appId: serviceAccount.appId,
+                      resourceType: serviceAccount.resourceType,
+                      resourceId: serviceAccount.resourceId,
                     })
                   }
                 />

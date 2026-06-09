@@ -246,6 +246,22 @@ describe("enrichRecordsWithFormulas — multiple records", () => {
   });
 });
 
+describe("enrichRecordsWithFormulas — SQL-projected formula compatibility", () => {
+  test("skips SQL-projected formulas while remaining formulas can reference them", () => {
+    const net = mkField({ id: "fld-net", shortId: "NET01", type: "number" });
+    const subtotal = mkFormula("fld-sub", "SUB01", "#NET01 * 2");
+    const gross = mkFormula("fld-gross", "GROSS", "#SUB01 + 1");
+    const rec = mkRecord("rec-1", { "fld-net": "12.10", "fld-sub": "24.2" });
+
+    enrichRecordsWithFormulas([rec], [net, subtotal, gross], {
+      skipFormulaFieldIds: new Set(["fld-sub"]),
+    });
+
+    expect(rec.data["fld-sub"]).toBe("24.2");
+    expect(rec.data["fld-gross"]).toBe("25.2");
+  });
+});
+
 describe("enrichRecordsWithComputedColumns", () => {
   test("evaluates view-only formulas without persisting field metadata", () => {
     const price = mkField({ id: "fld-price", shortId: "PRICE", type: "number" });

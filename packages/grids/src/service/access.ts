@@ -16,6 +16,7 @@ type DbAccessRow = {
   access_id: string;
   user_id: string | null;
   group_id: string | null;
+  service_account_id: string | null;
   authenticated_only: boolean;
   permission: PermissionLevel;
   created_at: Date;
@@ -26,6 +27,7 @@ type DbAccessSnapshot = {
   id: string;
   user_id: string | null;
   group_id: string | null;
+  service_account_id: string | null;
   authenticated_only: boolean;
   permission: PermissionLevel;
 };
@@ -54,9 +56,10 @@ const emitAccessChanged = async (binding: AccessBinding | null, accessId: string
   });
 };
 
-const principalFromRow = (row: Pick<DbAccessRow, "user_id" | "group_id" | "authenticated_only">): Principal => {
+const principalFromRow = (row: Pick<DbAccessRow, "user_id" | "group_id" | "service_account_id" | "authenticated_only">): Principal => {
   if (row.user_id) return { type: "user", userId: row.user_id };
   if (row.group_id) return { type: "group", groupId: row.group_id };
+  if (row.service_account_id) return { type: "service_account", serviceAccountId: row.service_account_id };
   if (row.authenticated_only) return { type: "authenticated" };
   return { type: "public" };
 };
@@ -85,7 +88,7 @@ const auditScopeFromBinding = (binding: AccessBinding): { baseId: string; tableI
 export const buildAccessAuditDiff = (
   action: "access.granted" | "access.updated" | "access.revoked",
   binding: AccessBinding,
-  access: Pick<DbAccessSnapshot, "id" | "permission" | "user_id" | "group_id" | "authenticated_only">,
+  access: Pick<DbAccessSnapshot, "id" | "permission" | "user_id" | "group_id" | "service_account_id" | "authenticated_only">,
   nextPermission: PermissionLevel | null,
 ): { access: { old: AccessAuditSnapshot | null; new: AccessAuditSnapshot | null } } => {
   const snapshot: AccessAuditSnapshot = {
@@ -95,6 +98,7 @@ export const buildAccessAuditDiff = (
     principal: principalFromRow({
       user_id: access.user_id,
       group_id: access.group_id,
+      service_account_id: access.service_account_id,
       authenticated_only: access.authenticated_only,
     }),
     permission: access.permission,
@@ -110,7 +114,7 @@ export const buildAccessAuditDiff = (
 
 const getAccessSnapshot = async (accessId: string, client: SqlClient = sql): Promise<DbAccessSnapshot | null> => {
   const [row] = await client<DbAccessSnapshot[]>`
-    SELECT id, user_id, group_id, authenticated_only, permission
+    SELECT id, user_id, group_id, service_account_id, authenticated_only, permission
     FROM auth.access
     WHERE id = ${accessId}::uuid
   `;
@@ -125,6 +129,7 @@ const insertAccessRow = async (
 
   let userId: string | null = null;
   let groupId: string | null = null;
+  let serviceAccountId: string | null = null;
   let authenticatedOnly = false;
 
   if (principal.type === "user") {
@@ -139,13 +144,19 @@ const insertAccessRow = async (
       SELECT id FROM auth.groups WHERE id = ${groupId}::uuid
     `;
     if (!group) return fail(err.notFound("Group"));
+  } else if (principal.type === "service_account") {
+    serviceAccountId = principal.serviceAccountId;
+    const [serviceAccount] = await client<{ id: string }[]>`
+      SELECT id FROM auth.service_accounts WHERE id = ${serviceAccountId}::uuid AND status = 'active'
+    `;
+    if (!serviceAccount) return fail(err.notFound("Service account"));
   } else if (principal.type === "authenticated") {
     authenticatedOnly = true;
   }
 
   const [row] = await client<{ id: string }[]>`
-    INSERT INTO auth.access (user_id, group_id, authenticated_only, permission)
-    VALUES (${userId}::uuid, ${groupId}::uuid, ${authenticatedOnly}, ${permission}::auth.permission_level)
+    INSERT INTO auth.access (user_id, group_id, service_account_id, authenticated_only, permission)
+    VALUES (${userId}::uuid, ${groupId}::uuid, ${serviceAccountId}::uuid, ${authenticatedOnly}, ${permission}::auth.permission_level)
     RETURNING id
   `;
   return row ? ok({ id: row.id }) : fail(err.internal("Failed to create access entry"));
@@ -237,61 +248,66 @@ const listAccess = async (resourceType: keyof typeof TABLE_BY_RESOURCE, resource
   let rows: DbAccessRow[];
   if (resourceType === "base") {
     rows = await sql<DbAccessRow[]>`
-      SELECT a.id AS access_id, a.user_id, a.group_id, a.authenticated_only,
+      SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
              a.permission, a.created_at,
-             COALESCE(u.uid, g.name, NULL) AS display_name
+             COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
       FROM grids.base_access ba
       JOIN auth.access a ON a.id = ba.access_id
       LEFT JOIN auth.users u ON u.id = a.user_id
       LEFT JOIN auth.groups g ON g.id = a.group_id
+      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
       WHERE ba.base_id = ${resourceId}::uuid
       ORDER BY a.created_at
     `;
   } else if (resourceType === "table") {
     rows = await sql<DbAccessRow[]>`
-      SELECT a.id AS access_id, a.user_id, a.group_id, a.authenticated_only,
+      SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
              a.permission, a.created_at,
-             COALESCE(u.uid, g.name, NULL) AS display_name
+             COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
       FROM grids.table_access ta
       JOIN auth.access a ON a.id = ta.access_id
       LEFT JOIN auth.users u ON u.id = a.user_id
       LEFT JOIN auth.groups g ON g.id = a.group_id
+      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
       WHERE ta.table_id = ${resourceId}::uuid
       ORDER BY a.created_at
     `;
   } else if (resourceType === "view") {
     rows = await sql<DbAccessRow[]>`
-      SELECT a.id AS access_id, a.user_id, a.group_id, a.authenticated_only,
+      SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
              a.permission, a.created_at,
-             COALESCE(u.uid, g.name, NULL) AS display_name
+             COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
       FROM grids.view_access va
       JOIN auth.access a ON a.id = va.access_id
       LEFT JOIN auth.users u ON u.id = a.user_id
       LEFT JOIN auth.groups g ON g.id = a.group_id
+      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
       WHERE va.view_id = ${resourceId}::uuid
       ORDER BY a.created_at
     `;
   } else if (resourceType === "form") {
     rows = await sql<DbAccessRow[]>`
-      SELECT a.id AS access_id, a.user_id, a.group_id, a.authenticated_only,
+      SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
              a.permission, a.created_at,
-             COALESCE(u.uid, g.name, NULL) AS display_name
+             COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
       FROM grids.form_access fa
       JOIN auth.access a ON a.id = fa.access_id
       LEFT JOIN auth.users u ON u.id = a.user_id
       LEFT JOIN auth.groups g ON g.id = a.group_id
+      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
       WHERE fa.form_id = ${resourceId}::uuid
       ORDER BY a.created_at
     `;
   } else {
     rows = await sql<DbAccessRow[]>`
-      SELECT a.id AS access_id, a.user_id, a.group_id, a.authenticated_only,
+      SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
              a.permission, a.created_at,
-             COALESCE(u.uid, g.name, NULL) AS display_name
+             COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
       FROM grids.dashboard_access da
       JOIN auth.access a ON a.id = da.access_id
       LEFT JOIN auth.users u ON u.id = a.user_id
       LEFT JOIN auth.groups g ON g.id = a.group_id
+      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
       WHERE da.dashboard_id = ${resourceId}::uuid
       ORDER BY a.created_at
     `;

@@ -373,7 +373,7 @@ export const listForBase = async (params: {
           END
           FROM grids.dashboard_access da JOIN auth.access a ON a.id = da.access_id
           WHERE da.dashboard_id = d.id
-            AND a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE
+            AND a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = FALSE
         ) AS public_rank
       FROM grids.dashboards d
       JOIN grids.bases b ON b.id = d.base_id AND b.deleted_at IS NULL

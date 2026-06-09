@@ -5,6 +5,7 @@ import { escapeLikePattern, parsePgJsonRecord, toPgTextArray } from "../postgres
 import { logger } from "../logging";
 
 export type AuditOutcome = "allowed" | "denied" | "failed";
+export type AuditActionGroup = "service_accounts";
 
 export type AuditActor = {
   userId?: string | null;
@@ -49,6 +50,8 @@ export type AuditListFilter = {
   actor?: string;
   target?: string;
   action?: string;
+  actionGroup?: AuditActionGroup;
+  serviceAccountId?: string;
   outcome?: AuditOutcome;
   provider?: UserProvider | string;
   days?: number;
@@ -64,6 +67,8 @@ export type AuditRecordParams = {
   requestId?: string | null;
   metadata?: Record<string, unknown> | null;
 };
+
+type AuditDb = typeof sql;
 
 type DbAuditRow = {
   id: number;
@@ -157,11 +162,11 @@ const outcomeForError = (error: Pick<ServiceError, "status"> | null | undefined)
   return error.status === 401 || error.status === 403 ? "denied" : "failed";
 };
 
-const record = async (params: AuditRecordParams): Promise<void> => {
+const record = async (params: AuditRecordParams, db: AuditDb = sql): Promise<void> => {
   try {
     const actorRoles = asRoleArray(params.actor?.roles);
     const metadata = (sanitizeAuditMetadata(params.metadata ?? {}) as Record<string, unknown>) ?? {};
-    await sql`
+    await db`
       INSERT INTO audit.events (
         action,
         outcome,
@@ -213,6 +218,7 @@ const recordResult = async <T,>(params: {
   target?: AuditTarget | null;
   metadata?: Record<string, unknown> | null;
   result: Result<T>;
+  db?: AuditDb;
 }): Promise<Result<T>> => {
   await record({
     action: params.action,
@@ -222,7 +228,7 @@ const recordResult = async <T,>(params: {
     outcome: params.result.ok ? "allowed" : outcomeForError(params.result.error),
     reason: params.result.ok ? null : params.result.error.message,
     error: params.result.ok ? null : params.result.error,
-  });
+  }, params.db);
   return params.result;
 };
 
@@ -301,6 +307,20 @@ const buildWhere = (filter: AuditListFilter = {}) => {
     conditions.push(sql`(target_id = ${target} OR COALESCE(target_label, '') ILIKE ${pattern} ESCAPE '\\')`);
   }
   if (filter.action?.trim()) conditions.push(sql`action = ${filter.action.trim()}`);
+  if (filter.actionGroup === "service_accounts") {
+    conditions.push(sql`(
+      action LIKE 'service_account%'
+      OR target_type IN ('service_account', 'service_account_credential')
+      OR metadata ? 'serviceAccountId'
+    )`);
+  }
+  if (filter.serviceAccountId?.trim()) {
+    const serviceAccountId = filter.serviceAccountId.trim();
+    conditions.push(sql`(
+      (target_type = 'service_account' AND target_id = ${serviceAccountId})
+      OR metadata->>'serviceAccountId' = ${serviceAccountId}
+    )`);
+  }
   if (filter.outcome) conditions.push(sql`outcome = ${filter.outcome}`);
   if (provider) conditions.push(sql`(actor_provider = ${provider} OR target_provider = ${provider})`);
   if (days) conditions.push(sql`created_at >= now() - ${`${days} days`}::interval`);

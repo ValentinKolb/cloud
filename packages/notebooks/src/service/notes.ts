@@ -265,7 +265,7 @@ export const recentForUser = async (params: {
           a.user_id = ${params.userId}::uuid
           OR a.group_id = ANY(${groupsArr}::uuid[])
           OR a.authenticated_only = true
-          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
         )
     )
     ORDER BY nt.updated_at DESC
@@ -501,7 +501,7 @@ export const resolveShortIdsToNotebookShortIds = async (params: {
               a.user_id = ${params.userId}::uuid
               OR a.group_id = ANY(${toPgUuidArray(params.userGroups)}::uuid[])
               OR (${params.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-              OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+              OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
             )
         )
     `;
@@ -1132,7 +1132,7 @@ export const searchAcross = async (params: {
           a.user_id = ${userId}::uuid
           OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
           OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
         )
     )
       AND (n.title ILIKE ${pattern} OR n.content_md ILIKE ${pattern})

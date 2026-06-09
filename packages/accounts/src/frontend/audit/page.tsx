@@ -1,5 +1,11 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { accountsAppService as accountsService, audit, type AuditEvent, type AuditOutcome } from "@valentinkolb/cloud/services";
+import {
+  accountsAppService as accountsService,
+  audit,
+  type AuditActionGroup,
+  type AuditEvent,
+  type AuditOutcome,
+} from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
@@ -14,6 +20,8 @@ type AuditState = {
   actor: string;
   target: string;
   action: string;
+  actionGroup: "" | AuditActionGroup;
+  serviceAccountId: string;
   outcome: "" | AuditOutcome;
   provider: "" | "local" | "ipa";
   days: number;
@@ -34,6 +42,7 @@ const parseOutcome = (value: string | undefined): AuditState["outcome"] =>
   value === "allowed" || value === "denied" || value === "failed" ? value : "";
 
 const parseProvider = (value: string | undefined): AuditState["provider"] => (value === "local" || value === "ipa" ? value : "");
+const parseActionGroup = (value: string | undefined): AuditState["actionGroup"] => (value === "service_accounts" ? value : "");
 
 const buildAuditUrl = (state: Partial<AuditState> = {}): string => {
   const params = new URLSearchParams();
@@ -42,6 +51,8 @@ const buildAuditUrl = (state: Partial<AuditState> = {}): string => {
     actor: "",
     target: "",
     action: "",
+    actionGroup: "",
+    serviceAccountId: "",
     outcome: "",
     provider: "",
     days: 30,
@@ -52,6 +63,8 @@ const buildAuditUrl = (state: Partial<AuditState> = {}): string => {
   if (merged.actor.trim()) params.set("actor", merged.actor.trim());
   if (merged.target.trim()) params.set("target", merged.target.trim());
   if (merged.action.trim()) params.set("action", merged.action.trim());
+  if (merged.actionGroup) params.set("actionGroup", merged.actionGroup);
+  if (merged.serviceAccountId.trim()) params.set("serviceAccountId", merged.serviceAccountId.trim());
   if (merged.outcome) params.set("outcome", merged.outcome);
   if (merged.provider) params.set("provider", merged.provider);
   if (merged.days !== 30) params.set("days", String(merged.days));
@@ -80,6 +93,8 @@ export default ssr<AuthContext>(async (c) => {
     actor: (c.req.query("actor") ?? "").trim(),
     target: (c.req.query("target") ?? "").trim(),
     action: (c.req.query("action") ?? "").trim(),
+    actionGroup: parseActionGroup(c.req.query("actionGroup")),
+    serviceAccountId: (c.req.query("serviceAccountId") ?? "").trim(),
     outcome: parseOutcome(c.req.query("outcome")),
     provider: parseProvider(c.req.query("provider")),
     days: parseDays(c.req.query("days")),
@@ -95,6 +110,8 @@ export default ssr<AuthContext>(async (c) => {
         actor: state.actor || undefined,
         target: state.target || undefined,
         action: state.action || undefined,
+        actionGroup: state.actionGroup || undefined,
+        serviceAccountId: state.serviceAccountId || undefined,
         outcome: state.outcome || undefined,
         provider: state.provider || undefined,
         days: state.days,
@@ -145,13 +162,15 @@ export default ssr<AuthContext>(async (c) => {
               actor={state.actor}
               target={state.target}
               action={state.action}
+              actionGroup={state.actionGroup}
+              serviceAccountId={state.serviceAccountId}
               outcome={state.outcome}
               provider={state.provider}
               days={state.days}
             />
           </div>
 
-          {state.actor || state.target ? (
+          {state.actor || state.target || state.serviceAccountId ? (
             <div class="flex flex-wrap items-center gap-2" style="view-transition-name: accounts-audit-scope-filters">
               <span class="text-[11px] uppercase tracking-[0.14em] text-dimmed">Scoped to</span>
               {state.actor ? (
@@ -177,6 +196,19 @@ export default ssr<AuthContext>(async (c) => {
                     {initialOf(targetFilterLabel)}
                   </span>
                   <span class="truncate">Target: {targetFilterLabel}</span>
+                  <i class="ti ti-x" />
+                </a>
+              ) : null}
+              {state.serviceAccountId ? (
+                <a
+                  href={buildAuditUrl({ ...state, serviceAccountId: "", page: 1 })}
+                  class="tag max-w-full bg-red-50 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                  title={`Service account: ${state.serviceAccountId}`}
+                >
+                  <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-red-100 text-[9px] font-semibold text-red-700 dark:bg-red-800 dark:text-red-200">
+                    <i class="ti ti-user-key text-[10px]" />
+                  </span>
+                  <span class="truncate">Service account: {state.serviceAccountId}</span>
                   <i class="ti ti-x" />
                 </a>
               ) : null}

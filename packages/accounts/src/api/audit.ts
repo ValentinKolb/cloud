@@ -7,6 +7,7 @@ import { ok } from "@valentinkolb/stdlib";
 import { createPagination, parsePagination, PaginationQuerySchema, PaginationResponseSchema, ErrorResponseSchema } from "@/contracts";
 
 const AuditOutcomeSchema = z.enum(["allowed", "denied", "failed"]);
+const AuditActionGroupSchema = z.enum(["service_accounts"]);
 
 const AuditQuerySchema = z.object({
   ...PaginationQuerySchema.shape,
@@ -14,6 +15,8 @@ const AuditQuerySchema = z.object({
   actor: z.string().optional(),
   target: z.string().optional(),
   action: z.string().optional(),
+  actionGroup: AuditActionGroupSchema.optional(),
+  serviceAccountId: z.uuid().optional(),
   outcome: AuditOutcomeSchema.optional(),
   provider: z.enum(["local", "ipa"]).optional(),
   days: z.coerce.number().int().positive().max(3650).optional(),
@@ -74,6 +77,8 @@ const app = new Hono<AuthContext>()
           actor: query.actor,
           target: query.target,
           action: query.action,
+          actionGroup: query.actionGroup,
+          serviceAccountId: query.serviceAccountId,
           outcome: query.outcome,
           provider: query.provider,
           days: query.days,

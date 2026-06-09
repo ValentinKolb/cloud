@@ -21,6 +21,7 @@ export type EntityListParams = {
   profile?: UserProfile;
   excludeUserIds?: string[];
   excludeGroupIds?: string[];
+  excludeServiceAccountIds?: string[];
   userMemberOfGroupIds?: string[];
   memberOfGroupId?: string;
   managerOfGroupId?: string;
@@ -383,6 +384,25 @@ const mapEntityRow = (row: DbRow): EntityListItem => {
     };
   }
 
+  if (row.kind === "service_account") {
+    return {
+      kind: "service_account",
+      serviceAccount: {
+        id: String(row.id),
+        name: String(row.name ?? ""),
+        kind: row.service_account_kind === "resource_bound" ? "resource_bound" : "user_delegated",
+        status: row.status === "disabled" ? "disabled" : "active",
+        delegatedUserId: typeof row.delegated_user_id === "string" ? row.delegated_user_id : null,
+        appId: typeof row.app_id === "string" ? row.app_id : null,
+        resourceType: typeof row.resource_type === "string" ? row.resource_type : null,
+        resourceId: typeof row.resource_id === "string" ? row.resource_id : null,
+        createdBy: typeof row.created_by === "string" ? row.created_by : null,
+        createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+      },
+      relation: direct === undefined ? undefined : { direct },
+    };
+  }
+
   return {
     kind: "group",
     group: buildBaseGroup(row),
@@ -412,6 +432,10 @@ export const list = async (params: EntityListParams): Promise<{
     (params.excludeGroupIds?.length ?? 0) === 0
       ? sql`TRUE`
       : sql`(kind <> 'group' OR id <> ALL(${toPgUuidArray(params.excludeGroupIds ?? [])}::uuid[]))`;
+  const excludeServiceAccountCondition =
+    (params.excludeServiceAccountIds?.length ?? 0) === 0
+      ? sql`TRUE`
+      : sql`(kind <> 'service_account' OR id <> ALL(${toPgUuidArray(params.excludeServiceAccountIds ?? [])}::uuid[]))`;
   const userMemberOfGroupCondition =
     (params.userMemberOfGroupIds?.length ?? 0) === 0
       ? sql`TRUE`
@@ -428,6 +452,7 @@ export const list = async (params: EntityListParams): Promise<{
     AND (${params.profile ?? null}::text IS NULL OR kind = 'group' OR profile = ${params.profile ?? null})
     AND ${excludeUserCondition}
     AND ${excludeGroupCondition}
+    AND ${excludeServiceAccountCondition}
     AND ${userMemberOfGroupCondition}
     AND (
       ${pattern}::text IS NULL
@@ -444,6 +469,14 @@ export const list = async (params: EntityListParams): Promise<{
         kind = 'group' AND (
           LOWER(name) LIKE ${pattern} ESCAPE '\\'
           OR LOWER(COALESCE(description, '')) LIKE ${pattern} ESCAPE '\\'
+        )
+      )
+      OR (
+        kind = 'service_account' AND (
+          LOWER(name) LIKE ${pattern} ESCAPE '\\'
+          OR LOWER(COALESCE(app_id, '')) LIKE ${pattern} ESCAPE '\\'
+          OR LOWER(COALESCE(resource_type, '')) LIKE ${pattern} ESCAPE '\\'
+          OR LOWER(COALESCE(resource_id, '')) LIKE ${pattern} ESCAPE '\\'
         )
       )
     )
@@ -476,6 +509,14 @@ export const list = async (params: EntityListParams): Promise<{
                 AND eg.group_name = ANY(${groupsAdminLiteral}::text[])
             )
           END AS effective_admin,
+          NULL::text AS service_account_kind,
+          NULL::text AS status,
+          NULL::uuid AS delegated_user_id,
+          NULL::text AS app_id,
+          NULL::text AS resource_type,
+          NULL::text AS resource_id,
+          NULL::uuid AS created_by,
+          NULL::timestamptz AS created_at,
           LOWER(COALESCE(NULLIF(u.display_name, ''), NULLIF(u.mail, ''), u.uid)) AS sort_label
         ${spec.userFrom}
         WHERE ${spec.userWhere}
@@ -496,14 +537,54 @@ export const list = async (params: EntityListParams): Promise<{
           g.description,
           g.gid_number,
           NULL::boolean AS effective_admin,
+          NULL::text AS service_account_kind,
+          NULL::text AS status,
+          NULL::uuid AS delegated_user_id,
+          NULL::text AS app_id,
+          NULL::text AS resource_type,
+          NULL::text AS resource_id,
+          NULL::uuid AS created_by,
+          NULL::timestamptz AS created_at,
           LOWER(g.name) AS sort_label
         ${spec.groupFrom}
         WHERE ${spec.groupWhere}
+      ),
+      service_account_rows AS (
+        SELECT
+          'service_account'::text AS kind,
+          NULL::boolean AS direct,
+          sa.id,
+          NULL::text AS provider,
+          NULL::text AS profile,
+          NULL::text AS uid,
+          NULL::text AS given_name,
+          NULL::text AS sn,
+          NULL::text AS display_name,
+          NULL::text AS mail,
+          sa.name,
+          CASE
+            WHEN sa.kind = 'user_delegated' THEN 'Personal automation keys'
+            ELSE CONCAT_WS(' · ', sa.app_id, sa.resource_type, sa.resource_id)
+          END AS description,
+          NULL::int AS gid_number,
+          NULL::boolean AS effective_admin,
+          sa.kind AS service_account_kind,
+          sa.status,
+          sa.delegated_user_id,
+          sa.app_id,
+          sa.resource_type,
+          sa.resource_id,
+          sa.created_by,
+          sa.created_at,
+          LOWER(sa.name) AS sort_label
+        FROM auth.service_accounts sa
       ),
       entity_rows AS (
         SELECT * FROM user_rows
         UNION ALL
         SELECT * FROM group_rows
+        UNION ALL
+        SELECT * FROM service_account_rows
       )
     SELECT *, COUNT(*) OVER() AS total
     FROM entity_rows

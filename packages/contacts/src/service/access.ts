@@ -17,6 +17,7 @@ type DbBookAccess = {
   access_id: string;
   user_id: string | null;
   group_id: string | null;
+  service_account_id: string | null;
   authenticated_only: boolean;
   permission: PermissionLevel;
   created_at: Date;
@@ -59,6 +60,7 @@ export const listBookAccess = async (bookId: string): Promise<AccessEntry[]> => 
       a.id AS access_id,
       a.user_id,
       a.group_id,
+      a.service_account_id,
       a.authenticated_only,
       a.permission,
       a.created_at
@@ -67,9 +69,10 @@ export const listBookAccess = async (bookId: string): Promise<AccessEntry[]> => 
     WHERE ba.book_id = ${bookId}::uuid
     ORDER BY
       CASE
-        WHEN a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false THEN 4
+        WHEN a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false THEN 4
         WHEN a.authenticated_only THEN 3
         WHEN a.group_id IS NOT NULL THEN 2
+        WHEN a.service_account_id IS NOT NULL THEN 2
         ELSE 1
       END,
       a.created_at
@@ -81,6 +84,8 @@ export const listBookAccess = async (bookId: string): Promise<AccessEntry[]> => 
       ? { type: "user" as const, userId: row.user_id }
       : row.group_id
         ? { type: "group" as const, groupId: row.group_id }
+        : row.service_account_id
+          ? { type: "service_account" as const, serviceAccountId: row.service_account_id }
         : row.authenticated_only
           ? { type: "authenticated" as const }
           : { type: "public" as const },
@@ -119,6 +124,9 @@ export const listBookAccessPaginated = async (config: {
     if (entry.principal.type === "group") {
       return entry.principal.groupId.toLowerCase().includes(query);
     }
+    if (entry.principal.type === "service_account") {
+      return entry.principal.serviceAccountId.toLowerCase().includes(query);
+    }
     if (entry.principal.type === "authenticated") {
       return "all signed-in users authenticated".includes(query);
     }
@@ -153,6 +161,13 @@ export const grantBookAccess = async (config: {
       return true;
     }
     if (config.principal.type === "group" && entry.principal.type === "group" && config.principal.groupId === entry.principal.groupId) {
+      return true;
+    }
+    if (
+      config.principal.type === "service_account" &&
+      entry.principal.type === "service_account" &&
+      config.principal.serviceAccountId === entry.principal.serviceAccountId
+    ) {
       return true;
     }
     return false;

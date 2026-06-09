@@ -1,6 +1,6 @@
 import { EntitySearch, FilterChip, prompts, type EntitySearchPrincipal, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
-import type { AuditOutcome } from "@valentinkolb/cloud/services";
+import type { AuditActionGroup, AuditOutcome } from "@valentinkolb/cloud/services";
 import { ACTION_OPTIONS } from "./audit-labels";
 
 type AuditFiltersProps = {
@@ -8,6 +8,8 @@ type AuditFiltersProps = {
   actor: string;
   target: string;
   action: string;
+  actionGroup: "" | AuditActionGroup;
+  serviceAccountId: string;
   outcome: "" | AuditOutcome;
   provider: "" | "local" | "ipa";
   days: number;
@@ -42,12 +44,20 @@ const PROVIDER_OPTIONS: FilterChipSection[] = [
   },
 ];
 
+const ACTION_GROUP_OPTIONS: FilterChipSection[] = [
+  {
+    options: [{ value: "service_accounts", label: "Service accounts", icon: "ti ti-user-key" }],
+  },
+];
+
 const buildAuditUrl = (params: AuditFiltersProps & { page?: number }) => {
   const query = new URLSearchParams();
   if (params.search.trim()) query.set("search", params.search.trim());
   if (params.actor.trim()) query.set("actor", params.actor.trim());
   if (params.target.trim()) query.set("target", params.target.trim());
   if (params.action.trim()) query.set("action", params.action.trim());
+  if (params.actionGroup) query.set("actionGroup", params.actionGroup);
+  if (params.serviceAccountId.trim()) query.set("serviceAccountId", params.serviceAccountId.trim());
   if (params.outcome) query.set("outcome", params.outcome);
   if (params.provider) query.set("provider", params.provider);
   if (params.days !== 30) query.set("days", String(params.days));
@@ -91,6 +101,26 @@ export default function AuditFilters(props: AuditFiltersProps) {
     );
   };
 
+  const selectServiceAccount = () => {
+    prompts.dialog<void>(
+      (close) => (
+        <EntitySearch
+          includeServiceAccounts
+          placeholder="Search service accounts..."
+          onSelect={(principal: EntitySearchPrincipal) => {
+            if (principal.type !== "service_account") return;
+            close();
+            navigate({ actionGroup: "service_accounts", serviceAccountId: principal.serviceAccountId });
+          }}
+        />
+      ),
+      {
+        title: "Filter by service account",
+        icon: "ti ti-user-key",
+      },
+    );
+  };
+
   return (
     <div class="flex flex-wrap items-center gap-2">
       <FilterChip
@@ -129,6 +159,15 @@ export default function AuditFilters(props: AuditFiltersProps) {
         isActive={props.action.length > 0}
         defaultValue={[]}
       />
+      <FilterChip
+        label="Area"
+        icon="ti ti-category"
+        options={ACTION_GROUP_OPTIONS}
+        value={props.actionGroup ? [props.actionGroup] : []}
+        onChange={(value) => navigate({ actionGroup: (value[0] as AuditFiltersProps["actionGroup"] | undefined) ?? "" })}
+        isActive={props.actionGroup.length > 0}
+        defaultValue={[]}
+      />
       <button type="button" class={`btn-input btn-input-sm ${props.actor ? "btn-input-active" : ""}`} onClick={() => selectEntity("actor")}>
         <i class="ti ti-user-search" />
         <span>Actor</span>
@@ -136,6 +175,14 @@ export default function AuditFilters(props: AuditFiltersProps) {
       <button type="button" class={`btn-input btn-input-sm ${props.target ? "btn-input-active" : ""}`} onClick={() => selectEntity("target")}>
         <i class="ti ti-target" />
         <span>Target</span>
+      </button>
+      <button
+        type="button"
+        class={`btn-input btn-input-sm ${props.serviceAccountId ? "btn-input-active" : ""}`}
+        onClick={selectServiceAccount}
+      >
+        <i class="ti ti-user-key" />
+        <span>Service account</span>
       </button>
     </div>
   );

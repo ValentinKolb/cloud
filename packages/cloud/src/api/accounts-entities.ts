@@ -32,6 +32,7 @@ const QuerySchema = z
     profile: UserProfileSchema.optional(),
     exclude_user_ids: z.string().optional(),
     exclude_group_ids: z.string().optional(),
+    exclude_service_account_ids: z.string().optional(),
     user_member_of_group_ids: z.string().optional(),
     member_of_group_id: z.uuid().optional(),
     manager_of_group_id: z.uuid().optional(),
@@ -102,6 +103,8 @@ const app = new Hono()
       if (!excludeUserIds.ok) return respond(c, fail(err.badInput(excludeUserIds.message)));
       const excludeGroupIds = parseUuidList(query.exclude_group_ids, "exclude_group_ids");
       if (!excludeGroupIds.ok) return respond(c, fail(err.badInput(excludeGroupIds.message)));
+      const excludeServiceAccountIds = parseUuidList(query.exclude_service_account_ids, "exclude_service_account_ids");
+      if (!excludeServiceAccountIds.ok) return respond(c, fail(err.badInput(excludeServiceAccountIds.message)));
       const userMemberOfGroupIds = parseUuidList(query.user_member_of_group_ids, "user_member_of_group_ids");
       if (!userMemberOfGroupIds.ok) return respond(c, fail(err.badInput(userMemberOfGroupIds.message)));
 
@@ -113,6 +116,7 @@ const app = new Hono()
         profile: query.profile,
         excludeUserIds: excludeUserIds.value,
         excludeGroupIds: excludeGroupIds.value,
+        excludeServiceAccountIds: excludeServiceAccountIds.value,
         userMemberOfGroupIds: userMemberOfGroupIds.value,
         memberOfGroupId: query.member_of_group_id,
         managerOfGroupId: query.manager_of_group_id,

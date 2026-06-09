@@ -17,14 +17,16 @@ type DbWorkspaceAccess = {
   access_id: string;
   user_id: string | null;
   group_id: string | null;
+  service_account_id: string | null;
   authenticated_only: boolean;
   permission: PermissionLevel;
   created_at: Date;
 };
 
-const principalFromRow = (row: Pick<DbWorkspaceAccess, "user_id" | "group_id" | "authenticated_only">): Principal => {
+const principalFromRow = (row: Pick<DbWorkspaceAccess, "user_id" | "group_id" | "service_account_id" | "authenticated_only">): Principal => {
   if (row.user_id) return { type: "user", userId: row.user_id };
   if (row.group_id) return { type: "group", groupId: row.group_id };
+  if (row.service_account_id) return { type: "service_account", serviceAccountId: row.service_account_id };
   if (row.authenticated_only) return { type: "authenticated" };
   return { type: "public" };
 };
@@ -33,6 +35,7 @@ const isSamePrincipal = (left: Principal, right: Principal): boolean => {
   if (left.type !== right.type) return false;
   if (left.type === "user" && right.type === "user") return left.userId === right.userId;
   if (left.type === "group" && right.type === "group") return left.groupId === right.groupId;
+  if (left.type === "service_account" && right.type === "service_account") return left.serviceAccountId === right.serviceAccountId;
   return true;
 };
 
@@ -65,6 +68,7 @@ export const listWorkspaceAccess = async (workspaceId: string): Promise<AccessEn
       a.id AS access_id,
       a.user_id,
       a.group_id,
+      a.service_account_id,
       a.authenticated_only,
       a.permission,
       a.created_at
@@ -73,9 +77,10 @@ export const listWorkspaceAccess = async (workspaceId: string): Promise<AccessEn
     WHERE wa.workspace_id = ${workspaceId}::uuid
     ORDER BY
       CASE
-        WHEN a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false THEN 4
+        WHEN a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false THEN 4
         WHEN a.authenticated_only THEN 3
         WHEN a.group_id IS NOT NULL THEN 2
+        WHEN a.service_account_id IS NOT NULL THEN 2
         ELSE 1
       END,
       a.created_at
@@ -110,6 +115,7 @@ export const listWorkspaceAccessPaginated = async (config: {
     if ((entry.displayName ?? "").toLowerCase().includes(query)) return true;
     if (entry.principal.type === "user") return entry.principal.userId.toLowerCase().includes(query);
     if (entry.principal.type === "group") return entry.principal.groupId.toLowerCase().includes(query);
+    if (entry.principal.type === "service_account") return entry.principal.serviceAccountId.toLowerCase().includes(query);
     if (entry.principal.type === "authenticated") return "all signed-in users authenticated".includes(query);
     return "public".includes(query);
   });
@@ -305,6 +311,7 @@ export const listTemplateAccess = async (config: { workspaceId: string; template
       a.id AS access_id,
       a.user_id,
       a.group_id,
+      a.service_account_id,
       a.authenticated_only,
       a.permission,
       a.created_at
@@ -316,9 +323,10 @@ export const listTemplateAccess = async (config: { workspaceId: string; template
       AND t.archived_at IS NULL
     ORDER BY
       CASE
-        WHEN a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false THEN 4
+        WHEN a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false THEN 4
         WHEN a.authenticated_only THEN 3
         WHEN a.group_id IS NOT NULL THEN 2
+        WHEN a.service_account_id IS NOT NULL THEN 2
         ELSE 1
       END,
       a.created_at
@@ -354,6 +362,7 @@ export const listTemplateAccessPaginated = async (config: {
     if ((entry.displayName ?? "").toLowerCase().includes(query)) return true;
     if (entry.principal.type === "user") return entry.principal.userId.toLowerCase().includes(query);
     if (entry.principal.type === "group") return entry.principal.groupId.toLowerCase().includes(query);
+    if (entry.principal.type === "service_account") return entry.principal.serviceAccountId.toLowerCase().includes(query);
     if (entry.principal.type === "authenticated") return "all signed-in users authenticated".includes(query);
     return "public".includes(query);
   });

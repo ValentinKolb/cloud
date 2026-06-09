@@ -258,8 +258,12 @@ const orderFormulasByDeps = (
  * Inter-formula references evaluate in dependency order; cycles surface
  * as #CYCLE rather than silent wrong values.
  */
-export const enrichRecordsWithFormulas = (records: GridRecord[], fields: Field[], options: FormulaRuntimeContext = {}): GridRecord[] => {
-  const formulaFields = fields.filter((f) => !f.deletedAt && f.type === "formula");
+export const enrichRecordsWithFormulas = (
+  records: GridRecord[],
+  fields: Field[],
+  options: FormulaRuntimeContext & { skipFormulaFieldIds?: ReadonlySet<string> } = {},
+): GridRecord[] => {
+  const formulaFields = fields.filter((f) => !f.deletedAt && f.type === "formula" && !options.skipFormulaFieldIds?.has(f.id));
   if (formulaFields.length === 0) return records;
 
   // slug → fieldId map for #slug references in formula expressions.

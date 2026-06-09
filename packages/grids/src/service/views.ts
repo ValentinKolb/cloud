@@ -153,7 +153,7 @@ export const listForTable = async (params: {
           END
           FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
           WHERE va.view_id = v.id
-            AND a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE
+            AND a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = FALSE
         ) AS public_rank
       FROM grids.views v
       JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL

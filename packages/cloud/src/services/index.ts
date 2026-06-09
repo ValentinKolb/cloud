@@ -8,7 +8,7 @@ export { toPgTextArray, toPgUuidArray, escapeLikePattern, isUniqueViolation } fr
 export { logger, logging } from "./logging";
 export type { LogEntry } from "./logging";
 export { audit } from "./audit";
-export type { AuditActor, AuditEvent, AuditListFilter, AuditOutcome, AuditRecordParams, AuditTarget } from "./audit";
+export type { AuditActionGroup, AuditActor, AuditEvent, AuditListFilter, AuditOutcome, AuditRecordParams, AuditTarget } from "./audit";
 
 export {
   GATEWAY_TELEMETRY_TENANT,
@@ -32,6 +32,17 @@ export type {
 } from "./notifications";
 
 export { session } from "./session";
+export { serviceAccounts } from "./service-accounts";
+export type { ServiceAccount, ServiceAccountKind, ServiceAccountStatus } from "./service-accounts";
+export { serviceAccountCredentials } from "./service-account-credentials";
+export type {
+  AuthenticatedServiceAccountCredential,
+  ServiceAccountCredential,
+  ServiceAccountCredentialKind,
+  ServiceAccountCredentialOverview,
+  ServiceAccountCredentialOwner,
+  ServiceAccountCredentialStatus,
+} from "./service-account-credentials";
 
 export { accountLifecycle } from "./account-lifecycle";
 export type { AccountLifecycleService } from "./account-lifecycle";

@@ -1,4 +1,6 @@
 import { sql } from "bun";
+import type { DateContext } from "@valentinkolb/stdlib";
+import { compileFormulaSourceToSql, type FormulaSqlType } from "./formula-sql-compiler";
 import { storageOf } from "./field-storage";
 import { get as getField } from "./fields";
 import { liveRecordParentJoinSql } from "./parent-checks";
@@ -27,19 +29,28 @@ import type { Field } from "./types";
  * each subquery a tiny index scan.
  */
 
-type ComputedProjection = {
+export type ComputedProjection = {
   /** The lookup/rollup field whose value this projection produces. */
   fieldId: string;
   /** SQL alias under which the value is exposed in the SELECT list. */
   alias: string;
   /** Effective output type — used to normalize bun-sql values into JSON-safe record.data. */
-  outputType: "text" | "numeric" | "int" | "date" | "timestamptz" | "boolean" | "json";
+  outputType: "text" | "numeric" | "decimal" | "int" | "date" | "timestamptz" | "boolean" | "json";
   /** The full SQL fragment to embed AFTER `r.*,` in the SELECT list. */
   fragment: any;
 };
 
 const lookupAlias = (fieldId: string): string => `lkp_${fieldId.replace(/-/g, "")}`;
 const rollupAlias = (fieldId: string): string => `rlp_${fieldId.replace(/-/g, "")}`;
+const formulaAlias = (fieldId: string): string => `fml_${fieldId.replace(/-/g, "")}`;
+
+const outputTypeForFormula = (type: FormulaSqlType): ComputedProjection["outputType"] => {
+  if (type === "numeric") return "decimal";
+  if (type === "date") return "date";
+  if (type === "datetime") return "timestamptz";
+  if (type === "boolean") return "boolean";
+  return "text";
+};
 
 /**
  * Walks the fields list and emits a projection per lookup/rollup that
@@ -193,6 +204,38 @@ export const buildComputedProjections = async (fields: Field[]): Promise<Compute
 };
 
 /**
+ * Emits SQL projections for formula fields that can be represented from
+ * the current record row alone. Non-projectable formulas are skipped
+ * deliberately; the read path keeps the JS evaluator as a compatibility
+ * fallback for formulas that reference relations, lookup/rollup values,
+ * select arrays, files, or other formula fields.
+ */
+export const buildFormulaSqlProjections = (fields: Field[], options: { dateConfig?: DateContext; now?: Date } = {}): ComputedProjection[] => {
+  const out: ComputedProjection[] = [];
+  const now = options.now ?? new Date();
+  for (const field of fields) {
+    if (field.deletedAt || field.type !== "formula") continue;
+    const expression = (field.config as { expression?: unknown }).expression;
+    if (typeof expression !== "string" || expression.trim().length === 0) continue;
+    const compiled = compileFormulaSourceToSql(expression, {
+      fields,
+      recordAlias: "r",
+      dateConfig: options.dateConfig,
+      now,
+    });
+    if (!compiled.ok) continue;
+    const alias = formulaAlias(field.id);
+    out.push({
+      fieldId: field.id,
+      alias,
+      outputType: outputTypeForFormula(compiled.expression.type),
+      fragment: sql`${compiled.expression.sql} AS ${sql.unsafe(alias)}`,
+    });
+  }
+  return out;
+};
+
+/**
  * Reads the computed-column values from a result row and merges them
  * into `record.data` under the lookup/rollup field's id. After this,
  * downstream code can treat the value as if it lived in JSONB —
@@ -217,6 +260,10 @@ export const applyComputedProjections = (
       // bun-sql returns numeric/bigint values as JS numbers or strings
       // depending on size. Coerce to number for output-types we know
       // are numeric so the JSON payload is consistent.
+      if (p.outputType === "decimal") {
+        rec.data[p.fieldId] = String(raw);
+        continue;
+      }
       if (p.outputType === "numeric" || p.outputType === "int") {
         const n = typeof raw === "number" ? raw : Number(raw as string);
         rec.data[p.fieldId] = Number.isFinite(n) ? n : null;

@@ -47,6 +47,8 @@ const parseBearer = (header: string | undefined): string | null => {
   return match?.[1] ?? null;
 };
 
+const isCloudApiToken = (token: string | null): boolean => Boolean(token?.startsWith("cld_"));
+
 export const session = {
   /**
    * Get session token from cookie or Authorization header.
@@ -58,8 +60,10 @@ export const session = {
   getToken: (c: Context): string | null => {
     const cookie = getCookie(c, "session_token");
     const bearer = parseBearer(c.req.header("Authorization"));
-    return cookie || bearer || null;
+    return cookie || (isCloudApiToken(bearer) ? null : bearer) || null;
   },
+
+  getBearerToken: (c: Context): string | null => parseBearer(c.req.header("Authorization")),
 
   parseToken,
 

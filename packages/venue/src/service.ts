@@ -324,12 +324,13 @@ const listAccess = async (venueId: string): Promise<AccessEntry[]> => {
       access_id: string;
       user_id: string | null;
       group_id: string | null;
+      service_account_id: string | null;
       authenticated_only: boolean;
       permission: PermissionLevel;
       created_at: Date;
     }[]
   >`
-    SELECT a.id AS access_id, a.user_id, a.group_id, a.authenticated_only, a.permission, a.created_at
+    SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only, a.permission, a.created_at
     FROM venue.venue_access va
     JOIN auth.access a ON a.id = va.access_id
     WHERE va.venue_id = ${venueId}::uuid
@@ -341,11 +342,13 @@ const listAccess = async (venueId: string): Promise<AccessEntry[]> => {
       id: row.access_id,
       principal: row.user_id
         ? { type: "user", userId: row.user_id }
-        : row.group_id
-          ? { type: "group", groupId: row.group_id }
-          : row.authenticated_only
-            ? { type: "authenticated" }
-            : { type: "public" },
+      : row.group_id
+        ? { type: "group", groupId: row.group_id }
+        : row.service_account_id
+          ? { type: "service_account", serviceAccountId: row.service_account_id }
+        : row.authenticated_only
+          ? { type: "authenticated" }
+          : { type: "public" },
       permission: row.permission,
       createdAt: row.created_at.toISOString(),
     })),

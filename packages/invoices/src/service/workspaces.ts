@@ -54,7 +54,7 @@ export const list = async (config: { actor: InvoiceActor }): Promise<InvoiceWork
               a.user_id = ${config.actor.userId}::uuid
               OR a.group_id = ANY(${toPgUuidArray(config.actor.userGroups)}::uuid[])
               OR (${config.actor.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-              OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+              OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
             )
         )
         OR EXISTS (
@@ -69,7 +69,7 @@ export const list = async (config: { actor: InvoiceActor }): Promise<InvoiceWork
               a.user_id = ${config.actor.userId}::uuid
               OR a.group_id = ANY(${toPgUuidArray(config.actor.userGroups)}::uuid[])
               OR (${config.actor.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-              OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+              OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
             )
         )
       )
@@ -94,7 +94,7 @@ const canAccessThroughTemplate = async (config: { workspaceId: string; actor: In
           a.user_id = ${config.actor.userId}::uuid
           OR a.group_id = ANY(${toPgUuidArray(config.actor.userGroups)}::uuid[])
           OR (${config.actor.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
         )
     ) AS allowed
   `;

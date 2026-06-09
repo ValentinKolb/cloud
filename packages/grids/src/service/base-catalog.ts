@@ -119,7 +119,7 @@ const principalWhere = (principal: "user" | "group" | "authenticated" | "public"
       ? sql`a.group_id = ANY(${groups}::uuid[])`
       : principal === "authenticated"
         ? sql`a.authenticated_only = TRUE AND ${userId}::uuid IS NOT NULL`
-        : sql`a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE`;
+        : sql`a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = FALSE`;
 
 const rankFor = (
   tableName: string,

@@ -26,6 +26,9 @@ export const ACTION_LABEL: Record<string, string> = {
   "accounts.request.create": "Create request",
   "accounts.request.withdraw": "Withdraw request",
   "accounts.request.deny": "Deny request",
+  "service_account_credential.create": "Create API key",
+  "service_account_credential.revoke": "Revoke API key",
+  "service_account_credential.authenticate": "Use API key",
 };
 
 export const actionLabel = (action: string): string => ACTION_LABEL[action] ?? action;
@@ -69,6 +72,14 @@ export const ACTION_OPTIONS: FilterChipSection[] = [
       { value: "accounts.request.create", label: ACTION_LABEL["accounts.request.create"]!, icon: "ti ti-inbox" },
       { value: "accounts.request.withdraw", label: ACTION_LABEL["accounts.request.withdraw"]!, icon: "ti ti-arrow-back-up" },
       { value: "accounts.request.deny", label: ACTION_LABEL["accounts.request.deny"]!, icon: "ti ti-ban" },
+    ],
+  },
+  {
+    label: "Service Accounts",
+    options: [
+      { value: "service_account_credential.create", label: ACTION_LABEL["service_account_credential.create"]!, icon: "ti ti-key" },
+      { value: "service_account_credential.revoke", label: ACTION_LABEL["service_account_credential.revoke"]!, icon: "ti ti-key-off" },
+      { value: "service_account_credential.authenticate", label: ACTION_LABEL["service_account_credential.authenticate"]!, icon: "ti ti-login" },
     ],
   },
 ];

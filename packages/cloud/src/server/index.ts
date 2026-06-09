@@ -21,6 +21,7 @@ export {
 } from "./middleware";
 export type {
   AccessEntry,
+  AccessSubject,
   AccessUser,
   AccessUserSource,
   GeoPlace,
@@ -35,6 +36,7 @@ export type {
   ServiceError,
   ServiceErrorCode,
 } from "./services";
+export type { RequestActor, ServiceAccountRequestActor, UserRequestActor } from "./middleware";
 
 export {
   createAccess,

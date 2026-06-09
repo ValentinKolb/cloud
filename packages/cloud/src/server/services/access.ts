@@ -18,13 +18,18 @@ export const hasPermission = (userLevel: PermissionLevel, requiredLevel: Permiss
 // Principal Types
 // ==========================
 
-export type PrincipalType = "user" | "group" | "authenticated" | "public";
+export type PrincipalType = "user" | "group" | "service_account" | "authenticated" | "public";
 
 export type Principal =
   | { type: "user"; userId: string }
   | { type: "group"; groupId: string }
+  | { type: "service_account"; serviceAccountId: string }
   | { type: "authenticated" }
   | { type: "public" };
+
+export type AccessSubject =
+  | { type: "user"; userId: string; delegatedByServiceAccountId?: string | null }
+  | { type: "service_account"; serviceAccountId: string };
 
 // ==========================
 // Access Entry Types
@@ -60,6 +65,7 @@ type DbAccess = {
   id: string;
   user_id: string | null;
   group_id: string | null;
+  service_account_id: string | null;
   authenticated_only: boolean;
   permission: PermissionLevel;
   created_at: Date;
@@ -104,6 +110,7 @@ const PERMISSION_RANK: Record<PermissionLevel, number> = {
 const principalFromDb = (row: DbAccess): Principal => {
   if (row.user_id) return { type: "user", userId: row.user_id };
   if (row.group_id) return { type: "group", groupId: row.group_id };
+  if (row.service_account_id) return { type: "service_account", serviceAccountId: row.service_account_id };
   if (row.authenticated_only) return { type: "authenticated" };
   return { type: "public" };
 };
@@ -131,6 +138,7 @@ export const createAccess = async (params: { principal: Principal; permission: P
 
   let userId: string | null = null;
   let groupId: string | null = null;
+  let serviceAccountId: string | null = null;
   let authenticatedOnly = false;
 
   if (principal.type === "user") {
@@ -151,14 +159,22 @@ export const createAccess = async (params: { principal: Principal; permission: P
     if (!group) {
       return fail(err.notFound("Group"));
     }
+  } else if (principal.type === "service_account") {
+    serviceAccountId = principal.serviceAccountId;
+    const [serviceAccount] = await sql<{ id: string }[]>`
+      SELECT id FROM auth.service_accounts WHERE id = ${serviceAccountId}::uuid AND status = 'active'
+    `;
+    if (!serviceAccount) {
+      return fail(err.notFound("Service account"));
+    }
   } else if (principal.type === "authenticated") {
     authenticatedOnly = true;
   }
   // public: user/group null, authenticated_only false
 
   const [row] = await sql<{ id: string }[]>`
-    INSERT INTO auth.access (user_id, group_id, authenticated_only, permission)
-    VALUES (${userId}::uuid, ${groupId}::uuid, ${authenticatedOnly}, ${permission}::auth.permission_level)
+    INSERT INTO auth.access (user_id, group_id, service_account_id, authenticated_only, permission)
+    VALUES (${userId}::uuid, ${groupId}::uuid, ${serviceAccountId}::uuid, ${authenticatedOnly}, ${permission}::auth.permission_level)
     RETURNING id
   `;
 
@@ -174,7 +190,7 @@ export const createAccess = async (params: { principal: Principal; permission: P
  */
 export const getAccess = async (params: { id: string }): Promise<AccessEntry | null> => {
   const [row] = await sql<DbAccess[]>`
-    SELECT id, user_id, group_id, authenticated_only, permission, created_at
+    SELECT id, user_id, group_id, service_account_id, authenticated_only, permission, created_at
     FROM auth.access
     WHERE id = ${params.id}::uuid
   `;
@@ -244,10 +260,12 @@ export const getEffectivePermission = async (params: {
   accessIds: string[];
   userId: string | null;
   userGroups: string[];
+  serviceAccountId?: string | null;
 }): Promise<PermissionLevel> => {
   const accessIds = params.accessIds ?? [];
   const userId = params.userId;
   const userGroups = params.userGroups ?? [];
+  const serviceAccountId = params.serviceAccountId ?? null;
 
   if (accessIds.length === 0) return "none";
 
@@ -259,8 +277,9 @@ export const getEffectivePermission = async (params: {
       AND (
         user_id = ${userId}::uuid
         OR group_id = ANY(${toPgUuidArray(userGroups)}::uuid[])
+        OR service_account_id = ${serviceAccountId}::uuid
         OR (${userId}::uuid IS NOT NULL AND authenticated_only = true)
-        OR (user_id IS NULL AND group_id IS NULL AND authenticated_only = false)
+        OR (user_id IS NULL AND group_id IS NULL AND service_account_id IS NULL AND authenticated_only = false)
       )
     ORDER BY
       CASE permission
@@ -452,6 +471,10 @@ export const resolveDisplayNames = async (entries: AccessEntry[]): Promise<Acces
     .filter((e) => e.principal.type === "group")
     .map((e) => (e.principal as { type: "group"; groupId: string }).groupId);
 
+  const serviceAccountIds = entries
+    .filter((e) => e.principal.type === "service_account")
+    .map((e) => (e.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId);
+
   // Fetch user display names
   const userNames = new Map<string, string>();
   if (userIds.length > 0) {
@@ -477,6 +500,18 @@ export const resolveDisplayNames = async (entries: AccessEntry[]): Promise<Acces
     }
   }
 
+  const serviceAccountNames = new Map<string, string>();
+  if (serviceAccountIds.length > 0) {
+    const serviceAccounts = await sql<{ id: string; name: string }[]>`
+      SELECT id, name
+      FROM auth.service_accounts
+      WHERE id = ANY(${toPgUuidArray(serviceAccountIds)}::uuid[])
+    `;
+    for (const serviceAccount of serviceAccounts) {
+      serviceAccountNames.set(serviceAccount.id, serviceAccount.name);
+    }
+  }
+
   return entries.map((entry) => {
     let displayName: string;
     switch (entry.principal.type) {
@@ -485,6 +520,9 @@ export const resolveDisplayNames = async (entries: AccessEntry[]): Promise<Acces
         break;
       case "group":
         displayName = groupNames.get(entry.principal.groupId) ?? "Unknown Group";
+        break;
+      case "service_account":
+        displayName = serviceAccountNames.get(entry.principal.serviceAccountId) ?? "Unknown Service Account";
         break;
       case "authenticated":
         displayName = "All users (incl. guests)";

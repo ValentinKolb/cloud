@@ -1058,6 +1058,7 @@ export const accountsAppService = {
       profile?: UserProfile;
       excludeUserIds?: string[];
       excludeGroupIds?: string[];
+      excludeServiceAccountIds?: string[];
       userMemberOfGroupIds?: string[];
       memberOfGroupId?: string;
       managerOfGroupId?: string;
@@ -1073,6 +1074,7 @@ export const accountsAppService = {
         profile: config.profile,
         excludeUserIds: config.excludeUserIds,
         excludeGroupIds: config.excludeGroupIds,
+        excludeServiceAccountIds: config.excludeServiceAccountIds,
         userMemberOfGroupIds: config.userMemberOfGroupIds,
         memberOfGroupId: config.memberOfGroupId,
         managerOfGroupId: config.managerOfGroupId,

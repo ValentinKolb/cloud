@@ -3,16 +3,40 @@ import { createMiddleware } from "hono/factory";
 import type { MessageResponse, Role, RoleOrSpecial, User, UserProfile, UserProvider } from "../../contracts/shared";
 import { accounts } from "../../services/accounts";
 import { session } from "../../services/session";
+import { serviceAccountCredentials } from "../../services/service-account-credentials";
+import type { ServiceAccount } from "../../services/service-accounts";
+import type { AccessSubject } from "../services/access";
 
 // ==========================
 // Types
 // ==========================
 
+export type UserRequestActor = {
+  kind: "user";
+  user: User;
+};
+
+export type ServiceAccountRequestActor =
+  | {
+      kind: "service_account";
+      serviceAccount: ServiceAccount;
+      delegatedUser: User;
+    }
+  | {
+      kind: "service_account";
+      serviceAccount: ServiceAccount;
+      delegatedUser: null;
+    };
+
+export type RequestActor = UserRequestActor | ServiceAccountRequestActor;
+
 /** Hono context with authenticated user variables. */
 export type AuthContext = {
   Variables: {
+    actor: RequestActor;
+    accessSubject: AccessSubject;
     user: User;
-    sessionToken: string;
+    sessionToken?: string;
   };
 };
 
@@ -45,17 +69,45 @@ const handleReject = (c: Context, options: RoleOptions, reason: "unauthenticated
   return c.json({ message: "Insufficient permissions" } as MessageResponse, 403);
 };
 
-const loadSessionUser = async (c: Context<AuthContext>): Promise<{ token: string | null; user: User | null }> => {
+const loadAuthenticatedActor = async (c: Context<AuthContext>): Promise<{
+  token: string | null;
+  user: User | null;
+  actor: RequestActor | null;
+}> => {
   const token = session.getToken(c);
   const data = token ? await session.getData(token) : null;
   const user = data ? await accounts.users.get({ id: data.userId }) : null;
 
   if (user && token) {
+    c.set("actor", { kind: "user", user });
+    c.set("accessSubject", { type: "user", userId: user.id });
     c.set("user", user);
     c.set("sessionToken", token);
   }
 
-  return { token, user };
+  if (user) return { token, user, actor: { kind: "user", user } };
+
+  const bearer = session.getBearerToken(c);
+  if (bearer && serviceAccountCredentials.isApiToken(bearer)) {
+    const authResult = await serviceAccountCredentials.authenticateApiToken(bearer);
+    if (!authResult) return { token: null, user: null, actor: null };
+
+    const actor: RequestActor = {
+      kind: "service_account",
+      serviceAccount: authResult.serviceAccount,
+      delegatedUser: authResult.delegatedUser,
+    };
+    c.set("actor", actor);
+    if (authResult.delegatedUser) {
+      c.set("accessSubject", { type: "user", userId: authResult.delegatedUser.id });
+      c.set("user", authResult.delegatedUser);
+    } else {
+      c.set("accessSubject", { type: "service_account", serviceAccountId: authResult.serviceAccount.id });
+    }
+    return { token: null, user: authResult.delegatedUser, actor };
+  }
+
+  return { token: null, user: null, actor: null };
 };
 
 /**
@@ -92,28 +144,32 @@ const requireRole = (...args: (RoleOrSpecial | RoleOptions)[]) => {
   return createMiddleware<AuthContext>(async (c, next) => {
     // "*" = no check at all, pass through (but try to load user)
     if (roles.includes("*")) {
-      await loadSessionUser(c);
+      await loadAuthenticatedActor(c);
       return next();
     }
 
-    const { user } = await loadSessionUser(c);
+    const { user, actor } = await loadAuthenticatedActor(c);
 
     // "anonymous" = must NOT be logged in
     if (roles.includes("anonymous")) {
-      if (user) {
+      if (actor) {
         return handleReject(c, options, "forbidden");
       }
       return next();
     }
 
     // All other roles require authentication
-    if (!user) {
+    if (!actor) {
       return handleReject(c, options, "unauthenticated");
     }
 
     // "authenticated" = any logged-in user
     if (roles.includes("authenticated")) {
       return next();
+    }
+
+    if (!user) {
+      return handleReject(c, options, "forbidden");
     }
 
     // Check if user has at least one required role
@@ -138,7 +194,7 @@ const redirectToLogin: RoleOptions = {
 
 const requireAccount = (options: AccountOptions) =>
   createMiddleware<AuthContext>(async (c, next) => {
-    const { user } = await loadSessionUser(c);
+    const { user } = await loadAuthenticatedActor(c);
 
     if (!user) {
       return handleReject(c, options, "unauthenticated");

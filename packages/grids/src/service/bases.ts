@@ -89,7 +89,7 @@ export const listVisible = async (params: {
           ? sql`a.group_id = ANY(${groups}::uuid[])`
           : principal === "authenticated"
             ? sql`a.authenticated_only = TRUE AND ${params.userId}::uuid IS NOT NULL`
-            : sql`a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE`;
+            : sql`a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = FALSE`;
     return sql`(
       SELECT CASE
         WHEN COUNT(*) = 0 THEN NULL
