@@ -1,7 +1,7 @@
-import { ssr } from "../../config";
-import { getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import SpacesLayoutHelp from "../_components/help/SpacesLayoutHelp";
+import { ssr } from "../../config";
+import SpacesLayoutHelp from "../_components/help/SpacesLayoutHelp.island";
 import SpacesWorkspace from "./_components/workspace/SpacesWorkspace.island";
 import { loadSpacesWorkspaceState } from "./_components/workspace/workspace-state";
 

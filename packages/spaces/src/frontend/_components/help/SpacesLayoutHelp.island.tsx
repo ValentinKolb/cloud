@@ -1,14 +1,5 @@
-import {
-  DocCode,
-  DocConceptGrid,
-  DocInlineCode,
-  DocLead,
-  DocNote,
-  DocPage,
-  DocRows,
-  DocSection,
-} from "@valentinkolb/cloud/ui";
 import { Layout } from "@valentinkolb/cloud/ssr/islands";
+import { DocCode, DocConceptGrid, DocLead, DocNote, DocPage, DocRows, DocSection } from "@valentinkolb/cloud/ui";
 import { highlight } from "@valentinkolb/stdlib";
 import { For } from "solid-js";
 
@@ -52,7 +43,7 @@ const StepList = (props: { items: Step[] }) => (
 const StartTab = () => (
   <DocPage>
     <DocLead>
-      Spaces is for shared work that needs tasks, events, lists, ownership, comments, and lightweight planning. It keeps day-to-day work in
+      Spaces is for shared work that needs tasks, events, lists, assignees, comments, and lightweight planning. It keeps day-to-day work in
       one place without forcing every team into a database model.
     </DocLead>
 
@@ -67,12 +58,12 @@ const StartTab = () => (
           {
             title: "Item",
             icon: "ti-list-details",
-            text: "The basic unit of work. An item can be a task, note, event, or tracked decision.",
+            text: "The basic unit of work. An item is either a task with a deadline or an event with a schedule.",
           },
           {
             title: "Task",
             icon: "ti-checkbox",
-            text: "Work with status, priority, owner, due date, and comments.",
+            text: "Work with status, priority, assignees, deadline, tags, description, and comments.",
           },
           {
             title: "Event",
@@ -82,12 +73,12 @@ const StartTab = () => (
           {
             title: "View",
             icon: "ti-filter",
-            text: "A saved way to see the same items as list, table, Kanban, or calendar.",
+            text: "The current way to see the same items as list, table, Kanban, or calendar.",
           },
           {
             title: "Tags",
             icon: "ti-tags",
-            text: "Lightweight labels for grouping work across owners, dates, and views.",
+            text: "Lightweight labels for grouping work across assignees, deadlines, schedules, and views.",
           },
         ]}
       />
@@ -102,7 +93,7 @@ const StartTab = () => (
           },
           {
             title: "Add real items",
-            text: "Create a few tasks or events before tuning views. Real work shows which statuses, tags, and owners matter.",
+            text: "Create a few tasks or events before tuning views. Real work shows which statuses, tags, and assignees matter.",
           },
           {
             title: "Choose views",
@@ -141,7 +132,7 @@ const ViewsTab = () => (
           {
             title: "Table",
             icon: "ti-table",
-            text: "Best when people compare owners, dates, status, priority, and tags across many items.",
+            text: "Best when people compare assignees, deadlines, status, priority, and tags across many items.",
           },
           {
             title: "Kanban",
@@ -151,7 +142,7 @@ const ViewsTab = () => (
           {
             title: "Calendar",
             icon: "ti-calendar",
-            text: "Best for events, due dates, planning windows, and work that is primarily time-based.",
+            text: "Best for events, deadlines, planning windows, and work that is primarily time-based.",
           },
         ]}
       />
@@ -168,7 +159,7 @@ const ViewsTab = () => (
           {
             title: "Chips",
             icon: "ti-adjustments",
-            text: "Use filter chips for explicit state such as status, tag, priority, owner, or date scope.",
+            text: "Use filter chips for explicit state such as type, status, assignee, priority, deadline, tags, Kanban column, sort, or grouping.",
           },
           {
             title: "URL state",
@@ -179,11 +170,11 @@ const ViewsTab = () => (
       />
     </DocSection>
 
-    <DocSection title="Search examples">
+    <DocSection title="Global search examples">
       <div class="space-y-3">
         <SearchSnippet title="Find task work" code="#task launch checklist" />
         <SearchSnippet title="Find events" code="#event planning" />
-        <SearchSnippet title="Find urgent notes" code="#todo urgent" />
+        <SearchSnippet title="Find urgent todos" code="#todo urgent" />
       </div>
     </DocSection>
   </DocPage>
@@ -205,9 +196,9 @@ const WorkflowTab = () => (
             text: "Use a direct action or noun phrase. The title should be readable in a list without opening the item.",
           },
           {
-            title: "Owner",
+            title: "Assignees",
             icon: "ti-user",
-            text: "Assign one clear owner when the item needs action. Use comments for collaborators.",
+            text: "Assign people when the item needs follow-up. Leave it unassigned when it belongs in a shared queue.",
           },
           {
             title: "Status",
@@ -217,12 +208,12 @@ const WorkflowTab = () => (
           {
             title: "Due date or event time",
             icon: "ti-calendar-time",
-            text: "Use dates when timing changes what people should do next.",
+            text: "Use a deadline for tasks and a schedule for events when timing changes what people should do next.",
           },
           {
             title: "Tags",
             icon: "ti-tags",
-            text: "Use tags for themes that cut across owners and status, such as frontend, legal, blocked, or meeting.",
+            text: "Use tags for themes that cut across assignees and status, such as frontend, legal, blocked, or meeting.",
           },
         ]}
       />
@@ -233,7 +224,7 @@ const WorkflowTab = () => (
         items={[
           {
             title: "Open the right view",
-            text: "Start from Today, Open, Calendar, or the team Kanban view.",
+            text: "Start from list, table, Kanban, calendar, or the filter state that matches the current work.",
           },
           {
             title: "Update status first",
@@ -275,7 +266,7 @@ const SharingTab = () => (
           {
             title: "Admin",
             icon: "ti-tool",
-            text: "Lets a user change space settings, sharing, default views, and structural options.",
+            text: "Lets a user change space metadata, access, tags, statuses, calendar export, and deletion settings.",
           },
           {
             title: "Calendar export",

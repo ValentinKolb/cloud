@@ -1,9 +1,9 @@
-import { ssr } from "../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
-import { spacesService } from "@/service";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { spacesService } from "@/service";
+import { ssr } from "../config";
+import SpacesLayoutHelp from "./_components/help/SpacesLayoutHelp.island";
 import { parseLastSpaceId } from "./[id]/_components/settings/SpaceSettingsStore";
-import SpacesLayoutHelp from "./_components/help/SpacesLayoutHelp";
 import SpacesOverview from "./SpacesOverview.island";
 
 /**
