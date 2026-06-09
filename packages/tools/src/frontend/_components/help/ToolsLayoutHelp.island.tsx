@@ -5,7 +5,7 @@ export default function ToolsLayoutHelp() {
   return (
     <Layout.Help
       id="tools-start"
-      title="Tools"
+      title="Getting Started"
       icon="ti ti-tool"
       description="What the Tools app contains and when tools use the server."
       order={100}

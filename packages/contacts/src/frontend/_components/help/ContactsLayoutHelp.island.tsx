@@ -177,7 +177,7 @@ export default function ContactsLayoutHelp() {
     <>
       <Layout.Help
         id="contacts-start"
-        title="Start: Contacts"
+        title="Getting Started"
         icon="ti ti-address-book"
         description="Contact books, records, tags, and the detail workflow."
         order={100}

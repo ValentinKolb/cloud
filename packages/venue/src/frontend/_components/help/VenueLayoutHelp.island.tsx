@@ -123,7 +123,7 @@ export default function VenueLayoutHelp() {
     <>
       <Layout.Help
         id="venue-start"
-        title="Start: Venues"
+        title="Getting Started"
         icon="ti ti-building-carousel"
         description="Core concepts, setup path, and public page basics."
         order={100}

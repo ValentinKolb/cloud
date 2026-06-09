@@ -5,7 +5,7 @@ export default function DashboardLayoutHelp() {
   return (
     <Layout.Help
       id="dashboard-start"
-      title="Dashboard"
+      title="Customize Dashboard"
       icon="ti ti-dashboard"
       description="Widgets, shortcuts, and dashboard settings."
       order={100}

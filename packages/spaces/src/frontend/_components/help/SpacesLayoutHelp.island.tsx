@@ -293,7 +293,7 @@ export default function SpacesLayoutHelp() {
     <>
       <Layout.Help
         id="spaces-start"
-        title="Start: Spaces"
+        title="Getting Started"
         icon="ti ti-layout-sidebar"
         description="Core concepts and first setup path."
         order={100}
