@@ -240,10 +240,9 @@ token into the same actor model:
 
 OAuth scopes are limiting metadata on the credential. They do not grant
 permissions by themselves; apps must still use `AccessSubject` plus their
-normal resource grants.
-
-MCP protected-resource metadata and CLI browser login are planned on top of
-this OAuth token model, but are not current runtime behavior.
+normal resource grants. The same bearer-token model can support future
+non-browser integrations such as CLI or MCP, but those flows are not specified
+or planned here.
 
 ## RequestActor and AccessSubject
 
