@@ -120,7 +120,7 @@ const formatIngestCounts = (counts: { metrics: number; events: number; states: n
 
 const plural = (count: number, singular: string, pluralLabel = `${singular}s`) => `${count} ${count === 1 ? singular : pluralLabel}`;
 const suggestionTagClass =
-  "inline-flex h-7 max-w-full items-center gap-1.5 rounded-full bg-zinc-100/80 px-2.5 text-xs font-medium text-secondary transition hover:bg-blue-50 hover:text-blue-700 dark:bg-zinc-900/70 dark:hover:bg-blue-950/40 dark:hover:text-blue-200";
+  "chip max-w-full cursor-pointer border-0 transition hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900 dark:hover:text-blue-200";
 
 const parseScrapeInterval = (value: string | null | undefined): number => {
   const parsed = Number(value?.trim() || "60");
@@ -401,6 +401,7 @@ export default function PulseWorkspace(props: Props) {
   const [points, setPoints] = createSignal<MetricQueryPoint[]>([]);
   const [explorerEvents, setExplorerEvents] = createSignal<PulseRecordedEvent[]>([]);
   const [explorerStates, setExplorerStates] = createSignal<PulseCurrentState[]>([]);
+  const [queryRunning, setQueryRunning] = createSignal(false);
   const [panelPoints, setPanelPoints] = createSignal<Record<string, MetricQueryPoint[]>>({});
   const [publicLink, setPublicLink] = createSignal("");
   const [httpIngestToken, setHttpIngestToken] = createSignal("");
@@ -408,6 +409,8 @@ export default function PulseWorkspace(props: Props) {
   const [origin, setOrigin] = createSignal("");
   const [loading, setLoading] = createSignal(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = createSignal(false);
+  let queryRunId = 0;
+  let lastAutoRunQuery = "";
 
   const selectedBase = createMemo(() => bases().find((base) => base.id === selectedBaseId()) ?? null);
   const selectedDashboard = createMemo(
@@ -1346,16 +1349,18 @@ export default function PulseWorkspace(props: Props) {
     writeQueryHistory(baseId, next);
   };
 
-  const runTextQuery = async () => {
+  const runTextQuery = async (options: { query?: string; manual?: boolean; remember?: boolean } = {}) => {
     const baseId = selectedBaseId();
-    const query = currentExplorerQuery();
+    const query = options.query?.trim() || currentExplorerQuery();
     if (!baseId || !query) return;
-    setLoading(true);
+    const runId = ++queryRunId;
+    setQueryRunning(true);
     try {
       const result = await jsonFetch<MetricTextQueryResult>("/api/pulse/query/metric-text", {
         method: "POST",
         body: JSON.stringify({ baseId, query }),
       });
+      if (runId !== queryRunId) return;
       setQueryText(query);
       if (result.compiled.kind === "metric") {
         setSelectedMetric(result.compiled.metric);
@@ -1371,11 +1376,17 @@ export default function PulseWorkspace(props: Props) {
       setExplorerStates(result.states);
       setQueryDiagnostics({ ok: true, diagnostics: [{ severity: "info", message: "Query is valid." }], compiled: result.compiled });
       setLastRunQuery(query);
-      rememberQuery(baseId, query);
+      if (options.remember ?? options.manual ?? true) rememberQuery(baseId, query);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Query failed");
+      if (runId !== queryRunId) return;
+      const message = error instanceof Error ? error.message : "Query failed";
+      if (options.manual ?? true) {
+        toast.error(message);
+      } else {
+        setQueryDiagnostics({ ok: false, diagnostics: [{ severity: "error", message }], compiled: null });
+      }
     } finally {
-      setLoading(false);
+      if (runId === queryRunId) setQueryRunning(false);
     }
   };
 
@@ -1820,21 +1831,33 @@ export default function PulseWorkspace(props: Props) {
       setQueryDiagnostics(null);
       return;
     }
+    let canceled = false;
     const timeout = setTimeout(() => {
       void jsonFetch<PulseQueryCompileResult>("/api/pulse/query/compile-text", {
         method: "POST",
         body: JSON.stringify({ baseId, query }),
       })
-        .then(setQueryDiagnostics)
-        .catch((error) =>
+        .then((result) => {
+          if (canceled || query !== currentExplorerQuery()) return;
+          setQueryDiagnostics(result);
+          if (result.ok && result.compiled && query !== lastAutoRunQuery) {
+            lastAutoRunQuery = query;
+            void runTextQuery({ query, manual: false, remember: false });
+          }
+        })
+        .catch((error) => {
+          if (canceled) return;
           setQueryDiagnostics({
             ok: false,
             diagnostics: [{ severity: "error", message: error instanceof Error ? error.message : "Could not compile query" }],
             compiled: null,
-          }),
-        );
+          });
+        });
     }, 250);
-    onCleanup(() => clearTimeout(timeout));
+    onCleanup(() => {
+      canceled = true;
+      clearTimeout(timeout);
+    });
   });
 
   createEffect(() => {
@@ -2503,21 +2526,10 @@ export default function PulseWorkspace(props: Props) {
     <section class="grid grid-cols-1 gap-3 pb-3 xl:grid-cols-[minmax(0,1fr)_18rem]">
       <div class="flex flex-col gap-3">
         <div class="paper p-3">
-          <div class="flex flex-wrap items-center gap-2 pb-3">
-            <button type="button" class="btn-primary btn-sm" disabled={!currentExplorerQuery() || loading()} onClick={() => void runTextQuery()}>
-              <i class="ti ti-player-play" /> Run
-            </button>
-            <button type="button" class="btn-input btn-input-sm" disabled={!currentExplorerQuery() || loading()} onClick={() => void saveCurrentQuery()}>
-              <i class="ti ti-device-floppy" /> Save
-            </button>
-            <button type="button" class="btn-input btn-input-sm" disabled={!selectedBaseId()} onClick={() => openQueryReferenceWindow(selectedBaseId())}>
-              <i class="ti ti-external-link" /> Open reference
-            </button>
-          </div>
           <AutocompleteEditor
             value={queryText}
             onInput={setQueryText}
-            onSubmit={() => void runTextQuery()}
+            onSubmit={() => void runTextQuery({ manual: true, remember: true })}
             completions={queryCompletions()}
             highlight={pulseQueryHighlight}
             restoreExpansionOnBackspace={false}
@@ -2535,6 +2547,11 @@ export default function PulseWorkspace(props: Props) {
                 </span>
               )}
             </For>
+            <Show when={queryRunning()}>
+              <span class="text-dimmed">
+                <i class="ti ti-loader-2 animate-spin" /> Updating preview...
+              </span>
+            </Show>
           </div>
         </div>
 
@@ -2619,7 +2636,7 @@ export default function PulseWorkspace(props: Props) {
                             onClick={() => applyQueryDimensionFilter(filter.key, filter.value)}
                             title={`Add where ${filter.key}=${filter.value}`}
                           >
-                            <i class="ti ti-filter" />
+                            <i class="ti ti-tag" />
                             <span class="truncate">{filter.value}</span>
                             <span class="text-dimmed">· {filter.count}</span>
                           </button>
@@ -2649,6 +2666,20 @@ export default function PulseWorkspace(props: Props) {
         </Show>
 
         <div class="flex flex-wrap items-center gap-2">
+          <button type="button" class="btn-input btn-input-sm" disabled={!currentExplorerQuery() || queryRunning()} onClick={() => void runTextQuery({ manual: true, remember: true })}>
+            <i class={`ti ${queryRunning() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} /> Reload
+          </button>
+          <button type="button" class="btn-input btn-input-sm" disabled={!selectedBaseId()} onClick={() => openQueryReferenceWindow(selectedBaseId())}>
+            <i class="ti ti-external-link" /> Open reference
+          </button>
+          <Show when={explorerResultView() !== "compiled" && compiledQuery()?.kind === "metric"}>
+            <button type="button" class="btn-input btn-input-sm" disabled={!compiledQuery() || loading()} onClick={addPanel}>
+              <i class="ti ti-layout-grid-add" /> Add panel
+            </button>
+          </Show>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
           <div class="min-w-40">
             <SelectInput
               icon="ti ti-layout"
@@ -2667,11 +2698,6 @@ export default function PulseWorkspace(props: Props) {
               />
             </div>
           </Show>
-          <Show when={explorerResultView() !== "compiled" && compiledQuery()?.kind === "metric"}>
-            <button type="button" class="btn-input btn-input-sm" disabled={!compiledQuery() || loading()} onClick={addPanel}>
-              <i class="ti ti-layout-grid-add" /> Add panel
-            </button>
-          </Show>
           <span class="ml-auto text-xs text-dimmed">
             {compiledQuery()?.kind === "events"
               ? `${explorerEvents().length} events`
@@ -2688,7 +2714,12 @@ export default function PulseWorkspace(props: Props) {
 
       <aside class="flex min-h-0 flex-col gap-3">
         <div class="paper flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div class="px-3 py-2 text-label text-xs">Saved</div>
+          <div class="flex items-center justify-between gap-2 px-3 py-2">
+            <span class="text-label text-xs">Saved</span>
+            <button type="button" class="text-xs font-medium text-secondary transition hover:text-blue-600" disabled={!currentExplorerQuery() || loading()} onClick={() => void saveCurrentQuery()}>
+              <i class="ti ti-device-floppy" /> Save current
+            </button>
+          </div>
           <div class="min-h-0 flex-1 overflow-auto px-2 pb-2">
             <Show when={savedQueries().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No saved queries.</p>}>
               <For each={savedQueries()}>
