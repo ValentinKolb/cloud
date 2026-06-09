@@ -63,6 +63,12 @@ export default ssr<AuthContext>(async (c) => {
 });
 ```
 
+`c.get("user")` is fine on pages that are explicitly protected with a
+user-backed role such as `auth.requireRole("user")`. For APIs, resource
+settings, or pages that should work with user-bound API keys, resource API keys,
+or OAuth service tokens, use `c.get("actor")` and `c.get("accessSubject")` and
+perform resource permission checks in the service layer.
+
 ### Page Routing (frontend/index.ts)
 
 Routes are NOT auto-generated from directory structure. Map them explicitly. Each page file exports a pre-wrapped `ssr<AuthContext>(...)` handler array — the route mapping simply spreads these:

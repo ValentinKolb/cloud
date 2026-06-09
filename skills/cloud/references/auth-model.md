@@ -78,9 +78,16 @@ credential verification session inside `changeOwnPassword()`.
 ### Login Flow (Local User)
 
 1. User submits email → `POST /email-login` sends a magic link with a time-limited token (5 min TTL, stored in Redis as `email-login:{token}`)
-2. User clicks the link → `POST /verify-token` validates the token
-3. If user doesn't exist and `user.allow_self_registration` is enabled, a guest account is auto-created
-4. Cloud creates Redis session with the same `{ userId, gen }` structure as the IPA flow
+2. If the request includes `redirectTo`, the email link carries it through `/auth/login?token=...&redirectTo=...`
+3. `redirectTo` is normalized to a local Cloud path only. External URLs, protocol-relative URLs, backslashes, and empty values are dropped.
+4. User clicks the link → `POST /verify-token` validates the token
+5. If user doesn't exist and `user.allow_self_registration` is enabled, a guest account is auto-created
+6. Cloud creates Redis session with the same `{ userId, gen }` structure as the IPA flow
+
+The redirect target is not embedded in the Redis token payload; it is part of
+the login URL and re-used by the login page after successful verification. This
+keeps the token single-purpose while preserving OAuth and protected-page login
+flows.
 
 ## Role Derivation
 
@@ -184,6 +191,48 @@ Bearer API keys use the `cld_<prefix>_<secret>` format. They authenticate a serv
 - user-bound keys inherit the linked user's roles and access subject;
 - resource-bound keys authenticate as a `service_account` principal and need explicit resource grants.
 
+OAuth access tokens are also accepted as Bearer tokens. Core verifies them with
+the OAuth app's current public key from `oauth.keys`, requires issuer
+`app.url`, audience `"cloud"`, and `token_use = "access"`, then resolves the
+token into the same actor model:
+
+- user authorization-code tokens resolve to `actor.kind = "user"`;
+- client-credentials tokens bound to a resource service account resolve to
+  `actor.kind = "service_account"` with `delegatedUser = null`.
+
+OAuth scopes are limiting metadata on the credential. They do not grant
+permissions by themselves; apps must still use `AccessSubject` plus their
+normal resource grants.
+
+MCP protected-resource metadata and CLI browser login are planned on top of
+this OAuth token model, but are not current runtime behavior.
+
+## RequestActor and AccessSubject
+
+Every authenticated request should be understood as two related concepts:
+
+```typescript
+type RequestActor =
+  | { kind: "user"; user: User }
+  | { kind: "service_account"; serviceAccount: ServiceAccount; delegatedUser: User | null };
+
+type AccessSubject =
+  | { type: "user"; userId: string }
+  | { type: "service_account"; serviceAccountId: string };
+```
+
+`RequestActor` answers "which credential acted?". `AccessSubject` answers
+"whose grants should be checked?". Normal sessions use the same user for both.
+User-bound API keys and user-delegated service accounts act as a service
+account credential but check the delegated user's live roles and grants.
+Resource-bound service accounts have no user and only pass permissions granted
+directly to the service-account principal.
+
+Compatibility rule: `c.get("user")` is still set for user sessions and
+user-delegated service accounts, so old code keeps working. New service and
+permission code should prefer `c.get("actor")` and `c.get("accessSubject")`.
+Do not invent a fake user for resource-bound service accounts.
+
 ## Access Control
 
 The platform uses a **principal-based access model** via `auth.access`. This is NOT a simple resource/entity table — it works through the `ResourceAccessAdapter` pattern.
@@ -195,11 +244,14 @@ The platform uses a **principal-based access model** via `auth.access`. This is 
 | `id` | UUID | Primary key |
 | `user_id` | UUID | Nullable, references `auth.users` (ON DELETE CASCADE) |
 | `group_id` | UUID | Nullable, references `auth.groups(id)` (ON DELETE CASCADE) |
+| `service_account_id` | UUID | Nullable, references `auth.service_accounts(id)` (ON DELETE CASCADE) |
 | `authenticated_only` | boolean | Grant to any authenticated user |
 | `permission` | enum | `'none'`, `'read'`, `'write'`, `'admin'` |
 | `created_at` | timestamptz | When this entry was created |
 
-A principal check constraint ensures at most one of `user_id`, `group_id`, or `authenticated_only` is set. Public access entries have all three unset/false.
+A principal check constraint ensures at most one of `user_id`, `group_id`,
+`service_account_id`, or `authenticated_only` is set. Public access entries
+have all principals unset/false.
 
 ### Principal Types
 
@@ -227,7 +279,11 @@ type ResourceAccessAdapter<TResourceId = string> = {
 
 The server package provides helpers: `createAccess`, `getAccess`, `updateAccess`, `deleteAccess`, `getEffectivePermission`, `listUsersWithAccess` — all importable from `@valentinkolb/cloud/server`.
 
-`getEffectivePermission()` resolves the highest permission level across all matching principals (direct user, group memberships, authenticated-only, public).
+`getEffectivePermission()` resolves the highest permission level across all
+matching principals (direct user, group memberships, service-account grant,
+authenticated-only, public). Pass the request's `accessSubject` into app
+service checks so resource-bound API keys and OAuth service tokens work without
+a user.
 
 For app API keys, create resource-bound service accounts in core and grant them through the app's normal `ResourceAccessAdapter`. Do not let apps mint credentials inside `PermissionEditor`; API-key lifecycle belongs in a resource settings section backed by `serviceAccountCredentials`.
 
@@ -256,11 +312,12 @@ import { getEffectivePermission, hasPermission } from "@valentinkolb/cloud/serve
 const entries = await bookAccess.list(bookId);
 const accessIds = entries.map((e) => e.id);
 
-// Resolve highest permission for the current user
+// Resolve highest permission for the current actor/access subject
 const permission = await getEffectivePermission({
   accessIds,
-  userId: user.id,
-  userGroups: user.memberofGroupIds,
+  userId: accessSubject.type === "user" ? accessSubject.userId : null,
+  userGroups: accessSubject.type === "user" ? user.memberofGroupIds : [],
+  serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
 });
 
 if (!hasPermission(permission, "read")) {
@@ -415,9 +472,16 @@ auth.requireAccount({ provider: "ipa" })              // IPA users only
 auth.requireAccount({ provider: "local", profile: "user" }) // local full accounts only
 
 // Access in handlers
-const user = c.get("user");        // Full User object
-const token = c.get("sessionToken"); // Session token string
+const actor = c.get("actor");                 // User or service-account credential
+const accessSubject = c.get("accessSubject"); // Principal used for grants
+const user = c.get("user");                   // Compat: only user/user-delegated flows
+const token = c.get("sessionToken");          // Browser session token, if cookie/session auth
 ```
+
+`auth.requireRole("authenticated")` accepts any resolved actor. Concrete role
+checks such as `auth.requireRole("admin")` require a user-backed actor, so a
+resource-bound service account is forbidden unless the route uses explicit
+resource permission checks.
 
 ## Design Principles & Rationale
 

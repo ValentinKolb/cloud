@@ -12,6 +12,11 @@ authorization and audit first. If allowed, Cloud executes the FreeIPA RPC with
 the configured FreeIPA service account. This keeps Cloud as the authorization
 authority while FreeIPA remains the directory backend and operational guardrail.
 
+This is separate from Cloud API/OAuth service accounts. FreeIPA service-account
+execution is an internal directory mutation transport; Cloud service accounts
+are first-class Cloud principals used by API keys, OAuth service tokens, and
+resource access grants.
+
 ## Current State
 
 | Area | Current behavior |

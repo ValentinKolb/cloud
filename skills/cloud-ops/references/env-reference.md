@@ -125,7 +125,7 @@ Each document has a `mode` (`local` renders markdown content, `external` redirec
 |-------------|------|---------|-------------|
 | `mail.user_welcome_freeipa` | template | — | FreeIPA welcome email (vars: `USERNAME`, `PASSWORD`, `EXPIRY`, `LOGIN_URL`, `CONTACT_EMAIL`, `APP_NAME`) |
 | `mail.user_welcome_local` | template | — | Local welcome email (vars: `EMAIL`, `EXPIRY`, `LOGIN_URL`, `CONTACT_EMAIL`, `APP_NAME`) |
-| `mail.magic_link_login` | template | — | Magic link login email (vars: `TOKEN`, `MAGIC_LINK`, `APP_NAME`) |
+| `mail.magic_link_login` | template | — | Magic link login email (vars: `TOKEN`, `MAGIC_LINK`, `APP_NAME`). `MAGIC_LINK` may include a safe local `redirectTo` query when the login request came from a protected page or OAuth authorization flow; external redirects are stripped. |
 | `mail.account_expiry_reminder` | template | — | Expiry reminder email (vars: `FIRST_NAME`, `DISPLAY_NAME`, `EXPIRY`, `EXTEND_URL`, `APP_NAME`, `CONTACT_EMAIL`, `ACCOUNT_KIND`) |
 | `mail.account_request_denial` | template | — | Request denial email (vars: `FIRST_NAME`, `REASON`, `CONTACT_EMAIL`, `APP_NAME`) |
 | `mail.noreply.smtp_host` | string | `""` | SMTP server hostname |

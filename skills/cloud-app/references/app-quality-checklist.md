@@ -11,7 +11,7 @@ Use this checklist before calling a built-in Cloud app ready. It is scoped to St
   - admin tables: Logging, OAuth, Contacts admin;
   - settings/access: Notebooks, Contacts, Grids.
 - Read the matching Core component source in `packages/cloud/src/ui/` when using a shared component for the first time.
-- Check whether the requested behavior is app domain logic or a platform primitive. Auth/session/role semantics stay in `packages/cloud/`.
+- Check whether the requested behavior is app domain logic or a platform primitive. Auth/session/role/principal semantics, service accounts, API credential hashing, and OAuth bearer verification stay in `packages/cloud/` or the OAuth app.
 
 ## API and client
 
@@ -34,6 +34,8 @@ export const apiClient = api.create<ApiType>({ baseUrl: "/api/my-app" });
 - API routes return service `Result<T>` through `respond(...)` where the shared result model fits.
 - SSR pages repeat permission checks instead of assuming API routes protect server-side service calls.
 - Security-relevant mutations put authorization checks in the service layer and record allowed/denied/failed outcomes through the central audit service.
+- Permission-aware APIs and services use `c.get("actor")` and `c.get("accessSubject")`, not only `c.get("user")`, so user-bound keys, resource API keys, and OAuth service tokens follow the same access path.
+- Resource API keys and OAuth service clients are granted through the app's normal resource access adapter. `PermissionEditor` may include existing service-account principals but does not create or reveal credentials.
 
 ## Data and lifecycle
 

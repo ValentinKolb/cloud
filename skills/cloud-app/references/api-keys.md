@@ -6,6 +6,7 @@ Use this reference when an app resource needs API keys for automation or integra
 
 - User-bound API keys live in core self-service (`/me`) and inherit the linked user's effective permissions.
 - Resource-bound API keys belong to one app resource, for example one notebook. They authenticate as a `service_account` principal and only work where the app grants that service account access.
+- OAuth `client_credentials` tokens for resource-bound service accounts use the same principal/access model as resource API keys. The difference is credential issuance: OAuth tokens are short-lived JWTs issued by the OAuth app, while API keys are long-lived `cld_<prefix>_<secret>` credentials stored hashed in core.
 - Core tables remain platform-owned: `auth.service_accounts`, `auth.service_account_credentials`, and `auth.access`.
 - Apps create only their own resource/access junction tables and never migrate core auth tables.
 
@@ -41,6 +42,12 @@ filter: {
 ```
 
 Revoking an API key revokes the credential, not the service-account resource grant. Keep permission lifecycle and secret lifecycle separate unless the user explicitly asks for a cleanup action.
+
+For OAuth service clients, the app should still create or reuse the
+resource-bound service account and grant it access through the same adapter.
+The OAuth app owns OAuth client records, audiences, JWKS, and token issuance.
+Apps should not verify JWTs themselves; Core auth middleware resolves OAuth
+Bearer tokens into `actor` and `accessSubject`.
 
 ## Frontend flow
 
@@ -93,3 +100,9 @@ bun test packages/cloud/src/services/service-account-credentials.test.ts
 ```
 
 For manual smoke, create a resource key, copy the token once, call a read endpoint with `Authorization: Bearer <token>`, then revoke it and verify the same call is rejected.
+
+For OAuth service-client smoke, request a token from `/oauth/token` with
+`grant_type=client_credentials`, an allowed `scope`, and an allowed `resource`.
+Then call the same resource endpoint with `Authorization: Bearer <access_token>`.
+Invalid scopes, invalid resources, public clients, and clients without an
+active resource-bound service account must be rejected.

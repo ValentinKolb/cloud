@@ -43,6 +43,7 @@ Apps are domain features *on top of* the platform. They must not redefine platfo
 - **Auth flows, session semantics, role/permission logic** — every container shares the same auth model. A new login flow or role type is a core change, not an app change.
 - **The `auth.*` schema and anything that writes to it** — user/group/access/account-request/deleted-account tables are owned by core. Apps reference `auth.users(id)` via foreign keys; they never migrate or mutate those tables directly.
 - **Account lifecycle, IPA sync, provider switching, magic-link issuance** — these are platform invariants.
+- **Service-account identity, API credential hashing, OAuth token verification** — Core owns principals and bearer-token resolution. The OAuth app owns authorization-server endpoints and client records. Domain apps only grant resource access to existing principals and expose resource-specific API-key UI where needed.
 
 The existing `accounts` app (`packages/accounts/`) is **pure admin UI** backed by `@valentinkolb/cloud/services/accounts`. It owns no schema, no service layer, no lifecycle. It exists so operators can fork or replace the admin frontend without touching auth semantics. If you find yourself wanting to add auth logic there, move it to `packages/cloud/src/services/` first — then consume it from the app.
 
@@ -489,6 +490,10 @@ export default ssr<AuthContext>(async (c) => {
   return () => <Layout c={c} title="My Page">...</Layout>;
 });
 ```
+
+Use `c.get("user")` only on routes that intentionally require a user-backed
+role. API routes and resource services that should work with API keys or OAuth
+service tokens must use `c.get("actor")` and `c.get("accessSubject")`.
 
 ```typescript
 // frontend/index.ts — maps routes to pages

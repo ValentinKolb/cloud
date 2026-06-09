@@ -258,6 +258,36 @@ tokens, cookies, API keys, FreeIPA session cookies, or full request bodies.
 For admin-facing audit data, expose a server-rendered page with `DataTable`,
 URL-backed search and filters, and links to the affected resource where useful.
 
+### Request actors in app services
+
+New app code should pass the authenticated actor/access subject into service
+functions that make permission decisions. Do not assume every authenticated
+request has a user.
+
+```typescript
+const actor = c.get("actor");
+const accessSubject = c.get("accessSubject");
+
+const result = await myService.items.update({
+  id,
+  input,
+  actor,
+  accessSubject,
+});
+```
+
+Use this mental model:
+
+- `actor` = the credential that acted (`user` session, user-bound API key,
+  resource API key, OAuth service token).
+- `accessSubject` = the principal whose grants are checked (`user` or
+  `service_account`).
+- `c.get("user")` is compatibility-only for user-backed flows. Resource-bound
+  service accounts intentionally do not have a fake user.
+
+Role middleware is still useful for page-level gates. Resource APIs should
+also perform explicit service-layer permission checks using `accessSubject`.
+
 ### Lifecycle Hook
 
 ```typescript
@@ -380,11 +410,12 @@ const itemAccess: ResourceAccessAdapter = {
 const entries = await itemAccess.list(itemId);
 const accessIds = entries.map((e) => e.id);
 
-// Resolve effective permission for this user
+// Resolve effective permission for this request subject
 const permission = await getEffectivePermission({
   accessIds,
-  userId: user.id,
-  userGroups: user.memberofGroupIds,
+  userId: accessSubject.type === "user" ? accessSubject.userId : null,
+  userGroups: accessSubject.type === "user" ? user.memberofGroupIds : [],
+  serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
 });
 
 if (!hasPermission(permission, "write")) {
@@ -427,9 +458,15 @@ return serviceAccountCredentials.createResourceApiToken({
 
 For the full UI/API pattern, read `references/api-keys.md`.
 
+OAuth client-credentials tokens use the same runtime principal model as
+resource API keys. The OAuth app issues the token; Core verifies it; the app
+still checks its own resource grants via `accessSubject`. Do not add
+OAuth-specific permission branches in app services unless the app is explicitly
+checking OAuth scopes as an additional limit.
+
 ### Permission Levels
 
-`'none'` < `'read'` < `'write'` < `'admin'` — `getEffectivePermission()` returns the highest level across all matching principals (direct user, group memberships, authenticated-only entries).
+`'none'` < `'read'` < `'write'` < `'admin'` — `getEffectivePermission()` returns the highest level across all matching principals (direct user, group memberships, service-account grants, authenticated-only entries, and public entries).
 
 ### Concrete Users With Access
 
@@ -717,14 +754,18 @@ const checkAccess = async (
   resourceId: string,
   required: PermissionLevel = "read",
 ) => {
-  const user = c.get("user");
+  const actor = c.get("actor");
+  const accessSubject = c.get("accessSubject");
+  const delegatedUser = actor.kind === "service_account" ? actor.delegatedUser : null;
+  const user = actor.kind === "user" ? actor.user : delegatedUser;
   const entries = await myService.access.list(resourceId);
   const accessIds = entries.map((e) => e.id);
 
   const permission = await getEffectivePermission({
     accessIds,
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+    userId: accessSubject.type === "user" ? accessSubject.userId : null,
+    userGroups: user?.memberofGroupIds ?? [],
+    serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
   });
 
   if (!hasPermission(permission, required)) {
