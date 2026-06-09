@@ -65,6 +65,8 @@ export { confirmDiscardIfDirty, default as PanelDialog, panelDialogOptions, pane
 export { default as PermissionEditor } from "./PermissionEditor";
 export { default as ProgressBar } from "./ProgressBar";
 export { default as RemoveBtn } from "./RemoveBtn";
+export type { ResourceApiKey, ResourceApiKeyPermissionOption, ResourceApiKeysProps } from "./ResourceApiKeys";
+export { default as ResourceApiKeys } from "./ResourceApiKeys";
 export type { SettingsModalProps, SettingsModalTabProps, SettingsModalTabTone } from "./SettingsModal";
 export { default as SettingsModal } from "./SettingsModal";
 export type { StatCellAccent, StatCellProps } from "./StatCell";

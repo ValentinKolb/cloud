@@ -622,7 +622,9 @@ import { EntitySearch } from "@valentinkolb/cloud/ui";
 
 ### PermissionEditor
 
-Access control UI for user/group/authenticated/public grants. Source: `packages/cloud/src/ui/misc/PermissionEditor.tsx`. Real usages close over the resource id in the callback implementation, for example Notebook settings (`packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsPanel.island.tsx`) and Grids view settings (`packages/grids/src/frontend/_components/dialogs/ViewSettingsDialogs.tsx`).
+Access control UI for user/group/service-account/authenticated/public grants. Source: `packages/cloud/src/ui/misc/PermissionEditor.tsx`. Real usages close over the resource id in the callback implementation, for example Notebook settings (`packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsPanel.tsx`) and Grids view settings (`packages/grids/src/frontend/_components/dialogs/ViewSettingsDialogs.tsx`).
+
+`PermissionEditor` is not an API-key creation UI. If a resource needs API keys, put `ResourceApiKeys` in the resource settings surface and keep `PermissionEditor` for existing principal grants. Read `references/api-keys.md` before implementing that flow.
 
 ```jsx
 import { PermissionEditor } from "@valentinkolb/cloud/ui";
@@ -648,7 +650,7 @@ import { PermissionEditor } from "@valentinkolb/cloud/ui";
 />
 ```
 
-**Props:** `initialEntries: AccessEntry[]`, `canEdit?`, `grantAccess(principal, permission): Promise<AccessEntry>`, `updateAccess(accessId, permission): Promise<void>`, `revokeAccess(accessId): Promise<void>`, `allowPublic?`, `allowedLevels?`.
+**Props:** `initialEntries: AccessEntry[]`, `canEdit?`, `grantAccess(principal, permission): Promise<AccessEntry>`, `updateAccess(accessId, permission): Promise<void>`, `revokeAccess(accessId): Promise<void>`, `allowPublic?`, `allowServiceAccounts?`, `allowedLevels?`.
 
 `allowedLevels` accepts `"read" | "write" | "admin"` or objects `{ level, label?, icon? }`. Use a single allowed level for view-only sharing flows, e.g. Grids passes `[{ level: "read", label: "View" }]`. The component does not accept a resource identifier prop; close over ids in the callback implementation instead.
 

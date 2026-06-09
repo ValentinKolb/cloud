@@ -9,10 +9,11 @@ import {
   PaginationQuerySchema,
   PaginationResponseSchema,
   parsePagination,
+  ServiceAccountCredentialSchema,
   UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
-import { settings, settingsService } from "@valentinkolb/cloud/services";
+import { serviceAccountCredentials, serviceAccounts, settings, settingsService } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
@@ -52,6 +53,21 @@ const UpdateNotebookSchema = z.object({
   // Toggling scripts_enabled is admin-only — see the PATCH handler
   // for the role check. Schema-level it's just a boolean field.
   scriptsEnabled: z.boolean().optional(),
+});
+
+const NotebookApiKeySchema = ServiceAccountCredentialSchema.extend({
+  permission: z.enum(["read", "write", "admin"]),
+});
+
+const CreateNotebookApiKeySchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  expiresAt: z.string().datetime().nullable().optional(),
+  permission: z.enum(["read", "write", "admin"]).default("read"),
+});
+
+const CreateNotebookApiKeyResponseSchema = z.object({
+  credential: NotebookApiKeySchema,
+  token: z.string(),
 });
 
 const NoteSchema = z.object({
@@ -373,6 +389,43 @@ const respondMessage = async (c: Context, resultPromise: Promise<Result<void> | 
     const result = await resultPromise;
     if (!result.ok) return result;
     return ok({ message });
+  });
+};
+
+const NOTEBOOKS_APP_ID = "notebooks";
+const NOTEBOOK_RESOURCE_TYPE = "notebook";
+
+type NotebookApiKey = z.infer<typeof NotebookApiKeySchema>;
+
+const listNotebookApiKeys = async (notebookId: string): Promise<NotebookApiKey[]> => {
+  const [keys, accessEntries] = await Promise.all([
+    serviceAccountCredentials.listOverview({
+      pagination: { page: 1, perPage: 500 },
+      filter: {
+        serviceAccountKind: "resource_bound",
+        credentialStatus: "active",
+        appId: NOTEBOOKS_APP_ID,
+        resourceType: NOTEBOOK_RESOURCE_TYPE,
+        resourceId: notebookId,
+      },
+    }),
+    notebooksService.notebook.access.list({ notebookId }),
+  ]);
+
+  const permissionByServiceAccountId = new Map(
+    accessEntries.items
+      .filter((entry) => entry.principal.type === "service_account" && entry.permission !== "none")
+      .map((entry) => [
+        (entry.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId,
+        entry.permission as "read" | "write" | "admin",
+      ]),
+  );
+
+  return keys.items.flatMap((item) => {
+    const permission = permissionByServiceAccountId.get(item.serviceAccount.id);
+    if (!permission) return [];
+    const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
+    return [{ ...credential, permission }];
   });
 };
 
@@ -1297,6 +1350,118 @@ const app = new Hono<AuthContext>()
       notebookId = notebook!.id;
       const graph = await notebooksService.notebook.graph({ notebookId });
       return respond(c, ok({ data: graph }));
+    },
+  )
+
+  // ==========================
+  // RESOURCE API KEYS
+  // ==========================
+
+  .get(
+    "/:id/api-keys",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "List notebook API keys",
+      description: "List active resource-bound API keys for this notebook. Requires admin permission.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.object({ items: z.array(NotebookApiKeySchema) }), "Notebook API keys"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Notebook not found"),
+      },
+    }),
+    async (c) => {
+      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
+      if (error) return error;
+
+      return respond(c, async () => ok({ items: await listNotebookApiKeys(notebook!.id) }));
+    },
+  )
+
+  .post(
+    "/:id/api-keys",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Create notebook API key",
+      description: "Create a resource-bound API key for this notebook. The raw token is returned once. Requires admin permission.",
+      ...requiresAuth,
+      responses: {
+        201: jsonResponse(CreateNotebookApiKeyResponseSchema, "Notebook API key created"),
+        400: jsonResponse(ErrorResponseSchema, "Failed to create API key"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Notebook not found"),
+      },
+    }),
+    v("json", CreateNotebookApiKeySchema),
+    async (c) => {
+      const user = c.get("user");
+      const data = c.req.valid("json");
+      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
+      if (error) return error;
+
+      return respond(c, async () => {
+        const serviceAccount = await serviceAccounts.getOrCreateResourceBound({
+          name: `${notebook!.name} API access`,
+          appId: NOTEBOOKS_APP_ID,
+          resourceType: NOTEBOOK_RESOURCE_TYPE,
+          resourceId: notebook!.id,
+          createdBy: user.id,
+        });
+        if (!serviceAccount.ok) return serviceAccount;
+
+        const access = await notebooksService.notebook.access.ensureServiceAccount({
+          notebookId: notebook!.id,
+          serviceAccountId: serviceAccount.data.id,
+          permission: data.permission,
+        });
+        if (!access.ok) return access;
+
+        const created = await serviceAccountCredentials.createResourceApiToken({
+          serviceAccountId: serviceAccount.data.id,
+          actor: user,
+          name: data.name,
+          expiresAt: data.expiresAt ?? null,
+        });
+        if (!created.ok) return created;
+
+        return ok({
+          credential: {
+            ...created.data.credential,
+            permission: access.data.permission as "read" | "write" | "admin",
+          },
+          token: created.data.token,
+        });
+      }, 201);
+    },
+  )
+
+  .delete(
+    "/:id/api-keys/:credentialId",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Revoke notebook API key",
+      description: "Revoke a resource-bound API key for this notebook. Requires admin permission.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Notebook API key revoked"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "API key not found"),
+      },
+    }),
+    async (c) => {
+      const user = c.get("user");
+      const credentialId = c.req.param("credentialId")!;
+      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
+      if (error) return error;
+
+      return respond(c, async () => {
+        const keys = await listNotebookApiKeys(notebook!.id);
+        if (!keys.some((key) => key.id === credentialId)) return fail(err.notFound("API key"));
+
+        const revoked = await serviceAccountCredentials.revoke({ credentialId, actor: user });
+        if (!revoked.ok) return revoked;
+        return ok({ message: "API key revoked." });
+      });
     },
   )
 

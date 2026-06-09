@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { isUniqueViolation } from "./postgres";
 
 export type ServiceAccountKind = "user_delegated" | "resource_bound";
 export type ServiceAccountStatus = "active" | "disabled";
@@ -46,6 +47,25 @@ const mapServiceAccount = (row: DbServiceAccount): ServiceAccount => ({
 const trimRequired = (value: string): string => value.trim();
 
 const isForeignKeyViolation = (error: unknown): boolean => (error as { code?: string } | null)?.code === "23503";
+const RESOURCE_BOUND_UNIQUE_CONSTRAINT = "uniq_service_accounts_resource_bound";
+
+export const getByResource = async (params: {
+  appId: string;
+  resourceType: string;
+  resourceId: string;
+}): Promise<ServiceAccount | null> => {
+  const [row] = await sql<DbServiceAccount[]>`
+    SELECT id, name, kind, status, delegated_user_id, app_id, resource_type, resource_id, created_by, created_at
+    FROM auth.service_accounts
+    WHERE kind = 'resource_bound'
+      AND app_id = ${params.appId}
+      AND resource_type = ${params.resourceType}
+      AND resource_id = ${params.resourceId}
+    ORDER BY created_at ASC
+    LIMIT 1
+  `;
+  return row ? mapServiceAccount(row) : null;
+};
 
 export const get = async (params: { id: string }): Promise<ServiceAccount | null> => {
   const [row] = await sql<DbServiceAccount[]>`
@@ -100,8 +120,26 @@ export const createResourceBound = async (params: {
     return row ? ok(mapServiceAccount(row)) : fail(err.internal("Failed to create service account"));
   } catch (error) {
     if (isForeignKeyViolation(error)) return fail(err.notFound("Creator"));
+    if (isUniqueViolation(error, RESOURCE_BOUND_UNIQUE_CONSTRAINT)) return fail(err.conflict("Resource service account"));
     throw error;
   }
+};
+
+export const getOrCreateResourceBound = async (params: {
+  name: string;
+  appId: string;
+  resourceType: string;
+  resourceId: string;
+  createdBy?: string | null;
+}): Promise<Result<ServiceAccount>> => {
+  const existing = await getByResource(params);
+  if (existing) return ok(existing);
+
+  const created = await createResourceBound(params);
+  if (created.ok || created.error.code !== "CONFLICT") return created;
+
+  const raced = await getByResource(params);
+  return raced ? ok(raced) : fail(err.internal("Failed to load resource service account"));
 };
 
 export const setStatus = async (params: { id: string; status: ServiceAccountStatus }): Promise<Result<void>> => {
@@ -142,6 +180,8 @@ export const serviceAccounts = {
   get,
   createUserDelegated,
   createResourceBound,
+  getByResource,
+  getOrCreateResourceBound,
   setStatus,
   delete: delete_,
   deleteForResource,

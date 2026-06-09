@@ -350,6 +350,38 @@ export const grantNotebookAccess = async (params: {
   return ok(created);
 };
 
+export const ensureNotebookServiceAccountAccess = async (params: {
+  notebookId: string;
+  serviceAccountId: string;
+  permission: PermissionLevel;
+}): Promise<Result<AccessEntry>> => {
+  const entries = await listNotebookAccess(params.notebookId);
+  const existing = entries.find(
+    (entry) =>
+      entry.principal.type === "service_account" &&
+      entry.principal.serviceAccountId === params.serviceAccountId,
+  );
+
+  if (!existing) {
+    return grantNotebookAccess({
+      notebookId: params.notebookId,
+      principal: { type: "service_account", serviceAccountId: params.serviceAccountId },
+      permission: params.permission,
+    });
+  }
+
+  if (existing.permission === params.permission) return ok(existing);
+
+  const updated = await updateNotebookAccess({
+    notebookId: params.notebookId,
+    accessId: existing.id,
+    permission: params.permission,
+  });
+  if (!updated.ok) return fail(updated.error);
+
+  return ok({ ...existing, permission: params.permission });
+};
+
 export const updateNotebookAccess = async (params: {
   notebookId: string;
   accessId: string;

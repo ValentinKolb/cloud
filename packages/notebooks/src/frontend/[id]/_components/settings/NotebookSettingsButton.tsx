@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, type ResourceApiKey } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import type { Notebook, NoteTreeNode } from "../sidebar/types";
 import { openNotebookSettingsDialog } from "./NotebookSettingsPanel";
@@ -28,21 +28,33 @@ export default function NotebookSettingsButton(props: Props) {
 
   const open = async () => {
     let accessEntries: AccessEntry[] = [];
+    let apiKeys: ResourceApiKey[] = [];
     if (isAdmin()) {
-      const response = await apiClient[":id"].access.$get({
-        param: { id: props.notebook.shortId },
-      });
-      if (!response.ok) {
-        await prompts.error(await readErrorMessage(response, "Failed to load notebook permissions."));
+      const [accessResponse, apiKeysResponse] = await Promise.all([
+        apiClient[":id"].access.$get({
+          param: { id: props.notebook.shortId },
+        }),
+        apiClient[":id"]["api-keys"].$get({
+          param: { id: props.notebook.shortId },
+        }),
+      ]);
+      if (!accessResponse.ok) {
+        await prompts.error(await readErrorMessage(accessResponse, "Failed to load notebook permissions."));
         return;
       }
-      accessEntries = (await response.json()) as AccessEntry[];
+      if (!apiKeysResponse.ok) {
+        await prompts.error(await readErrorMessage(apiKeysResponse, "Failed to load notebook API keys."));
+        return;
+      }
+      accessEntries = (await accessResponse.json()) as AccessEntry[];
+      apiKeys = ((await apiKeysResponse.json()) as { items: ResourceApiKey[] }).items;
     }
 
     await openNotebookSettingsDialog({
       notebook: props.notebook,
       tree: props.tree,
       accessEntries,
+      apiKeys,
       isAdmin: isAdmin(),
       canWrite: canWrite(),
     });

@@ -394,6 +394,39 @@ if (!hasPermission(permission, "write")) {
 
 See `packages/contacts/src/service/access.ts` for a complete real-world implementation.
 
+### Resource API keys
+
+If a resource needs API keys, use the resource-bound service-account pattern. Core owns service-account identity and credential security; the app owns the resource permission check and grant.
+
+Do not create keys in the generic access endpoint. Add app-specific routes such as `GET/POST/DELETE /:id/api-keys`, require admin permission on the resource, then:
+
+```typescript
+const serviceAccount = await serviceAccounts.getOrCreateResourceBound({
+  name: `${resource.name} API access`,
+  appId: "my-app",
+  resourceType: "item",
+  resourceId: resource.id,
+  createdBy: actor.id,
+});
+if (!serviceAccount.ok) return serviceAccount;
+
+const access = await myService.item.access.ensureServiceAccount({
+  itemId: resource.id,
+  serviceAccountId: serviceAccount.data.id,
+  permission,
+});
+if (!access.ok) return access;
+
+return serviceAccountCredentials.createResourceApiToken({
+  serviceAccountId: serviceAccount.data.id,
+  actor,
+  name,
+  expiresAt,
+});
+```
+
+For the full UI/API pattern, read `references/api-keys.md`.
+
 ### Permission Levels
 
 `'none'` < `'read'` < `'write'` < `'admin'` — `getEffectivePermission()` returns the highest level across all matching principals (direct user, group memberships, authenticated-only entries).

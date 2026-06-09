@@ -1,6 +1,6 @@
 import { ssr } from "../../config";
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
-import { get } from "@valentinkolb/cloud/services";
+import { AppWorkspace, type ResourceApiKey } from "@valentinkolb/cloud/ui";
+import { get, serviceAccountCredentials } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { hasRole } from "@valentinkolb/cloud/contracts";
@@ -83,8 +83,33 @@ export default ssr<AuthContext>(async (c) => {
     return note?.notebookId === notebookId ? note.id : null;
   };
 
-  // Load access entries for settings mode (admin only)
+  // Load settings-only admin data lazily for route-backed settings mode.
   const accessEntries = isSettingsMode && isAdmin ? (await notebooksService.notebook.access.list({ notebookId })).items : [];
+  const apiKeys: ResourceApiKey[] =
+    isSettingsMode && isAdmin
+      ? (
+          await serviceAccountCredentials.listOverview({
+            pagination: { page: 1, perPage: 500 },
+            filter: {
+              serviceAccountKind: "resource_bound",
+              credentialStatus: "active",
+              appId: "notebooks",
+              resourceType: "notebook",
+              resourceId: notebookId,
+            },
+          })
+        ).items.flatMap((item) => {
+          const permission = accessEntries.find(
+            (entry) =>
+              entry.principal.type === "service_account" &&
+              entry.principal.serviceAccountId === item.serviceAccount.id &&
+              entry.permission !== "none",
+          )?.permission;
+          if (!permission || permission === "none") return [];
+          const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
+          return [{ ...credential, permission }];
+        })
+      : [];
 
   // Determine selected note: path param > cookie > homepage > first note.
   // Path is `/notebooks/:nbId/notes/:noteId` — `noteId` is a short-id
@@ -235,7 +260,7 @@ export default ssr<AuthContext>(async (c) => {
         {/* Main Content */}
         <AppWorkspace.Main>
           {isSettingsMode ? (
-            <NotebookSettingsPanel notebook={notebook} tree={tree} accessEntries={accessEntries} isAdmin={isAdmin} canWrite={canWrite} />
+            <NotebookSettingsPanel notebook={notebook} tree={tree} accessEntries={accessEntries} apiKeys={apiKeys} isAdmin={isAdmin} canWrite={canWrite} />
           ) : isVersionsMode && selectedNoteId ? (
             <VersionHistory
               notebookId={notebook.shortId}

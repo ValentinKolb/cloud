@@ -179,6 +179,11 @@ Token extraction priority:
 
 Token format: `{userId}:{randomToken}` — both parts needed to look up the session.
 
+Bearer API keys use the `cld_<prefix>_<secret>` format. They authenticate a service-account actor instead of a browser session:
+
+- user-bound keys inherit the linked user's roles and access subject;
+- resource-bound keys authenticate as a `service_account` principal and need explicit resource grants.
+
 ## Access Control
 
 The platform uses a **principal-based access model** via `auth.access`. This is NOT a simple resource/entity table — it works through the `ResourceAccessAdapter` pattern.
@@ -202,6 +207,7 @@ A principal check constraint ensures at most one of `user_id`, `group_id`, or `a
 type Principal =
   | { type: "user"; userId: string }
   | { type: "group"; groupId: string }
+  | { type: "service_account"; serviceAccountId: string }
   | { type: "authenticated" }       // any logged-in user
   | { type: "public" }              // no auth required
 ```
@@ -222,6 +228,8 @@ type ResourceAccessAdapter<TResourceId = string> = {
 The server package provides helpers: `createAccess`, `getAccess`, `updateAccess`, `deleteAccess`, `getEffectivePermission`, `listUsersWithAccess` — all importable from `@valentinkolb/cloud/server`.
 
 `getEffectivePermission()` resolves the highest permission level across all matching principals (direct user, group memberships, authenticated-only, public).
+
+For app API keys, create resource-bound service accounts in core and grant them through the app's normal `ResourceAccessAdapter`. Do not let apps mint credentials inside `PermissionEditor`; API-key lifecycle belongs in a resource settings section backed by `serviceAccountCredentials`.
 
 `listUsersWithAccess()` is for bounded "people with access" tasks such as assignee pickers. Apps pass the relevant `auth.access` IDs from their own `ResourceAccessAdapter`; the helper expands direct users and recursive group memberships, returns the top-level source group for group-derived users, and deliberately does not expand `public` or `authenticated` entries. Its return shape omits `mail`; use `uid`, `displayName`, `permission`, and `source` for UI labels and validation.
 

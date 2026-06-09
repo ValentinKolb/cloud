@@ -104,6 +104,7 @@ Cloud-specific rules:
 - A route-backed settings page may still render `SettingsModal` as its body when that is the existing app pattern. The point is to reuse the shared settings shell, not to force every settings screen into the same navigation shape.
 - Keep save state, dirty tracking, access callbacks, and API mutations in the app.
 - Access tabs use `PermissionEditor`; callback functions close over the resource id and call the app's typed `apiClient`.
+- Resource API keys belong in the resource settings surface with `ResourceApiKeys`, usually above `PermissionEditor`. Do not put key creation into `PermissionEditor`; read `api-keys.md` for the backend and UI pattern.
 - Settings fields should have short descriptions when the label alone does not explain the Cloud behavior.
 
 ## Editors and prompts

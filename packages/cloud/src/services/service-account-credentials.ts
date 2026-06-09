@@ -366,6 +366,45 @@ export const createUserApiToken = async (params: {
   });
 };
 
+export const createResourceApiToken = async (params: {
+  serviceAccountId: string;
+  actor: User;
+  name: string;
+  expiresAt?: string | null;
+  scopes?: string[];
+}): Promise<Result<{ credential: ServiceAccountCredential; token: string }>> => {
+  const serviceAccount = await serviceAccounts.get({ id: params.serviceAccountId });
+  if (!serviceAccount || serviceAccount.kind !== "resource_bound") return fail(err.notFound("Resource service account"));
+  if (serviceAccount.status !== "active") return fail(err.badInput("Resource service account is disabled"));
+
+  return sql.begin(async (tx) => {
+    const result = await insertApiToken(tx, {
+      serviceAccountId: serviceAccount.id,
+      name: params.name,
+      expiresAt: params.expiresAt,
+      createdBy: params.actor.id,
+      scopes: params.scopes,
+    });
+
+    return audit.recordResult({
+      action: "service_account_credential.create",
+      actor: actorForUser(params.actor),
+      target: { type: "service_account_credential", id: result.ok ? result.data.credential.id : null, label: params.name },
+      metadata: {
+        serviceAccountId: serviceAccount.id,
+        kind: "api_token",
+        serviceAccountKind: serviceAccount.kind,
+        appId: serviceAccount.appId,
+        resourceType: serviceAccount.resourceType,
+        resourceId: serviceAccount.resourceId,
+        expiresAt: params.expiresAt ?? null,
+      },
+      result,
+      db: tx,
+    });
+  });
+};
+
 export const listForDelegatedUser = async (params: { userId: string }): Promise<ServiceAccountCredential[]> => {
   const rows = await sql<DbCredentialRow[]>`
     SELECT c.id, c.service_account_id, c.name, c.kind, c.status, c.token_prefix, c.scopes, c.expires_at,
@@ -387,6 +426,10 @@ export const listOverview = async (config?: {
     serviceAccountKind?: ServiceAccount["kind"];
     credentialStatus?: ServiceAccountCredentialStatus;
     userId?: string;
+    appId?: string;
+    resourceType?: string;
+    resourceId?: string;
+    serviceAccountId?: string;
   };
 }): Promise<Paginated<ServiceAccountCredentialOverview>> => {
   const page = Math.max(1, config?.pagination?.page ?? 1);
@@ -396,6 +439,10 @@ export const listOverview = async (config?: {
   const serviceAccountKind = config?.filter?.serviceAccountKind ?? null;
   const credentialStatus = config?.filter?.credentialStatus ?? null;
   const userId = config?.filter?.userId ?? null;
+  const appId = config?.filter?.appId ?? null;
+  const resourceType = config?.filter?.resourceType ?? null;
+  const resourceId = config?.filter?.resourceId ?? null;
+  const serviceAccountId = config?.filter?.serviceAccountId ?? null;
 
   const [countRow] = await sql<{ count: string }[]>`
     SELECT COUNT(*)::text AS count
@@ -405,6 +452,10 @@ export const listOverview = async (config?: {
     WHERE (${serviceAccountKind}::text IS NULL OR sa.kind = ${serviceAccountKind})
       AND (${credentialStatus}::text IS NULL OR c.status = ${credentialStatus})
       AND (${userId}::uuid IS NULL OR sa.delegated_user_id = ${userId}::uuid)
+      AND (${serviceAccountId}::uuid IS NULL OR sa.id = ${serviceAccountId}::uuid)
+      AND (${appId}::text IS NULL OR sa.app_id = ${appId})
+      AND (${resourceType}::text IS NULL OR sa.resource_type = ${resourceType})
+      AND (${resourceId}::text IS NULL OR sa.resource_id = ${resourceId})
       AND (
         ${search}::text IS NULL
         OR c.name ILIKE '%' || ${search} || '%'
@@ -452,6 +503,10 @@ export const listOverview = async (config?: {
     WHERE (${serviceAccountKind}::text IS NULL OR sa.kind = ${serviceAccountKind})
       AND (${credentialStatus}::text IS NULL OR c.status = ${credentialStatus})
       AND (${userId}::uuid IS NULL OR sa.delegated_user_id = ${userId}::uuid)
+      AND (${serviceAccountId}::uuid IS NULL OR sa.id = ${serviceAccountId}::uuid)
+      AND (${appId}::text IS NULL OR sa.app_id = ${appId})
+      AND (${resourceType}::text IS NULL OR sa.resource_type = ${resourceType})
+      AND (${resourceId}::text IS NULL OR sa.resource_id = ${resourceId})
       AND (
         ${search}::text IS NULL
         OR c.name ILIKE '%' || ${search} || '%'
@@ -651,6 +706,7 @@ export const serviceAccountCredentials = {
   getOrCreateUserDelegatedServiceAccount,
   createApiToken,
   createUserApiToken,
+  createResourceApiToken,
   listForDelegatedUser,
   listOverview,
   revokeForDelegatedUser,

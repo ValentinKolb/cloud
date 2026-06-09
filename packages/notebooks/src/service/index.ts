@@ -110,6 +110,7 @@ export const notebooksService = {
         };
       },
       grant: access.grantNotebookAccess,
+      ensureServiceAccount: access.ensureNotebookServiceAccountAccess,
       update: access.updateNotebookAccess,
       remove: (config: { notebookId: string; accessId: string }) => access.removeNotebookAccess(config.notebookId, config.accessId),
       add: (config: { notebookId: string; accessId: string }) => access.addNotebookAccess(config.notebookId, config.accessId),
