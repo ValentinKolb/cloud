@@ -115,6 +115,9 @@ const SELF_SERVICE_ACTION_LABELS = {
   "service_account_credential.create": "API key created",
   "service_account_credential.revoke": "API key revoked",
   "service_account_credential.authenticate": "API key used",
+  "webauthn_credential.create": "Passkey added",
+  "webauthn_credential.delete": "Passkey removed",
+  "webauthn_credential.authenticate": "Passkey used",
 } as const satisfies Record<string, string>;
 const SELF_SERVICE_ACTIONS = Object.keys(SELF_SERVICE_ACTION_LABELS);
 

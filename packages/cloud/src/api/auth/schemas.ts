@@ -27,3 +27,8 @@ export const AuthResponseSchema = z.object({
   session_token: z.string(),
   user: UserSchema,
 });
+
+export const VerifyPasskeyAuthenticationSchema = z.object({
+  response: z.unknown(),
+  acceptedAgb: z.literal(true),
+});

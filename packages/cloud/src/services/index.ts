@@ -45,6 +45,8 @@ export type {
 } from "./service-account-credentials";
 export { oauthTokens } from "./oauth-tokens";
 export type { AuthenticatedOAuthToken } from "./oauth-tokens";
+export { webauthn } from "./webauthn";
+export type { WebAuthnRp } from "./webauthn";
 
 export { accountLifecycle } from "./account-lifecycle";
 export type { AccountLifecycleService } from "./account-lifecycle";

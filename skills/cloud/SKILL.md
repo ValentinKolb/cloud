@@ -72,7 +72,7 @@ Some domains are deliberately NOT apps — they live in `@valentinkolb/cloud` (`
 
 | Domain | Where it lives | Why it's core |
 |--------|----------------|---------------|
-| **Accounts / auth** | `packages/cloud/src/services/{accounts,account-lifecycle,auth-flows,ipa,providers,session,service-accounts,service-account-credentials,oauth-tokens}/` + `packages/core/src/migrate/core/auth.ts` | Auth is a platform invariant. Every app depends on the same user/role/session/principal model. Provider switching, IPA sync, magic-link, service accounts, API credentials, OAuth bearer verification, account lifecycle, and session semantics must not diverge between deployments. |
+| **Accounts / auth** | `packages/cloud/src/services/{accounts,account-lifecycle,auth-flows,ipa,providers,session,service-accounts,service-account-credentials,oauth-tokens,webauthn}/` + `packages/core/src/migrate/core/auth.ts` | Auth is a platform invariant. Every app depends on the same user/role/session/principal model. Provider switching, IPA sync, magic-link, passkeys, service accounts, API credentials, OAuth bearer verification, account lifecycle, and session semantics must not diverge between deployments. |
 | **Logging, notifications, settings** | `packages/cloud/src/services/{logging,notifications,settings}/` + `packages/core/src/migrate/core/*.ts` | Same reasoning — platform primitives, not app features. |
 
 The `packages/accounts/` app is **pure admin UI** on top of `@valentinkolb/cloud/services/accounts`. It owns no schema, no service logic, no auth flows. A user may fork it or write a completely different admin frontend, but the underlying authentication, authorization, and account-lifecycle rules stay identical. `packages/gateway-ops/` plays the same role for gateway operations, logging, notifications, and settings UI: it renders and schedules platform operations, while the reusable service logic stays in `@valentinkolb/cloud`.
@@ -197,7 +197,7 @@ These are provided by the `@valentinkolb/cloud` package. Import paths:
 |------|---------|
 | `@valentinkolb/cloud` | `defineApp`, app registry, `createHeartbeat`, `buildRuntimeFromRegistry` |
 | `@valentinkolb/cloud/server` | `auth`, `v`, `respond`, `ok`, `fail`, `err`, `rateLimit`, `jsonResponse`, access helpers, timezone helpers |
-| `@valentinkolb/cloud/services` | `logger`, `logging`, `notifications`, `session`, `accounts`, `serviceAccounts`, `serviceAccountCredentials`, `oauthTokens`, `audit`, postgres helpers |
+| `@valentinkolb/cloud/services` | `logger`, `logging`, `notifications`, `session`, `accounts`, `serviceAccounts`, `serviceAccountCredentials`, `oauthTokens`, `webauthn`, `audit`, postgres helpers |
 | `@valentinkolb/cloud/services/settings` | `get`, `set`, `remove`, `getAll`, `loadCache` — all reads are async (cache-aside through Redis) |
 | `@valentinkolb/cloud/ui` | All UI components, `prompts`, `DialogHeader`, `AppOverview`, `AppWorkspace`, `DataTable`, `FilterChip`, `Pagination`, etc. |
 | `@valentinkolb/cloud/browser` | `api.create()` (typed Hono client), `copyToClipboard` |

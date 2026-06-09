@@ -1,10 +1,12 @@
 import { Hono, type Context } from "hono";
 import { describeRoute } from "hono-openapi";
+import { z } from "zod";
 import { v } from "../server";
 import { jsonResponse } from "../server";
 import { auth, type AuthContext } from "../server";
 import { rateLimit } from "../server";
-import { authFlows, accounts, getFreeIpaConfig, logger } from "../services";
+import { respond } from "../server";
+import { authFlows, accounts, getFreeIpaConfig, logger, webauthn } from "../services";
 import { sql } from "bun";
 import { env } from "../config";
 import { ChangeExpiredPasswordSchema } from "../contracts";
@@ -16,6 +18,7 @@ import {
   VerifyTokenSchema,
   AdminLoginSchema,
   AuthResponseSchema,
+  VerifyPasskeyAuthenticationSchema,
 } from "./auth/schemas";
 import { ErrorResponseSchema, MessageResponseSchema } from "../contracts";
 
@@ -63,6 +66,45 @@ const app = new Hono<AuthContext>()
         session_token: sessionToken,
         user: loginResult.user,
       });
+    },
+  )
+  .post(
+    "/passkeys/authentication/start",
+    describeRoute({
+      tags: ["Auth"],
+      summary: "Start passkey login",
+      description: "Create WebAuthn authentication options for passkey sign-in.",
+      responses: {
+        200: jsonResponse(z.unknown(), "Passkey authentication options"),
+        400: jsonResponse(ErrorResponseSchema, "Passkey login is not available"),
+      },
+    }),
+    async (c) => respond(c, webauthn.beginAuthentication()),
+  )
+  .post(
+    "/passkeys/authentication/verify",
+    describeRoute({
+      tags: ["Auth"],
+      summary: "Verify passkey login",
+      description: "Verify a WebAuthn authentication response and create a normal Cloud session.",
+      responses: {
+        200: jsonResponse(AuthResponseSchema, "Passkey login successful"),
+        401: jsonResponse(ErrorResponseSchema, "Passkey verification failed"),
+      },
+    }),
+    v("json", VerifyPasskeyAuthenticationSchema),
+    async (c) => {
+      const result = await webauthn.finishAuthentication({
+        response: c.req.valid("json").response as never,
+      });
+      if (!result.ok) {
+        const status = result.error.status;
+        return c.json({ message: result.error.message, code: result.error.code }, status as 400 | 401 | 403 | 404 | 409 | 500);
+      }
+
+      const sessionToken = await auth.session.create(c, result.data.user.id);
+      log.info("Passkey login successful", { uid: result.data.user.uid });
+      return c.json({ session_token: sessionToken, user: result.data.user });
     },
   )
   .post(

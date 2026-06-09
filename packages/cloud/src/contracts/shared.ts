@@ -249,6 +249,29 @@ export const CreateUserApiKeyResponseSchema = z.object({
 });
 export type CreateUserApiKeyResponse = z.infer<typeof CreateUserApiKeyResponseSchema>;
 
+export const WebAuthnPasskeySchema = z.object({
+  id: z.uuid(),
+  userId: z.uuid(),
+  name: z.string(),
+  transports: z.array(z.string()),
+  deviceType: z.string().nullable(),
+  backedUp: z.boolean(),
+  createdAt: z.string(),
+  lastUsedAt: z.string().nullable(),
+});
+export type WebAuthnPasskey = z.infer<typeof WebAuthnPasskeySchema>;
+
+export const CreateWebAuthnPasskeySchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  response: z.unknown(),
+});
+export type CreateWebAuthnPasskey = z.infer<typeof CreateWebAuthnPasskeySchema>;
+
+export const ListWebAuthnPasskeysResponseSchema = z.object({
+  items: z.array(WebAuthnPasskeySchema),
+});
+export type ListWebAuthnPasskeysResponse = z.infer<typeof ListWebAuthnPasskeysResponseSchema>;
+
 export const AccountActivitySchema = z.object({
   id: z.number(),
   createdAt: z.string(),

@@ -14,17 +14,21 @@ import {
   CreateAccountRequestSchema,
   CreateUserApiKeyResponseSchema,
   CreateUserApiKeySchema,
+  CreateWebAuthnPasskeySchema,
   ErrorResponseSchema,
+  ListWebAuthnPasskeysResponseSchema,
   MessageResponseSchema,
   ServiceAccountCredentialSchema,
   UpdateProfileSchema,
   UserSchema,
+  WebAuthnPasskeySchema,
 } from "../contracts";
 import {
   accountLifecycle,
   accountsAppService as accountsService,
   audit,
   serviceAccountCredentials,
+  webauthn,
 } from "../services";
 
 const toAccountsActor = (user: AuthContext["Variables"]["user"]) => ({
@@ -116,6 +120,86 @@ const app = new Hono<AuthContext>()
         const result = await accountsService.user.update({ actor: toAccountsActor(user), id: user.id, data });
         if (!result.ok) return result;
         return ok({ message: "Profile updated." });
+      }),
+  )
+
+  .get(
+    "/passkeys",
+    describeRoute({
+      tags: ["Me"],
+      summary: "List current user passkeys",
+      description: "List WebAuthn passkeys registered to the authenticated account.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(ListWebAuthnPasskeysResponseSchema, "Passkeys"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+      },
+    }),
+    async (c) =>
+      respond(c, async () => {
+        const items = await webauthn.listForUser({ userId: c.get("user").id });
+        return ok({ items });
+      }),
+  )
+
+  .post(
+    "/passkeys/registration/start",
+    describeRoute({
+      tags: ["Me"],
+      summary: "Start passkey registration",
+      description: "Create WebAuthn registration options for the authenticated account.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.unknown(), "Passkey registration options"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+      },
+    }),
+    async (c) => respond(c, webauthn.beginRegistration({ user: c.get("user") })),
+  )
+
+  .post(
+    "/passkeys/registration/verify",
+    describeRoute({
+      tags: ["Me"],
+      summary: "Verify passkey registration",
+      description: "Verify a WebAuthn registration response and store the passkey public credential.",
+      ...requiresAuth,
+      responses: {
+        201: jsonResponse(WebAuthnPasskeySchema, "Passkey created"),
+        400: jsonResponse(ErrorResponseSchema, "Passkey registration failed"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+      },
+    }),
+    v("json", CreateWebAuthnPasskeySchema),
+    async (c) =>
+      respond(c, () => {
+        const data = c.req.valid("json");
+        return webauthn.finishRegistration({
+          user: c.get("user"),
+          name: data.name,
+          response: data.response as never,
+        });
+      }, 201),
+  )
+
+  .delete(
+    "/passkeys/:id",
+    describeRoute({
+      tags: ["Me"],
+      summary: "Delete current user passkey",
+      description: "Delete a WebAuthn passkey registered to the authenticated account.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Passkey deleted"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        404: jsonResponse(ErrorResponseSchema, "Passkey not found"),
+      },
+    }),
+    async (c) =>
+      respond(c, async () => {
+        const result = await webauthn.deleteForUser({ user: c.get("user"), id: c.req.param("id") });
+        if (!result.ok) return result;
+        return ok({ message: "Passkey deleted." });
       }),
   )
 

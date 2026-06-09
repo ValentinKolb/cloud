@@ -3,9 +3,10 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { dates } from "@valentinkolb/stdlib";
 import { canManageAnyGroups, getAccountTypeLabel, getManagementLabel, getSupplementalRoleLabel } from "@valentinkolb/cloud/shared";
-import { accountsAppService, audit, coreSettings, serviceAccountCredentials } from "@valentinkolb/cloud/services";
+import { accountsAppService, audit, coreSettings, serviceAccountCredentials, webauthn } from "@valentinkolb/cloud/services";
 import AccountActivity from "./AccountActivity.island";
 import ApiKeysSettings from "./ApiKeysSettings.island";
+import PasskeysSettings from "./PasskeysSettings.island";
 import ProfileActions from "./ProfileActions.island";
 import ProfileSettings from "./ProfileSettings.island";
 import RequestFreeIpaAccount from "./RequestFreeIpaAccount.island";
@@ -51,9 +52,10 @@ export default ssr<AuthContext>(async (c) => {
   const directGroups = sessionUser.memberofGroup;
   const supplementalRoles = sessionUser.roles.filter((role) => role === "admin" || role === "group-manager");
   const isExpiredAccount = sessionUser.accountExpires ? new Date(sessionUser.accountExpires) < new Date() : false;
-  const [pendingRequest, apiKeys, activityPage] = await Promise.all([
+  const [pendingRequest, apiKeys, passkeys, activityPage] = await Promise.all([
     sessionUser.provider === "local" ? accountsAppService.accountRequest.getPendingForUser({ userId: sessionUser.id }) : Promise.resolve(null),
     serviceAccountCredentials.listForDelegatedUser({ userId: sessionUser.id }),
+    webauthn.listForUser({ userId: sessionUser.id }),
     audit.listSelfServiceActivity({ userId: sessionUser.id, days: activityDays, pagination: { page: 1, perPage: 50 } }),
   ]);
   const address = formatAddress(ipaData?.address ?? { street: null, postalCode: null, city: null, state: null });
@@ -185,100 +187,113 @@ export default ssr<AuthContext>(async (c) => {
         </section>
 
         <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <section class="paper p-5 sm:p-6">
-            <div class="mb-5 flex items-start justify-between gap-3">
-              <div>
-                <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">
-                  <i class="ti ti-shield-lock text-sm" />
-                  Access & membership
-                </h2>
-                <p class="mt-1 text-xs text-dimmed">Groups and delegated management visible to your account.</p>
+          <main class="flex min-w-0 flex-col gap-4">
+            <section class="paper p-5 sm:p-6">
+              <div class="grid gap-6 xl:grid-cols-2">
+                <PasskeysSettings initialPasskeys={passkeys} surface="section" />
+                <ApiKeysSettings initialKeys={apiKeys} surface="section" />
               </div>
-            </div>
+            </section>
 
-            <div class="grid gap-6 xl:grid-cols-2">
-              <div class="min-w-0">
-                <div class="mb-3 flex items-center justify-between gap-3">
-                  <h3 class="flex items-center gap-1.5 text-xs font-semibold uppercase text-dimmed">
-                    <i class="ti ti-users-group text-sm" />
-                    Groups
-                  </h3>
-                  {displayGroups.length > 0 && (
-                    <a
-                      href={showAllGroups ? "/me" : "/me?groups=all"}
-                      class={`tag transition-colors ${
-                        showAllGroups
-                          ? "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"
-                          : "bg-zinc-100 text-dimmed hover:text-secondary dark:bg-zinc-800"
-                      }`}
-                      title={showAllGroups ? "Show direct memberships only" : "Show all memberships (including inherited)"}
-                    >
-                      <i class="ti ti-git-branch" />
-                      {showAllGroups ? "All" : "Direct"}
-                    </a>
+            <section class="paper p-5 sm:p-6">
+              <AccountActivity initialItems={activityPage.items} days={activityDays} surface="section" />
+            </section>
+
+            <section class="paper p-5 sm:p-6">
+              <div class="mb-5 flex items-start justify-between gap-3">
+                <div>
+                  <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">
+                    <i class="ti ti-shield-lock text-sm" />
+                    Access & membership
+                  </h2>
+                  <p class="mt-1 text-xs text-dimmed">Groups and delegated management visible to your account.</p>
+                </div>
+              </div>
+
+              <div class="grid gap-6 xl:grid-cols-2">
+                <div class="min-w-0">
+                  <div class="mb-3 flex items-center justify-between gap-3">
+                    <h3 class="flex items-center gap-1.5 text-xs font-semibold uppercase text-dimmed">
+                      <i class="ti ti-users-group text-sm" />
+                      Groups
+                    </h3>
+                    {displayGroups.length > 0 && (
+                      <a
+                        href={showAllGroups ? "/me" : "/me?groups=all"}
+                        class={`tag transition-colors ${
+                          showAllGroups
+                            ? "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"
+                            : "bg-zinc-100 text-dimmed hover:text-secondary dark:bg-zinc-800"
+                        }`}
+                        title={showAllGroups ? "Show direct memberships only" : "Show all memberships (including inherited)"}
+                      >
+                        <i class="ti ti-git-branch" />
+                        {showAllGroups ? "All" : "Direct"}
+                      </a>
+                    )}
+                  </div>
+                  {displayGroups.length > 0 ? (
+                    <div class="flex flex-wrap gap-1.5">
+                      {displayGroups.map((group) => {
+                        const isDirect = directGroups.includes(group);
+                        return (
+                          <a
+                            href={`/app/accounts/groups?scope=member&search=${encodeURIComponent(group)}`}
+                            class={`tag transition-colors ${
+                              isDirect
+                                ? "bg-zinc-100 text-secondary hover:text-primary dark:bg-zinc-800"
+                                : "bg-violet-50 text-violet-600 hover:bg-violet-100 dark:bg-violet-900/30 dark:text-violet-400 dark:hover:bg-violet-900/50"
+                            }`}
+                            title={isDirect ? "Direct membership" : "Inherited via group hierarchy"}
+                          >
+                            {group}
+                            {!isDirect && <i class="ti ti-git-branch ml-0.5 text-[10px] opacity-70" />}
+                          </a>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div class="rounded-lg border border-dashed border-zinc-200 px-4 py-6 text-center dark:border-zinc-800">
+                      <i class="ti ti-users-group text-2xl text-dimmed" />
+                      <p class="mt-2 text-xs text-dimmed">Not a member of any groups yet.</p>
+                      <a href="/app/accounts/groups" class="mt-1 inline-flex text-xs text-primary hover:underline">Browse groups</a>
+                    </div>
+                  )}
+                  {showAllGroups && displayGroups.length > directGroups.length && (
+                    <p class="mt-2 flex items-center gap-1 text-[10px] text-dimmed">
+                      <i class="ti ti-git-branch text-[10px]" />
+                      Inherited via group hierarchy.
+                    </p>
                   )}
                 </div>
-                {displayGroups.length > 0 ? (
-                  <div class="flex flex-wrap gap-1.5">
-                    {displayGroups.map((group) => {
-                      const isDirect = directGroups.includes(group);
-                      return (
+
+                <div class="min-w-0">
+                  <h3 class="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase text-dimmed">
+                    <i class="ti ti-shield text-sm" />
+                    Manages
+                  </h3>
+                  {canManageGroups && manages.length > 0 ? (
+                    <div class="flex flex-wrap gap-1.5">
+                      {manages.map((group) => (
                         <a
-                          href={`/app/accounts/groups?scope=member&search=${encodeURIComponent(group)}`}
-                          class={`tag transition-colors ${
-                            isDirect
-                              ? "bg-zinc-100 text-secondary hover:text-primary dark:bg-zinc-800"
-                              : "bg-violet-50 text-violet-600 hover:bg-violet-100 dark:bg-violet-900/30 dark:text-violet-400 dark:hover:bg-violet-900/50"
-                          }`}
-                          title={isDirect ? "Direct membership" : "Inherited via group hierarchy"}
+                          href={`/app/accounts/groups?scope=managed&search=${encodeURIComponent(group)}`}
+                          class="tag bg-blue-100 text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900/80"
                         >
                           {group}
-                          {!isDirect && <i class="ti ti-git-branch ml-0.5 text-[10px] opacity-70" />}
                         </a>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div class="rounded-lg border border-dashed border-zinc-200 px-4 py-6 text-center dark:border-zinc-800">
-                    <i class="ti ti-users-group text-2xl text-dimmed" />
-                    <p class="mt-2 text-xs text-dimmed">Not a member of any groups yet.</p>
-                    <a href="/app/accounts/groups" class="mt-1 inline-flex text-xs text-primary hover:underline">Browse groups</a>
-                  </div>
-                )}
-                {showAllGroups && displayGroups.length > directGroups.length && (
-                  <p class="mt-2 flex items-center gap-1 text-[10px] text-dimmed">
-                    <i class="ti ti-git-branch text-[10px]" />
-                    Inherited via group hierarchy.
-                  </p>
-                )}
+                      ))}
+                    </div>
+                  ) : (
+                    <div class="rounded-lg border border-dashed border-zinc-200 px-4 py-6 text-center dark:border-zinc-800">
+                      <i class="ti ti-shield text-2xl text-dimmed" />
+                      <p class="mt-2 text-xs text-dimmed">You don't manage any groups.</p>
+                      <a href="/app/accounts/groups" class="mt-1 inline-flex text-xs text-primary hover:underline">Browse groups</a>
+                    </div>
+                  )}
+                </div>
               </div>
-
-              <div class="min-w-0">
-                <h3 class="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase text-dimmed">
-                  <i class="ti ti-shield text-sm" />
-                  Manages
-                </h3>
-                {canManageGroups && manages.length > 0 ? (
-                  <div class="flex flex-wrap gap-1.5">
-                    {manages.map((group) => (
-                      <a
-                        href={`/app/accounts/groups?scope=managed&search=${encodeURIComponent(group)}`}
-                        class="tag bg-blue-100 text-blue-700 transition-colors hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:hover:bg-blue-900/80"
-                      >
-                        {group}
-                      </a>
-                    ))}
-                  </div>
-                ) : (
-                  <div class="rounded-lg border border-dashed border-zinc-200 px-4 py-6 text-center dark:border-zinc-800">
-                    <i class="ti ti-shield text-2xl text-dimmed" />
-                    <p class="mt-2 text-xs text-dimmed">You don't manage any groups.</p>
-                    <a href="/app/accounts/groups" class="mt-1 inline-flex text-xs text-primary hover:underline">Browse groups</a>
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
+            </section>
+          </main>
 
           <aside class="flex min-w-0 flex-col gap-4">
             {sessionUser.provider === "local" && (freeIpaEnabled || pendingRequest) && (
@@ -312,8 +327,6 @@ export default ssr<AuthContext>(async (c) => {
             )}
 
             <ProfileSettings provider={sessionUser.provider} profile={sessionUser.profile} freeIpaEnabled={freeIpaEnabled} />
-            <ApiKeysSettings initialKeys={apiKeys} />
-            <AccountActivity initialItems={activityPage.items} days={activityDays} />
           </aside>
         </div>
       </div>

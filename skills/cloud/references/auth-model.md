@@ -89,6 +89,44 @@ the login URL and re-used by the login page after successful verification. This
 keeps the token single-purpose while preserving OAuth and protected-page login
 flows.
 
+### Login Flow (Passkey / WebAuthn)
+
+Passkeys are Cloud-owned credentials bound to `auth.users.id`, not FreeIPA
+passkeys. They work for local and IPA users, full users and guests, and create
+the same Redis session shape as every other browser login flow.
+
+Storage:
+
+- Public credential records live in `auth.webauthn_credentials`.
+- The stored data is public credential material only: credential ID, public
+  key, counter, transports, device type, backup state, display name, and usage
+  timestamps.
+- Private keys never leave the user's authenticator and are never stored in
+  PostgreSQL.
+- Registration and authentication challenges live in Redis for a short TTL and
+  are consumed once.
+
+Flow:
+
+1. `/api/auth/passkeys/authentication/start` creates WebAuthn authentication
+   options from `app.url` (`rpID` and `origin`) and `app.name`.
+2. The login page calls the browser WebAuthn API through
+   `@simplewebauthn/browser`.
+3. `/api/auth/passkeys/authentication/verify` verifies the assertion with
+   `@simplewebauthn/server`, checks that the linked account is not expired,
+   updates the credential counter/last-used timestamp, writes audit activity,
+   and creates a normal Cloud session.
+
+Enrollment and deletion are self-service account actions on `/me`:
+
+- `/api/me/passkeys/registration/start`
+- `/api/me/passkeys/registration/verify`
+- `/api/me/passkeys/:id`
+
+Keep WebAuthn protocol validation inside the SimpleWebAuthn libraries. Cloud
+code should only own RP configuration, challenge persistence, account lookup,
+expiry checks, audit, and storage.
+
 ## Role Derivation
 
 Roles are computed by `buildRoles()` in `packages/cloud/src/services/accounts/authz.ts`:

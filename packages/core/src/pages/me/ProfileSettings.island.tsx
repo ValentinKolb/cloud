@@ -15,18 +15,16 @@ type Props = {
 
 function ToggleGroup(props: {
   label: string;
-  description: string;
   options: { value: string; label: string; icon: string }[];
   value: () => string;
   onChange: (value: string) => void;
 }) {
   return (
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div class="min-w-0">
+    <div class="flex flex-col gap-2">
+      <div>
         <span class="text-sm text-primary">{props.label}</span>
-        <p class="text-xs text-dimmed">{props.description}</p>
       </div>
-      <div class="w-full max-w-full shrink-0 sm:w-56">
+      <div class="w-full">
         <SegmentedControl
           value={props.value}
           onChange={(value) => props.onChange(value)}
@@ -183,8 +181,7 @@ export default function ProfileSettings(props: Props) {
 
       <div class="flex flex-col gap-4">
         <ToggleGroup
-          label="Color Mode"
-          description="Switch between light and dark"
+          label="Color mode"
           value={theme}
           onChange={handleTheme}
           options={[

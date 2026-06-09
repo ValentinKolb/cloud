@@ -7,6 +7,7 @@ import { CopyButton, DateTimePicker, prompts, TextInput } from "@valentinkolb/cl
 
 type Props = {
   initialKeys: ServiceAccountCredential[];
+  surface?: "paper" | "section";
 };
 
 const presetDate = (days: number) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
@@ -95,6 +96,7 @@ function ApiKeyCreateDialog(props: { close: (value: { name: string; expiresAt: s
 
 export default function ApiKeysSettings(props: Props) {
   const [keys, setKeys] = createSignal<ServiceAccountCredential[]>(props.initialKeys);
+  const rootClass = () => (props.surface === "section" ? "min-w-0" : "paper p-5");
 
   const createMutation = mutations.create<{ credential: ServiceAccountCredential; token: string }, { name: string; expiresAt: string | null }>({
     mutation: async (vars) => {
@@ -148,7 +150,7 @@ export default function ApiKeysSettings(props: Props) {
   };
 
   return (
-    <section class="paper p-5">
+    <section class={rootClass()}>
       <div class="mb-5 flex items-start justify-between gap-3">
         <div>
           <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">

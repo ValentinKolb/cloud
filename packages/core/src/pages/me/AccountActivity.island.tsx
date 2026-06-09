@@ -8,6 +8,7 @@ type ActivityDays = 7 | 30 | 90;
 type Props = {
   initialItems: AccountActivityEntry[];
   days: ActivityDays;
+  surface?: "paper" | "section";
 };
 
 const RANGE_OPTIONS: FilterChipSection[] = [
@@ -42,8 +43,10 @@ const setActivityDays = (value: string) => {
 };
 
 export default function AccountActivity(props: Props) {
+  const rootClass = () => (props.surface === "section" ? "min-w-0" : "paper p-5");
+
   return (
-    <section class="paper p-5">
+    <section class={rootClass()}>
       <div class="mb-5 flex items-start justify-between gap-3">
         <div>
           <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">

@@ -413,6 +413,31 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ auth.service_account_credentials table");
 
   await sql`
+    CREATE TABLE IF NOT EXISTS auth.webauthn_credentials (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      credential_id TEXT NOT NULL UNIQUE,
+      public_key BYTEA NOT NULL,
+      counter BIGINT NOT NULL DEFAULT 0,
+      transports TEXT[] NOT NULL DEFAULT '{}',
+      device_type TEXT,
+      backed_up BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_used_at TIMESTAMPTZ
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user
+    ON auth.webauthn_credentials(user_id)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_created_at
+    ON auth.webauthn_credentials(created_at DESC)
+  `.simple();
+  console.log("  ✓ auth.webauthn_credentials table");
+
+  await sql`
     DO $$ BEGIN
       CREATE TYPE auth.permission_level AS ENUM ('none', 'read', 'write', 'admin');
     EXCEPTION

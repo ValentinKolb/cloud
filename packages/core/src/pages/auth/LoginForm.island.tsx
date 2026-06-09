@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
-import {TextInput } from "@valentinkolb/cloud/ui";
+import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
+import { TextInput } from "@valentinkolb/cloud/ui";
 import { cookies } from "@valentinkolb/stdlib/browser";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
@@ -30,6 +31,31 @@ export default function LoginForm(props: { redirectTo?: string; showBanner?: boo
     },
   });
 
+  const passkeyMutation = mutations.create({
+    mutation: async () => {
+      if (!browserSupportsWebAuthn()) throw new Error("This browser does not support passkeys.");
+      const optionsRes = await apiClient.auth.passkeys.authentication.start.$post();
+      const options = await optionsRes.json();
+      if (!optionsRes.ok) throw new Error((options as { message?: string }).message ?? "Failed to start passkey login.");
+
+      const response = await startAuthentication({ optionsJSON: options as never });
+      const verifyRes = await apiClient.auth.passkeys.authentication.verify.$post({
+        json: { response, acceptedAgb: true },
+      });
+      if (!verifyRes.ok) {
+        const data = (await verifyRes.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(data?.message ?? "Passkey login failed.");
+      }
+    },
+    onSuccess: () => {
+      cookies.writeCookie("login_method", "passkey");
+      window.location.href = props.redirectTo || "/";
+    },
+  });
+
+  const error = () => passkeyMutation.error() ?? mutation.error();
+  const loading = () => mutation.loading() || passkeyMutation.loading();
+
   return (
     <form
       onSubmit={(e) => {
@@ -43,14 +69,24 @@ export default function LoginForm(props: { redirectTo?: string; showBanner?: boo
       <TextInput placeholder="Username" icon="ti ti-user" value={username} onChange={setUsername} />
       <TextInput placeholder="Password" icon="ti ti-lock" password value={password} onChange={setPassword} />
 
-      {mutation.error() && (
+      {error() && (
         <div class="info-block-danger">
-          <span>{mutation.error()?.message}</span>
+          <span>{error()?.message}</span>
         </div>
       )}
 
-      <button type="submit" class="btn-primary w-full justify-center py-2" disabled={mutation.loading()}>
+      <button type="submit" class="btn-primary w-full justify-center py-2" disabled={loading()}>
         {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Sign In"}
+      </button>
+
+      <button
+        type="button"
+        class="btn-secondary w-full justify-center py-2"
+        disabled={loading()}
+        onClick={() => passkeyMutation.mutate({})}
+      >
+        {passkeyMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-fingerprint" />}
+        Sign in with passkey
       </button>
     </form>
   );
