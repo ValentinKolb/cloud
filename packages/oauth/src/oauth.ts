@@ -17,7 +17,7 @@ const getIssuer = async (): Promise<string> => {
   return appUrl.startsWith("http") ? appUrl : `https://${appUrl}`;
 };
 
-const OAUTH_SCOPES: OAuthScope[] = ["openid", "profile", "email", "groups"];
+const OAUTH_SCOPES: OAuthScope[] = ["openid", "profile", "email", "groups", "read", "write", "admin"];
 const isOAuthScope = (value: string): value is OAuthScope => OAUTH_SCOPES.includes(value as OAuthScope);
 
 /**
@@ -53,17 +53,26 @@ const AuthorizeQuerySchema = z.object({
   code_challenge_method: z.enum(["S256", "plain"]).optional(),
 });
 
-const TokenBodySchema = z.object({
-  grant_type: z.literal("authorization_code"),
-  code: z.string().min(1),
-  redirect_uri: z.url(),
-  // Optional in the schema: client_id may also arrive via
-  // `Authorization: Basic` (RFC 6749 §2.3.1). The handler enforces that one
-  // source provides it and 400s otherwise.
-  client_id: z.string().min(1).optional(),
-  client_secret: z.string().optional(),
-  code_verifier: z.string().optional(),
-});
+const TokenBodySchema = z.discriminatedUnion("grant_type", [
+  z.object({
+    grant_type: z.literal("authorization_code"),
+    code: z.string().min(1),
+    redirect_uri: z.url(),
+    // Optional in the schema: client_id may also arrive via
+    // `Authorization: Basic` (RFC 6749 §2.3.1). The handler enforces that one
+    // source provides it and 400s otherwise.
+    client_id: z.string().min(1).optional(),
+    client_secret: z.string().optional(),
+    code_verifier: z.string().optional(),
+  }),
+  z.object({
+    grant_type: z.literal("client_credentials"),
+    client_id: z.string().min(1).optional(),
+    client_secret: z.string().optional(),
+    scope: z.string().optional(),
+    resource: z.string().optional(),
+  }),
+]);
 
 const TokenResponseSchema = z.object({
   access_token: z.string(),
@@ -189,8 +198,6 @@ const app = new Hono<AuthContext>()
       if (!client_id) {
         return c.json({ message: "Missing client_id" }, 400);
       }
-      const { code, redirect_uri, code_verifier } = body;
-
       const client = await oauth.clients.validateCredentials({
         clientId: client_id,
         clientSecret: client_secret,
@@ -199,6 +206,53 @@ const app = new Hono<AuthContext>()
       if (!client) {
         return c.json({ message: "Invalid client credentials" }, 401);
       }
+
+      if (body.grant_type === "client_credentials") {
+        if (client.isPublic) {
+          return c.json({ message: "Client credentials require a confidential client" }, 401);
+        }
+
+        const issuer = await getIssuer();
+        try {
+          const token = await oauth.tokens.createClientCredentialsToken({
+            client,
+            issuer,
+            scope: body.scope,
+            resource: body.resource,
+          });
+
+          return c.json({
+            access_token: token.accessToken,
+            token_type: "Bearer" as const,
+            expires_in: token.expiresIn,
+            id_token: null,
+            scope: token.scope,
+          });
+        } catch (err) {
+          if (err instanceof oauth.tokens.InvalidOAuthScopeError) {
+            return c.json({ message: err.message }, 400);
+          }
+          if (err instanceof oauth.tokens.InvalidOAuthServiceAccountError) {
+            return c.json({ message: err.message }, 400);
+          }
+          if (err instanceof oauth.tokens.InvalidOAuthResourceError) {
+            return c.json({ message: err.message }, 400);
+          }
+
+          log.error("Failed to generate client credentials token", {
+            error: err instanceof Error ? err.message : String(err),
+            clientId: client_id,
+          });
+          return c.json(
+            {
+              message: "Token generation failed. Please try again or contact an administrator.",
+            },
+            500,
+          );
+        }
+      }
+
+      const { code, redirect_uri, code_verifier } = body;
 
       const result = await oauth.codes.consume({
         code,

@@ -155,6 +155,7 @@ const CreateClientButton = () => {
         redirectUris: [cleanRedirectUri],
         logoutUri: cleanLogoutUri,
         scopes,
+        audiences: ["cloud"],
         allowedProfiles,
         isPublic: !!result.isPublic,
       });

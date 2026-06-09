@@ -43,6 +43,8 @@ export type {
   ServiceAccountCredentialOwner,
   ServiceAccountCredentialStatus,
 } from "./service-account-credentials";
+export { oauthTokens } from "./oauth-tokens";
+export type { AuthenticatedOAuthToken } from "./oauth-tokens";
 
 export { accountLifecycle } from "./account-lifecycle";
 export type { AccountLifecycleService } from "./account-lifecycle";

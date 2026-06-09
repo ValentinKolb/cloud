@@ -13,6 +13,8 @@ export const migrate = async (): Promise<void> => {
       client_secret_hash TEXT,
       redirect_uris TEXT[] NOT NULL,
       scopes TEXT[] NOT NULL DEFAULT ARRAY['openid', 'profile', 'email'],
+      audiences TEXT[] NOT NULL DEFAULT ARRAY['cloud'],
+      service_account_id UUID REFERENCES auth.service_accounts(id) ON DELETE SET NULL,
       allowed_profiles TEXT[] NOT NULL DEFAULT ARRAY['user', 'guest'],
       is_public BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -20,6 +22,18 @@ export const migrate = async (): Promise<void> => {
       logout_uri TEXT,
       CONSTRAINT clients_name_key UNIQUE (name)
     )
+  `.simple();
+  await sql`
+    ALTER TABLE oauth.clients
+    ADD COLUMN IF NOT EXISTS audiences TEXT[] NOT NULL DEFAULT ARRAY['cloud']
+  `.simple();
+  await sql`
+    ALTER TABLE oauth.clients
+    ADD COLUMN IF NOT EXISTS service_account_id UUID REFERENCES auth.service_accounts(id) ON DELETE SET NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_oauth_clients_service_account
+    ON oauth.clients(service_account_id)
   `.simple();
   await sql`
     DO $$

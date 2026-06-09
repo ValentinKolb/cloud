@@ -1,7 +1,7 @@
 import { sql } from "bun";
 import * as jose from "jose";
 import type { OAuthClient, OAuthScope } from "@/contracts";
-import { accounts } from "@valentinkolb/cloud/services";
+import { accounts, serviceAccounts } from "@valentinkolb/cloud/services";
 
 // ==========================
 // OAuth Tokens Service (JWT with jose)
@@ -22,6 +22,55 @@ type KeyPair = {
 };
 
 let cachedKeyPair: KeyPair | null = null;
+
+export class InvalidOAuthScopeError extends Error {
+  constructor() {
+    super("Requested scope is not allowed for this client");
+  }
+}
+
+export class InvalidOAuthServiceAccountError extends Error {
+  constructor() {
+    super("Client is not bound to an active resource service account");
+  }
+}
+
+export class InvalidOAuthResourceError extends Error {
+  constructor() {
+    super("Requested resource is not allowed for this client");
+  }
+}
+
+const dedupe = (values: string[]): string[] => Array.from(new Set(values.filter((value) => value.length > 0)));
+
+const parseScopes = (scope: string | undefined): string[] =>
+  scope
+    ?.split(" ")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0) ?? [];
+
+const resolveRequestedScopes = (client: OAuthClient, requestedScope?: string): OAuthScope[] => {
+  const requested = parseScopes(requestedScope);
+  if (requested.length === 0) return client.scopes;
+
+  const allowed = new Set(client.scopes);
+  if (requested.some((scope) => !allowed.has(scope as OAuthScope))) {
+    throw new InvalidOAuthScopeError();
+  }
+  return requested as OAuthScope[];
+};
+
+const getAccessTokenAudience = (client: OAuthClient, resources: string[] = []): string[] =>
+  dedupe(["cloud", client.clientId, ...client.audiences, ...resources]);
+
+const validateRequestedResource = (client: OAuthClient, resource: string | undefined): string[] => {
+  if (!resource) return [];
+  const allowed = new Set(getAccessTokenAudience(client));
+  if (!allowed.has(resource)) {
+    throw new InvalidOAuthResourceError();
+  }
+  return [resource];
+};
 
 /**
  * Get or create RSA key pair for JWT signing
@@ -99,7 +148,7 @@ export const getOpenIdConfiguration = (issuer: string) => ({
   response_types_supported: ["code"],
   subject_types_supported: ["public"],
   id_token_signing_alg_values_supported: ["RS256"],
-  scopes_supported: ["openid", "profile", "email", "groups"],
+  scopes_supported: ["openid", "profile", "email", "groups", "read", "write", "admin"],
   token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
   claims_supported: [
     "sub",
@@ -116,9 +165,20 @@ export const getOpenIdConfiguration = (issuer: string) => ({
     "email",
     "nonce",
     "groups",
+    "token_use",
+    "principal_type",
+    "client_id",
+    "azp",
+    "scope",
+    "service_account_id",
+    "service_account_kind",
+    "app_id",
+    "resource_type",
+    "resource_id",
   ],
   code_challenge_methods_supported: ["S256", "plain"],
-  grant_types_supported: ["authorization_code"],
+  grant_types_supported: ["authorization_code", "client_credentials"],
+  resource_parameter_supported: true,
 });
 
 /**
@@ -147,12 +207,18 @@ export const createTokens = async (params: {
 
   // Access Token
   const accessToken = await new jose.SignJWT({
+    token_use: "access",
+    principal_type: "user",
+    uid: user.uid,
+    id: user.id,
+    client_id: client.clientId,
+    azp: client.clientId,
     scope: client.scopes.join(" "),
   })
     .setProtectedHeader({ alg: "RS256", kid })
     .setIssuer(issuer)
     .setSubject(subject)
-    .setAudience(client.clientId)
+    .setAudience(getAccessTokenAudience(client))
     .setIssuedAt(now)
     .setExpirationTime(now + expiresIn)
     .setJti(crypto.randomUUID())
@@ -197,6 +263,57 @@ export const createTokens = async (params: {
   }
 
   return { accessToken, idToken, expiresIn };
+};
+
+/**
+ * Create a client-credentials access token for a resource-bound service account.
+ */
+export const createClientCredentialsToken = async (params: {
+  client: OAuthClient;
+  issuer: string;
+  scope?: string;
+  resource?: string;
+}): Promise<{ accessToken: string; expiresIn: number; scope: string }> => {
+  const { client, issuer, scope, resource } = params;
+  const { privateKey, kid } = await getOrCreateKeyPair();
+
+  if (!client.serviceAccountId) {
+    throw new InvalidOAuthServiceAccountError();
+  }
+
+  const serviceAccount = await serviceAccounts.get({ id: client.serviceAccountId });
+  if (!serviceAccount || serviceAccount.status !== "active" || serviceAccount.kind !== "resource_bound") {
+    throw new InvalidOAuthServiceAccountError();
+  }
+
+  const requestedScopes = resolveRequestedScopes(client, scope);
+  const now = Math.floor(Date.now() / 1000);
+  const expiresIn = 3600;
+  const scopeValue = requestedScopes.join(" ");
+  const resourceAudiences = validateRequestedResource(client, resource);
+
+  const accessToken = await new jose.SignJWT({
+    token_use: "access",
+    principal_type: "service_account",
+    service_account_id: serviceAccount.id,
+    service_account_kind: serviceAccount.kind,
+    app_id: serviceAccount.appId,
+    resource_type: serviceAccount.resourceType,
+    resource_id: serviceAccount.resourceId,
+    client_id: client.clientId,
+    azp: client.clientId,
+    scope: scopeValue,
+  })
+    .setProtectedHeader({ alg: "RS256", kid })
+    .setIssuer(issuer)
+    .setSubject(serviceAccount.id)
+    .setAudience(getAccessTokenAudience(client, resourceAudiences))
+    .setIssuedAt(now)
+    .setExpirationTime(now + expiresIn)
+    .setJti(crypto.randomUUID())
+    .sign(privateKey);
+
+  return { accessToken, expiresIn, scope: scopeValue };
 };
 
 /**

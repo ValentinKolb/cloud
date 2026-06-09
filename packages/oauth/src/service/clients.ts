@@ -1,5 +1,5 @@
 import { sql } from "bun";
-import { toPgTextArray } from "@valentinkolb/cloud/services";
+import { serviceAccounts, toPgTextArray } from "@valentinkolb/cloud/services";
 import type {
   MutationResult,
   OAuthAllowedProfile,
@@ -23,6 +23,8 @@ type DbClient = {
   redirect_uris: string[];
   logout_uri: string | null;
   scopes: string[];
+  audiences: string[];
+  service_account_id: string | null;
   allowed_profiles: string[];
   is_public: boolean;
   created_at: Date;
@@ -40,6 +42,8 @@ const mapToClient = (row: DbClient): OAuthClient => ({
   redirectUris: row.redirect_uris,
   logoutUri: row.logout_uri,
   scopes: row.scopes as OAuthScope[],
+  audiences: row.audiences,
+  serviceAccountId: row.service_account_id,
   allowedProfiles: row.allowed_profiles as OAuthAllowedProfile[],
   isPublic: row.is_public,
   createdAt: row.created_at.toISOString(),
@@ -51,7 +55,7 @@ const mapToClient = (row: DbClient): OAuthClient => ({
  */
 export const list = async (): Promise<OAuthClient[]> => {
   const rows = await sql<DbClient[]>`
-    SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, allowed_profiles, is_public, created_at, created_by
+    SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, is_public, created_at, created_by
     FROM oauth.clients
     ORDER BY created_at DESC
   `;
@@ -63,7 +67,7 @@ export const list = async (): Promise<OAuthClient[]> => {
  */
 export const get = async (params: { id: string }): Promise<OAuthClient | null> => {
   const [row] = await sql<DbClient[]>`
-    SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, allowed_profiles, is_public, created_at, created_by
+    SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, is_public, created_at, created_by
     FROM oauth.clients
     WHERE id = ${params.id}
   `;
@@ -75,7 +79,7 @@ export const get = async (params: { id: string }): Promise<OAuthClient | null> =
  */
 export const getByClientId = async (params: { clientId: string }): Promise<OAuthClient | null> => {
   const [row] = await sql<DbClient[]>`
-    SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, allowed_profiles, is_public, created_at, created_by
+    SELECT id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, is_public, created_at, created_by
     FROM oauth.clients
     WHERE client_id = ${params.clientId}
   `;
@@ -94,22 +98,30 @@ export const create = async (params: { data: CreateOAuthClient; createdBy: strin
 
   const redirectUrisLiteral = toPgTextArray(data.redirectUris);
   const scopesLiteral = toPgTextArray(data.scopes);
+  const audiencesLiteral = toPgTextArray(data.audiences);
   const allowedProfilesLiteral = toPgTextArray(data.allowedProfiles);
+  const serviceAccountResult = await validateServiceAccountBinding({
+    serviceAccountId: data.serviceAccountId ?? null,
+    isPublic: data.isPublic,
+  });
+  if (!serviceAccountResult.ok) return serviceAccountResult;
 
   const [row] = await sql<DbClient[]>`
-    INSERT INTO oauth.clients (name, description, redirect_uris, logout_uri, scopes, allowed_profiles, is_public, client_secret_hash, created_by)
+    INSERT INTO oauth.clients (name, description, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, is_public, client_secret_hash, created_by)
     VALUES (
       ${data.name},
       ${data.description ?? null},
       ${redirectUrisLiteral}::text[],
       ${data.logoutUri ?? null},
       ${scopesLiteral}::text[],
+      ${audiencesLiteral}::text[],
+      ${data.serviceAccountId ?? null}::uuid,
       ${allowedProfilesLiteral}::text[],
       ${data.isPublic},
       ${clientSecretHash},
       ${createdBy}
     )
-    RETURNING id, name, description, client_id, redirect_uris, logout_uri, scopes, allowed_profiles, is_public, created_at, created_by
+    RETURNING id, name, description, client_id, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, is_public, created_at, created_by
   `;
 
   if (!row) {
@@ -138,7 +150,14 @@ export const update = async (params: { id: string; data: UpdateOAuthClient }): P
 
   const redirectUrisLiteral = toPgTextArray(data.redirectUris ?? existing.redirectUris);
   const scopesLiteral = toPgTextArray(data.scopes ?? existing.scopes);
+  const audiencesLiteral = toPgTextArray(data.audiences ?? existing.audiences);
   const allowedProfilesLiteral = toPgTextArray(data.allowedProfiles ?? existing.allowedProfiles);
+  const serviceAccountId = data.serviceAccountId === undefined ? existing.serviceAccountId : data.serviceAccountId;
+  const serviceAccountResult = await validateServiceAccountBinding({
+    serviceAccountId,
+    isPublic: existing.isPublic,
+  });
+  if (!serviceAccountResult.ok) return serviceAccountResult;
 
   // Handle description: undefined means keep existing, null means clear it
   const description = data.description === undefined ? existing.description : data.description;
@@ -153,6 +172,8 @@ export const update = async (params: { id: string; data: UpdateOAuthClient }): P
       redirect_uris = ${redirectUrisLiteral}::text[],
       logout_uri = ${logoutUri},
       scopes = ${scopesLiteral}::text[],
+      audiences = ${audiencesLiteral}::text[],
+      service_account_id = ${serviceAccountId}::uuid,
       allowed_profiles = ${allowedProfilesLiteral}::text[]
     WHERE id = ${id}
   `;
@@ -206,7 +227,7 @@ export const regenerateSecret = async (params: { id: string }): Promise<Mutation
  */
 export const validateCredentials = async (params: { clientId: string; clientSecret?: string }): Promise<OAuthClient | null> => {
   const [row] = await sql<(DbClient & { client_secret_hash: string | null })[]>`
-    SELECT id, name, description, client_id, client_secret_hash, redirect_uris, logout_uri, scopes, allowed_profiles, is_public, created_at, created_by
+    SELECT id, name, description, client_id, client_secret_hash, redirect_uris, logout_uri, scopes, audiences, service_account_id, allowed_profiles, is_public, created_at, created_by
     FROM oauth.clients
     WHERE client_id = ${params.clientId}
   `;
@@ -239,4 +260,26 @@ export const validateRedirectUri = (client: OAuthClient, redirectUri: string): b
  */
 export const isProfileAllowed = (client: OAuthClient, profile: OAuthAllowedProfile): boolean => {
   return client.allowedProfiles.includes(profile);
+};
+
+const validateServiceAccountBinding = async (params: {
+  serviceAccountId: string | null;
+  isPublic: boolean;
+}): Promise<MutationResult<void>> => {
+  const { serviceAccountId, isPublic } = params;
+  if (!serviceAccountId) return { ok: true, data: undefined };
+  if (isPublic) {
+    return { ok: false, error: "Service-account OAuth clients must be confidential", status: 400 };
+  }
+
+  const serviceAccount = await serviceAccounts.get({ id: serviceAccountId });
+  if (!serviceAccount) return { ok: false, error: "Service account not found", status: 404 };
+  if (serviceAccount.kind !== "resource_bound") {
+    return { ok: false, error: "OAuth client credentials can only bind resource service accounts", status: 400 };
+  }
+  if (serviceAccount.status !== "active") {
+    return { ok: false, error: "Service account is not active", status: 400 };
+  }
+
+  return { ok: true, data: undefined };
 };

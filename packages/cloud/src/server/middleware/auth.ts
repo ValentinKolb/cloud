@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { MessageResponse, Role, RoleOrSpecial, User, UserProfile, UserProvider } from "../../contracts/shared";
 import { accounts } from "../../services/accounts";
+import { oauthTokens } from "../../services/oauth-tokens";
 import { session } from "../../services/session";
 import { serviceAccountCredentials } from "../../services/service-account-credentials";
 import { createLoginRedirectUrl } from "../../shared/redirect";
@@ -92,6 +93,33 @@ const loadAuthenticatedActor = async (c: Context<AuthContext>): Promise<{
   if (bearer && serviceAccountCredentials.isApiToken(bearer)) {
     const authResult = await serviceAccountCredentials.authenticateApiToken(bearer);
     if (!authResult) return { token: null, user: null, actor: null };
+
+    const actor: RequestActor = {
+      kind: "service_account",
+      serviceAccount: authResult.serviceAccount,
+      delegatedUser: authResult.delegatedUser,
+    };
+    c.set("actor", actor);
+    if (authResult.delegatedUser) {
+      c.set("accessSubject", { type: "user", userId: authResult.delegatedUser.id });
+      c.set("user", authResult.delegatedUser);
+    } else {
+      c.set("accessSubject", { type: "service_account", serviceAccountId: authResult.serviceAccount.id });
+    }
+    return { token: null, user: authResult.delegatedUser, actor };
+  }
+
+  if (bearer) {
+    const authResult = await oauthTokens.verifyAccessToken(bearer);
+    if (!authResult) return { token: null, user: null, actor: null };
+
+    if (authResult.kind === "user") {
+      const actor: RequestActor = { kind: "user", user: authResult.user };
+      c.set("actor", actor);
+      c.set("accessSubject", { type: "user", userId: authResult.user.id });
+      c.set("user", authResult.user);
+      return { token: null, user: authResult.user, actor };
+    }
 
     const actor: RequestActor = {
       kind: "service_account",

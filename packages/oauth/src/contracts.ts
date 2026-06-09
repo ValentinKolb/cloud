@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const OAuthScopeSchema = z.enum(["openid", "profile", "email", "groups"]);
+export const OAuthScopeSchema = z.enum(["openid", "profile", "email", "groups", "read", "write", "admin"]);
 export type OAuthScope = z.infer<typeof OAuthScopeSchema>;
 
 export const OAuthAllowedProfileSchema = z.enum(["user", "guest"]);
@@ -14,6 +14,8 @@ export const OAuthClientSchema = z.object({
   redirectUris: z.array(z.string()),
   logoutUri: z.string().nullable(),
   scopes: z.array(OAuthScopeSchema),
+  audiences: z.array(z.string()),
+  serviceAccountId: z.uuid().nullable(),
   allowedProfiles: z.array(OAuthAllowedProfileSchema),
   isPublic: z.boolean(),
   createdAt: z.string(),
@@ -27,9 +29,11 @@ export const OAuthClientWithSecretSchema = OAuthClientSchema.extend({
 export const CreateOAuthClientSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
-  redirectUris: z.array(z.url()).min(1),
+  redirectUris: z.array(z.url()).default([]),
   logoutUri: z.url().optional(),
   scopes: z.array(OAuthScopeSchema).default(["openid", "profile", "email"]),
+  audiences: z.array(z.string().min(1)).default(["cloud"]),
+  serviceAccountId: z.uuid().nullable().optional(),
   allowedProfiles: z.array(OAuthAllowedProfileSchema).default(["user", "guest"]),
   isPublic: z.boolean().default(false),
 });
@@ -37,9 +41,11 @@ export const CreateOAuthClientSchema = z.object({
 export const UpdateOAuthClientSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().nullable().optional(),
-  redirectUris: z.array(z.url()).min(1).optional(),
+  redirectUris: z.array(z.url()).optional(),
   logoutUri: z.url().nullable().optional(),
   scopes: z.array(OAuthScopeSchema).optional(),
+  audiences: z.array(z.string().min(1)).optional(),
+  serviceAccountId: z.uuid().nullable().optional(),
   allowedProfiles: z.array(OAuthAllowedProfileSchema).optional(),
 });
 
