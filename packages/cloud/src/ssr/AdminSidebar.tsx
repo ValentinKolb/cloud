@@ -54,7 +54,13 @@ const buildAdminGroups = (apps: readonly RuntimeContext["apps"][number][]): Admi
     .sort((a, b) => a.label.localeCompare(b.label));
 
   return [
-    { label: "General", links: [{ href: "/admin", icon: "ti-dashboard", label: "Overview" }] },
+    {
+      label: "General",
+      links: [
+        { href: "/admin", icon: "ti-dashboard", label: "Overview" },
+        { href: "/admin/announcements", icon: "ti-speakerphone", label: "Announcements" },
+      ],
+    },
     ...staticGroups,
     ...(appLinks.length > 0 ? [{ label: "App Admin", links: appLinks }] : []),
   ];
@@ -92,13 +98,7 @@ const DesktopLink = (props: { currentPath: string; link: AdminLink }) => (
   </a>
 );
 
-export default function AdminSidebar({
-  currentPath,
-  apps,
-}: {
-  currentPath: string;
-  apps: readonly RuntimeContext["apps"][number][];
-}) {
+export default function AdminSidebar({ currentPath, apps }: { currentPath: string; apps: readonly RuntimeContext["apps"][number][] }) {
   const groups = buildAdminGroups(apps);
 
   return (
@@ -118,7 +118,9 @@ export default function AdminSidebar({
             {groups.map((group) => (
               <section class="sidebar-group">
                 <p class="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-dimmed">{group.label}</p>
-                {group.links.map((link) => <MobileLink currentPath={currentPath} link={link} />)}
+                {group.links.map((link) => (
+                  <MobileLink currentPath={currentPath} link={link} />
+                ))}
               </section>
             ))}
           </div>
@@ -138,7 +140,9 @@ export default function AdminSidebar({
             {groups.map((group) => (
               <section class="sidebar-group">
                 <p class="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-dimmed">{group.label}</p>
-                {group.links.map((link) => <DesktopLink currentPath={currentPath} link={link} />)}
+                {group.links.map((link) => (
+                  <DesktopLink currentPath={currentPath} link={link} />
+                ))}
               </section>
             ))}
           </div>

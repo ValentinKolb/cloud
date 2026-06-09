@@ -1,20 +1,19 @@
-import { Hono } from "hono";
 import { join } from "node:path";
-import { auth, type AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { authFlows, coreSettings } from "@valentinkolb/cloud/services";
+import { Hono } from "hono";
+import announcementsAdminPage from "./admin/announcements/page";
+import adminPage from "./admin/page";
+import newPasswordPage from "./auth/new-password/page";
+import loginPage from "./auth/page";
 import profilePage from "./me/page";
 import notFoundPage from "./NotFound";
-import loginPage from "./auth/page";
-import newPasswordPage from "./auth/new-password/page";
-import adminPage from "./admin/page";
 
 /**
  * Creates the SSR pages router.
  * App pages are served by individual containers (microservices mode).
  */
-export const createPagesRouter = (
-  options?: { brandingPublicDir?: string },
-): Hono<AuthContext> => {
+export const createPagesRouter = (options?: { brandingPublicDir?: string }): Hono<AuthContext> => {
   const brandingPublicDir = options?.brandingPublicDir ?? "public";
   const pages = new Hono<AuthContext>()
     // Prevent browser from caching SSR pages (user state changes on login/logout)
@@ -32,6 +31,7 @@ export const createPagesRouter = (
     .get("/me", auth.requireRole("authenticated", auth.redirectToLogin), ...profilePage)
     // Admin pages (admin only)
     .get("/admin", auth.requireRole("admin", auth.redirectToLogin), ...adminPage)
+    .get("/admin/announcements", auth.requireRole("admin", auth.redirectToLogin), ...announcementsAdminPage)
     // /admin/apps was merged into the gateway admin page.
     .get("/admin/apps", auth.requireRole("admin", auth.redirectToLogin), (c) => c.redirect("/admin/gateway", 302))
     .get("/admin/sync", auth.requireRole("admin", auth.redirectToLogin), (c) => c.redirect("/app/accounts#sync-activity", 302))

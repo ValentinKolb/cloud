@@ -1,13 +1,16 @@
 import type { JSX } from "solid-js/jsx-runtime";
-import Layout from "./Layout";
+import type { LayoutAnnouncementsState } from "../server/middleware/settings";
 import AdminSidebar from "./AdminSidebar";
+import Layout from "./Layout";
 import { getRuntimeContext, type RuntimeContext } from "./runtime";
+
 type Breadcrumb = { title: string; href?: string };
 type AdminLayoutContext = {
   get(key: "user"): any;
   get(key: "page"): any;
   get(key: "runtime"): RuntimeContext;
   get(key: "settings"): Record<string, any>;
+  get(key: "announcements"): LayoutAnnouncementsState | undefined;
   req: { raw: { headers: Headers; url: string } };
 };
 type Props = {

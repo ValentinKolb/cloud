@@ -1,3 +1,4 @@
+// biome-ignore-all assist/source/organizeImports: Preserve grouped service barrel exports.
 export { ipa } from "./ipa";
 export { accounts } from "./accounts";
 export { accountsAppService } from "./accounts";
@@ -30,6 +31,8 @@ export type {
   SendToUserParams,
   NotificationMessage,
 } from "./notifications";
+export { announcements } from "./announcements";
+export type { AnnouncementsService } from "./announcements";
 
 export { session } from "./session";
 export { serviceAccounts } from "./service-accounts";

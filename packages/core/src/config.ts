@@ -23,6 +23,7 @@ export const app = defineApp({
     "/me",
     "/admin",
     "/api/auth",
+    "/api/announcements",
     "/api/search",
     "/api/accounts/entities",
     "/api/admin/account-lifecycle",

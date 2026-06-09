@@ -13,9 +13,25 @@
  * `.use()` path instead.
  */
 import { createMiddleware } from "hono/factory";
+import {
+  type ActiveAnnouncementsResponse,
+  type AnnouncementCookieState,
+  parseAnnouncementCookieHeader,
+} from "../../contracts/announcements";
+import { announcements } from "../../services/announcements";
+import { logger } from "../../services/logging";
 import { loadSnapshot } from "../../services/settings/snapshot";
 
 const DEFAULT_SKIP = ["/public/", "/_ssr/", "/branding/", "/favicon"] as const;
+const ANNOUNCEMENT_SKIP = ["/api/", "/public/", "/_ssr/", "/branding/", "/favicon"] as const;
+const log = logger("middleware:settings");
+
+export type LayoutAnnouncementsState = ActiveAnnouncementsResponse & {
+  cookieState: AnnouncementCookieState;
+};
+
+const shouldLoadAnnouncements = (path: string, cookieHeader: string | null): boolean =>
+  Boolean(cookieHeader?.match(/(?:^|;\s*)session_token=/)) && !ANNOUNCEMENT_SKIP.some((prefix) => path.startsWith(prefix));
 
 export const settings = (opts?: { skipPrefixes?: readonly string[] }) => {
   const skip = opts?.skipPrefixes ?? DEFAULT_SKIP;
@@ -23,6 +39,16 @@ export const settings = (opts?: { skipPrefixes?: readonly string[] }) => {
     const path = c.req.path;
     if (!skip.some((p) => path.startsWith(p))) {
       (c as unknown as { set: (k: string, v: unknown) => void }).set("settings", await loadSnapshot());
+    }
+    const cookieHeader = c.req.header("Cookie") ?? null;
+    if (shouldLoadAnnouncements(path, cookieHeader)) {
+      const cookieState = parseAnnouncementCookieHeader(cookieHeader);
+      try {
+        const active = await announcements.active.forState({ state: cookieState });
+        (c as unknown as { set: (k: string, v: unknown) => void }).set("announcements", { ...active, cookieState });
+      } catch (error) {
+        log.warn("Failed to preload announcements", { error: error instanceof Error ? error.message : String(error) });
+      }
     }
     await next();
   });

@@ -1,18 +1,21 @@
-import { hasRole, type User } from "../contracts/shared";
 import type { JSX } from "solid-js/jsx-runtime";
-import NavMenu from "./NavMenu.island";
-import ThemeToggleRail from "./ThemeToggleRail.island";
-import HotkeysHelpRail from "./HotkeysHelpRail.island";
-import GlobalSearchTrigger from "./GlobalSearchTrigger.island";
-import Footer from "./Footer.island";
-import TimezoneCookie from "./TimezoneCookie.island";
-import LayoutBreadcrumbs from "./LayoutBreadcrumbs.island";
-import AppLaunchpad, { type AppLaunchpadApp } from "./AppLaunchpad.island";
-import { dates } from "../shared";
-import { getRuntimeContext, type RuntimeContext } from "./runtime";
 import { resolveNavMatch } from "../contracts/app"; // ==========================
-import type { GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
+import { hasRole, type User } from "../contracts/shared";
+import type { LayoutAnnouncementsState } from "../server/middleware/settings";
+import { dates } from "../shared";
 import type { LayoutBreadcrumb } from "../ui/layout";
+import AppLaunchpad, { type AppLaunchpadApp } from "./AppLaunchpad.island";
+import Footer from "./Footer.island";
+import GlobalAnnouncements from "./GlobalAnnouncements.island";
+import type { GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
+import GlobalSearchTrigger from "./GlobalSearchTrigger.island";
+import HotkeysHelpRail from "./HotkeysHelpRail.island";
+import LayoutBreadcrumbs from "./LayoutBreadcrumbs.island";
+import NavMenu from "./NavMenu.island";
+import { getRuntimeContext, type RuntimeContext } from "./runtime";
+import ThemeToggleRail from "./ThemeToggleRail.island";
+import TimezoneCookie from "./TimezoneCookie.island";
+
 // Types
 type Breadcrumb = LayoutBreadcrumb;
 type AppLink = { id: string; iconClass: string; label: string; href: string; match: string; description?: string };
@@ -20,6 +23,7 @@ type LayoutContext = {
   get(key: "user"): User | undefined;
   get(key: "page"): { theme?: "light" | "dark" };
   get(key: "runtime"): RuntimeContext;
+  get(key: "announcements"): LayoutAnnouncementsState | undefined;
   /**
    * Per-request settings snapshot (populated by snapshot middleware in
    * `_internal/define-app.ts`). Loose-typed at this layer so Layout can be
@@ -74,7 +78,14 @@ function buildNavLinks(apps: RuntimeContext["apps"], user: User | undefined): { 
   const primary = links.filter((entry) => entry.section === "primary").map((entry) => entry.link);
   const more = links.filter((entry) => entry.section === "more").map((entry) => entry.link);
   if (user && hasRole(user, "admin")) {
-    more.push({ id: "admin", iconClass: "ti ti-settings", label: "Admin", href: "/admin", match: "/admin", description: "Platform administration." });
+    more.push({
+      id: "admin",
+      iconClass: "ti ti-settings",
+      label: "Admin",
+      href: "/admin",
+      match: "/admin",
+      description: "Platform administration.",
+    });
   }
   return { primary, more };
 } // ==========================
@@ -88,9 +99,9 @@ function ProfileWarnings({ user }: { user: User }) {
   if (!user.sn) missing.push("last name");
   if (missing.length === 0) return null;
   return (
-      <a href="/me" class="flex items-center gap-2 text-xs info-block-warning no-underline mb-2 md:mb-1.5 mx-2 md:ml-0 md:mr-1.5">
-        <i class="ti ti-user-exclamation" /> <span>Your profile is incomplete: {missing.join(",")} not set.</span>
-      </a>
+    <a href="/me" class="flex items-center gap-2 text-xs info-block-warning no-underline mb-2 md:mb-1.5 mx-2 md:ml-0 md:mr-1.5">
+      <i class="ti ti-user-exclamation" /> <span>Your profile is incomplete: {missing.join(",")} not set.</span>
+    </a>
   );
 }
 function ExpiryWarnings({ user }: { user: User }) {
@@ -159,6 +170,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
     }))
     .sort((a, b) => a.appName.localeCompare(b.appName));
   const settings = c.get("settings");
+  const announcements = c.get("announcements");
   const appName = settings?.app?.name || "Cloud";
   // Project the user record down to what NavMenu actually renders. Without
   // this, the full `User` (mail, ssh keys, phone, address, all group
@@ -192,13 +204,14 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
     ? "grid-cols-1 md:grid-cols-[auto_1fr] grid-rows-[auto_1fr]"
     : `grid-cols-1 ${!fullPage ? "grid-rows-[auto_1fr_auto]" : "grid-rows-[auto_1fr]"}`;
   return (
-    <div
-      class={`grid min-h-screen w-screen relative md:h-screen md:overflow-hidden bg-zinc-50 dark:bg-zinc-950 ${gridClass}`}
-    >
+    <div class={`grid min-h-screen w-screen relative md:h-screen md:overflow-hidden bg-zinc-50 dark:bg-zinc-950 ${gridClass}`}>
       <TimezoneCookie />
       {showRail && <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} />}
-      {showRail && <script id="cloud-app-launchpad-data" type="application/json">{jsonScript({ apps: launchpadApps, legalLinks })}</script>}
-      {" "}
+      {showRail && (
+        <script id="cloud-app-launchpad-data" type="application/json">
+          {jsonScript({ apps: launchpadApps, legalLinks })}
+        </script>
+      )}{" "}
       {/* ── Rail: logo cell (row 1, col 1) — grid gives it the same height as the header ── */}{" "}
       {showRail && (
         <div class="hidden md:flex items-center justify-center w-12 bg-white/20 dark:bg-zinc-950/20">
@@ -246,14 +259,8 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
         </div>{" "}
         <div class="flex items-center shrink-0 gap-1">
           {user && (
-            <GlobalSearchTrigger
-              variant="header"
-              registerHotkey
-              class={showRail ? "md:hidden" : ""}
-              searchHelpApps={searchHelpApps}
-            />
-          )}
-          {" "}
+            <GlobalSearchTrigger variant="header" registerHotkey class={showRail ? "md:hidden" : ""} searchHelpApps={searchHelpApps} />
+          )}{" "}
           {/* Desktop: direct /me link with avatar (logged in) or NavMenu (not logged in) */}{" "}
           {user ? (
             <>
@@ -290,9 +297,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
           <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} variant="rail" label="Open apps" />
           <div class="mt-auto pb-1 flex flex-col items-center gap-1">
             {" "}
-            <GlobalSearchTrigger variant="rail" searchHelpApps={searchHelpApps} />{" "}
-            {" "}
-            <HotkeysHelpRail searchHelpApps={searchHelpApps} />{" "}
+            <GlobalSearchTrigger variant="rail" searchHelpApps={searchHelpApps} /> <HotkeysHelpRail searchHelpApps={searchHelpApps} />{" "}
             <ThemeToggleRail />{" "}
           </div>{" "}
         </div>
@@ -300,10 +305,16 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
       {/* ── Main content (row 2) ── */}{" "}
       <div class="flex flex-col min-h-0 min-w-0 bg-zinc-50 dark:bg-zinc-950">
         {" "}
+        {user && announcements && (
+          <GlobalAnnouncements
+            banners={announcements.banners}
+            announcements={announcements.announcements}
+            latestAnnouncementVersion={announcements.latestAnnouncementVersion}
+            cookieState={announcements.cookieState}
+          />
+        )}{" "}
         {user && <ProfileWarnings user={user} />} {user && <ExpiryWarnings user={user} />}{" "}
-        <main
-          class={`flex-1 min-h-0 ${contentPadding} ${fullPage || fullWidth ? "md:overflow-hidden flex flex-col" : "md:overflow-auto"}`}
-        >
+        <main class={`flex-1 min-h-0 ${contentPadding} ${fullPage || fullWidth ? "md:overflow-hidden flex flex-col" : "md:overflow-auto"}`}>
           {" "}
           {children}{" "}
         </main>{" "}

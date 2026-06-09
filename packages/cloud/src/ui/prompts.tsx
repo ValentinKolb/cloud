@@ -88,6 +88,7 @@ export type FieldSchema =
       icon?: string;
       activeIcon?: string;
       password?: boolean;
+      markdown?: boolean;
     })
   | (BaseField<number> & {
       type: "number";
@@ -739,6 +740,7 @@ export const prompts = {
               icon={field.icon}
               activeIcon={field.activeIcon}
               password={field.password}
+              markdown={field.markdown}
             />
           ),
           number: (props, field) => <NumberInput {...props} min={field.min} max={field.max} step={field.step} />,

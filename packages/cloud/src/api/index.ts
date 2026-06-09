@@ -15,11 +15,12 @@
  */
 import { Hono } from "hono";
 import { prettyJSON } from "hono/pretty-json";
+import accountsEntitiesRoutes from "./accounts-entities";
+import adminCoreSettingsRoutes from "./admin-core-settings";
+import adminLifecycleRoutes from "./admin-lifecycle";
+import { adminAnnouncementRoutes, announcementRoutes } from "./announcements";
 import authRoutes from "./auth";
 import meRoutes from "./me";
-import adminLifecycleRoutes from "./admin-lifecycle";
-import adminCoreSettingsRoutes from "./admin-core-settings";
-import accountsEntitiesRoutes from "./accounts-entities";
 import { createSearchRoutes } from "./search";
 
 /**
@@ -34,6 +35,8 @@ const buildCoreApi = () => {
     .route("/auth", authRoutes)
     .route("/me", meRoutes)
     .route("/accounts", accountsEntitiesRoutes)
+    .route("/announcements", announcementRoutes)
+    .route("/admin/core/announcements", adminAnnouncementRoutes)
     .route("/admin/core/settings", adminCoreSettingsRoutes)
     .route("/admin/lifecycle", adminLifecycleRoutes)
     .route("/", searchRoutes);

@@ -2,18 +2,21 @@
  * Core-specific lifecycle helpers.
  * Migrations, background jobs — nothing generic here.
  */
-import { migrate as migrateAuth } from "./migrate/core/auth";
+
+import { lifecycleJobs, migrateWeather } from "@valentinkolb/cloud/services";
+import { migrate as migrateAnnouncements } from "./migrate/core/announcements";
 import { migrate as migrateAudit } from "./migrate/core/audit";
+import { migrate as migrateAuth } from "./migrate/core/auth";
 import { migrate as migrateLogging } from "./migrate/core/logging";
 import { migrate as migrateNotifications } from "./migrate/core/notifications";
 import { migrate as migrateSettings } from "./migrate/core/settings";
-import { lifecycleJobs, migrateWeather } from "@valentinkolb/cloud/services";
 
 /** Run all core database migrations (auth, notifications, settings, logging). */
 export const runCoreSetup = async (): Promise<void> => {
   const steps = [
     { name: "auth", run: migrateAuth },
     { name: "audit", run: migrateAudit },
+    { name: "announcements", run: migrateAnnouncements },
     { name: "notifications", run: migrateNotifications },
     { name: "settings", run: migrateSettings },
     { name: "logging", run: migrateLogging },
