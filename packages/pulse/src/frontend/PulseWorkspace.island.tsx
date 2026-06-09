@@ -118,6 +118,10 @@ const formatIngestCounts = (counts: { metrics: number; events: number; states: n
     `${counts.states} state${counts.states === 1 ? "" : "s"}`,
   ].join(", ");
 
+const plural = (count: number, singular: string, pluralLabel = `${singular}s`) => `${count} ${count === 1 ? singular : pluralLabel}`;
+const suggestionTagClass =
+  "inline-flex h-7 max-w-full items-center gap-1.5 rounded-full bg-zinc-100/80 px-2.5 text-xs font-medium text-secondary transition hover:bg-blue-50 hover:text-blue-700 dark:bg-zinc-900/70 dark:hover:bg-blue-950/40 dark:hover:text-blue-200";
+
 const parseScrapeInterval = (value: string | null | undefined): number => {
   const parsed = Number(value?.trim() || "60");
   if (!Number.isFinite(parsed)) return 60;
@@ -391,6 +395,8 @@ export default function PulseWorkspace(props: Props) {
   const [queryDiagnostics, setQueryDiagnostics] = createSignal<PulseQueryCompileResult | null>(null);
   const [queryHistory, setQueryHistory] = createSignal<QueryHistoryEntry[]>(readQueryHistory(initialBaseId));
   const [querySeeded, setQuerySeeded] = createSignal(false);
+  const [querySuggestionsExpanded, setQuerySuggestionsExpanded] = createSignal(false);
+  const [querySuggestionSearch, setQuerySuggestionSearch] = createSignal("");
   const [explorerResultView, setExplorerResultView] = createSignal<ExplorerResultView>("chart");
   const [points, setPoints] = createSignal<MetricQueryPoint[]>([]);
   const [explorerEvents, setExplorerEvents] = createSignal<PulseRecordedEvent[]>([]);
@@ -502,17 +508,59 @@ export default function PulseWorkspace(props: Props) {
       }
     }
     return [...dimensions.entries()]
-      .flatMap(([key, values]) => [...values.entries()].map(([value, count]) => ({ key, value, count })))
-      .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key) || left.value.localeCompare(right.value))
-      .slice(0, 8);
+      .map(([key, values]) => ({
+        key,
+        count: [...values.values()].reduce((sum, value) => sum + value, 0),
+        values: [...values.entries()]
+          .map(([value, count]) => ({ key, value, count }))
+          .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value)),
+      }))
+      .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
   });
   const matchingMetricSources = createMemo(() => {
-    const unique = new Map<string, PulseSource>();
+    const unique = new Map<string, { source: PulseSource; count: number }>();
     for (const item of matchingMetricSeries()) {
       const source = sourceById().get(item.sourceId ?? "");
-      if (source) unique.set(source.id, source);
+      if (source) unique.set(source.id, { source, count: (unique.get(source.id)?.count ?? 0) + 1 });
     }
-    return [...unique.values()].slice(0, 6);
+    return [...unique.values()].sort((left, right) => right.count - left.count || left.source.name.localeCompare(right.source.name));
+  });
+  const querySuggestionMatches = createMemo(() => {
+    const search = querySuggestionSearch().trim().toLowerCase();
+    const sourceMatches = matchingMetricSources().filter(({ source }) =>
+      !search ? true : [source.name, source.kind, source.endpointUrl ?? ""].some((value) => value.toLowerCase().includes(search)),
+    );
+    const labelMatches = queryFilterSuggestions()
+      .map((group) => ({
+        ...group,
+        values: group.values.filter((filter) =>
+          !search ? true : `${filter.key}=${filter.value}`.toLowerCase().includes(search) || filter.value.toLowerCase().includes(search),
+        ),
+      }))
+      .filter((group) => group.values.length > 0);
+    return {
+      sources: sourceMatches,
+      labels: labelMatches,
+    };
+  });
+  const visibleQuerySourceSuggestions = createMemo(() => {
+    const limit = querySuggestionsExpanded() ? 25 : 4;
+    return querySuggestionMatches().sources.slice(0, limit);
+  });
+  const visibleQueryLabelSuggestions = createMemo(() => {
+    const groupLimit = querySuggestionsExpanded() ? 12 : 3;
+    const valueLimit = querySuggestionsExpanded() ? 8 : 4;
+    return querySuggestionMatches()
+      .labels.slice(0, groupLimit)
+      .map((group) => ({ ...group, values: group.values.slice(0, valueLimit), hiddenValues: Math.max(0, group.values.length - valueLimit) }));
+  });
+  const querySuggestionOverflow = createMemo(() => {
+    const sourceOverflow = compiledMetricQuery()?.sourceId ? 0 : querySuggestionMatches().sources.length - visibleQuerySourceSuggestions().length;
+    const labelOverflow = querySuggestionMatches().labels.reduce(
+      (count, group, index) => count + (index >= visibleQueryLabelSuggestions().length ? group.values.length : Math.max(0, group.values.length - (querySuggestionsExpanded() ? 8 : 4))),
+      0,
+    );
+    return Math.max(0, sourceOverflow) + Math.max(0, labelOverflow);
   });
   const previewUnit = createMemo(() => metricByName().get(compiledMetricQuery()?.metric ?? selectedMetric())?.unit ?? null);
   const defaultQueryText = createMemo(() => {
@@ -2452,8 +2500,8 @@ export default function PulseWorkspace(props: Props) {
   };
 
   const renderMetricExplorerView = () => (
-    <section class="grid min-h-0 flex-1 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_18rem]">
-      <div class="flex min-h-0 flex-col gap-3">
+    <section class="grid grid-cols-1 gap-3 pb-3 xl:grid-cols-[minmax(0,1fr)_18rem]">
+      <div class="flex flex-col gap-3">
         <div class="paper p-3">
           <div class="flex flex-wrap items-center gap-2 pb-3">
             <button type="button" class="btn-primary btn-sm" disabled={!currentExplorerQuery() || loading()} onClick={() => void runTextQuery()}>
@@ -2488,40 +2536,117 @@ export default function PulseWorkspace(props: Props) {
               )}
             </For>
           </div>
-          <Show when={compiledMetricQuery()}>
-            <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-dimmed">
-              <span class="inline-flex items-center gap-1 rounded bg-zinc-100 px-2 py-1 text-secondary dark:bg-zinc-900">
-                <i class="ti ti-stack-2" />
-                Aggregates {matchingMetricSeries().length} series into one result
-              </span>
-              <For each={matchingMetricSources()}>
-                {(source) => (
-                  <button
-                    type="button"
-                    class="btn-input btn-input-sm h-7"
-                    disabled={Boolean(compiledMetricQuery()?.sourceId)}
-                    onClick={() => applyQuerySourceFilter(source.id)}
-                    title="Filter this query to one source"
-                  >
-                    <i class="ti ti-database-share" /> {source.name}
-                  </button>
-                )}
-              </For>
-              <For each={queryFilterSuggestions()}>
-                {(filter) => (
-                  <button
-                    type="button"
-                    class="btn-input btn-input-sm h-7"
-                    onClick={() => applyQueryDimensionFilter(filter.key, filter.value)}
-                    title={`${filter.count} matching series`}
-                  >
-                    <i class="ti ti-filter" /> {filter.key}={filter.value}
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
         </div>
+
+        <Show when={compiledMetricQuery() && matchingMetricSeries().length > 0}>
+          <div class="paper p-3">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <h3 class="text-sm font-semibold text-primary">Suggested refinements</h3>
+                  <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-dimmed dark:bg-zinc-900">
+                    click to autocomplete
+                  </span>
+                </div>
+                <p class="mt-1 text-xs text-dimmed">Based on the matched series. Add a source or label to narrow the query.</p>
+              </div>
+              <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs text-dimmed">
+                <span class="inline-flex items-center gap-1">
+                  <i class="ti ti-stack-2" />
+                  {plural(matchingMetricSeries().length, "series", "series")}
+                </span>
+                <span class="inline-flex items-center gap-1">
+                  <i class="ti ti-database-share" />
+                  {plural(matchingMetricSources().length, "source")}
+                </span>
+                <span class="inline-flex items-center gap-1">
+                  <i class="ti ti-tags" />
+                  {plural(queryFilterSuggestions().length, "label key")}
+                </span>
+                <Show when={querySuggestionOverflow() > 0 || querySuggestionsExpanded()}>
+                  <button
+                    type="button"
+                    class="inline-flex h-7 items-center gap-1 rounded-full bg-zinc-100 px-2.5 text-xs font-medium text-secondary transition hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                    onClick={() => setQuerySuggestionsExpanded((expanded) => !expanded)}
+                  >
+                    <i class={`ti ${querySuggestionsExpanded() ? "ti-chevron-up" : "ti-adjustments-horizontal"}`} />
+                    {querySuggestionsExpanded() ? "Show less" : `Browse${querySuggestionOverflow() > 0 ? ` +${querySuggestionOverflow()}` : ""}`}
+                  </button>
+                </Show>
+              </div>
+            </div>
+            <Show when={querySuggestionsExpanded()}>
+              <div class="mt-3 max-w-xl">
+                <TextInput
+                  type="search"
+                  icon="ti ti-search"
+                  value={querySuggestionSearch}
+                  onInput={setQuerySuggestionSearch}
+                  placeholder="Search suggested sources and labels..."
+                  clearable
+                />
+              </div>
+            </Show>
+            <div class="mt-3 space-y-2">
+              <Show when={!compiledMetricQuery()?.sourceId && visibleQuerySourceSuggestions().length > 0}>
+                <div class="grid grid-cols-[4.75rem_minmax(0,1fr)] items-start gap-2">
+                  <div class="pt-1 text-xs font-medium text-dimmed">Sources</div>
+                  <div class="flex flex-wrap gap-2">
+                    <For each={visibleQuerySourceSuggestions()}>
+                      {({ source, count }) => (
+                        <button type="button" class={suggestionTagClass} onClick={() => applyQuerySourceFilter(source.id)}>
+                          <i class="ti ti-database-share" />
+                          <span class="truncate">{source.name}</span>
+                          <span class="text-dimmed">· {count}</span>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </Show>
+              <For each={visibleQueryLabelSuggestions()}>
+                {(group) => (
+                  <div class="grid grid-cols-[4.75rem_minmax(0,1fr)] items-start gap-2">
+                    <div class="truncate pt-1 text-xs font-medium text-dimmed" title={`${group.key} · ${plural(group.count, "series", "series")}`}>
+                      {group.key}
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                      <For each={group.values}>
+                        {(filter) => (
+                          <button
+                            type="button"
+                            class={suggestionTagClass}
+                            onClick={() => applyQueryDimensionFilter(filter.key, filter.value)}
+                            title={`Add where ${filter.key}=${filter.value}`}
+                          >
+                            <i class="ti ti-filter" />
+                            <span class="truncate">{filter.value}</span>
+                            <span class="text-dimmed">· {filter.count}</span>
+                          </button>
+                        )}
+                      </For>
+                      <Show when={group.hiddenValues > 0}>
+                        <span class="inline-flex h-7 items-center px-2 text-xs text-dimmed">+{group.hiddenValues} more</span>
+                      </Show>
+                    </div>
+                  </div>
+                )}
+              </For>
+              <Show when={querySuggestionsExpanded() && querySuggestionMatches().sources.length === 0 && querySuggestionMatches().labels.length === 0}>
+                <p class="text-xs text-dimmed">No suggested filters match this search.</p>
+              </Show>
+            </div>
+          </div>
+        </Show>
+
+        <Show when={compiledMetricQuery() && matchingMetricSeries().length === 0}>
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-xs text-dimmed">
+            <span class="inline-flex items-center gap-1">
+              <i class="ti ti-stack-2" />
+              0 series matched
+            </span>
+          </div>
+        </Show>
 
         <div class="flex flex-wrap items-center gap-2">
           <div class="min-w-40">
@@ -2556,8 +2681,8 @@ export default function PulseWorkspace(props: Props) {
           </span>
         </div>
 
-        <div class="paper min-h-0 flex-1 overflow-hidden">
-          <div class={explorerResultView() === "table" ? "h-full" : "h-full p-3"}>{renderExplorerResult()}</div>
+        <div class="paper min-h-[28rem] overflow-hidden">
+          <div class={explorerResultView() === "table" ? "min-h-[28rem]" : "min-h-[28rem] p-3"}>{renderExplorerResult()}</div>
         </div>
       </div>
 
