@@ -26,6 +26,7 @@ import {
   recursiveGroupNamesSubquery,
 } from "./group-sql";
 import { getFreeIpaConfig } from "../freeipa-config";
+import { createAuthLoginUrl } from "../../shared/redirect";
 import type {
   BaseUser,
   MutationResult,
@@ -83,7 +84,7 @@ const sendMagicLinkEmail = async (email: string): Promise<void> => {
   const token = await providers.local.auth.createMagicLinkToken({ email, ttlSeconds: 300 });
   const rawAppUrl = await settings.get<string>("app.url");
   const appUrl = rawAppUrl.startsWith("http") ? rawAppUrl : `https://${rawAppUrl}`;
-  const magicLink = `${appUrl}/auth/login?token=${token}`;
+  const magicLink = createAuthLoginUrl(appUrl, { token });
   const appName = await settings.get<string>("app.name");
   const template = await settings.get<string>("mail.magic_link_login");
 
@@ -614,7 +615,7 @@ export const createLoginToken = async (params: {
     ok: true,
     data: {
       token,
-      magicLink: `${appUrl}/auth/login?token=${token}`,
+      magicLink: createAuthLoginUrl(appUrl, { token }),
       expiresInSeconds,
     },
   };

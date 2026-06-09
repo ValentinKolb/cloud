@@ -135,9 +135,9 @@ const app = new Hono<AuthContext>()
     }),
     v("json", EmailLoginSchema),
     async (c) => {
-      const { email } = c.req.valid("json");
+      const { email, redirectTo } = c.req.valid("json");
 
-      const requestResult = await authFlows.magicLink.request({ email });
+      const requestResult = await authFlows.magicLink.request({ email, redirectTo });
       if (!requestResult.ok) {
         return c.json({ message: requestResult.message }, requestResult.status);
       }

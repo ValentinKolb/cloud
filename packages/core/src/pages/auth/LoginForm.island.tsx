@@ -16,7 +16,9 @@ export default function LoginForm(props: { redirectTo?: string; showBanner?: boo
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as { message?: string; passwordExpired?: boolean } | null;
         if (data?.passwordExpired) {
-          window.location.href = `/auth/new-password?ipa-uid=${encodeURIComponent(username())}`;
+          const params = new URLSearchParams({ "ipa-uid": username() });
+          if (props.redirectTo) params.set("redirectTo", props.redirectTo);
+          window.location.href = `/auth/new-password?${params.toString()}`;
           throw new Error("Password expired — redirecting...");
         }
         throw new Error(data?.message ?? `Login failed (${res.status})`);

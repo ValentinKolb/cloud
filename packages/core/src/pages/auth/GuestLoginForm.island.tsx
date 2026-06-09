@@ -14,7 +14,7 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
     mutation: async () => {
       if (!acceptedAgb()) throw new Error("Please accept the Terms of Service and Privacy Policy.");
       const res = await apiClient.auth["email-login"].$post({
-        json: { email: email(), acceptedAgb: true },
+        json: { email: email(), acceptedAgb: true, redirectTo: props.redirectTo },
       });
       const data = (await res.json()) as Record<string, unknown>;
       if (!res.ok) throw new Error((data.message as string) ?? "Request failed");

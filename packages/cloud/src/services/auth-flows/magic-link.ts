@@ -5,8 +5,9 @@ import { providers } from "../providers";
 import * as settings from "../settings";
 import { renderTemplate } from "../settings/templates";
 import type { User } from "../../contracts/shared";
+import { createAuthLoginUrl } from "../../shared/redirect";
 
-export const request = async (params: { email: string }): Promise<
+export const request = async (params: { email: string; redirectTo?: string }): Promise<
   | { ok: true }
   | { ok: false; status: 400; message: string }
 > => {
@@ -32,7 +33,7 @@ export const request = async (params: { email: string }): Promise<
   const token = await providers.local.auth.createMagicLinkToken({ email: params.email, ttlSeconds: 300 });
   const rawAppUrl = await settings.get<string>("app.url");
   const appUrl = rawAppUrl.startsWith("http") ? rawAppUrl : `https://${rawAppUrl}`;
-  const magicLink = `${appUrl}/auth/login?token=${token}`;
+  const magicLink = createAuthLoginUrl(appUrl, { token, redirectTo: params.redirectTo });
 
   const appName = await settings.get<string>("app.name");
   const template = await settings.get<string>("mail.magic_link_login");

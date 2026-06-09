@@ -11,6 +11,7 @@ export const LoginSchema = z.object({
 export const EmailLoginSchema = z.object({
   email: z.email(),
   acceptedAgb: z.literal(true),
+  redirectTo: z.string().max(2048).optional(),
 });
 
 export const VerifyTokenSchema = z.object({

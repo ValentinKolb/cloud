@@ -4,6 +4,7 @@ import type { MessageResponse, Role, RoleOrSpecial, User, UserProfile, UserProvi
 import { accounts } from "../../services/accounts";
 import { session } from "../../services/session";
 import { serviceAccountCredentials } from "../../services/service-account-credentials";
+import { redirectPathFromRequestUrl } from "../../shared/redirect";
 import type { ServiceAccount } from "../../services/service-accounts";
 import type { AccessSubject } from "../services/access";
 
@@ -189,7 +190,7 @@ const redirect = (url: string): RoleOptions => ({
 
 /** Preset: Redirect to login page with returnTo parameter */
 const redirectToLogin: RoleOptions = {
-  onReject: (c) => `/auth/login?redirectTo=${encodeURIComponent(new URL(c.req.url).pathname)}`,
+  onReject: (c) => `/auth/login?redirectTo=${encodeURIComponent(redirectPathFromRequestUrl(c.req.url))}`,
 };
 
 const requireAccount = (options: AccountOptions) =>

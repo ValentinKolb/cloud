@@ -4,6 +4,7 @@ import GuestLoginForm from "./GuestLoginForm.island";
 import AdminLoginForm from "./AdminLoginForm.island";
 import { coreSettings } from "@valentinkolb/cloud/services";
 import { listLegalLinks } from "@valentinkolb/cloud";
+import { normalizeRedirectTo } from "@valentinkolb/cloud/shared";
 
 /** Login page. */
 export default ssr(async (c) => {
@@ -17,7 +18,7 @@ export default ssr(async (c) => {
   const freeIpaEnabled = Boolean(freeIpaEnabledRaw);
   const allowSelfRegistration = Boolean(allowSelfRegistrationRaw);
   const params = new URL(c.req.url).searchParams;
-  const redirectTo = params.get("redirectTo") ?? undefined;
+  const redirectTo = normalizeRedirectTo(params.get("redirectTo"));
   const token = params.get("token") ?? undefined;
   const method = params.get("method") ?? undefined;
   const hasBanner = params.get("banner") ?? undefined;

@@ -5,6 +5,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 
 type NewPasswordFormProps = {
   defaultUsername: string;
+  redirectTo?: string;
 };
 
 /** Form for changing an expired/temporary password. */
@@ -33,7 +34,7 @@ export default function NewPasswordForm(props: NewPasswordFormProps) {
       }
     },
     onSuccess: () => {
-      window.location.href = "/";
+      window.location.href = props.redirectTo || "/";
     },
   });
 
