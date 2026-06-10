@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import type { EntityListItem, PaginationResponse } from "@/contracts";
 import { getPrimaryAccountBadge, getProviderBadge } from "../../lib/account-badges";
 import AddMember from "./AddMember.island";
@@ -72,9 +72,9 @@ export default function MembersTab(props: MembersTabProps) {
       {props.indirect && <p class="text-xs text-dimmed">Showing all members including indirect memberships via child groups.</p>}
 
       {isEmpty ? (
-        <div class="text-center text-sm text-dimmed py-6">
+        <Placeholder surface="paper" icon="ti ti-users">
           {props.search ? "No members found matching your search." : "This group has no members."}
-        </div>
+        </Placeholder>
       ) : (
         <div class="paper overflow-hidden">
           <DataTable

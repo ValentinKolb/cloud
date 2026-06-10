@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import type { EntityListItem, PaginationResponse } from "@/contracts";
 import { getPrimaryAccountBadge, getProviderBadge } from "../../lib/account-badges";
 import AddMember from "./AddMember.island";
@@ -64,7 +64,9 @@ export default function ManagersTab(props: ManagersTabProps) {
       />
 
       {isEmpty ? (
-        <div class="text-center text-sm text-dimmed py-6">This group has no managers.</div>
+        <Placeholder surface="paper" icon="ti ti-users-group">
+          This group has no managers.
+        </Placeholder>
       ) : (
         <div class="paper overflow-hidden">
           <DataTable

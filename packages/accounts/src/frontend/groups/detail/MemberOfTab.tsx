@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import type { EntityListItem, PaginationResponse } from "@/contracts";
 import { getProviderBadge } from "../../lib/account-badges";
 import AddGroupToGroup from "./AddGroupToGroup.island";
@@ -46,7 +46,9 @@ export default function MemberOfTab(props: MemberOfTabProps) {
       />
 
       {!hasGroups ? (
-        <div class="text-center text-sm text-dimmed py-6">This group is not a member of any other group.</div>
+        <Placeholder surface="paper" icon="ti ti-users-group">
+          This group is not a member of any other group.
+        </Placeholder>
       ) : (
         <div class="paper overflow-hidden">
           <DataTable

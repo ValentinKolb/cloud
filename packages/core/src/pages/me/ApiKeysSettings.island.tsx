@@ -3,7 +3,7 @@ import { dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { ServiceAccountCredential } from "@valentinkolb/cloud/contracts";
-import { CopyButton, DateTimePicker, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { CopyButton, DateTimePicker, Placeholder, prompts, TextInput } from "@valentinkolb/cloud/ui";
 
 type Props = {
   initialKeys: ServiceAccountCredential[];
@@ -168,10 +168,9 @@ export default function ApiKeysSettings(props: Props) {
       <Show
         when={keys().length > 0}
         fallback={
-          <div class="rounded-lg border border-dashed border-zinc-200 px-4 py-6 text-center dark:border-zinc-800">
-            <i class="ti ti-key text-2xl text-dimmed" />
-            <p class="mt-2 text-xs text-dimmed">No API keys yet.</p>
-          </div>
+          <Placeholder surface="paper" icon="ti ti-key">
+            No API keys yet.
+          </Placeholder>
         }
       >
         <div class="flex flex-col divide-y divide-zinc-100 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">

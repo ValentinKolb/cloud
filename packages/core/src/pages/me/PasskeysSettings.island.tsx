@@ -4,7 +4,7 @@ import { dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { WebAuthnPasskey } from "@valentinkolb/cloud/contracts";
-import { prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts, TextInput } from "@valentinkolb/cloud/ui";
 
 type Props = {
   initialPasskeys: WebAuthnPasskey[];
@@ -133,10 +133,9 @@ export default function PasskeysSettings(props: Props) {
       <Show
         when={passkeys().length > 0}
         fallback={
-          <div class="rounded-lg border border-dashed border-zinc-200 px-4 py-6 text-center dark:border-zinc-800">
-            <i class="ti ti-fingerprint text-2xl text-dimmed" />
-            <p class="mt-2 text-xs text-dimmed">No passkeys yet.</p>
-          </div>
+          <Placeholder surface="paper" icon="ti ti-fingerprint">
+            No passkeys yet.
+          </Placeholder>
         }
       >
         <div class="flex flex-col divide-y divide-zinc-100 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
