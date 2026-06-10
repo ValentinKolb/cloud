@@ -9,15 +9,18 @@ import {
   PaginationResponseSchema,
   type PermissionLevel,
   parsePagination,
+  ServiceAccountCredentialSchema,
   UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, respondMessage, v } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, hasPermission, jsonResponse, rateLimit, requiresAuth, respond, respondMessage, v } from "@valentinkolb/cloud/server";
+import { serviceAccountCredentials, serviceAccounts } from "@valentinkolb/cloud/services";
 import { err, fail, ok } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { type Context, Hono, type MiddlewareHandler, type TypedResponse } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { contactsService } from "../service";
+import { CONTACT_BOOK_RESOURCE_TYPE, CONTACTS_APP_ID } from "../service/access";
 import * as vcard from "../service/vcard";
 import { isSafeWebsiteUrl } from "../shared";
 
@@ -36,6 +39,22 @@ const MAX_IMPORT_CONTACTS = 1_000;
 const MAX_IMPORT_CONTENT_CHARS = 10_000_000;
 const MAX_IMPORT_BODY_BYTES = 12_000_000;
 const HexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color must be a #RRGGBB hex value");
+
+const PERMISSION_RANK: Record<PermissionLevel, number> = {
+  none: 0,
+  read: 1,
+  write: 2,
+  admin: 3,
+};
+
+const permissionFromScopes = (scopes: string[]): PermissionLevel => {
+  if (scopes.includes("admin")) return "admin";
+  if (scopes.includes("write")) return "write";
+  if (scopes.includes("read")) return "read";
+  return "none";
+};
+
+const minPermission = (a: PermissionLevel, b: PermissionLevel): PermissionLevel => (PERMISSION_RANK[a] <= PERMISSION_RANK[b] ? a : b);
 
 const requireImportBodySize: MiddlewareHandler<AuthContext> = async (c, next) => {
   const rawLength = c.req.header("content-length");
@@ -61,6 +80,21 @@ const ContactBookSchema = z.object({
   isSystem: z.boolean(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
+});
+
+const ContactBookApiKeySchema = ServiceAccountCredentialSchema.extend({
+  permission: z.enum(["none", "read", "write", "admin"]),
+});
+
+const CreateContactBookApiKeySchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  expiresAt: z.string().datetime().nullable().optional(),
+  permission: z.enum(["read", "write", "admin"]).default("read"),
+});
+
+const CreateContactBookApiKeyResponseSchema = z.object({
+  credential: ContactBookApiKeySchema,
+  token: z.string(),
 });
 
 const ContactEmailSchema = z.object({
@@ -345,11 +379,37 @@ const ImportCommitResponseSchema = z.object({
   failures: z.array(z.string()),
 });
 
+const getUserBackedActor = (c: Context<AuthContext>) => {
+  const actor = c.get("actor");
+  return actor.kind === "user" ? actor.user : actor.delegatedUser;
+};
+
+const requireUserBackedActor = (c: Context<AuthContext>) => {
+  const user = getUserBackedActor(c);
+  if (!user) return fail(err.forbidden("This endpoint requires a user-backed actor"));
+  return ok(user);
+};
+
+const getBookAccessSubject = (c: Context<AuthContext>) => {
+  const user = getUserBackedActor(c);
+  const accessSubject = c.get("accessSubject");
+  const actor = c.get("actor");
+  const serviceAccount = actor.kind === "service_account" ? actor.serviceAccount : null;
+  return {
+    user,
+    userId: accessSubject.type === "user" ? accessSubject.userId : null,
+    userGroups: user?.memberofGroupIds ?? [],
+    serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
+    serviceAccount,
+    serviceAccountScopes: actor.kind === "service_account" ? actor.scopes : [],
+  };
+};
+
 /**
- * Resolves one book and checks required permissions for the current user.
+ * Resolves one book and checks required permissions for the current actor.
  */
 const requireBookAccess = async (c: Context<AuthContext>, bookId: string, requiredLevel: PermissionLevel = "read") => {
-  const user = c.get("user");
+  const subject = getBookAccessSubject(c);
   const book = await contactsService.book.get({ id: bookId });
 
   if (!book) {
@@ -359,25 +419,49 @@ const requireBookAccess = async (c: Context<AuthContext>, bookId: string, requir
     };
   }
 
-  const hasAccess = await contactsService.book.permission.canAccess({
-    bookId,
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
-    requiredLevel,
-  });
+  if (subject.user && hasRole(subject.user, "admin")) {
+    return { book, permission: "admin" as PermissionLevel, user: subject.user, error: null as ApiErrorResponse | null };
+  }
 
-  if (!hasAccess) {
+  if (
+    subject.serviceAccount?.kind === "resource_bound" &&
+    (subject.serviceAccount.appId !== CONTACTS_APP_ID ||
+      subject.serviceAccount.resourceType !== CONTACT_BOOK_RESOURCE_TYPE ||
+      subject.serviceAccount.resourceId !== bookId)
+  ) {
     return {
       book: null,
+      permission: "none" as PermissionLevel,
+      user: subject.user,
       error: await respond(c, fail(err.forbidden("Access denied"))),
     };
   }
 
-  return { book, error: null as ApiErrorResponse | null };
+  let permission = await contactsService.book.permission.get({
+    bookId,
+    userId: subject.userId,
+    userGroups: subject.userGroups,
+    serviceAccountId: subject.serviceAccountId,
+  });
+
+  if (subject.serviceAccount?.kind === "resource_bound") {
+    permission = minPermission(permission, permissionFromScopes(subject.serviceAccountScopes));
+  }
+
+  if (!hasPermission(permission, requiredLevel)) {
+    return {
+      book: null,
+      permission: "none" as PermissionLevel,
+      user: subject.user,
+      error: await respond(c, fail(err.forbidden("Access denied"))),
+    };
+  }
+
+  return { book, permission, user: subject.user, error: null as ApiErrorResponse | null };
 };
 
 const requireBookAdminOrAppAdmin = async (c: Context<AuthContext>, bookId: string) => {
-  const user = c.get("user");
+  const user = getUserBackedActor(c);
   const book = await contactsService.book.get({ id: bookId });
 
   if (!book) {
@@ -387,7 +471,7 @@ const requireBookAdminOrAppAdmin = async (c: Context<AuthContext>, bookId: strin
     };
   }
 
-  if (hasRole(user, "admin")) return { book, error: null as ApiErrorResponse | null };
+  if (user && hasRole(user, "admin")) return { book, error: null as ApiErrorResponse | null };
   return requireBookAccess(c, bookId, "admin");
 };
 
@@ -518,7 +602,7 @@ const adminApi = new Hono<AuthContext>()
 const app = new Hono<AuthContext>()
   .use(rateLimit())
   .route("/admin", adminApi)
-  .use(auth.requireRole("user"))
+  .use(auth.requireRole("authenticated"))
 
   // ----------------------------------------------------------------
   // BOOKS
@@ -536,7 +620,9 @@ const app = new Hono<AuthContext>()
     }),
     v("query", ListBooksQuerySchema),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
 
@@ -592,7 +678,9 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateBookSchema),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const data = c.req.valid("json");
       return respond(c, contactsService.book.create({ data, creatorId: user.id }));
     },
@@ -671,6 +759,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
       const bookId = c.req.param("bookId") ?? "";
 
       const { error } = await requireManualBookAdminOrAppAdmin(c, bookId);
@@ -697,6 +787,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GrantAccessSchema),
     async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
       const bookId = c.req.param("bookId") ?? "";
       const { principal, permission } = c.req.valid("json");
 
@@ -723,6 +815,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateAccessSchema),
     async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
       const bookId = c.req.param("bookId") ?? "";
       const accessId = c.req.param("accessId") ?? "";
       const { permission } = c.req.valid("json");
@@ -749,6 +843,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
       const bookId = c.req.param("bookId") ?? "";
       const accessId = c.req.param("accessId") ?? "";
 
@@ -756,6 +852,140 @@ const app = new Hono<AuthContext>()
       if (error) return error;
 
       return respondMessage(c, contactsService.book.access.remove({ bookId, accessId }), "Access revoked");
+    },
+  )
+
+  // ----------------------------------------------------------------
+  // BOOK API KEYS
+  // ----------------------------------------------------------------
+  .get(
+    "/books/:bookId/api-keys",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "List contact book API keys",
+      description: "List active resource-bound API keys for this contact book. Requires admin book access.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.object({ items: z.array(ContactBookApiKeySchema) }), "Contact book API keys"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Book not found"),
+      },
+    }),
+    async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const bookId = c.req.param("bookId") ?? "";
+
+      const { error } = await requireManualBookAdminOrAppAdmin(c, bookId);
+      if (error) return error;
+
+      return respond(c, async () => ok({ items: await contactsService.book.access.apiKeys.list({ bookId }) }));
+    },
+  )
+
+  .post(
+    "/books/:bookId/api-keys",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "Create contact book API key",
+      description: "Create a resource-bound API key for this contact book. The raw token is returned once. Requires admin book access.",
+      ...requiresAuth,
+      responses: {
+        201: jsonResponse(CreateContactBookApiKeyResponseSchema, "Contact book API key created"),
+        400: jsonResponse(ErrorResponseSchema, "Failed to create API key"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Book not found"),
+      },
+    }),
+    v("json", CreateContactBookApiKeySchema),
+    async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
+      const bookId = c.req.param("bookId") ?? "";
+      const data = c.req.valid("json");
+
+      const { book, error } = await requireManualBookAdminOrAppAdmin(c, bookId);
+      if (error || !book) return error!;
+
+      return respond(c, async () => {
+        const serviceAccount = await serviceAccounts.createResourceBound({
+          name: `${book.name} API key: ${data.name}`,
+          appId: CONTACTS_APP_ID,
+          resourceType: CONTACT_BOOK_RESOURCE_TYPE,
+          resourceId: bookId,
+          createdBy: user.id,
+        });
+        if (!serviceAccount.ok) return serviceAccount;
+
+        const cleanupServiceAccount = async () => {
+          await serviceAccounts.delete({ id: serviceAccount.data.id });
+        };
+
+        const access = await contactsService.book.access.grant({
+          bookId,
+          principal: { type: "service_account", serviceAccountId: serviceAccount.data.id },
+          permission: data.permission,
+        });
+        if (!access.ok) {
+          await cleanupServiceAccount();
+          return access;
+        }
+
+        const created = await serviceAccountCredentials.createResourceApiToken({
+          serviceAccountId: serviceAccount.data.id,
+          actor: user,
+          name: data.name,
+          expiresAt: data.expiresAt ?? null,
+          scopes: [data.permission],
+        });
+        if (!created.ok) {
+          await cleanupServiceAccount();
+          return created;
+        }
+
+        return ok({
+          credential: {
+            ...created.data.credential,
+            permission: access.data.permission,
+          },
+          token: created.data.token,
+        });
+      }, 201);
+    },
+  )
+
+  .delete(
+    "/books/:bookId/api-keys/:credentialId",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "Revoke contact book API key",
+      description: "Revoke a resource-bound API key for this contact book. Requires admin book access.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Contact book API key revoked"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "API key not found"),
+      },
+    }),
+    async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
+      const bookId = c.req.param("bookId") ?? "";
+      const credentialId = c.req.param("credentialId") ?? "";
+
+      const { error } = await requireManualBookAdminOrAppAdmin(c, bookId);
+      if (error) return error;
+
+      return respond(c, async () => {
+        const keys = await contactsService.book.access.apiKeys.list({ bookId });
+        if (!keys.some((key) => key.id === credentialId)) return fail(err.notFound("API key"));
+
+        const revoked = await serviceAccountCredentials.revoke({ credentialId, actor: user });
+        if (!revoked.ok) return revoked;
+        return ok({ message: "API key revoked." });
+      });
     },
   )
 
@@ -1012,7 +1242,9 @@ const app = new Hono<AuthContext>()
       const bookId = c.req.param("bookId") ?? "";
       const contactId = c.req.param("contactId") ?? "";
       const data = c.req.valid("json");
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
 
       const { error } = await requireBookAccess(c, bookId, "write");
       if (error) return error;
@@ -1047,7 +1279,9 @@ const app = new Hono<AuthContext>()
       const contactId = c.req.param("contactId") ?? "";
       const noteId = c.req.param("noteId") ?? "";
       const data = c.req.valid("json");
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
 
       const { error } = await requireBookAccess(c, bookId, "write");
       if (error) return error;
@@ -1080,7 +1314,9 @@ const app = new Hono<AuthContext>()
       const bookId = c.req.param("bookId") ?? "";
       const contactId = c.req.param("contactId") ?? "";
       const noteId = c.req.param("noteId") ?? "";
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
 
       const { error } = await requireBookAccess(c, bookId, "write");
       if (error) return error;
@@ -1304,7 +1540,9 @@ const app = new Hono<AuthContext>()
     }),
     v("query", SearchContactsQuerySchema),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
 

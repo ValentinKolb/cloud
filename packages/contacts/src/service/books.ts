@@ -1,12 +1,16 @@
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
+import { serviceAccounts } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import {
   addBookAccess,
   canAccessBook,
+  CONTACT_BOOK_RESOURCE_TYPE,
+  CONTACTS_APP_ID,
   countBookAccess,
   getBookAccessGuard,
   getBookPermission,
+  listContactBookApiKeys,
   grantBookAccess,
   listBookAccessPaginated,
   removeBookAccess,
@@ -239,17 +243,28 @@ export const remove = async (config: { id: string }): Promise<Result<void>> => {
   `;
 
   if (result.count === 0) return fail(err.notFound("Book"));
+  await serviceAccounts.deleteForResource({
+    appId: CONTACTS_APP_ID,
+    resourceType: CONTACT_BOOK_RESOURCE_TYPE,
+    resourceId: config.id,
+  });
   return ok();
 };
 
 /**
  * Returns effective permission for one manual book.
  */
-export const getPermission = async (config: { bookId: string; userId: string | null; userGroups: string[] }): Promise<PermissionLevel> =>
+export const getPermission = async (config: {
+  bookId: string;
+  userId: string | null;
+  userGroups: string[];
+  serviceAccountId?: string | null;
+}): Promise<PermissionLevel> =>
   getBookPermission({
     bookId: config.bookId,
     userId: config.userId,
     userGroups: config.userGroups,
+    serviceAccountId: config.serviceAccountId ?? null,
   });
 
 /**
@@ -259,12 +274,14 @@ export const canAccess = async (config: {
   bookId: string;
   userId: string | null;
   userGroups: string[];
+  serviceAccountId?: string | null;
   requiredLevel?: PermissionLevel;
 }): Promise<boolean> =>
   canAccessBook({
     bookId: config.bookId,
     userId: config.userId,
     userGroups: config.userGroups,
+    serviceAccountId: config.serviceAccountId ?? null,
     requiredLevel: config.requiredLevel,
   });
 
@@ -279,4 +296,7 @@ export const access = {
   add: (config: { bookId: string; accessId: string }) => addBookAccess(config.bookId, config.accessId),
   count: (config: { bookId: string }) => countBookAccess(config.bookId),
   guard: getBookAccessGuard,
+  apiKeys: {
+    list: (config: { bookId: string }) => listContactBookApiKeys(config.bookId),
+  },
 };

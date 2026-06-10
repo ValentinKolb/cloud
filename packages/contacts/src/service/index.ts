@@ -76,14 +76,20 @@ export const contactsService = {
       summary: async (config: { filter?: { query?: string } }) => books.adminSummary({ search: config.filter?.query }),
     },
     permission: {
-      get: async (config: { bookId: string; userId: string; userGroups: string[] }): Promise<PermissionLevel> => {
+      get: async (config: {
+        bookId: string;
+        userId: string | null;
+        userGroups: string[];
+        serviceAccountId?: string | null;
+      }): Promise<PermissionLevel> => {
         if (isSystemBookId(config.bookId)) return "read";
         return books.getPermission(config);
       },
       canAccess: async (config: {
         bookId: string;
-        userId: string;
+        userId: string | null;
         userGroups: string[];
+        serviceAccountId?: string | null;
         requiredLevel?: PermissionLevel;
       }): Promise<boolean> => {
         if (isSystemBookId(config.bookId)) {
@@ -108,6 +114,9 @@ export const contactsService = {
       add: (config: { bookId: string; accessId: string }) => books.access.add(config),
       count: (config: { bookId: string }) => books.access.count(config),
       guard: (config: { bookId: string; accessId: string }) => books.access.guard(config),
+      apiKeys: {
+        list: (config: { bookId: string }) => books.access.apiKeys.list(config),
+      },
     },
   },
   tag: {

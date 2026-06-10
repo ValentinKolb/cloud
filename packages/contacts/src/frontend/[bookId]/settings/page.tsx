@@ -59,9 +59,10 @@ export default ssr<AuthContext>(async (c) => {
     return c.redirect(`/app/contacts/${bookId}`, 302);
   }
 
-  const [booksResult, accessEntriesResult, bookTags] = await Promise.all([
+  const [booksResult, accessEntriesResult, apiKeys, bookTags] = await Promise.all([
     contactsService.book.list({ userId: user.id, groups: user.memberofGroupIds }),
     contactsService.book.access.list({ bookId }),
+    contactsService.book.access.apiKeys.list({ bookId }),
     contactsService.tag.list({ bookId }),
   ]);
   const books = booksResult.items;
@@ -107,6 +108,7 @@ export default ssr<AuthContext>(async (c) => {
                 initialName={book.name}
                 initialDescription={book.description}
                 accessEntries={accessEntries}
+                apiKeys={apiKeys}
                 initialTags={bookTags}
               />
             </div>

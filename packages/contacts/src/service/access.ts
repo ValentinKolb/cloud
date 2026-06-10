@@ -9,6 +9,7 @@ import {
   resolveDisplayNames,
   paginateItems,
 } from "@valentinkolb/cloud/server";
+import { serviceAccountCredentials, type ServiceAccountCredential } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type PageParams, type Paginated, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { isUuid } from "./shared";
@@ -21,6 +22,13 @@ type DbBookAccess = {
   authenticated_only: boolean;
   permission: PermissionLevel;
   created_at: Date;
+};
+
+export const CONTACTS_APP_ID = "contacts";
+export const CONTACT_BOOK_RESOURCE_TYPE = "contact_book";
+
+export type ContactBookApiKey = ServiceAccountCredential & {
+  permission: PermissionLevel;
 };
 
 /**
@@ -374,6 +382,7 @@ export const getBookPermission = async (config: {
   bookId: string;
   userId: string | null;
   userGroups: string[];
+  serviceAccountId?: string | null;
 }): Promise<PermissionLevel> => {
   if (!isUuid(config.bookId)) return "none";
 
@@ -390,6 +399,7 @@ export const getBookPermission = async (config: {
     accessIds,
     userId: config.userId,
     userGroups: config.userGroups,
+    serviceAccountId: config.serviceAccountId ?? null,
   });
 };
 
@@ -400,13 +410,46 @@ export const canAccessBook = async (config: {
   bookId: string;
   userId: string | null;
   userGroups: string[];
+  serviceAccountId?: string | null;
   requiredLevel?: PermissionLevel;
 }): Promise<boolean> => {
   const permission = await getBookPermission({
     bookId: config.bookId,
     userId: config.userId,
     userGroups: config.userGroups,
+    serviceAccountId: config.serviceAccountId ?? null,
   });
 
   return hasPermission(permission, config.requiredLevel ?? "read");
+};
+
+export const listContactBookApiKeys = async (bookId: string): Promise<ContactBookApiKey[]> => {
+  const [keys, accessEntries] = await Promise.all([
+    serviceAccountCredentials.listOverview({
+      pagination: { page: 1, perPage: 500 },
+      filter: {
+        serviceAccountKind: "resource_bound",
+        credentialStatus: "active",
+        appId: CONTACTS_APP_ID,
+        resourceType: CONTACT_BOOK_RESOURCE_TYPE,
+        resourceId: bookId,
+      },
+    }),
+    listBookAccess(bookId),
+  ]);
+
+  const permissionByServiceAccountId = new Map(
+    accessEntries
+      .filter((entry) => entry.principal.type === "service_account")
+      .map((entry) => [
+        (entry.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId,
+        entry.permission,
+      ]),
+  );
+
+  return keys.items.map((item) => {
+    const permission = permissionByServiceAccountId.get(item.serviceAccount.id) ?? "none";
+    const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
+    return { ...credential, permission };
+  });
 };

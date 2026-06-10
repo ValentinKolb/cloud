@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { PermissionEditor, prompts, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { PermissionEditor, prompts, ResourceApiKeys, type ResourceApiKey, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal } from "solid-js";
@@ -15,6 +15,7 @@ type Props = {
   initialName: string;
   initialDescription: string | null;
   accessEntries: AccessEntry[];
+  apiKeys: ResourceApiKey[];
   initialTags: ContactTag[];
 };
 
@@ -104,35 +105,58 @@ export default function BookSettingsForm(props: Props) {
         </SettingsModal.Tab>
 
         <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Permission changes save immediately.">
-          <PermissionEditor
-            initialEntries={props.accessEntries}
-            canEdit
-            grantAccess={async (principal, permission) => {
-              const response = await apiClient.books[":bookId"].access.$post({
-                param: { bookId: props.bookId },
-                json: { principal, permission },
-              });
+          <div class="flex flex-col gap-6">
+            <PermissionEditor
+              initialEntries={props.accessEntries.filter((entry) => entry.principal.type !== "service_account")}
+              canEdit
+              grantAccess={async (principal, permission) => {
+                const response = await apiClient.books[":bookId"].access.$post({
+                  param: { bookId: props.bookId },
+                  json: { principal, permission },
+                });
 
-              if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to grant access"));
+                if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to grant access"));
 
-              return await response.json();
-            }}
-            updateAccess={async (accessId, permission) => {
-              const response = await apiClient.books[":bookId"].access[":accessId"].$patch({
-                param: { bookId: props.bookId, accessId },
-                json: { permission },
-              });
+                return await response.json();
+              }}
+              updateAccess={async (accessId, permission) => {
+                const response = await apiClient.books[":bookId"].access[":accessId"].$patch({
+                  param: { bookId: props.bookId, accessId },
+                  json: { permission },
+                });
 
-              if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to update access"));
-            }}
-            revokeAccess={async (accessId) => {
-              const response = await apiClient.books[":bookId"].access[":accessId"].$delete({
-                param: { bookId: props.bookId, accessId },
-              });
+                if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to update access"));
+              }}
+              revokeAccess={async (accessId) => {
+                const response = await apiClient.books[":bookId"].access[":accessId"].$delete({
+                  param: { bookId: props.bookId, accessId },
+                });
 
-              if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to revoke access"));
-            }}
-          />
+                if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to revoke access"));
+              }}
+            />
+            <div class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
+              <ResourceApiKeys
+                title="API keys"
+                description="Resource-bound keys for integrations that need access to this contact book."
+                initialKeys={props.apiKeys}
+                createKey={async (input) => {
+                  const response = await apiClient.books[":bookId"]["api-keys"].$post({
+                    param: { bookId: props.bookId },
+                    json: input,
+                  });
+                  if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to create API key"));
+                  return (await response.json()) as { credential: ResourceApiKey; token: string };
+                }}
+                revokeKey={async (credentialId) => {
+                  const response = await apiClient.books[":bookId"]["api-keys"][":credentialId"].$delete({
+                    param: { bookId: props.bookId, credentialId },
+                  });
+                  if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to revoke API key"));
+                }}
+              />
+            </div>
+          </div>
         </SettingsModal.Tab>
 
         <SettingsModal.Tab

@@ -27,7 +27,7 @@ const openPermissionDialog = async (props: AdminBookActionsProps, entries: Acces
       <div class="w-full max-w-full flex flex-col gap-3">
         <p class="text-xs text-dimmed">Manage who can access this contact book.</p>
         <PermissionEditor
-          initialEntries={entries}
+          initialEntries={entries.filter((entry) => entry.principal.type !== "service_account")}
           canEdit
           grantAccess={async (principal, permission) => {
             const response = await apiClient.admin.books[":bookId"].access.$post({
