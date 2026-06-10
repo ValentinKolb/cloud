@@ -1,5 +1,6 @@
-import { type AuthContext, auth, v } from "@valentinkolb/cloud/server";
-import { Hono } from "hono";
+import { type AuthContext, auth, respond, v } from "@valentinkolb/cloud/server";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { dashboardSettingsService } from "../service";
 import { normalizeDashboardShortcutHref } from "../shared";
@@ -29,15 +30,28 @@ const SettingsSchema = z.object({
   shortcuts: z.array(ShortcutSchema).default([]),
 });
 
+const getUserBackedActor = (c: Context<AuthContext>) => {
+  const actor = c.get("actor");
+  return actor.kind === "user" ? actor.user : actor.delegatedUser;
+};
+
+const requireUserBackedActor = (c: Context<AuthContext>): Result<NonNullable<ReturnType<typeof getUserBackedActor>>> => {
+  const user = getUserBackedActor(c);
+  if (!user) return fail(err.forbidden("Dashboard settings require a user-backed actor"));
+  return ok(user);
+};
+
 const apiRoutes = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
   .get("/settings", async (c) => {
-    const user = c.get("user");
-    return c.json((await dashboardSettingsService.get(user.id)).settings);
+    const user = requireUserBackedActor(c);
+    if (!user.ok) return respond(c, user);
+    return c.json((await dashboardSettingsService.get(user.data.id)).settings);
   })
   .put("/settings", v("json", SettingsSchema), async (c) => {
-    const user = c.get("user");
-    return c.json(await dashboardSettingsService.save(user.id, c.req.valid("json")));
+    const user = requireUserBackedActor(c);
+    if (!user.ok) return respond(c, user);
+    return c.json(await dashboardSettingsService.save(user.data.id, c.req.valid("json")));
   });
 
 export default apiRoutes;
