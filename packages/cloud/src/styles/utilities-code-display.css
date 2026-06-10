@@ -21,3 +21,47 @@
 .cd-md-tag { @apply text-emerald-700 dark:text-emerald-300; }
 .cd-md-code { @apply text-purple-700 dark:text-purple-300; }
 .cd-md-formula { @apply text-amber-700 dark:text-amber-300; }
+
+/* Shared in-product documentation blocks. `DocCode` accepts a custom
+   highlighter, usually from @valentinkolb/stdlib highlight.compile. */
+.doc-code {
+  background: #f6f8fa;
+  border: 1px solid rgb(208 215 222 / 0.55);
+  box-shadow: 0 1px 2px rgb(31 35 40 / 0.04);
+  color: #24292f;
+}
+
+.dark .doc-code {
+  background: #0d1117;
+  border-color: rgb(48 54 61 / 0.7);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.24);
+  color: #e6edf3;
+}
+
+.doc-code,
+.doc-code * {
+  font-family: var(--font-mono);
+}
+
+.doc-token-comment { @apply text-zinc-500 italic; }
+.doc-token-keyword { color: #0969da; font-weight: 700; }
+.doc-token-aggregation,
+.doc-token-function { color: #116329; font-weight: 700; }
+.doc-token-duration,
+.doc-token-number,
+.doc-token-uuid { color: #8250df; }
+.doc-token-string { color: #953800; }
+.doc-token-placeholder { color: #64748b; font-style: italic; }
+.doc-token-operator { color: #64748b; font-weight: 700; }
+.doc-token-path,
+.doc-token-identifier { color: inherit; }
+
+.dark .doc-token-keyword { color: #79c0ff; }
+.dark .doc-token-aggregation,
+.dark .doc-token-function { color: #7ee787; }
+.dark .doc-token-duration,
+.dark .doc-token-number,
+.dark .doc-token-uuid { color: #d2a8ff; }
+.dark .doc-token-string { color: #ffa657; }
+.dark .doc-token-placeholder { color: #94a3b8; }
+.dark .doc-token-operator { color: #94a3b8; }

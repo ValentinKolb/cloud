@@ -1,12 +1,12 @@
 import { createSignal } from "solid-js";
-import { theme, type ThemeMode } from "@valentinkolb/stdlib/browser";
+import { getCurrentThemePreference, setThemePreference, type CloudTheme } from "../shared/theme";
 
 /** Theme toggle button for the desktop rail navigation. */
 export default function ThemeToggleRail() {
-  const [mode, setMode] = createSignal<ThemeMode>(typeof document !== "undefined" ? theme.getCurrent() : "light");
+  const [mode, setMode] = createSignal<CloudTheme>(getCurrentThemePreference());
 
   const toggleTheme = () => {
-    setMode(theme.toggle());
+    setMode(setThemePreference(mode() === "dark" ? "light" : "dark"));
   };
 
   return (

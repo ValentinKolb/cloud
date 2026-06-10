@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import { cookies } from "@valentinkolb/stdlib/browser";
+import { getCurrentThemePreference, setThemePreference } from "../shared/theme";
 
 type FooterProps = {
   isLoggedIn: boolean;
@@ -13,16 +13,11 @@ type FooterProps = {
 };
 
 export default function Footer(props: FooterProps) {
-  const [theme, setTheme] = createSignal(
-    typeof document !== "undefined" ? (document.documentElement.classList.contains("dark") ? "dark" : "light") : "dark",
-  );
+  const [theme, setTheme] = createSignal(getCurrentThemePreference());
 
   const toggleTheme = () => {
     const newTheme = theme() === "dark" ? "light" : "dark";
-    document.documentElement.classList.remove("dark", "light");
-    document.documentElement.classList.add(newTheme);
-    cookies.writeCookie("theme", newTheme);
-    setTheme(newTheme);
+    setTheme(setThemePreference(newTheme));
   };
 
   return (

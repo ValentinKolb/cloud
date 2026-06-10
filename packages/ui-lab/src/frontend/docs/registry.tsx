@@ -34,6 +34,7 @@ import {
   MarkdownViewDemo,
   StructuredDataPreviewDemo,
 } from "../lab/content";
+import { DocCodeDemo, DocComponentsDemo } from "../lab/docs-components";
 import {
   BadgesDemo,
   ChipsDemo,
@@ -707,6 +708,20 @@ export const uiLabDocs: UiLabDocSection[] = [
         () => (
           <DemoGrid columns="one">
             <StructuredDataPreviewDemo />
+          </DemoGrid>
+        ),
+      ),
+      page(
+        "content",
+        "docs",
+        "Docs Components",
+        "ti ti-file-description",
+        "Shared help and documentation primitives with custom syntax highlighting support.",
+        ["doc-components", "doc-code"],
+        () => (
+          <DemoGrid columns="one">
+            <DocComponentsDemo />
+            <DocCodeDemo />
           </DemoGrid>
         ),
       ),

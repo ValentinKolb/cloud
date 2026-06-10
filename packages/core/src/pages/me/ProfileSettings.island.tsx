@@ -1,9 +1,9 @@
 import { createSignal, Show } from "solid-js";
-import { cookies } from "@valentinkolb/stdlib/browser";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { prompts, SegmentedControl } from "@valentinkolb/cloud/ui";
 import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
+import { getCurrentThemePreference, setThemePreference } from "@valentinkolb/cloud/shared";
 
 type Props = {
   provider: UserProvider;
@@ -65,15 +65,11 @@ function ActionRow(props: { icon: string; label: string; description: string; on
 
 export default function ProfileSettings(props: Props) {
   // ── Appearance state ──
-  const [theme, setTheme] = createSignal(
-    typeof document !== "undefined" && document.documentElement.classList.contains("dark") ? "dark" : "light",
-  );
+  const [theme, setTheme] = createSignal(getCurrentThemePreference());
 
   const handleTheme = (value: string) => {
-    document.documentElement.classList.remove("dark", "light");
-    document.documentElement.classList.add(value);
-    cookies.writeCookie("theme", value);
-    setTheme(value);
+    if (value !== "light" && value !== "dark") return;
+    setTheme(setThemePreference(value));
   };
 
   // ── Account mutations ──

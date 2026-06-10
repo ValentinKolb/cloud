@@ -35,6 +35,8 @@ export type { CodeDisplayLanguage, CodeDisplayProps } from "./CodeDisplay";
 export { default as CodeDisplay } from "./CodeDisplay";
 export { default as ContextMenu } from "./ContextMenu";
 export { default as CopyButton } from "./CopyButton";
+export type { DocCodeHighlighter, DocCodeProps, DocConcept, DocNoteVariant, DocRow } from "./Docs";
+export { DocCode, DocConceptGrid, DocInlineCode, DocLead, DocNote, DocPage, DocRows, DocSection } from "./Docs";
 export type {
   DataTableColumn,
   DataTableFooter,

@@ -3,6 +3,7 @@ import { resolveNavMatch } from "../contracts/app"; // =========================
 import { hasRole, type User } from "../contracts/shared";
 import type { LayoutAnnouncementsState } from "../server/middleware/settings";
 import { dates } from "../shared";
+import { readThemeFromCookieHeader } from "../shared/theme";
 import type { LayoutBreadcrumb } from "../ui/layout";
 import AppLaunchpad, { type AppLaunchpadApp } from "./AppLaunchpad.island";
 import Footer from "./Footer.island";
@@ -145,8 +146,7 @@ function ExpiryWarnings({ user }: { user: User }) {
 export default function Layout({ children, c, title, fullPage, fullWidth }: LayoutProps) {
   const runtime = getRuntimeContext(c);
   const cookie = c.req.raw.headers.get("Cookie") ?? "";
-  const themeMatch = cookie.match(/theme=([^;]+)/);
-  c.get("page").theme = themeMatch?.[1] === "dark" ? "dark" : "light";
+  c.get("page").theme = readThemeFromCookieHeader(cookie);
   const user = c.get("user");
   const pathname = new URL(c.req.raw.url).pathname;
   const { primary: primaryApps, more: moreApps } = buildNavLinks(runtime.apps, user);

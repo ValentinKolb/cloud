@@ -1,6 +1,6 @@
 import { For, Show, type JSX } from "solid-js";
 import { copyToClipboard } from "@valentinkolb/stdlib/browser";
-import { CodeDisplay, toast } from "@valentinkolb/cloud/ui";
+import { DocCode, toast } from "@valentinkolb/cloud/ui";
 import Chip from "./Chip";
 
 /**
@@ -27,7 +27,7 @@ import Chip from "./Chip";
  *     for cases where the chip alone doesn't disambiguate (e.g.
  *     "markdown mode" on a TextInput chip).
  *   - The deep-link action stays in the card header. Code copy belongs
- *     to `CodeDisplay`, so all code examples share one implementation.
+ *     to `DocCode`, so all docs-oriented examples share one implementation.
  *   - The `id` doubles as the URL anchor so a deep-link lands on the
  *     right scroll position.
  */
@@ -91,7 +91,7 @@ export default function DemoCard(props: DemoCardProps) {
 
       <div class="min-w-0">{props.children}</div>
 
-      <CodeDisplay code={props.code} language="tsx" copy lineNumbers={false} class="my-0 select-all" />
+      <DocCode title="TSX" code={props.code} language="tsx" copy class="my-0 select-all" />
     </article>
   );
 }

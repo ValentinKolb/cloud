@@ -15,6 +15,7 @@ import type { AppCapabilities, AppLifecycle, AppMeta, AppSearchContext, CloudCon
 import type { AppRegistryEntry } from "../contracts/registry";
 import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
 import type { Role } from "../contracts/shared";
+import { themeBootstrapScript } from "../shared/theme";
 import { auth } from "../server/middleware/auth";
 import { logger } from "../services/logging";
 import { get, loadCache as loadSettingsCache, set } from "../services/settings";
@@ -253,15 +254,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     <style data-cloud-css-layers>@layer theme, base, components, utilities;</style>
     <link rel="stylesheet" href="/public/${opts.id}/app.css?v=${v}">
     <link rel="stylesheet" href="/public/global.css?v=${v}">
-    <script>
-      (function() {
-        var el = document.documentElement;
-        if (!el.hasAttribute('data-theme-fixed')) {
-          var theme = document.cookie.match(/theme=([^;]+)/)?.[1] || 'light';
-          el.classList.add(theme);
-        }
-      })();
-    </script>
+    <script>${themeBootstrapScript}</script>
   </head>
   <body>
     ${body}

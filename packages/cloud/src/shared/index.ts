@@ -2,6 +2,7 @@
 export * from "./account-display";
 export * from "./account-session";
 export * from "./redirect";
+export * from "./theme";
 export * from "./time";
 export type * from "./icons";
 export { icons } from "./icons";

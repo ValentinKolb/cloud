@@ -7,6 +7,7 @@ import { createSSRHandler } from "@valentinkolb/ssr/hono";
 import { env } from "./env";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { themeBootstrapScript } from "../shared/theme";
 
 /** Cache-busting version stamp — changes on every server start / rebuild. */
 const v = Date.now();
@@ -37,15 +38,7 @@ export const { config, plugin, html } = createConfig<PageOptions>({
     <link rel="icon" href="/branding/favicon">
     <link rel="stylesheet" href="/public/build.css?v=${v}">
     <link rel="stylesheet" href="/public/katex.css?v=${v}">
-    <script>
-      (function() {
-        var el = document.documentElement;
-        if (!el.hasAttribute('data-theme-fixed')) {
-          var theme = document.cookie.match(/theme=([^;]+)/)?.[1] || 'light';
-          el.classList.add(theme);
-        }
-      })();
-    </script>
+    <script>${themeBootstrapScript}</script>
   </head>
   <body>
     ${body}

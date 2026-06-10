@@ -4,7 +4,7 @@ import GuestLoginForm from "./GuestLoginForm.island";
 import AdminLoginForm from "./AdminLoginForm.island";
 import { coreSettings } from "@valentinkolb/cloud/services";
 import { listLegalLinks } from "@valentinkolb/cloud";
-import { normalizeRedirectTo } from "@valentinkolb/cloud/shared";
+import { normalizeRedirectTo, readThemeFromCookieHeader } from "@valentinkolb/cloud/shared";
 
 /** Login page. */
 export default ssr(async (c) => {
@@ -26,8 +26,7 @@ export default ssr(async (c) => {
   const hide = params.get("hide") ?? undefined;
 
   const cookie = c.req.raw.headers.get("Cookie") ?? "";
-  const themeMatch = cookie.match(/theme=([^;]+)/);
-  c.get("page").theme = themeMatch?.[1] === "dark" ? "dark" : "light";
+  c.get("page").theme = readThemeFromCookieHeader(cookie);
 
   const loginMethodMatch = cookie.match(/login_method=([^;]+)/);
   const cookieMethod = loginMethodMatch?.[1] as "email" | "ipa" | undefined;
