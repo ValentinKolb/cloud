@@ -15,6 +15,7 @@ import type { Field } from "../service/types";
 import type {
   DslFormulaAggregation,
   DslJoinedColumn,
+  DslOutputColumn,
   DslResolvedRelationJoin,
   DslResolvedSqlQueryPlan,
   DslResolvedSqlSort,
@@ -95,7 +96,6 @@ export type DslSqlAggregateCompileResult = { ok: true; query: DslSqlCompiledAggr
 
 type ViewQueryColumn = NonNullable<ViewQuery["columns"]>[number];
 type ViewQueryComputedColumn = Extract<ViewQueryColumn, { kind: "computed" }>;
-type ViewQueryFieldColumn = Exclude<ViewQueryColumn, ViewQueryComputedColumn>;
 type GroupAggKind = GroupAggregationSpec["agg"];
 type GroupFieldAggregation = Extract<GroupAggregationSpec, { fieldId: string | "*" }>;
 
@@ -151,7 +151,32 @@ const numericAggs: ReadonlySet<GroupAggKind> = new Set(["count", "countEmpty", "
 
 const isComputedColumn = (column: ViewQueryColumn): column is ViewQueryComputedColumn => (column as { kind?: unknown }).kind === "computed";
 
-const isFieldColumn = (column: ViewQueryColumn): column is ViewQueryFieldColumn => !isComputedColumn(column);
+const outputColumnsForPlan = (plan: DslResolvedSqlQueryPlan, baseFields: Field[]): DslOutputColumn[] => {
+  if (plan.outputColumns && plan.outputColumns.length > 0) return plan.outputColumns;
+  const baseColumns: NonNullable<ViewQuery["columns"]> = plan.query.columns?.length
+    ? plan.query.columns
+    : baseFields
+        .filter((field) => isImplicitlySelectableField(field) && relationTargetIsReadable(field, plan.readableTableIds))
+        .map((field) => ({ fieldId: field.id }));
+  return [
+    ...baseColumns.map((column) => {
+      if (isComputedColumn(column)) {
+        return {
+          kind: "computed",
+          id: column.id,
+          label: column.label,
+          expression: column.expression,
+        } satisfies DslOutputColumn;
+      }
+      return {
+        kind: "field",
+        fieldId: column.fieldId,
+        ...(column.label ? { label: column.label } : {}),
+      } satisfies DslOutputColumn;
+    }),
+    ...(plan.joinedColumns ?? []).map((joined) => ({ kind: "joined" as const, ...joined })),
+  ];
+};
 
 const isImplicitlySelectableField = (field: Field): boolean => {
   const kind = storageOf(field).kind;
@@ -499,15 +524,11 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
 
   const selectFragments: unknown[] = [sql`r.id::text AS __record_id`, sql`r.table_id::text AS __table_id`];
   const columns: DslSqlOutputColumn[] = [];
-  const baseColumns: NonNullable<ViewQuery["columns"]> = plan.query.columns?.length
-    ? plan.query.columns
-    : baseFields
-        .filter((field) => isImplicitlySelectableField(field) && relationTargetIsReadable(field, plan.readableTableIds))
-        .map((field) => ({ fieldId: field.id }));
+  const outputColumns = outputColumnsForPlan(plan, baseFields);
   let index = 0;
 
-  for (const column of baseColumns) {
-    if (isComputedColumn(column)) {
+  for (const column of outputColumns) {
+    if (column.kind === "computed") {
       const compiled = compileFormulaColumn({
         expression: column.expression,
         label: column.label,
@@ -522,7 +543,23 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
       index += 1;
       continue;
     }
-    if (!isFieldColumn(column)) return fail("unsupported select column");
+    if (column.kind === "joined") {
+      const recordAlias = joinAliases.get(column.joinAlias);
+      if (!recordAlias) return fail(`joined column uses unknown join alias "${column.joinAlias}"`);
+      const compiled = compileJoinedColumn({
+        joinedColumn: column,
+        fieldsByTableId: options.fieldsByTableId,
+        recordAlias,
+        index,
+        timeZone: options.timeZone,
+        readableTableIds: plan.readableTableIds,
+      });
+      if (!compiled.ok) return fail(compiled.error);
+      selectFragments.push(compiled.fragment);
+      columns.push(compiled.column);
+      index += 1;
+      continue;
+    }
     const field = fieldById(baseFields, column.fieldId);
     if (!field) return fail(`field ${column.fieldId} is not available`);
     const compiled = compileBaseFieldColumn({
@@ -532,23 +569,6 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
       recordAlias: "r",
       index,
       tableId: plan.tableId,
-      timeZone: options.timeZone,
-      readableTableIds: plan.readableTableIds,
-    });
-    if (!compiled.ok) return fail(compiled.error);
-    selectFragments.push(compiled.fragment);
-    columns.push(compiled.column);
-    index += 1;
-  }
-
-  for (const joined of plan.joinedColumns ?? []) {
-    const recordAlias = joinAliases.get(joined.joinAlias);
-    if (!recordAlias) return fail(`joined column uses unknown join alias "${joined.joinAlias}"`);
-    const compiled = compileJoinedColumn({
-      joinedColumn: joined,
-      fieldsByTableId: options.fieldsByTableId,
-      recordAlias,
-      index,
       timeZone: options.timeZone,
       readableTableIds: plan.readableTableIds,
     });

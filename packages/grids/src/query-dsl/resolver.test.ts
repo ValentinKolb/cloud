@@ -1048,13 +1048,6 @@ describe("resolveDslQueryToViewQuery", () => {
       },
       {
         key: "q_col_1",
-        label: "margin",
-        tableId: "",
-        type: "formula",
-        sqlType: "numeric",
-      },
-      {
-        key: "q_col_2",
         label: "customer_name",
         tableId: customers.id,
         fieldId: customerNameFieldId,
@@ -1062,11 +1055,18 @@ describe("resolveDslQueryToViewQuery", () => {
         type: "text",
         sqlType: "text",
       },
+      {
+        key: "q_col_2",
+        label: "margin",
+        tableId: "",
+        type: "formula",
+        sqlType: "numeric",
+      },
     ]);
     expect(typeof compiled.query.sql).toBe("object");
     const text = normalizedSql(compiled.query.sql);
     expect(text).toContain("ORDER BY grids.try_numeric(r.data->>");
-    expect(text).toContain(" DESC NULLS LAST, q_col_2 ASC NULLS FIRST");
+    expect(text).toContain(" DESC NULLS LAST, q_col_1 ASC NULLS FIRST");
   });
 
   test("SQL compiler can cap relation join fanout for preview queries", () => {

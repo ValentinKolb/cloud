@@ -16,6 +16,7 @@ import { listFirstImagePreviews } from "./files";
 import { generateIdValue, generatedIdRequiresRetry, isGeneratedIdUniqueCollision } from "./generated-ids";
 import { compileFilter, type FilterTree, renderClause } from "./filter-compiler";
 import { compileFormulaPredicateAstToSql } from "./formula-sql-compiler";
+import { storageOf } from "./field-storage";
 import {
   compileGroupQuery,
   type GroupAggregationSpec,
@@ -667,6 +668,7 @@ export const group = async (params: {
       // a stable JSON envelope. Bigints (count-likes) become numbers.
       if (raw instanceof Date) return group.spec.granularity ? raw.toISOString().slice(0, 10) : raw.toISOString();
       if (typeof raw === "bigint") return Number(raw);
+      if (typeof raw === "string" && storageOf(group.field).kind === "numeric" && /^-?\d+(\.\d+)?$/.test(raw)) return Number(raw);
       return raw ?? null;
     });
     const values: Record<string, unknown> = {};

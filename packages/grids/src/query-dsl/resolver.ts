@@ -76,9 +76,24 @@ export type DslJoinedColumn = {
   label?: string;
 };
 
+export type DslOutputColumn =
+  | {
+      kind: "field";
+      fieldId: string;
+      label?: string;
+    }
+  | {
+      kind: "computed";
+      id: string;
+      label: string;
+      expression: string;
+    }
+  | ({ kind: "joined" } & DslJoinedColumn);
+
 export type DslResolvedSqlQueryPlan = DslResolvedQueryPlan & {
   readableTableIds: string[];
   joins?: DslResolvedRelationJoin[];
+  outputColumns?: DslOutputColumn[];
   joinedColumns?: DslJoinedColumn[];
   sqlSort?: DslResolvedSqlSort[];
   formulaGroupSort?: GroupSortSpec[];
@@ -320,10 +335,11 @@ const resolveSelect = (select: DslSelectItem[], scope: Scope): ViewQuery["column
 const resolveQueryPlanSelect = (
   select: DslSelectItem[],
   scope: Scope,
-): { columns?: ViewQuery["columns"]; joinedColumns: DslJoinedColumn[] } | DslResolverDiagnostic => {
-  if (select.length === 0) return { joinedColumns: [] };
+): { columns?: ViewQuery["columns"]; joinedColumns: DslJoinedColumn[]; outputColumns: DslOutputColumn[] } | DslResolverDiagnostic => {
+  if (select.length === 0) return { joinedColumns: [], outputColumns: [] };
   const columns: NonNullable<ViewQuery["columns"]> = [];
   const joinedColumns: DslJoinedColumn[] = [];
+  const outputColumns: DslOutputColumn[] = [];
   const computedIds = new Set<string>();
 
   for (const item of select) {
@@ -341,6 +357,7 @@ const resolveQueryPlanSelect = (
         if (isDiagnostic(joined)) return joined;
         if (item.alias) scope.joinedAliases.add(item.alias);
         joinedColumns.push(joined);
+        outputColumns.push({ kind: "joined", ...joined });
         continue;
       }
       const field = fieldByRef(scope, item.field.ref);
@@ -349,6 +366,7 @@ const resolveQueryPlanSelect = (
       if (relationDiagnostic) return relationDiagnostic;
       if (item.alias) scope.fieldAliases.set(item.alias, field.id);
       columns.push({ fieldId: field.id, ...(item.alias ? { label: item.alias } : {}) });
+      outputColumns.push({ kind: "field", fieldId: field.id, ...(item.alias ? { label: item.alias } : {}) });
       continue;
     }
 
@@ -364,9 +382,15 @@ const resolveQueryPlanSelect = (
       label: item.alias,
       expression: item.source,
     });
+    outputColumns.push({
+      kind: "computed",
+      id: computedId,
+      label: item.alias,
+      expression: item.source,
+    });
   }
 
-  return { columns: columns.length > 0 ? columns : undefined, joinedColumns };
+  return { columns: columns.length > 0 ? columns : undefined, joinedColumns, outputColumns };
 };
 
 const mergeScopedFilter = (baseFilter: ViewQuery["filter"], dslFilter: ViewQuery["filter"]): ViewQuery["filter"] => {
@@ -1159,6 +1183,7 @@ export const resolveDslQueryToQueryPlan = (ast: DslQueryAst, ctx: DslResolverCon
     readableTableIds: [...scope.readableTableIds],
     ...(ast.offset !== undefined ? { offset: ast.offset } : {}),
     ...(joins.joins.length > 0 ? { joins: joins.joins } : {}),
+    ...(!isDiagnostic(select) && select.outputColumns.length > 0 ? { outputColumns: select.outputColumns } : {}),
     ...(!isDiagnostic(select) && select.joinedColumns.length > 0 ? { joinedColumns: select.joinedColumns } : {}),
     ...(sort && sort.sqlSort.length > 0 ? { sqlSort: sort.sqlSort } : {}),
     ...(groupedSort && groupedSort.formulaGroupSort.length > 0 ? { formulaGroupSort: groupedSort.formulaGroupSort } : {}),
