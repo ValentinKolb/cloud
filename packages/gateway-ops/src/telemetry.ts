@@ -262,7 +262,7 @@ export const listTelemetryEvents = async (filter: TelemetryEventFilter = {}): Pr
       AND (${routePrefix}::text IS NULL OR route_prefix = ${routePrefix})
       AND (${slowOnly}::boolean IS FALSE OR duration_ms >= ${SLOW_REQUEST_MS})
       AND (${errorsOnly}::boolean IS FALSE OR status_code >= 500 OR error_kind IS NOT NULL)
-    ORDER BY occurred_at DESC
+    ORDER BY gateway.telemetry_events.occurred_at DESC
     LIMIT ${perPage} OFFSET ${offset}
   `;
 
