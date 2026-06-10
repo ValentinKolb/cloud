@@ -1,6 +1,7 @@
 import { dates } from "@valentinkolb/stdlib";
 import { Show } from "solid-js";
 import DataTable, { type DataTableColumn } from "./DataTable";
+import Placeholder from "./Placeholder";
 
 export type LogTableEntry = {
   id: number | string;
@@ -34,7 +35,7 @@ export default function LogEntriesTable(props: Props) {
   return (
     <Show
       when={props.entries.length > 0}
-      fallback={<div class="paper py-8 text-center text-xs text-dimmed">{props.emptyMessage ?? "No log entries found."}</div>}
+      fallback={<Placeholder surface="paper">{props.emptyMessage ?? "No log entries found."}</Placeholder>}
     >
       <DataTable
         rows={props.entries}

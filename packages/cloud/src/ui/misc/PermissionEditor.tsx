@@ -4,6 +4,7 @@ import type { AccessEntry, PermissionLevel, Principal } from "../../contracts/sh
 import Combobox, { type ComboboxOption } from "../input/Combobox";
 import { prompts } from "../prompts";
 import Dropdown from "./Dropdown";
+import Placeholder from "./Placeholder";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Public API
@@ -331,7 +332,9 @@ export default function PermissionEditor(props: PermissionEditorProps) {
           )}
         </For>
         <Show when={entries().length === 0}>
-          <p class="px-1 py-2 text-xs text-dimmed">No direct grants yet.</p>
+          <Placeholder align="left" class="px-1 py-2">
+            No direct grants yet.
+          </Placeholder>
         </Show>
       </div>
 

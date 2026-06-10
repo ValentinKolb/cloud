@@ -7,6 +7,7 @@ import SelectInput from "../input/Select";
 import TextInput from "../input/TextInput";
 import { prompts } from "../prompts";
 import CopyButton from "./CopyButton";
+import Placeholder from "./Placeholder";
 
 type GrantablePermission = Exclude<PermissionLevel, "none">;
 
@@ -212,10 +213,9 @@ export default function ResourceApiKeys(props: ResourceApiKeysProps) {
       <Show
         when={keys().length > 0}
         fallback={
-          <div class="rounded-lg border border-dashed border-zinc-200 px-4 py-6 text-center dark:border-zinc-800">
-            <i class="ti ti-key text-2xl text-dimmed" />
-            <p class="mt-2 text-xs text-dimmed">No API keys yet.</p>
-          </div>
+          <Placeholder icon="ti ti-key" class="rounded-lg border border-dashed border-zinc-200 dark:border-zinc-800">
+            No API keys yet.
+          </Placeholder>
         }
       >
         <div class="flex flex-col divide-y divide-zinc-100 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">

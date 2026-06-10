@@ -1,4 +1,5 @@
 import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import Placeholder from "./Placeholder";
 
 export type DataTableColumn<T> = {
   id: string;
@@ -152,7 +153,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
   });
 
   return (
-    <Show when={props.columns.length > 0} fallback={<div class="paper p-6 text-center text-sm text-dimmed">No columns.</div>}>
+    <Show when={props.columns.length > 0} fallback={<Placeholder surface="paper">No columns.</Placeholder>}>
       <div
         ref={scrollRef}
         role="region"
@@ -205,8 +206,8 @@ export default function DataTable<T>(props: DataTableProps<T>) {
               when={props.rows.length > 0}
               fallback={
                 <tr>
-                  <td class="px-3 py-6 text-center text-xs text-dimmed" colspan={props.columns.length}>
-                    {props.empty ?? "No records"}
+                  <td class="p-0" colspan={props.columns.length}>
+                    <Placeholder>{props.empty ?? "No records"}</Placeholder>
                   </td>
                 </tr>
               }
