@@ -1,9 +1,10 @@
 import { createSignal, Show } from "solid-js";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts, SegmentedControl } from "@valentinkolb/cloud/ui";
+import { prompts, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
 import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import { getCurrentThemePreference, setThemePreference } from "@valentinkolb/cloud/shared";
+import { PasswordSetupFields } from "../auth/PasswordSetupFields";
 
 type Props = {
   provider: UserProvider;
@@ -61,6 +62,76 @@ function ActionRow(props: { icon: string; label: string; description: string; on
   );
 }
 
+type ChangePasswordPayload = {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+};
+
+function ChangePasswordDialog(props: { close: (value: ChangePasswordPayload | null) => void }) {
+  const [currentPassword, setCurrentPassword] = createSignal("");
+  const [newPassword, setNewPassword] = createSignal("");
+  const [confirmPassword, setConfirmPassword] = createSignal("");
+  const [error, setError] = createSignal<string | null>(null);
+
+  const submit = () => {
+    setError(null);
+    if (!currentPassword().trim() || !newPassword() || !confirmPassword()) {
+      setError("Fill out all password fields.");
+      return;
+    }
+    if (newPassword() !== confirmPassword()) {
+      setError("Passwords do not match.");
+      return;
+    }
+    props.close({
+      currentPassword: currentPassword(),
+      newPassword: newPassword(),
+      confirmPassword: confirmPassword(),
+    });
+  };
+
+  return (
+    <form
+      class="flex flex-col gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
+    >
+      <TextInput
+        label="Current Password"
+        placeholder="Current password..."
+        icon="ti ti-lock"
+        password
+        value={currentPassword}
+        onChange={setCurrentPassword}
+        onInput={setCurrentPassword}
+        autocomplete="current-password"
+      />
+
+      <PasswordSetupFields
+        newPassword={newPassword}
+        confirmPassword={confirmPassword}
+        onNewPasswordChange={setNewPassword}
+        onConfirmPasswordChange={setConfirmPassword}
+      />
+
+      {error() && <div class="info-block-danger">{error()}</div>}
+
+      <div class="flex justify-end gap-2">
+        <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(null)}>
+          Cancel
+        </button>
+        <button type="submit" class="btn-primary btn-sm">
+          <i class="ti ti-lock-check" />
+          Change
+        </button>
+      </div>
+    </form>
+  );
+}
+
 // ── Main Component ──
 
 export default function ProfileSettings(props: Props) {
@@ -100,42 +171,11 @@ export default function ProfileSettings(props: Props) {
   });
 
   const handleChangePassword = async () => {
-    const result = await prompts.form({
-      title: "Change Password",
-      icon: "ti ti-lock",
-      confirmText: "Change",
-      fields: {
-        currentPassword: {
-          type: "text" as const,
-          label: "Current Password",
-          placeholder: "Current password...",
-          icon: "ti ti-lock",
-          password: true,
-          required: true,
-        },
-        newPassword: {
-          type: "text" as const,
-          label: "New Password",
-          placeholder: "New password...",
-          icon: "ti ti-lock-open",
-          password: true,
-          required: true,
-        },
-        confirmPassword: {
-          type: "text" as const,
-          label: "Confirm Password",
-          placeholder: "Confirm new password...",
-          icon: "ti ti-lock-check",
-          password: true,
-          required: true,
-        },
-      },
-    });
+    const result = await prompts.dialog<ChangePasswordPayload | null>(
+      (close) => <ChangePasswordDialog close={close} />,
+      { title: "Change Password", icon: "ti ti-lock", size: "medium" },
+    );
     if (result) {
-      if (result.newPassword !== result.confirmPassword) {
-        prompts.error("Passwords do not match.");
-        return;
-      }
       await passwordMutation.mutate({
         currentPassword: result.currentPassword,
         newPassword: result.newPassword,

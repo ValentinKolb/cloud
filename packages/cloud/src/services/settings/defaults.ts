@@ -439,6 +439,20 @@ export const SETTINGS: SettingDef[] = [
     templateVars: ["TOKEN", "MAGIC_LINK", "APP_NAME"],
   },
   {
+    key: "mail.password_reset",
+    label: "Password Reset Template",
+    kind: "template",
+    default: `<p>You requested a password reset for your {{APP_NAME}} account.</p>
+<p style="text-align:center;margin:24px 0;">
+  <a href="{{RESET_LINK}}" target="_blank" style="color:#3b82f6;text-decoration:underline;">Set a new password</a>
+</p>
+<p style="color:#71717a;font-size:12px;margin:0 0 8px 0;">This link expires in 15 minutes. Never share this link with anyone. If you didn't request this, you can ignore this email.</p>
+{{#CONTACT_EMAIL}}<p style="color:#71717a;font-size:12px;margin:0;">If you need help, contact <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>{{/CONTACT_EMAIL}}`,
+    description: "Password reset email template (HTML). Subject: {{APP_NAME}} Password Reset",
+    group: "mail",
+    templateVars: ["RESET_LINK", "APP_NAME", "CONTACT_EMAIL"],
+  },
+  {
     key: "mail.account_expiry_reminder",
     label: "Account Expiry Reminder Template",
     kind: "template",

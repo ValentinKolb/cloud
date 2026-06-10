@@ -1,7 +1,8 @@
 import { createSignal } from "solid-js";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
-import {TextInput } from "@valentinkolb/cloud/ui";
+import { TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { PasswordSetupFields } from "../PasswordSetupFields";
 
 type NewPasswordFormProps = {
   defaultUsername: string;
@@ -46,19 +47,30 @@ export default function NewPasswordForm(props: NewPasswordFormProps) {
       }}
       class="flex flex-col gap-4"
     >
-      <TextInput placeholder="Username" icon="ti ti-user" value={username} onChange={setUsername} />
-
-      <TextInput placeholder="Current password" icon="ti ti-lock" password value={currentPassword} onChange={setCurrentPassword} />
-
-      <TextInput placeholder="New password" icon="ti ti-lock-open" password value={newPassword} onChange={setNewPassword} />
+      <TextInput
+        label="Username"
+        description="Use your organization short name, for example your FreeIPA uid."
+        placeholder="e.g. eva"
+        icon="ti ti-user"
+        value={username}
+        onChange={setUsername}
+        onInput={setUsername}
+        autocomplete="username"
+      />
 
       <TextInput
-        placeholder="Confirm new password"
-        icon="ti ti-lock-check"
+        label="Current password"
+        description="Enter the temporary or expired password you used to start this reset."
+        placeholder="Current password"
+        icon="ti ti-lock"
         password
-        value={confirmPassword}
-        onChange={setConfirmPassword}
+        value={currentPassword}
+        onChange={setCurrentPassword}
+        onInput={setCurrentPassword}
+        autocomplete="current-password"
       />
+
+      <PasswordSetupFields newPassword={newPassword} confirmPassword={confirmPassword} onNewPasswordChange={setNewPassword} onConfirmPasswordChange={setConfirmPassword} />
 
       {mutation.error() && (
         <div class="info-block-danger">

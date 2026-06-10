@@ -1,5 +1,6 @@
 import { ssr } from "../../../config";
-import NewPasswordForm from "./NewPasswordForm.island";
+import PasswordResetCompleteForm from "./PasswordResetCompleteForm.island";
+import PasswordResetRequestForm from "./PasswordResetRequestForm.island";
 import { listLegalLinks } from "@valentinkolb/cloud";
 import { coreSettings } from "@valentinkolb/cloud/services";
 import {
@@ -7,7 +8,7 @@ import {
   readThemeFromCookieHeader,
 } from "@valentinkolb/cloud/shared";
 
-/** Set new password page (for expired/temporary passwords). */
+/** Email password reset page for IPA-backed accounts. */
 export default ssr(async (c) => {
   const [rawAppName, legalLinks] = await Promise.all([
     coreSettings.get<string>("app.name"),
@@ -15,7 +16,7 @@ export default ssr(async (c) => {
   ]);
   const appName = rawAppName || "My App";
   const params = new URL(c.req.url).searchParams;
-  const user = params.get("ipa-uid") ?? "";
+  const token = params.get("token") ?? undefined;
   const redirectTo = normalizeRedirectTo(params.get("redirectTo"));
   const loginParams = new URLSearchParams();
   if (redirectTo) loginParams.set("redirectTo", redirectTo);
@@ -26,6 +27,15 @@ export default ssr(async (c) => {
 
   const cookie = c.req.raw.headers.get("Cookie") ?? "";
   c.get("page").theme = readThemeFromCookieHeader(cookie);
+
+  const title = token ? "Set a new password" : "Reset your password";
+  const subtitle = token
+    ? "Choose a strong replacement password. Redirects continue automatically after the password is changed."
+    : "Enter your account email address. If password reset is available, we will send a one-time reset link.";
+  const formTitle = token ? "Set new password" : "Reset password";
+  const formSubtitle = token
+    ? "This reset link only changes your password. It does not sign in until the change succeeds."
+    : "We will send a short-lived reset link when this email belongs to an eligible organization account.";
 
   return () => (
     <div class="min-h-screen bg-zinc-50 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50">
@@ -54,12 +64,9 @@ export default ssr(async (c) => {
                 class="mt-3 text-3xl font-semibold tracking-tight text-primary"
                 style={{ "view-transition-name": "page-title" }}
               >
-                Set a new password
+                {title}
               </h1>
-              <p class="mt-4 text-sm leading-6 text-dimmed">
-                Choose a strong replacement password. Redirects continue
-                automatically after the password is changed.
-              </p>
+              <p class="mt-4 text-sm leading-6 text-dimmed">{subtitle}</p>
             </div>
           </aside>
 
@@ -71,12 +78,9 @@ export default ssr(async (c) => {
               <div class="mb-8 flex items-start justify-between gap-4">
                 <div>
                   <h1 class="text-3xl font-semibold tracking-tight text-primary">
-                    Set new password
+                    {formTitle}
                   </h1>
-                  <p class="mt-1 text-sm text-dimmed">
-                    Your current password is expired or temporary. Choose a
-                    replacement to continue.
-                  </p>
+                  <p class="mt-1 text-sm text-dimmed">{formSubtitle}</p>
                 </div>
                 <span class="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 shadow-sm dark:bg-emerald-950/45 dark:text-emerald-300">
                   <i class="ti ti-shield-lock" />
@@ -84,7 +88,14 @@ export default ssr(async (c) => {
                 </span>
               </div>
 
-              <NewPasswordForm defaultUsername={user} redirectTo={redirectTo} />
+              {token ? (
+                <PasswordResetCompleteForm
+                  token={token}
+                  redirectTo={redirectTo}
+                />
+              ) : (
+                <PasswordResetRequestForm redirectTo={redirectTo} />
+              )}
 
               <a
                 href={loginHref}

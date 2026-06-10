@@ -16,6 +16,8 @@ import {
   LoginSchema,
   EmailLoginSchema,
   VerifyTokenSchema,
+  PasswordResetRequestSchema,
+  PasswordResetCompleteSchema,
   AdminLoginSchema,
   AuthResponseSchema,
   VerifyPasskeyAuthenticationSchema,
@@ -112,8 +114,7 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Auth"],
       summary: "Logout",
-      description:
-        "Idempotent: clears the session cookie and deletes the session key if present. No authentication required — logout must always succeed.",
+      description: "Idempotent: clears the session cookie and deletes the session key if present. No authentication required — logout must always succeed.",
       responses: {
         200: jsonResponse(MessageResponseSchema, "Session invalidated"),
       },
@@ -179,7 +180,10 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const { email, redirectTo } = c.req.valid("json");
 
-      const requestResult = await authFlows.magicLink.request({ email, redirectTo });
+      const requestResult = await authFlows.magicLink.request({
+        email,
+        redirectTo,
+      });
       if (!requestResult.ok) {
         return c.json({ message: requestResult.message }, requestResult.status);
       }
@@ -216,10 +220,67 @@ const app = new Hono<AuthContext>()
       const sessionToken = await auth.session.create(c, verifyResult.userId);
 
       if (verifyResult.createdGuest) {
-        log.info("Guest user created", { email: verifyResult.email, uid: verifyResult.user.uid });
+        log.info("Guest user created", {
+          email: verifyResult.email,
+          uid: verifyResult.user.uid,
+        });
       }
       log.info("Token verified", { email: verifyResult.email });
       return c.json({ session_token: sessionToken, user: verifyResult.user });
+    },
+  )
+  .post(
+    "/password-reset/request",
+    describeRoute({
+      tags: ["Auth"],
+      summary: "Request password reset",
+      description: "Request a one-time password reset email for an IPA-backed account. The response is always generic to avoid account enumeration.",
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Request accepted"),
+      },
+    }),
+    v("json", PasswordResetRequestSchema),
+    async (c) => {
+      const { email, redirectTo } = c.req.valid("json");
+
+      const result = await authFlows.passwordReset.request({
+        email,
+        redirectTo,
+      });
+      return c.json({ message: result.message });
+    },
+  )
+  .post(
+    "/password-reset/complete",
+    describeRoute({
+      tags: ["Auth"],
+      summary: "Complete password reset",
+      description: "Set a new password using a one-time reset token. Creates a normal Cloud session only after the password was changed successfully.",
+      responses: {
+        200: jsonResponse(AuthResponseSchema, "Password reset completed and session created"),
+        400: jsonResponse(ErrorResponseSchema, "Password reset failed"),
+        401: jsonResponse(ErrorResponseSchema, "Invalid or expired reset token"),
+      },
+    }),
+    v("json", PasswordResetCompleteSchema),
+    async (c) => {
+      const { token, newPassword } = c.req.valid("json");
+
+      const result = await authFlows.passwordReset.complete({
+        token,
+        newPassword,
+      });
+      if (!result.ok) {
+        if (result.reason === "policy_failed") {
+          return c.json({ message: result.message }, 400);
+        }
+        const status = result.status >= 500 ? 500 : result.status === 401 ? 401 : 400;
+        return jsonError(c, result.message, status);
+      }
+
+      const sessionToken = await auth.session.create(c, result.userId);
+      log.info("Password reset completed", { uid: result.user.uid });
+      return c.json({ user: result.user, session_token: sessionToken });
     },
   )
   .post(

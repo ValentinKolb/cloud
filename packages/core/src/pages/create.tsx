@@ -5,6 +5,7 @@ import { Hono } from "hono";
 import announcementsAdminPage from "./admin/announcements/page";
 import adminPage from "./admin/page";
 import newPasswordPage from "./auth/new-password/page";
+import passwordResetPage from "./auth/password-reset/page";
 import loginPage from "./auth/page";
 import profilePage from "./me/page";
 import notFoundPage from "./NotFound";
@@ -38,6 +39,7 @@ export const createPagesRouter = (options?: { brandingPublicDir?: string }): Hon
     // Auth routes
     .get("/auth/login", auth.requireRole("anonymous", auth.redirect("/")), ...loginPage)
     .get("/auth/new-password", ...newPasswordPage)
+    .get("/auth/password-reset", auth.requireRole("anonymous", auth.redirect("/")), ...passwordResetPage)
     .get("/auth/proxy-return", auth.requireRole("authenticated", auth.redirectToLogin), async (c) => {
       const token = c.req.query("token");
       const target = token ? await authFlows.proxyReturn.consume({ token }) : null;

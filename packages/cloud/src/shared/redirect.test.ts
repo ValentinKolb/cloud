@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createAuthLoginUrl, createLoginRedirectUrl, normalizeRedirectTo, redirectPathFromRequestUrl } from "./redirect";
+import { createAuthLoginUrl, createAuthPasswordResetUrl, createLoginRedirectUrl, normalizeRedirectTo, redirectPathFromRequestUrl } from "./redirect";
 
 describe("redirect helpers", () => {
   test("normalizes local redirect paths", () => {
@@ -15,12 +15,8 @@ describe("redirect helpers", () => {
   });
 
   test("preserves request query parameters for login redirects", () => {
-    expect(redirectPathFromRequestUrl("https://cloud.local/oauth/authorize?client_id=cli&state=abc")).toBe(
-      "/oauth/authorize?client_id=cli&state=abc",
-    );
-    expect(createLoginRedirectUrl("https://cloud.local/oauth/authorize?client_id=cli&state=abc")).toBe(
-      "/auth/login?redirectTo=%2Foauth%2Fauthorize%3Fclient_id%3Dcli%26state%3Dabc",
-    );
+    expect(redirectPathFromRequestUrl("https://cloud.local/oauth/authorize?client_id=cli&state=abc")).toBe("/oauth/authorize?client_id=cli&state=abc");
+    expect(createLoginRedirectUrl("https://cloud.local/oauth/authorize?client_id=cli&state=abc")).toBe("/auth/login?redirectTo=%2Foauth%2Fauthorize%3Fclient_id%3Dcli%26state%3Dabc");
   });
 
   test("builds magic login links with safe redirects only", () => {
@@ -35,5 +31,19 @@ describe("redirect helpers", () => {
       redirectTo: "https://evil.example",
     });
     expect(externalUrl).toBe("https://cloud.example/auth/login?token=token-id");
+  });
+
+  test("builds password reset links with safe redirects only", () => {
+    const safeUrl = createAuthPasswordResetUrl("https://cloud.example", {
+      token: "token-id",
+      redirectTo: "/app/dashboard",
+    });
+    expect(safeUrl).toBe("https://cloud.example/auth/password-reset?token=token-id&redirectTo=%2Fapp%2Fdashboard");
+
+    const externalUrl = createAuthPasswordResetUrl("https://cloud.example", {
+      token: "token-id",
+      redirectTo: "https://evil.example",
+    });
+    expect(externalUrl).toBe("https://cloud.example/auth/password-reset?token=token-id");
   });
 });

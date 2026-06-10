@@ -39,3 +39,14 @@ export const createAuthLoginUrl = (appUrl: string, params: { token?: string; red
 
   return url.toString();
 };
+
+/** Build an absolute password-reset URL while preserving only safe local redirects. */
+export const createAuthPasswordResetUrl = (appUrl: string, params: { token: string; redirectTo?: string | null | undefined }): string => {
+  const url = new URL(`${appUrl.replace(/\/$/, "")}/auth/password-reset`);
+  url.searchParams.set("token", params.token);
+
+  const redirectTo = normalizeRedirectTo(params.redirectTo);
+  if (redirectTo) url.searchParams.set("redirectTo", redirectTo);
+
+  return url.toString();
+};
