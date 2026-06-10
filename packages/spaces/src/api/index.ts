@@ -143,6 +143,47 @@ const getSpaceAccessSubject = (c: Context<AuthContext>) => {
   };
 };
 
+type CalendarAccess = {
+  userId: string | null;
+  groups: string[];
+  serviceAccountId: string | null;
+  spaceId: string | null;
+};
+
+const getCalendarAccess = (c: Context<AuthContext>): Result<CalendarAccess> => {
+  const subject = getSpaceAccessSubject(c);
+
+  if (subject.serviceAccount?.kind === "resource_bound") {
+    if (
+      subject.serviceAccount.appId !== SPACES_APP_ID ||
+      subject.serviceAccount.resourceType !== SPACE_RESOURCE_TYPE ||
+      !subject.serviceAccount.resourceId
+    ) {
+      return fail(err.forbidden("Access denied"));
+    }
+
+    if (!hasPermission(permissionFromScopes(subject.serviceAccountScopes), "read")) {
+      return fail(err.forbidden("Access denied"));
+    }
+
+    return ok({
+      userId: null,
+      groups: [],
+      serviceAccountId: subject.serviceAccountId,
+      spaceId: subject.serviceAccount.resourceId,
+    });
+  }
+
+  if (!subject.userId) return fail(err.forbidden("Access denied"));
+
+  return ok({
+    userId: subject.userId,
+    groups: subject.userGroups,
+    serviceAccountId: null,
+    spaceId: null,
+  });
+};
+
 /**
  * Middleware to check space access with permission level.
  */
@@ -1404,7 +1445,7 @@ const CalendarItemListSchema = z.array(CalendarItemSchema);
 const OverlapItemListSchema = z.array(OverlapItemSchema);
 
 const calendarApp = new Hono<AuthContext>()
-  .use(auth.requireRole("user"))
+  .use(auth.requireRole("authenticated"))
 
   .get(
     "/",
@@ -1420,12 +1461,12 @@ const calendarApp = new Hono<AuthContext>()
     }),
     v("query", CalendarQuerySchema),
     async (c) => {
-      const user = c.get("user");
+      const access = getCalendarAccess(c);
+      if (!access.ok) return respond(c, access);
       const { from, to } = c.req.valid("query");
 
       const result = await spacesService.item.calendar.list({
-        userId: user.id,
-        groups: user.memberofGroupIds,
+        ...access.data,
         from,
         to,
       });
@@ -1447,12 +1488,12 @@ const calendarApp = new Hono<AuthContext>()
     }),
     v("query", OverlapQuerySchema),
     async (c) => {
-      const user = c.get("user");
+      const access = getCalendarAccess(c);
+      if (!access.ok) return respond(c, access);
       const { from, to, excludeItemId } = c.req.valid("query");
 
       const result = await spacesService.item.calendar.checkOverlap({
-        userId: user.id,
-        groups: user.memberofGroupIds,
+        ...access.data,
         from,
         to,
         excludeItemId,

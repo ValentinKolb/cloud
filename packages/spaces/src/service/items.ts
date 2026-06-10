@@ -1337,18 +1337,26 @@ export const setTags = async (params: { id: string; tagIds: string[] }): Promise
   return { ok: true, data: undefined };
 };
 
-/**
- * List calendar items (across multiple spaces the user has access to)
- */
-export const listCalendar = async (params: {
-  userId: string;
+type CalendarAccessParams = {
+  userId: string | null;
   groups: string[];
+  serviceAccountId?: string | null;
+  spaceId?: string | null;
+};
+
+/**
+ * List calendar items across all spaces reachable by the actor.
+ * Resource-bound service accounts pass `spaceId` to stay scoped to their bound space.
+ */
+export const listCalendar = async (params: CalendarAccessParams & {
   from: string;
   to: string;
   dateConfig?: DateContext;
 }): Promise<CalendarItem[]> => {
   const { userId, from, to } = params;
   const groups = params.groups ?? [];
+  const serviceAccountId = params.serviceAccountId ?? null;
+  const spaceFilter = params.spaceId ? sql`AND s.id = ${params.spaceId}::uuid` : sql``;
 
   // Use subquery to get accessible space IDs first, then query items
   const rows = await sql<DbCalendarItem[]>`
@@ -1357,10 +1365,20 @@ export const listCalendar = async (params: {
       FROM spaces.spaces s
       JOIN spaces.space_access sa ON s.id = sa.space_id
       JOIN auth.access a ON sa.access_id = a.id
-      WHERE a.user_id = ${userId}::uuid
-         OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
-         OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-         OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
+      WHERE (
+        a.user_id = ${userId}::uuid
+        OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
+        OR a.service_account_id = ${serviceAccountId}::uuid
+        OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
+        OR (
+          ${serviceAccountId}::uuid IS NULL
+          AND a.user_id IS NULL
+          AND a.group_id IS NULL
+          AND a.service_account_id IS NULL
+          AND a.authenticated_only = false
+        )
+      )
+      ${spaceFilter}
     )
     SELECT i.id, i.space_id, s.name as space_name, s.color as space_color,
            i.title, i.location, i.url, i.starts_at, i.ends_at, i.all_day, i.deadline, i.priority,
@@ -1515,17 +1533,17 @@ export const listMyTasks = async (params: {
 };
 
 /**
- * Check for overlapping items across the spaces the current user can reach.
+ * Check for overlapping items across spaces reachable by the actor.
  */
-export const checkOverlap = async (params: {
-  userId: string;
-  groups: string[];
+export const checkOverlap = async (params: CalendarAccessParams & {
   from: string;
   to: string;
   excludeItemId?: string;
 }): Promise<OverlapItem[]> => {
   const { userId, from, to, excludeItemId } = params;
   const groups = params.groups ?? [];
+  const serviceAccountId = params.serviceAccountId ?? null;
+  const spaceFilter = params.spaceId ? sql`AND i.space_id = ${params.spaceId}::uuid` : sql``;
 
   const rows = await sql<DbOverlapItem[]>`
     SELECT i.id AS item_id, i.space_id, s.name AS space_name, i.title, i.starts_at, i.ends_at
@@ -1536,6 +1554,7 @@ export const checkOverlap = async (params: {
       AND i.starts_at < ${to}::timestamptz
       AND i.ends_at > ${from}::timestamptz
       AND (${excludeItemId ?? null}::uuid IS NULL OR i.id <> ${excludeItemId ?? null}::uuid)
+      ${spaceFilter}
       AND EXISTS (
         SELECT 1
         FROM spaces.space_access sa
@@ -1544,8 +1563,15 @@ export const checkOverlap = async (params: {
           AND (
             a.user_id = ${userId}::uuid
             OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
+            OR a.service_account_id = ${serviceAccountId}::uuid
             OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-            OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false)
+            OR (
+              ${serviceAccountId}::uuid IS NULL
+              AND a.user_id IS NULL
+              AND a.group_id IS NULL
+              AND a.service_account_id IS NULL
+              AND a.authenticated_only = false
+            )
           )
       )
     ORDER BY i.starts_at ASC
