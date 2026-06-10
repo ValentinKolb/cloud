@@ -6,6 +6,7 @@ Use this reference when an app resource needs API keys for automation or integra
 
 - User-bound API keys live in core self-service (`/me`) and inherit the linked user's effective permissions.
 - Resource-bound API keys belong to one app resource, for example one notebook. They authenticate as a `service_account` principal and only work where the app grants that service account access.
+- User-wide platform features stay user-backed. Global Search may run for browser sessions and user-bound API keys/service accounts, but resource-bound service accounts must not call Global Search or app search providers.
 - OAuth `client_credentials` tokens for resource-bound service accounts use the same principal/access model as resource API keys. The difference is credential issuance: OAuth tokens are short-lived JWTs issued by the OAuth app, while API keys are long-lived `cld_<prefix>_<secret>` credentials stored hashed in core.
 - Core tables remain platform-owned: `auth.service_accounts`, `auth.service_account_credentials`, and `auth.access`.
 - Apps create only their own resource/access junction tables and never migrate core auth tables.
@@ -58,6 +59,8 @@ import { ResourceApiKeys, PermissionEditor } from "@valentinkolb/cloud/ui";
 
 <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield">
   <div class="flex flex-col gap-6">
+    <PermissionEditor {...permissionEditorProps} />
+
     <ResourceApiKeys
       initialKeys={apiKeys}
       description="Resource-bound keys for integrations that need access to this resource."
@@ -71,8 +74,6 @@ import { ResourceApiKeys, PermissionEditor } from "@valentinkolb/cloud/ui";
         if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to revoke API key."));
       }}
     />
-
-    <PermissionEditor {...permissionEditorProps} />
   </div>
 </SettingsModal.Tab>
 ```

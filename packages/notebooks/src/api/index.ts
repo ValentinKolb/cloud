@@ -1,4 +1,4 @@
-import type { MutationResult, PermissionLevel } from "@valentinkolb/cloud/contracts";
+import type { MutationResult, PermissionLevel, User } from "@valentinkolb/cloud/contracts";
 import {
   AccessEntrySchema,
   createPagination,
@@ -331,6 +331,30 @@ const ListNotesQuerySchema = z.object({
 // Helpers
 // ==========================
 
+const getUserBackedActor = (c: Context<AuthContext>): User | null => {
+  const actor = c.get("actor");
+  return actor.kind === "user" ? actor.user : actor.delegatedUser;
+};
+
+const requireUserBackedActor = (c: Context<AuthContext>): Result<User> => {
+  const user = getUserBackedActor(c);
+  if (!user) {
+    return fail(err.forbidden("This endpoint requires a user-backed actor"));
+  }
+  return ok(user);
+};
+
+const getNotebookAccessSubject = (c: Context<AuthContext>) => {
+  const user = getUserBackedActor(c);
+  const accessSubject = c.get("accessSubject");
+  return {
+    user,
+    userId: accessSubject.type === "user" ? accessSubject.userId : null,
+    userGroups: user?.memberofGroupIds ?? [],
+    serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
+  };
+};
+
 /**
  * Check notebook access with permission level.
  *
@@ -342,7 +366,7 @@ const ListNotesQuerySchema = z.object({
  * service layer is UUID-driven end-to-end.
  */
 const checkNotebookAccess = async (c: Context<AuthContext>, idOrShortId: string, requiredLevel: PermissionLevel = "read") => {
-  const user = c.get("user");
+  const subject = getNotebookAccessSubject(c);
   const notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId });
 
   if (!notebook) {
@@ -353,14 +377,15 @@ const checkNotebookAccess = async (c: Context<AuthContext>, idOrShortId: string,
     };
   }
 
-  if (hasRole(user, "admin")) {
-    return { notebook, permission: "admin" as PermissionLevel };
+  if (subject.user && hasRole(subject.user, "admin")) {
+    return { notebook, permission: "admin" as PermissionLevel, user: subject.user };
   }
 
   const hasAccess = await notebooksService.notebook.permission.canAccess({
     notebookId: notebook.id,
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+    userId: subject.userId,
+    userGroups: subject.userGroups,
+    serviceAccountId: subject.serviceAccountId,
     requiredLevel,
   });
 
@@ -374,11 +399,12 @@ const checkNotebookAccess = async (c: Context<AuthContext>, idOrShortId: string,
 
   const permission = await notebooksService.notebook.permission.get({
     notebookId: notebook.id,
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+    userId: subject.userId,
+    userGroups: subject.userGroups,
+    serviceAccountId: subject.serviceAccountId,
   });
 
-  return { notebook, permission };
+  return { notebook, permission, user: subject.user };
 };
 
 /**
@@ -501,7 +527,9 @@ const app = new Hono<AuthContext>()
     }),
     v("query", ListNotebooksQuerySchema),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
       const result = await notebooksService.notebook.list({
@@ -535,7 +563,9 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateNotebookSchema),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const data = c.req.valid("json");
       return respond(c, notebooksService.notebook.create({ data, creatorId: user.id }));
     },
@@ -668,7 +698,9 @@ const app = new Hono<AuthContext>()
     }),
     v("query", RouteStateQuerySchema),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const { notebook, permission, error } = await checkNotebookAccess(c, c.req.param("id")!);
       if (error) return error;
 
@@ -702,7 +734,9 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       let notebookId = c.req.param("id")!;
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
@@ -776,11 +810,10 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateNoteSchema),
     async (c) => {
-      const user = c.get("user");
       let notebookId = c.req.param("id")!;
       const data = c.req.valid("json");
 
-      const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
+      const { notebook, user, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
       notebookId = notebook!.id;
       let parentId = data.parentId;
@@ -793,7 +826,7 @@ const app = new Hono<AuthContext>()
         c,
         notebooksService.note.create({
           data: { ...data, notebookId, parentId },
-          creatorId: user.id,
+          creatorId: user?.id ?? null,
         }),
       );
     },
@@ -846,7 +879,9 @@ const app = new Hono<AuthContext>()
     }),
     v("json", SetFavoriteSchema),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       let notebookId = c.req.param("id")!;
       let noteId = c.req.param("noteId")!;
       const data = c.req.valid("json");
@@ -1028,13 +1063,12 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CopyNoteSchema),
     async (c) => {
-      const user = c.get("user");
       let notebookId = c.req.param("id")!;
       let noteId = c.req.param("noteId")!;
       const { targetNotebookId, targetParentId } = c.req.valid("json");
 
       // Check source notebook access (read)
-      const { notebook: sourceNotebook, error: sourceError } = await checkNotebookAccess(c, notebookId);
+      const { notebook: sourceNotebook, user, error: sourceError } = await checkNotebookAccess(c, notebookId);
       if (sourceError) return sourceError;
       notebookId = sourceNotebook!.id;
 
@@ -1051,7 +1085,7 @@ const app = new Hono<AuthContext>()
           noteId,
           targetNotebookId: targetNotebook!.id,
           targetParentId,
-          creatorId: user.id,
+          creatorId: user?.id ?? null,
         }),
       );
     },
@@ -1167,12 +1201,11 @@ const app = new Hono<AuthContext>()
     }),
     v("json", z.object({ yjsSnapshot: z.string() })),
     async (c) => {
-      const user = c.get("user");
       let notebookId = c.req.param("id")!;
       let noteId = c.req.param("noteId")!;
       const { yjsSnapshot } = c.req.valid("json");
 
-      const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
+      const { notebook, user, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
       notebookId = notebook!.id;
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
@@ -1183,7 +1216,7 @@ const app = new Hono<AuthContext>()
         notebooksService.note.versions.restore({
           noteId,
           yjsSnapshot,
-          createdBy: user.id,
+          createdBy: user?.id ?? null,
         }),
       );
     },
@@ -1313,7 +1346,9 @@ const app = new Hono<AuthContext>()
       if (!noteCheck.ok) return respond(c, noteCheck);
       noteId = noteCheck.data.id;
 
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const items = await notebooksService.note.backlinks.list({
         noteId,
         userId: user.id,
@@ -1371,6 +1406,9 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+
       const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
       if (error) return error;
 
@@ -1394,7 +1432,9 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateNotebookApiKeySchema),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const data = c.req.valid("json");
       const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
       if (error) return error;
@@ -1449,7 +1489,9 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const credentialId = c.req.param("credentialId")!;
       const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
       if (error) return error;
@@ -1484,6 +1526,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
       let notebookId = c.req.param("id")!;
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId, "admin");
@@ -1512,6 +1556,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GrantAccessSchema),
     async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
       let notebookId = c.req.param("id")!;
       const { principal, permission } = c.req.valid("json");
 
@@ -1546,6 +1592,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateAccessSchema),
     async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
       let notebookId = c.req.param("id")!;
       const accessId = c.req.param("accessId")!;
       const { permission } = c.req.valid("json");
@@ -1585,6 +1633,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
       let notebookId = c.req.param("id")!;
       const accessId = c.req.param("accessId")!;
 
@@ -1639,10 +1689,9 @@ const appWithAttachments = app
       },
     }),
     async (c) => {
-      const user = c.get("user");
       let notebookId = c.req.param("id")!;
 
-      const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
+      const { notebook, user, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
       notebookId = notebook!.id;
 
@@ -1665,7 +1714,7 @@ const appWithAttachments = app
         filename: file.name || "untitled",
         mimeType: file.type || "application/octet-stream",
         content,
-        userId: user.id,
+        userId: user?.id ?? null,
       });
       return respond(c, ok(attachment));
     },
@@ -1896,7 +1945,9 @@ const appWithExport = appWithAttachments
     }),
     v("json", UpdateNotebookSnapshotConfigSchema),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
       if (error) return error;
       return respond(
@@ -2052,8 +2103,8 @@ const UpdateSettingSchema = z.object({
 });
 
 const requireAdmin = (c: Context<AuthContext>) => {
-  const user = c.get("user");
-  if (!hasRole(user, "admin")) {
+  const user = getUserBackedActor(c);
+  if (!user || !hasRole(user, "admin")) {
     return respond(c, fail(err.forbidden("Admin access required")));
   }
   return null;

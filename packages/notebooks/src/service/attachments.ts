@@ -72,7 +72,7 @@ export const upload = async (params: {
   filename: string;
   mimeType: string;
   content: Uint8Array;
-  userId: string;
+  userId: string | null;
 }): Promise<Attachment> => {
   const kind = detectKind(params.filename, params.mimeType);
   const shortId = await generateUniqueShortId("attachment");
@@ -81,7 +81,7 @@ export const upload = async (params: {
       (short_id, notebook_id, filename, mime_type, size_bytes, kind, content, created_by)
     VALUES
       (${shortId}, ${params.notebookId}, ${params.filename}, ${params.mimeType},
-       ${params.content.byteLength}, ${kind}, ${params.content}, ${params.userId})
+       ${params.content.byteLength}, ${kind}, ${params.content}, ${params.userId}::uuid)
     RETURNING id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
   `;
   return mapRow(row!);

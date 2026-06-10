@@ -277,14 +277,15 @@ export const getNotebookAccessGuard = async (params: {
 };
 
 /**
- * Get the effective permission level for a user on a notebook.
+ * Get the effective permission level for an actor on a notebook.
  */
 export const getNotebookPermission = async (params: {
   notebookId: string;
-  userId: string | null;
-  userGroups: string[];
+  userId?: string | null;
+  userGroups?: string[];
+  serviceAccountId?: string | null;
 }): Promise<PermissionLevel> => {
-  const { notebookId, userId, userGroups } = params;
+  const { notebookId } = params;
 
   const accessRows = await sql<{ access_id: string }[]>`
     SELECT access_id FROM notebooks.notebook_access
@@ -293,7 +294,12 @@ export const getNotebookPermission = async (params: {
 
   const accessIds = accessRows.map((r) => r.access_id);
 
-  return getEffectivePermission({ accessIds, userId, userGroups });
+  return getEffectivePermission({
+    accessIds,
+    userId: params.userId ?? null,
+    userGroups: params.userGroups ?? [],
+    serviceAccountId: params.serviceAccountId ?? null,
+  });
 };
 
 /**

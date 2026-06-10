@@ -3,6 +3,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import type { PermissionLevel, ServiceAccountCredential } from "../../contracts/shared";
 import { DateTimePicker } from "../input/DatePicker";
+import SelectInput from "../input/Select";
 import TextInput from "../input/TextInput";
 import { prompts } from "../prompts";
 import CopyButton from "./CopyButton";
@@ -77,6 +78,13 @@ function CreateResourceApiKeyDialog(props: {
   const [permission, setPermission] = createSignal<GrantablePermission>(props.permissionOptions[0]?.value ?? "read");
   const [expiresAt, setExpiresAt] = createSignal<string | null>(presetDate(90));
   const [error, setError] = createSignal<string | undefined>();
+  const selectOptions = () =>
+    props.permissionOptions.map((option) => ({
+      id: option.value,
+      label: option.label,
+      description: option.description,
+      icon: option.icon ?? "ti ti-key",
+    }));
 
   const submit = () => {
     const trimmedName = name().trim();
@@ -108,30 +116,15 @@ function CreateResourceApiKeyDialog(props: {
         error={error}
         required
       />
-      <div>
-        <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-dimmed">Access</label>
-        <div class="grid gap-2 sm:grid-cols-3">
-          <For each={props.permissionOptions}>
-            {(option) => (
-              <button
-                type="button"
-                class={`rounded-lg border p-3 text-left transition-colors ${
-                  permission() === option.value
-                    ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/30 dark:text-blue-200"
-                    : "border-zinc-200 bg-white text-secondary hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700"
-                }`}
-                onClick={() => setPermission(option.value)}
-              >
-                <span class="flex items-center gap-2 text-sm font-medium">
-                  <i class={option.icon ?? "ti ti-key"} />
-                  {option.label}
-                </span>
-                <span class="mt-1 block text-xs text-dimmed">{option.description}</span>
-              </button>
-            )}
-          </For>
-        </div>
-      </div>
+      <SelectInput
+        label="Access"
+        description="Choose what this API key can do with this resource."
+        icon="ti ti-shield-lock"
+        value={permission}
+        onChange={(value) => setPermission(value as GrantablePermission)}
+        options={selectOptions()}
+        required
+      />
       <DateTimePicker
         label="Expires"
         description="Leave empty only for long-lived integrations you actively maintain."

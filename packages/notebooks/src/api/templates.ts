@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
@@ -32,6 +32,11 @@ const InstantiateTemplateSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
 });
 
+const getUserBackedActor = (c: Context<AuthContext>) => {
+  const actor = c.get("actor");
+  return actor.kind === "user" ? actor.user : actor.delegatedUser;
+};
+
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
 
@@ -58,7 +63,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", InstantiateTemplateSchema),
     async (c) => {
-      const user = c.get("user");
+      const user = getUserBackedActor(c);
+      if (!user) return c.json({ message: "This endpoint requires a user-backed actor", code: "FORBIDDEN" }, 403);
       const body = c.req.valid("json");
       return respond(
         c,

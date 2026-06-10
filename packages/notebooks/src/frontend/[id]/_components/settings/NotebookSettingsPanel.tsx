@@ -890,8 +890,8 @@ function NotebookSettingsBody(props: Props & { bare?: boolean; close?: () => voi
             <>
               <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Permission changes save immediately.">
                 <div class="flex flex-col gap-6">
-                  <ApiKeysSection notebook={notebook()} apiKeys={props.apiKeys} isAdmin={props.isAdmin} />
                   <PermissionsSection notebook={notebook()} accessEntries={props.accessEntries} isAdmin={props.isAdmin} />
+                  <ApiKeysSection notebook={notebook()} apiKeys={props.apiKeys} isAdmin={props.isAdmin} />
                 </div>
               </SettingsModal.Tab>
               <SettingsModal.Tab

@@ -58,12 +58,19 @@ export const createSearchRoutes = () =>
           200: jsonResponse(SearchResponseSchema, "Merged search results"),
           400: jsonResponse(ErrorResponseSchema, "Invalid query"),
           401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+          403: jsonResponse(ErrorResponseSchema, "User-backed actor required"),
         },
       }),
       v("query", SearchQuerySchema),
       async (c) => {
+        if (!c.get("user")) {
+          return c.json({ message: "Global search requires a user-backed actor", code: "FORBIDDEN" }, 403);
+        }
+
         const query = c.req.valid("query");
         const providers = await getSearchProviders();
+        const cookie = c.req.raw.headers.get("Cookie") ?? "";
+        const authorization = c.req.raw.headers.get("Authorization");
 
         // Pre-filter providers by tag overlap. With no tags, every provider
         // runs (text-only search). With tags, only providers that own at least
@@ -106,8 +113,9 @@ export const createSearchRoutes = () =>
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                // Forward the session cookie for auth on the app's internal search endpoint
-                Cookie: c.req.raw.headers.get("Cookie") ?? "",
+                // Forward the authenticated user context to app search providers.
+                Cookie: cookie,
+                ...(authorization ? { Authorization: authorization } : {}),
               },
               body: JSON.stringify({
                 query: query.q,

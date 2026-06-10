@@ -32,6 +32,10 @@ When building or reshaping a built-in app, copy the nearest existing Cloud shell
 
 If an app resource needs API keys, read `references/api-keys.md` before touching access UI. Resource API key creation belongs in the resource settings surface, not inside `PermissionEditor`.
 
+Global Search is user-backed only. It may work with browser sessions and
+user-bound API keys/service accounts, but resource-bound service accounts must
+not be given Global Search or app search provider behavior.
+
 The goal is Cloud pattern fidelity, not generic UI quality. If an app page looks structurally different from its closest reference app, treat that as a bug until the difference is justified by the domain or by an explicit user request.
 
 ## What Belongs In An App — And What Does NOT
@@ -940,6 +944,8 @@ All `settings.*` reads are async — they go through the Redis cache-aside layer
 ### Universal Search Integration
 
 Add search to your app via `capabilities` in `app.start()`. See `packages/weather/src/capabilities.ts` for a real example:
+Search providers can assume `ctx.get("user")` is present; Core rejects
+resource-bound service accounts before provider fanout.
 
 ```typescript
 capabilities: {

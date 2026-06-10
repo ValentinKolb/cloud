@@ -184,6 +184,12 @@ user-delegated service accounts. New permission-aware code should prefer
 `c.get("actor")` and `c.get("accessSubject")`, because resource-bound service
 accounts intentionally do not have a fake user.
 
+User-wide product surfaces must stay user-backed. Global Search is available to
+browser sessions and user-bound API keys/service accounts, because they resolve
+to a delegated user. Resource-bound service accounts must not call Global
+Search or app search providers; they only get the resource routes where the app
+explicitly grants their service-account principal access.
+
 Bearer tokens are resolved after cookie sessions. `cld_<prefix>_<secret>` API
 keys use `serviceAccountCredentials`; OAuth access tokens are verified via the
 OAuth app's signing key and must have `token_use = "access"` and audience
@@ -270,6 +276,11 @@ Redis-backed sessions with configurable TTL. Token format: `${userId}:${randomTo
 ## Universal Search
 
 Apps can opt into platform-wide search by implementing `capabilities.search` in their `app.start()` call. The gateway aggregates results from all registered apps. See the `cloud-app` skill for implementation details.
+
+Universal Search is user-backed only. It may run for browser sessions and
+user-bound API keys/service accounts; it must reject resource-bound service
+accounts. App search providers can assume `ctx.get("user")` is present and
+should not add resource-service-account behavior to search.
 
 ## Local Admin Login (Development)
 

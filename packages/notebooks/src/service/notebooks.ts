@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
+import { serviceAccounts } from "@valentinkolb/cloud/services";
 import { getNotebookPermission, grantNotebookAccess } from "./access";
 import * as notes from "./notes";
 import { invalidated, notebookUpdated } from "./workspace-events";
@@ -60,6 +61,9 @@ type DbNotebookAdmin = DbNotebook & {
   permission_count: number;
 };
 
+const NOTEBOOKS_APP_ID = "notebooks";
+const NOTEBOOK_RESOURCE_TYPE = "notebook";
+
 export type NotebookAdminListItem = Notebook & {
   permissionCount: number;
 };
@@ -115,26 +119,33 @@ const noteExistsInNotebook = async (noteId: string, notebookId: string): Promise
 // ==========================
 
 /**
- * Check if user has access to a notebook.
+ * Check if an actor has access to a notebook.
  */
 export const canAccess = async (params: {
   notebookId: string;
-  userId: string | null;
-  userGroups: string[];
+  userId?: string | null;
+  userGroups?: string[];
+  serviceAccountId?: string | null;
   requiredLevel?: PermissionLevel;
 }): Promise<boolean> => {
-  const { notebookId, userId, userGroups, requiredLevel = "read" } = params;
-  const permission = await getNotebookPermission({ notebookId, userId, userGroups });
+  const { notebookId, requiredLevel = "read" } = params;
+  const permission = await getNotebookPermission({
+    notebookId,
+    userId: params.userId ?? null,
+    userGroups: params.userGroups ?? [],
+    serviceAccountId: params.serviceAccountId ?? null,
+  });
   return hasPermission(permission, requiredLevel);
 };
 
 /**
- * Get the effective permission level for a user on a notebook.
+ * Get the effective permission level for an actor on a notebook.
  */
 export const getPermission = async (params: {
   notebookId: string;
-  userId: string | null;
-  userGroups: string[];
+  userId?: string | null;
+  userGroups?: string[];
+  serviceAccountId?: string | null;
 }): Promise<PermissionLevel> => {
   return getNotebookPermission(params);
 };
@@ -518,6 +529,12 @@ export const remove = async (params: { id: string }): Promise<MutationResult<voi
   if (result.count === 0) {
     return { ok: false, error: "Notebook not found", status: 404 };
   }
+
+  await serviceAccounts.deleteForResource({
+    appId: NOTEBOOKS_APP_ID,
+    resourceType: NOTEBOOK_RESOURCE_TYPE,
+    resourceId: params.id,
+  });
 
   await invalidated({ notebookId: params.id, reason: "bulk", scopes: ["notebook", "tree", "tags", "references", "permissions"] });
   return { ok: true, data: undefined };
