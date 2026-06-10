@@ -10,6 +10,8 @@ import alertsPage from "./observability/alerts/page";
 import loggingApiRoutes from "./observability/logs/api";
 import logsPage from "./observability/logs/page";
 import loggingWidgetRoutes from "./observability/logs/widgets";
+import { metricsEndpoint } from "./observability/metrics/endpoint";
+import metricsPage from "./observability/metrics/page";
 import notificationsApiRoutes from "./observability/notifications/api";
 import notificationsPage from "./observability/notifications/page";
 import postgresPage from "./observability/postgres/page";
@@ -41,6 +43,7 @@ const router = new Hono<AuthContext>()
   .get("/admin/gateway/routes", auth.requireRole("admin", auth.redirectToLogin), ...gatewayPage)
   .get("/admin/observability/logs", auth.requireRole("admin", auth.redirectToLogin), ...logsPage)
   .get("/admin/observability/telemetry", auth.requireRole("admin", auth.redirectToLogin), ...telemetryPage)
+  .get("/admin/observability/metrics", auth.requireRole("admin", auth.redirectToLogin), ...metricsPage)
   .get("/admin/observability/data", auth.requireRole("admin", auth.redirectToLogin), (c) => c.redirect("/admin/observability/postgres"))
   .get("/admin/observability/postgres", auth.requireRole("admin", auth.redirectToLogin), ...postgresPage)
   .get("/admin/observability/redis", auth.requireRole("admin", auth.redirectToLogin), ...redisPage)
@@ -50,6 +53,7 @@ const router = new Hono<AuthContext>()
   .route("/legal/terms", termsPublicPages)
   .route("/legal/privacy", privacyPublicPages)
   .route("/impressum", imprintPublicPages)
+  .get("/metrics", auth.requireRole("*"), metricsEndpoint)
   .route("/api/gateway/widget", widgetRoutes)
   .route("/api/logging/widget", loggingWidgetRoutes)
   .route("/api/logging", loggingApiRoutes)

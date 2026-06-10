@@ -13,8 +13,9 @@ import {
   testHealthWebhook,
   updateHealthWebhook,
 } from "./health-webhooks";
-import { removeOfflineRegisteredApp } from "./registered-apps";
 import { updateHealthSchedule } from "./lifecycle";
+import { metricsApiRoutes } from "./observability/metrics/api";
+import { removeOfflineRegisteredApp } from "./registered-apps";
 
 const GATEWAY_SETTING_GROUP = "gateway";
 const GATEWAY_SETTING_PREFIX = "gateway.";
@@ -38,6 +39,7 @@ const liveSettingKeys = async () => (await listApps()).flatMap((app) => [...(app
 export const apiRoutes = new Hono<AuthContext>()
   .use(rateLimit())
   .use(auth.requireRole("admin"))
+  .route("/metrics", metricsApiRoutes)
   .delete("/apps/:id", async (c) => {
     const id = c.req.param("id");
     return respond(c, removeOfflineRegisteredApp(id, await listApps()));

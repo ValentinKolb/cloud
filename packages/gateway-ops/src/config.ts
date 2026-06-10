@@ -29,6 +29,7 @@ export const app = defineApp({
     { id: "errors", path: "/api/logging/widget/errors" },
   ],
   routes: [
+    "/metrics",
     "/api/gateway",
     "/api/logging",
     "/api/notifications",
