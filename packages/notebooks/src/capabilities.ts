@@ -1,4 +1,5 @@
 import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts";
+import { getSearchUser } from "@/actor";
 import { notebooksService } from "./service";
 
 const SEARCH_TAGS = ["note", "notebook", "markdown"] as const;
@@ -17,7 +18,7 @@ const snippet = (content: string | null) => {
 };
 
 export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
-  const user = input.ctx.get("user");
+  const user = getSearchUser(input.ctx);
   const tags = new Set(input.tags);
 
   // Kind-tags are OR-merged within this app (they pick result kinds, not facets).

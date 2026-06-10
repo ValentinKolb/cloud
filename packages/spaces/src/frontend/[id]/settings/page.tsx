@@ -1,5 +1,6 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../../config";
 import SpacesLayoutHelp from "../../_components/help/SpacesLayoutHelp.island";
 import SpacesWorkspace from "../_components/workspace/SpacesWorkspace.island";
@@ -9,7 +10,7 @@ export default ssr<AuthContext>(async (c) => {
   const spaceId = c.req.param("id") ?? "";
   const dateConfig = getDateConfig(c);
   const state = await loadSpacesWorkspaceState({
-    user: c.get("user"),
+    user: expectUserBackedActor(c),
     spaceId,
     href: c.req.url,
     cookieHeader: c.req.header("Cookie"),

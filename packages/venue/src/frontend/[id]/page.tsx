@@ -2,6 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { serviceAccountCredentials } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import type { CalendarView, ResourceApiKey } from "@valentinkolb/cloud/ui";
+import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../config";
 import { venueService } from "../../service";
 import VenueLayoutHelp from "../_components/help/VenueLayoutHelp.island";
@@ -67,7 +68,7 @@ export default ssr<AuthContext>(async (c) => {
   const id = c.req.param("id");
   if (!id) return c.redirect("/app/venue");
   const url = new URL(c.req.raw.url);
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const venue = await venueService.venues.get(id, user);
 
   if (!venue) {

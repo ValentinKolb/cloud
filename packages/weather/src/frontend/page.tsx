@@ -1,12 +1,13 @@
-import { ssr } from "../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { Layout } from "@valentinkolb/cloud/ssr";
 import { weatherService } from "@valentinkolb/cloud/services";
+import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppOverview } from "@valentinkolb/cloud/ui";
+import { expectUserBackedActor } from "@/actor";
+import { ssr } from "../config";
 import AddLocationButton from "./AddLocation.island";
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const locations = (await weatherService.location.saved.list({ userId: user.id })).items;
   if (locations.length > 0) {
     return c.redirect(`/app/weather/${locations[0]!.id}`);

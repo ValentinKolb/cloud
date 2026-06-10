@@ -1,28 +1,29 @@
-import { ssr } from "../../config";
-import { AppWorkspace, type ResourceApiKey } from "@valentinkolb/cloud/ui";
+import { hasRole } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { get, serviceAccountCredentials } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { type AuthContext, auth } from "@valentinkolb/cloud/server";
-import { hasRole } from "@valentinkolb/cloud/contracts";
+import { AppWorkspace, type ResourceApiKey } from "@valentinkolb/cloud/ui";
+import { expectUserBackedActor } from "@/actor";
+import { extractNamedBlockSummaries } from "@/lib/named-blocks";
 import { notebooksService } from "@/service";
 import { loadSelectedNoteRouteState, type SelectedNoteRouteState } from "@/service/route-state";
-import { extractNamedBlockSummaries } from "@/lib/named-blocks";
+import { ssr } from "../../config";
+import { buildNoteUrl, buildVersionsUrl } from "../params";
 import NotebookDetailPanel from "./_components/detail/NotebookDetailPanel.island";
 import { extractTocFromMarkdown } from "./_components/detail/toc";
 import NoteEditor from "./_components/editor/NoteEditor.client";
-import NotebookLayoutHelp from "./_components/help/NotebookLayoutHelp.island";
 import NotebookGraph from "./_components/graph/NotebookGraph.island";
+import NotebookLayoutHelp from "./_components/help/NotebookLayoutHelp.island";
 import NotebookSettingsPanel from "./_components/settings/NotebookSettingsPanel.island";
 import { parseDetailPanelOpen, parseSettings } from "./_components/settings/NotebookSettingsStore";
 import NotebookHotkeys from "./_components/shortcuts/NotebookHotkeys.island";
 import NotebookSidebar from "./_components/sidebar/NotebookSidebar.island";
-import WorkspaceEventBridge from "./_components/sidebar/WorkspaceEventBridge.island";
 import type { NotebookContext } from "./_components/sidebar/types";
+import WorkspaceEventBridge from "./_components/sidebar/WorkspaceEventBridge.island";
 import VersionHistory from "./_components/versions/VersionHistory.island";
-import { buildNoteUrl, buildVersionsUrl } from "../params";
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const sessionToken = auth.session.getToken(c);
   // Route param is the notebook short-id (or, for tolerance, a UUID —
   // resolved via `getByIdOrShortId`). Service layer below the boundary
@@ -99,11 +100,10 @@ export default ssr<AuthContext>(async (c) => {
             },
           })
         ).items.flatMap((item) => {
-          const permission = accessEntries.find(
-            (entry) =>
-              entry.principal.type === "service_account" &&
-              entry.principal.serviceAccountId === item.serviceAccount.id,
-          )?.permission ?? "none";
+          const permission =
+            accessEntries.find(
+              (entry) => entry.principal.type === "service_account" && entry.principal.serviceAccountId === item.serviceAccount.id,
+            )?.permission ?? "none";
           const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
           return [{ ...credential, permission }];
         })
@@ -258,7 +258,14 @@ export default ssr<AuthContext>(async (c) => {
         {/* Main Content */}
         <AppWorkspace.Main>
           {isSettingsMode ? (
-            <NotebookSettingsPanel notebook={notebook} tree={tree} accessEntries={accessEntries} apiKeys={apiKeys} isAdmin={isAdmin} canWrite={canWrite} />
+            <NotebookSettingsPanel
+              notebook={notebook}
+              tree={tree}
+              accessEntries={accessEntries}
+              apiKeys={apiKeys}
+              isAdmin={isAdmin}
+              canWrite={canWrite}
+            />
           ) : isVersionsMode && selectedNoteId ? (
             <VersionHistory
               notebookId={notebook.shortId}

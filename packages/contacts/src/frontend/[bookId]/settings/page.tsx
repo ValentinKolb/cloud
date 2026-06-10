@@ -1,6 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../../config";
 import { contactsService } from "../../../service";
 import BookSettingsForm from "../../_components/BookSettingsForm.island";
@@ -8,7 +9,7 @@ import ContactsSidebar from "../../_components/ContactsSidebar";
 import ContactsLayoutHelp from "../../_components/help/ContactsLayoutHelp.island";
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const bookId = c.req.param("bookId") ?? "";
 
   const book = await contactsService.book.get({ id: bookId });

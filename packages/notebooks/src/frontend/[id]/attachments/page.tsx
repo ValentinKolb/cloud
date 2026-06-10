@@ -6,17 +6,19 @@
  * `?search=` set, and the page handler re-renders the filtered grid. KISS:
  * no client-side filter, results stay deterministic.
  */
-import { ssr } from "../../../config";
+
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { type AuthContext } from "@valentinkolb/cloud/server";
 import { Pagination } from "@valentinkolb/cloud/ui";
+import { expectUserBackedActor } from "@/actor";
 import { notebooksService } from "@/service";
+import { ssr } from "../../../config";
+import { buildAttachmentsUrl } from "../../params";
 import AttachmentsOverview from "../_components/attachments-overview/AttachmentsOverview.island";
 import { parseSettings } from "../_components/settings/NotebookSettingsStore";
 import NotebookSidebar from "../_components/sidebar/NotebookSidebar.island";
 import type { NotebookContext } from "../_components/sidebar/types";
-import { buildAttachmentsUrl } from "../../params";
 
 const PER_PAGE = 200;
 
@@ -26,7 +28,7 @@ const parsePage = (raw: string | undefined): number => {
 };
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   // Route param accepts either UUID or short-id — same boundary trick
   // as `[id]/page.tsx`. Local `notebookId` holds the canonical UUID.
   const idOrShort = c.req.param("id")!;

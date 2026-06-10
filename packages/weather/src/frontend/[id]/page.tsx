@@ -2,6 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { type WeatherData, weatherService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../config";
 import { DailyForecast, HourlyForecast, RadarCard } from "../_components";
 import LocationSidebar from "../_components/LocationSidebar";
@@ -148,7 +149,7 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
 }
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const id = c.req.param("id") ?? "";
 
   // Get user's locations

@@ -1,9 +1,10 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../../config";
 import { contactsService } from "../../../service";
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const bookId = c.req.param("bookId") ?? "";
 
   const book = await contactsService.book.get({ id: bookId });

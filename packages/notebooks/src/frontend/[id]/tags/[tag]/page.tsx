@@ -11,6 +11,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { Pagination } from "@valentinkolb/cloud/ui";
+import { expectUserBackedActor } from "@/actor";
 import { notebooksService } from "@/service";
 import { ssr } from "../../../../config";
 import { buildNoteUrl, buildTagPageUrl } from "../../../params";
@@ -28,7 +29,7 @@ const parsePage = (raw: string | undefined): number => {
 const formatDate = (iso: string): string => new Date(iso).toLocaleDateString();
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   // Route param accepts either UUID or short-id — resolved to canonical
   // UUID via `getByIdOrShortId`. The local `notebookId` variable below
   // holds the UUID; `notebook.shortId` is what we hand to URL builders.

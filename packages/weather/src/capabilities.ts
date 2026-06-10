@@ -1,5 +1,6 @@
 import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts";
 import { weatherService } from "@valentinkolb/cloud/services";
+import { getSearchUser } from "@/actor";
 
 const SEARCH_TAGS = ["weather", "forecast", "location", "temperature"] as const;
 const SEARCH_HELP = "Find saved weather locations.";
@@ -15,7 +16,7 @@ const SEARCH_TAG_HELP = [
 const supportsWeatherApp = (roles: string[]) => roles.includes("user");
 
 export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
-  const user = input.ctx.get("user");
+  const user = getSearchUser(input.ctx);
   if (!supportsWeatherApp(user.roles)) return [];
 
   const page = await weatherService.location.saved.list({

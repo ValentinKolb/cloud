@@ -1,12 +1,13 @@
-import { ssr } from "../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
-import { faqService } from "../service";
+import type { AuthContext } from "@valentinkolb/cloud/server";
+import { markdown } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { MarkdownView } from "@valentinkolb/cloud/ui";
-import { markdown } from "@valentinkolb/cloud/shared";
+import { getUserBackedActor } from "@/actor";
+import { ssr } from "../config";
+import { faqService } from "../service";
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = getUserBackedActor(c);
 
   const audience = !user ? "anonymous" : user.profile === "guest" ? "guest" : "user";
 

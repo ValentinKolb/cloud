@@ -7,6 +7,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { Widget, WidgetHero, WidgetList, WidgetPills, WidgetStat, WidgetStatus } from "@valentinkolb/cloud/ui";
 import { gradients } from "@valentinkolb/stdlib";
 import type { JSX } from "solid-js";
+import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../config";
 import { dashboardSettingsService } from "../service";
 import {
@@ -170,7 +171,7 @@ const appIsAvailable = (app: AppRegistryEntry, user: User) => {
 };
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const greeting = user?.displayName || user?.uid || "there";
   const cookie = c.req.raw.headers.get("Cookie") ?? "";
 

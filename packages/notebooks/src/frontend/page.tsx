@@ -1,7 +1,8 @@
-import { ssr } from "../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { notebooksService } from "@/service";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { expectUserBackedActor } from "@/actor";
+import { notebooksService } from "@/service";
+import { ssr } from "../config";
 import { parseLastNotebookId } from "./[id]/_components/settings/NotebookSettingsStore";
 import NotebooksOverview from "./NotebooksOverview.island";
 
@@ -9,7 +10,7 @@ import NotebooksOverview from "./NotebooksOverview.island";
  * Notebooks list page - shows all notebooks the user has access to
  */
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const url = new URL(c.req.raw.url);
   const initialQuery = url.searchParams.get("q")?.trim() ?? "";
 

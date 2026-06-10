@@ -2,6 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { AppWorkspace, Pagination } from "@valentinkolb/cloud/ui";
+import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../config";
 import { contactsService } from "../../service";
 import ContactDetailPanel from "../_components/ContactDetailPanel.island";
@@ -20,7 +21,7 @@ import {
 } from "../page-data";
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const bookId = c.req.param("bookId") ?? "";
   const search = c.req.query("search") ?? "";
   const page = parseContactsPage(c.req.query("page"));

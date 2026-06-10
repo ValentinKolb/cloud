@@ -1,5 +1,6 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { expectUserBackedActor } from "@/actor";
 import { spacesService } from "@/service";
 import { ssr } from "../config";
 import SpacesLayoutHelp from "./_components/help/SpacesLayoutHelp.island";
@@ -10,7 +11,7 @@ import SpacesOverview from "./SpacesOverview.island";
  * Spaces list page - shows all spaces the user has access to
  */
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const url = new URL(c.req.raw.url);
   const initialQuery = url.searchParams.get("q")?.trim() ?? "";
 

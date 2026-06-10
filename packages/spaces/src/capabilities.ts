@@ -1,6 +1,7 @@
 import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts";
-import { spacesService } from "./service";
+import { getSearchUser } from "@/actor";
 import type { ItemAcrossKind } from "./service";
+import { spacesService } from "./service";
 
 const SEARCH_TAGS = ["space", "spaces", "task", "tasks", "todo", "event", "events", "urgent", "kanban", "calendar"] as const;
 const SEARCH_HELP = "Find spaces, tasks, and events in your workspace.";
@@ -18,7 +19,7 @@ const SEARCH_TAG_HELP = [
 ] as const;
 
 export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
-  const user = input.ctx.get("user");
+  const user = getSearchUser(input.ctx);
   if (!user.roles.includes("user")) return [];
 
   const tags = new Set(input.tags);

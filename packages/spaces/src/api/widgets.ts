@@ -2,6 +2,7 @@ import type { WidgetBlock, WidgetListItem, WidgetResponse, WidgetTone } from "@v
 import { type AuthContext, auth, getDateConfig } from "@valentinkolb/cloud/server";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
+import { getUserBackedActor } from "@/actor";
 import { spacesService } from "../service";
 
 /**
@@ -49,7 +50,7 @@ const formatTimeRange = (startsAt: string | null, endsAt: string | null, dateCon
 };
 
 const app = new Hono<AuthContext>().use(auth.requireRole("*")).get("/today", async (c) => {
-  const user = c.get("user");
+  const user = getUserBackedActor(c);
   // 403 = unauthenticated; signed-in users always have access (data may be empty → 204).
   if (!user) return c.body(null, 403);
 
