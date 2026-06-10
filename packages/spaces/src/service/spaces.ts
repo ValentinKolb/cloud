@@ -1,7 +1,8 @@
 import { sql } from "bun";
 import type { MutationResult, Space, SpaceDetail, CreateSpace, UpdateSpace } from "@/contracts";
 import { type PermissionLevel, hasPermission } from "@valentinkolb/cloud/server";
-import { getSpacePermission, grantSpaceAccess, countSpaceAccess } from "./access";
+import { serviceAccounts } from "@valentinkolb/cloud/services";
+import { getSpacePermission, grantSpaceAccess, countSpaceAccess, SPACES_APP_ID, SPACE_RESOURCE_TYPE } from "./access";
 import { rank } from "./rank";
 
 /**
@@ -75,18 +76,23 @@ const DEFAULT_COLUMNS = [
 ];
 
 /**
- * Check if user has access to a space.
+ * Check if an actor has access to a space.
  */
 export const canAccess = async (params: {
   spaceId: string;
-  userId: string | null;
-  userGroups: string[];
+  userId?: string | null;
+  userGroups?: string[];
+  serviceAccountId?: string | null;
   requiredLevel?: PermissionLevel;
 }): Promise<boolean> => {
-  const { spaceId, userId, userGroups, requiredLevel = "read" } = params;
+  const { spaceId, requiredLevel = "read" } = params;
 
-  // Check new permission system
-  const permission = await getSpacePermission({ spaceId, userId, userGroups });
+  const permission = await getSpacePermission({
+    spaceId,
+    userId: params.userId ?? null,
+    userGroups: params.userGroups ?? [],
+    serviceAccountId: params.serviceAccountId ?? null,
+  });
 
   if (permission !== "none") {
     return hasPermission(permission, requiredLevel);
@@ -96,13 +102,15 @@ export const canAccess = async (params: {
 };
 
 /**
- * Get the effective permission level for a user on a space.
+ * Get the effective permission level for an actor on a space.
  */
-export const getPermission = async (params: { spaceId: string; userId: string | null; userGroups: string[] }): Promise<PermissionLevel> => {
-  const { spaceId, userId, userGroups } = params;
-
-  // Check new permission system
-  const permission = await getSpacePermission({ spaceId, userId, userGroups });
+export const getPermission = async (params: {
+  spaceId: string;
+  userId?: string | null;
+  userGroups?: string[];
+  serviceAccountId?: string | null;
+}): Promise<PermissionLevel> => {
+  const permission = await getSpacePermission(params);
 
   if (permission !== "none") {
     return permission;
@@ -348,6 +356,12 @@ export const remove = async (params: { id: string }): Promise<MutationResult<voi
   if (result.count === 0) {
     return { ok: false, error: "Space not found", status: 404 };
   }
+
+  await serviceAccounts.deleteForResource({
+    appId: SPACES_APP_ID,
+    resourceType: SPACE_RESOURCE_TYPE,
+    resourceId: params.id,
+  });
 
   return { ok: true, data: undefined };
 };

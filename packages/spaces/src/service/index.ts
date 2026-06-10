@@ -197,6 +197,9 @@ export const spacesService = {
         if (entry.principal.type === "group") {
           return entry.principal.groupId.toLowerCase().includes(query);
         }
+        if (entry.principal.type === "service_account") {
+          return entry.principal.serviceAccountId.toLowerCase().includes(query);
+        }
         if (entry.principal.type === "authenticated") {
           return "all signed-in users authenticated".includes(query);
         }
@@ -211,6 +214,10 @@ export const spacesService = {
     count: (config: { spaceId: string }) => access.countSpaceAccess(config.spaceId),
     guard: (config: { spaceId: string; accessId: string }) => access.getSpaceAccessGuard(config),
     getPermission: access.getSpacePermission,
+    ensureServiceAccount: access.ensureSpaceServiceAccountAccess,
+    apiKeys: {
+      list: (config: { spaceId: string }) => access.listSpaceApiKeys(config.spaceId),
+    },
   },
   ical: {
     getByToken: ical.getByToken,

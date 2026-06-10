@@ -906,7 +906,7 @@ export const get = async (params: { id: string }): Promise<SpaceItem | null> => 
 /**
  * Create a new item
  */
-export const create = async (params: { spaceId: string; data: CreateItem; createdBy: string }): Promise<MutationResult<SpaceItem>> => {
+export const create = async (params: { spaceId: string; data: CreateItem; createdBy: string | null }): Promise<MutationResult<SpaceItem>> => {
   const { spaceId, data, createdBy } = params;
 
   // Verify column belongs to space
@@ -967,7 +967,7 @@ export const create = async (params: { spaceId: string; data: CreateItem; create
       ${data.recurrenceId ?? null},
       ${rank.toDb(nextRank)}::bigint,
       ${null},
-      ${createdBy}
+      ${createdBy}::uuid
     )
     RETURNING id
   `;

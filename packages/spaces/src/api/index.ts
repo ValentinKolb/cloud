@@ -9,12 +9,13 @@ import {
   updateAccess,
   v,
 } from "@valentinkolb/cloud/server";
-import { coreSettings } from "@valentinkolb/cloud/services";
+import { coreSettings, serviceAccountCredentials, serviceAccounts } from "@valentinkolb/cloud/services";
+import { ServiceAccountCredentialSchema } from "@valentinkolb/cloud/contracts";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import type { MutationResult, PermissionLevel } from "@/contracts";
+import type { MutationResult, PermissionLevel, User } from "@/contracts";
 import {
   AccessEntrySchema,
   CalendarItemSchema,
@@ -52,6 +53,7 @@ import {
 import { loadSpacesWorkspaceState } from "../frontend/[id]/_components/workspace/workspace-state";
 import { parseSpacesWorkspaceHref } from "../frontend/[id]/_components/workspace/workspace-types";
 import { spacesService } from "../service";
+import { SPACES_APP_ID, SPACE_RESOURCE_TYPE } from "../service/access";
 import { latestSpaceEventCursor, liveSpaceEvents } from "../service/events";
 
 // ==========================
@@ -67,6 +69,23 @@ const AssignableUsersQuerySchema = z.object({
   exclude_user_ids: z.string().optional(),
 });
 
+const SpaceApiKeySchema = ServiceAccountCredentialSchema.extend({
+  permission: z.enum(["read", "write", "admin"]),
+});
+
+const CreateSpaceApiKeySchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  expiresAt: z.string().datetime().nullable().optional(),
+  permission: z.enum(["read", "write", "admin"]).default("read"),
+});
+
+const CreateSpaceApiKeyResponseSchema = z.object({
+  credential: SpaceApiKeySchema,
+  token: z.string(),
+});
+
+type SpaceApiKey = z.infer<typeof SpaceApiKeySchema>;
+
 const parseCsv = (value?: string) =>
   value
     ?.split(",")
@@ -81,11 +100,33 @@ const parseUuidCsv = (value: string | undefined, label: string): Result<string[]
   return ok(parsed.data);
 };
 
+const getUserBackedActor = (c: Context<AuthContext>): User | null => {
+  const actor = c.get("actor");
+  return actor.kind === "user" ? actor.user : actor.delegatedUser;
+};
+
+const requireUserBackedActor = (c: Context<AuthContext>): Result<User> => {
+  const user = getUserBackedActor(c);
+  if (!user) return fail(err.forbidden("This endpoint requires a user-backed actor"));
+  return ok(user);
+};
+
+const getSpaceAccessSubject = (c: Context<AuthContext>) => {
+  const user = getUserBackedActor(c);
+  const accessSubject = c.get("accessSubject");
+  return {
+    user,
+    userId: accessSubject.type === "user" ? accessSubject.userId : null,
+    userGroups: user?.memberofGroupIds ?? [],
+    serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
+  };
+};
+
 /**
  * Middleware to check space access with permission level.
  */
 const checkSpaceAccess = async (c: Context<AuthContext>, spaceId: string, requiredLevel: PermissionLevel = "read") => {
-  const user = c.get("user");
+  const subject = getSpaceAccessSubject(c);
   const space = await spacesService.space.get({ id: spaceId });
 
   if (!space) {
@@ -96,14 +137,15 @@ const checkSpaceAccess = async (c: Context<AuthContext>, spaceId: string, requir
     };
   }
 
-  if (hasRole(user, "admin")) {
-    return { space, permission: "admin" as PermissionLevel };
+  if (subject.user && hasRole(subject.user, "admin")) {
+    return { space, permission: "admin" as PermissionLevel, user: subject.user };
   }
 
   const hasAccess = await spacesService.space.permission.canAccess({
     spaceId,
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+    userId: subject.userId,
+    userGroups: subject.userGroups,
+    serviceAccountId: subject.serviceAccountId,
     requiredLevel,
   });
 
@@ -117,11 +159,12 @@ const checkSpaceAccess = async (c: Context<AuthContext>, spaceId: string, requir
 
   const permission = await spacesService.space.permission.get({
     spaceId,
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+    userId: subject.userId,
+    userGroups: subject.userGroups,
+    serviceAccountId: subject.serviceAccountId,
   });
 
-  return { space, permission };
+  return { space, permission, user: subject.user };
 };
 
 /**
@@ -133,6 +176,11 @@ const respondMessage = async (c: Context, resultPromise: Promise<Result<void> | 
     if (!result.ok) return result;
     return ok({ message });
   });
+};
+
+const listSpaceApiKeys = async (spaceId: string): Promise<SpaceApiKey[]> => {
+  const keys = await spacesService.access.apiKeys.list({ spaceId });
+  return keys.map((key) => ({ ...key, permission: key.permission as "read" | "write" | "admin" }));
 };
 
 /**
@@ -168,7 +216,7 @@ import widgetRoutes from "./widgets";
 
 const app = new Hono<AuthContext>()
   .route("/widget", widgetRoutes)
-  .use(auth.requireRole("user"))
+  .use(auth.requireRole("authenticated"))
 
   .get(
     "/workspace/route",
@@ -184,11 +232,13 @@ const app = new Hono<AuthContext>()
     }),
     v("query", z.object({ href: z.string().min(1).max(3000) })),
     async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
       const href = c.req.valid("query").href;
       const target = parseSpacesWorkspaceHref(href);
       if (!target) return c.json({ message: "Unsupported workspace route" }, 400);
       const state = await loadSpacesWorkspaceState({
-        user: c.get("user"),
+        user: userResult.data,
         spaceId: target.spaceId,
         href,
         cookieHeader: c.req.header("Cookie"),
@@ -279,7 +329,9 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const result = await spacesService.space.list({
         userId: user.id,
         groups: user.memberofGroupIds,
@@ -306,7 +358,9 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateSpaceSchema),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const data = c.req.valid("json");
       return respond(c, spacesService.space.create({ data, creatorId: user.id }));
     },
@@ -658,14 +712,14 @@ const app = new Hono<AuthContext>()
     }),
     v("json", ItemFilterSchema),
     async (c) => {
-      const user = c.get("user");
+      const user = getUserBackedActor(c);
       const spaceId = c.req.param("id") ?? "";
       const filter = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId);
       if (error) return error;
 
-      const result = await spacesService.item.listFiltered({ spaceId, filter, currentUserId: user.id, dateConfig: getDateConfig(c) });
+      const result = await spacesService.item.listFiltered({ spaceId, filter, currentUserId: user?.id, dateConfig: getDateConfig(c) });
       return respond(c, ok(result));
     },
   )
@@ -721,13 +775,12 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateItemSchema),
     async (c) => {
-      const user = c.get("user");
       const spaceId = c.req.param("id") ?? "";
       const data = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { user, error } = await checkSpaceAccess(c, spaceId, "write");
       if (error) return error;
-      return respond(c, spacesService.item.create({ spaceId, data, createdBy: user.id }));
+      return respond(c, spacesService.item.create({ spaceId, data, createdBy: user?.id ?? null }));
     },
   )
 
@@ -900,8 +953,8 @@ const app = new Hono<AuthContext>()
       const itemCheck = await requireItemInSpace(spaceId, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
 
-      const user = c.get("user");
-      const result = await spacesService.comment.list({ itemId, viewerUserId: user.id });
+      const user = getUserBackedActor(c);
+      const result = await spacesService.comment.list({ itemId, viewerUserId: user?.id ?? null });
       return respond(c, ok(result.items));
     },
   )
@@ -923,7 +976,9 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateCommentSchema),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const spaceId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
       const { content } = c.req.valid("json");
@@ -959,7 +1014,9 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateCommentSchema),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const spaceId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
       const commentId = c.req.param("commentId") ?? "";
@@ -1004,7 +1061,9 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const user = c.get("user");
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
       const spaceId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
       const commentId = c.req.param("commentId") ?? "";
@@ -1032,6 +1091,128 @@ const app = new Hono<AuthContext>()
   )
 
   // ==========================
+  // RESOURCE API KEYS
+  // ==========================
+
+  .get(
+    "/:id/api-keys",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "List space API keys",
+      description: "List active resource-bound API keys for this space. Requires admin permission.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.object({ items: z.array(SpaceApiKeySchema) }), "Space API keys"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Space not found"),
+      },
+    }),
+    async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+
+      const spaceId = c.req.param("id") ?? "";
+      const { error } = await checkSpaceAccess(c, spaceId, "admin");
+      if (error) return error;
+
+      return respond(c, async () => ok({ items: await listSpaceApiKeys(spaceId) }));
+    },
+  )
+
+  .post(
+    "/:id/api-keys",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "Create space API key",
+      description: "Create a resource-bound API key for this space. The raw token is returned once. Requires admin permission.",
+      ...requiresAuth,
+      responses: {
+        201: jsonResponse(CreateSpaceApiKeyResponseSchema, "Space API key created"),
+        400: jsonResponse(ErrorResponseSchema, "Failed to create API key"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Space not found"),
+      },
+    }),
+    v("json", CreateSpaceApiKeySchema),
+    async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
+      const spaceId = c.req.param("id") ?? "";
+      const data = c.req.valid("json");
+      const { space, error } = await checkSpaceAccess(c, spaceId, "admin");
+      if (error) return error;
+
+      return respond(c, async () => {
+        const serviceAccount = await serviceAccounts.getOrCreateResourceBound({
+          name: `${space!.name} API access`,
+          appId: SPACES_APP_ID,
+          resourceType: SPACE_RESOURCE_TYPE,
+          resourceId: spaceId,
+          createdBy: user.id,
+        });
+        if (!serviceAccount.ok) return serviceAccount;
+
+        const access = await spacesService.access.ensureServiceAccount({
+          spaceId,
+          serviceAccountId: serviceAccount.data.id,
+          permission: data.permission,
+        });
+        if (!access.ok) return access;
+
+        const created = await serviceAccountCredentials.createResourceApiToken({
+          serviceAccountId: serviceAccount.data.id,
+          actor: user,
+          name: data.name,
+          expiresAt: data.expiresAt ?? null,
+        });
+        if (!created.ok) return created;
+
+        return ok({
+          credential: {
+            ...created.data.credential,
+            permission: access.data.permission as "read" | "write" | "admin",
+          },
+          token: created.data.token,
+        });
+      }, 201);
+    },
+  )
+
+  .delete(
+    "/:id/api-keys/:credentialId",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "Revoke space API key",
+      description: "Revoke a resource-bound API key for this space. Requires admin permission.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Space API key revoked"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "API key not found"),
+      },
+    }),
+    async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const user = userResult.data;
+      const spaceId = c.req.param("id") ?? "";
+      const credentialId = c.req.param("credentialId") ?? "";
+      const { error } = await checkSpaceAccess(c, spaceId, "admin");
+      if (error) return error;
+
+      return respond(c, async () => {
+        const keys = await listSpaceApiKeys(spaceId);
+        if (!keys.some((key) => key.id === credentialId)) return fail(err.notFound("API key"));
+
+        const revoked = await serviceAccountCredentials.revoke({ credentialId, actor: user });
+        if (!revoked.ok) return revoked;
+        return ok({ message: "API key revoked." });
+      });
+    },
+  )
+
+  // ==========================
   // ACCESS CONTROL
   // ==========================
 
@@ -1050,6 +1231,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
       const spaceId = c.req.param("id") ?? "";
 
       const { error } = await checkSpaceAccess(c, spaceId, "admin");
@@ -1077,6 +1260,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GrantAccessSchema),
     async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
       const spaceId = c.req.param("id") ?? "";
       const { principal, permission } = c.req.valid("json");
 
@@ -1109,6 +1294,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateAccessSchema),
     async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
       const spaceId = c.req.param("id") ?? "";
       const accessId = c.req.param("accessId") ?? "";
       const { permission } = c.req.valid("json");
@@ -1144,6 +1331,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
       const spaceId = c.req.param("id") ?? "";
       const accessId = c.req.param("accessId") ?? "";
 

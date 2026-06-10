@@ -129,6 +129,7 @@ export default function SpacesWorkspace(props: Props) {
               baseUrl={settingsState.icalBaseUrl}
               initialSettings={settingsState.settings}
               accessEntries={settingsState.accessEntries}
+              apiKeys={settingsState.apiKeys}
               isAdmin={settingsState.isAdmin}
               onClose={() => {
                 close();

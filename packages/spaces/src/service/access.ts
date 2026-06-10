@@ -7,9 +7,11 @@ import {
   type ResourceAccessAdapter,
   createAccess,
   deleteAccess,
-  resolveDisplayNames,
   getEffectivePermission,
+  resolveDisplayNames,
+  updateAccess,
 } from "@valentinkolb/cloud/server";
+import { serviceAccountCredentials, type ServiceAccountCredential } from "@valentinkolb/cloud/services";
 
 // ==========================
 // Space Access Adapter
@@ -23,6 +25,13 @@ type DbSpaceAccess = {
   authenticated_only: boolean;
   permission: PermissionLevel;
   created_at: Date;
+};
+
+export const SPACES_APP_ID = "spaces";
+export const SPACE_RESOURCE_TYPE = "space";
+
+export type SpaceApiKey = ServiceAccountCredential & {
+  permission: Exclude<PermissionLevel, "none">;
 };
 
 /**
@@ -163,14 +172,15 @@ export const getSpaceAccessGuard = async (params: {
 };
 
 /**
- * Get the effective permission level for a user on a space.
+ * Get the effective permission level for an actor on a space.
  */
 export const getSpacePermission = async (params: {
   spaceId: string;
-  userId: string | null;
-  userGroups: string[];
+  userId?: string | null;
+  userGroups?: string[];
+  serviceAccountId?: string | null;
 }): Promise<PermissionLevel> => {
-  const { spaceId, userId, userGroups } = params;
+  const { spaceId } = params;
 
   // Get all access IDs for this space
   const accessRows = await sql<{ access_id: string }[]>`
@@ -180,7 +190,12 @@ export const getSpacePermission = async (params: {
 
   const accessIds = accessRows.map((r) => r.access_id);
 
-  return getEffectivePermission({ accessIds, userId, userGroups });
+  return getEffectivePermission({
+    accessIds,
+    userId: params.userId ?? null,
+    userGroups: params.userGroups ?? [],
+    serviceAccountId: params.serviceAccountId ?? null,
+  });
 };
 
 /**
@@ -240,6 +255,66 @@ export const grantSpaceAccess = async (params: {
   }
 
   return ok(created);
+};
+
+export const ensureSpaceServiceAccountAccess = async (params: {
+  spaceId: string;
+  serviceAccountId: string;
+  permission: Exclude<PermissionLevel, "none">;
+}): Promise<Result<AccessEntry>> => {
+  const entries = await listSpaceAccess(params.spaceId);
+  const existing = entries.find(
+    (entry) =>
+      entry.principal.type === "service_account" &&
+      entry.principal.serviceAccountId === params.serviceAccountId,
+  );
+
+  if (!existing) {
+    return grantSpaceAccess({
+      spaceId: params.spaceId,
+      principal: { type: "service_account", serviceAccountId: params.serviceAccountId },
+      permission: params.permission,
+    });
+  }
+
+  if (existing.permission === params.permission) return ok(existing);
+
+  const updated = await updateAccess({ id: existing.id, permission: params.permission });
+  if (!updated.ok) return fail(updated.error);
+
+  return ok({ ...existing, permission: params.permission });
+};
+
+export const listSpaceApiKeys = async (spaceId: string): Promise<SpaceApiKey[]> => {
+  const [keys, accessEntries] = await Promise.all([
+    serviceAccountCredentials.listOverview({
+      pagination: { page: 1, perPage: 500 },
+      filter: {
+        serviceAccountKind: "resource_bound",
+        credentialStatus: "active",
+        appId: SPACES_APP_ID,
+        resourceType: SPACE_RESOURCE_TYPE,
+        resourceId: spaceId,
+      },
+    }),
+    listSpaceAccess(spaceId),
+  ]);
+
+  const permissionByServiceAccountId = new Map(
+    accessEntries
+      .filter((entry) => entry.principal.type === "service_account" && entry.permission !== "none")
+      .map((entry) => [
+        (entry.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId,
+        entry.permission as Exclude<PermissionLevel, "none">,
+      ]),
+  );
+
+  return keys.items.flatMap((item) => {
+    const permission = permissionByServiceAccountId.get(item.serviceAccount.id);
+    if (!permission) return [];
+    const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
+    return [{ ...credential, permission }];
+  });
 };
 
 /**

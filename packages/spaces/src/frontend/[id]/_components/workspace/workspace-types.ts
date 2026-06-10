@@ -1,4 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
+import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
 import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
 import type { ItemListResult, SpaceComment, SpaceDetail, SpaceItem } from "@/contracts";
 import { buildFilterUrl, type parseFilterFromUrl, QueryParams } from "../filter/types";
@@ -36,6 +37,7 @@ export type SpacesWorkspaceState =
       selectedItem: SpaceItem | null;
       selectedItemComments: SpaceComment[];
       accessEntries: AccessEntry[];
+      apiKeys: ResourceApiKey[];
     };
 
 export const parseSpacesWorkspaceHref = (href: string) => {

@@ -69,6 +69,7 @@ export const loadSpacesWorkspaceState = async (params: {
   }
 
   const accessEntries = isAdmin && isSettingsMode ? (await spacesService.access.list({ spaceId })).items : [];
+  const apiKeys = isAdmin && isSettingsMode ? await spacesService.access.apiKeys.list({ spaceId }) : [];
   const listPageSize = 50;
   let itemsResult: ItemListResult = { items: [], total: 0, page: filter.page, pageSize: listPageSize, totalPages: 0 };
   if (currentView === "list" || currentView === "table") {
@@ -248,5 +249,6 @@ export const loadSpacesWorkspaceState = async (params: {
     selectedItem,
     selectedItemComments,
     accessEntries,
+    apiKeys,
   };
 };

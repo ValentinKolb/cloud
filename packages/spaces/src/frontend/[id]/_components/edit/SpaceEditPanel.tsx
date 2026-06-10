@@ -3,6 +3,8 @@ import {
   CopyButton,
   PermissionEditor,
   prompts,
+  ResourceApiKeys,
+  type ResourceApiKey,
   SegmentedControl,
   SettingsModal,
   TextInput,
@@ -33,8 +35,16 @@ type Props = {
   onClose?: () => void;
   /** Access entries for permission management (requires admin) */
   accessEntries?: AccessEntry[];
+  /** Resource-bound API keys for this space (requires admin) */
+  apiKeys?: ResourceApiKey[];
   /** Whether the current user has admin permission on this space */
   isAdmin?: boolean;
+};
+
+const readErrorMessage = async (response: Response, fallback: string): Promise<string> => {
+  const data = await response.json().catch(() => null);
+  if (data && typeof data === "object" && "message" in data && typeof data.message === "string") return data.message;
+  return fallback;
 };
 
 /**
@@ -77,42 +87,56 @@ export default function SpaceEditPanel(props: Props) {
           <StatusManager spaceId={props.space.id} columns={props.space.columns} />
         </SettingsModal.Tab>
 
-        {props.accessEntries && props.accessEntries.length > 0 && (
+        {props.accessEntries && (
           <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Permission changes save immediately.">
-            <PermissionEditor
-              initialEntries={props.accessEntries}
-              canEdit={props.isAdmin}
-              grantAccess={async (principal, permission) => {
-                const res = await apiClient[":id"].access.$post({
-                  param: { id: props.space.id },
-                  json: { principal, permission },
-                });
-                if (!res.ok) {
-                  const errData = await res.json();
-                  throw new Error("message" in errData ? errData.message : "Failed to grant access");
-                }
-                return res.json();
-              }}
-              updateAccess={async (accessId, permission) => {
-                const res = await apiClient[":id"].access[":accessId"].$patch({
-                  param: { id: props.space.id, accessId },
-                  json: { permission },
-                });
-                if (!res.ok) {
-                  const errData = await res.json();
-                  throw new Error("message" in errData ? errData.message : "Failed to update permission");
-                }
-              }}
-              revokeAccess={async (accessId) => {
-                const res = await apiClient[":id"].access[":accessId"].$delete({
-                  param: { id: props.space.id, accessId },
-                });
-                if (!res.ok) {
-                  const errData = await res.json();
-                  throw new Error("message" in errData ? errData.message : "Failed to revoke access");
-                }
-              }}
-            />
+            <div class="flex flex-col gap-6">
+              <PermissionEditor
+                initialEntries={props.accessEntries}
+                canEdit={props.isAdmin}
+                grantAccess={async (principal, permission) => {
+                  const res = await apiClient[":id"].access.$post({
+                    param: { id: props.space.id },
+                    json: { principal, permission },
+                  });
+                  if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to grant access"));
+                  return res.json();
+                }}
+                updateAccess={async (accessId, permission) => {
+                  const res = await apiClient[":id"].access[":accessId"].$patch({
+                    param: { id: props.space.id, accessId },
+                    json: { permission },
+                  });
+                  if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to update permission"));
+                }}
+                revokeAccess={async (accessId) => {
+                  const res = await apiClient[":id"].access[":accessId"].$delete({
+                    param: { id: props.space.id, accessId },
+                  });
+                  if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to revoke access"));
+                }}
+              />
+              <div class="border-t border-zinc-200 pt-6 dark:border-zinc-700">
+                <ResourceApiKeys
+                  title="API keys"
+                  description="Resource-bound keys for integrations that need access to this space."
+                  initialKeys={props.apiKeys ?? []}
+                  createKey={async (input) => {
+                    const res = await apiClient[":id"]["api-keys"].$post({
+                      param: { id: props.space.id },
+                      json: input,
+                    });
+                    if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to create API key."));
+                    return (await res.json()) as { credential: ResourceApiKey; token: string };
+                  }}
+                  revokeKey={async (credentialId) => {
+                    const res = await apiClient[":id"]["api-keys"][":credentialId"].$delete({
+                      param: { id: props.space.id, credentialId },
+                    });
+                    if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to revoke API key."));
+                  }}
+                />
+              </div>
+            </div>
           </SettingsModal.Tab>
         )}
 
