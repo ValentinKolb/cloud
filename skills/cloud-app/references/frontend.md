@@ -658,6 +658,12 @@ import { PermissionEditor } from "@valentinkolb/cloud/ui";
 
 **Props:** `initialEntries: AccessEntry[]`, `canEdit?`, `grantAccess(principal, permission): Promise<AccessEntry>`, `updateAccess(accessId, permission): Promise<void>`, `revokeAccess(accessId): Promise<void>`, `allowPublic?`, `allowServiceAccounts?`, `allowedLevels?`.
 
+`PermissionEditor` is grant UI only. It never creates API keys or reveals raw
+tokens. Public grants require `allowPublic`; service-account grants require
+`allowServiceAccounts`; the authenticated principal is available by default
+unless already granted. Service-account search is opt-in and should be used only
+where existing service-account principals are meaningful.
+
 `allowedLevels` accepts `"read" | "write" | "admin"` or objects `{ level, label?, icon? }`. Use a single allowed level for view-only sharing flows, e.g. Grids passes `[{ level: "read", label: "View" }]`. The component does not accept a resource identifier prop; close over ids in the callback implementation instead.
 
 `PermissionEditor` owns its own internal grant/update/revoke mutations and calls `prompts.error(err.message)` on callback failure. The app callbacks should perform the API request, check `res.ok`, throw meaningful errors, and return the created `AccessEntry` from `grantAccess`.

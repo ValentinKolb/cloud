@@ -36,6 +36,8 @@ export const apiClient = api.create<ApiType>({ baseUrl: "/api/my-app" });
 - Security-relevant mutations put authorization checks in the service layer and record allowed/denied/failed outcomes through the central audit service.
 - Permission-aware APIs and services use `c.get("actor")` and `c.get("accessSubject")`, not only `c.get("user")`, so user-bound keys, resource API keys, and OAuth service tokens follow the same access path.
 - Resource API keys and OAuth service clients are granted through the app's normal resource access adapter. `PermissionEditor` may include existing service-account principals but does not create or reveal credentials.
+- Resource API key smoke covers create, copy-once token display, one authorized Bearer request, revoke, and rejected Bearer reuse. If OAuth client credentials are supported for that resource, smoke the same endpoint with an OAuth access token.
+- Global Search providers stay user-backed. They may assume a user context from the platform search dispatcher and must not add resource-bound service-account search behavior.
 
 ## Data and lifecycle
 

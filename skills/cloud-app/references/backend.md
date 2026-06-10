@@ -233,9 +233,16 @@ security-sensitive operations:
 ```typescript
 import { audit } from "@valentinkolb/cloud/services";
 
+const actor = c.get("actor");
+const accessSubject = c.get("accessSubject");
+const delegatedUser = actor.kind === "service_account" ? actor.delegatedUser : null;
+const user = actor.kind === "user" ? actor.user : delegatedUser;
+
 const denied = await audit.deny<void>({
   action: "my_app.resource.delete",
-  actor: { userId: user.id, uid: user.uid, provider: user.provider, roles: user.roles },
+  actor: user
+    ? { userId: user.id, uid: user.uid, provider: user.provider, roles: user.roles }
+    : { serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null },
   target: { type: "resource", id: resource.id, label: resource.title },
   message: "Admin access required",
 });
@@ -409,12 +416,16 @@ const itemAccess: ResourceAccessAdapter = {
 // Load access entry IDs for the resource
 const entries = await itemAccess.list(itemId);
 const accessIds = entries.map((e) => e.id);
+const actor = c.get("actor");
+const accessSubject = c.get("accessSubject");
+const delegatedUser = actor.kind === "service_account" ? actor.delegatedUser : null;
+const user = actor.kind === "user" ? actor.user : delegatedUser;
 
 // Resolve effective permission for this request subject
 const permission = await getEffectivePermission({
   accessIds,
   userId: accessSubject.type === "user" ? accessSubject.userId : null,
-  userGroups: accessSubject.type === "user" ? user.memberofGroupIds : [],
+  userGroups: user?.memberofGroupIds ?? [],
   serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
 });
 
@@ -432,12 +443,14 @@ If a resource needs API keys, use the resource-bound service-account pattern. Co
 Do not create keys in the generic access endpoint. Add app-specific routes such as `GET/POST/DELETE /:id/api-keys`, require admin permission on the resource, then:
 
 ```typescript
-const serviceAccount = await serviceAccounts.getOrCreateResourceBound({
+const user = expectUserBackedActor(c);
+
+const serviceAccount = await serviceAccounts.createResourceBound({
   name: `${resource.name} API access`,
   appId: "my-app",
   resourceType: "item",
   resourceId: resource.id,
-  createdBy: actor.id,
+  createdBy: user.id,
 });
 if (!serviceAccount.ok) return serviceAccount;
 
@@ -450,13 +463,19 @@ if (!access.ok) return access;
 
 return serviceAccountCredentials.createResourceApiToken({
   serviceAccountId: serviceAccount.data.id,
-  actor,
+  actor: user,
   name,
   expiresAt,
+  scopes: [permission],
 });
 ```
 
 For the full UI/API pattern, read `references/api-keys.md`.
+
+Apps may store selected access as OAuth/API-key scopes for display and
+additional app-side limits, but middleware does not turn scopes into grants.
+The service must still resolve permissions through `accessSubject` and the
+resource adapter on every request.
 
 OAuth client-credentials tokens use the same runtime principal model as
 resource API keys. The OAuth app issues the token; Core verifies it; the app

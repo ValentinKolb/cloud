@@ -1,7 +1,7 @@
-# FreeIPA Subsession Removal Readiness
+# FreeIPA service-account operations
 
-This note records the current state after removing stored FreeIPA user
-subsessions from Cloud sessions.
+This reference explains how Cloud uses a dedicated FreeIPA service account for
+directory mutations after Cloud authorization and audit checks pass.
 
 ## Recommendation
 
@@ -17,7 +17,7 @@ execution is an internal directory mutation transport; Cloud service accounts
 are first-class Cloud principals used by API keys, OAuth service tokens, and
 resource access grants.
 
-## Current State
+## Current behavior
 
 | Area | Current behavior |
 |------|------------------|

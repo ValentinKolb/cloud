@@ -16,7 +16,7 @@ Use this reference when an app resource needs API keys for automation or integra
 Create resource API keys through the app API, not through the generic permission endpoint.
 
 1. Resolve the app resource and require admin permission on that resource.
-2. Call `serviceAccounts.getOrCreateResourceBound({ appId, resourceType, resourceId, name, createdBy })`.
+2. Call `serviceAccounts.createResourceBound({ appId, resourceType, resourceId, name, createdBy })`.
 3. Grant or update the service-account principal in the app service layer:
 
 ```ts
@@ -27,7 +27,7 @@ await myService.resource.access.ensureServiceAccount({
 });
 ```
 
-4. Call `serviceAccountCredentials.createResourceApiToken({ serviceAccountId, actor, name, expiresAt })`.
+4. Call `serviceAccountCredentials.createResourceApiToken({ serviceAccountId, actor, name, expiresAt, scopes })`.
 5. Return the raw token once. Never store or re-display it.
 
 List resource keys with `serviceAccountCredentials.listOverview()` filtered by:
@@ -44,7 +44,7 @@ filter: {
 
 Revoking an API key revokes the credential, not the service-account resource grant. Keep permission lifecycle and secret lifecycle separate unless the user explicitly asks for a cleanup action.
 
-For OAuth service clients, the app should still create or reuse the
+For OAuth service clients, the app should still create or select a
 resource-bound service account and grant it access through the same adapter.
 The OAuth app owns OAuth client records, audiences, JWKS, and token issuance.
 Apps should not verify JWTs themselves; Core auth middleware resolves OAuth

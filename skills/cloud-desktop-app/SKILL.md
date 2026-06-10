@@ -233,7 +233,9 @@ Desktop apps may be:
 - Cloud-connected with local cache
 - Cloud-first with offline data
 
-Credentials should become first-class app credentials/API tokens. Do not use admin tokens in production desktop flows.
+Use Cloud app credentials/API keys for Cloud-connected desktop sync. Do not use
+admin tokens in production desktop flows, and do not store raw credentials after
+the one-time token display.
 
 ## Verification
 

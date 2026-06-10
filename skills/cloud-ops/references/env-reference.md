@@ -61,7 +61,7 @@ Source: `packages/core/src/_settings.ts` (core platform settings) plus per-app s
 
 | Setting Key | Type | Default | Description |
 |-------------|------|---------|-------------|
-| `app.url` | string | `"localhost:3000"` | Public-facing application URL used for email links, OAuth redirects, WebSocket connections (envFallback: `APP_URL`) |
+| `app.url` | string | `"localhost:3000"` | Public-facing application URL used for email links, OAuth redirects, WebSocket connections, and WebAuthn passkey RP origin/RP ID (envFallback: `APP_URL`) |
 | `app.name` | string | `"My App"` | Platform display name |
 | `app.contact_email` | email | `""` | Support contact email |
 | `app.copyright` | string | `""` | Copyright holder name shown in footer |

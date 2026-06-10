@@ -319,6 +319,10 @@ Token-based URL `/forms/<publicToken>`. Anonymous, captcha + rate-limited. Stric
 
 ## 14. CMS / API
 
+Historical note: this section predates Cloud's shared service-account API-key
+model. Current implementations must use `cld_<prefix>_<secret>` credentials
+and resource-bound Cloud service accounts, not app-local token formats.
+
 ```
 GET    /api/grids/<baseId>/<tableId>/records?filter=&sort=&page=
 GET    /api/grids/<baseId>/<tableId>/records/:id
@@ -329,7 +333,7 @@ GET    /api/grids/<baseId>/<tableId>/views/<viewId>/records  -- baked filter
 GET    /api/grids/<baseId>/<tableId>/blobs/:blobId
 ```
 
-API tokens: per-base, hashed, scoped `{tables: [...]|"*", actions: ["read","write","delete"]}`. Header: `Authorization: Bearer grid_...`.
+API tokens: use Cloud resource-bound service accounts and `Authorization: Bearer cld_<prefix>_<secret>`.
 
 OpenAPI spec auto-generated per base — emitted from grids, consumed by api-docs. Grids itself stays independent (just exports the spec).
 
@@ -359,7 +363,7 @@ Enforced at validation boundary. Rejected with helpful error messages including 
 | **1B — Query Core** | Keyset pagination (with tuple-cursor for sorted), Filter-JSON-Compiler, Sort-Compiler, Aggregate-Compiler (footer aggregates), opt-in expression index lifecycle (CONCURRENTLY + retry), trgm indexes |
 | **1C — Product Shell** | Table-UI (read + edit + create), ACL UI (base + table + view), Schema-Evolution UI (add/rename/type-change/delete with dependents-warning), Restore-from-trash UI, basic permission resolver |
 | **2 — Power-Filter** | Pill-builder UI, JSON-advanced-mode editor, multi-sort UI, view ACL public/personal/shared, view-create/edit UI |
-| **3 — Forms + API** | Internal forms, public forms, virtual default form, per-base API tokens, OpenAPI spec emission, public-read views |
+| **3 — Forms + API** | Internal forms, public forms, virtual default form, resource-bound API keys, OpenAPI spec emission, public-read views |
 | **4 — Relations** | Relation field, junction-table CRUD, lookup, rollup, batch-fetch in record-list pipeline |
 | **5 — Formula** | Pratt parser + AST + JS evaluator (display-only, visible-rows only), cycle detection, type inference, scoped function library |
 | **6 — Tier-2 fields** | currency, email, url, phone, percent, duration, slug, attachment (bytea + grids_blobs), user-link |

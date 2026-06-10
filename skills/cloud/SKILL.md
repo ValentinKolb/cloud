@@ -138,12 +138,18 @@ export default await app.start({
 |----------|---------|-------------|
 | `ipa`    | `user`  | Full Kerberos account managed in FreeIPA (single source of truth) |
 | `ipa`    | `guest` | FreeIPA account in sync scope but outside the configured full-user realm |
-| `local`  | `user`  | Email-only local account, login via magic link |
-| `local`  | `guest` | Email-only visitor, auto-expiring, login via magic link |
+| `local`  | `user`  | Cloud-managed full account stored in PostgreSQL |
+| `local`  | `guest` | Cloud-managed visitor account, usually auto-expiring |
 
-All local users (both `user` and `guest`) authenticate via **magic link email login** — there is no password. The platform sends a time-limited login link to the user's email address.
+Provider/profile describe account ownership and authorization, not every login
+method. Local users do not have passwords; they can authenticate through magic
+link email login and, after enrollment on `/me`, passkeys. IPA users authenticate
+through FreeIPA credentials and may also enroll Cloud passkeys.
 
-**Special case: Admin token login.** When `ADMIN_LOGIN_TOKEN` is set, a hidden endpoint accepts the token as password. This auto-creates a `local|user` admin account (uid `"admin"`, admin flag `true`). Internally it's a regular local user — only the login mechanism is different.
+**Special case: Admin token login.** When `ADMIN_LOGIN_TOKEN` is set,
+`/auth/login?method=admin` accepts the token in a single token field. This
+auto-creates a `local|user` admin account (uid `"admin"`, admin flag `true`).
+Internally it is a regular local user; only the login mechanism is different.
 
 **FreeIPA is the single source of truth** for IPA users. Full sync derives IPA scope, profile, and admin state from the FreeIPA group graph and mirrors the result in PostgreSQL for fast queries. Local users are fully managed in PostgreSQL.
 
@@ -190,10 +196,13 @@ to a delegated user. Resource-bound service accounts must not call Global
 Search or app search providers; they only get the resource routes where the app
 explicitly grants their service-account principal access.
 
-Bearer tokens are resolved after cookie sessions. `cld_<prefix>_<secret>` API
-keys use `serviceAccountCredentials`; OAuth access tokens are verified via the
-OAuth app's signing key and must have `token_use = "access"` and audience
-`"cloud"`.
+Authentication resolution order is cookie session first, then `cld_<prefix>_<secret>`
+API keys via `serviceAccountCredentials`, then any other Bearer token as an
+OAuth access token. OAuth access tokens are verified with the OAuth app's
+current signing key, issuer derived from `app.url`, audience `"cloud"`, and
+`token_use = "access"`. User authorization-code tokens resolve to
+`actor.kind = "user"`; client-credentials tokens bound to resource service
+accounts resolve to `actor.kind = "service_account"`.
 
 ## Core Services
 

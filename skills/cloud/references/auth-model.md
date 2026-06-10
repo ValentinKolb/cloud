@@ -71,7 +71,7 @@ FreeIPA-backed directory mutations are executed with the configured FreeIPA
 service account after Cloud service-layer authorization and audit checks pass.
 That service account needs explicit FreeIPA role/permission membership for the
 mutations Cloud is allowed to execute; the operator setup commands live in
-[FreeIPA Subsession Removal Readiness](freeipa-subsession-readiness.md).
+[FreeIPA service-account operations](freeipa-service-account-operations.md).
 The only user-session FreeIPA cookie still used intentionally is the fresh
 credential verification session inside `changeOwnPassword()`.
 
@@ -94,6 +94,10 @@ flows.
 Passkeys are Cloud-owned credentials bound to `auth.users.id`, not FreeIPA
 passkeys. They work for local and IPA users, full users and guests, and create
 the same Redis session shape as every other browser login flow.
+
+RP configuration comes from runtime settings: `app.url` defines the WebAuthn
+`origin` and `rpID`, and `app.name` defines the RP display name. `app.url` must
+be HTTPS except for localhost development.
 
 Storage:
 
@@ -122,6 +126,10 @@ Enrollment and deletion are self-service account actions on `/me`:
 - `/api/me/passkeys/registration/start`
 - `/api/me/passkeys/registration/verify`
 - `/api/me/passkeys/:id`
+
+Registration uses resident keys with required user verification,
+`attestationType: "none"`, and excludes credentials already registered for the
+same account. Passkey names are required and limited to 120 characters.
 
 Keep WebAuthn protocol validation inside the SimpleWebAuthn libraries. Cloud
 code should only own RP configuration, challenge persistence, account lookup,
@@ -229,10 +237,24 @@ Bearer API keys use the `cld_<prefix>_<secret>` format. They authenticate a serv
 - user-bound keys inherit the linked user's roles and access subject;
 - resource-bound keys authenticate as a `service_account` principal and need explicit resource grants.
 
+Personal API keys are created through `/api/me/api-keys`. Core creates or reuses
+one user-delegated service account named `Personal API keys`, stores only the
+hashed credential, returns the raw token once, lists only active keys owned by
+the current user, and revokes credentials without deleting the service-account
+principal.
+
+Resource API keys are created by app-specific resource APIs. The app requires
+admin permission on the resource, creates a resource-bound service account for
+the key, grants that service account through the app's normal
+`ResourceAccessAdapter`, and then asks core to create a credential. Revoking a
+credential stops that secret from authenticating; it does not automatically
+delete the service account or resource grant unless the app explicitly offers
+that cleanup.
+
 OAuth access tokens are also accepted as Bearer tokens. Core verifies them with
-the OAuth app's current public key from `oauth.keys`, requires issuer
-`app.url`, audience `"cloud"`, and `token_use = "access"`, then resolves the
-token into the same actor model:
+the OAuth app's current public key from `oauth.keys` row `id = 'current'`,
+requires issuer derived from `app.url`, audience `"cloud"`, and
+`token_use = "access"`, then resolves the token into the same actor model:
 
 - user authorization-code tokens resolve to `actor.kind = "user"`;
 - client-credentials tokens bound to a resource service account resolve to
@@ -348,12 +370,16 @@ import { getEffectivePermission, hasPermission } from "@valentinkolb/cloud/serve
 // Load access IDs for this book
 const entries = await bookAccess.list(bookId);
 const accessIds = entries.map((e) => e.id);
+const actor = c.get("actor");
+const accessSubject = c.get("accessSubject");
+const delegatedUser = actor.kind === "service_account" ? actor.delegatedUser : null;
+const user = actor.kind === "user" ? actor.user : delegatedUser;
 
 // Resolve highest permission for the current actor/access subject
 const permission = await getEffectivePermission({
   accessIds,
   userId: accessSubject.type === "user" ? accessSubject.userId : null,
-  userGroups: accessSubject.type === "user" ? user.memberofGroupIds : [],
+  userGroups: user?.memberofGroupIds ?? [],
   serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
 });
 
@@ -404,8 +430,8 @@ mutations:
 - Admin UI should expose a searchable `DataTable` audit page with URL-backed
   filters for actor, target, action, outcome, provider, and time range.
 
-See [FreeIPA Subsession Removal Readiness](freeipa-subsession-readiness.md) for
-the current implementation notes and remaining low-level primitive boundaries.
+See [FreeIPA service-account operations](freeipa-service-account-operations.md)
+for setup guidance and the remaining low-level primitive boundaries.
 
 ## Account Lifecycle
 

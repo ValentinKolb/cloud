@@ -397,7 +397,12 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
-      const { items: data, total } = await items.list(pagination, query.search);
+      const { items: data, total } = await items.list({
+        pagination,
+        search: query.search,
+        actor: c.get("actor"),
+        accessSubject: c.get("accessSubject"),
+      });
       return c.json({ items: data, pagination: createPagination(pagination, total) });
     },
   )

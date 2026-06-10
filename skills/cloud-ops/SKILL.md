@@ -180,7 +180,7 @@ GROUPS_EXCLUDED=editors,trust admins,admins
 ### Development Shortcuts
 
 ```env
-ADMIN_LOGIN_TOKEN=dev-admin  # Emergency local admin login (any username + this as password)
+ADMIN_LOGIN_TOKEN=dev-admin  # Emergency local admin login token for /auth/login?method=admin
 ```
 
 Note: `skipSetup` (skip migrations) is an `app.start()` option, not an environment variable. There is no `DISABLE_APPS` env var implemented.
