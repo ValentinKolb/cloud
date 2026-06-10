@@ -258,6 +258,10 @@ export default function RecordsView(props: Props) {
   const [forms, setForms] = createSignal<Form[]>(props.forms);
   const isSavedView = () => props.viewMode || !!props.activeView || !!props.viewShortId;
   const canUseEditMode = () => (isSavedView() ? !!props.canEditActiveView : props.canManageTable);
+  const queryWorkspaceHref = () =>
+    props.viewShortId
+      ? `/app/grids/${props.baseShortId}/table/${props.tableShortId}/view/${props.viewShortId}/query`
+      : `/app/grids/${props.baseShortId}/table/${props.tableShortId}/query`;
   const [adminMode, setAdminMode] = createSignal(props.initialAdminMode && canUseEditMode());
   const [viewColumns, setViewColumns] = createSignal<ColumnSpec[] | undefined>(props.viewColumns ?? props.initialState.query.columns);
   const [query, setQuery] = createSignal<ViewQuery>(props.initialState.query);
@@ -1504,6 +1508,11 @@ export default function RecordsView(props: Props) {
                   action: openExportDialog,
                 },
                 {
+                  icon: "ti ti-code",
+                  label: "Open query",
+                  href: queryWorkspaceHref(),
+                },
+                {
                   icon: "ti ti-archive",
                   label: "Show deleted",
                   href: `/app/grids/${props.baseShortId}/table/${props.tableShortId}?trash=1`,
@@ -1580,11 +1589,7 @@ export default function RecordsView(props: Props) {
                 </Show>
               </>
             </Show>
-            <button
-              type="button"
-              class="btn-simple btn-sm ml-auto"
-              onClick={() => setAdminModeAndUrl(false)}
-            >
+            <button type="button" class="btn-simple btn-sm ml-auto" onClick={() => setAdminModeAndUrl(false)}>
               Done
             </button>
           </div>

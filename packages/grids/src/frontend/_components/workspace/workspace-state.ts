@@ -67,7 +67,10 @@ export type WorkspaceRecordsRoute = {
     aggregates?: Record<string, unknown>;
     nextCursor: string | null;
     explode?: boolean;
-    filePreviews?: Record<string, Record<string, { fileId: string; fieldId: string; recordId: string; filename: string; mimeType: string; sizeBytes: number }>>;
+    filePreviews?: Record<
+      string,
+      Record<string, { fileId: string; fieldId: string; recordId: string; filename: string; mimeType: string; sizeBytes: number }>
+    >;
   };
   initialSelectedRecord: GridRecord | null;
   relationLabels: Record<string, string>;
@@ -97,7 +100,21 @@ export type WorkspaceAutomationsRoute = {
   kind: "automations";
 };
 
-export type GridsWorkspaceRoute = WorkspaceRecordsRoute | WorkspaceDashboardRoute | WorkspaceAutomationsRoute | WorkspaceEmptyRoute;
+export type WorkspaceQueryRoute = {
+  kind: "query";
+  initialQuery: string;
+  queryPath: string;
+  currentSource?:
+    | { kind: "table"; tableId: string; label: string; ref: string }
+    | { kind: "view"; viewId: string; label: string; ref: string };
+};
+
+export type GridsWorkspaceRoute =
+  | WorkspaceRecordsRoute
+  | WorkspaceDashboardRoute
+  | WorkspaceAutomationsRoute
+  | WorkspaceQueryRoute
+  | WorkspaceEmptyRoute;
 
 export type GridsWorkspaceState =
   | { kind: "notFound"; title: string; message: string }
@@ -113,6 +130,7 @@ export type GridsWorkspaceState =
       canManageBase: boolean;
       canCreateTables: boolean;
       canUseEditMode: boolean;
+      canUseQueryWorkspace: boolean;
       dateConfig?: DateContext;
       catalog: WorkspaceCatalog;
       route: GridsWorkspaceRoute;
@@ -191,6 +209,7 @@ type WorkspaceCommon = {
   canManageBase: boolean;
   canCreateTables: boolean;
   canUseEditMode: boolean;
+  canUseQueryWorkspace: boolean;
 };
 
 type OkWorkspaceState = Extract<GridsWorkspaceState, { kind: "ok" }>;
@@ -271,6 +290,7 @@ const okState = (common: WorkspaceCommon, route: GridsWorkspaceRoute, title = co
   canManageBase: common.canManageBase,
   canCreateTables: common.canCreateTables,
   canUseEditMode: common.canUseEditMode,
+  canUseQueryWorkspace: common.canUseQueryWorkspace,
   dateConfig: common.params.dateConfig,
   catalog: common.catalog,
   route,
@@ -295,9 +315,10 @@ const loadDashboardState = async (common: WorkspaceCommon, dashboard: Dashboard)
   const widgetData = Object.fromEntries(results);
   const canEditActiveDashboard =
     dashboard.ownerUserId === common.params.user.id || (dashboard.ownerUserId === null && common.canManageBase);
-  const manualAutomations = common.canManageBase && common.chrome.adminModeRequested
-    ? (await gridsService.automation.listForBase(common.base.id)).filter((automation) => automation.trigger.kind === "manual")
-    : [];
+  const manualAutomations =
+    common.canManageBase && common.chrome.adminModeRequested
+      ? (await gridsService.automation.listForBase(common.base.id)).filter((automation) => automation.trigger.kind === "manual")
+      : [];
 
   return okState(common, {
     kind: "dashboard",
@@ -360,7 +381,10 @@ const emptyInitialRecords = () => ({
     items: GridRecord[];
     nextCursor: string | null;
     aggregates?: Record<string, unknown>;
-    filePreviews?: Record<string, Record<string, { fileId: string; fieldId: string; recordId: string; filename: string; mimeType: string; sizeBytes: number }>>;
+    filePreviews?: Record<
+      string,
+      Record<string, { fileId: string; fieldId: string; recordId: string; filename: string; mimeType: string; sizeBytes: number }>
+    >;
   },
   aggregates: {} as Record<string, unknown>,
   groupedBuckets: [] as WorkspaceGroupBucket[],
@@ -445,13 +469,14 @@ const loadListedInitialRecords = async (
 
 const loadInitialRecords = async (args: InitialRecordsArgs) => {
   const query = resolveInitialQuery(args.recordsState, args.activeView);
-  query.effectiveFilter = calendarQueryFilter({
-    baseFilter: query.effectiveFilter ?? undefined,
-    fields: args.fields,
-    displayConfig: args.displayConfig,
-    calendar: args.recordsState.calendar,
-    dateConfig: args.dateConfig,
-  }) ?? null;
+  query.effectiveFilter =
+    calendarQueryFilter({
+      baseFilter: query.effectiveFilter ?? undefined,
+      fields: args.fields,
+      displayConfig: args.displayConfig,
+      calendar: args.recordsState.calendar,
+      dateConfig: args.dateConfig,
+    }) ?? null;
   query.effective.filter = query.effectiveFilter ?? undefined;
   if (args.displayConfig.mode === "calendar" && query.viewLimit === undefined) query.effectiveLimit = 500;
   const viewer = buildViewer(args.user);
@@ -572,10 +597,61 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
   const canManageBase = gridsService.permission.hasAtLeast(level, "admin");
   const canCreateTables = gridsService.permission.hasAtLeast(level, "write");
   const canUseEditMode = canUseEditModeForCatalog(catalog, params.user, canManageBase, canCreateTables);
-  const common: WorkspaceCommon = { params, base, chrome, catalog, canManageBase, canCreateTables, canUseEditMode };
-  const activeDashboard = await resolveActiveDashboard(params, base, catalog.dashboards);
+  const common: WorkspaceCommon = {
+    params,
+    base,
+    chrome,
+    catalog,
+    canManageBase,
+    canCreateTables,
+    canUseEditMode,
+    canUseQueryWorkspace: hasBaseRead,
+  };
+  const queryWorkspaceRequested = chrome.url.pathname.endsWith("/query");
+  const activeDashboard = queryWorkspaceRequested ? null : await resolveActiveDashboard(params, base, catalog.dashboards);
   const renderDashboard = activeDashboard ? (catalog.dashboards.find((d) => d.id === activeDashboard.id) ?? null) : null;
   const activeTableFromSlug = params.activeTableSlug ? await gridsService.table.getByIdOrShortId(baseId, params.activeTableSlug) : null;
+  if (queryWorkspaceRequested) {
+    if (!hasBaseRead) return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
+    const queryTable = activeTableFromSlug ? (catalog.tables.find((t) => t.id === activeTableFromSlug.id) ?? null) : null;
+    if (params.activeTableSlug && !queryTable) {
+      return { kind: "accessDenied", title: "Access denied", message: "No access to this table" };
+    }
+    const queryViews = queryTable ? (catalog.viewsByTable[queryTable.id] ?? []) : [];
+    const candidateQueryView =
+      queryTable && params.activeViewSlug ? await gridsService.view.getByIdOrShortId(queryTable.id, params.activeViewSlug) : null;
+    const queryView = candidateQueryView ? (queryViews.find((v) => v.id === candidateQueryView.id) ?? null) : null;
+    if (params.activeViewSlug && !queryView) {
+      return { kind: "accessDenied", title: "Access denied", message: "No access to this view" };
+    }
+
+    const currentSource = queryView
+      ? ({ kind: "view", viewId: queryView.id, label: queryView.name, ref: queryView.shortId } as const)
+      : queryTable
+        ? ({ kind: "table", tableId: queryTable.id, label: queryTable.name, ref: queryTable.shortId } as const)
+        : undefined;
+    return okState(
+      common,
+      {
+        kind: "query",
+        initialQuery: chrome.url.searchParams.get("q") ?? "",
+        queryPath: chrome.url.pathname,
+        ...(currentSource ? { currentSource } : {}),
+      },
+      [
+        ...chrome.titleBase,
+        ...(queryTable
+          ? [
+              { title: queryTable.name, href: `/app/grids/${base.shortId}/table/${queryTable.shortId}` },
+              ...(queryView
+                ? [{ title: queryView.name, href: `/app/grids/${base.shortId}/table/${queryTable.shortId}/view/${queryView.shortId}` }]
+                : []),
+            ]
+          : []),
+        { title: "Query" },
+      ],
+    );
+  }
   if (chrome.url.pathname.endsWith("/automations")) {
     if (!canManageBase) return { kind: "accessDenied", title: "Access denied", message: "Only base admins can manage automations" };
     return okState(common, { kind: "automations" }, [...chrome.titleBase, { title: "Automations" }]);

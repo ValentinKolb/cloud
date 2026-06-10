@@ -5,21 +5,29 @@ import { getRecordWritableFieldType, isRecordWritableFieldType } from "../field-
 import { defaultTableAggregations } from "../table-defaults";
 import { type AggregateRequest, compileAggregates } from "./aggregate-compiler";
 import { logAudit, type SqlClient } from "./audit";
-import { applyComputedProjections, buildComputedProjections, buildFormulaSqlProjections, type ComputedProjection } from "./computed-projections";
+import {
+  applyComputedProjections,
+  buildComputedProjections,
+  buildFormulaSqlProjections,
+  type ComputedProjection,
+} from "./computed-projections";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import { listFirstImagePreviews } from "./files";
 import { generateIdValue, generatedIdRequiresRetry, isGeneratedIdUniqueCollision } from "./generated-ids";
 import { compileFilter, type FilterTree, renderClause } from "./filter-compiler";
-import { compileGroupQuery, type GroupAggregationSpec, type GroupBucket, type GroupBySpec, type GroupSortSpec } from "./group-compiler";
+import { compileFormulaPredicateAstToSql } from "./formula-sql-compiler";
+import {
+  compileGroupQuery,
+  type GroupAggregationSpec,
+  type GroupBucket,
+  type GroupBySpec,
+  type GroupHavingRef,
+  type GroupSortSpec,
+} from "./group-compiler";
 import { parseJsonbRow } from "./jsonb";
 import { liveRecordParentJoinSql, requireTableAlive } from "./parent-checks";
 import { type GridsRecordEvent, publishRecordEvent } from "./record-events";
-import {
-  cleanRecordMeta,
-  compileRecordMetaFilter,
-  listRecordActors,
-  recordMetaRequiresDeletedRows,
-} from "./record-metadata";
+import { cleanRecordMeta, compileRecordMetaFilter, listRecordActors, recordMetaRequiresDeletedRows } from "./record-metadata";
 import { withLookupTargetMetadata } from "./lookup-display";
 import {
   attachRelationExpansion,
@@ -34,6 +42,7 @@ import { compileSearchClause, type SearchSpec } from "./search";
 import { compileSort, decodeCursor, type SortSpec } from "./sort-compiler";
 import type { Field, GridRecord, RecordList } from "./types";
 import type { ComputedColumnSpec, RecordMetaQuery } from "../contracts";
+import type { Expr } from "../formula/types";
 
 type DbRow = Record<string, unknown>;
 
@@ -73,7 +82,9 @@ const enrichFormulaLookups = async (records: GridRecord[], fields: Field[], opti
     .filter((field) => field.type === "lookup" && !field.deletedAt && lookupTargetMeta(field)?.type === "formula")
     .map((lookupField) => {
       const cfg = lookupField.config as { relationFieldId?: string };
-      const relationField = cfg.relationFieldId ? fields.find((field) => field.id === cfg.relationFieldId && field.type === "relation") : undefined;
+      const relationField = cfg.relationFieldId
+        ? fields.find((field) => field.id === cfg.relationFieldId && field.type === "relation")
+        : undefined;
       const target = lookupTargetMeta(lookupField);
       const targetTableId = (relationField?.config as { targetTableId?: string } | undefined)?.targetTableId;
       return relationField && target && targetTableId ? { lookupField, relationField, target, targetTableId } : null;
@@ -406,6 +417,7 @@ export const list = async (params: {
   limit?: number;
   includeDeleted?: boolean;
   filter?: FilterTree | null;
+  formulaWhere?: Expr | null;
   search?: SearchSpec | null;
   recordMeta?: RecordMetaQuery | null;
   sort?: SortSpec[];
@@ -439,6 +451,14 @@ export const list = async (params: {
   const filterCompiled = compileFilter(params.filter ?? null, fields, { timeZone: params.dateConfig?.timeZone });
   if (!filterCompiled.ok) return fail(err.badInput(`filter: ${filterCompiled.error}`));
   const filterClause = renderClause(filterCompiled.clause);
+  const formulaWhereCompiled = params.formulaWhere
+    ? compileFormulaPredicateAstToSql(params.formulaWhere, {
+        fields,
+        recordAlias: "r",
+        dateConfig: params.dateConfig,
+      })
+    : null;
+  if (formulaWhereCompiled && !formulaWhereCompiled.ok) return fail(err.badInput(`formula where: ${formulaWhereCompiled.error}`));
   const searchCompiled = await compileSearchClause({
     search: params.search ?? null,
     fields,
@@ -470,6 +490,7 @@ export const list = async (params: {
   if (params.deletedOnly || needsDeletedRows) conditions.push(sql`r.deleted_at IS NOT NULL`);
   else if (!params.includeDeleted) conditions.push(sql`r.deleted_at IS NULL`);
   conditions.push(filterClause);
+  if (formulaWhereCompiled?.ok) conditions.push(formulaWhereCompiled.expression.sql);
   conditions.push(searchClause);
   conditions.push(recordMetaClause);
   if (cursorWhere) conditions.push(cursorWhere);
@@ -552,6 +573,7 @@ export const list = async (params: {
         includeDeleted: params.includeDeleted,
         deletedOnly: params.deletedOnly,
         requests: defaultListAggregates(fields),
+        formulaWhere: params.formulaWhere,
         viewer: params.viewer,
         dateConfig: params.dateConfig,
       })
@@ -577,6 +599,7 @@ export const group = async (params: {
   groupBy: GroupBySpec[];
   aggregations: GroupAggregationSpec[];
   groupSort?: GroupSortSpec[];
+  formulaHaving?: { expression: Expr; refs: GroupHavingRef[] } | null;
   filter?: FilterTree | null;
   search?: SearchSpec | null;
   recordMeta?: RecordMetaQuery | null;
@@ -617,6 +640,8 @@ export const group = async (params: {
     groupBy: params.groupBy,
     aggregations: params.aggregations,
     groupSort: params.groupSort,
+    having: params.formulaHaving?.expression,
+    havingRefs: params.formulaHaving?.refs,
     filter: params.filter,
     searchClause,
     extraWhere: recordMetaClause,
@@ -627,6 +652,7 @@ export const group = async (params: {
     includeDeleted: params.includeDeleted,
     deletedOnly: params.deletedOnly || needsDeletedRows,
     timeZone: params.dateConfig?.timeZone,
+    dateConfig: params.dateConfig,
   });
   if (!compiled.ok) return fail(err.badInput(compiled.error));
 
@@ -682,6 +708,7 @@ export const aggregate = async (params: {
   filter?: FilterTree | null;
   search?: SearchSpec | null;
   recordMeta?: RecordMetaQuery | null;
+  formulaWhere?: Expr | null;
   requests: AggregateRequest[];
   includeDeleted?: boolean;
   deletedOnly?: boolean;
@@ -693,6 +720,16 @@ export const aggregate = async (params: {
   const filterCompiled = compileFilter(params.filter ?? null, fields, { timeZone: params.dateConfig?.timeZone });
   if (!filterCompiled.ok) return fail(err.badInput(`filter: ${filterCompiled.error}`));
   const filterClause = renderClause(filterCompiled.clause);
+  const formulaWhereCompiled = params.formulaWhere
+    ? compileFormulaPredicateAstToSql(params.formulaWhere, {
+        fields,
+        recordAlias: "r",
+        dateConfig: params.dateConfig,
+      })
+    : null;
+  if (formulaWhereCompiled && !formulaWhereCompiled.ok) {
+    return fail(err.badInput(`formula where: ${formulaWhereCompiled.error}`));
+  }
   const searchCompiled = await compileSearchClause({
     search: params.search ?? null,
     fields,
@@ -725,6 +762,7 @@ export const aggregate = async (params: {
     WHERE r.table_id = ${params.tableId}::uuid
       AND ${params.deletedOnly || needsDeletedRows ? sql`r.deleted_at IS NOT NULL` : params.includeDeleted ? sql`TRUE` : sql`r.deleted_at IS NULL`}
       AND ${filterClause}
+      AND ${formulaWhereCompiled?.ok ? formulaWhereCompiled.expression.sql : sql`TRUE`}
       AND ${searchClause}
       AND ${recordMetaClause}
   `;
@@ -829,7 +867,9 @@ export const update = async (
   // re-enter the JSONB blob (otherwise the hydration step on read
   // would have to special-case "JSONB takes precedence" semantics).
   const persistableFieldIds = new Set(
-    fields.filter((field) => isRecordWritableFieldType(field.type) && field.type !== "relation" && !field.deletedAt).map((field) => field.id),
+    fields
+      .filter((field) => isRecordWritableFieldType(field.type) && field.type !== "relation" && !field.deletedAt)
+      .map((field) => field.id),
   );
   const persistedExistingData = Object.fromEntries(Object.entries(existing.data).filter(([key]) => persistableFieldIds.has(key)));
   const merged = { ...persistedExistingData, ...split.data };

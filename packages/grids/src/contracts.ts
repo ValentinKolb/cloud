@@ -381,7 +381,11 @@ export const FormatSpecSchema: z.ZodType<
   }),
   z.object({
     kind: z.literal("barcode"),
-    bcid: z.string().regex(/^[a-z0-9]+$/).min(1).max(80),
+    bcid: z
+      .string()
+      .regex(/^[a-z0-9]+$/)
+      .min(1)
+      .max(80),
     showText: z.boolean().optional(),
   }),
 ]);
@@ -598,6 +602,84 @@ export const TableQueryResponseSchema = z.object({
 });
 export type TableQueryBody = z.infer<typeof TableQueryBodySchema>;
 export type TableQueryResult = z.infer<typeof TableQueryResponseSchema>;
+
+// ── Query DSL preview ────────────────────────────────────────────────────
+//
+// Generic tabular response for the query workspace. This is intentionally
+// not GridRecord-shaped: DSL queries can select aliases, formula columns,
+// joined fields, or grouped buckets that do not map to one editable record.
+
+const DslQueryCurrentSourceSchema = z
+  .discriminatedUnion("kind", [
+    z.object({ kind: z.literal("table"), tableId: z.string().uuid() }),
+    z.object({ kind: z.literal("view"), viewId: z.string().uuid() }),
+  ])
+  .optional();
+
+export const DslQueryPreviewBodySchema = z.object({
+  query: z.string().trim().min(1).max(20_000),
+  /** Optional table scope for table/view pages where `from` is implicit. */
+  currentTableId: z.string().uuid().optional(),
+  currentSource: DslQueryCurrentSourceSchema,
+  limit: z.number().int().min(1).max(500).optional(),
+});
+export type DslQueryPreviewBody = z.infer<typeof DslQueryPreviewBodySchema>;
+
+export const DslQueryCompileViewBodySchema = z.object({
+  query: z.string().trim().min(1).max(20_000),
+  /** Optional table scope for table/view pages where `from` is implicit. */
+  currentTableId: z.string().uuid().optional(),
+  currentSource: DslQueryCurrentSourceSchema,
+});
+export type DslQueryCompileViewBody = z.infer<typeof DslQueryCompileViewBodySchema>;
+
+export const DslQueryPreviewDiagnosticSchema = z.object({
+  line: z.number().int().min(1).optional(),
+  message: z.string(),
+});
+export type DslQueryPreviewDiagnostic = z.infer<typeof DslQueryPreviewDiagnosticSchema>;
+
+export const DslQueryPreviewColumnSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  tableId: z.string().uuid().optional(),
+  fieldId: z.string().uuid().optional(),
+  joinAlias: z.string().optional(),
+  type: z.string(),
+  sqlType: z.string(),
+});
+export type DslQueryPreviewColumn = z.infer<typeof DslQueryPreviewColumnSchema>;
+
+export const DslQueryPreviewSuccessSchema = z.object({
+  ok: z.literal(true),
+  mode: z.enum(["rows", "groups"]),
+  columns: z.array(DslQueryPreviewColumnSchema),
+  rows: z.array(
+    z.object({
+      recordId: z.string().uuid().optional(),
+      tableId: z.string().uuid().optional(),
+      values: z.record(z.string(), z.unknown()),
+    }),
+  ),
+  limit: z.number().int(),
+  truncated: z.boolean().optional(),
+});
+
+export const DslQueryPreviewFailureSchema = z.object({
+  ok: z.literal(false),
+  diagnostics: z.array(DslQueryPreviewDiagnosticSchema),
+});
+
+export const DslQueryPreviewResponseSchema = z.union([DslQueryPreviewSuccessSchema, DslQueryPreviewFailureSchema]);
+export type DslQueryPreviewResponse = z.infer<typeof DslQueryPreviewResponseSchema>;
+
+export const DslQueryCompileViewSuccessSchema = z.object({
+  ok: z.literal(true),
+  tableId: z.string().uuid(),
+  query: ViewQuerySchema,
+});
+export const DslQueryCompileViewResponseSchema = z.union([DslQueryCompileViewSuccessSchema, DslQueryPreviewFailureSchema]);
+export type DslQueryCompileViewResponse = z.infer<typeof DslQueryCompileViewResponseSchema>;
 
 // ── View entity ───────────────────────────────────────────────────────────
 export const ViewSchema = z.object({

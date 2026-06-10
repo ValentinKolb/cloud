@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import { afterAll, describe, expect, test } from "bun:test";
-import { get, list } from "./records";
+import { parseFormula } from "../formula/parser";
+import { aggregate, get, group, list } from "./records";
 
 const postgresTest = process.env.GRIDS_RECORD_SQL_FORMULA_DB_TEST === "1" ? test : test.skip;
 
@@ -11,6 +12,7 @@ type TestShape = {
   baseId: string;
   tableId: string;
   recordId: string;
+  secondRecordId: string;
   priceId: string;
   quantityId: string;
   subtotalId: string;
@@ -21,6 +23,7 @@ const insertSqlFormulaFixture = async (): Promise<TestShape> => {
   const baseId = uuid();
   const tableId = uuid();
   const recordId = uuid();
+  const secondRecordId = uuid();
   const priceId = uuid();
   const quantityId = uuid();
   const subtotalId = uuid();
@@ -44,15 +47,22 @@ const insertSqlFormulaFixture = async (): Promise<TestShape> => {
   `;
   await sql`
     INSERT INTO grids.records (id, table_id, data, version)
-    VALUES (
-      ${recordId}::uuid,
-      ${tableId}::uuid,
-      ${{ [priceId]: "0.10", [quantityId]: "1.00" }}::jsonb,
-      1
-    )
+    VALUES
+      (
+        ${recordId}::uuid,
+        ${tableId}::uuid,
+        ${{ [priceId]: "0.10", [quantityId]: "1.00" }}::jsonb,
+        1
+      ),
+      (
+        ${secondRecordId}::uuid,
+        ${tableId}::uuid,
+        ${{ [priceId]: "1.00", [quantityId]: "1.00" }}::jsonb,
+        1
+      )
   `;
 
-  return { baseId, tableId, recordId, priceId, quantityId, subtotalId, grossId };
+  return { baseId, tableId, recordId, secondRecordId, priceId, quantityId, subtotalId, grossId };
 };
 
 const cleanupFixture = async (baseId: string): Promise<void> => {
@@ -72,8 +82,11 @@ describe("records SQL formula projection integration", () => {
       if (!result.ok) return;
 
       const record = result.data.items.find((item) => item.id === fixture.recordId);
+      const secondRecord = result.data.items.find((item) => item.id === fixture.secondRecordId);
       expect(record?.data[fixture.subtotalId]).toBe("0.300");
       expect(record?.data[fixture.grossId]).toBe("1.3");
+      expect(secondRecord?.data[fixture.subtotalId]).toBe("1.200");
+      expect(secondRecord?.data[fixture.grossId]).toBe("2.2");
     } finally {
       await cleanupFixture(fixture.baseId);
     }
@@ -88,6 +101,133 @@ describe("records SQL formula projection integration", () => {
 
       expect(result.data[fixture.subtotalId]).toBe("0.300");
       expect(result.data[fixture.grossId]).toBe("1.3");
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("list applies SQL formula where predicates inside the record query", async () => {
+    const fixture = await insertSqlFormulaFixture();
+    try {
+      const parsed = parseFormula("#PRICE <= #QTY01 * 0.20");
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+
+      const result = await list({ tableId: fixture.tableId, limit: 10, formulaWhere: parsed.ast });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(result.data.items.map((item) => item.id)).toEqual([fixture.recordId]);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("list applies SQL formula where before limit and sort", async () => {
+    const fixture = await insertSqlFormulaFixture();
+    try {
+      const parsed = parseFormula("#PRICE <= #QTY01 * 0.20");
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+
+      const result = await list({
+        tableId: fixture.tableId,
+        limit: 1,
+        sort: [{ fieldId: fixture.priceId, direction: "desc" }],
+        formulaWhere: parsed.ast,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(result.data.items.map((item) => item.id)).toEqual([fixture.recordId]);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("aggregate applies SQL formula where predicates", async () => {
+    const fixture = await insertSqlFormulaFixture();
+    try {
+      const parsed = parseFormula("#PRICE <= #QTY01 * 0.20");
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+
+      const result = await aggregate({
+        tableId: fixture.tableId,
+        requests: [
+          { fieldId: "*", agg: "count" },
+          { fieldId: fixture.priceId, agg: "sum" },
+        ],
+        formulaWhere: parsed.ast,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(result.data["*__count"]).toBe(1);
+      expect(result.data[`${fixture.priceId}__sum`]).toBe(0.1);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("group applies SQL formula having predicates over aggregate aliases", async () => {
+    const fixture = await insertSqlFormulaFixture();
+    try {
+      const parsed = parseFormula("#revenue < 0.50");
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+
+      const result = await group({
+        tableId: fixture.tableId,
+        groupBy: [{ fieldId: fixture.priceId }],
+        aggregations: [{ fieldId: fixture.priceId, agg: "sum" }],
+        formulaHaving: {
+          expression: parsed.ast,
+          refs: [{ ref: "revenue", fieldId: fixture.priceId, agg: "sum" }],
+        },
+        limit: 10,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(result.data.buckets).toHaveLength(1);
+      expect(result.data.buckets[0]?.values[`${fixture.priceId}__sum`]).toBe(0.1);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("group aggregates SQL formula arguments and applies having to the formula alias", async () => {
+    const fixture = await insertSqlFormulaFixture();
+    try {
+      const subtotal = parseFormula("#PRICE * #QTY01");
+      const having = parseFormula("#subtotal > 1.00");
+      expect(subtotal.ok).toBe(true);
+      expect(having.ok).toBe(true);
+      if (!subtotal.ok || !having.ok) return;
+
+      const formulaAggregate = {
+        kind: "formula" as const,
+        id: "subtotal",
+        expression: subtotal.ast,
+        agg: "sum" as const,
+      };
+      const result = await group({
+        tableId: fixture.tableId,
+        groupBy: [{ fieldId: fixture.quantityId }],
+        aggregations: [formulaAggregate],
+        formulaHaving: {
+          expression: having.ast,
+          refs: [{ ...formulaAggregate, ref: "subtotal" }],
+        },
+        limit: 10,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(result.data.buckets).toHaveLength(1);
+      expect(result.data.buckets[0]?.keys).toEqual([1]);
+      expect(result.data.buckets[0]?.values.subtotal__sum).toBe(1.1);
     } finally {
       await cleanupFixture(fixture.baseId);
     }

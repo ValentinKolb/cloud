@@ -35,7 +35,8 @@ const isWhitespace = (c: string): boolean => c === " " || c === "\t" || c === "\
 const isDigit = (c: string): boolean => c >= "0" && c <= "9";
 const isIdentStart = (c: string): boolean => (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || c === "_";
 const isIdentPart = (c: string): boolean => isIdentStart(c) || isDigit(c);
-const isSlugPart = (c: string): boolean => isDigit(c) || (c >= "A" && c <= "Z") || (c >= "a" && c <= "z");
+const FIELD_REF_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
+const isSlugPart = (c: string): boolean => isDigit(c) || (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || c === "_";
 
 const readDigits = (src: string, i: number): number => {
   let j = i;
@@ -90,6 +91,7 @@ const scanBracedField: Scanner = (src, i) => {
   if (j === -1) throw new Error("unclosed field reference");
   const value = src.slice(i + 1, j).trim();
   if (value.length === 0) throw new Error("empty field reference");
+  if (!FIELD_REF_RE.test(value)) throw new Error("invalid field reference");
   return { token: { kind: "field", value }, next: j + 1 };
 };
 
@@ -131,15 +133,7 @@ const scanOperator: Scanner = (src, i) => {
   return null;
 };
 
-const SCANNERS: Scanner[] = [
-  scanNumber,
-  scanString,
-  scanBracedField,
-  scanSlugField,
-  scanIdentifier,
-  scanPunctuation,
-  scanOperator,
-];
+const SCANNERS: Scanner[] = [scanNumber, scanString, scanBracedField, scanSlugField, scanIdentifier, scanPunctuation, scanOperator];
 
 const scanToken = (src: string, i: number): ScanResult => {
   for (const scanner of SCANNERS) {

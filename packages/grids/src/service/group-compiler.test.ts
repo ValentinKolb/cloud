@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { parseFormula } from "../formula/parser";
 import { compileGroupQuery, isAggregatable, isGroupable } from "./group-compiler";
 import type { Field } from "./types";
 
@@ -141,6 +142,136 @@ describe("compileGroupQuery — basic shape", () => {
     if (r.ok) expect(r.cursorable).toBe(false);
   });
 
+  test("compiles having predicates over aggregate aliases", () => {
+    const having = parseFormula("#revenue > 100 && #rows >= 2");
+    expect(having.ok).toBe(true);
+    if (!having.ok) return;
+
+    const r = compileGroupQuery({
+      tableId,
+      groupBy: [{ fieldId: author.id }],
+      aggregations: [
+        { fieldId: "*", agg: "count" },
+        { fieldId: amount.id, agg: "sum" },
+      ],
+      having: having.ast,
+      havingRefs: [
+        { ref: "rows", fieldId: "*", agg: "count" },
+        { ref: "revenue", fieldId: amount.id, agg: "sum" },
+      ],
+      fields,
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  test("compiles formula aggregate arguments and having over the formula alias", () => {
+    const formula = parseFormula("{bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb} * 1.19");
+    const having = parseFormula("#gross > 100");
+    expect(formula.ok).toBe(true);
+    expect(having.ok).toBe(true);
+    if (!formula.ok || !having.ok) return;
+
+    const formulaAgg = {
+      kind: "formula" as const,
+      id: "gross",
+      expression: formula.ast,
+      agg: "sum" as const,
+    };
+    const r = compileGroupQuery({
+      tableId,
+      groupBy: [{ fieldId: author.id }],
+      aggregations: [formulaAgg],
+      having: having.ast,
+      havingRefs: [{ ...formulaAgg, ref: "gross" }],
+      fields,
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.aggKeys).toContain("gross__sum");
+  });
+
+  test("rejects incompatible formula aggregate arguments", () => {
+    const formula = parseFormula('CONCAT({aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}, "x")');
+    expect(formula.ok).toBe(true);
+    if (!formula.ok) return;
+
+    const r = compileGroupQuery({
+      tableId,
+      groupBy: [{ fieldId: author.id }],
+      aggregations: [
+        {
+          kind: "formula",
+          id: "bad",
+          expression: formula.ast,
+          agg: "sum",
+        },
+      ],
+      fields,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('not compatible with formula type "text"');
+  });
+
+  test("rejects unsafe formula aggregate ids before building SQL aliases", () => {
+    const formula = parseFormula("{bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb} * 1.19");
+    expect(formula.ok).toBe(true);
+    if (!formula.ok) return;
+
+    const r = compileGroupQuery({
+      tableId,
+      groupBy: [{ fieldId: author.id }],
+      aggregations: [
+        {
+          kind: "formula",
+          id: 'bad"alias',
+          expression: formula.ast,
+          agg: "sum",
+        },
+      ],
+      fields,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe('invalid formula aggregate id "bad"alias"');
+  });
+
+  test("rejects overlong formula aggregate ids before PostgreSQL can truncate aliases", () => {
+    const formula = parseFormula("{bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb} * 1.19");
+    expect(formula.ok).toBe(true);
+    if (!formula.ok) return;
+
+    const r = compileGroupQuery({
+      tableId,
+      groupBy: [{ fieldId: author.id }],
+      aggregations: [
+        {
+          kind: "formula",
+          id: "a".repeat(51),
+          expression: formula.ast,
+          agg: "countUnique",
+        },
+      ],
+      fields,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe(`invalid formula aggregate id "${"a".repeat(51)}"`);
+  });
+
+  test("rejects having predicates that reference missing aggregate aliases", () => {
+    const having = parseFormula("#missing > 100");
+    expect(having.ok).toBe(true);
+    if (!having.ok) return;
+
+    const r = compileGroupQuery({
+      tableId,
+      groupBy: [{ fieldId: author.id }],
+      aggregations: [{ fieldId: amount.id, agg: "sum" }],
+      having: having.ast,
+      havingRefs: [{ ref: "revenue", fieldId: amount.id, agg: "sum" }],
+      fields,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("Unknown formula field reference #missing");
+  });
+
   test("rejects cursor pagination for aggregate-sorted groups", () => {
     const r = compileGroupQuery({
       tableId,
@@ -152,6 +283,30 @@ describe("compileGroupQuery — basic shape", () => {
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toMatch(/cursor pagination/);
+  });
+
+  test("rejects offset together with cursor or tail-window grouped queries", () => {
+    const withCursor = compileGroupQuery({
+      tableId,
+      groupBy: [{ fieldId: author.id }],
+      aggregations: [{ fieldId: "*", agg: "count" }],
+      cursor: { keys: ["Alice"] },
+      offset: 10,
+      fields,
+    });
+    expect(withCursor.ok).toBe(false);
+    if (!withCursor.ok) expect(withCursor.error).toBe("offset pagination is not supported together with grouped cursors");
+
+    const fromEnd = compileGroupQuery({
+      tableId,
+      groupBy: [{ fieldId: author.id }],
+      aggregations: [{ fieldId: "*", agg: "count" }],
+      fromEnd: true,
+      offset: 10,
+      fields,
+    });
+    expect(fromEnd.ok).toBe(false);
+    if (!fromEnd.ok) expect(fromEnd.error).toBe("offset pagination is not supported for tail-window grouped queries");
   });
 
   test("compiles select explode grouping", () => {

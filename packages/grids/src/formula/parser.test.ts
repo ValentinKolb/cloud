@@ -93,7 +93,7 @@ test("collectFieldRefs walks nested expression", () => {
 // ── #slug field-reference syntax ─────────────────────────────────
 //
 // `#slug` is the preferred short form. The tokenizer scans
-// alphanumerics until the first non-alnum char, so the slug binding
+// alphanumerics and underscores until the first non-slug char, so the slug binding
 // stops cleanly at operators, parens, commas, and whitespace — i.e.
 // every legal next token after a field reference.
 
@@ -103,12 +103,22 @@ test("parses #slug field reference", () => {
   if (r.ok) expect(r.ast).toEqual({ kind: "field", fieldId: "abc12" });
 });
 
-test("#slug is alphanumeric only — stops at operators", () => {
-  const r = parseFormula("#abc12*2");
+test("#slug accepts underscores and stops at operators", () => {
+  const r = parseFormula("#abc_12*2");
   expect(r.ok).toBe(true);
   if (r.ok && r.ast.kind === "binop") {
-    expect(r.ast.left).toEqual({ kind: "field", fieldId: "abc12" });
+    expect(r.ast.left).toEqual({ kind: "field", fieldId: "abc_12" });
     expect(r.ast.right).toEqual({ kind: "literal", value: 2 });
+  }
+});
+
+test("#slug does not absorb hyphens because they are subtraction operators", () => {
+  const r = parseFormula("#a-#b");
+  expect(r.ok).toBe(true);
+  if (r.ok && r.ast.kind === "binop") {
+    expect(r.ast.op).toBe("-");
+    expect(r.ast.left).toEqual({ kind: "field", fieldId: "a" });
+    expect(r.ast.right).toEqual({ kind: "field", fieldId: "b" });
   }
 });
 
@@ -123,6 +133,12 @@ test("collectFieldRefs picks up #slug refs alongside {uuid}", () => {
   if (r.ok) {
     expect([...collectFieldRefs(r.ast)].sort()).toEqual(["fb1", "price"]);
   }
+});
+
+test("rejects invalid braced field references", () => {
+  expect(parseFormula("{ }").ok).toBe(false);
+  expect(parseFormula("{field with spaces}").ok).toBe(false);
+  expect(parseFormula(`{${"x".repeat(81)}}`).ok).toBe(false);
 });
 
 // ── Whitespace insensitivity ─────────────────────────────────────

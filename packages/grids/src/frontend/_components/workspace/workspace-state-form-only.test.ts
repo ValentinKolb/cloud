@@ -105,5 +105,24 @@ describe("loadGridsWorkspaceState — form-only access", () => {
     expect(state.catalog.sidebarForms).toEqual([{ form, table: formTable }]);
     expect(state.catalog.tableShortIds).toEqual({ [formTable.id]: formTable.shortId });
     expect(state.canUseEditMode).toBe(false);
+    expect(state.canUseQueryWorkspace).toBe(false);
+  });
+
+  test("does not expose the query workspace to form-only users", async () => {
+    const state = await loadGridsWorkspaceState({
+      user: {
+        id: "44444444-4444-4444-8444-444444444444",
+        roles: [],
+        memberofGroupIds: [],
+      },
+      baseShortId: base.shortId,
+      href: `/app/grids/${base.shortId}/query`,
+    });
+
+    expect(state).toEqual({
+      kind: "accessDenied",
+      title: "Access denied",
+      message: "No access to this base",
+    });
   });
 });

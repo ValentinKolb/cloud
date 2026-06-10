@@ -13,6 +13,7 @@ import automationsRoutes from "./automations";
 import adminSettingsRoutes from "./admin-settings";
 import templatesRoutes from "./templates";
 import formulasRoutes from "./formulas";
+import queryDslRoutes from "./query-dsl";
 import wsRoutes from "../ws";
 
 const app = new Hono()
@@ -28,6 +29,7 @@ const app = new Hono()
   .route("/views", viewsRoutes)
   .route("/dashboards", dashboardsRoutes)
   .route("/formulas", formulasRoutes)
+  .route("/query-dsl", queryDslRoutes)
   .route("/automations", automationsRoutes)
   .route("/workspace", workspaceRoutes)
   .route("/forms", formsRoutes);

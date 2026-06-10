@@ -1,7 +1,8 @@
 import { sql } from "bun";
 import { afterAll, describe, expect, test } from "bun:test";
 import type { Field } from "./types";
-import { compileFormulaSourceToSql } from "./formula-sql-compiler";
+import { compileFormulaPredicateAstToSql, compileFormulaSourceToSql } from "./formula-sql-compiler";
+import { parseFormula } from "../formula/parser";
 
 const field = (overrides: Partial<Field> & Pick<Field, "id" | "shortId" | "name" | "type">): Field => ({
   id: overrides.id,
@@ -94,10 +95,63 @@ describe("compileFormulaSourceToSql", () => {
     if (!result.ok) expect(result.error).toContain("Unsafe SQL record alias");
   });
 
+  test("compiles only boolean formula predicates", () => {
+    const bool = parseFormula("#price <= #qty");
+    expect(bool.ok).toBe(true);
+    if (bool.ok) expect(compileFormulaPredicateAstToSql(bool.ast, { fields })).toMatchObject({ ok: true });
+
+    const numeric = parseFormula("#price + #qty");
+    expect(numeric.ok).toBe(true);
+    if (numeric.ok) expect(compileFormulaPredicateAstToSql(numeric.ast, { fields })).toMatchObject({ ok: false });
+  });
+
+  test("compiles predicates over caller-provided SQL refs", () => {
+    const bool = parseFormula("#revenue > 100 && #rows >= 2");
+    expect(bool.ok).toBe(true);
+    if (!bool.ok) return;
+
+    const result = compileFormulaPredicateAstToSql(bool.ast, {
+      fields: [],
+      resolveField: (ref) => {
+        if (ref === "revenue") return { sql: sql`SUM(r.amount)`, type: "numeric" };
+        if (ref === "rows") return { sql: sql`COUNT(*)`, type: "numeric" };
+        return null;
+      },
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("compiles mixed-type comparisons without raw incompatible SQL operators", () => {
+    const text = compileFormulaSourceToSql('#price = "10"', { fields });
+    expect(text.ok).toBe(true);
+    if (text.ok) expect(text.expression.type).toBe("boolean");
+
+    const date = compileFormulaSourceToSql('#due < "2026-06-10"', { fields });
+    expect(date.ok).toBe(true);
+    if (date.ok) expect(date.expression.type).toBe("boolean");
+  });
+
   test("rejects unsupported date units at compile time", () => {
     const result = compileFormulaSourceToSql('DATEADD(#due, 1, "fortnights")', { fields });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain("DATEADD needs a literal unit");
+  });
+
+  test("rejects wrong formula function arity before SQL generation", () => {
+    const cases = [
+      ["AND()", "AND needs at least 1 argument; got 0"],
+      ["CONCAT()", "CONCAT needs at least 1 argument; got 0"],
+      ['IF(#paid, "ok")', "IF needs 3 arguments; got 2"],
+      ["SUBSTRING(#name, 1)", "SUBSTRING needs 3 arguments; got 2"],
+      ["TODAY(#due)", "TODAY needs 0 arguments; got 1"],
+    ] as const;
+
+    for (const [source, message] of cases) {
+      const result = compileFormulaSourceToSql(source, { fields });
+      expect(result.ok, source).toBe(false);
+      if (!result.ok) expect(result.error).toBe(message);
+    }
   });
 
   test("covers the current formula function surface", () => {

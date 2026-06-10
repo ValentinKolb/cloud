@@ -5,6 +5,7 @@ import AutomationsPage from "../automations/AutomationsPage";
 import DashboardLayout from "../dashboard/DashboardLayout";
 import DashboardWysiwygEditor from "../dashboard/DashboardWysiwygEditor";
 import GridsLayoutHelp from "../help/GridsLayoutHelp";
+import QueryWorkspace from "../query/QueryWorkspace";
 import { createGridsRecordEventsProvider } from "../records-view/grids-record-events-provider";
 import RecordsView from "../records-view/RecordsView";
 import BaseSettingsPanel from "../settings/BaseSettingsPanel";
@@ -14,7 +15,7 @@ import FormSidebarEntry from "../sidebar/FormSidebarEntry";
 import RememberGridsPath from "../sidebar/RememberGridsPath";
 import { dashboardRecordTableIds } from "./dashboard-live-dependencies";
 import { createGridsMetadataEventsProvider } from "./grids-metadata-events-provider";
-import type { GridsWorkspaceState, WorkspaceDashboardRoute, WorkspaceRecordsRoute } from "./workspace-state";
+import type { GridsWorkspaceState, WorkspaceDashboardRoute, WorkspaceQueryRoute, WorkspaceRecordsRoute } from "./workspace-state";
 
 type Props = {
   initialState: Extract<GridsWorkspaceState, { kind: "ok" }>;
@@ -33,11 +34,12 @@ const urlWithParam = (href: string, key: string, value: string) => {
 
 const keepEdit = (href: string, adminMode: boolean) => (adminMode ? urlWithParam(href, "edit", "true") : href);
 
-const sidebarStateClass = (active: boolean, adminMode: boolean) =>
-  active ? "sidebar-item-active" : adminMode ? "text-secondary" : "";
+const sidebarStateClass = (active: boolean, adminMode: boolean) => (active ? "sidebar-item-active" : adminMode ? "text-secondary" : "");
 
 const formOnlyEmptyText = (count: number) =>
-  count === 1 ? "You have access to 1 form. Click it in the sidebar to fill it out." : `You have access to ${count} forms. Click one in the sidebar to fill it out.`;
+  count === 1
+    ? "You have access to 1 form. Click it in the sidebar to fill it out."
+    : `You have access to ${count} forms. Click one in the sidebar to fill it out.`;
 
 const captureScrollPreserve = () =>
   new Map(
@@ -293,6 +295,7 @@ export default function GridsWorkspace(props: Props) {
     if (route.kind === "records") return `records:${route.activeTable.id}:${route.activeView?.id ?? ""}:${s.adminModeRequested}`;
     if (route.kind === "dashboard") return `dashboard:${route.dashboard.id}:${s.adminModeRequested}`;
     if (route.kind === "automations") return `automations:${s.base.id}`;
+    if (route.kind === "query") return `query:${s.base.id}`;
     return `${route.kind}:${s.adminModeRequested}`;
   };
 
@@ -379,6 +382,19 @@ export default function GridsWorkspace(props: Props) {
     />
   );
 
+  const renderQueryWorkspace = (route: WorkspaceQueryRoute) => (
+    <QueryWorkspace
+      baseId={state().base.id}
+      baseShortId={state().base.shortId}
+      initialQuery={route.initialQuery}
+      queryPath={route.queryPath}
+      currentSource={route.currentSource}
+      tables={state().catalog.tables}
+      fieldsByTable={state().catalog.fieldsByTable}
+      viewsByTable={state().catalog.viewsByTable}
+    />
+  );
+
   return (
     <>
       <RememberGridsPath path={state().rememberPath} />
@@ -422,6 +438,16 @@ export default function GridsWorkspace(props: Props) {
               <AppWorkspace.SidebarItem href="/app/grids" icon="ti ti-layout-grid" navigation="document">
                 All grids
               </AppWorkspace.SidebarItem>
+              {state().canUseQueryWorkspace && (
+                <AppWorkspace.SidebarItem
+                  href={`/app/grids/${state().base.shortId}/query`}
+                  icon="ti ti-code"
+                  onNavigate={handleNavigate}
+                  active={state().route.kind === "query"}
+                >
+                  Query
+                </AppWorkspace.SidebarItem>
+              )}
             </AppWorkspace.SidebarMobileItems>
             <AppWorkspace.SidebarMobileBody scrollPreserveKey={`grids-sidebar-mobile-body-${state().base.id}`}>
               <Show when={state().catalog.dashboards.length > 0 || state().canCreateTables}>
@@ -472,7 +498,9 @@ export default function GridsWorkspace(props: Props) {
 
               <AppWorkspace.SidebarSection title="Tables">
                 {state().catalog.tables.length === 0 ? (
-                  <p class="text-xs text-dimmed px-2 py-1">{state().catalog.sidebarForms.length > 0 ? "No table access." : "No tables yet."}</p>
+                  <p class="text-xs text-dimmed px-2 py-1">
+                    {state().catalog.sidebarForms.length > 0 ? "No table access." : "No tables yet."}
+                  </p>
                 ) : (
                   state().catalog.tables.map((t) => {
                     const route = state().route;
@@ -539,6 +567,16 @@ export default function GridsWorkspace(props: Props) {
                 <AppWorkspace.SidebarItem href="/app/grids" icon="ti ti-layout-grid" navigation="document">
                   All Grids
                 </AppWorkspace.SidebarItem>
+                {state().canUseQueryWorkspace && (
+                  <AppWorkspace.SidebarItem
+                    href={`/app/grids/${state().base.shortId}/query`}
+                    icon="ti ti-code"
+                    onNavigate={handleNavigate}
+                    active={state().route.kind === "query"}
+                  >
+                    Query
+                  </AppWorkspace.SidebarItem>
+                )}
               </AppWorkspace.SidebarSection>
             </div>
 
@@ -591,7 +629,9 @@ export default function GridsWorkspace(props: Props) {
 
               <AppWorkspace.SidebarSection title="Tables">
                 {state().catalog.tables.length === 0 ? (
-                  <p class="text-xs text-dimmed px-2 py-1">{state().catalog.sidebarForms.length > 0 ? "No table access." : "No tables yet."}</p>
+                  <p class="text-xs text-dimmed px-2 py-1">
+                    {state().catalog.sidebarForms.length > 0 ? "No table access." : "No tables yet."}
+                  </p>
                 ) : (
                   state().catalog.tables.map((t) => {
                     const route = state().route;
@@ -672,6 +712,7 @@ export default function GridsWorkspace(props: Props) {
               <Switch>
                 <Match when={route.kind === "dashboard"}>{renderDashboard(route as WorkspaceDashboardRoute)}</Match>
                 <Match when={route.kind === "automations"}>{renderAutomations()}</Match>
+                <Match when={route.kind === "query"}>{renderQueryWorkspace(route as WorkspaceQueryRoute)}</Match>
                 <Match when={route.kind === "records"}>{renderRecords(route as WorkspaceRecordsRoute)}</Match>
                 <Match when={route.kind === "empty"}>
                   <div class="paper p-8 text-center text-sm text-dimmed">

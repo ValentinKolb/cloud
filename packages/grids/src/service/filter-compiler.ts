@@ -174,9 +174,7 @@ const validateDateBounds = (value: unknown, dateIncludeTime?: boolean): string |
 
 const validateDateValue = (op: string, value: unknown, dateIncludeTime?: boolean): string | null => {
   if (op === "lastNDays") {
-    return typeof value !== "number" || !Number.isInteger(value) || value < 0
-      ? "lastNDays expects a non-negative integer"
-      : null;
+    return typeof value !== "number" || !Number.isInteger(value) || value < 0 ? "lastNDays expects a non-negative integer" : null;
   }
   if (op === "between") return validateDateBounds(value, dateIncludeTime);
   return isValidDateValue(value, dateIncludeTime) ? null : dateValueError(dateIncludeTime);
@@ -230,6 +228,8 @@ const validatePredicateValue = (fieldType: string, op: string, value: unknown, d
 const escapeLikePattern = (s: string): string => s.replace(/([\\%_])/g, "\\$1");
 type PredicateClause = Extract<CompiledClause, { kind: "predicate" }>;
 type PredicateProjection = {
+  rawJson: any;
+  rawText: any;
   text: any;
   numeric: any;
   date: any;
@@ -237,17 +237,27 @@ type PredicateProjection = {
   bool: any;
 };
 
-const predicateProjection = (p: PredicateClause): PredicateProjection => {
+type RenderOptions = { recordAlias?: string };
+
+const recordData = (recordAlias: string): any => sql`${sql.unsafe(recordAlias)}.data`;
+const recordId = (recordAlias: string): any => sql`${sql.unsafe(recordAlias)}.id`;
+
+const predicateProjection = (p: PredicateClause, options: RenderOptions = {}): PredicateProjection => {
   const fieldId = p.fieldId;
   const timeZone = p.timeZone ?? "UTC";
+  const data = recordData(options.recordAlias ?? "r");
+  const rawJson = sql`${data}->${fieldId}`;
+  const rawText = sql`${data}->>${fieldId}`;
   return {
-    text: p.caseInsensitive ? sql`LOWER(data->>${fieldId})` : sql`data->>${fieldId}`,
-    numeric: sql`grids.try_numeric(data->>${fieldId})`,
-    date: p.dateIncludeTime ? sql`grids.try_timestamptz(data->>${fieldId})` : sql`grids.try_iso_date(data->>${fieldId})`,
+    rawJson,
+    rawText,
+    text: p.caseInsensitive ? sql`LOWER(${rawText})` : rawText,
+    numeric: sql`grids.try_numeric(${rawText})`,
+    date: p.dateIncludeTime ? sql`grids.try_timestamptz(${rawText})` : sql`grids.try_iso_date(${rawText})`,
     dateOnly: p.dateIncludeTime
-      ? sql`(grids.try_timestamptz(data->>${fieldId}) AT TIME ZONE ${timeZone})::date`
-      : sql`grids.try_iso_date(data->>${fieldId})`,
-    bool: sql`grids.try_boolean(data->>${fieldId})`,
+      ? sql`(grids.try_timestamptz(${rawText}) AT TIME ZONE ${timeZone})::date`
+      : sql`grids.try_iso_date(${rawText})`,
+    bool: sql`grids.try_boolean(${rawText})`,
   };
 };
 
@@ -272,9 +282,9 @@ const renderTextPredicate = (p: PredicateClause, projection: PredicateProjection
     case "regex":
       return sql`${projection.text} ~ ${String(v ?? "")}`;
     case "isEmpty":
-      return sql`(data->>${p.fieldId} IS NULL OR data->>${p.fieldId} = '')`;
+      return sql`(${projection.rawText} IS NULL OR ${projection.rawText} = '')`;
     case "isNotEmpty":
-      return sql`(data->>${p.fieldId} IS NOT NULL AND data->>${p.fieldId} <> '')`;
+      return sql`(${projection.rawText} IS NOT NULL AND ${projection.rawText} <> '')`;
     default:
       return sql`FALSE`;
   }
@@ -299,9 +309,9 @@ const renderNumberPredicate = (p: PredicateClause, projection: PredicateProjecti
       return sql`${projection.numeric} BETWEEN ${v?.[0]} AND ${v?.[1]}`;
     }
     case "isEmpty":
-      return sql`data->>${p.fieldId} IS NULL`;
+      return sql`${projection.rawText} IS NULL`;
     case "isNotEmpty":
-      return sql`data->>${p.fieldId} IS NOT NULL`;
+      return sql`${projection.rawText} IS NOT NULL`;
     default:
       return sql`FALSE`;
   }
@@ -349,9 +359,9 @@ const renderDatePredicate = (p: PredicateClause, projection: PredicateProjection
       return sql`(${projection.dateOnly} >= ${localToday} - ${n}::int * INTERVAL '1 day' AND ${projection.dateOnly} <= ${localToday})`;
     }
     case "isEmpty":
-      return sql`data->>${p.fieldId} IS NULL`;
+      return sql`${projection.rawText} IS NULL`;
     case "isNotEmpty":
-      return sql`data->>${p.fieldId} IS NOT NULL`;
+      return sql`${projection.rawText} IS NOT NULL`;
     default:
       return sql`FALSE`;
   }
@@ -362,68 +372,69 @@ const renderBooleanPredicate = (p: PredicateClause, projection: PredicateProject
     case "=":
       return sql`${projection.bool} = ${Boolean(p.value)}`;
     case "isEmpty":
-      return sql`data->>${p.fieldId} IS NULL`;
+      return sql`${projection.rawText} IS NULL`;
     case "isNotEmpty":
-      return sql`data->>${p.fieldId} IS NOT NULL`;
+      return sql`${projection.rawText} IS NOT NULL`;
     default:
       return sql`FALSE`;
   }
 };
 
-const selectContains = (fieldId: string, value: unknown): any => sql`(data->${fieldId})::jsonb @> ${[value]}::jsonb`;
+const selectContains = (projection: PredicateProjection, value: unknown): any => sql`(${projection.rawJson})::jsonb @> ${[value]}::jsonb`;
 
-const renderSelectPredicate = (p: PredicateClause): any => {
-  const fieldId = p.fieldId;
+const renderSelectPredicate = (p: PredicateClause, projection: PredicateProjection): any => {
   switch (p.op) {
     case "is":
-      return selectContains(fieldId, p.value);
+      return selectContains(projection, p.value);
     case "isNot":
       return sql`(
-          data->>${fieldId} IS NULL
-          OR jsonb_typeof(data->${fieldId}) <> 'array'
-          OR NOT (${selectContains(fieldId, p.value)})
+          ${projection.rawText} IS NULL
+          OR jsonb_typeof(${projection.rawJson}) <> 'array'
+          OR NOT (${selectContains(projection, p.value)})
         )`;
     case "isAnyOf": {
       const items = (p.value as string[]) ?? [];
       if (items.length === 0) return sql`FALSE`;
-      const any = items.map((s) => selectContains(fieldId, s)).reduce((acc, cur) => sql`${acc} OR ${cur}`);
+      const any = items.map((s) => selectContains(projection, s)).reduce((acc, cur) => sql`${acc} OR ${cur}`);
       return sql`(${any})`;
     }
     case "isNoneOf": {
       const items = (p.value as string[]) ?? [];
       if (items.length === 0) return sql`TRUE`;
-      const none = items.map((s) => sql`NOT (${selectContains(fieldId, s)})`).reduce((acc, cur) => sql`${acc} AND ${cur}`);
+      const none = items.map((s) => sql`NOT (${selectContains(projection, s)})`).reduce((acc, cur) => sql`${acc} AND ${cur}`);
       return sql`(
-            data->>${fieldId} IS NULL
-            OR jsonb_typeof(data->${fieldId}) <> 'array'
+            ${projection.rawText} IS NULL
+            OR jsonb_typeof(${projection.rawJson}) <> 'array'
             OR (${none})
           )`;
     }
     case "isEmpty":
       return sql`(
-          data->>${fieldId} IS NULL
-          OR jsonb_typeof(data->${fieldId}) <> 'array'
-          OR jsonb_array_length(data->${fieldId}) = 0
+          ${projection.rawText} IS NULL
+          OR jsonb_typeof(${projection.rawJson}) <> 'array'
+          OR jsonb_array_length(${projection.rawJson}) = 0
         )`;
     case "isNotEmpty":
       return sql`(
-          data->>${fieldId} IS NOT NULL
-          AND jsonb_typeof(data->${fieldId}) = 'array'
-          AND jsonb_array_length(data->${fieldId}) > 0
+          ${projection.rawText} IS NOT NULL
+          AND jsonb_typeof(${projection.rawJson}) = 'array'
+          AND jsonb_array_length(${projection.rawJson}) > 0
         )`;
     default:
       return sql`FALSE`;
   }
 };
 
-const renderRelationPredicate = (p: PredicateClause): any => {
+const renderRelationPredicate = (p: PredicateClause, options: RenderOptions = {}): any => {
+  const recordAlias = options.recordAlias ?? "r";
+  const sourceRecordId = recordId(recordAlias);
   switch (p.op) {
     case "containsAny": {
       const ids = (p.value as string[]) ?? [];
       return sql`EXISTS (
             SELECT 1
             FROM grids.record_links rl
-            WHERE rl.from_record_id = r.id
+            WHERE rl.from_record_id = ${sourceRecordId}
               AND rl.from_field_id = ${p.fieldId}::uuid
               AND rl.to_record_id = ANY(${sql.array(ids, "UUID")})
           )`;
@@ -432,14 +443,14 @@ const renderRelationPredicate = (p: PredicateClause): any => {
       return sql`NOT EXISTS (
           SELECT 1
           FROM grids.record_links rl
-          WHERE rl.from_record_id = r.id
+          WHERE rl.from_record_id = ${sourceRecordId}
             AND rl.from_field_id = ${p.fieldId}::uuid
         )`;
     case "isNotEmpty":
       return sql`EXISTS (
           SELECT 1
           FROM grids.record_links rl
-          WHERE rl.from_record_id = r.id
+          WHERE rl.from_record_id = ${sourceRecordId}
             AND rl.from_field_id = ${p.fieldId}::uuid
         )`;
     default:
@@ -455,28 +466,28 @@ const renderRelationPredicate = (p: PredicateClause): any => {
 // bun.sql template-tag types don't unify when fragments compose, so we
 // follow the existing platform convention of typing fragments as `any`.
 // Same approach is used in spaces / contacts for nested WHERE clauses.
-export const renderClause = (clause: CompiledClause): any => {
+export const renderClause = (clause: CompiledClause, options: RenderOptions = {}): any => {
   switch (clause.kind) {
     case "true":
       return sql`TRUE`;
     case "false":
       return sql`FALSE`;
     case "not":
-      return sql`NOT (${renderClause(clause.inner)})`;
+      return sql`NOT (${renderClause(clause.inner, options)})`;
     case "and":
     case "or": {
       if (clause.parts.length === 0) return clause.kind === "and" ? sql`TRUE` : sql`FALSE`;
       const sep = clause.kind === "and" ? sql` AND ` : sql` OR `;
-      const joined = clause.parts.map((p) => sql`(${renderClause(p)})`).reduce((acc, cur) => sql`${acc}${sep}${cur}`);
+      const joined = clause.parts.map((p) => sql`(${renderClause(p, options)})`).reduce((acc, cur) => sql`${acc}${sep}${cur}`);
       return sql`(${joined})`;
     }
     case "predicate":
-      return renderPredicate(clause);
+      return renderPredicate(clause, options);
   }
 };
 
-const renderPredicate = (p: PredicateClause): any => {
-  const projection = predicateProjection(p);
+const renderPredicate = (p: PredicateClause, options: RenderOptions = {}): any => {
+  const projection = predicateProjection(p, options);
   switch (p.fieldType) {
     case "text":
     case "id":
@@ -491,9 +502,9 @@ const renderPredicate = (p: PredicateClause): any => {
     case "boolean":
       return renderBooleanPredicate(p, projection);
     case "select":
-      return renderSelectPredicate(p);
+      return renderSelectPredicate(p, projection);
     case "relation":
-      return renderRelationPredicate(p);
+      return renderRelationPredicate(p, options);
     default:
       return sql`FALSE`;
   }

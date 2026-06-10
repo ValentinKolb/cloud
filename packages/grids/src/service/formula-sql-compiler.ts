@@ -23,14 +23,13 @@ export type FormulaSqlCompileOptions = {
   recordAlias?: string;
   dateConfig?: DateContext;
   now?: Date;
+  resolveField?: (ref: string) => FormulaSqlExpression | null;
 };
 
-export type FormulaSqlCompileResult =
-  | { ok: true; expression: FormulaSqlExpression }
-  | { ok: false; error: string };
+export type FormulaSqlCompileResult = { ok: true; expression: FormulaSqlExpression } | { ok: false; error: string };
 
 type CompileContext = Required<Pick<FormulaSqlCompileOptions, "recordAlias" | "now">> &
-  Pick<FormulaSqlCompileOptions, "dateConfig"> & {
+  Pick<FormulaSqlCompileOptions, "dateConfig" | "resolveField"> & {
     fieldsByRef: Map<string, Field>;
   };
 
@@ -119,14 +118,7 @@ const numericValues = (args: FormulaSqlExpression[], aggregate: "AVG" | "MIN" | 
       WHERE v IS NOT NULL
     )`;
   }
-  const fn =
-    aggregate === "AVG"
-      ? sql`AVG(v)`
-      : aggregate === "MIN"
-        ? sql`MIN(v)`
-        : aggregate === "MAX"
-          ? sql`MAX(v)`
-          : sql`SUM(v)`;
+  const fn = aggregate === "AVG" ? sql`AVG(v)` : aggregate === "MIN" ? sql`MIN(v)` : aggregate === "MAX" ? sql`MAX(v)` : sql`SUM(v)`;
   return sql`(
     SELECT ${fn}
     FROM (VALUES ${rows}) AS formula_values(v)
@@ -137,15 +129,26 @@ const numericValues = (args: FormulaSqlExpression[], aggregate: "AVG" | "MIN" | 
 const compileBinop = (op: BinOp, left: FormulaSqlExpression, right: FormulaSqlExpression): FormulaSqlCompileResult => {
   if (op === "&&") return ok(sql`(${asBoolean(left)} AND ${asBoolean(right)})`, "boolean");
   if (op === "||") return ok(sql`(${asBoolean(left)} OR ${asBoolean(right)})`, "boolean");
-  if (op === "=") return ok(sql`(${left.sql} IS NOT DISTINCT FROM ${right.sql})`, "boolean");
-  if (op === "!=") return ok(sql`NOT (${left.sql} IS NOT DISTINCT FROM ${right.sql})`, "boolean");
+
+  const comparisonOperands = (): { leftSql: unknown; rightSql: unknown } => {
+    if (left.type === "numeric" || right.type === "numeric") return { leftSql: asNumeric(left), rightSql: asNumeric(right) };
+    if (left.type === "datetime" || right.type === "datetime") return { leftSql: asTimestamp(left), rightSql: asTimestamp(right) };
+    if (left.type === "date" || right.type === "date") return { leftSql: asDate(left), rightSql: asDate(right) };
+    if (left.type === "boolean" && right.type === "boolean") return { leftSql: asBoolean(left), rightSql: asBoolean(right) };
+    return { leftSql: asText(left), rightSql: asText(right) };
+  };
+
+  if (op === "=" || op === "!=") {
+    const operands = comparisonOperands();
+    const equal = sql`(${operands.leftSql} IS NOT DISTINCT FROM ${operands.rightSql})`;
+    return ok(op === "=" ? equal : sql`NOT ${equal}`, "boolean");
+  }
   if (op === "<" || op === "<=" || op === ">" || op === ">=") {
-    const leftSql = left.type === "numeric" || right.type === "numeric" ? asNumeric(left) : left.sql;
-    const rightSql = left.type === "numeric" || right.type === "numeric" ? asNumeric(right) : right.sql;
-    if (op === "<") return ok(sql`(${leftSql} < ${rightSql})`, "boolean");
-    if (op === "<=") return ok(sql`(${leftSql} <= ${rightSql})`, "boolean");
-    if (op === ">") return ok(sql`(${leftSql} > ${rightSql})`, "boolean");
-    return ok(sql`(${leftSql} >= ${rightSql})`, "boolean");
+    const operands = comparisonOperands();
+    if (op === "<") return ok(sql`(${operands.leftSql} < ${operands.rightSql})`, "boolean");
+    if (op === "<=") return ok(sql`(${operands.leftSql} <= ${operands.rightSql})`, "boolean");
+    if (op === ">") return ok(sql`(${operands.leftSql} > ${operands.rightSql})`, "boolean");
+    return ok(sql`(${operands.leftSql} >= ${operands.rightSql})`, "boolean");
   }
   if (op === "+") {
     if (left.type === "text" && right.type === "text") return ok(sql`(${asText(left)} || ${asText(right)})`, "text");
@@ -176,8 +179,60 @@ const compileDateDiff = (args: Expr[], compiled: FormulaSqlExpression[]): Formul
   return ok(sql`FLOOR(${seconds})::numeric`, "numeric");
 };
 
+const FORMULA_ARITY: Record<string, { min: number; max: number }> = {
+  ABS: { min: 1, max: 1 },
+  ROUND: { min: 1, max: 2 },
+  FLOOR: { min: 1, max: 1 },
+  CEIL: { min: 1, max: 1 },
+  SQRT: { min: 1, max: 1 },
+  POW: { min: 2, max: 2 },
+  MOD: { min: 2, max: 2 },
+  SUM: { min: 1, max: Number.POSITIVE_INFINITY },
+  AVG: { min: 1, max: Number.POSITIVE_INFINITY },
+  MEAN: { min: 1, max: Number.POSITIVE_INFINITY },
+  MEDIAN: { min: 1, max: Number.POSITIVE_INFINITY },
+  MIN: { min: 1, max: Number.POSITIVE_INFINITY },
+  MAX: { min: 1, max: Number.POSITIVE_INFINITY },
+  COUNT: { min: 1, max: Number.POSITIVE_INFINITY },
+  PERCENT: { min: 2, max: 2 },
+  CONCAT: { min: 1, max: Number.POSITIVE_INFINITY },
+  LEN: { min: 1, max: 1 },
+  LOWER: { min: 1, max: 1 },
+  UPPER: { min: 1, max: 1 },
+  TRIM: { min: 1, max: 1 },
+  LEFT: { min: 2, max: 2 },
+  RIGHT: { min: 2, max: 2 },
+  SUBSTRING: { min: 3, max: 3 },
+  REPLACE: { min: 3, max: 3 },
+  IF: { min: 3, max: 3 },
+  IFEMPTY: { min: 2, max: 2 },
+  IFERROR: { min: 2, max: 2 },
+  AND: { min: 1, max: Number.POSITIVE_INFINITY },
+  OR: { min: 1, max: Number.POSITIVE_INFINITY },
+  NOT: { min: 1, max: 1 },
+  ISBLANK: { min: 1, max: 1 },
+  CONTAINS: { min: 2, max: 2 },
+  TODAY: { min: 0, max: 0 },
+  NOW: { min: 0, max: 0 },
+  YEAR: { min: 1, max: 1 },
+  MONTH: { min: 1, max: 1 },
+  DAY: { min: 1, max: 1 },
+  DATEADD: { min: 2, max: 3 },
+  DATEDIFF: { min: 2, max: 3 },
+};
+
+const formatArity = (spec: { min: number; max: number }): string => {
+  if (spec.min === spec.max) return spec.min === 1 ? "1 argument" : `${spec.min} arguments`;
+  if (spec.max === Number.POSITIVE_INFINITY) return `at least ${spec.min} argument${spec.min === 1 ? "" : "s"}`;
+  return `${spec.min}-${spec.max} arguments`;
+};
+
 const compileFunction = (fn: string, args: Expr[], ctx: CompileContext): FormulaSqlCompileResult => {
   const upper = fn.toUpperCase();
+  const arity = FORMULA_ARITY[upper];
+  if (arity && (args.length < arity.min || args.length > arity.max)) {
+    return fail(`${upper} needs ${formatArity(arity)}; got ${args.length}`);
+  }
   const compiledResults = compileMany(args, ctx);
   const error = firstError(compiledResults);
   if (error) return error;
@@ -226,7 +281,8 @@ const compileFunction = (fn: string, args: Expr[], ctx: CompileContext): Formula
     const elseType = arg(2).type;
     return ok(sql`CASE WHEN ${boolArg(0)} THEN ${arg(1).sql} ELSE ${arg(2).sql} END`, thenType === elseType ? thenType : "unknown");
   }
-  if (upper === "IFEMPTY") return ok(sql`CASE WHEN ${arg(0).sql} IS NULL OR (${arg(0).sql})::text = '' THEN ${arg(1).sql} ELSE ${arg(0).sql} END`, arg(0).type);
+  if (upper === "IFEMPTY")
+    return ok(sql`CASE WHEN ${arg(0).sql} IS NULL OR (${arg(0).sql})::text = '' THEN ${arg(1).sql} ELSE ${arg(0).sql} END`, arg(0).type);
   if (upper === "IFERROR") return ok(sql`COALESCE(${arg(0).sql}, ${arg(1).sql})`, arg(0).type === arg(1).type ? arg(0).type : "unknown");
   if (upper === "AND") return ok(compiled.length === 0 ? sql`true` : sql`(${sqlJoin(compiled.map(asBoolean), sql` AND `)})`, "boolean");
   if (upper === "OR") return ok(compiled.length === 0 ? sql`false` : sql`(${sqlJoin(compiled.map(asBoolean), sql` OR `)})`, "boolean");
@@ -254,6 +310,8 @@ const compileExpr = (expr: Expr, ctx: CompileContext): FormulaSqlCompileResult =
     return ok(literal.sql, literal.type);
   }
   if (expr.kind === "field") {
+    const custom = ctx.resolveField?.(expr.fieldId);
+    if (custom) return ok(custom.sql, custom.type);
     const field = ctx.fieldsByRef.get(expr.fieldId);
     if (!field || field.deletedAt !== null) return fail(`Unknown formula field reference #${expr.fieldId}`);
     const descriptor = storageOf(field);
@@ -285,7 +343,15 @@ export const compileFormulaAstToSql = (ast: Expr, options: FormulaSqlCompileOpti
     recordAlias,
     dateConfig: options.dateConfig,
     now: options.now ?? new Date(),
+    resolveField: options.resolveField,
   });
+};
+
+export const compileFormulaPredicateAstToSql = (ast: Expr, options: FormulaSqlCompileOptions): FormulaSqlCompileResult => {
+  const compiled = compileFormulaAstToSql(ast, options);
+  if (!compiled.ok) return compiled;
+  if (compiled.expression.type !== "boolean") return fail("Formula predicate must return a boolean value");
+  return compiled;
 };
 
 export const compileFormulaSourceToSql = (source: string, options: FormulaSqlCompileOptions): FormulaSqlCompileResult => {
