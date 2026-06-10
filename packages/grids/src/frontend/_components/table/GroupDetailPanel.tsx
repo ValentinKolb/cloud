@@ -1,4 +1,4 @@
-import { TextInput } from "@valentinkolb/cloud/ui";
+import { Placeholder, TextInput } from "@valentinkolb/cloud/ui";
 import { dates, type DateContext } from "@valentinkolb/stdlib";
 import { mutation, timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -227,7 +227,7 @@ export default function GroupDetailPanel(props: Props) {
           <Show
             when={items().length > 0}
             fallback={
-              <div class="py-6 text-center text-sm text-dimmed">
+              <Placeholder>
                 <Show when={fetchMut.error()} fallback={fetchMut.loading() ? "Loading records..." : "No records in this group."}>
                   {(err) => (
                     <span>
@@ -236,7 +236,7 @@ export default function GroupDetailPanel(props: Props) {
                     </span>
                   )}
                 </Show>
-              </div>
+              </Placeholder>
             }
           >
             <For each={items()}>

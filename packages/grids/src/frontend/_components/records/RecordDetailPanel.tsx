@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView, prompts } from "@valentinkolb/cloud/ui";
+import { MarkdownView, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { text, type DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, type JSX, Show } from "solid-js";
@@ -412,7 +412,7 @@ export default function RecordDetailPanel(props: Props) {
             </div>
           </section>
 
-          <Show when={hasBodyFields(rec)} fallback={<section class="paper p-4 text-sm text-dimmed">No fields to show.</section>}>
+          <Show when={hasBodyFields(rec)} fallback={<Placeholder surface="paper" align="left">No fields to show.</Placeholder>}>
             <For each={barcodeFields(rec)}>{(field) => renderBarcodePaper(field, rec)}</For>
 
             <Show when={detailsFields(rec).length > 0}>
@@ -612,7 +612,7 @@ function RecordHistorySection(props: { tableId: string; recordId: string }) {
           <p class="text-xs text-dimmed">Loading history…</p>
         </Show>
         <Show when={!entries.loading && entries() && entries()!.items.length === 0}>
-          <p class="text-xs text-dimmed">No history yet.</p>
+          <Placeholder align="left" class="px-0 py-2">No history yet.</Placeholder>
         </Show>
         <For each={entries()?.items ?? []}>
           {(entry) => {

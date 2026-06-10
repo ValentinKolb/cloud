@@ -13,7 +13,7 @@
  */
 import { fileIcons } from "@valentinkolb/stdlib";
 import { clipboard } from "@valentinkolb/stdlib/browser";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { For, Show, createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import {
@@ -95,19 +95,18 @@ const AttachmentsOverview = (props: Props) => {
     <Show
       when={items().length > 0}
       fallback={
-        <div class="paper p-8 flex flex-col items-center justify-center gap-2 text-xs text-dimmed">
-          <i class="ti ti-paperclip text-2xl" />
-          {props.searchQuery ? (
-            <p>No attachments match "{props.searchQuery}".</p>
-          ) : (
-            <>
-              <p>No attachments yet.</p>
-              <p>
-                Drop files into the editor or use the <span class="font-mono">/file</span> command.
-              </p>
-            </>
-          )}
-        </div>
+        props.searchQuery ? (
+          <Placeholder surface="paper" icon="ti ti-paperclip">
+            No attachments match "{props.searchQuery}".
+          </Placeholder>
+        ) : (
+          <Placeholder
+            surface="paper"
+            icon="ti ti-paperclip"
+            title="No attachments yet."
+            description={<>Drop files into the editor or use the <span class="font-mono">/file</span> command.</>}
+          />
+        )
       }
     >
         <ul class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12 2xl:grid-cols-16 gap-2">

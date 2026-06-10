@@ -8,7 +8,7 @@
  * tag-count is bounded — even a notebook with thousands of tags fits
  * in one fetch and a memo-based filter.
  */
-import { prompts } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { timed } from "@valentinkolb/stdlib/solid";
 import { For, Show, createMemo, createResource, createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -71,9 +71,9 @@ const TagsModal = (props: { notebookId: string; close: () => void }) => {
         <Show
           when={filtered().length > 0}
           fallback={
-            <p class="text-xs text-dimmed py-2">
+            <Placeholder align="left" icon="ti ti-tags" class="py-2">
               {(tags() ?? []).length === 0 ? "No tags yet." : `No tags match "${query()}".`}
-            </p>
+            </Placeholder>
           }
         >
           {/* Compact floating grid — flex-wrap pills so many tags fit

@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView } from "@valentinkolb/cloud/ui";
+import { MarkdownView, Placeholder } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show, type JSX } from "solid-js";
 import { FormatSpecSchema, type RecordDisplayConfig } from "../../../contracts";
@@ -214,7 +214,7 @@ export function RecordCardsView(props: {
     <div class="flex min-h-0 flex-1 flex-col overflow-auto" data-scroll-preserve={`grids-cards-${props.tableId}`}>
       <Show
         when={props.items.length > 0}
-        fallback={<div class="flex min-h-48 items-center justify-center text-sm text-dimmed">No records</div>}
+        fallback={<Placeholder icon="ti ti-table" class="min-h-48 justify-center">No records</Placeholder>}
       >
         <div class={`grid p-0.5 ${cardGridClass[size()]}`}>
           <For each={props.items}>

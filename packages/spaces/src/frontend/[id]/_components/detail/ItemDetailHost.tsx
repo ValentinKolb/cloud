@@ -1,5 +1,5 @@
 import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { DateContext } from "@valentinkolb/stdlib";
@@ -150,10 +150,9 @@ export default function ItemDetailHost(props: Props) {
               Loading item details
             </p>
           ) : props.showEmpty ? (
-            <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
-              <i class="ti ti-click text-sm" />
+            <Placeholder icon="ti ti-click">
               {props.emptyText ?? "Select an item to view details"}
-            </p>
+            </Placeholder>
           ) : null
         }
       >

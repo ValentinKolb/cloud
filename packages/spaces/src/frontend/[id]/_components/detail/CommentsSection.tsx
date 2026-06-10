@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { MarkdownView, Placeholder, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
@@ -114,7 +114,7 @@ export default function CommentsSection(props: Props) {
       </div>
 
       <div class="flex flex-col gap-3">
-        <Show when={sortedComments().length > 0} fallback={<p class="text-xs text-dimmed">No comments yet.</p>}>
+        <Show when={sortedComments().length > 0} fallback={<Placeholder align="left" class="px-0 py-2">No comments yet.</Placeholder>}>
           <For each={sortedComments()}>
             {(comment) => (
               <div class={`flex ${comment.userId === props.currentUserId ? "justify-end" : "justify-start"}`}>

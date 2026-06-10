@@ -1,4 +1,4 @@
-import { AppWorkspace, layout, Pagination, prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, layout, Pagination, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { type LinkNavigateEvent, type NavigationScrollMode, navigate } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { streaming } from "@valentinkolb/stdlib";
@@ -318,12 +318,11 @@ export default function SpacesWorkspace(props: Props) {
           {(state().currentView === "list" || state().currentView === "table") && (
             <>
               {state().itemsResult.items.length === 0 ? (
-                <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
-                  <i class="ti ti-checkbox text-sm" />
+                <Placeholder icon="ti ti-checkbox">
                   {state().itemsResult.total === 0 && filter().search === "" && filter().status === "active"
                     ? "No items yet. Create your first item!"
                     : "No items match your filters."}
-                </p>
+                </Placeholder>
               ) : state().currentView === "table" ? (
                 <ItemsTable
                   items={state().itemsResult.items}

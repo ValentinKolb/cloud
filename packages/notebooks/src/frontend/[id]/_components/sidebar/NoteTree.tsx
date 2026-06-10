@@ -1,5 +1,5 @@
 import type { DropdownItem } from "@valentinkolb/cloud/ui";
-import { Dropdown, prompts } from "@valentinkolb/cloud/ui";
+import { Dropdown, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -603,10 +603,9 @@ export default function NoteTree(props: Props) {
       </div>
 
       {props.tree.length === 0 && (
-        <p class="flex items-center justify-center gap-1.5 px-2 py-4 text-xs text-dimmed">
-          <i class="ti ti-file-text text-sm" />
+        <Placeholder icon="ti ti-file-text" class="py-4">
           No notes yet
-        </p>
+        </Placeholder>
       )}
     </div>
   );

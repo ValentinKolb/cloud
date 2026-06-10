@@ -1,4 +1,4 @@
-import { Dropdown, prompts, SelectChip } from "@valentinkolb/cloud/ui";
+import { Dropdown, Placeholder, prompts, SelectChip } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -422,7 +422,7 @@ export default function NotebookNavigator(props: Props) {
         <div class="min-h-0 flex-1 overflow-y-auto pr-1" data-scroll-preserve={`notebooks-navigator-list-${props.notebook.shortId}`}>
           <Show
             when={visibleNotes().length > 0 || pinnedNote()}
-            fallback={<p class="paper px-3 py-3 text-xs text-dimmed">No notes here yet.</p>}
+            fallback={<Placeholder surface="paper" align="left">No notes here yet.</Placeholder>}
           >
             <div class="flex flex-col gap-1.5">
               <Show when={pinnedNote()}>
