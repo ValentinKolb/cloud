@@ -12,8 +12,8 @@ import { ipaHostsService } from "../service";
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("*"))
   .get("/sync", async (c) => {
-    const actor = c.get("actor");
-    const user = actor.kind === "user" ? actor.user : actor.delegatedUser;
+    const actor = c.get("actor") as AuthContext["Variables"]["actor"] | undefined;
+    const user = actor?.kind === "user" ? actor.user : actor?.delegatedUser;
     // 403 = admin-only widget.
     if (!user || !hasRole(user, "admin")) return c.body(null, 403);
 
