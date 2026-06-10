@@ -1,7 +1,7 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { rateLimit, v, jsonResponse, requiresAuth, auth, type AuthContext, respond } from "@valentinkolb/cloud/server";
 import { describeRoute } from "hono-openapi";
-import { err, fail, ok } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { weatherService } from "@valentinkolb/cloud/services";
 import { z } from "zod";
 
@@ -82,6 +82,17 @@ const ForecastByCityQuerySchema = z.object({
   q: z.string().min(1),
 });
 
+const getUserBackedActor = (c: Context<AuthContext>) => {
+  const actor = c.get("actor");
+  return actor.kind === "user" ? actor.user : actor.delegatedUser;
+};
+
+const requireUserBackedActor = (c: Context<AuthContext>): Result<NonNullable<ReturnType<typeof getUserBackedActor>>> => {
+  const user = getUserBackedActor(c);
+  if (!user) return fail(err.forbidden("Weather saved locations require a user-backed actor"));
+  return ok(user);
+};
+
 // Locations API (requires auth)
 const locationsApi = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
@@ -99,13 +110,14 @@ const locationsApi = new Hono<AuthContext>()
     }),
     v("json", CreateLocationSchema),
     async (c) => {
-      const user = c.get("user");
+      const user = requireUserBackedActor(c);
+      if (!user.ok) return respond(c, user);
       const { name, state, lat, lon } = c.req.valid("json");
 
       return respond(
         c,
         weatherService.location.saved.create({
-          userId: user.id,
+          userId: user.data.id,
           data: { name, state, lat, lon },
         }),
         201,
@@ -126,13 +138,14 @@ const locationsApi = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const user = c.get("user");
+      const user = requireUserBackedActor(c);
+      if (!user.ok) return respond(c, user);
       const id = c.req.param("id");
 
       return respond(c, async () => {
         const result = await weatherService.location.saved.remove({
           id,
-          userId: user.id,
+          userId: user.data.id,
         });
         if (!result.ok) return result;
         return ok({ message: "Location deleted" });

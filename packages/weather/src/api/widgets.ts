@@ -40,7 +40,8 @@ const iconFor = (icon: string) => ICON_MAP[icon] ?? { ti: "ti ti-cloud", verbal:
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("*"))
   .get("/current", async (c) => {
-    const user = c.get("user");
+    const actor = c.get("actor");
+    const user = actor.kind === "user" ? actor.user : actor.delegatedUser;
     if (!user) return c.body(null, 403);
 
     const { items: locations } = await weatherService.locations.list({ userId: user.id });
