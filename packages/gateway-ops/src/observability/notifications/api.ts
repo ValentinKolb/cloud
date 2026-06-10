@@ -1,13 +1,14 @@
 import {
   createPagination,
   ErrorResponseSchema,
+  type User,
   MessageResponseSchema,
   PaginationQuerySchema,
   PaginationResponseSchema,
   parsePagination,
 } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, rateLimit, requiresAdmin, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
-import { err, fail, ok } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
@@ -53,6 +54,17 @@ const toNotificationDto = (notification: Awaited<ReturnType<typeof notifications
   sentAt: notification.sentAt?.toISOString() ?? null,
   createdAt: notification.createdAt.toISOString(),
 });
+
+const getUserBackedActor = (c: Context<AuthContext>) => {
+  const actor = c.get("actor");
+  return actor.kind === "user" ? actor.user : actor.delegatedUser;
+};
+
+const requireUserBackedActor = (c: Context<AuthContext>): Result<User> => {
+  const user = getUserBackedActor(c);
+  if (!user) return fail(err.forbidden("Notifications require a user-backed actor"));
+  return ok(user);
+};
 
 /**
  * Loads a notification and enforces owner/admin visibility checks for subsequent mutation routes.
@@ -129,7 +141,8 @@ const app = new Hono<AuthContext>()
     }),
     v("query", PaginationQuerySchema.extend({ search: z.string().optional() })),
     async (c) => {
-      const user = c.get("user");
+      const user = requireUserBackedActor(c);
+      if (!user.ok) return respond(c, user);
 
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
@@ -137,8 +150,8 @@ const app = new Hono<AuthContext>()
       const { items, total } = await notificationsService.notification.list({
         pagination,
         access: {
-          isAdmin: user.roles.includes("admin"),
-          sentBy: user.id,
+          isAdmin: user.data.roles.includes("admin"),
+          sentBy: user.data.id,
           search: query.search,
         },
       });
@@ -168,10 +181,11 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const user = c.get("user");
+      const user = requireUserBackedActor(c);
+      if (!user.ok) return respond(c, user);
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing notification ID")));
-      const notificationCheck = await requireNotificationAccess(c, { id, user });
+      const notificationCheck = await requireNotificationAccess(c, { id, user: user.data });
       if (notificationCheck.error || !notificationCheck.notification) {
         return notificationCheck.error!;
       }
@@ -198,7 +212,8 @@ const app = new Hono<AuthContext>()
     auth.requireRole("admin"),
     v("json", SendNotificationSchema),
     async (c) => {
-      const user = c.get("user");
+      const user = requireUserBackedActor(c);
+      if (!user.ok) return respond(c, user);
 
       const { userId, subject, content, rawHtml } = c.req.valid("json");
 
@@ -208,7 +223,7 @@ const app = new Hono<AuthContext>()
           subject,
           content,
           rawHtml,
-          sentBy: user.id,
+          sentBy: user.data.id,
         });
         if (!result.ok) return result;
         return ok({ message: "Notification sent" });
@@ -232,10 +247,11 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const user = c.get("user");
+      const user = requireUserBackedActor(c);
+      if (!user.ok) return respond(c, user);
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing notification ID")));
-      const notificationCheck = await requireNotificationAccess(c, { id, user });
+      const notificationCheck = await requireNotificationAccess(c, { id, user: user.data });
       if (notificationCheck.error || !notificationCheck.notification) {
         return notificationCheck.error!;
       }
@@ -313,10 +329,11 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateNotificationSchema),
     async (c) => {
-      const user = c.get("user");
+      const user = requireUserBackedActor(c);
+      if (!user.ok) return respond(c, user);
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing notification ID")));
-      const notificationCheck = await requireNotificationAccess(c, { id, user });
+      const notificationCheck = await requireNotificationAccess(c, { id, user: user.data });
       if (notificationCheck.error || !notificationCheck.notification) {
         return notificationCheck.error!;
       }
@@ -327,7 +344,7 @@ const app = new Hono<AuthContext>()
         notificationsService.notification.update({
           id,
           data,
-          access: { isAdmin: user.roles.includes("admin") },
+          access: { isAdmin: user.data.roles.includes("admin") },
         }),
         "Notification updated",
       );

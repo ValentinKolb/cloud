@@ -21,7 +21,8 @@ const fmtCount = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(1)}k`
  * so the admin gets the gateway summary without leaving the dashboard.
  */
 export const widgetRoutes = new Hono<AuthContext>().use(auth.requireRole("*")).get("/health", async (c) => {
-  const user = c.get("user");
+  const actor = c.get("actor") as AuthContext["Variables"]["actor"] | undefined;
+  const user = actor?.kind === "user" ? actor.user : actor?.delegatedUser;
   // 403 = admin-only widget; non-admins see it as locked in the dashboard modal.
   if (!user || !hasRole(user, "admin")) return c.body(null, 403);
 
