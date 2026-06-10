@@ -1,12 +1,12 @@
-import { ssr } from "../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
-import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { MarkdownView } from "@valentinkolb/cloud/ui";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { markdown } from "@valentinkolb/cloud/shared";
+import { AdminLayout } from "@valentinkolb/cloud/ssr";
+import { MarkdownView, Placeholder } from "@valentinkolb/cloud/ui";
+import { ssr } from "../config";
 import { faqService } from "../service";
 import CreateFaqButton from "./_components/CreateFaqButton.island";
-import EditFaqButton from "./_components/EditFaqButton.island";
 import DeleteFaqButton from "./_components/DeleteFaqButton.island";
+import EditFaqButton from "./_components/EditFaqButton.island";
 
 const AUDIENCE_LABELS: Record<string, string> = {
   anonymous: "Anonymous",
@@ -66,9 +66,7 @@ export default ssr<AuthContext>(async (c) => {
               </div>
             </section>
           ) : (
-            <section class="paper p-6 text-center text-sm text-dimmed">
-              No FAQ entries yet. Click <span class="font-medium text-primary">New Entry</span> to create the first one.
-            </section>
+            <Placeholder surface="paper">No FAQ entries yet. Use New Entry to create the first one.</Placeholder>
           )}
         </div>
       </div>

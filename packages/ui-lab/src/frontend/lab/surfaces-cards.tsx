@@ -7,20 +7,21 @@
  * Widget demos show the dashboard endpoint contract: apps return
  * WidgetResponse JSON, the dashboard owns rendering.
  */
+import type { WidgetBlock, WidgetResponse } from "@valentinkolb/cloud/contracts";
 import {
   Avatar,
   LinkCard,
+  Placeholder,
   ProgressBar,
   StatCell,
   StatGrid,
   Widget,
-  WidgetStat,
-  WidgetList,
-  WidgetStatus,
-  WidgetPills,
   WidgetHero,
+  WidgetList,
+  WidgetPills,
+  WidgetStat,
+  WidgetStatus,
 } from "@valentinkolb/cloud/ui";
-import type { WidgetBlock, WidgetResponse } from "@valentinkolb/cloud/contracts";
 import type { JSX } from "solid-js";
 import DemoCard from "./DemoCard";
 
@@ -214,6 +215,32 @@ export const ThumbnailUtility = () => (
   >
     <div class="w-12 h-12 thumbnail bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
       <i class="ti ti-rocket text-2xl text-zinc-600 dark:text-zinc-400" />
+    </div>
+  </DemoCard>
+);
+
+export const PlaceholderDemo = () => (
+  <DemoCard
+    id="placeholder"
+    chip={{ kind: "component", name: "Placeholder", from: FROM_UI }}
+    description="Compact shared empty state for admin tables, panels, and small sections."
+    code={`<Placeholder surface="paper">
+  No FAQ entries yet. Use New Entry to create the first one.
+</Placeholder>
+
+<div class="paper p-3">
+  <Placeholder align="left" icon="ti ti-users">
+    No direct permissions configured.
+  </Placeholder>
+</div>`}
+  >
+    <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <Placeholder surface="paper">No FAQ entries yet. Use New Entry to create the first one.</Placeholder>
+      <div class="paper p-3">
+        <Placeholder align="left" icon="ti ti-users">
+          No direct permissions configured.
+        </Placeholder>
+      </div>
     </div>
   </DemoCard>
 );
@@ -503,6 +530,7 @@ export const SurfacesCardsTab = () => (
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
       <PaperUtility />
       <ThumbnailUtility />
+      <PlaceholderDemo />
       <LinkCardDemo />
       <ProgressBarDemo />
       <AvatarDemo />

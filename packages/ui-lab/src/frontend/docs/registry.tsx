@@ -109,6 +109,7 @@ import {
   AvatarDemo,
   LinkCardDemo,
   PaperUtility,
+  PlaceholderDemo,
   ProgressBarDemo,
   StatCellDemo,
   StatGridDemo,
@@ -538,12 +539,13 @@ export const uiLabDocs: UiLabDocSection[] = [
         "utilities",
         "Surface Utilities",
         "ti ti-border-all",
-        "Shared paper and thumbnail utility classes.",
-        ["paper", "thumbnail"],
+        "Shared paper, thumbnail, and placeholder surfaces.",
+        ["paper", "thumbnail", "placeholder"],
         () => (
           <DemoGrid>
             <PaperUtility />
             <ThumbnailUtility />
+            <PlaceholderDemo />
           </DemoGrid>
         ),
       ),

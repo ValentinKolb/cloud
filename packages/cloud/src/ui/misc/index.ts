@@ -35,8 +35,6 @@ export type { CodeDisplayLanguage, CodeDisplayProps } from "./CodeDisplay";
 export { default as CodeDisplay } from "./CodeDisplay";
 export { default as ContextMenu } from "./ContextMenu";
 export { default as CopyButton } from "./CopyButton";
-export type { DocCodeHighlighter, DocCodeProps, DocConcept, DocNoteVariant, DocRow } from "./Docs";
-export { DocCode, DocConceptGrid, DocInlineCode, DocLead, DocNote, DocPage, DocRows, DocSection } from "./Docs";
 export type {
   DataTableColumn,
   DataTableFooter,
@@ -46,14 +44,16 @@ export type {
 } from "./DataTable";
 export { default as DataTable } from "./DataTable";
 export type {
-  DockWorkspacePaneProps,
   DockWorkspacePaneDescriptor,
+  DockWorkspacePaneProps,
   DockWorkspaceProps,
   DockWorkspaceResultProps,
   DockWorkspaceSectionState,
   DockWorkspaceState,
 } from "./DockWorkspace";
 export { default as DockWorkspace, normalizeDockWorkspaceState, readDockWorkspaceStateCookie } from "./DockWorkspace";
+export type { DocCodeHighlighter, DocCodeProps, DocConcept, DocNoteVariant, DocRow } from "./Docs";
+export { DocCode, DocConceptGrid, DocInlineCode, DocLead, DocNote, DocPage, DocRows, DocSection } from "./Docs";
 export type { DropdownItem } from "./Dropdown";
 export { default as Dropdown } from "./Dropdown";
 export type { EntitySearchPrincipal } from "./EntitySearch";
@@ -74,6 +74,8 @@ export type {
 } from "./PanelDialog";
 export { confirmDiscardIfDirty, default as PanelDialog, panelDialogOptions, panelDialogPanelClass } from "./PanelDialog";
 export { default as PermissionEditor } from "./PermissionEditor";
+export type { PlaceholderAlign, PlaceholderProps, PlaceholderSurface } from "./Placeholder";
+export { default as Placeholder } from "./Placeholder";
 export { default as ProgressBar } from "./ProgressBar";
 export { default as RemoveBtn } from "./RemoveBtn";
 export type { ResourceApiKey, ResourceApiKeyPermissionOption, ResourceApiKeysProps } from "./ResourceApiKeys";
