@@ -45,6 +45,15 @@ export type {
   DataTableRenderHeader,
 } from "./DataTable";
 export { default as DataTable } from "./DataTable";
+export type {
+  DockWorkspacePaneProps,
+  DockWorkspacePaneDescriptor,
+  DockWorkspaceProps,
+  DockWorkspaceResultProps,
+  DockWorkspaceSectionState,
+  DockWorkspaceState,
+} from "./DockWorkspace";
+export { default as DockWorkspace, normalizeDockWorkspaceState, readDockWorkspaceStateCookie } from "./DockWorkspace";
 export type { DropdownItem } from "./Dropdown";
 export { default as Dropdown } from "./Dropdown";
 export type { EntitySearchPrincipal } from "./EntitySearch";

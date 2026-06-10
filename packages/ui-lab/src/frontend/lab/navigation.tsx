@@ -11,6 +11,8 @@ import {
   AppOverview,
   AppWorkspace,
   dialogCore,
+  DockWorkspace,
+  type DockWorkspaceState,
   FilterChip,
   type FilterChipSection,
   Pagination,
@@ -302,6 +304,114 @@ export const AppWorkspaceDemo = () => {
     </DemoCard>
   );
 };
+
+export const DockWorkspaceDemo = (props: { initialState?: DockWorkspaceState | null }) => (
+  <DemoCard
+    id="dockworkspace"
+    chip={{ kind: "component", name: "DockWorkspace", from: FROM_UI }}
+    description="IDE-style workspace shell with one result pane and sectioned bottom panes. Resize the result area and bottom sections; drag tabs between sections to rearrange context."
+    code={`<DockWorkspace storageKey="ui-lab.dockworkspace">
+  <DockWorkspace.Result title="Result" icon="ti ti-chart-line">
+    <ResultView />
+  </DockWorkspace.Result>
+  <DockWorkspace.Pane id="query" title="Query" icon="ti ti-code" section="editor">
+    <QueryEditor />
+  </DockWorkspace.Pane>
+  <DockWorkspace.Pane id="sources" title="Sources" icon="ti ti-database" section="context">
+    <SourcesPanel />
+  </DockWorkspace.Pane>
+  <DockWorkspace.Pane id="saved" title="Saved" icon="ti ti-device-floppy" section="context">
+    <SavedQueries />
+  </DockWorkspace.Pane>
+</DockWorkspace>`}
+  >
+    <div class="h-[34rem] overflow-hidden">
+      <DockWorkspace storageKey="ui-lab.dockworkspace.demo" initialState={props.initialState}>
+        <DockWorkspace.Result title="Result" icon="ti ti-chart-line">
+          <div class="paper flex h-full min-h-0 flex-col p-4">
+            <div class="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">Preview</p>
+                <h3 class="text-lg font-semibold text-primary">Revenue by channel</h3>
+              </div>
+              <div class="rounded bg-zinc-100 px-2 py-1 text-xs text-secondary dark:bg-zinc-900">auto refreshed</div>
+            </div>
+            <div class="grid min-h-0 flex-1 grid-cols-8 items-end gap-2 rounded-lg bg-zinc-50 p-4 dark:bg-zinc-900/70">
+              {[42, 64, 51, 78, 69, 92, 58, 83].map((height, index) => (
+                <div class="flex min-h-0 flex-col justify-end gap-2">
+                  <div
+                    class="rounded-t bg-blue-500/80 dark:bg-blue-400/80"
+                    style={{ height: `${height}%`, "min-height": "1.5rem" }}
+                  />
+                  <span class="text-center text-[10px] text-dimmed">{index + 1}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </DockWorkspace.Result>
+
+        <DockWorkspace.Pane id="query" title="Query" icon="ti ti-code" section="editor">
+          <div class="h-full bg-fuchsia-50/40 dark:bg-fuchsia-950/10">
+            <div class="paper h-full p-3 font-mono text-sm leading-6 text-zinc-900 dark:text-zinc-100">
+              <p>
+                <span class="text-blue-600 dark:text-blue-300">metric</span> sales.revenue <span class="text-emerald-600 dark:text-emerald-300">sum</span>
+              </p>
+              <p>
+                <span class="text-blue-600 dark:text-blue-300">every</span> 1h
+              </p>
+              <p>
+                <span class="text-blue-600 dark:text-blue-300">since</span> 24h
+              </p>
+              <p>
+                <span class="text-blue-600 dark:text-blue-300">where</span> channel=web
+              </p>
+            </div>
+          </div>
+        </DockWorkspace.Pane>
+
+        <DockWorkspace.Pane id="sources" title="Sources" icon="ti ti-database" section="context">
+          <div class="h-full bg-fuchsia-50/40 dark:bg-fuchsia-950/10">
+            <div class="paper grid h-full content-start gap-2 p-3">
+              {["Webshop", "Importer", "Billing"].map((name) => (
+                <button type="button" class="rounded-md bg-zinc-100/70 px-3 py-2 text-left text-sm transition hover:bg-zinc-100 dark:bg-zinc-900/60 dark:hover:bg-zinc-900">
+                  <span class="font-medium text-primary">{name}</span>
+                  <span class="block text-xs text-dimmed">Click to scope query</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </DockWorkspace.Pane>
+
+        <DockWorkspace.Pane id="saved" title="Saved" icon="ti ti-device-floppy" section="context">
+          <div class="h-full bg-fuchsia-50/40 dark:bg-fuchsia-950/10">
+            <div class="paper grid h-full content-start gap-2 p-3">
+              {["Revenue today", "Checkout errors", "Returning users"].map((name) => (
+                <button type="button" class="rounded-md bg-zinc-100/70 px-3 py-2 text-left text-sm transition hover:bg-zinc-100 dark:bg-zinc-900/60 dark:hover:bg-zinc-900">
+                  <span class="font-medium text-primary">{name}</span>
+                  <code class="block truncate text-[11px] text-dimmed">metric example.query sum every 1h since 24h</code>
+                </button>
+              ))}
+            </div>
+          </div>
+        </DockWorkspace.Pane>
+
+        <DockWorkspace.Pane id="reference" title="Reference" icon="ti ti-book" section="help">
+          <div class="h-full bg-fuchsia-50/40 text-sm dark:bg-fuchsia-950/10">
+            <div class="paper h-full space-y-3 p-3">
+              <p class="font-medium text-primary">Query snippets</p>
+              <p class="text-dimmed">Drag this tab into another bottom section or resize the section splitters.</p>
+              <div class="rounded-md bg-zinc-100/70 p-3 font-mono text-xs dark:bg-zinc-900/60">
+                metric &lt;name&gt; latest
+                <br />
+                since 10m
+              </div>
+            </div>
+          </div>
+        </DockWorkspace.Pane>
+      </DockWorkspace>
+    </div>
+  </DemoCard>
+);
 
 const overviewRows = [
   { icon: "ti ti-file-text", title: "Launch checklist", meta: "Product", status: "Updated 2m ago" },

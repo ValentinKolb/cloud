@@ -1,4 +1,5 @@
 import { AppWorkspace, layout } from "@valentinkolb/cloud/ui";
+import type { DockWorkspaceState } from "@valentinkolb/cloud/ui";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { docHref, findDocPage, uiLabDocs } from "./registry";
 
@@ -6,6 +7,7 @@ type UiLabDocsProps = {
   section: string;
   slug: string;
   markdownHtml: string;
+  dockWorkspaceInitialState?: DockWorkspaceState | null;
 };
 
 export default function UiLabDocs(props: UiLabDocsProps) {
@@ -115,7 +117,7 @@ export default function UiLabDocs(props: UiLabDocsProps) {
                   <p class="max-w-3xl text-sm text-dimmed">{current()!.summary}</p>
                 </header>
 
-                {current()!.render({ markdownHtml: props.markdownHtml })}
+                {current()!.render({ markdownHtml: props.markdownHtml, dockWorkspaceInitialState: props.dockWorkspaceInitialState })}
               </>
             ) : (
               <div class="paper flex max-w-md flex-col items-center gap-2 self-center p-8 text-center text-xs text-dimmed">

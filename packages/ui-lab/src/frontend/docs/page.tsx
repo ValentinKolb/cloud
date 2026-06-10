@@ -2,6 +2,7 @@ import { ssr } from "../../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { readDockWorkspaceStateCookie } from "@valentinkolb/cloud/ui";
 import { findDocPage } from "./registry";
 import UiLabDocs from "./UiLabDocs.island";
 
@@ -23,6 +24,7 @@ export default ssr<AuthContext>(async (c) => {
   const section = c.req.param("section");
   const slug = c.req.param("slug");
   const current = findDocPage(section, slug);
+  const dockWorkspaceInitialState = readDockWorkspaceStateCookie(c.req.header("Cookie"), "ui-lab.dockworkspace.demo");
 
   if (!current) {
     return () => (
@@ -39,7 +41,12 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullPage title={[{ title: "Start", href: "/" }, { title: "UI Lab", href: "/app/ui-lab" }, { title: current.title }]}>
-      <UiLabDocs section={current.section} slug={current.slug} markdownHtml={markdownPreview} />
+      <UiLabDocs
+        section={current.section}
+        slug={current.slug}
+        markdownHtml={markdownPreview}
+        dockWorkspaceInitialState={dockWorkspaceInitialState}
+      />
     </Layout>
   );
 });

@@ -1,4 +1,5 @@
 import type { JSX } from "solid-js";
+import type { DockWorkspaceState } from "@valentinkolb/cloud/ui";
 import {
   ButtonInputs,
   ButtonSizes,
@@ -95,6 +96,7 @@ import {
 import {
   AppOverviewDemo,
   AppWorkspaceDemo,
+  DockWorkspaceDemo,
   FilterChipDemo,
   NavigationEnhancementDemo,
   PaginationDemo,
@@ -119,6 +121,7 @@ import {
 
 export type UiLabDocRenderProps = {
   markdownHtml: string;
+  dockWorkspaceInitialState?: DockWorkspaceState | null;
 };
 
 export type UiLabDocPage = {
@@ -428,6 +431,19 @@ export const uiLabDocs: UiLabDocSection[] = [
         () => (
           <DemoGrid columns="one">
             <AppWorkspaceDemo />
+          </DemoGrid>
+        ),
+      ),
+      page(
+        "layout",
+        "dock-workspace",
+        "DockWorkspace",
+        "ti ti-layout-dashboard",
+        "IDE-style result plus docked pane layout for query editors, dashboard builders, and technical workspaces.",
+        ["dockworkspace"],
+        (props) => (
+          <DemoGrid columns="one">
+            <DockWorkspaceDemo initialState={props.dockWorkspaceInitialState} />
           </DemoGrid>
         ),
       ),
