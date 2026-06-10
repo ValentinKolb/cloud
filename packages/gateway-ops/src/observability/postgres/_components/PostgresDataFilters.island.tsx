@@ -1,0 +1,74 @@
+import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
+
+type Props = {
+  search: string;
+  schema: string;
+  sort: string;
+  schemas: string[];
+};
+
+const SORT_OPTIONS: FilterChipSection[] = [
+  {
+    options: [
+      { value: "size-desc", label: "Size", icon: "ti ti-database" },
+      { value: "rows-desc", label: "Rows", icon: "ti ti-list-numbers" },
+      { value: "dead-desc", label: "Dead rows", icon: "ti ti-recycle" },
+      { value: "schema-asc", label: "Schema", icon: "ti ti-folders" },
+      { value: "name-asc", label: "Name", icon: "ti ti-sort-ascending-letters" },
+    ],
+  },
+];
+
+const buildUrl = (input: { search: string; schema: string; sort: string }) => {
+  const params = new URLSearchParams();
+  if (input.search.trim()) params.set("search", input.search.trim());
+  if (input.schema && input.schema !== "all") params.set("schema", input.schema);
+  if (input.sort && input.sort !== "size-desc") params.set("sort", input.sort);
+  const query = params.toString();
+  return query ? `/admin/observability/postgres?${query}` : "/admin/observability/postgres";
+};
+
+export default function PostgresDataFilters(props: Props) {
+  const schemaOptions = (): FilterChipSection[] => [
+    {
+      options: [
+        { value: "all", label: "All schemas", icon: "ti ti-database" },
+        ...props.schemas.map((schema) => ({ value: schema, label: schema, icon: "ti ti-folder" })),
+      ],
+    },
+  ];
+
+  const navigate = (patch: Partial<Pick<Props, "schema" | "sort">>) => {
+    navigateTo(
+      buildUrl({
+        search: props.search,
+        schema: patch.schema ?? props.schema,
+        sort: patch.sort ?? props.sort,
+      }),
+    );
+  };
+
+  return (
+    <div class="flex flex-wrap items-center gap-2">
+      <FilterChip
+        label="Schema"
+        icon="ti ti-database"
+        options={schemaOptions()}
+        value={[props.schema || "all"]}
+        onChange={(value) => navigate({ schema: value[0] ?? "all" })}
+        isActive={props.schema !== "all"}
+        defaultValue={["all"]}
+      />
+      <FilterChip
+        label="Sort"
+        icon="ti ti-sort-descending"
+        options={SORT_OPTIONS}
+        value={[props.sort || "size-desc"]}
+        onChange={(value) => navigate({ sort: value[0] ?? "size-desc" })}
+        isActive={props.sort !== "size-desc"}
+        defaultValue={["size-desc"]}
+      />
+    </div>
+  );
+}
