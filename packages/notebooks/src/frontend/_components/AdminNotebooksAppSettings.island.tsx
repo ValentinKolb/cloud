@@ -9,7 +9,7 @@
  * Extensible by design: future settings just need a `defaults.ts`
  * entry — they auto-appear in this modal without any frontend change.
  */
-import { prompts } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { For, Show, createResource, createSignal } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -167,7 +167,7 @@ const SettingsBody = (props: { close: () => void }) => {
   return (
     <div class="w-full max-w-full flex flex-col gap-4 min-w-[28rem]">
       <Show when={!entries.loading} fallback={<p class="text-xs text-dimmed">Loading settings…</p>}>
-        <Show when={(entries() ?? []).length > 0} fallback={<p class="text-xs text-dimmed">No notebooks-app settings registered.</p>}>
+        <Show when={(entries() ?? []).length > 0} fallback={<Placeholder align="left" class="px-0 py-2">No notebooks-app settings registered.</Placeholder>}>
           <div class="flex flex-col gap-3">
             <For each={entries() ?? []}>{(entry) => <SettingRow entry={entry} onChange={(v) => onChange(entry.key, v)} />}</For>
           </div>

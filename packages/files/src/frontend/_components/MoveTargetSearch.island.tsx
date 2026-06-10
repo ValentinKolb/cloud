@@ -1,7 +1,7 @@
 import { createSignal, Show, For, createMemo, onCleanup, onMount } from "solid-js";
 import { timed as timing, mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
 import { parseSelectionKey, type SelectionKey } from "./context";
 import type { FileBaseInfo } from "@/contracts";
 type MoveTargetSearchProps = {
@@ -252,9 +252,9 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
             </div>
           </Show>
           <Show when={!searchMutation.loading() && directories().length === 0}>
-            <div class="flex items-center gap-2 px-4 py-6 text-sm text-dimmed">
-              <i class="ti ti-folder-off" /> <span>No folders found</span>
-            </div>
+            <Placeholder align="left" icon="ti ti-folder-off" class="px-4">
+              No folders found
+            </Placeholder>
           </Show>
           <Show when={!searchMutation.loading() && directories().length > 0}>
             <div class="flex flex-col divide-y divide-zinc-100 dark:divide-zinc-800">

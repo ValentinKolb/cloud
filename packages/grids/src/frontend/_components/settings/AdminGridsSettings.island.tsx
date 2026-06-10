@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -92,7 +92,7 @@ const SettingsBody = (props: { close: () => void }) => {
   return (
     <div class="flex w-[min(24rem,calc(100vw-3rem))] max-w-full flex-col gap-4">
       <Show when={!entries.loading} fallback={<p class="text-xs text-dimmed">Loading settings…</p>}>
-        <Show when={(entries() ?? []).length > 0} fallback={<p class="text-xs text-dimmed">No Grids settings registered.</p>}>
+        <Show when={(entries() ?? []).length > 0} fallback={<Placeholder align="left" class="px-0 py-2">No Grids settings registered.</Placeholder>}>
           <div class="flex flex-col gap-3">
             <For each={entries() ?? []}>{(entry) => <SettingRow entry={entry} onChange={(value) => pending.set(entry.key, value)} />}</For>
           </div>

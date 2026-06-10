@@ -1,4 +1,4 @@
-import { Calendar, type CalendarEvent } from "@valentinkolb/cloud/ui";
+import { Calendar, type CalendarEvent, Placeholder } from "@valentinkolb/cloud/ui";
 import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
 import { createMemo, Show } from "solid-js";
 import type { RecordDisplayConfig } from "../../../contracts";
@@ -49,7 +49,7 @@ export function RecordCalendarView(props: {
     <div class="paper min-h-0 flex-1 overflow-hidden">
       <Show
         when={dateField()}
-        fallback={<div class="flex min-h-48 items-center justify-center p-6 text-center text-sm text-dimmed">Choose a date field in settings.</div>}
+        fallback={<Placeholder icon="ti ti-calendar" class="min-h-48 justify-center">Choose a date field in settings.</Placeholder>}
       >
         <Calendar
           class="h-full"

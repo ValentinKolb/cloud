@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import dayjs from "dayjs";
@@ -325,10 +325,9 @@ export default function VersionHistory(props: Props) {
       {/* Empty */}
       <Show when={!loading() && versions().length === 0}>
         <div class="flex-1 flex items-center justify-center">
-          <p class="flex items-center gap-1.5 text-xs text-dimmed">
-            <i class="ti ti-history text-sm" />
+          <Placeholder icon="ti ti-history">
             No versions yet
-          </p>
+          </Placeholder>
         </div>
       </Show>
 
@@ -417,11 +416,11 @@ export default function VersionHistory(props: Props) {
             <div class="flex-1 min-h-0 overflow-auto scrollbar">
               <Show when={!sideA()}>
                 <div class="flex items-center justify-center h-full text-xs text-dimmed">
-                  <div class="text-center flex flex-col gap-1">
-                    <i class="ti ti-git-compare text-lg" />
-                    <p>Select a version to see changes</p>
-                    <p class="text-[10px]">Click a second version to compare two versions</p>
-                  </div>
+                  <Placeholder
+                    icon="ti ti-git-compare"
+                    title="Select a version to see changes"
+                    description="Click a second version to compare two versions"
+                  />
                 </div>
               </Show>
 
