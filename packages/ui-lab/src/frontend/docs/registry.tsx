@@ -1,5 +1,5 @@
-import type { JSX } from "solid-js";
 import type { DockWorkspaceState } from "@valentinkolb/cloud/ui";
+import type { JSX } from "solid-js";
 import {
   ButtonInputs,
   ButtonSizes,
@@ -29,6 +29,7 @@ import {
   ChartLine,
   ChartLive,
   ChartSparkline,
+  DataTableAdminPatternDemo,
   DataTableFullDemo,
   DataTableMinimalDemo,
   MarkdownEditorFullDemo,
@@ -705,11 +706,12 @@ export const uiLabDocs: UiLabDocSection[] = [
         "tables",
         "DataTable",
         "ti ti-table",
-        "Full and minimal data table patterns.",
-        ["datatable-full", "datatable-minimal"],
+        "Full, admin, and minimal data table patterns.",
+        ["datatable-full", "datatable-admin-pattern", "datatable-minimal"],
         () => (
           <DemoGrid columns="one">
             <DataTableFullDemo />
+            <DataTableAdminPatternDemo />
             <DataTableMinimalDemo />
           </DemoGrid>
         ),

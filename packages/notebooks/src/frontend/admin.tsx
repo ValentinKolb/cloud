@@ -68,60 +68,62 @@ export default ssr<AuthContext>(async (c) => {
             <StatCell label="Access entries" value={totalPermissions} sub={search ? "in search" : "across all notebooks"} />
           </StatGrid>
 
-          <div class="flex items-stretch gap-2">
-            <div class="flex-1 min-w-0">
+          <section class="paper overflow-hidden" style="view-transition-name: admin-notebooks-table">
+            <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+              <div>
+                <h2 class="text-xs font-semibold text-primary">Notebooks</h2>
+                <p class="text-[10px] text-dimmed">
+                  {notebooks.items.length} of {notebooks.total} notebooks
+                </p>
+              </div>
               <SearchBar action="/admin/notebooks" value={search} placeholder="Search notebooks by name..." ariaLabel="Search notebooks" />
+              <div class="flex flex-wrap items-center gap-2">
+                <div class="ml-auto">
+                  <AdminNotebooksAppSettings />
+                </div>
+              </div>
             </div>
-            <AdminNotebooksAppSettings />
-          </div>
-
-          {notebooks.items.length > 0 ? (
-            <section class="paper overflow-hidden" style="view-transition-name: admin-notebooks-table">
-              <DataTable
-                rows={notebooks.items}
-                columns={columns}
-                getRowId={(notebook) => notebook.id}
-                hoverRows
-                class="overflow-x-auto"
-                renderCell={({ row: notebook, col }) => {
-                  if (col.id === "notebook") {
-                    return (
-                      <div class="flex min-w-52 items-center gap-2">
-                        <i class={`${notebook.icon ?? "ti ti-notebook"} text-dimmed`} />
-                        <span class="truncate font-medium text-primary">{notebook.name}</span>
-                      </div>
-                    );
-                  }
-                  if (col.id === "description") {
-                    return (
-                      <span class="block truncate" title={notebook.description ?? "No description"}>
-                        {notebook.description || <span class="italic">No description</span>}
-                      </span>
-                    );
-                  }
-                  if (col.id === "permissions") {
-                    return (
-                      <span
-                        class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                          notebook.permissionCount === 0
-                            ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                            : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                        }`}
-                      >
-                        {notebook.permissionCount} access {notebook.permissionCount === 1 ? "entry" : "entries"}
-                      </span>
-                    );
-                  }
-                  if (col.id === "actions") return <AdminNotebookActions notebookId={notebook.id} notebookName={notebook.name} />;
-                  return "";
-                }}
-              />
-            </section>
-          ) : (
-            <section class="paper p-6 text-center text-sm text-dimmed">
-              {search ? `No notebooks matching "${search}".` : "No notebooks found."}
-            </section>
-          )}
+            <DataTable
+              rows={notebooks.items}
+              columns={columns}
+              getRowId={(notebook) => notebook.id}
+              hoverRows
+              class="overflow-x-auto"
+              empty={search ? `No notebooks matching "${search}".` : "No notebooks found."}
+              renderCell={({ row: notebook, col }) => {
+                if (col.id === "notebook") {
+                  return (
+                    <div class="flex min-w-52 items-center gap-2">
+                      <i class={`${notebook.icon ?? "ti ti-notebook"} text-dimmed`} />
+                      <span class="truncate font-medium text-primary">{notebook.name}</span>
+                    </div>
+                  );
+                }
+                if (col.id === "description") {
+                  return (
+                    <span class="block truncate" title={notebook.description ?? "No description"}>
+                      {notebook.description || <span class="italic">No description</span>}
+                    </span>
+                  );
+                }
+                if (col.id === "permissions") {
+                  return (
+                    <span
+                      class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                        notebook.permissionCount === 0
+                          ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                          : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                      }`}
+                    >
+                      {notebook.permissionCount} access {notebook.permissionCount === 1 ? "entry" : "entries"}
+                    </span>
+                  );
+                }
+                if (col.id === "actions") return <AdminNotebookActions notebookId={notebook.id} notebookName={notebook.name} />;
+                return "";
+              }}
+            />
+          </section>
 
           <Pagination currentPage={notebooks.page} totalPages={totalPages} baseUrl={baseUrl} />
         </div>

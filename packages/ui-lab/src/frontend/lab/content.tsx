@@ -7,8 +7,18 @@
  * so light/dark mode works automatically.
  */
 
-import { Chart, DataTable, type DataTableColumn, MarkdownEditor, MarkdownView, StructuredDataPreview } from "@valentinkolb/cloud/ui";
-import { createSignal, onCleanup, onMount } from "solid-js";
+import {
+  Chart,
+  DataTable,
+  type DataTableColumn,
+  FilterChip,
+  type FilterChipSection,
+  MarkdownEditor,
+  MarkdownView,
+  StructuredDataPreview,
+  TextInput,
+} from "@valentinkolb/cloud/ui";
+import { createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import DemoCard from "./DemoCard";
 
 const FROM_UI = "@valentinkolb/cloud/ui";
@@ -314,6 +324,118 @@ export const DataTableMinimalDemo = () => {
 ]} />`}
     >
       <DataTable rows={rows} columns={columns} class="paper overflow-auto" />
+    </DemoCard>
+  );
+};
+
+export const DataTableAdminPatternDemo = () => {
+  const [search, setSearch] = createSignal("");
+  const [status, setStatus] = createSignal("");
+  const columns: DataTableColumn<TableDemoRow>[] = [
+    { id: "customer", header: "Customer", value: "customer" },
+    { id: "status", header: "Status", value: "status" },
+    { id: "items", header: "Items", value: "items", cellClass: "tabular-nums" },
+    { id: "total", header: "Total", value: "total", cellClass: "tabular-nums" },
+    {
+      id: "actions",
+      header: "Settings",
+      headerClass: "w-px text-right",
+      cellClass: "text-right whitespace-nowrap max-w-none",
+    },
+  ];
+  const statusOptions: FilterChipSection[] = [
+    {
+      options: [
+        { value: "", label: "All", icon: "ti ti-list" },
+        { value: "new", label: "New", icon: "ti ti-sparkles" },
+        { value: "shipped", label: "Shipped", icon: "ti ti-truck" },
+        { value: "delivered", label: "Delivered", icon: "ti ti-check" },
+      ],
+    },
+  ];
+  const rows = createMemo(() => {
+    const needle = search().trim().toLowerCase();
+    return tableDemoRows.filter((row) => {
+      if (status() && row.status !== status()) return false;
+      if (!needle) return true;
+      return [row.customer, row.status, row.id].some((value) => value.toLowerCase().includes(needle));
+    });
+  });
+
+  return (
+    <DemoCard
+      id="datatable-admin-pattern"
+      variant="admin table pattern"
+      chip={{ kind: "component", name: "DataTable + Search", from: `${FROM_UI} + @valentinkolb/cloud/ssr/islands` }}
+      description="Admin lists keep search, filters, and table actions inside the same paper header: title/count, search row, filter/action row, then the DataTable."
+      code={`<section class="paper overflow-hidden">
+  <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+    <div>
+      <h2 class="text-xs font-semibold text-primary">Resources</h2>
+      <p class="text-[10px] text-dimmed">{rows.length} of {total} resources</p>
+    </div>
+    <SearchBar action="/admin/resources" value={search} placeholder="Search resources..." />
+    <div class="flex flex-wrap items-center gap-2">
+      <FilterChip label="Status" options={statusOptions} value={status} />
+      <button class="btn-input btn-sm ml-auto">Create</button>
+    </div>
+  </div>
+  <DataTable rows={rows} columns={columns} class="overflow-x-auto" />
+</section>`}
+    >
+      <section class="paper overflow-hidden">
+        <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+          <div>
+            <h2 class="text-xs font-semibold text-primary">Orders</h2>
+            <p class="text-[10px] text-dimmed">
+              {rows().length} of {tableDemoRows.length} rows
+            </p>
+          </div>
+          <TextInput
+            name="datatable-admin-search"
+            type="search"
+            placeholder="Search orders..."
+            ariaLabel="Search orders"
+            icon="ti ti-search"
+            activeIcon="ti ti-search"
+            value={search}
+            onInput={setSearch}
+            clearable
+          />
+          <div class="flex flex-wrap items-center gap-2">
+            <FilterChip
+              label="Status"
+              icon="ti ti-filter"
+              options={statusOptions}
+              value={status() ? [status()] : []}
+              onChange={(value) => setStatus(value[0] ?? "")}
+              isActive={status().length > 0}
+              defaultValue={[]}
+            />
+            <button class="btn-input btn-sm ml-auto">
+              <i class="ti ti-settings" />
+              Settings
+            </button>
+          </div>
+        </div>
+        <DataTable
+          rows={rows()}
+          columns={columns}
+          getRowId={(row) => row.id}
+          hoverRows
+          class="overflow-x-auto"
+          empty="No orders match the current filters."
+          renderCell={({ row, col, render }) => {
+            if (col.id === "customer") return <span class="font-medium text-primary">{row.customer}</span>;
+            if (col.id === "status") {
+              return <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${statusClass(row.status)}`}>{row.status}</span>;
+            }
+            if (col.id === "total") return `€${row.total.toFixed(2)}`;
+            if (col.id === "actions") return <button class="btn-secondary btn-sm">Open</button>;
+            return render(row[col.id as keyof TableDemoRow]);
+          }}
+        />
+      </section>
     </DemoCard>
   );
 };

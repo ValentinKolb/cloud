@@ -63,61 +63,63 @@ export default ssr<AuthContext>(async (c) => {
             <StatCell label="Contacts" value={summary.totalContacts} sub={search ? "in search" : "manual contacts"} />
           </StatGrid>
 
-          <SearchBar
-            action="/admin/contacts"
-            value={search}
-            placeholder="Search contact books by name..."
-            ariaLabel="Search contact books"
-          />
-
-          {books.items.length > 0 ? (
-            <section class="paper overflow-hidden" style="view-transition-name: admin-contacts-table">
-              <DataTable
-                rows={books.items}
-                columns={columns}
-                getRowId={(book) => book.id}
-                hoverRows
-                class="overflow-x-auto"
-                renderCell={({ row: book, col }) => {
-                  if (col.id === "book") {
-                    return (
-                      <div class="flex min-w-52 items-center gap-2">
-                        <i class="ti ti-cube text-dimmed" />
-                        <span class="truncate font-medium text-primary">{book.name}</span>
-                      </div>
-                    );
-                  }
-                  if (col.id === "description") {
-                    return (
-                      <span class="block truncate" title={book.description ?? "No description"}>
-                        {book.description || <span class="italic">No description</span>}
-                      </span>
-                    );
-                  }
-                  if (col.id === "contacts") return <span class="text-xs text-dimmed">{book.contactCount}</span>;
-                  if (col.id === "permissions") {
-                    return (
-                      <span
-                        class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                          book.permissionCount === 0
-                            ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                            : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                        }`}
-                      >
-                        {book.permissionCount} access {book.permissionCount === 1 ? "entry" : "entries"}
-                      </span>
-                    );
-                  }
-                  if (col.id === "actions") return <AdminBookActions bookId={book.id} bookName={book.name} />;
-                  return "";
-                }}
+          <section class="paper overflow-hidden" style="view-transition-name: admin-contacts-table">
+            <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+              <div>
+                <h2 class="text-xs font-semibold text-primary">Books</h2>
+                <p class="text-[10px] text-dimmed">
+                  {books.items.length} of {books.total} contact books
+                </p>
+              </div>
+              <SearchBar
+                action="/admin/contacts"
+                value={search}
+                placeholder="Search contact books by name..."
+                ariaLabel="Search contact books"
               />
-            </section>
-          ) : (
-            <section class="paper p-6 text-center text-sm text-dimmed">
-              {search ? `No contact books matching "${search}".` : "No contact books found."}
-            </section>
-          )}
+            </div>
+            <DataTable
+              rows={books.items}
+              columns={columns}
+              getRowId={(book) => book.id}
+              hoverRows
+              class="overflow-x-auto"
+              empty={search ? `No contact books matching "${search}".` : "No contact books found."}
+              renderCell={({ row: book, col }) => {
+                if (col.id === "book") {
+                  return (
+                    <div class="flex min-w-52 items-center gap-2">
+                      <i class="ti ti-cube text-dimmed" />
+                      <span class="truncate font-medium text-primary">{book.name}</span>
+                    </div>
+                  );
+                }
+                if (col.id === "description") {
+                  return (
+                    <span class="block truncate" title={book.description ?? "No description"}>
+                      {book.description || <span class="italic">No description</span>}
+                    </span>
+                  );
+                }
+                if (col.id === "contacts") return <span class="text-xs text-dimmed">{book.contactCount}</span>;
+                if (col.id === "permissions") {
+                  return (
+                    <span
+                      class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                        book.permissionCount === 0
+                          ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                          : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                      }`}
+                    >
+                      {book.permissionCount} access {book.permissionCount === 1 ? "entry" : "entries"}
+                    </span>
+                  );
+                }
+                if (col.id === "actions") return <AdminBookActions bookId={book.id} bookName={book.name} />;
+                return "";
+              }}
+            />
+          </section>
 
           <Pagination currentPage={books.page} totalPages={totalPages} baseUrl={baseUrl} />
         </div>

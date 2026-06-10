@@ -1389,6 +1389,42 @@ density, custom cell/header renderers, and an intersection-observer load-more
 sentinel. Keep app code focused on columns, row IDs, and domain-specific cell
 rendering.
 
+For admin resource lists with search, filters, and row actions, keep the
+controls inside the same `paper` as the table. The canonical order is:
+
+1. table header with title and visible/total count
+2. `SearchBar` on its own full-width row
+3. filter chips and table-level actions on the next row
+4. `DataTable`
+
+```tsx
+import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
+import { DataTable, FilterChip, type DataTableColumn } from "@valentinkolb/cloud/ui";
+
+<section class="paper overflow-hidden">
+  <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+    <div>
+      <h2 class="text-xs font-semibold text-primary">Resources</h2>
+      <p class="text-[10px] text-dimmed">
+        {items.length} of {total} resources
+      </p>
+    </div>
+    <SearchBar action="/admin/resources" value={search} placeholder="Search resources..." ariaLabel="Search resources" />
+    <div class="flex flex-wrap items-center gap-2">
+      <FilterChip label="Status" icon="ti ti-filter" options={statusOptions} value={status} onChange={setStatus} />
+      <button class="btn-input btn-sm ml-auto">Create</button>
+    </div>
+  </div>
+  <DataTable rows={items} columns={columns} getRowId={(row) => row.id} class="overflow-x-auto" />
+</section>
+```
+
+Do not place the search bar above the table paper with charts, warnings, or
+summary cards between the search and the rows it filters. If the table lives in
+a client-only island and filtering is local, use the same layout with
+`TextInput type="search"` instead of `SearchBar`; UI Lab demonstrates both the
+composition and the visual spacing at `/app/ui-lab/content/tables`.
+
 ### Stats
 
 Use `StatGrid` and `StatCell` instead of hand-writing stat grids. Sources: `packages/cloud/src/ui/misc/StatGrid.tsx` and `packages/cloud/src/ui/misc/StatCell.tsx`. Live UI Lab route: `/app/ui-lab/surfaces/stats`.

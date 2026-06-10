@@ -67,61 +67,63 @@ export default ssr<AuthContext>(async (c) => {
             <StatCell label="Access entries" value={totalPermissions} sub={search ? "in search" : "across all spaces"} />
           </StatGrid>
 
-          <SearchBar action="/admin/spaces" value={search} placeholder="Search spaces by name..." ariaLabel="Search spaces" />
-
-          {spaces.items.length > 0 ? (
-            <section class="paper overflow-hidden" style="view-transition-name: admin-spaces-table">
-              <DataTable
-                rows={spaces.items}
-                columns={columns}
-                getRowId={(space) => space.id}
-                hoverRows
-                class="overflow-x-auto"
-                scrollPreserveKey="spaces-admin-table"
-                renderCell={({ row: space, col }) => {
-                  if (col.id === "space") {
-                    return (
-                      <div class="flex min-w-52 items-center gap-2">
-                        <span
-                          class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[10px] text-white"
-                          style={`background-color: ${space.color}`}
-                        >
-                          <i class="ti ti-layout-kanban" />
-                        </span>
-                        <span class="truncate font-medium text-primary">{space.name}</span>
-                      </div>
-                    );
-                  }
-                  if (col.id === "description") {
-                    return (
-                      <span class="block truncate" title={space.description ?? "No description"}>
-                        {space.description || <span class="italic">No description</span>}
-                      </span>
-                    );
-                  }
-                  if (col.id === "permissions") {
-                    return (
+          <section class="paper overflow-hidden" style="view-transition-name: admin-spaces-table">
+            <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+              <div>
+                <h2 class="text-xs font-semibold text-primary">Spaces</h2>
+                <p class="text-[10px] text-dimmed">
+                  {spaces.items.length} of {spaces.total} spaces
+                </p>
+              </div>
+              <SearchBar action="/admin/spaces" value={search} placeholder="Search spaces by name..." ariaLabel="Search spaces" />
+            </div>
+            <DataTable
+              rows={spaces.items}
+              columns={columns}
+              getRowId={(space) => space.id}
+              hoverRows
+              class="overflow-x-auto"
+              scrollPreserveKey="spaces-admin-table"
+              empty={search ? `No spaces matching "${search}".` : "No spaces found."}
+              renderCell={({ row: space, col }) => {
+                if (col.id === "space") {
+                  return (
+                    <div class="flex min-w-52 items-center gap-2">
                       <span
-                        class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                          space.permissionCount === 0
-                            ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                            : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                        }`}
+                        class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[10px] text-white"
+                        style={`background-color: ${space.color}`}
                       >
-                        {space.permissionCount} access {space.permissionCount === 1 ? "entry" : "entries"}
+                        <i class="ti ti-layout-kanban" />
                       </span>
-                    );
-                  }
-                  if (col.id === "actions") return <AdminSpaceActions spaceId={space.id} spaceName={space.name} />;
-                  return "";
-                }}
-              />
-            </section>
-          ) : (
-            <section class="paper p-6 text-center text-sm text-dimmed">
-              {search ? `No spaces matching "${search}".` : "No spaces found."}
-            </section>
-          )}
+                      <span class="truncate font-medium text-primary">{space.name}</span>
+                    </div>
+                  );
+                }
+                if (col.id === "description") {
+                  return (
+                    <span class="block truncate" title={space.description ?? "No description"}>
+                      {space.description || <span class="italic">No description</span>}
+                    </span>
+                  );
+                }
+                if (col.id === "permissions") {
+                  return (
+                    <span
+                      class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                        space.permissionCount === 0
+                          ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                          : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                      }`}
+                    >
+                      {space.permissionCount} access {space.permissionCount === 1 ? "entry" : "entries"}
+                    </span>
+                  );
+                }
+                if (col.id === "actions") return <AdminSpaceActions spaceId={space.id} spaceName={space.name} />;
+                return "";
+              }}
+            />
+          </section>
 
           <Pagination currentPage={spaces.page} totalPages={totalPages} baseUrl={baseUrl} />
         </div>
