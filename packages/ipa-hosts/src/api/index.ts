@@ -26,6 +26,19 @@ const toAccountsActor = (actor: AuthContext["Variables"]["user"]) => ({
   provider: actor.provider,
 });
 
+type IpaHostsApiActor = ReturnType<typeof toAccountsActor>;
+
+const getUserBackedActor = (c: Context<AuthContext>) => {
+  const actor = c.get("actor");
+  return actor.kind === "user" ? actor.user : actor.delegatedUser;
+};
+
+const requireUserBackedApiActor = (c: Context<AuthContext>): Result<IpaHostsApiActor> => {
+  const actor = getUserBackedActor(c);
+  if (!actor) return fail(err.forbidden("IPA Hosts API requires a user-backed admin actor"));
+  return ok(toAccountsActor(actor));
+};
+
 const isServiceResult = (value: unknown): value is Result<unknown> => {
   return Boolean(value && typeof value === "object" && "ok" in value);
 };
@@ -104,7 +117,9 @@ const app = new Hono<AuthContext>()
       const fqdn = c.req.param("fqdn");
       if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
       const data = c.req.valid("json");
-      return respondMessage(c, ipaHostsService.host.update({ actor: toAccountsActor(c.get("user")), fqdn, data }), "Host updated");
+      const actor = requireUserBackedApiActor(c);
+      if (!actor.ok) return respond(c, actor);
+      return respondMessage(c, ipaHostsService.host.update({ actor: actor.data, fqdn, data }), "Host updated");
     },
   )
   .delete(
@@ -122,7 +137,9 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const fqdn = c.req.param("fqdn");
-      return respondMessage(c, ipaHostsService.host.remove({ actor: toAccountsActor(c.get("user")), fqdn }), "Host deleted");
+      const actor = requireUserBackedApiActor(c);
+      if (!actor.ok) return respond(c, actor);
+      return respondMessage(c, ipaHostsService.host.remove({ actor: actor.data, fqdn }), "Host deleted");
     },
   )
   .post(
@@ -143,7 +160,9 @@ const app = new Hono<AuthContext>()
       const fqdn = c.req.param("fqdn");
       if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
       const { hostgroup } = c.req.valid("json");
-      return respondMessage(c, ipaHostsService.host.addToGroup({ actor: toAccountsActor(c.get("user")), fqdn, hostgroup }), "Host added to group");
+      const actor = requireUserBackedApiActor(c);
+      if (!actor.ok) return respond(c, actor);
+      return respondMessage(c, ipaHostsService.host.addToGroup({ actor: actor.data, fqdn, hostgroup }), "Host added to group");
     },
   )
   .delete(
@@ -164,7 +183,9 @@ const app = new Hono<AuthContext>()
       const fqdn = c.req.param("fqdn");
       if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
       const { hostgroup } = c.req.valid("json");
-      return respondMessage(c, ipaHostsService.host.removeFromGroup({ actor: toAccountsActor(c.get("user")), fqdn, hostgroup }), "Host removed from group");
+      const actor = requireUserBackedApiActor(c);
+      if (!actor.ok) return respond(c, actor);
+      return respondMessage(c, ipaHostsService.host.removeFromGroup({ actor: actor.data, fqdn, hostgroup }), "Host removed from group");
     },
   )
   .get(
@@ -225,7 +246,9 @@ const app = new Hono<AuthContext>()
     v("json", z.object({ name: z.string().min(1), description: z.string().optional() })),
     async (c) => {
       const { name, description } = c.req.valid("json");
-      return respondMessage(c, ipaHostsService.hostgroup.create({ actor: toAccountsActor(c.get("user")), name, description }), "Hostgroup created", 201);
+      const actor = requireUserBackedApiActor(c);
+      if (!actor.ok) return respond(c, actor);
+      return respondMessage(c, ipaHostsService.hostgroup.create({ actor: actor.data, name, description }), "Hostgroup created", 201);
     },
   )
   .patch(
@@ -246,7 +269,9 @@ const app = new Hono<AuthContext>()
       const cn = c.req.param("cn");
       if (!cn) return respond(c, fail(err.badInput("Missing hostgroup name")));
       const data = c.req.valid("json");
-      return respondMessage(c, ipaHostsService.hostgroup.update({ actor: toAccountsActor(c.get("user")), cn, data }), "Hostgroup updated");
+      const actor = requireUserBackedApiActor(c);
+      if (!actor.ok) return respond(c, actor);
+      return respondMessage(c, ipaHostsService.hostgroup.update({ actor: actor.data, cn, data }), "Hostgroup updated");
     },
   )
   .delete(
@@ -264,7 +289,9 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const cn = c.req.param("cn");
-      return respondMessage(c, ipaHostsService.hostgroup.remove({ actor: toAccountsActor(c.get("user")), cn }), "Hostgroup deleted");
+      const actor = requireUserBackedApiActor(c);
+      if (!actor.ok) return respond(c, actor);
+      return respondMessage(c, ipaHostsService.hostgroup.remove({ actor: actor.data, cn }), "Hostgroup deleted");
     },
   )
   .get(
