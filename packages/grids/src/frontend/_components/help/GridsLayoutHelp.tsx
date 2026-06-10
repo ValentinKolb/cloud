@@ -1,13 +1,4 @@
-import {
-  DocCode,
-  DocConceptGrid,
-  DocInlineCode,
-  DocLead,
-  DocNote,
-  DocPage,
-  DocRows,
-  DocSection,
-} from "@valentinkolb/cloud/ui";
+import { DocCode, DocConceptGrid, DocInlineCode, DocLead, DocNote, DocPage, DocRows, DocSection } from "@valentinkolb/cloud/ui";
 import { Layout } from "@valentinkolb/cloud/ssr/islands";
 import { highlight } from "@valentinkolb/stdlib";
 import { For } from "solid-js";
@@ -26,7 +17,11 @@ type Recipe = {
 const gridsFormulaHighlight = highlight.compile(
   [
     { kind: "string", match: /"(?:\\[\s\S]|[^"\\])*"/ },
-    { kind: "function", match: /\b(?:ABS|AND|AVG|CEIL|CONCAT|CONTAINS|COUNT|DATEDIFF|FLOOR|IF|IFEMPTY|IFERROR|LEFT|LEN|LOWER|MAX|MEDIAN|MIN|NOT|OR|POW|RIGHT|ROUND|SQRT|SUBSTRING|SUM|TODAY|UPPER)\b/ },
+    {
+      kind: "function",
+      match:
+        /\b(?:ABS|AND|AVG|CEIL|CONCAT|CONTAINS|COUNT|DATEDIFF|FLOOR|IF|IFEMPTY|IFERROR|LEFT|LEN|LOWER|MAX|MEDIAN|MIN|NOT|OR|POW|RIGHT|ROUND|SQRT|SUBSTRING|SUM|TODAY|UPPER)\b/,
+    },
     { kind: "placeholder", match: /#[A-Za-z0-9_-]+/ },
     { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
     { kind: "operator", match: /<=|>=|!=|=|<|>|\+|-|\*|\/|%|,|\(|\)/ },
@@ -38,10 +33,15 @@ const gridsFormulaHighlight = highlight.compile(
 const gridsQueryHighlight = highlight.compile(
   [
     { kind: "string", match: /"(?:\\[\s\S]|[^"\\])*"/ },
-    { kind: "keyword", match: /\b(?:where|sort|group|aggregate|view|chart|calendar|cards|table)\b/i },
-    { kind: "aggregation", match: /\b(?:count|sum|avg|min|max|latest|earliest|unique)\b/i },
-    { kind: "operator", match: /\b(?:is|is not|one of|none of|empty|not empty|contains|before|after|between)\b/i },
-    { kind: "identifier", match: /[A-Za-z_][A-Za-z0-9_ -]*/ },
+    {
+      kind: "keyword",
+      match:
+        /\b(?:from|table|view|select|join|left|inner|as|on|where|formula|group|by|aggregate|having|sort|limit|offset|skip|asc|ascending|desc|descending)\b/i,
+    },
+    { kind: "function", match: /\b(?:count|countEmpty|countUnique|sum|avg|min|max|median|earliest|latest)\b/i },
+    { kind: "placeholder", match: /#[A-Za-z0-9_-]+/ },
+    { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
+    { kind: "operator", match: /<=|>=|!=|=|<|>|\+|-|\*|\/|%|,|\(|\)/ },
   ],
   { classPrefix: "doc-token-" },
 );
@@ -166,8 +166,8 @@ const StartTab = () => (
 const BuildTab = () => (
   <DocPage>
     <DocLead>
-      Pick the smallest Grids feature that makes the workflow clear. Add structure when it removes repeated manual work, not just because
-      it is available.
+      Pick the smallest Grids feature that makes the workflow clear. Add structure when it removes repeated manual work, not just because it
+      is available.
     </DocLead>
 
     <DocSection title="Common choices">
@@ -364,13 +364,46 @@ const ViewsTab = () => (
       />
     </DocSection>
 
-    <DocSection title="Query examples">
+    <DocSection title="Query DSL">
+      <p class="text-dimmed">
+        The Query workspace is a power-user layer over the same SQL-backed view engine. Use it when the click UI is too slow for a precise
+        report, formula predicate, join, or server-side preview. The normal table and view controls can stay simpler.
+      </p>
+      <p class="mt-3 text-dimmed">
+        References use stable slugs such as <DocInlineCode>#amount</DocInlineCode>. The source list shows table, view, and field refs so
+        renaming a field does not break the query.
+      </p>
       <div class="space-y-3">
-        <QuerySnippet title="Open work" code={'where status is "Open"\nsort due_date ascending'} />
-        <QuerySnippet title="Monthly chart source" code={"group ordered_at by month\naggregate line_total sum"} />
-        <QuerySnippet title="Calendar view" code={"view calendar\nwhere status is not \"Cancelled\"\nsort ordered_at ascending"} />
+        <QuerySnippet
+          title="Rows"
+          code={'from table #orders\nselect #customer, #amount\nwhere #status = "Open"\nsort #due_date ascending\nlimit 50'}
+        />
+        <QuerySnippet
+          title="Formula predicate"
+          code={
+            "from table #products\nselect #name, formula(#price - #cost) as margin\nwhere #price <= formula(#cost * 1.10)\nsort margin desc"
+          }
+        />
+        <QuerySnippet
+          title="Monthly chart source"
+          code={
+            "from table #orders\ngroup by #ordered_at by month\naggregate sum(#line_total) as revenue, count(*) as rows\nhaving #revenue > 0\nsort revenue desc"
+          }
+        />
+        <QuerySnippet
+          title="Join"
+          code={
+            "from table #orders\njoin table #customers as customer on #customer = customer.#id\nselect customer.#name as customer_name, #line_total\nlimit 25"
+          }
+        />
       </div>
     </DocSection>
+
+    <DocNote title="Saving DSL queries">
+      Simple row queries and regular grouped queries can be saved as normal views. SQL-only features such as joins, formula predicates,
+      computed alias sorts, <DocInlineCode>having</DocInlineCode>, and non-zero <DocInlineCode>skip</DocInlineCode> are available for
+      preview first.
+    </DocNote>
 
     <DocNote title="Chart-ready views">
       A chart source needs <DocInlineCode>Group by</DocInlineCode> for labels and at least one <DocInlineCode>Aggregation</DocInlineCode>{" "}
