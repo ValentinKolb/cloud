@@ -1,4 +1,4 @@
-import { CopyButton, prompts } from "@valentinkolb/cloud/ui";
+import { CopyButton, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { MetricsToken } from "../service";
@@ -169,7 +169,7 @@ export default function MetricsTokens(props: Props) {
           </table>
         </div>
       ) : (
-        <div class="px-3 py-8 text-center text-xs text-dimmed">No metrics bearer tokens yet.</div>
+        <Placeholder icon="ti ti-key">No metrics bearer tokens yet.</Placeholder>
       )}
     </section>
   );

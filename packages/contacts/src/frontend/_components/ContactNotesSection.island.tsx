@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { MarkdownView, Placeholder, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
@@ -175,7 +175,7 @@ export default function ContactNotesSection(props: Props) {
         </form>
       </Show>
 
-      <Show when={notes().length > 0} fallback={<p class="text-xs text-dimmed">No notes yet.</p>}>
+      <Show when={notes().length > 0} fallback={<Placeholder align="left" class="px-0 py-2">No notes yet.</Placeholder>}>
         <ol class="flex flex-col gap-3">
           <For each={notes()}>
             {(note) => {

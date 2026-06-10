@@ -1,4 +1,4 @@
-import { CopyButton, DataTable, type DataTableColumn, type LogTableEntry, prompts } from "@valentinkolb/cloud/ui";
+import { CopyButton, DataTable, type DataTableColumn, type LogTableEntry, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { createSignal, Show } from "solid-js";
 import LogFilterBar from "./LogFilterBar.island";
@@ -138,7 +138,7 @@ export default function LogTable(props: Props) {
         </div>
         <LogFilterBar filter={props.filter} sources={props.sources} retentionDays={props.retentionDays} />
       </div>
-      <Show when={props.entries.length > 0} fallback={<div class="py-8 text-center text-xs text-dimmed">No log entries found.</div>}>
+      <Show when={props.entries.length > 0} fallback={<Placeholder>No log entries found.</Placeholder>}>
         <DataTable
           rows={props.entries}
           columns={columns}

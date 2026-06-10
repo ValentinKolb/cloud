@@ -1,6 +1,6 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Placeholder } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import type { FileBaseInfo, FileInfo, SearchResult } from "@/contracts";
 import { filesService } from "@/service";
@@ -333,10 +333,9 @@ export default ssr<AuthContext>(async (c) => {
 
                   {/* No results state */}
                   {totalFiles === 0 && (
-                    <div class="flex items-center gap-2 text-xs text-dimmed py-4">
-                      <i class="ti ti-file-search" />
-                      <span>No files match your search</span>
-                    </div>
+                    <Placeholder align="left" icon="ti ti-file-search" class="py-4">
+                      No files match your search
+                    </Placeholder>
                   )}
                 </>
               )}

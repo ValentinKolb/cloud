@@ -1,4 +1,5 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { Placeholder } from "@valentinkolb/cloud/ui";
 import type { Contact, ContactNote, ContactRef, ContactTree } from "../../service";
 import { resolveContactName, safeWebsiteHref } from "../../shared";
 import ContactNotesSection from "./ContactNotesSection.island";
@@ -100,11 +101,9 @@ export default function ContactDetailPanel(props: Props) {
       when={contact()}
       fallback={
         props.showEmpty === false ? null : (
-          <div class="flex h-full min-h-0 flex-col items-center justify-center gap-2 px-3 py-6 text-xs text-dimmed">
-            <p class="flex items-center justify-center gap-1.5 text-center">
-              <i class="ti ti-id" /> Select a contact to see details
-            </p>
-          </div>
+          <Placeholder icon="ti ti-id" class="h-full min-h-0 justify-center">
+            Select a contact to see details
+          </Placeholder>
         )
       }
     >

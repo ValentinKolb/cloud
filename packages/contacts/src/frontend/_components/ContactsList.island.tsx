@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Contact } from "../../service";
 import { resolveContactName } from "../../shared";
@@ -64,10 +64,7 @@ export default function ContactsList(props: Props) {
       <Show
         when={props.contacts.length > 0}
         fallback={
-          <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
-            <i class="ti ti-address-book text-sm" />
-            No contacts found
-          </p>
+          <Placeholder icon="ti ti-address-book">No contacts found</Placeholder>
         }
       >
         <DataTable

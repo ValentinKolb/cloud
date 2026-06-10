@@ -2,7 +2,7 @@ import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-j
 import { Portal } from "solid-js/web";
 import type { FileBaseInfo, FileInfo } from "@/contracts";
 import { mutation as mutations, dnd } from "@valentinkolb/stdlib/solid";
-import { Lightbox, prompts, toast, type LightboxImage } from "@valentinkolb/cloud/ui";
+import { Lightbox, Placeholder, prompts, toast, type LightboxImage } from "@valentinkolb/cloud/ui";
 import { dates, fileIcons } from "@valentinkolb/stdlib";
 import { text } from "@valentinkolb/stdlib";
 import { apiClient } from "@/api/client";
@@ -425,9 +425,9 @@ export default function FileList(props: FileListProps) {
                 </For>
 
                 <Show when={sortedItems().length === 0 && props.parentPath === null}>
-                  <div class="col-span-full px-4 py-8 text-center text-xs text-dimmed">
+                  <Placeholder icon="ti ti-folder-off" class="col-span-full">
                     {props.isFiltered ? "No files match the search" : "This folder is empty"}
-                  </div>
+                  </Placeholder>
                 </Show>
               </div>
             </div>
@@ -495,9 +495,9 @@ export default function FileList(props: FileListProps) {
             </For>
 
             <Show when={sortedItems().length === 0 && props.parentPath === null}>
-              <div class="col-span-full py-8 text-center text-xs text-dimmed">
+              <Placeholder icon="ti ti-folder-off" class="col-span-full">
                 {props.isFiltered ? "No files match the search" : "This folder is empty"}
-              </div>
+              </Placeholder>
             </Show>
           </div>
         </Show>

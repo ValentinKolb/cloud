@@ -1,5 +1,6 @@
 import { dates, fileIcons, text } from "@valentinkolb/stdlib";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { Placeholder } from "@valentinkolb/cloud/ui";
 import type { FileBaseInfo, FileInfo } from "@/contracts";
 import { DETAIL_FILE_SELECT_EVENT, type DetailFileSelectPayload, fileApiUrl, setDetailFileInUrl } from "./context";
 import { type buildFileMenuElements, canOpenFileInline, createFileActionMutations, type FileActionContext } from "./FileActions";
@@ -153,11 +154,9 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
       when={file()}
       fallback={
         props.showEmpty === false ? null : (
-          <div class="flex h-full min-h-0 flex-col items-center justify-center gap-2 px-3 py-6 text-xs text-dimmed">
-            <p class="flex items-center justify-center gap-1.5 text-center">
-              <i class="ti ti-file-info" /> Select a file to view details
-            </p>
-          </div>
+          <Placeholder icon="ti ti-file-info" class="h-full min-h-0 justify-center">
+            Select a file to view details
+          </Placeholder>
         )
       }
     >
