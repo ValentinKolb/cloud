@@ -1,11 +1,11 @@
-import { ssr } from "../config";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
-import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
+import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { ssr } from "../config";
+import { proxyAuthService } from "../service";
 import CreateProxyClient from "./_components/CreateProxyClient.island";
 import ProxyClientActions from "./_components/ProxyClientActions.island";
-import { DataTable, StatCell, StatGrid, type DataTableColumn } from "@valentinkolb/cloud/ui";
-import { proxyAuthService } from "../service";
 
 export default ssr<AuthContext>(async (c) => {
   const { items: clients } = await proxyAuthService.client.list();
@@ -89,9 +89,9 @@ export default ssr<AuthContext>(async (c) => {
               />
             </section>
           ) : (
-            <section class="paper p-6 text-center text-sm text-dimmed">
+            <Placeholder surface="paper">
               No proxy auth clients found. Create one to protect external apps via Traefik ForwardAuth.
-            </section>
+            </Placeholder>
           )}
 
           <section class="info-block-info p-4" style="view-transition-name: admin-proxy-auth-reference">

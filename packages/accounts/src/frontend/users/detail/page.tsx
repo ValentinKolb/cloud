@@ -6,7 +6,7 @@ import {
   serviceAccountCredentials,
 } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import type { JSX } from "solid-js/jsx-runtime";
 import type { BaseGroup } from "@/contracts";
@@ -357,7 +357,7 @@ export default ssr<AuthContext>(async (c) => {
                 />
               </div>
             ) : (
-              <div class="paper p-6 text-center text-sm text-dimmed">No active API keys for this user.</div>
+              <Placeholder surface="paper">No active API keys for this user.</Placeholder>
             )}
           </div>
 
@@ -432,7 +432,7 @@ export default ssr<AuthContext>(async (c) => {
                 />
               </div>
             ) : (
-              <div class="paper p-6 text-center text-sm text-dimmed">Not a member of any groups.</div>
+              <Placeholder surface="paper">Not a member of any groups.</Placeholder>
             )}
           </div>
 

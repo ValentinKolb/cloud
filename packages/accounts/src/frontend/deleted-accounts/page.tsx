@@ -2,7 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
@@ -112,7 +112,7 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {deletedAccountsPage.items.length === 0 ? (
-            <div class="paper p-6 text-center text-sm text-dimmed">No deleted accounts found.</div>
+            <Placeholder surface="paper">No deleted accounts found.</Placeholder>
           ) : (
             <div class="paper overflow-hidden" style="view-transition-name: accounts-deleted-table">
               <DataTable

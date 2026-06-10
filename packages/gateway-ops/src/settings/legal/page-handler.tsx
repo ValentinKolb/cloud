@@ -8,11 +8,11 @@
  * One small helper, three mounts in `gateway-ops/src/index.ts` — KISS.
  */
 
-import { ssr } from "../../config";
 import { coreSettings } from "@valentinkolb/cloud/services";
-import { Layout } from "@valentinkolb/cloud/ssr";
-import { MarkdownView } from "@valentinkolb/cloud/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
+import { Layout } from "@valentinkolb/cloud/ssr";
+import { MarkdownView, Placeholder } from "@valentinkolb/cloud/ui";
+import { ssr } from "../../config";
 
 export type LegalKind = "terms" | "privacy" | "imprint";
 
@@ -49,10 +49,13 @@ export const makeLegalPage = (kind: LegalKind) =>
           {html ? (
             <MarkdownView html={html} />
           ) : (
-            <div class="paper p-6 text-center text-sm text-dimmed">
+            <Placeholder surface="paper">
               {title} not configured. An administrator can set this in{" "}
-              <a href="/admin/settings?tab=legal" class="underline">/admin/settings</a>.
-            </div>
+              <a href="/admin/settings?tab=legal" class="underline">
+                /admin/settings
+              </a>
+              .
+            </Placeholder>
           )}
         </div>
       </Layout>

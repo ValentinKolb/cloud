@@ -2,7 +2,7 @@ import type { AnnouncementEntry } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { announcements } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../../config";
 import AnnouncementActions from "./AnnouncementActions.island";
 
@@ -91,9 +91,9 @@ export default ssr<AuthContext>(async (c) => {
               />
             </section>
           ) : (
-            <section class="paper p-6 text-center text-sm text-dimmed">
+            <Placeholder surface="paper">
               No announcements yet. Create an announcement or banner to show it through the shared layout.
-            </section>
+            </Placeholder>
           )}
         </div>
       </div>

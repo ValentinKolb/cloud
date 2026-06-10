@@ -3,7 +3,7 @@ import { accountsAppService as accountsService, coreSettings } from "@valentinko
 import { getDefaultGroupScope, isAdminUser } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
@@ -81,13 +81,13 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {groupsPage.items.length === 0 ? (
-            <div class="paper p-6 text-center text-sm text-dimmed">
+            <Placeholder surface="paper">
               {listState.scope === "managed" && !listState.search
                 ? "You do not manage any groups yet."
                 : listState.search
                   ? "No groups found."
                   : "No groups available in this view."}
-            </div>
+            </Placeholder>
           ) : (
             <div class="paper overflow-hidden" style="view-transition-name: accounts-groups-table">
               <DataTable

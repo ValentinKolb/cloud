@@ -1,8 +1,8 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { DataTable, type DataTableColumn, MarkdownView, ProgressBar } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, MarkdownView, Placeholder, ProgressBar } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { For, Show, type JSX } from "solid-js";
-import { FormatSpecSchema, type AggregationSpec } from "../../../contracts";
+import { For, type JSX, Show } from "solid-js";
+import { type AggregationSpec, FormatSpecSchema } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field, GridRecord, RecordList } from "../../../service";
 import type { ColumnSpec, FormatSpec } from "../../../service/views";
@@ -377,7 +377,7 @@ export default function DatabaseTable(props: Props) {
   };
 
   return (
-    <Show when={visibleFields().length > 0} fallback={<div class="paper p-6 text-center text-sm text-dimmed">No visible fields.</div>}>
+    <Show when={visibleFields().length > 0} fallback={<Placeholder surface="paper">No visible fields.</Placeholder>}>
       <DataTable
         rows={props.result.items}
         columns={columns()}

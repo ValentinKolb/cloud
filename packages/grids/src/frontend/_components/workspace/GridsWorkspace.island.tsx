@@ -1,4 +1,4 @@
-import { AppWorkspace, layout, prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, layout, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { createEffect, createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import { apiClient } from "../../../api/client";
 import AutomationsPage from "../automations/AutomationsPage";
@@ -715,7 +715,7 @@ export default function GridsWorkspace(props: Props) {
                 <Match when={route.kind === "query"}>{renderQueryWorkspace(route as WorkspaceQueryRoute)}</Match>
                 <Match when={route.kind === "records"}>{renderRecords(route as WorkspaceRecordsRoute)}</Match>
                 <Match when={route.kind === "empty"}>
-                  <div class="paper p-8 text-center text-sm text-dimmed">
+                  <Placeholder surface="paper">
                     <Show
                       when={state().catalog.sidebarForms.length > 0}
                       fallback={
@@ -726,7 +726,7 @@ export default function GridsWorkspace(props: Props) {
                     >
                       {formOnlyEmptyText(state().catalog.sidebarForms.length)}
                     </Show>
-                  </div>
+                  </Placeholder>
                 </Match>
               </Switch>
             )}

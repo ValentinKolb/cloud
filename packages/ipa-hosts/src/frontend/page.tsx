@@ -1,15 +1,15 @@
-import { ssr } from "../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import NewHostgroup from "./NewHostgroup.island";
-import HostgroupCard from "./HostgroupCard";
-import HostsTable from "./HostsTable";
-import HostSettings from "./HostSettings.island";
-import SyncHosts from "./SyncHosts.island";
+import { Pagination, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { ssr } from "../config";
 import { createPagination } from "../contracts";
 import { ipaHostsService } from "../service";
+import HostgroupCard from "./HostgroupCard";
+import HostSettings from "./HostSettings.island";
+import HostsTable from "./HostsTable";
+import NewHostgroup from "./NewHostgroup.island";
+import SyncHosts from "./SyncHosts.island";
 
 export default ssr<AuthContext>(async (c) => {
   const rawPage = Number(c.req.query("page") ?? "1");
@@ -125,9 +125,9 @@ export default ssr<AuthContext>(async (c) => {
               <Pagination currentPage={pagination.page} totalPages={pagination.total_pages} baseUrl={buildBaseUrl("page")} />
             </>
           ) : (
-            <section class="paper p-6 text-center text-sm text-dimmed">
+            <Placeholder surface="paper">
               {search ? `No hostgroups matching "${search}".` : "No mirrored hostgroups yet. Run a sync to load data from FreeIPA."}
-            </section>
+            </Placeholder>
           )}
         </div>
       </div>

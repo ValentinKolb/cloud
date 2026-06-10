@@ -4,7 +4,7 @@ import { type AppRegistryEntry, hasRole, type Role, type User } from "@valentink
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { logger } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { Widget, WidgetHero, WidgetList, WidgetPills, WidgetStat, WidgetStatus } from "@valentinkolb/cloud/ui";
+import { Placeholder, Widget, WidgetHero, WidgetList, WidgetPills, WidgetStat, WidgetStatus } from "@valentinkolb/cloud/ui";
 import { gradients } from "@valentinkolb/stdlib";
 import type { JSX } from "solid-js";
 import { expectUserBackedActor } from "@/actor";
@@ -263,9 +263,9 @@ export default ssr<AuthContext>(async (c) => {
           />
 
           {rendered.length === 0 ? (
-            <div class="paper p-8 text-center text-sm text-dimmed">
+            <Placeholder surface="paper">
               No widgets to show. Open <em>Edit dashboard</em> below to enable any you have access to.
-            </div>
+            </Placeholder>
           ) : (
             // max-w-[68rem] caps the grid so column width stays ~254px at xl
             // (4 × 254 + 3 × 24 ≈ 1088). On wider monitors the leftover space

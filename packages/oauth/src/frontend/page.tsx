@@ -1,11 +1,11 @@
-import { ssr } from "../config";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { get } from "@valentinkolb/cloud/services";
-import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import CreateClientButton from "./_components/CreateClientButton.island";
-import ClientActions from "./_components/ClientActions.island";
-import { DataTable, StatCell, StatGrid, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { ssr } from "../config";
 import { oauthService } from "../service";
+import ClientActions from "./_components/ClientActions.island";
+import CreateClientButton from "./_components/CreateClientButton.island";
 
 /** Admin OAuth clients list page. */
 export default ssr<AuthContext>(async (c) => {
@@ -117,9 +117,9 @@ export default ssr<AuthContext>(async (c) => {
               />
             </section>
           ) : (
-            <section class="paper p-6 text-center text-sm text-dimmed">
+            <Placeholder surface="paper">
               No OAuth clients found. Create one to allow external applications to authenticate users.
-            </section>
+            </Placeholder>
           )}
 
           <section class="info-block-info p-4" style="view-transition-name: admin-oauth-reference">

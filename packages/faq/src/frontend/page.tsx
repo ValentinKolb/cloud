@@ -1,7 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { MarkdownView } from "@valentinkolb/cloud/ui";
+import { MarkdownView, Placeholder } from "@valentinkolb/cloud/ui";
 import { getUserBackedActor } from "@/actor";
 import { ssr } from "../config";
 import { faqService } from "../service";
@@ -35,7 +35,7 @@ export default ssr<AuthContext>(async (c) => {
             ))}
           </div>
         ) : (
-          <div class="paper p-6 text-center text-sm text-dimmed">No FAQ entries available.</div>
+          <Placeholder surface="paper">No FAQ entries available.</Placeholder>
         )}
       </div>
     </Layout>
