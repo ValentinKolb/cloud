@@ -15,6 +15,8 @@ export type DslQueryPreviewOptions = {
 };
 
 const MAX_PREVIEW_ROWS = 500;
+const MAX_PREVIEW_SCAN_ROWS = 5_000;
+const MAX_PREVIEW_JOIN_FANOUT = 50;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const asOptionalUuid = (value: string | undefined): string | undefined => (value && UUID_RE.test(value) ? value : undefined);
@@ -79,9 +81,13 @@ export const previewDslQuery = async (
 ): Promise<Result<DslQueryPreviewSuccess>> => {
   const limit = resolveDslPreviewLimit(plan, options.limit);
   const fetchLimit = Math.min(limit + 1, MAX_PREVIEW_ROWS + 1);
+  const previewBounds = {
+    previewBaseLimit: MAX_PREVIEW_SCAN_ROWS,
+    joinFanoutLimit: MAX_PREVIEW_JOIN_FANOUT,
+  };
 
   if (isGroupedPlan(plan)) {
-    const compiled = compileDslGroupedQueryPlanToSql(plan, { ...options, limit: fetchLimit });
+    const compiled = compileDslGroupedQueryPlanToSql(plan, { ...options, ...previewBounds, limit: fetchLimit });
     if (!compiled.ok) return fail(err.badInput(compiled.error));
 
     const rows = await sql<Record<string, unknown>[]>`${compiled.query.sql}`;
@@ -100,7 +106,7 @@ export const previewDslQuery = async (
   }
 
   if (isAggregateOnlyPlan(plan)) {
-    const compiled = compileDslAggregateQueryPlanToSql(plan, { ...options, limit: 1 });
+    const compiled = compileDslAggregateQueryPlanToSql(plan, { ...options, ...previewBounds, limit: 1 });
     if (!compiled.ok) return fail(err.badInput(compiled.error));
 
     const rows = await sql<{ result: Record<string, unknown> }[]>`${compiled.query.sql}`;
@@ -119,7 +125,7 @@ export const previewDslQuery = async (
     });
   }
 
-  const compiled = compileDslQueryPlanToSql(plan, { ...options, limit: fetchLimit });
+  const compiled = compileDslQueryPlanToSql(plan, { ...options, ...previewBounds, limit: fetchLimit });
   if (!compiled.ok) return fail(err.badInput(compiled.error));
 
   const rows = await sql<Record<string, unknown>[]>`${compiled.query.sql}`;

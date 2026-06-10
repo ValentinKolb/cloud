@@ -370,7 +370,8 @@ describe("resolveDslQueryToViewQuery", () => {
 
     const median = resolveDslQueryToViewQuery(parseOk(`group by #status aggregate median(#amount) as middle`), ctx());
     expect(median.ok).toBe(false);
-    if (!median.ok) expect(median.diagnostics.map((d) => d.message)).toEqual(['aggregate "median" is not supported by grouped SQL queries yet']);
+    if (!median.ok)
+      expect(median.diagnostics.map((d) => d.message)).toEqual(['aggregate "median" is not supported by grouped SQL queries yet']);
 
     const fileField = field({ id: attachmentFieldId, shortId: "files", name: "Files", type: "file", position: 8 });
     const fileGroup = resolveDslQueryToViewQuery(
@@ -1068,6 +1069,31 @@ describe("resolveDslQueryToViewQuery", () => {
     expect(text).toContain(" DESC NULLS LAST, q_col_2 ASC NULLS FIRST");
   });
 
+  test("SQL compiler can cap relation join fanout for preview queries", () => {
+    const resolved = resolveDslQueryToQueryPlan(
+      parseOk(`
+        join table #Custs as customer on #customer_link = customer.#id
+        select #amount, customer.#name as customer_name
+      `),
+      ctx(),
+    );
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+
+    const compiled = compileDslQueryPlanToSql(resolved.plan, {
+      fieldsByTableId: ctx().fieldsByTableId,
+      joinFanoutLimit: 50,
+    });
+
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const { text, values } = normalizedSqlParts(compiled.query.sql);
+    expect(text).toContain("JOIN LATERAL");
+    expect(text).toContain("FROM grids.record_links _dsl_link");
+    expect(text).toContain("ORDER BY _dsl_link.to_record_id");
+    expect(values).toContain(50);
+  });
+
   test("SQL compiler accepts computed alias sorts and preserves mixed sort order in metadata", () => {
     const resolved = resolveDslQueryToQueryPlan(
       parseOk(`
@@ -1312,6 +1338,31 @@ describe("resolveDslQueryToViewQuery", () => {
     expect(text).toContain("r.deleted_at IS NULL");
   });
 
+  test("aggregate-only SQL compiler can sample matching records for preview", () => {
+    const resolved = resolveDslQueryToQueryPlan(
+      parseOk(`
+        where formula(#amount > #cost)
+        aggregate sum(#amount) as revenue
+      `),
+      ctx(),
+    );
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+
+    const compiled = compileDslAggregateQueryPlanToSql(resolved.plan, {
+      fieldsByTableId: ctx().fieldsByTableId,
+      previewBaseLimit: 5000,
+    });
+
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const { text, values } = normalizedSqlParts(compiled.query.sql);
+    expect(text).toContain("FROM (");
+    expect(text).toContain("SELECT r.*");
+    expect(text).toContain("ORDER BY r.id ASC");
+    expect(values).toContain(5000);
+  });
+
   test("aggregate-only SQL compiler accepts formula-only aggregate output", () => {
     const resolved = resolveDslQueryToQueryPlan(
       parseOk(`
@@ -1392,6 +1443,31 @@ describe("resolveDslQueryToViewQuery", () => {
     ]);
     expect(typeof compiled.query.sql).toBe("object");
     expect(normalizedSql(compiled.query.sql)).toContain('ORDER BY "margin__sum" DESC NULLS LAST');
+  });
+
+  test("grouped SQL compiler can sample matching records for preview", () => {
+    const resolved = resolveDslQueryToQueryPlan(
+      parseOk(`
+        group by #ordered_at by month
+        aggregate sum(#amount) as revenue
+      `),
+      ctx(),
+    );
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+
+    const compiled = compileDslGroupedQueryPlanToSql(resolved.plan, {
+      fieldsByTableId: ctx().fieldsByTableId,
+      previewBaseLimit: 5000,
+    });
+
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const { text, values } = normalizedSqlParts(compiled.query.sql);
+    expect(text).toContain("FROM (");
+    expect(text).toContain("SELECT r.*");
+    expect(text).toContain("ORDER BY r.id ASC");
+    expect(values).toContain(5000);
   });
 
   test("grouped SQL compiler keeps aggregate output metadata typed", () => {

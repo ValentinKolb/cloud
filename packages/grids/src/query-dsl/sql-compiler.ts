@@ -34,6 +34,8 @@ export type DslSqlCompileOptions = {
   fieldsByTableId: Record<string, Field[]>;
   timeZone?: string;
   limit?: number;
+  previewBaseLimit?: number;
+  joinFanoutLimit?: number;
 };
 
 export type DslSqlCompiledQuery = {
@@ -412,11 +414,14 @@ const compileSqlSort = (
 
 const joinRecordAlias = (index: number): string => `jq${index}`;
 const joinLinkAlias = (index: number): string => `jql${index}`;
+const boundedPositiveInt = (value: number | undefined, fallback: number, max: number): number =>
+  Math.min(Math.max(value ?? fallback, 1), max);
 
 const compileRelationJoin = (
   join: DslResolvedRelationJoin,
   index: number,
   joinAliases: Map<string, string>,
+  options: Pick<DslSqlCompileOptions, "joinFanoutLimit"> = {},
 ): { ok: true; fragment: unknown; recordAlias: string } | { ok: false; error: string } => {
   const fromAlias = join.fromScope ? joinAliases.get(join.fromScope) : "r";
   if (!fromAlias) return { ok: false, error: `join "${join.alias}" depends on unknown join alias "${join.fromScope}"` };
@@ -424,14 +429,29 @@ const compileRelationJoin = (
   const linkAlias = joinLinkAlias(index);
   const recordAlias = joinRecordAlias(index);
   const joinSql = join.mode === "left" ? sql`LEFT JOIN` : sql`JOIN`;
+  const fanoutLimit = options.joinFanoutLimit ? boundedPositiveInt(options.joinFanoutLimit, 50, 500) : null;
+  const linkJoin = fanoutLimit
+    ? sql`
+      ${joinSql} LATERAL (
+        SELECT _dsl_link.to_record_id
+        FROM grids.record_links _dsl_link
+        WHERE _dsl_link.from_record_id = ${sql.unsafe(fromAlias)}.id
+          AND _dsl_link.from_field_id = ${join.relationFieldId}::uuid
+        ORDER BY _dsl_link.to_record_id
+        LIMIT ${fanoutLimit}
+      ) ${sql.unsafe(linkAlias)} ON TRUE
+    `
+    : sql`
+      ${joinSql} grids.record_links ${sql.unsafe(linkAlias)}
+        ON ${sql.unsafe(linkAlias)}.from_record_id = ${sql.unsafe(fromAlias)}.id
+       AND ${sql.unsafe(linkAlias)}.from_field_id = ${join.relationFieldId}::uuid
+    `;
 
   return {
     ok: true,
     recordAlias,
     fragment: sql`
-      ${joinSql} grids.record_links ${sql.unsafe(linkAlias)}
-        ON ${sql.unsafe(linkAlias)}.from_record_id = ${sql.unsafe(fromAlias)}.id
-       AND ${sql.unsafe(linkAlias)}.from_field_id = ${join.relationFieldId}::uuid
+      ${linkJoin}
       ${joinSql} grids.records ${sql.unsafe(recordAlias)}
         ON ${sql.unsafe(recordAlias)}.id = ${sql.unsafe(linkAlias)}.to_record_id
        AND ${sql.unsafe(recordAlias)}.table_id = ${join.tableId}::uuid
@@ -471,7 +491,7 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
   const joinAliases = new Map<string, string>();
   const joinSql: unknown[] = [];
   for (const [index, join] of (plan.joins ?? []).entries()) {
-    const compiled = compileRelationJoin(join, index, joinAliases);
+    const compiled = compileRelationJoin(join, index, joinAliases, { joinFanoutLimit: options.joinFanoutLimit });
     if (!compiled.ok) return fail(compiled.error);
     joinAliases.set(join.alias, compiled.recordAlias);
     joinSql.push(compiled.fragment);
@@ -728,6 +748,7 @@ export const compileDslGroupedQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, o
     offset: plan.offset,
     timeZone: options.timeZone,
     dateConfig: options.timeZone ? { timeZone: options.timeZone } : undefined,
+    baseRecordLimit: options.previewBaseLimit,
   });
   if (!compiled.ok) return failGroup(compiled.error);
 
@@ -799,18 +820,30 @@ export const compileDslAggregateQueryPlanToSql = (
     });
   }
 
+  const where = sql`r.table_id = ${plan.tableId}::uuid
+    AND r.deleted_at IS NULL
+    AND ${renderClause(filter.clause)}
+    AND ${extraWhere.where ?? sql`TRUE`}`;
+  const source = options.previewBaseLimit
+    ? sql`(
+        SELECT r.*
+        FROM grids.records r
+        WHERE ${where}
+        ORDER BY r.id ASC
+        LIMIT ${boundedPositiveInt(options.previewBaseLimit, 5000, 50_000)}
+      ) r`
+    : sql`grids.records r`;
+  const outerWhere = options.previewBaseLimit ? sql`TRUE` : where;
+
   return {
     ok: true,
     query: {
       sql: sql`
         SELECT jsonb_build_object(${joinFragments(jsonPairs, sql`, `)}) AS result
-        FROM grids.records r
+        FROM ${source}
         JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-        WHERE r.table_id = ${plan.tableId}::uuid
-          AND r.deleted_at IS NULL
-          AND ${renderClause(filter.clause)}
-          AND ${extraWhere.where ?? sql`TRUE`}
+        WHERE ${outerWhere}
       `,
       columns,
       limit: 1,

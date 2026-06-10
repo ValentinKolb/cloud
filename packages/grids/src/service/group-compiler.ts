@@ -485,8 +485,8 @@ const buildSelectList = (groups: ResolvedGroup[], aggExprs: Array<{ key: string;
   return joinSql(selectParts);
 };
 
-const buildFromClause = (groups: ResolvedGroup[]): any => {
-  let from: any = sql`grids.records r
+const buildFromClause = (groups: ResolvedGroup[], baseRecords?: any): any => {
+  let from: any = sql`${baseRecords ?? sql`grids.records r`}
     JOIN grids.tables _t ON _t.id = r.table_id AND _t.deleted_at IS NULL
     JOIN grids.bases _b ON _b.id = _t.base_id AND _b.deleted_at IS NULL`;
 
@@ -602,6 +602,8 @@ type CompileGroupParams = {
   includeDeleted?: boolean;
   /** When true, only soft-deleted records are included. */
   deletedOnly?: boolean;
+  /** Preview-only: aggregate over a bounded matching-record sample. */
+  baseRecordLimit?: number;
   timeZone?: string;
   dateConfig?: DateContext;
 };
@@ -666,8 +668,20 @@ export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResul
   const where = buildWhereClause(params);
   if (!where.ok) return where;
 
+  const baseRecordLimit = params.baseRecordLimit === undefined ? null : Math.min(Math.max(params.baseRecordLimit, 1), 50_000);
+  const baseRecords = baseRecordLimit
+    ? sql`(
+        SELECT r.*
+        FROM grids.records r
+        WHERE ${where.where}
+        ORDER BY r.id ASC
+        LIMIT ${baseRecordLimit}
+      ) r`
+    : undefined;
+  const outerWhere = baseRecordLimit ? sql`TRUE` : where.where;
+
   const selectList = buildSelectList(groups.resolved, aggregations.resolved.aggExprs);
-  const from = buildFromClause(groups.resolved);
+  const from = buildFromClause(groups.resolved, baseRecords);
 
   // GROUP BY (positional — references the SELECT list aliases)
   const groupByPositions = joinSql(groups.resolved.map((_, i) => sql`${sql.unsafe(String(i + 1))}`));
@@ -698,7 +712,7 @@ export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResul
   const groupedQuery = sql`
     SELECT ${selectList}
     FROM ${from}
-    WHERE ${where.where}
+    WHERE ${outerWhere}
     GROUP BY ${groupByPositions}
     HAVING ${havingClause}
   `;
