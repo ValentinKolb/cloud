@@ -1,7 +1,13 @@
-import { Hono } from "hono";
-import { auth, type AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { authFlows } from "@valentinkolb/cloud/services";
+import { type Context, Hono } from "hono";
 import { proxyAuthService } from "./service";
+
+const getUserBackedActor = (c: Context<AuthContext>) => {
+  const actor = c.get("actor") as AuthContext["Variables"]["actor"] | undefined;
+  if (!actor) return null;
+  return actor.kind === "user" ? actor.user : actor.delegatedUser;
+};
 
 /**
  * Traefik ForwardAuth verify endpoint.
@@ -12,7 +18,8 @@ import { proxyAuthService } from "./service";
  * - 403 = authenticated but not authorized for this client
  */
 const app = new Hono<AuthContext>().get("/verify/:clientId", auth.requireRole("*"), async (c) => {
-  const user = c.get("user");
+  const actor = c.get("actor") as AuthContext["Variables"]["actor"] | undefined;
+  const user = getUserBackedActor(c);
   const clientId = c.req.param("clientId");
 
   // Build original URL from Traefik headers when available.
@@ -39,6 +46,7 @@ const app = new Hono<AuthContext>().get("/verify/:clientId", auth.requireRole("*
 
   // Not logged in → redirect to login with return URL
   if (!user) {
+    if (actor) return c.text("Access denied: proxy auth requires a user-backed actor.", 403);
     const returnToken = await authFlows.proxyReturn.create({ clientId, url: originalUrl });
     if (!returnToken) {
       return c.text("Invalid proxy auth return URL", 400);

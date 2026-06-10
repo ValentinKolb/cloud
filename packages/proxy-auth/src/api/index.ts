@@ -1,18 +1,23 @@
-import { Hono } from "hono";
-import { describeRoute } from "hono-openapi";
-import { v, jsonResponse, requiresAdmin, auth, type AuthContext, rateLimit, respond, respondMessage } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, jsonResponse, rateLimit, requiresAdmin, respond, respondMessage, v } from "@valentinkolb/cloud/server";
 import { err, fail, ok } from "@valentinkolb/stdlib";
-import { proxyAuthService } from "../service";
+import { type Context, Hono } from "hono";
+import { describeRoute } from "hono-openapi";
+import { z } from "zod";
 import {
-  ProxyAuthClientSchema,
   CreateProxyAuthClientSchema,
-  UpdateProxyAuthClientSchema,
   ErrorResponseSchema,
   MessageResponseSchema,
+  ProxyAuthClientSchema,
+  UpdateProxyAuthClientSchema,
 } from "@/contracts";
-import { z } from "zod";
+import { proxyAuthService } from "../service";
 
 const ProxyAuthClientListSchema = z.array(ProxyAuthClientSchema);
+
+const getUserBackedActor = (c: Context<AuthContext>) => {
+  const actor = c.get("actor");
+  return actor.kind === "user" ? actor.user : actor.delegatedUser;
+};
 
 const app = new Hono<AuthContext>()
   .use(rateLimit())
@@ -66,7 +71,8 @@ const app = new Hono<AuthContext>()
     v("json", CreateProxyAuthClientSchema),
     async (c) => {
       const data = c.req.valid("json");
-      const user = c.get("user");
+      const user = getUserBackedActor(c);
+      if (!user) return respond(c, fail(err.forbidden("Proxy auth client management requires a user-backed actor")));
       return respond(c, proxyAuthService.client.create({ data, createdBy: user.id }));
     },
   )

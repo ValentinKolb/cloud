@@ -1,23 +1,28 @@
-import { Hono } from "hono";
-import { describeRoute } from "hono-openapi";
-import { v, jsonResponse, requiresAdmin, auth, type AuthContext, rateLimit, respond, respondMessage } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, jsonResponse, rateLimit, requiresAdmin, respond, respondMessage, v } from "@valentinkolb/cloud/server";
 import { err, fail, ok } from "@valentinkolb/stdlib";
-import { oauthService } from "../service";
+import { type Context, Hono } from "hono";
+import { describeRoute } from "hono-openapi";
+import { z } from "zod";
 import {
-  OAuthClientSchema,
-  OAuthClientWithSecretSchema,
   CreateOAuthClientSchema,
-  UpdateOAuthClientSchema,
   ErrorResponseSchema,
   MessageResponseSchema,
+  OAuthClientSchema,
+  OAuthClientWithSecretSchema,
+  UpdateOAuthClientSchema,
 } from "@/contracts";
-import { z } from "zod";
+import { oauthService } from "../service";
 
 // ==========================
 // OAuth Admin API
 // ==========================
 
 const OAuthClientListSchema = z.array(OAuthClientSchema);
+
+const getUserBackedActor = (c: Context<AuthContext>) => {
+  const actor = c.get("actor");
+  return actor.kind === "user" ? actor.user : actor.delegatedUser;
+};
 
 /**
  * Admin routes for managing OAuth clients
@@ -91,7 +96,8 @@ const app = new Hono<AuthContext>()
     v("json", CreateOAuthClientSchema),
     async (c) => {
       const data = c.req.valid("json");
-      const user = c.get("user");
+      const user = getUserBackedActor(c);
+      if (!user) return respond(c, fail(err.forbidden("OAuth client management requires a user-backed actor")));
 
       const result = await oauthService.client.create({
         data,
