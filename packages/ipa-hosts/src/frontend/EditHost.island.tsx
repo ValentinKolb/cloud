@@ -1,4 +1,4 @@
-import { Dropdown, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { Dropdown, Placeholder, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations, timed as timing } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Index, Show } from "solid-js";
@@ -270,7 +270,7 @@ const EditHostDialog = (props: {
         <div class="flex flex-col gap-2">
           <Show
             when={macAddresses().length > 0}
-            fallback={<div class="rounded-xl border border-dashed border-subtle p-3 text-xs text-dimmed">No MAC addresses configured.</div>}
+            fallback={<Placeholder align="left" class="rounded-xl border border-dashed border-subtle p-3">No MAC addresses configured.</Placeholder>}
           >
             <Index each={macAddresses()}>
               {(macAddress, index) => (

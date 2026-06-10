@@ -1,5 +1,5 @@
 import type { IpaHost } from "@/contracts";
-import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
 import CopyButton from "./CopyButton.island";
 import EditHost from "./EditHost.island";
 
@@ -79,7 +79,7 @@ const HostsTable = (props: Props) => {
       }}
     />
   ) : (
-    <div class="px-3 py-6 text-center text-xs text-dimmed">{props.emptyMessage ?? "No hosts found."}</div>
+    <Placeholder>{props.emptyMessage ?? "No hosts found."}</Placeholder>
   );
 };
 

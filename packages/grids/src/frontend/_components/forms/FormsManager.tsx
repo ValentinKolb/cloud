@@ -9,6 +9,7 @@ import {
   panelDialogOptions,
   panelDialogPanelClass,
   PanelDialog,
+  Placeholder,
   prompts,
   Select,
   TextInput,
@@ -191,9 +192,7 @@ export default function FormsManager(props: Props) {
       <Show
         when={forms().length > 0}
         fallback={
-          <div class="paper p-4">
-            <p class="text-sm text-dimmed">No custom forms yet.</p>
-          </div>
+          <Placeholder surface="paper" align="left">No custom forms yet.</Placeholder>
         }
       >
         <ul class="flex flex-col gap-2">
@@ -640,7 +639,7 @@ function FormFieldsEditor(props: { tableFields: Field[]; entries: () => FormFiel
         </div>
         <Show
           when={props.entries().length > 0}
-          fallback={<p class="paper p-3 text-xs text-dimmed">No fields yet.</p>}
+          fallback={<Placeholder surface="paper" align="left" class="p-3">No fields yet.</Placeholder>}
         >
           <ul class="flex min-h-0 flex-col gap-1 overflow-y-auto">
             <Index each={props.entries()}>

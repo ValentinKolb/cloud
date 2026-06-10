@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { prompts, Select, SettingsModal, TextInput } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts, Select, SettingsModal, TextInput } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -167,7 +167,7 @@ function TrashSection(props: { baseId: string }) {
           trash() &&
           (trash()!.tables.length > 0 || trash()!.fields.length > 0 || trash()!.dashboards.length > 0 || trash()!.forms.length > 0)
         }
-        fallback={<p class="text-xs text-dimmed py-1">Trash is empty.</p>}
+        fallback={<Placeholder align="left" class="px-0 py-1">Trash is empty.</Placeholder>}
       >
         <div class="flex flex-col gap-4">
           <Show when={trash()!.tables.length > 0}>
@@ -333,7 +333,7 @@ function DefaultDashboardSelect(props: { baseId: string; initial: string | null;
   };
 
   if (props.dashboards.length === 0) {
-    return <p class="text-xs text-dimmed">No dashboards on this base yet. Create one from the records sidebar to enable this setting.</p>;
+    return <Placeholder align="left" class="px-0 py-1">No dashboards on this base yet. Create one from the records sidebar to enable this setting.</Placeholder>;
   }
 
   return (

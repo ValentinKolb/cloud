@@ -23,6 +23,7 @@ import {
   PanelDialog,
   PermissionEditor,
   panelDialogOptions,
+  Placeholder,
   prompts,
   type ResourceApiKey,
   ResourceApiKeys,
@@ -1204,7 +1205,7 @@ function SettingsDialog(props: {
                 </Show>
               </div>
               <div class="grid gap-2 sm:grid-cols-2">
-                <For each={openingRules()} fallback={<p class="text-sm text-dimmed">No regular hours.</p>}>
+                <For each={openingRules()} fallback={<Placeholder align="left" class="px-0 py-2 sm:col-span-2">No regular hours.</Placeholder>}>
                   {(rule) => (
                     <div class="paper p-3 text-sm">
                       <div class="flex items-start justify-between gap-3">
@@ -1250,7 +1251,7 @@ function SettingsDialog(props: {
                 </Show>
               </div>
               <div class="grid gap-2 sm:grid-cols-2">
-                <For each={overrides()} fallback={<p class="text-sm text-dimmed">No closed days.</p>}>
+                <For each={overrides()} fallback={<Placeholder align="left" class="px-0 py-2 sm:col-span-2">No closed days.</Placeholder>}>
                   {(entry) => (
                     <div class="paper p-3 text-sm">
                       <div class="flex items-start justify-between gap-3">
@@ -1296,7 +1297,7 @@ function SettingsDialog(props: {
                 </Show>
               </div>
               <div class="grid gap-2 sm:grid-cols-2">
-                <For each={shiftTemplates()} fallback={<p class="text-sm text-dimmed">No shifts configured.</p>}>
+                <For each={shiftTemplates()} fallback={<Placeholder align="left" class="px-0 py-2 sm:col-span-2">No shifts configured.</Placeholder>}>
                   {(shift) => (
                     <div class="paper p-3 text-sm">
                       <div class="flex items-start justify-between gap-3">
@@ -1370,7 +1371,7 @@ function PublicSectionPreview(props: { section: PublicSection }) {
       </Show>
       <Show when={props.section.kind === "links"}>
         <div class="grid gap-2">
-          <For each={links()} fallback={<p class="text-sm text-dimmed">{sectionText(props.section, "text") || "No links yet."}</p>}>
+          <For each={links()} fallback={<Placeholder align="left" class="px-0 py-2">{sectionText(props.section, "text") || "No links yet."}</Placeholder>}>
             {(raw) => {
               const link = raw as Record<string, unknown>;
               return (
@@ -1386,7 +1387,7 @@ function PublicSectionPreview(props: { section: PublicSection }) {
       </Show>
       <Show when={props.section.kind === "menu"}>
         <div class="grid gap-2">
-          <For each={items()} fallback={<p class="text-sm text-dimmed">No menu items yet.</p>}>
+          <For each={items()} fallback={<Placeholder align="left" class="px-0 py-2">No menu items yet.</Placeholder>}>
             {(raw) => {
               const item = raw as Record<string, unknown>;
               const image = typeof item.image === "string" ? item.image : "";
@@ -1762,7 +1763,7 @@ export default function VenueWorkspace(props: Props) {
                   Add public section
                 </AppWorkspace.SidebarItem>
               </Show>
-              <For each={props.dashboard.sections} fallback={<p class="px-2 text-xs text-dimmed">No sections yet.</p>}>
+              <For each={props.dashboard.sections} fallback={<Placeholder align="left" class="px-2 py-2">No sections yet.</Placeholder>}>
                 {(section) => (
                   <AppWorkspace.SidebarItem
                     href={sectionHref(section)}
@@ -1926,7 +1927,7 @@ export default function VenueWorkspace(props: Props) {
             <Show when={!selectedSection() && view() === "my-shifts"}>
               <section class="paper p-4">
                 <h2 class="section-label">My shifts</h2>
-                <Show when={props.dashboard.myUpcomingShifts.length > 0} fallback={<p class="text-sm text-dimmed">No upcoming shifts.</p>}>
+                <Show when={props.dashboard.myUpcomingShifts.length > 0} fallback={<Placeholder align="left" class="px-0 py-2">No upcoming shifts.</Placeholder>}>
                   <div class="grid gap-2">
                     <For each={props.dashboard.myUpcomingShifts}>
                       {(shift) => (

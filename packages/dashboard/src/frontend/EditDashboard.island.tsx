@@ -1,4 +1,4 @@
-import { CheckboxCard, IconInput, prompts, SelectInput, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { CheckboxCard, IconInput, Placeholder, prompts, SelectInput, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { openAppLaunchpad } from "@valentinkolb/cloud/ssr/islands";
 import { gradients } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -285,7 +285,7 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
             Add
           </button>
         </div>
-        <Show when={shortcuts().length > 0} fallback={<p class="text-sm text-dimmed">No custom shortcuts yet.</p>}>
+        <Show when={shortcuts().length > 0} fallback={<Placeholder align="left" class="px-0 py-2">No custom shortcuts yet.</Placeholder>}>
           <ul class="flex flex-col gap-2">
             <For each={shortcuts()}>
               {(shortcut) => {
