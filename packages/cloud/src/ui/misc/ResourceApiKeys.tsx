@@ -11,7 +11,7 @@ import CopyButton from "./CopyButton";
 type GrantablePermission = Exclude<PermissionLevel, "none">;
 
 export type ResourceApiKey = ServiceAccountCredential & {
-  permission: GrantablePermission;
+  permission: PermissionLevel;
 };
 
 export type ResourceApiKeyPermissionOption = {
@@ -51,8 +51,8 @@ const toInstant = (value: string | null): string | null => {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 };
 
-const permissionLabel = (permission: GrantablePermission, options: ResourceApiKeyPermissionOption[]) =>
-  options.find((option) => option.value === permission)?.label ?? permission;
+const permissionLabel = (permission: PermissionLevel, options: ResourceApiKeyPermissionOption[]) =>
+  permission === "none" ? "No access" : (options.find((option) => option.value === permission)?.label ?? permission);
 
 function TokenDialog(props: { token: string }) {
   return (
@@ -225,7 +225,13 @@ export default function ResourceApiKeys(props: ResourceApiKeysProps) {
                 <div class="min-w-0 flex-1">
                   <div class="flex min-w-0 items-center gap-2">
                     <span class="truncate text-sm font-medium text-primary">{key.name}</span>
-                    <span class="tag bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200">
+                    <span
+                      class={
+                        key.permission === "none"
+                          ? "tag bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-200"
+                          : "tag bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200"
+                      }
+                    >
                       {permissionLabel(key.permission, options())}
                     </span>
                     <span class="tag bg-zinc-100 text-dimmed dark:bg-zinc-800">{key.tokenPrefix}</span>

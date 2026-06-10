@@ -87,11 +87,11 @@ export default function SpaceEditPanel(props: Props) {
           <StatusManager spaceId={props.space.id} columns={props.space.columns} />
         </SettingsModal.Tab>
 
-        {props.accessEntries && (
+        {props.isAdmin && props.accessEntries && (
           <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Permission changes save immediately.">
             <div class="flex flex-col gap-6">
               <PermissionEditor
-                initialEntries={props.accessEntries}
+                initialEntries={props.accessEntries.filter((entry) => entry.principal.type !== "service_account")}
                 canEdit={props.isAdmin}
                 grantAccess={async (principal, permission) => {
                   const res = await apiClient[":id"].access.$post({

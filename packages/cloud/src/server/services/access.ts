@@ -279,7 +279,13 @@ export const getEffectivePermission = async (params: {
         OR group_id = ANY(${toPgUuidArray(userGroups)}::uuid[])
         OR service_account_id = ${serviceAccountId}::uuid
         OR (${userId}::uuid IS NOT NULL AND authenticated_only = true)
-        OR (user_id IS NULL AND group_id IS NULL AND service_account_id IS NULL AND authenticated_only = false)
+        OR (
+          ${serviceAccountId}::uuid IS NULL
+          AND user_id IS NULL
+          AND group_id IS NULL
+          AND service_account_id IS NULL
+          AND authenticated_only = false
+        )
       )
     ORDER BY
       CASE permission

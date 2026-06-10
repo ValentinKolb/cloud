@@ -160,6 +160,14 @@ describe("listUsersWithAccess", () => {
       expect(writers.map((user) => user.id)).not.toContain(fixture.userIds.direct);
       expect(writers.map((user) => user.id)).toContain(fixture.userIds.group);
 
+      const serviceAccountPublicPermission = await getEffectivePermission({
+        accessIds: fixture.accessIds,
+        userId: null,
+        userGroups: [],
+        serviceAccountId: fixture.serviceAccountId,
+      });
+      expect(serviceAccountPublicPermission).toBe("none");
+
       const serviceAccountAccess = await createAccess({
         principal: { type: "service_account", serviceAccountId: fixture.serviceAccountId },
         permission: "write",

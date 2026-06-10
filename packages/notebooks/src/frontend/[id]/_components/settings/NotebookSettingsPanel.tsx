@@ -781,7 +781,7 @@ function PermissionsSection(props: { notebook: Notebook; accessEntries: AccessEn
   return (
     <Show when={props.isAdmin} fallback={<p class="text-xs text-dimmed">Only notebook admins can manage access.</p>}>
       <PermissionEditor
-        initialEntries={props.accessEntries}
+        initialEntries={props.accessEntries.filter((entry) => entry.principal.type !== "service_account")}
         canEdit
         grantAccess={async (principal, permission) => {
           const res = await apiClient[":id"].access.$post({

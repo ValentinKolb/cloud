@@ -102,10 +102,8 @@ export default ssr<AuthContext>(async (c) => {
           const permission = accessEntries.find(
             (entry) =>
               entry.principal.type === "service_account" &&
-              entry.principal.serviceAccountId === item.serviceAccount.id &&
-              entry.permission !== "none",
-          )?.permission;
-          if (!permission || permission === "none") return [];
+              entry.principal.serviceAccountId === item.serviceAccount.id,
+          )?.permission ?? "none";
           const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
           return [{ ...credential, permission }];
         })

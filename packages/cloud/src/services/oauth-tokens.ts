@@ -10,6 +10,15 @@ type DbKey = {
   kid: string;
 };
 
+const parseScopeClaim = (payload: jose.JWTPayload): string[] => {
+  const value = payload.scope;
+  if (typeof value !== "string") return [];
+  return value
+    .split(/\s+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+};
+
 export type AuthenticatedOAuthToken =
   | {
       kind: "user";
@@ -21,6 +30,7 @@ export type AuthenticatedOAuthToken =
       payload: jose.JWTPayload;
       serviceAccount: ServiceAccount;
       delegatedUser: User | null;
+      scopes: string[];
     };
 
 const getIssuer = async (): Promise<string> => {
@@ -73,6 +83,7 @@ export const verifyAccessToken = async (token: string): Promise<AuthenticatedOAu
       payload,
       serviceAccount,
       delegatedUser,
+      scopes: parseScopeClaim(payload),
     };
   }
 

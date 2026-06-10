@@ -2,6 +2,7 @@ import {
   type AuthContext,
   auth,
   getDateConfig,
+  hasPermission,
   jsonResponse,
   rateLimit,
   requiresAuth,
@@ -70,7 +71,7 @@ const AssignableUsersQuerySchema = z.object({
 });
 
 const SpaceApiKeySchema = ServiceAccountCredentialSchema.extend({
-  permission: z.enum(["read", "write", "admin"]),
+  permission: z.enum(["none", "read", "write", "admin"]),
 });
 
 const CreateSpaceApiKeySchema = z.object({
@@ -111,14 +112,34 @@ const requireUserBackedActor = (c: Context<AuthContext>): Result<User> => {
   return ok(user);
 };
 
+const PERMISSION_RANK: Record<PermissionLevel, number> = {
+  none: 0,
+  read: 1,
+  write: 2,
+  admin: 3,
+};
+
+const permissionFromScopes = (scopes: string[]): PermissionLevel => {
+  if (scopes.includes("admin")) return "admin";
+  if (scopes.includes("write")) return "write";
+  if (scopes.includes("read")) return "read";
+  return "none";
+};
+
+const minPermission = (a: PermissionLevel, b: PermissionLevel): PermissionLevel => (PERMISSION_RANK[a] <= PERMISSION_RANK[b] ? a : b);
+
 const getSpaceAccessSubject = (c: Context<AuthContext>) => {
   const user = getUserBackedActor(c);
   const accessSubject = c.get("accessSubject");
+  const actor = c.get("actor");
+  const serviceAccount = actor.kind === "service_account" ? actor.serviceAccount : null;
   return {
     user,
     userId: accessSubject.type === "user" ? accessSubject.userId : null,
     userGroups: user?.memberofGroupIds ?? [],
     serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
+    serviceAccount,
+    serviceAccountScopes: actor.kind === "service_account" ? actor.scopes : [],
   };
 };
 
@@ -141,15 +162,12 @@ const checkSpaceAccess = async (c: Context<AuthContext>, spaceId: string, requir
     return { space, permission: "admin" as PermissionLevel, user: subject.user };
   }
 
-  const hasAccess = await spacesService.space.permission.canAccess({
-    spaceId,
-    userId: subject.userId,
-    userGroups: subject.userGroups,
-    serviceAccountId: subject.serviceAccountId,
-    requiredLevel,
-  });
-
-  if (!hasAccess) {
+  if (
+    subject.serviceAccount?.kind === "resource_bound" &&
+    (subject.serviceAccount.appId !== SPACES_APP_ID ||
+      subject.serviceAccount.resourceType !== SPACE_RESOURCE_TYPE ||
+      subject.serviceAccount.resourceId !== spaceId)
+  ) {
     return {
       space: null,
       permission: "none" as PermissionLevel,
@@ -157,12 +175,24 @@ const checkSpaceAccess = async (c: Context<AuthContext>, spaceId: string, requir
     };
   }
 
-  const permission = await spacesService.space.permission.get({
+  let permission = await spacesService.space.permission.get({
     spaceId,
     userId: subject.userId,
     userGroups: subject.userGroups,
     serviceAccountId: subject.serviceAccountId,
   });
+
+  if (subject.serviceAccount?.kind === "resource_bound") {
+    permission = minPermission(permission, permissionFromScopes(subject.serviceAccountScopes));
+  }
+
+  if (!hasPermission(permission, requiredLevel)) {
+    return {
+      space: null,
+      permission: "none" as PermissionLevel,
+      error: await respond(c, fail(err.forbidden("Access denied"))),
+    };
+  }
 
   return { space, permission, user: subject.user };
 };
@@ -180,7 +210,7 @@ const respondMessage = async (c: Context, resultPromise: Promise<Result<void> | 
 
 const listSpaceApiKeys = async (spaceId: string): Promise<SpaceApiKey[]> => {
   const keys = await spacesService.access.apiKeys.list({ spaceId });
-  return keys.map((key) => ({ ...key, permission: key.permission as "read" | "write" | "admin" }));
+  return keys;
 };
 
 /**
@@ -1144,8 +1174,8 @@ const app = new Hono<AuthContext>()
       if (error) return error;
 
       return respond(c, async () => {
-        const serviceAccount = await serviceAccounts.getOrCreateResourceBound({
-          name: `${space!.name} API access`,
+        const serviceAccount = await serviceAccounts.createResourceBound({
+          name: `${space!.name} API key: ${data.name}`,
           appId: SPACES_APP_ID,
           resourceType: SPACE_RESOURCE_TYPE,
           resourceId: spaceId,
@@ -1153,25 +1183,36 @@ const app = new Hono<AuthContext>()
         });
         if (!serviceAccount.ok) return serviceAccount;
 
+        const cleanupServiceAccount = async () => {
+          await serviceAccounts.delete({ id: serviceAccount.data.id });
+        };
+
         const access = await spacesService.access.ensureServiceAccount({
           spaceId,
           serviceAccountId: serviceAccount.data.id,
           permission: data.permission,
         });
-        if (!access.ok) return access;
+        if (!access.ok) {
+          await cleanupServiceAccount();
+          return access;
+        }
 
         const created = await serviceAccountCredentials.createResourceApiToken({
           serviceAccountId: serviceAccount.data.id,
           actor: user,
           name: data.name,
           expiresAt: data.expiresAt ?? null,
+          scopes: [data.permission],
         });
-        if (!created.ok) return created;
+        if (!created.ok) {
+          await cleanupServiceAccount();
+          return created;
+        }
 
         return ok({
           credential: {
             ...created.data.credential,
-            permission: access.data.permission as "read" | "write" | "admin",
+            permission: access.data.permission,
           },
           token: created.data.token,
         });

@@ -12,7 +12,7 @@ import {
   ServiceAccountCredentialSchema,
   UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, hasPermission, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
 import { serviceAccountCredentials, serviceAccounts, settings, settingsService } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
@@ -56,7 +56,7 @@ const UpdateNotebookSchema = z.object({
 });
 
 const NotebookApiKeySchema = ServiceAccountCredentialSchema.extend({
-  permission: z.enum(["read", "write", "admin"]),
+  permission: z.enum(["none", "read", "write", "admin"]),
 });
 
 const CreateNotebookApiKeySchema = z.object({
@@ -344,14 +344,34 @@ const requireUserBackedActor = (c: Context<AuthContext>): Result<User> => {
   return ok(user);
 };
 
+const PERMISSION_RANK: Record<PermissionLevel, number> = {
+  none: 0,
+  read: 1,
+  write: 2,
+  admin: 3,
+};
+
+const permissionFromScopes = (scopes: string[]): PermissionLevel => {
+  if (scopes.includes("admin")) return "admin";
+  if (scopes.includes("write")) return "write";
+  if (scopes.includes("read")) return "read";
+  return "none";
+};
+
+const minPermission = (a: PermissionLevel, b: PermissionLevel): PermissionLevel => (PERMISSION_RANK[a] <= PERMISSION_RANK[b] ? a : b);
+
 const getNotebookAccessSubject = (c: Context<AuthContext>) => {
   const user = getUserBackedActor(c);
   const accessSubject = c.get("accessSubject");
+  const actor = c.get("actor");
+  const serviceAccount = actor.kind === "service_account" ? actor.serviceAccount : null;
   return {
     user,
     userId: accessSubject.type === "user" ? accessSubject.userId : null,
     userGroups: user?.memberofGroupIds ?? [],
     serviceAccountId: accessSubject.type === "service_account" ? accessSubject.serviceAccountId : null,
+    serviceAccount,
+    serviceAccountScopes: actor.kind === "service_account" ? actor.scopes : [],
   };
 };
 
@@ -381,15 +401,12 @@ const checkNotebookAccess = async (c: Context<AuthContext>, idOrShortId: string,
     return { notebook, permission: "admin" as PermissionLevel, user: subject.user };
   }
 
-  const hasAccess = await notebooksService.notebook.permission.canAccess({
-    notebookId: notebook.id,
-    userId: subject.userId,
-    userGroups: subject.userGroups,
-    serviceAccountId: subject.serviceAccountId,
-    requiredLevel,
-  });
-
-  if (!hasAccess) {
+  if (
+    subject.serviceAccount?.kind === "resource_bound" &&
+    (subject.serviceAccount.appId !== NOTEBOOKS_APP_ID ||
+      subject.serviceAccount.resourceType !== NOTEBOOK_RESOURCE_TYPE ||
+      subject.serviceAccount.resourceId !== notebook.id)
+  ) {
     return {
       notebook: null,
       permission: "none" as PermissionLevel,
@@ -397,12 +414,24 @@ const checkNotebookAccess = async (c: Context<AuthContext>, idOrShortId: string,
     };
   }
 
-  const permission = await notebooksService.notebook.permission.get({
+  let permission = await notebooksService.notebook.permission.get({
     notebookId: notebook.id,
     userId: subject.userId,
     userGroups: subject.userGroups,
     serviceAccountId: subject.serviceAccountId,
   });
+
+  if (subject.serviceAccount?.kind === "resource_bound") {
+    permission = minPermission(permission, permissionFromScopes(subject.serviceAccountScopes));
+  }
+
+  if (!hasPermission(permission, requiredLevel)) {
+    return {
+      notebook: null,
+      permission: "none" as PermissionLevel,
+      error: await respond(c, fail(err.forbidden("Access denied"))),
+    };
+  }
 
   return { notebook, permission, user: subject.user };
 };
@@ -440,18 +469,17 @@ const listNotebookApiKeys = async (notebookId: string): Promise<NotebookApiKey[]
 
   const permissionByServiceAccountId = new Map(
     accessEntries.items
-      .filter((entry) => entry.principal.type === "service_account" && entry.permission !== "none")
+      .filter((entry) => entry.principal.type === "service_account")
       .map((entry) => [
         (entry.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId,
-        entry.permission as "read" | "write" | "admin",
+        entry.permission,
       ]),
   );
 
-  return keys.items.flatMap((item) => {
-    const permission = permissionByServiceAccountId.get(item.serviceAccount.id);
-    if (!permission) return [];
+  return keys.items.map((item) => {
+    const permission = permissionByServiceAccountId.get(item.serviceAccount.id) ?? "none";
     const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
-    return [{ ...credential, permission }];
+    return { ...credential, permission };
   });
 };
 
@@ -1440,8 +1468,8 @@ const app = new Hono<AuthContext>()
       if (error) return error;
 
       return respond(c, async () => {
-        const serviceAccount = await serviceAccounts.getOrCreateResourceBound({
-          name: `${notebook!.name} API access`,
+        const serviceAccount = await serviceAccounts.createResourceBound({
+          name: `${notebook!.name} API key: ${data.name}`,
           appId: NOTEBOOKS_APP_ID,
           resourceType: NOTEBOOK_RESOURCE_TYPE,
           resourceId: notebook!.id,
@@ -1449,25 +1477,36 @@ const app = new Hono<AuthContext>()
         });
         if (!serviceAccount.ok) return serviceAccount;
 
+        const cleanupServiceAccount = async () => {
+          await serviceAccounts.delete({ id: serviceAccount.data.id });
+        };
+
         const access = await notebooksService.notebook.access.ensureServiceAccount({
           notebookId: notebook!.id,
           serviceAccountId: serviceAccount.data.id,
           permission: data.permission,
         });
-        if (!access.ok) return access;
+        if (!access.ok) {
+          await cleanupServiceAccount();
+          return access;
+        }
 
         const created = await serviceAccountCredentials.createResourceApiToken({
           serviceAccountId: serviceAccount.data.id,
           actor: user,
           name: data.name,
           expiresAt: data.expiresAt ?? null,
+          scopes: [data.permission],
         });
-        if (!created.ok) return created;
+        if (!created.ok) {
+          await cleanupServiceAccount();
+          return created;
+        }
 
         return ok({
           credential: {
             ...created.data.credential,
-            permission: access.data.permission as "read" | "write" | "admin",
+            permission: access.data.permission,
           },
           token: created.data.token,
         });

@@ -367,14 +367,7 @@ export const migrate = async (): Promise<void> => {
     ON auth.service_accounts(app_id, resource_type, resource_id)
     WHERE app_id IS NOT NULL AND resource_type IS NOT NULL AND resource_id IS NOT NULL
   `.simple();
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS uniq_service_accounts_resource_bound
-    ON auth.service_accounts(app_id, resource_type, resource_id)
-    WHERE kind = 'resource_bound'
-      AND app_id IS NOT NULL
-      AND resource_type IS NOT NULL
-      AND resource_id IS NOT NULL
-  `.simple();
+  await sql`DROP INDEX IF EXISTS uniq_service_accounts_resource_bound`.simple();
   console.log("  ✓ auth.service_accounts table");
 
   await sql`

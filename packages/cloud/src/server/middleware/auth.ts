@@ -23,11 +23,13 @@ export type ServiceAccountRequestActor =
       kind: "service_account";
       serviceAccount: ServiceAccount;
       delegatedUser: User;
+      scopes: string[];
     }
   | {
       kind: "service_account";
       serviceAccount: ServiceAccount;
       delegatedUser: null;
+      scopes: string[];
     };
 
 export type RequestActor = UserRequestActor | ServiceAccountRequestActor;
@@ -98,6 +100,7 @@ const loadAuthenticatedActor = async (c: Context<AuthContext>): Promise<{
       kind: "service_account",
       serviceAccount: authResult.serviceAccount,
       delegatedUser: authResult.delegatedUser,
+      scopes: authResult.credential.scopes,
     };
     c.set("actor", actor);
     if (authResult.delegatedUser) {
@@ -125,6 +128,7 @@ const loadAuthenticatedActor = async (c: Context<AuthContext>): Promise<{
       kind: "service_account",
       serviceAccount: authResult.serviceAccount,
       delegatedUser: authResult.delegatedUser,
+      scopes: authResult.scopes,
     };
     c.set("actor", actor);
     if (authResult.delegatedUser) {

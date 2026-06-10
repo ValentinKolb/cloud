@@ -31,7 +31,7 @@ export const SPACES_APP_ID = "spaces";
 export const SPACE_RESOURCE_TYPE = "space";
 
 export type SpaceApiKey = ServiceAccountCredential & {
-  permission: Exclude<PermissionLevel, "none">;
+  permission: PermissionLevel;
 };
 
 /**
@@ -302,18 +302,17 @@ export const listSpaceApiKeys = async (spaceId: string): Promise<SpaceApiKey[]> 
 
   const permissionByServiceAccountId = new Map(
     accessEntries
-      .filter((entry) => entry.principal.type === "service_account" && entry.permission !== "none")
+      .filter((entry) => entry.principal.type === "service_account")
       .map((entry) => [
         (entry.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId,
-        entry.permission as Exclude<PermissionLevel, "none">,
+        entry.permission,
       ]),
   );
 
-  return keys.items.flatMap((item) => {
-    const permission = permissionByServiceAccountId.get(item.serviceAccount.id);
-    if (!permission) return [];
+  return keys.items.map((item) => {
+    const permission = permissionByServiceAccountId.get(item.serviceAccount.id) ?? "none";
     const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
-    return [{ ...credential, permission }];
+    return { ...credential, permission };
   });
 };
 
