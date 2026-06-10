@@ -26,7 +26,7 @@ When building or reshaping a built-in app, copy the nearest existing Cloud shell
    - Contacts for list/detail panels.
    - Logging, OAuth, Contacts admin, or Notebooks admin for table/stat admin surfaces.
    - Notebooks, Contacts, or Grids for settings/access modals.
-3. Mirror the reference shell and shared component first: `AppOverview`, `AppWorkspace`, `SettingsModal`, `PanelDialog`, `Calendar`, `DataTable`, `StatGrid`, `FileDropzone`.
+3. Mirror the reference shell and shared component first: `AppOverview`, `AppWorkspace`, `DockWorkspace`, `SettingsModal`, `PanelDialog`, `Calendar`, `DataTable`, `StatGrid`, `FileDropzone`.
 4. Build app domain logic inside the shell: service state, mutations, permissions, validation, API calls, and public modules stay in the app.
 5. Before reporting done, run `references/app-quality-checklist.md`.
 
@@ -769,6 +769,31 @@ Use `DataTable` for real tabular lists/dataviews before writing custom table mar
 
 Use `AppWorkspace` for full app shells with sidebar/main/detail. `app-cols` remains a low-level utility, but new app shells should prefer the component API so navigation enhancement, scroll preservation, mobile/sidebar styling, and detail-panel sizing stay consistent.
 
+#### DockWorkspace Result + Pane Layout
+
+Use `DockWorkspace` inside an `AppWorkspace.Main` area for IDE-like tools where one result/preview area is paired with docked editor/context/help panes.
+
+```tsx
+import { DockWorkspace, readDockWorkspaceStateCookie } from "@valentinkolb/cloud/ui";
+
+<DockWorkspace storageKey="my-app.query-workspace" initialState={initialDockState}>
+  <DockWorkspace.Result title="Result" icon="ti ti-chart-line">
+    <Preview />
+  </DockWorkspace.Result>
+  <DockWorkspace.Pane id="query" title="Query" icon="ti ti-code" section="editor">
+    <QueryEditor />
+  </DockWorkspace.Pane>
+  <DockWorkspace.Pane id="sources" title="Sources" icon="ti ti-database" section="context">
+    <SourcesPanel />
+  </DockWorkspace.Pane>
+  <DockWorkspace.Pane id="reference" title="Reference" icon="ti ti-book" section="help">
+    <ReferencePanel />
+  </DockWorkspace.Pane>
+</DockWorkspace>
+```
+
+Keep it KISS: `Result` is singular; `Pane` instances are grouped by their `section` prop. The component owns resizing, tab order, drag-between-sections, tab styling, and cookie persistence. If `storageKey` is used, read the matching cookie in the SSR page with `readDockWorkspaceStateCookie(cookieHeader, storageKey)` and pass it as `initialState` to avoid client-side layout snapping. Live reference: `/app/ui-lab/layout/dock-workspace`.
+
 #### Card Grid Layout (like Spaces)
 
 ```jsx
@@ -830,6 +855,7 @@ Use `AppWorkspace` for full app shells with sidebar/main/detail. `app-cols` rema
 | `PermissionEditor` | Access control UI (grant/revoke via ResourceAccessAdapter) |
 | `AppOverview` | Shared app overview/start-page shell |
 | `AppWorkspace` | Shared sidebar + main + detail workspace shell |
+| `DockWorkspace` | IDE-style result + docked panes shell for query/dashboard editors |
 | `DialogHeader` | Standard dialog header |
 | `CopyButton` | Clipboard copy with feedback |
 | `StructuredDataPreview` | Formatted key-value plus raw JSON preview for metadata/payload/dimensions |

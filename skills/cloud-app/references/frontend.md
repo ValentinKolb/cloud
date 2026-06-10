@@ -798,6 +798,51 @@ manual scroll code:
 </AppWorkspace.SidebarBody>
 ```
 
+### DockWorkspace
+
+IDE-style compound layout for technical workspaces with one result/preview area and docked bottom panes. Source: `packages/cloud/src/ui/misc/DockWorkspace.tsx`. UI Lab uses it at `/app/ui-lab/layout/dock-workspace`.
+
+Use it when the user works with an editor/query plus live output and contextual side panels, for example a query explorer, dashboard DSL editor, report builder, or import mapping tool. Do not use it for ordinary resource workspaces; use `AppWorkspace` there.
+
+```tsx
+import { DockWorkspace, readDockWorkspaceStateCookie } from "@valentinkolb/cloud/ui";
+
+// SSR page:
+const initialState = readDockWorkspaceStateCookie(c.req.header("Cookie"), "pulse.query-explorer");
+
+// Island:
+<DockWorkspace storageKey="pulse.query-explorer" initialState={initialState}>
+  <DockWorkspace.Result title="Result" icon="ti ti-chart-line">
+    <QueryResult />
+  </DockWorkspace.Result>
+
+  <DockWorkspace.Pane id="editor" title="Query" icon="ti ti-code" section="editor">
+    <QueryEditor />
+  </DockWorkspace.Pane>
+
+  <DockWorkspace.Pane id="sources" title="Sources" icon="ti ti-database" section="context">
+    <SourceLookup />
+  </DockWorkspace.Pane>
+
+  <DockWorkspace.Pane id="saved" title="Saved" icon="ti ti-device-floppy" section="context">
+    <SavedQueries />
+  </DockWorkspace.Pane>
+
+  <DockWorkspace.Pane id="reference" title="Reference" icon="ti ti-book" section="help">
+    <Reference />
+  </DockWorkspace.Pane>
+</DockWorkspace>
+```
+
+Rules:
+
+- Exactly one `DockWorkspace.Result`; it owns the top result/preview slot.
+- Add as many `DockWorkspace.Pane` children as needed. Panes with the same `section` start in one tab group; different `section` values start as separate bottom sections.
+- The component owns resize handles, bottom tab styling, drag/reorder, active tab state, and normalized pane sizes.
+- Pass a stable `storageKey` when user layout persistence matters. The component writes a cookie; SSR pages should read that cookie with `readDockWorkspaceStateCookie` and pass `initialState` to prevent a default-layout flash before hydration.
+- Keep pane children edge-to-edge unless the pane content itself needs padding. Put padding inside `paper`, editor, table, or panel components, not around every pane.
+- Keep it KISS: no floating windows, nested dock workspaces, or app-specific layout wrappers until a real product need exists.
+
 #### SSR list/detail workspace recipe
 
 For a list/detail app, make selection URL-driven so reloads, sharing, SSR data loading, and back/forward navigation all work. The SSR page reads `?item=...`, renders `Layout fullWidth fullPage`, and passes serializable initial data to an island. The island may optimistically update local signals, but the canonical selected item stays in the URL.
