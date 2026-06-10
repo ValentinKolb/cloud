@@ -30,11 +30,14 @@ export default function AdminLoginForm(props: { redirectTo?: string }) {
       class="flex flex-col gap-4"
     >
       <TextInput
-        placeholder="Admin Token"
+        label="Admin token"
+        description="Use the emergency token configured for this instance."
+        placeholder="Admin token"
         icon="ti ti-key"
         password
         value={token}
         onChange={setToken}
+        autocomplete="off"
       />
 
       {mutation.error() && (
@@ -44,7 +47,8 @@ export default function AdminLoginForm(props: { redirectTo?: string }) {
       )}
 
       <button type="submit" class="btn-primary w-full justify-center py-2" disabled={mutation.loading()}>
-        {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Sign In"}
+        {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-shield" />}
+        Sign in with admin token
       </button>
     </form>
   );

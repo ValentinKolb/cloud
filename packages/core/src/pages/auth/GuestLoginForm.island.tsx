@@ -57,11 +57,17 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
           }}
           class="flex flex-col gap-4"
         >
-          <div class="info-block-success">
-            Check your email for the login code. If you normally sign in with a FreeIPA password, switch to FreeIPA sign-in instead.
-          </div>
+          <div class="info-block-success">Check your email for the login code. The code expires after a few minutes.</div>
 
-          <TextInput placeholder="Login code" icon="ti ti-key" value={tokenInput} onChange={setTokenInput} />
+          <TextInput
+            label="Login code"
+            description="Enter the one-time code from your email."
+            placeholder="Login code"
+            icon="ti ti-key"
+            value={tokenInput}
+            onChange={setTokenInput}
+            autocomplete="one-time-code"
+          />
 
           {error() && (
             <div class="info-block-danger">
@@ -99,7 +105,20 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
         }}
         class="flex flex-col gap-4"
       >
-        <TextInput placeholder="Email address" icon="ti ti-mail" value={email} onChange={setEmail} />
+        <TextInput
+          label="Email address"
+          description={
+            props.allowSelfRegistration
+              ? "Use your Cloud email address. A guest account will be created automatically on first login."
+              : "Use the email address for your existing Cloud account."
+          }
+          placeholder="you@example.org"
+          type="email"
+          icon="ti ti-mail"
+          value={email}
+          onChange={setEmail}
+          autocomplete="email"
+        />
 
         {error() && (
           <div class="info-block-danger">
@@ -125,13 +144,14 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
         />
 
         <button type="submit" class="btn-primary w-full justify-center py-2" disabled={loading()}>
-          {emailMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Send login code"}
+          {emailMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-send" />}
+          Send login link
         </button>
 
-        <div class="text-xs text-dimmed text-center">
+        <div class="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs leading-5 text-dimmed dark:border-zinc-800 dark:bg-zinc-900">
           {props.allowSelfRegistration
-            ? "No local account yet? One will be created when you complete your first email sign-in."
-            : "Only existing local accounts can sign in with email. Contact an administrator if you need access."}
+            ? "New to Cloud? Enter your email address. A guest account will be created automatically on first login."
+            : "Email links only open existing accounts. Need a new account? Contact an administrator."}
         </div>
       </form>
     </Show>
