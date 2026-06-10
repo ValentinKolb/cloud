@@ -1,9 +1,9 @@
 import { listAppsDetailed } from "@valentinkolb/cloud";
-import { type AuthContext } from "@valentinkolb/cloud/server";
 import { createPagination } from "@valentinkolb/cloud/contracts";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, Pagination, StatCell, StatGrid, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import { getTelemetrySummary, listTelemetryApps, listTelemetryEvents, type TelemetryEventRow } from "../../telemetry";
 import TelemetryFilterBar, { type TelemetryAppFilterOption } from "./TelemetryFilterBar.island";
@@ -65,7 +65,9 @@ export default ssr<AuthContext>(async (c) => {
   const pagination = createPagination({ page, perPage, offset: (page - 1) * perPage }, events.total);
   const baseParams = new URLSearchParams(params);
   baseParams.delete("page");
-  const baseUrl = baseParams.toString() ? `/admin/observability/telemetry?${baseParams.toString()}&page=` : "/admin/observability/telemetry?page=";
+  const baseUrl = baseParams.toString()
+    ? `/admin/observability/telemetry?${baseParams.toString()}&page=`
+    : "/admin/observability/telemetry?page=";
 
   const columns: DataTableColumn<TelemetryEventRow>[] = [
     { id: "time", header: "Time", value: (row) => row.occurredAt, cellClass: "whitespace-nowrap" },
@@ -88,36 +90,78 @@ export default ssr<AuthContext>(async (c) => {
 
           <StatGrid columns={5}>
             <StatCell value={summary.requests.toLocaleString()} label="Requests" sub="last 24h" />
-            <StatCell value={summary.errors.toLocaleString()} label="Errors" sub="last 24h" accent={summary.errors > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined} />
-            <StatCell value={summary.slowRequests.toLocaleString()} label="Slow" sub=">= 800ms" accent={summary.slowRequests > 0 ? { tone: "amber", icon: "ti ti-clock-exclamation" } : undefined} />
+            <StatCell
+              value={summary.errors.toLocaleString()}
+              label="Errors"
+              sub="last 24h"
+              accent={summary.errors > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
+            />
+            <StatCell
+              value={summary.slowRequests.toLocaleString()}
+              label="Slow"
+              sub=">= 800ms"
+              accent={summary.slowRequests > 0 ? { tone: "amber", icon: "ti ti-clock-exclamation" } : undefined}
+            />
             <StatCell value={fmtMs(summary.avgDurationMs)} label="Average" sub="request time" />
             <StatCell value={fmtMs(summary.p95DurationMs)} label="P95" sub="request time" />
           </StatGrid>
 
-          <SearchBar action="/admin/observability/telemetry" value={search} placeholder="Search app, route, method, or error..." ariaLabel="Search telemetry" />
-
-          <TelemetryFilterBar search={search} appId={appId} slowOnly={slowOnly} errorsOnly={errorsOnly} apps={appOptions} />
-
-          <DataTable
-            rows={events.items}
-            columns={columns}
-            getRowId={(row) => String(row.id)}
-            hoverRows
-            highlightColumns={false}
-            density="compact"
-            class="paper overflow-x-auto"
-            empty="No telemetry events match the current filters"
-            renderCell={({ row, col }) => {
-              if (col.id === "time") return <span class="text-[10px] text-dimmed">{fmtDate(row.occurredAt)}</span>;
-              if (col.id === "app") return <span class="text-[10px] text-dimmed">{row.appId}</span>;
-              if (col.id === "route") return <code class="text-[10px] text-primary">{row.routePrefix}</code>;
-              if (col.id === "method") return <span class="text-[10px] font-medium text-dimmed">{row.method}</span>;
-              if (col.id === "status") return <span class={`text-[10px] tabular-nums ${row.status >= 500 ? "text-red-500" : row.status >= 400 ? "text-amber-600 dark:text-amber-400" : "text-dimmed"}`}>{row.status}</span>;
-              if (col.id === "duration") return <span class={`text-[10px] tabular-nums ${row.durationMs >= 800 ? "text-amber-600 dark:text-amber-400" : "text-dimmed"}`}>{fmtMs(row.durationMs)}</span>;
-              if (col.id === "error") return row.errorKind ? <span class="text-[10px] text-red-500">{row.errorKind}</span> : <span class="text-[10px] text-dimmed">-</span>;
-              return "";
-            }}
-          />
+          <section class="paper overflow-hidden">
+            <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+              <div>
+                <h2 class="text-xs font-semibold text-primary">Events</h2>
+                <p class="text-[10px] text-dimmed">
+                  {events.items.length} of {events.total} request events
+                </p>
+              </div>
+              <SearchBar
+                action="/admin/observability/telemetry"
+                value={search}
+                placeholder="Search app, route, method, or error..."
+                ariaLabel="Search telemetry"
+              />
+              <TelemetryFilterBar search={search} appId={appId} slowOnly={slowOnly} errorsOnly={errorsOnly} apps={appOptions} />
+            </div>
+            <DataTable
+              rows={events.items}
+              columns={columns}
+              getRowId={(row) => String(row.id)}
+              hoverRows
+              highlightColumns={false}
+              density="compact"
+              class="overflow-x-auto"
+              empty="No telemetry events match the current filters"
+              renderCell={({ row, col }) => {
+                if (col.id === "time") return <span class="text-[10px] text-dimmed">{fmtDate(row.occurredAt)}</span>;
+                if (col.id === "app") return <span class="text-[10px] text-dimmed">{row.appId}</span>;
+                if (col.id === "route") return <code class="text-[10px] text-primary">{row.routePrefix}</code>;
+                if (col.id === "method") return <span class="text-[10px] font-medium text-dimmed">{row.method}</span>;
+                if (col.id === "status")
+                  return (
+                    <span
+                      class={`text-[10px] tabular-nums ${row.status >= 500 ? "text-red-500" : row.status >= 400 ? "text-amber-600 dark:text-amber-400" : "text-dimmed"}`}
+                    >
+                      {row.status}
+                    </span>
+                  );
+                if (col.id === "duration")
+                  return (
+                    <span
+                      class={`text-[10px] tabular-nums ${row.durationMs >= 800 ? "text-amber-600 dark:text-amber-400" : "text-dimmed"}`}
+                    >
+                      {fmtMs(row.durationMs)}
+                    </span>
+                  );
+                if (col.id === "error")
+                  return row.errorKind ? (
+                    <span class="text-[10px] text-red-500">{row.errorKind}</span>
+                  ) : (
+                    <span class="text-[10px] text-dimmed">-</span>
+                  );
+                return "";
+              }}
+            />
+          </section>
 
           <Pagination currentPage={pagination.page} totalPages={pagination.total_pages} baseUrl={baseUrl} />
         </div>

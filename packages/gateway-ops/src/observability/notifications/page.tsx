@@ -1,17 +1,17 @@
-import { ssr } from "../../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
-import { createPagination } from "@valentinkolb/cloud/contracts";
-import { hasRole } from "@valentinkolb/cloud/contracts";
+import { createPagination, hasRole } from "@valentinkolb/cloud/contracts";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
+import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
+import { expectUserBackedActor } from "@/actor";
+import { ssr } from "../../config";
 import NotificationActions from "./_components/NotificationActions.island";
 import SendAllPending from "./_components/SendAllPending.island";
 import { notificationsService } from "./service";
 
 /** Admin notifications list page with pagination and search. */
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
 
   const page = Number(c.req.query("page") ?? "1");
   const perPage = 100;
@@ -27,7 +27,9 @@ export default ssr<AuthContext>(async (c) => {
   });
 
   const pagination = createPagination({ page, perPage, offset: (page - 1) * perPage }, total);
-  const baseUrl = search ? `/admin/observability/notifications?search=${encodeURIComponent(search)}&page=` : "/admin/observability/notifications?page=";
+  const baseUrl = search
+    ? `/admin/observability/notifications?search=${encodeURIComponent(search)}&page=`
+    : "/admin/observability/notifications?page=";
 
   const formatDate = (date: Date) => {
     return new Intl.DateTimeFormat("de-DE", {
@@ -88,56 +90,62 @@ export default ssr<AuthContext>(async (c) => {
             <p class="mt-1 text-xs text-dimmed">{total} entries</p>
           </div>
 
-          <SearchBar action="/admin/observability/notifications" value={search} placeholder="Search notifications..." ariaLabel="Search notifications" />
-
-          <div class="flex flex-wrap items-center gap-2">
-            <div class="ml-auto">
-              <SendAllPending />
-            </div>
-          </div>
-
-          {notifs.length > 0 ? (
-            <section class="paper overflow-hidden" style="view-transition-name: admin-notifications-table">
-              <DataTable
-                rows={notifs}
-                columns={columns}
-                getRowId={(notification) => String(notification.id)}
-                hoverRows
-                class="overflow-x-auto"
-                renderCell={({ row: notification, col }) => {
-                  if (col.id === "status") return getStatusBadge(notification.status);
-                  if (col.id === "recipient") return notification.recipient;
-                  if (col.id === "subject") {
-                    return (
-                      <span title={notification.error ? `${notification.subject} · ${notification.error}` : notification.subject}>
-                        {notification.subject}
-                      </span>
-                    );
-                  }
-                  if (col.id === "sentBy")
-                    return <span class="text-dimmed">{notification.sentByName ?? <span class="italic">System</span>}</span>;
-                  if (col.id === "created") return <span class="text-dimmed">{formatDate(notification.createdAt)}</span>;
-                  if (col.id === "actions") {
-                    return (
-                      <NotificationActions
-                        id={notification.id}
-                        status={notification.status}
-                        subject={notification.subject}
-                        content={notification.content}
-                        recipient={notification.recipient}
-                        isAdmin={hasRole(user, "admin")}
-                      />
-                    );
-                  }
-                  return "";
-                }}
+          <section class="paper overflow-hidden" style="view-transition-name: admin-notifications-table">
+            <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+              <div>
+                <h2 class="text-xs font-semibold text-primary">Notifications</h2>
+                <p class="text-[10px] text-dimmed">
+                  {notifs.length} of {total} entries
+                </p>
+              </div>
+              <SearchBar
+                action="/admin/observability/notifications"
+                value={search}
+                placeholder="Search notifications..."
+                ariaLabel="Search notifications"
               />
-            </section>
-          ) : (
-            <section class="paper p-6 text-center text-sm text-dimmed">
-              {search ? "No notifications found matching your search." : "No notifications found."}
-            </section>
-          )}
+              <div class="flex flex-wrap items-center gap-2">
+                <div class="ml-auto">
+                  <SendAllPending />
+                </div>
+              </div>
+            </div>
+            <DataTable
+              rows={notifs}
+              columns={columns}
+              getRowId={(notification) => String(notification.id)}
+              hoverRows
+              class="overflow-x-auto"
+              empty={search ? "No notifications found matching your search." : "No notifications found."}
+              renderCell={({ row: notification, col }) => {
+                if (col.id === "status") return getStatusBadge(notification.status);
+                if (col.id === "recipient") return notification.recipient;
+                if (col.id === "subject") {
+                  return (
+                    <span title={notification.error ? `${notification.subject} · ${notification.error}` : notification.subject}>
+                      {notification.subject}
+                    </span>
+                  );
+                }
+                if (col.id === "sentBy")
+                  return <span class="text-dimmed">{notification.sentByName ?? <span class="italic">System</span>}</span>;
+                if (col.id === "created") return <span class="text-dimmed">{formatDate(notification.createdAt)}</span>;
+                if (col.id === "actions") {
+                  return (
+                    <NotificationActions
+                      id={notification.id}
+                      status={notification.status}
+                      subject={notification.subject}
+                      content={notification.content}
+                      recipient={notification.recipient}
+                      isAdmin={hasRole(user, "admin")}
+                    />
+                  );
+                }
+                return "";
+              }}
+            />
+          </section>
 
           <Pagination currentPage={pagination.page} totalPages={pagination.total_pages} baseUrl={baseUrl} />
         </div>

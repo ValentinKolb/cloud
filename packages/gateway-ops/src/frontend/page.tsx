@@ -1,8 +1,8 @@
 import { listAppsDetailed } from "@valentinkolb/cloud";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { latestGatewayRouteSnapshot } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { latestGatewayRouteSnapshot } from "@valentinkolb/cloud/services";
 import { DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
 import { listRegisteredAppStatus, type RegisteredAppStatus } from "../registered-apps";
@@ -55,10 +55,7 @@ type GatewayRouteRow = {
 export default ssr<AuthContext>(async (c) => {
   const url = new URL(c.req.url);
   const isRoutesPage = url.pathname.endsWith("/routes");
-  const [liveApps, routerSnapshot] = await Promise.all([
-    listAppsDetailed(),
-    latestGatewayRouteSnapshot(),
-  ]);
+  const [liveApps, routerSnapshot] = await Promise.all([listAppsDetailed(), latestGatewayRouteSnapshot()]);
   const appTraffic = new Map((routerSnapshot?.stats.byApp ?? []).map((traffic) => [traffic.appId, traffic]));
   const routeHits = new Map((routerSnapshot?.stats.byRoute ?? []).map((route) => [route.prefix, route]));
   const registeredApps = await listRegisteredAppStatus(liveApps);
@@ -153,14 +150,20 @@ export default ssr<AuthContext>(async (c) => {
           <div class="min-w-0" style="view-transition-name: admin-gateway-title">
             <h1 class="text-base font-semibold text-primary">{isRoutesPage ? "Routes" : "Apps"}</h1>
             <p class="mt-1 text-xs text-dimmed">
-              {isRoutesPage ? "Route prefixes currently served by the gateway router." : "Registered apps and their current gateway health."}
+              {isRoutesPage
+                ? "Route prefixes currently served by the gateway router."
+                : "Registered apps and their current gateway health."}
             </p>
           </div>
 
           {/* ── Stats — see skills/cloud-app/references/frontend.md § Stats ── */}
           <StatGrid columns={6}>
             <StatCell value={appCount} label="Apps" sub={`${withNav.length} nav · ${withAdmin.length} admin`} />
-            <StatCell value={routerSnapshot?.routeCount ?? 0} label="Routes" sub={routerSnapshot ? `v${routerSnapshot.tableVersion}` : "no router"} />
+            <StatCell
+              value={routerSnapshot?.routeCount ?? 0}
+              label="Routes"
+              sub={routerSnapshot ? `v${routerSnapshot.tableVersion}` : "no router"}
+            />
             <StatCell
               value={fmtCount(routerSnapshot?.stats.totalRequests ?? 0)}
               label="Requests"
@@ -191,110 +194,121 @@ export default ssr<AuthContext>(async (c) => {
 
           {/* ── Apps Table ── */}
           {!isRoutesPage ? (
-            <DataTable
-              rows={appRows}
-              columns={appColumns}
-              getRowId={(app) => app.id}
-              hoverRows
-              highlightColumns={false}
-              rowClass={(app) => (app.isHealthy ? "" : "bg-red-50/50 dark:bg-red-950/20")}
-              class="paper overflow-x-auto"
-              tableClass="w-full text-sm"
-              renderCell={({ row: app, col }) => {
-              if (col.id === "app") {
-                return (
-                  <div class="flex items-center gap-2">
-                    <div class={`w-6 h-6 rounded grid place-items-center shrink-0 ${APP_ICON_CLASSES}`}>
-                      <i class={`${app.icon} text-[10px]`} />
-                    </div>
-                    <span class="font-medium text-primary text-xs">{app.name}</span>
-                    <code class="text-[9px] text-dimmed">{app.id}</code>
-                  </div>
-                );
-              }
-              if (col.id === "baseUrl") return <code class="text-[10px] text-dimmed">{app.baseUrl}</code>;
-              if (col.id === "status") {
-                return app.isOnline ? (
-                  <span class="inline-flex items-center justify-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                    <i class="ti ti-heartbeat text-[9px]" /> live
-                  </span>
-                ) : (
-                  <span class="inline-flex items-center justify-center gap-1 rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-500">
-                    <i class="ti ti-plug-off text-[9px]" /> offline
-                  </span>
-                );
-              }
-              if (col.id === "nav") return navOf(app)?.href ? <Check /> : <Dash />;
-              if (col.id === "admin") {
-                const adminHref = navOf(app)?.adminHref;
-                return adminHref ? (
-                  <a href={adminHref} class="text-emerald-500 hover:text-emerald-700">
-                    <i class="ti ti-check text-xs" />
-                  </a>
-                ) : (
-                  <Dash />
-                );
-              }
-              if (col.id === "search") return searchOf(app) ? <Check /> : <Dash />;
-              if (col.id === "heartbeat") {
-                return (
-                  <span class={`text-[10px] ${app.isHealthy ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"}`}>
-                    <i class={`ti ${app.isHealthy ? "ti-heartbeat" : "ti-alert-triangle"} text-[9px]`} />{" "}
-                    {app.isOnline ? timeAgo(app.live!.updatedAt) : `last ${timeAgo(app.lastSeenAt)}`}
-                  </span>
-                );
-              }
-              if (col.id === "upSince") {
-                return (
-                  <span
-                    class={`text-[10px] tabular-nums ${app.isHealthy ? "text-dimmed" : "text-red-500"}`}
-                    title={new Date(app.live?.createdAt ?? app.lastSeenAt).toLocaleString()}
-                  >
-                    {fmtUptime(app.upSince)}
-                  </span>
-                );
-              }
-              if (col.id === "requests") return <span class="text-xs text-dimmed">{app.traffic ? fmtCount(app.traffic.count) : "—"}</span>;
-              if (col.id === "latency") {
-                return (
-                  <span class="text-xs tabular-nums text-dimmed">
-                    {app.traffic && app.traffic.count > 0 ? fmtMs(app.traffic.totalMs / app.traffic.count) : "—"}
-                  </span>
-                );
-              }
-              if (col.id === "errors") {
-                return app.traffic && app.traffic.errors > 0 ? (
-                  <span class="text-xs tabular-nums text-red-500">
-                    {app.traffic.errors} <span class="text-[9px]">({((app.traffic.errors / app.traffic.count) * 100).toFixed(0)}%)</span>
-                  </span>
-                ) : (
-                  <span class="text-xs text-dimmed">—</span>
-                );
-              }
-              if (col.id === "actions") {
-                return <RemoveRegisteredAppButton id={app.id} name={app.name} disabled={app.isOnline} />;
-              }
-                return "";
-              }}
-            />
+            <section class="paper overflow-hidden">
+              <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+                <div>
+                  <h2 class="text-xs font-semibold text-primary">Apps</h2>
+                  <p class="text-[10px] text-dimmed">{appRows.length} registered apps</p>
+                </div>
+              </div>
+              <DataTable
+                rows={appRows}
+                columns={appColumns}
+                getRowId={(app) => app.id}
+                hoverRows
+                highlightColumns={false}
+                rowClass={(app) => (app.isHealthy ? "" : "bg-red-50/50 dark:bg-red-950/20")}
+                class="overflow-x-auto"
+                tableClass="w-full text-sm"
+                renderCell={({ row: app, col }) => {
+                  if (col.id === "app") {
+                    return (
+                      <div class="flex items-center gap-2">
+                        <div class={`w-6 h-6 rounded grid place-items-center shrink-0 ${APP_ICON_CLASSES}`}>
+                          <i class={`${app.icon} text-[10px]`} />
+                        </div>
+                        <span class="font-medium text-primary text-xs">{app.name}</span>
+                        <code class="text-[9px] text-dimmed">{app.id}</code>
+                      </div>
+                    );
+                  }
+                  if (col.id === "baseUrl") return <code class="text-[10px] text-dimmed">{app.baseUrl}</code>;
+                  if (col.id === "status") {
+                    return app.isOnline ? (
+                      <span class="inline-flex items-center justify-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                        <i class="ti ti-heartbeat text-[9px]" /> live
+                      </span>
+                    ) : (
+                      <span class="inline-flex items-center justify-center gap-1 rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-500">
+                        <i class="ti ti-plug-off text-[9px]" /> offline
+                      </span>
+                    );
+                  }
+                  if (col.id === "nav") return navOf(app)?.href ? <Check /> : <Dash />;
+                  if (col.id === "admin") {
+                    const adminHref = navOf(app)?.adminHref;
+                    return adminHref ? (
+                      <a href={adminHref} class="text-emerald-500 hover:text-emerald-700">
+                        <i class="ti ti-check text-xs" />
+                      </a>
+                    ) : (
+                      <Dash />
+                    );
+                  }
+                  if (col.id === "search") return searchOf(app) ? <Check /> : <Dash />;
+                  if (col.id === "heartbeat") {
+                    return (
+                      <span class={`text-[10px] ${app.isHealthy ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"}`}>
+                        <i class={`ti ${app.isHealthy ? "ti-heartbeat" : "ti-alert-triangle"} text-[9px]`} />{" "}
+                        {app.isOnline ? timeAgo(app.live!.updatedAt) : `last ${timeAgo(app.lastSeenAt)}`}
+                      </span>
+                    );
+                  }
+                  if (col.id === "upSince") {
+                    return (
+                      <span
+                        class={`text-[10px] tabular-nums ${app.isHealthy ? "text-dimmed" : "text-red-500"}`}
+                        title={new Date(app.live?.createdAt ?? app.lastSeenAt).toLocaleString()}
+                      >
+                        {fmtUptime(app.upSince)}
+                      </span>
+                    );
+                  }
+                  if (col.id === "requests")
+                    return <span class="text-xs text-dimmed">{app.traffic ? fmtCount(app.traffic.count) : "—"}</span>;
+                  if (col.id === "latency") {
+                    return (
+                      <span class="text-xs tabular-nums text-dimmed">
+                        {app.traffic && app.traffic.count > 0 ? fmtMs(app.traffic.totalMs / app.traffic.count) : "—"}
+                      </span>
+                    );
+                  }
+                  if (col.id === "errors") {
+                    return app.traffic && app.traffic.errors > 0 ? (
+                      <span class="text-xs tabular-nums text-red-500">
+                        {app.traffic.errors}{" "}
+                        <span class="text-[9px]">({((app.traffic.errors / app.traffic.count) * 100).toFixed(0)}%)</span>
+                      </span>
+                    ) : (
+                      <span class="text-xs text-dimmed">—</span>
+                    );
+                  }
+                  if (col.id === "actions") {
+                    return <RemoveRegisteredAppButton id={app.id} name={app.name} disabled={app.isOnline} />;
+                  }
+                  return "";
+                }}
+              />
+            </section>
           ) : null}
 
           {/* ── Routes: title + search + table (same pattern as logs) ── */}
           {isRoutesPage ? (
-            <>
-              <div class="min-w-0">
-                <p class="text-xs text-dimmed">
-                  {searchQuery ? `${filteredRoutes.length} of ${allRoutes.length} routes` : `${allRoutes.length} routes`}
-                </p>
+            <section class="paper overflow-hidden">
+              <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+                <div>
+                  <h2 class="text-xs font-semibold text-primary">Routes</h2>
+                  <p class="text-[10px] text-dimmed">
+                    {searchQuery ? `${filteredRoutes.length} of ${allRoutes.length} routes` : `${allRoutes.length} routes`}
+                  </p>
+                </div>
+                <SearchBar
+                  action="/admin/gateway/routes"
+                  value={searchQuery}
+                  placeholder="Filter routes by prefix or app..."
+                  ariaLabel="Filter routes"
+                />
               </div>
-
-              <SearchBar
-                action="/admin/gateway/routes"
-                value={searchQuery}
-                placeholder="Filter routes by prefix or app..."
-                ariaLabel="Filter routes"
-              />
-
               <DataTable
                 rows={filteredRoutes}
                 columns={routeColumns}
@@ -302,24 +316,24 @@ export default ssr<AuthContext>(async (c) => {
                 hoverRows
                 highlightColumns={false}
                 density="compact"
-                class="paper overflow-x-auto"
+                class="overflow-x-auto"
                 empty={`No routes match "${searchQuery}"`}
                 renderCell={({ row: route, col }) => {
-              if (col.id === "prefix") return <code class="text-[10px] text-primary">{route.prefix}</code>;
-              if (col.id === "app") return <span class="text-[10px] text-dimmed">{route.appId}</span>;
-              if (col.id === "hits")
-                return <span class="text-[10px] text-dimmed">{route.count > 0 ? route.count.toLocaleString() : "—"}</span>;
-              if (col.id === "errors") {
-                return route.errors > 0 ? (
-                  <span class="text-[10px] tabular-nums text-red-500">{route.errors}</span>
-                ) : (
-                  <span class="text-[10px] text-dimmed">—</span>
-                );
-              }
+                  if (col.id === "prefix") return <code class="text-[10px] text-primary">{route.prefix}</code>;
+                  if (col.id === "app") return <span class="text-[10px] text-dimmed">{route.appId}</span>;
+                  if (col.id === "hits")
+                    return <span class="text-[10px] text-dimmed">{route.count > 0 ? route.count.toLocaleString() : "—"}</span>;
+                  if (col.id === "errors") {
+                    return route.errors > 0 ? (
+                      <span class="text-[10px] tabular-nums text-red-500">{route.errors}</span>
+                    ) : (
+                      <span class="text-[10px] text-dimmed">—</span>
+                    );
+                  }
                   return "";
                 }}
               />
-            </>
+            </section>
           ) : null}
         </div>
       </div>

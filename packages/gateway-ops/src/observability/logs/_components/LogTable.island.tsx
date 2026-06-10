@@ -1,8 +1,16 @@
-import { createSignal, For, Show } from "solid-js";
-import { prompts, CopyButton, DataTable, type DataTableColumn, type LogTableEntry } from "@valentinkolb/cloud/ui";
+import { CopyButton, DataTable, type DataTableColumn, type LogTableEntry, prompts } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
+import { createSignal, Show } from "solid-js";
+import LogFilterBar from "./LogFilterBar.island";
+import type { LogFilterState } from "./types";
 
-type Props = { entries: LogTableEntry[] };
+type Props = {
+  entries: LogTableEntry[];
+  total: number;
+  filter: LogFilterState;
+  sources: string[];
+  retentionDays: number;
+};
 
 const LEVEL: Record<string, { icon: string; color: string; label: string }> = {
   debug: { icon: "ti ti-bug", color: "text-zinc-400 dark:text-zinc-500", label: "debug" },
@@ -121,6 +129,15 @@ export default function LogTable(props: Props) {
 
   return (
     <div class="paper overflow-hidden">
+      <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
+        <div>
+          <h2 class="text-xs font-semibold text-primary">Entries</h2>
+          <p class="text-[10px] text-dimmed">
+            {props.entries.length} of {props.total} log entries
+          </p>
+        </div>
+        <LogFilterBar filter={props.filter} sources={props.sources} retentionDays={props.retentionDays} />
+      </div>
       <Show when={props.entries.length > 0} fallback={<div class="py-8 text-center text-xs text-dimmed">No log entries found.</div>}>
         <DataTable
           rows={props.entries}

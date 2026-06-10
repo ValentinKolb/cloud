@@ -1,10 +1,9 @@
-import { FilterChip, type FilterChipSection, prompts } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
+import { FilterChip, type FilterChipSection, prompts } from "@valentinkolb/cloud/ui";
+import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient as loggingClient } from "../api-client";
-import { navigateTo } from "@valentinkolb/ssr/nav";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
-import { type LogFilterState, defaultLogFilter, buildLogFilterUrl, hasActiveLogFilters } from "./types";
+import { buildLogFilterUrl, defaultLogFilter, hasActiveLogFilters, type LogFilterState } from "./types";
 
 type Props = {
   filter: LogFilterState;

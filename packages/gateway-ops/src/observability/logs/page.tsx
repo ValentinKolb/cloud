@@ -1,12 +1,11 @@
-import { ssr } from "../../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
+import type { AuthContext } from "@valentinkolb/cloud/server";
+import { get } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
-import { get } from "@valentinkolb/cloud/services";
-import { createPagination } from "./contracts";
-import LogFilterBar from "./_components/LogFilterBar.island";
+import { ssr } from "../../config";
 import LogTable from "./_components/LogTable.island";
 import { parseLogFilterFromUrl } from "./_components/types";
+import { createPagination } from "./contracts";
 import { loggingService } from "./service";
 
 export default ssr<AuthContext>(async (c) => {
@@ -67,21 +66,11 @@ export default ssr<AuthContext>(async (c) => {
               accent={summary.warnings24h > 0 ? { tone: "amber", icon: "ti ti-alert-triangle" } : undefined}
             />
             <StatCell label="Volume 24h" value={summary.total24h.toLocaleString()} sub="all levels" />
-            <StatCell
-              label="Sources"
-              value={summary.sources}
-              sub="distinct"
-              accent={{ tone: "blue", icon: "ti ti-stack-3" }}
-            />
-            <StatCell
-              label="Total · Retention"
-              value={summary.total.toLocaleString()}
-              sub={`${retentionDays}d auto-prune`}
-            />
+            <StatCell label="Sources" value={summary.sources} sub="distinct" accent={{ tone: "blue", icon: "ti ti-stack-3" }} />
+            <StatCell label="Total · Retention" value={summary.total.toLocaleString()} sub={`${retentionDays}d auto-prune`} />
           </StatGrid>
 
-          <LogFilterBar filter={filter} sources={sources} retentionDays={retentionDays} />
-          <LogTable entries={entries} />
+          <LogTable entries={entries} total={total} filter={filter} sources={sources} retentionDays={retentionDays} />
           <Pagination currentPage={paginationResult.page} totalPages={paginationResult.total_pages} baseUrl={baseUrl} />
         </div>
       </div>
