@@ -1,5 +1,5 @@
 import { Chart, DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import type { PulseDashboardSnapshot, PulsePublicDashboardPanel, MetricQueryPoint } from "../contracts";
 
 type Props = {
@@ -60,9 +60,9 @@ const queryPointColumns: DataTableColumn<MetricQueryPoint>[] = [
 export default function PublicPulseDashboard(props: Props) {
   const [snapshot, setSnapshot] = createSignal(props.initialSnapshot);
 
-  const reload = async () => {
-    const response = await fetch(`/api/pulse/public-dashboard/${props.token}`);
-    if (!response.ok) return;
+  const reload = async (signal?: AbortSignal) => {
+    const response = await fetch(`/api/pulse/public-dashboard/${props.token}`, { signal });
+    if (!response.ok) throw new Error("Could not refresh dashboard");
     setSnapshot((await response.json()) as PulseDashboardSnapshot);
   };
 
@@ -140,20 +140,53 @@ export default function PublicPulseDashboard(props: Props) {
     );
   };
 
-  onMount(() => {
-    const events = new EventSource(`/api/pulse/public-dashboard/${props.token}/events`);
-    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-    const scheduleRefresh = () => {
-      if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => void reload(), 150);
+  createEffect(() => {
+    const configuredInterval = snapshot().dashboard.config.refreshIntervalSeconds;
+    const intervalSeconds = configuredInterval === null ? null : (configuredInterval ?? 5);
+    if (intervalSeconds === null) return;
+
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let currentRefresh: AbortController | undefined;
+    let failures = 0;
+
+    const schedule = (delayMs: number) => {
+      if (disposed) return;
+      timer = setTimeout(run, delayMs + Math.floor(Math.random() * 350));
     };
-    events.addEventListener("refresh", scheduleRefresh);
-    events.addEventListener("metric.ingested", scheduleRefresh);
-    events.addEventListener("source.changed", scheduleRefresh);
-    events.addEventListener("base.changed", scheduleRefresh);
+
+    const nextDelay = () => Math.min(60_000, intervalSeconds * 1000 * Math.max(1, 2 ** failures));
+
+    const run = () => {
+      if (disposed) return;
+      if (document.hidden) {
+        schedule(intervalSeconds * 1000);
+        return;
+      }
+
+      currentRefresh?.abort();
+      const refresh = new AbortController();
+      currentRefresh = refresh;
+      reload(refresh.signal)
+        .then(() => {
+          failures = 0;
+        })
+        .catch((error) => {
+          if (refresh.signal.aborted) return;
+          failures += 1;
+          console.warn("Pulse public dashboard refresh failed", error);
+        })
+        .finally(() => {
+          if (currentRefresh === refresh) currentRefresh = undefined;
+          schedule(nextDelay());
+        });
+    };
+
+    schedule(intervalSeconds * 1000);
     onCleanup(() => {
-      events.close();
-      if (refreshTimer) clearTimeout(refreshTimer);
+      disposed = true;
+      if (timer) clearTimeout(timer);
+      currentRefresh?.abort();
     });
   });
 
@@ -165,7 +198,11 @@ export default function PublicPulseDashboard(props: Props) {
             <p class="text-xs font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">Pulse public dashboard</p>
             <h1 class="mt-1 text-3xl font-semibold tracking-normal">{snapshot().dashboard.name}</h1>
           </div>
-          <p class="text-sm text-zinc-500 dark:text-zinc-400">Live</p>
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">
+            {snapshot().dashboard.config.refreshIntervalSeconds === null
+              ? "Manual"
+              : `Refreshes every ${snapshot().dashboard.config.refreshIntervalSeconds ?? 5}s`}
+          </p>
         </header>
 
         <Show

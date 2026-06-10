@@ -13,6 +13,9 @@ export type Aggregation = (typeof AGGREGATIONS)[number];
 export const PANEL_VISUALS = ["line", "bar", "stat", "gauge", "barGauge", "histogram", "heatmap", "table"] as const;
 export type PanelVisual = (typeof PANEL_VISUALS)[number];
 
+export const DASHBOARD_REFRESH_INTERVALS = [1, 5, 10, 60] as const;
+export type DashboardRefreshInterval = (typeof DASHBOARD_REFRESH_INTERVALS)[number];
+
 export type PulseBase = {
   id: string;
   name: string;
@@ -213,6 +216,7 @@ export type PulseDashboardConfig = {
   panels: PulseDashboardPanel[];
   layout?: PulseDashboardLayout | null;
   dsl?: string | null;
+  refreshIntervalSeconds?: DashboardRefreshInterval | null;
 };
 
 export type PulseDashboard = {
@@ -245,6 +249,7 @@ export type PulsePublicDashboard = {
   name: string;
   config: {
     panels: PulsePublicDashboardPanel[];
+    refreshIntervalSeconds?: DashboardRefreshInterval | null;
   };
 };
 

@@ -15,6 +15,7 @@ import { AGGREGATIONS, PANEL_VISUALS } from "../contracts";
 import { compileDashboardDsl } from "../dashboard-dsl";
 import type {
   Aggregation,
+  DashboardRefreshInterval,
   MetricType,
   PulseBase,
   PulseCapabilitySnapshot,
@@ -51,7 +52,6 @@ import type {
   MetricQuery,
   MetricQueryPoint,
 } from "../contracts";
-import { emitPulseEvent, latestPulseEventCursor, livePulseEvents } from "./events";
 
 type UserScope = {
   id: string;
@@ -332,6 +332,11 @@ const normalizeDashboardDescription = (value: unknown, max = 500): string | null
   return trimmed ? trimmed.slice(0, max) : null;
 };
 
+const normalizeRefreshInterval = (value: unknown): DashboardRefreshInterval | null | undefined => {
+  if (value === null) return null;
+  return value === 1 || value === 5 || value === 10 || value === 60 ? value : undefined;
+};
+
 const normalizeDashboardWidget = (widget: unknown): PulseDashboardWidget | null => {
   if (typeof widget !== "object" || widget === null) return null;
   const value = widget as Record<string, unknown>;
@@ -439,12 +444,17 @@ const normalizeDashboardLayout = (layout: unknown): PulseDashboardLayout | null 
 
 const normalizeDashboardConfig = (config: unknown): PulseDashboardConfig => {
   const parsed = parseJson(config);
-  const raw = typeof parsed === "object" && parsed !== null ? (parsed as { layout?: unknown; panels?: unknown; dsl?: unknown }) : {};
+  const raw =
+    typeof parsed === "object" && parsed !== null
+      ? (parsed as { layout?: unknown; panels?: unknown; dsl?: unknown; refreshIntervalSeconds?: unknown })
+      : {};
   const panels = Array.isArray(raw.panels) ? raw.panels : [];
   const result: PulseDashboardConfig = {
     panels: panels.map(normalizeDashboardPanel).filter((panel): panel is PulseDashboardPanel => panel !== null).slice(0, 24),
   };
   if (typeof raw.dsl === "string" && raw.dsl.trim()) result.dsl = raw.dsl.trim().slice(0, 40_000);
+  const refreshIntervalSeconds = normalizeRefreshInterval(raw.refreshIntervalSeconds);
+  if (refreshIntervalSeconds !== undefined) result.refreshIntervalSeconds = refreshIntervalSeconds;
   const layout = normalizeDashboardLayout(raw.layout);
   if (layout) result.layout = layout;
   return result;
@@ -551,7 +561,6 @@ const createBase = async (params: { name: string; description?: string | null; u
   });
 
   if (!created.ok) return created;
-  await emitPulseEvent({ type: "base.changed", baseId: created.data.id });
   return ok(mapBase(created.data));
 };
 
@@ -608,7 +617,6 @@ const grantBaseAccess = async (params: {
   });
 
   if (!created.ok) return fail(created.error);
-  await emitPulseEvent({ type: "base.changed", baseId: params.baseId });
   const [entry] = await resolveDisplayNames([mapAccessRow(created.data)]);
   return entry ? ok(entry) : fail(err.internal("Failed to resolve access entry"));
 };
@@ -635,7 +643,6 @@ const updateBaseAccess = async (params: {
     WHERE id = ${params.accessId}::uuid
   `;
   if (updated.count === 0) return fail(err.notFound("Access entry"));
-  await emitPulseEvent({ type: "base.changed", baseId });
   return ok();
 };
 
@@ -646,7 +653,6 @@ const revokeBaseAccess = async (params: { accessId: string; user: UserScope }): 
   if (!access.ok) return fail(access.error);
   const deleted = await sql`DELETE FROM auth.access WHERE id = ${params.accessId}::uuid`;
   if (deleted.count === 0) return fail(err.notFound("Access entry"));
-  await emitPulseEvent({ type: "base.changed", baseId });
   return ok();
 };
 
@@ -682,7 +688,6 @@ const updateBase = async (params: {
     RETURNING *
   `;
   if (!row) return fail(err.internal("Failed to update Pulse base"));
-  await emitPulseEvent({ type: "base.changed", baseId: params.baseId });
   return ok(mapBase(row));
 };
 
@@ -741,7 +746,6 @@ const createDashboard = async (params: {
     RETURNING *
   `;
   if (!row) return fail(err.internal("Failed to create Pulse dashboard"));
-  await emitPulseEvent({ type: "base.changed", baseId: params.baseId });
   return ok(mapDashboard(row));
 };
 
@@ -768,7 +772,6 @@ const updateDashboard = async (params: {
     RETURNING *
   `;
   if (!row) return fail(err.internal("Failed to update Pulse dashboard"));
-  await emitPulseEvent({ type: "base.changed", baseId: row.base_id });
   return ok(mapDashboard(row));
 };
 
@@ -783,7 +786,6 @@ const deleteDashboard = async (params: { dashboardId: string; user: UserScope })
   if (!access.ok) return fail(access.error);
   const deleted = await sql`DELETE FROM pulse.dashboards WHERE id = ${params.dashboardId}::uuid`;
   if ((deleted.count ?? 0) === 0) return fail(err.notFound("Pulse dashboard"));
-  await emitPulseEvent({ type: "base.changed", baseId: existing.base_id });
   return ok();
 };
 
@@ -808,7 +810,6 @@ const enablePublicDashboard = async (params: {
     RETURNING *
   `;
   if (!row) return fail(err.internal("Failed to publish Pulse dashboard"));
-  await emitPulseEvent({ type: "base.changed", baseId: row.base_id });
   return ok({ dashboard: mapDashboard(row), token });
 };
 
@@ -829,7 +830,6 @@ const disablePublicDashboard = async (params: { dashboardId: string; user: UserS
     RETURNING *
   `;
   if (!row) return fail(err.internal("Failed to unpublish Pulse dashboard"));
-  await emitPulseEvent({ type: "base.changed", baseId: row.base_id });
   return ok(mapDashboard(row));
 };
 
@@ -892,12 +892,6 @@ const getPublicDashboardByToken = async (token: string): Promise<Result<PulseDas
   return row ? ok(mapDashboard(row)) : fail(err.notFound("Pulse dashboard"));
 };
 
-const getPublicDashboardEventScope = async (token: string): Promise<Result<{ baseId: string }>> => {
-  const dashboard = await getPublicDashboardByToken(token);
-  if (!dashboard.ok) return fail(dashboard.error);
-  return ok({ baseId: dashboard.data.baseId });
-};
-
 const createSource = async (params: {
   baseId: string;
   user: UserScope;
@@ -936,8 +930,6 @@ const createSource = async (params: {
     RETURNING *
   `;
   if (!row) return fail(err.internal("Failed to create Pulse source"));
-
-  await emitPulseEvent({ type: "source.changed", baseId: params.baseId, sourceId: row.id });
   return ok(mapSource(row));
 };
 
@@ -950,7 +942,6 @@ const removeSource = async (params: { baseId: string; sourceId: string; user: Us
       AND base_id = ${params.baseId}::uuid
   `;
   if ((result.count ?? 0) === 0) return fail(err.notFound("Pulse source"));
-  await emitPulseEvent({ type: "source.changed", baseId: params.baseId, sourceId: params.sourceId });
   return ok();
 };
 
@@ -1000,7 +991,6 @@ const updateSource = async (params: {
     RETURNING *
   `;
   if (!row) return fail(err.internal("Failed to update Pulse source"));
-  await emitPulseEvent({ type: "source.changed", baseId: params.baseId, sourceId: params.sourceId });
   return ok(mapSource(row));
 };
 
@@ -1058,7 +1048,6 @@ const createSourceToken = async (params: {
     RETURNING *
   `;
   if (!row) return fail(err.internal("Failed to create ingest token"));
-  await emitPulseEvent({ type: "source.changed", baseId: params.baseId, sourceId: params.sourceId });
   return ok({ source: mapSource(source), token: mapSourceToken(row), ingestToken });
 };
 
@@ -1080,7 +1069,6 @@ const removeSourceToken = async (params: {
       AND s.kind = 'http_ingest'::pulse.source_kind
   `;
   if ((result.count ?? 0) === 0) return fail(err.notFound("Ingest token"));
-  await emitPulseEvent({ type: "source.changed", baseId: params.baseId, sourceId: params.sourceId });
   return ok();
 };
 
@@ -1173,7 +1161,6 @@ const recordMetric = async (params: { baseId: string; sourceId?: string | null; 
     ON CONFLICT (series_id, ts) DO UPDATE SET value = EXCLUDED.value, recorded_at = now()
   `;
   await upsertDimensionMetadata({ baseId: params.baseId, sourceId: params.sourceId, scope: "metric", dimensions });
-  await emitPulseEvent({ type: "metric.ingested", baseId: params.baseId, sourceId: params.sourceId, metric: params.metric.name });
   return ok();
 };
 
@@ -1210,7 +1197,6 @@ const recordEvent = async (params: { baseId: string; sourceId?: string | null; e
     `;
   }
   await upsertDimensionMetadata({ baseId: params.baseId, sourceId: params.sourceId, scope: "event", dimensions });
-  await emitPulseEvent({ type: "event.ingested", baseId: params.baseId, sourceId: params.sourceId, eventKind: params.event.kind });
   return ok();
 };
 
@@ -1256,7 +1242,6 @@ const setState = async (params: { baseId: string; sourceId?: string | null; stat
     )
   `;
   await upsertDimensionMetadata({ baseId: params.baseId, sourceId: params.sourceId, scope: "state", dimensions });
-  await emitPulseEvent({ type: "state.changed", baseId: params.baseId, sourceId: params.sourceId, stateKey: params.state.key });
   return ok();
 };
 
@@ -1311,7 +1296,6 @@ const markSourceError = async (params: { baseId: string; sourceId: string; messa
     SET last_error = ${params.message}, last_error_at = CASE WHEN ${params.message}::text IS NULL THEN NULL ELSE now() END, updated_at = now()
     WHERE id = ${params.sourceId}::uuid
   `;
-  await emitPulseEvent({ type: "source.changed", baseId: params.baseId, sourceId: params.sourceId });
 };
 
 const recordSourceScrape = async (params: {
@@ -2223,6 +2207,7 @@ const getPublicDashboardSnapshot = async (token: string): Promise<Result<PulseDa
     id: dashboard.id,
     name: dashboard.name,
     config: {
+      refreshIntervalSeconds: dashboard.config.refreshIntervalSeconds,
       panels: dashboard.config.panels.map((panel) => ({
         id: panel.id,
         title: panel.title,
@@ -2289,7 +2274,6 @@ export const pulseService = {
     enablePublic: enablePublicDashboard,
     disablePublic: disablePublicDashboard,
     publicSnapshot: getPublicDashboardSnapshot,
-    publicEventScope: getPublicDashboardEventScope,
   },
   savedQuery: {
     list: listSavedQueries,
@@ -2314,11 +2298,6 @@ export const pulseService = {
     currentStates: listCurrentStates,
   },
   capabilities,
-  events: {
-    live: livePulseEvents,
-    latestCursor: latestPulseEventCursor,
-  },
 };
 
 export type PulseService = typeof pulseService;
-export { emitPulseEvent, livePulseEvents };

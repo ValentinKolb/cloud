@@ -67,6 +67,7 @@ type SourceKind = "metrics" | "http_ingest";
 type GrantableLevel = Exclude<PermissionLevel, "none">;
 type ExplorerResultView = "chart" | "table" | "compiled";
 type QueryHistoryEntry = { query: string; ranAt: string };
+type RefreshIntervalOption = "1" | "5" | "10" | "60" | "never";
 type CreateSourceInput = {
   kind: SourceKind;
   name: string;
@@ -359,6 +360,20 @@ const SOURCE_TYPE_OPTIONS = [
   { id: "metrics", label: "Metrics endpoint", icon: "ti ti-plug", description: "Scrape a Prometheus-compatible endpoint." },
 ];
 
+const DASHBOARD_REFRESH_OPTIONS = [
+  { id: "1", label: "Every 1 second", icon: "ti ti-player-play" },
+  { id: "5", label: "Every 5 seconds", icon: "ti ti-refresh" },
+  { id: "10", label: "Every 10 seconds", icon: "ti ti-refresh" },
+  { id: "60", label: "Every minute", icon: "ti ti-clock" },
+  { id: "never", label: "Never", icon: "ti ti-player-pause" },
+];
+
+const refreshOptionFromConfig = (config: PulseDashboardConfig): RefreshIntervalOption =>
+  config.refreshIntervalSeconds === null ? "never" : String(config.refreshIntervalSeconds ?? 5) as RefreshIntervalOption;
+
+const refreshIntervalFromOption = (value: string): PulseDashboardConfig["refreshIntervalSeconds"] =>
+  value === "never" ? null : value === "1" || value === "5" || value === "10" || value === "60" ? Number(value) as 1 | 5 | 10 | 60 : 5;
+
 const sourceKindIcon = (kind: PulseSource["kind"]): string => {
   if (kind === "http_ingest") return "ti ti-webhook";
   if (kind === "metrics") return "ti ti-plug";
@@ -461,6 +476,7 @@ export default function PulseWorkspace(props: Props) {
   const [loading, setLoading] = createSignal(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = createSignal(false);
   let queryRunId = 0;
+  let activityDataRequestId = 0;
   let lastAutoRunQuery = "";
 
   const selectedBase = createMemo(() => bases().find((base) => base.id === selectedBaseId()) ?? null);
@@ -640,13 +656,13 @@ export default function PulseWorkspace(props: Props) {
     });
   });
 
-  const loadBaseData = async (baseId = selectedBaseId()) => {
+  const loadBaseData = async (baseId = selectedBaseId(), signal?: AbortSignal) => {
     if (!baseId) return;
     const [nextSources, nextMetrics, nextDashboards, nextSavedQueries] = await Promise.all([
-      jsonFetch<PulseSource[]>(`/api/pulse/bases/${baseId}/sources`),
-      jsonFetch<PulseMetricSummary[]>(`/api/pulse/bases/${baseId}/metrics`),
-      jsonFetch<PulseDashboard[]>(`/api/pulse/bases/${baseId}/dashboards`),
-      jsonFetch<PulseSavedQuery[]>(`/api/pulse/bases/${baseId}/saved-queries`),
+      jsonFetch<PulseSource[]>(`/api/pulse/bases/${baseId}/sources`, { signal }),
+      jsonFetch<PulseMetricSummary[]>(`/api/pulse/bases/${baseId}/metrics`, { signal }),
+      jsonFetch<PulseDashboard[]>(`/api/pulse/bases/${baseId}/dashboards`, { signal }),
+      jsonFetch<PulseSavedQuery[]>(`/api/pulse/bases/${baseId}/saved-queries`, { signal }),
     ]);
     setSources(nextSources);
     setMetrics(nextMetrics);
@@ -659,24 +675,37 @@ export default function PulseWorkspace(props: Props) {
     setSelectedDashboardId((current) => nextDashboards.find((dashboard) => dashboard.id === current)?.id ?? nextDashboards[0]?.id ?? "");
   };
 
-  const activityQueryParams = (includeType = false) => {
+  const activityQueryParams = (
+    includeType = false,
+    snapshot: { q: string; type: "" | MetricType } = { q: activitySearch().trim(), type: metricTypeFilter() },
+  ) => {
     const params = new URLSearchParams();
-    const q = activitySearch().trim();
-    if (q) params.set("q", q);
-    if (includeType && metricTypeFilter()) params.set("type", metricTypeFilter());
+    if (snapshot.q) params.set("q", snapshot.q);
+    if (includeType && snapshot.type) params.set("type", snapshot.type);
     return params;
   };
 
-  const loadActivityData = async (baseId = selectedBaseId()) => {
+  const loadActivityData = async (baseId = selectedBaseId(), signal?: AbortSignal) => {
     if (!baseId) return;
-    const eventParams = activityQueryParams(false);
-    const stateParams = activityQueryParams(false);
-    const metricParams = activityQueryParams(true);
+    const requestId = ++activityDataRequestId;
+    const snapshot = { q: activitySearch().trim(), type: metricTypeFilter() };
+    const eventParams = activityQueryParams(false, snapshot);
+    const stateParams = activityQueryParams(false, snapshot);
+    const metricParams = activityQueryParams(true, snapshot);
     const [nextEvents, nextStates, nextMetrics] = await Promise.all([
-      jsonFetch<PulseRecordedEvent[]>(`/api/pulse/bases/${baseId}/recent-events?${eventParams}`),
-      jsonFetch<PulseCurrentState[]>(`/api/pulse/bases/${baseId}/states?${stateParams}`),
-      jsonFetch<PulseMetricSummary[]>(`/api/pulse/bases/${baseId}/metrics?${metricParams}`),
+      jsonFetch<PulseRecordedEvent[]>(`/api/pulse/bases/${baseId}/recent-events?${eventParams}`, { signal }),
+      jsonFetch<PulseCurrentState[]>(`/api/pulse/bases/${baseId}/states?${stateParams}`, { signal }),
+      jsonFetch<PulseMetricSummary[]>(`/api/pulse/bases/${baseId}/metrics?${metricParams}`, { signal }),
     ]);
+    if (
+      signal?.aborted ||
+      requestId !== activityDataRequestId ||
+      selectedBaseId() !== baseId ||
+      activitySearch().trim() !== snapshot.q ||
+      metricTypeFilter() !== snapshot.type
+    ) {
+      return;
+    }
     setRecentEvents(nextEvents);
     setCurrentStates(nextStates);
     setActivityMetrics(nextMetrics);
@@ -706,30 +735,31 @@ export default function PulseWorkspace(props: Props) {
     return jsonFetch<PulseMetricSeries[]>(`/api/pulse/bases/${baseId}/series?${params}`);
   };
 
-  const loadSourceScrapes = async (baseId = selectedBaseId(), sourceId = selectedSourceId()) => {
+  const loadSourceScrapes = async (baseId = selectedBaseId(), sourceId = selectedSourceId(), signal?: AbortSignal) => {
     if (!baseId || !sourceId) return;
-    const nextScrapes = await jsonFetch<PulseSourceScrape[]>(`/api/pulse/bases/${baseId}/sources/${sourceId}/scrapes`);
+    const nextScrapes = await jsonFetch<PulseSourceScrape[]>(`/api/pulse/bases/${baseId}/sources/${sourceId}/scrapes`, { signal });
     setSourceScrapes((current) => ({ ...current, [sourceId]: nextScrapes }));
   };
 
-  const loadSourceTokens = async (baseId = selectedBaseId(), sourceId = selectedSourceId()) => {
+  const loadSourceTokens = async (baseId = selectedBaseId(), sourceId = selectedSourceId(), signal?: AbortSignal) => {
     if (!baseId || !sourceId) return;
-    const nextTokens = await jsonFetch<PulseSourceToken[]>(`/api/pulse/bases/${baseId}/sources/${sourceId}/tokens`);
+    const nextTokens = await jsonFetch<PulseSourceToken[]>(`/api/pulse/bases/${baseId}/sources/${sourceId}/tokens`, { signal });
     setSourceTokens((current) => ({ ...current, [sourceId]: nextTokens }));
   };
 
-  const loadPanel = async (panel: PulseDashboardPanel, baseId = selectedBaseId()) => {
+  const loadPanel = async (panel: PulseDashboardPanel, baseId = selectedBaseId(), signal?: AbortSignal) => {
     if (!baseId) return;
     const data = await jsonFetch<MetricQueryPoint[]>("/api/pulse/query/metric", {
       method: "POST",
+      signal,
       body: JSON.stringify(panelQuery(baseId, panel)),
     });
     setPanelPoints((current) => ({ ...current, [panel.id]: data }));
   };
 
-  const refreshDashboard = async (dashboard = selectedDashboard(), baseId = selectedBaseId()) => {
+  const refreshDashboard = async (dashboard = selectedDashboard(), baseId = selectedBaseId(), signal?: AbortSignal) => {
     if (!dashboard || !baseId) return;
-    await Promise.all(dashboardMetricPanels(dashboard.config).map((panel) => loadPanel(panel, baseId).catch(() => undefined)));
+    await Promise.all(dashboardMetricPanels(dashboard.config).map((panel) => loadPanel(panel, baseId, signal).catch(() => undefined)));
   };
 
   const workspaceHref = (nextState: { view: WorkspaceView; dashboardId?: string; sourceId?: string }) => {
@@ -1590,9 +1620,13 @@ export default function PulseWorkspace(props: Props) {
     }
     setDashboardDslSaving(true);
     try {
+      const config: PulseDashboardConfig = {
+        ...compiled.config,
+        refreshIntervalSeconds: dashboard.config.refreshIntervalSeconds,
+      };
       const updated = await jsonFetch<PulseDashboard>(`/api/pulse/dashboards/${dashboard.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ name: dashboard.name, config: compiled.config }),
+        body: JSON.stringify({ name: dashboard.name, config }),
       });
       setDashboards((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       setDashboardDslSeededFor("");
@@ -1640,17 +1674,19 @@ export default function PulseWorkspace(props: Props) {
     }
   };
 
-  const renameDashboard = async (dashboard: PulseDashboard, name: string) => {
-    const trimmed = name.trim();
+  const updateDashboardSettings = async (dashboard: PulseDashboard, input: { name: string; refreshInterval: RefreshIntervalOption }) => {
+    const refreshIntervalSeconds = refreshIntervalFromOption(input.refreshInterval);
+    const trimmed = input.name.trim();
     if (!trimmed) {
       toast.error("Dashboard name is required");
       return false;
     }
     setLoading(true);
     try {
+      const config: PulseDashboardConfig = { ...dashboard.config, refreshIntervalSeconds };
       const updated = await jsonFetch<PulseDashboard>(`/api/pulse/dashboards/${dashboard.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ name: trimmed, config: dashboard.config }),
+        body: JSON.stringify({ name: trimmed, config }),
       });
       setDashboards((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       toast.success("Dashboard updated");
@@ -1693,6 +1729,7 @@ export default function PulseWorkspace(props: Props) {
       await prompts.dialog<void>(
         (close) => {
           const [name, setName] = createSignal(dashboard.name);
+          const [refreshInterval, setRefreshInterval] = createSignal<RefreshIntervalOption>(refreshOptionFromConfig(dashboard.config));
           const currentDashboard = createMemo(() => dashboards().find((item) => item.id === dashboard.id) ?? dashboard);
           return (
             <div class="flex h-[72vh] min-h-0 flex-col overflow-hidden">
@@ -1708,7 +1745,7 @@ export default function PulseWorkspace(props: Props) {
                     class="flex flex-col gap-3"
                     onSubmit={(event) => {
                       event.preventDefault();
-                      void renameDashboard(currentDashboard(), name());
+                      void updateDashboardSettings(currentDashboard(), { name: name(), refreshInterval: refreshInterval() });
                     }}
                   >
                     <TextInput
@@ -1718,6 +1755,14 @@ export default function PulseWorkspace(props: Props) {
                       value={name}
                       onInput={setName}
                       required
+                    />
+                    <SelectInput
+                      label="Auto refresh"
+                      description="Controls how often Pulse refreshes this dashboard in the background. Use never for static views."
+                      icon="ti ti-refresh"
+                      value={refreshInterval}
+                      onChange={(value) => setRefreshInterval(value as RefreshIntervalOption)}
+                      options={DASHBOARD_REFRESH_OPTIONS}
                     />
                     <button type="submit" class="btn-primary btn-sm self-start" disabled={loading() || !name().trim()}>
                       <i class={`ti ${loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
@@ -1958,12 +2003,37 @@ export default function PulseWorkspace(props: Props) {
     </section>
   );
 
+  const refreshSourcesView = async (baseId: string, signal: AbortSignal) => {
+    await loadBaseData(baseId, signal);
+    const source = selectedSource();
+    if (!source) return;
+    await loadSourceScrapes(baseId, source.id, signal);
+    if (source.kind === "http_ingest") await loadSourceTokens(baseId, source.id, signal);
+  };
+
+  const refreshActivityView = async (baseId: string, signal: AbortSignal) => {
+    await loadActivityData(baseId, signal);
+  };
+
+  const refreshDashboardView = async (baseId: string, signal: AbortSignal) => {
+    await loadBaseData(baseId, signal);
+    await refreshDashboard(selectedDashboard(), baseId, signal);
+  };
+
+  const refreshIntervalForView = (view: WorkspaceView): number | null => {
+    if (view === "dashboard") {
+      const interval = selectedDashboard()?.config.refreshIntervalSeconds;
+      return interval === null ? null : (interval ?? 5);
+    }
+    if (view === "sources" || view === "activity-events" || view === "activity-states" || view === "activity-metrics") return 5;
+    return null;
+  };
+
   onMount(() => {
     setOrigin(window.location.origin);
     const onPopState = () => applyWorkspacePathState();
     window.addEventListener("popstate", onPopState);
     void loadBaseData();
-    void loadActivityData();
     onCleanup(() => window.removeEventListener("popstate", onPopState));
   });
 
@@ -1971,22 +2041,64 @@ export default function PulseWorkspace(props: Props) {
     const baseId = selectedBaseId();
     if (!baseId) return;
     setQueryHistory(readQueryHistory(baseId));
-    const events = new EventSource(`/api/pulse/bases/${baseId}/events`);
-    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-    const scheduleRefresh = () => {
-      if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => {
-        void Promise.all([loadBaseData(baseId), loadActivityData(baseId)]).then(() => refreshDashboard(selectedDashboard(), baseId));
-      }, 150);
+  });
+
+  createEffect(() => {
+    const baseId = selectedBaseId();
+    const view = activeView();
+    selectedDashboardId();
+    selectedDashboard()?.config.refreshIntervalSeconds;
+    if (!baseId) return;
+    const intervalSeconds = refreshIntervalForView(view);
+    if (intervalSeconds === null) return;
+
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let currentRefresh: AbortController | undefined;
+    let failures = 0;
+
+    const run = () => {
+      if (disposed) return;
+      if (document.hidden) {
+        schedule(intervalSeconds * 1000);
+        return;
+      }
+
+      currentRefresh?.abort();
+      const refresh = new AbortController();
+      currentRefresh = refresh;
+      const task =
+        view === "dashboard"
+          ? refreshDashboardView(baseId, refresh.signal)
+          : view === "sources"
+            ? refreshSourcesView(baseId, refresh.signal)
+            : refreshActivityView(baseId, refresh.signal);
+
+      task
+        .then(() => {
+          failures = 0;
+        })
+        .catch((error) => {
+          if (refresh.signal.aborted) return;
+          failures += 1;
+          console.warn("Pulse workspace refresh failed", error);
+        })
+        .finally(() => {
+          if (currentRefresh === refresh) currentRefresh = undefined;
+          schedule(Math.min(60_000, intervalSeconds * 1000 * Math.max(1, 2 ** failures)));
+        });
     };
-    events.addEventListener("metric.ingested", scheduleRefresh);
-    events.addEventListener("event.ingested", scheduleRefresh);
-    events.addEventListener("state.changed", scheduleRefresh);
-    events.addEventListener("source.changed", scheduleRefresh);
-    events.addEventListener("base.changed", scheduleRefresh);
+
+    const schedule = (delayMs: number) => {
+      if (disposed) return;
+      timer = setTimeout(run, delayMs + Math.floor(Math.random() * 350));
+    };
+
+    schedule(intervalSeconds * 1000);
     onCleanup(() => {
-      events.close();
-      if (refreshTimer) clearTimeout(refreshTimer);
+      disposed = true;
+      if (timer) clearTimeout(timer);
+      currentRefresh?.abort();
     });
   });
 
@@ -2078,11 +2190,14 @@ export default function PulseWorkspace(props: Props) {
     const baseId = selectedBaseId();
     activitySearch();
     metricTypeFilter();
-    void loadActivityData(baseId).catch(() => {
+    const refresh = new AbortController();
+    void loadActivityData(baseId, refresh.signal).catch(() => {
+      if (refresh.signal.aborted) return;
       setRecentEvents([]);
       setCurrentStates([]);
       setActivityMetrics([]);
     });
+    onCleanup(() => refresh.abort());
   });
 
   createEffect(() => {

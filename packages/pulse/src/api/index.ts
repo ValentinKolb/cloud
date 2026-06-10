@@ -191,6 +191,7 @@ const DashboardConfigSchema = z.object({
   panels: z.array(DashboardPanelSchema).max(24).default([]),
   layout: DashboardLayoutSchema.nullable().optional(),
   dsl: z.string().trim().max(40_000).nullable().optional(),
+  refreshIntervalSeconds: z.union([z.literal(1), z.literal(5), z.literal(10), z.literal(60)]).nullable().optional(),
 });
 
 const CreateDashboardSchema = z.object({
@@ -332,6 +333,7 @@ const PublicDashboardSchema = z.object({
   name: z.string(),
   config: z.object({
     panels: z.array(PublicDashboardPanelSchema),
+    refreshIntervalSeconds: z.number().nullable().optional(),
   }),
 });
 const SavedQuerySchema = z.object({
@@ -435,57 +437,6 @@ const app = new Hono<AuthContext>()
       return respond(c, pulseService.dashboard.publicSnapshot(token.value));
     },
   )
-  .get("/public-dashboard/:token/events", async (c) => {
-    const token = requireParam(c.req.param("token"), "public dashboard token");
-    if (!token.ok) return respond(c, token.result);
-    const scope = await pulseService.dashboard.publicEventScope(token.value);
-    if (!scope.ok) return respond(c, scope);
-    const baseId = scope.data.baseId;
-
-    const encoder = new TextEncoder();
-    let keepalive: ReturnType<typeof setInterval> | undefined;
-    const streamAbort = new AbortController();
-    const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        const send = (event: string, data: unknown, id?: string) => {
-          controller.enqueue(encoder.encode(`${id ? `id: ${id}\n` : ""}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-        };
-        const requestedCursor = c.req.query("after") || null;
-        const startCursor = requestedCursor ?? (await pulseService.events.latestCursor(baseId)) ?? "0-0";
-        send("ready", { cursor: startCursor }, startCursor);
-        keepalive = setInterval(() => send("ping", { at: new Date().toISOString() }), 25_000);
-        try {
-          for await (const event of pulseService.events.live({ baseId, after: startCursor, signal: streamAbort.signal })) {
-            if (streamAbort.signal.aborted) break;
-            send("refresh", { occurredAt: event.data.occurredAt }, event.cursor);
-          }
-        } catch (streamError) {
-          if (!streamAbort.signal.aborted) {
-            send("error", { message: streamError instanceof Error ? streamError.message : "Pulse event stream failed" });
-          }
-        } finally {
-          if (keepalive) clearInterval(keepalive);
-          try {
-            controller.close();
-          } catch {
-            // Client disconnects are normal for long-lived event streams.
-          }
-        }
-      },
-      cancel() {
-        streamAbort.abort();
-        if (keepalive) clearInterval(keepalive);
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      },
-    });
-  })
   .use(auth.requireRole("authenticated"))
   .get(
     "/capabilities",
@@ -854,56 +805,6 @@ const app = new Hono<AuthContext>()
     const sourceId = requireParam(c.req.param("sourceId"), "source ID");
     if (!sourceId.ok) return respond(c, sourceId.result);
     return respond(c, pulseService.source.remove({ baseId: baseId.value, sourceId: sourceId.value, user: c.get("user") }));
-  })
-  .get("/bases/:baseId/events", async (c) => {
-    const baseId = requireParam(c.req.param("baseId"), "base ID");
-    if (!baseId.ok) return respond(c, baseId.result);
-    const access = await pulseService.base.access.require(baseId.value, c.get("user"), "read");
-    if (!access.ok) return respond(c, access);
-
-    const encoder = new TextEncoder();
-    let keepalive: ReturnType<typeof setInterval> | undefined;
-    const streamAbort = new AbortController();
-    const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        const send = (event: string, data: unknown, id?: string) => {
-          controller.enqueue(encoder.encode(`${id ? `id: ${id}\n` : ""}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-        };
-        const requestedCursor = c.req.query("after") || null;
-        const startCursor = requestedCursor ?? (await pulseService.events.latestCursor(baseId.value)) ?? "0-0";
-        send("ready", { baseId: baseId.value, cursor: startCursor }, startCursor);
-        keepalive = setInterval(() => send("ping", { at: new Date().toISOString() }), 25_000);
-        try {
-          for await (const event of pulseService.events.live({ baseId: baseId.value, after: startCursor, signal: streamAbort.signal })) {
-            if (streamAbort.signal.aborted) break;
-            send(event.data.type, event.data, event.cursor);
-          }
-        } catch (streamError) {
-          if (!streamAbort.signal.aborted) {
-            send("error", { message: streamError instanceof Error ? streamError.message : "Pulse event stream failed" });
-          }
-        } finally {
-          if (keepalive) clearInterval(keepalive);
-          try {
-            controller.close();
-          } catch {
-            // Client disconnects are normal for long-lived event streams.
-          }
-        }
-      },
-      cancel() {
-        streamAbort.abort();
-        if (keepalive) clearInterval(keepalive);
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      },
-    });
   })
   .post(
     "/bases/:baseId/ingest",
