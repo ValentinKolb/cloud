@@ -7,6 +7,7 @@ import publicPage from "./public-page";
 
 export default new Hono<AuthContext>()
   .get("/display/:token", ...publicPage)
+  .get("/:baseId/dashboards/:dashboardId/edit", auth.requireRole("user", auth.redirectToLogin), ...basePage)
   .get("/:baseId/dashboards/:dashboardId", auth.requireRole("user", auth.redirectToLogin), ...basePage)
   .get("/:baseId/sources/:sourceId", auth.requireRole("user", auth.redirectToLogin), ...basePage)
   .get("/:baseId/sources", auth.requireRole("user", auth.redirectToLogin), ...basePage)

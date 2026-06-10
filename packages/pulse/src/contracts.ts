@@ -52,6 +52,14 @@ export type PulseSourceScrape = {
   errorMessage: string | null;
 };
 
+export type PulseSourceToken = {
+  id: string;
+  sourceId: string;
+  label: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+};
+
 export type PulseMetric = {
   name: string;
   value: number;
@@ -153,8 +161,58 @@ export type PulseDashboardPanel = {
   dimensions?: Record<string, string | number | boolean | null>;
 };
 
+export type PulseDashboardMetricWidget = PulseDashboardPanel & {
+  kind: "metric";
+  description?: string | null;
+  span?: number;
+};
+
+export type PulseDashboardMarkdownWidget = {
+  id: string;
+  kind: "markdown";
+  title?: string | null;
+  description?: string | null;
+  markdown: string;
+  span?: number;
+};
+
+export type PulseDashboardCardWidget = {
+  id: string;
+  kind: "card";
+  title: string;
+  description?: string | null;
+  rows: PulseDashboardRow[];
+  span?: number;
+};
+
+export type PulseDashboardWidget = PulseDashboardMetricWidget | PulseDashboardMarkdownWidget | PulseDashboardCardWidget;
+
+export type PulseDashboardRow = {
+  id: string;
+  kind: "row";
+  height: "sm" | "md" | "lg";
+  cells: PulseDashboardWidget[];
+};
+
+export type PulseDashboardSection = {
+  id: string;
+  kind: "section";
+  title: string;
+  description?: string | null;
+  rows: PulseDashboardRow[];
+  sections?: PulseDashboardSection[];
+};
+
+export type PulseDashboardLayout = {
+  version: 1;
+  description?: string | null;
+  sections: PulseDashboardSection[];
+};
+
 export type PulseDashboardConfig = {
   panels: PulseDashboardPanel[];
+  layout?: PulseDashboardLayout | null;
+  dsl?: string | null;
 };
 
 export type PulseDashboard = {
@@ -193,6 +251,19 @@ export type PulsePublicDashboard = {
 export type PulseDashboardSnapshot = {
   dashboard: PulsePublicDashboard;
   points: Record<string, MetricQueryPoint[]>;
+};
+
+export type PulseDashboardDslDiagnostic = {
+  severity: "error";
+  message: string;
+  line: number;
+  column: number;
+};
+
+export type PulseDashboardDslCompileResult = {
+  ok: boolean;
+  diagnostics: PulseDashboardDslDiagnostic[];
+  config: PulseDashboardConfig | null;
 };
 
 export type MetricQuery = {

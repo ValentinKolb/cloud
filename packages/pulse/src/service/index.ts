@@ -11,15 +11,24 @@ import {
 } from "@valentinkolb/cloud/server";
 import { decryptSecret, encryptSecret, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import { AGGREGATIONS } from "../contracts";
+import { AGGREGATIONS, PANEL_VISUALS } from "../contracts";
+import { compileDashboardDsl } from "../dashboard-dsl";
 import type {
   Aggregation,
   MetricType,
   PulseBase,
   PulseCapabilitySnapshot,
   PulseDashboard,
+  PulseDashboardCardWidget,
   PulseDashboardConfig,
+  PulseDashboardDslCompileResult,
+  PulseDashboardLayout,
+  PulseDashboardMarkdownWidget,
+  PulseDashboardMetricWidget,
   PulseDashboardPanel,
+  PulseDashboardRow,
+  PulseDashboardSection,
+  PulseDashboardWidget,
   PulseDashboardSnapshot,
   PulseExplorerQuery,
   PulseEvent,
@@ -34,6 +43,7 @@ import type {
   PulseRecordedEvent,
   PulseSavedQuery,
   PulseSource,
+  PulseSourceToken,
   PulseState,
   StateQuery,
   SourceKind,
@@ -80,6 +90,7 @@ type DashboardRow = {
   name: string;
   config: unknown;
   public_enabled: boolean;
+  public_token: string | null;
   public_token_hash: string | null;
   created_at: Date | string;
   updated_at: Date | string;
@@ -138,6 +149,14 @@ type SourceScrapeRow = {
   events_count: number;
   states_count: number;
   error_message: string | null;
+};
+
+type SourceTokenRow = {
+  id: string;
+  source_id: string;
+  label: string;
+  created_at: Date | string;
+  last_used_at: Date | string | null;
 };
 
 const iso = (value: Date | string): string => (value instanceof Date ? value.toISOString() : new Date(value).toISOString());
@@ -210,6 +229,14 @@ const mapSourceScrape = (row: SourceScrapeRow): PulseSourceScrape => ({
   errorMessage: row.error_message,
 });
 
+const mapSourceToken = (row: SourceTokenRow): PulseSourceToken => ({
+  id: row.id,
+  sourceId: row.source_id,
+  label: row.label,
+  createdAt: iso(row.created_at),
+  lastUsedAt: isoNullable(row.last_used_at),
+});
+
 const mapRecordedEvent = (row: RecordedEventRow): PulseRecordedEvent => ({
   id: row.id,
   kind: row.kind,
@@ -272,57 +299,155 @@ const searchPattern = (value: string | null | undefined): string | null => {
   return trimmed ? `%${escapeLikePattern(trimmed)}%` : null;
 };
 
+const normalizeDashboardPanel = (panel: unknown): PulseDashboardPanel | null => {
+  if (typeof panel !== "object" || panel === null) return null;
+  const value = panel as Record<string, unknown>;
+  const metric = typeof value.metric === "string" ? value.metric.trim() : "";
+  if (!metric) return null;
+  const id = typeof value.id === "string" && value.id.trim() ? value.id.trim().slice(0, 80) : randomUUID();
+  const title = typeof value.title === "string" && value.title.trim() ? value.title.trim().slice(0, 160) : metric;
+  const visual = PANEL_VISUALS.includes(value.visual as (typeof PANEL_VISUALS)[number])
+    ? (value.visual as PulseDashboardPanel["visual"])
+    : "line";
+  const aggregation = AGGREGATIONS.includes(value.aggregation as Aggregation) ? (value.aggregation as Aggregation) : "avg";
+  const bucket = typeof value.bucket === "string" && /^\d+[mhd]$/.test(value.bucket) ? value.bucket : "5m";
+  const since = typeof value.since === "string" && /^\d+[mhd]$/.test(value.since) ? value.since : "24h";
+  const sourceId = typeof value.sourceId === "string" && value.sourceId.trim() ? value.sourceId : null;
+  const dimensions =
+    typeof value.dimensions === "object" && value.dimensions !== null
+      ? normalizeDimensions(value.dimensions as Record<string, string | number | boolean | null>)
+      : undefined;
+  return { id, title, metric, visual, aggregation, bucket, since, sourceId, dimensions };
+};
+
+const normalizeDashboardSpan = (value: unknown): number | undefined => {
+  const span = typeof value === "number" && Number.isInteger(value) ? value : undefined;
+  return span ? Math.min(12, Math.max(1, span)) : undefined;
+};
+
+const normalizeDashboardDescription = (value: unknown, max = 500): string | null | undefined => {
+  if (value === null) return null;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, max) : null;
+};
+
+const normalizeDashboardWidget = (widget: unknown): PulseDashboardWidget | null => {
+  if (typeof widget !== "object" || widget === null) return null;
+  const value = widget as Record<string, unknown>;
+  if (value.kind === "markdown") {
+    const markdown = typeof value.markdown === "string" ? value.markdown.trim().slice(0, 8_000) : "";
+    if (!markdown) return null;
+    const result: PulseDashboardMarkdownWidget = {
+      id: typeof value.id === "string" && value.id.trim() ? value.id.trim().slice(0, 80) : randomUUID(),
+      kind: "markdown",
+      markdown,
+      span: normalizeDashboardSpan(value.span),
+    };
+    const title = normalizeDashboardDescription(value.title, 160);
+    const description = normalizeDashboardDescription(value.description);
+    if (title !== undefined) result.title = title;
+    if (description !== undefined) result.description = description;
+    return result;
+  }
+  if (value.kind === "metric") {
+    const panel = normalizeDashboardPanel(value);
+    if (!panel) return null;
+    const result: PulseDashboardMetricWidget = {
+      ...panel,
+      kind: "metric",
+      span: normalizeDashboardSpan(value.span),
+    };
+    const description = normalizeDashboardDescription(value.description);
+    if (description !== undefined) result.description = description;
+    return result;
+  }
+  if (value.kind === "card") {
+    const title = typeof value.title === "string" && value.title.trim() ? value.title.trim().slice(0, 160) : "";
+    if (!title) return null;
+    const rows = Array.isArray(value.rows)
+      ? value.rows.map(normalizeDashboardRow).filter((row): row is PulseDashboardRow => row !== null).slice(0, 24)
+      : [];
+    if (rows.length === 0) return null;
+    const result: PulseDashboardCardWidget = {
+      id: typeof value.id === "string" && value.id.trim() ? value.id.trim().slice(0, 80) : randomUUID(),
+      kind: "card",
+      title,
+      rows,
+      span: normalizeDashboardSpan(value.span),
+    };
+    const description = normalizeDashboardDescription(value.description);
+    if (description !== undefined) result.description = description;
+    return result;
+  }
+  return null;
+};
+
+const normalizeDashboardRow = (row: unknown): PulseDashboardRow | null => {
+  if (typeof row !== "object" || row === null) return null;
+  const value = row as Record<string, unknown>;
+  if (value.kind !== "row") return null;
+  const cells = Array.isArray(value.cells) ? value.cells.map(normalizeDashboardWidget).filter((cell): cell is PulseDashboardWidget => cell !== null) : [];
+  if (cells.length === 0) return null;
+  return {
+    id: typeof value.id === "string" && value.id.trim() ? value.id.trim().slice(0, 80) : randomUUID(),
+    kind: "row",
+    height: value.height === "sm" || value.height === "lg" ? value.height : "md",
+    cells: cells.slice(0, 12),
+  };
+};
+
+const normalizeDashboardSection = (section: unknown, depth = 0): PulseDashboardSection | null => {
+  if (depth > 3 || typeof section !== "object" || section === null) return null;
+  const value = section as Record<string, unknown>;
+  if (value.kind !== "section") return null;
+  const title = typeof value.title === "string" && value.title.trim() ? value.title.trim().slice(0, 160) : "";
+  if (!title) return null;
+  const rows = Array.isArray(value.rows) ? value.rows.map(normalizeDashboardRow).filter((row): row is PulseDashboardRow => row !== null) : [];
+  const sections = Array.isArray(value.sections)
+    ? value.sections
+        .map((item) => normalizeDashboardSection(item, depth + 1))
+        .filter((item): item is PulseDashboardSection => item !== null)
+        .slice(0, 12)
+    : [];
+  if (rows.length === 0 && sections.length === 0) return null;
+  const result: PulseDashboardSection = {
+    id: typeof value.id === "string" && value.id.trim() ? value.id.trim().slice(0, 80) : randomUUID(),
+    kind: "section",
+    title,
+    rows: rows.slice(0, 24),
+  };
+  const description = normalizeDashboardDescription(value.description);
+  if (description !== undefined) result.description = description;
+  if (sections.length) result.sections = sections;
+  return result;
+};
+
+const normalizeDashboardLayout = (layout: unknown): PulseDashboardLayout | null => {
+  if (typeof layout !== "object" || layout === null) return null;
+  const value = layout as Record<string, unknown>;
+  if (value.version !== 1) return null;
+  const sections = Array.isArray(value.sections)
+    ? value.sections.map((section) => normalizeDashboardSection(section)).filter((section): section is PulseDashboardSection => section !== null)
+    : [];
+  if (sections.length === 0) return null;
+  const result: PulseDashboardLayout = { version: 1, sections: sections.slice(0, 24) };
+  const description = normalizeDashboardDescription(value.description, 1_000);
+  if (description !== undefined) result.description = description;
+  return result;
+};
+
 const normalizeDashboardConfig = (config: unknown): PulseDashboardConfig => {
   const parsed = parseJson(config);
-  const raw = typeof parsed === "object" && parsed !== null ? (parsed as { panels?: unknown }) : {};
+  const raw = typeof parsed === "object" && parsed !== null ? (parsed as { layout?: unknown; panels?: unknown; dsl?: unknown }) : {};
   const panels = Array.isArray(raw.panels) ? raw.panels : [];
-  return {
-    panels: panels
-      .map((panel): PulseDashboardPanel | null => {
-        if (typeof panel !== "object" || panel === null) return null;
-        const value = panel as Record<string, unknown>;
-        const metric = typeof value.metric === "string" ? value.metric.trim() : "";
-        if (!metric) return null;
-        const id = typeof value.id === "string" && value.id.trim() ? value.id : randomUUID();
-        const title = typeof value.title === "string" && value.title.trim() ? value.title.trim() : metric;
-        const visual =
-          value.visual === "stat" ||
-          value.visual === "gauge" ||
-          value.visual === "bar" ||
-          value.visual === "barGauge" ||
-          value.visual === "histogram" ||
-          value.visual === "heatmap" ||
-          value.visual === "table" ||
-          value.visual === "line"
-            ? value.visual
-            : "line";
-        const aggregation =
-          value.aggregation === "sum" ||
-          value.aggregation === "min" ||
-          value.aggregation === "max" ||
-          value.aggregation === "count" ||
-          value.aggregation === "latest" ||
-          value.aggregation === "rate" ||
-          value.aggregation === "increase" ||
-          value.aggregation === "p50" ||
-          value.aggregation === "p90" ||
-          value.aggregation === "p95" ||
-          value.aggregation === "p99" ||
-          value.aggregation === "avg"
-            ? value.aggregation
-            : "avg";
-        const bucket = typeof value.bucket === "string" && /^\d+[mhd]$/.test(value.bucket) ? value.bucket : "5m";
-        const since = typeof value.since === "string" && /^\d+[mhd]$/.test(value.since) ? value.since : "24h";
-        const sourceId = typeof value.sourceId === "string" && value.sourceId.trim() ? value.sourceId : null;
-        const dimensions =
-          typeof value.dimensions === "object" && value.dimensions !== null
-            ? normalizeDimensions(value.dimensions as Record<string, string | number | boolean | null>)
-            : undefined;
-        return { id, title, metric, visual, aggregation, bucket, since, sourceId, dimensions };
-      })
-      .filter((panel): panel is PulseDashboardPanel => panel !== null)
-      .slice(0, 24),
+  const result: PulseDashboardConfig = {
+    panels: panels.map(normalizeDashboardPanel).filter((panel): panel is PulseDashboardPanel => panel !== null).slice(0, 24),
   };
+  if (typeof raw.dsl === "string" && raw.dsl.trim()) result.dsl = raw.dsl.trim().slice(0, 40_000);
+  const layout = normalizeDashboardLayout(raw.layout);
+  if (layout) result.layout = layout;
+  return result;
 };
 
 const mapDashboard = (row: DashboardRow): PulseDashboard => ({
@@ -647,10 +772,7 @@ const updateDashboard = async (params: {
   return ok(mapDashboard(row));
 };
 
-const enablePublicDashboard = async (params: {
-  dashboardId: string;
-  user: UserScope;
-}): Promise<Result<{ dashboard: PulseDashboard; token: string }>> => {
+const deleteDashboard = async (params: { dashboardId: string; user: UserScope }): Promise<Result<void>> => {
   const [existing] = await sql<{ base_id: string }[]>`
     SELECT base_id
     FROM pulse.dashboards
@@ -659,11 +781,29 @@ const enablePublicDashboard = async (params: {
   if (!existing) return fail(err.notFound("Pulse dashboard"));
   const access = await requireBaseAccess(existing.base_id, params.user, "write");
   if (!access.ok) return fail(access.error);
+  const deleted = await sql`DELETE FROM pulse.dashboards WHERE id = ${params.dashboardId}::uuid`;
+  if ((deleted.count ?? 0) === 0) return fail(err.notFound("Pulse dashboard"));
+  await emitPulseEvent({ type: "base.changed", baseId: existing.base_id });
+  return ok();
+};
 
-  const token = randomUUID();
+const enablePublicDashboard = async (params: {
+  dashboardId: string;
+  user: UserScope;
+}): Promise<Result<{ dashboard: PulseDashboard; token: string }>> => {
+  const [existing] = await sql<{ base_id: string; public_enabled: boolean; public_token: string | null }[]>`
+    SELECT base_id, public_enabled, public_token
+    FROM pulse.dashboards
+    WHERE id = ${params.dashboardId}::uuid
+  `;
+  if (!existing) return fail(err.notFound("Pulse dashboard"));
+  const access = await requireBaseAccess(existing.base_id, params.user, "write");
+  if (!access.ok) return fail(access.error);
+
+  const token = existing.public_enabled && existing.public_token ? existing.public_token : randomUUID();
   const [row] = await sql<DashboardRow[]>`
     UPDATE pulse.dashboards
-    SET public_enabled = TRUE, public_token_hash = ${tokenHash(token)}, updated_at = now()
+    SET public_enabled = TRUE, public_token = ${token}, public_token_hash = ${tokenHash(token)}, updated_at = now()
     WHERE id = ${params.dashboardId}::uuid
     RETURNING *
   `;
@@ -684,7 +824,7 @@ const disablePublicDashboard = async (params: { dashboardId: string; user: UserS
 
   const [row] = await sql<DashboardRow[]>`
     UPDATE pulse.dashboards
-    SET public_enabled = FALSE, public_token_hash = NULL, updated_at = now()
+    SET public_enabled = FALSE, public_token = NULL, public_token_hash = NULL, updated_at = now()
     WHERE id = ${params.dashboardId}::uuid
     RETURNING *
   `;
@@ -747,7 +887,7 @@ const getPublicDashboardByToken = async (token: string): Promise<Result<PulseDas
     SELECT *
     FROM pulse.dashboards
     WHERE public_enabled = TRUE
-      AND public_token_hash = ${tokenHash(token)}
+      AND (public_token = ${token} OR public_token_hash = ${tokenHash(token)})
   `;
   return row ? ok(mapDashboard(row)) : fail(err.notFound("Pulse dashboard"));
 };
@@ -766,12 +906,10 @@ const createSource = async (params: {
   endpointUrl?: string | null;
   bearerToken?: string | null;
   scrapeIntervalSeconds?: number | null;
-}): Promise<Result<PulseSource & { ingestToken?: string }>> => {
+}): Promise<Result<PulseSource>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "write");
   if (!access.ok) return fail(access.error);
 
-  const needsIngestToken = params.kind === "http_ingest";
-  const ingestToken = needsIngestToken ? generateIngestToken() : undefined;
   const encryptedBearer = params.bearerToken?.trim() ? await encryptSecret(params.bearerToken.trim()) : null;
   const endpointUrl = normalizeEndpointUrl(params.endpointUrl);
   if (params.kind === "metrics" && !endpointUrl) return fail(err.badInput("A valid metrics endpoint URL is required"));
@@ -792,7 +930,7 @@ const createSource = async (params: {
       ${params.name.trim()},
       ${endpointUrl},
       ${encryptedBearer},
-      ${ingestToken ? tokenHash(ingestToken) : null},
+      ${null}::text,
       ${params.scrapeIntervalSeconds ?? null}
     )
     RETURNING *
@@ -800,7 +938,7 @@ const createSource = async (params: {
   if (!row) return fail(err.internal("Failed to create Pulse source"));
 
   await emitPulseEvent({ type: "source.changed", baseId: params.baseId, sourceId: row.id });
-  return ok({ ...mapSource(row), ingestToken });
+  return ok(mapSource(row));
 };
 
 const removeSource = async (params: { baseId: string; sourceId: string; user: UserScope }): Promise<Result<void>> => {
@@ -871,27 +1009,95 @@ const rotateSourceIngestToken = async (params: {
   sourceId: string;
   user: UserScope;
 }): Promise<Result<{ source: PulseSource; ingestToken: string }>> => {
+  const created = await createSourceToken({ ...params, label: "Setup token" });
+  if (!created.ok) return fail(created.error);
+  return ok({ source: created.data.source, ingestToken: created.data.ingestToken });
+};
+
+const listSourceTokens = async (params: {
+  baseId: string;
+  sourceId: string;
+  user: UserScope;
+}): Promise<Result<PulseSourceToken[]>> => {
+  const access = await requireBaseAccess(params.baseId, params.user, "read");
+  if (!access.ok) return fail(access.error);
+  const rows = await sql<SourceTokenRow[]>`
+    SELECT st.*
+    FROM pulse.source_tokens st
+    JOIN pulse.sources s ON s.id = st.source_id
+    WHERE s.id = ${params.sourceId}::uuid
+      AND s.base_id = ${params.baseId}::uuid
+      AND s.kind = 'http_ingest'::pulse.source_kind
+    ORDER BY st.created_at DESC
+  `;
+  return ok(rows.map(mapSourceToken));
+};
+
+const createSourceToken = async (params: {
+  baseId: string;
+  sourceId: string;
+  user: UserScope;
+  label: string;
+}): Promise<Result<{ source: PulseSource; token: PulseSourceToken; ingestToken: string }>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "write");
   if (!access.ok) return fail(access.error);
-  const token = generateIngestToken();
-  const [row] = await sql<SourceRow[]>`
-    UPDATE pulse.sources
-    SET ingest_token_hash = ${tokenHash(token)}, last_error = NULL, last_error_at = NULL, updated_at = now()
+  const label = params.label.trim();
+  if (!label) return fail(err.badInput("Token label is required"));
+  const [source] = await sql<SourceRow[]>`
+    SELECT *
+    FROM pulse.sources
     WHERE id = ${params.sourceId}::uuid
       AND base_id = ${params.baseId}::uuid
       AND kind = 'http_ingest'::pulse.source_kind
+  `;
+  if (!source) return fail(err.notFound("Ingest source"));
+  const ingestToken = generateIngestToken();
+  const [row] = await sql<SourceTokenRow[]>`
+    INSERT INTO pulse.source_tokens (source_id, label, token_hash)
+    VALUES (${params.sourceId}::uuid, ${label}, ${tokenHash(ingestToken)})
     RETURNING *
   `;
-  if (!row) return fail(err.notFound("Ingest source"));
+  if (!row) return fail(err.internal("Failed to create ingest token"));
   await emitPulseEvent({ type: "source.changed", baseId: params.baseId, sourceId: params.sourceId });
-  return ok({ source: mapSource(row), ingestToken: token });
+  return ok({ source: mapSource(source), token: mapSourceToken(row), ingestToken });
 };
 
-const getSourceByToken = async (token: string): Promise<{ id: string; baseId: string } | null> => {
+const removeSourceToken = async (params: {
+  baseId: string;
+  sourceId: string;
+  tokenId: string;
+  user: UserScope;
+}): Promise<Result<void>> => {
+  const access = await requireBaseAccess(params.baseId, params.user, "write");
+  if (!access.ok) return fail(access.error);
+  const result = await sql`
+    DELETE FROM pulse.source_tokens st
+    USING pulse.sources s
+    WHERE st.id = ${params.tokenId}::uuid
+      AND st.source_id = s.id
+      AND s.id = ${params.sourceId}::uuid
+      AND s.base_id = ${params.baseId}::uuid
+      AND s.kind = 'http_ingest'::pulse.source_kind
+  `;
+  if ((result.count ?? 0) === 0) return fail(err.notFound("Ingest token"));
+  await emitPulseEvent({ type: "source.changed", baseId: params.baseId, sourceId: params.sourceId });
+  return ok();
+};
+
+const getSourceByToken = async (token: string): Promise<{ id: string; baseId: string; tokenId?: string } | null> => {
+  const hash = tokenHash(token);
+  const [tokenRow] = await sql<{ token_id: string; id: string; base_id: string }[]>`
+    SELECT st.id AS token_id, s.id, s.base_id
+    FROM pulse.source_tokens st
+    JOIN pulse.sources s ON s.id = st.source_id
+    WHERE st.token_hash = ${hash}
+      AND s.enabled = TRUE
+  `;
+  if (tokenRow) return { id: tokenRow.id, baseId: tokenRow.base_id, tokenId: tokenRow.token_id };
   const [row] = await sql<{ id: string; base_id: string }[]>`
     SELECT id, base_id
     FROM pulse.sources
-    WHERE ingest_token_hash = ${tokenHash(token)}
+    WHERE ingest_token_hash = ${hash}
       AND enabled = TRUE
   `;
   return row ? { id: row.id, baseId: row.base_id } : null;
@@ -1093,6 +1299,9 @@ const ingestByToken = async (params: {
 }): Promise<Result<{ metrics: number; events: number; states: number }>> => {
   const source = await getSourceByToken(params.token);
   if (!source) return fail(err.notFound("Ingest source"));
+  if (source.tokenId) {
+    await sql`UPDATE pulse.source_tokens SET last_used_at = now() WHERE id = ${source.tokenId}::uuid`;
+  }
   return ingestBatch({ baseId: source.baseId, sourceId: source.id, batch: params.batch });
 };
 
@@ -1691,6 +1900,19 @@ const compilePulseQueryText = (baseId: string, text: string): Result<PulseExplor
   return fail(err.badInput('Query must start with "metric", "events", or "states"'));
 };
 
+const compileDashboardDslText = async (params: { baseId: string; text: string; user: UserScope }): Promise<Result<PulseDashboardDslCompileResult>> => {
+  const access = await requireBaseAccess(params.baseId, params.user, "read");
+  if (!access.ok) return fail(access.error);
+  const compiled = compileDashboardDsl(params.text, (query) => {
+    const result = compilePulseQueryText(params.baseId, query);
+    return result.ok ? { ok: true, data: result.data } : { ok: false, message: result.error.message };
+  });
+  if (!compiled.ok) {
+    return ok({ ok: false, diagnostics: compiled.diagnostics, config: null });
+  }
+  return ok({ ok: true, diagnostics: compiled.diagnostics, config: normalizeDashboardConfig(compiled.data) });
+};
+
 const durationToInterval = (input: string): string | null => {
   const match = input.trim().match(/^(\d+)(m|h|d)$/);
   if (!match) return null;
@@ -2047,6 +2269,11 @@ export const pulseService = {
   source: {
     list: listSources,
     scrapes: listSourceScrapes,
+    tokens: {
+      list: listSourceTokens,
+      create: createSourceToken,
+      remove: removeSourceToken,
+    },
     create: createSource,
     update: updateSource,
     rotateIngestToken: rotateSourceIngestToken,
@@ -2057,6 +2284,8 @@ export const pulseService = {
     list: listDashboards,
     create: createDashboard,
     update: updateDashboard,
+    remove: deleteDashboard,
+    compileDsl: compileDashboardDslText,
     enablePublic: enablePublicDashboard,
     disablePublic: disablePublicDashboard,
     publicSnapshot: getPublicDashboardSnapshot,

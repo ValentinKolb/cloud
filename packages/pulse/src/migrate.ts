@@ -70,6 +70,19 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_sources_ingest_token ON pulse.sources(ingest_token_hash) WHERE ingest_token_hash IS NOT NULL`.simple();
 
   await sql`
+    CREATE TABLE IF NOT EXISTS pulse.source_tokens (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      source_id UUID NOT NULL REFERENCES pulse.sources(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_used_at TIMESTAMPTZ
+    )
+  `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_source_tokens_source ON pulse.source_tokens(source_id, created_at DESC)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_source_tokens_hash ON pulse.source_tokens(token_hash)`.simple();
+
+  await sql`
     CREATE TABLE IF NOT EXISTS pulse.source_scrapes (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       base_id UUID NOT NULL REFERENCES pulse.bases(id) ON DELETE CASCADE,
@@ -259,6 +272,7 @@ export const migrate = async (): Promise<void> => {
       name TEXT NOT NULL,
       config JSONB NOT NULL DEFAULT '{}'::jsonb,
       public_enabled BOOLEAN NOT NULL DEFAULT false,
+      public_token TEXT UNIQUE,
       public_token_hash TEXT UNIQUE,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -266,8 +280,10 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
   await sql`ALTER TABLE pulse.dashboards ADD COLUMN IF NOT EXISTS public_enabled BOOLEAN NOT NULL DEFAULT false`.simple();
+  await sql`ALTER TABLE pulse.dashboards ADD COLUMN IF NOT EXISTS public_token TEXT UNIQUE`.simple();
   await sql`ALTER TABLE pulse.dashboards ADD COLUMN IF NOT EXISTS public_token_hash TEXT UNIQUE`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_dashboards_base ON pulse.dashboards(base_id)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_dashboards_public_token ON pulse.dashboards(public_token) WHERE public_enabled = TRUE AND public_token IS NOT NULL`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_dashboards_public ON pulse.dashboards(public_token_hash) WHERE public_enabled = TRUE AND public_token_hash IS NOT NULL`.simple();
 
   await sql`

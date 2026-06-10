@@ -3,10 +3,20 @@ import { ssr } from "../../../config";
 import { pulseService } from "../../../service";
 import PulseQueryReferenceWindow from "../../PulseQueryReferenceWindow.island";
 
+type ReferenceTab = "overview" | "query" | "dashboard" | "inventory";
+
+const readReferenceTab = (value: string | null, includeDashboardDsl: boolean): ReferenceTab => {
+  if (value === "query" || value === "inventory" || value === "overview") return value;
+  if (value === "dashboard" && includeDashboardDsl) return value;
+  return includeDashboardDsl ? "dashboard" : "overview";
+};
+
 export default ssr<AuthContext>(async (c) => {
   c.get("page").title = "Pulse query reference";
   const user = c.get("user");
   const baseId = c.req.param("baseId") ?? "";
+  const includeDashboardDsl = c.req.query("dashboardDsl") === "1";
+  const initialTab = readReferenceTab(c.req.query("tab") ?? null, includeDashboardDsl);
   const baseResult = await pulseService.base.get(baseId, user);
 
   if (!baseResult.ok) {
@@ -17,18 +27,26 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
-  const [metricsResult, eventsResult, statesResult] = await Promise.all([
+  const [metricsResult, eventsResult, statesResult, sourcesResult] = await Promise.all([
     pulseService.query.metrics(baseResult.data.id, user, {}),
     pulseService.query.recentEvents(baseResult.data.id, user, {}),
     pulseService.query.currentStates(baseResult.data.id, user, {}),
+    pulseService.source.list(baseResult.data.id, user),
   ]);
+  const metrics = metricsResult.ok ? metricsResult.data : [];
+  const seriesResults = await Promise.all(metrics.map((metric) => pulseService.query.series(baseResult.data.id, user, { metric: metric.name })));
+  const series = seriesResults.flatMap((result) => (result.ok ? result.data : []));
 
   return () => (
     <PulseQueryReferenceWindow
       baseName={baseResult.data.name}
-      metrics={metricsResult.ok ? metricsResult.data : []}
+      includeDashboardDsl={includeDashboardDsl}
+      initialTab={initialTab}
+      metrics={metrics}
       events={eventsResult.ok ? eventsResult.data : []}
       states={statesResult.ok ? statesResult.data : []}
+      sources={sourcesResult.ok ? sourcesResult.data : []}
+      series={series}
     />
   );
 });

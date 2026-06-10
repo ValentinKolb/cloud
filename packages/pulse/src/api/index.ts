@@ -79,6 +79,10 @@ const CreateSourceSchema = z.object({
   scrapeIntervalSeconds: z.number().int().min(10).max(86_400).nullable().optional(),
 });
 
+const CreateSourceTokenSchema = z.object({
+  label: z.string().trim().min(1).max(120),
+});
+
 const UpdateSourceSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
   enabled: z.boolean().optional(),
@@ -105,8 +109,88 @@ const DashboardPanelSchema = z.object({
   dimensions: DimensionsSchema,
 });
 
+const DashboardMetricWidgetSchema = DashboardPanelSchema.extend({
+  kind: z.literal("metric"),
+  description: z.string().trim().max(500).nullable().optional(),
+  span: z.number().int().min(1).max(12).optional(),
+});
+
+const DashboardMarkdownWidgetSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  kind: z.literal("markdown"),
+  title: z.string().trim().min(1).max(160).nullable().optional(),
+  description: z.string().trim().max(500).nullable().optional(),
+  markdown: z.string().trim().max(8_000),
+  span: z.number().int().min(1).max(12).optional(),
+});
+
+type DashboardWidgetInput =
+  | z.infer<typeof DashboardMetricWidgetSchema>
+  | z.infer<typeof DashboardMarkdownWidgetSchema>
+  | {
+      id: string;
+      kind: "card";
+      title: string;
+      description?: string | null;
+      rows: DashboardRowInput[];
+      span?: number;
+    };
+type DashboardRowInput = {
+  id: string;
+  kind: "row";
+  height: "sm" | "md" | "lg";
+  cells: DashboardWidgetInput[];
+};
+const DashboardWidgetSchema: z.ZodType<DashboardWidgetInput> = z.lazy(() =>
+  z.union([
+    DashboardMetricWidgetSchema,
+    DashboardMarkdownWidgetSchema,
+    z.object({
+      id: z.string().trim().min(1).max(80),
+      kind: z.literal("card"),
+      title: z.string().trim().min(1).max(160),
+      description: z.string().trim().max(500).nullable().optional(),
+      rows: z.array(DashboardRowSchema).max(24),
+      span: z.number().int().min(1).max(12).optional(),
+    }),
+  ]),
+);
+const DashboardRowSchema: z.ZodType<DashboardRowInput> = z.lazy(() =>
+  z.object({
+    id: z.string().trim().min(1).max(80),
+    kind: z.literal("row"),
+    height: z.enum(["sm", "md", "lg"]),
+    cells: z.array(DashboardWidgetSchema).max(12),
+  }),
+);
+type DashboardSectionInput = {
+  id: string;
+  kind: "section";
+  title: string;
+  description?: string | null;
+  rows: z.infer<typeof DashboardRowSchema>[];
+  sections?: DashboardSectionInput[];
+};
+const DashboardSectionSchema: z.ZodType<DashboardSectionInput> = z.lazy(() =>
+  z.object({
+    id: z.string().trim().min(1).max(80),
+    kind: z.literal("section"),
+    title: z.string().trim().min(1).max(160),
+    description: z.string().trim().max(500).nullable().optional(),
+    rows: z.array(DashboardRowSchema).max(24),
+    sections: z.array(DashboardSectionSchema).max(12).optional(),
+  }),
+);
+const DashboardLayoutSchema = z.object({
+  version: z.literal(1),
+  description: z.string().trim().max(1_000).nullable().optional(),
+  sections: z.array(DashboardSectionSchema).max(24),
+});
+
 const DashboardConfigSchema = z.object({
-  panels: z.array(DashboardPanelSchema).max(24),
+  panels: z.array(DashboardPanelSchema).max(24).default([]),
+  layout: DashboardLayoutSchema.nullable().optional(),
+  dsl: z.string().trim().max(40_000).nullable().optional(),
 });
 
 const CreateDashboardSchema = z.object({
@@ -164,6 +248,10 @@ const QueryTextSchema = z.object({
   query: z.string().trim().min(1).max(2_000),
 });
 const CompileTextQuerySchema = QueryTextSchema;
+const DashboardDslCompileSchema = z.object({
+  baseId: z.string().uuid(),
+  text: z.string().trim().min(1).max(40_000),
+});
 const CreateSavedQuerySchema = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().trim().max(1_000).nullable().optional(),
@@ -218,6 +306,13 @@ const SourceScrapeSchema = z.object({
   states: z.number(),
   errorMessage: z.string().nullable(),
 });
+const SourceTokenSchema = z.object({
+  id: z.string(),
+  sourceId: z.string(),
+  label: z.string(),
+  createdAt: z.string(),
+  lastUsedAt: z.string().nullable(),
+});
 const DashboardSchema = z.object({
   id: z.string(),
   baseId: z.string(),
@@ -247,6 +342,17 @@ const SavedQuerySchema = z.object({
   query: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
+});
+const DashboardDslDiagnosticSchema = z.object({
+  severity: z.literal("error"),
+  message: z.string(),
+  line: z.number(),
+  column: z.number(),
+});
+const DashboardDslCompileResultSchema = z.object({
+  ok: z.boolean(),
+  diagnostics: z.array(DashboardDslDiagnosticSchema),
+  config: DashboardConfigSchema.nullable(),
 });
 const DashboardSnapshotSchema = z.object({
   dashboard: PublicDashboardSchema,
@@ -584,7 +690,7 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Pulse"],
       summary: "Create a Pulse source",
-      responses: { 201: jsonResponse(SourceSchema.extend({ ingestToken: z.string().optional() }), "Created Pulse source") },
+      responses: { 201: jsonResponse(SourceSchema, "Created Pulse source") },
     }),
     v("json", CreateSourceSchema),
     async (c) =>
@@ -624,6 +730,63 @@ const app = new Hono<AuthContext>()
       return respond(c, pulseService.source.scrapes({ baseId: baseId.value, sourceId: sourceId.value, user: c.get("user") }));
     },
   )
+  .get(
+    "/bases/:baseId/sources/:sourceId/tokens",
+    describeRoute({
+      tags: ["Pulse"],
+      summary: "List Pulse HTTP ingest source tokens",
+      responses: { 200: jsonResponse(z.array(SourceTokenSchema), "Pulse source tokens") },
+    }),
+    async (c) => {
+      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      if (!baseId.ok) return respond(c, baseId.result);
+      const sourceId = requireParam(c.req.param("sourceId"), "source ID");
+      if (!sourceId.ok) return respond(c, sourceId.result);
+      return respond(c, pulseService.source.tokens.list({ baseId: baseId.value, sourceId: sourceId.value, user: c.get("user") }));
+    },
+  )
+  .post(
+    "/bases/:baseId/sources/:sourceId/tokens",
+    describeRoute({
+      tags: ["Pulse"],
+      summary: "Create a Pulse HTTP ingest source token",
+      responses: { 201: jsonResponse(z.object({ source: SourceSchema, token: SourceTokenSchema, ingestToken: z.string() }), "Created source token") },
+    }),
+    v("json", CreateSourceTokenSchema),
+    async (c) => {
+      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      if (!baseId.ok) return respond(c, baseId.result);
+      const sourceId = requireParam(c.req.param("sourceId"), "source ID");
+      if (!sourceId.ok) return respond(c, sourceId.result);
+      return respond(
+        c,
+        pulseService.source.tokens.create({
+          baseId: baseId.value,
+          sourceId: sourceId.value,
+          user: c.get("user"),
+          ...c.req.valid("json"),
+        }),
+        201,
+      );
+    },
+  )
+  .delete("/bases/:baseId/sources/:sourceId/tokens/:tokenId", async (c) => {
+    const baseId = requireParam(c.req.param("baseId"), "base ID");
+    if (!baseId.ok) return respond(c, baseId.result);
+    const sourceId = requireParam(c.req.param("sourceId"), "source ID");
+    if (!sourceId.ok) return respond(c, sourceId.result);
+    const tokenId = requireParam(c.req.param("tokenId"), "token ID");
+    if (!tokenId.ok) return respond(c, tokenId.result);
+    return respond(
+      c,
+      pulseService.source.tokens.remove({
+        baseId: baseId.value,
+        sourceId: sourceId.value,
+        tokenId: tokenId.value,
+        user: c.get("user"),
+      }),
+    );
+  })
   .patch(
     "/bases/:baseId/sources/:sourceId",
     describeRoute({
@@ -772,6 +935,11 @@ const app = new Hono<AuthContext>()
       return respond(c, pulseService.dashboard.update({ dashboardId: dashboardId.value, user: c.get("user"), ...c.req.valid("json") }));
     },
   )
+  .delete("/dashboards/:dashboardId", async (c) => {
+    const dashboardId = requireParam(c.req.param("dashboardId"), "dashboard ID");
+    if (!dashboardId.ok) return respond(c, dashboardId.result);
+    return respondMessage(c, pulseService.dashboard.remove({ dashboardId: dashboardId.value, user: c.get("user") }), "Dashboard removed");
+  })
   .post("/dashboards/:dashboardId/public-token", async (c) => {
     const dashboardId = requireParam(c.req.param("dashboardId"), "dashboard ID");
     if (!dashboardId.ok) return respond(c, dashboardId.result);
@@ -818,6 +986,16 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CompileTextQuerySchema),
     async (c) => respond(c, pulseService.query.compileText({ ...c.req.valid("json"), user: c.get("user") })),
+  )
+  .post(
+    "/dashboard-dsl/compile",
+    describeRoute({
+      tags: ["Pulse"],
+      summary: "Compile a Pulse dashboard DSL document without saving it",
+      responses: { 200: jsonResponse(DashboardDslCompileResultSchema, "Dashboard DSL diagnostics and config") },
+    }),
+    v("json", DashboardDslCompileSchema),
+    async (c) => respond(c, pulseService.dashboard.compileDsl({ ...c.req.valid("json"), user: c.get("user") })),
   );
 
 export default app;
