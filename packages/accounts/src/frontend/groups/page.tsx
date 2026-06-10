@@ -4,6 +4,7 @@ import { getDefaultGroupScope, isAdminUser } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
+import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import { getProviderBadge } from "../lib/account-badges";
@@ -13,7 +14,7 @@ import NewGroup from "./NewGroup.island";
 
 /** Groups page - nav sidebar + full-page list. */
 export default ssr<AuthContext>(async (c) => {
-  const sessionUser = c.get("user");
+  const sessionUser = expectUserBackedActor(c);
   const isAdmin = isAdminUser(sessionUser);
   const freeIpaEnabled = Boolean(await coreSettings.get<boolean>("freeipa.enable"));
   const perPage = 100;

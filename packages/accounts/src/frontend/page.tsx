@@ -4,6 +4,7 @@ import { getDefaultGroupScope, isAdminUser } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { LinkCard, LogEntriesTable, ProgressBar, StatCell } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
+import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../config";
 import AccountsWorkspace from "./AccountsWorkspace";
 import AdminOperations from "./dashboard/AdminOperations.island";
@@ -21,7 +22,7 @@ const BASE_QUICK_LINKS = [
 ] as const;
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const isAdmin = isAdminUser(user);
   const freeIpaEnabled = Boolean(await coreSettings.get<boolean>("freeipa.enable"));
   const defaultGroupScope = getDefaultGroupScope(user);
@@ -142,7 +143,9 @@ export default ssr<AuthContext>(async (c) => {
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div class="min-w-0">
                     <p class="text-xs font-medium text-primary">Administrative account actions are recorded in the audit log.</p>
-                    <p class="mt-0.5 text-[11px] text-dimmed">Review user, group, and account request changes from one searchable history.</p>
+                    <p class="mt-0.5 text-[11px] text-dimmed">
+                      Review user, group, and account request changes from one searchable history.
+                    </p>
                   </div>
                   <a href="/app/accounts/audit" class="btn-input btn-input-sm shrink-0">
                     <i class="ti ti-clipboard-list" />

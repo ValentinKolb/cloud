@@ -3,6 +3,7 @@ import { accountsAppService as accountsService, coreSettings } from "@valentinko
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
+import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import { getManagementBadge, getPrimaryAccountBadge } from "../lib/account-badges";
@@ -13,7 +14,7 @@ import UsersFilters from "./UsersFilters.island";
 /** Admin users list page - nav sidebar + full-page list. */
 export default ssr<AuthContext>(async (c) => {
   const perPage = 100;
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const freeIpaEnabled = Boolean(await coreSettings.get<boolean>("freeipa.enable"));
   const listState = parseUsersListState({
     search: c.req.query("search"),

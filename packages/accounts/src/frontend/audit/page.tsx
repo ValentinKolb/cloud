@@ -1,15 +1,16 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import {
-  accountsAppService as accountsService,
-  audit,
   type AuditActionGroup,
   type AuditEvent,
   type AuditOutcome,
+  accountsAppService as accountsService,
+  audit,
 } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
+import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import AuditFilters from "./AuditFilters.island";
@@ -87,7 +88,7 @@ const providerClass = (provider: string | null): string =>
 const initialOf = (value: string): string => value.trim().charAt(0).toUpperCase();
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const state: AuditState = {
     search: (c.req.query("search") ?? "").trim(),
     actor: (c.req.query("actor") ?? "").trim(),
@@ -125,7 +126,8 @@ export default ssr<AuthContext>(async (c) => {
     ? (eventsPage.items.find((event) => event.actor.userId === state.actor || event.actor.uid === state.actor)?.actor.uid ?? state.actor)
     : "";
   const targetFilterLabel = state.target
-    ? (eventsPage.items.find((event) => event.target.id === state.target || event.target.label === state.target)?.target.label ?? state.target)
+    ? (eventsPage.items.find((event) => event.target.id === state.target || event.target.label === state.target)?.target.label ??
+      state.target)
     : "";
   const columns: DataTableColumn<AuditEvent>[] = [
     { id: "time", header: "Time", value: (event) => event.createdAt, cellClass: "whitespace-nowrap" },
@@ -234,13 +236,20 @@ export default ssr<AuthContext>(async (c) => {
                     return (
                       <div class="flex min-w-0 flex-col gap-1">
                         {event.actor.userId ? (
-                          <a href={buildAuditUrl({ ...state, actor: event.actor.userId, page: 1 })} class="truncate font-medium text-primary hover:underline">
+                          <a
+                            href={buildAuditUrl({ ...state, actor: event.actor.userId, page: 1 })}
+                            class="truncate font-medium text-primary hover:underline"
+                          >
                             {actorLabel}
                           </a>
                         ) : (
                           <span class="truncate font-medium text-primary">{actorLabel}</span>
                         )}
-                        {event.actor.provider ? <span class={`w-fit rounded px-1.5 py-0.5 text-[10px] font-medium ${providerClass(event.actor.provider)}`}>{event.actor.provider}</span> : null}
+                        {event.actor.provider ? (
+                          <span class={`w-fit rounded px-1.5 py-0.5 text-[10px] font-medium ${providerClass(event.actor.provider)}`}>
+                            {event.actor.provider}
+                          </span>
+                        ) : null}
                       </div>
                     );
                   }
@@ -273,7 +282,9 @@ export default ssr<AuthContext>(async (c) => {
                     );
                   }
                   if (col.id === "outcome")
-                    return <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${statusClass(event.outcome)}`}>{event.outcome}</span>;
+                    return (
+                      <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${statusClass(event.outcome)}`}>{event.outcome}</span>
+                    );
                   if (col.id === "reason")
                     return (
                       <span class="truncate text-dimmed" title={event.reason ?? event.errorMessage ?? ""}>

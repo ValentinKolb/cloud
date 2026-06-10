@@ -1,6 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../../config";
 import AccountsWorkspace from "../../AccountsWorkspace";
 import DenyRequest from "../DenyRequest.island";
@@ -17,7 +18,7 @@ type AccountRequest = {
 };
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const freeIpaEnabled = Boolean(await coreSettings.get<boolean>("freeipa.enable"));
   const requestId = c.req.query("request");
   let accountRequest: AccountRequest | null = null;

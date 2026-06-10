@@ -1,18 +1,19 @@
+import { type AuthContext, auth, jsonResponse, requiresAdmin, respond, v } from "@valentinkolb/cloud/server";
+import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
+import { err, fail, ok } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { v, jsonResponse, requiresAdmin, auth, type AuthContext, respond } from "@valentinkolb/cloud/server";
-import { err, fail, ok } from "@valentinkolb/stdlib";
-import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
 import {
+  createPagination,
   ErrorResponseSchema,
+  hasRole,
   MessageResponseSchema,
   PaginationQuerySchema,
   PaginationResponseSchema,
-  createPagination,
-  hasRole,
   parsePagination,
 } from "@/contracts";
+import { expectUserBackedActor, toAccountsActor } from "@/shared/actor";
 
 const DenyRequestSchema = z.object({
   reason: z.string().optional().describe("Reason for denial (triggers email if provided)"),
@@ -64,7 +65,7 @@ const app = new Hono<AuthContext>()
       }),
     ),
     async (c) => {
-      const user = c.get("user");
+      const user = expectUserBackedActor(c);
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
       const requestsPage = await accountsService.accountRequest.list({
@@ -100,7 +101,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const user = c.get("user");
+      const user = expectUserBackedActor(c);
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing account request ID")));
 
@@ -134,7 +135,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", DenyRequestSchema),
     async (c) => {
-      const user = c.get("user");
+      const user = expectUserBackedActor(c);
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing account request ID")));
       const { reason } = c.req.valid("json");
@@ -143,12 +144,7 @@ const app = new Hono<AuthContext>()
         const result = await accountsService.accountRequest.deny({
           id,
           reason,
-          actor: {
-            userId: user.id,
-            uid: user.uid,
-            roles: user.roles,
-            provider: user.provider,
-          },
+          actor: toAccountsActor(user),
         });
         if (!result.ok) return result;
         return ok({ message: "Request denied" });

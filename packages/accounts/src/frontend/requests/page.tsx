@@ -3,6 +3,7 @@ import { accountsAppService as accountsService, coreSettings } from "@valentinko
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
+import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import DenyRequest from "../users/DenyRequest.island";
@@ -35,7 +36,7 @@ const STATUS_PILL: Record<Exclude<StatusFilter, "all">, string> = {
 };
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const freeIpaEnabled = Boolean(await coreSettings.get<boolean>("freeipa.enable"));
   const page = parsePage(c.req.query("page"));
   const perPage = 100;

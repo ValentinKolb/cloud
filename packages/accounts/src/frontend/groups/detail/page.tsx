@@ -4,6 +4,7 @@ import { canManageGroup, getDefaultGroupScope, isAdminUser } from "@valentinkolb
 import { Layout } from "@valentinkolb/cloud/ssr";
 import type { JSX } from "solid-js/jsx-runtime";
 import { createPagination } from "@/contracts";
+import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../../config";
 import AccountsFactGrid from "../../AccountsFactGrid";
 import AccountsWorkspace from "../../AccountsWorkspace";
@@ -25,7 +26,7 @@ type Tab = (typeof TABS)[number];
 
 export default ssr<AuthContext>(async (c) => {
   const groupId = c.req.param("id");
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const isAdmin = isAdminUser(user);
   const freeIpaEnabled = Boolean(await coreSettings.get<boolean>("freeipa.enable"));
   const defaultScope = getDefaultGroupScope(user);

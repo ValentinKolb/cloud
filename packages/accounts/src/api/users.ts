@@ -1,21 +1,24 @@
+import { IpaProfileFieldsSchema, UserSchema } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, jsonResponse, requiresAdmin, respond, v } from "@valentinkolb/cloud/server";
+import { accountsAppService as accountsService, logger, notifications } from "@valentinkolb/cloud/services";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { v, jsonResponse, requiresAdmin, auth, type AuthContext, respond } from "@valentinkolb/cloud/server";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { accountsAppService as accountsService, logger, notifications } from "@valentinkolb/cloud/services";
-import { parsePagination, createPagination } from "@/contracts";
 import {
-  PaginationQuerySchema,
-  PaginationResponseSchema,
   BaseUserSchema,
-  SearchQuerySchema,
+  CreateUserResponseSchema,
+  CreateUserSchema,
+  createPagination,
   ErrorResponseSchema,
   MessageResponseSchema,
-  CreateUserSchema,
-  CreateUserResponseSchema,
+  PaginationQuerySchema,
+  PaginationResponseSchema,
+  parsePagination,
+  SearchQuerySchema,
 } from "@/contracts";
-import { UserSchema, IpaProfileFieldsSchema } from "@valentinkolb/cloud/contracts";
+import { expectUserBackedActor, toAccountsActor } from "@/shared/actor";
+
 const log = logger("accounts:admin:users");
 
 // Admin PATCH accepts the same profile fields plus `mail`. Defined standalone
@@ -40,13 +43,6 @@ const AdminUpdateUserSchema = z
     { message: "At least one profile field must be provided" },
   );
 
-const ExtendAccountResponseSchema = z.object({
-  message: z.string(),
-  newExpiry: z.string().datetime().optional(),
-});
-
-const MeUpdateResponseSchema = MessageResponseSchema;
-
 const AdminUpdateResponseSchema = MessageResponseSchema;
 
 const UsersListResponseSchema = z.object({
@@ -55,13 +51,6 @@ const UsersListResponseSchema = z.object({
 });
 
 type CreateUserResponse = z.infer<typeof CreateUserResponseSchema>;
-
-const toAccountsActor = (actor: AuthContext["Variables"]["user"]) => ({
-  userId: actor.id,
-  uid: actor.uid,
-  roles: actor.roles,
-  provider: actor.provider,
-});
 
 const ResetPasswordResponseSchema = z.object({
   message: z.string().describe("Human-readable success message"),
@@ -123,12 +112,15 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
-    v("query", z.object({
-      ...PaginationQuerySchema.shape,
-      ...SearchQuerySchema.shape,
-      provider: z.enum(["local", "ipa"]).optional(),
-      profile: z.enum(["user", "guest"]).optional(),
-    })),
+    v(
+      "query",
+      z.object({
+        ...PaginationQuerySchema.shape,
+        ...SearchQuerySchema.shape,
+        provider: z.enum(["local", "ipa"]).optional(),
+        profile: z.enum(["user", "guest"]).optional(),
+      }),
+    ),
     async (c) => {
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
@@ -181,8 +173,7 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Users"],
       summary: "Create user",
-      description:
-        "Create a new account. FreeIPA-backed accounts get a temporary password; local accounts use magic-link login.",
+      description: "Create a new account. FreeIPA-backed accounts get a temporary password; local accounts use magic-link login.",
       ...requiresAdmin,
       responses: {
         201: jsonResponse(CreateUserResponseSchema, "User created successfully"),
@@ -194,7 +185,7 @@ const app = new Hono<AuthContext>()
     v("json", CreateUserSchema),
     async (c) => {
       const data = c.req.valid("json");
-      const adminUser = c.get("user");
+      const adminUser = expectUserBackedActor(c);
 
       return respond(
         c,
@@ -245,7 +236,7 @@ const app = new Hono<AuthContext>()
       const data = c.req.valid("json");
 
       return respond(c, async () => {
-        const result = await accountsService.user.update({ actor: toAccountsActor(c.get("user")), id, data });
+        const result = await accountsService.user.update({ actor: toAccountsActor(expectUserBackedActor(c)), id, data });
         if (!result.ok) return result;
         return ok({ message: "User updated." });
       });
@@ -269,7 +260,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
-      const actor = c.get("user");
+      const actor = expectUserBackedActor(c);
 
       return respond(c, async () => {
         const targetUser = await accountsService.user.getMinimal({ id });
@@ -309,7 +300,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
-      const actor = c.get("user");
+      const actor = expectUserBackedActor(c);
       return respond(c, async () => {
         const targetUser = await accountsService.user.getMinimal({ id });
         if (!targetUser) return fail(err.notFound("User not found"));
@@ -345,7 +336,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
-      const actor = c.get("user");
+      const actor = expectUserBackedActor(c);
       return respond(c, async () => {
         const targetUser = await accountsService.user.getMinimal({ id });
         if (!targetUser) return fail(err.notFound("User not found"));
@@ -383,7 +374,7 @@ const app = new Hono<AuthContext>()
       const { provider } = c.req.valid("json");
 
       return respond(c, async () => {
-        const actor = c.get("user");
+        const actor = expectUserBackedActor(c);
         const targetUser = await accountsService.user.getMinimal({ id });
         if (!targetUser) return fail(err.notFound("User not found"));
         const result = await accountsService.user.switchProvider({
@@ -428,7 +419,7 @@ const app = new Hono<AuthContext>()
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const { expiryDate } = c.req.valid("json");
-      const actor = c.get("user");
+      const actor = expectUserBackedActor(c);
 
       return respond(c, async () => {
         const result = await accountsService.user.setExpiry({
@@ -463,7 +454,7 @@ const app = new Hono<AuthContext>()
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const { profile } = c.req.valid("json");
       return respond(c, async () => {
-        const actor = c.get("user");
+        const actor = expectUserBackedActor(c);
         const targetUser = await accountsService.user.getMinimal({ id });
         if (!targetUser) return fail(err.notFound("User not found"));
         const result = await accountsService.user.setProfile({
@@ -503,7 +494,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
-      const actor = c.get("user");
+      const actor = expectUserBackedActor(c);
       const { subject, rawHtml } = c.req.valid("json");
       return respond(c, async () => {
         const result = await notifications.sendToUser({
@@ -535,7 +526,7 @@ const app = new Hono<AuthContext>()
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       return respond(c, async () => {
-        const result = await accountsService.user.sendLoginLink({ actor: toAccountsActor(c.get("user")), id });
+        const result = await accountsService.user.sendLoginLink({ actor: toAccountsActor(expectUserBackedActor(c)), id });
         if (!result.ok) return result;
         return ok({ message: "Login link sent." });
       });
@@ -561,7 +552,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
-      const actor = c.get("user");
+      const actor = expectUserBackedActor(c);
 
       return respond(c, async () => {
         const result = await accountsService.user.remove({
@@ -578,7 +569,8 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Users"],
       summary: "Demote IPA user to local guest",
-      description: "Converts an IPA-backed user into a local guest account, preserving the local identity row. Requires admin access and FreeIPA service-account availability.",
+      description:
+        "Converts an IPA-backed user into a local guest account, preserving the local identity row. Requires admin access and FreeIPA service-account availability.",
       ...requiresAdmin,
       responses: {
         200: jsonResponse(MessageResponseSchema, "User demoted to guest"),
@@ -591,7 +583,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const id = c.req.param("id");
       if (!id) return respond(c, fail(err.badInput("Missing user ID")));
-      const actor = c.get("user");
+      const actor = expectUserBackedActor(c);
 
       return respond(c, async () => {
         const result = await accountsService.user.demoteToGuest({

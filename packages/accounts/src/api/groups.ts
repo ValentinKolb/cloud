@@ -1,22 +1,25 @@
-import { Hono, type Context } from "hono";
+import { type AuthContext, auth, jsonResponse, requiresAdmin, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
+import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
+import { isAdminUser } from "@valentinkolb/cloud/shared";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { isAdminUser } from "@valentinkolb/cloud/shared";
-import { v, jsonResponse, requiresAdmin, requiresAuth, auth, type AuthContext, respond } from "@valentinkolb/cloud/server";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
-import { parsePagination, createPagination } from "@/contracts";
 import {
+  BaseGroupSchema,
+  CreateGroupSchema,
+  createPagination,
+  ErrorResponseSchema,
+  GroupMemberInputSchema,
+  MessageResponseSchema,
   PaginationQuerySchema,
   PaginationResponseSchema,
-  BaseGroupSchema,
+  parsePagination,
   SearchQuerySchema,
-  ErrorResponseSchema,
-  MessageResponseSchema,
-  CreateGroupSchema,
   UpdateGroupSchema,
-  GroupMemberInputSchema,
 } from "@/contracts";
+import { expectUserBackedActor, toAccountsActor } from "@/shared/actor";
+
 const GroupsListResponseSchema = z.object({
   groups: z.array(BaseGroupSchema),
   pagination: PaginationResponseSchema,
@@ -24,18 +27,11 @@ const GroupsListResponseSchema = z.object({
 type BaseGroupResponse = z.infer<typeof BaseGroupSchema>;
 type MessageResponse = z.infer<typeof MessageResponseSchema>;
 
-const toAccountsActor = (actor: AuthContext["Variables"]["user"]) => ({
-  userId: actor.id,
-  uid: actor.uid,
-  roles: actor.roles,
-  provider: actor.provider,
-});
-
 const requireLocalGroupManageAccess = async (
   c: Context<AuthContext>,
   group: NonNullable<Awaited<ReturnType<typeof accountsService.group.get>>>,
 ) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   if (isAdminUser(user)) return null;
   if (group.provider !== "local") return null;
 
@@ -97,7 +93,7 @@ const handleGroupRelation = async (
 
   return respond(c, async () => {
     const result = await mutation({
-      actor: toAccountsActor(c.get("user")),
+      actor: toAccountsActor(expectUserBackedActor(c)),
       id: groupId,
       provider: group.provider,
       userId: type === "user" ? principalId : undefined,
@@ -120,8 +116,7 @@ const app = new Hono<AuthContext>()
       tags: ["Groups"],
       summary: "List groups",
       description:
-        "List groups with pagination and optional search. " +
-        "Use scope=managed, scope=member, or scope=all to choose the current view.",
+        "List groups with pagination and optional search. " + "Use scope=managed, scope=member, or scope=all to choose the current view.",
       ...requiresAuth,
       responses: {
         200: jsonResponse(GroupsListResponseSchema, "Paginated list of groups"),
@@ -141,7 +136,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const query = c.req.valid("query");
       const params = parsePagination(query);
-      const user = c.get("user");
+      const user = expectUserBackedActor(c);
 
       const groupsPage = await accountsService.group.list({
         pagination: { page: params.page, perPage: params.perPage },
@@ -257,13 +252,14 @@ const app = new Hono<AuthContext>()
 
       return respond(
         c,
-        async (): Promise<Result<BaseGroupResponse>> => accountsService.group.create({
-          actor: toAccountsActor(c.get("user")),
-          provider,
-          name,
-          description,
-          posix,
-        }),
+        async (): Promise<Result<BaseGroupResponse>> =>
+          accountsService.group.create({
+            actor: toAccountsActor(expectUserBackedActor(c)),
+            provider,
+            name,
+            description,
+            posix,
+          }),
         201,
       );
     },
@@ -290,7 +286,7 @@ const app = new Hono<AuthContext>()
 
       return respond(c, async () => {
         const result = await accountsService.group.remove({
-          actor: toAccountsActor(c.get("user")),
+          actor: toAccountsActor(expectUserBackedActor(c)),
           id,
           provider: group.provider,
         });
@@ -323,7 +319,7 @@ const app = new Hono<AuthContext>()
 
       return respond(c, async () => {
         const result = await accountsService.group.update({
-          actor: toAccountsActor(c.get("user")),
+          actor: toAccountsActor(expectUserBackedActor(c)),
           id,
           provider: group.provider,
           description,
@@ -355,7 +351,7 @@ const app = new Hono<AuthContext>()
 
       return respond(c, async () => {
         const result = await accountsService.group.makePosix({
-          actor: toAccountsActor(c.get("user")),
+          actor: toAccountsActor(expectUserBackedActor(c)),
           id,
           provider: group.provider,
         });
@@ -363,7 +359,6 @@ const app = new Hono<AuthContext>()
         return ok({ message: "Group converted to POSIX." });
       });
     },
-  )
-  ;
+  );
 
 export default app;

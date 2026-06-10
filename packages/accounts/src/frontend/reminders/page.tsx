@@ -4,6 +4,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
+import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import ReminderFilters from "./ReminderFilters.island";
@@ -24,7 +25,7 @@ const buildUrl = (params: { search?: string; kind?: string; status?: string; pag
 };
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const page = parsePage(c.req.query("page"));
   const perPage = 100;
   const search = (c.req.query("search") ?? "").trim();

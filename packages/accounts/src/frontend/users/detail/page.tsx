@@ -2,14 +2,15 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import {
   accountsAppService as accountsService,
   coreSettings,
-  serviceAccountCredentials,
   type ServiceAccountCredentialOverview,
+  serviceAccountCredentials,
 } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import type { JSX } from "solid-js/jsx-runtime";
 import type { BaseGroup } from "@/contracts";
+import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../../config";
 import AccountsFactGrid from "../../AccountsFactGrid";
 import AccountsWorkspace from "../../AccountsWorkspace";
@@ -24,9 +25,9 @@ import {
   getSupplementalRoles,
 } from "../../lib/account-badges";
 import { buildUserDetailUrl, buildUsersUrl, parseUsersListState } from "../../lib/url-state";
+import ServiceAccountCredentialActions from "../../service-accounts/ServiceAccountCredentialActions.island";
 import AddToGroup from "./AddToGroup.island";
 import UserActions from "./UserActions.island";
-import ServiceAccountCredentialActions from "../../service-accounts/ServiceAccountCredentialActions.island";
 
 const formatAddress = (a: {
   street: string | null;
@@ -48,6 +49,7 @@ const formatNullableDate = (value: string | null) => (value ? dates.formatDateTi
 export default ssr<AuthContext>(async (c) => {
   const id = c.req.param("id")!;
   const recursive = c.req.query("recursive") === "true";
+  const sessionUser = expectUserBackedActor(c);
   const freeIpaEnabled = Boolean(await coreSettings.get<boolean>("freeipa.enable"));
 
   const listState = parseUsersListState({
@@ -89,7 +91,7 @@ export default ssr<AuthContext>(async (c) => {
 
   const [pendingRequestsPage, recursiveGroupsPage, managedGroupsPage, directGroupIds, apiKeysPage] = await Promise.all([
     accountsService.accountRequest.list({
-      access: { userId: c.get("user").id, isAdmin: true },
+      access: { userId: sessionUser.id, isAdmin: true },
       filter: { status: "pending" },
     }),
     accountsService.group.list({
@@ -319,7 +321,10 @@ export default ssr<AuthContext>(async (c) => {
                   {apiKeysPage.total} active personal automation {apiKeysPage.total === 1 ? "key" : "keys"}
                 </p>
               </div>
-              <a href={`/app/accounts/service-accounts?kind=user_delegated&status=active&search=${encodeURIComponent(user.uid)}`} class="btn-input btn-input-sm">
+              <a
+                href={`/app/accounts/service-accounts?kind=user_delegated&status=active&search=${encodeURIComponent(user.uid)}`}
+                class="btn-input btn-input-sm"
+              >
                 <i class="ti ti-external-link" />
                 View all
               </a>

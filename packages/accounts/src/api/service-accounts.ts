@@ -1,10 +1,18 @@
+import { type AuthContext, auth, jsonResponse, requiresAdmin, respond, v } from "@valentinkolb/cloud/server";
+import { serviceAccountCredentials } from "@valentinkolb/cloud/services";
+import { ok } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { serviceAccountCredentials } from "@valentinkolb/cloud/services";
-import { auth, jsonResponse, requiresAdmin, respond, v, type AuthContext } from "@valentinkolb/cloud/server";
-import { ok } from "@valentinkolb/stdlib";
-import { createPagination, ErrorResponseSchema, MessageResponseSchema, PaginationQuerySchema, PaginationResponseSchema, parsePagination } from "@/contracts";
+import {
+  createPagination,
+  ErrorResponseSchema,
+  MessageResponseSchema,
+  PaginationQuerySchema,
+  PaginationResponseSchema,
+  parsePagination,
+} from "@/contracts";
+import { expectUserBackedActor } from "@/shared/actor";
 
 const ServiceAccountKindSchema = z.enum(["user_delegated", "resource_bound"]);
 const CredentialStatusSchema = z.enum(["active", "revoked"]);
@@ -120,7 +128,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const result = await serviceAccountCredentials.revoke({
         credentialId: c.req.param("id"),
-        actor: c.get("user"),
+        actor: expectUserBackedActor(c),
       });
       if (!result.ok) return respond(c, result);
       return respond(c, ok({ message: "API key revoked." }));

@@ -1,9 +1,14 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { accountsAppService as accountsService, serviceAccountCredentials, type ServiceAccountCredentialOverview } from "@valentinkolb/cloud/services";
+import {
+  accountsAppService as accountsService,
+  type ServiceAccountCredentialOverview,
+  serviceAccountCredentials,
+} from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
+import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
 import ServiceAccountCredentialActions from "./ServiceAccountCredentialActions.island";
@@ -35,7 +40,7 @@ const statusClass = (status: ServiceAccountCredentialOverview["status"]) =>
 const formatNullableDate = (value: string | null) => (value ? dates.formatDateTime(value) : "-");
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const page = parsePage(c.req.query("page"));
   const perPage = 100;
   const search = (c.req.query("search") ?? "").trim();
@@ -77,13 +82,23 @@ export default ssr<AuthContext>(async (c) => {
   ];
 
   return () => (
-    <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Accounts", href: "/app/accounts" }, { title: "Service Accounts" }]}>
-      <AccountsWorkspace active="service-accounts" isAdmin pendingRequests={pendingRequestsPage.total} scrollPreserveKey="accounts-service-accounts">
+    <Layout
+      c={c}
+      fullWidth
+      title={[{ title: "Start", href: "/" }, { title: "Accounts", href: "/app/accounts" }, { title: "Service Accounts" }]}
+    >
+      <AccountsWorkspace
+        active="service-accounts"
+        isAdmin
+        pendingRequests={pendingRequestsPage.total}
+        scrollPreserveKey="accounts-service-accounts"
+      >
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: accounts-service-accounts-title">
             <h1 class="text-base font-semibold text-primary">Service Accounts</h1>
             <p class="mt-1 text-xs text-dimmed">
-              {credentialsPage.total} {credentialsPage.total === 1 ? "API key" : "API keys"} across user-bound and resource-bound service accounts
+              {credentialsPage.total} {credentialsPage.total === 1 ? "API key" : "API keys"} across user-bound and resource-bound service
+              accounts
             </p>
           </div>
 
@@ -143,17 +158,15 @@ export default ssr<AuthContext>(async (c) => {
                   }
                   if (col.id === "type") return <span class="text-dimmed">{serviceAccountKindLabel(entry.serviceAccount.kind)}</span>;
                   if (col.id === "status")
-                    return <span class={`w-fit rounded px-1.5 py-0.5 text-[10px] font-medium ${statusClass(entry.status)}`}>{entry.status}</span>;
+                    return (
+                      <span class={`w-fit rounded px-1.5 py-0.5 text-[10px] font-medium ${statusClass(entry.status)}`}>{entry.status}</span>
+                    );
                   if (col.id === "expires") return <span class="text-dimmed">{formatNullableDate(entry.expiresAt)}</span>;
                   if (col.id === "lastUsed") return <span class="text-dimmed">{formatNullableDate(entry.lastUsedAt)}</span>;
                   if (col.id === "created") return <span class="text-dimmed">{dates.formatDateTime(entry.createdAt)}</span>;
                   if (col.id === "actions")
                     return (
-                      <ServiceAccountCredentialActions
-                        credentialId={entry.id}
-                        name={entry.name}
-                        disabled={entry.status !== "active"}
-                      />
+                      <ServiceAccountCredentialActions credentialId={entry.id} name={entry.name} disabled={entry.status !== "active"} />
                     );
                   return "";
                 }}
