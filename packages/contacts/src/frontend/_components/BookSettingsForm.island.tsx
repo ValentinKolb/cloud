@@ -1,13 +1,13 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { PermissionEditor, prompts, ResourceApiKeys, type ResourceApiKey, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { PermissionEditor, prompts, type ResourceApiKey, ResourceApiKeys, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactTag } from "../../service";
+import { readErrorMessage } from "./api";
 import BookActions from "./BookActions.island";
 import BookTagsManager from "./BookTagsManager.island";
-import { readErrorMessage } from "./api";
 import DeleteBookButton from "./DeleteBookButton";
 
 type Props = {
@@ -135,7 +135,7 @@ export default function BookSettingsForm(props: Props) {
                 if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to revoke access"));
               }}
             />
-            <div class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
+            <div>
               <ResourceApiKeys
                 title="API keys"
                 description="Resource-bound keys for integrations that need access to this contact book."

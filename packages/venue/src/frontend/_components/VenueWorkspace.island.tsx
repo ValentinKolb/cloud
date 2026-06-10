@@ -1157,7 +1157,7 @@ function SettingsDialog(props: {
                   if (!response.ok) throw new Error(await readError(response, "Failed to revoke access."));
                 }}
               />
-              <div class="border-t border-zinc-200 pt-4 dark:border-zinc-800">
+              <div>
                 <ResourceApiKeys
                   title="API keys"
                   description="Resource-bound keys for integrations that need access to this venue."

@@ -3,8 +3,8 @@ import {
   CopyButton,
   PermissionEditor,
   prompts,
-  ResourceApiKeys,
   type ResourceApiKey,
+  ResourceApiKeys,
   SegmentedControl,
   SettingsModal,
   TextInput,
@@ -115,7 +115,7 @@ export default function SpaceEditPanel(props: Props) {
                   if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to revoke access"));
                 }}
               />
-              <div class="border-t border-zinc-200 pt-6 dark:border-zinc-700">
+              <div>
                 <ResourceApiKeys
                   title="API keys"
                   description="Resource-bound keys for integrations that need access to this space."
