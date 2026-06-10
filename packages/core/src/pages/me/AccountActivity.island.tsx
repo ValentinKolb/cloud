@@ -75,7 +75,7 @@ export default function AccountActivity(props: Props) {
           getRowId={(entry) => String(entry.id)}
           density="compact"
           highlightColumns={false}
-          class="overflow-x-auto"
+          class="max-h-[22rem] overflow-auto"
           tableClass="w-full min-w-[34rem] text-xs"
           empty={
             <div class="flex flex-col items-center gap-1">
