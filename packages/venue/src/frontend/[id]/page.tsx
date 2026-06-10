@@ -1,6 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { serviceAccountCredentials } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import type { CalendarView } from "@valentinkolb/cloud/ui";
+import type { CalendarView, ResourceApiKey } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import { venueService } from "../../service";
 import VenueLayoutHelp from "../_components/help/VenueLayoutHelp.island";
@@ -93,7 +94,7 @@ export default ssr<AuthContext>(async (c) => {
   const initialFeedbackSearch = (url.searchParams.get("search") ?? "").trim();
   const slots =
     resolved.initialView === "shifts" ? slotWindow(initialCalendarView, initialCalendarDate) : { startDate: initialCalendarDate, days: 14 };
-  const [dashboard, icalToken, accessEntries] = await Promise.all([
+  const [dashboard, icalToken, accessEntries, apiKeyOverview] = await Promise.all([
     venueService.dashboard(venue, user, {
       slotStartDate: slots.startDate,
       slotDays: slots.days,
@@ -103,7 +104,29 @@ export default ssr<AuthContext>(async (c) => {
     }),
     venueService.ical.getOrCreateToken(user.id),
     venue.permission === "admin" ? venueService.access.list(venue.id) : Promise.resolve([]),
+    venue.permission === "admin"
+      ? serviceAccountCredentials.listOverview({
+          pagination: { page: 1, perPage: 500 },
+          filter: {
+            serviceAccountKind: "resource_bound",
+            credentialStatus: "active",
+            appId: "venue",
+            resourceType: "venue",
+            resourceId: venue.id,
+          },
+        })
+      : Promise.resolve({ items: [] }),
   ]);
+  const permissionByServiceAccountId = new Map(
+    accessEntries
+      .filter((entry) => entry.principal.type === "service_account")
+      .map((entry) => [(entry.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId, entry.permission]),
+  );
+  const apiKeys: ResourceApiKey[] = apiKeyOverview.items.map((item) => {
+    const permission = permissionByServiceAccountId.get(item.serviceAccount.id) ?? "none";
+    const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
+    return { ...credential, permission };
+  });
 
   return () => (
     <Layout
@@ -118,6 +141,7 @@ export default ssr<AuthContext>(async (c) => {
         userId={user.id}
         icalToken={icalToken}
         accessEntries={accessEntries}
+        apiKeys={apiKeys}
         initialView={resolved.initialView}
         initialSectionId={resolved.initialSectionId}
         initialCalendarView={initialCalendarView}

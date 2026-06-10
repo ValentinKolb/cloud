@@ -1,11 +1,13 @@
-import { app } from "./config";
+import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
-import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
-import pageRoutes from "./frontend";
 import speedtestRoutes from "./api/speedtest";
 import speedtestCliRoutes from "./api/speedtest-cli";
 import webhookRoutes from "./api/webhooks";
+import { app } from "./config";
+import pageRoutes from "./frontend";
 import { migrate } from "./migrate";
+
+export type { ApiType } from "./api";
 
 const router = new Hono<AuthContext>()
   // Raw measurement endpoints (ping/download/upload) mount before runtime

@@ -139,6 +139,14 @@ type UserLike = {
   memberofGroupIds?: unknown;
 };
 
+type VenueAccessSubject = {
+  userId: string | null;
+  userGroups: string[];
+  serviceAccountId?: string | null;
+  serviceAccountResourceId?: string | null;
+  serviceAccountScopes?: string[];
+};
+
 type ResultError = Extract<Result<unknown>, { ok: false }>["error"];
 
 class TemplateError extends Error {
@@ -148,6 +156,33 @@ class TemplateError extends Error {
 }
 
 const userGroupIds = (user: UserLike): string[] => (Array.isArray(user.memberofGroupIds) ? user.memberofGroupIds : []);
+
+const PERMISSION_RANK: Record<PermissionLevel, number> = {
+  none: 0,
+  read: 1,
+  write: 2,
+  admin: 3,
+};
+
+const permissionFromScopes = (scopes: string[] | undefined): PermissionLevel => {
+  if (scopes?.includes("admin")) return "admin";
+  if (scopes?.includes("write")) return "write";
+  if (scopes?.includes("read")) return "read";
+  return "none";
+};
+
+const minPermission = (a: PermissionLevel, b: PermissionLevel): PermissionLevel => (PERMISSION_RANK[a] <= PERMISSION_RANK[b] ? a : b);
+
+const toAccessSubject = (subject: UserLike | VenueAccessSubject): VenueAccessSubject =>
+  "userId" in subject
+    ? subject
+    : {
+        userId: subject.id,
+        userGroups: userGroupIds(subject),
+        serviceAccountId: null,
+        serviceAccountResourceId: null,
+        serviceAccountScopes: [],
+      };
 
 const toDateKey = (value: string | Date): string => {
   if (value instanceof Date) return dates.formatDateKey(value, { timeZone: "UTC" });
@@ -342,35 +377,62 @@ const listAccess = async (venueId: string): Promise<AccessEntry[]> => {
       id: row.access_id,
       principal: row.user_id
         ? { type: "user", userId: row.user_id }
-      : row.group_id
-        ? { type: "group", groupId: row.group_id }
-        : row.service_account_id
-          ? { type: "service_account", serviceAccountId: row.service_account_id }
-        : row.authenticated_only
-          ? { type: "authenticated" }
-          : { type: "public" },
+        : row.group_id
+          ? { type: "group", groupId: row.group_id }
+          : row.service_account_id
+            ? { type: "service_account", serviceAccountId: row.service_account_id }
+            : row.authenticated_only
+              ? { type: "authenticated" }
+              : { type: "public" },
       permission: row.permission,
       createdAt: row.created_at.toISOString(),
     })),
   );
 };
 
-const getPermission = async (venueId: string, user: UserLike): Promise<PermissionLevel> => {
+const getPermission = async (venueId: string, subjectInput: UserLike | VenueAccessSubject): Promise<PermissionLevel> => {
+  const subject = toAccessSubject(subjectInput);
   const entries = await listAccess(venueId);
-  return getEffectivePermission({
+  const permission = await getEffectivePermission({
     accessIds: entries.map((entry) => entry.id),
-    userId: user.id,
-    userGroups: userGroupIds(user),
+    userId: subject.userId,
+    userGroups: subject.userGroups,
+    serviceAccountId: subject.serviceAccountId,
   });
+  return subject.serviceAccountId ? minPermission(permission, permissionFromScopes(subject.serviceAccountScopes)) : permission;
 };
 
-const requirePermission = async (venueId: string, user: UserLike, required: PermissionLevel): Promise<Result<PermissionLevel>> => {
-  const permission = await getPermission(venueId, user);
+const requirePermission = async (
+  venueId: string,
+  subject: UserLike | VenueAccessSubject,
+  required: PermissionLevel,
+): Promise<Result<PermissionLevel>> => {
+  const permission = await getPermission(venueId, subject);
   if (!hasPermission(permission, required)) return fail(err.forbidden("You do not have access to this venue"));
   return ok(permission);
 };
 
-const listVenues = async (user: UserLike): Promise<Venue[]> => {
+const listVenues = async (subjectInput: UserLike | VenueAccessSubject): Promise<Venue[]> => {
+  const subject = toAccessSubject(subjectInput);
+  if (subject.serviceAccountId) {
+    const rows = await sql<DbVenue[]>`
+      SELECT DISTINCT v.*
+      FROM venue.venues v
+      JOIN venue.venue_access va ON va.venue_id = v.id
+      JOIN auth.access a ON a.id = va.access_id
+      WHERE a.permission <> 'none'
+        AND a.service_account_id = ${subject.serviceAccountId}::uuid
+        AND (${subject.serviceAccountResourceId ?? null}::uuid IS NULL OR v.id = ${subject.serviceAccountResourceId}::uuid)
+      ORDER BY v.name
+    `;
+
+    const venues: Venue[] = [];
+    for (const row of rows) {
+      venues.push(mapVenue(row, await getPermission(row.id, subject)));
+    }
+    return venues.filter((venue) => venue.permission && venue.permission !== "none");
+  }
+
   const rows = await sql<DbVenue[]>`
     SELECT DISTINCT v.*
     FROM venue.venues v
@@ -379,24 +441,24 @@ const listVenues = async (user: UserLike): Promise<Venue[]> => {
     WHERE
       a.permission <> 'none'
       AND (
-        a.user_id = ${user.id}::uuid
+        a.user_id = ${subject.userId}::uuid
         OR a.authenticated_only = true
-        OR a.group_id = ANY(${`{${userGroupIds(user).join(",")}}`}::uuid[])
+        OR a.group_id = ANY(${`{${subject.userGroups.join(",")}}`}::uuid[])
       )
     ORDER BY v.name
   `;
 
   const venues: Venue[] = [];
   for (const row of rows) {
-    venues.push(mapVenue(row, await getPermission(row.id, user)));
+    venues.push(mapVenue(row, await getPermission(row.id, subject)));
   }
   return venues;
 };
 
-const getVenue = async (id: string, user?: UserLike): Promise<Venue | null> => {
+const getVenue = async (id: string, subject?: UserLike | VenueAccessSubject): Promise<Venue | null> => {
   const [row] = await sql<DbVenue[]>`SELECT * FROM venue.venues WHERE id = ${id}::uuid`;
   if (!row) return null;
-  return mapVenue(row, user ? await getPermission(row.id, user) : undefined);
+  return mapVenue(row, subject ? await getPermission(row.id, subject) : undefined);
 };
 
 const getVenueBySlug = async (slug: string): Promise<Venue | null> => {
@@ -1006,7 +1068,7 @@ type VenueDashboardOptions = {
   feedbackSearch?: string;
 };
 
-const dashboard = async (venue: Venue, user: UserLike, options: VenueDashboardOptions = {}): Promise<VenueDashboard> => {
+const dashboard = async (venue: Venue, user: UserLike | null, options: VenueDashboardOptions = {}): Promise<VenueDashboard> => {
   const start = new Date();
   const end = new Date(start.getTime() + 30 * 86_400_000);
   const slotDays = Math.max(0, options.slotDays ?? 14);
@@ -1021,12 +1083,14 @@ const dashboard = async (venue: Venue, user: UserLike, options: VenueDashboardOp
       entryDays: options.feedbackDays,
       entrySearch: options.feedbackSearch,
     }),
-    sql<{ count: number }[]>`
+    user
+      ? sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM venue.shift_assignments
       WHERE venue_id = ${venue.id}::uuid
         AND user_id = ${user.id}::uuid
-    `.then((rows) => rows[0]?.count ?? 0),
+    `.then((rows) => rows[0]?.count ?? 0)
+      : Promise.resolve(0),
   ]);
   const [slots] = await Promise.all([
     slotDays > 0 ? upcomingSlots(venue, { startDate: options.slotStartDate, days: slotDays, templates }) : Promise.resolve([]),
@@ -1039,7 +1103,7 @@ const dashboard = async (venue: Venue, user: UserLike, options: VenueDashboardOp
     templates,
     slots,
     assignments,
-    myUpcomingShifts: assignments.filter((assignment) => assignment.userId === user.id),
+    myUpcomingShifts: user ? assignments.filter((assignment) => assignment.userId === user.id) : [],
     myShiftCount,
     sections,
     feedback: feedback.summary,

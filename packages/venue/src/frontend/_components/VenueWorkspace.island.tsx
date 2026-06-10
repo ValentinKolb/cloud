@@ -24,6 +24,8 @@ import {
   PermissionEditor,
   panelDialogOptions,
   prompts,
+  type ResourceApiKey,
+  ResourceApiKeys,
   SegmentedControl,
   SelectInput,
   SettingsModal,
@@ -58,6 +60,7 @@ type Props = {
   userId: string;
   icalToken: string;
   accessEntries: AccessEntry[];
+  apiKeys: ResourceApiKey[];
   initialView: VenueView;
   initialSectionId?: string | null;
   initialCalendarView: CalendarView;
@@ -836,7 +839,13 @@ function ConfirmShiftSignupDialog(props: { slot: UpcomingSlot; timezone: string;
   );
 }
 
-function SettingsDialog(props: { dashboard: VenueDashboard; accessEntries: AccessEntry[]; icalToken: string; close: () => void }) {
+function SettingsDialog(props: {
+  dashboard: VenueDashboard;
+  accessEntries: AccessEntry[];
+  apiKeys: ResourceApiKey[];
+  icalToken: string;
+  close: () => void;
+}) {
   const venue = props.dashboard.venue;
   const [name, setName] = createSignal(venue.name);
   const [icon, setIcon] = createSignal(venue.icon || "ti ti-building-carousel");
@@ -1119,34 +1128,57 @@ function SettingsDialog(props: { dashboard: VenueDashboard; accessEntries: Acces
 
         {canAdmin(venue) && (
           <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Permission changes save immediately.">
-            <PermissionEditor
-              initialEntries={props.accessEntries}
-              canEdit
-              allowedLevels={[
-                { level: "read", label: "Read" },
-                { level: "write", label: "Staff" },
-                { level: "admin", label: "Admin" },
-              ]}
-              grantAccess={async (principal: Principal, permission: Exclude<PermissionLevel, "none">): Promise<AccessEntry> => {
-                const response = await apiClient.venues[":id"].access.$post({
-                  param: { id: venue.id },
-                  json: { principal, permission },
-                });
-                if (!response.ok) throw new Error(await readError(response, "Failed to grant access."));
-                return await response.json();
-              }}
-              updateAccess={async (accessId, permission) => {
-                const response = await apiClient.venues[":id"].access[":accessId"].$patch({
-                  param: { id: venue.id, accessId },
-                  json: { permission },
-                });
-                if (!response.ok) throw new Error(await readError(response, "Failed to update access."));
-              }}
-              revokeAccess={async (accessId) => {
-                const response = await apiClient.venues[":id"].access[":accessId"].$delete({ param: { id: venue.id, accessId } });
-                if (!response.ok) throw new Error(await readError(response, "Failed to revoke access."));
-              }}
-            />
+            <div class="grid gap-5">
+              <PermissionEditor
+                initialEntries={props.accessEntries.filter((entry) => entry.principal.type !== "service_account")}
+                canEdit
+                allowedLevels={[
+                  { level: "read", label: "Read" },
+                  { level: "write", label: "Staff" },
+                  { level: "admin", label: "Admin" },
+                ]}
+                grantAccess={async (principal: Principal, permission: Exclude<PermissionLevel, "none">): Promise<AccessEntry> => {
+                  const response = await apiClient.venues[":id"].access.$post({
+                    param: { id: venue.id },
+                    json: { principal, permission },
+                  });
+                  if (!response.ok) throw new Error(await readError(response, "Failed to grant access."));
+                  return await response.json();
+                }}
+                updateAccess={async (accessId, permission) => {
+                  const response = await apiClient.venues[":id"].access[":accessId"].$patch({
+                    param: { id: venue.id, accessId },
+                    json: { permission },
+                  });
+                  if (!response.ok) throw new Error(await readError(response, "Failed to update access."));
+                }}
+                revokeAccess={async (accessId) => {
+                  const response = await apiClient.venues[":id"].access[":accessId"].$delete({ param: { id: venue.id, accessId } });
+                  if (!response.ok) throw new Error(await readError(response, "Failed to revoke access."));
+                }}
+              />
+              <div class="border-t border-zinc-200 pt-4 dark:border-zinc-800">
+                <ResourceApiKeys
+                  title="API keys"
+                  description="Resource-bound keys for integrations that need access to this venue."
+                  initialKeys={props.apiKeys}
+                  createKey={async (input) => {
+                    const response = await apiClient.venues[":id"]["api-keys"].$post({
+                      param: { id: venue.id },
+                      json: input,
+                    });
+                    if (!response.ok) throw new Error(await readError(response, "Failed to create API key."));
+                    return (await response.json()) as { credential: ResourceApiKey; token: string };
+                  }}
+                  revokeKey={async (credentialId) => {
+                    const response = await apiClient.venues[":id"]["api-keys"][":credentialId"].$delete({
+                      param: { id: venue.id, credentialId },
+                    });
+                    if (!response.ok) throw new Error(await readError(response, "Failed to revoke API key."));
+                  }}
+                />
+              </div>
+            </div>
           </SettingsModal.Tab>
         )}
 
@@ -1495,7 +1527,13 @@ export default function VenueWorkspace(props: Props) {
   const openSettings = async () => {
     await prompts.dialog<void>(
       (close) => (
-        <SettingsDialog dashboard={props.dashboard} accessEntries={props.accessEntries} icalToken={props.icalToken} close={close} />
+        <SettingsDialog
+          dashboard={props.dashboard}
+          accessEntries={props.accessEntries}
+          apiKeys={props.apiKeys}
+          icalToken={props.icalToken}
+          close={close}
+        />
       ),
       {
         surface: "bare",
@@ -1738,7 +1776,6 @@ export default function VenueWorkspace(props: Props) {
               </For>
             </AppWorkspace.SidebarSection>
           </AppWorkspace.SidebarBody>
-
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>
 

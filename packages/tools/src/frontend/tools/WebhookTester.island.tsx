@@ -228,7 +228,7 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
   const [endpoints, { refetch: refetchEndpoints }] = createResource(async () => {
     const response = await apiClient.webhooks.endpoints.$get();
     await assertOk(response);
-    const data = await response.json();
+    const data = (await response.json()) as { items: Endpoint[] };
     return data.items;
   });
 
@@ -267,7 +267,7 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
         ? await apiClient.webhooks["incoming-logs"].$get({ query })
         : await apiClient.webhooks["outgoing-logs"].$get({ query });
     await assertOk(response);
-    const data = await response.json();
+    const data = (await response.json()) as { items: WebhookLog[] };
     return data.items;
   });
 
@@ -312,7 +312,7 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
     try {
       const response = await apiClient.webhooks.endpoints.$post({ json: { name } });
       await assertOk(response);
-      const endpoint = await response.json();
+      const endpoint = (await response.json()) as Endpoint;
       await refetchEndpoints();
       commitRoute({ mode: "receive", endpointId: endpoint.id, requestId: null });
       toast.success("Endpoint created.");
