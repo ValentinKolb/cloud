@@ -1,4 +1,5 @@
 import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts";
+import { getSearchUser } from "./actor";
 import { filesService } from "./service";
 
 const SEARCH_TAGS = ["file", "folder", "directory", "image", "excel", "pdf"] as const;
@@ -57,15 +58,12 @@ const TAG_FILTERS: Record<string, (f: FileLike) => boolean> = {
   folder: (f) => f.type === "directory",
   directory: (f) => f.type === "directory",
   image: (f) => f.type === "file" && isImage(f.mimeType),
-  pdf: (f) =>
-    f.type === "file" && (f.mimeType === "application/pdf" || /\.pdf$/i.test(f.name)),
-  excel: (f) =>
-    f.type === "file" &&
-    (/(spreadsheet|excel|csv)/i.test(f.mimeType ?? "") || /\.(xlsx|xls|csv)$/i.test(f.name)),
+  pdf: (f) => f.type === "file" && (f.mimeType === "application/pdf" || /\.pdf$/i.test(f.name)),
+  excel: (f) => f.type === "file" && (/(spreadsheet|excel|csv)/i.test(f.mimeType ?? "") || /\.(xlsx|xls|csv)$/i.test(f.name)),
 };
 
 export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
-  const user = input.ctx.get("user");
+  const user = getSearchUser(input.ctx);
   if (!supportsFilesApp(user)) return [];
 
   const tagPredicates = input.tags.map((t) => TAG_FILTERS[t]).filter((p): p is (f: FileLike) => boolean => Boolean(p));
@@ -81,9 +79,7 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
 
   const pattern = input.query.length === 0 ? "**/*" : toPattern(input.query);
 
-  const fetchLimit = tagPredicates.length > 0
-    ? Math.min(TAG_OVERFETCH_CAP, input.limit * TAG_OVERFETCH_MULTIPLIER)
-    : input.limit;
+  const fetchLimit = tagPredicates.length > 0 ? Math.min(TAG_OVERFETCH_CAP, input.limit * TAG_OVERFETCH_MULTIPLIER) : input.limit;
 
   const result = await filesService.search.list({
     bases,

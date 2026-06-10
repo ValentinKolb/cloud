@@ -1,14 +1,15 @@
-import { ssr } from "../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { filesService } from "@/service";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppOverview } from "@valentinkolb/cloud/ui";
+import { expectUserBackedActor } from "@/actor";
+import { filesService } from "@/service";
+import { ssr } from "../config";
 
 /**
  * Files index page - redirects to first accessible base
  */
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
 
   // Get all accessible bases
   const bases = await filesService.base.listResolved({ user });

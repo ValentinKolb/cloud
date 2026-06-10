@@ -1,8 +1,9 @@
-import { ssr } from "../../config";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
-import { type AuthContext } from "@valentinkolb/cloud/server";
-import { decodeHomeSegments, filePageUrl } from "../url";
+import { expectUserBackedActor } from "@/actor";
+import { ssr } from "../../config";
 import { renderFilesBasePage } from "../[baseType]/[baseId]/page";
+import { decodeHomeSegments, filePageUrl } from "../url";
 
 const getHomePathFromRequest = <E extends AuthContext>(c: Context<E>, userUid: string): { path: string; isLegacyUidPath: boolean } => {
   const queryPath = c.req.query("path");
@@ -30,7 +31,7 @@ const getHomePathFromRequest = <E extends AuthContext>(c: Context<E>, userUid: s
 };
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const { path, isLegacyUidPath } = getHomePathFromRequest(c, user.uid);
 
   if (isLegacyUidPath) {

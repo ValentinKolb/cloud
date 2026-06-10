@@ -1,17 +1,18 @@
-import { ssr } from "../../../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import type { Context } from "hono";
-import { filesService } from "@/service";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import type { Context } from "hono";
+import { expectUserBackedActor } from "@/actor";
+import type { DirectoryListing, FileBaseInfo, FileInfo } from "@/contracts";
+import { filesService } from "@/service";
+import { ssr } from "../../../config";
 import BaseSidebar from "../../_components/BaseSidebar";
-import FileList from "../../_components/FileList.island";
-import FileToolbar from "../../_components/FileToolbar.island";
-import FileSettings, { parseFileSettings } from "../../_components/FileSettings.island";
-import FileDetailPanel from "../../_components/FileDetailPanel.island";
 import FileDetailLayoutSync from "../../_components/FileDetailLayoutSync.island";
+import FileDetailPanel from "../../_components/FileDetailPanel.island";
+import FileList from "../../_components/FileList.island";
+import FileSettings, { parseFileSettings } from "../../_components/FileSettings.island";
+import FileToolbar from "../../_components/FileToolbar.island";
 import { filePageBaseUrl, filePageUrl } from "../../url";
-import type { FileBaseInfo, DirectoryListing, FileInfo } from "@/contracts";
 
 /**
  * Build breadcrumbs for file navigation.
@@ -89,7 +90,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
     path?: string;
   },
 ) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const baseType = config?.baseType ?? (c.req.param("baseType") as "home" | "group");
   const baseId = config?.baseId ?? c.req.param("baseId")!;
   const path = config?.path ?? c.req.query("path") ?? "/";

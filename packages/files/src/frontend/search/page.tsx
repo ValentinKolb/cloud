@@ -1,14 +1,15 @@
-import { ssr } from "../../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { filesService } from "@/service";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { expectUserBackedActor } from "@/actor";
+import type { FileBaseInfo, FileInfo, SearchResult } from "@/contracts";
+import { filesService } from "@/service";
+import { ssr } from "../../config";
 import BaseSidebar from "../_components/BaseSidebar";
-import FileList from "../_components/FileList.island";
-import FileDetailPanel from "../_components/FileDetailPanel.island";
 import FileDetailLayoutSync from "../_components/FileDetailLayoutSync.island";
+import FileDetailPanel from "../_components/FileDetailPanel.island";
+import FileList from "../_components/FileList.island";
 import { filePageBaseUrl } from "../url";
-import type { FileBaseInfo, SearchResult, FileInfo } from "@/contracts";
 
 /** Shortcut presets for common searches */
 const SEARCH_SHORTCUTS = [
@@ -42,7 +43,7 @@ const SEARCH_SHORTCUTS = [
 ];
 
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
 
   // Parse query params
   const pattern = c.req.query("pattern") ?? "";

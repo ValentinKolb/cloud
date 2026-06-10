@@ -1,35 +1,36 @@
-import { Hono, type Context } from "hono";
+import { type AuthContext, auth, jsonResponse, requiresIpaUser, respond, v } from "@valentinkolb/cloud/server";
+import { err, fail, ok } from "@valentinkolb/stdlib";
+import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { v, jsonResponse, requiresIpaUser, auth, type AuthContext, respond } from "@valentinkolb/cloud/server";
-import { err, fail, ok } from "@valentinkolb/stdlib";
-import { filesService } from "../service";
+import { expectUserBackedActor } from "@/actor";
 import type { FileBase } from "@/contracts";
 import {
-  FileInfoResponseSchema,
-  FileInfoSchema,
-  FileBaseInfoSchema,
-  ListFilesQuerySchema,
-  FileActionQuerySchema,
-  ErrorResponseSchema,
-  GlobalSearchQuerySchema,
-  GlobalSearchResponseSchema,
-  ChunkedUploadStartSchema,
-  ChunkedUploadStartResponseSchema,
   ChunkedUploadChunkQuerySchema,
   ChunkedUploadResponseSchema,
+  ChunkedUploadStartResponseSchema,
+  ChunkedUploadStartSchema,
+  DuplicateRequestSchema,
+  ErrorResponseSchema,
+  FileActionQuerySchema,
+  FileBaseInfoSchema,
+  FileInfoResponseSchema,
+  FileInfoSchema,
+  GlobalSearchQuerySchema,
+  GlobalSearchResponseSchema,
+  ListFilesQuerySchema,
   MoveTargetSearchQuerySchema,
   MoveTargetSearchResponseSchema,
   TransferRequestSchema,
   TransferResultSchema,
-  DuplicateRequestSchema,
 } from "@/contracts";
+import { filesService } from "../service";
 
 /**
  * Resolves the requested file base and verifies access for the current user before running file operations.
  */
 const requireBaseAccess = async (c: Context<AuthContext>) => {
-  const user = c.get("user");
+  const user = expectUserBackedActor(c);
   const baseType = c.req.param("baseType")!;
   const baseId = c.req.param("baseId")!;
 
@@ -84,7 +85,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const user = c.get("user");
+      const user = expectUserBackedActor(c);
 
       // User needs uidNumber for home directory
       if (!user.ipa?.uidNumber) {
@@ -116,7 +117,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const user = c.get("user");
+      const user = expectUserBackedActor(c);
       const bases = await filesService.base.list({ user });
       return respond(c, ok(bases.items));
     },
@@ -140,7 +141,7 @@ const app = new Hono<AuthContext>()
     }),
     v("query", GlobalSearchQuerySchema),
     async (c) => {
-      const user = c.get("user");
+      const user = expectUserBackedActor(c);
       const { pattern, showHidden, limit, bases: basesParam } = c.req.valid("query");
 
       // Get all accessible bases for this user
@@ -404,7 +405,7 @@ const app = new Hono<AuthContext>()
     }),
     v("query", MoveTargetSearchQuerySchema),
     async (c) => {
-      const user = c.get("user");
+      const user = expectUserBackedActor(c);
       const { query, targetBaseType, targetBaseId, limit } = c.req.valid("query");
 
       // Parse and verify access to target base
@@ -448,7 +449,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", TransferRequestSchema),
     async (c) => {
-      const user = c.get("user");
+      const user = expectUserBackedActor(c);
       const sourceBaseType = c.req.param("baseType")!;
       const sourceBaseId = c.req.param("baseId")!;
       const { paths: sourcePaths, targetBaseType, targetBaseId, targetPath } = c.req.valid("json");
