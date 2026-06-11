@@ -1,6 +1,7 @@
 import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
 import type { AccessEntry, Space, SpaceColumn, SpaceComment, SpaceItem, SpaceTag } from "@/contracts";
 import * as access from "./access";
+import * as apiKeys from "./api-keys";
 import * as columns from "./columns";
 import * as comments from "./comments";
 import * as ical from "./ical";
@@ -216,7 +217,9 @@ export const spacesService = {
     getPermission: access.getSpacePermission,
     ensureServiceAccount: access.ensureSpaceServiceAccountAccess,
     apiKeys: {
-      list: (config: { spaceId: string }) => access.listSpaceApiKeys(config.spaceId),
+      list: apiKeys.list,
+      create: apiKeys.create,
+      revoke: apiKeys.revoke,
     },
   },
   ical: {

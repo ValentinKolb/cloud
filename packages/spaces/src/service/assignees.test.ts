@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
-import { create, listAssignableUsers } from "./items";
+import { create, get, listAssignableUsers, setAssignees, setTags, update } from "./items";
 
 type Fixture = {
   spaceId: string;
@@ -14,6 +14,10 @@ type Fixture = {
   groupIds: {
     parent: string;
     child: string;
+  };
+  tagIds: {
+    first: string;
+    second: string;
   };
   accessIds: string[];
 };
@@ -67,6 +71,15 @@ const grantGroup = async (spaceId: string, groupId: string) => {
   return access!.id;
 };
 
+const insertTag = async (spaceId: string, suffix: string, label: string) => {
+  const [row] = await sql<{ id: string }[]>`
+    INSERT INTO spaces.tags (space_id, name, color)
+    VALUES (${spaceId}::uuid, ${`Tag ${label} ${suffix}`}, '#3b82f6')
+    RETURNING id
+  `;
+  return row!.id;
+};
+
 const createFixture = async (): Promise<Fixture> => {
   const suffix = crypto.randomUUID();
   const directUserId = await insertUser(suffix, "direct");
@@ -90,6 +103,8 @@ const createFixture = async (): Promise<Fixture> => {
     VALUES (${space!.id}::uuid, 'To Do', 1024)
     RETURNING id
   `;
+  const firstTagId = await insertTag(space!.id, suffix, "first");
+  const secondTagId = await insertTag(space!.id, suffix, "second");
 
   const directAccessId = await grantUser(space!.id, directUserId);
   const groupAccessId = await grantGroup(space!.id, parentGroupId);
@@ -106,6 +121,10 @@ const createFixture = async (): Promise<Fixture> => {
     groupIds: {
       parent: parentGroupId,
       child: childGroupId,
+    },
+    tagIds: {
+      first: firstTagId,
+      second: secondTagId,
     },
     accessIds: [directAccessId, groupAccessId],
   };
@@ -179,6 +198,64 @@ describe("Spaces assignable users", () => {
         expect(invalid.status).toBe(400);
         expect(invalid.error).toContain("access to this space");
       }
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  test("keeps item assignees and tags consistent across create and replacement writes", async () => {
+    if (!(await canUseDatabase())) {
+      console.warn("Skipping Spaces item relation DB test: auth/spaces tables are not available.");
+      return;
+    }
+
+    const fixture = await createFixture();
+    try {
+      const created = await create({
+        spaceId: fixture.spaceId,
+        createdBy: fixture.userIds.direct,
+        data: {
+          columnId: fixture.columnId,
+          title: "Relation consistency",
+          assigneeIds: [fixture.userIds.direct],
+          tagIds: [fixture.tagIds.first],
+        },
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) throw new Error(created.error);
+
+      expect(created.data.assignees?.map((assignee) => assignee.id)).toEqual([fixture.userIds.direct]);
+      expect(created.data.tags?.map((tag) => tag.id)).toEqual([fixture.tagIds.first]);
+
+      const invalidTagId = crypto.randomUUID();
+      const invalidUpdate = await update({
+        id: created.data.id,
+        data: {
+          assigneeIds: [fixture.userIds.group],
+          tagIds: [invalidTagId],
+        },
+      });
+      expect(invalidUpdate.ok).toBe(false);
+
+      const afterInvalidUpdate = await get({ id: created.data.id });
+      expect(afterInvalidUpdate?.assignees?.map((assignee) => assignee.id)).toEqual([fixture.userIds.direct]);
+      expect(afterInvalidUpdate?.tags?.map((tag) => tag.id)).toEqual([fixture.tagIds.first]);
+
+      const assignees = await setAssignees({
+        id: created.data.id,
+        userIds: [fixture.userIds.group, fixture.userIds.nested],
+      });
+      expect(assignees.ok).toBe(true);
+
+      const tags = await setTags({
+        id: created.data.id,
+        tagIds: [fixture.tagIds.second],
+      });
+      expect(tags.ok).toBe(true);
+
+      const finalItem = await get({ id: created.data.id });
+      expect(finalItem?.assignees?.map((assignee) => assignee.id).sort()).toEqual([fixture.userIds.group, fixture.userIds.nested].sort());
+      expect(finalItem?.tags?.map((tag) => tag.id)).toEqual([fixture.tagIds.second]);
     } finally {
       await cleanupFixture(fixture);
     }

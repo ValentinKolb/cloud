@@ -25,6 +25,8 @@ import { type ExpandedRecurringEvent, expandRecurringEvents, type RecurringEvent
 // Items Service
 // ==========================
 
+type SqlExecutor = typeof sql;
+
 type DbItem = {
   id: string;
   space_id: string;
@@ -110,6 +112,30 @@ const recurrenceValues = (recurrence: Recurrence | null | undefined) => ({
   dtstart: recurrence?.dtstart ?? null,
   exdate: recurrence?.exdate && recurrence.exdate.length > 0 ? toPgTimestampArray(recurrence.exdate) : null,
 });
+
+const replaceItemAssignees = async (db: SqlExecutor, itemId: string, userIds: string[]): Promise<void> => {
+  await db`DELETE FROM spaces.item_assignees WHERE item_id = ${itemId}`;
+
+  for (const userId of userIds) {
+    await db`
+      INSERT INTO spaces.item_assignees (item_id, user_id)
+      VALUES (${itemId}, ${userId})
+      ON CONFLICT DO NOTHING
+    `;
+  }
+};
+
+const replaceItemTags = async (db: SqlExecutor, itemId: string, tagIds: string[]): Promise<void> => {
+  await db`DELETE FROM spaces.item_tags WHERE item_id = ${itemId}`;
+
+  for (const tagId of tagIds) {
+    await db`
+      INSERT INTO spaces.item_tags (item_id, tag_id)
+      VALUES (${itemId}, ${tagId})
+      ON CONFLICT DO NOTHING
+    `;
+  }
+};
 
 const listSpaceAccessIds = async (spaceId: string): Promise<string[]> => {
   const rows = await sql<{ access_id: string }[]>`
@@ -906,7 +932,11 @@ export const get = async (params: { id: string }): Promise<SpaceItem | null> => 
 /**
  * Create a new item
  */
-export const create = async (params: { spaceId: string; data: CreateItem; createdBy: string | null }): Promise<MutationResult<SpaceItem>> => {
+export const create = async (params: {
+  spaceId: string;
+  data: CreateItem;
+  createdBy: string | null;
+}): Promise<MutationResult<SpaceItem>> => {
   const { spaceId, data, createdBy } = params;
 
   // Verify column belongs to space
@@ -942,60 +972,52 @@ export const create = async (params: { spaceId: string; data: CreateItem; create
   const nextRank = rank.next(maxRow?.max);
   const recurrence = recurrenceValues(data.recurrence);
 
-  const [row] = await sql<{ id: string }[]>`
-    INSERT INTO spaces.items (
-      space_id, column_id, title, description, location, url, starts_at, ends_at, deadline,
-      all_day, priority, recurrence_rrule, recurrence_dtstart, recurrence_exdate,
-      recurring_event_id, recurrence_id, rank, completed_at, created_by
-    )
-    VALUES (
-      ${spaceId},
-      ${data.columnId},
-      ${data.title},
-      ${data.description ?? null},
-      ${data.location ?? null},
-      ${data.url ?? null},
-      ${data.startsAt ?? null},
-      ${data.endsAt ?? null},
-      ${data.deadline ?? null},
-      ${data.allDay ?? false},
-      ${data.priority ?? null},
-      ${recurrence.rrule},
-      ${recurrence.dtstart},
-      ${recurrence.exdate ? sql`${recurrence.exdate}::timestamptz[]` : null},
-      ${data.recurringEventId ?? null},
-      ${data.recurrenceId ?? null},
-      ${rank.toDb(nextRank)}::bigint,
-      ${null},
-      ${createdBy}::uuid
-    )
-    RETURNING id
-  `;
+  const row = await sql.begin(async (tx): Promise<{ id: string } | null> => {
+    const [created] = await tx<{ id: string }[]>`
+      INSERT INTO spaces.items (
+        space_id, column_id, title, description, location, url, starts_at, ends_at, deadline,
+        all_day, priority, recurrence_rrule, recurrence_dtstart, recurrence_exdate,
+        recurring_event_id, recurrence_id, rank, completed_at, created_by
+      )
+      VALUES (
+        ${spaceId},
+        ${data.columnId},
+        ${data.title},
+        ${data.description ?? null},
+        ${data.location ?? null},
+        ${data.url ?? null},
+        ${data.startsAt ?? null},
+        ${data.endsAt ?? null},
+        ${data.deadline ?? null},
+        ${data.allDay ?? false},
+        ${data.priority ?? null},
+        ${recurrence.rrule},
+        ${recurrence.dtstart},
+        ${recurrence.exdate ? sql`${recurrence.exdate}::timestamptz[]` : null},
+        ${data.recurringEventId ?? null},
+        ${data.recurrenceId ?? null},
+        ${rank.toDb(nextRank)}::bigint,
+        ${null},
+        ${createdBy}::uuid
+      )
+      RETURNING id
+    `;
+
+    if (!created) return null;
+
+    if (data.assigneeIds !== undefined) {
+      await replaceItemAssignees(tx, created.id, data.assigneeIds);
+    }
+
+    if (data.tagIds !== undefined) {
+      await replaceItemTags(tx, created.id, data.tagIds);
+    }
+
+    return created;
+  });
 
   if (!row) {
     return { ok: false, error: "Failed to create item", status: 500 };
-  }
-
-  // Set assignees
-  if (data.assigneeIds?.length) {
-    for (const userId of data.assigneeIds) {
-      await sql`
-        INSERT INTO spaces.item_assignees (item_id, user_id)
-        VALUES (${row.id}, ${userId})
-        ON CONFLICT DO NOTHING
-      `;
-    }
-  }
-
-  // Set tags
-  if (data.tagIds?.length) {
-    for (const tagId of data.tagIds) {
-      await sql`
-        INSERT INTO spaces.item_tags (item_id, tag_id)
-        VALUES (${row.id}, ${tagId})
-        ON CONFLICT DO NOTHING
-      `;
-    }
   }
 
   const item = await get({ id: row.id });
@@ -1073,76 +1095,66 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
   if (!assigneeCheck.ok) return assigneeCheck;
   const recurrenceDb = recurrenceValues(recurrence);
 
-  const [row] = changingColumn
-    ? await sql<{ id: string }[]>`
-        UPDATE spaces.items
-        SET column_id = ${columnId},
-            rank = ${rank.toDb(targetRank ?? rank.step())}::bigint,
-            title = ${title},
-            description = ${description},
-            location = ${location},
-            url = ${url},
-            starts_at = ${startsAt},
-            ends_at = ${endsAt},
-            all_day = ${allDay},
-            deadline = ${deadline},
-            priority = ${priority},
-            recurrence_rrule = ${recurrenceDb.rrule},
-            recurrence_dtstart = ${recurrenceDb.dtstart},
-            recurrence_exdate = ${recurrenceDb.exdate ? sql`${recurrenceDb.exdate}::timestamptz[]` : null},
-            recurring_event_id = ${recurringEventId},
-            recurrence_id = ${recurrenceId},
-            updated_at = now()
-        WHERE id = ${id}
-        RETURNING id
-      `
-    : await sql<{ id: string }[]>`
-        UPDATE spaces.items
-        SET title = ${title},
-            description = ${description},
-            location = ${location},
-            url = ${url},
-            starts_at = ${startsAt},
-            ends_at = ${endsAt},
-            all_day = ${allDay},
-            deadline = ${deadline},
-            priority = ${priority},
-            recurrence_rrule = ${recurrenceDb.rrule},
-            recurrence_dtstart = ${recurrenceDb.dtstart},
-            recurrence_exdate = ${recurrenceDb.exdate ? sql`${recurrenceDb.exdate}::timestamptz[]` : null},
-            recurring_event_id = ${recurringEventId},
-            recurrence_id = ${recurrenceId},
-            updated_at = now()
-        WHERE id = ${id}
-        RETURNING id
-      `;
+  const row = await sql.begin(async (tx): Promise<{ id: string } | null> => {
+    const [updated] = changingColumn
+      ? await tx<{ id: string }[]>`
+          UPDATE spaces.items
+          SET column_id = ${columnId},
+              rank = ${rank.toDb(targetRank ?? rank.step())}::bigint,
+              title = ${title},
+              description = ${description},
+              location = ${location},
+              url = ${url},
+              starts_at = ${startsAt},
+              ends_at = ${endsAt},
+              all_day = ${allDay},
+              deadline = ${deadline},
+              priority = ${priority},
+              recurrence_rrule = ${recurrenceDb.rrule},
+              recurrence_dtstart = ${recurrenceDb.dtstart},
+              recurrence_exdate = ${recurrenceDb.exdate ? sql`${recurrenceDb.exdate}::timestamptz[]` : null},
+              recurring_event_id = ${recurringEventId},
+              recurrence_id = ${recurrenceId},
+              updated_at = now()
+          WHERE id = ${id}
+          RETURNING id
+        `
+      : await tx<{ id: string }[]>`
+          UPDATE spaces.items
+          SET title = ${title},
+              description = ${description},
+              location = ${location},
+              url = ${url},
+              starts_at = ${startsAt},
+              ends_at = ${endsAt},
+              all_day = ${allDay},
+              deadline = ${deadline},
+              priority = ${priority},
+              recurrence_rrule = ${recurrenceDb.rrule},
+              recurrence_dtstart = ${recurrenceDb.dtstart},
+              recurrence_exdate = ${recurrenceDb.exdate ? sql`${recurrenceDb.exdate}::timestamptz[]` : null},
+              recurring_event_id = ${recurringEventId},
+              recurrence_id = ${recurrenceId},
+              updated_at = now()
+          WHERE id = ${id}
+          RETURNING id
+        `;
+
+    if (!updated) return null;
+
+    if (data.assigneeIds !== undefined) {
+      await replaceItemAssignees(tx, id, data.assigneeIds);
+    }
+
+    if (data.tagIds !== undefined) {
+      await replaceItemTags(tx, id, data.tagIds);
+    }
+
+    return updated;
+  });
 
   if (!row) {
     return { ok: false, error: "Failed to update item", status: 500 };
-  }
-
-  // Update assignees if provided
-  if (data.assigneeIds !== undefined) {
-    await sql`DELETE FROM spaces.item_assignees WHERE item_id = ${id}`;
-    for (const userId of data.assigneeIds) {
-      await sql`
-        INSERT INTO spaces.item_assignees (item_id, user_id)
-        VALUES (${id}, ${userId})
-        ON CONFLICT DO NOTHING
-      `;
-    }
-  }
-
-  // Update tags if provided
-  if (data.tagIds !== undefined) {
-    await sql`DELETE FROM spaces.item_tags WHERE item_id = ${id}`;
-    for (const tagId of data.tagIds) {
-      await sql`
-        INSERT INTO spaces.item_tags (item_id, tag_id)
-        VALUES (${id}, ${tagId})
-        ON CONFLICT DO NOTHING
-      `;
-    }
   }
 
   const item = await get({ id: row.id });
@@ -1295,15 +1307,7 @@ export const setAssignees = async (params: { id: string; userIds: string[] }): P
   const assigneeCheck = await validateAssigneeIdsInSpace(existing.spaceId, userIds);
   if (!assigneeCheck.ok) return assigneeCheck;
 
-  await sql`DELETE FROM spaces.item_assignees WHERE item_id = ${id}`;
-
-  for (const userId of userIds) {
-    await sql`
-      INSERT INTO spaces.item_assignees (item_id, user_id)
-      VALUES (${id}, ${userId})
-      ON CONFLICT DO NOTHING
-    `;
-  }
+  await sql.begin((tx) => replaceItemAssignees(tx, id, userIds));
 
   await publishSpaceEvent({ type: "item.updated", spaceId: existing.spaceId, itemId: existing.id });
   return { ok: true, data: undefined };
@@ -1323,15 +1327,7 @@ export const setTags = async (params: { id: string; tagIds: string[] }): Promise
   const tagCheck = await validateTagIdsInSpace(existing.spaceId, tagIds);
   if (!tagCheck.ok) return tagCheck;
 
-  await sql`DELETE FROM spaces.item_tags WHERE item_id = ${id}`;
-
-  for (const tagId of tagIds) {
-    await sql`
-      INSERT INTO spaces.item_tags (item_id, tag_id)
-      VALUES (${id}, ${tagId})
-      ON CONFLICT DO NOTHING
-    `;
-  }
+  await sql.begin((tx) => replaceItemTags(tx, id, tagIds));
 
   await publishSpaceEvent({ type: "item.updated", spaceId: existing.spaceId, itemId: existing.id });
   return { ok: true, data: undefined };
@@ -1348,11 +1344,13 @@ type CalendarAccessParams = {
  * List calendar items across all spaces reachable by the actor.
  * Resource-bound service accounts pass `spaceId` to stay scoped to their bound space.
  */
-export const listCalendar = async (params: CalendarAccessParams & {
-  from: string;
-  to: string;
-  dateConfig?: DateContext;
-}): Promise<CalendarItem[]> => {
+export const listCalendar = async (
+  params: CalendarAccessParams & {
+    from: string;
+    to: string;
+    dateConfig?: DateContext;
+  },
+): Promise<CalendarItem[]> => {
   const { userId, from, to } = params;
   const groups = params.groups ?? [];
   const serviceAccountId = params.serviceAccountId ?? null;
@@ -1535,11 +1533,13 @@ export const listMyTasks = async (params: {
 /**
  * Check for overlapping items across spaces reachable by the actor.
  */
-export const checkOverlap = async (params: CalendarAccessParams & {
-  from: string;
-  to: string;
-  excludeItemId?: string;
-}): Promise<OverlapItem[]> => {
+export const checkOverlap = async (
+  params: CalendarAccessParams & {
+    from: string;
+    to: string;
+    excludeItemId?: string;
+  },
+): Promise<OverlapItem[]> => {
   const { userId, from, to, excludeItemId } = params;
   const groups = params.groups ?? [];
   const serviceAccountId = params.serviceAccountId ?? null;

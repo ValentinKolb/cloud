@@ -1,17 +1,17 @@
-import { sql } from "bun";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import {
   type AccessEntry,
-  type PermissionLevel,
-  type Principal,
-  type ResourceAccessAdapter,
   createAccess,
   deleteAccess,
   getEffectivePermission,
+  type PermissionLevel,
+  type Principal,
+  type ResourceAccessAdapter,
   resolveDisplayNames,
   updateAccess,
 } from "@valentinkolb/cloud/server";
-import { serviceAccountCredentials, type ServiceAccountCredential } from "@valentinkolb/cloud/services";
+import { type ServiceAccountCredential, serviceAccountCredentials } from "@valentinkolb/cloud/services";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
 
 // ==========================
 // Space Access Adapter
@@ -32,6 +32,26 @@ export const SPACE_RESOURCE_TYPE = "space";
 
 export type SpaceApiKey = ServiceAccountCredential & {
   permission: PermissionLevel;
+};
+
+const PERMISSION_RANK: Record<PermissionLevel, number> = {
+  none: 0,
+  read: 1,
+  write: 2,
+  admin: 3,
+};
+
+const permissionFromScopes = (scopes: string[]): PermissionLevel => {
+  if (scopes.includes("admin")) return "admin";
+  if (scopes.includes("write")) return "write";
+  if (scopes.includes("read")) return "read";
+  return "none";
+};
+
+const minPermission = (a: PermissionLevel, b: PermissionLevel): PermissionLevel => (PERMISSION_RANK[a] <= PERMISSION_RANK[b] ? a : b);
+
+export const resolveSpaceApiKeyPermission = (accessPermission: PermissionLevel, credentialScopes: string[]): PermissionLevel => {
+  return minPermission(accessPermission, permissionFromScopes(credentialScopes));
 };
 
 /**
@@ -69,9 +89,9 @@ export const listSpaceAccess = async (spaceId: string): Promise<AccessEntry[]> =
         ? { type: "group" as const, groupId: row.group_id }
         : row.service_account_id
           ? { type: "service_account" as const, serviceAccountId: row.service_account_id }
-        : row.authenticated_only
-          ? { type: "authenticated" as const }
-          : { type: "public" as const },
+          : row.authenticated_only
+            ? { type: "authenticated" as const }
+            : { type: "public" as const },
     permission: row.permission,
     createdAt: row.created_at.toISOString(),
   }));
@@ -264,9 +284,7 @@ export const ensureSpaceServiceAccountAccess = async (params: {
 }): Promise<Result<AccessEntry>> => {
   const entries = await listSpaceAccess(params.spaceId);
   const existing = entries.find(
-    (entry) =>
-      entry.principal.type === "service_account" &&
-      entry.principal.serviceAccountId === params.serviceAccountId,
+    (entry) => entry.principal.type === "service_account" && entry.principal.serviceAccountId === params.serviceAccountId,
   );
 
   if (!existing) {
@@ -303,14 +321,12 @@ export const listSpaceApiKeys = async (spaceId: string): Promise<SpaceApiKey[]> 
   const permissionByServiceAccountId = new Map(
     accessEntries
       .filter((entry) => entry.principal.type === "service_account")
-      .map((entry) => [
-        (entry.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId,
-        entry.permission,
-      ]),
+      .map((entry) => [(entry.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId, entry.permission]),
   );
 
   return keys.items.map((item) => {
-    const permission = permissionByServiceAccountId.get(item.serviceAccount.id) ?? "none";
+    const accessPermission = permissionByServiceAccountId.get(item.serviceAccount.id) ?? "none";
+    const permission = resolveSpaceApiKeyPermission(accessPermission, item.scopes);
     const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
     return { ...credential, permission };
   });

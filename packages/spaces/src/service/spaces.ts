@@ -1,8 +1,8 @@
-import { sql } from "bun";
-import type { MutationResult, Space, SpaceDetail, CreateSpace, UpdateSpace } from "@/contracts";
-import { type PermissionLevel, hasPermission } from "@valentinkolb/cloud/server";
+import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { serviceAccounts } from "@valentinkolb/cloud/services";
-import { getSpacePermission, grantSpaceAccess, countSpaceAccess, SPACES_APP_ID, SPACE_RESOURCE_TYPE } from "./access";
+import { sql } from "bun";
+import type { CreateSpace, MutationResult, Space, SpaceDetail, UpdateSpace } from "@/contracts";
+import { getSpacePermission, grantSpaceAccess, SPACE_RESOURCE_TYPE, SPACES_APP_ID } from "./access";
 import { rank } from "./rank";
 
 /**
@@ -193,7 +193,9 @@ export const listAdmin = async (params: {
  * numbers match what the admin sees in the table. Counted in the DB, NOT in
  * the page-bound items array (which only sees the visible page).
  */
-export const adminSummary = async (params: { search?: string }): Promise<{
+export const adminSummary = async (params: {
+  search?: string;
+}): Promise<{
   total: number;
   orphaned: number;
   totalPermissions: number;
@@ -286,31 +288,41 @@ export const getDetail = async (params: { id: string }): Promise<SpaceDetail | n
 export const create = async (params: { data: CreateSpace; creatorId: string }): Promise<MutationResult<Space>> => {
   const { data, creatorId } = params;
 
-  // Create the space
-  const [row] = await sql<DbSpace[]>`
-    INSERT INTO spaces.spaces (name, description, color)
-    VALUES (${data.name}, ${data.description ?? null}, ${data.color})
-    RETURNING id, name, description, color, ical_token, created_at, updated_at
-  `;
+  const row = await sql.begin(async (tx): Promise<DbSpace | null> => {
+    const [created] = await tx<DbSpace[]>`
+      INSERT INTO spaces.spaces (name, description, color)
+      VALUES (${data.name}, ${data.description ?? null}, ${data.color})
+      RETURNING id, name, description, color, ical_token, created_at, updated_at
+    `;
+
+    if (!created) return null;
+
+    for (const [index, col] of DEFAULT_COLUMNS.entries()) {
+      await tx`
+      INSERT INTO spaces.columns (space_id, name, color, rank, is_done)
+      VALUES (${created.id}, ${col.name}, ${col.color}, ${rank.toDb(rank.atIndex(index))}::bigint, ${col.isDone})
+    `;
+    }
+
+    return created;
+  });
 
   if (!row) {
     return { ok: false, error: "Failed to create space", status: 500 };
   }
 
-  // Create default columns
-  for (const [index, col] of DEFAULT_COLUMNS.entries()) {
-    await sql`
-      INSERT INTO spaces.columns (space_id, name, color, rank, is_done)
-      VALUES (${row.id}, ${col.name}, ${col.color}, ${rank.toDb(rank.atIndex(index))}::bigint, ${col.isDone})
-    `;
-  }
-
-  // Grant admin access to the creator
-  await grantSpaceAccess({
+  const access = await grantSpaceAccess({
     spaceId: row.id,
     principal: { type: "user", userId: creatorId },
     permission: "admin",
   });
+  if (!access.ok) {
+    await sql`
+      DELETE FROM spaces.spaces
+      WHERE id = ${row.id}::uuid
+    `;
+    return { ok: false, error: access.error.message, status: access.error.status };
+  }
 
   return { ok: true, data: mapToSpace(row) };
 };

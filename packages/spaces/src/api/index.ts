@@ -1,3 +1,4 @@
+import { ServiceAccountCredentialSchema } from "@valentinkolb/cloud/contracts";
 import {
   type AuthContext,
   auth,
@@ -10,8 +11,7 @@ import {
   updateAccess,
   v,
 } from "@valentinkolb/cloud/server";
-import { coreSettings, serviceAccountCredentials, serviceAccounts } from "@valentinkolb/cloud/services";
-import { ServiceAccountCredentialSchema } from "@valentinkolb/cloud/contracts";
+import { coreSettings } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
@@ -54,7 +54,7 @@ import {
 import { loadSpacesWorkspaceState } from "../frontend/[id]/_components/workspace/workspace-state";
 import { parseSpacesWorkspaceHref } from "../frontend/[id]/_components/workspace/workspace-types";
 import { spacesService } from "../service";
-import { SPACES_APP_ID, SPACE_RESOURCE_TYPE } from "../service/access";
+import { SPACE_RESOURCE_TYPE, SPACES_APP_ID } from "../service/access";
 import { latestSpaceEventCursor, liveSpaceEvents } from "../service/events";
 
 // ==========================
@@ -84,8 +84,6 @@ const CreateSpaceApiKeyResponseSchema = z.object({
   credential: SpaceApiKeySchema,
   token: z.string(),
 });
-
-type SpaceApiKey = z.infer<typeof SpaceApiKeySchema>;
 
 const parseCsv = (value?: string) =>
   value
@@ -247,11 +245,6 @@ const respondMessage = async (c: Context, resultPromise: Promise<Result<void> | 
     if (!result.ok) return result;
     return ok({ message });
   });
-};
-
-const listSpaceApiKeys = async (spaceId: string): Promise<SpaceApiKey[]> => {
-  const keys = await spacesService.access.apiKeys.list({ spaceId });
-  return keys;
 };
 
 /**
@@ -1186,7 +1179,7 @@ const app = new Hono<AuthContext>()
       const { error } = await checkSpaceAccess(c, spaceId, "admin");
       if (error) return error;
 
-      return respond(c, async () => ok({ items: await listSpaceApiKeys(spaceId) }));
+      return respond(c, async () => ok({ items: await spacesService.access.apiKeys.list({ spaceId }) }));
     },
   )
 
@@ -1214,50 +1207,20 @@ const app = new Hono<AuthContext>()
       const { space, error } = await checkSpaceAccess(c, spaceId, "admin");
       if (error) return error;
 
-      return respond(c, async () => {
-        const serviceAccount = await serviceAccounts.createResourceBound({
-          name: `${space!.name} API key: ${data.name}`,
-          appId: SPACES_APP_ID,
-          resourceType: SPACE_RESOURCE_TYPE,
-          resourceId: spaceId,
-          createdBy: user.id,
-        });
-        if (!serviceAccount.ok) return serviceAccount;
-
-        const cleanupServiceAccount = async () => {
-          await serviceAccounts.delete({ id: serviceAccount.data.id });
-        };
-
-        const access = await spacesService.access.ensureServiceAccount({
+      return respond(
+        c,
+        spacesService.access.apiKeys.create({
           spaceId,
-          serviceAccountId: serviceAccount.data.id,
-          permission: data.permission,
-        });
-        if (!access.ok) {
-          await cleanupServiceAccount();
-          return access;
-        }
-
-        const created = await serviceAccountCredentials.createResourceApiToken({
-          serviceAccountId: serviceAccount.data.id,
           actor: user,
-          name: data.name,
-          expiresAt: data.expiresAt ?? null,
-          scopes: [data.permission],
-        });
-        if (!created.ok) {
-          await cleanupServiceAccount();
-          return created;
-        }
-
-        return ok({
-          credential: {
-            ...created.data.credential,
-            permission: access.data.permission,
+          spaceName: space?.name ?? "Space",
+          data: {
+            name: data.name,
+            expiresAt: data.expiresAt,
+            permission: data.permission,
           },
-          token: created.data.token,
-        });
-      }, 201);
+        }),
+        201,
+      );
     },
   )
 
@@ -1283,14 +1246,7 @@ const app = new Hono<AuthContext>()
       const { error } = await checkSpaceAccess(c, spaceId, "admin");
       if (error) return error;
 
-      return respond(c, async () => {
-        const keys = await listSpaceApiKeys(spaceId);
-        if (!keys.some((key) => key.id === credentialId)) return fail(err.notFound("API key"));
-
-        const revoked = await serviceAccountCredentials.revoke({ credentialId, actor: user });
-        if (!revoked.ok) return revoked;
-        return ok({ message: "API key revoked." });
-      });
+      return respond(c, spacesService.access.apiKeys.revoke({ spaceId, credentialId, actor: user }));
     },
   )
 
