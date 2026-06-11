@@ -51,7 +51,6 @@ export type PanesRootProps = {
   onChange: (value: PanesValue) => void;
   children: JSX.Element;
   class?: string;
-  gap?: 2;
   keepMounted?: boolean;
   leafPresentation?: PanesLeafPresentation;
   allowResize?: MaybeAccessor<boolean>;
@@ -460,12 +459,18 @@ const PanesRoot = (props: PanesRootProps) => {
     isSameIntent: sameIntent,
     onDrop: ({ intent }) => {
       if (!intent || !canMove()) return;
-      if (intent.kind === "move" && !canReorder()) return;
-      if (intent.kind === "split" && (intent.zone === "left" || intent.zone === "right") && !canHorizontalSplit()) return;
-      if (intent.kind === "split" && (intent.zone === "top" || intent.zone === "bottom") && !canVerticalSplit()) return;
-      if (intent.kind === "insert" && intent.direction === "horizontal" && !canHorizontalSplit()) return;
-      if (intent.kind === "insert" && intent.direction === "vertical" && !canVerticalSplit()) return;
-      props.onChange(applyIntent(value(), intent, presentation()));
+      let nextIntent = intent;
+      if (nextIntent.kind === "split") {
+        const horizontal = nextIntent.zone === "left" || nextIntent.zone === "right";
+        if ((horizontal && !canHorizontalSplit()) || (!horizontal && !canVerticalSplit())) {
+          if (!canReorder()) return;
+          nextIntent = { kind: "move", elementId: nextIntent.elementId, leafId: nextIntent.leafId };
+        }
+      }
+      if (nextIntent.kind === "move" && !canReorder()) return;
+      if (nextIntent.kind === "insert" && nextIntent.direction === "horizontal" && !canHorizontalSplit()) return;
+      if (nextIntent.kind === "insert" && nextIntent.direction === "vertical" && !canVerticalSplit()) return;
+      props.onChange(applyIntent(value(), nextIntent, presentation()));
     },
   });
 
@@ -543,6 +548,7 @@ function PanesSplit(props: {
   onResize: (splitId: string, index: number, delta: number, baseSizes: number[]) => void;
 }) {
   let container: HTMLDivElement | undefined;
+  let stopResize: (() => void) | undefined;
   const direction = () => props.node().direction;
   const sizes = () => normalizeSizes(props.node().sizes, props.node().children.length);
   const insertIntent = (index: number) => {
@@ -550,9 +556,17 @@ function PanesSplit(props: {
     return intent?.kind === "insert" && intent.splitId === props.node().id && intent.index === index;
   };
 
+  const stopActiveResize = () => {
+    stopResize?.();
+    stopResize = undefined;
+  };
+
+  onCleanup(stopActiveResize);
+
   const startResize = (event: PointerEvent, index: number) => {
     if (!props.canResize()) return;
     event.preventDefault();
+    stopActiveResize();
     const split = props.node();
     const baseSizes = normalizeSizes(split.sizes, split.children.length);
     const start = split.direction === "horizontal" ? event.clientX : event.clientY;
@@ -562,12 +576,43 @@ function PanesSplit(props: {
       const current = split.direction === "horizontal" ? move.clientX : move.clientY;
       props.onResize(split.id, index, ((current - start) / extent) * 100, baseSizes);
     };
-    const onUp = () => {
+    stopResize = () => {
       window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointerup", stopActiveResize);
+      window.removeEventListener("pointercancel", stopActiveResize);
+      window.removeEventListener("blur", stopActiveResize);
     };
     window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointerup", stopActiveResize);
+    window.addEventListener("pointercancel", stopActiveResize);
+    window.addEventListener("blur", stopActiveResize);
+  };
+
+  const keyResizeDelta = (event: KeyboardEvent, index: number) => {
+    if (!props.canResize()) return null;
+    const split = props.node();
+    const baseSizes = normalizeSizes(split.sizes, split.children.length);
+    const current = baseSizes[index] ?? 0;
+    const next = baseSizes[index + 1] ?? 0;
+    const step = event.shiftKey ? 8 : 2;
+    if (event.key === "Home") return -current + MIN_PANE_SIZE;
+    if (event.key === "End") return next - MIN_PANE_SIZE;
+    if (split.direction === "horizontal") {
+      if (event.key === "ArrowLeft") return -step;
+      if (event.key === "ArrowRight") return step;
+    } else {
+      if (event.key === "ArrowUp") return -step;
+      if (event.key === "ArrowDown") return step;
+    }
+    return null;
+  };
+
+  const onResizeKeyDown = (event: KeyboardEvent, index: number) => {
+    const delta = keyResizeDelta(event, index);
+    if (delta === null) return;
+    event.preventDefault();
+    const split = props.node();
+    props.onResize(split.id, index, delta, normalizeSizes(split.sizes, split.children.length));
   };
 
   return (
@@ -591,12 +636,20 @@ function PanesSplit(props: {
                   }));
                 }}
                 type="button"
+                role="separator"
+                aria-orientation={direction() === "horizontal" ? "vertical" : "horizontal"}
+                aria-valuemin={MIN_PANE_SIZE}
+                aria-valuemax={100 - MIN_PANE_SIZE}
+                aria-valuenow={Math.round(sizes()[index()] ?? 0)}
+                aria-disabled={!props.canResize()}
+                tabIndex={props.canResize() ? 0 : -1}
                 class={`group relative z-10 shrink-0 rounded-full bg-transparent transition ${
                   direction() === "horizontal" ? "-mx-2 w-6 cursor-col-resize" : "-my-2 h-6 cursor-row-resize"
                 } ${props.canResize() ? "" : "cursor-default"}`}
                 style={{ cursor: props.canResize() ? (direction() === "horizontal" ? "col-resize" : "row-resize") : "default" }}
                 aria-label="Resize pane"
                 onPointerDown={(event) => startResize(event, index())}
+                onKeyDown={(event) => onResizeKeyDown(event, index())}
               >
                 <span
                   class={`pointer-events-none absolute rounded-full transition ${
@@ -652,7 +705,7 @@ function PanesLeaf(props: {
         props.dnd.droppable(element, () => ({
           id: `panes-leaf:${props.node().id}`,
           meta: { kind: "leaf", leafId: props.node().id },
-          disabled: !props.canMove() || !props.canReorder(),
+          disabled: !props.canMove() || (!props.canReorder() && !props.canHorizontalSplit() && !props.canVerticalSplit()),
         }));
       }}
       class="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
@@ -669,8 +722,6 @@ function PanesLeaf(props: {
                       id: `panes-element:${element().id}`,
                       meta: { elementId: element().id },
                       disabled: !props.canMove(),
-                      focusable: false,
-                      keyboard: false,
                       handleSelector: "[data-panes-drag-handle]",
                     }));
                   }}
@@ -718,8 +769,6 @@ function PanesLeaf(props: {
                       id: `panes-element:${element.id}`,
                       meta: { elementId: element.id },
                       disabled: !props.canMove(),
-                      focusable: false,
-                      keyboard: false,
                       handleSelector: "[data-panes-drag-handle]",
                     }));
                   }}
