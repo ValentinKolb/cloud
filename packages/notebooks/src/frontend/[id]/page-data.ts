@@ -1,6 +1,6 @@
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
-import { get, serviceAccountCredentials } from "@valentinkolb/cloud/services";
+import { get } from "@valentinkolb/cloud/services";
 import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type { Context } from "hono";
 import { expectUserBackedActor } from "@/actor";
@@ -8,9 +8,9 @@ import { extractNamedBlockSummaries } from "@/lib/named-blocks";
 import { notebooksService } from "@/service";
 import { loadSelectedNoteRouteState, type SelectedNoteRouteState } from "@/service/route-state";
 import { buildNoteUrl, buildVersionsUrl } from "../params";
+import { extractTocFromMarkdown } from "./_components/detail/toc";
 import { parseDetailPanelOpen, parseSettings } from "./_components/settings/NotebookSettingsStore";
 import type { NotebookContext } from "./_components/sidebar/types";
-import { extractTocFromMarkdown } from "./_components/detail/toc";
 
 type SelectedNote = SelectedNoteRouteState["note"];
 type PageOptions = {
@@ -48,7 +48,6 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
   const apiKeys = await loadNotebookApiKeys({
     notebookId,
     enabled: isSettingsMode && isAdmin,
-    accessEntries,
   });
 
   const cookieHeader = c.req.header("Cookie");
@@ -77,7 +76,9 @@ export async function loadNotebookPageData(c: NotebookPageContext) {
   if (!noteParam && selected.note && !isSettingsMode && !isGraphMode) {
     return {
       kind: "redirect" as const,
-      href: isVersionsMode ? buildVersionsUrl(notebook.shortId, selected.note.shortId) : buildNoteUrl(notebook.shortId, selected.note.shortId),
+      href: isVersionsMode
+        ? buildVersionsUrl(notebook.shortId, selected.note.shortId)
+        : buildNoteUrl(notebook.shortId, selected.note.shortId),
     };
   }
 
@@ -154,30 +155,9 @@ async function resolveSelectedNoteId(params: {
   return resolvedFromPath ?? resolvedFromCookie ?? resolvedHomepage ?? params.firstNoteId;
 }
 
-async function loadNotebookApiKeys(params: {
-  notebookId: string;
-  enabled: boolean;
-  accessEntries: Awaited<ReturnType<typeof notebooksService.notebook.access.list>>["items"];
-}): Promise<ResourceApiKey[]> {
+async function loadNotebookApiKeys(params: { notebookId: string; enabled: boolean }): Promise<ResourceApiKey[]> {
   if (!params.enabled) return [];
-  const result = await serviceAccountCredentials.listOverview({
-    pagination: { page: 1, perPage: 500 },
-    filter: {
-      serviceAccountKind: "resource_bound",
-      credentialStatus: "active",
-      appId: "notebooks",
-      resourceType: "notebook",
-      resourceId: params.notebookId,
-    },
-  });
-  return result.items.flatMap((item) => {
-    const permission =
-      params.accessEntries.find(
-        (entry) => entry.principal.type === "service_account" && entry.principal.serviceAccountId === item.serviceAccount.id,
-      )?.permission ?? "none";
-    const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
-    return [{ ...credential, permission }];
-  });
+  return notebooksService.notebook.access.apiKeys.list({ notebookId: params.notebookId });
 }
 
 async function loadSelectedNote(params: {

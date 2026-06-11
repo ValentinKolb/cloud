@@ -1,14 +1,15 @@
-import { sql } from "bun";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import {
   type AccessEntry,
-  type PermissionLevel,
-  type Principal,
   createAccess,
   deleteAccess,
   getEffectivePermission,
+  type PermissionLevel,
+  type Principal,
   updateAccess,
 } from "@valentinkolb/cloud/server";
+import { type ServiceAccountCredential, serviceAccountCredentials } from "@valentinkolb/cloud/services";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
 import { invalidated } from "./workspace-events";
 
 // ==========================
@@ -29,6 +30,32 @@ type DbNotebookAccess = {
   service_account_name: string | null;
 };
 
+export const NOTEBOOKS_APP_ID = "notebooks";
+export const NOTEBOOK_RESOURCE_TYPE = "notebook";
+
+export type NotebookApiKey = ServiceAccountCredential & {
+  permission: PermissionLevel;
+};
+
+const PERMISSION_RANK: Record<PermissionLevel, number> = {
+  none: 0,
+  read: 1,
+  write: 2,
+  admin: 3,
+};
+
+const permissionFromScopes = (scopes: string[]): PermissionLevel => {
+  if (scopes.includes("admin")) return "admin";
+  if (scopes.includes("write")) return "write";
+  if (scopes.includes("read")) return "read";
+  return "none";
+};
+
+const minPermission = (a: PermissionLevel, b: PermissionLevel): PermissionLevel => (PERMISSION_RANK[a] <= PERMISSION_RANK[b] ? a : b);
+
+export const resolveNotebookApiKeyPermission = (accessPermission: PermissionLevel, credentialScopes: string[]): PermissionLevel =>
+  minPermission(accessPermission, permissionFromScopes(credentialScopes));
+
 const mapAccessRow = (row: DbNotebookAccess): AccessEntry => {
   const principal: AccessEntry["principal"] = row.user_id
     ? { type: "user", userId: row.user_id }
@@ -36,9 +63,9 @@ const mapAccessRow = (row: DbNotebookAccess): AccessEntry => {
       ? { type: "group", groupId: row.group_id }
       : row.service_account_id
         ? { type: "service_account", serviceAccountId: row.service_account_id }
-      : row.authenticated_only
-        ? { type: "authenticated" }
-        : { type: "public" };
+        : row.authenticated_only
+          ? { type: "authenticated" }
+          : { type: "public" };
 
   const displayName =
     principal.type === "user"
@@ -47,9 +74,9 @@ const mapAccessRow = (row: DbNotebookAccess): AccessEntry => {
         ? row.group_name || "Unknown Group"
         : principal.type === "service_account"
           ? row.service_account_name || "Unknown Service Account"
-        : principal.type === "authenticated"
-          ? "All users (incl. guests)"
-          : "Public";
+          : principal.type === "authenticated"
+            ? "All users (incl. guests)"
+            : "Public";
 
   return {
     id: row.access_id,
@@ -83,15 +110,15 @@ export const listNotebookAccessPage = async (config: {
   const principalCondition =
     principalType === undefined
       ? sql`true`
-        : principalType === "user"
-          ? sql`a.user_id IS NOT NULL`
+      : principalType === "user"
+        ? sql`a.user_id IS NOT NULL`
         : principalType === "group"
           ? sql`a.group_id IS NOT NULL`
-        : principalType === "service_account"
-          ? sql`a.service_account_id IS NOT NULL`
-        : principalType === "authenticated"
-          ? sql`a.authenticated_only = true`
-            : sql`a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false`;
+          : principalType === "service_account"
+            ? sql`a.service_account_id IS NOT NULL`
+            : principalType === "authenticated"
+              ? sql`a.authenticated_only = true`
+              : sql`a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = false`;
 
   const baseQuery = sql`
     FROM notebooks.notebook_access na
@@ -363,9 +390,7 @@ export const ensureNotebookServiceAccountAccess = async (params: {
 }): Promise<Result<AccessEntry>> => {
   const entries = await listNotebookAccess(params.notebookId);
   const existing = entries.find(
-    (entry) =>
-      entry.principal.type === "service_account" &&
-      entry.principal.serviceAccountId === params.serviceAccountId,
+    (entry) => entry.principal.type === "service_account" && entry.principal.serviceAccountId === params.serviceAccountId,
   );
 
   if (!existing) {
@@ -386,6 +411,35 @@ export const ensureNotebookServiceAccountAccess = async (params: {
   if (!updated.ok) return fail(updated.error);
 
   return ok({ ...existing, permission: params.permission });
+};
+
+export const listNotebookApiKeys = async (notebookId: string): Promise<NotebookApiKey[]> => {
+  const [keys, accessEntries] = await Promise.all([
+    serviceAccountCredentials.listOverview({
+      pagination: { page: 1, perPage: 500 },
+      filter: {
+        serviceAccountKind: "resource_bound",
+        credentialStatus: "active",
+        appId: NOTEBOOKS_APP_ID,
+        resourceType: NOTEBOOK_RESOURCE_TYPE,
+        resourceId: notebookId,
+      },
+    }),
+    listNotebookAccess(notebookId),
+  ]);
+
+  const permissionByServiceAccountId = new Map(
+    accessEntries
+      .filter((entry) => entry.principal.type === "service_account")
+      .map((entry) => [(entry.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId, entry.permission]),
+  );
+
+  return keys.items.map((item) => {
+    const accessPermission = permissionByServiceAccountId.get(item.serviceAccount.id) ?? "none";
+    const permission = resolveNotebookApiKeyPermission(accessPermission, item.scopes);
+    const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
+    return { ...credential, permission };
+  });
 };
 
 export const updateNotebookAccess = async (params: {

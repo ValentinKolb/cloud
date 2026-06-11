@@ -13,12 +13,13 @@ import {
   UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, hasPermission, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
-import { serviceAccountCredentials, serviceAccounts, settings, settingsService } from "@valentinkolb/cloud/services";
+import { settings, settingsService } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { notebooksService, reindexRuntime } from "../service";
+import { NOTEBOOK_RESOURCE_TYPE, NOTEBOOKS_APP_ID } from "../service/access";
 import { loadEditableNoteRouteData } from "../service/route-state";
 
 // ==========================
@@ -444,42 +445,6 @@ const respondMessage = async (c: Context, resultPromise: Promise<Result<void> | 
     const result = await resultPromise;
     if (!result.ok) return result;
     return ok({ message });
-  });
-};
-
-const NOTEBOOKS_APP_ID = "notebooks";
-const NOTEBOOK_RESOURCE_TYPE = "notebook";
-
-type NotebookApiKey = z.infer<typeof NotebookApiKeySchema>;
-
-const listNotebookApiKeys = async (notebookId: string): Promise<NotebookApiKey[]> => {
-  const [keys, accessEntries] = await Promise.all([
-    serviceAccountCredentials.listOverview({
-      pagination: { page: 1, perPage: 500 },
-      filter: {
-        serviceAccountKind: "resource_bound",
-        credentialStatus: "active",
-        appId: NOTEBOOKS_APP_ID,
-        resourceType: NOTEBOOK_RESOURCE_TYPE,
-        resourceId: notebookId,
-      },
-    }),
-    notebooksService.notebook.access.list({ notebookId }),
-  ]);
-
-  const permissionByServiceAccountId = new Map(
-    accessEntries.items
-      .filter((entry) => entry.principal.type === "service_account")
-      .map((entry) => [
-        (entry.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId,
-        entry.permission,
-      ]),
-  );
-
-  return keys.items.map((item) => {
-    const permission = permissionByServiceAccountId.get(item.serviceAccount.id) ?? "none";
-    const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
-    return { ...credential, permission };
   });
 };
 
@@ -1440,7 +1405,7 @@ const app = new Hono<AuthContext>()
       const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
       if (error) return error;
 
-      return respond(c, async () => ok({ items: await listNotebookApiKeys(notebook!.id) }));
+      return respond(c, async () => ok({ items: await notebooksService.notebook.access.apiKeys.list({ notebookId: notebook!.id }) }));
     },
   )
 
@@ -1467,50 +1432,20 @@ const app = new Hono<AuthContext>()
       const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
       if (error) return error;
 
-      return respond(c, async () => {
-        const serviceAccount = await serviceAccounts.createResourceBound({
-          name: `${notebook!.name} API key: ${data.name}`,
-          appId: NOTEBOOKS_APP_ID,
-          resourceType: NOTEBOOK_RESOURCE_TYPE,
-          resourceId: notebook!.id,
-          createdBy: user.id,
-        });
-        if (!serviceAccount.ok) return serviceAccount;
-
-        const cleanupServiceAccount = async () => {
-          await serviceAccounts.delete({ id: serviceAccount.data.id });
-        };
-
-        const access = await notebooksService.notebook.access.ensureServiceAccount({
+      return respond(
+        c,
+        notebooksService.notebook.access.apiKeys.create({
           notebookId: notebook!.id,
-          serviceAccountId: serviceAccount.data.id,
-          permission: data.permission,
-        });
-        if (!access.ok) {
-          await cleanupServiceAccount();
-          return access;
-        }
-
-        const created = await serviceAccountCredentials.createResourceApiToken({
-          serviceAccountId: serviceAccount.data.id,
           actor: user,
-          name: data.name,
-          expiresAt: data.expiresAt ?? null,
-          scopes: [data.permission],
-        });
-        if (!created.ok) {
-          await cleanupServiceAccount();
-          return created;
-        }
-
-        return ok({
-          credential: {
-            ...created.data.credential,
-            permission: access.data.permission,
+          notebookName: notebook!.name,
+          data: {
+            name: data.name,
+            expiresAt: data.expiresAt,
+            permission: data.permission,
           },
-          token: created.data.token,
-        });
-      }, 201);
+        }),
+        201,
+      );
     },
   )
 
@@ -1535,14 +1470,7 @@ const app = new Hono<AuthContext>()
       const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
       if (error) return error;
 
-      return respond(c, async () => {
-        const keys = await listNotebookApiKeys(notebook!.id);
-        if (!keys.some((key) => key.id === credentialId)) return fail(err.notFound("API key"));
-
-        const revoked = await serviceAccountCredentials.revoke({ credentialId, actor: user });
-        if (!revoked.ok) return revoked;
-        return ok({ message: "API key revoked." });
-      });
+      return respond(c, notebooksService.notebook.access.apiKeys.revoke({ notebookId: notebook!.id, credentialId, actor: user }));
     },
   )
 

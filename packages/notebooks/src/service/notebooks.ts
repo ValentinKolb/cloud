@@ -1,12 +1,12 @@
-import { sql } from "bun";
 import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { serviceAccounts } from "@valentinkolb/cloud/services";
-import { getNotebookPermission, grantNotebookAccess } from "./access";
+import { sql } from "bun";
+import { generateUniqueShortId, isShortId } from "../lib/short-id";
+import { getNotebookPermission, grantNotebookAccess, NOTEBOOK_RESOURCE_TYPE, NOTEBOOKS_APP_ID } from "./access";
+import helloMd from "./hello.md" with { type: "text" };
 import * as notes from "./notes";
 import { invalidated, notebookUpdated } from "./workspace-events";
-import { generateUniqueShortId, isShortId } from "../lib/short-id";
-import helloMd from "./hello.md" with { type: "text" };
 
 // ==========================
 // Types
@@ -60,9 +60,6 @@ type DbNotebook = {
 type DbNotebookAdmin = DbNotebook & {
   permission_count: number;
 };
-
-const NOTEBOOKS_APP_ID = "notebooks";
-const NOTEBOOK_RESOURCE_TYPE = "notebook";
 
 export type NotebookAdminListItem = Notebook & {
   permissionCount: number;
@@ -322,7 +319,9 @@ export const listAdmin = async (params: {
  * numbers match what the admin sees in the table. Counted in the DB, NOT in
  * the page-bound items array (which only sees the visible page).
  */
-export const adminSummary = async (params: { search?: string }): Promise<{
+export const adminSummary = async (params: {
+  search?: string;
+}): Promise<{
   total: number;
   orphaned: number;
   totalPermissions: number;

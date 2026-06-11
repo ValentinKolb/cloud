@@ -18,8 +18,9 @@
  * background reindex so newly-deployed schema changes get picked up
  * without waiting up to 12h for the first scheduled tick.
  */
-import { job, scheduler } from "@valentinkolb/sync";
+
 import { logger, get as settingsGet } from "@valentinkolb/cloud/services";
+import { job, scheduler } from "@valentinkolb/sync";
 import { reindexAll } from "./note-refs";
 
 const log = logger("notebooks:reindex");
@@ -70,7 +71,9 @@ const runReindex = async (trigger: "scheduler" | "startup"): Promise<void> => {
   }
 };
 
-const reindexJob = job<void, void>({
+type ReindexTrigger = "scheduler" | "startup";
+
+const reindexJob = job<{ trigger: ReindexTrigger }, void>({
   id: "notebooks:reindex",
   // Reindex of a sizable workspace (~1k notes) takes a couple of seconds.
   // 5-minute lease leaves comfortable headroom; the scheduler renews
@@ -78,7 +81,7 @@ const reindexJob = job<void, void>({
   defaults: { leaseMs: 300_000 },
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return;
-    await runReindex("scheduler");
+    await runReindex(ctx.input.trigger);
   },
   after: async ({ ctx }) => {
     if (!ctx.error) return;
@@ -102,7 +105,7 @@ const createSchedule = async (cron: string, tz: string): Promise<void> => {
     cron,
     tz,
     process: async ({ ctx }) => {
-      await reindexJob.submit({ key: `slot:${ctx.slotTs}` });
+      await reindexJob.submit({ key: `slot:${ctx.slotTs}`, input: { trigger: "scheduler" } });
     },
   });
   log.info("Reindex schedule registered", { cron, tz });
@@ -150,11 +153,12 @@ export const reindexRuntime = {
     }
     await ensureRegistered();
 
-    // Fire-and-forget startup backfill. Don't await — keeps app boot
-    // snappy while the reindex hums in the background. Failures are
-    // logged inside `runReindex`.
-    void runReindex("startup").catch(() => {
-      /* already logged */
+    // Fire-and-forget startup backfill via the distributed job. Don't await:
+    // app boot stays snappy and only one container owns the job key.
+    void reindexJob.submit({ key: "startup", input: { trigger: "startup" } }).catch((error) => {
+      log.error("Failed to submit startup note-refs reindex", {
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
   },
 
@@ -168,7 +172,7 @@ export const reindexRuntime = {
 
   /** Force an immediate reindex — used by the admin UI's "Run now" button. */
   runNow: async (): Promise<void> => {
-    await reindexJob.submit({ key: `manual:${Date.now()}` });
+    await reindexJob.submit({ key: `manual:${Date.now()}`, input: { trigger: "scheduler" } });
   },
 
   /** Read the current cron — used by the admin settings UI. */

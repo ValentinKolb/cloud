@@ -1,6 +1,7 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
 import * as access from "./access";
+import * as apiKeys from "./api-keys";
 import * as attachments from "./attachments";
 import * as backup from "./backup";
 import * as exporter from "./export";
@@ -117,6 +118,11 @@ export const notebooksService = {
       count: (config: { notebookId: string }) => access.countNotebookAccess(config.notebookId),
       guard: (config: { notebookId: string; accessId: string }) => access.getNotebookAccessGuard(config),
       getPermission: access.getNotebookPermission,
+      apiKeys: {
+        list: apiKeys.list,
+        create: apiKeys.create,
+        revoke: apiKeys.revoke,
+      },
     },
   },
   template: {
