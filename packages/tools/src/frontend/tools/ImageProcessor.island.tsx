@@ -1,152 +1,10 @@
-import { createSignal, createMemo, createEffect, Show, For, on, onMount, onCleanup, batch } from "solid-js";
-import { images as imageTools, files as fileTools, type ImgData } from "@valentinkolb/stdlib/browser";
+import { Dropdown, prompts, Select, Slider, Switch } from "@valentinkolb/cloud/ui";
+import { files as fileTools, images as imageTools } from "@valentinkolb/stdlib/browser";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { Dropdown, Select, Slider, Switch } from "@valentinkolb/cloud/ui";
-
-// ====================================
-// Types & Constants
-// ====================================
-
-const PREVIEW_MAX = 800;
-
-type Adjustments = {
-  brightness: number;
-  contrast: number;
-  saturation: number;
-  hueRotate: number;
-  blur: number;
-  sepia: number;
-  vignette: number;
-  grain: number;
-  freeRotation: number;
-  flipH: boolean;
-  flipV: boolean;
-};
-
-const DEFAULT_ADJ: Adjustments = {
-  brightness: 1,
-  contrast: 1,
-  saturation: 1,
-  hueRotate: 0,
-  blur: 0,
-  sepia: 0,
-  vignette: 0,
-  grain: 0,
-  freeRotation: 0,
-  flipH: false,
-  flipV: false,
-};
-
-type ImageEntry = {
-  id: string;
-  file: File;
-  source: ImgData;
-  previewSource: ImgData;
-  originalSource: ImgData;
-  originalPreviewSource: ImgData;
-  thumbUrl: string;
-  name: string;
-  adj: Adjustments;
-  cropped: boolean;
-};
-
-type CropAspect = "free" | "1:1" | "4:3" | "16:9" | "3:2";
-type CropRect = { x: number; y: number; w: number; h: number };
-type ExportFormat = "webp" | "jpeg" | "png";
-
-type Preset = { label: string } & Omit<Adjustments, "freeRotation" | "flipH" | "flipV">;
-
-const PRESETS: Record<string, Preset> = {
-  none: {
-    label: "None",
-    brightness: 1,
-    contrast: 1,
-    saturation: 1,
-    hueRotate: 0,
-    blur: 0,
-    sepia: 0,
-    vignette: 0,
-    grain: 0,
-  },
-  vintage: {
-    label: "Vintage",
-    brightness: 1.1,
-    contrast: 1.1,
-    saturation: 1.3,
-    hueRotate: 0,
-    blur: 0,
-    sepia: 0.3,
-    vignette: 0.3,
-    grain: 0.1,
-  },
-  grayscale: {
-    label: "B&W",
-    brightness: 1,
-    contrast: 1.1,
-    saturation: 0,
-    hueRotate: 0,
-    blur: 0,
-    sepia: 0,
-    vignette: 0,
-    grain: 0,
-  },
-  dramatic: {
-    label: "Dramatic",
-    brightness: 0.9,
-    contrast: 1.4,
-    saturation: 1.2,
-    hueRotate: 0,
-    blur: 0,
-    sepia: 0,
-    vignette: 0.2,
-    grain: 0,
-  },
-  soft: {
-    label: "Soft",
-    brightness: 1.05,
-    contrast: 0.95,
-    saturation: 0.9,
-    hueRotate: 0,
-    blur: 0.5,
-    sepia: 0,
-    vignette: 0,
-    grain: 0,
-  },
-  warm: {
-    label: "Warm",
-    brightness: 1.05,
-    contrast: 1.05,
-    saturation: 1.1,
-    hueRotate: 15,
-    blur: 0,
-    sepia: 0.15,
-    vignette: 0,
-    grain: 0,
-  },
-  cool: {
-    label: "Cool",
-    brightness: 1,
-    contrast: 1.05,
-    saturation: 0.9,
-    hueRotate: 200,
-    blur: 0,
-    sepia: 0,
-    vignette: 0,
-    grain: 0,
-  },
-  faded: {
-    label: "Faded",
-    brightness: 1.1,
-    contrast: 0.85,
-    saturation: 0.7,
-    hueRotate: 0,
-    blur: 0,
-    sepia: 0.1,
-    vignette: 0.15,
-    grain: 0.05,
-  },
-};
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { DEFAULT_ADJ, PRESETS } from "./image-processor/constants";
+import { buildImagePipeline, makePreviewSource } from "./image-processor/image-processing";
+import type { Adjustments, CropAspect, CropRect, ExportFormat, ImageEntry } from "./image-processor/types";
 
 let nextId = 0;
 const uid = () => `images-${++nextId}`;
@@ -159,7 +17,6 @@ export default function ImageProcessor() {
   // --- Image list ---
   const [images, setImages] = createSignal<ImageEntry[]>([]);
   const [activeIndex, setActiveIndex] = createSignal(0);
-  const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal("");
   const [basePreview, setBasePreview] = createSignal("");
 
@@ -217,13 +74,6 @@ export default function ImageProcessor() {
   // ====================================
   // File Loading
   // ====================================
-
-  const makePreviewSource = async (source: ImgData): Promise<ImgData> => {
-    const maxDim = Math.max(source.width, source.height);
-    if (maxDim <= PREVIEW_MAX) return source;
-    const scale = PREVIEW_MAX / maxDim;
-    return imageTools.resize(Math.round(source.width * scale), Math.round(source.height * scale), "fill")(source);
-  };
 
   const loadMutation = mutations.create<void, File[]>({
     mutation: async (files) => {
@@ -284,105 +134,18 @@ export default function ImageProcessor() {
   const rebuildBasePreview = async () => {
     const entry = activeImage();
     if (!entry) return;
-    setLoading(true);
     try {
       const result = await imageTools.toBase64("jpeg", 0.85)(entry.previewSource);
       setBasePreview(result);
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Processing failed");
-    } finally {
-      setLoading(false);
     }
   };
 
   // ====================================
   // Full Pipeline (for export only)
   // ====================================
-
-  const buildPipeline = (entry: ImageEntry, maxW?: number, maxH?: number) => {
-    const a = entry.adj;
-    let p: Promise<ImgData> = Promise.resolve(entry.source);
-
-    // Resize
-    if (maxW || maxH) {
-      p = p.then(async (d) => {
-        const mw = maxW ?? Infinity;
-        const mh = maxH ?? Infinity;
-        if (d.width <= mw && d.height <= mh) return d;
-        const scale = Math.min(mw / d.width, mh / d.height);
-        return imageTools.resize(Math.round(d.width * scale), Math.round(d.height * scale), "fill")(d);
-      });
-    }
-
-    // Free rotation
-    if (a.freeRotation !== 0) {
-      p = p.then(
-        imageTools.apply((ctx, canvas) => {
-          const rad = (a.freeRotation * Math.PI) / 180;
-          const tmp = document.createElement("canvas");
-          tmp.width = canvas.width;
-          tmp.height = canvas.height;
-          const tCtx = tmp.getContext("2d")!;
-          tCtx.drawImage(canvas, 0, 0);
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.translate(canvas.width / 2, canvas.height / 2);
-          ctx.rotate(rad);
-          ctx.drawImage(tmp, -canvas.width / 2, -canvas.height / 2);
-        }),
-      );
-    }
-
-    // Flip
-    if (a.flipH || a.flipV) p = p.then(imageTools.flip(a.flipH, a.flipV));
-
-    // CSS Filters
-    const filterParts: string[] = [];
-    if (a.brightness !== 1) filterParts.push(`brightness(${a.brightness})`);
-    if (a.contrast !== 1) filterParts.push(`contrast(${a.contrast})`);
-    if (a.saturation !== 1) filterParts.push(`saturate(${a.saturation})`);
-    if (a.hueRotate !== 0) filterParts.push(`hue-rotate(${a.hueRotate}deg)`);
-    if (a.blur > 0) filterParts.push(`blur(${a.blur}px)`);
-    if (a.sepia > 0) filterParts.push(`sepia(${a.sepia})`);
-    const filterStr = filterParts.join(" ");
-    if (filterStr) p = p.then(imageTools.filter(filterStr));
-
-    // Vignette
-    if (a.vignette > 0) {
-      p = p.then(
-        imageTools.apply((ctx, canvas) => {
-          const cx = canvas.width / 2,
-            cy = canvas.height / 2;
-          const r = Math.max(cx, cy);
-          const grad = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r);
-          grad.addColorStop(0, "transparent");
-          grad.addColorStop(1, `rgba(0,0,0,${a.vignette})`);
-          ctx.fillStyle = grad;
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }),
-      );
-    }
-
-    // Grain
-    if (a.grain > 0) {
-      p = p.then(
-        imageTools.apply((ctx, canvas) => {
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const data = imageData.data;
-          const intensity = a.grain * 255;
-          for (let i = 0; i < data.length; i += 4) {
-            const noise = (Math.random() - 0.5) * intensity;
-            data[i] = Math.min(255, Math.max(0, data[i]! + noise));
-            data[i + 1] = Math.min(255, Math.max(0, data[i + 1]! + noise));
-            data[i + 2] = Math.min(255, Math.max(0, data[i + 2]! + noise));
-          }
-          ctx.putImageData(imageData, 0, 0);
-        }),
-      );
-    }
-
-    return p;
-  };
 
   // ====================================
   // Crop
@@ -588,7 +351,7 @@ export default function ImageProcessor() {
           for (let i = 0; i < entries.length; i++) {
             setProgress((i + 0.5) / entries.length);
             const entry = entries[i]!;
-            const blob = await buildPipeline(entry, mw(), mh()).then(imageTools.toBlob(fmt(), qual()));
+            const blob = await buildImagePipeline(entry, mw(), mh()).then(imageTools.toBlob(fmt(), qual()));
             const name = entry.name.replace(/\.[^.]+$/, "") + `.${fmt()}`;
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
