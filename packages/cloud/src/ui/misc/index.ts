@@ -73,6 +73,16 @@ export type {
   PanelDialogSectionProps,
 } from "./PanelDialog";
 export { confirmDiscardIfDirty, default as PanelDialog, panelDialogOptions, panelDialogPanelClass } from "./PanelDialog";
+export type {
+  PanesElementProps,
+  PanesLeafNode,
+  PanesLeafPresentation,
+  PanesNode,
+  PanesRootProps,
+  PanesSplitNode,
+  PanesValue,
+} from "./Panes";
+export { createPanesValue, default as Panes, normalizePanesValue } from "./Panes";
 export { default as PermissionEditor } from "./PermissionEditor";
 export type { PlaceholderAlign, PlaceholderProps, PlaceholderSurface } from "./Placeholder";
 export { default as Placeholder } from "./Placeholder";

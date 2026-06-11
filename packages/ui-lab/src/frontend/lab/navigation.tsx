@@ -10,13 +10,15 @@ import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/clou
 import {
   AppOverview,
   AppWorkspace,
-  dialogCore,
   DockWorkspace,
   type DockWorkspaceState,
+  dialogCore,
   FilterChip,
   type FilterChipSection,
   Pagination,
   PanelDialog,
+  Panes,
+  type PanesValue,
   PermissionEditor,
   panelDialogOptions,
   SettingsModal,
@@ -412,6 +414,169 @@ export const DockWorkspaceDemo = (props: { initialState?: DockWorkspaceState | n
     </div>
   </DemoCard>
 );
+
+const paneColors = [
+  { id: "red", name: "Red", icon: "ti ti-flame", class: "bg-red-100 dark:bg-red-950/40" },
+  { id: "orange", name: "Orange", icon: "ti ti-sun", class: "bg-orange-100 dark:bg-orange-950/40" },
+  { id: "yellow", name: "Yellow", icon: "ti ti-bulb", class: "bg-yellow-100 dark:bg-yellow-950/40" },
+  { id: "green", name: "Green", icon: "ti ti-leaf", class: "bg-emerald-100 dark:bg-emerald-950/40" },
+  { id: "mint", name: "Mint", icon: "ti ti-sparkles", class: "bg-teal-100 dark:bg-teal-950/40" },
+  { id: "blue", name: "Blue", icon: "ti ti-droplet", class: "bg-blue-100 dark:bg-blue-950/40" },
+  { id: "violet", name: "Violet", icon: "ti ti-moon-stars", class: "bg-violet-100 dark:bg-violet-950/40" },
+  { id: "pink", name: "Pink", icon: "ti ti-heart", class: "bg-pink-100 dark:bg-pink-950/40" },
+  { id: "slate", name: "Slate", icon: "ti ti-cube", class: "bg-slate-100 dark:bg-slate-900/70" },
+  { id: "amber", name: "Amber", icon: "ti ti-bolt", class: "bg-amber-100 dark:bg-amber-950/40" },
+] as const;
+
+const resetPanesValue = (): PanesValue => ({
+  root: {
+    type: "split",
+    id: "root",
+    direction: "vertical",
+    sizes: [58, 42],
+    children: [
+      {
+        type: "split",
+        id: "top-row",
+        direction: "horizontal",
+        sizes: [38, 34, 28],
+        children: [
+          {
+            type: "leaf",
+            id: "warm",
+            elementIds: ["red", "orange", "yellow"],
+            activeElementId: "red",
+            presentation: "tabs",
+          },
+          {
+            type: "leaf",
+            id: "forest",
+            elementIds: ["green", "mint"],
+            activeElementId: "green",
+            presentation: "tabs",
+          },
+          {
+            type: "leaf",
+            id: "blue-leaf",
+            elementIds: ["blue"],
+            activeElementId: "blue",
+            presentation: "single",
+          },
+        ],
+      },
+      {
+        type: "split",
+        id: "bottom-row",
+        direction: "horizontal",
+        sizes: [52, 48],
+        children: [
+          {
+            type: "leaf",
+            id: "violet-leaf",
+            elementIds: ["violet", "pink"],
+            activeElementId: "violet",
+            presentation: "tabs",
+          },
+          {
+            type: "split",
+            id: "neutral-stack",
+            direction: "vertical",
+            sizes: [48, 52],
+            children: [
+              {
+                type: "leaf",
+                id: "slate-leaf",
+                elementIds: ["slate"],
+                activeElementId: "slate",
+                presentation: "single",
+              },
+              {
+                type: "leaf",
+                id: "amber-leaf",
+                elementIds: ["amber"],
+                activeElementId: "amber",
+                presentation: "single",
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+});
+
+const ColorPane = (props: { name: string; class: string }) => {
+  const renderedAt = new Date().toISOString().slice(11, 23);
+
+  return (
+    <div class={`flex h-full min-h-0 items-center justify-center p-6 ${props.class}`}>
+      <div class="rounded-lg bg-white/75 px-4 py-3 text-center shadow-sm backdrop-blur dark:bg-zinc-950/70">
+        <p class="text-lg font-semibold text-primary">{props.name}</p>
+        <p class="text-xs text-dimmed">switch tabs, resize rails, drag headers, drop on edges</p>
+        <p class="mt-2 font-mono text-[10px] text-dimmed">rendered {renderedAt}</p>
+      </div>
+    </div>
+  );
+};
+
+export const PanesDemo = () => {
+  const [value, setValue] = createSignal<PanesValue>(resetPanesValue());
+  const [editable, setEditable] = createSignal(true);
+
+  return (
+    <DemoCard
+      id="panes"
+      chip={{ kind: "component", name: "Panes", from: FROM_UI }}
+      description="Controlled split-pane primitive. Resize uses stable gap-2 rails; tabs and single-pane headers can be moved, reordered, or split while edit mode is enabled."
+      code={`const [value, setValue] = createSignal<PanesValue>(initialValue);
+const [editable, setEditable] = createSignal(true);
+
+<Panes.Root
+  value={value()}
+  onChange={setValue}
+  allowResize={editable}
+  allowMove={editable}
+  allowReorder={editable}
+  allowHorizontalSplit={editable}
+  allowVerticalSplit={editable}
+>
+  <Panes.Element id="red" title="Red" icon="ti ti-flame">…</Panes.Element>
+  <Panes.Element id="blue" title="Blue" icon="ti ti-droplet">…</Panes.Element>
+</Panes.Root>`}
+    >
+      <div class="flex min-w-0 flex-col gap-2">
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" class={editable() ? "btn-primary btn-sm" : "btn-secondary btn-sm"} onClick={() => setEditable((v) => !v)}>
+            <i class={editable() ? "ti ti-lock-open" : "ti ti-lock"} /> {editable() ? "Editing on" : "Editing off"}
+          </button>
+          <button type="button" class="btn-input btn-sm" onClick={() => setValue(resetPanesValue())}>
+            <i class="ti ti-restore" /> Reset layout
+          </button>
+        </div>
+        <div class="h-[34rem] w-full max-w-full min-w-0 overflow-hidden rounded-lg bg-zinc-100 p-2 dark:bg-zinc-900">
+          <Panes.Root
+            value={value()}
+            onChange={setValue}
+            class="h-full w-full"
+            allowResize={editable}
+            allowMove={editable}
+            allowReorder={editable}
+            allowHorizontalSplit={editable}
+            allowVerticalSplit={editable}
+          >
+            <For each={paneColors}>
+              {(color) => (
+                <Panes.Element id={color.id} title={color.name} icon={color.icon}>
+                  <ColorPane name={color.name} class={color.class} />
+                </Panes.Element>
+              )}
+            </For>
+          </Panes.Root>
+        </div>
+      </div>
+    </DemoCard>
+  );
+};
 
 const overviewRows = [
   { icon: "ti ti-file-text", title: "Launch checklist", meta: "Product", status: "Updated 2m ago" },

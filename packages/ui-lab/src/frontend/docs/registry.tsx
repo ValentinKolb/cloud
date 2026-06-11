@@ -102,6 +102,7 @@ import {
   NavigationEnhancementDemo,
   PaginationDemo,
   PanelDialogDemo,
+  PanesDemo,
   PermissionEditorDemo,
   SettingsModalDemo,
 } from "../lab/navigation";
@@ -433,6 +434,19 @@ export const uiLabDocs: UiLabDocSection[] = [
         () => (
           <DemoGrid columns="one">
             <AppWorkspaceDemo />
+          </DemoGrid>
+        ),
+      ),
+      page(
+        "layout",
+        "panes",
+        "Panes",
+        "ti ti-layout-kanban",
+        "Controlled split-pane primitive with resize rails, movable tabs, and edge split drops.",
+        ["panes"],
+        () => (
+          <DemoGrid columns="one">
+            <PanesDemo />
           </DemoGrid>
         ),
       ),
