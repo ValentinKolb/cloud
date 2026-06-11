@@ -9,20 +9,19 @@ import { ssr } from "../../../config";
 import AccountsFactGrid from "../../AccountsFactGrid";
 import AccountsWorkspace from "../../AccountsWorkspace";
 import { getProviderBadge } from "../../lib/account-badges";
-import { buildGroupDetailUrl, buildGroupsUrl, GROUPS_CONTEXT_QUERY_KEYS, parseGroupsListState } from "../../lib/url-state";
+import { buildGroupsUrl, GROUPS_CONTEXT_QUERY_KEYS, parseGroupsListState } from "../../lib/url-state";
 import GroupActions from "./GroupActions.island";
+import {
+  buildGroupDetailPageBaseUrl,
+  createGroupDetailHrefBuilder,
+  GROUP_DETAIL_TAB_META,
+  getGroupsBackLabel,
+  getVisibleGroupDetailTabs,
+  parseGroupDetailTab,
+} from "./group-detail-url";
 import ManagersTab from "./ManagersTab";
 import MemberOfTab from "./MemberOfTab";
 import MembersTab from "./MembersTab";
-
-const TABS = ["members", "managers", "member-of"] as const;
-const TAB_META: Record<(typeof TABS)[number], { label: string; icon: string }> = {
-  members: { label: "Members", icon: "ti ti-users-group" },
-  managers: { label: "Managers", icon: "ti ti-user-cog" },
-  "member-of": { label: "Member Of", icon: "ti ti-folders" },
-};
-
-type Tab = (typeof TABS)[number];
 
 export default ssr<AuthContext>(async (c) => {
   const groupId = c.req.param("id");
@@ -44,64 +43,43 @@ export default ssr<AuthContext>(async (c) => {
   const groupsListHref = buildGroupsUrl(listState, {
     defaultScope,
   });
-  const groupsBackLabel = listState.scope === "managed" ? "Managed Groups" : listState.scope === "member" ? "My Groups" : "All Groups";
+  const groupsBackLabel = getGroupsBackLabel(listState.scope);
+  const renderGroupNotFound = () => () => (
+    <Layout
+      c={c}
+      fullWidth
+      title={[
+        { title: "Start", href: "/" },
+        { title: "Accounts", href: "/app/accounts" },
+        { title: "Groups", href: "/app/accounts/groups" },
+        { title: "Not Found" },
+      ]}
+    >
+      <div class="flex-1 flex items-center justify-center">
+        <div class="text-center text-dimmed flex flex-col items-center gap-2">
+          <i class="ti ti-alert-circle text-4xl" />
+          <p class="text-sm">Group not found.</p>
+          <a href={groupsListHref} class="text-xs hover:text-primary">
+            Back to Groups
+          </a>
+        </div>
+      </div>
+    </Layout>
+  );
 
   if (!groupId) {
-    return () => (
-      <Layout
-        c={c}
-        fullWidth
-        title={[
-          { title: "Start", href: "/" },
-          { title: "Accounts", href: "/app/accounts" },
-          { title: "Groups", href: "/app/accounts/groups" },
-          { title: "Not Found" },
-        ]}
-      >
-        <div class="flex-1 flex items-center justify-center">
-          <div class="text-center text-dimmed flex flex-col items-center gap-2">
-            <i class="ti ti-alert-circle text-4xl" />
-            <p class="text-sm">Group not found.</p>
-            <a href={groupsListHref} class="text-xs hover:text-primary">
-              Back to Groups
-            </a>
-          </div>
-        </div>
-      </Layout>
-    );
+    return renderGroupNotFound();
   }
 
   const group = await accountsService.group.get({ id: groupId });
 
   if (!group) {
-    return () => (
-      <Layout
-        c={c}
-        fullWidth
-        title={[
-          { title: "Start", href: "/" },
-          { title: "Accounts", href: "/app/accounts" },
-          { title: "Groups", href: "/app/accounts/groups" },
-          { title: "Not Found" },
-        ]}
-      >
-        <div class="flex-1 flex items-center justify-center">
-          <div class="text-center text-dimmed flex flex-col items-center gap-2">
-            <i class="ti ti-alert-circle text-4xl" />
-            <p class="text-sm">Group not found.</p>
-            <a href={groupsListHref} class="text-xs hover:text-primary">
-              Back to Groups
-            </a>
-          </div>
-        </div>
-      </Layout>
-    );
+    return renderGroupNotFound();
   }
 
   const canManage = canManageGroup(user, groupId);
   const providerBadge = group ? getProviderBadge(group.provider) : null;
-  const requestedTab = c.req.query("tab") as Tab;
-  const tab = (TABS.includes(requestedTab) && (requestedTab !== "member-of" || isAdmin) ? requestedTab : "members") as Tab;
+  const tab = parseGroupDetailTab(c.req.query("tab"), isAdmin);
   const canMutateGroup = group.provider === "local" || freeIpaEnabled;
   const canManageMutations = canManage && canMutateGroup;
 
@@ -111,40 +89,21 @@ export default ssr<AuthContext>(async (c) => {
   const search = c.req.query("search") ?? "";
   const indirect = c.req.query("indirect") === "true";
 
-  const buildDetailHref = (targetGroupId: string, overrides: Record<string, string | null | undefined> = {}): string => {
-    const base = buildGroupDetailUrl(targetGroupId, listState, {
-      keys: GROUPS_CONTEXT_QUERY_KEYS,
-      defaultScope,
-    });
-    const url = new URL(base, "https://local.invalid");
+  const buildDetailHref = createGroupDetailHrefBuilder({ listState, defaultScope });
 
-    for (const [key, value] of Object.entries(overrides)) {
-      if (value === null || value === undefined || value.length === 0) {
-        url.searchParams.delete(key);
-      } else {
-        url.searchParams.set(key, value);
-      }
-    }
-
-    return `${url.pathname}${url.search}`;
-  };
-
-  const membersPageBaseUrl = `${buildDetailHref(groupId, {
+  const membersPageBaseUrl = buildGroupDetailPageBaseUrl(buildDetailHref, groupId, {
     tab: "members",
     search: search || null,
     indirect: indirect ? "true" : null,
-    page: null,
-  })}${buildDetailHref(groupId, { tab: "members", search: search || null, indirect: indirect ? "true" : null, page: null }).includes("?") ? "&" : "?"}page=`;
-  const managersPageBaseUrl = `${buildDetailHref(groupId, {
+  });
+  const managersPageBaseUrl = buildGroupDetailPageBaseUrl(buildDetailHref, groupId, {
     tab: "managers",
     search: search || null,
-    page: null,
-  })}${buildDetailHref(groupId, { tab: "managers", search: search || null, page: null }).includes("?") ? "&" : "?"}page=`;
-  const memberOfPageBaseUrl = `${buildDetailHref(groupId, {
+  });
+  const memberOfPageBaseUrl = buildGroupDetailPageBaseUrl(buildDetailHref, groupId, {
     tab: "member-of",
     search: search || null,
-    page: null,
-  })}${buildDetailHref(groupId, { tab: "member-of", search: search || null, page: null }).includes("?") ? "&" : "?"}page=`;
+  });
   const toggleIndirectUrl = buildDetailHref(groupId, {
     tab: "members",
     indirect: indirect ? null : "true",
@@ -330,7 +289,7 @@ export default ssr<AuthContext>(async (c) => {
 
           <div class="flex flex-wrap items-start justify-between gap-2" style="view-transition-name: accounts-group-tabs">
             <nav class="flex flex-wrap items-center gap-1" aria-label="Group detail sections">
-              {TABS.filter((entryTab) => entryTab !== "member-of" || isAdmin).map((entryTab) => (
+              {getVisibleGroupDetailTabs(isAdmin).map((entryTab) => (
                 <a
                   href={buildDetailHref(groupId, {
                     tab: entryTab,
@@ -342,8 +301,8 @@ export default ssr<AuthContext>(async (c) => {
                   role="tab"
                   aria-selected={tab === entryTab}
                 >
-                  <i class={`${TAB_META[entryTab].icon} text-sm`} />
-                  <span>{TAB_META[entryTab].label}</span>
+                  <i class={`${GROUP_DETAIL_TAB_META[entryTab].icon} text-sm`} />
+                  <span>{GROUP_DETAIL_TAB_META[entryTab].label}</span>
                 </a>
               ))}
             </nav>

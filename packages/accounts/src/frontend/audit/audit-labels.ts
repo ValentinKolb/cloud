@@ -1,6 +1,6 @@
 import type { FilterChipSection } from "@valentinkolb/cloud/ui";
 
-export const ACTION_LABEL: Record<string, string> = {
+const ACTION_LABEL: Record<string, string> = {
   "accounts.user.create": "Create user",
   "accounts.user.update": "Update user",
   "accounts.user.password_reset": "Reset password",
@@ -79,7 +79,11 @@ export const ACTION_OPTIONS: FilterChipSection[] = [
     options: [
       { value: "service_account_credential.create", label: ACTION_LABEL["service_account_credential.create"]!, icon: "ti ti-key" },
       { value: "service_account_credential.revoke", label: ACTION_LABEL["service_account_credential.revoke"]!, icon: "ti ti-key-off" },
-      { value: "service_account_credential.authenticate", label: ACTION_LABEL["service_account_credential.authenticate"]!, icon: "ti ti-login" },
+      {
+        value: "service_account_credential.authenticate",
+        label: ACTION_LABEL["service_account_credential.authenticate"]!,
+        icon: "ti ti-login",
+      },
     ],
   },
 ];
