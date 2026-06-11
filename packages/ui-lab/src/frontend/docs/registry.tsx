@@ -103,6 +103,7 @@ import {
   PaginationDemo,
   PanelDialogDemo,
   PanesDemo,
+  PanesProgrammaticTabsDemo,
   PermissionEditorDemo,
   SettingsModalDemo,
 } from "../lab/navigation";
@@ -447,6 +448,7 @@ export const uiLabDocs: UiLabDocSection[] = [
         () => (
           <DemoGrid columns="one">
             <PanesDemo />
+            <PanesProgrammaticTabsDemo />
           </DemoGrid>
         ),
       ),

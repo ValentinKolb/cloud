@@ -10,11 +10,13 @@ import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/clou
 import {
   AppOverview,
   AppWorkspace,
+  createPanesValue,
   DockWorkspace,
   type DockWorkspaceState,
   dialogCore,
   FilterChip,
   type FilterChipSection,
+  normalizePanesValue,
   Pagination,
   PanelDialog,
   Panes,
@@ -506,16 +508,210 @@ const resetPanesValue = (): PanesValue => ({
 });
 
 const ColorPane = (props: { name: string; class: string }) => {
-  const renderedAt = new Date().toISOString().slice(11, 23);
-
   return (
     <div class={`flex h-full min-h-0 items-center justify-center p-6 ${props.class}`}>
       <div class="rounded-lg bg-white/75 px-4 py-3 text-center shadow-sm backdrop-blur dark:bg-zinc-950/70">
         <p class="text-lg font-semibold text-primary">{props.name}</p>
         <p class="text-xs text-dimmed">switch tabs, resize rails, drag headers, drop on edges</p>
-        <p class="mt-2 font-mono text-[10px] text-dimmed">rendered {renderedAt}</p>
+        <p class="mt-2 font-mono text-[10px] text-dimmed">kept mounted while inactive</p>
       </div>
     </div>
+  );
+};
+
+const editorFiles = [
+  {
+    id: "invoice.tsx",
+    title: "invoice.tsx",
+    icon: "ti ti-file-type-tsx",
+    badge: "React",
+    class: "bg-blue-50 dark:bg-blue-950/30",
+    body: ["export const Invoice = () => (", '  <Template.Preview paper="a4" />', ");"],
+  },
+  {
+    id: "template.html",
+    title: "template.html",
+    icon: "ti ti-file-type-html",
+    badge: "HTML",
+    class: "bg-orange-50 dark:bg-orange-950/30",
+    body: ["<section>", "  <h1>{{ invoice.number }}</h1>", "  {{#items}}...{{/items}}", "</section>"],
+  },
+  {
+    id: "print.css",
+    title: "print.css",
+    icon: "ti ti-file-type-css",
+    badge: "CSS",
+    class: "bg-violet-50 dark:bg-violet-950/30",
+    body: ["@page { size: A4; margin: 20mm; }", ".invoice-table { page-break-inside: auto; }"],
+  },
+  {
+    id: "sample.json",
+    title: "sample.json",
+    icon: "ti ti-json",
+    badge: "JSON",
+    class: "bg-emerald-50 dark:bg-emerald-950/30",
+    body: ['{ "customer": "Example AG",', '  "total": "1,240.00 EUR" }'],
+  },
+] as const;
+
+const activatePaneElement = (node: PanesValue["root"], elementId: string): PanesValue["root"] => {
+  if (node.type === "leaf") {
+    return node.elementIds.includes(elementId) ? { ...node, activeElementId: elementId } : node;
+  }
+  return { ...node, children: node.children.map((child) => activatePaneElement(child, elementId)) };
+};
+
+export const PanesProgrammaticTabsDemo = () => {
+  const initialIds = editorFiles.slice(0, 2).map((file) => file.id);
+  const [openFileIds, setOpenFileIds] = createSignal<string[]>(initialIds);
+  const [value, setValue] = createSignal<PanesValue>(createPanesValue(initialIds));
+  const filesById = new Map<string, (typeof editorFiles)[number]>(editorFiles.map((file) => [file.id, file]));
+  const closedFiles = () => editorFiles.filter((file) => !openFileIds().includes(file.id));
+  const activeFileId = () => {
+    const findActive = (node: PanesValue["root"]): string | undefined => {
+      if (node.type === "leaf") return node.activeElementId;
+      for (const child of node.children) {
+        const active = findActive(child);
+        if (active) return active;
+      }
+      return undefined;
+    };
+    return findActive(value().root);
+  };
+
+  const openFile = (fileId: string) => {
+    const nextIds = openFileIds().includes(fileId) ? openFileIds() : [...openFileIds(), fileId];
+    setOpenFileIds(nextIds);
+    setValue((current) => {
+      const normalized = normalizePanesValue(current, nextIds);
+      return { root: activatePaneElement(normalized.root, fileId) };
+    });
+  };
+
+  const closeFile = (fileId: string) => {
+    if (openFileIds().length <= 1) return;
+    const nextIds = openFileIds().filter((id) => id !== fileId);
+    setOpenFileIds(nextIds);
+    setValue((current) => normalizePanesValue(current, nextIds));
+  };
+
+  return (
+    <DemoCard
+      id="panes-programmatic-tabs"
+      chip={{ kind: "component", name: "Panes", from: FROM_UI }}
+      description="Programmatic tabs for editor-style open files. The app owns the open IDs and normalizes the controlled Panes value after opening or closing a file."
+      code={`const [openFileIds, setOpenFileIds] = createSignal(["invoice.tsx"]);
+const [value, setValue] = createSignal(createPanesValue(openFileIds()));
+const filesById = new Map(files.map((file) => [file.id, file]));
+
+const openFile = (id: string) => {
+  const nextIds = openFileIds().includes(id) ? openFileIds() : [...openFileIds(), id];
+  setOpenFileIds(nextIds);
+  setValue((current) => normalizePanesValue(current, nextIds));
+};
+
+const closeFile = (id: string) => {
+  const nextIds = openFileIds().filter((fileId) => fileId !== id);
+  setOpenFileIds(nextIds);
+  setValue((current) => normalizePanesValue(current, nextIds));
+};
+
+<Panes.Root value={value()} onChange={setValue} class="h-full w-full">
+  <For each={openFileIds()}>
+    {(id) => {
+      const file = filesById.get(id);
+      return (
+        <Panes.Element
+          id={file.id}
+          title={file.title}
+          icon={file.icon}
+          closable={() => openFileIds().length > 1}
+          onClose={() => closeFile(file.id)}
+        >
+          <Editor file={file} />
+        </Panes.Element>
+      );
+    }}
+  </For>
+</Panes.Root>`}
+    >
+      <div class="grid min-w-0 gap-3 lg:grid-cols-[14rem_minmax(0,1fr)]">
+        <div class="paper flex min-w-0 flex-col gap-2 p-3">
+          <p class="text-xs font-semibold uppercase tracking-wide text-dimmed">Files</p>
+          <For each={editorFiles}>
+            {(file) => (
+              <button
+                type="button"
+                class={`flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition ${
+                  openFileIds().includes(file.id)
+                    ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                    : "hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                }`}
+                onClick={() => openFile(file.id)}
+              >
+                <i class={`${file.icon} shrink-0 text-base`} />
+                <span class="min-w-0 flex-1 truncate">{file.title}</span>
+                <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-dimmed dark:bg-zinc-900">{file.badge}</span>
+              </button>
+            )}
+          </For>
+          <button
+            type="button"
+            class="btn-input btn-sm mt-1 justify-center"
+            disabled={closedFiles().length === 0}
+            onClick={() => openFile(closedFiles()[0]?.id ?? editorFiles[0].id)}
+          >
+            <i class="ti ti-plus" /> Open next closed file
+          </button>
+        </div>
+
+        <div class="flex min-w-0 flex-col gap-2">
+          <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-dimmed">
+            <span>{openFileIds().length} open files</span>
+            <span class="font-mono">active: {activeFileId() ?? "none"}</span>
+          </div>
+          <div class="h-80 min-w-0 overflow-hidden rounded-lg bg-zinc-100 p-2 dark:bg-zinc-900">
+            <Panes.Root
+              value={value()}
+              onChange={setValue}
+              class="h-full w-full"
+              allowResize
+              allowMove
+              allowReorder
+              allowHorizontalSplit
+              allowVerticalSplit
+            >
+              <For each={openFileIds()}>
+                {(id) => {
+                  const file = filesById.get(id) ?? editorFiles[0];
+                  return (
+                    <Panes.Element
+                      id={file.id}
+                      title={file.title}
+                      icon={file.icon}
+                      closable={() => openFileIds().length > 1}
+                      onClose={() => closeFile(file.id)}
+                    >
+                      <div class={`flex h-full min-h-0 flex-col ${file.class}`}>
+                        <div class="border-b border-zinc-200 bg-white/70 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950/60">
+                          <div class="min-w-0">
+                            <p class="truncate text-sm font-semibold text-primary">{file.title}</p>
+                            <p class="text-xs text-dimmed">{file.badge} editor content stays owned by the tab element.</p>
+                          </div>
+                        </div>
+                        <pre class="m-0 min-h-0 flex-1 overflow-auto p-4 text-xs leading-6 text-primary">
+                          <code>{file.body.join("\n")}</code>
+                        </pre>
+                      </div>
+                    </Panes.Element>
+                  );
+                }}
+              </For>
+            </Panes.Root>
+          </div>
+        </div>
+      </div>
+    </DemoCard>
   );
 };
 
