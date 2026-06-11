@@ -1,11 +1,18 @@
 import { weatherService } from "@valentinkolb/cloud/services";
 import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
-import type { CalendarItem, ItemListResult, SpaceComment, SpaceItem } from "@/contracts";
+import type { CalendarItem, ItemListResult, SpaceComment, SpaceDetail, SpaceItem } from "@/contracts";
 import { spacesService } from "@/service";
 import type { CalendarView, DayWeather } from "../calendar/types";
-import { defaultFilter, parseFilterFromUrl } from "../filter/types";
+import { defaultFilter, type FilterState, parseFilterFromUrl } from "../filter/types";
 import type { KanbanBucketInitial } from "../kanban/types";
-import { isValidPanelWidth, isValidView, parseSpaceSettings } from "../settings/SpaceSettingsStore";
+import {
+  type DetailPanelWidth,
+  isValidPanelWidth,
+  isValidView,
+  parseSpaceSettings,
+  type SpaceUserSettings,
+  type ViewType,
+} from "../settings/SpaceSettingsStore";
 import type { SpacesWorkspaceState } from "./workspace-types";
 
 type AuthUser = {
@@ -13,241 +20,418 @@ type AuthUser = {
   memberofGroupIds: string[];
 };
 
-export const loadSpacesWorkspaceState = async (params: {
+type WorkspaceRequest = {
   user: AuthUser;
   spaceId: string;
   href: string;
   cookieHeader?: string;
   settings?: boolean;
   dateConfig?: DateContext;
-}): Promise<SpacesWorkspaceState> => {
-  const url = new URL(params.href, "http://spaces.local");
-  const spaceId = params.spaceId;
-  const settings = parseSpaceSettings(params.cookieHeader, spaceId);
-  const isSettingsMode = params.settings === true || url.pathname.endsWith("/settings") || url.searchParams.get("mode") === "settings";
+};
 
+type RouteState = {
+  url: URL;
+  settings: SpaceUserSettings;
+  isSettingsMode: boolean;
+  currentView: ViewType;
+  currentPanelWidth: DetailPanelWidth;
+  hasOverride: boolean;
+  filter: FilterState;
+  selectedItemId: string;
+  calendarViewParam: CalendarView | null;
+  calendarDateParam?: string;
+  calendarTagIds: string[];
+};
+
+const LIST_PAGE_SIZE = 50;
+const KANBAN_PAGE_SIZE = 30;
+const CALENDAR_VIEWS: CalendarView[] = ["day", "week", "month", "year"];
+
+const isSettingsRoute = (params: { settings?: boolean; url: URL }) =>
+  params.settings === true || params.url.pathname.endsWith("/settings") || params.url.searchParams.get("mode") === "settings";
+
+const resolveView = (url: URL, settings: SpaceUserSettings) => {
   const viewParam = url.searchParams.get("view") ?? undefined;
-  const panelWidthParam = url.searchParams.get("panelWidth") ?? undefined;
-  const selectedItemId = isSettingsMode ? "" : (url.searchParams.get("item") ?? "");
-  const calendarViewParam = url.searchParams.get("cv") as CalendarView | null;
-  const calendarDateParam = url.searchParams.get("cd") ?? undefined;
-  let calendarTagIds = url.searchParams.get("ctags")?.split(",").filter(Boolean) ?? [];
-
   const hasViewOverride = isValidView(viewParam);
+  return { currentView: hasViewOverride ? viewParam : settings.view, hasViewOverride };
+};
+
+const resolvePanelWidth = (url: URL, settings: SpaceUserSettings) => {
+  const panelWidthParam = url.searchParams.get("panelWidth") ?? undefined;
   const hasPanelWidthOverride = isValidPanelWidth(panelWidthParam);
-  const hasOverride = hasViewOverride || hasPanelWidthOverride;
-  const currentView = hasViewOverride ? viewParam : settings.view;
-  const currentPanelWidth = hasPanelWidthOverride ? panelWidthParam : settings.detailPanelWidth;
-  const filter = currentView === "list" || currentView === "table" ? parseFilterFromUrl(url) : defaultFilter;
+  return { currentPanelWidth: hasPanelWidthOverride ? panelWidthParam : settings.detailPanelWidth, hasPanelWidthOverride };
+};
 
-  const space = await spacesService.space.getDetail({ id: spaceId });
-  if (!space) return { kind: "notFound", title: "Not found", message: "Space not found" };
-  const spaceTagIds = new Set(space.tags.map((tag) => tag.id));
-  calendarTagIds = calendarTagIds.filter((tagId) => spaceTagIds.has(tagId));
+const parseCalendarTags = (url: URL) => url.searchParams.get("ctags")?.split(",").filter(Boolean) ?? [];
 
+const resolveRouteState = (params: WorkspaceRequest): RouteState => {
+  const url = new URL(params.href, "http://spaces.local");
+  const settings = parseSpaceSettings(params.cookieHeader, params.spaceId);
+  const isSettingsMode = isSettingsRoute({ settings: params.settings, url });
+  const { currentView, hasViewOverride } = resolveView(url, settings);
+  const { currentPanelWidth, hasPanelWidthOverride } = resolvePanelWidth(url, settings);
+
+  return {
+    url,
+    settings,
+    isSettingsMode,
+    currentView,
+    currentPanelWidth,
+    hasOverride: hasViewOverride || hasPanelWidthOverride,
+    filter: currentView === "list" || currentView === "table" ? parseFilterFromUrl(url) : defaultFilter,
+    selectedItemId: isSettingsMode ? "" : (url.searchParams.get("item") ?? ""),
+    calendarViewParam: url.searchParams.get("cv") as CalendarView | null,
+    calendarDateParam: url.searchParams.get("cd") ?? undefined,
+    calendarTagIds: parseCalendarTags(url),
+  };
+};
+
+const resolvePermissions = async (params: { spaceId: string; user: AuthUser }) => {
   const hasAccess = await spacesService.space.permission.canAccess({
-    spaceId,
+    spaceId: params.spaceId,
     userId: params.user.id,
     userGroups: params.user.memberofGroupIds,
   });
-  if (!hasAccess) return { kind: "accessDenied", title: "Access denied", message: "You don't have access to this space" };
+  if (!hasAccess) return null;
 
   const userPermission = await spacesService.space.permission.get({
-    spaceId,
+    spaceId: params.spaceId,
     userId: params.user.id,
     userGroups: params.user.memberofGroupIds,
   });
-  const isAdmin = userPermission === "admin";
-  const canWrite = userPermission === "write" || userPermission === "admin";
-  if (isSettingsMode && !canWrite) {
-    return {
-      kind: "accessDenied",
-      title: "Access denied",
-      message: "You don't have access to space settings",
-      redirectTo: `/app/spaces/${spaceId}`,
-    };
+
+  return {
+    isAdmin: userPermission === "admin",
+    canWrite: userPermission === "write" || userPermission === "admin",
+  };
+};
+
+const nonEmpty = <T>(values: T[]) => (values.length > 0 ? values : undefined);
+
+const toListFilter = (filter: FilterState) => ({
+  type: filter.type,
+  status: filter.status,
+  priority: nonEmpty(filter.priority),
+  tagIds: nonEmpty(filter.tagIds),
+  columnIds: nonEmpty(filter.columnIds),
+  assignedTo: filter.assignedTo,
+  deadlineFilter: filter.deadlineFilter,
+  search: filter.search || undefined,
+  sort: filter.sort,
+  sortDesc: filter.sortDesc,
+  groupBy: filter.groupBy,
+  page: filter.page,
+  pageSize: LIST_PAGE_SIZE,
+});
+
+const loadListItems = async (params: {
+  currentView: ViewType;
+  spaceId: string;
+  filter: FilterState;
+  userId: string;
+  dateConfig?: DateContext;
+}): Promise<ItemListResult> => {
+  if (params.currentView !== "list" && params.currentView !== "table") {
+    return { items: [], total: 0, page: params.filter.page, pageSize: LIST_PAGE_SIZE, totalPages: 0 };
   }
 
-  const accessEntries = isAdmin && isSettingsMode ? (await spacesService.access.list({ spaceId })).items : [];
-  const apiKeys = isAdmin && isSettingsMode ? await spacesService.access.apiKeys.list({ spaceId }) : [];
-  const listPageSize = 50;
-  let itemsResult: ItemListResult = { items: [], total: 0, page: filter.page, pageSize: listPageSize, totalPages: 0 };
-  if (currentView === "list" || currentView === "table") {
-    itemsResult = await spacesService.item.listFiltered({
-      spaceId,
+  return spacesService.item.listFiltered({
+    spaceId: params.spaceId,
+    filter: toListFilter(params.filter),
+    currentUserId: params.userId,
+    dateConfig: params.dateConfig,
+  });
+};
+
+const loadKanbanBuckets = async (params: {
+  currentView: ViewType;
+  space: SpaceDetail;
+  spaceId: string;
+  userId: string;
+  dateConfig?: DateContext;
+}): Promise<KanbanBucketInitial[]> => {
+  if (params.currentView !== "kanban") return [];
+
+  const loadBucket = async (config: {
+    key: string;
+    label: string;
+    color: string | null;
+    kind: "column" | "completed";
+    columnId: string | null;
+    columnIds?: string[];
+  }): Promise<KanbanBucketInitial> => {
+    const result = await spacesService.item.listFiltered({
+      spaceId: params.spaceId,
       filter: {
-        type: filter.type,
-        status: filter.status,
-        priority: filter.priority.length > 0 ? filter.priority : undefined,
-        tagIds: filter.tagIds.length > 0 ? filter.tagIds : undefined,
-        columnIds: filter.columnIds.length > 0 ? filter.columnIds : undefined,
-        assignedTo: filter.assignedTo,
-        deadlineFilter: filter.deadlineFilter,
-        search: filter.search || undefined,
-        sort: filter.sort,
-        sortDesc: filter.sortDesc,
-        groupBy: filter.groupBy,
-        page: filter.page,
-        pageSize: listPageSize,
+        type: "all",
+        status: config.kind === "completed" ? "completed" : "active",
+        priority: undefined,
+        tagIds: undefined,
+        columnIds: config.columnIds && config.columnIds.length > 0 ? config.columnIds : undefined,
+        assignedTo: "all",
+        deadlineFilter: "all",
+        search: undefined,
+        sort: "column",
+        sortDesc: false,
+        groupBy: "column",
+        page: 1,
+        pageSize: KANBAN_PAGE_SIZE,
       },
-      currentUserId: params.user.id,
+      currentUserId: params.userId,
       dateConfig: params.dateConfig,
     });
-  }
+    return { ...config, items: result.items, page: result.page, totalPages: result.totalPages, total: result.total };
+  };
 
-  const KANBAN_PAGE_SIZE = 30;
-  const completedColumnId = space.columns.find((column) => column.isDone)?.id ?? space.columns[0]?.id ?? null;
-  const kanbanBuckets: KanbanBucketInitial[] = [];
-  if (currentView === "kanban") {
-    const loadBucket = async (config: {
-      key: string;
-      label: string;
-      color: string | null;
-      kind: "column" | "completed";
-      columnId: string | null;
-      columnIds?: string[];
-    }): Promise<KanbanBucketInitial> => {
-      const result = await spacesService.item.listFiltered({
-        spaceId,
-        filter: {
-          type: "all",
-          status: config.kind === "completed" ? "completed" : "active",
-          priority: undefined,
-          tagIds: undefined,
-          columnIds: config.columnIds && config.columnIds.length > 0 ? config.columnIds : undefined,
-          assignedTo: "all",
-          deadlineFilter: "all",
-          search: undefined,
-          sort: "column",
-          sortDesc: false,
-          groupBy: "column",
-          page: 1,
-          pageSize: KANBAN_PAGE_SIZE,
-        },
-        currentUserId: params.user.id,
-        dateConfig: params.dateConfig,
-      });
-      return { ...config, items: result.items, page: result.page, totalPages: result.totalPages, total: result.total };
+  const buckets: KanbanBucketInitial[] = [];
+  for (const column of params.space.columns) {
+    buckets.push(
+      await loadBucket({
+        key: `column:${column.id}`,
+        label: column.name,
+        color: column.color,
+        kind: "column",
+        columnId: column.id,
+        columnIds: [column.id],
+      }),
+    );
+  }
+  buckets.push(await loadBucket({ key: "completed", label: "Completed", color: "#10b981", kind: "completed", columnId: null }));
+  return buckets;
+};
+
+const resolveCalendarRange = (params: { calendarView: CalendarView; calendarDate: Date; dateConfig?: DateContext }) => {
+  const calendarYear = Number(calendar.formatDateKey(params.calendarDate, params.dateConfig).slice(0, 4));
+  if (params.calendarView === "day") return { from: params.calendarDate, to: calendar.addDays(params.calendarDate, 1, params.dateConfig) };
+  if (params.calendarView !== "year") return calendar.getDateRange(params.calendarView, params.calendarDate, params.dateConfig);
+
+  if (!params.dateConfig?.timeZone) return { from: new Date(calendarYear, 0, 1), to: new Date(calendarYear + 1, 0, 1) };
+  return {
+    from: new Date(
+      calendar.zonedDateTimeToInstant(`${calendarYear}-01-01T00:00`, params.dateConfig.timeZone, { disambiguation: "compatible" }),
+    ),
+    to: new Date(
+      calendar.zonedDateTimeToInstant(`${calendarYear + 1}-01-01T00:00`, params.dateConfig.timeZone, { disambiguation: "compatible" }),
+    ),
+  };
+};
+
+const readWeatherLocationCookie = (cookieHeader?: string) => {
+  const locationCookie = cookieHeader
+    ?.split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${weatherService.location.cookie.name}=`))
+    ?.slice(weatherService.location.cookie.name.length + 1);
+  return weatherService.location.cookie.parse(locationCookie);
+};
+
+const resolveCalendarView = (view: CalendarView | null): CalendarView => (view && CALENDAR_VIEWS.includes(view) ? view : "month");
+
+const filterCalendarItems = (items: CalendarItem[], spaceId: string, tagIds: string[]) => {
+  const spaceItems = items.filter((item) => item.spaceId === spaceId);
+  if (tagIds.length === 0) return spaceItems;
+  return spaceItems.filter((item) => item.tags?.some((tag) => tagIds.includes(tag.id)));
+};
+
+const loadCalendarWeather = async (cookieHeader?: string): Promise<Record<string, DayWeather>> => {
+  const location = readWeatherLocationCookie(cookieHeader);
+  const weatherData = await weatherService.forecast.get({ lat: location?.lat, lon: location?.lon });
+  const weather: Record<string, DayWeather> = {};
+  if (!weatherData?.daily) return weather;
+
+  for (const day of weatherData.daily) {
+    weather[day.date] = {
+      tempMin: day.tempMin,
+      tempMax: day.tempMax,
+      icon: weatherService.ui.getTablerIcon(day.icon),
     };
-
-    for (const column of space.columns) {
-      kanbanBuckets.push(
-        await loadBucket({
-          key: `column:${column.id}`,
-          label: column.name,
-          color: column.color,
-          kind: "column",
-          columnId: column.id,
-          columnIds: [column.id],
-        }),
-      );
-    }
-    kanbanBuckets.push(await loadBucket({ key: "completed", label: "Completed", color: "#10b981", kind: "completed", columnId: null }));
   }
+  return weather;
+};
 
-  const calendarView: CalendarView =
-    calendarViewParam && ["day", "week", "month", "year"].includes(calendarViewParam) ? calendarViewParam : "month";
-  const dateConfig = params.dateConfig;
-  const calendarDate = calendar.parseCalendarDate(calendarDateParam, dateConfig);
-  let calendarItems: CalendarItem[] = [];
-  const calendarWeather: Record<string, DayWeather> = {};
-  if (currentView === "calendar") {
-    const calendarYear = Number(calendar.formatDateKey(calendarDate, dateConfig).slice(0, 4));
-    const { from, to } =
-      calendarView === "day"
-        ? { from: calendarDate, to: calendar.addDays(calendarDate, 1, dateConfig) }
-        : calendarView === "year"
-          ? dateConfig?.timeZone
-            ? {
-                from: new Date(
-                  calendar.zonedDateTimeToInstant(`${calendarYear}-01-01T00:00`, dateConfig.timeZone, { disambiguation: "compatible" }),
-                ),
-                to: new Date(
-                  calendar.zonedDateTimeToInstant(`${calendarYear + 1}-01-01T00:00`, dateConfig.timeZone, { disambiguation: "compatible" }),
-                ),
-              }
-            : { from: new Date(calendarYear, 0, 1), to: new Date(calendarYear + 1, 0, 1) }
-          : calendar.getDateRange(calendarView, calendarDate, dateConfig);
-    const accessibleItems = (
-      await spacesService.item.calendar.list({
-        userId: params.user.id,
-        groups: params.user.memberofGroupIds,
-        from: from.toISOString(),
-        to: to.toISOString(),
-        dateConfig,
-      })
-    ).filter((item) => item.spaceId === spaceId);
-    calendarItems =
-      calendarTagIds.length > 0
-        ? accessibleItems.filter((item) => item.tags?.some((tag) => calendarTagIds.includes(tag.id)))
-        : accessibleItems;
+const loadCalendarState = async (params: {
+  currentView: ViewType;
+  calendarViewParam: CalendarView | null;
+  calendarDateParam?: string;
+  calendarTagIds: string[];
+  spaceId: string;
+  user: AuthUser;
+  dateConfig?: DateContext;
+  cookieHeader?: string;
+}): Promise<{
+  calendarView: CalendarView;
+  calendarDate: Date;
+  calendarItems: CalendarItem[];
+  calendarWeather: Record<string, DayWeather>;
+}> => {
+  const calendarView = resolveCalendarView(params.calendarViewParam);
+  const calendarDate = calendar.parseCalendarDate(params.calendarDateParam, params.dateConfig);
+  if (params.currentView !== "calendar") return { calendarView, calendarDate, calendarItems: [], calendarWeather: {} };
 
-    const locationCookie = params.cookieHeader
-      ?.split(";")
-      .map((part) => part.trim())
-      .find((part) => part.startsWith(`${weatherService.location.cookie.name}=`))
-      ?.slice(weatherService.location.cookie.name.length + 1);
-    const location = weatherService.location.cookie.parse(locationCookie);
-    const weatherData = await weatherService.forecast.get({ lat: location?.lat, lon: location?.lon });
-    if (weatherData?.daily) {
-      for (const day of weatherData.daily) {
-        calendarWeather[day.date] = {
-          tempMin: day.tempMin,
-          tempMax: day.tempMax,
-          icon: weatherService.ui.getTablerIcon(day.icon),
-        };
-      }
-    }
+  const { from, to } = resolveCalendarRange({ calendarView, calendarDate, dateConfig: params.dateConfig });
+  const accessibleItems = await spacesService.item.calendar.list({
+    userId: params.user.id,
+    groups: params.user.memberofGroupIds,
+    from: from.toISOString(),
+    to: to.toISOString(),
+    dateConfig: params.dateConfig,
+  });
+
+  return {
+    calendarView,
+    calendarDate,
+    calendarItems: filterCalendarItems(accessibleItems, params.spaceId, params.calendarTagIds),
+    calendarWeather: await loadCalendarWeather(params.cookieHeader),
+  };
+};
+
+const loadSelectedItemState = async (params: {
+  selectedItemId: string;
+  itemsResult: ItemListResult;
+  spaceId: string;
+  userId: string;
+}): Promise<{ selectedItem: SpaceItem | null; selectedItemComments: SpaceComment[] }> => {
+  if (!params.selectedItemId) return { selectedItem: null, selectedItemComments: [] };
+
+  let selectedItem = params.itemsResult.items.find((item) => item.id === params.selectedItemId) ?? null;
+  if (!selectedItem) {
+    selectedItem = await spacesService.item.get({ id: params.selectedItemId });
+    if (selectedItem?.spaceId !== params.spaceId) selectedItem = null;
   }
+  if (!selectedItem) return { selectedItem: null, selectedItemComments: [] };
 
-  let selectedItem: SpaceItem | null = null;
-  let selectedItemComments: SpaceComment[] = [];
-  if (selectedItemId) {
-    selectedItem = itemsResult.items.find((item) => item.id === selectedItemId) ?? null;
-    if (!selectedItem) {
-      selectedItem = await spacesService.item.get({ id: selectedItemId });
-      if (selectedItem?.spaceId !== spaceId) selectedItem = null;
-    }
-    if (selectedItem) {
-      selectedItemComments = (
-        await spacesService.comment.list({
-          itemId: selectedItemId,
-          viewerUserId: params.user.id,
-        })
-      ).items;
-    }
-  }
+  const selectedItemComments = (
+    await spacesService.comment.list({
+      itemId: params.selectedItemId,
+      viewerUserId: params.userId,
+    })
+  ).items;
 
+  return { selectedItem, selectedItemComments };
+};
+
+const loadAccessEntries = async (params: { isAdmin: boolean; isSettingsMode: boolean; spaceId: string }) =>
+  params.isAdmin && params.isSettingsMode ? (await spacesService.access.list({ spaceId: params.spaceId })).items : [];
+
+const loadApiKeys = async (params: { isAdmin: boolean; isSettingsMode: boolean; spaceId: string }) =>
+  params.isAdmin && params.isSettingsMode ? spacesService.access.apiKeys.list({ spaceId: params.spaceId }) : [];
+
+const loadWorkspaceData = async (params: {
+  route: RouteState;
+  space: SpaceDetail;
+  permissions: { isAdmin: boolean; canWrite: boolean };
+  request: WorkspaceRequest;
+  calendarTagIds: string[];
+}) => {
+  const [accessEntries, apiKeys, itemsResult, kanbanBuckets, calendarState] = await Promise.all([
+    loadAccessEntries({
+      isAdmin: params.permissions.isAdmin,
+      isSettingsMode: params.route.isSettingsMode,
+      spaceId: params.request.spaceId,
+    }),
+    loadApiKeys({
+      isAdmin: params.permissions.isAdmin,
+      isSettingsMode: params.route.isSettingsMode,
+      spaceId: params.request.spaceId,
+    }),
+    loadListItems({
+      currentView: params.route.currentView,
+      spaceId: params.request.spaceId,
+      filter: params.route.filter,
+      userId: params.request.user.id,
+      dateConfig: params.request.dateConfig,
+    }),
+    loadKanbanBuckets({
+      currentView: params.route.currentView,
+      space: params.space,
+      spaceId: params.request.spaceId,
+      userId: params.request.user.id,
+      dateConfig: params.request.dateConfig,
+    }),
+    loadCalendarState({
+      currentView: params.route.currentView,
+      calendarViewParam: params.route.calendarViewParam,
+      calendarDateParam: params.route.calendarDateParam,
+      calendarTagIds: params.calendarTagIds,
+      spaceId: params.request.spaceId,
+      user: params.request.user,
+      dateConfig: params.request.dateConfig,
+      cookieHeader: params.request.cookieHeader,
+    }),
+  ]);
+
+  return { accessEntries, apiKeys, itemsResult, kanbanBuckets, calendarState };
+};
+
+const buildWorkspaceTitle = (space: SpaceDetail, isSettingsMode: boolean) => {
   const title: Array<{ title: string; href?: string }> = [
     { title: "Start", href: "/" },
     { title: "Spaces", href: "/app/spaces" },
     { title: space.name, href: `/app/spaces/${space.id}` },
   ];
   if (isSettingsMode) title.push({ title: "Settings" });
+  return title;
+};
+
+export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promise<SpacesWorkspaceState> => {
+  const route = resolveRouteState(params);
+
+  const space = await spacesService.space.getDetail({ id: params.spaceId });
+  if (!space) return { kind: "notFound", title: "Not found", message: "Space not found" };
+
+  const spaceTagIds = new Set(space.tags.map((tag) => tag.id));
+  const calendarTagIds = route.calendarTagIds.filter((tagId) => spaceTagIds.has(tagId));
+
+  const permissions = await resolvePermissions({ spaceId: params.spaceId, user: params.user });
+  if (!permissions) return { kind: "accessDenied", title: "Access denied", message: "You don't have access to this space" };
+
+  if (route.isSettingsMode && !permissions.canWrite) {
+    return {
+      kind: "accessDenied",
+      title: "Access denied",
+      message: "You don't have access to space settings",
+      redirectTo: `/app/spaces/${params.spaceId}`,
+    };
+  }
+
+  const { accessEntries, apiKeys, itemsResult, kanbanBuckets, calendarState } = await loadWorkspaceData({
+    route,
+    space,
+    permissions,
+    request: params,
+    calendarTagIds,
+  });
+
+  const selectedItemState = await loadSelectedItemState({
+    selectedItemId: route.selectedItemId,
+    itemsResult,
+    spaceId: params.spaceId,
+    userId: params.user.id,
+  });
 
   return {
     kind: "ok",
-    title,
+    title: buildWorkspaceTitle(space, route.isSettingsMode),
     currentUserId: params.user.id,
     space,
-    settings,
-    currentView,
-    currentPanelWidth,
-    hasOverride,
-    isSettingsMode,
-    isAdmin,
-    query: url.searchParams.toString(),
-    icalBaseUrl: `${url.protocol}//${url.host}`,
+    settings: route.settings,
+    currentView: route.currentView,
+    currentPanelWidth: route.currentPanelWidth,
+    hasOverride: route.hasOverride,
+    isSettingsMode: route.isSettingsMode,
+    isAdmin: permissions.isAdmin,
+    query: route.url.searchParams.toString(),
+    icalBaseUrl: `${route.url.protocol}//${route.url.host}`,
     itemsResult,
     kanbanBuckets,
-    completedColumnId,
-    calendarView,
-    calendarDate: calendarDate.toISOString(),
+    completedColumnId: space.columns.find((column) => column.isDone)?.id ?? space.columns[0]?.id ?? null,
+    calendarView: calendarState.calendarView,
+    calendarDate: calendarState.calendarDate.toISOString(),
     calendarTagIds,
-    calendarItems,
-    calendarWeather,
-    selectedItem,
-    selectedItemComments,
+    calendarItems: calendarState.calendarItems,
+    calendarWeather: calendarState.calendarWeather,
+    selectedItem: selectedItemState.selectedItem,
+    selectedItemComments: selectedItemState.selectedItemComments,
     accessEntries,
     apiKeys,
   };
