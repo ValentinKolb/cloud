@@ -1,5 +1,7 @@
 import { Layout } from "@valentinkolb/cloud/ssr";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { readDockWorkspaceStateCookie } from "@valentinkolb/cloud/ui";
+import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type {
   MetricQuery,
   MetricQueryPoint,
@@ -9,37 +11,15 @@ import type {
   PulseDashboardPanel,
   PulseDashboardSection,
   PulseDashboardWidget,
+  PulseInventory,
+  PulseMetricSeries,
+  PulseRecordedEvent,
+  PulseCurrentState,
 } from "../../contracts";
 import { ssr } from "../../config";
 import { pulseService } from "../../service";
 import PulseWorkspace from "../PulseWorkspace.island";
-
-type WorkspaceView = "dashboard" | "dashboard-edit" | "sources" | "explorer" | "activity-events" | "activity-states" | "activity-metrics";
-
-type WorkspaceRouteState = {
-  view: WorkspaceView;
-  dashboardId: string;
-  sourceId: string;
-};
-
-const readWorkspacePathState = (path: string, baseId: string): WorkspaceRouteState => {
-  const fallback: WorkspaceRouteState = { view: "dashboard", dashboardId: "", sourceId: "" };
-  if (!baseId) return fallback;
-  const marker = `/app/pulse/${baseId}`;
-  const start = path.indexOf(marker);
-  if (start < 0) return fallback;
-  const rest = path
-    .slice(start + marker.length)
-    .split("/")
-    .filter(Boolean);
-  if (rest[0] === "dashboards") return { view: rest[2] === "edit" ? "dashboard-edit" : "dashboard", dashboardId: rest[1] ?? "", sourceId: "" };
-  if (rest[0] === "sources") return { view: "sources", dashboardId: "", sourceId: rest[1] ?? "" };
-  if (rest[0] === "explorer" || rest[0] === "metric-explorer") return { view: "explorer", dashboardId: "", sourceId: "" };
-  if (rest[0] === "activity" && rest[1] === "states") return { view: "activity-states", dashboardId: "", sourceId: "" };
-  if (rest[0] === "activity" && rest[1] === "metrics") return { view: "activity-metrics", dashboardId: "", sourceId: "" };
-  if (rest[0] === "activity") return { view: "activity-events", dashboardId: "", sourceId: "" };
-  return fallback;
-};
+import { readActivityQueryState, readWorkspacePathState } from "../workspace/routes";
 
 const dashboardWidgetDescendants = (widget: PulseDashboardWidget): PulseDashboardWidget[] =>
   widget.kind === "card" ? [widget, ...widget.rows.flatMap((row) => row.cells.flatMap(dashboardWidgetDescendants))] : [widget];
@@ -73,6 +53,8 @@ const defaultMetricAggregation = (type: MetricType): MetricQuery["aggregation"] 
   return "latest";
 };
 
+const FOCUSED_PAGE_SIZE = 100;
+
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
   const url = new URL(c.req.raw.url);
@@ -102,18 +84,17 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   const routeState = readWorkspacePathState(url.pathname, baseResult.data.id);
-  const activityType = url.searchParams.get("type");
-  const activityQuery: { q?: string; type?: MetricType } = {
-    q: url.searchParams.get("q")?.trim() || undefined,
-    type:
-      activityType === "gauge" || activityType === "counter" || activityType === "histogram" || activityType === "summary"
-        ? activityType
-        : undefined,
+  const initialActivityQuery = readActivityQueryState(url.search);
+  const explorerDockState = readDockWorkspaceStateCookie(c.req.header("Cookie"), "pulse.query-explorer");
+  const activityQuery = {
+    q: initialActivityQuery.q || undefined,
+    type: initialActivityQuery.type || undefined,
   };
-  const [sourcesResult, metricsResult, activityMetricsResult, dashboardsResult, savedQueriesResult, eventsResult, statesResult] =
+  const [sourcesResult, metricsResult, inventoryResult, activityMetricsResult, dashboardsResult, savedQueriesResult, eventsResult, statesResult] =
     await Promise.all([
       pulseService.source.list(baseResult.data.id, user),
       pulseService.query.metrics(baseResult.data.id, user, {}),
+      pulseService.query.inventory(baseResult.data.id, user),
       pulseService.query.metrics(baseResult.data.id, user, activityQuery),
       pulseService.dashboard.list(baseResult.data.id, user),
       pulseService.savedQuery.list(baseResult.data.id, user),
@@ -122,19 +103,31 @@ export default ssr<AuthContext>(async (c) => {
     ]);
   const sources = sourcesResult.ok ? sourcesResult.data : [];
   const metrics = metricsResult.ok ? metricsResult.data : [];
+  const inventory: PulseInventory = inventoryResult.ok ? inventoryResult.data : { resources: [], metrics: [], events: [], states: [] };
   const activityMetrics = activityMetricsResult.ok ? activityMetricsResult.data : [];
   const dashboards = dashboardsResult.ok ? dashboardsResult.data : [];
   const selectedDashboard = dashboards.find((dashboard) => dashboard.id === routeState.dashboardId) ?? dashboards[0] ?? null;
   const selectedSource = sources.find((source) => source.id === routeState.sourceId) ?? null;
-  const selectedActivityMetricName = url.searchParams.get("metric") ?? "";
+  const selectedActivityMetricName = initialActivityQuery.metric;
   const selectedActivityMetric = activityMetrics.find((metric) => metric.name === selectedActivityMetricName) ?? null;
-  const [selectedSourceScrapesResult, selectedSourceTokensResult, selectedActivityMetricSeriesResult, selectedActivityMetricPointsResult] =
-    await Promise.all([
-      selectedSource ? pulseService.source.scrapes({ baseId: baseResult.data.id, sourceId: selectedSource.id, user }) : Promise.resolve(null),
-      selectedSource?.kind === "http_ingest"
-        ? pulseService.source.tokens.list({ baseId: baseResult.data.id, sourceId: selectedSource.id, user })
+  const [
+    selectedSourceScrapesResult,
+    selectedSourceApiKeysResult,
+    selectedActivityMetricSeriesResult,
+    selectedActivityMetricPointsResult,
+    focusedMetricSeriesResult,
+    focusedEventsResult,
+    focusedStatesResult,
+  ] = await Promise.all([
+      selectedSource
+        ? pulseService.source.scrapes({ baseId: baseResult.data.id, sourceId: selectedSource.id, user })
         : Promise.resolve(null),
-      selectedActivityMetric ? pulseService.query.series(baseResult.data.id, user, { metric: selectedActivityMetric.name }) : Promise.resolve(null),
+      selectedSource?.kind === "http_ingest"
+        ? pulseService.source.apiKeys.list({ baseId: baseResult.data.id, sourceId: selectedSource.id, user })
+        : Promise.resolve(null),
+      selectedActivityMetric
+        ? pulseService.query.series(baseResult.data.id, user, { metric: selectedActivityMetric.name })
+        : Promise.resolve(null),
       selectedActivityMetric
         ? pulseService.query.metric(
             {
@@ -148,9 +141,41 @@ export default ssr<AuthContext>(async (c) => {
             user,
           )
         : Promise.resolve(null),
+      routeState.view === "metric-detail" && routeState.signalId
+        ? pulseService.query.series(baseResult.data.id, user, {
+            metric: routeState.signalId,
+            q: url.searchParams.get("q")?.trim() || undefined,
+            limit: FOCUSED_PAGE_SIZE + 1,
+          })
+        : Promise.resolve(null),
+      routeState.view === "event-detail" && routeState.signalId
+        ? pulseService.query.recentEvents(baseResult.data.id, user, {
+            kind: routeState.signalId,
+            q: url.searchParams.get("q")?.trim() || undefined,
+            limit: FOCUSED_PAGE_SIZE + 1,
+          })
+        : Promise.resolve(null),
+      routeState.view === "state-detail" && routeState.signalId
+        ? pulseService.query.currentStates(baseResult.data.id, user, {
+            key: routeState.signalId,
+            q: url.searchParams.get("q")?.trim() || undefined,
+            limit: FOCUSED_PAGE_SIZE + 1,
+          })
+        : Promise.resolve(null),
     ]);
-  const initialSourceScrapes = selectedSourceScrapesResult?.ok && selectedSource ? { [selectedSource.id]: selectedSourceScrapesResult.data } : {};
-  const initialSourceTokens = selectedSourceTokensResult?.ok && selectedSource ? { [selectedSource.id]: selectedSourceTokensResult.data } : {};
+  const focusedMetricSeries: PulseMetricSeries[] = focusedMetricSeriesResult?.ok
+    ? focusedMetricSeriesResult.data.slice(0, FOCUSED_PAGE_SIZE)
+    : [];
+  const focusedEvents: PulseRecordedEvent[] = focusedEventsResult?.ok ? focusedEventsResult.data.slice(0, FOCUSED_PAGE_SIZE) : [];
+  const focusedStates: PulseCurrentState[] = focusedStatesResult?.ok ? focusedStatesResult.data.slice(0, FOCUSED_PAGE_SIZE) : [];
+  const focusedHasMore =
+    (focusedMetricSeriesResult?.ok && focusedMetricSeriesResult.data.length > FOCUSED_PAGE_SIZE) ||
+    (focusedEventsResult?.ok && focusedEventsResult.data.length > FOCUSED_PAGE_SIZE) ||
+    (focusedStatesResult?.ok && focusedStatesResult.data.length > FOCUSED_PAGE_SIZE);
+  const initialSourceScrapes =
+    selectedSourceScrapesResult?.ok && selectedSource ? { [selectedSource.id]: selectedSourceScrapesResult.data } : {};
+  const initialSourceApiKeys: Record<string, ResourceApiKey[]> =
+    selectedSourceApiKeysResult?.ok && selectedSource ? { [selectedSource.id]: selectedSourceApiKeysResult.data } : {};
   const panelPointsEntries =
     selectedDashboard && (routeState.view === "dashboard" || routeState.view === "dashboard-edit")
       ? await Promise.all(
@@ -173,18 +198,26 @@ export default ssr<AuthContext>(async (c) => {
         initialBaseId={baseResult.data.id}
         initialPath={url.pathname}
         initialSearch={url.search}
+        initialRouteState={routeState}
+        initialActivityQuery={initialActivityQuery}
         initialSources={sources}
         initialSourceScrapes={initialSourceScrapes}
-        initialSourceTokens={initialSourceTokens}
+        initialSourceApiKeys={initialSourceApiKeys}
         initialMetrics={metrics}
+        initialInventory={inventory}
         initialActivityMetrics={activityMetrics}
         initialRecentEvents={eventsResult.ok ? eventsResult.data : []}
         initialCurrentStates={statesResult.ok ? statesResult.data : []}
         initialActivityMetricSeries={selectedActivityMetricSeriesResult?.ok ? selectedActivityMetricSeriesResult.data : []}
         initialActivityMetricPoints={selectedActivityMetricPointsResult?.ok ? selectedActivityMetricPointsResult.data : []}
+        initialFocusedMetricSeries={focusedMetricSeries}
+        initialFocusedEvents={focusedEvents}
+        initialFocusedStates={focusedStates}
+        initialFocusedHasMore={focusedHasMore}
         initialDashboards={dashboards}
         initialSavedQueries={savedQueriesResult.ok ? savedQueriesResult.data : []}
         initialPanelPoints={Object.fromEntries(panelPointsEntries)}
+        initialExplorerDockState={explorerDockState}
       />
     </Layout>
   );

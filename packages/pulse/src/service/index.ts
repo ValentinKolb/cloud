@@ -1,4 +1,5 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import type { ServiceAccount, ServiceAccountCredential, User } from "@valentinkolb/cloud/contracts";
 import {
   err,
   fail,
@@ -9,7 +10,7 @@ import {
   type Principal,
   type Result,
 } from "@valentinkolb/cloud/server";
-import { decryptSecret, encryptSecret, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { decryptSecret, encryptSecret, serviceAccountCredentials, serviceAccounts, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { AGGREGATIONS, PANEL_VISUALS } from "../contracts";
 import { compileDashboardDsl } from "../dashboard-dsl";
@@ -39,12 +40,14 @@ import type {
   PulseMetricSummary,
   PulseMetric,
   PulseMetricSeries,
+  PulseInventory,
   PulseQueryCompileResult,
   PulsePublicDashboard,
   PulseRecordedEvent,
+  PulseResourceMetric,
+  PulseResourceSummary,
   PulseSavedQuery,
   PulseSource,
-  PulseSourceToken,
   PulseState,
   StateQuery,
   SourceKind,
@@ -52,6 +55,10 @@ import type {
   MetricQuery,
   MetricQueryPoint,
 } from "../contracts";
+
+const PULSE_APP_ID = "pulse";
+const PULSE_SOURCE_RESOURCE_TYPE = "pulse_source";
+const PULSE_INGEST_SCOPE = "pulse:ingest";
 
 type UserScope = {
   id: string;
@@ -151,13 +158,7 @@ type SourceScrapeRow = {
   error_message: string | null;
 };
 
-type SourceTokenRow = {
-  id: string;
-  source_id: string;
-  label: string;
-  created_at: Date | string;
-  last_used_at: Date | string | null;
-};
+export type PulseSourceApiKey = ServiceAccountCredential & { permission: PermissionLevel };
 
 const iso = (value: Date | string): string => (value instanceof Date ? value.toISOString() : new Date(value).toISOString());
 const isoNullable = (value: Date | string | null): string | null => (value ? iso(value) : null);
@@ -229,14 +230,6 @@ const mapSourceScrape = (row: SourceScrapeRow): PulseSourceScrape => ({
   errorMessage: row.error_message,
 });
 
-const mapSourceToken = (row: SourceTokenRow): PulseSourceToken => ({
-  id: row.id,
-  sourceId: row.source_id,
-  label: row.label,
-  createdAt: iso(row.created_at),
-  lastUsedAt: isoNullable(row.last_used_at),
-});
-
 const mapRecordedEvent = (row: RecordedEventRow): PulseRecordedEvent => ({
   id: row.id,
   kind: row.kind,
@@ -276,8 +269,6 @@ const metricSeriesKey = (params: { sourceId?: string | null; entityId?: string |
   [params.sourceId ?? "", params.entityId ?? "", params.dimensionsHash].join("\u001f");
 
 const tokenHash = (token: string): string => createHash("sha256").update(token).digest("hex");
-
-const generateIngestToken = (): string => randomBytes(32).toString("base64url");
 
 const normalizeEndpointUrl = (input: string | null | undefined): string | null => {
   const value = input?.trim();
@@ -371,7 +362,10 @@ const normalizeDashboardWidget = (widget: unknown): PulseDashboardWidget | null 
     const title = typeof value.title === "string" && value.title.trim() ? value.title.trim().slice(0, 160) : "";
     if (!title) return null;
     const rows = Array.isArray(value.rows)
-      ? value.rows.map(normalizeDashboardRow).filter((row): row is PulseDashboardRow => row !== null).slice(0, 24)
+      ? value.rows
+          .map(normalizeDashboardRow)
+          .filter((row): row is PulseDashboardRow => row !== null)
+          .slice(0, 24)
       : [];
     if (rows.length === 0) return null;
     const result: PulseDashboardCardWidget = {
@@ -392,7 +386,9 @@ const normalizeDashboardRow = (row: unknown): PulseDashboardRow | null => {
   if (typeof row !== "object" || row === null) return null;
   const value = row as Record<string, unknown>;
   if (value.kind !== "row") return null;
-  const cells = Array.isArray(value.cells) ? value.cells.map(normalizeDashboardWidget).filter((cell): cell is PulseDashboardWidget => cell !== null) : [];
+  const cells = Array.isArray(value.cells)
+    ? value.cells.map(normalizeDashboardWidget).filter((cell): cell is PulseDashboardWidget => cell !== null)
+    : [];
   if (cells.length === 0) return null;
   return {
     id: typeof value.id === "string" && value.id.trim() ? value.id.trim().slice(0, 80) : randomUUID(),
@@ -408,7 +404,9 @@ const normalizeDashboardSection = (section: unknown, depth = 0): PulseDashboardS
   if (value.kind !== "section") return null;
   const title = typeof value.title === "string" && value.title.trim() ? value.title.trim().slice(0, 160) : "";
   if (!title) return null;
-  const rows = Array.isArray(value.rows) ? value.rows.map(normalizeDashboardRow).filter((row): row is PulseDashboardRow => row !== null) : [];
+  const rows = Array.isArray(value.rows)
+    ? value.rows.map(normalizeDashboardRow).filter((row): row is PulseDashboardRow => row !== null)
+    : [];
   const sections = Array.isArray(value.sections)
     ? value.sections
         .map((item) => normalizeDashboardSection(item, depth + 1))
@@ -433,7 +431,9 @@ const normalizeDashboardLayout = (layout: unknown): PulseDashboardLayout | null 
   const value = layout as Record<string, unknown>;
   if (value.version !== 1) return null;
   const sections = Array.isArray(value.sections)
-    ? value.sections.map((section) => normalizeDashboardSection(section)).filter((section): section is PulseDashboardSection => section !== null)
+    ? value.sections
+        .map((section) => normalizeDashboardSection(section))
+        .filter((section): section is PulseDashboardSection => section !== null)
     : [];
   if (sections.length === 0) return null;
   const result: PulseDashboardLayout = { version: 1, sections: sections.slice(0, 24) };
@@ -450,7 +450,10 @@ const normalizeDashboardConfig = (config: unknown): PulseDashboardConfig => {
       : {};
   const panels = Array.isArray(raw.panels) ? raw.panels : [];
   const result: PulseDashboardConfig = {
-    panels: panels.map(normalizeDashboardPanel).filter((panel): panel is PulseDashboardPanel => panel !== null).slice(0, 24),
+    panels: panels
+      .map(normalizeDashboardPanel)
+      .filter((panel): panel is PulseDashboardPanel => panel !== null)
+      .slice(0, 24),
   };
   if (typeof raw.dsl === "string" && raw.dsl.trim()) result.dsl = raw.dsl.trim().slice(0, 40_000);
   const refreshIntervalSeconds = normalizeRefreshInterval(raw.refreshIntervalSeconds);
@@ -915,7 +918,6 @@ const createSource = async (params: {
       name,
       endpoint_url,
       bearer_token_encrypted,
-      ingest_token_hash,
       scrape_interval_seconds
     )
     VALUES (
@@ -924,7 +926,6 @@ const createSource = async (params: {
       ${params.name.trim()},
       ${endpointUrl},
       ${encryptedBearer},
-      ${null}::text,
       ${params.scrapeIntervalSeconds ?? null}
     )
     RETURNING *
@@ -994,45 +995,14 @@ const updateSource = async (params: {
   return ok(mapSource(row));
 };
 
-const rotateSourceIngestToken = async (params: {
-  baseId: string;
-  sourceId: string;
-  user: UserScope;
-}): Promise<Result<{ source: PulseSource; ingestToken: string }>> => {
-  const created = await createSourceToken({ ...params, label: "Setup token" });
-  if (!created.ok) return fail(created.error);
-  return ok({ source: created.data.source, ingestToken: created.data.ingestToken });
+const sourceApiKeyPermission = (scopes: string[]): PermissionLevel => {
+  if (scopes.includes("admin")) return "admin";
+  if (scopes.includes("write") || scopes.includes(PULSE_INGEST_SCOPE)) return "write";
+  if (scopes.includes("read")) return "read";
+  return "none";
 };
 
-const listSourceTokens = async (params: {
-  baseId: string;
-  sourceId: string;
-  user: UserScope;
-}): Promise<Result<PulseSourceToken[]>> => {
-  const access = await requireBaseAccess(params.baseId, params.user, "read");
-  if (!access.ok) return fail(access.error);
-  const rows = await sql<SourceTokenRow[]>`
-    SELECT st.*
-    FROM pulse.source_tokens st
-    JOIN pulse.sources s ON s.id = st.source_id
-    WHERE s.id = ${params.sourceId}::uuid
-      AND s.base_id = ${params.baseId}::uuid
-      AND s.kind = 'http_ingest'::pulse.source_kind
-    ORDER BY st.created_at DESC
-  `;
-  return ok(rows.map(mapSourceToken));
-};
-
-const createSourceToken = async (params: {
-  baseId: string;
-  sourceId: string;
-  user: UserScope;
-  label: string;
-}): Promise<Result<{ source: PulseSource; token: PulseSourceToken; ingestToken: string }>> => {
-  const access = await requireBaseAccess(params.baseId, params.user, "write");
-  if (!access.ok) return fail(access.error);
-  const label = params.label.trim();
-  if (!label) return fail(err.badInput("Token label is required"));
+const ensureHttpIngestSource = async (params: { baseId: string; sourceId: string }): Promise<Result<PulseSource>> => {
   const [source] = await sql<SourceRow[]>`
     SELECT *
     FROM pulse.sources
@@ -1040,55 +1010,107 @@ const createSourceToken = async (params: {
       AND base_id = ${params.baseId}::uuid
       AND kind = 'http_ingest'::pulse.source_kind
   `;
-  if (!source) return fail(err.notFound("Ingest source"));
-  const ingestToken = generateIngestToken();
-  const [row] = await sql<SourceTokenRow[]>`
-    INSERT INTO pulse.source_tokens (source_id, label, token_hash)
-    VALUES (${params.sourceId}::uuid, ${label}, ${tokenHash(ingestToken)})
-    RETURNING *
-  `;
-  if (!row) return fail(err.internal("Failed to create ingest token"));
-  return ok({ source: mapSource(source), token: mapSourceToken(row), ingestToken });
+  return source ? ok(mapSource(source)) : fail(err.notFound("Ingest source"));
 };
 
-const removeSourceToken = async (params: {
+const listSourceApiKeys = async (params: { baseId: string; sourceId: string; user: UserScope }): Promise<Result<PulseSourceApiKey[]>> => {
+  const access = await requireBaseAccess(params.baseId, params.user, "admin");
+  if (!access.ok) return fail(access.error);
+  const source = await ensureHttpIngestSource({ baseId: params.baseId, sourceId: params.sourceId });
+  if (!source.ok) return fail(source.error);
+
+  const keys = await serviceAccountCredentials.listOverview({
+    pagination: { page: 1, perPage: 500 },
+    filter: {
+      serviceAccountKind: "resource_bound",
+      credentialStatus: "active",
+      appId: PULSE_APP_ID,
+      resourceType: PULSE_SOURCE_RESOURCE_TYPE,
+      resourceId: params.sourceId,
+    },
+  });
+
+  return ok(
+    keys.items.map((item) => {
+      const { serviceAccount: _serviceAccount, owner: _owner, ...credential } = item;
+      return { ...credential, permission: sourceApiKeyPermission(credential.scopes) };
+    }),
+  );
+};
+
+const createSourceApiKey = async (params: {
   baseId: string;
   sourceId: string;
-  tokenId: string;
-  user: UserScope;
-}): Promise<Result<void>> => {
-  const access = await requireBaseAccess(params.baseId, params.user, "write");
+  user: User;
+  name: string;
+  expiresAt?: string | null;
+  permission: Exclude<PermissionLevel, "none">;
+}): Promise<Result<{ credential: PulseSourceApiKey; token: string }>> => {
+  const access = await requireBaseAccess(params.baseId, params.user, "admin");
   if (!access.ok) return fail(access.error);
-  const result = await sql`
-    DELETE FROM pulse.source_tokens st
-    USING pulse.sources s
-    WHERE st.id = ${params.tokenId}::uuid
-      AND st.source_id = s.id
-      AND s.id = ${params.sourceId}::uuid
-      AND s.base_id = ${params.baseId}::uuid
-      AND s.kind = 'http_ingest'::pulse.source_kind
-  `;
-  if ((result.count ?? 0) === 0) return fail(err.notFound("Ingest token"));
-  return ok();
+  const source = await ensureHttpIngestSource({ baseId: params.baseId, sourceId: params.sourceId });
+  if (!source.ok) return fail(source.error);
+  const name = params.name.trim();
+  if (!name) return fail(err.badInput("API key name is required"));
+
+  const serviceAccount = await serviceAccounts.getOrCreateResourceBound({
+    name: `${source.data.name} ingest API keys`,
+    appId: PULSE_APP_ID,
+    resourceType: PULSE_SOURCE_RESOURCE_TYPE,
+    resourceId: params.sourceId,
+    createdBy: params.user.id,
+  });
+  if (!serviceAccount.ok) return fail(serviceAccount.error);
+
+  const created = await serviceAccountCredentials.createResourceApiToken({
+    serviceAccountId: serviceAccount.data.id,
+    actor: params.user,
+    name,
+    expiresAt: params.expiresAt ?? null,
+    scopes: [PULSE_INGEST_SCOPE, params.permission],
+  });
+  if (!created.ok) return fail(created.error);
+
+  return ok({
+    credential: {
+      ...created.data.credential,
+      permission: sourceApiKeyPermission(created.data.credential.scopes),
+    },
+    token: created.data.token,
+  });
 };
 
-const getSourceByToken = async (token: string): Promise<{ id: string; baseId: string; tokenId?: string } | null> => {
-  const hash = tokenHash(token);
-  const [tokenRow] = await sql<{ token_id: string; id: string; base_id: string }[]>`
-    SELECT st.id AS token_id, s.id, s.base_id
-    FROM pulse.source_tokens st
-    JOIN pulse.sources s ON s.id = st.source_id
-    WHERE st.token_hash = ${hash}
-      AND s.enabled = TRUE
-  `;
-  if (tokenRow) return { id: tokenRow.id, baseId: tokenRow.base_id, tokenId: tokenRow.token_id };
-  const [row] = await sql<{ id: string; base_id: string }[]>`
+const removeSourceApiKey = async (params: {
+  baseId: string;
+  sourceId: string;
+  credentialId: string;
+  user: User;
+}): Promise<Result<void>> => {
+  const access = await requireBaseAccess(params.baseId, params.user, "admin");
+  if (!access.ok) return fail(access.error);
+  const keys = await listSourceApiKeys(params);
+  if (!keys.ok) return fail(keys.error);
+  if (!keys.data.some((key) => key.id === params.credentialId)) return fail(err.notFound("API key"));
+  return serviceAccountCredentials.revoke({ credentialId: params.credentialId, actor: params.user });
+};
+
+const resolveIngestSourceForServiceAccount = async (serviceAccount: ServiceAccount): Promise<Result<{ id: string; baseId: string }>> => {
+  if (
+    serviceAccount.kind !== "resource_bound" ||
+    serviceAccount.appId !== PULSE_APP_ID ||
+    serviceAccount.resourceType !== PULSE_SOURCE_RESOURCE_TYPE ||
+    !serviceAccount.resourceId
+  ) {
+    return fail(err.forbidden("API key is not bound to a Pulse ingest source"));
+  }
+  const [source] = await sql<{ id: string; base_id: string }[]>`
     SELECT id, base_id
     FROM pulse.sources
-    WHERE ingest_token_hash = ${hash}
+    WHERE id = ${serviceAccount.resourceId}::uuid
+      AND kind = 'http_ingest'::pulse.source_kind
       AND enabled = TRUE
   `;
-  return row ? { id: row.id, baseId: row.base_id } : null;
+  return source ? ok({ id: source.id, baseId: source.base_id }) : fail(err.notFound("Ingest source"));
 };
 
 const resolveMetricSeries = async (params: {
@@ -1278,16 +1300,17 @@ const ingestBatch = async (params: {
   return ok({ metrics, events, states });
 };
 
-const ingestByToken = async (params: {
-  token: string;
+const ingestByApiKey = async (params: {
+  serviceAccount: ServiceAccount;
+  scopes: string[];
   batch: PulseIngestBatch;
 }): Promise<Result<{ metrics: number; events: number; states: number }>> => {
-  const source = await getSourceByToken(params.token);
-  if (!source) return fail(err.notFound("Ingest source"));
-  if (source.tokenId) {
-    await sql`UPDATE pulse.source_tokens SET last_used_at = now() WHERE id = ${source.tokenId}::uuid`;
+  if (!params.scopes.includes(PULSE_INGEST_SCOPE) && !params.scopes.includes("write") && !params.scopes.includes("admin")) {
+    return fail(err.forbidden("API key cannot ingest Pulse data"));
   }
-  return ingestBatch({ baseId: source.baseId, sourceId: source.id, batch: params.batch });
+  const source = await resolveIngestSourceForServiceAccount(params.serviceAccount);
+  if (!source.ok) return fail(source.error);
+  return ingestBatch({ baseId: source.data.baseId, sourceId: source.data.id, batch: params.batch });
 };
 
 const markSourceError = async (params: { baseId: string; sourceId: string; message: string | null }): Promise<void> => {
@@ -1387,12 +1410,15 @@ const listMetrics = async (
 const listMetricSeries = async (
   baseId: string,
   user: UserScope,
-  params: { metric: string; sourceId?: string | null },
+  params: { metric: string; sourceId?: string | null; q?: string | null; limit?: number; offset?: number },
 ): Promise<Result<PulseMetricSeries[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
   const metric = params.metric.trim();
   if (!metric) return fail(err.badInput("Metric is required"));
+  const pattern = searchPattern(params.q);
+  const limit = Math.min(500, Math.max(1, params.limit ?? 500));
+  const offset = Math.max(0, params.offset ?? 0);
   const rows = await sql<
     {
       id: string;
@@ -1417,8 +1443,15 @@ const listMetricSeries = async (
     WHERE ms.base_id = ${baseId}::uuid
       AND md.name = ${metric}
       AND ms.source_id IS NOT DISTINCT FROM COALESCE(${params.sourceId ?? null}::uuid, ms.source_id)
+      AND (
+        ${pattern}::text IS NULL
+        OR ms.entity_id ILIKE ${pattern} ESCAPE '\\'
+        OR ms.entity_type ILIKE ${pattern} ESCAPE '\\'
+        OR ms.dimensions::text ILIKE ${pattern} ESCAPE '\\'
+      )
     ORDER BY ms.last_seen_at DESC NULLS LAST, ms.entity_id ASC NULLS LAST
-    LIMIT 500
+    LIMIT ${limit}
+    OFFSET ${offset}
   `;
   return ok(
     rows.map((row) => ({
@@ -1436,18 +1469,30 @@ const listMetricSeries = async (
 const listRecentEvents = async (
   baseId: string,
   user: UserScope,
-  params: { q?: string | null } = {},
+  params: { q?: string | null; kind?: string | null; sourceId?: string | null; limit?: number; offset?: number } = {},
 ): Promise<Result<PulseRecordedEvent[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
   const pattern = searchPattern(params.q);
+  const limit = Math.min(500, Math.max(1, params.limit ?? 500));
+  const offset = Math.max(0, params.offset ?? 0);
   const rows = await sql<RecordedEventRow[]>`
     SELECT id, kind, ts, value, source_id, entity_id, entity_type, dimensions, payload, recorded_at
     FROM pulse.events
     WHERE base_id = ${baseId}::uuid
-      AND (${pattern}::text IS NULL OR kind ILIKE ${pattern} ESCAPE '\\')
+      AND (${params.kind ?? null}::text IS NULL OR kind = ${params.kind ?? null})
+      AND (${params.sourceId ?? null}::uuid IS NULL OR source_id = ${params.sourceId ?? null}::uuid)
+      AND (
+        ${pattern}::text IS NULL
+        OR kind ILIKE ${pattern} ESCAPE '\\'
+        OR entity_id ILIKE ${pattern} ESCAPE '\\'
+        OR entity_type ILIKE ${pattern} ESCAPE '\\'
+        OR dimensions::text ILIKE ${pattern} ESCAPE '\\'
+        OR payload::text ILIKE ${pattern} ESCAPE '\\'
+      )
     ORDER BY ts DESC, recorded_at DESC
-    LIMIT 500
+    LIMIT ${limit}
+    OFFSET ${offset}
   `;
   return ok(rows.map(mapRecordedEvent));
 };
@@ -1455,20 +1500,213 @@ const listRecentEvents = async (
 const listCurrentStates = async (
   baseId: string,
   user: UserScope,
-  params: { q?: string | null } = {},
+  params: { q?: string | null; key?: string | null; sourceId?: string | null; limit?: number; offset?: number } = {},
 ): Promise<Result<PulseCurrentState[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
   const pattern = searchPattern(params.q);
+  const limit = Math.min(500, Math.max(1, params.limit ?? 500));
+  const offset = Math.max(0, params.offset ?? 0);
   const rows = await sql<CurrentStateRow[]>`
     SELECT state_key, value, source_id, entity_id, entity_type, dimensions, updated_at
     FROM pulse.states_current
     WHERE base_id = ${baseId}::uuid
-      AND (${pattern}::text IS NULL OR state_key ILIKE ${pattern} ESCAPE '\\')
+      AND (${params.key ?? null}::text IS NULL OR state_key = ${params.key ?? null})
+      AND (${params.sourceId ?? null}::uuid IS NULL OR source_id = ${params.sourceId ?? null}::uuid)
+      AND (
+        ${pattern}::text IS NULL
+        OR state_key ILIKE ${pattern} ESCAPE '\\'
+        OR entity_id ILIKE ${pattern} ESCAPE '\\'
+        OR entity_type ILIKE ${pattern} ESCAPE '\\'
+        OR dimensions::text ILIKE ${pattern} ESCAPE '\\'
+        OR value::text ILIKE ${pattern} ESCAPE '\\'
+      )
     ORDER BY updated_at DESC, state_key ASC
-    LIMIT 500
+    LIMIT ${limit}
+    OFFSET ${offset}
   `;
   return ok(rows.map(mapCurrentState));
+};
+
+type InventoryMetricRow = {
+  metric: string;
+  type: MetricType;
+  unit: string | null;
+  source_id: string | null;
+  entity_id: string | null;
+  entity_type: string | null;
+  dimensions: unknown;
+  last_seen_at: Date | string | null;
+};
+
+const resourceIdFrom = (params: { entityId?: string | null; sourceId?: string | null; dimensions: Record<string, string> }): string | null =>
+  params.entityId ??
+  params.dimensions.host ??
+  params.dimensions.instance ??
+  params.dimensions.node ??
+  params.dimensions.container ??
+  params.dimensions.compose_service ??
+  params.dimensions.service ??
+  params.sourceId ??
+  null;
+
+const resourceTypeFrom = (entityType: string | null | undefined, dimensions: Record<string, string>): string | null =>
+  entityType ?? (dimensions.container ? "container" : dimensions.host || dimensions.instance || dimensions.node ? "host" : null);
+
+const resourceKey = (type: string | null | undefined, id: string): string => `${type?.trim() || "resource"}:${id}`;
+
+const mergeResourceDimensions = (current: Record<string, string>, next: Record<string, string>): Record<string, string> => {
+  const merged = { ...current };
+  for (const [key, value] of Object.entries(next)) {
+    if (key in merged) continue;
+    merged[key] = value;
+    if (Object.keys(merged).length >= 8) break;
+  }
+  return merged;
+};
+
+const maxIsoNullable = (left: string | null, right: string | null): string | null => {
+  if (!left) return right;
+  if (!right) return left;
+  return Date.parse(right) > Date.parse(left) ? right : left;
+};
+
+const listInventory = async (baseId: string, user: UserScope): Promise<Result<PulseInventory>> => {
+  const access = await requireBaseAccess(baseId, user, "read");
+  if (!access.ok) return fail(access.error);
+
+  const [metricRows, eventRows, stateRows] = await Promise.all([
+    sql<InventoryMetricRow[]>`
+      SELECT
+        md.name AS metric,
+        md.type,
+        md.unit,
+        ms.source_id,
+        ms.entity_id,
+        ms.entity_type,
+        ms.dimensions,
+        ms.last_seen_at
+      FROM pulse.metric_series ms
+      JOIN pulse.metric_defs md ON md.id = ms.metric_id
+      WHERE ms.base_id = ${baseId}::uuid
+      ORDER BY ms.last_seen_at DESC NULLS LAST, md.name ASC
+      LIMIT 5000
+    `,
+    sql<RecordedEventRow[]>`
+      SELECT id, kind, ts, value, source_id, entity_id, entity_type, dimensions, payload, recorded_at
+      FROM pulse.events
+      WHERE base_id = ${baseId}::uuid
+      ORDER BY ts DESC, recorded_at DESC
+      LIMIT 1000
+    `,
+    sql<CurrentStateRow[]>`
+      SELECT state_key, value, source_id, entity_id, entity_type, dimensions, updated_at
+      FROM pulse.states_current
+      WHERE base_id = ${baseId}::uuid
+      ORDER BY updated_at DESC, state_key ASC
+      LIMIT 5000
+    `,
+  ]);
+
+  const resources = new Map<string, PulseResourceSummary & { metricNames: Set<string> }>();
+  const ensureResource = (params: {
+    entityId?: string | null;
+    entityType?: string | null;
+    sourceId?: string | null;
+    dimensions: Record<string, string>;
+    lastSeenAt: string | null;
+  }) => {
+    const id = resourceIdFrom(params);
+    if (!id) return null;
+    const type = resourceTypeFrom(params.entityType, params.dimensions);
+    const key = resourceKey(type, id);
+    const current =
+      resources.get(key) ??
+      ({
+        key,
+        id,
+        type,
+        sourceIds: [],
+        metricSeriesCount: 0,
+        metricCount: 0,
+        eventCount: 0,
+        stateCount: 0,
+        lastSeenAt: null,
+        dimensions: {},
+        metricNames: new Set<string>(),
+      } satisfies PulseResourceSummary & { metricNames: Set<string> });
+    if (!current.type && type) current.type = type;
+    if (params.sourceId && !current.sourceIds.includes(params.sourceId)) current.sourceIds.push(params.sourceId);
+    current.lastSeenAt = maxIsoNullable(current.lastSeenAt, params.lastSeenAt);
+    current.dimensions = mergeResourceDimensions(current.dimensions, params.dimensions);
+    resources.set(key, current);
+    return current;
+  };
+
+  const metrics: PulseResourceMetric[] = [];
+  for (const row of metricRows) {
+    const dimensions = normalizeDimensions(parseJsonObject(row.dimensions));
+    const lastSeenAt = isoNullable(row.last_seen_at);
+    const resource = ensureResource({
+      entityId: row.entity_id,
+      entityType: row.entity_type,
+      sourceId: row.source_id,
+      dimensions,
+      lastSeenAt,
+    });
+    if (!resource) continue;
+    resource.metricSeriesCount += 1;
+    resource.metricNames.add(row.metric);
+    resource.metricCount = resource.metricNames.size;
+    metrics.push({
+      resourceKey: resource.key,
+      resourceId: resource.id,
+      resourceType: resource.type,
+      metric: row.metric,
+      type: row.type,
+      unit: row.unit,
+      sourceId: row.source_id,
+      dimensions,
+      lastSeenAt,
+    });
+  }
+
+  const events = eventRows.map(mapRecordedEvent);
+  for (const event of events) {
+    const resource = ensureResource({
+      entityId: event.entityId,
+      entityType: event.entityType,
+      sourceId: event.sourceId,
+      dimensions: event.dimensions,
+      lastSeenAt: event.ts,
+    });
+    if (resource) resource.eventCount += 1;
+  }
+
+  const states = stateRows.map(mapCurrentState);
+  for (const state of states) {
+    const resource = ensureResource({
+      entityId: state.entityId,
+      entityType: state.entityType,
+      sourceId: state.sourceId,
+      dimensions: state.dimensions,
+      lastSeenAt: state.updatedAt,
+    });
+    if (resource) resource.stateCount += 1;
+  }
+
+  return ok({
+    resources: [...resources.values()]
+      .map(({ metricNames: _metricNames, ...resource }) => resource)
+      .sort((left, right) => {
+        const leftCount = left.metricSeriesCount + left.stateCount + left.eventCount;
+        const rightCount = right.metricSeriesCount + right.stateCount + right.eventCount;
+        return rightCount - leftCount || left.id.localeCompare(right.id);
+      }),
+    metrics,
+    events,
+    states,
+  });
 };
 
 const unescapePrometheusLabelValue = (value: string): string =>
@@ -1884,7 +2122,11 @@ const compilePulseQueryText = (baseId: string, text: string): Result<PulseExplor
   return fail(err.badInput('Query must start with "metric", "events", or "states"'));
 };
 
-const compileDashboardDslText = async (params: { baseId: string; text: string; user: UserScope }): Promise<Result<PulseDashboardDslCompileResult>> => {
+const compileDashboardDslText = async (params: {
+  baseId: string;
+  text: string;
+  user: UserScope;
+}): Promise<Result<PulseDashboardDslCompileResult>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "read");
   if (!access.ok) return fail(access.error);
   const compiled = compileDashboardDsl(params.text, (query) => {
@@ -2147,7 +2389,9 @@ const queryMetricText = async (params: {
   baseId: string;
   query: string;
   user: UserScope;
-}): Promise<Result<{ compiled: PulseExplorerQuery; points: MetricQueryPoint[]; events: PulseRecordedEvent[]; states: PulseCurrentState[] }>> => {
+}): Promise<
+  Result<{ compiled: PulseExplorerQuery; points: MetricQueryPoint[]; events: PulseRecordedEvent[]; states: PulseCurrentState[] }>
+> => {
   const compiled = compilePulseQueryText(params.baseId, params.query);
   if (!compiled.ok) return fail(compiled.error);
   if (compiled.data.kind === "metric") {
@@ -2254,14 +2498,13 @@ export const pulseService = {
   source: {
     list: listSources,
     scrapes: listSourceScrapes,
-    tokens: {
-      list: listSourceTokens,
-      create: createSourceToken,
-      remove: removeSourceToken,
+    apiKeys: {
+      list: listSourceApiKeys,
+      create: createSourceApiKey,
+      remove: removeSourceApiKey,
     },
     create: createSource,
     update: updateSource,
-    rotateIngestToken: rotateSourceIngestToken,
     remove: removeSource,
     scrape: scrapeSource,
   },
@@ -2282,7 +2525,7 @@ export const pulseService = {
   },
   ingest: {
     batch: ingestBatch,
-    byToken: ingestByToken,
+    byApiKey: ingestByApiKey,
     metric: recordMetric,
     event: recordEvent,
     state: setState,
@@ -2296,6 +2539,7 @@ export const pulseService = {
     series: listMetricSeries,
     recentEvents: listRecentEvents,
     currentStates: listCurrentStates,
+    inventory: listInventory,
   },
   capabilities,
 };

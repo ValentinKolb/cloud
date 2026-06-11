@@ -53,7 +53,6 @@ export const migrate = async (): Promise<void> => {
       enabled BOOLEAN NOT NULL DEFAULT true,
       endpoint_url TEXT,
       bearer_token_encrypted TEXT,
-      ingest_token_hash TEXT UNIQUE,
       scrape_interval_seconds INTEGER,
       config JSONB NOT NULL DEFAULT '{}'::jsonb,
       last_seen_at TIMESTAMPTZ,
@@ -67,20 +66,9 @@ export const migrate = async (): Promise<void> => {
   await sql`ALTER TABLE pulse.sources ADD COLUMN IF NOT EXISTS last_error TEXT`.simple();
   await sql`ALTER TABLE pulse.sources ADD COLUMN IF NOT EXISTS last_error_at TIMESTAMPTZ`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_sources_base ON pulse.sources(base_id, kind)`.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_sources_ingest_token ON pulse.sources(ingest_token_hash) WHERE ingest_token_hash IS NOT NULL`.simple();
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS pulse.source_tokens (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      source_id UUID NOT NULL REFERENCES pulse.sources(id) ON DELETE CASCADE,
-      label TEXT NOT NULL,
-      token_hash TEXT NOT NULL UNIQUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      last_used_at TIMESTAMPTZ
-    )
-  `.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_source_tokens_source ON pulse.source_tokens(source_id, created_at DESC)`.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_source_tokens_hash ON pulse.source_tokens(token_hash)`.simple();
+  await sql`DROP INDEX IF EXISTS pulse.idx_pulse_sources_ingest_token`.simple();
+  await sql`ALTER TABLE pulse.sources DROP COLUMN IF EXISTS ingest_token_hash`.simple();
+  await sql`DROP TABLE IF EXISTS pulse.source_tokens`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.source_scrapes (

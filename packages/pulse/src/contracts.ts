@@ -55,14 +55,6 @@ export type PulseSourceScrape = {
   errorMessage: string | null;
 };
 
-export type PulseSourceToken = {
-  id: string;
-  sourceId: string;
-  label: string;
-  createdAt: string;
-  lastUsedAt: string | null;
-};
-
 export type PulseMetric = {
   name: string;
   value: number;
@@ -144,6 +136,38 @@ export type PulseMetricSeries = {
   entityType: string | null;
   dimensions: Record<string, string>;
   lastSeenAt: string | null;
+};
+
+export type PulseResourceSummary = {
+  key: string;
+  id: string;
+  type: string | null;
+  sourceIds: string[];
+  metricSeriesCount: number;
+  metricCount: number;
+  eventCount: number;
+  stateCount: number;
+  lastSeenAt: string | null;
+  dimensions: Record<string, string>;
+};
+
+export type PulseResourceMetric = {
+  resourceKey: string;
+  resourceId: string;
+  resourceType: string | null;
+  metric: string;
+  type: MetricType;
+  unit: string | null;
+  sourceId: string | null;
+  dimensions: Record<string, string>;
+  lastSeenAt: string | null;
+};
+
+export type PulseInventory = {
+  resources: PulseResourceSummary[];
+  metrics: PulseResourceMetric[];
+  events: PulseRecordedEvent[];
+  states: PulseCurrentState[];
 };
 
 export type PulseCapabilitySnapshot = {

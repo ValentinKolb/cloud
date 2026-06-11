@@ -1,5 +1,6 @@
 import { fuzzy } from "@valentinkolb/stdlib";
 import { AppWorkspace, CopyButton, DataTable, DocCode, DocInlineCode, DocNote, DocPage, DocSection, TextInput, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { navigate } from "@valentinkolb/ssr/nav";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { PulseCurrentState, PulseMetricSeries, PulseMetricSummary, PulseRecordedEvent, PulseSource } from "../contracts";
 import { buildPulseQuery, pulseQueryHighlight } from "./query-authoring";
@@ -44,7 +45,7 @@ const writeTabParam = (tab: ReferenceTab) => {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
   url.searchParams.set("tab", tab);
-  window.history.replaceState(null, "", url);
+  navigate(`${url.pathname}${url.search}`, { replace: true, scroll: "preserve", viewTransition: false });
 };
 
 const formatPulseQuery = (query: string): string =>

@@ -4,6 +4,7 @@ import {
   Chart,
   DataTable,
   dialogCore,
+  DockWorkspace,
   FilterChip,
   MarkdownView,
   NumberInput,
@@ -17,11 +18,10 @@ import {
   TextInput,
   toast,
   type DataTableColumn,
-  type FilterChipSection,
+  type ResourceApiKey,
 } from "@valentinkolb/cloud/ui";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import { markdown } from "@valentinkolb/cloud/shared";
-import { formatTimeSpan } from "@valentinkolb/stdlib";
 import { clipboard } from "@valentinkolb/stdlib/browser";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import type {
@@ -42,394 +42,106 @@ import type {
   PulseDashboardSection,
   PulseDashboardWidget,
   PulseExplorerQuery,
+  PulseInventory,
   PulseMetricSummary,
   PulseMetricSeries,
   PulseQueryCompileResult,
   PulseRecordedEvent,
+  PulseResourceMetric,
+  PulseResourceSummary,
   PulseSavedQuery,
   PulseSource,
-  PulseSourceToken,
   PulseSourceScrape,
   MetricQuery,
   MetricQueryPoint,
 } from "../contracts";
 import PulseLayoutHelp from "./PulseLayoutHelp";
 import { buildPulseQuery, buildPulseQueryCompletions, defaultPulseQuery, pulseQueryHighlight } from "./query-authoring";
+import { ActivityEventDetail, ActivityMetricDetail, ActivityStateDetail } from "./workspace/ActivityDetails";
+import { FocusedEventDetail, FocusedMetricSeriesDetail, FocusedStateDetail } from "./workspace/FocusedSignalDetails";
+import PulseSidebar from "./workspace/PulseSidebar";
+import ResourceBrowserView from "./workspace/ResourceBrowserView";
+import SourceDetailView from "./workspace/SourceDetailView";
+import { navigatePulseWorkspace, replacePulseWorkspaceUrl } from "./workspace/navigation";
+import { buildPulseWorkspaceHref } from "./workspace/routes";
+import {
+  DASHBOARD_REFRESH_OPTIONS,
+  FOCUSED_PAGE_SIZE,
+  METRIC_TYPE_FILTER_OPTIONS,
+  RESULT_VIEW_OPTIONS,
+  SOURCE_TYPE_OPTIONS,
+  VISUAL_OPTIONS,
+  compactDate,
+  compactDateWithDelta,
+  dashboardLayoutWidgets,
+  dashboardMetricPanels,
+  dashboardToDsl,
+  dimensionsSummary,
+  eventGroupId,
+  formatIngestCounts,
+  formatSignalValue,
+  formatValue,
+  gaugeMax,
+  jsonFetch,
+  normalizeEndpointInput,
+  openQueryReferenceWindow,
+  panelQuery,
+  parseScrapeInterval,
+  plural,
+  pointsToBars,
+  pointsToHeatmap,
+  pointsToHistogram,
+  queryPointColumns,
+  quoteDashboardDslString,
+  quoteQueryPart,
+  readActivityQueryState,
+  readQueryHistory,
+  refreshIntervalFromOption,
+  refreshOptionFromConfig,
+  seriesLabel,
+  signalResourceKey,
+  signalSubject,
+  sourceKindIcon,
+  sourceStatus,
+  stateGroupId,
+  stateRowId,
+  suggestionTagClass,
+  writeQueryHistory,
+} from "./workspace/helpers";
+import type {
+  ActivityEventGroup,
+  ActivityStateGroup,
+  BrowseEntity,
+  CreateSourceInput,
+  ExplorerResultView,
+  GrantableLevel,
+  MetricTextQueryResult,
+  PulseWorkspaceProps,
+  QueryHistoryEntry,
+  RefreshIntervalOption,
+  SourceKind,
+  WorkspaceView,
+} from "./workspace/types";
 
-type MetricTextQueryResult = {
-  compiled: PulseExplorerQuery;
-  points: MetricQueryPoint[];
-  events: PulseRecordedEvent[];
-  states: PulseCurrentState[];
-};
-type WorkspaceView = "dashboard" | "dashboard-edit" | "sources" | "explorer" | "activity-events" | "activity-states" | "activity-metrics";
-type SourceKind = "metrics" | "http_ingest";
-type GrantableLevel = Exclude<PermissionLevel, "none">;
-type ExplorerResultView = "chart" | "table" | "compiled";
-type QueryHistoryEntry = { query: string; ranAt: string };
-type RefreshIntervalOption = "1" | "5" | "10" | "60" | "never";
-type CreateSourceInput = {
-  kind: SourceKind;
-  name: string;
-  endpointUrl?: string;
-  bearerToken?: string;
-  scrapeIntervalSeconds?: number;
-};
-
-type Props = {
-  initialBases: PulseBase[];
-  initialCapabilities: PulseCapabilitySnapshot | null;
-  initialBaseId?: string | null;
-  initialPath?: string;
-  initialSearch?: string;
-  initialSources?: PulseSource[];
-  initialSourceScrapes?: Record<string, PulseSourceScrape[]>;
-  initialSourceTokens?: Record<string, PulseSourceToken[]>;
-  initialMetrics?: PulseMetricSummary[];
-  initialActivityMetrics?: PulseMetricSummary[];
-  initialSeries?: PulseMetricSeries[];
-  initialRecentEvents?: PulseRecordedEvent[];
-  initialCurrentStates?: PulseCurrentState[];
-  initialActivityMetricSeries?: PulseMetricSeries[];
-  initialActivityMetricPoints?: MetricQueryPoint[];
-  initialDashboards?: PulseDashboard[];
-  initialSavedQueries?: PulseSavedQuery[];
-  initialPanelPoints?: Record<string, MetricQueryPoint[]>;
-};
-
-const readError = async (response: Response, fallback: string): Promise<string> => {
-  const body = await response.json().catch(() => null);
-  if (body && typeof body === "object" && "message" in body && typeof body.message === "string") return body.message;
-  return fallback;
-};
-
-const jsonFetch = async <T,>(url: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
-  if (!response.ok) throw new Error(await readError(response, "Request failed"));
-  if (response.status === 204) return undefined as T;
-  const text = await response.text();
-  if (!text.trim()) return undefined as T;
-  const contentType = response.headers.get("Content-Type") ?? "";
-  if (!contentType.includes("application/json")) return undefined as T;
-  return JSON.parse(text) as T;
-};
-
-const compactDate = (value: string) =>
-  new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-
-const compactDay = (value: string) =>
-  new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "2-digit",
-  }).format(new Date(value));
-
-const compactDateWithDelta = (value: string) => `${compactDate(value)} (${formatTimeSpan(value)})`;
-
-const normalizeEndpointInput = (value: string): string => (/^https?:\/\//i.test(value.trim()) ? value.trim() : `https://${value.trim()}`);
-
-const openQueryReferenceWindow = (baseId: string | null | undefined, options: { dashboardDsl?: boolean } = {}) => {
-  if (!baseId || typeof window === "undefined") return;
-  const params = options.dashboardDsl ? "?dashboardDsl=1" : "";
-  window.open(`/app/pulse/${encodeURIComponent(baseId)}/query-reference${params}`, "pulse-query-reference", "popup,width=1180,height=840,resizable=yes,scrollbars=yes");
-};
-
-const formatIngestCounts = (counts: { metrics: number; events: number; states: number }): string =>
-  [
-    `${counts.metrics} metric${counts.metrics === 1 ? "" : "s"}`,
-    `${counts.events} event${counts.events === 1 ? "" : "s"}`,
-    `${counts.states} state${counts.states === 1 ? "" : "s"}`,
-  ].join(", ");
-
-const plural = (count: number, singular: string, pluralLabel = `${singular}s`) => `${count} ${count === 1 ? singular : pluralLabel}`;
-const suggestionTagClass =
-  "chip max-w-full cursor-pointer border-0 transition hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900 dark:hover:text-blue-200";
-
-const parseScrapeInterval = (value: string | null | undefined): number => {
-  const parsed = Number(value?.trim() || "60");
-  if (!Number.isFinite(parsed)) return 60;
-  return Math.min(86_400, Math.max(10, Math.round(parsed)));
-};
-
-type WorkspaceRouteState = {
-  view: WorkspaceView;
-  dashboardId: string;
-  sourceId: string;
-};
-
-type ActivityQueryState = {
-  q: string;
-  type: "" | MetricType;
-  eventId: string;
-  stateId: string;
-  metric: string;
-};
-
-const emptyActivityQueryState = (): ActivityQueryState => ({ q: "", type: "", eventId: "", stateId: "", metric: "" });
-
-const readActivityQueryState = (search?: string): ActivityQueryState => {
-  if (search === undefined && typeof window === "undefined") return emptyActivityQueryState();
-  const params = new URLSearchParams(search ?? window.location.search);
-  const type = params.get("type") ?? "";
-  return {
-    q: params.get("q")?.trim() ?? "",
-    type: type === "gauge" || type === "counter" || type === "histogram" || type === "summary" ? type : "",
-    eventId: params.get("event") ?? "",
-    stateId: params.get("state") ?? "",
-    metric: params.get("metric") ?? "",
-  };
-};
-
-const stateRowId = (state: PulseCurrentState): string =>
-  [state.key, state.sourceId ?? "", state.entityId, JSON.stringify(state.dimensions)].join(":");
-
-const readWorkspacePathState = (path: string, baseId: string): WorkspaceRouteState => {
-  const fallback: WorkspaceRouteState = { view: "dashboard", dashboardId: "", sourceId: "" };
-  if (!baseId) return fallback;
-  const marker = `/app/pulse/${baseId}`;
-  const start = path.indexOf(marker);
-  if (start < 0) return fallback;
-  const rest = path
-    .slice(start + marker.length)
-    .split("/")
-    .filter(Boolean);
-  if (rest[0] === "dashboards") return { view: rest[2] === "edit" ? "dashboard-edit" : "dashboard", dashboardId: rest[1] ?? "", sourceId: "" };
-  if (rest[0] === "sources") return { view: "sources", dashboardId: "", sourceId: rest[1] ?? "" };
-  if (rest[0] === "explorer" || rest[0] === "metric-explorer") return { view: "explorer", dashboardId: "", sourceId: "" };
-  if (rest[0] === "activity" && rest[1] === "states") return { view: "activity-states", dashboardId: "", sourceId: "" };
-  if (rest[0] === "activity" && rest[1] === "metrics") return { view: "activity-metrics", dashboardId: "", sourceId: "" };
-  if (rest[0] === "activity") return { view: "activity-events", dashboardId: "", sourceId: "" };
-  return fallback;
-};
-
-const panelQuery = (baseId: string, panel: PulseDashboardPanel) => ({
-  kind: "metric" as const,
-  baseId,
-  metric: panel.metric,
-  aggregation: panel.aggregation,
-  bucket: panel.bucket,
-  since: panel.since,
-  sourceId: panel.sourceId ?? null,
-  dimensions: panel.dimensions ?? undefined,
-});
-
-const formatValue = (value: number | null | undefined): string => {
-  if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
-  if (Math.abs(value) >= 1_000_000) return value.toExponential(2);
-  if (Math.abs(value) >= 100) return value.toFixed(0);
-  if (Math.abs(value) >= 10) return value.toFixed(1);
-  return value.toFixed(2);
-};
-
-const formatSignalValue = (value: unknown): string => {
-  if (value === null || value === undefined) return "null";
-  if (typeof value === "string") return value;
-  if (typeof value === "number") return formatValue(value);
-  if (typeof value === "boolean") return value ? "true" : "false";
-  return JSON.stringify(value);
-};
-
-const gaugeMax = (unit: string | null, value: number): number => {
-  if (unit === "%") return 100;
-  if (value <= 1) return 1;
-  const magnitude = 10 ** Math.max(0, Math.floor(Math.log10(value)));
-  return Math.ceil(value / magnitude) * magnitude;
-};
-
-const pointsToBars = (points: MetricQueryPoint[]) =>
-  points.slice(-48).map((point) => ({
-    label: compactDate(point.bucket),
-    value: point.value ?? 0,
-  }));
-
-const pointsToHistogram = (points: MetricQueryPoint[]) =>
-  points.map((point) => point.value).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-
-const pointsToHeatmap = (points: MetricQueryPoint[]) =>
-  points.slice(-240).map((point) => {
-    const date = new Date(point.bucket);
-    return {
-      x: new Intl.DateTimeFormat(undefined, { hour: "2-digit" }).format(date),
-      y: compactDay(point.bucket),
-      value: point.value ?? 0,
-    };
-  });
-
-const queryPointColumns: DataTableColumn<MetricQueryPoint>[] = [
-  { id: "bucket", header: "Bucket", value: (point) => compactDateWithDelta(point.bucket), cellClass: "w-48 whitespace-nowrap" },
-  { id: "value", header: "Value", value: (point) => formatValue(point.value), cellClass: "w-32 whitespace-nowrap" },
-];
-
-const seriesLabel = (series: PulseMetricSeries, sourceName?: string): string => {
-  const important = ["instance", "host", "node", "device", "mountpoint", "vmid", "name", "job"]
-    .map((key) => (series.dimensions[key] ? `${key}=${series.dimensions[key]}` : null))
-    .filter(Boolean);
-  const label =
-    important.length > 0
-      ? important.join(", ")
-      : series.entityId ||
-        Object.entries(series.dimensions)
-          .slice(0, 3)
-          .map(([key, value]) => `${key}=${value}`)
-          .join(", ");
-  return [sourceName, label || series.id.slice(0, 8)].filter(Boolean).join(" · ");
-};
-
-const quoteQueryPart = (value: string): string => (/[\s,=]/.test(value) ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : value);
-
-const dashboardWidgetDescendants = (widget: PulseDashboardWidget): PulseDashboardWidget[] =>
-  widget.kind === "card" ? [widget, ...widget.rows.flatMap((row) => row.cells.flatMap(dashboardWidgetDescendants))] : [widget];
-
-const dashboardSectionWidgets = (section: PulseDashboardSection): PulseDashboardWidget[] => [
-  ...section.rows.flatMap((row) => row.cells.flatMap(dashboardWidgetDescendants)),
-  ...(section.sections ?? []).flatMap(dashboardSectionWidgets),
-];
-
-const dashboardLayoutWidgets = (config: PulseDashboardConfig): PulseDashboardWidget[] =>
-  config.layout?.sections.flatMap(dashboardSectionWidgets) ?? [];
-
-const dashboardMetricPanels = (config: PulseDashboardConfig): PulseDashboardPanel[] => [
-  ...config.panels,
-  ...dashboardLayoutWidgets(config).filter((widget): widget is PulseDashboardMetricWidget => widget.kind === "metric"),
-];
-
-const quoteDashboardDslString = (value: string): string => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-
-const visualStatement = (visual: PanelVisual): string => (visual === "line" ? "chart" : visual);
-
-const panelToDashboardDsl = (panel: PulseDashboardPanel): string => {
-  const source = panel.sourceId ? ` source ${panel.sourceId}` : "";
-  const dimensions = Object.entries(panel.dimensions ?? {});
-  const where = dimensions.length
-    ? ` where ${dimensions.map(([key, value]) => `${key}=${quoteQueryPart(String(value))}`).join(", ")}`
-    : "";
-  return `    ${visualStatement(panel.visual)} ${quoteDashboardDslString(panel.title)} {
-      query metric ${panel.metric} ${panel.aggregation} every ${panel.bucket} since ${panel.since}${source}${where}
-    }`;
-};
-
-const dashboardToDsl = (dashboard: PulseDashboard): string => {
-  if (dashboard.config.dsl?.trim()) return dashboard.config.dsl;
-  const panelBlocks = dashboard.config.panels.length
-    ? dashboard.config.panels.map(panelToDashboardDsl).join("\n\n")
-    : `    markdown "Start here" {
-      """
-      Add cards, charts, tables, and notes with the Pulse dashboard DSL.
-      """
-    }`;
-  return `dashboard ${quoteDashboardDslString(dashboard.name)} {
-  description "Live Pulse dashboard."
-
-  section "Overview" {
-${panelBlocks}
-  }
-}`;
-};
-
-const queryHistoryKey = (baseId: string): string => `pulse.queryHistory.${baseId}`;
-
-const readQueryHistory = (baseId: string): QueryHistoryEntry[] => {
-  if (!baseId || typeof window === "undefined") return [];
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(queryHistoryKey(baseId)) ?? "[]");
-    return Array.isArray(parsed)
-      ? parsed
-          .filter((item): item is QueryHistoryEntry => typeof item?.query === "string" && typeof item?.ranAt === "string")
-          .slice(0, 20)
-      : [];
-  } catch {
-    return [];
-  }
-};
-
-const writeQueryHistory = (baseId: string, history: QueryHistoryEntry[]) => {
-  if (!baseId || typeof window === "undefined") return;
-  window.localStorage.setItem(queryHistoryKey(baseId), JSON.stringify(history.slice(0, 20)));
-};
-
-const SOURCE_TYPE_OPTIONS = [
-  { id: "http_ingest", label: "HTTP ingest", icon: "ti ti-webhook", description: "Push metrics, events, and states." },
-  { id: "metrics", label: "Metrics endpoint", icon: "ti ti-plug", description: "Scrape a Prometheus-compatible endpoint." },
-];
-
-const DASHBOARD_REFRESH_OPTIONS = [
-  { id: "1", label: "Every 1 second", icon: "ti ti-player-play" },
-  { id: "5", label: "Every 5 seconds", icon: "ti ti-refresh" },
-  { id: "10", label: "Every 10 seconds", icon: "ti ti-refresh" },
-  { id: "60", label: "Every minute", icon: "ti ti-clock" },
-  { id: "never", label: "Never", icon: "ti ti-player-pause" },
-];
-
-const refreshOptionFromConfig = (config: PulseDashboardConfig): RefreshIntervalOption =>
-  config.refreshIntervalSeconds === null ? "never" : String(config.refreshIntervalSeconds ?? 5) as RefreshIntervalOption;
-
-const refreshIntervalFromOption = (value: string): PulseDashboardConfig["refreshIntervalSeconds"] =>
-  value === "never" ? null : value === "1" || value === "5" || value === "10" || value === "60" ? Number(value) as 1 | 5 | 10 | 60 : 5;
-
-const sourceKindIcon = (kind: PulseSource["kind"]): string => {
-  if (kind === "http_ingest") return "ti ti-webhook";
-  if (kind === "metrics") return "ti ti-plug";
-  return "ti ti-database-share";
-};
-
-const sourceStatus = (source: PulseSource) => {
-  if (!source.enabled) return { label: "Paused", dot: "bg-zinc-400", text: "text-dimmed", icon: "ti ti-player-pause" };
-  if (source.lastError) return { label: "Error", dot: "bg-red-500", text: "text-red-600 dark:text-red-300", icon: "ti ti-alert-circle" };
-  if (source.lastSeenAt) return { label: "Healthy", dot: "bg-emerald-500", text: "text-emerald-700 dark:text-emerald-300", icon: "ti ti-check" };
-  return { label: "Waiting", dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-300", icon: "ti ti-clock" };
-};
-
-const VISUAL_OPTIONS = [
-  { id: "line", label: "Line", icon: "ti ti-chart-line" },
-  { id: "bar", label: "Bar", icon: "ti ti-chart-bar" },
-  { id: "stat", label: "Stat", icon: "ti ti-number" },
-  { id: "gauge", label: "Gauge", icon: "ti ti-gauge" },
-  { id: "barGauge", label: "Bar gauge", icon: "ti ti-progress" },
-  { id: "histogram", label: "Histogram", icon: "ti ti-chart-histogram" },
-  { id: "heatmap", label: "Heatmap", icon: "ti ti-grid-dots" },
-];
-
-const RESULT_VIEW_OPTIONS = [
-  { id: "chart", label: "Chart", icon: "ti ti-chart-line" },
-  { id: "table", label: "Table", icon: "ti ti-table" },
-  { id: "compiled", label: "Compiled", icon: "ti ti-code" },
-];
-
-const METRIC_TYPE_FILTER_OPTIONS: FilterChipSection[] = [
-  {
-    options: [
-      { value: "gauge", label: "Gauge", icon: "ti ti-gauge" },
-      { value: "counter", label: "Counter", icon: "ti ti-number" },
-      { value: "histogram", label: "Histogram", icon: "ti ti-chart-histogram" },
-      { value: "summary", label: "Summary", icon: "ti ti-chart-dots" },
-    ],
-  },
-];
-
-export default function PulseWorkspace(props: Props) {
+export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const initialBaseId = props.initialBaseId ?? props.initialBases[0]?.id ?? "";
-  const initialPath = props.initialPath ?? (typeof window === "undefined" ? "" : window.location.pathname);
-  const initialRouteState = readWorkspacePathState(initialPath, initialBaseId);
+  const initialRouteState = props.initialRouteState ?? { view: "dashboard" as const, dashboardId: "", sourceId: "", signalId: "" };
   const initialDashboardId =
     props.initialDashboards?.find((dashboard) => dashboard.id === initialRouteState.dashboardId)?.id ??
     props.initialDashboards?.[0]?.id ??
     initialRouteState.dashboardId;
-  const initialActivityQuery = readActivityQueryState(props.initialSearch);
+  const initialActivityQuery = props.initialActivityQuery ?? readActivityQueryState(props.initialSearch ?? "");
+  const initialFocusedSearch = new URLSearchParams(props.initialSearch ?? "").get("q")?.trim() ?? "";
   const [bases, setBases] = createSignal(props.initialBases);
   const [selectedBaseId, setSelectedBaseId] = createSignal(initialBaseId);
   const [sources, setSources] = createSignal<PulseSource[]>(props.initialSources ?? []);
   const [sourceScrapes, setSourceScrapes] = createSignal<Record<string, PulseSourceScrape[]>>(props.initialSourceScrapes ?? {});
-  const [sourceTokens, setSourceTokens] = createSignal<Record<string, PulseSourceToken[]>>(props.initialSourceTokens ?? {});
+  const [sourceApiKeys, setSourceApiKeys] = createSignal<Record<string, ResourceApiKey[]>>(props.initialSourceApiKeys ?? {});
   const [sourceSearch, setSourceSearch] = createSignal("");
   const [metrics, setMetrics] = createSignal<PulseMetricSummary[]>(props.initialMetrics ?? []);
+  const [inventory, setInventory] = createSignal<PulseInventory>(props.initialInventory ?? { resources: [], metrics: [], events: [], states: [] });
+  const [resourceSearch, setResourceSearch] = createSignal("");
+  const [selectedResourceKey, setSelectedResourceKey] = createSignal(props.initialInventory?.resources[0]?.key ?? "");
   const [activityMetrics, setActivityMetrics] = createSignal<PulseMetricSummary[]>(props.initialActivityMetrics ?? []);
   const [series, setSeries] = createSignal<PulseMetricSeries[]>(props.initialSeries ?? []);
   const [recentEvents, setRecentEvents] = createSignal<PulseRecordedEvent[]>(props.initialRecentEvents ?? []);
@@ -445,6 +157,16 @@ export default function PulseWorkspace(props: Props) {
   const [selectedEventId, setSelectedEventId] = createSignal(initialActivityQuery.eventId);
   const [selectedStateId, setSelectedStateId] = createSignal(initialActivityQuery.stateId);
   const [selectedActivityMetricName, setSelectedActivityMetricName] = createSignal(initialActivityQuery.metric);
+  const [focusedSignalId, setFocusedSignalId] = createSignal(initialRouteState.signalId);
+  const [focusedSearch, setFocusedSearch] = createSignal(initialFocusedSearch);
+  const [focusedMetricSeries, setFocusedMetricSeries] = createSignal<PulseMetricSeries[]>(props.initialFocusedMetricSeries ?? []);
+  const [focusedEvents, setFocusedEvents] = createSignal<PulseRecordedEvent[]>(props.initialFocusedEvents ?? []);
+  const [focusedStates, setFocusedStates] = createSignal<PulseCurrentState[]>(props.initialFocusedStates ?? []);
+  const [focusedHasMore, setFocusedHasMore] = createSignal(props.initialFocusedHasMore ?? false);
+  const [focusedLoadingMore, setFocusedLoadingMore] = createSignal(false);
+  const [selectedFocusedSeriesId, setSelectedFocusedSeriesId] = createSignal("");
+  const [selectedFocusedStateId, setSelectedFocusedStateId] = createSignal("");
+  const [selectedFocusedEventId, setSelectedFocusedEventId] = createSignal("");
   const [activityMetricSeries, setActivityMetricSeries] = createSignal<PulseMetricSeries[]>(props.initialActivityMetricSeries ?? []);
   const [activityMetricPoints, setActivityMetricPoints] = createSignal<MetricQueryPoint[]>(props.initialActivityMetricPoints ?? []);
   const [selectedSeriesId, setSelectedSeriesId] = createSignal("");
@@ -459,6 +181,9 @@ export default function PulseWorkspace(props: Props) {
   const [querySeeded, setQuerySeeded] = createSignal(false);
   const [querySuggestionsExpanded, setQuerySuggestionsExpanded] = createSignal(false);
   const [querySuggestionSearch, setQuerySuggestionSearch] = createSignal("");
+  const [browseSearch, setBrowseSearch] = createSignal("");
+  const [browseSourceId, setBrowseSourceId] = createSignal("");
+  const [browseEntityId, setBrowseEntityId] = createSignal("");
   const [explorerResultView, setExplorerResultView] = createSignal<ExplorerResultView>("chart");
   const [points, setPoints] = createSignal<MetricQueryPoint[]>([]);
   const [explorerEvents, setExplorerEvents] = createSignal<PulseRecordedEvent[]>([]);
@@ -470,13 +195,12 @@ export default function PulseWorkspace(props: Props) {
   const [dashboardPreviewConfig, setDashboardPreviewConfig] = createSignal<PulseDashboardConfig | null>(null);
   const [dashboardDslSeededFor, setDashboardDslSeededFor] = createSignal("");
   const [dashboardDslSaving, setDashboardDslSaving] = createSignal(false);
-  const [httpIngestToken, setHttpIngestToken] = createSignal("");
-  const [tokenSourceId, setTokenSourceId] = createSignal("");
   const [origin, setOrigin] = createSignal("");
   const [loading, setLoading] = createSignal(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = createSignal(false);
   let queryRunId = 0;
   let activityDataRequestId = 0;
+  let focusedRowsRequestId = 0;
   let lastAutoRunQuery = "";
 
   const selectedBase = createMemo(() => bases().find((base) => base.id === selectedBaseId()) ?? null);
@@ -486,16 +210,99 @@ export default function PulseWorkspace(props: Props) {
   const dashboardEditPreviewConfig = createMemo(() => dashboardPreviewConfig() ?? selectedDashboard()?.config ?? null);
   const selectedSource = createMemo(() => sources().find((source) => source.id === selectedSourceId()) ?? null);
   const selectedSourceScrapes = createMemo(() => (selectedSourceId() ? (sourceScrapes()[selectedSourceId()] ?? []) : []));
-  const selectedSourceTokens = createMemo(() => (selectedSourceId() ? (sourceTokens()[selectedSourceId()] ?? []) : []));
-  const selectedEvent = createMemo(() => recentEvents().find((event) => event.id === selectedEventId()) ?? null);
-  const selectedState = createMemo(() => currentStates().find((state) => stateRowId(state) === selectedStateId()) ?? null);
-  const selectedActivityMetric = createMemo(
-    () => activityMetrics().find((metric) => metric.name === selectedActivityMetricName()) ?? null,
+  const selectedSourceApiKeys = createMemo(() => (selectedSourceId() ? (sourceApiKeys()[selectedSourceId()] ?? []) : []));
+  const selectedActivityMetric = createMemo(() => activityMetrics().find((metric) => metric.name === selectedActivityMetricName()) ?? null);
+  const focusedMetric = createMemo(() => metrics().find((metric) => metric.name === focusedSignalId()) ?? null);
+  const selectedFocusedSeries = createMemo(
+    () => focusedMetricSeries().find((item) => item.id === selectedFocusedSeriesId()) ?? focusedMetricSeries()[0] ?? null,
+  );
+  const selectedFocusedState = createMemo(
+    () => focusedStates().find((state) => stateRowId(state) === selectedFocusedStateId()) ?? focusedStates()[0] ?? null,
+  );
+  const selectedFocusedEvent = createMemo(
+    () => focusedEvents().find((event) => event.id === selectedFocusedEventId()) ?? focusedEvents()[0] ?? null,
   );
   const selectedSeries = createMemo(() => series().find((item) => item.id === selectedSeriesId()) ?? null);
   const sourceNameById = createMemo(() => new Map(sources().map((source) => [source.id, source.name])));
   const metricByName = createMemo(() => new Map(metrics().map((metric) => [metric.name, metric])));
   const sourceById = createMemo(() => new Map(sources().map((source) => [source.id, source])));
+  const eventGroups = createMemo<ActivityEventGroup[]>(() => {
+    const groups = new Map<string, ActivityEventGroup>();
+    for (const event of recentEvents()) {
+      const id = eventGroupId(event);
+      const current =
+        groups.get(id) ??
+        ({
+          id,
+          kind: event.kind,
+          subject: signalSubject(event),
+          sourceId: event.sourceId,
+          latest: event,
+          rows: [],
+        } satisfies ActivityEventGroup);
+      current.rows.push(event);
+      if (Date.parse(event.ts) > Date.parse(current.latest.ts)) current.latest = event;
+      groups.set(id, current);
+    }
+    for (const group of groups.values()) group.rows.sort((left, right) => Date.parse(right.ts) - Date.parse(left.ts));
+    return [...groups.values()].sort((left, right) => Date.parse(right.latest.ts) - Date.parse(left.latest.ts));
+  });
+  const stateGroups = createMemo<ActivityStateGroup[]>(() => {
+    const groups = new Map<string, ActivityStateGroup>();
+    for (const state of currentStates()) {
+      const id = stateGroupId(state);
+      const current =
+        groups.get(id) ??
+        ({
+          id,
+          key: state.key,
+          sourceId: state.sourceId,
+          latest: state,
+          rows: [],
+        } satisfies ActivityStateGroup);
+      current.rows.push(state);
+      if (Date.parse(state.updatedAt) > Date.parse(current.latest.updatedAt)) current.latest = state;
+      groups.set(id, current);
+    }
+    for (const group of groups.values()) group.rows.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+    return [...groups.values()].sort((left, right) => Date.parse(right.latest.updatedAt) - Date.parse(left.latest.updatedAt));
+  });
+  const selectedEvent = createMemo(() => eventGroups().find((group) => group.id === selectedEventId()) ?? null);
+  const selectedState = createMemo(() => stateGroups().find((group) => group.id === selectedStateId()) ?? null);
+  const resourceByKey = createMemo(() => new Map(inventory().resources.map((resource) => [resource.key, resource])));
+  const selectedResource = createMemo(() => resourceByKey().get(selectedResourceKey()) ?? inventory().resources[0] ?? null);
+  const resourceNeedle = createMemo(() => resourceSearch().trim().toLowerCase());
+  const resourceMatches = (values: Array<string | null | undefined>) => {
+    const needle = resourceNeedle();
+    if (!needle) return true;
+    return values.some((value) => value?.toLowerCase().includes(needle));
+  };
+  const filteredResources = createMemo(() =>
+    inventory().resources.filter((resource) =>
+      resourceMatches([
+        resource.id,
+        resource.type,
+        ...resource.sourceIds.map((sourceId) => sourceNameById().get(sourceId) ?? sourceId),
+        ...Object.keys(resource.dimensions),
+        ...Object.values(resource.dimensions),
+      ]),
+    ),
+  );
+  const visibleSelectedResource = createMemo(() => {
+    const selected = selectedResource();
+    return filteredResources().find((resource) => resource.key === selected?.key) ?? filteredResources()[0] ?? selected ?? null;
+  });
+  const selectedResourceMetrics = createMemo(() =>
+    visibleSelectedResource() ? inventory().metrics.filter((metric) => metric.resourceKey === visibleSelectedResource()!.key) : [],
+  );
+  const selectedResourceStates = createMemo(() =>
+    visibleSelectedResource() ? inventory().states.filter((state) => signalResourceKey(state) === visibleSelectedResource()!.key) : [],
+  );
+  const selectedResourceEvents = createMemo(() =>
+    visibleSelectedResource() ? inventory().events.filter((event) => signalResourceKey(event) === visibleSelectedResource()!.key) : [],
+  );
+  const selectedBrowseSource = createMemo(() => sourceById().get(browseSourceId()) ?? null);
+  const browseSearchNeedle = createMemo(() => browseSearch().trim().toLowerCase());
   const filteredSources = createMemo(() => {
     const q = sourceSearch().trim().toLowerCase();
     if (!q) return sources();
@@ -524,31 +331,47 @@ export default function PulseWorkspace(props: Props) {
     { id: "duration", header: "Time", cellClass: "w-20 whitespace-nowrap" },
     { id: "error", header: "Error", cellClass: "min-w-40" },
   ];
-  const sourceTokenColumns: DataTableColumn<PulseSourceToken>[] = [
-    { id: "label", header: "Token", value: "label", cellClass: "min-w-40" },
-    { id: "created", header: "Created", cellClass: "w-36 whitespace-nowrap" },
-    { id: "used", header: "Last used", cellClass: "w-36 whitespace-nowrap" },
-    { id: "actions", header: "", cellClass: "w-16 whitespace-nowrap text-right" },
-  ];
   const eventColumns: DataTableColumn<PulseRecordedEvent>[] = [
     { id: "kind", header: "Event", value: "kind", cellClass: "min-w-52" },
+    { id: "subject", header: "Subject", cellClass: "min-w-56" },
     { id: "source", header: "Source", cellClass: "w-40 whitespace-nowrap" },
-    { id: "entity", header: "Entity", cellClass: "w-40 whitespace-nowrap" },
+    { id: "dimensions", header: "Dimensions", cellClass: "min-w-56" },
     { id: "value", header: "Value", cellClass: "w-24 whitespace-nowrap" },
     { id: "time", header: "Time", cellClass: "w-44 whitespace-nowrap" },
+  ];
+  const eventGroupColumns: DataTableColumn<ActivityEventGroup>[] = [
+    { id: "kind", header: "Event", value: "kind", cellClass: "min-w-52" },
+    { id: "subject", header: "Subject", value: "subject", cellClass: "min-w-56" },
+    { id: "source", header: "Source", cellClass: "w-40 whitespace-nowrap" },
+    { id: "value", header: "Latest value", cellClass: "w-28 whitespace-nowrap" },
+    { id: "count", header: "Rows", cellClass: "w-20 whitespace-nowrap" },
+    { id: "time", header: "Latest", cellClass: "w-44 whitespace-nowrap" },
   ];
   const stateColumns: DataTableColumn<PulseCurrentState>[] = [
     { id: "key", header: "State", value: "key", cellClass: "min-w-52" },
     { id: "value", header: "Value", cellClass: "min-w-40" },
+    { id: "subject", header: "Subject", cellClass: "min-w-56" },
     { id: "source", header: "Source", cellClass: "w-40 whitespace-nowrap" },
-    { id: "entity", header: "Entity", cellClass: "w-40 whitespace-nowrap" },
+    { id: "dimensions", header: "Dimensions", cellClass: "min-w-56" },
     { id: "updated", header: "Updated", cellClass: "w-44 whitespace-nowrap" },
+  ];
+  const stateGroupColumns: DataTableColumn<ActivityStateGroup>[] = [
+    { id: "key", header: "State", value: "key", cellClass: "min-w-52" },
+    { id: "source", header: "Source", cellClass: "w-40 whitespace-nowrap" },
+    { id: "value", header: "Latest value", cellClass: "min-w-40" },
+    { id: "updated", header: "Latest", cellClass: "w-44 whitespace-nowrap" },
   ];
   const metricColumns: DataTableColumn<PulseMetricSummary>[] = [
     { id: "name", header: "Metric", value: "name", cellClass: "min-w-72" },
     { id: "type", header: "Type", value: "type", cellClass: "w-24 whitespace-nowrap" },
     { id: "unit", header: "Unit", cellClass: "w-24 whitespace-nowrap" },
-    { id: "series", header: "Series", cellClass: "w-24 whitespace-nowrap" },
+    { id: "series", header: "Variants", cellClass: "w-24 whitespace-nowrap" },
+    { id: "lastSeen", header: "Last seen", cellClass: "w-44 whitespace-nowrap" },
+  ];
+  const metricSeriesColumns: DataTableColumn<PulseMetricSeries>[] = [
+    { id: "subject", header: "Subject", cellClass: "min-w-56" },
+    { id: "source", header: "Source", cellClass: "w-40 whitespace-nowrap" },
+    { id: "dimensions", header: "Dimensions", cellClass: "min-w-56" },
     { id: "lastSeen", header: "Last seen", cellClass: "w-44 whitespace-nowrap" },
   ];
   const previewSeries = createMemo(() => [
@@ -558,8 +381,176 @@ export default function PulseWorkspace(props: Props) {
     },
   ]);
   const queryCompletions = createMemo(() =>
-    buildPulseQueryCompletions({ metrics: metrics(), events: recentEvents(), states: currentStates(), sources: sources(), series: series() }),
+    buildPulseQueryCompletions({
+      metrics: metrics(),
+      events: recentEvents(),
+      states: currentStates(),
+      sources: sources(),
+      series: series(),
+    }),
   );
+  const browseEntities = createMemo(() => {
+    const entities = new Map<string, BrowseEntity>();
+    const ensure = (entityId: string | null, entityType: string | null, sourceId: string | null, dimensions: Record<string, string>) => {
+      if (!entityId) return null;
+      const current =
+        entities.get(entityId) ??
+        ({
+          id: entityId,
+          type: entityType,
+          sourceIds: [],
+          metricCount: 0,
+          eventCount: 0,
+          stateCount: 0,
+          dimensions: {},
+        } satisfies BrowseEntity);
+      if (!current.type && entityType) current.type = entityType;
+      if (sourceId && !current.sourceIds.includes(sourceId)) current.sourceIds.push(sourceId);
+      current.dimensions = { ...dimensions, ...current.dimensions };
+      entities.set(entityId, current);
+      return current;
+    };
+    for (const item of series()) {
+      const entity = ensure(item.entityId, item.entityType, item.sourceId, item.dimensions);
+      if (entity) entity.metricCount += 1;
+    }
+    for (const item of recentEvents()) {
+      const entity = ensure(item.entityId, item.entityType, item.sourceId, item.dimensions);
+      if (entity) entity.eventCount += 1;
+    }
+    for (const item of currentStates()) {
+      const entity = ensure(item.entityId, item.entityType, item.sourceId, item.dimensions);
+      if (entity) entity.stateCount += 1;
+    }
+    return [...entities.values()].sort((left, right) => {
+      const rightCount = right.metricCount + right.eventCount + right.stateCount;
+      const leftCount = left.metricCount + left.eventCount + left.stateCount;
+      return rightCount - leftCount || left.id.localeCompare(right.id);
+    });
+  });
+  const selectedBrowseEntity = createMemo(() => browseEntities().find((entity) => entity.id === browseEntityId()) ?? null);
+  const browseMatches = (values: Array<string | null | undefined>) => {
+    const needle = browseSearchNeedle();
+    if (!needle) return true;
+    return values.some((value) => value?.toLowerCase().includes(needle));
+  };
+  const browseScopedSeries = createMemo(() =>
+    series().filter((item) => {
+      if (browseSourceId() && item.sourceId !== browseSourceId()) return false;
+      if (browseEntityId() && item.entityId !== browseEntityId()) return false;
+      return true;
+    }),
+  );
+  const browseSources = createMemo(() =>
+    sources()
+      .map((source) => ({
+        source,
+        metricCount: series().filter((item) => item.sourceId === source.id).length,
+        eventCount: recentEvents().filter((item) => item.sourceId === source.id).length,
+        stateCount: currentStates().filter((item) => item.sourceId === source.id).length,
+      }))
+      .filter(({ source }) => browseMatches([source.name, source.kind, source.endpointUrl ?? "", source.lastError ?? ""]))
+      .slice(0, 24),
+  );
+  const browseVisibleEntities = createMemo(() =>
+    browseEntities()
+      .filter((entity) => {
+        if (browseSourceId() && !entity.sourceIds.includes(browseSourceId())) return false;
+        return browseMatches([entity.id, entity.type, ...Object.keys(entity.dimensions), ...Object.values(entity.dimensions)]);
+      })
+      .slice(0, 24),
+  );
+  const browseMetrics = createMemo(() =>
+    metrics()
+      .map((metric) => {
+        const scopedSeries = browseScopedSeries().filter((item) => item.metric === metric.name);
+        const sampleSeries = scopedSeries[0] ?? series().find((item) => item.metric === metric.name);
+        return {
+          metric,
+          seriesCount: scopedSeries.length > 0 ? scopedSeries.length : metric.seriesCount,
+          sampleDimensions: browseEntityId() ? (sampleSeries?.dimensions ?? selectedBrowseEntity()?.dimensions ?? {}) : {},
+        };
+      })
+      .filter((item) => {
+        if (
+          browseEntityId() &&
+          browseScopedSeries().length > 0 &&
+          !browseScopedSeries().some((series) => series.metric === item.metric.name)
+        ) {
+          return false;
+        }
+        return browseMatches([
+          item.metric.name,
+          item.metric.type,
+          item.metric.unit ?? "",
+          ...Object.keys(item.sampleDimensions),
+          ...Object.values(item.sampleDimensions),
+        ]);
+      })
+      .slice(0, 60),
+  );
+  const browseEvents = createMemo(() => {
+    const groups = new Map<string, { kind: string; count: number; sample: PulseRecordedEvent }>();
+    for (const event of recentEvents()) {
+      if (browseSourceId() && event.sourceId !== browseSourceId()) continue;
+      if (browseEntityId() && event.entityId !== browseEntityId()) continue;
+      if (
+        !browseMatches([event.kind, event.entityId, event.entityType, ...Object.keys(event.dimensions), ...Object.values(event.dimensions)])
+      )
+        continue;
+      const current = groups.get(event.kind);
+      groups.set(event.kind, { kind: event.kind, count: (current?.count ?? 0) + 1, sample: current?.sample ?? event });
+    }
+    return [...groups.values()].sort((left, right) => right.count - left.count || left.kind.localeCompare(right.kind)).slice(0, 40);
+  });
+  const browseStates = createMemo(() => {
+    const groups = new Map<string, { key: string; count: number; sample: PulseCurrentState }>();
+    for (const state of currentStates()) {
+      if (browseSourceId() && state.sourceId !== browseSourceId()) continue;
+      if (browseEntityId() && state.entityId !== browseEntityId()) continue;
+      if (
+        !browseMatches([state.key, state.entityId, state.entityType, ...Object.keys(state.dimensions), ...Object.values(state.dimensions)])
+      )
+        continue;
+      const current = groups.get(state.key);
+      groups.set(state.key, { key: state.key, count: (current?.count ?? 0) + 1, sample: current?.sample ?? state });
+    }
+    return [...groups.values()].sort((left, right) => right.count - left.count || left.key.localeCompare(right.key)).slice(0, 40);
+  });
+  const browseLabels = createMemo(() => {
+    const labels = new Map<string, Map<string, number>>();
+    const add = (dimensions: Record<string, string>) => {
+      for (const [key, value] of Object.entries(dimensions)) {
+        if (!labels.has(key)) labels.set(key, new Map());
+        const values = labels.get(key)!;
+        values.set(value, (values.get(value) ?? 0) + 1);
+      }
+    };
+    for (const item of browseScopedSeries()) add(item.dimensions);
+    for (const item of recentEvents()) {
+      if (browseSourceId() && item.sourceId !== browseSourceId()) continue;
+      if (browseEntityId() && item.entityId !== browseEntityId()) continue;
+      add(item.dimensions);
+    }
+    for (const item of currentStates()) {
+      if (browseSourceId() && item.sourceId !== browseSourceId()) continue;
+      if (browseEntityId() && item.entityId !== browseEntityId()) continue;
+      add(item.dimensions);
+    }
+    return [...labels.entries()]
+      .map(([key, values]) => ({
+        key,
+        count: [...values.values()].reduce((sum, value) => sum + value, 0),
+        values: [...values.entries()]
+          .map(([value, count]) => ({ key, value, count }))
+          .filter((item) => browseMatches([item.key, item.value]))
+          .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value))
+          .slice(0, 8),
+      }))
+      .filter((group) => group.values.length > 0)
+      .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key))
+      .slice(0, 12);
+  });
   const compiledQuery = createMemo(() => queryDiagnostics()?.compiled ?? null);
   const compiledMetricQuery = createMemo(() => (compiledQuery()?.kind === "metric" ? (compiledQuery() as MetricQuery) : null));
   const matchingMetricSeries = createMemo(() => {
@@ -630,12 +621,22 @@ export default function PulseWorkspace(props: Props) {
     const valueLimit = querySuggestionsExpanded() ? 8 : 4;
     return querySuggestionMatches()
       .labels.slice(0, groupLimit)
-      .map((group) => ({ ...group, values: group.values.slice(0, valueLimit), hiddenValues: Math.max(0, group.values.length - valueLimit) }));
+      .map((group) => ({
+        ...group,
+        values: group.values.slice(0, valueLimit),
+        hiddenValues: Math.max(0, group.values.length - valueLimit),
+      }));
   });
   const querySuggestionOverflow = createMemo(() => {
-    const sourceOverflow = compiledMetricQuery()?.sourceId ? 0 : querySuggestionMatches().sources.length - visibleQuerySourceSuggestions().length;
+    const sourceOverflow = compiledMetricQuery()?.sourceId
+      ? 0
+      : querySuggestionMatches().sources.length - visibleQuerySourceSuggestions().length;
     const labelOverflow = querySuggestionMatches().labels.reduce(
-      (count, group, index) => count + (index >= visibleQueryLabelSuggestions().length ? group.values.length : Math.max(0, group.values.length - (querySuggestionsExpanded() ? 8 : 4))),
+      (count, group, index) =>
+        count +
+        (index >= visibleQueryLabelSuggestions().length
+          ? group.values.length
+          : Math.max(0, group.values.length - (querySuggestionsExpanded() ? 8 : 4))),
       0,
     );
     return Math.max(0, sourceOverflow) + Math.max(0, labelOverflow);
@@ -658,14 +659,17 @@ export default function PulseWorkspace(props: Props) {
 
   const loadBaseData = async (baseId = selectedBaseId(), signal?: AbortSignal) => {
     if (!baseId) return;
-    const [nextSources, nextMetrics, nextDashboards, nextSavedQueries] = await Promise.all([
+    const [nextSources, nextMetrics, nextInventory, nextDashboards, nextSavedQueries] = await Promise.all([
       jsonFetch<PulseSource[]>(`/api/pulse/bases/${baseId}/sources`, { signal }),
       jsonFetch<PulseMetricSummary[]>(`/api/pulse/bases/${baseId}/metrics`, { signal }),
+      jsonFetch<PulseInventory>(`/api/pulse/bases/${baseId}/inventory`, { signal }),
       jsonFetch<PulseDashboard[]>(`/api/pulse/bases/${baseId}/dashboards`, { signal }),
       jsonFetch<PulseSavedQuery[]>(`/api/pulse/bases/${baseId}/saved-queries`, { signal }),
     ]);
     setSources(nextSources);
     setMetrics(nextMetrics);
+    setInventory(nextInventory);
+    setSelectedResourceKey((current) => (current && nextInventory.resources.some((resource) => resource.key === current) ? current : (nextInventory.resources[0]?.key ?? "")));
     setDashboards(nextDashboards);
     setSavedQueries(nextSavedQueries);
     setSelectedMetric((current) =>
@@ -706,14 +710,14 @@ export default function PulseWorkspace(props: Props) {
     ) {
       return;
     }
+    const nextEventGroupIds = new Set(nextEvents.map(eventGroupId));
+    const nextStateGroupIds = new Set(nextStates.map(stateGroupId));
     setRecentEvents(nextEvents);
     setCurrentStates(nextStates);
     setActivityMetrics(nextMetrics);
-    setSelectedEventId((current) => (current && nextEvents.some((event) => event.id === current) ? current : ""));
-    setSelectedStateId((current) => (current && nextStates.some((state) => stateRowId(state) === current) ? current : ""));
-    setSelectedActivityMetricName((current) =>
-      current && nextMetrics.some((metric) => metric.name === current) ? current : "",
-    );
+    setSelectedEventId((current) => (current && nextEventGroupIds.has(current) ? current : ""));
+    setSelectedStateId((current) => (current && nextStateGroupIds.has(current) ? current : ""));
+    setSelectedActivityMetricName((current) => (current && nextMetrics.some((metric) => metric.name === current) ? current : ""));
   };
 
   const loadSeries = async (baseId = selectedBaseId(), metric = selectedMetric(), sourceId = selectedSourceId()) => {
@@ -735,16 +739,69 @@ export default function PulseWorkspace(props: Props) {
     return jsonFetch<PulseMetricSeries[]>(`/api/pulse/bases/${baseId}/series?${params}`);
   };
 
+  const loadFocusedRows = async (options: { append?: boolean } = {}) => {
+    const baseId = selectedBaseId();
+    const view = activeView();
+    const signalId = focusedSignalId();
+    if (!baseId || !signalId || (view !== "metric-detail" && view !== "state-detail" && view !== "event-detail")) return;
+    const requestId = ++focusedRowsRequestId;
+
+    const offset =
+      options.append && view === "metric-detail"
+        ? focusedMetricSeries().length
+        : options.append && view === "state-detail"
+          ? focusedStates().length
+          : options.append && view === "event-detail"
+            ? focusedEvents().length
+            : 0;
+    const params = new URLSearchParams({
+      limit: String(FOCUSED_PAGE_SIZE + 1),
+      offset: String(offset),
+    });
+    const search = focusedSearch().trim();
+    if (search) params.set("q", search);
+
+    setFocusedLoadingMore(true);
+    try {
+      if (view === "metric-detail") {
+        params.set("metric", signalId);
+        const rows = await jsonFetch<PulseMetricSeries[]>(`/api/pulse/bases/${baseId}/series?${params}`);
+        if (requestId !== focusedRowsRequestId) return;
+        setFocusedHasMore(rows.length > FOCUSED_PAGE_SIZE);
+        const page = rows.slice(0, FOCUSED_PAGE_SIZE);
+        setFocusedMetricSeries((current) => (options.append ? [...current, ...page] : page));
+        return;
+      }
+      if (view === "state-detail") {
+        params.set("key", signalId);
+        const rows = await jsonFetch<PulseCurrentState[]>(`/api/pulse/bases/${baseId}/states?${params}`);
+        if (requestId !== focusedRowsRequestId) return;
+        setFocusedHasMore(rows.length > FOCUSED_PAGE_SIZE);
+        const page = rows.slice(0, FOCUSED_PAGE_SIZE);
+        setFocusedStates((current) => (options.append ? [...current, ...page] : page));
+        return;
+      }
+      params.set("kind", signalId);
+      const rows = await jsonFetch<PulseRecordedEvent[]>(`/api/pulse/bases/${baseId}/recent-events?${params}`);
+      if (requestId !== focusedRowsRequestId) return;
+      setFocusedHasMore(rows.length > FOCUSED_PAGE_SIZE);
+      const page = rows.slice(0, FOCUSED_PAGE_SIZE);
+      setFocusedEvents((current) => (options.append ? [...current, ...page] : page));
+    } finally {
+      if (requestId === focusedRowsRequestId) setFocusedLoadingMore(false);
+    }
+  };
+
   const loadSourceScrapes = async (baseId = selectedBaseId(), sourceId = selectedSourceId(), signal?: AbortSignal) => {
     if (!baseId || !sourceId) return;
     const nextScrapes = await jsonFetch<PulseSourceScrape[]>(`/api/pulse/bases/${baseId}/sources/${sourceId}/scrapes`, { signal });
     setSourceScrapes((current) => ({ ...current, [sourceId]: nextScrapes }));
   };
 
-  const loadSourceTokens = async (baseId = selectedBaseId(), sourceId = selectedSourceId(), signal?: AbortSignal) => {
+  const loadSourceApiKeys = async (baseId = selectedBaseId(), sourceId = selectedSourceId(), signal?: AbortSignal) => {
     if (!baseId || !sourceId) return;
-    const nextTokens = await jsonFetch<PulseSourceToken[]>(`/api/pulse/bases/${baseId}/sources/${sourceId}/tokens`, { signal });
-    setSourceTokens((current) => ({ ...current, [sourceId]: nextTokens }));
+    const nextKeys = await jsonFetch<ResourceApiKey[]>(`/api/pulse/bases/${baseId}/sources/${sourceId}/api-keys`, { signal });
+    setSourceApiKeys((current) => ({ ...current, [sourceId]: nextKeys }));
   };
 
   const loadPanel = async (panel: PulseDashboardPanel, baseId = selectedBaseId(), signal?: AbortSignal) => {
@@ -762,57 +819,45 @@ export default function PulseWorkspace(props: Props) {
     await Promise.all(dashboardMetricPanels(dashboard.config).map((panel) => loadPanel(panel, baseId, signal).catch(() => undefined)));
   };
 
-  const workspaceHref = (nextState: { view: WorkspaceView; dashboardId?: string; sourceId?: string }) => {
-    const baseId = selectedBaseId();
-    if (!baseId) return "/app/pulse";
-    const activitySuffix = () => {
-      const params = activityQueryParams(nextState.view === "activity-metrics");
-      if (nextState.view === "activity-events" && selectedEventId()) params.set("event", selectedEventId());
-      if (nextState.view === "activity-states" && selectedStateId()) params.set("state", selectedStateId());
-      if (nextState.view === "activity-metrics" && selectedActivityMetricName()) params.set("metric", selectedActivityMetricName());
-      const query = params.toString();
-      return query ? `?${query}` : "";
-    };
-    if (nextState.view === "dashboard") {
-      return nextState.dashboardId ? `/app/pulse/${baseId}/dashboards/${nextState.dashboardId}` : `/app/pulse/${baseId}`;
-    }
-    if (nextState.view === "dashboard-edit") {
-      return nextState.dashboardId ? `/app/pulse/${baseId}/dashboards/${nextState.dashboardId}/edit` : `/app/pulse/${baseId}`;
-    }
-    if (nextState.view === "sources") {
-      return nextState.sourceId ? `/app/pulse/${baseId}/sources/${nextState.sourceId}` : `/app/pulse/${baseId}/sources`;
-    }
-    if (nextState.view === "explorer") return `/app/pulse/${baseId}/explorer`;
-    if (nextState.view === "activity-states") return `/app/pulse/${baseId}/activity/states${activitySuffix()}`;
-    if (nextState.view === "activity-metrics") return `/app/pulse/${baseId}/activity/metrics${activitySuffix()}`;
-    return `/app/pulse/${baseId}/activity/events${activitySuffix()}`;
-  };
-
-  const applyWorkspacePathState = (path = typeof window === "undefined" ? (props.initialPath ?? "") : window.location.pathname) => {
-    const next = readWorkspacePathState(path, selectedBaseId());
-    const activity = readActivityQueryState();
-    setActiveView(next.view);
-    setSelectedDashboardId(next.dashboardId);
-    setSelectedSourceId(next.sourceId);
-    setActivitySearch(activity.q);
-    setMetricTypeFilter(activity.type);
-    setSelectedEventId(activity.eventId);
-    setSelectedStateId(activity.stateId);
-    setSelectedActivityMetricName(activity.metric);
+  const workspaceHref = (nextState: { view: WorkspaceView; dashboardId?: string; sourceId?: string; signalId?: string }) => {
+    return buildPulseWorkspaceHref({
+      baseId: selectedBaseId(),
+      state: {
+        ...nextState,
+        signalId: nextState.signalId ?? focusedSignalId(),
+      },
+      activity: {
+        q: activitySearch(),
+        type: metricTypeFilter(),
+        eventId: nextState.view === "activity-events" ? selectedEventId() : "",
+        stateId: nextState.view === "activity-states" ? selectedStateId() : "",
+        metric: nextState.view === "activity-metrics" ? selectedActivityMetricName() : "",
+      },
+      focusedSearch: focusedSearch(),
+    });
   };
 
   const navigateWorkspace = (
-    nextState: { view: WorkspaceView; dashboardId?: string; sourceId?: string },
+    nextState: { view: WorkspaceView; dashboardId?: string; sourceId?: string; signalId?: string },
     mode: "push" | "replace" = "push",
   ) => {
-    const href = workspaceHref(nextState);
-    if (typeof window !== "undefined" && href !== `${window.location.pathname}${window.location.search}`) {
-      if (mode === "replace") window.history.replaceState({}, "", href);
-      else window.history.pushState({}, "", href);
-    }
-    setActiveView(nextState.view);
-    setSelectedDashboardId(nextState.dashboardId ?? (nextState.view === "dashboard" || nextState.view === "dashboard-edit" ? selectedDashboardId() : ""));
-    setSelectedSourceId(nextState.sourceId ?? "");
+    const options = {
+      baseId: selectedBaseId(),
+      state: {
+        ...nextState,
+        signalId: nextState.signalId ?? focusedSignalId(),
+      },
+      activity: {
+        q: activitySearch(),
+        type: metricTypeFilter(),
+        eventId: nextState.view === "activity-events" ? selectedEventId() : "",
+        stateId: nextState.view === "activity-states" ? selectedStateId() : "",
+        metric: nextState.view === "activity-metrics" ? selectedActivityMetricName() : "",
+      },
+      focusedSearch: focusedSearch(),
+    };
+    if (mode === "replace") replacePulseWorkspaceUrl(options);
+    else navigatePulseWorkspace(options);
   };
 
   const createDashboard = async () => {
@@ -1118,7 +1163,7 @@ export default function PulseWorkspace(props: Props) {
       const [scrapeIntervalSeconds, setScrapeIntervalSeconds] = createSignal<number | null>(60);
       const title = () => (kind() === "http_ingest" ? "HTTP ingest" : "Metrics endpoint");
       const sourceInfo = () =>
-        "After creating this source, add one or more labeled ingest tokens from the source detail panel. Use those URLs from ingestors, apps, automations, imports, or jobs.";
+        "After creating this source, add one or more labeled API keys from the source detail panel. Use them as Bearer tokens from ingestors, apps, automations, imports, or jobs.";
       const submit = async () => {
         const created = await createSource({
           kind: kind(),
@@ -1407,6 +1452,66 @@ export default function PulseWorkspace(props: Props) {
     setQueryText(`${query} source ${sourceId}`);
   };
 
+  const sourceClause = (sourceId: string | null | undefined) => (sourceId ? ` source ${sourceId}` : "");
+  const entityClause = (entityId: string | null | undefined) => (entityId ? ` entity ${quoteQueryPart(entityId)}` : "");
+  const whereClause = (dimensions: Record<string, string>) => {
+    const entries = Object.entries(dimensions).slice(0, 8);
+    return entries.length ? ` where ${entries.map(([key, value]) => `${key}=${quoteQueryPart(value)}`).join(", ")}` : "";
+  };
+
+  const setMetricBrowseQuery = (metric: PulseMetricSummary, dimensions: Record<string, string> = {}) => {
+    setQueryText(
+      buildPulseQuery({
+        metric: metric.name,
+        aggregation: defaultMetricAggregation(metric.type),
+        bucket: metric.type === "gauge" ? "1m" : "5m",
+        since: "24h",
+        sourceId: browseSourceId() || null,
+        dimensions,
+      }),
+    );
+  };
+
+  const setEventBrowseQuery = (kind: string, sample?: PulseRecordedEvent) => {
+    setQueryText(
+      `events ${quoteQueryPart(kind)} since 24h${sourceClause(browseSourceId() || sample?.sourceId)}${entityClause(browseEntityId() || sample?.entityId)} limit 100`,
+    );
+  };
+
+  const setStateBrowseQuery = (key: string, sample?: PulseCurrentState) => {
+    setQueryText(
+      `states ${quoteQueryPart(key)} since 10m${sourceClause(browseSourceId() || sample?.sourceId)}${entityClause(browseEntityId() || sample?.entityId)} limit 100`,
+    );
+  };
+
+  const openMetricQuery = (metric: PulseResourceMetric) => {
+    setQueryText(
+      buildPulseQuery({
+        metric: metric.metric,
+        aggregation: defaultMetricAggregation(metric.type),
+        bucket: metric.type === "gauge" ? "1m" : "5m",
+        since: "24h",
+        sourceId: metric.sourceId,
+        dimensions: metric.dimensions,
+      }),
+    );
+    openQueryExplorer();
+  };
+
+  const openEventQuery = (event: PulseRecordedEvent) => {
+    setQueryText(
+      `events ${quoteQueryPart(event.kind)} since 24h${sourceClause(event.sourceId)}${entityClause(event.entityId)}${whereClause(event.dimensions)} limit 100`,
+    );
+    openQueryExplorer();
+  };
+
+  const openStateQuery = (state: PulseCurrentState) => {
+    setQueryText(
+      `states ${quoteQueryPart(state.key)} since 10m${sourceClause(state.sourceId)}${entityClause(state.entityId)}${whereClause(state.dimensions)} limit 100`,
+    );
+    openQueryExplorer();
+  };
+
   const rememberQuery = (baseId: string, query: string) => {
     const next = [{ query, ranAt: new Date().toISOString() }, ...queryHistory().filter((item) => item.query !== query)].slice(0, 20);
     setQueryHistory(next);
@@ -1460,7 +1565,13 @@ export default function PulseWorkspace(props: Props) {
     if (!baseId || !query) return;
     const compiled = compiledQuery();
     const queryName =
-      compiled?.kind === "metric" ? compiled.metric : compiled?.kind === "events" ? compiled.event || "All events" : compiled?.kind === "states" ? compiled.state || "All states" : "Pulse query";
+      compiled?.kind === "metric"
+        ? compiled.metric
+        : compiled?.kind === "events"
+          ? compiled.event || "All events"
+          : compiled?.kind === "states"
+            ? compiled.state || "All states"
+            : "Pulse query";
     const result = await prompts.form({
       title: "Save query",
       icon: "ti ti-device-floppy",
@@ -1516,19 +1627,23 @@ export default function PulseWorkspace(props: Props) {
     const baseId = selectedBaseId();
     const query = currentExplorerQuery();
     if (!baseId || !query) return;
-    const compiled = compiledQuery() ?? (await jsonFetch<MetricTextQueryResult>("/api/pulse/query/metric-text", {
-      method: "POST",
-      body: JSON.stringify({ baseId, query }),
-    }).then((result) => {
-      setQueryDiagnostics({ ok: true, diagnostics: [{ severity: "info", message: "Query is valid." }], compiled: result.compiled });
-      setPoints(result.points);
-      setExplorerEvents(result.events);
-      setExplorerStates(result.states);
-      return result.compiled;
-    }).catch((error) => {
-      toast.error(error instanceof Error ? error.message : "Query failed");
-      return null;
-    }));
+    const compiled =
+      compiledQuery() ??
+      (await jsonFetch<MetricTextQueryResult>("/api/pulse/query/metric-text", {
+        method: "POST",
+        body: JSON.stringify({ baseId, query }),
+      })
+        .then((result) => {
+          setQueryDiagnostics({ ok: true, diagnostics: [{ severity: "info", message: "Query is valid." }], compiled: result.compiled });
+          setPoints(result.points);
+          setExplorerEvents(result.events);
+          setExplorerStates(result.states);
+          return result.compiled;
+        })
+        .catch((error) => {
+          toast.error(error instanceof Error ? error.message : "Query failed");
+          return null;
+        }));
     if (!compiled) return;
     if (compiled.kind !== "metric") {
       toast.error("Dashboard panels currently support metric queries only.");
@@ -1605,7 +1720,9 @@ export default function PulseWorkspace(props: Props) {
     } catch (error) {
       setDashboardDslDiagnostics({
         ok: false,
-        diagnostics: [{ severity: "error", message: error instanceof Error ? error.message : "Could not compile dashboard", line: 1, column: 1 }],
+        diagnostics: [
+          { severity: "error", message: error instanceof Error ? error.message : "Could not compile dashboard", line: 1, column: 1 },
+        ],
         config: null,
       });
     }
@@ -1713,7 +1830,8 @@ export default function PulseWorkspace(props: Props) {
       const nextDashboards = dashboards().filter((item) => item.id !== dashboard.id);
       setDashboards(nextDashboards);
       const fallback = nextDashboards[0] ?? null;
-      if (selectedDashboardId() === dashboard.id) navigateWorkspace(fallback ? { view: "dashboard", dashboardId: fallback.id } : { view: "dashboard" });
+      if (selectedDashboardId() === dashboard.id)
+        navigateWorkspace(fallback ? { view: "dashboard", dashboardId: fallback.id } : { view: "dashboard" });
       toast.success("Dashboard deleted");
       return true;
     } catch (error) {
@@ -1740,7 +1858,12 @@ export default function PulseWorkspace(props: Props) {
                 onClose={close}
                 closeLabel="Close"
               >
-                <SettingsModal.Tab id="general" title="General" icon="ti ti-settings" description="Name shown in the Pulse sidebar and header.">
+                <SettingsModal.Tab
+                  id="general"
+                  title="General"
+                  icon="ti ti-settings"
+                  description="Name shown in the Pulse sidebar and header."
+                >
                   <form
                     class="flex flex-col gap-3"
                     onSubmit={(event) => {
@@ -1794,12 +1917,22 @@ export default function PulseWorkspace(props: Props) {
                         : "Public display is disabled. Create a link when you want to share this dashboard without auth."}
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
-                      <button type="button" class="btn-input btn-input-sm" disabled={loading()} onClick={() => void enablePublicLink(currentDashboard(), { copy: true })}>
+                      <button
+                        type="button"
+                        class="btn-input btn-input-sm"
+                        disabled={loading()}
+                        onClick={() => void enablePublicLink(currentDashboard(), { copy: true })}
+                      >
                         <i class="ti ti-copy" />
                         {currentDashboard().publicEnabled ? "Copy public link" : "Create and copy link"}
                       </button>
                       <Show when={currentDashboard().publicEnabled}>
-                        <button type="button" class="btn-input btn-input-sm" disabled={loading()} onClick={() => void disablePublicLink(currentDashboard())}>
+                        <button
+                          type="button"
+                          class="btn-input btn-input-sm"
+                          disabled={loading()}
+                          onClick={() => void disablePublicLink(currentDashboard())}
+                        >
                           <i class="ti ti-link-off" />
                           Disable public link
                         </button>
@@ -1808,7 +1941,13 @@ export default function PulseWorkspace(props: Props) {
                   </div>
                 </SettingsModal.Tab>
 
-                <SettingsModal.Tab id="danger" title="Danger zone" icon="ti ti-alert-triangle" tone="danger" description="Delete this dashboard.">
+                <SettingsModal.Tab
+                  id="danger"
+                  title="Danger zone"
+                  icon="ti ti-alert-triangle"
+                  tone="danger"
+                  description="Delete this dashboard."
+                >
                   <button
                     type="button"
                     class="btn-danger btn-sm"
@@ -1925,9 +2064,7 @@ export default function PulseWorkspace(props: Props) {
             {panel.metric} · {panel.aggregation} / {panel.bucket}
             {panel.sourceId ? ` · ${sourceNameById().get(panel.sourceId) ?? "source"}` : ""}
           </p>
-          <Show when={options.description}>
-            {(description) => <p class="mt-2 text-xs leading-relaxed text-dimmed">{description()}</p>}
-          </Show>
+          <Show when={options.description}>{(description) => <p class="mt-2 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
         </div>
         <Show when={options.removable}>
           <button type="button" class="btn-icon" title="Remove panel" onClick={() => void removePanel(panel.id)}>
@@ -1943,12 +2080,8 @@ export default function PulseWorkspace(props: Props) {
     <article class="paper p-4">
       <Show when={widget.title || widget.description}>
         <div class="mb-3">
-          <Show when={widget.title}>
-            {(title) => <p class="text-sm font-semibold text-primary">{title()}</p>}
-          </Show>
-          <Show when={widget.description}>
-            {(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}
-          </Show>
+          <Show when={widget.title}>{(title) => <p class="text-sm font-semibold text-primary">{title()}</p>}</Show>
+          <Show when={widget.description}>{(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
         </div>
       </Show>
       <MarkdownView html={markdown.render(widget.markdown)} smallHeadings class="text-sm" />
@@ -1959,9 +2092,7 @@ export default function PulseWorkspace(props: Props) {
     <article class="paper p-4">
       <div class="mb-3">
         <p class="text-sm font-semibold text-primary">{widget.title}</p>
-        <Show when={widget.description}>
-          {(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}
-        </Show>
+        <Show when={widget.description}>{(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
       </div>
       <div class="space-y-3">
         <For each={widget.rows}>{(row) => renderDashboardRow(row)}</For>
@@ -1997,9 +2128,7 @@ export default function PulseWorkspace(props: Props) {
         </Show>
       </div>
       <For each={section.rows}>{(row) => renderDashboardRow(row)}</For>
-      <For each={section.sections}>
-        {(child) => <div class="border-l border-border/70 pl-4">{renderDashboardSection(child)}</div>}
-      </For>
+      <For each={section.sections}>{(child) => <div class="border-l border-border/70 pl-4">{renderDashboardSection(child)}</div>}</For>
     </section>
   );
 
@@ -2008,7 +2137,7 @@ export default function PulseWorkspace(props: Props) {
     const source = selectedSource();
     if (!source) return;
     await loadSourceScrapes(baseId, source.id, signal);
-    if (source.kind === "http_ingest") await loadSourceTokens(baseId, source.id, signal);
+    if (source.kind === "http_ingest") await loadSourceApiKeys(baseId, source.id, signal);
   };
 
   const refreshActivityView = async (baseId: string, signal: AbortSignal) => {
@@ -2025,16 +2154,13 @@ export default function PulseWorkspace(props: Props) {
       const interval = selectedDashboard()?.config.refreshIntervalSeconds;
       return interval === null ? null : (interval ?? 5);
     }
-    if (view === "sources" || view === "activity-events" || view === "activity-states" || view === "activity-metrics") return 5;
+    if (view === "sources" || view === "resources" || view === "activity-events" || view === "activity-states" || view === "activity-metrics") return 5;
     return null;
   };
 
   onMount(() => {
     setOrigin(window.location.origin);
-    const onPopState = () => applyWorkspacePathState();
-    window.addEventListener("popstate", onPopState);
     void loadBaseData();
-    onCleanup(() => window.removeEventListener("popstate", onPopState));
   });
 
   createEffect(() => {
@@ -2072,7 +2198,9 @@ export default function PulseWorkspace(props: Props) {
           ? refreshDashboardView(baseId, refresh.signal)
           : view === "sources"
             ? refreshSourcesView(baseId, refresh.signal)
-            : refreshActivityView(baseId, refresh.signal);
+            : view === "resources"
+              ? loadBaseData(baseId, refresh.signal)
+              : refreshActivityView(baseId, refresh.signal);
 
       task
         .then(() => {
@@ -2210,27 +2338,29 @@ export default function PulseWorkspace(props: Props) {
   });
 
   createEffect(() => {
+    const view = activeView();
+    const signalId = focusedSignalId();
+    focusedSearch();
+    if (view !== "metric-detail" && view !== "state-detail" && view !== "event-detail") return;
+    if (!signalId) return;
+    void loadFocusedRows().catch(() => {
+      setFocusedHasMore(false);
+      if (view === "metric-detail") setFocusedMetricSeries([]);
+      if (view === "state-detail") setFocusedStates([]);
+      if (view === "event-detail") setFocusedEvents([]);
+    });
+  });
+
+  createEffect(() => {
     const source = selectedSource();
     if (!source || activeView() !== "sources") return;
     void loadSourceScrapes(selectedBaseId(), source.id).catch(() => {
       setSourceScrapes((current) => ({ ...current, [source.id]: [] }));
     });
     if (source.kind === "http_ingest") {
-      void loadSourceTokens(selectedBaseId(), source.id).catch(() => {
-        setSourceTokens((current) => ({ ...current, [source.id]: [] }));
+      void loadSourceApiKeys(selectedBaseId(), source.id).catch(() => {
+        setSourceApiKeys((current) => ({ ...current, [source.id]: [] }));
       });
-    }
-  });
-
-  createEffect(() => {
-    sources();
-    dashboards();
-    const view = activeView();
-    if (view === "dashboard" || view === "dashboard-edit") {
-      const dashboardId = selectedDashboardId();
-      navigateWorkspace({ view, dashboardId }, "replace");
-    } else if (view === "sources") {
-      navigateWorkspace({ view, sourceId: selectedSourceId() }, "replace");
     }
   });
 
@@ -2247,7 +2377,10 @@ export default function PulseWorkspace(props: Props) {
     return (
       <div
         class="sidebar-item group text-xs"
-        classList={{ "sidebar-item-active": (activeView() === "dashboard" || activeView() === "dashboard-edit") && selectedDashboard()?.id === dashboard.id }}
+        classList={{
+          "sidebar-item-active":
+            (activeView() === "dashboard" || activeView() === "dashboard-edit") && selectedDashboard()?.id === dashboard.id,
+        }}
         title={dashboard.name}
       >
         <button type="button" class="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => openDashboard(dashboard.id)}>
@@ -2279,9 +2412,13 @@ export default function PulseWorkspace(props: Props) {
   };
 
   const openQueryExplorer = () => navigateWorkspace({ view: "explorer" });
+  const openResources = () => navigateWorkspace({ view: "resources" });
   const openActivityEvents = () => navigateWorkspace({ view: "activity-events" });
   const openActivityStates = () => navigateWorkspace({ view: "activity-states" });
   const openActivityMetrics = () => navigateWorkspace({ view: "activity-metrics" });
+  const openMetricDetailView = (metric: string) => navigateWorkspace({ view: "metric-detail", signalId: metric });
+  const openStateDetailView = (key: string) => navigateWorkspace({ view: "state-detail", signalId: key });
+  const openEventDetailView = (kind: string) => navigateWorkspace({ view: "event-detail", signalId: kind });
 
   const replaceActivityUrl = () => {
     const view = activeView();
@@ -2299,15 +2436,15 @@ export default function PulseWorkspace(props: Props) {
     replaceActivityUrl();
   };
 
-  const selectEvent = (event: PulseRecordedEvent) => {
-    setSelectedEventId(event.id);
+  const selectEvent = (group: ActivityEventGroup) => {
+    setSelectedEventId(group.id);
     setSelectedStateId("");
     setSelectedActivityMetricName("");
     replaceActivityUrl();
   };
 
-  const selectState = (state: PulseCurrentState) => {
-    setSelectedStateId(stateRowId(state));
+  const selectState = (group: ActivityStateGroup) => {
+    setSelectedStateId(group.id);
     setSelectedEventId("");
     setSelectedActivityMetricName("");
     replaceActivityUrl();
@@ -2394,9 +2531,7 @@ export default function PulseWorkspace(props: Props) {
                 fallback={
                   <div class="flex w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs">
                     <span class="truncate font-medium text-secondary">{item.label}</span>
-                    <Show when={item.meta}>
-                      {(meta) => <span class="shrink-0 text-[11px] text-dimmed">{meta()}</span>}
-                    </Show>
+                    <Show when={item.meta}>{(meta) => <span class="shrink-0 text-[11px] text-dimmed">{meta()}</span>}</Show>
                   </div>
                 }
               >
@@ -2408,9 +2543,7 @@ export default function PulseWorkspace(props: Props) {
                     title="Append DSL snippet"
                   >
                     <span class="truncate font-medium text-secondary">{item.label}</span>
-                    <Show when={item.meta}>
-                      {(meta) => <span class="shrink-0 text-[11px] text-dimmed">{meta()}</span>}
-                    </Show>
+                    <Show when={item.meta}>{(meta) => <span class="shrink-0 text-[11px] text-dimmed">{meta()}</span>}</Show>
                   </button>
                 )}
               </Show>
@@ -2522,7 +2655,11 @@ export default function PulseWorkspace(props: Props) {
             >
               <i class={`ti ${dashboardDslSaving() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} /> Save
             </button>
-            <button type="button" class="btn-input btn-input-sm" onClick={() => openQueryReferenceWindow(selectedBaseId(), { dashboardDsl: true })}>
+            <button
+              type="button"
+              class="btn-input btn-input-sm"
+              onClick={() => openQueryReferenceWindow(selectedBaseId(), { dashboardDsl: true })}
+            >
               <i class="ti ti-external-link" /> Query reference
             </button>
           </div>
@@ -2538,7 +2675,9 @@ export default function PulseWorkspace(props: Props) {
                 spellcheck={false}
                 ariaLabel="Pulse dashboard DSL"
                 ariaInvalid={dashboardDslDiagnostics()?.ok === false}
-                placeholder={'dashboard "Solar overview" {\n  section "Today" {\n    gauge "Charge" {\n      query metric solar.battery.charge_percent latest since 10m\n    }\n  }\n}'}
+                placeholder={
+                  'dashboard "Solar overview" {\n  section "Today" {\n    gauge "Charge" {\n      query metric solar.battery.charge_percent latest since 10m\n    }\n  }\n}'
+                }
               />
             </div>
             <Show when={dashboardDslDiagnostics()?.diagnostics.length}>
@@ -2554,12 +2693,32 @@ export default function PulseWorkspace(props: Props) {
               </div>
             </Show>
             <div class="grid gap-2 md:grid-cols-2 2xl:grid-cols-3">
-              {renderReferenceList({ title: "Sources", icon: "ti ti-database-share", items: dashboardReferenceSources(), empty: "No sources yet." })}
-              {renderReferenceList({ title: "Metrics", icon: "ti ti-chart-dots", items: dashboardReferenceMetrics(), empty: "No metrics yet." })}
+              {renderReferenceList({
+                title: "Sources",
+                icon: "ti ti-database-share",
+                items: dashboardReferenceSources(),
+                empty: "No sources yet.",
+              })}
+              {renderReferenceList({
+                title: "Metrics",
+                icon: "ti ti-chart-dots",
+                items: dashboardReferenceMetrics(),
+                empty: "No metrics yet.",
+              })}
               {renderReferenceList({ title: "Events", icon: "ti ti-bolt", items: dashboardReferenceEvents(), empty: "No events yet." })}
-              {renderReferenceList({ title: "States", icon: "ti ti-toggle-right", items: dashboardReferenceStates(), empty: "No states yet." })}
+              {renderReferenceList({
+                title: "States",
+                icon: "ti ti-toggle-right",
+                items: dashboardReferenceStates(),
+                empty: "No states yet.",
+              })}
               {renderReferenceList({ title: "Labels", icon: "ti ti-tags", items: dashboardReferenceLabels(), empty: "No labels yet." })}
-              {renderReferenceList({ title: "Entities", icon: "ti ti-cube", items: dashboardReferenceEntities(), empty: "No entities yet." })}
+              {renderReferenceList({
+                title: "Entities",
+                icon: "ti ti-cube",
+                items: dashboardReferenceEntities(),
+                empty: "No entities yet.",
+              })}
             </div>
           </div>
 
@@ -2649,46 +2808,55 @@ export default function PulseWorkspace(props: Props) {
     return null;
   };
 
-  const renderSourceTokenCell = (source: PulseSource, token: PulseSourceToken, col: DataTableColumn<PulseSourceToken>): JSX.Element => {
-    if (col.id === "label") {
-      return (
-        <span class="inline-flex items-center gap-2 text-xs font-medium text-secondary">
-          <i class="ti ti-key text-dimmed" />
-          {token.label}
-        </span>
-      );
-    }
-    if (col.id === "created") return <span class="text-xs text-secondary">{compactDateWithDelta(token.createdAt)}</span>;
-    if (col.id === "used") return <span class="text-xs text-secondary">{token.lastUsedAt ? compactDateWithDelta(token.lastUsedAt) : "Never"}</span>;
-    if (col.id === "actions") {
-      return (
-        <button
-          type="button"
-          class="btn-simple btn-sm text-dimmed hover:text-red-600"
-          title={`Remove ${token.label}`}
-          disabled={loading()}
-          onClick={(event) => {
-            event.stopPropagation();
-            void removeIngestToken(source, token);
-          }}
-        >
-          <i class="ti ti-trash" />
-        </button>
-      );
-    }
-    return null;
-  };
-
   const renderEventCell = (
     event: PulseRecordedEvent,
     col: DataTableColumn<PulseRecordedEvent>,
     render: (value: unknown) => JSX.Element,
   ) => {
-    if (col.id === "source") return <span class="text-xs text-secondary">{sourceNameById().get(event.sourceId ?? "") ?? "-"}</span>;
-    if (col.id === "entity") return <span class="text-xs text-secondary">{event.entityId || "-"}</span>;
+    if (col.id === "subject") {
+      const summary = dimensionsSummary(event.dimensions);
+      return (
+        <div class="min-w-0">
+          <p class="truncate text-xs font-medium text-secondary">{signalSubject(event)}</p>
+          <Show when={summary}>
+            {(text) => <p class="mt-0.5 truncate text-[11px] text-dimmed">{text()}</p>}
+          </Show>
+        </div>
+      );
+    }
+    if (col.id === "source") return renderSourceLink(event.sourceId);
+    if (col.id === "dimensions") {
+      const summary = dimensionsSummary(event.dimensions, 6);
+      return (
+        <span class="line-clamp-2 text-xs text-secondary" title={Object.entries(event.dimensions).map(([key, value]) => `${key}=${value}`).join(", ")}>
+          {summary || "-"}
+        </span>
+      );
+    }
     if (col.id === "value") return <span class="text-xs text-secondary">{event.value === null ? "-" : formatValue(event.value)}</span>;
     if (col.id === "time") return <span class="text-xs text-secondary">{compactDateWithDelta(event.ts)}</span>;
     return render(event[col.id as keyof PulseRecordedEvent]);
+  };
+
+  const renderEventGroupCell = (
+    group: ActivityEventGroup,
+    col: DataTableColumn<ActivityEventGroup>,
+    render: (value: unknown) => JSX.Element,
+  ) => {
+    if (col.id === "kind") {
+      return (
+        <span class="flex min-w-0 items-center gap-1.5">
+          {renderFullViewButton("Open full event view", () => openEventDetailView(group.kind))}
+          <span class="truncate">{group.kind}</span>
+        </span>
+      );
+    }
+    if (col.id === "source") return renderSourceLink(group.sourceId);
+    if (col.id === "value")
+      return <span class="text-xs text-secondary">{group.latest.value === null ? "-" : formatValue(group.latest.value)}</span>;
+    if (col.id === "count") return <span class="text-xs text-secondary">{group.rows.length}</span>;
+    if (col.id === "time") return <span class="text-xs text-secondary">{compactDateWithDelta(group.latest.ts)}</span>;
+    return render(group[col.id as keyof ActivityEventGroup]);
   };
 
   const renderStateCell = (state: PulseCurrentState, col: DataTableColumn<PulseCurrentState>, render: (value: unknown) => JSX.Element) => {
@@ -2699,10 +2867,54 @@ export default function PulseWorkspace(props: Props) {
         </span>
       );
     }
-    if (col.id === "source") return <span class="text-xs text-secondary">{sourceNameById().get(state.sourceId ?? "") ?? "-"}</span>;
-    if (col.id === "entity") return <span class="text-xs text-secondary">{state.entityId || "-"}</span>;
+    if (col.id === "subject") {
+      const summary = dimensionsSummary(state.dimensions);
+      return (
+        <div class="min-w-0">
+          <p class="truncate text-xs font-medium text-secondary">{signalSubject(state)}</p>
+          <Show when={summary}>
+            {(text) => <p class="mt-0.5 truncate text-[11px] text-dimmed">{text()}</p>}
+          </Show>
+        </div>
+      );
+    }
+    if (col.id === "source") return renderSourceLink(state.sourceId);
+    if (col.id === "dimensions") {
+      const summary = dimensionsSummary(state.dimensions, 6);
+      return (
+        <span class="line-clamp-2 text-xs text-secondary" title={Object.entries(state.dimensions).map(([key, value]) => `${key}=${value}`).join(", ")}>
+          {summary || "-"}
+        </span>
+      );
+    }
     if (col.id === "updated") return <span class="text-xs text-secondary">{compactDateWithDelta(state.updatedAt)}</span>;
     return render(state[col.id as keyof PulseCurrentState]);
+  };
+
+  const renderStateGroupCell = (
+    group: ActivityStateGroup,
+    col: DataTableColumn<ActivityStateGroup>,
+    render: (value: unknown) => JSX.Element,
+  ) => {
+    if (col.id === "key") {
+      return (
+        <span class="flex min-w-0 items-center gap-1.5">
+          {renderFullViewButton("Open full state view", () => openStateDetailView(group.key))}
+          <span class="truncate">{group.key}</span>
+        </span>
+      );
+    }
+    if (col.id === "source") return renderSourceLink(group.sourceId);
+    if (col.id === "value") {
+      if (group.rows.length > 1) return <span class="text-xs text-dimmed">{plural(group.rows.length, "variant")}</span>;
+      return (
+        <span class="line-clamp-2 text-xs text-secondary" title={formatSignalValue(group.latest.value)}>
+          {formatSignalValue(group.latest.value)}
+        </span>
+      );
+    }
+    if (col.id === "updated") return <span class="text-xs text-secondary">{compactDateWithDelta(group.latest.updatedAt)}</span>;
+    return render(group[col.id as keyof ActivityStateGroup]);
   };
 
   const renderMetricCell = (
@@ -2710,11 +2922,40 @@ export default function PulseWorkspace(props: Props) {
     col: DataTableColumn<PulseMetricSummary>,
     render: (value: unknown) => JSX.Element,
   ) => {
+    if (col.id === "name") {
+      return (
+        <span class="flex min-w-0 items-center gap-1.5">
+          {renderFullViewButton("Open full metric view", () => openMetricDetailView(metric.name))}
+          <span class="truncate">{metric.name}</span>
+        </span>
+      );
+    }
     if (col.id === "unit") return <span class="text-xs text-secondary">{metric.unit ?? "-"}</span>;
     if (col.id === "series") return <span class="text-xs text-secondary">{metric.seriesCount}</span>;
     if (col.id === "lastSeen")
       return <span class="text-xs text-secondary">{metric.lastSeenAt ? compactDateWithDelta(metric.lastSeenAt) : "-"}</span>;
     return render(metric[col.id as keyof PulseMetricSummary]);
+  };
+
+  const renderMetricSeriesCell = (
+    item: PulseMetricSeries,
+    col: DataTableColumn<PulseMetricSeries>,
+    render: (value: unknown) => JSX.Element,
+  ) => {
+    if (col.id === "subject") {
+      return <span class="truncate text-xs font-medium text-secondary">{signalSubject(item)}</span>;
+    }
+    if (col.id === "source") return renderSourceLink(item.sourceId);
+    if (col.id === "dimensions") {
+      const summary = dimensionsSummary(item.dimensions, 6);
+      return (
+        <span class="line-clamp-2 text-xs text-secondary" title={Object.entries(item.dimensions).map(([key, value]) => `${key}=${value}`).join(", ")}>
+          {summary || "-"}
+        </span>
+      );
+    }
+    if (col.id === "lastSeen") return <span class="text-xs text-secondary">{item.lastSeenAt ? compactDateWithDelta(item.lastSeenAt) : "-"}</span>;
+    return render(item[col.id as keyof PulseMetricSeries]);
   };
 
   const renderActivityToolbar = (kind: "events" | "states" | "metrics") => (
@@ -2746,196 +2987,58 @@ export default function PulseWorkspace(props: Props) {
     navigateWorkspace({ view: "sources", sourceId });
   };
 
-  const renderEventDetail = (event: PulseRecordedEvent) => (
-    <div class="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <section class="detail-section-compact">
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <h2 class="truncate text-base font-semibold leading-5 text-primary">{event.kind}</h2>
-            <p class="mt-1 text-xs text-dimmed">{compactDateWithDelta(event.ts)} · event</p>
-          </div>
-          <button type="button" class="btn-simple btn-sm text-dimmed hover:text-primary" onClick={closeActivityDetail}>
-            <i class="ti ti-x" />
-          </button>
-        </div>
-      </section>
-      <div class="detail-stack">
-        <section class="detail-section">
-          <h3 class="detail-section-label">Event</h3>
-          <div class="detail-row">
-            <i class="ti ti-number detail-row-icon text-blue-500" />
-            <span class="detail-row-label">Value</span>
-            <span>{event.value === null ? "-" : formatValue(event.value)}</span>
-          </div>
-          <div class="detail-row">
-            <i class="ti ti-box detail-row-icon text-emerald-600" />
-            <span class="detail-row-label">Entity</span>
-            <span>{event.entityId || "-"}</span>
-          </div>
-          <div class="detail-row">
-            <i class="ti ti-database detail-row-icon text-violet-500" />
-            <span class="detail-row-label">Source</span>
-            <span>{sourceNameById().get(event.sourceId ?? "") ?? "-"}</span>
-          </div>
-          <Show when={event.sourceId}>
-            {(sourceId) => (
-              <button type="button" class="btn-input btn-input-sm mt-3 self-start" onClick={() => openSourceFromDetail(sourceId())}>
-                <i class="ti ti-arrow-right" /> Open source
-              </button>
-            )}
-          </Show>
-        </section>
-        <section class="detail-section">
-          <StructuredDataPreview title="Dimensions" data={event.dimensions} empty="No dimensions." />
-        </section>
-        <section class="detail-section">
-          <StructuredDataPreview title="Payload" data={event.payload} empty="No payload." />
-        </section>
-      </div>
-    </div>
-  );
-
-  const renderStateDetail = (state: PulseCurrentState) => (
-    <div class="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <section class="detail-section-compact">
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <h2 class="truncate text-base font-semibold leading-5 text-primary">{state.key}</h2>
-            <p class="mt-1 text-xs text-dimmed">{compactDateWithDelta(state.updatedAt)} · state</p>
-          </div>
-          <button type="button" class="btn-simple btn-sm text-dimmed hover:text-primary" onClick={closeActivityDetail}>
-            <i class="ti ti-x" />
-          </button>
-        </div>
-      </section>
-      <div class="detail-stack">
-        <section class="detail-section">
-          <h3 class="detail-section-label">Current value</h3>
-          <p class="break-all text-sm font-medium text-primary">{formatSignalValue(state.value)}</p>
-        </section>
-        <section class="detail-section">
-          <h3 class="detail-section-label">State</h3>
-          <div class="detail-row">
-            <i class="ti ti-box detail-row-icon text-emerald-600" />
-            <span class="detail-row-label">Entity</span>
-            <span>{state.entityId || "-"}</span>
-          </div>
-          <div class="detail-row">
-            <i class="ti ti-database detail-row-icon text-violet-500" />
-            <span class="detail-row-label">Source</span>
-            <span>{sourceNameById().get(state.sourceId ?? "") ?? "-"}</span>
-          </div>
-          <Show when={state.sourceId}>
-            {(sourceId) => (
-              <button type="button" class="btn-input btn-input-sm mt-3 self-start" onClick={() => openSourceFromDetail(sourceId())}>
-                <i class="ti ti-arrow-right" /> Open source
-              </button>
-            )}
-          </Show>
-        </section>
-        <section class="detail-section">
-          <StructuredDataPreview title="Dimensions" data={state.dimensions} empty="No dimensions." />
-        </section>
-      </div>
-    </div>
-  );
-
-  const renderActivityMetricChart = (metric: PulseMetricSummary) => {
-    const data = activityMetricPoints();
-    const last = data.at(-1)?.value ?? null;
-    if (metric.type === "gauge") {
-      const value = last ?? 0;
-      return (
-        <Chart
-          kind="gauge"
-          class="h-44 text-primary"
-          value={value}
-          min={0}
-          max={gaugeMax(metric.unit, value)}
-          label="Latest"
-          unit={metric.unit ?? undefined}
-        />
-      );
-    }
-    if (metric.type === "counter") {
-      return (
-        <Chart
-          kind="stat"
-          class="h-36 text-primary"
-          label="Rate"
-          value={formatValue(last)}
-          unit={metric.unit ?? undefined}
-          sparkline={data.map((point) => point.value ?? 0)}
-        />
-      );
-    }
-    if (metric.type === "histogram") {
-      return <Chart kind="histogram" class="h-44 text-dimmed" data={pointsToHistogram(data)} bins={12} yAxis={{ label: "Count" }} />;
-    }
+  const renderSourceLink = (sourceId: string | null | undefined) => {
+    if (!sourceId) return <span class="text-xs text-dimmed">-</span>;
     return (
-      <Chart
-        kind="line"
-        class="h-44 text-dimmed"
-        series={[{ label: metric.name, data: data.map((point) => ({ x: Date.parse(point.bucket), y: point.value ?? 0 })) }]}
-        xAxis={{ format: (value) => compactDate(new Date(value).toISOString()) }}
-        yAxis={{ format: (value) => formatValue(value) }}
-        smooth
-        area
-      />
+      <button
+        type="button"
+        class="inline-flex max-w-full items-center gap-1 truncate text-xs font-medium text-secondary transition hover:text-blue-600 dark:hover:text-blue-300"
+        onClick={(event) => {
+          event.stopPropagation();
+          openSourceFromDetail(sourceId);
+        }}
+        title="Open source"
+      >
+        <i class="ti ti-database-share shrink-0" />
+        <span class="truncate">{sourceNameById().get(sourceId) ?? "Unknown source"}</span>
+      </button>
     );
   };
 
-  const renderMetricDetail = (metric: PulseMetricSummary) => (
-    <div class="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <section class="detail-section-compact">
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <h2 class="truncate text-base font-semibold leading-5 text-primary">{metric.name}</h2>
-            <p class="mt-1 text-xs text-dimmed">
-              {metric.type} · {metric.seriesCount} series{metric.unit ? ` · ${metric.unit}` : ""}
-            </p>
-          </div>
-          <button type="button" class="btn-simple btn-sm text-dimmed hover:text-primary" onClick={closeActivityDetail}>
-            <i class="ti ti-x" />
-          </button>
-        </div>
-      </section>
-      <div class="detail-stack">
-        <section class="detail-section">
-          {renderActivityMetricChart(metric)}
-        </section>
-        <section class="detail-section">
-          <h3 class="detail-section-label">Metric</h3>
-          <div class="detail-row">
-            <i class="ti ti-clock detail-row-icon text-blue-500" />
-            <span class="detail-row-label">Last seen</span>
-            <span>{metric.lastSeenAt ? compactDateWithDelta(metric.lastSeenAt) : "-"}</span>
-          </div>
-          <div class="detail-row">
-            <i class="ti ti-stack-3 detail-row-icon text-emerald-600" />
-            <span class="detail-row-label">Series</span>
-            <span>{metric.seriesCount}</span>
-          </div>
-        </section>
-        <section class="detail-section">
-          <h3 class="detail-section-label">Sources</h3>
-          <Show
-            when={activityMetricSources().length}
-            fallback={<p class="text-xs text-dimmed">No source attached to this metric yet.</p>}
-          >
-            <div class="flex flex-col gap-2">
-              <For each={activityMetricSources()}>
-                {(source) => (
-                  <button type="button" class="btn-input btn-input-sm justify-start" onClick={() => openSourceFromDetail(source.id)}>
-                    <i class="ti ti-database-share" /> {source.name}
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
-        </section>
-      </div>
-    </div>
+  const renderFullViewButton = (label: string, onClick: () => void) => (
+    <button
+      type="button"
+      class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-dimmed transition hover:bg-blue-100 hover:text-blue-600 dark:hover:bg-blue-950 dark:hover:text-blue-300"
+      title={label}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+    >
+      <i class="ti ti-eye text-sm" />
+    </button>
+  );
+
+  const resourceSourceLabel = (resource: PulseResourceSummary): string =>
+    resource.sourceIds.map((sourceId) => sourceNameById().get(sourceId) ?? "Unknown source").join(", ") || "No source";
+
+  const renderResourceBrowserView = () => (
+    <ResourceBrowserView
+      search={resourceSearch}
+      setSearch={setResourceSearch}
+      inventory={inventory}
+      filteredResources={filteredResources}
+      selectedResource={visibleSelectedResource}
+      setSelectedResourceKey={setSelectedResourceKey}
+      resourceSourceLabel={resourceSourceLabel}
+      selectedResourceMetrics={selectedResourceMetrics}
+      selectedResourceStates={selectedResourceStates}
+      selectedResourceEvents={selectedResourceEvents}
+      sourceNameById={sourceNameById}
+      openMetricQuery={openMetricQuery}
+      openStateQuery={openStateQuery}
+      openEventQuery={openEventQuery}
+    />
   );
 
   const renderSourcesView = () => (
@@ -2971,25 +3074,200 @@ export default function PulseWorkspace(props: Props) {
     </section>
   );
 
+  const renderFocusedSignalView = () => {
+    const view = activeView();
+    const signalId = focusedSignalId();
+    const isMetric = view === "metric-detail";
+    const isState = view === "state-detail";
+    const rowsLabel = isMetric
+      ? plural(focusedMetricSeries().length, "variant")
+      : isState
+        ? plural(focusedStates().length, "variant")
+        : plural(focusedEvents().length, "event");
+    const subtitle = isMetric
+      ? `${focusedMetric()?.type ?? "metric"}${focusedMetric()?.unit ? ` · ${focusedMetric()?.unit}` : ""} · ${rowsLabel}`
+      : isState
+        ? `state · ${rowsLabel}`
+        : `event · ${rowsLabel}`;
+
+    return (
+      <section class="flex min-h-0 flex-1 flex-col gap-3">
+        <div class="paper shrink-0 p-4">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-label text-xs">{isMetric ? "Metric" : isState ? "State" : "Event"}</p>
+              <h2 class="mt-1 truncate text-xl font-semibold text-primary">{signalId}</h2>
+              <p class="mt-1 text-sm text-dimmed">{subtitle}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" class="btn-input btn-input-sm" onClick={() => void loadFocusedRows()}>
+                <i class={`ti ${focusedLoadingMore() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} /> Reload
+              </button>
+              <button
+                type="button"
+                class="btn-input btn-input-sm"
+                onClick={() => {
+                  if (isMetric) {
+                    const metric = focusedMetric();
+                    if (metric) {
+                      setQueryText(
+                        buildPulseQuery({
+                          metric: metric.name,
+                          aggregation: defaultMetricAggregation(metric.type),
+                          bucket: metric.type === "gauge" ? "1m" : "5m",
+                          since: "24h",
+                        }),
+                      );
+                      openQueryExplorer();
+                      return;
+                    }
+                  }
+                  if (isState) setQueryText(`states ${quoteQueryPart(signalId)} since 10m limit 100`);
+                  else setQueryText(`events ${quoteQueryPart(signalId)} since 24h limit 100`);
+                  openQueryExplorer();
+                }}
+              >
+                <i class="ti ti-code" /> Open query
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex shrink-0 flex-wrap items-center gap-2">
+          <div class="min-w-64 flex-1">
+            <TextInput
+              type="search"
+              icon="ti ti-search"
+              value={focusedSearch}
+              onInput={setFocusedSearch}
+              placeholder={isMetric ? "Search variants..." : isState ? "Search state variants..." : "Search events..."}
+              clearable
+            />
+          </div>
+          <span class="chip">
+            <i class={isMetric ? "ti ti-stack-3" : isState ? "ti ti-toggle-right" : "ti ti-bolt"} />
+            {rowsLabel}
+          </span>
+        </div>
+
+        <Show when={isMetric}>
+          <DataTable
+            rows={focusedMetricSeries()}
+            columns={metricSeriesColumns}
+            getRowId={(item) => item.id}
+            selectedRowId={selectedFocusedSeries()?.id ?? null}
+            onRowClick={(item) => setSelectedFocusedSeriesId(item.id)}
+            density="compact"
+            fillHeight
+            class="paper flex-1 min-h-0 overflow-auto"
+            empty="No variants found."
+            hasMore={focusedHasMore()}
+            loadingMore={focusedLoadingMore()}
+            onLoadMore={() => void loadFocusedRows({ append: true })}
+            scrollPreserveKey={`pulse-focused-metric-${signalId}`}
+            renderCell={({ row, col, render }) => renderMetricSeriesCell(row, col, render)}
+          />
+        </Show>
+        <Show when={isState}>
+          <DataTable
+            rows={focusedStates()}
+            columns={stateColumns}
+            getRowId={stateRowId}
+            selectedRowId={selectedFocusedState() ? stateRowId(selectedFocusedState()!) : null}
+            onRowClick={(state) => setSelectedFocusedStateId(stateRowId(state))}
+            density="compact"
+            fillHeight
+            class="paper flex-1 min-h-0 overflow-auto"
+            empty="No state variants found."
+            hasMore={focusedHasMore()}
+            loadingMore={focusedLoadingMore()}
+            onLoadMore={() => void loadFocusedRows({ append: true })}
+            scrollPreserveKey={`pulse-focused-state-${signalId}`}
+            renderCell={({ row, col, render }) => renderStateCell(row, col, render)}
+          />
+        </Show>
+        <Show when={view === "event-detail"}>
+          <DataTable
+            rows={focusedEvents()}
+            columns={eventColumns}
+            getRowId={(event) => event.id}
+            selectedRowId={selectedFocusedEvent()?.id ?? null}
+            onRowClick={(event) => setSelectedFocusedEventId(event.id)}
+            density="compact"
+            fillHeight
+            class="paper flex-1 min-h-0 overflow-auto"
+            empty="No events found."
+            hasMore={focusedHasMore()}
+            loadingMore={focusedLoadingMore()}
+            onLoadMore={() => void loadFocusedRows({ append: true })}
+            scrollPreserveKey={`pulse-focused-event-${signalId}`}
+            renderCell={({ row, col, render }) => renderEventCell(row, col, render)}
+          />
+        </Show>
+      </section>
+    );
+  };
+
   const renderExplorerChart = () => {
     const data = points();
     const title = compiledMetricQuery()?.metric ?? (selectedMetric() || "Query");
     const last = data.at(-1)?.value ?? null;
     const unit = previewUnit();
     if (selectedVisual() === "stat") {
-      return <Chart kind="stat" class="h-full min-h-72 text-primary" label={title} value={formatValue(last)} unit={unit ?? undefined} sparkline={data.map((point) => point.value ?? 0)} />;
+      return (
+        <Chart
+          kind="stat"
+          class="h-full min-h-72 text-primary"
+          label={title}
+          value={formatValue(last)}
+          unit={unit ?? undefined}
+          sparkline={data.map((point) => point.value ?? 0)}
+        />
+      );
     }
     if (selectedVisual() === "gauge") {
       const value = last ?? 0;
-      return <Chart kind="gauge" class="h-full min-h-72 text-primary" value={value} min={0} max={gaugeMax(unit, value)} label={title} unit={unit ?? undefined} />;
+      return (
+        <Chart
+          kind="gauge"
+          class="h-full min-h-72 text-primary"
+          value={value}
+          min={0}
+          max={gaugeMax(unit, value)}
+          label={title}
+          unit={unit ?? undefined}
+        />
+      );
     }
     if (selectedVisual() === "barGauge") {
       const value = last ?? 0;
-      return <Chart kind="barGauge" class="h-full min-h-72 text-primary" data={[{ label: title, value, min: 0, max: gaugeMax(unit, value), unit: unit ?? undefined }]} min={0} max={gaugeMax(unit, value)} unit={unit ?? undefined} />;
+      return (
+        <Chart
+          kind="barGauge"
+          class="h-full min-h-72 text-primary"
+          data={[{ label: title, value, min: 0, max: gaugeMax(unit, value), unit: unit ?? undefined }]}
+          min={0}
+          max={gaugeMax(unit, value)}
+          unit={unit ?? undefined}
+        />
+      );
     }
-    if (selectedVisual() === "bar") return <Chart kind="bar" class="h-full min-h-72 text-dimmed" data={pointsToBars(data)} showValues={data.length <= 16} />;
-    if (selectedVisual() === "histogram") return <Chart kind="histogram" class="h-full min-h-72 text-dimmed" data={pointsToHistogram(data)} bins={12} yAxis={{ label: "Count" }} />;
-    if (selectedVisual() === "heatmap") return <Chart kind="heatmap" class="h-full min-h-72 text-dimmed" data={pointsToHeatmap(data)} format={(value) => formatValue(value)} showValues={data.length <= 48} />;
+    if (selectedVisual() === "bar")
+      return <Chart kind="bar" class="h-full min-h-72 text-dimmed" data={pointsToBars(data)} showValues={data.length <= 16} />;
+    if (selectedVisual() === "histogram")
+      return (
+        <Chart kind="histogram" class="h-full min-h-72 text-dimmed" data={pointsToHistogram(data)} bins={12} yAxis={{ label: "Count" }} />
+      );
+    if (selectedVisual() === "heatmap")
+      return (
+        <Chart
+          kind="heatmap"
+          class="h-full min-h-72 text-dimmed"
+          data={pointsToHeatmap(data)}
+          format={(value) => formatValue(value)}
+          showValues={data.length <= 48}
+        />
+      );
     return (
       <Chart
         kind="line"
@@ -3045,56 +3323,62 @@ export default function PulseWorkspace(props: Props) {
           getRowId={(point) => point.bucket}
           density="compact"
           class="h-full overflow-auto"
-          empty={queryWasRun ? "No points matched this metric query. Try a wider since range or check whether the source is still ingesting." : "Run a metric query to see points."}
+          empty={
+            queryWasRun
+              ? "No points matched this metric query. Try a wider since range or check whether the source is still ingesting."
+              : "Run a metric query to see points."
+          }
         />
       );
     }
     if (compiled && compiled.kind !== "metric") {
-      return <div class="flex h-full min-h-72 items-center justify-center text-sm text-dimmed">Use Table or Compiled for this query type.</div>;
+      return (
+        <div class="flex h-full min-h-72 items-center justify-center text-sm text-dimmed">Use Table or Compiled for this query type.</div>
+      );
     }
     if (points().length > 0) return renderExplorerChart();
     return (
       <div class="flex h-full min-h-72 items-center justify-center px-6 text-center text-sm text-dimmed">
-        {queryWasRun ? "No points matched this metric query. Try a wider since range or check whether the source is still ingesting." : "Run a metric query to preview data."}
+        {queryWasRun
+          ? "No points matched this metric query. Try a wider since range or check whether the source is still ingesting."
+          : "Run a metric query to preview data."}
       </div>
     );
   };
 
-  const renderMetricExplorerView = () => (
-    <section class="grid grid-cols-1 gap-3 pb-3 xl:grid-cols-[minmax(0,1fr)_18rem]">
-      <div class="flex flex-col gap-3">
-        <div class="paper p-3">
-          <AutocompleteEditor
-            value={queryText}
-            onInput={setQueryText}
-            onSubmit={() => void runTextQuery({ manual: true, remember: true })}
-            completions={queryCompletions()}
-            highlight={pulseQueryHighlight}
-            restoreExpansionOnBackspace={false}
-            lines={5}
-            spellcheck={false}
-            placeholder="metric orders.created increase every 1h since 7d where channel=web"
-            ariaLabel="Pulse query"
-            ariaInvalid={queryDiagnostics()?.ok === false}
-          />
-          <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
-            <For each={queryDiagnostics()?.diagnostics ?? []}>
-              {(diagnostic) => (
-                <span class={diagnostic.severity === "error" ? "text-red-600 dark:text-red-300" : "text-dimmed"}>
-                  <i class={diagnostic.severity === "error" ? "ti ti-alert-circle" : "ti ti-check"} /> {diagnostic.message}
-                </span>
-              )}
-            </For>
-            <Show when={queryRunning()}>
-              <span class="text-dimmed">
-                <i class="ti ti-loader-2 animate-spin" /> Updating preview...
+  const renderQueryEditorPane = () => (
+    <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
+      <div class="min-h-0 flex-1 overflow-auto p-3">
+        <AutocompleteEditor
+          value={queryText}
+          onInput={setQueryText}
+          onSubmit={() => void runTextQuery({ manual: true, remember: true })}
+          completions={queryCompletions()}
+          highlight={pulseQueryHighlight}
+          restoreExpansionOnBackspace={false}
+          lines={7}
+          spellcheck={false}
+          placeholder="metric orders.created increase every 1h since 7d where channel=web"
+          ariaLabel="Pulse query"
+          ariaInvalid={queryDiagnostics()?.ok === false}
+        />
+        <div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          <For each={queryDiagnostics()?.diagnostics ?? []}>
+            {(diagnostic) => (
+              <span class={diagnostic.severity === "error" ? "text-red-600 dark:text-red-300" : "text-dimmed"}>
+                <i class={diagnostic.severity === "error" ? "ti ti-alert-circle" : "ti ti-check"} /> {diagnostic.message}
               </span>
-            </Show>
-          </div>
+            )}
+          </For>
+          <Show when={queryRunning()}>
+            <span class="text-dimmed">
+              <i class="ti ti-loader-2 animate-spin" /> Updating preview...
+            </span>
+          </Show>
         </div>
 
         <Show when={compiledMetricQuery() && matchingMetricSeries().length > 0}>
-          <div class="paper p-3">
+          <section class="mt-3 rounded bg-zinc-50 p-3 dark:bg-zinc-900/50">
             <div class="flex flex-wrap items-start justify-between gap-3">
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
@@ -3103,12 +3387,12 @@ export default function PulseWorkspace(props: Props) {
                     click to autocomplete
                   </span>
                 </div>
-                <p class="mt-1 text-xs text-dimmed">Based on the matched series. Add a source or label to narrow the query.</p>
+                <p class="mt-1 text-xs text-dimmed">Based on the matched variants. Add a source or label to narrow the query.</p>
               </div>
               <div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs text-dimmed">
                 <span class="inline-flex items-center gap-1">
                   <i class="ti ti-stack-2" />
-                  {plural(matchingMetricSeries().length, "series", "series")}
+                  {plural(matchingMetricSeries().length, "variant")}
                 </span>
                 <span class="inline-flex items-center gap-1">
                   <i class="ti ti-database-share" />
@@ -3125,7 +3409,9 @@ export default function PulseWorkspace(props: Props) {
                     onClick={() => setQuerySuggestionsExpanded((expanded) => !expanded)}
                   >
                     <i class={`ti ${querySuggestionsExpanded() ? "ti-chevron-up" : "ti-adjustments-horizontal"}`} />
-                    {querySuggestionsExpanded() ? "Show less" : `Browse${querySuggestionOverflow() > 0 ? ` +${querySuggestionOverflow()}` : ""}`}
+                    {querySuggestionsExpanded()
+                      ? "Show less"
+                      : `Browse${querySuggestionOverflow() > 0 ? ` +${querySuggestionOverflow()}` : ""}`}
                   </button>
                 </Show>
               </div>
@@ -3162,7 +3448,10 @@ export default function PulseWorkspace(props: Props) {
               <For each={visibleQueryLabelSuggestions()}>
                 {(group) => (
                   <div class="grid grid-cols-[4.75rem_minmax(0,1fr)] items-start gap-2">
-                    <div class="truncate pt-1 text-xs font-medium text-dimmed" title={`${group.key} · ${plural(group.count, "series", "series")}`}>
+                    <div
+                      class="truncate pt-1 text-xs font-medium text-dimmed"
+                      title={`${group.key} · ${plural(group.count, "variant")}`}
+                    >
                       {group.key}
                     </div>
                     <div class="flex flex-wrap gap-2">
@@ -3187,124 +3476,387 @@ export default function PulseWorkspace(props: Props) {
                   </div>
                 )}
               </For>
-              <Show when={querySuggestionsExpanded() && querySuggestionMatches().sources.length === 0 && querySuggestionMatches().labels.length === 0}>
+              <Show
+                when={
+                  querySuggestionsExpanded() &&
+                  querySuggestionMatches().sources.length === 0 &&
+                  querySuggestionMatches().labels.length === 0
+                }
+              >
                 <p class="text-xs text-dimmed">No suggested filters match this search.</p>
               </Show>
             </div>
-          </div>
+          </section>
         </Show>
 
         <Show when={compiledMetricQuery() && matchingMetricSeries().length === 0}>
-          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-xs text-dimmed">
+          <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-dimmed">
             <span class="inline-flex items-center gap-1">
-              <i class="ti ti-stack-2" />
-              0 series matched
+              <i class="ti ti-stack-2" />0 variants matched
             </span>
           </div>
         </Show>
-
-        <div class="flex flex-wrap items-center gap-2">
-          <button type="button" class="btn-input btn-input-sm" disabled={!currentExplorerQuery() || queryRunning()} onClick={() => void runTextQuery({ manual: true, remember: true })}>
-            <i class={`ti ${queryRunning() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} /> Reload
-          </button>
-          <button type="button" class="btn-input btn-input-sm" disabled={!selectedBaseId()} onClick={() => openQueryReferenceWindow(selectedBaseId())}>
-            <i class="ti ti-external-link" /> Open reference
-          </button>
-          <Show when={explorerResultView() !== "compiled" && compiledQuery()?.kind === "metric"}>
-            <button type="button" class="btn-input btn-input-sm" disabled={!compiledQuery() || loading()} onClick={addPanel}>
-              <i class="ti ti-layout-grid-add" /> Add panel
-            </button>
-          </Show>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-2">
-          <div class="min-w-40">
-            <SelectInput
-              icon="ti ti-layout"
-              value={explorerResultView}
-              onChange={(value) => setExplorerResultView(compiledQuery()?.kind !== "metric" && value === "chart" ? "table" : (value as ExplorerResultView))}
-              options={RESULT_VIEW_OPTIONS}
-            />
-          </div>
-          <Show when={explorerResultView() === "chart"}>
-            <div class="min-w-44">
-              <SelectInput
-                icon="ti ti-chart-line"
-                value={selectedVisual}
-                onChange={(value) => setSelectedVisual(value as PanelVisual)}
-                options={VISUAL_OPTIONS}
-              />
-            </div>
-          </Show>
-          <span class="ml-auto text-xs text-dimmed">
-            {compiledQuery()?.kind === "events"
-              ? `${explorerEvents().length} events`
-              : compiledQuery()?.kind === "states"
-                ? `${explorerStates().length} states`
-                : `${points().length} points`}
-          </span>
-        </div>
-
-        <div class="paper min-h-[28rem] overflow-hidden">
-          <div class={explorerResultView() === "table" ? "min-h-[28rem]" : "min-h-[28rem] p-3"}>{renderExplorerResult()}</div>
-        </div>
       </div>
 
-      <aside class="flex min-h-0 flex-col gap-3">
-        <div class="paper flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div class="flex items-center justify-between gap-2 px-3 py-2">
-            <span class="text-label text-xs">Saved</span>
-            <button type="button" class="text-xs font-medium text-secondary transition hover:text-blue-600" disabled={!currentExplorerQuery() || loading()} onClick={() => void saveCurrentQuery()}>
-              <i class="ti ti-device-floppy" /> Save current
-            </button>
+      <div class="flex shrink-0 flex-wrap items-center gap-2 px-3 pb-3">
+        <button
+          type="button"
+          class="btn-input btn-input-sm"
+          disabled={!currentExplorerQuery() || queryRunning()}
+          onClick={() => void runTextQuery({ manual: true, remember: true })}
+        >
+          <i class={`ti ${queryRunning() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} /> Reload
+        </button>
+        <button
+          type="button"
+          class="btn-input btn-input-sm"
+          disabled={!selectedBaseId()}
+          onClick={() => openQueryReferenceWindow(selectedBaseId())}
+        >
+          <i class="ti ti-external-link" /> Open reference
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderExplorerResultPane = () => (
+    <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
+      <div class="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">
+        <div class="min-w-40">
+          <SelectInput
+            icon="ti ti-layout"
+            value={explorerResultView}
+            onChange={(value) =>
+              setExplorerResultView(compiledQuery()?.kind !== "metric" && value === "chart" ? "table" : (value as ExplorerResultView))
+            }
+            options={RESULT_VIEW_OPTIONS}
+          />
+        </div>
+        <Show when={explorerResultView() === "chart"}>
+          <div class="min-w-44">
+            <SelectInput
+              icon="ti ti-chart-line"
+              value={selectedVisual}
+              onChange={(value) => setSelectedVisual(value as PanelVisual)}
+              options={VISUAL_OPTIONS}
+            />
           </div>
-          <div class="min-h-0 flex-1 overflow-auto px-2 pb-2">
-            <Show when={savedQueries().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No saved queries.</p>}>
-              <For each={savedQueries()}>
-                {(item) => (
-                  <div class="group flex items-start gap-2 rounded px-2 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-900">
-                    <button type="button" class="min-w-0 flex-1 text-left" onClick={() => setQueryText(item.query)}>
-                      <span class="block truncate text-sm font-medium text-secondary">{item.name}</span>
-                      <code class="block truncate font-mono text-[11px] text-dimmed">{item.query}</code>
-                    </button>
-                    <button type="button" class="icon-btn opacity-0 group-hover:opacity-100" onClick={() => void removeSavedQuery(item)} aria-label="Remove saved query">
-                      <i class="ti ti-trash" />
-                    </button>
-                  </div>
-                )}
-              </For>
+        </Show>
+        <Show when={explorerResultView() !== "compiled" && compiledQuery()?.kind === "metric"}>
+          <button type="button" class="btn-input btn-input-sm" disabled={!compiledQuery() || loading()} onClick={addPanel}>
+            <i class="ti ti-layout-grid-add" /> Add panel
+          </button>
+        </Show>
+        <span class="ml-auto text-xs text-dimmed">
+          {compiledQuery()?.kind === "events"
+            ? `${explorerEvents().length} events`
+            : compiledQuery()?.kind === "states"
+              ? `${explorerStates().length} states`
+              : `${points().length} points`}
+        </span>
+      </div>
+      <div class={explorerResultView() === "table" ? "min-h-0 flex-1" : "min-h-0 flex-1 p-3"}>{renderExplorerResult()}</div>
+    </div>
+  );
+
+  const renderBrowseExplorerPane = () => {
+    const scopeTagClass = "chip border-0 bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-200";
+    const clearScopeButtonClass = "ml-1 inline-flex text-blue-500 transition hover:text-blue-700 dark:text-blue-300";
+    const rowClass = "group block w-full rounded px-2 py-2 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-900";
+    const actionClass =
+      "inline-flex h-7 items-center gap-1 rounded-full bg-zinc-100 px-2.5 text-[11px] font-medium text-secondary transition hover:bg-blue-100 hover:text-blue-700 dark:bg-zinc-900 dark:hover:bg-blue-950 dark:hover:text-blue-200";
+
+    return (
+      <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
+        <div class="shrink-0 space-y-2 p-3">
+          <TextInput
+            type="search"
+            icon="ti ti-search"
+            value={browseSearch}
+            onInput={setBrowseSearch}
+            placeholder="Find sources, entities, metrics, events, states, labels..."
+            clearable
+          />
+          <div class="flex flex-wrap gap-2">
+            <Show when={selectedBrowseSource()}>
+              {(source) => (
+                <span class={scopeTagClass}>
+                  <i class="ti ti-database-share" />
+                  <span class="truncate">Source: {source().name}</span>
+                  <button type="button" class={clearScopeButtonClass} onClick={() => setBrowseSourceId("")} aria-label="Clear source scope">
+                    <i class="ti ti-x" />
+                  </button>
+                </span>
+              )}
+            </Show>
+            <Show when={selectedBrowseEntity()}>
+              {(entity) => (
+                <span class={scopeTagClass}>
+                  <i class="ti ti-cube" />
+                  <span class="truncate">Entity: {entity().id}</span>
+                  <button type="button" class={clearScopeButtonClass} onClick={() => setBrowseEntityId("")} aria-label="Clear entity scope">
+                    <i class="ti ti-x" />
+                  </button>
+                </span>
+              )}
+            </Show>
+            <Show when={!selectedBrowseSource() && !selectedBrowseEntity()}>
+              <span class="text-xs text-dimmed">Select a source or entity to narrow the signals below.</span>
             </Show>
           </div>
         </div>
 
-        <div class="paper flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div class="px-3 py-2 text-label text-xs">History</div>
-          <div class="min-h-0 flex-1 overflow-auto px-2 pb-2">
-            <Show when={queryHistory().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No runs yet.</p>}>
-              <For each={queryHistory()}>
-                {(item) => (
-                  <button type="button" class="block w-full rounded px-2 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-900" onClick={() => setQueryText(item.query)}>
-                    <code class="block truncate font-mono text-[11px] text-secondary">{item.query}</code>
-                    <span class="text-[11px] text-dimmed">{compactDateWithDelta(item.ranAt)}</span>
-                  </button>
-                )}
-              </For>
-            </Show>
+        <div class="min-h-0 flex-1 overflow-auto px-3 pb-3">
+          <div class="grid gap-3 xl:grid-cols-2">
+            <section class="rounded bg-zinc-50/80 p-2 dark:bg-zinc-900/45">
+              <div class="mb-1 flex items-center justify-between gap-2 px-1">
+                <h3 class="text-label text-xs">Sources</h3>
+                <span class="text-[11px] text-dimmed">{plural(browseSources().length, "shown")}</span>
+              </div>
+              <Show when={browseSources().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No matching sources.</p>}>
+                <For each={browseSources()}>
+                  {({ source, metricCount, eventCount, stateCount }) => (
+                    <div class="rounded transition hover:bg-white dark:hover:bg-zinc-950">
+                      <button type="button" class={rowClass} onClick={() => setBrowseSourceId(source.id)}>
+                        <span class="flex items-center gap-2">
+                          <i class={`${sourceKindIcon(source.kind)} text-dimmed`} />
+                          <span class="min-w-0 flex-1 truncate text-sm font-medium text-secondary">{source.name}</span>
+                          <span class={sourceStatus(source).text}>{sourceStatus(source).label}</span>
+                        </span>
+                        <span class="mt-1 block truncate text-[11px] text-dimmed">
+                          {source.kind} · {plural(metricCount, "metric")} · {plural(eventCount, "event")} · {plural(stateCount, "state")}
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                </For>
+              </Show>
+            </section>
+
+            <section class="rounded bg-zinc-50/80 p-2 dark:bg-zinc-900/45">
+              <div class="mb-1 flex items-center justify-between gap-2 px-1">
+                <h3 class="text-label text-xs">Entities</h3>
+                <span class="text-[11px] text-dimmed">{plural(browseVisibleEntities().length, "shown")}</span>
+              </div>
+              <Show
+                when={browseVisibleEntities().length > 0}
+                fallback={<p class="px-1 py-2 text-xs text-dimmed">No matching entities yet.</p>}
+              >
+                <For each={browseVisibleEntities()}>
+                  {(entity) => (
+                    <button type="button" class={rowClass} onClick={() => setBrowseEntityId(entity.id)}>
+                      <span class="flex items-center gap-2">
+                        <i class="ti ti-cube text-dimmed" />
+                        <span class="min-w-0 flex-1 truncate text-sm font-medium text-secondary">{entity.id}</span>
+                        <span class="text-[11px] text-dimmed">{entity.type ?? "entity"}</span>
+                      </span>
+                      <span class="mt-1 block truncate text-[11px] text-dimmed">
+                        {plural(entity.metricCount, "metric")} · {plural(entity.eventCount, "event")} · {plural(entity.stateCount, "state")}
+                      </span>
+                    </button>
+                  )}
+                </For>
+              </Show>
+            </section>
           </div>
+
+          <section class="mt-3 rounded bg-zinc-50/80 p-2 dark:bg-zinc-900/45">
+            <div class="mb-1 flex items-center justify-between gap-2 px-1">
+              <h3 class="text-label text-xs">Signals</h3>
+              <span class="text-[11px] text-dimmed">
+                {plural(browseMetrics().length, "metric")} · {plural(browseEvents().length, "event")} ·{" "}
+                {plural(browseStates().length, "state")}
+              </span>
+            </div>
+            <div class="grid gap-2 xl:grid-cols-3">
+              <div>
+                <h4 class="px-1 pb-1 text-xs font-semibold text-dimmed">Metrics</h4>
+                <Show when={browseMetrics().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No matching metrics.</p>}>
+                  <For each={browseMetrics()}>
+                    {({ metric, seriesCount, sampleDimensions }) => (
+                      <div class="rounded px-2 py-2 transition hover:bg-white dark:hover:bg-zinc-950">
+                        <button type="button" class="block w-full text-left" onClick={() => setMetricBrowseQuery(metric, sampleDimensions)}>
+                          <span class="block truncate text-sm font-medium text-secondary">{metric.name}</span>
+                          <span class="block truncate text-[11px] text-dimmed">
+                            {metric.type}
+                            {metric.unit ? ` · ${metric.unit}` : ""} · {plural(seriesCount, "variant")}
+                          </span>
+                        </button>
+                        <div class="mt-2 flex flex-wrap gap-1">
+                          <button type="button" class={actionClass} onClick={() => setMetricBrowseQuery(metric, sampleDimensions)}>
+                            <i class="ti ti-code" /> query
+                          </button>
+                          <Show when={browseSourceId()}>
+                            <button type="button" class={actionClass} onClick={() => applyQuerySourceFilter(browseSourceId())}>
+                              <i class="ti ti-database-share" /> add source
+                            </button>
+                          </Show>
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </div>
+
+              <div>
+                <h4 class="px-1 pb-1 text-xs font-semibold text-dimmed">Events</h4>
+                <Show when={browseEvents().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No matching events.</p>}>
+                  <For each={browseEvents()}>
+                    {(event) => (
+                      <div class="rounded px-2 py-2 transition hover:bg-white dark:hover:bg-zinc-950">
+                        <button type="button" class="block w-full text-left" onClick={() => setEventBrowseQuery(event.kind, event.sample)}>
+                          <span class="block truncate text-sm font-medium text-secondary">{event.kind}</span>
+                          <span class="block truncate text-[11px] text-dimmed">{plural(event.count, "recent row")}</span>
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </div>
+
+              <div>
+                <h4 class="px-1 pb-1 text-xs font-semibold text-dimmed">States</h4>
+                <Show when={browseStates().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No matching states.</p>}>
+                  <For each={browseStates()}>
+                    {(state) => (
+                      <div class="rounded px-2 py-2 transition hover:bg-white dark:hover:bg-zinc-950">
+                        <button type="button" class="block w-full text-left" onClick={() => setStateBrowseQuery(state.key, state.sample)}>
+                          <span class="block truncate text-sm font-medium text-secondary">{state.key}</span>
+                          <span class="block truncate text-[11px] text-dimmed">
+                            {plural(state.count, "current row")} · latest {formatSignalValue(state.sample.value)}
+                          </span>
+                        </button>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </div>
+            </div>
+          </section>
+
+          <section class="mt-3 rounded bg-zinc-50/80 p-2 dark:bg-zinc-900/45">
+            <div class="mb-2 flex items-center justify-between gap-2 px-1">
+              <h3 class="text-label text-xs">Labels</h3>
+              <span class="text-[11px] text-dimmed">Click to add a where filter</span>
+            </div>
+            <Show when={browseLabels().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No matching labels.</p>}>
+              <div class="space-y-2">
+                <For each={browseLabels()}>
+                  {(group) => (
+                    <div class="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2">
+                      <div class="truncate px-1 pt-1 text-xs font-medium text-dimmed">{group.key}</div>
+                      <div class="flex flex-wrap gap-1">
+                        <For each={group.values}>
+                          {(filter) => (
+                            <button
+                              type="button"
+                              class={suggestionTagClass}
+                              onClick={() => applyQueryDimensionFilter(filter.key, filter.value)}
+                            >
+                              <i class="ti ti-tag" />
+                              <span class="truncate">{filter.value}</span>
+                              <span class="text-dimmed">· {filter.count}</span>
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </section>
         </div>
-      </aside>
+      </div>
+    );
+  };
+
+  const renderSavedQueriesPane = () => (
+    <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
+      <div class="flex shrink-0 items-center justify-between gap-2 px-3 py-2">
+        <span class="text-label text-xs">Saved queries</span>
+        <button
+          type="button"
+          class="text-xs font-medium text-secondary transition hover:text-blue-600"
+          disabled={!currentExplorerQuery() || loading()}
+          onClick={() => void saveCurrentQuery()}
+        >
+          <i class="ti ti-device-floppy" /> Save current
+        </button>
+      </div>
+      <div class="min-h-0 flex-1 overflow-auto px-2 pb-2">
+        <Show when={savedQueries().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No saved queries.</p>}>
+          <For each={savedQueries()}>
+            {(item) => (
+              <div class="group flex items-start gap-2 rounded px-2 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-900">
+                <button type="button" class="min-w-0 flex-1 text-left" onClick={() => setQueryText(item.query)}>
+                  <span class="block truncate text-sm font-medium text-secondary">{item.name}</span>
+                  <code class="block truncate font-mono text-[11px] text-dimmed">{item.query}</code>
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn opacity-0 group-hover:opacity-100"
+                  onClick={() => void removeSavedQuery(item)}
+                  aria-label="Remove saved query"
+                >
+                  <i class="ti ti-trash" />
+                </button>
+              </div>
+            )}
+          </For>
+        </Show>
+      </div>
+    </div>
+  );
+
+  const renderQueryHistoryPane = () => (
+    <div class="paper h-full overflow-auto p-2">
+      <Show when={queryHistory().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No runs yet.</p>}>
+        <For each={queryHistory()}>
+          {(item) => (
+            <button
+              type="button"
+              class="block w-full rounded px-2 py-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-900"
+              onClick={() => setQueryText(item.query)}
+            >
+              <code class="block truncate font-mono text-[11px] text-secondary">{item.query}</code>
+              <span class="text-[11px] text-dimmed">{compactDateWithDelta(item.ranAt)}</span>
+            </button>
+          )}
+        </For>
+      </Show>
+    </div>
+  );
+
+  const renderMetricExplorerView = () => (
+    <section class="min-h-[42rem] flex-1 overflow-hidden pb-2">
+      <DockWorkspace storageKey="pulse.query-explorer" initialState={props.initialExplorerDockState}>
+        <DockWorkspace.Result title="Result" icon="ti ti-chart-line">
+          {renderExplorerResultPane()}
+        </DockWorkspace.Result>
+        <DockWorkspace.Pane id="editor" title="Query" icon="ti ti-code" section="editor">
+          {renderQueryEditorPane()}
+        </DockWorkspace.Pane>
+        <DockWorkspace.Pane id="browse" title="Browse" icon="ti ti-list-search" section="context">
+          {renderBrowseExplorerPane()}
+        </DockWorkspace.Pane>
+        <DockWorkspace.Pane id="saved" title="Saved" icon="ti ti-device-floppy" section="context">
+          {renderSavedQueriesPane()}
+        </DockWorkspace.Pane>
+        <DockWorkspace.Pane id="history" title="History" icon="ti ti-history" section="context">
+          {renderQueryHistoryPane()}
+        </DockWorkspace.Pane>
+      </DockWorkspace>
     </section>
   );
 
   const renderActivityEventsView = () => (
     <section class="flex min-h-0 flex-1 flex-col gap-3">
-      <div class="flex flex-wrap items-center gap-2">
-        {renderActivityToolbar("events")}
-      </div>
+      <div class="flex flex-wrap items-center gap-2">{renderActivityToolbar("events")}</div>
       <DataTable
-        rows={recentEvents()}
-        columns={eventColumns}
-        getRowId={(event) => event.id}
+        rows={eventGroups()}
+        columns={eventGroupColumns}
+        getRowId={(group) => group.id}
         selectedRowId={selectedEventId() || null}
         onRowClick={selectEvent}
         density="compact"
@@ -3312,20 +3864,18 @@ export default function PulseWorkspace(props: Props) {
         class="paper flex-1 min-h-0 overflow-auto"
         empty="No events ingested yet."
         scrollPreserveKey="pulse-activity-events"
-        renderCell={({ row, col, render }) => renderEventCell(row, col, render)}
+        renderCell={({ row, col, render }) => renderEventGroupCell(row, col, render)}
       />
     </section>
   );
 
   const renderActivityStatesView = () => (
     <section class="flex min-h-0 flex-1 flex-col gap-3">
-      <div class="flex flex-wrap items-center gap-2">
-        {renderActivityToolbar("states")}
-      </div>
+      <div class="flex flex-wrap items-center gap-2">{renderActivityToolbar("states")}</div>
       <DataTable
-        rows={currentStates()}
-        columns={stateColumns}
-        getRowId={stateRowId}
+        rows={stateGroups()}
+        columns={stateGroupColumns}
+        getRowId={(group) => group.id}
         selectedRowId={selectedStateId() || null}
         onRowClick={selectState}
         density="compact"
@@ -3333,16 +3883,14 @@ export default function PulseWorkspace(props: Props) {
         class="paper flex-1 min-h-0 overflow-auto"
         empty="No states ingested yet."
         scrollPreserveKey="pulse-activity-states"
-        renderCell={({ row, col, render }) => renderStateCell(row, col, render)}
+        renderCell={({ row, col, render }) => renderStateGroupCell(row, col, render)}
       />
     </section>
   );
 
   const renderActivityMetricsView = () => (
     <section class="flex min-h-0 flex-1 flex-col gap-3">
-      <div class="flex flex-wrap items-center gap-2">
-        {renderActivityToolbar("metrics")}
-      </div>
+      <div class="flex flex-wrap items-center gap-2">{renderActivityToolbar("metrics")}</div>
       <DataTable
         rows={activityMetrics()}
         columns={metricColumns}
@@ -3364,383 +3912,32 @@ export default function PulseWorkspace(props: Props) {
     toast.success(label);
   };
 
-  const createIngestToken = async (source: PulseSource) => {
-    const baseId = selectedBaseId();
-    if (!baseId || source.kind !== "http_ingest") return;
-    const result = await prompts.form({
-      title: "Add ingest token",
-      icon: "ti ti-key",
-      fields: {
-        label: { type: "text", label: "Token label", required: true, placeholder: "Production server" },
-      },
-      confirmText: "Create token",
-    });
-    if (!result) return;
-    const label = String(result.label ?? "").trim();
-    if (!label) return;
-    setLoading(true);
-    try {
-      const created = await jsonFetch<{ source: PulseSource; token: PulseSourceToken; ingestToken: string }>(
-        `/api/pulse/bases/${baseId}/sources/${source.id}/tokens`,
-        {
-          method: "POST",
-          body: JSON.stringify({ label }),
-        },
-      );
-      setSources((current) => current.map((item) => (item.id === created.source.id ? created.source : item)));
-      setSourceTokens((current) => ({ ...current, [source.id]: [created.token, ...(current[source.id] ?? [])] }));
-      setTokenSourceId(source.id);
-      setHttpIngestToken(created.ingestToken);
-      toast.success("Ingest token created");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not create ingest token");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const removeIngestToken = async (source: PulseSource, token: PulseSourceToken) => {
-    const baseId = selectedBaseId();
-    if (!baseId) return;
-    if (
-      !(await prompts.confirm(`Remove ingest token "${token.label}"? Clients using it will stop sending data.`, {
-        title: "Remove ingest token",
-        variant: "danger",
-      }))
-    )
-      return;
-    setLoading(true);
-    try {
-      await jsonFetch<void>(`/api/pulse/bases/${baseId}/sources/${source.id}/tokens/${token.id}`, { method: "DELETE" });
-      setSourceTokens((current) => ({ ...current, [source.id]: (current[source.id] ?? []).filter((item) => item.id !== token.id) }));
-      if (tokenSourceId() === source.id) setHttpIngestToken("");
-      toast.success("Ingest token removed");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not remove ingest token");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const renderSourceDetail = (source: PulseSource) => {
-    const sourceToken = () => (tokenSourceId() === source.id && source.kind === "http_ingest" ? httpIngestToken() : "");
-    const httpExample = () =>
-      source.kind === "http_ingest" && sourceToken()
-        ? `curl -fsS -X POST ${origin()}/api/pulse/ingest/${sourceToken()} \\
-  -H "Content-Type: application/json" \\
-  --data '{
-    "metrics": [
-      { "name": "orders.created", "value": 1, "type": "counter", "dimensions": { "channel": "webshop" } },
-      { "name": "solar.output_watts", "value": 4200, "type": "gauge", "unit": "W", "dimensions": { "site": "warehouse" } }
-    ],
-    "events": [
-      { "kind": "order.created", "dimensions": { "channel": "webshop" }, "payload": { "orderId": "demo-1001" } },
-      { "kind": "import.finished", "dimensions": { "dataset": "inventory" }, "payload": { "rows": 128 } }
-    ],
-    "states": [
-      { "key": "checkout.enabled", "value": true },
-      { "key": "integration.online", "value": true, "dimensions": { "integration": "webshop" } }
-    ]
-  }'`
-        : "";
-    const renderCodeSection = (params: { title: string; code: string }) => (
-      <section class="detail-section">
-        <div class="mb-3 flex items-center justify-between gap-2">
-          <h3 class="text-xs font-semibold uppercase tracking-wider text-secondary">{params.title}</h3>
-          <div class="flex shrink-0 items-center gap-1">
-            <button type="button" class="btn-input btn-input-sm" onClick={() => void copySetupText(params.code, "Command copied")}>
-              <i class="ti ti-copy" /> Copy
-            </button>
-          </div>
-        </div>
-        <pre class="max-h-72 overflow-auto rounded-lg bg-zinc-100 p-3 text-[11px] leading-relaxed text-secondary dark:bg-zinc-900/80">
-          <code>{params.code}</code>
-        </pre>
-      </section>
-    );
-
-    return (
-      <div class="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-        <section class="detail-section-compact">
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0 flex-1">
-              <h2 class="truncate text-base font-semibold leading-5 text-primary">{source.name}</h2>
-              <p class="mt-1 truncate text-xs text-dimmed">
-                {source.kind}
-                {source.enabled ? " · enabled" : " · paused"}
-                {source.bearerTokenConfigured ? " · bearer auth" : ""}
-              </p>
-            </div>
-            <div class="flex shrink-0 items-center gap-1">
-              <span
-                class="inline-flex h-7 w-7 items-center justify-center rounded-md bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400"
-                title="Source"
-              >
-                <i class="ti ti-database-share text-sm" />
-              </span>
-              <button
-                type="button"
-                class="btn-simple btn-sm text-dimmed hover:text-primary"
-                title="Edit source"
-                onClick={() => void editSource(source)}
-              >
-                <i class="ti ti-pencil" />
-              </button>
-              <button
-                type="button"
-                class="btn-simple btn-sm text-dimmed hover:text-primary"
-                title={source.enabled ? "Pause source" : "Resume source"}
-                onClick={() => void toggleSource(source)}
-              >
-                <i class={`ti ${source.enabled ? "ti-player-pause" : "ti-player-play"}`} />
-              </button>
-              <button
-                type="button"
-                class="btn-simple btn-sm text-dimmed hover:text-primary"
-                title="Close detail"
-                onClick={() => navigateWorkspace({ view: "sources" })}
-              >
-                <i class="ti ti-x" />
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <div class="detail-stack">
-          <section class="detail-section">
-            <h3 class="detail-section-label">Status</h3>
-            <div class="detail-row">
-              <i class="ti ti-clock detail-row-icon text-blue-500" />
-              <span class="detail-row-label">Last seen</span>
-              <span>{source.lastSeenAt ? compactDateWithDelta(source.lastSeenAt) : "Waiting"}</span>
-            </div>
-            <Show when={source.kind === "metrics"}>
-              <div class="detail-row">
-                <i class="ti ti-refresh detail-row-icon text-emerald-600" />
-                <span class="detail-row-label">Interval</span>
-                <span>{source.scrapeIntervalSeconds ?? 60}s</span>
-              </div>
-            </Show>
-            <Show when={source.lastError}>
-              {(message) => (
-                <div class="detail-row text-red-600 dark:text-red-300">
-                  <i class="ti ti-alert-circle detail-row-icon" />
-                  <span class="detail-row-label">Error</span>
-                  <span class="break-all">{message()}</span>
-                </div>
-              )}
-            </Show>
-          </section>
-
-          <Show when={source.kind === "metrics"}>
-            <section class="detail-section overflow-hidden !p-0">
-              <DataTable
-                rows={selectedSourceScrapes()}
-                columns={sourceScrapeColumns}
-                getRowId={(scrape) => scrape.id}
-                density="compact"
-                class="max-h-72 overflow-auto"
-                empty="No scrapes recorded yet."
-                renderCell={({ row: scrape, col }) => renderSourceScrapeCell(scrape, col)}
-              />
-            </section>
-          </Show>
-
-          <section class="detail-section">
-            <h3 class="detail-section-label">Target</h3>
-            <Show when={source.kind === "metrics"} fallback={<p class="text-xs text-secondary">{source.kind} ingest endpoint</p>}>
-              <p class="break-all text-xs text-secondary">{source.endpointUrl ?? "No endpoint"}</p>
-            </Show>
-          </section>
-
-          <Show when={source.kind === "http_ingest"}>
-            <section class="detail-section overflow-hidden !p-0">
-              <DataTable
-                rows={selectedSourceTokens()}
-                columns={sourceTokenColumns}
-                getRowId={(token) => token.id}
-                density="compact"
-                class="max-h-72 overflow-auto"
-                empty="No ingest tokens yet."
-                renderCell={({ row: token, col }) => renderSourceTokenCell(source, token, col)}
-              />
-            </section>
-          </Show>
-
-          <Show when={httpExample()}>
-            {(command) => renderCodeSection({ title: "HTTP ingest example", code: command() })}
-          </Show>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-2 p-3">
-          <Show when={source.kind === "metrics"}>
-            <button
-              type="button"
-              class="btn-input btn-input-sm"
-              disabled={loading() || !source.enabled}
-              onClick={() => void scrape(source)}
-            >
-              <i class="ti ti-refresh" /> Scrape
-            </button>
-          </Show>
-          <Show when={source.kind === "http_ingest"}>
-            <button
-              type="button"
-              class="btn-input btn-input-sm"
-              disabled={loading()}
-              onClick={() => void createIngestToken(source)}
-              title="Create a labeled ingest token"
-            >
-              <i class={`ti ${loading() ? "ti-loader-2 animate-spin" : "ti-key"}`} />
-              Add token
-            </button>
-          </Show>
-          <button type="button" class="btn-danger btn-sm ml-auto" disabled={loading()} onClick={() => void removeSource(source)}>
-            <i class="ti ti-trash" /> Remove
-          </button>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <AppWorkspace class="min-h-[760px]">
       <PulseLayoutHelp />
-      <AppWorkspace.Sidebar>
-        <AppWorkspace.SidebarHeader
-          title={selectedBase()?.name ?? "Pulse"}
-          subtitle={`${sources().length} source${sources().length === 1 ? "" : "s"} · ${metrics().length} metric${metrics().length === 1 ? "" : "s"}`}
-          icon="ti ti-activity-heartbeat"
-          action={
-            <button
-              type="button"
-              onClick={() => void openSettingsDialog()}
-              class="absolute right-0 top-0 inline-flex h-6 w-6 items-center justify-center text-dimmed transition-colors hover:text-primary"
-              title="Settings"
-              aria-label={`Settings for ${selectedBase()?.name ?? "Pulse"}`}
-              disabled={!selectedBase() || loading()}
-            >
-              <i class="ti ti-settings text-xs" />
-            </button>
-          }
-        />
-        <AppWorkspace.SidebarMobile>
-          <AppWorkspace.SidebarMobileBody scrollPreserveKey="pulse-sidebar-mobile">
-            <div class="grid gap-3">
-              <AppWorkspace.SidebarSection title="Dashboards">
-                <AppWorkspace.SidebarItem icon="ti ti-plus" active={false} onClick={() => void createDashboard()}>
-                  New dashboard
-                </AppWorkspace.SidebarItem>
-                <For each={dashboards()}>
-                  {(dashboard) => renderDashboardSidebarItem(dashboard)}
-                </For>
-              </AppWorkspace.SidebarSection>
-              <AppWorkspace.SidebarSection title="Data">
-                <AppWorkspace.SidebarItem
-                  icon="ti ti-database"
-                  active={activeView() === "sources"}
-                  onClick={openSources}
-                  meta={sources().length}
-                >
-                  Sources
-                </AppWorkspace.SidebarItem>
-                <AppWorkspace.SidebarItem icon="ti ti-terminal-2" active={activeView() === "explorer"} onClick={openQueryExplorer}>
-                  Query explorer
-                </AppWorkspace.SidebarItem>
-              </AppWorkspace.SidebarSection>
-              <AppWorkspace.SidebarSection title="Activity">
-                <AppWorkspace.SidebarItem
-                  icon="ti ti-bolt"
-                  active={activeView() === "activity-events"}
-                  onClick={openActivityEvents}
-                  meta={recentEvents().length}
-                >
-                  Events
-                </AppWorkspace.SidebarItem>
-                <AppWorkspace.SidebarItem
-                  icon="ti ti-toggle-right"
-                  active={activeView() === "activity-states"}
-                  onClick={openActivityStates}
-                  meta={currentStates().length}
-                >
-                  States
-                </AppWorkspace.SidebarItem>
-                <AppWorkspace.SidebarItem
-                  icon="ti ti-chart-dots"
-                  active={activeView() === "activity-metrics"}
-                  onClick={openActivityMetrics}
-                  meta={metrics().length}
-                >
-                  Metrics
-                </AppWorkspace.SidebarItem>
-              </AppWorkspace.SidebarSection>
-            </div>
-          </AppWorkspace.SidebarMobileBody>
-        </AppWorkspace.SidebarMobile>
-        <AppWorkspace.SidebarDesktop>
-          <AppWorkspace.SidebarSection title="Dashboards">
-            <AppWorkspace.SidebarItem icon="ti ti-plus" active={false} onClick={() => void createDashboard()}>
-              New dashboard
-            </AppWorkspace.SidebarItem>
-            <For each={dashboards()}>
-              {(dashboard) => renderDashboardSidebarItem(dashboard)}
-            </For>
-          </AppWorkspace.SidebarSection>
-
-          <AppWorkspace.SidebarSection title="Data">
-            <AppWorkspace.SidebarItem
-              icon="ti ti-database"
-              active={activeView() === "sources"}
-              onClick={openSources}
-              meta={sources().length}
-            >
-              Sources
-            </AppWorkspace.SidebarItem>
-            <AppWorkspace.SidebarItem icon="ti ti-terminal-2" active={activeView() === "explorer"} onClick={openQueryExplorer}>
-              Query explorer
-            </AppWorkspace.SidebarItem>
-          </AppWorkspace.SidebarSection>
-
-          <AppWorkspace.SidebarSection title="Activity">
-            <AppWorkspace.SidebarItem
-              icon="ti ti-bolt"
-              active={activeView() === "activity-events"}
-              onClick={openActivityEvents}
-              meta={recentEvents().length}
-            >
-              Events
-            </AppWorkspace.SidebarItem>
-            <AppWorkspace.SidebarItem
-              icon="ti ti-toggle-right"
-              active={activeView() === "activity-states"}
-              onClick={openActivityStates}
-              meta={currentStates().length}
-            >
-              States
-            </AppWorkspace.SidebarItem>
-            <AppWorkspace.SidebarItem
-              icon="ti ti-chart-dots"
-              active={activeView() === "activity-metrics"}
-              onClick={openActivityMetrics}
-              meta={metrics().length}
-            >
-              Metrics
-            </AppWorkspace.SidebarItem>
-          </AppWorkspace.SidebarSection>
-
-          <AppWorkspace.SidebarFooter>
-            <div class="rounded-lg bg-zinc-100 px-3 py-2 text-xs text-secondary dark:bg-zinc-900">
-              <div class="flex items-center gap-2">
-                <span
-                  class={`inline-flex h-2.5 w-2.5 rounded-full ${props.initialCapabilities?.timescaleEnabled ? "bg-emerald-500" : "bg-amber-500"}`}
-                />
-                <span>{props.initialCapabilities?.timescaleEnabled ? "TimescaleDB enabled" : "Dev fallback"}</span>
-              </div>
-              <p class="mt-1">Retention: {selectedBase()?.retentionDays ?? 30} days</p>
-            </div>
-          </AppWorkspace.SidebarFooter>
-        </AppWorkspace.SidebarDesktop>
-      </AppWorkspace.Sidebar>
+      <PulseSidebar
+        title={selectedBase()?.name ?? "Pulse"}
+        subtitle={`${sources().length} source${sources().length === 1 ? "" : "s"} · ${metrics().length} metric${metrics().length === 1 ? "" : "s"}`}
+        activeView={activeView()}
+        dashboards={dashboards()}
+        resourceCount={inventory().resources.length}
+        sourceCount={sources().length}
+        eventCount={eventGroups().length}
+        stateCount={stateGroups().length}
+        metricCount={metrics().length}
+        retentionDays={selectedBase()?.retentionDays ?? 30}
+        timescaleEnabled={Boolean(props.initialCapabilities?.timescaleEnabled)}
+        settingsDisabled={!selectedBase() || loading()}
+        openSettings={openSettingsDialog}
+        createDashboard={createDashboard}
+        renderDashboardItem={renderDashboardSidebarItem}
+        openResources={openResources}
+        openSources={openSources}
+        openQueryExplorer={openQueryExplorer}
+        openActivityEvents={openActivityEvents}
+        openActivityStates={openActivityStates}
+        openActivityMetrics={openActivityMetrics}
+      />
 
       <AppWorkspace.Main class="gap-3 overflow-y-auto">
         {activeView() === "dashboard"
@@ -3749,13 +3946,17 @@ export default function PulseWorkspace(props: Props) {
             ? renderDashboardEditView()
             : activeView() === "sources"
               ? renderSourcesView()
-              : activeView() === "explorer"
-                ? renderMetricExplorerView()
-                : activeView() === "activity-states"
-                  ? renderActivityStatesView()
-                  : activeView() === "activity-metrics"
-                    ? renderActivityMetricsView()
-                    : renderActivityEventsView()}
+              : activeView() === "resources"
+                ? renderResourceBrowserView()
+                : activeView() === "metric-detail" || activeView() === "state-detail" || activeView() === "event-detail"
+                  ? renderFocusedSignalView()
+                  : activeView() === "explorer"
+                    ? renderMetricExplorerView()
+                    : activeView() === "activity-states"
+                      ? renderActivityStatesView()
+                      : activeView() === "activity-metrics"
+                        ? renderActivityMetricsView()
+                        : renderActivityEventsView()}
       </AppWorkspace.Main>
 
       <AppWorkspace.Detail
@@ -3763,26 +3964,134 @@ export default function PulseWorkspace(props: Props) {
           (activeView() === "sources" && Boolean(selectedSource())) ||
           (activeView() === "activity-events" && Boolean(selectedEvent())) ||
           (activeView() === "activity-states" && Boolean(selectedState())) ||
-          (activeView() === "activity-metrics" && Boolean(selectedActivityMetric()))
+          (activeView() === "activity-metrics" && Boolean(selectedActivityMetric())) ||
+          (activeView() === "metric-detail" && Boolean(selectedFocusedSeries())) ||
+          (activeView() === "state-detail" && Boolean(selectedFocusedState())) ||
+          (activeView() === "event-detail" && Boolean(selectedFocusedEvent()))
         }
         width="lg"
         viewTransitionName="pulse-source-detail"
       >
         {activeView() === "sources" ? (
           <Show when={selectedSource()} keyed>
-            {(source) => renderSourceDetail(source)}
+            {(source) => (
+              <SourceDetailView
+                source={source}
+                origin={origin()}
+                loading={loading()}
+                scrapes={selectedSourceScrapes()}
+                apiKeys={selectedSourceApiKeys()}
+                scrapeColumns={sourceScrapeColumns}
+                renderScrapeCell={renderSourceScrapeCell}
+                copySetupText={copySetupText}
+                editSource={editSource}
+                toggleSource={toggleSource}
+                close={() => navigateWorkspace({ view: "sources" })}
+                scrape={scrape}
+                removeSource={removeSource}
+                createApiKey={async (input) => {
+                  const baseId = selectedBaseId();
+                  if (!baseId) throw new Error("No Pulse base selected.");
+                  const created = await jsonFetch<{ credential: ResourceApiKey; token: string }>(
+                    `/api/pulse/bases/${baseId}/sources/${source.id}/api-keys`,
+                    {
+                      method: "POST",
+                      body: JSON.stringify(input),
+                    },
+                  );
+                  setSourceApiKeys((current) => ({ ...current, [source.id]: [created.credential, ...(current[source.id] ?? [])] }));
+                  return created;
+                }}
+                revokeApiKey={async (credentialId) => {
+                  const baseId = selectedBaseId();
+                  if (!baseId) throw new Error("No Pulse base selected.");
+                  await jsonFetch<void>(`/api/pulse/bases/${baseId}/sources/${source.id}/api-keys/${credentialId}`, { method: "DELETE" });
+                  setSourceApiKeys((current) => ({
+                    ...current,
+                    [source.id]: (current[source.id] ?? []).filter((key) => key.id !== credentialId),
+                  }));
+                }}
+              />
+            )}
           </Show>
         ) : activeView() === "activity-events" ? (
           <Show when={selectedEvent()} keyed>
-            {(event) => renderEventDetail(event)}
+            {(event) => (
+              <ActivityEventDetail
+                group={event}
+                sourceNameById={sourceNameById}
+                openSource={openSourceFromDetail}
+                eventColumns={eventColumns}
+                renderEventCell={renderEventCell}
+                close={closeActivityDetail}
+                openFullView={openEventDetailView}
+              />
+            )}
           </Show>
         ) : activeView() === "activity-states" ? (
           <Show when={selectedState()} keyed>
-            {(state) => renderStateDetail(state)}
+            {(state) => (
+              <ActivityStateDetail
+                group={state}
+                sourceNameById={sourceNameById}
+                openSource={openSourceFromDetail}
+                stateColumns={stateColumns}
+                renderStateCell={renderStateCell}
+                close={closeActivityDetail}
+                openFullView={openStateDetailView}
+              />
+            )}
+          </Show>
+        ) : activeView() === "activity-metrics" ? (
+          <Show when={selectedActivityMetric()} keyed>
+            {(metric) => (
+              <ActivityMetricDetail
+                metric={metric}
+                points={activityMetricPoints()}
+                series={activityMetricSeries()}
+                sources={activityMetricSources()}
+                sourceNameById={sourceNameById}
+                openSource={openSourceFromDetail}
+                metricSeriesColumns={metricSeriesColumns}
+                renderMetricSeriesCell={renderMetricSeriesCell}
+                close={closeActivityDetail}
+                openFullView={openMetricDetailView}
+              />
+            )}
+          </Show>
+        ) : activeView() === "metric-detail" ? (
+          <Show when={selectedFocusedSeries()} keyed>
+            {(item) => (
+              <FocusedMetricSeriesDetail
+                item={item}
+                metricName={focusedSignalId()}
+                sourceId={item.sourceId}
+                sourceNameById={sourceNameById}
+                openSource={openSourceFromDetail}
+              />
+            )}
+          </Show>
+        ) : activeView() === "state-detail" ? (
+          <Show when={selectedFocusedState()} keyed>
+            {(state) => (
+              <FocusedStateDetail
+                state={state}
+                sourceId={state.sourceId}
+                sourceNameById={sourceNameById}
+                openSource={openSourceFromDetail}
+              />
+            )}
           </Show>
         ) : (
-          <Show when={selectedActivityMetric()} keyed>
-            {(metric) => renderMetricDetail(metric)}
+          <Show when={selectedFocusedEvent()} keyed>
+            {(event) => (
+              <FocusedEventDetail
+                event={event}
+                sourceId={event.sourceId}
+                sourceNameById={sourceNameById}
+                openSource={openSourceFromDetail}
+              />
+            )}
           </Show>
         )}
       </AppWorkspace.Detail>

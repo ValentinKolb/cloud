@@ -1,5 +1,5 @@
 import { AppOverview, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { navigate, navigateTo } from "@valentinkolb/ssr/nav";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { PulseBase, PulseCapabilitySnapshot } from "../contracts";
 import PulseLayoutHelp from "./PulseLayoutHelp";
@@ -21,7 +21,7 @@ const setQueryParam = (value: string) => {
   const trimmed = value.trim();
   if (trimmed) url.searchParams.set("q", trimmed);
   else url.searchParams.delete("q");
-  window.history.replaceState({}, "", url.toString());
+  navigate(`${url.pathname}${url.search}`, { replace: true, scroll: "preserve", viewTransition: false });
 };
 
 const matchesBase = (base: PulseBase, query: string): boolean => {
