@@ -2,14 +2,16 @@ import type { DropdownItem } from "@valentinkolb/cloud/ui";
 import { Dropdown, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
 import { buildNoteUrl } from "../../../params";
 import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";
 import SearchButton from "../search/SearchButton";
 import { listAccessibleNotebooks } from "./notebooks";
+import { flattenTree, getNodeDepthLabel } from "./tree-utils";
 import type { Notebook, NoteTreeNode } from "./types";
+import { useFavoriteNotes } from "./useFavoriteNotes";
 
 type Props = {
   tree: NoteTreeNode[];
@@ -26,37 +28,6 @@ type Props = {
   favoriteNoteIds?: string[];
   scrollPreserveKey?: string;
 };
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/** Flatten tree into a list, optionally excluding a node and its descendants */
-function flattenTree(nodes: NoteTreeNode[], excludeId?: string): NoteTreeNode[] {
-  const result: NoteTreeNode[] = [];
-  const walk = (list: NoteTreeNode[]) => {
-    for (const node of list) {
-      if (node.id === excludeId) continue;
-      result.push(node);
-      if (node.children.length > 0) walk(node.children);
-    }
-  };
-  walk(nodes);
-  return result;
-}
-
-/** Build indented label for flat tree list */
-function getNodeDepthLabel(node: NoteTreeNode, allNodes: NoteTreeNode[]): string {
-  let depth = 0;
-  let current = node;
-  while (current.parentId) {
-    const parent = allNodes.find((n) => n.id === current.parentId);
-    if (!parent) break;
-    depth++;
-    current = parent;
-  }
-  return "\u00A0\u00A0".repeat(depth) + node.title;
-}
 
 // =============================================================================
 // Note Actions
@@ -517,35 +488,10 @@ export default function NoteTree(props: Props) {
   const actions = useNoteActions(props.notebookId, () => props.tree);
   const showHeaderActions = () => props.showHeaderActions ?? true;
   const [selectedNoteId, setSelectedNoteId] = createSignal(props.selectedNoteId);
-  const [favoriteNoteIds, setFavoriteNoteIds] = createSignal(new Set(props.favoriteNoteIds ?? []));
-
-  createEffect(() => setFavoriteNoteIds(new Set(props.favoriteNoteIds ?? [])));
-
-  const toggleFavorite = async (note: NoteTreeNode, event: MouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const next = !favoriteNoteIds().has(note.id);
-    setFavoriteNoteIds((current) => {
-      const copy = new Set(current);
-      if (next) copy.add(note.id);
-      else copy.delete(note.id);
-      return copy;
-    });
-
-    const response = await apiClient[":id"].notes[":noteId"].favorite.$put({
-      param: { id: props.notebookId, noteId: note.shortId },
-      json: { favorite: next },
-    });
-    if (!response.ok) {
-      setFavoriteNoteIds((current) => {
-        const copy = new Set(current);
-        if (next) copy.delete(note.id);
-        else copy.add(note.id);
-        return copy;
-      });
-      void prompts.error("Failed to update favorite.");
-    }
-  };
+  const { favoriteNoteIds, toggleFavorite } = useFavoriteNotes({
+    notebookId: props.notebookId,
+    initialFavoriteNoteIds: () => props.favoriteNoteIds ?? [],
+  });
 
   onMount(() => {
     const onSoftNavigated = (event: Event) => {

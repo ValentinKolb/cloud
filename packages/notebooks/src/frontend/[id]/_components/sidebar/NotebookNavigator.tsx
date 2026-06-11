@@ -1,14 +1,15 @@
 import { Dropdown, Placeholder, prompts, SelectChip } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { apiClient } from "@/api/client";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
 import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
 import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";
 import SearchButton from "../search/SearchButton";
 import NotebookSettingsButton from "../settings/NotebookSettingsButton";
 import { noteActionItems, useNoteActions } from "./NoteTree";
+import { flattenTree } from "./tree-utils";
 import type { Notebook, NoteTreeNode, TagSummary } from "./types";
+import { useFavoriteNotes } from "./useFavoriteNotes";
 
 type SortMode = "updated" | "created" | "title";
 type TreeMode = "deep" | "level";
@@ -52,18 +53,6 @@ const activateRowOnKey = (event: KeyboardEvent, action: () => void) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
   action();
-};
-
-const flattenTree = (nodes: NoteTreeNode[]): NoteTreeNode[] => {
-  const result: NoteTreeNode[] = [];
-  const visit = (list: NoteTreeNode[]) => {
-    for (const node of list) {
-      result.push(node);
-      visit(node.children);
-    }
-  };
-  visit(nodes);
-  return result;
 };
 
 const directChildren = (nodes: NoteTreeNode[], parentId: string | null): NoteTreeNode[] => {
@@ -168,12 +157,15 @@ export default function NotebookNavigator(props: Props) {
   const [selection, setSelection] = createSignal<Selection>({ root: "notes", noteId: noteFolderContext(props.tree, props.selectedNoteId) });
   const [sortMode, setSortMode] = createSignal<SortMode>("updated");
   const [treeMode, setTreeMode] = createSignal<TreeMode>("deep");
-  const [favoriteIds, setFavoriteIds] = createSignal(new Set(props.favoriteNoteIds));
   const [activeNoteId, setActiveNoteId] = createSignal(props.selectedNoteId);
   const [notesExpanded, setNotesExpanded] = createSignal(true);
   const [tagsExpanded, setTagsExpanded] = createSignal(true);
   const [collapsedNoteIds, setCollapsedNoteIds] = createSignal(new Set<string>());
   const actions = useNoteActions(props.notebook.shortId, () => props.tree);
+  const { favoriteNoteIds: favoriteIds, toggleFavorite } = useFavoriteNotes({
+    notebookId: props.notebook.shortId,
+    initialFavoriteNoteIds: () => props.favoriteNoteIds,
+  });
 
   const allNotes = createMemo(() => flattenTree(props.tree));
   const notesById = createMemo(() => new Map(allNotes().map((note) => [note.id, note])));
@@ -225,7 +217,6 @@ export default function NotebookNavigator(props: Props) {
 
   const vt = (key: string) => `notebook-navigator-${props.notebook.shortId}-${key}`;
 
-  createEffect(() => setFavoriteIds(new Set(props.favoriteNoteIds)));
   createEffect(() => {
     if (props.selectedNoteId) setActiveNoteId(props.selectedNoteId);
   });
@@ -237,32 +228,6 @@ export default function NotebookNavigator(props: Props) {
       else next.add(noteId);
       return next;
     });
-
-  const toggleFavorite = async (note: NoteTreeNode, event: MouseEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const next = !favoriteIds().has(note.id);
-    setFavoriteIds((current) => {
-      const copy = new Set(current);
-      if (next) copy.add(note.id);
-      else copy.delete(note.id);
-      return copy;
-    });
-
-    const response = await apiClient[":id"].notes[":noteId"].favorite.$put({
-      param: { id: props.notebook.shortId, noteId: note.shortId },
-      json: { favorite: next },
-    });
-    if (!response.ok) {
-      setFavoriteIds((current) => {
-        const copy = new Set(current);
-        if (next) copy.delete(note.id);
-        else copy.add(note.id);
-        return copy;
-      });
-      void prompts.error("Failed to update favorite.");
-    }
-  };
 
   onMount(() => {
     const onSoftNavigated = (event: Event) => {
