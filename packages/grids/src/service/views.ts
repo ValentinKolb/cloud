@@ -6,6 +6,7 @@ import { emitTableMetadataEvent } from "./metadata-events";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
 import { validateViewQueryForTable } from "./query-validation";
+import { normalizeRefKey } from "../ref-syntax";
 import {
   RecordDisplayConfigSchema,
   ViewQuerySchema,
@@ -227,6 +228,25 @@ export const get = async (
   return row ? mapRow(row) : null;
 };
 
+const ensureUniqueViewName = async (
+  tableId: string,
+  name: string,
+  exceptViewId: string | null = null,
+): Promise<Result<void>> => {
+  const [row] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
+    FROM grids.views v
+    JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
+    WHERE t.base_id = (
+        SELECT base_id FROM grids.tables WHERE id = ${tableId}::uuid AND deleted_at IS NULL
+      )
+      AND v.deleted_at IS NULL
+      AND lower(trim(v.name)) = ${normalizeRefKey(name)}
+      AND (${exceptViewId}::uuid IS NULL OR v.id <> ${exceptViewId}::uuid)
+  `;
+  return (row?.count ?? 0) === 0 ? ok() : fail(err.conflict("view name must be unique within this grid"));
+};
+
 export type CreateViewServiceInput = {
   tableId: string;
   name: string;
@@ -244,6 +264,8 @@ export const create = async (
 ): Promise<Result<View>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
+  const uniqueName = await ensureUniqueViewName(input.tableId, name);
+  if (!uniqueName.ok) return uniqueName;
 
   // Re-validate the query at the service boundary even though the API
   // layer already did. Defensive: the service is also called by SSR and
@@ -306,6 +328,8 @@ export const update = async (
 
   const name = input.name?.trim();
   if (name !== undefined && name.length === 0) return fail(err.badInput("name cannot be empty"));
+  const uniqueName = await ensureUniqueViewName(existing.tableId, name ?? existing.name, existing.id);
+  if (!uniqueName.ok) return uniqueName;
 
   const ownerUserId =
     input.shared === undefined

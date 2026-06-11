@@ -1,11 +1,12 @@
 import { sql } from "bun";
 import { ViewQuerySchema, type AggregationSpec, type FilterTree, type ViewQuery } from "../contracts";
 import type { Expr, Literal } from "../formula/types";
+import { normalizeRefKey } from "../ref-syntax";
 import { compileFormulaAstToSql, type FormulaSqlType } from "../service/formula-sql-compiler";
 import { storageOf } from "../service/field-storage";
 import { isAggregatable, isGroupable, type GroupAggregationSpec, type GroupHavingRef, type GroupSortSpec } from "../service/group-compiler";
 import type { Field } from "../service/types";
-import type { DslAggregateItem, DslGroupItem, DslJoin, DslQueryAst, DslSelectItem, DslSortItem, DslSourceRef } from "./types";
+import type { DslAggregateItem, DslGroupItem, DslJoin, DslQualifiedRef, DslQueryAst, DslSelectItem, DslSortItem, DslSourceRef } from "./types";
 
 export type DslResolverDiagnostic = {
   message: string;
@@ -140,7 +141,7 @@ type ResolvedSource = {
 
 type Scope = {
   fields: Field[];
-  byRef: Map<string, Field>;
+  byRef: Map<string, Field[]>;
   readableTableIds: Set<string>;
   joins: Map<string, JoinScope>;
   fieldAliases: Map<string, string>;
@@ -153,7 +154,7 @@ type JoinScope = {
   tableId: string;
   source: DslTableSource;
   fields: Field[];
-  byRef: Map<string, Field>;
+  byRef: Map<string, Field[]>;
   depth: number;
 };
 
@@ -165,11 +166,20 @@ const diagnostic = (message: string): DslResolverDiagnostic => ({ message });
 
 const aliveFields = (fields: Field[]): Field[] => fields.filter((field) => !field.deletedAt).sort((a, b) => a.position - b.position);
 
-const buildFieldMap = (fields: Field[]): Map<string, Field> => {
-  const map = new Map<string, Field>();
+const addFieldRef = (map: Map<string, Field[]>, ref: string | null | undefined, field: Field): void => {
+  if (!ref) return;
+  const key = normalizeRefKey(ref);
+  const existing = map.get(key) ?? [];
+  if (!existing.some((item) => item.id === field.id)) existing.push(field);
+  map.set(key, existing);
+};
+
+const buildFieldMap = (fields: Field[]): Map<string, Field[]> => {
+  const map = new Map<string, Field[]>();
   for (const field of fields) {
-    map.set(field.shortId, field);
-    map.set(field.id, field);
+    addFieldRef(map, field.shortId, field);
+    addFieldRef(map, field.id, field);
+    addFieldRef(map, field.name, field);
   }
   return map;
 };
@@ -207,12 +217,16 @@ const resolveSource = (astSource: DslSourceRef | undefined, ctx: DslResolverCont
     return { source: ctx.currentTable, tableId: ctx.currentTable.id, baseQuery: {} };
   }
 
-  const tables = ctx.tables.filter((table) => table.shortId === astSource.ref || table.id === astSource.ref);
-  const views = (ctx.views ?? []).filter((view) => view.shortId === astSource.ref || view.id === astSource.ref);
+  const sourceMatches = (source: { id: string; shortId: string; name: string }) => {
+    const ref = normalizeRefKey(astSource.ref);
+    return normalizeRefKey(source.shortId) === ref || normalizeRefKey(source.id) === ref || normalizeRefKey(source.name) === ref;
+  };
+  const tables = ctx.tables.filter(sourceMatches);
+  const views = (ctx.views ?? []).filter(sourceMatches);
   const matches = astSource.kind === "table" ? tables : astSource.kind === "view" ? views : [...tables, ...views];
 
-  if (matches.length === 0) return diagnostic(`source #${astSource.ref} is not available`);
-  if (matches.length > 1) return diagnostic(`source #${astSource.ref} is ambiguous; use table or view`);
+  if (matches.length === 0) return diagnostic(`source "${astSource.ref}" is not available`);
+  if (matches.length > 1) return diagnostic(`source "${astSource.ref}" is ambiguous; use table or view`);
 
   const source = matches[0]!;
   if (source.kind === "view") return { source, tableId: source.tableId, baseQuery: source.query };
@@ -257,9 +271,17 @@ const computedIdForAlias = (alias: string): string => {
 };
 
 const fieldByRef = (scope: Scope, ref: string): Field | DslResolverDiagnostic => {
-  const field = scope.byRef.get(ref);
-  if (!field) return diagnostic(`unknown field #${ref}`);
-  return field;
+  const fields = (scope.byRef.get(normalizeRefKey(ref)) ?? []).filter((field) => !field.deletedAt);
+  if (fields.length === 0) return diagnostic(`unknown field "${ref}"`);
+  if (fields.length > 1) return diagnostic(`ambiguous field "${ref}"`);
+  return fields[0]!;
+};
+
+const fieldByRefMap = (byRef: Map<string, Field[]>, ref: string, label: string): Field | DslResolverDiagnostic => {
+  const fields = (byRef.get(normalizeRefKey(ref)) ?? []).filter((field) => !field.deletedAt);
+  if (fields.length === 0) return diagnostic(`unknown field ${label}`);
+  if (fields.length > 1) return diagnostic(`ambiguous field ${label}`);
+  return fields[0]!;
 };
 
 const joinScopeByAlias = (scope: Scope, alias: string): JoinScope | DslResolverDiagnostic => {
@@ -272,6 +294,32 @@ const isDiagnostic = (value: unknown): value is DslResolverDiagnostic => typeof 
 
 const isAliasSortTarget = (target: DslSortItem["target"]): target is Extract<DslSortItem["target"], { kind: "alias" }> =>
   "kind" in target && target.kind === "alias";
+
+const isQualifiedSortTarget = (target: DslSortItem["target"]): target is DslQualifiedRef => !isAliasSortTarget(target);
+
+const fieldAliasId = (scope: Scope, alias: string): string | null => {
+  const key = normalizeRefKey(alias);
+  for (const [candidate, fieldId] of scope.fieldAliases) {
+    if (normalizeRefKey(candidate) === key) return fieldId;
+  }
+  return null;
+};
+
+const setHasAlias = (aliases: Set<string>, alias: string): boolean => {
+  const key = normalizeRefKey(alias);
+  for (const candidate of aliases) {
+    if (normalizeRefKey(candidate) === key) return true;
+  }
+  return false;
+};
+
+const sortAlias = (target: DslSortItem["target"], scope: Scope): string | null => {
+  if (isAliasSortTarget(target)) return target.alias;
+  if (target.scope) return null;
+  const ref = target.ref;
+  if (fieldAliasId(scope, ref) || setHasAlias(scope.joinedAliases, ref) || setHasAlias(scope.computedAliases, ref)) return ref;
+  return null;
+};
 
 const resolveFieldItem = (item: Extract<DslSelectItem, { kind: "field" }>, scope: Scope) => {
   if (item.field.scope) return diagnostic("scoped fields require join support, which is not enabled for ViewQuery yet");
@@ -290,8 +338,8 @@ const resolveJoinedFieldItem = (item: Extract<DslSelectItem, { kind: "field" }>,
   if (!item.field.scope) return diagnostic("joined field resolver needs a scoped field");
   const join = joinScopeByAlias(scope, item.field.scope);
   if (isDiagnostic(join)) return join;
-  const field = join.byRef.get(item.field.ref);
-  if (!field) return diagnostic(`unknown field ${item.field.scope}.#${item.field.ref}`);
+  const field = fieldByRefMap(join.byRef, item.field.ref, `${item.field.scope}."${item.field.ref}"`);
+  if (isDiagnostic(field)) return field;
   const relationDiagnostic = relationOutputDiagnostic(field, scope);
   if (relationDiagnostic) return relationDiagnostic;
   return {
@@ -403,7 +451,7 @@ const scopedSource = (
   scope: Scope,
   source: ResolvedSource,
   alias: string | undefined,
-): { tableId: string; fields: Field[]; byRef: Map<string, Field>; depth: number } | DslResolverDiagnostic => {
+): { tableId: string; fields: Field[]; byRef: Map<string, Field[]>; depth: number } | DslResolverDiagnostic => {
   if (!alias) return { tableId: source.tableId, fields: scope.fields, byRef: scope.byRef, depth: 0 };
   const join = joinScopeByAlias(scope, alias);
   if (isDiagnostic(join)) return join;
@@ -434,12 +482,12 @@ const resolveRelationJoin = (
   const aliasSide = leftUsesAlias ? join.on.left : join.on.right;
   const fromSide = aliasSide === join.on.left ? join.on.right : join.on.left;
 
-  if (aliasSide.ref !== "id") return diagnostic(`join "${join.alias}" must target ${join.alias}.#id`);
+  if (normalizeRefKey(aliasSide.ref) !== "id") return diagnostic(`join "${join.alias}" must target ${join.alias}.id`);
 
   const from = scopedSource(scope, source, fromSide.scope);
   if (isDiagnostic(from)) return from;
-  const relationField = from.byRef.get(fromSide.ref);
-  if (!relationField) return diagnostic(`unknown field ${fromSide.scope ? `${fromSide.scope}.` : ""}#${fromSide.ref}`);
+  const relationField = fieldByRefMap(from.byRef, fromSide.ref, `${fromSide.scope ? `${fromSide.scope}.` : ""}"${fromSide.ref}"`);
+  if (isDiagnostic(relationField)) return relationField;
   if (relationField.type !== "relation") return diagnostic(`join "${join.alias}" must start from a relation field`);
   const targetTableId = (relationField.config as { targetTableId?: string }).targetTableId;
   if (!targetTableId) return diagnostic(`join "${join.alias}" relation field has no target table`);
@@ -906,22 +954,25 @@ const resolveAggregations = (
 const resolveSort = (items: DslSortItem[], scope: Scope): NonNullable<ViewQuery["sort"]> | DslResolverDiagnostic => {
   const sort: NonNullable<ViewQuery["sort"]> = [];
   for (const item of items) {
-    if (isAliasSortTarget(item.target)) {
-      const fieldId = scope.fieldAliases.get(item.target.alias);
+    const target = item.target;
+    const alias = sortAlias(target, scope);
+    if (alias) {
+      const fieldId = fieldAliasId(scope, alias);
       if (fieldId) {
         sort.push({ fieldId, direction: item.direction });
         continue;
       }
-      if (scope.joinedAliases.has(item.target.alias)) {
-        return diagnostic(`sort by joined alias "${item.target.alias}" is not supported yet`);
+      if (setHasAlias(scope.joinedAliases, alias)) {
+        return diagnostic(`sort by joined alias "${alias}" is not supported yet`);
       }
-      if (scope.computedAliases.has(item.target.alias)) {
-        return diagnostic(`sort by computed alias "${item.target.alias}" is not supported by ViewQuery yet`);
+      if (setHasAlias(scope.computedAliases, alias)) {
+        return diagnostic(`sort by computed alias "${alias}" is not supported by ViewQuery yet`);
       }
-      return diagnostic(`unknown sort alias "${item.target.alias}"`);
+      return diagnostic(`unknown sort alias "${alias}"`);
     }
-    if (item.target.scope) return diagnostic("scoped sort fields require join support");
-    const field = fieldByRef(scope, item.target.ref);
+    if (!isQualifiedSortTarget(target)) return diagnostic(`unknown sort alias "${target.alias}"`);
+    if (target.scope) return diagnostic("scoped sort fields require join support");
+    const field = fieldByRef(scope, target.ref);
     if (isDiagnostic(field)) return field;
     sort.push({ fieldId: field.id, direction: item.direction });
   }
@@ -935,28 +986,31 @@ const resolveQueryPlanSort = (
   const viewSort: NonNullable<ViewQuery["sort"]> = [];
   const sqlSort: DslResolvedSqlSort[] = [];
   for (const item of items) {
-    if (isAliasSortTarget(item.target)) {
-      const fieldId = scope.fieldAliases.get(item.target.alias);
+    const target = item.target;
+    const alias = sortAlias(target, scope);
+    if (alias) {
+      const fieldId = fieldAliasId(scope, alias);
       if (fieldId) {
         viewSort.push({ fieldId, direction: item.direction });
         sqlSort.push({ kind: "field", fieldId, direction: item.direction });
         continue;
       }
-      if (scope.joinedAliases.has(item.target.alias)) {
-        sqlSort.push({ kind: "joined", alias: item.target.alias, direction: item.direction });
+      if (setHasAlias(scope.joinedAliases, alias)) {
+        sqlSort.push({ kind: "joined", alias, direction: item.direction });
         continue;
       }
-      if (scope.computedAliases.has(item.target.alias)) {
-        sqlSort.push({ kind: "computed", alias: item.target.alias, direction: item.direction });
+      if (setHasAlias(scope.computedAliases, alias)) {
+        sqlSort.push({ kind: "computed", alias, direction: item.direction });
         continue;
       }
-      return diagnostic(`unknown sort alias "${item.target.alias}"`);
+      return diagnostic(`unknown sort alias "${alias}"`);
     }
-    if (item.target.scope) {
-      const join = joinScopeByAlias(scope, item.target.scope);
+    if (!isQualifiedSortTarget(target)) return diagnostic(`unknown sort alias "${target.alias}"`);
+    if (target.scope) {
+      const join = joinScopeByAlias(scope, target.scope);
       if (isDiagnostic(join)) return join;
-      const field = join.byRef.get(item.target.ref);
-      if (!field) return diagnostic(`unknown field ${item.target.scope}.#${item.target.ref}`);
+      const field = fieldByRefMap(join.byRef, target.ref, `${target.scope}."${target.ref}"`);
+      if (isDiagnostic(field)) return field;
       sqlSort.push({
         kind: "joinedField",
         joinAlias: join.alias,
@@ -966,7 +1020,7 @@ const resolveQueryPlanSort = (
       });
       continue;
     }
-    const field = fieldByRef(scope, item.target.ref);
+    const field = fieldByRef(scope, target.ref);
     if (isDiagnostic(field)) return field;
     viewSort.push({ fieldId: field.id, direction: item.direction });
     sqlSort.push({ kind: "field", fieldId: field.id, direction: item.direction });
@@ -992,9 +1046,18 @@ const resolveGroupedQueryPlanSort = (
   const formulaGroupSort: GroupSortSpec[] = [];
 
   for (const item of items) {
-    if (isAliasSortTarget(item.target)) {
-      const alias = item.target.alias;
-      const aggregate = aggregations.find((candidate) => candidate.label === alias);
+    const target = item.target;
+    const implicitAggregateAlias =
+      isQualifiedSortTarget(target) && !target.scope
+        ? aggregations.some((candidate) => candidate.label && normalizeRefKey(candidate.label) === normalizeRefKey(target.ref)) ||
+          formulaAggregations.some((candidate) => normalizeRefKey(candidate.ref) === normalizeRefKey(target.ref))
+          ? target.ref
+          : null
+        : null;
+    const alias = sortAlias(target, scope) ?? implicitAggregateAlias;
+    if (alias) {
+      const key = normalizeRefKey(alias);
+      const aggregate = aggregations.find((candidate) => candidate.label && normalizeRefKey(candidate.label) === key);
       if (aggregate) {
         const agg = groupAggForDsl(aggregate.agg);
         if (isDiagnostic(agg)) return agg;
@@ -1002,19 +1065,20 @@ const resolveGroupedQueryPlanSort = (
         continue;
       }
 
-      const formulaAggregate = formulaAggregations.find((candidate) => candidate.ref === alias);
+      const formulaAggregate = formulaAggregations.find((candidate) => normalizeRefKey(candidate.ref) === key);
       if (formulaAggregate) {
         formulaGroupSort.push({ fieldId: formulaAggregate.id, agg: formulaAggregate.agg, direction: item.direction });
         continue;
       }
-      if (scope.fieldAliases.has(alias) || scope.computedAliases.has(alias) || scope.joinedAliases.has(alias)) {
+      if (fieldAliasId(scope, alias) || setHasAlias(scope.computedAliases, alias) || setHasAlias(scope.joinedAliases, alias)) {
         return diagnostic(`grouped sort alias "${alias}" must be a group field or aggregate alias`);
       }
       return diagnostic(`unknown sort alias "${alias}"`);
     }
 
-    if (item.target.scope) return diagnostic("scoped sort fields require join support");
-    const field = fieldByRef(scope, item.target.ref);
+    if (!isQualifiedSortTarget(target)) return diagnostic(`unknown sort alias "${target.alias}"`);
+    if (target.scope) return diagnostic("scoped sort fields require join support");
+    const field = fieldByRef(scope, target.ref);
     if (isDiagnostic(field)) return field;
     const groupItem = nextGroupBy.find((candidate) => candidate.fieldId === field.id);
     if (!groupItem) return diagnostic(`grouped sort field "${field.name}" must also be in group by`);

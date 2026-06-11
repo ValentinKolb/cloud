@@ -1,5 +1,6 @@
 import { FN_LIBRARY, isFormulaError, type FormulaRuntimeContext } from "./functions";
 import { decimalToString, isExactShaped, isNullish, toDecimalValue, toNumber } from "./numeric";
+import { normalizeRefKey } from "../ref-syntax";
 import { type BinOp, type Expr, formulaError, type Literal } from "./types";
 
 type EvalContext = FormulaRuntimeContext & {
@@ -26,7 +27,7 @@ const evalField = (fieldId: string, ctx: EvalContext): unknown => {
   // `#slug` formulas work against the same UUID-keyed data.
   const direct = ctx.fields[fieldId];
   if (direct !== undefined) return direct;
-  const resolved = ctx.slugToId?.[fieldId];
+  const resolved = ctx.slugToId?.[fieldId] ?? ctx.slugToId?.[normalizeRefKey(fieldId)];
   if (resolved !== undefined) return ctx.fields[resolved] ?? null;
   return null;
 };

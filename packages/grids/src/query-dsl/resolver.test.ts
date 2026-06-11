@@ -149,7 +149,7 @@ describe("resolveDslQueryToViewQuery", () => {
     const ast = parseOk(`
       from table #Orders
       select #customer, #amount as net, formula(#amount * 1.19) as gross
-      where #status = "open" && #amount > 100
+      where #status = 'open' && #amount > 100
       sort net desc
       limit 50
     `);
@@ -175,6 +175,34 @@ describe("resolveDslQueryToViewQuery", () => {
       sort: [{ fieldId: amountFieldId, direction: "desc" }],
       limit: 50,
     });
+  });
+
+  test("resolves readable table and field names to stable ids", () => {
+    const ast = parseOk(`
+      from table Orders
+      select Customer, Amount as net, formula(Amount * 1.19) as gross
+      where Status = 'open' && "Ordered at" > '2026-01-01'
+      sort net desc
+    `);
+
+    const result = resolveDslQueryToViewQuery(ast, ctx());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.tableId).toBe(orders.id);
+    expect(result.plan.query.filter).toEqual({
+      op: "AND",
+      filters: [
+        { fieldId: statusFieldId, op: "is", value: "open" },
+        { fieldId: orderedAtFieldId, op: "after", value: "2026-01-01" },
+      ],
+    });
+    expect(result.plan.query.columns).toEqual([
+      { fieldId: customerFieldId },
+      { fieldId: amountFieldId, label: "net" },
+      { kind: "computed", id: expect.stringMatching(/^computed_[A-Za-z0-9]{5,32}$/), label: "gross", expression: "Amount * 1.19" },
+    ]);
+    expect(result.plan.query.sort).toEqual([{ fieldId: amountFieldId, direction: "desc" }]);
   });
 
   test("uses the current table when from is omitted", () => {
@@ -224,7 +252,7 @@ describe("resolveDslQueryToViewQuery", () => {
     const viewFilter = { fieldId: paidFieldId, op: "=", value: true } as const;
     const ast = parseOk(`
       from view #Paid
-      where #status = "open"
+      where #status = 'open'
     `);
 
     const result = resolveDslQueryToViewQuery(
@@ -272,7 +300,7 @@ describe("resolveDslQueryToViewQuery", () => {
     const result = resolveDslQueryToViewQuery(parseOk(`from table #Secret`), ctx());
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(["source #Secret is not available"]);
+    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(['source "Secret" is not available']);
   });
 
   test("rejects ambiguous untyped sources instead of guessing table or view", () => {
@@ -293,7 +321,7 @@ describe("resolveDslQueryToViewQuery", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(["source #Orders is ambiguous; use table or view"]);
+    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(['source "Orders" is ambiguous; use table or view']);
   });
 
   test("rejects duplicate select aliases before ViewQuery validation", () => {
@@ -325,10 +353,10 @@ describe("resolveDslQueryToViewQuery", () => {
   });
 
   test("rejects unknown field refs with a direct diagnostic", () => {
-    const result = resolveDslQueryToViewQuery(parseOk(`where #missing = "x"`), ctx());
+    const result = resolveDslQueryToViewQuery(parseOk(`where #missing = 'x'`), ctx());
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(["unknown field #missing"]);
+    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(['unknown field "missing"']);
   });
 
   test("allows count(*) but rejects other aggregate functions over *", () => {
@@ -561,9 +589,9 @@ describe("resolveDslQueryToViewQuery", () => {
   test("query plan rejects formula where predicates that cannot compile to SQL", () => {
     const missing = resolveDslQueryToQueryPlan(parseOk(`where #missing > formula(#cost * 1.10)`), ctx());
     expect(missing.ok).toBe(false);
-    if (!missing.ok) expect(missing.diagnostics.map((d) => d.message)).toEqual(["where formula: Unknown formula field reference #missing"]);
+    if (!missing.ok) expect(missing.diagnostics.map((d) => d.message)).toEqual(['where formula: Unknown formula field reference "missing"']);
 
-    const relation = resolveDslQueryToQueryPlan(parseOk(`where #customer_link = "abc"`), ctx());
+    const relation = resolveDslQueryToQueryPlan(parseOk(`where #customer_link = 'abc'`), ctx());
     expect(relation.ok).toBe(false);
     if (!relation.ok) {
       expect(relation.diagnostics.map((d) => d.message)).toEqual([
@@ -638,7 +666,7 @@ describe("resolveDslQueryToViewQuery", () => {
     const result = resolveDslQueryToQueryPlan(
       parseOk(`
         group by #ordered_at by month
-        aggregate sum(formula(CONCAT(#customer, "x"))) as bad
+        aggregate sum(formula(CONCAT(#customer, 'x'))) as bad
       `),
       ctx(),
     );
@@ -687,7 +715,7 @@ describe("resolveDslQueryToViewQuery", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(["having formula: Unknown formula field reference #missing"]);
+    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(['having formula: Unknown formula field reference "missing"']);
   });
 
   test("query plan rejects duplicate aggregate aliases before having can resolve ambiguously", () => {
@@ -736,7 +764,7 @@ describe("resolveDslQueryToViewQuery", () => {
   test("query plan resolves aggregate-only output for preview", () => {
     const result = resolveDslQueryToQueryPlan(
       parseOk(`
-        where #status = "open"
+        where #status = 'open'
         aggregate count(*) as rows, sum(#amount) as revenue
       `),
       ctx(),
@@ -921,7 +949,7 @@ describe("resolveDslQueryToViewQuery", () => {
     );
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(["source #Custs is not available"]);
+    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(['source "Custs" is not available']);
   });
 
   test("query plan rejects relation field output when the target table is not readable", () => {
@@ -981,7 +1009,7 @@ describe("resolveDslQueryToViewQuery", () => {
     const result = resolveDslQueryToQueryPlan(parseOk(`join table #Custs as customer on #customer_link = customer.#name`), ctx());
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(['join "customer" must target customer.#id']);
+    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(['join "customer" must target customer.id']);
   });
 
   test("query plan caps join count and join depth", () => {

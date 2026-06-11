@@ -4,6 +4,7 @@ import { logAudit } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
 import { FieldColumnSpecSchema, RecordDisplayConfigSchema } from "../contracts";
+import { normalizeRefKey } from "../ref-syntax";
 import type { Table, CreateTableInput, UpdateTableInput } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -145,9 +146,27 @@ export const getByIdOrShortId = async (baseId: string, idOrSlug: string): Promis
   return getByShortId(baseId, idOrSlug);
 };
 
+const ensureUniqueTableName = async (
+  baseId: string,
+  name: string,
+  exceptTableId: string | null = null,
+): Promise<Result<void>> => {
+  const [row] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
+    FROM grids.tables
+    WHERE base_id = ${baseId}::uuid
+      AND deleted_at IS NULL
+      AND lower(trim(name)) = ${normalizeRefKey(name)}
+      AND (${exceptTableId}::uuid IS NULL OR id <> ${exceptTableId}::uuid)
+  `;
+  return (row?.count ?? 0) === 0 ? ok() : fail(err.conflict("table name must be unique within this grid"));
+};
+
 export const create = async (input: CreateTableInput, actorId: string | null): Promise<Result<Table>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
+  const uniqueName = await ensureUniqueTableName(input.baseId, name);
+  if (!uniqueName.ok) return uniqueName;
   const columnsParsed = FieldColumnSpecSchema.array().safeParse(input.columns ?? []);
   if (!columnsParsed.success) return fail(err.badInput("invalid table columns"));
   const displayConfigParsed = RecordDisplayConfigSchema.safeParse(input.displayConfig ?? { mode: "table" });
@@ -188,6 +207,8 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
 
   const name = input.name?.trim();
   if (name !== undefined && name.length === 0) return fail(err.badInput("name cannot be empty"));
+  const uniqueName = await ensureUniqueTableName(existing.baseId, name ?? existing.name, existing.id);
+  if (!uniqueName.ok) return uniqueName;
 
   const next = {
     name: name ?? existing.name,

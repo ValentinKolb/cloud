@@ -75,6 +75,11 @@
   @apply border-red-400 dark:border-red-500;
 }
 
+.ac-editor[data-fill="true"] {
+  height: 100%;
+  min-height: 0;
+}
+
 .ac-editor-surface {
   position: relative;
   height: var(--ac-h, 4.5rem);

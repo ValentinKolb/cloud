@@ -6,7 +6,7 @@ describe("parseGridsQueryDsl", () => {
     const result = parseGridsQueryDsl(`
       from table #Orders
       select #customer, #amount as amount, formula(#amount * 1.19) as gross
-      where #status = "Open" && #amount > formula(#cost * 1.10)
+      where #status = 'Open' && #amount > formula(#cost * 1.10)
       sort #ordered_at descending, gross desc
       limit 50
       offset 10
@@ -19,13 +19,30 @@ describe("parseGridsQueryDsl", () => {
     expect(result.ast.select[0]).toEqual({ kind: "field", field: { ref: "customer" } });
     expect(result.ast.select[1]).toEqual({ kind: "field", field: { ref: "amount" }, alias: "amount" });
     expect(result.ast.select[2]?.kind).toBe("formula");
-    expect(result.ast.where?.source).toBe('#status = "Open" && #amount > (#cost * 1.10)');
+    expect(result.ast.where?.source).toBe("#status = 'Open' && #amount > (#cost * 1.10)");
     expect(result.ast.sort).toEqual([
       { target: { ref: "ordered_at" }, direction: "desc" },
-      { target: { kind: "alias", alias: "gross" }, direction: "desc" },
+      { target: { ref: "gross" }, direction: "desc" },
     ]);
     expect(result.ast.limit).toBe(50);
     expect(result.ast.offset).toBe(10);
+  });
+
+  test("parses readable table and field names", () => {
+    const result = parseGridsQueryDsl(`
+      from table Orders
+      select Customer, "Unit price" as price
+      where Status = 'Open'
+      sort "Ordered at" descending
+    `);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.ast.source).toEqual({ kind: "table", ref: "Orders" });
+    expect(result.ast.select[0]).toEqual({ kind: "field", field: { ref: "Customer" } });
+    expect(result.ast.select[1]).toEqual({ kind: "field", field: { ref: "Unit price" }, alias: "price" });
+    expect(result.ast.where?.source).toBe("Status = 'Open'");
+    expect(result.ast.sort).toEqual([{ target: { ref: "Ordered at" }, direction: "desc" }]);
   });
 
   test("parses skip as an offset alias", () => {
@@ -38,7 +55,7 @@ describe("parseGridsQueryDsl", () => {
 
   test("parses multiple top-level clauses on one physical line", () => {
     const result = parseGridsQueryDsl(
-      `from table #Orders select #customer, formula(#amount * #quantity) as total where #status = "Open" sort total desc limit 20 skip 5`,
+      `from table #Orders select #customer, formula(#amount * #quantity) as total where #status = 'Open' sort total desc limit 20 skip 5`,
     );
 
     expect(result.ok).toBe(true);
@@ -46,18 +63,18 @@ describe("parseGridsQueryDsl", () => {
     expect(result.ast.source).toEqual({ kind: "table", ref: "Orders" });
     expect(result.ast.select).toHaveLength(2);
     expect(result.ast.select[1]?.kind).toBe("formula");
-    expect(result.ast.where?.source).toBe('#status = "Open"');
-    expect(result.ast.sort).toEqual([{ target: { kind: "alias", alias: "total" }, direction: "desc" }]);
+    expect(result.ast.where?.source).toBe("#status = 'Open'");
+    expect(result.ast.sort).toEqual([{ target: { ref: "total" }, direction: "desc" }]);
     expect(result.ast.limit).toBe(20);
     expect(result.ast.offset).toBe(5);
   });
 
   test("keeps inline clause keywords inside strings and formulas", () => {
-    const result = parseGridsQueryDsl(`where CONTAINS(#notes, "sort this text") && #price <= formula(#cost * 1.10) sort #created_at desc`);
+    const result = parseGridsQueryDsl(`where CONTAINS(#notes, 'sort this text') && #price <= formula(#cost * 1.10) sort #created_at desc`);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.ast.where?.source).toBe('CONTAINS(#notes, "sort this text") && #price <= (#cost * 1.10)');
+    expect(result.ast.where?.source).toBe("CONTAINS(#notes, 'sort this text') && #price <= (#cost * 1.10)");
     expect(result.ast.sort).toEqual([{ target: { ref: "created_at" }, direction: "desc" }]);
   });
 
@@ -87,13 +104,13 @@ describe("parseGridsQueryDsl", () => {
 
   test("formula expressions accept underscore refs used by DSL field refs", () => {
     const result = parseGridsQueryDsl(`
-      where #ordered_at = "2026-06-09"
+      where #ordered_at = '2026-06-09'
       select formula(#customer_id + 1) as customer_rank
     `);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.ast.where?.source).toBe('#ordered_at = "2026-06-09"');
+    expect(result.ast.where?.source).toBe("#ordered_at = '2026-06-09'");
     expect(result.ast.select[0]?.kind).toBe("formula");
   });
 
@@ -218,7 +235,7 @@ describe("parseGridsQueryDsl", () => {
   });
 
   test("rejects overlong source refs and trailing comma lists", () => {
-    const source = parseGridsQueryDsl(`from #${"a".repeat(81)}`);
+    const source = parseGridsQueryDsl(`from #${"a".repeat(201)}`);
     expect(source.ok).toBe(false);
     if (!source.ok) expect(source.diagnostics.map((d) => d.message)).toEqual(["invalid from source"]);
 
@@ -230,10 +247,10 @@ describe("parseGridsQueryDsl", () => {
   });
 
   test("does not treat comment markers inside strings as comments", () => {
-    const result = parseGridsQueryDsl(`where CONTAINS(#notes, "-- not a comment")`);
+    const result = parseGridsQueryDsl(`where CONTAINS(#notes, '-- not a comment')`);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.ast.where?.source).toBe('CONTAINS(#notes, "-- not a comment")');
+    expect(result.ast.where?.source).toBe("CONTAINS(#notes, '-- not a comment')");
   });
 
   test("does not treat comment markers inside braced field refs as comments", () => {

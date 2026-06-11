@@ -39,7 +39,7 @@ function FormulaPreview(props: { preview: FormulaPreviewResponse | null; loading
       ...preview.fields.map((field) => ({
         id: field.id,
         header: field.name,
-        subtitle: `#${field.shortId}`,
+        subtitle: field.type,
         value: (row: FormulaPreviewResponse["rows"][number]) => row.values[field.id],
       })),
       {
@@ -134,17 +134,17 @@ export function FormulaExpressionEditor(props: {
   const boolRefs = () => refs().filter((field) => ["boolean", "formula"].includes(field.type));
   const refOr = (list: ReturnType<typeof refs>, fallback: string) => (list[0] ? formulaFieldToken(list[0]) : fallback);
   const examples = () => {
-    const price = refOr(numericRefs(), "#price");
-    const qty = refOr(numericRefs().slice(1), "#qty");
-    const name = refOr(textRefs(), "#name");
-    const date = refOr(dateRefs(), "#date");
-    const active = refOr(boolRefs(), "#active");
+    const price = refOr(numericRefs(), "price");
+    const qty = refOr(numericRefs().slice(1), "quantity");
+    const name = refOr(textRefs(), "name");
+    const date = refOr(dateRefs(), "date");
+    const active = refOr(boolRefs(), "active");
     return [
       { label: "Markup", expression: `${price} * 1.19` },
       { label: "Total", expression: `${price} * ${qty}` },
-      { label: "Text label", expression: `CONCAT(UPPER(${name}), " - EUR ", ${price})` },
-      { label: "Conditional", expression: `IF(${active}, "Available", "Out of stock")` },
-      { label: "Date age", expression: `DATEDIFF(${date}, TODAY(), "days")` },
+      { label: "Text label", expression: `CONCAT(UPPER(${name}), ' - EUR ', ${price})` },
+      { label: "Conditional", expression: `IF(${active}, 'Available', 'Out of stock')` },
+      { label: "Date age", expression: `DATEDIFF(${date}, TODAY(), 'days')` },
     ];
   };
 
@@ -190,13 +190,13 @@ export function FormulaExpressionEditor(props: {
       <div class="info-block-info text-xs flex flex-col gap-2">
         <span class="font-medium">Formula basics</span>
         <span class="text-dimmed">
-          Search fields by name, then insert the suggested reference. Formulas store stable refs like <code>#aB3kQ</code>, so renaming a
-          field does not break saved formulas.
+          Search fields by name, then insert a readable reference. Use double quotes for names with spaces, for example{" "}
+          <code>"Unit price"</code>.
         </span>
         <span class="text-dimmed">
-          Numbers and decimals calculate with decimal-safe arithmetic when exact values are involved. Empty values stay empty; formula
-          errors render as <code>#ERROR</code>.
+          Field renames update saved formulas best effort. Check formulas after renaming important columns.
         </span>
+        <span class="text-dimmed">Strings use single quotes. Decimal arithmetic stays exact when exact values are involved.</span>
       </div>
 
       <div class="info-block-info text-xs flex flex-col gap-2">
@@ -222,7 +222,7 @@ export function FormulaExpressionEditor(props: {
         <AutocompleteEditor
           value={props.value}
           onInput={props.onInput}
-          placeholder="Reference fields with #, call functions by name. Leading = is optional."
+          placeholder="Reference fields by name. Leading = is optional."
           completions={completions()}
           highlight={formulaHighlight}
           restoreExpansionOnBackspace={false}
@@ -232,7 +232,7 @@ export function FormulaExpressionEditor(props: {
       </div>
 
       <p class="text-xs text-dimmed leading-snug">
-        Formulas recompute on every read. Field suggestions show names, but insert stable <code>#ref</code> values.
+        Formulas recompute on every read. Saved expressions keep readable names; renames are rewritten best effort.
       </p>
 
       <div class="flex flex-col gap-2">

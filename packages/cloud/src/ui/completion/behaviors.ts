@@ -182,7 +182,8 @@ export const applySuggestion = (
   const nextChar = textarea.value[ctx.end];
   const alreadySeparated = nextChar === " " || nextChar === "\t";
   const opensScope = /[([{]$/.test(baseText);
-  const insertText = alreadySeparated || opensScope ? baseText : baseText + " ";
+  const shouldAppendSpace = suggestion.appendSpace ?? true;
+  const insertText = alreadySeparated || opensScope || !shouldAppendSpace ? baseText : baseText + " ";
 
   textarea.setSelectionRange(ctx.start, ctx.end);
   document.execCommand("insertText", false, insertText);
@@ -192,7 +193,7 @@ export const applySuggestion = (
       textarea,
       startOffset: ctx.start,
       originalWord: suggestion.text,
-      triggerChar: alreadySeparated || opensScope ? "" : " ",
+      triggerChar: alreadySeparated || opensScope || !shouldAppendSpace ? "" : " ",
       expansion: suggestion.expansion,
     };
     suppressNextExpansion = true;

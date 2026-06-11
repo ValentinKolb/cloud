@@ -41,6 +41,8 @@ type PanesElementSlot = {
   id: string;
   title?: string;
   icon?: string;
+  closable?: MaybeAccessor<boolean>;
+  onClose?: () => void;
   children: JSX.Element;
 };
 
@@ -63,6 +65,8 @@ export type PanesElementProps = {
   id: string;
   title?: string;
   icon?: string;
+  closable?: MaybeAccessor<boolean>;
+  onClose?: () => void;
   children: JSX.Element;
 };
 
@@ -401,12 +405,38 @@ const buildIntent = (ctx: DndBuildIntentContext<DragMeta, DropMeta, DropIntent>)
   return { kind: "move", elementId: ctx.active.meta.elementId, leafId: ctx.over.meta.leafId };
 };
 
+const elementClosable = (element: PanesElementSlot) => !!element.onClose && readMaybe(element.closable, true);
+
+const closeButtonClass =
+  "flex h-6 w-6 shrink-0 items-center justify-center rounded text-dimmed transition hover:text-red-600 dark:hover:text-red-400";
+
+const dragHandleClass =
+  "flex shrink-0 cursor-grab items-center justify-center rounded text-dimmed transition hover:text-emerald-600 active:cursor-grabbing dark:hover:text-emerald-400";
+
+const CloseButton = (props: { element: PanesElementSlot }) => (
+  <button
+    type="button"
+    class={closeButtonClass}
+    title={`Close ${props.element.title ?? props.element.id}`}
+    aria-label={`Close ${props.element.title ?? props.element.id}`}
+    onPointerDown={(event) => event.stopPropagation()}
+    onClick={(event) => {
+      event.stopPropagation();
+      props.element.onClose?.();
+    }}
+  >
+    <i class="ti ti-x" />
+  </button>
+);
+
 function PanesElement(props: PanesElementProps): JSX.Element {
   return {
     kind: ELEMENT_SLOT,
     id: props.id,
     title: props.title,
     icon: props.icon,
+    closable: props.closable,
+    onClose: props.onClose,
     children: props.children,
   } satisfies PanesElementSlot as unknown as JSX.Element;
 }
@@ -646,16 +676,17 @@ function PanesLeaf(props: {
                   }}
                   type="button"
                   data-panes-drag-handle
-                  class={`icon-btn h-7 w-7 cursor-grab text-dimmed active:cursor-grabbing ${
-                    props.dnd.activeId() === `panes-element:${element().id}` ? "opacity-40" : ""
-                  }`}
+                  class={`${dragHandleClass} h-7 w-7 ${props.dnd.activeId() === `panes-element:${element().id}` ? "opacity-40" : ""}`}
                   title="Move pane"
                   aria-label="Move pane"
                 >
                   <i class="ti ti-grip-vertical" />
                 </button>
                 <i class={`${iconClass(element().icon)} shrink-0 text-sm`} />
-                <span class="min-w-0 truncate">{element().title ?? element().id}</span>
+                <span class="min-w-0 flex-1 truncate">{element().title ?? element().id}</span>
+                <Show when={elementClosable(element())}>
+                  <CloseButton element={element()} />
+                </Show>
               </div>
             )}
           </Show>
@@ -694,7 +725,7 @@ function PanesLeaf(props: {
                   }}
                   type="button"
                   data-panes-drag-handle
-                  class="icon-btn h-6 w-6 cursor-grab text-dimmed active:cursor-grabbing"
+                  class={`${dragHandleClass} h-6 w-6`}
                   title="Move tab"
                   aria-label={`Move ${element.title ?? element.id}`}
                 >
@@ -711,6 +742,9 @@ function PanesLeaf(props: {
                   <i class={`${iconClass(element.icon)} shrink-0 text-sm`} />
                   <span class="truncate">{element.title ?? element.id}</span>
                 </button>
+                <Show when={elementClosable(element)}>
+                  <CloseButton element={element} />
+                </Show>
               </div>
             )}
           </For>

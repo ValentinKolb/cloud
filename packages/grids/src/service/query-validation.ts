@@ -18,6 +18,7 @@ import { compileSort } from "./sort-compiler";
 import { listByTable } from "./fields";
 import type { Field } from "./types";
 import { collectFieldRefs, parseFormula } from "../formula/parser";
+import { normalizeRefKey } from "../ref-syntax";
 
 const GROUP_AGGS = new Set(["count", "countEmpty", "countUnique", "sum", "avg", "min", "max"]);
 
@@ -37,6 +38,16 @@ const unknownField = (): Result<void> =>
 const fieldById = (fields: Field[]): Map<string, Field> =>
   new Map(fields.filter((f) => !f.deletedAt).map((f) => [f.id, f]));
 
+const fieldRefs = (fields: Field[]): Set<string> => {
+  const refs = new Set<string>();
+  for (const field of fields.filter((f) => !f.deletedAt)) {
+    refs.add(field.id);
+    refs.add(normalizeRefKey(field.shortId));
+    refs.add(normalizeRefKey(field.name));
+  }
+  return refs;
+};
+
 const validateFieldRefs = (ids: string[], fields: Field[]): Result<void> => {
   const byId = fieldById(fields);
   for (const id of ids) {
@@ -47,13 +58,12 @@ const validateFieldRefs = (ids: string[], fields: Field[]): Result<void> => {
 
 const validateComputedColumns = (columns: ComputedColumnSpec[], fields: Field[]): Result<void> => {
   if (columns.length === 0) return ok();
-  const byId = fieldById(fields);
-  const byShortId = new Map(fields.filter((f) => !f.deletedAt).map((f) => [f.shortId, f]));
+  const refs = fieldRefs(fields);
   for (const column of columns) {
     const parsed = parseFormula(column.expression);
     if (!parsed.ok) return fail(err.badInput(`computed column "${column.label}": ${parsed.error}`));
     for (const ref of collectFieldRefs(parsed.ast)) {
-      if (!byId.has(ref) && !byShortId.has(ref)) return unknownField();
+      if (!refs.has(ref) && !refs.has(normalizeRefKey(ref))) return unknownField();
     }
   }
   return ok();

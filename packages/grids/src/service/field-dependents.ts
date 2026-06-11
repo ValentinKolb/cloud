@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import { parseFormula, collectFieldRefs } from "../formula/parser";
+import { normalizeRefKey } from "../ref-syntax";
 
 export type FieldDependent = {
   /** Kind of resource that references the field. */
@@ -151,12 +152,19 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
   const ensureSlugMap = async (tableId: string): Promise<Record<string, string>> => {
     let map = slugMapsByTable.get(tableId);
     if (map) return map;
-    const rows = await sql<{ id: string; short_id: string }[]>`
-      SELECT id::text AS id, short_id
+    const rows = await sql<{ id: string; short_id: string; name: string }[]>`
+      SELECT id::text AS id, short_id, name
       FROM grids.fields
       WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL AND short_id IS NOT NULL
     `;
-    map = Object.fromEntries(rows.map((r) => [r.short_id, r.id]));
+    map = {};
+    for (const row of rows) {
+      map[row.id] = row.id;
+      map[row.short_id] = row.id;
+      map[normalizeRefKey(row.short_id)] = row.id;
+      map[row.name] = row.id;
+      map[normalizeRefKey(row.name)] = row.id;
+    }
     slugMapsByTable.set(tableId, map);
     return map ?? {};
   };
@@ -179,10 +187,7 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
       if (parsed.ok) {
         const slugMap = await ensureSlugMap(candidateTableId);
         for (const ref of collectFieldRefs(parsed.ast)) {
-          // collectFieldRefs returns the raw string after `#` or
-          // inside `{}`. Resolve through the slug map; if it's a UUID
-          // it passes through unchanged.
-          refs.push(slugMap[ref] ?? ref);
+          refs.push(slugMap[ref] ?? slugMap[normalizeRefKey(ref)] ?? ref);
         }
       }
     }

@@ -5,12 +5,14 @@
 
 export type Literal = number | string | boolean | null;
 
+export type SourceSpan = { start: number; end: number };
+
 export type Expr =
-  | { kind: "literal"; value: Literal }
-  | { kind: "field"; fieldId: string }
-  | { kind: "binop"; op: BinOp; left: Expr; right: Expr }
-  | { kind: "unop"; op: UnOp; operand: Expr }
-  | { kind: "call"; fn: string; args: Expr[] };
+  | { kind: "literal"; value: Literal; span?: SourceSpan }
+  | { kind: "field"; fieldId: string; span?: SourceSpan }
+  | { kind: "binop"; op: BinOp; left: Expr; right: Expr; span?: SourceSpan }
+  | { kind: "unop"; op: UnOp; operand: Expr; span?: SourceSpan }
+  | { kind: "call"; fn: string; args: Expr[]; span?: SourceSpan };
 
 export type BinOp = "+" | "-" | "*" | "/" | "%" | "=" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||";
 

@@ -56,28 +56,28 @@ describe("formula authoring helpers", () => {
   test("expected type follows nested function argument context despite whitespace", () => {
     expect(expectedFormulaValueType("IF(CONTAINS( Product", "IF(CONTAINS( Product".length - "Product".length)).toBe("text");
     expect(expectedFormulaValueType("SUM( IF(TRUE, ", "SUM( IF(TRUE, ".length)).toBe("any");
-    expect(expectedFormulaValueType("#Qty01 * ", "#Qty01 * ".length)).toBe("number");
+    expect(expectedFormulaValueType("Quantity * ", "Quantity * ".length)).toBe("number");
     expect(expectedFormulaValueType("DATEDIFF( TODAY(), ", "DATEDIFF( TODAY(), ".length)).toBe("date");
   });
 
-  test("value suggestions insert #shortId while showing field names", () => {
+  test("value suggestions insert field names while showing field metadata", () => {
     const suggestions = formulaValueSuggestions(fields, "unit", {
       fullText: "SUM(unit",
       tokenStart: "SUM(".length,
     });
     expect(suggestions[0]).toMatchObject({
       text: "Unit price",
-      expansion: "#Pr1cE",
+      expansion: '"Unit price"',
       label: "Unit price",
-      hint: "number · #Pr1cE",
+      hint: 'number · "Unit price"',
     });
     expect(parseFormula(suggestions[0]!.expansion ?? "")).toMatchObject({ ok: true });
   });
 
   test("numeric contexts filter out text fields and still offer numeric functions", () => {
     const suggestions = formulaValueSuggestions(fields, "", {
-      fullText: "#Qty01 * ",
-      tokenStart: "#Qty01 * ".length,
+      fullText: "Quantity * ",
+      tokenStart: "Quantity * ".length,
     });
     const labels = suggestions.map((s) => s.label ?? s.text);
     expect(labels).toContain("Unit price");
@@ -88,10 +88,10 @@ describe("formula authoring helpers", () => {
 
   test("numeric operator contexts still show matching non-numeric fields", () => {
     const suggestions = formulaValueSuggestions(fields, "prod", {
-      fullText: "#Qty01 * prod",
-      tokenStart: "#Qty01 * ".length,
+      fullText: "Quantity * prod",
+      tokenStart: "Quantity * ".length,
     });
-    expect(suggestions[0]).toMatchObject({ label: "Product name", expansion: "#Nm001" });
+    expect(suggestions[0]).toMatchObject({ label: "Product name", expansion: '"Product name"' });
   });
 
   test("completions support # trigger by field name", () => {
@@ -99,7 +99,7 @@ describe("formula authoring helpers", () => {
     const suggestions = hashCompletion.suggest("prod", { fullText: "#prod", caret: 5, tokenStart: 0 }, new AbortController().signal);
     expect(Array.isArray(suggestions)).toBe(true);
     if (Array.isArray(suggestions)) {
-      expect(suggestions[0]).toMatchObject({ label: "Product name", expansion: "#Nm001" });
+      expect(suggestions[0]).toMatchObject({ label: "Product name", expansion: '"Product name"' });
       expect(parseFormula(suggestions[0]!.expansion ?? "")).toMatchObject({ ok: true });
     }
   });
@@ -108,12 +108,12 @@ describe("formula authoring helpers", () => {
     const spaceCompletion = buildFormulaCompletions(fields).find((c) => c.trigger === " ")!;
     const suggestions = spaceCompletion.suggest(
       "prod",
-      { fullText: "#Qty01 +    prod", caret: "#Qty01 +    prod".length, tokenStart: "#Qty01 +   ".length },
+      { fullText: "Quantity +    prod", caret: "Quantity +    prod".length, tokenStart: "Quantity +   ".length },
       new AbortController().signal,
     );
     expect(Array.isArray(suggestions)).toBe(true);
     if (Array.isArray(suggestions)) {
-      expect(suggestions[0]).toMatchObject({ label: "Product name", expansion: "#Nm001" });
+      expect(suggestions[0]).toMatchObject({ label: "Product name", expansion: '"Product name"' });
     }
   });
 
@@ -121,28 +121,29 @@ describe("formula authoring helpers", () => {
     const spaceCompletion = buildFormulaCompletions(fields).find((c) => c.trigger === " ")!;
     const suggestions = spaceCompletion.suggest(
       "prod",
-      { fullText: "#Qty01 prod", caret: "#Qty01 prod".length, tokenStart: "#Qty01".length },
+      { fullText: "Quantity prod", caret: "Quantity prod".length, tokenStart: "Quantity".length },
       new AbortController().signal,
     );
     expect(suggestions).toEqual([]);
   });
 
-  test("field names with spaces or symbols still insert parseable stable refs", () => {
+  test("field names with spaces or symbols insert quoted identifiers", () => {
     const suggestions = formulaValueSuggestions(fields, "special", {
       fullText: "ROUND(special",
       tokenStart: "ROUND(".length,
     });
     expect(suggestions[0]).toMatchObject({
       text: "Discount % / special",
-      expansion: "#Dc99X",
+      expansion: '"Discount % / special"',
       label: "Discount % / special",
-      hint: "percent · #Dc99X",
+      hint: 'percent · "Discount % / special"',
     });
     expect(parseFormula(`ROUND(${suggestions[0]!.expansion}, 2)`)).toMatchObject({ ok: true });
   });
 
-  test("formulaFieldToken keeps field references canonical", () => {
-    expect(formulaFieldToken({ shortId: "Ab12Z" })).toBe("#Ab12Z");
+  test("formulaFieldToken keeps field references readable and parseable", () => {
+    expect(formulaFieldToken({ name: "Unit price" })).toBe('"Unit price"');
+    expect(formulaFieldToken({ name: "Price" })).toBe("Price");
   });
 
   test("equals completion only fires at the start of an expression", () => {
@@ -152,16 +153,17 @@ describe("formula authoring helpers", () => {
 
     const comparisonSuggestions = equalsCompletion.suggest(
       "su",
-      { fullText: "#Qty01 = su", caret: 11, tokenStart: 8 },
+      { fullText: "Quantity = su", caret: "Quantity = su".length, tokenStart: "Quantity = ".length },
       new AbortController().signal,
     );
     expect(comparisonSuggestions).toEqual([]);
   });
 
   test("highlight escapes html and marks formula tokens", () => {
-    expect(formulaHighlight('SUM(#Pr1cE, 2) < "x"')).toContain('<span class="fn">SUM</span>');
-    expect(formulaHighlight('SUM(#Pr1cE, 2) < "x"')).toContain('<span class="field">#Pr1cE</span>');
-    expect(formulaHighlight('SUM(#Pr1cE, 2) < "x"')).toContain('<span class="num">2</span>');
-    expect(formulaHighlight('SUM(#Pr1cE, 2) < "x"')).toContain("&lt;");
+    expect(formulaHighlight("SUM(Price, 2) < 'x'")).toContain('<span class="fn">SUM</span>');
+    expect(formulaHighlight("SUM(Price, 2) < 'x'")).toContain('<span class="field">Price</span>');
+    expect(formulaHighlight("SUM(Price, 2) < 'x'")).toContain('<span class="num">2</span>');
+    expect(formulaHighlight("SUM(Price, 2) < 'x'")).toContain("<span class=\"str\">'x'</span>");
+    expect(formulaHighlight("SUM(Price, 2) < 'x'")).toContain("&lt;");
   });
 });

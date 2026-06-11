@@ -67,7 +67,7 @@ test("SUM / AVG / MEDIAN / COUNT", () => {
   expect(run("AVG(3, 1, 2)")).toBe(2);
   expect(run("MEAN(3, 1, 2)")).toBe(2);
   expect(run("MEDIAN(10, 1, 3)")).toBe(3);
-  expect(run('COUNT(0, "", null, "x")')).toBe(2);
+  expect(run("COUNT(0, '', null, 'x')")).toBe(2);
 });
 test("SQRT / POW / MOD / PERCENT", () => {
   expect(run("SQRT(9)")).toBe(3);
@@ -78,67 +78,67 @@ test("SQRT / POW / MOD / PERCENT", () => {
 
 // ── Functions: text ──────────────────────────────────────────────
 test("CONCAT", () => {
-  expect(run('CONCAT("foo", " ", "bar")')).toBe("foo bar");
+  expect(run("CONCAT('foo', ' ', 'bar')")).toBe("foo bar");
 });
 test("LEN / LOWER / UPPER / TRIM", () => {
-  expect(run('LEN("hello")')).toBe(5);
-  expect(run('LOWER("HELLO")')).toBe("hello");
-  expect(run('UPPER("hello")')).toBe("HELLO");
-  expect(run('TRIM("  spaced  ")')).toBe("spaced");
+  expect(run("LEN('hello')")).toBe(5);
+  expect(run("LOWER('HELLO')")).toBe("hello");
+  expect(run("UPPER('hello')")).toBe("HELLO");
+  expect(run("TRIM('  spaced  ')")).toBe("spaced");
 });
 test("CONTAINS / LEFT / RIGHT / SUBSTRING / REPLACE", () => {
-  expect(run('CONTAINS("Invoice paid", "paid")')).toBe(true);
-  expect(run('LEFT("abcdef", 2)')).toBe("ab");
-  expect(run('RIGHT("abcdef", 2)')).toBe("ef");
-  expect(run('SUBSTRING("abcdef", 2, 3)')).toBe("cde");
-  expect(run('REPLACE("a-b-a", "a", "x")')).toBe("x-b-x");
+  expect(run("CONTAINS('Invoice paid', 'paid')")).toBe(true);
+  expect(run("LEFT('abcdef', 2)")).toBe("ab");
+  expect(run("RIGHT('abcdef', 2)")).toBe("ef");
+  expect(run("SUBSTRING('abcdef', 2, 3)")).toBe("cde");
+  expect(run("REPLACE('a-b-a', 'a', 'x')")).toBe("x-b-x");
 });
 
 // ── Functions: logic ─────────────────────────────────────────────
 test("IF returns then-branch when truthy", () => {
-  expect(run('IF(true, "yes", "no")')).toBe("yes");
-  expect(run('IF(false, "yes", "no")')).toBe("no");
+  expect(run("IF(true, 'yes', 'no')")).toBe("yes");
+  expect(run("IF(false, 'yes', 'no')")).toBe("no");
 });
 test("IFEMPTY and IFERROR", () => {
-  expect(run('IFEMPTY({x}, "fallback")', { x: "" })).toBe("fallback");
-  expect(run('IFEMPTY({x}, "fallback")', { x: "value" })).toBe("value");
-  expect(run('IFERROR(1 / 0, "fallback")')).toBe("fallback");
-  expect(run('IFERROR(2 + 2, "fallback")')).toBe(4);
+  expect(run("IFEMPTY({x}, 'fallback')", { x: "" })).toBe("fallback");
+  expect(run("IFEMPTY({x}, 'fallback')", { x: "value" })).toBe("value");
+  expect(run("IFERROR(1 / 0, 'fallback')")).toBe("fallback");
+  expect(run("IFERROR(2 + 2, 'fallback')")).toBe(4);
   expect(renderResult(run("IFERROR(1 / 0)"))).toBe("#IFERROR_BAD_ARGS");
 });
 test("ISBLANK", () => {
   expect(run("ISBLANK({x})", { x: null })).toBe(true);
-  expect(run("ISBLANK({x})", { x: "" })).toBe(true);
+  expect(run("ISBLANK({x})", { x: '' })).toBe(true);
   expect(run("ISBLANK({x})", { x: "set" })).toBe(false);
 });
 
 // ── Functions: date ──────────────────────────────────────────────
 test("YEAR / MONTH / DAY", () => {
-  expect(run('YEAR("2026-05-02")')).toBe(2026);
-  expect(run('MONTH("2026-05-02")')).toBe(5);
-  expect(run('DAY("2026-05-02")')).toBe(2);
-  expect(run('DAY("2026-05-02T00:30")')).toBe(2);
+  expect(run("YEAR('2026-05-02')")).toBe(2026);
+  expect(run("MONTH('2026-05-02')")).toBe(5);
+  expect(run("DAY('2026-05-02')")).toBe(2);
+  expect(run("DAY('2026-05-02T00:30')")).toBe(2);
 });
 test("date functions use the configured timezone for instants", () => {
   const ctx = { dateConfig: { timeZone: "Europe/Berlin" }, now: new Date("2026-05-01T22:30:00.000Z") };
   expect(run("TODAY()", {}, ctx)).toBe("2026-05-02");
   expect(run("NOW()", {}, ctx)).toBe("2026-05-01T22:30:00.000Z");
-  expect(run('DAY("2026-05-01T22:30:00.000Z")', {}, ctx)).toBe(2);
+  expect(run("DAY('2026-05-01T22:30:00.000Z')", {}, ctx)).toBe(2);
 });
 test("DATEADD days", () => {
-  expect(run('DATEADD("2026-05-02", 7, "days")')).toBe("2026-05-09");
+  expect(run("DATEADD('2026-05-02', 7, 'days')")).toBe("2026-05-09");
 });
 test("DATEADD preserves instants for time-aware inputs", () => {
-  expect(run('DATEADD("2026-05-01T22:30:00.000Z", 1, "days")', {}, { dateConfig: { timeZone: "Europe/Berlin" } })).toBe(
+  expect(run("DATEADD('2026-05-01T22:30:00.000Z', 1, 'days')", {}, { dateConfig: { timeZone: "Europe/Berlin" } })).toBe(
     "2026-05-02T22:30:00.000Z",
   );
 });
 test("DATEDIFF days", () => {
-  expect(run('DATEDIFF("2026-05-02", "2026-05-09", "days")')).toBe(7);
+  expect(run("DATEDIFF('2026-05-02', '2026-05-09', 'days')")).toBe(7);
 });
 test("DATEDIFF days compares local calendar days for instants", () => {
   expect(
-    run('DATEDIFF("2026-05-01T22:30:00.000Z", "2026-05-02T21:30:00.000Z", "days")', {}, { dateConfig: { timeZone: "Europe/Berlin" } }),
+    run("DATEDIFF('2026-05-01T22:30:00.000Z', '2026-05-02T21:30:00.000Z', 'days')", {}, { dateConfig: { timeZone: "Europe/Berlin" } }),
   ).toBe(0);
 });
 
@@ -242,8 +242,8 @@ describe("FN_LIBRARY edge cases", () => {
     expect(run("MAX({a}, {b})", { a: null, b: null })).toBeNull();
   });
   test("CONCAT coerces nulls to empty string, numbers to digits", () => {
-    expect(run('CONCAT("a", {x}, 42)', { x: null })).toBe("a42");
-    expect(run('CONCAT("a", true)')).toBe("atrue");
+    expect(run("CONCAT('a', {x}, 42)", { x: null })).toBe("a42");
+    expect(run("CONCAT('a', true)")).toBe("atrue");
   });
   test("ISBLANK considers '' and null blank, but 0 / false are NOT blank", () => {
     expect(run("ISBLANK({x})", { x: 0 })).toBe(false);
@@ -251,27 +251,27 @@ describe("FN_LIBRARY edge cases", () => {
     expect(run("ISBLANK({x})", { x: " " })).toBe(false); // whitespace ≠ blank
   });
   test("AND / OR coerce truthy/falsy across types", () => {
-    expect(run('AND(1, "x", true)')).toBe(true);
+    expect(run("AND(1, 'x', true)")).toBe(true);
     expect(run("AND(1, 0, true)")).toBe(false);
-    expect(run('OR(0, "", false)')).toBe(false);
+    expect(run("OR(0, '', false)")).toBe(false);
     expect(run("OR(0, 1)")).toBe(true);
   });
   test("DATEADD with bad unit surfaces #DATEADD_BAD_UNIT", () => {
-    expect(renderResult(run('DATEADD("2026-01-01", 1, "fortnights")'))).toBe("#DATEADD_BAD_UNIT");
+    expect(renderResult(run("DATEADD('2026-01-01', 1, 'fortnights')"))).toBe("#DATEADD_BAD_UNIT");
   });
   test("DATEDIFF with bad unit surfaces #DATEDIFF_BAD_UNIT", () => {
-    expect(renderResult(run('DATEDIFF("2026-01-01", "2026-02-01", "moons")'))).toBe("#DATEDIFF_BAD_UNIT");
+    expect(renderResult(run("DATEDIFF('2026-01-01', '2026-02-01', 'moons')"))).toBe("#DATEDIFF_BAD_UNIT");
   });
   test("DATEADD with unparseable date → null", () => {
-    expect(run('DATEADD("not-a-date", 7, "days")')).toBeNull();
+    expect(run("DATEADD('not-a-date', 7, 'days')")).toBeNull();
   });
   test("DATEDIFF supports hours / minutes / seconds units", () => {
-    expect(run('DATEDIFF("2026-01-01T00:00:00Z", "2026-01-01T03:30:00Z", "hours")')).toBe(3);
-    expect(run('DATEDIFF("2026-01-01T00:00:00Z", "2026-01-01T00:05:30Z", "minutes")')).toBe(5);
+    expect(run("DATEDIFF('2026-01-01T00:00:00Z', '2026-01-01T03:30:00Z', 'hours')")).toBe(3);
+    expect(run("DATEDIFF('2026-01-01T00:00:00Z', '2026-01-01T00:05:30Z', 'minutes')")).toBe(5);
   });
   test("YEAR / MONTH / DAY return null on garbage input rather than throwing", () => {
     expect(run("YEAR({x})", { x: "garbage" })).toBeNull();
-    expect(run('YEAR("2025-13-45")')).toBeNull();
+    expect(run("YEAR('2025-13-45')")).toBeNull();
     expect(run("MONTH({x})", { x: null })).toBeNull();
     expect(run("DAY({x})", { x: 42 })).toBeNull(); // numbers aren't dates
   });

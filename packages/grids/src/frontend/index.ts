@@ -2,6 +2,7 @@ import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import dashboardRenderPage from "./[baseId]/dashboard/[dashboardId]/page";
 import baseDetailPage from "./[baseId]/page";
+import queryReferencePage from "./[baseId]/query-reference/page";
 import queryWorkspacePage from "./[baseId]/query/page";
 import formulaReferencePage from "./[baseId]/table/[tableId]/formula-reference/page";
 import tableRecordsPage from "./[baseId]/table/[tableId]/page";
@@ -53,6 +54,7 @@ export default new Hono<AuthContext>()
   .get("/:baseId/table/:tableId", auth.requireRole("user", auth.redirectToLogin), ...tableRecordsPage)
   // Dashboard paths.
   .get("/:baseId/dashboard/:dashboardId", auth.requireRole("user", auth.redirectToLogin), ...dashboardRenderPage)
+  .get("/:baseId/query-reference", auth.requireRole("user", auth.redirectToLogin), ...queryReferencePage)
   .get("/:baseId/query", auth.requireRole("user", auth.redirectToLogin), ...queryWorkspacePage)
   .get("/:baseId/automations", auth.requireRole("user", auth.redirectToLogin), ...baseDetailPage)
   .get("/:baseId", auth.requireRole("user", auth.redirectToLogin), ...baseDetailPage);

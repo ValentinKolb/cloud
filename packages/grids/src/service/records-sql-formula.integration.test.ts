@@ -92,6 +92,34 @@ describe("records SQL formula projection integration", () => {
     }
   });
 
+  postgresTest("list returns SQL-projected formula values for readable field references", async () => {
+    const fixture = await insertSqlFormulaFixture();
+    try {
+      await sql`
+        UPDATE grids.fields
+        SET config = CASE id
+          WHEN ${fixture.subtotalId}::uuid THEN ${{ expression: "Price + Quantity * 0.20" }}::jsonb
+          WHEN ${fixture.grossId}::uuid THEN ${{ expression: "Subtotal + 1" }}::jsonb
+          ELSE config
+        END
+        WHERE id IN (${fixture.subtotalId}::uuid, ${fixture.grossId}::uuid)
+      `;
+
+      const result = await list({ tableId: fixture.tableId, limit: 10 });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      const record = result.data.items.find((item) => item.id === fixture.recordId);
+      const secondRecord = result.data.items.find((item) => item.id === fixture.secondRecordId);
+      expect(record?.data[fixture.subtotalId]).toBe("0.300");
+      expect(record?.data[fixture.grossId]).toBe("1.3");
+      expect(secondRecord?.data[fixture.subtotalId]).toBe("1.200");
+      expect(secondRecord?.data[fixture.grossId]).toBe("2.2");
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
   postgresTest("get returns the same SQL-projected formula values as list", async () => {
     const fixture = await insertSqlFormulaFixture();
     try {
@@ -110,6 +138,23 @@ describe("records SQL formula projection integration", () => {
     const fixture = await insertSqlFormulaFixture();
     try {
       const parsed = parseFormula("#PRICE <= #QTY01 * 0.20");
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) return;
+
+      const result = await list({ tableId: fixture.tableId, limit: 10, formulaWhere: parsed.ast });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      expect(result.data.items.map((item) => item.id)).toEqual([fixture.recordId]);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("list applies readable SQL formula where predicates", async () => {
+    const fixture = await insertSqlFormulaFixture();
+    try {
+      const parsed = parseFormula("Price <= Quantity * 0.20");
       expect(parsed.ok).toBe(true);
       if (!parsed.ok) return;
 

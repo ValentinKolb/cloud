@@ -1,4 +1,5 @@
 import { parseFormula } from "../formula/parser";
+import { parseIdentifierRef, parseQualifiedIdentifierRef, splitTrailingKeywordOutsideQuotes } from "../ref-syntax";
 import type { Expr } from "../formula/types";
 import type {
   DslAggregateFn,
@@ -16,7 +17,6 @@ import type {
 } from "./types";
 
 const ALIAS_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
-const REF_RE = /^[A-Za-z0-9][A-Za-z0-9_]{0,79}$/;
 const GROUP_GRANULARITIES = new Set(["day", "week", "month", "quarter", "year"]);
 const AGGREGATE_FNS = new Set<DslAggregateFn>([
   "count",
@@ -272,32 +272,23 @@ const validateAlias = (alias: string, line: number): DslParseDiagnostic | null =
 const isIdentifierPart = (c: string | undefined): boolean => !!c && /[A-Za-z0-9_]/.test(c);
 
 const parseRef = (input: string): DslQualifiedRef | null => {
-  const trimmed = input.trim();
-  const match = trimmed.match(/^(?:(?<scope>[A-Za-z_][A-Za-z0-9_]*)\.)?#(?<ref>[A-Za-z0-9][A-Za-z0-9_]*)$/);
-  if (!match?.groups) return null;
-  const ref = match.groups.ref;
-  if (!ref) return null;
-  if (!REF_RE.test(ref)) return null;
-  if (match.groups.scope && validateAlias(match.groups.scope, 0)) return null;
-  return {
-    ...(match.groups.scope ? { scope: match.groups.scope } : {}),
-    ref,
-  };
+  const parsed = parseQualifiedIdentifierRef(input);
+  if (!parsed) return null;
+  if (parsed.scope && validateAlias(parsed.scope, 0)) return null;
+  return parsed;
 };
 
 const parseSource = (input: string): DslSourceRef | null => {
   const trimmed = input.trim();
-  const typed = trimmed.match(/^(?<kind>table|view)\s+#(?<ref>[A-Za-z0-9][A-Za-z0-9_]*)$/i);
+  const typed = trimmed.match(/^(?<kind>table|view)\s+(?<ref>[\s\S]+)$/i);
   if (typed?.groups) {
     const kind = typed.groups.kind?.toLowerCase();
-    const ref = typed.groups.ref;
+    const ref = typed.groups.ref ? parseIdentifierRef(typed.groups.ref) : null;
     if ((kind !== "table" && kind !== "view") || !ref) return null;
-    if (!REF_RE.test(ref)) return null;
     return { kind, ref };
   }
-  const untyped = trimmed.match(/^#(?<ref>[A-Za-z0-9][A-Za-z0-9_]*)$/);
-  if (untyped?.groups?.ref && REF_RE.test(untyped.groups.ref)) return { kind: "unknown", ref: untyped.groups.ref };
-  return null;
+  const ref = parseIdentifierRef(trimmed);
+  return ref ? { kind: "unknown", ref } : null;
 };
 
 const unwrapFormulaCall = (input: string): string | null => {
@@ -422,30 +413,24 @@ const parseAggregateItem = (input: string, line: number): { item?: DslAggregateI
 };
 
 const parseGroupItem = (input: string, line: number): { item?: DslGroupItem; diagnostic?: DslParseDiagnostic } => {
-  const match = input
-    .trim()
-    .match(/^(?<field>(?:[A-Za-z_][A-Za-z0-9_]*\.)?#[A-Za-z0-9][A-Za-z0-9_]*)(?:\s+by\s+(?<granularity>[A-Za-z]+))?$/i);
-  if (!match?.groups) return { diagnostic: error(line, `invalid group item "${input}"`) };
-  const fieldRaw = match.groups.field;
-  if (!fieldRaw) return { diagnostic: error(line, `invalid group item "${input}"`) };
+  const split = splitTrailingKeywordOutsideQuotes(input.trim(), "by");
+  const fieldRaw = split ? split[0] : input.trim();
   const field = parseRef(fieldRaw);
   if (!field) return { diagnostic: error(line, `invalid group field "${input}"`) };
-  const granularity = match.groups.granularity?.toLowerCase();
+  const granularity = split?.[1]?.toLowerCase();
   if (granularity && !GROUP_GRANULARITIES.has(granularity))
     return { diagnostic: error(line, `unsupported group granularity "${granularity}"`) };
   return { item: { field, ...(granularity ? { granularity: granularity as DslGroupItem["granularity"] } : {}) } };
 };
 
 const parseSortItem = (input: string, line: number): { item?: DslSortItem; diagnostic?: DslParseDiagnostic } => {
-  const match = input
-    .trim()
-    .match(
-      /^(?<target>(?:[A-Za-z_][A-Za-z0-9_]*\.)?#[A-Za-z0-9][A-Za-z0-9_]*|[A-Za-z_][A-Za-z0-9_]*)(?:\s+(?<direction>asc|desc|ascending|descending))?$/i,
-    );
-  if (!match?.groups) return { diagnostic: error(line, `invalid sort item "${input}"`) };
-  const target = match.groups.target;
+  const split =
+    (["ascending", "descending", "asc", "desc"] as const)
+      .map((direction) => ({ direction, split: splitTrailingKeywordOutsideQuotes(input.trim(), direction) }))
+      .find((item) => item.split && item.split[1] === "") ?? null;
+  const target = split?.split ? split.split[0] : input.trim();
   if (!target) return { diagnostic: error(line, `invalid sort item "${input}"`) };
-  const directionRaw = match.groups.direction?.toLowerCase();
+  const directionRaw = split?.direction;
   const direction = directionRaw === "desc" || directionRaw === "descending" ? "desc" : "asc";
   const ref = parseRef(target);
   if (ref) return { item: { target: ref, direction } };
@@ -456,7 +441,7 @@ const parseSortItem = (input: string, line: number): { item?: DslSortItem; diagn
 
 const parseJoin = (lineSource: string, line: number): { item?: DslJoin; diagnostic?: DslParseDiagnostic } => {
   const match = lineSource.match(
-    /^(?<mode>left\s+)?join\s+(?<source>(?:(?:table|view)\s+)?#[A-Za-z0-9][A-Za-z0-9_]*)\s+as\s+(?<alias>[A-Za-z_][A-Za-z0-9_]*)\s+on\s+(?<left>(?:[A-Za-z_][A-Za-z0-9_]*\.)?#[A-Za-z0-9][A-Za-z0-9_]*)\s*=\s*(?<right>(?:[A-Za-z_][A-Za-z0-9_]*\.)?#[A-Za-z0-9][A-Za-z0-9_]*)$/i,
+    /^(?<mode>left\s+)?join\s+(?<source>[\s\S]+?)\s+as\s+(?<alias>[A-Za-z_][A-Za-z0-9_]*)\s+on\s+(?<left>[\s\S]+?)\s*=\s*(?<right>[\s\S]+)$/i,
   );
   if (!match?.groups) return { diagnostic: error(line, `invalid join clause`) };
   const sourceRaw = match.groups.source;

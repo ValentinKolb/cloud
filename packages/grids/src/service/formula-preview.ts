@@ -7,6 +7,7 @@ import { applyComputedProjections, buildComputedProjections } from "./computed-p
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
 import { enrichRecordsWithFormulas, hydrateRelationsFromLinks } from "./relations";
+import { normalizeRefKey } from "../ref-syntax";
 import type { Field, GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -50,13 +51,22 @@ const mapRow = (row: DbRow): GridRecord => ({
 
 const resolveFormulaRefs = (refs: Set<string>, fields: Field[]) => {
   const byId = new Map(fields.map((field) => [field.id, field]));
-  const byShortId = new Map(fields.map((field) => [field.shortId, field]));
+  const byRef = new Map<string, Field[]>();
+  for (const field of fields) {
+    for (const ref of [field.shortId, field.name]) {
+      const key = normalizeRefKey(ref);
+      const bucket = byRef.get(key) ?? [];
+      if (!bucket.some((item) => item.id === field.id)) bucket.push(field);
+      byRef.set(key, bucket);
+    }
+  }
   const resolved: Field[] = [];
   const seen = new Set<string>();
   const missing: string[] = [];
 
   for (const ref of refs) {
-    const field = byId.get(ref) ?? byShortId.get(ref);
+    const matches = byRef.get(normalizeRefKey(ref)) ?? [];
+    const field = byId.get(ref) ?? (matches.length === 1 ? matches[0] : null);
     if (!field) {
       missing.push(ref);
       continue;
@@ -125,7 +135,7 @@ export const checkFormula = async (params: {
   if (missing.length > 0) {
     return ok({
       ok: false,
-      diagnostics: missing.map((ref) => ({ severity: "error", message: `Unknown field reference: #${ref}` })),
+      diagnostics: missing.map((ref) => ({ severity: "error", message: `Unknown field reference: ${ref}` })),
       fields: [],
       rows: [],
     });
@@ -135,7 +145,14 @@ export const checkFormula = async (params: {
   const formulaFields = params.currentFieldId ? usableFields.filter((field) => field.id !== params.currentFieldId) : usableFields;
   enrichRecordsWithFormulas(rows, formulaFields, { dateConfig: params.dateConfig });
 
-  const slugToId = Object.fromEntries(usableFields.map((field) => [field.shortId, field.id]));
+  const slugToId = Object.fromEntries(
+    usableFields.flatMap((field) => [
+      [field.shortId, field.id],
+      [normalizeRefKey(field.shortId), field.id],
+      [field.name, field.id],
+      [normalizeRefKey(field.name), field.id],
+    ]),
+  );
   let hasPreviewError = false;
   const previewRows = rows.map((record) => {
     const rawResult = evaluate(parsed.ast, { fields: record.data, slugToId, dateConfig: params.dateConfig });

@@ -1,6 +1,6 @@
 import { sql } from "bun";
 import { dates, ok, fail, err, type DateContext, type Result } from "@valentinkolb/stdlib";
-import { logAudit } from "./audit";
+import { logAudit, type SqlClient } from "./audit";
 import { emitTableMetadataEvent } from "./metadata-events";
 import {
   ensureFieldIndex,
@@ -15,6 +15,8 @@ import { parseJsonbRow } from "./jsonb";
 import { getFieldType, getRecordWritableFieldType, isKnownFieldType } from "../field-types";
 import { insertWithShortId } from "./short-id";
 import { ViewQuerySchema } from "../contracts";
+import { normalizeRefKey } from "../ref-syntax";
+import { rewriteFieldNameReferences } from "./reference-renames";
 import type { Field, CreateFieldInput, UpdateFieldInput } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -248,10 +250,28 @@ const validateLinkOrComputedConfig = async (
   return ok();
 };
 
+const ensureUniqueFieldName = async (
+  tableId: string,
+  name: string,
+  exceptFieldId: string | null = null,
+): Promise<Result<void>> => {
+  const [row] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
+    FROM grids.fields
+    WHERE table_id = ${tableId}::uuid
+      AND deleted_at IS NULL
+      AND lower(trim(name)) = ${normalizeRefKey(name)}
+      AND (${exceptFieldId}::uuid IS NULL OR id <> ${exceptFieldId}::uuid)
+  `;
+  return (row?.count ?? 0) === 0 ? ok() : fail(err.conflict("field name must be unique within this table"));
+};
+
 export const create = async (input: CreateFieldInput, actorId: string | null): Promise<Result<Field>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
   if (!isKnownFieldType(input.type)) return fail(err.badInput(`unknown field type "${input.type}"`));
+  const uniqueName = await ensureUniqueFieldName(input.tableId, name);
+  if (!uniqueName.ok) return uniqueName;
 
   const rawConfig = input.config ?? {};
   const cfgValidation = validateFieldConfig(input.type, rawConfig);
@@ -397,10 +417,14 @@ const ensureUniqueToggleAllowed = async (fieldId: string, existing: Field, input
   return ok();
 };
 
-const persistFieldUpdate = async (id: string, next: FieldUpdateState): Promise<Result<Field>> => {
+const persistFieldUpdate = async (
+  id: string,
+  next: FieldUpdateState,
+  client: SqlClient = sql,
+): Promise<Result<Field>> => {
   // Same primitive-to-JSONB stringify dance as create.
   const nextDefaultValueJsonb = next.defaultValue === undefined || next.defaultValue === null ? null : JSON.stringify(next.defaultValue);
-  const [row] = await sql<DbRow[]>`
+  const [row] = await client<DbRow[]>`
     UPDATE grids.fields
     SET name = ${next.name},
         description = ${next.description}::text,
@@ -421,12 +445,17 @@ const persistFieldUpdate = async (id: string, next: FieldUpdateState): Promise<R
   return ok(mapRow(row));
 };
 
-const logFieldUpdateDiff = async (existing: Field, next: FieldUpdateState, actorId: string | null): Promise<void> => {
+const logFieldUpdateDiff = async (
+  existing: Field,
+  next: FieldUpdateState,
+  actorId: string | null,
+  client: SqlClient = sql,
+): Promise<void> => {
   const diff: Record<string, { old: unknown; new: unknown }> = {};
   if (next.name !== existing.name) diff.name = { old: existing.name, new: next.name };
   if (next.required !== existing.required) diff.required = { old: existing.required, new: next.required };
   if (Object.keys(diff).length > 0) {
-    await logAudit({ tableId: existing.tableId, userId: actorId, action: "updated", diff });
+    await logAudit({ tableId: existing.tableId, userId: actorId, action: "updated", diff }, client);
   }
 };
 
@@ -461,15 +490,37 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
 
   const nextResult = await validateFieldUpdate(existing, input);
   if (!nextResult.ok) return nextResult;
+  const uniqueName = await ensureUniqueFieldName(existing.tableId, nextResult.data.name, existing.id);
+  if (!uniqueName.ok) return uniqueName;
 
   const uniqueAllowed = await ensureUniqueToggleAllowed(id, existing, input);
   if (!uniqueAllowed.ok) return uniqueAllowed;
 
-  const fieldResult = await persistFieldUpdate(id, nextResult.data);
-  if (!fieldResult.ok) return fieldResult;
-  const field = fieldResult.data;
+  const txResult = await sql
+    .begin(async (tx): Promise<Result<Field>> => {
+      const fieldResult = await persistFieldUpdate(id, nextResult.data, tx);
+      if (!fieldResult.ok) throw fieldResult;
+      const field = fieldResult.data;
 
-  await logFieldUpdateDiff(existing, nextResult.data, actorId);
+      await logFieldUpdateDiff(existing, nextResult.data, actorId, tx);
+
+      if (existing.name !== field.name) {
+        await rewriteFieldNameReferences(
+          { tableId: existing.tableId, oldName: existing.name, newName: field.name },
+          tx,
+        );
+      }
+
+      return ok(field);
+    })
+    .catch((e: unknown) => {
+      if (typeof e === "object" && e !== null && "ok" in e && (e as { ok?: unknown }).ok === false) {
+        return e as Result<Field>;
+      }
+      return fail(err.internal(`field update failed: ${(e as Error).message}`));
+    });
+  if (!txResult.ok) return txResult;
+  const field = txResult.data;
 
   const indexResult = await syncFieldIndexes(existing, field);
   if (!indexResult.ok) return indexResult;

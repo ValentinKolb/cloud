@@ -37,26 +37,39 @@ const fields = [
 ];
 
 describe("compileFormulaSourceToSql", () => {
-  test("compiles decimal arithmetic over short field refs", () => {
+  test("compiles decimal arithmetic over named field refs", () => {
+    const result = compileFormulaSourceToSql("Price * Quantity", { fields });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.expression.type).toBe("numeric");
+  });
+
+  test("keeps legacy short field refs readable", () => {
     const result = compileFormulaSourceToSql("#price * #qty", { fields });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.expression.type).toBe("numeric");
   });
 
+  test("compiles quoted field names", () => {
+    const spaced = [field({ id: "unit_price_id", shortId: "uprice", name: "Unit price", type: "number" })];
+    const result = compileFormulaSourceToSql('"Unit price" * 1.19', { fields: spaced });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.expression.type).toBe("numeric");
+  });
+
   test("compiles text functions", () => {
-    const result = compileFormulaSourceToSql('CONCAT(UPPER(#name), " / ", #qty)', { fields });
+    const result = compileFormulaSourceToSql("CONCAT(UPPER(Name), ' / ', Quantity)", { fields });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.expression.type).toBe("text");
   });
 
   test("compiles boolean comparisons and IF", () => {
-    const result = compileFormulaSourceToSql('IF(#price > 10 && #paid, "ok", "hold")', { fields });
+    const result = compileFormulaSourceToSql("IF(Price > 10 && Paid, 'ok', 'hold')", { fields });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.expression.type).toBe("text");
   });
 
   test("compiles date helpers with stable TODAY", () => {
-    const result = compileFormulaSourceToSql('DATEDIFF(TODAY(), #due, "days")', {
+    const result = compileFormulaSourceToSql("DATEDIFF(TODAY(), Due, 'days')", {
       fields,
       now: new Date("2026-06-08T12:00:00.000Z"),
       dateConfig: { timeZone: "Europe/Berlin" },
@@ -66,7 +79,7 @@ describe("compileFormulaSourceToSql", () => {
   });
 
   test("compiles date-time helpers", () => {
-    const result = compileFormulaSourceToSql('DATEADD(#at, 2, "hours")', { fields });
+    const result = compileFormulaSourceToSql("DATEADD(Timestamp, 2, 'hours')", { fields });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.expression.type).toBe("datetime");
   });
@@ -123,17 +136,17 @@ describe("compileFormulaSourceToSql", () => {
   });
 
   test("compiles mixed-type comparisons without raw incompatible SQL operators", () => {
-    const text = compileFormulaSourceToSql('#price = "10"', { fields });
+    const text = compileFormulaSourceToSql("Price = '10'", { fields });
     expect(text.ok).toBe(true);
     if (text.ok) expect(text.expression.type).toBe("boolean");
 
-    const date = compileFormulaSourceToSql('#due < "2026-06-10"', { fields });
+    const date = compileFormulaSourceToSql("Due < '2026-06-10'", { fields });
     expect(date.ok).toBe(true);
     if (date.ok) expect(date.expression.type).toBe("boolean");
   });
 
   test("rejects unsupported date units at compile time", () => {
-    const result = compileFormulaSourceToSql('DATEADD(#due, 1, "fortnights")', { fields });
+    const result = compileFormulaSourceToSql("DATEADD(Due, 1, 'fortnights')", { fields });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain("DATEADD needs a literal unit");
   });
@@ -142,7 +155,7 @@ describe("compileFormulaSourceToSql", () => {
     const cases = [
       ["AND()", "AND needs at least 1 argument; got 0"],
       ["CONCAT()", "CONCAT needs at least 1 argument; got 0"],
-      ['IF(#paid, "ok")', "IF needs 3 arguments; got 2"],
+      ["IF(Paid, 'ok')", "IF needs 3 arguments; got 2"],
       ["SUBSTRING(#name, 1)", "SUBSTRING needs 3 arguments; got 2"],
       ["TODAY(#due)", "TODAY needs 0 arguments; got 1"],
     ] as const;
@@ -171,7 +184,7 @@ describe("compileFormulaSourceToSql", () => {
       "MIN(#price, #qty)",
       "MAX(#price, #qty)",
       "PERCENT(#price, #qty)",
-      'CONCAT(#name, " ", #qty)',
+      "CONCAT(#name, ' ', #qty)",
       "LEN(#name)",
       "LOWER(#name)",
       "UPPER(#name)",
@@ -179,22 +192,22 @@ describe("compileFormulaSourceToSql", () => {
       "LEFT(#name, 2)",
       "RIGHT(#name, 2)",
       "SUBSTRING(#name, 1, 2)",
-      'REPLACE(#name, "a", "b")',
-      'IF(#paid, "yes", "no")',
-      'IFEMPTY(#name, "missing")',
-      'IFERROR(#price / 0, "bad")',
+      "REPLACE(#name, 'a', 'b')",
+      "IF(#paid, 'yes', 'no')",
+      "IFEMPTY(#name, 'missing')",
+      "IFERROR(#price / 0, 'bad')",
       "AND(#paid, #price > 0)",
       "OR(#paid, #price > 0)",
       "NOT(#paid)",
       "ISBLANK(#name)",
-      'CONTAINS(#name, "a")',
+      "CONTAINS(#name, 'a')",
       "TODAY()",
       "NOW()",
       "YEAR(#due)",
       "MONTH(#due)",
       "DAY(#due)",
-      'DATEADD(#due, 1, "days")',
-      'DATEDIFF(#due, TODAY(), "days")',
+      "DATEADD(#due, 1, 'days')",
+      "DATEDIFF(#due, TODAY(), 'days')",
     ];
 
     for (const source of examples) {
@@ -227,7 +240,7 @@ describe("compileFormulaSourceToSql postgres smoke", () => {
   });
 
   postgresTest("runs date helpers in Postgres", async () => {
-    const result = compileFormulaSourceToSql('DATEDIFF(TODAY(), #due, "days")', {
+    const result = compileFormulaSourceToSql("DATEDIFF(TODAY(), #due, 'days')", {
       fields,
       now: new Date("2026-06-08T12:00:00.000Z"),
       dateConfig: { timeZone: "Europe/Berlin" },
@@ -246,7 +259,7 @@ describe("compileFormulaSourceToSql postgres smoke", () => {
   });
 
   postgresTest("runs text and IF helpers in Postgres", async () => {
-    const result = compileFormulaSourceToSql('IF(#paid, CONCAT(UPPER(#name), " paid"), "open")', { fields });
+    const result = compileFormulaSourceToSql("IF(#paid, CONCAT(UPPER(#name), ' paid'), 'open')", { fields });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 

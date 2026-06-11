@@ -1,10 +1,11 @@
-import type { BinOp, Expr } from "./types";
+import { unquoteIdentifierBody } from "../ref-syntax";
+import type { BinOp, Expr, SourceSpan } from "./types";
 
 // ─────────────────────────────────────────────────────────────────
 // Tokenizer
 // ─────────────────────────────────────────────────────────────────
 
-type Token =
+type RawToken =
   | { kind: "num"; value: number }
   | { kind: "str"; value: string }
   | { kind: "ident"; value: string }
@@ -18,6 +19,8 @@ type Token =
   | { kind: "comma" }
   | { kind: "eof" };
 
+type Token = RawToken & { span: SourceSpan };
+
 const SINGLE_CHAR_OPS = new Set(["+", "-", "*", "/", "%"]);
 const TWO_CHAR_OPS = new Set(["<=", ">=", "!=", "&&", "||"]);
 const SINGLE_CHAR_OPERATORS = new Set([...SINGLE_CHAR_OPS, "<", ">", "=", "!"]);
@@ -28,7 +31,7 @@ const ESCAPED_STRING_CHARS: Record<string, string> = {
   "\\": "\\",
 };
 
-type ScanResult = { token: Token; next: number };
+type ScanResult = { token: RawToken; next: number };
 type Scanner = (src: string, i: number) => ScanResult | null;
 
 const isWhitespace = (c: string): boolean => c === " " || c === "\t" || c === "\n" || c === "\r";
@@ -69,7 +72,7 @@ const escapedStringChar = (esc: string | undefined, quote: string): string => {
 
 const scanString: Scanner = (src, i) => {
   const quote = src[i];
-  if (quote !== '"' && quote !== "'") return null;
+  if (quote !== "'") return null;
   let j = i + 1;
   let value = "";
   while (j < src.length && src[j] !== quote) {
@@ -83,6 +86,27 @@ const scanString: Scanner = (src, i) => {
   }
   if (j >= src.length) throw new Error("unterminated string literal");
   return { token: { kind: "str", value }, next: j + 1 };
+};
+
+const scanQuotedField: Scanner = (src, i) => {
+  if (src[i] !== `"`) return null;
+  let j = i + 1;
+  let raw = "";
+  while (j < src.length) {
+    if (src[j] === `"` && src[j + 1] === `"`) {
+      raw += `""`;
+      j += 2;
+      continue;
+    }
+    if (src[j] === `"`) {
+      const value = unquoteIdentifierBody(raw).trim();
+      if (!value) throw new Error("empty quoted field reference");
+      return { token: { kind: "field", value }, next: j + 1 };
+    }
+    raw += src[j];
+    j++;
+  }
+  throw new Error("unterminated quoted field reference");
 };
 
 const scanBracedField: Scanner = (src, i) => {
@@ -103,7 +127,7 @@ const scanSlugField: Scanner = (src, i) => {
   return { token: { kind: "field", value: src.slice(i + 1, j) }, next: j };
 };
 
-const identToken = (ident: string): Token => {
+const identToken = (ident: string): RawToken => {
   const upper = ident.toUpperCase();
   if (upper === "TRUE") return { kind: "true" };
   if (upper === "FALSE") return { kind: "false" };
@@ -133,7 +157,16 @@ const scanOperator: Scanner = (src, i) => {
   return null;
 };
 
-const SCANNERS: Scanner[] = [scanNumber, scanString, scanBracedField, scanSlugField, scanIdentifier, scanPunctuation, scanOperator];
+const SCANNERS: Scanner[] = [
+  scanNumber,
+  scanString,
+  scanQuotedField,
+  scanBracedField,
+  scanSlugField,
+  scanIdentifier,
+  scanPunctuation,
+  scanOperator,
+];
 
 const scanToken = (src: string, i: number): ScanResult => {
   for (const scanner of SCANNERS) {
@@ -143,7 +176,7 @@ const scanToken = (src: string, i: number): ScanResult => {
   throw new Error(`unexpected character "${src[i]}" at position ${i}`);
 };
 
-const tokenize = (src: string): Token[] => {
+const tokenize = (src: string, offset = 0): Token[] => {
   const tokens: Token[] = [];
   let i = 0;
   while (i < src.length) {
@@ -153,10 +186,10 @@ const tokenize = (src: string): Token[] => {
       continue;
     }
     const result = scanToken(src, i);
-    tokens.push(result.token);
+    tokens.push({ ...result.token, span: { start: offset + i, end: offset + result.next } } as Token);
     i = result.next;
   }
-  tokens.push({ kind: "eof" });
+  tokens.push({ kind: "eof", span: { start: offset + src.length, end: offset + src.length } });
   return tokens;
 };
 
@@ -201,7 +234,7 @@ class Parser {
       if (bp[0] < minBp) break;
       this.next();
       const right = this.parseExpr(bp[1]);
-      left = { kind: "binop", op: t.value as BinOp, left, right };
+      left = withSpan({ kind: "binop", op: t.value as BinOp, left, right }, mergeSpans(left.span, right.span));
     }
     return left;
   }
@@ -210,36 +243,36 @@ class Parser {
     const t = this.next();
     switch (t.kind) {
       case "num":
-        return { kind: "literal", value: t.value };
+        return withSpan({ kind: "literal", value: t.value }, t.span);
       case "str":
-        return { kind: "literal", value: t.value };
+        return withSpan({ kind: "literal", value: t.value }, t.span);
       case "true":
-        return { kind: "literal", value: true };
+        return withSpan({ kind: "literal", value: true }, t.span);
       case "false":
-        return { kind: "literal", value: false };
+        return withSpan({ kind: "literal", value: false }, t.span);
       case "null":
-        return { kind: "literal", value: null };
+        return withSpan({ kind: "literal", value: null }, t.span);
       case "field":
-        return { kind: "field", fieldId: t.value };
+        return withSpan({ kind: "field", fieldId: t.value }, t.span);
       case "lparen": {
         const inner = this.parseExpr(0);
         if (this.peek().kind !== "rparen") throw new Error("expected ')'");
-        this.next();
-        return inner;
+        const rparen = this.next();
+        return withSpan(inner, { start: t.span.start, end: rparen.span.end });
       }
       case "op":
         if (t.value === "-") {
           const operand = this.parseExpr(70);
-          return { kind: "unop", op: "-", operand };
+          return withSpan({ kind: "unop", op: "-", operand }, mergeSpans(t.span, operand.span));
         }
         if (t.value === "!") {
           const operand = this.parseExpr(70);
-          return { kind: "unop", op: "!", operand };
+          return withSpan({ kind: "unop", op: "!", operand }, mergeSpans(t.span, operand.span));
         }
         throw new Error(`unexpected operator ${t.value}`);
       case "ident": {
         if (this.peek().kind !== "lparen") {
-          throw new Error(`identifier ${t.value} must be a function call (use parens)`);
+          return withSpan({ kind: "field", fieldId: t.value }, t.span);
         }
         this.next(); // (
         const args: Expr[] = [];
@@ -251,8 +284,8 @@ class Parser {
           }
         }
         if (this.peek().kind !== "rparen") throw new Error("expected ')'");
-        this.next();
-        return { kind: "call", fn: t.value.toUpperCase(), args };
+        const rparen = this.next();
+        return withSpan({ kind: "call", fn: t.value.toUpperCase(), args }, { start: t.span.start, end: rparen.span.end });
       }
       default:
         throw new Error(`unexpected token ${t.kind}`);
@@ -260,16 +293,37 @@ class Parser {
   }
 }
 
+const withSpan = <T extends Expr>(expr: T, span: SourceSpan | undefined): T => {
+  if (!span) return expr;
+  Object.defineProperty(expr, "span", {
+    value: span,
+    enumerable: false,
+    configurable: true,
+  });
+  return expr;
+};
+
+const mergeSpans = (a: SourceSpan | undefined, b: SourceSpan | undefined): SourceSpan | undefined =>
+  a && b ? { start: a.start, end: b.end } : a ?? b;
+
 type ParseResult = { ok: true; ast: Expr } | { ok: false; error: string };
 
-const normalizeFormulaSource = (source: string): string => {
+const normalizeFormulaSource = (source: string): { source: string; offset: number } => {
   const trimmed = source.trim();
-  return trimmed.startsWith("=") ? trimmed.slice(1).trimStart() : source;
+  if (!trimmed.startsWith("=")) return { source, offset: 0 };
+  const leadingWhitespace = source.length - source.trimStart().length;
+  const afterEquals = source.slice(leadingWhitespace + 1);
+  const formulaWhitespace = afterEquals.length - afterEquals.trimStart().length;
+  return {
+    source: afterEquals.trimStart(),
+    offset: leadingWhitespace + 1 + formulaWhitespace,
+  };
 };
 
 export const parseFormula = (source: string): ParseResult => {
   try {
-    const tokens = tokenize(normalizeFormulaSource(source));
+    const normalized = normalizeFormulaSource(source);
+    const tokens = tokenize(normalized.source, normalized.offset);
     const parser = new Parser(tokens);
     const ast = parser.parseExpr(0);
     if (parser.peek().kind !== "eof") {

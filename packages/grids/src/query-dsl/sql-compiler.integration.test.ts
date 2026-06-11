@@ -179,6 +179,31 @@ describe("Query DSL Postgres smoke", () => {
     }
   });
 
+  postgresTest("executes readable table, field, and join references", async () => {
+    const fixture = await insertDslDbFixture();
+    try {
+      const result = await preview(
+        fixture,
+        `
+          from table Orders
+          join table Customers as customer on Customer = customer.id
+          select Amount as amount, customer.Name as customer_name, formula(Amount - Cost) as margin
+          where formula(Amount > Cost)
+          sort customer_name asc
+          limit 10
+        `,
+      );
+
+      expect(result.mode).toBe("rows");
+      expect(result.rows).toHaveLength(1);
+      expect(Number(result.rows[0]?.values.q_col_0)).toBe(12.5);
+      expect(result.rows[0]?.values.q_col_1).toBe("Alice");
+      expect(Number(result.rows[0]?.values.q_col_2)).toBe(7.5);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
   postgresTest("executes grouped formula aggregates with having", async () => {
     const fixture = await insertDslDbFixture();
     try {

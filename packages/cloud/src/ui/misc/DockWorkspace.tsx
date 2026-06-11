@@ -1,13 +1,4 @@
-import {
-  children,
-  createEffect,
-  createMemo,
-  createSignal,
-  For,
-  onMount,
-  Show,
-  type JSX,
-} from "solid-js";
+import { children, createEffect, createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js";
 
 const RESULT_SLOT = Symbol("DockWorkspace.Result");
 const PANE_SLOT = Symbol("DockWorkspace.Pane");
@@ -96,10 +87,7 @@ const normalizeSizes = <T extends { size: number }>(items: T[]): T[] => {
   return sanitized.map((item) => ({ ...item, size: (item.size / total) * 100 }));
 };
 
-const defaultState = (
-  panes: DockWorkspacePaneDescriptor[],
-  defaultResultSize: number,
-): DockWorkspaceState => {
+const defaultState = (panes: DockWorkspacePaneDescriptor[], defaultResultSize: number): DockWorkspaceState => {
   const sections = new Map<string, DockWorkspacePaneDescriptor[]>();
   for (const pane of panes) {
     const key = pane.section?.trim() || "main";
@@ -150,7 +138,7 @@ export const normalizeDockWorkspaceState = (
       target.paneIds.push(pane.id);
       if (!target.activePaneId) target.activePaneId = pane.id;
     } else {
-      sections.push({ id: sectionId, size: 0, paneIds: [pane.id], activePaneId: pane.id });
+      sections.push({ id: sectionId, size: MIN_SECTION_SIZE, paneIds: [pane.id], activePaneId: pane.id });
     }
   }
 
@@ -331,7 +319,10 @@ const DockWorkspaceRoot = (props: DockWorkspaceProps) => {
 
   return (
     <div ref={rootEl} class={`flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-transparent ${props.class ?? ""}`}>
-      <Show when={result()} fallback={<div class="flex min-h-0 flex-1 items-center justify-center text-sm text-dimmed">No result pane configured.</div>}>
+      <Show
+        when={result()}
+        fallback={<div class="flex min-h-0 flex-1 items-center justify-center text-sm text-dimmed">No result pane configured.</div>}
+      >
         {(resultSlot) => (
           <section class="flex min-h-0 flex-col overflow-hidden bg-surface" style={{ height: `${state().resultSize}%` }}>
             <header class="flex h-9 shrink-0 items-center gap-2 px-2 text-xs font-medium text-secondary">

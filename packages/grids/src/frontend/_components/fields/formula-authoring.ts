@@ -1,4 +1,5 @@
 import type { Completion, SuggestContext, Suggestion } from "@valentinkolb/cloud/ui";
+import { formatIdentifierRef } from "../../../ref-syntax";
 import type { Field } from "../../../service";
 
 type FormulaValueType = "any" | "number" | "text" | "boolean" | "date";
@@ -23,7 +24,7 @@ type FormulaFieldRef = {
   type: string;
 };
 
-export const formulaFieldToken = (field: Pick<FormulaFieldRef, "shortId">): string => `#${field.shortId}`;
+export const formulaFieldToken = (field: Pick<FormulaFieldRef, "name">): string => formatIdentifierRef(field.name);
 
 export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
   {
@@ -266,7 +267,7 @@ export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
   { name: "DAY", signature: "DAY(date)", description: "Day number.", args: [{ label: "date", type: "date" }], returnType: "number" },
   {
     name: "DATEADD",
-    signature: 'DATEADD(date, count, "days")',
+    signature: "DATEADD(date, count, 'days')",
     description: "Add time to a date.",
     args: [
       { label: "date", type: "date" },
@@ -277,7 +278,7 @@ export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
   },
   {
     name: "DATEDIFF",
-    signature: 'DATEDIFF(from, to, "days")',
+    signature: "DATEDIFF(from, to, 'days')",
     description: "Difference between dates.",
     args: [
       { label: "from", type: "date" },
@@ -517,9 +518,15 @@ export const formulaHighlight = (text: string): string => {
   let i = 0;
   while (i < text.length) {
     const ch = text[i]!;
-    if (ch === '"' || ch === "'") {
+    if (ch === "'") {
       const end = quotedTokenEnd(i);
       out += span("str", text.slice(i, end));
+      i = end;
+      continue;
+    }
+    if (ch === '"') {
+      const end = quotedTokenEnd(i);
+      out += span("field", text.slice(i, end));
       i = end;
       continue;
     }
@@ -538,7 +545,7 @@ export const formulaHighlight = (text: string): string => {
     if (isAlpha(ch)) {
       const end = readWhile(i + 1, isAlphaNum);
       const word = text.slice(i, end);
-      out += FUNCTION_BY_NAME.has(word.toUpperCase()) ? span("fn", word) : escapeHtml(word);
+      out += FUNCTION_BY_NAME.has(word.toUpperCase()) ? span("fn", word) : span("field", word);
       i = end;
       continue;
     }

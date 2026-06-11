@@ -96,7 +96,7 @@ export const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
   lookup: "Pulls a column from a linked record so you can see it on this row, without copying the data.",
   rollup: "Summarises values from linked records — count them, add them up, average them, or take the smallest or largest.",
   formula:
-    "A computed value, recalculated whenever the row is read. Reference other columns by their #slug (e.g. #price) and use functions like IF, CONCAT, ROUND, AVG.",
+    'A computed value, recalculated whenever the row is read. Reference columns by name, quote names with spaces like "Unit price", and use functions like IF, CONCAT, ROUND, AVG.',
 };
 
 /** Default config blob for a brand-new field of `type`. */

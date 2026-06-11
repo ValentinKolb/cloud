@@ -1,17 +1,20 @@
 import type { DslQueryAst, DslSourceRef } from "./types";
 import type { DslTableSource, DslViewSource } from "./resolver";
+import { normalizeRefKey } from "../ref-syntax";
 
 export const needsDslViewCatalog = (ast: DslQueryAst): boolean =>
   ast.source?.kind === "view" || ast.source?.kind === "unknown" || ast.joins.some((join) => join.source.kind !== "table");
 
 const matchingTables = (tables: DslTableSource[], source: DslSourceRef): DslTableSource[] => {
   if (source.kind === "view") return [];
-  return tables.filter((table) => table.shortId === source.ref || table.id === source.ref);
+  const ref = normalizeRefKey(source.ref);
+  return tables.filter((table) => [table.shortId, table.id, table.name].some((value) => normalizeRefKey(value) === ref));
 };
 
 const matchingViewTableIds = (views: DslViewSource[], source: DslSourceRef): string[] => {
   if (source.kind === "table") return [];
-  return views.filter((view) => view.shortId === source.ref || view.id === source.ref).map((view) => view.tableId);
+  const ref = normalizeRefKey(source.ref);
+  return views.filter((view) => [view.shortId, view.id, view.name].some((value) => normalizeRefKey(value) === ref)).map((view) => view.tableId);
 };
 
 export const collectDslFieldTableIds = (params: {

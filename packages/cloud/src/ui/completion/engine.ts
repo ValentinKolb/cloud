@@ -49,6 +49,8 @@ export type Suggestion = {
    * verbatim word match with this on word boundary, and Tab-accept
    * inserts `expansion` instead of `text`. */
   expansion?: string;
+  /** Whether accepting the suggestion should append a separating space. Default true. */
+  appendSpace?: boolean;
   /** Optional sub-label for dropdown rows (e.g. type hint, category). */
   hint?: string;
 };

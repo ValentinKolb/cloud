@@ -3,6 +3,7 @@ import { evaluate, renderResult } from "../formula/evaluator";
 import type { FormulaRuntimeContext } from "../formula/functions";
 import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { formulaError } from "../formula/types";
+import { normalizeRefKey } from "../ref-syntax";
 import type { ComputedColumnSpec } from "../contracts";
 import type { SqlClient } from "./audit";
 import { listByTable as listFields } from "./fields";
@@ -197,7 +198,7 @@ const orderFormulasByDeps = (
   // Refs in formulas are either UUIDs (legacy {uuid} syntax) or slugs
   // (#slug syntax). Normalise both to UUIDs via the slug-map so the
   // dep graph stays UUID-keyed.
-  const resolveRef = (ref: string): string => slugToId[ref] ?? ref;
+  const resolveRef = (ref: string): string => slugToId[ref] ?? slugToId[normalizeRefKey(ref)] ?? ref;
 
   const compiled = formulaFields
     .map((f) => {
@@ -271,7 +272,12 @@ export const enrichRecordsWithFormulas = (
   // can reference any field by slug.
   const slugToId: Record<string, string> = {};
   for (const f of fields) {
-    if (!f.deletedAt && f.shortId) slugToId[f.shortId] = f.id;
+    if (f.deletedAt) continue;
+    if (f.shortId) {
+      slugToId[f.shortId] = f.id;
+      slugToId[normalizeRefKey(f.shortId)] = f.id;
+    }
+    slugToId[normalizeRefKey(f.name)] = f.id;
   }
 
   const { ordered, cycle } = orderFormulasByDeps(formulaFields, slugToId);
@@ -324,7 +330,12 @@ export const enrichRecordsWithComputedColumns = (
 
   const slugToId: Record<string, string> = {};
   for (const field of fields) {
-    if (!field.deletedAt && field.shortId) slugToId[field.shortId] = field.id;
+    if (field.deletedAt) continue;
+    if (field.shortId) {
+      slugToId[field.shortId] = field.id;
+      slugToId[normalizeRefKey(field.shortId)] = field.id;
+    }
+    slugToId[normalizeRefKey(field.name)] = field.id;
   }
 
   const compiled = computedColumns.map((column) => {

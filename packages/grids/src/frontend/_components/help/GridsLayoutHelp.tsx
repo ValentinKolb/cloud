@@ -16,29 +16,30 @@ type Recipe = {
 
 const gridsFormulaHighlight = highlight.compile(
   [
-    { kind: "string", match: /"(?:\\[\s\S]|[^"\\])*"/ },
+    { kind: "string", match: /'(?:\\[\s\S]|[^'\\])*'/ },
     {
       kind: "function",
       match:
         /\b(?:ABS|AND|AVG|CEIL|CONCAT|CONTAINS|COUNT|DATEDIFF|FLOOR|IF|IFEMPTY|IFERROR|LEFT|LEN|LOWER|MAX|MEDIAN|MIN|NOT|OR|POW|RIGHT|ROUND|SQRT|SUBSTRING|SUM|TODAY|UPPER)\b/,
     },
+    { kind: "identifier", match: /"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*/ },
     { kind: "placeholder", match: /#[A-Za-z0-9_-]+/ },
     { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
     { kind: "operator", match: /<=|>=|!=|=|<|>|\+|-|\*|\/|%|,|\(|\)/ },
-    { kind: "identifier", match: /[A-Za-z_][A-Za-z0-9_]*/ },
   ],
   { classPrefix: "doc-token-" },
 );
 
 const gridsQueryHighlight = highlight.compile(
   [
-    { kind: "string", match: /"(?:\\[\s\S]|[^"\\])*"/ },
+    { kind: "string", match: /'(?:\\[\s\S]|[^'\\])*'/ },
     {
       kind: "keyword",
       match:
         /\b(?:from|table|view|select|join|left|inner|as|on|where|formula|group|by|aggregate|having|sort|limit|offset|skip|asc|ascending|desc|descending)\b/i,
     },
     { kind: "function", match: /\b(?:count|countEmpty|countUnique|sum|avg|min|max|median|earliest|latest)\b/i },
+    { kind: "identifier", match: /"(?:[^"]|"")*"/ },
     { kind: "placeholder", match: /#[A-Za-z0-9_-]+/ },
     { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
     { kind: "operator", match: /<=|>=|!=|=|<|>|\+|-|\*|\/|%|,|\(|\)/ },
@@ -264,7 +265,7 @@ const FieldsTab = () => (
           {
             title: "Formula",
             icon: "ti-function",
-            text: "Formulas recalculate when records are read. Suggestions show names, but saved expressions store stable #refs.",
+            text: "Formulas recalculate when records are read. Reference fields by name; quote names with spaces.",
           },
         ]}
       />
@@ -272,11 +273,12 @@ const FieldsTab = () => (
 
     <DocSection title="Formula examples">
       <div class="space-y-3">
-        <FormulaSnippet title="Total" code="#price * #quantity" />
-        <FormulaSnippet title="Fallback text" code={'IFEMPTY(#notes, "No notes")'} />
-        <FormulaSnippet title="Conditional" code={'IF(#inStock, "Available", "Out of stock")'} />
-        <FormulaSnippet title="Date age" code={'DATEDIFF(#dueDate, TODAY(), "days")'} />
-        <FormulaSnippet title="Error fallback" code="IFERROR(#total / #quantity, 0)" />
+        <FormulaSnippet title="Total" code="price * quantity" />
+        <FormulaSnippet title="Fallback text" code={"IFEMPTY(notes, 'No notes')"} />
+        <FormulaSnippet title="Conditional" code={"IF(inStock, 'Available', 'Out of stock')"} />
+        <FormulaSnippet title="Date age" code={"DATEDIFF(dueDate, TODAY(), 'days')"} />
+        <FormulaSnippet title="Quoted name" code={'"Unit price" * quantity'} />
+        <FormulaSnippet title="Error fallback" code="IFERROR(total / quantity, 0)" />
       </div>
     </DocSection>
 
@@ -370,30 +372,31 @@ const ViewsTab = () => (
         report, formula predicate, join, or server-side preview. The normal table and view controls can stay simpler.
       </p>
       <p class="mt-3 text-dimmed">
-        References use stable slugs such as <DocInlineCode>#amount</DocInlineCode>. The source list shows table, view, and field refs so
-        renaming a field does not break the query.
+        References use readable names such as <DocInlineCode>amount</DocInlineCode>. Use double quotes for names with spaces, for example{" "}
+        <DocInlineCode>"Unit price"</DocInlineCode>. Saved views compile to stable field IDs; rename rewrites are best effort, so review
+        formulas and query text after renaming tables or fields.
       </p>
       <div class="space-y-3">
         <QuerySnippet
           title="Rows"
-          code={'from table #orders\nselect #customer, #amount\nwhere #status = "Open"\nsort #due_date ascending\nlimit 50'}
+          code={"from table orders\nselect customer, amount\nwhere formula(status = 'Open')\nsort due_date ascending\nlimit 50"}
         />
         <QuerySnippet
           title="Formula predicate"
           code={
-            "from table #products\nselect #name, formula(#price - #cost) as margin\nwhere #price <= formula(#cost * 1.10)\nsort margin desc"
+            "from table products\nselect name, formula(price - cost) as margin\nwhere formula(price <= cost * 1.10)\nsort margin desc"
           }
         />
         <QuerySnippet
           title="Monthly chart source"
           code={
-            "from table #orders\ngroup by #ordered_at by month\naggregate sum(#line_total) as revenue, count(*) as rows\nhaving #revenue > 0\nsort revenue desc"
+            "from table orders\ngroup by ordered_at by month\naggregate sum(line_total) as revenue, count(*) as rows\nhaving formula(revenue > 0)\nsort revenue desc"
           }
         />
         <QuerySnippet
           title="Join"
           code={
-            "from table #orders\njoin table #customers as customer on #customer = customer.#id\nselect customer.#name as customer_name, #line_total\nlimit 25"
+            "from table orders\njoin table customers as customer on customer = customer.id\nselect customer.name as customer_name, line_total\nlimit 25"
           }
         />
       </div>
@@ -675,7 +678,7 @@ const ExampleTab = () => (
     </DocSection>
 
     <DocSection title="Formula">
-      <FormulaSnippet code="#subtotal + #tax" />
+      <FormulaSnippet code="Subtotal + Tax" />
     </DocSection>
   </DocPage>
 );

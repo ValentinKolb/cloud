@@ -3,6 +3,7 @@ import { dates, type DateContext } from "@valentinkolb/stdlib";
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import { parseFormula } from "../formula/parser";
 import type { BinOp, Expr, Literal } from "../formula/types";
+import { normalizeRefKey } from "../ref-syntax";
 import { storageOf } from "./field-storage";
 import type { Field } from "./types";
 
@@ -30,7 +31,7 @@ export type FormulaSqlCompileResult = { ok: true; expression: FormulaSqlExpressi
 
 type CompileContext = Required<Pick<FormulaSqlCompileOptions, "recordAlias" | "now">> &
   Pick<FormulaSqlCompileOptions, "dateConfig" | "resolveField"> & {
-    fieldsByRef: Map<string, Field>;
+    fieldsByRef: Map<string, Field[]>;
   };
 
 const ok = (sqlFragment: unknown, type: FormulaSqlType): FormulaSqlCompileResult => ({
@@ -45,13 +46,29 @@ const sqlJoin = (parts: unknown[], separator: unknown): unknown => {
   return parts.slice(1).reduce((acc, part) => sql`${acc}${separator}${part}`, parts[0]!);
 };
 
-const buildFieldMap = (fields: Field[]): Map<string, Field> => {
-  const map = new Map<string, Field>();
+const addFieldRef = (map: Map<string, Field[]>, ref: string | null | undefined, field: Field): void => {
+  if (!ref) return;
+  const key = normalizeRefKey(ref);
+  const existing = map.get(key) ?? [];
+  if (!existing.some((item) => item.id === field.id)) existing.push(field);
+  map.set(key, existing);
+};
+
+const buildFieldMap = (fields: Field[]): Map<string, Field[]> => {
+  const map = new Map<string, Field[]>();
   for (const field of fields) {
-    map.set(field.id, field);
-    map.set(field.shortId, field);
+    addFieldRef(map, field.id, field);
+    addFieldRef(map, field.shortId, field);
+    addFieldRef(map, field.name, field);
   }
   return map;
+};
+
+const fieldByRef = (map: Map<string, Field[]>, ref: string): Field | string => {
+  const candidates = (map.get(normalizeRefKey(ref)) ?? []).filter((field) => field.deletedAt === null);
+  if (candidates.length === 0) return `Unknown formula field reference "${ref}"`;
+  if (candidates.length > 1) return `Ambiguous formula field reference "${ref}"`;
+  return candidates[0]!;
 };
 
 const typeForField = (field: Field): FormulaSqlType => {
@@ -312,8 +329,8 @@ const compileExpr = (expr: Expr, ctx: CompileContext): FormulaSqlCompileResult =
   if (expr.kind === "field") {
     const custom = ctx.resolveField?.(expr.fieldId);
     if (custom) return ok(custom.sql, custom.type);
-    const field = ctx.fieldsByRef.get(expr.fieldId);
-    if (!field || field.deletedAt !== null) return fail(`Unknown formula field reference #${expr.fieldId}`);
+    const field = fieldByRef(ctx.fieldsByRef, expr.fieldId);
+    if (typeof field === "string") return fail(field);
     const descriptor = storageOf(field);
     const projection = descriptor.project(field, ctx.recordAlias);
     if (projection === null) return fail(`Field ${field.name} (${field.type}) cannot be compiled into SQL formulas yet`);

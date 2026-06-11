@@ -190,7 +190,7 @@ describe("compileGroupQuery — basic shape", () => {
   });
 
   test("rejects incompatible formula aggregate arguments", () => {
-    const formula = parseFormula('CONCAT({aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}, "x")');
+    const formula = parseFormula("CONCAT({aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}, 'x')");
     expect(formula.ok).toBe(true);
     if (!formula.ok) return;
 
@@ -269,7 +269,7 @@ describe("compileGroupQuery — basic shape", () => {
       fields,
     });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("Unknown formula field reference #missing");
+    if (!r.ok) expect(r.error).toContain('Unknown formula field reference "missing"');
   });
 
   test("rejects cursor pagination for aggregate-sorted groups", () => {

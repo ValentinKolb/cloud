@@ -8,9 +8,18 @@ test("parses literal", () => {
 });
 
 test("parses string literal", () => {
-  const r = parseFormula('"hello"');
+  const r = parseFormula("'hello'");
   expect(r.ok).toBe(true);
   if (r.ok) expect(r.ast).toEqual({ kind: "literal", value: "hello" });
+});
+
+test("parses quoted field name references", () => {
+  const r = parseFormula('"Unit price" * Quantity');
+  expect(r.ok).toBe(true);
+  if (r.ok && r.ast.kind === "binop") {
+    expect(r.ast.left).toEqual({ kind: "field", fieldId: "Unit price" });
+    expect(r.ast.right).toEqual({ kind: "field", fieldId: "Quantity" });
+  }
 });
 
 test("parses field reference", () => {
@@ -39,7 +48,7 @@ test("parens override precedence", () => {
 });
 
 test("parses function call", () => {
-  const r = parseFormula('CONCAT("foo", " ", {fld_y})');
+  const r = parseFormula("CONCAT('foo', ' ', {fld_y})");
   expect(r.ok).toBe(true);
   if (r.ok && r.ast.kind === "call") {
     expect(r.ast.fn).toBe("CONCAT");
@@ -74,8 +83,10 @@ test("rejects unclosed field reference", () => {
   expect(parseFormula("{fld_x").ok).toBe(false);
 });
 
-test("rejects bare identifier", () => {
-  expect(parseFormula("foo").ok).toBe(false);
+test("parses bare identifiers as field name references", () => {
+  const r = parseFormula("foo");
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.ast).toEqual({ kind: "field", fieldId: "foo" });
 });
 
 test("rejects trailing tokens", () => {

@@ -99,6 +99,8 @@ export type AutocompleteEditorProps = {
 
   /** Approximate visible rows (ignored when `singleLine`). Default 3. */
   lines?: number;
+  /** Fill the height provided by the parent container in multi-line mode. */
+  fill?: boolean;
 
   placeholder?: string;
   disabled?: boolean;
@@ -394,6 +396,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
     }
     applySuggestion(textareaEl, state.ctx, active, { trackExpansion: props.restoreExpansionOnBackspace ?? true });
     clearCompletion();
+    queueMicrotask(recomputeCompletion);
     return true;
   };
 
@@ -512,6 +515,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
   /* ── Render ───────────────────────────────────────────── */
 
   const surfaceStyle = (): string => {
+    if (props.fill && !props.singleLine) return `--ac-h: 100%`;
     if (props.singleLine) return `--ac-h: 2.5rem`;
     const lines = props.lines ?? 3;
     return `--ac-h: ${lines * 1.5}rem`;
@@ -520,6 +524,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
   return (
     <div
       class="ac-editor"
+      data-fill={props.fill && !props.singleLine ? "true" : undefined}
       data-disabled={props.disabled ? "true" : undefined}
       data-error={props.error ? "true" : undefined}
     >
