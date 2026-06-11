@@ -27,7 +27,7 @@ export const getSelectedContactFromUrl = () => ({
 });
 
 /** Dispatches detail selection updates to all listening contacts islands. */
-export const dispatchContactDetailSelect = (contact: Contact | null, contactId: string | null, bookId: string | null) => {
+const dispatchContactDetailSelect = (contact: Contact | null, contactId: string | null, bookId: string | null) => {
   window.dispatchEvent(
     new CustomEvent(CONTACT_DETAIL_EVENT, {
       detail: {

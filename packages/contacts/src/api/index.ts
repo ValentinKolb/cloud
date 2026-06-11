@@ -12,10 +12,18 @@ import {
   ServiceAccountCredentialSchema,
   UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, auth, hasPermission, jsonResponse, rateLimit, requiresAuth, respond, respondMessage, v } from "@valentinkolb/cloud/server";
-import { serviceAccountCredentials, serviceAccounts } from "@valentinkolb/cloud/services";
+import {
+  type AuthContext,
+  auth,
+  hasPermission,
+  jsonResponse,
+  rateLimit,
+  requiresAuth,
+  respond,
+  respondMessage,
+  v,
+} from "@valentinkolb/cloud/server";
 import { err, fail, ok } from "@valentinkolb/stdlib";
-import { sql } from "bun";
 import { type Context, Hono, type MiddlewareHandler, type TypedResponse } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
@@ -27,17 +35,9 @@ import { isSafeWebsiteUrl } from "../shared";
 const documentRoute = (options: Parameters<typeof describeRoute>[0]) => describeRoute(options) as MiddlewareHandler<AuthContext>;
 
 type ApiErrorResponse = TypedResponse<{ message: string; code?: string }, 400 | 401 | 403 | 404 | 409 | 500, "json">;
-type ImportCandidate = ReturnType<typeof vcard.parse>[number];
-type ImportMatch = { existingId: string; existingName: string } | null;
-type ImportMatchHit = { id: string; name: string };
-type ImportMatchIndex = {
-  email: Map<string, ImportMatchHit>;
-  name: Map<string, ImportMatchHit>;
-};
-
-const MAX_IMPORT_CONTACTS = 1_000;
-const MAX_IMPORT_CONTENT_CHARS = 10_000_000;
-const MAX_IMPORT_BODY_BYTES = 12_000_000;
+const MAX_IMPORT_CONTACTS = contactsService.import.MAX_IMPORT_CONTACTS;
+const MAX_IMPORT_CONTENT_CHARS = contactsService.import.MAX_IMPORT_CONTENT_CHARS;
+const MAX_IMPORT_BODY_BYTES = contactsService.import.MAX_IMPORT_BODY_BYTES;
 const HexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color must be a #RRGGBB hex value");
 
 const PERMISSION_RANK: Record<PermissionLevel, number> = {
@@ -493,77 +493,6 @@ const safeExportFilename = (name: string | null | undefined, extension: "csv" | 
 
 const loadBookContactsForExport = (bookId: string) => contactsService.contact.list({ bookId, pagination: { page: 1, perPage: 100_000 } });
 
-const loadImportMatchIndex = async (bookId: string): Promise<ImportMatchIndex> => {
-  const rows = await sql<{ id: string; first_name: string | null; last_name: string | null; label: string | null; emails: string[] }[]>`
-    SELECT
-      c.id,
-      c.first_name,
-      c.last_name,
-      c.label,
-      COALESCE(
-        (SELECT array_agg(LOWER(ce.email)) FROM contacts.contact_emails ce WHERE ce.contact_id = c.id),
-        '{}'::text[]
-      ) AS emails
-    FROM contacts.contacts c
-    WHERE c.book_id = ${bookId}::uuid
-  `;
-
-  const email = new Map<string, ImportMatchHit>();
-  const name = new Map<string, ImportMatchHit>();
-  for (const row of rows) {
-    const display = [row.first_name, row.last_name].filter(Boolean).join(" ") || row.label || row.id;
-    for (const address of row.emails) {
-      if (address) email.set(address, { id: row.id, name: display });
-    }
-    const fullName = [row.first_name, row.last_name].filter(Boolean).join(" ").trim().toLowerCase();
-    if (fullName) name.set(fullName, { id: row.id, name: display });
-  }
-
-  return { email, name };
-};
-
-const findImportMatch = (candidate: ImportCandidate, index: ImportMatchIndex): ImportMatch => {
-  for (const email of candidate.emails ?? []) {
-    const hit = index.email.get(email.email.toLowerCase());
-    if (hit) return { existingId: hit.id, existingName: hit.name };
-  }
-
-  const fullName = [candidate.firstName, candidate.lastName].filter(Boolean).join(" ").trim().toLowerCase();
-  const hit = fullName ? index.name.get(fullName) : null;
-  return hit ? { existingId: hit.id, existingName: hit.name } : null;
-};
-
-const previewImportCandidates = async (bookId: string, content: string) => {
-  const candidates = vcard.parse(content);
-  if (candidates.length > MAX_IMPORT_CONTACTS) {
-    return fail(err.badInput(`Import is limited to ${MAX_IMPORT_CONTACTS} contacts at a time`));
-  }
-
-  const index = await loadImportMatchIndex(bookId);
-  return ok({
-    candidates: candidates.map((candidate) => ({
-      candidate,
-      match: findImportMatch(candidate, index),
-    })),
-  });
-};
-
-const commitImportContacts = async (bookId: string, candidates: unknown[]): Promise<{ created: number; failures: string[] }> => {
-  let created = 0;
-  const failures: string[] = [];
-  for (const raw of candidates) {
-    const parsed = CreateContactSchema.safeParse(raw);
-    if (!parsed.success) {
-      failures.push(parsed.error.message);
-      continue;
-    }
-    const result = await contactsService.contact.create({ bookId, data: parsed.data });
-    if (result.ok) created++;
-    else failures.push(result.error.message);
-  }
-  return { created, failures };
-};
-
 const adminApi = new Hono<AuthContext>()
   .use(auth.requireRole("admin"))
   .get("/books/:bookId/access", async (c) => {
@@ -908,50 +837,20 @@ const app = new Hono<AuthContext>()
       const { book, error } = await requireManualBookAdminOrAppAdmin(c, bookId);
       if (error || !book) return error!;
 
-      return respond(c, async () => {
-        const serviceAccount = await serviceAccounts.createResourceBound({
-          name: `${book.name} API key: ${data.name}`,
-          appId: CONTACTS_APP_ID,
-          resourceType: CONTACT_BOOK_RESOURCE_TYPE,
-          resourceId: bookId,
-          createdBy: user.id,
-        });
-        if (!serviceAccount.ok) return serviceAccount;
-
-        const cleanupServiceAccount = async () => {
-          await serviceAccounts.delete({ id: serviceAccount.data.id });
-        };
-
-        const access = await contactsService.book.access.grant({
+      return respond(
+        c,
+        contactsService.book.access.apiKeys.create({
           bookId,
-          principal: { type: "service_account", serviceAccountId: serviceAccount.data.id },
-          permission: data.permission,
-        });
-        if (!access.ok) {
-          await cleanupServiceAccount();
-          return access;
-        }
-
-        const created = await serviceAccountCredentials.createResourceApiToken({
-          serviceAccountId: serviceAccount.data.id,
           actor: user,
-          name: data.name,
-          expiresAt: data.expiresAt ?? null,
-          scopes: [data.permission],
-        });
-        if (!created.ok) {
-          await cleanupServiceAccount();
-          return created;
-        }
-
-        return ok({
-          credential: {
-            ...created.data.credential,
-            permission: access.data.permission,
+          bookName: book.name,
+          data: {
+            name: data.name,
+            expiresAt: data.expiresAt ?? null,
+            permission: data.permission,
           },
-          token: created.data.token,
-        });
-      }, 201);
+        }),
+        201,
+      );
     },
   )
 
@@ -978,14 +877,7 @@ const app = new Hono<AuthContext>()
       const { error } = await requireManualBookAdminOrAppAdmin(c, bookId);
       if (error) return error;
 
-      return respond(c, async () => {
-        const keys = await contactsService.book.access.apiKeys.list({ bookId });
-        if (!keys.some((key) => key.id === credentialId)) return fail(err.notFound("API key"));
-
-        const revoked = await serviceAccountCredentials.revoke({ credentialId, actor: user });
-        if (!revoked.ok) return revoked;
-        return ok({ message: "API key revoked." });
-      });
+      return respond(c, contactsService.book.access.apiKeys.revoke({ bookId, credentialId, actor: user }));
     },
   )
 
@@ -1223,7 +1115,7 @@ const app = new Hono<AuthContext>()
       if (error) return error;
 
       const notes = await contactsService.contact.notes.list({ bookId, contactId });
-      return c.json(notes);
+      return respond(c, ok(notes));
     },
   )
   .post(
@@ -1359,7 +1251,7 @@ const app = new Hono<AuthContext>()
       const { error } = await requireBookAccess(c, bookId, "read");
       if (error) return error;
       const items = await contactsService.tag.list({ bookId });
-      return c.json(items);
+      return respond(c, ok(items));
     },
   )
   .post(
@@ -1493,7 +1385,7 @@ const app = new Hono<AuthContext>()
       const { error } = await requireBookAccess(c, bookId, "admin");
       if (error) return error;
       const body = c.req.valid("json");
-      return respond(c, await previewImportCandidates(bookId, body.content));
+      return respond(c, contactsService.import.preview({ bookId, content: body.content }));
     },
   )
   .post(
@@ -1520,7 +1412,19 @@ const app = new Hono<AuthContext>()
       const { error } = await requireBookAccess(c, bookId, "admin");
       if (error) return error;
       const body = c.req.valid("json");
-      return c.json(await commitImportContacts(bookId, body.contacts));
+      return respond(
+        c,
+        ok(
+          await contactsService.import.commit({
+            bookId,
+            candidates: body.contacts,
+            validateCandidate: (candidate) => {
+              const parsed = CreateContactSchema.safeParse(candidate);
+              return parsed.success ? ok(parsed.data) : fail(err.badInput(parsed.error.message));
+            },
+          }),
+        ),
+      );
     },
   )
 

@@ -1,7 +1,7 @@
 import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { resolveStoredContactLabel } from "../shared";
-import { emptyToNull, isUuid, toDateOnly, toPgUuidArray } from "./shared";
+import { emptyToNull, isUuid, type SqlExecutor, toDateOnly, toPgUuidArray } from "./shared";
 import { getSystemContact, getSystemContactsByIds, isSystemBookId, listSystemContacts, SYSTEM_BOOK_ID } from "./system";
 import * as tags from "./tags";
 import { buildContactTree, type ContactTreeRow } from "./tree";
@@ -375,7 +375,7 @@ const loadBankAccounts = async (contactIds: string[]): Promise<Map<string, Conta
  * Emails / phones / addresses keep their batched loaders because they live in
  * separate child tables and are already efficient.
  */
-export const getManualContactsByIds = async (ids: string[]): Promise<Map<string, Contact>> => {
+const getManualContactsByIds = async (ids: string[]): Promise<Map<string, Contact>> => {
   const validIds = ids.filter(isUuid);
   if (validIds.length === 0) return new Map();
 
@@ -480,14 +480,14 @@ export const getManualContactsByIds = async (ids: string[]): Promise<Map<string,
   return mapped;
 };
 
-const replaceEmails = async (contactId: string, emails: ContactEmailInput[]): Promise<void> => {
-  await sql`
+const replaceEmails = async (contactId: string, emails: ContactEmailInput[], db: SqlExecutor = sql): Promise<void> => {
+  await db`
     DELETE FROM contacts.contact_emails
     WHERE contact_id = ${contactId}::uuid
   `;
 
   for (const [index, email] of emails.entries()) {
-    await sql`
+    await db`
       INSERT INTO contacts.contact_emails (
         contact_id,
         label,
@@ -503,14 +503,14 @@ const replaceEmails = async (contactId: string, emails: ContactEmailInput[]): Pr
   }
 };
 
-const replacePhones = async (contactId: string, phones: ContactPhoneInput[]): Promise<void> => {
-  await sql`
+const replacePhones = async (contactId: string, phones: ContactPhoneInput[], db: SqlExecutor = sql): Promise<void> => {
+  await db`
     DELETE FROM contacts.contact_phones
     WHERE contact_id = ${contactId}::uuid
   `;
 
   for (const [index, phone] of phones.entries()) {
-    await sql`
+    await db`
       INSERT INTO contacts.contact_phones (
         contact_id,
         label,
@@ -526,14 +526,14 @@ const replacePhones = async (contactId: string, phones: ContactPhoneInput[]): Pr
   }
 };
 
-const replaceAddresses = async (contactId: string, addresses: ContactAddressInput[]): Promise<void> => {
-  await sql`
+const replaceAddresses = async (contactId: string, addresses: ContactAddressInput[], db: SqlExecutor = sql): Promise<void> => {
+  await db`
     DELETE FROM contacts.contact_addresses
     WHERE contact_id = ${contactId}::uuid
   `;
 
   for (const [index, address] of addresses.entries()) {
-    await sql`
+    await db`
       INSERT INTO contacts.contact_addresses (
         contact_id,
         label,
@@ -563,14 +563,14 @@ const replaceAddresses = async (contactId: string, addresses: ContactAddressInpu
   }
 };
 
-const replaceWebsites = async (contactId: string, websites: ContactWebsiteInput[]): Promise<void> => {
-  await sql`
+const replaceWebsites = async (contactId: string, websites: ContactWebsiteInput[], db: SqlExecutor = sql): Promise<void> => {
+  await db`
     DELETE FROM contacts.contact_websites
     WHERE contact_id = ${contactId}::uuid
   `;
 
   for (const [index, website] of websites.entries()) {
-    await sql`
+    await db`
       INSERT INTO contacts.contact_websites (contact_id, label, url, position)
       VALUES (
         ${contactId}::uuid,
@@ -582,14 +582,14 @@ const replaceWebsites = async (contactId: string, websites: ContactWebsiteInput[
   }
 };
 
-const replaceBankAccounts = async (contactId: string, bankAccounts: ContactBankAccountInput[]): Promise<void> => {
-  await sql`
+const replaceBankAccounts = async (contactId: string, bankAccounts: ContactBankAccountInput[], db: SqlExecutor = sql): Promise<void> => {
+  await db`
     DELETE FROM contacts.contact_bank_accounts
     WHERE contact_id = ${contactId}::uuid
   `;
 
   for (const [index, account] of bankAccounts.entries()) {
-    await sql`
+    await db`
       INSERT INTO contacts.contact_bank_accounts (
         contact_id,
         label,
@@ -748,21 +748,21 @@ const prepareContactUpdate = async (config: {
   return ok({ parentContactId, tagIds: tagResult.data });
 };
 
-const replaceContactCollections = async (contactId: string, data: ContactCollectionInput): Promise<void> => {
+const replaceContactCollections = async (contactId: string, data: ContactCollectionInput, db: SqlExecutor = sql): Promise<void> => {
   if (data.emails !== undefined) {
-    await replaceEmails(contactId, data.emails);
+    await replaceEmails(contactId, data.emails, db);
   }
   if (data.phones !== undefined) {
-    await replacePhones(contactId, data.phones);
+    await replacePhones(contactId, data.phones, db);
   }
   if (data.addresses !== undefined) {
-    await replaceAddresses(contactId, data.addresses);
+    await replaceAddresses(contactId, data.addresses, db);
   }
   if (data.websites !== undefined) {
-    await replaceWebsites(contactId, data.websites);
+    await replaceWebsites(contactId, data.websites, db);
   }
   if (data.bankAccounts !== undefined) {
-    await replaceBankAccounts(contactId, data.bankAccounts);
+    await replaceBankAccounts(contactId, data.bankAccounts, db);
   }
 };
 
@@ -1028,53 +1028,62 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
   const prepared = await prepareContactCreate({ bookId: config.bookId, data: config.data });
   if (!prepared.ok) return prepared;
 
-  const [row] = await sql<{ id: string }[]>`
-    INSERT INTO contacts.contacts (
-      book_id,
-      label,
-      first_name,
-      last_name,
-      company_name,
-      department,
-      job_title,
-      vat_id,
-      birthday,
-      source,
-      salutation,
-      pronouns,
-      preferred_language,
-      parent_contact_id
-    ) VALUES (
-      ${config.bookId}::uuid,
-      ${fields.label},
-      ${fields.firstName},
-      ${fields.lastName},
-      ${fields.companyName},
-      ${fields.department},
-      ${fields.jobTitle},
-      ${fields.vatId},
-      ${fields.birthday},
-      ${fields.source},
-      ${fields.salutation},
-      ${fields.pronouns},
-      ${fields.preferredLanguage},
-      ${prepared.data.parentContactId}
-    )
-    RETURNING id
-  `;
+  const row = await sql.begin(async (tx): Promise<{ id: string } | null> => {
+    const [inserted] = await tx<{ id: string }[]>`
+      INSERT INTO contacts.contacts (
+        book_id,
+        label,
+        first_name,
+        last_name,
+        company_name,
+        department,
+        job_title,
+        vat_id,
+        birthday,
+        source,
+        salutation,
+        pronouns,
+        preferred_language,
+        parent_contact_id
+      ) VALUES (
+        ${config.bookId}::uuid,
+        ${fields.label},
+        ${fields.firstName},
+        ${fields.lastName},
+        ${fields.companyName},
+        ${fields.department},
+        ${fields.jobTitle},
+        ${fields.vatId},
+        ${fields.birthday},
+        ${fields.source},
+        ${fields.salutation},
+        ${fields.pronouns},
+        ${fields.preferredLanguage},
+        ${prepared.data.parentContactId}
+      )
+      RETURNING id
+    `;
+
+    if (!inserted) return null;
+
+    await replaceContactCollections(
+      inserted.id,
+      {
+        emails: config.data.emails ?? [],
+        phones: config.data.phones ?? [],
+        addresses: config.data.addresses ?? [],
+        websites: config.data.websites ?? [],
+        bankAccounts: config.data.bankAccounts ?? [],
+      },
+      tx,
+    );
+    if (prepared.data.tagIds !== null) {
+      await tags.replaceAssignments({ contactId: inserted.id, tagIds: prepared.data.tagIds, db: tx });
+    }
+    return inserted;
+  });
 
   if (!row) return fail(err.internal("Failed to create contact"));
-
-  await replaceContactCollections(row.id, {
-    emails: config.data.emails ?? [],
-    phones: config.data.phones ?? [],
-    addresses: config.data.addresses ?? [],
-    websites: config.data.websites ?? [],
-    bankAccounts: config.data.bankAccounts ?? [],
-  });
-  if (prepared.data.tagIds !== null) {
-    await tags.replaceAssignments({ contactId: row.id, tagIds: prepared.data.tagIds });
-  }
 
   return loadWrittenContact({ bookId: config.bookId, id: row.id, action: "created" });
 };
@@ -1127,34 +1136,39 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
   });
   if (!prepared.ok) return prepared;
 
-  const [row] = await sql<{ id: string }[]>`
-    UPDATE contacts.contacts
-    SET
-      label = ${nextLabel},
-      first_name = ${optionalText(existing.first_name, config.data.firstName)},
-      last_name = ${optionalText(existing.last_name, config.data.lastName)},
-      company_name = ${optionalText(existing.company_name, config.data.companyName)},
-      department = ${optionalText(existing.department, config.data.department)},
-      job_title = ${optionalText(existing.job_title, config.data.jobTitle)},
-      vat_id = ${optionalText(existing.vat_id, config.data.vatId)},
-      birthday = ${optionalBirthday(existing.birthday, config.data.birthday)},
-      salutation = ${optionalText(existing.salutation, config.data.salutation)},
-      pronouns = ${optionalText(existing.pronouns, config.data.pronouns)},
-      preferred_language = ${optionalText(existing.preferred_language, config.data.preferredLanguage)},
-      source = ${optionalText(existing.source, config.data.source)},
-      parent_contact_id = ${prepared.data.parentContactId},
-      updated_at = now()
-    WHERE id = ${config.id}::uuid
-      AND book_id = ${config.bookId}::uuid
-    RETURNING id
-  `;
+  const row = await sql.begin(async (tx): Promise<{ id: string } | null> => {
+    const [updated] = await tx<{ id: string }[]>`
+      UPDATE contacts.contacts
+      SET
+        label = ${nextLabel},
+        first_name = ${optionalText(existing.first_name, config.data.firstName)},
+        last_name = ${optionalText(existing.last_name, config.data.lastName)},
+        company_name = ${optionalText(existing.company_name, config.data.companyName)},
+        department = ${optionalText(existing.department, config.data.department)},
+        job_title = ${optionalText(existing.job_title, config.data.jobTitle)},
+        vat_id = ${optionalText(existing.vat_id, config.data.vatId)},
+        birthday = ${optionalBirthday(existing.birthday, config.data.birthday)},
+        salutation = ${optionalText(existing.salutation, config.data.salutation)},
+        pronouns = ${optionalText(existing.pronouns, config.data.pronouns)},
+        preferred_language = ${optionalText(existing.preferred_language, config.data.preferredLanguage)},
+        source = ${optionalText(existing.source, config.data.source)},
+        parent_contact_id = ${prepared.data.parentContactId},
+        updated_at = now()
+      WHERE id = ${config.id}::uuid
+        AND book_id = ${config.bookId}::uuid
+      RETURNING id
+    `;
+
+    if (!updated) return null;
+
+    await replaceContactCollections(updated.id, config.data, tx);
+    if (prepared.data.tagIds !== null) {
+      await tags.replaceAssignments({ contactId: updated.id, tagIds: prepared.data.tagIds, db: tx });
+    }
+    return updated;
+  });
 
   if (!row) return fail(err.internal("Failed to update contact"));
-
-  await replaceContactCollections(row.id, config.data);
-  if (prepared.data.tagIds !== null) {
-    await tags.replaceAssignments({ contactId: row.id, tagIds: prepared.data.tagIds });
-  }
 
   return loadWrittenContact({ bookId: config.bookId, id: row.id, action: "updated" });
 };

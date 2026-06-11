@@ -1,6 +1,6 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { isUuid, toPgUuidArray } from "./shared";
+import { isUuid, type SqlExecutor, toPgUuidArray } from "./shared";
 import type { ContactTag, CreateContactTagInput, UpdateContactTagInput } from "./types";
 
 type DbTag = {
@@ -150,18 +150,25 @@ export const validateTagsInBook = async (config: { bookId: string; tagIds: strin
  * the tag ids beforehand via `validateTagsInBook`; this function trusts its
  * inputs and only writes.
  */
-export const replaceAssignments = async (config: { contactId: string; tagIds: string[] }): Promise<void> => {
-  await sql.begin(async (tx) => {
-    await tx`DELETE FROM contacts.contact_tag_assignments WHERE contact_id = ${config.contactId}::uuid`;
-    if (config.tagIds.length === 0) return;
-    for (const tagId of config.tagIds) {
-      await tx`
-        INSERT INTO contacts.contact_tag_assignments (contact_id, tag_id)
-        VALUES (${config.contactId}::uuid, ${tagId}::uuid)
-        ON CONFLICT DO NOTHING
-      `;
-    }
-  });
+const replaceAssignmentsWithDb = async (config: { contactId: string; tagIds: string[]; db: SqlExecutor }): Promise<void> => {
+  const db = config.db;
+  await db`DELETE FROM contacts.contact_tag_assignments WHERE contact_id = ${config.contactId}::uuid`;
+  if (config.tagIds.length === 0) return;
+  for (const tagId of config.tagIds) {
+    await db`
+      INSERT INTO contacts.contact_tag_assignments (contact_id, tag_id)
+      VALUES (${config.contactId}::uuid, ${tagId}::uuid)
+      ON CONFLICT DO NOTHING
+    `;
+  }
+};
+
+export const replaceAssignments = async (config: { contactId: string; tagIds: string[]; db?: SqlExecutor }): Promise<void> => {
+  if (config.db) {
+    await replaceAssignmentsWithDb({ ...config, db: config.db });
+    return;
+  }
+  await sql.begin((tx) => replaceAssignmentsWithDb({ ...config, db: tx }));
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;

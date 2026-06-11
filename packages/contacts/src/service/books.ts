@@ -4,15 +4,15 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import {
   addBookAccess,
-  canAccessBook,
   CONTACT_BOOK_RESOURCE_TYPE,
   CONTACTS_APP_ID,
+  canAccessBook,
   countBookAccess,
   getBookAccessGuard,
   getBookPermission,
-  listContactBookApiKeys,
   grantBookAccess,
   listBookAccessPaginated,
+  listContactBookApiKeys,
   removeBookAccess,
   updateBookAccessPermission,
 } from "./access";
@@ -201,7 +201,13 @@ export const create = async (config: { data: CreateBookInput; creatorId: string 
     permission: "admin",
   });
 
-  if (!accessResult.ok) return fail(accessResult.error);
+  if (!accessResult.ok) {
+    await sql`
+      DELETE FROM contacts.books
+      WHERE id = ${row.id}::uuid
+    `;
+    return fail(accessResult.error);
+  }
   return ok(mapBook(row));
 };
 

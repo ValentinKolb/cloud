@@ -29,7 +29,7 @@ const contactPreview = (emails: { email: string }[], phones: { phone: string }[]
 const FACET_OVERFETCH_MULTIPLIER = 5;
 const FACET_OVERFETCH_CAP = 200;
 
-export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
+const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
   const user = getSearchUser(input.ctx);
   if (!supportsContactsApp(user.roles)) return [];
 

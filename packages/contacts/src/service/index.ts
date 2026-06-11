@@ -1,8 +1,10 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { paginate, paginateItems, type PermissionLevel } from "@valentinkolb/cloud/server";
+import { type PermissionLevel, paginate, paginateItems } from "@valentinkolb/cloud/server";
 import type { PageParams, Paginated } from "@valentinkolb/stdlib";
+import * as apiKeys from "./api-keys";
 import * as books from "./books";
 import * as contacts from "./contacts";
+import * as imports from "./imports";
 import * as notes from "./notes";
 import { getSystemBook, isSystemBookId, SYSTEM_BOOK_ID } from "./system";
 import * as tags from "./tags";
@@ -115,7 +117,9 @@ export const contactsService = {
       count: (config: { bookId: string }) => books.access.count(config),
       guard: (config: { bookId: string; accessId: string }) => books.access.guard(config),
       apiKeys: {
-        list: (config: { bookId: string }) => books.access.apiKeys.list(config),
+        list: apiKeys.list,
+        create: apiKeys.create,
+        revoke: apiKeys.revoke,
       },
     },
   },
@@ -154,6 +158,7 @@ export const contactsService = {
     bookId: SYSTEM_BOOK_ID,
     isBookId: isSystemBookId,
   },
+  import: imports,
 };
 
 export type {

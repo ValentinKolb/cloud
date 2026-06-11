@@ -6,10 +6,10 @@ import {
   hasPermission,
   type PermissionLevel,
   type Principal,
-  resolveDisplayNames,
   paginateItems,
+  resolveDisplayNames,
 } from "@valentinkolb/cloud/server";
-import { serviceAccountCredentials, type ServiceAccountCredential } from "@valentinkolb/cloud/services";
+import { type ServiceAccountCredential, serviceAccountCredentials } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type PageParams, type Paginated, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { isUuid } from "./shared";
@@ -60,7 +60,7 @@ export const addBookAccess = async (bookId: string, accessId: string): Promise<R
 /**
  * Lists all access entries for a contact book with resolved display names.
  */
-export const listBookAccess = async (bookId: string): Promise<AccessEntry[]> => {
+const listBookAccess = async (bookId: string): Promise<AccessEntry[]> => {
   if (!isUuid(bookId)) return [];
 
   const rows = await sql<DbBookAccess[]>`
@@ -94,9 +94,9 @@ export const listBookAccess = async (bookId: string): Promise<AccessEntry[]> => 
         ? { type: "group" as const, groupId: row.group_id }
         : row.service_account_id
           ? { type: "service_account" as const, serviceAccountId: row.service_account_id }
-        : row.authenticated_only
-          ? { type: "authenticated" as const }
-          : { type: "public" as const },
+          : row.authenticated_only
+            ? { type: "authenticated" as const }
+            : { type: "public" as const },
     permission: row.permission,
     createdAt: row.created_at.toISOString(),
   }));
@@ -441,10 +441,7 @@ export const listContactBookApiKeys = async (bookId: string): Promise<ContactBoo
   const permissionByServiceAccountId = new Map(
     accessEntries
       .filter((entry) => entry.principal.type === "service_account")
-      .map((entry) => [
-        (entry.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId,
-        entry.permission,
-      ]),
+      .map((entry) => [(entry.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId, entry.permission]),
   );
 
   return keys.items.map((item) => {

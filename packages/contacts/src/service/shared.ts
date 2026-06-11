@@ -1,3 +1,7 @@
+import type { sql } from "bun";
+
+export type SqlExecutor = typeof sql;
+
 /**
  * UUID validator used to guard casts before running `::uuid` SQL comparisons.
  */
@@ -5,7 +9,7 @@ export const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5
 
 // PG array helpers re-exported from the canonical cloud/services source so all
 // callers (oauth, faq, spaces, contacts) share one implementation.
-export { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+export { toPgUuidArray } from "@valentinkolb/cloud/services";
 
 /**
  * Normalizes empty strings to `null` for user-facing optional profile fields.

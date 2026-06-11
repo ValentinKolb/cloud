@@ -45,11 +45,11 @@ export type ContactUpsertDraft = {
   bankAccounts: EditableBankAccount[];
 };
 
-export const DEFAULT_EMAIL_LABEL = "Email";
-export const DEFAULT_PHONE_LABEL = "Telephone";
-export const DEFAULT_WEBSITE_LABEL = "Website";
-export const DEFAULT_BANK_ACCOUNT_LABEL = "Bank";
-export const DEFAULT_ADDRESS_LABEL = "Address";
+const DEFAULT_EMAIL_LABEL = "Email";
+const DEFAULT_PHONE_LABEL = "Telephone";
+const DEFAULT_WEBSITE_LABEL = "Website";
+const DEFAULT_BANK_ACCOUNT_LABEL = "Bank";
+const DEFAULT_ADDRESS_LABEL = "Address";
 
 export const EMPTY_EMAIL: EditableEmail = {
   label: DEFAULT_EMAIL_LABEL,
