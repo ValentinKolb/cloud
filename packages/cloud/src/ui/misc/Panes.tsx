@@ -410,7 +410,18 @@ const closeButtonClass =
   "flex h-6 w-6 shrink-0 items-center justify-center rounded text-dimmed transition hover:text-red-600 dark:hover:text-red-400";
 
 const dragHandleClass =
-  "flex shrink-0 cursor-grab items-center justify-center rounded text-dimmed transition hover:text-emerald-600 active:cursor-grabbing dark:hover:text-emerald-400";
+  "flex shrink-0 cursor-grab items-center justify-center rounded text-dimmed transition-colors hover:text-emerald-600 active:cursor-grabbing dark:hover:text-emerald-400";
+
+const tabButtonBaseClass =
+  "flex min-w-32 items-center gap-0.5 rounded-lg border px-2 text-xs transition-[background-color,color,border-color,box-shadow] duration-150";
+
+const tabButtonClass = (active: boolean) =>
+  active
+    ? `${tabButtonBaseClass} border-blue-200 bg-white font-semibold text-blue-700 hover:border-blue-300 dark:border-blue-800 dark:bg-zinc-900 dark:text-blue-300 dark:hover:border-blue-700`
+    : `${tabButtonBaseClass} border-zinc-100 bg-white text-secondary hover:border-zinc-200 hover:text-primary dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700`;
+
+const tabButtonShadow = (active: boolean) =>
+  active ? "inset 0 0 0 1px rgb(59 130 246 / 0.22), var(--theme-bevel-top)" : "var(--theme-shadow-elevated)";
 
 const CloseButton = (props: { element: PanesElementSlot }) => (
   <button
@@ -549,6 +560,7 @@ function PanesSplit(props: {
 }) {
   let container: HTMLDivElement | undefined;
   let stopResize: (() => void) | undefined;
+  let resizeActive = false;
   const direction = () => props.node().direction;
   const sizes = () => normalizeSizes(props.node().sizes, props.node().children.length);
   const insertIntent = (index: number) => {
@@ -559,14 +571,18 @@ function PanesSplit(props: {
   const stopActiveResize = () => {
     stopResize?.();
     stopResize = undefined;
+    resizeActive = false;
   };
 
-  onCleanup(stopActiveResize);
+  onCleanup(() => {
+    if (!resizeActive) stopActiveResize();
+  });
 
   const startResize = (event: PointerEvent, index: number) => {
     if (!props.canResize()) return;
     event.preventDefault();
     stopActiveResize();
+    resizeActive = true;
     const split = props.node();
     const baseSizes = normalizeSizes(split.sizes, split.children.length);
     const start = split.direction === "horizontal" ? event.clientX : event.clientY;
@@ -644,7 +660,7 @@ function PanesSplit(props: {
                 aria-disabled={!props.canResize()}
                 tabIndex={props.canResize() ? 0 : -1}
                 class={`group relative z-10 shrink-0 rounded-full bg-transparent transition ${
-                  direction() === "horizontal" ? "-mx-2 w-6 cursor-col-resize" : "-my-2 h-6 cursor-row-resize"
+                  direction() === "horizontal" ? "w-2 cursor-col-resize" : "h-2 cursor-row-resize"
                 } ${props.canResize() ? "" : "cursor-default"}`}
                 style={{ cursor: props.canResize() ? (direction() === "horizontal" ? "col-resize" : "row-resize") : "default" }}
                 aria-label="Resize pane"
@@ -653,7 +669,7 @@ function PanesSplit(props: {
               >
                 <span
                   class={`pointer-events-none absolute rounded-full transition ${
-                    direction() === "horizontal" ? "inset-y-2 left-2 right-2" : "inset-x-2 bottom-2 top-2"
+                    direction() === "horizontal" ? "inset-y-2 left-0 right-0" : "inset-x-2 bottom-0 top-0"
                   } ${
                     insertIntent(index())
                       ? "bg-emerald-500/80 shadow-[0_0_0_4px_rgba(16,185,129,0.16)]"
@@ -708,31 +724,38 @@ function PanesLeaf(props: {
           disabled: !props.canMove() || (!props.canReorder() && !props.canHorizontalSplit() && !props.canVerticalSplit()),
         }));
       }}
-      class="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950"
+      class="relative flex h-full min-h-0 min-w-0 flex-1 flex-col gap-1 overflow-hidden"
     >
       <Show
         when={showTabs()}
         fallback={
           <Show when={activeElement()}>
             {(element) => (
-              <div class="flex h-9 shrink-0 items-center gap-2 border-b border-zinc-200 bg-zinc-50 px-2 text-xs font-medium text-secondary dark:border-zinc-800 dark:bg-zinc-900/80">
-                <button
-                  ref={(button) => {
-                    props.dnd.draggable(button, () => ({
-                      id: `panes-element:${element().id}`,
-                      meta: { elementId: element().id },
-                      disabled: !props.canMove(),
-                      handleSelector: "[data-panes-drag-handle]",
-                    }));
-                  }}
-                  type="button"
-                  data-panes-drag-handle
-                  class={`${dragHandleClass} h-7 w-7 ${props.dnd.activeId() === `panes-element:${element().id}` ? "opacity-40" : ""}`}
-                  title="Move pane"
-                  aria-label="Move pane"
-                >
-                  <i class="ti ti-grip-vertical" />
-                </button>
+              <div
+                ref={(header) => {
+                  props.dnd.draggable(header, () => ({
+                    id: `panes-element:${element().id}`,
+                    meta: { elementId: element().id },
+                    disabled: !props.canMove(),
+                    handleSelector: "[data-panes-drag-handle]",
+                  }));
+                }}
+                class={`h-8 shrink-0 gap-2 ${tabButtonClass(true)} ${
+                  props.dnd.activeId() === `panes-element:${element().id}` ? "opacity-40" : ""
+                }`}
+                style={{ "box-shadow": tabButtonShadow(true) }}
+              >
+                <Show when={props.canMove()}>
+                  <button
+                    type="button"
+                    data-panes-drag-handle
+                    class={`${dragHandleClass} h-7 w-7`}
+                    title="Move pane"
+                    aria-label="Move pane"
+                  >
+                    <i class="ti ti-grip-vertical" />
+                  </button>
+                </Show>
                 <i class={`${iconClass(element().icon)} shrink-0 text-sm`} />
                 <span class="min-w-0 flex-1 truncate">{element().title ?? element().id}</span>
                 <Show when={elementClosable(element())}>
@@ -744,7 +767,7 @@ function PanesLeaf(props: {
         }
       >
         <div
-          class="flex h-9 shrink-0 items-stretch gap-1 overflow-x-auto overflow-y-hidden border-b border-zinc-200 bg-zinc-50 px-1 dark:border-zinc-800 dark:bg-zinc-900/80"
+          class="panes-tab-strip flex h-8 shrink-0 items-stretch gap-1 overflow-x-auto overflow-y-hidden"
           style={{ "scrollbar-gutter": "stable" }}
         >
           <For each={elements()}>
@@ -756,33 +779,32 @@ function PanesLeaf(props: {
                     meta: { kind: "tab", leafId: props.node().id, beforeElementId: element.id },
                     disabled: !props.canReorder(),
                   }));
+                  props.dnd.draggable(tab, () => ({
+                    id: `panes-element:${element.id}`,
+                    meta: { elementId: element.id },
+                    disabled: !props.canMove(),
+                    handleSelector: "[data-panes-drag-handle]",
+                  }));
                 }}
-                class={`my-1 flex min-w-32 flex-1 items-center gap-0.5 rounded px-1 text-xs transition ${
-                  activeId() === element.id
-                    ? "bg-white font-semibold text-blue-700 shadow-sm dark:bg-zinc-950 dark:text-blue-300"
-                    : "text-secondary hover:bg-white/70 hover:text-primary dark:hover:bg-zinc-950/70"
-                } ${props.dnd.activeId() === `panes-element:${element.id}` ? "opacity-40" : ""}`}
+                class={`flex-1 ${tabButtonClass(activeId() === element.id)} ${
+                  props.dnd.activeId() === `panes-element:${element.id}` ? "opacity-40" : ""
+                }`}
+                style={{ "box-shadow": tabButtonShadow(activeId() === element.id) }}
               >
-                <button
-                  ref={(button) => {
-                    props.dnd.draggable(button, () => ({
-                      id: `panes-element:${element.id}`,
-                      meta: { elementId: element.id },
-                      disabled: !props.canMove(),
-                      handleSelector: "[data-panes-drag-handle]",
-                    }));
-                  }}
-                  type="button"
-                  data-panes-drag-handle
-                  class={`${dragHandleClass} h-6 w-6`}
-                  title="Move tab"
-                  aria-label={`Move ${element.title ?? element.id}`}
-                >
-                  <i class="ti ti-grip-vertical" />
-                </button>
+                <Show when={props.canMove()}>
+                  <button
+                    type="button"
+                    data-panes-drag-handle
+                    class={`${dragHandleClass} h-6 w-6`}
+                    title="Move tab"
+                    aria-label={`Move ${element.title ?? element.id}`}
+                  >
+                    <i class="ti ti-grip-vertical" />
+                  </button>
+                </Show>
                 <button
                   type="button"
-                  class="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded px-1 text-left"
+                  class="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded text-left"
                   onPointerDown={(event) => {
                     if (event.button === 0) props.onActive(props.node().id, element.id);
                   }}
@@ -799,7 +821,7 @@ function PanesLeaf(props: {
           </For>
           <Show when={mergePreviewElement()}>
             {(element) => (
-              <div class="my-1 flex min-w-32 flex-1 items-center gap-1.5 rounded border border-emerald-300 bg-emerald-50 px-2 text-xs font-semibold text-emerald-700 shadow-sm dark:border-emerald-700/70 dark:bg-emerald-950/50 dark:text-emerald-300">
+              <div class="flex min-w-32 flex-1 items-center gap-1.5 rounded border border-emerald-300 bg-emerald-50 px-2 text-xs font-semibold text-emerald-700 shadow-sm dark:border-emerald-700/70 dark:bg-emerald-950/50 dark:text-emerald-300">
                 <i class="ti ti-plus shrink-0 text-sm" />
                 <i class={`${iconClass(element().icon)} shrink-0 text-sm`} />
                 <span class="truncate">{element().title ?? element().id}</span>
@@ -809,7 +831,7 @@ function PanesLeaf(props: {
         </div>
       </Show>
 
-      <div class="relative min-h-0 flex-1 overflow-auto">
+      <div class="relative min-h-0 flex-1 overflow-hidden">
         <For each={elements()}>
           {(element) => (
             <div class={`${props.keepMounted ? (activeId() === element.id || presentation() === "stack" ? "contents" : "hidden") : ""}`}>

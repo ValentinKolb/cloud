@@ -36,9 +36,7 @@
 
 @utility paper-highlighted {
   @apply paper;
-  background:
-    linear-gradient(90deg, rgb(239 246 255 / 0.34), rgb(255 255 255 / 0.82)),
-    var(--color-white);
+  background: linear-gradient(90deg, rgb(239 246 255 / 0.34), rgb(255 255 255 / 0.82)), var(--color-white);
 }
 
 .dark .paper-highlighted,
@@ -54,6 +52,35 @@
 
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+.panes-tab-strip {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.panes-tab-strip::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+.panes-tab-strip:hover,
+.panes-tab-strip:focus-within {
+  scrollbar-color: rgb(161 161 170 / 0.45) transparent;
+}
+
+.panes-tab-strip:hover::-webkit-scrollbar-thumb,
+.panes-tab-strip:focus-within::-webkit-scrollbar-thumb {
+  background: rgb(161 161 170 / 0.45);
+}
+
+.dark .panes-tab-strip:hover,
+.dark .panes-tab-strip:focus-within {
+  scrollbar-color: rgb(82 82 91 / 0.6) transparent;
+}
+
+.dark .panes-tab-strip:hover::-webkit-scrollbar-thumb,
+.dark .panes-tab-strip:focus-within::-webkit-scrollbar-thumb {
+  background: rgb(82 82 91 / 0.6);
 }
 
 @utility ellipsis {
