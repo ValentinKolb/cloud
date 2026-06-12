@@ -1,6 +1,6 @@
 import { type AuthContext, auth, jsonResponse, requiresAdmin, respond, v } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
-import { err, fail, ok } from "@valentinkolb/stdlib";
+import { ok } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
@@ -16,8 +16,9 @@ import {
 import { expectUserBackedActor, toAccountsActor } from "@/shared/actor";
 
 const DenyRequestSchema = z.object({
-  reason: z.string().optional().describe("Reason for denial (triggers email if provided)"),
+  reason: z.string().max(2_000).optional().describe("Reason for denial (triggers email if provided)"),
 });
+const AccountRequestIdParamSchema = z.object({ id: z.uuid() });
 
 const AccountRequestSchema = z.object({
   id: z.uuid(),
@@ -100,10 +101,10 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Request not found"),
       },
     }),
+    v("param", AccountRequestIdParamSchema),
     async (c) => {
       const user = expectUserBackedActor(c);
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing account request ID")));
+      const { id } = c.req.valid("param");
 
       return respond(
         c,
@@ -133,11 +134,11 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Request not found"),
       },
     }),
+    v("param", AccountRequestIdParamSchema),
     v("json", DenyRequestSchema),
     async (c) => {
       const user = expectUserBackedActor(c);
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing account request ID")));
+      const { id } = c.req.valid("param");
       const { reason } = c.req.valid("json");
 
       return respond(c, async () => {

@@ -5,6 +5,7 @@ export const CreateGroupSchema = z.object({
   provider: UserProviderSchema.default("ipa"),
   name: z
     .string()
+    .max(120)
     .min(1)
     .transform((value) =>
       value
@@ -12,12 +13,12 @@ export const CreateGroupSchema = z.object({
         .replace(/[_ ]/g, "-")
         .replace(/[^a-z0-9-]/g, ""),
     ),
-  description: z.string().optional(),
+  description: z.string().max(4_000).optional(),
   posix: z.boolean().optional().default(false),
 });
 
 export const UpdateGroupSchema = z.object({
-  description: z.string(),
+  description: z.string().max(4_000),
 });
 
 export const GroupMemberInputSchema = z.discriminatedUnion("type", [
@@ -42,9 +43,9 @@ export type CreateUserResponse = z.infer<typeof CreateUserResponseSchema>;
 
 const CreateUserSharedSchema = {
   email: z.email(),
-  givenname: z.string().min(1),
-  sn: z.string().min(1),
-  displayName: z.string().optional(),
+  givenname: z.string().min(1).max(120),
+  sn: z.string().min(1).max(120),
+  displayName: z.string().max(160).optional(),
   autoSendNotification: z.boolean().default(false),
   requestId: z.uuid().optional(),
 };
@@ -54,15 +55,17 @@ export const CreateUserSchema = z.discriminatedUnion("provider", [
     provider: z.literal("ipa"),
     ...CreateUserSharedSchema,
   }),
-  z.object({
-    provider: z.literal("local"),
-    profile: UserProfileSchema,
-    admin: z.boolean().optional().default(false),
-    ...CreateUserSharedSchema,
-  }).refine((value) => value.profile === "user" || !value.admin, {
-    message: "Only local full accounts can be created as admins",
-    path: ["admin"],
-  }),
+  z
+    .object({
+      provider: z.literal("local"),
+      profile: UserProfileSchema,
+      admin: z.boolean().optional().default(false),
+      ...CreateUserSharedSchema,
+    })
+    .refine((value) => value.profile === "user" || !value.admin, {
+      message: "Only local full accounts can be created as admins",
+      path: ["admin"],
+    }),
 ]);
 export type CreateUser = z.infer<typeof CreateUserSchema>;
 

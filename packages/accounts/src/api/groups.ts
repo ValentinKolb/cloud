@@ -26,6 +26,7 @@ const GroupsListResponseSchema = z.object({
 });
 type BaseGroupResponse = z.infer<typeof BaseGroupSchema>;
 type MessageResponse = z.infer<typeof MessageResponseSchema>;
+const GroupIdParamSchema = z.object({ id: z.uuid() });
 
 const requireLocalGroupManageAccess = async (
   c: Context<AuthContext>,
@@ -81,12 +82,11 @@ type GroupRelationMutation = (config: {
 
 const handleGroupRelation = async (
   c: Context<AuthContext>,
+  groupId: string,
   input: z.infer<typeof GroupMemberInputSchema>,
   mutation: GroupRelationMutation,
   verbPhrase: string,
 ) => {
-  const groupId = c.req.param("id");
-  if (!groupId) return respond(c, fail(err.badInput("Missing group ID")));
   const { type, id: principalId } = input;
   const { group, error } = await requireGroupMutationContext(c, groupId);
   if (error || !group) return error!;
@@ -173,8 +173,9 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Group management access required"),
       },
     }),
+    v("param", GroupIdParamSchema),
     v("json", GroupMemberInputSchema),
-    (c) => handleGroupRelation(c, c.req.valid("json"), accountsService.group.member.add, "added as member"),
+    (c) => handleGroupRelation(c, c.req.valid("param").id, c.req.valid("json"), accountsService.group.member.add, "added as member"),
   )
   .delete(
     "/:id/members",
@@ -191,8 +192,9 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Group management access required"),
       },
     }),
+    v("param", GroupIdParamSchema),
     v("json", GroupMemberInputSchema),
-    (c) => handleGroupRelation(c, c.req.valid("json"), accountsService.group.member.remove, "removed"),
+    (c) => handleGroupRelation(c, c.req.valid("param").id, c.req.valid("json"), accountsService.group.member.remove, "removed"),
   )
   .post(
     "/:id/managers",
@@ -209,8 +211,9 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
+    v("param", GroupIdParamSchema),
     v("json", GroupMemberInputSchema),
-    (c) => handleGroupRelation(c, c.req.valid("json"), accountsService.group.manager.add, "added as manager"),
+    (c) => handleGroupRelation(c, c.req.valid("param").id, c.req.valid("json"), accountsService.group.manager.add, "added as manager"),
   )
   .delete(
     "/:id/managers",
@@ -227,8 +230,9 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
+    v("param", GroupIdParamSchema),
     v("json", GroupMemberInputSchema),
-    (c) => handleGroupRelation(c, c.req.valid("json"), accountsService.group.manager.remove, "removed as manager"),
+    (c) => handleGroupRelation(c, c.req.valid("param").id, c.req.valid("json"), accountsService.group.manager.remove, "removed as manager"),
   )
   // All routes below require admin role
   .use(auth.requireRole("admin"))
@@ -278,9 +282,9 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
+    v("param", GroupIdParamSchema),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing group ID")));
+      const { id } = c.req.valid("param");
       const group = await accountsService.group.get({ id });
       if (!group) return respond(c, fail(err.notFound("Group not found")));
 
@@ -309,10 +313,10 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
+    v("param", GroupIdParamSchema),
     v("json", UpdateGroupSchema),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing group ID")));
+      const { id } = c.req.valid("param");
       const { description } = c.req.valid("json");
       const group = await accountsService.group.get({ id });
       if (!group) return respond(c, fail(err.notFound("Group not found")));
@@ -343,9 +347,9 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
+    v("param", GroupIdParamSchema),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing group ID")));
+      const { id } = c.req.valid("param");
       const group = await accountsService.group.get({ id });
       if (!group) return respond(c, fail(err.notFound("Group not found")));
 

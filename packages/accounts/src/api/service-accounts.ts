@@ -16,6 +16,7 @@ import { expectUserBackedActor } from "@/shared/actor";
 
 const ServiceAccountKindSchema = z.enum(["user_delegated", "resource_bound"]);
 const CredentialStatusSchema = z.enum(["active", "revoked"]);
+const CredentialIdParamSchema = z.object({ id: z.uuid() });
 
 const ServiceAccountCredentialOverviewSchema = z.object({
   id: z.string(),
@@ -67,7 +68,7 @@ const ServiceAccountCredentialsListResponseSchema = z.object({
 
 const QuerySchema = z.object({
   ...PaginationQuerySchema.shape,
-  search: z.string().optional(),
+  search: z.string().trim().max(200).optional(),
   kind: ServiceAccountKindSchema.optional(),
   status: CredentialStatusSchema.optional(),
   userId: z.uuid().optional(),
@@ -125,9 +126,10 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "API key not found"),
       },
     }),
+    v("param", CredentialIdParamSchema),
     async (c) => {
       const result = await serviceAccountCredentials.revoke({
-        credentialId: c.req.param("id"),
+        credentialId: c.req.valid("param").id,
         actor: expectUserBackedActor(c),
       });
       if (!result.ok) return respond(c, result);

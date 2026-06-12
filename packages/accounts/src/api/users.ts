@@ -20,6 +20,7 @@ import {
 import { expectUserBackedActor, toAccountsActor } from "@/shared/actor";
 
 const log = logger("accounts:admin:users");
+const UserIdParamSchema = z.object({ id: z.uuid() });
 
 // Admin PATCH accepts the same profile fields plus `mail`. Defined standalone
 // rather than `UpdateProfileSchema.extend(...)` so its refinement can treat
@@ -27,9 +28,9 @@ const log = logger("accounts:admin:users");
 // mail-only payloads.
 const AdminUpdateUserSchema = z
   .object({
-    givenname: z.string().min(1).optional(),
-    sn: z.string().min(1).optional(),
-    displayName: z.string().min(1).optional(),
+    givenname: z.string().min(1).max(120).optional(),
+    sn: z.string().min(1).max(120).optional(),
+    displayName: z.string().min(1).max(160).optional(),
     mail: z.email().optional().describe("Email address"),
     ipa: IpaProfileFieldsSchema.optional(),
   })
@@ -72,8 +73,8 @@ const SetAdminSchema = z.object({
 });
 
 const NotifyUserSchema = z.object({
-  subject: z.string().min(1).describe("Notification subject"),
-  rawHtml: z.string().min(1).describe("HTML content of the notification"),
+  subject: z.string().min(1).max(200).describe("Notification subject"),
+  rawHtml: z.string().min(1).max(100_000).describe("HTML content of the notification"),
 });
 
 const logLocalAdminMutation = (params: {
@@ -158,9 +159,9 @@ const app = new Hono<AuthContext>()
         500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
+    v("param", UserIdParamSchema),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
+      const { id } = c.req.valid("param");
       return respond(c, async () => {
         const user = await accountsService.user.get({ id });
         if (!user) return fail(err.notFound("User not found"));
@@ -229,10 +230,10 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
+    v("param", UserIdParamSchema),
     v("json", AdminUpdateUserSchema),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
+      const { id } = c.req.valid("param");
       const data = c.req.valid("json");
 
       return respond(c, async () => {
@@ -257,9 +258,9 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
+    v("param", UserIdParamSchema),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
+      const { id } = c.req.valid("param");
       const actor = expectUserBackedActor(c);
 
       return respond(c, async () => {
@@ -297,9 +298,9 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "User not found"),
       },
     }),
+    v("param", UserIdParamSchema),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
+      const { id } = c.req.valid("param");
       const actor = expectUserBackedActor(c);
       return respond(c, async () => {
         const targetUser = await accountsService.user.getMinimal({ id });
@@ -332,10 +333,10 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
+    v("param", UserIdParamSchema),
     v("json", SetAdminSchema),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
+      const { id } = c.req.valid("param");
       const actor = expectUserBackedActor(c);
       return respond(c, async () => {
         const targetUser = await accountsService.user.getMinimal({ id });
@@ -367,10 +368,10 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
+    v("param", UserIdParamSchema),
     v("json", SwitchProviderSchema),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
+      const { id } = c.req.valid("param");
       const { provider } = c.req.valid("json");
 
       return respond(c, async () => {
@@ -415,9 +416,9 @@ const app = new Hono<AuthContext>()
         expiryDate: z.string().nullable().describe("ISO date or date-time string, or null to remove expiry"),
       }),
     ),
+    v("param", UserIdParamSchema),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
+      const { id } = c.req.valid("param");
       const { expiryDate } = c.req.valid("json");
       const actor = expectUserBackedActor(c);
 
@@ -448,10 +449,10 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
+    v("param", UserIdParamSchema),
     v("json", z.object({ profile: z.enum(["user", "guest"]) })),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
+      const { id } = c.req.valid("param");
       const { profile } = c.req.valid("json");
       return respond(c, async () => {
         const actor = expectUserBackedActor(c);
@@ -490,10 +491,10 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "User not found"),
       },
     }),
+    v("param", UserIdParamSchema),
     v("json", NotifyUserSchema),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
+      const { id } = c.req.valid("param");
       const actor = expectUserBackedActor(c);
       const { subject, rawHtml } = c.req.valid("json");
       return respond(c, async () => {
@@ -522,9 +523,9 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
+    v("param", UserIdParamSchema),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
+      const { id } = c.req.valid("param");
       return respond(c, async () => {
         const result = await accountsService.user.sendLoginLink({ actor: toAccountsActor(expectUserBackedActor(c)), id });
         if (!result.ok) return result;
@@ -549,9 +550,9 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "User not found"),
       },
     }),
+    v("param", UserIdParamSchema),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
+      const { id } = c.req.valid("param");
       const actor = expectUserBackedActor(c);
 
       return respond(c, async () => {
@@ -580,9 +581,9 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "User not found"),
       },
     }),
+    v("param", UserIdParamSchema),
     async (c) => {
-      const id = c.req.param("id");
-      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
+      const { id } = c.req.valid("param");
       const actor = expectUserBackedActor(c);
 
       return respond(c, async () => {
