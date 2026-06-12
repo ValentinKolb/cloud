@@ -1,5 +1,56 @@
 import { z } from "zod";
 
+const MAX_PATH_LENGTH = 4_096;
+const MAX_FILE_NAME_LENGTH = 255;
+const MAX_BASE_ID_LENGTH = 255;
+const SHA256_CHECKSUM_REGEX = /^sha256:[a-f0-9]{64}$/;
+
+const PathSchema = z
+  .string()
+  .min(1)
+  .max(MAX_PATH_LENGTH)
+  .refine((value) => !value.includes("\0"), "Path must not contain null bytes");
+
+const FileNameSchema = z
+  .string()
+  .min(1)
+  .max(MAX_FILE_NAME_LENGTH)
+  .refine((value) => value.trim().length > 0, "File name must not be blank")
+  .refine((value) => value !== "." && value !== "..", "File name is reserved")
+  .refine((value) => !value.includes("\0"), "File name must not contain null bytes")
+  .refine((value) => !value.includes("/") && !value.includes("\\"), "File name must not contain path separators");
+
+export const FileBaseTypeSchema = z.enum(["home", "group"]);
+
+export const FileBaseParamSchema = z.object({
+  baseType: FileBaseTypeSchema,
+  baseId: z.string().min(1).max(MAX_BASE_ID_LENGTH),
+});
+
+export const UploadIdParamSchema = FileBaseParamSchema.extend({
+  uploadId: z.string().min(1).max(255),
+});
+
+export const FilePathQuerySchema = z.object({
+  path: PathSchema,
+});
+
+export const OptionalFilePathQuerySchema = z.object({
+  path: PathSchema.default("/"),
+});
+
+export const DownloadQuerySchema = FilePathQuerySchema.extend({
+  inline: z.coerce.boolean().optional(),
+});
+
+export const UploadHeaderSchema = z.object({
+  "x-file-name": FileNameSchema,
+});
+
+export const ChunkHeaderSchema = z.object({
+  "x-chunk-checksum": z.string().regex(SHA256_CHECKSUM_REGEX).optional(),
+});
+
 // Local Zod schemas for OpenAPI documentation (compatible with Filegate types)
 export const FileTypeSchema = z.enum(["file", "directory"]);
 export type FileType = z.infer<typeof FileTypeSchema>;
@@ -45,7 +96,7 @@ export const FileBaseSchema = z.discriminatedUnion("type", [
 export type FileBase = z.infer<typeof FileBaseSchema>;
 
 export const ListFilesQuerySchema = z.object({
-  path: z.string().default("/").describe("Directory path to list"),
+  path: PathSchema.default("/").describe("Directory path to list"),
   showHidden: z.coerce.boolean().default(false).describe("Include hidden files"),
 });
 
@@ -54,8 +105,8 @@ export type FileAction = z.infer<typeof FileActionSchema>;
 
 export const FileActionQuerySchema = z.object({
   action: FileActionSchema.describe("Action to perform"),
-  path: z.string().describe("Source path"),
-  to: z.string().optional().describe("Destination path (required for move/copy)"),
+  path: PathSchema.describe("Source path"),
+  to: PathSchema.optional().describe("Destination path (required for move/copy)"),
 });
 
 export const FileBaseInfoSchema = z.object({
@@ -68,8 +119,12 @@ export type FileBaseInfo = z.infer<typeof FileBaseInfoSchema>;
 // === Search Schemas ===
 
 export const GlobalSearchQuerySchema = z.object({
-  pattern: z.string().describe("Glob pattern (e.g. '**/*.pdf', '*.{jpg,png}')"),
-  bases: z.string().optional().describe("Comma-separated base IDs to search (e.g. 'home:alice,group:devs'). Default: all accessible bases"),
+  pattern: z.string().min(1).max(500).describe("Glob pattern (e.g. '**/*.pdf', '*.{jpg,png}')"),
+  bases: z
+    .string()
+    .max(4_000)
+    .optional()
+    .describe("Comma-separated base IDs to search (e.g. 'home:alice,group:devs'). Default: all accessible bases"),
   showHidden: z.coerce.boolean().default(false).describe("Include hidden files"),
   limit: z.coerce.number().int().min(1).max(100).default(100).describe("Max results per base"),
 });
@@ -92,12 +147,9 @@ export type GlobalSearchResponse = z.infer<typeof GlobalSearchResponseSchema>;
 
 // Input schema for starting a chunked upload (API validation)
 export const ChunkedUploadStartSchema = z.object({
-  filename: z.string().min(1).describe("Name of the file to upload"),
+  filename: FileNameSchema.describe("Name of the file to upload"),
   size: z.number().int().positive().describe("Total file size in bytes"),
-  checksum: z
-    .string()
-    .regex(/^sha256:[a-f0-9]{64}$/)
-    .describe("SHA-256 checksum of the entire file (format: sha256:<64 hex chars>)"),
+  checksum: z.string().regex(SHA256_CHECKSUM_REGEX).describe("SHA-256 checksum of the entire file (format: sha256:<64 hex chars>)"),
   chunkSize: z.number().int().positive().describe("Size of each chunk in bytes"),
 });
 export type ChunkedUploadStart = z.infer<typeof ChunkedUploadStartSchema>;
@@ -139,9 +191,9 @@ export type ChunkedUploadResponse = z.infer<typeof ChunkedUploadResponseSchema>;
 // === Move/Copy Target Search Schemas ===
 
 export const MoveTargetSearchQuerySchema = z.object({
-  query: z.string().default("").describe("Search query for directory names"),
+  query: z.string().max(200).default("").describe("Search query for directory names"),
   targetBaseType: z.enum(["home", "group"]).describe("Target base type to search in"),
-  targetBaseId: z.string().describe("Target base ID (uid for home, group name for group)"),
+  targetBaseId: z.string().min(1).max(MAX_BASE_ID_LENGTH).describe("Target base ID (uid for home, group name for group)"),
   limit: z.coerce.number().int().min(1).max(50).default(20).describe("Max results"),
 });
 export type MoveTargetSearchQuery = z.infer<typeof MoveTargetSearchQuerySchema>;
@@ -161,10 +213,10 @@ export type MoveTargetSearchResponse = z.infer<typeof MoveTargetSearchResponseSc
 // === Transfer (Move/Copy) Schemas ===
 
 export const TransferRequestSchema = z.object({
-  paths: z.array(z.string()).min(1).describe("Source paths to transfer"),
+  paths: z.array(PathSchema).min(1).max(100).describe("Source paths to transfer"),
   targetBaseType: z.enum(["home", "group"]).describe("Destination base type"),
-  targetBaseId: z.string().describe("Destination base ID"),
-  targetPath: z.string().describe("Destination directory path"),
+  targetBaseId: z.string().min(1).max(MAX_BASE_ID_LENGTH).describe("Destination base ID"),
+  targetPath: PathSchema.describe("Destination directory path"),
 });
 export type TransferRequest = z.infer<typeof TransferRequestSchema>;
 
@@ -183,8 +235,8 @@ export type TransferResult = z.infer<typeof TransferResultSchema>;
 // === Duplicate Schema ===
 
 export const DuplicateRequestSchema = z.object({
-  path: z.string().describe("Source file/folder path"),
-  newName: z.string().min(1).describe("New name for the duplicate"),
+  path: PathSchema.describe("Source file/folder path"),
+  newName: FileNameSchema.describe("New name for the duplicate"),
 });
 export type DuplicateRequest = z.infer<typeof DuplicateRequestSchema>;
 

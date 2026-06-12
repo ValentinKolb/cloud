@@ -41,16 +41,19 @@ export const buildItemPath = (currentPath: string, filename: string) =>
 export type SelectionKey = string; // format: "baseType:baseId:fullPath"
 
 /** Build a selection key from components */
-export const buildSelectionKey = (baseType: string, baseId: string, path: string): SelectionKey => `${baseType}:${baseId}:${path}`;
+export const buildSelectionKey = (baseType: FileBaseInfo["type"], baseId: string, path: string): SelectionKey =>
+  `${baseType}:${baseId}:${path}`;
 
 /** Parse a selection key into components */
-export const parseSelectionKey = (key: SelectionKey): { baseType: string; baseId: string; path: string } | null => {
+export const parseSelectionKey = (key: SelectionKey): { baseType: FileBaseInfo["type"]; baseId: string; path: string } | null => {
   const firstColon = key.indexOf(":");
   if (firstColon === -1) return null;
   const secondColon = key.indexOf(":", firstColon + 1);
   if (secondColon === -1) return null;
+  const baseType = key.slice(0, firstColon);
+  if (baseType !== "home" && baseType !== "group") return null;
   return {
-    baseType: key.slice(0, firstColon),
+    baseType,
     baseId: key.slice(firstColon + 1, secondColon),
     path: key.slice(secondColon + 1),
   };

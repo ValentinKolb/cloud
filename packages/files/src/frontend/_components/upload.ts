@@ -3,6 +3,7 @@ import { createStore } from "solid-js/store";
 import { chunks, type UploadState } from "@valentinkolb/filegate/utils";
 import { apiClient } from "@/api/client";
 import { files } from "@valentinkolb/stdlib/browser";
+import type { FileBaseInfo } from "@/contracts";
 
 // =============================================================================
 // Types
@@ -82,7 +83,7 @@ export function createUploadManager() {
   const uploadFile = async (
     file: File,
     id: string,
-    baseType: string,
+    baseType: FileBaseInfo["type"],
     baseId: string,
     targetPath: string,
     signal: AbortSignal,
@@ -160,7 +161,7 @@ export function createUploadManager() {
 
   const startUpload = async (
     mode: "files" | "folder",
-    baseType: string,
+    baseType: FileBaseInfo["type"],
     baseId: string,
     targetPath: string,
     options?: { onComplete?: () => void; onError?: (error: Error) => void },

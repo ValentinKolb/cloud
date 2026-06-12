@@ -5,13 +5,13 @@ import { Placeholder, prompts, toast } from "@valentinkolb/cloud/ui";
 import { parseSelectionKey, type SelectionKey } from "./context";
 import type { FileBaseInfo } from "@/contracts";
 type MoveTargetSearchProps = {
-  sourceBaseType: string;
+  sourceBaseType: FileBaseInfo["type"];
   sourceBaseId: string;
   sourcePaths: string[];
   bases: FileBaseInfo[] /** For multi-base copy: all source selection keys */;
   allSourceKeys?: SelectionKey[] /** For multi-base copy: force copy mode */;
   isMultiBaseCopy?: boolean;
-  onComplete: (target: { baseType: string; baseId: string; path: string; movedFiles: string[] }) => void;
+  onComplete: (target: { baseType: FileBaseInfo["type"]; baseId: string; path: string; movedFiles: string[] }) => void;
   close: () => void;
 };
 type DirectoryResult = { path: string; name: string };
@@ -92,7 +92,7 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
     mutation: async ({ targetPath }) => {
       const base = selectedBase();
       if (props.isMultiBaseCopy && props.allSourceKeys) {
-        const byBase = new Map<string, { baseType: string; baseId: string; paths: string[] }>();
+        const byBase = new Map<string, { baseType: FileBaseInfo["type"]; baseId: string; paths: string[] }>();
         for (const key of props.allSourceKeys) {
           const parsed = parseSelectionKey(key);
           if (!parsed) continue;

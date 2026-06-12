@@ -2,27 +2,32 @@ import { type AuthContext, auth, jsonResponse, requiresIpaUser, respond, v } fro
 import { err, fail, ok } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { z } from "zod";
 import { expectUserBackedActor } from "@/actor";
-import type { FileBase } from "@/contracts";
 import {
+  ChunkHeaderSchema,
   ChunkedUploadChunkQuerySchema,
   ChunkedUploadResponseSchema,
   ChunkedUploadStartResponseSchema,
   ChunkedUploadStartSchema,
+  DownloadQuerySchema,
   DuplicateRequestSchema,
   ErrorResponseSchema,
+  FileBaseParamSchema,
   FileActionQuerySchema,
   FileBaseInfoSchema,
   FileInfoResponseSchema,
   FileInfoSchema,
+  FilePathQuerySchema,
   GlobalSearchQuerySchema,
   GlobalSearchResponseSchema,
   ListFilesQuerySchema,
   MoveTargetSearchQuerySchema,
   MoveTargetSearchResponseSchema,
+  OptionalFilePathQuerySchema,
   TransferRequestSchema,
   TransferResultSchema,
+  UploadHeaderSchema,
+  UploadIdParamSchema,
 } from "@/contracts";
 import { filesService } from "../service";
 
@@ -31,8 +36,17 @@ import { filesService } from "../service";
  */
 const requireBaseAccess = async (c: Context<AuthContext>) => {
   const user = expectUserBackedActor(c);
-  const baseType = c.req.param("baseType")!;
-  const baseId = c.req.param("baseId")!;
+  const params = FileBaseParamSchema.safeParse({
+    baseType: c.req.param("baseType"),
+    baseId: c.req.param("baseId"),
+  });
+  if (!params.success) {
+    return {
+      base: null,
+      error: await respond(c, fail(err.badInput("Invalid file base"))),
+    };
+  }
+  const { baseType, baseId } = params.data;
 
   const base = await filesService.base.get({ baseType, baseId });
   if (!base.ok) {
@@ -112,7 +126,7 @@ const app = new Hono<AuthContext>()
       description: "Returns list of file bases the user can access (home directory + group directories).",
       ...requiresIpaUser,
       responses: {
-        200: jsonResponse(z.array(FileBaseInfoSchema), "List of accessible bases"),
+        200: jsonResponse(FileBaseInfoSchema.array(), "List of accessible bases"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
       },
     }),
@@ -144,40 +158,9 @@ const app = new Hono<AuthContext>()
       const user = expectUserBackedActor(c);
       const { pattern, showHidden, limit, bases: basesParam } = c.req.valid("query");
 
-      // Get all accessible bases for this user
-      const allBases = await filesService.base.listResolved({ user });
-
-      // Filter to specific bases if requested
-      let basesToSearch: FileBase[];
-      if (basesParam) {
-        const requestedBases = basesParam.split(",").map((b) => b.trim());
-        basesToSearch = [];
-
-        for (const baseStr of requestedBases) {
-          const [type, id] = baseStr.split(":");
-          if (!type || !id) continue;
-
-          // Find matching base in user's accessible bases
-          const matchingBase = allBases.find((b) => {
-            if (type === "home" && b.type === "home") return b.uid === id;
-            if (type === "group" && b.type === "group") return b.name === id;
-            return false;
-          });
-
-          if (matchingBase) {
-            basesToSearch.push(matchingBase);
-          }
-        }
-
-        if (basesToSearch.length === 0) {
-          return respond(c, fail(err.badInput("No accessible bases match the provided filter")));
-        }
-      } else {
-        basesToSearch = allBases;
-      }
-
-      const result = await filesService.search.list({
-        bases: basesToSearch,
+      const result = await filesService.search.global({
+        user,
+        bases: basesParam,
         pattern,
         showHidden,
         limit,
@@ -204,6 +187,7 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
+    v("param", FileBaseParamSchema),
     v("query", ListFilesQuerySchema),
     async (c) => {
       const query = c.req.valid("query");
@@ -236,7 +220,8 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "File not found"),
       },
     }),
-    v("query", z.object({ path: z.string(), inline: z.coerce.boolean().optional() })),
+    v("param", FileBaseParamSchema),
+    v("query", DownloadQuerySchema),
     async (c) => {
       const { path, inline } = c.req.valid("query");
 
@@ -272,7 +257,8 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "File not found"),
       },
     }),
-    v("query", z.object({ path: z.string() })),
+    v("param", FileBaseParamSchema),
+    v("query", FilePathQuerySchema),
     async (c) => {
       const { path } = c.req.valid("query");
 
@@ -300,8 +286,9 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Access denied"),
       },
     }),
-    v("query", z.object({ path: z.string().default("/") })),
-    v("header", z.object({ "x-file-name": z.string() })),
+    v("param", FileBaseParamSchema),
+    v("query", OptionalFilePathQuerySchema),
+    v("header", UploadHeaderSchema),
     async (c) => {
       const { path } = c.req.valid("query");
       const filename = c.req.valid("header")["x-file-name"];
@@ -336,6 +323,7 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Source not found"),
       },
     }),
+    v("param", FileBaseParamSchema),
     v("query", FileActionQuerySchema),
     async (c) => {
       const { action, path, to } = c.req.valid("query");
@@ -371,7 +359,8 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
-    v("query", z.object({ path: z.string() })),
+    v("param", FileBaseParamSchema),
+    v("query", FilePathQuerySchema),
     async (c) => {
       const { path } = c.req.valid("query");
 
@@ -403,6 +392,7 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Access denied"),
       },
     }),
+    v("param", FileBaseParamSchema),
     v("query", MoveTargetSearchQuerySchema),
     async (c) => {
       const user = expectUserBackedActor(c);
@@ -447,11 +437,11 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Access denied"),
       },
     }),
+    v("param", FileBaseParamSchema),
     v("json", TransferRequestSchema),
     async (c) => {
       const user = expectUserBackedActor(c);
-      const sourceBaseType = c.req.param("baseType")!;
-      const sourceBaseId = c.req.param("baseId")!;
+      const { baseType: sourceBaseType, baseId: sourceBaseId } = c.req.valid("param");
       const { paths: sourcePaths, targetBaseType, targetBaseId, targetPath } = c.req.valid("json");
 
       // Parse and verify access to source base
@@ -506,6 +496,7 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Source not found"),
       },
     }),
+    v("param", FileBaseParamSchema),
     v("json", DuplicateRequestSchema),
     async (c) => {
       const { path, newName } = c.req.valid("json");
@@ -543,7 +534,8 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Access denied"),
       },
     }),
-    v("query", z.object({ path: z.string().default("/") })),
+    v("param", FileBaseParamSchema),
+    v("query", OptionalFilePathQuerySchema),
     v("json", ChunkedUploadStartSchema),
     async (c) => {
       const { path } = c.req.valid("query");
@@ -582,10 +574,11 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Upload session not found"),
       },
     }),
+    v("param", UploadIdParamSchema),
     v("query", ChunkedUploadChunkQuerySchema),
-    v("header", z.object({ "x-chunk-checksum": z.string().optional() })),
+    v("header", ChunkHeaderSchema),
     async (c) => {
-      const uploadId = c.req.param("uploadId")!;
+      const { uploadId } = c.req.valid("param");
       const { index } = c.req.valid("query");
       const checksum = c.req.valid("header")["x-chunk-checksum"];
 

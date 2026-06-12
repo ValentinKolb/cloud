@@ -25,7 +25,7 @@ import MoveTargetSearch from "./MoveTargetSearch.island";
 import type { FileBaseInfo } from "@/contracts";
 
 type FileToolbarProps = {
-  baseType: string;
+  baseType: FileBaseInfo["type"];
   baseId: string;
   currentPath: string;
   initialFilterQuery?: string;

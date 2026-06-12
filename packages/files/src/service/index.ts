@@ -1,7 +1,7 @@
 import * as paths from "./paths";
 import * as permissions from "./permissions";
 import * as operations from "./operations";
-import { paginate, type PageParams, type Paginated } from "@valentinkolb/stdlib";
+import { err, fail, ok, paginate, type PageParams, type Paginated } from "@valentinkolb/stdlib";
 import type { FileBase, FileBaseInfo, User } from "@/contracts";
 
 const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
@@ -24,6 +24,24 @@ const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => 
     total: items.length,
     hasNext: page * perPage < items.length,
   };
+};
+
+const baseId = (base: FileBase): string => (base.type === "home" ? base.uid : base.name);
+
+const filterRequestedBases = (bases: FileBase[], requested?: string) => {
+  if (!requested) return ok(bases);
+
+  const requestedKeys = requested
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (requestedKeys.length === 0) return fail(err.badInput("No accessible bases match the provided filter"));
+
+  const requestedSet = new Set(requestedKeys);
+  const filtered = bases.filter((base) => requestedSet.has(`${base.type}:${baseId(base)}`));
+  if (filtered.length === 0) return fail(err.badInput("No accessible bases match the provided filter"));
+
+  return ok(filtered);
 };
 
 export const filesService = {
@@ -84,6 +102,17 @@ export const filesService = {
   },
   search: {
     list: operations.searchAll,
+    global: async (config: { user: User; bases?: string; pattern: string; showHidden?: boolean; limit?: number }) => {
+      const accessibleBases = await permissions.listBases(config.user);
+      const bases = filterRequestedBases(accessibleBases, config.bases);
+      if (!bases.ok) return bases;
+      return operations.searchAll({
+        bases: bases.data,
+        pattern: config.pattern,
+        showHidden: config.showHidden,
+        limit: config.limit,
+      });
+    },
   },
   transfer: {
     execute: operations.transfer,

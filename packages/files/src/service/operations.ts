@@ -14,28 +14,12 @@ import type {
 import * as paths from "./paths";
 import * as permissions from "./permissions";
 
-/**
- * Lazy Filegate client — deferred until first use, then cached.
- * Reset via `resetFilegateClient()` after settings change.
- */
-let _filegate: Filegate | null = null;
 const getFilegate = async (): Promise<Filegate> => {
-  if (_filegate) return _filegate;
   const [url, token] = await Promise.all([
     get<string>("files.filegate_url"),
     get<string>("files.filegate_token"),
   ]);
-  _filegate = new Filegate({ url, token });
-  return _filegate;
-};
-
-/**
- * Drop the cached Filegate client. Called by the settings router after
- * filegate_url or filegate_token is updated, so the next file operation
- * uses fresh credentials without restarting the container.
- */
-export const resetFilegateClient = (): void => {
-  _filegate = null;
+  return new Filegate({ url, token });
 };
 
 /**
