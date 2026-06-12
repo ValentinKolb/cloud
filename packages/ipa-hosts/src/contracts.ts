@@ -1,8 +1,10 @@
 import { z } from "zod";
 
 const MAC_ADDRESS_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/;
+const FQDN_REGEX = /^(?=.{1,253}$)(?!-)(?:[A-Z0-9-]{1,63}\.)*[A-Z0-9-]{1,63}\.?$/i;
 
 export const normalizeMacAddress = (value: string): string => value.trim().replace(/-/g, ":").replace(/\s+/g, "").toUpperCase();
+export const normalizeDirectoryText = (value: string): string => value.trim();
 
 const MacAddressSchema = z
   .string()
@@ -21,7 +23,7 @@ export const MessageResponseSchema = z.object({
 export type MessageResponse = z.infer<typeof MessageResponseSchema>;
 
 export const SearchQuerySchema = z.object({
-  search: z.string().optional(),
+  search: z.string().trim().max(200).optional(),
 });
 
 export const PaginationQuerySchema = z.object({
@@ -38,6 +40,29 @@ export const PaginationResponseSchema = z.object({
   has_next: z.boolean(),
 });
 export type PaginationResponse = z.infer<typeof PaginationResponseSchema>;
+
+export const FqdnParamSchema = z.object({
+  fqdn: z.string().trim().min(1).max(253).regex(FQDN_REGEX, "Invalid host FQDN"),
+});
+
+export const HostgroupCnParamSchema = z.object({
+  cn: z.string().transform(normalizeDirectoryText).pipe(z.string().min(1).max(255)),
+});
+
+export const HostgroupNameSchema = z.string().transform(normalizeDirectoryText).pipe(z.string().min(1).max(255));
+export const HostgroupMemberSchema = z.object({
+  hostgroup: HostgroupNameSchema,
+});
+
+export const HostgroupSearchQuerySchema = z.object({
+  q: z.string().trim().min(1).max(200),
+  exclude: z.string().max(4_000).optional(),
+});
+
+export const CreateHostgroupSchema = z.object({
+  name: HostgroupNameSchema,
+  description: z.string().max(4_000).optional(),
+});
 
 export type PaginationParams = {
   page: number;
@@ -85,14 +110,22 @@ export const IpaHostgroupSchema = z.object({
 export type IpaHostgroup = z.infer<typeof IpaHostgroupSchema>;
 
 export const UpdateHostSchema = z.object({
-  description: z.string().optional(),
-  location: z.string().optional(),
-  locality: z.string().optional(),
-  macAddress: z.array(MacAddressSchema).optional().transform((value) => (value ? [...new Set(value)] : value)),
+  description: z.string().max(4_000).optional(),
+  location: z.string().max(255).optional(),
+  locality: z.string().max(255).optional(),
+  macAddress: z
+    .array(MacAddressSchema)
+    .max(64)
+    .optional()
+    .transform((value) => (value ? [...new Set(value)] : value)),
 });
 
 export const UpdateHostgroupSchema = z.object({
-  description: z.string().optional(),
+  description: z.string().max(4_000).optional(),
+});
+
+export const SyncCronUpdateSchema = z.object({
+  cron: z.string().trim().min(1).max(120),
 });
 
 export const SyncCronResponseSchema = z.object({

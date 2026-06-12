@@ -5,7 +5,12 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import {
   createPagination,
+  CreateHostgroupSchema,
   ErrorResponseSchema,
+  FqdnParamSchema,
+  HostgroupCnParamSchema,
+  HostgroupMemberSchema,
+  HostgroupSearchQuerySchema,
   IpaHostgroupSchema,
   IpaHostSchema,
   MessageResponseSchema,
@@ -14,6 +19,7 @@ import {
   parsePagination,
   SearchQuerySchema,
   SyncCronResponseSchema,
+  SyncCronUpdateSchema,
   UpdateHostgroupSchema,
   UpdateHostSchema,
 } from "@/contracts";
@@ -112,10 +118,10 @@ const app = new Hono<AuthContext>()
         500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
+    v("param", FqdnParamSchema),
     v("json", UpdateHostSchema),
     async (c) => {
-      const fqdn = c.req.param("fqdn");
-      if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
+      const { fqdn } = c.req.valid("param");
       const data = c.req.valid("json");
       const actor = requireUserBackedApiActor(c);
       if (!actor.ok) return respond(c, actor);
@@ -135,8 +141,9 @@ const app = new Hono<AuthContext>()
         500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
+    v("param", FqdnParamSchema),
     async (c) => {
-      const fqdn = c.req.param("fqdn");
+      const { fqdn } = c.req.valid("param");
       const actor = requireUserBackedApiActor(c);
       if (!actor.ok) return respond(c, actor);
       return respondMessage(c, ipaHostsService.host.remove({ actor: actor.data, fqdn }), "Host deleted");
@@ -155,10 +162,10 @@ const app = new Hono<AuthContext>()
         500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
-    v("json", z.object({ hostgroup: z.string().min(1) })),
+    v("param", FqdnParamSchema),
+    v("json", HostgroupMemberSchema),
     async (c) => {
-      const fqdn = c.req.param("fqdn");
-      if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
+      const { fqdn } = c.req.valid("param");
       const { hostgroup } = c.req.valid("json");
       const actor = requireUserBackedApiActor(c);
       if (!actor.ok) return respond(c, actor);
@@ -178,10 +185,10 @@ const app = new Hono<AuthContext>()
         500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
-    v("json", z.object({ hostgroup: z.string().min(1) })),
+    v("param", FqdnParamSchema),
+    v("json", HostgroupMemberSchema),
     async (c) => {
-      const fqdn = c.req.param("fqdn");
-      if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
+      const { fqdn } = c.req.valid("param");
       const { hostgroup } = c.req.valid("json");
       const actor = requireUserBackedApiActor(c);
       if (!actor.ok) return respond(c, actor);
@@ -219,7 +226,7 @@ const app = new Hono<AuthContext>()
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
       },
     }),
-    v("query", z.object({ q: z.string().min(1), exclude: z.string().optional() })),
+    v("query", HostgroupSearchQuerySchema),
     async (c) => {
       const { q, exclude } = c.req.valid("query");
       const hostgroups = await ipaHostsService.hostgroup.search({
@@ -243,7 +250,7 @@ const app = new Hono<AuthContext>()
         500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
-    v("json", z.object({ name: z.string().min(1), description: z.string().optional() })),
+    v("json", CreateHostgroupSchema),
     async (c) => {
       const { name, description } = c.req.valid("json");
       const actor = requireUserBackedApiActor(c);
@@ -264,10 +271,10 @@ const app = new Hono<AuthContext>()
         500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
+    v("param", HostgroupCnParamSchema),
     v("json", UpdateHostgroupSchema),
     async (c) => {
-      const cn = c.req.param("cn");
-      if (!cn) return respond(c, fail(err.badInput("Missing hostgroup name")));
+      const { cn } = c.req.valid("param");
       const data = c.req.valid("json");
       const actor = requireUserBackedApiActor(c);
       if (!actor.ok) return respond(c, actor);
@@ -287,8 +294,9 @@ const app = new Hono<AuthContext>()
         500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
       },
     }),
+    v("param", HostgroupCnParamSchema),
     async (c) => {
-      const cn = c.req.param("cn");
+      const { cn } = c.req.valid("param");
       const actor = requireUserBackedApiActor(c);
       if (!actor.ok) return respond(c, actor);
       return respondMessage(c, ipaHostsService.hostgroup.remove({ actor: actor.data, cn }), "Hostgroup deleted");
@@ -319,10 +327,12 @@ const app = new Hono<AuthContext>()
         500: jsonResponse(ErrorResponseSchema, "Failed to update sync cron"),
       },
     }),
-    v("json", z.object({ cron: z.string().min(1) })),
+    v("json", SyncCronUpdateSchema),
     async (c) => {
       const { cron } = c.req.valid("json");
-      return respondMessage(c, ipaHostsService.sync.updateCron({ cron }), "Sync schedule updated");
+      const actor = requireUserBackedApiActor(c);
+      if (!actor.ok) return respond(c, actor);
+      return respondMessage(c, ipaHostsService.sync.updateCron({ actor: actor.data, cron }), "Sync schedule updated");
     },
   )
   .post(
@@ -336,8 +346,10 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
+      const actor = requireUserBackedApiActor(c);
+      if (!actor.ok) return respond(c, actor);
       return respond(c, async () => {
-        await ipaHostsService.sync.run();
+        await ipaHostsService.sync.run({ actor: actor.data });
         return ok({ message: "Sync started" });
       });
     },

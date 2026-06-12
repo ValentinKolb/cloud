@@ -1,5 +1,5 @@
 import { sql } from "bun";
-import { logger, toPgTextArray } from "@valentinkolb/cloud/services";
+import { logger, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, paginate, type PageParams, type Paginated } from "@valentinkolb/stdlib";
 import type { CreateFaq, FaqEntry, UpdateFaq } from "@/contracts";
 
@@ -171,9 +171,21 @@ const reorder = async (config: { ids: string[] }) => {
   try {
     if (config.ids.length === 0) return ok();
 
-    for (const [index, id] of config.ids.entries()) {
-      await sql`UPDATE faq.entries SET position = ${index} WHERE id = ${id}::uuid`;
-    }
+    const uniqueIds = new Set(config.ids);
+    if (uniqueIds.size !== config.ids.length) return fail(err.badInput("FAQ IDs must be unique."));
+
+    const existingRows = await sql<{ id: string }[]>`
+      SELECT id
+      FROM faq.entries
+      WHERE id = ANY(${toPgUuidArray(config.ids)}::uuid[])
+    `;
+    if (existingRows.length !== uniqueIds.size) return fail(err.notFound("FAQ"));
+
+    await sql.begin(async (tx) => {
+      for (const [index, id] of config.ids.entries()) {
+        await tx`UPDATE faq.entries SET position = ${index} WHERE id = ${id}::uuid`;
+      }
+    });
     return ok();
   } catch (error) {
     log.error("Failed to reorder FAQs", { error: (error as Error).message });
