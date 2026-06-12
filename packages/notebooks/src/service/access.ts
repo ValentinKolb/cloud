@@ -10,6 +10,7 @@ import {
 import { type ServiceAccountCredential, serviceAccountCredentials } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import { resolveNotebookApiKeyPermission } from "./api-key-permissions";
 import { invalidated } from "./workspace-events";
 
 // ==========================
@@ -36,25 +37,6 @@ export const NOTEBOOK_RESOURCE_TYPE = "notebook";
 export type NotebookApiKey = ServiceAccountCredential & {
   permission: PermissionLevel;
 };
-
-const PERMISSION_RANK: Record<PermissionLevel, number> = {
-  none: 0,
-  read: 1,
-  write: 2,
-  admin: 3,
-};
-
-const permissionFromScopes = (scopes: string[]): PermissionLevel => {
-  if (scopes.includes("admin")) return "admin";
-  if (scopes.includes("write")) return "write";
-  if (scopes.includes("read")) return "read";
-  return "none";
-};
-
-const minPermission = (a: PermissionLevel, b: PermissionLevel): PermissionLevel => (PERMISSION_RANK[a] <= PERMISSION_RANK[b] ? a : b);
-
-export const resolveNotebookApiKeyPermission = (accessPermission: PermissionLevel, credentialScopes: string[]): PermissionLevel =>
-  minPermission(accessPermission, permissionFromScopes(credentialScopes));
 
 const mapAccessRow = (row: DbNotebookAccess): AccessEntry => {
   const principal: AccessEntry["principal"] = row.user_id

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { resolveNotebookApiKeyPermission } from "./access";
+import { maxApiKeyPermission, resolveNotebookApiKeyPermission } from "./api-key-permissions";
 
-describe("resolveNotebookApiKeyPermission", () => {
+describe("notebook API key permissions", () => {
   test("caps credential scopes by service account access", () => {
     expect(resolveNotebookApiKeyPermission("admin", ["read"])).toBe("read");
     expect(resolveNotebookApiKeyPermission("admin", ["write"])).toBe("write");
@@ -13,5 +13,11 @@ describe("resolveNotebookApiKeyPermission", () => {
     expect(resolveNotebookApiKeyPermission("admin", ["read", "write"])).toBe("write");
     expect(resolveNotebookApiKeyPermission("admin", [])).toBe("none");
     expect(resolveNotebookApiKeyPermission("none", ["admin"])).toBe("none");
+  });
+
+  test("selects the strongest requested API key permission", () => {
+    expect(maxApiKeyPermission(["read", "write"])).toBe("write");
+    expect(maxApiKeyPermission(["admin", "read"])).toBe("admin");
+    expect(maxApiKeyPermission(["read"])).toBe("read");
   });
 });

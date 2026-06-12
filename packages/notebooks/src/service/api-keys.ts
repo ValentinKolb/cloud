@@ -1,4 +1,4 @@
-import type { PermissionLevel, User } from "@valentinkolb/cloud/contracts";
+import type { User } from "@valentinkolb/cloud/contracts";
 import { type ServiceAccount, serviceAccountCredentials, serviceAccounts } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import {
@@ -8,27 +8,7 @@ import {
   NOTEBOOKS_APP_ID,
   type NotebookApiKey,
 } from "./access";
-
-const API_KEY_PERMISSION_RANK: Record<Extract<PermissionLevel, "none" | "read" | "write" | "admin">, number> = {
-  none: 0,
-  read: 1,
-  write: 2,
-  admin: 3,
-};
-
-type ApiKeyPermission = Extract<PermissionLevel, "read" | "write" | "admin">;
-
-const isApiKeyPermission = (permission: PermissionLevel): permission is ApiKeyPermission => permission !== "none";
-
-const maxPermission = (permissions: ApiKeyPermission[]): ApiKeyPermission => {
-  let max: ApiKeyPermission = "read";
-  for (const permission of permissions) {
-    if (API_KEY_PERMISSION_RANK[permission] > API_KEY_PERMISSION_RANK[max]) {
-      max = permission;
-    }
-  }
-  return max;
-};
+import { type ApiKeyPermission, isApiKeyPermission, maxApiKeyPermission } from "./api-key-permissions";
 
 const loadOrCreateNotebookServiceAccount = async (config: {
   notebookId: string;
@@ -88,7 +68,7 @@ export const create = async (config: {
 
   const existingKeys = await list({ notebookId: config.notebookId });
   const existingPermissions = existingKeys.map((key) => key.permission).filter(isApiKeyPermission);
-  const accessPermission = maxPermission([...existingPermissions, config.data.permission]);
+  const accessPermission = maxApiKeyPermission([...existingPermissions, config.data.permission]);
   const access = await ensureNotebookServiceAccountAccess({
     notebookId: config.notebookId,
     serviceAccountId: serviceAccount.data.serviceAccount.id,
