@@ -1,3 +1,5 @@
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { sql } from "bun";
 
 export type WebhookEndpoint = {
@@ -101,6 +103,38 @@ const truncate = (value: string | null | undefined): string | null => {
   return `${value.slice(0, MAX_BODY_CHARS)}\n\n[truncated]`;
 };
 
+const readTextLimited = async (response: Response): Promise<string | null> => {
+  if (!response.body) return null;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let total = 0;
+  let truncated = false;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_BODY_CHARS) {
+        const remaining = Math.max(0, MAX_BODY_CHARS - (total - value.byteLength));
+        if (remaining > 0) chunks.push(decoder.decode(value.subarray(0, remaining), { stream: true }));
+        truncated = true;
+        await reader.cancel();
+        break;
+      }
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+  } finally {
+    reader.releaseLock();
+  }
+
+  const text = chunks.join("");
+  return truncated ? `${text}\n\n[truncated]` : text;
+};
+
 const createToken = () => {
   const bytes = crypto.getRandomValues(new Uint8Array(24));
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -135,19 +169,47 @@ const mapLog = (row: LogRow): WebhookLog => ({
   createdAt: row.created_at,
 });
 
-const isPrivateIpv4 = (hostname: string): boolean => {
-  const parts = hostname.split(".").map((part) => Number(part));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  const a = parts[0]!;
-  const b = parts[1]!;
-  return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+const ipv4ToNumber = (ip: string): number => ip.split(".").reduce((acc, part) => (acc << 8) + Number(part), 0) >>> 0;
+
+const ipv4InRange = (ip: string, base: string, bits: number): boolean => {
+  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+  return (ipv4ToNumber(ip) & mask) === (ipv4ToNumber(base) & mask);
 };
 
-const isBlockedTargetUrl = (url: URL): boolean => {
+const isUnsafeAddress = (address: string): boolean => {
+  if (isIP(address) === 4) {
+    return (
+      ipv4InRange(address, "0.0.0.0", 8) ||
+      ipv4InRange(address, "10.0.0.0", 8) ||
+      ipv4InRange(address, "100.64.0.0", 10) ||
+      ipv4InRange(address, "127.0.0.0", 8) ||
+      ipv4InRange(address, "169.254.0.0", 16) ||
+      ipv4InRange(address, "172.16.0.0", 12) ||
+      ipv4InRange(address, "192.0.0.0", 24) ||
+      ipv4InRange(address, "192.168.0.0", 16)
+    );
+  }
+
+  const lower = address.toLowerCase();
+  if (lower.startsWith("::ffff:")) return isUnsafeAddress(lower.slice("::ffff:".length));
+  return lower === "::" || lower === "::1" || lower.startsWith("fe80:") || lower.startsWith("fc") || lower.startsWith("fd");
+};
+
+const isBlockedTargetHost = (url: URL): boolean => {
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
-  if (host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:")) return true;
-  return isPrivateIpv4(host);
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) return true;
+  return isIP(host) !== 0 && isUnsafeAddress(host);
+};
+
+const validateTargetUrl = async (url: URL): Promise<void> => {
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("Only HTTP and HTTPS URLs are allowed.");
+  if (url.username || url.password) throw new Error("URLs with embedded credentials are not allowed.");
+  if (isBlockedTargetHost(url)) throw new Error("Private, local, and link-local targets are blocked.");
+
+  const addresses = await lookup(url.hostname, { all: true, verbatim: true }).catch(() => []);
+  if (addresses.some((entry) => isUnsafeAddress(entry.address))) {
+    throw new Error("Private, local, and link-local targets are blocked.");
+  }
 };
 
 const cleanupLogs = async (ownerUserId: string, endpointId?: string | null) => {
@@ -337,8 +399,7 @@ export const webhookTesterService = {
 
   async send(ownerUserId: string, input: SendWebhookInput): Promise<WebhookLog> {
     const parsedUrl = new URL(input.url);
-    if (!["http:", "https:"].includes(parsedUrl.protocol)) throw new Error("Only HTTP and HTTPS URLs are allowed.");
-    if (isBlockedTargetUrl(parsedUrl)) throw new Error("Private, local, and link-local targets are blocked.");
+    await validateTargetUrl(parsedUrl);
 
     const headers = new Headers(input.headers);
     const started = performance.now();
@@ -353,10 +414,11 @@ export const webhookTesterService = {
         headers,
         body: input.method === "GET" ? undefined : input.body,
         redirect: "manual",
+        signal: AbortSignal.timeout(10_000),
       });
       responseStatus = response.status;
       responseHeaders = sanitizeHeaders(response.headers);
-      responseBody = truncate(await response.text());
+      responseBody = await readTextLimited(response);
     } catch (err) {
       error = err instanceof Error ? err.message : "Request failed";
     }

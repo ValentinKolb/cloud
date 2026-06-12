@@ -148,6 +148,7 @@ type VenueAccessSubject = {
 };
 
 type ResultError = Extract<Result<unknown>, { ok: false }>["error"];
+type SqlClient = typeof sql;
 
 class TemplateError extends Error {
   constructor(public readonly resultError: ResultError) {
@@ -390,6 +391,18 @@ const listAccess = async (venueId: string): Promise<AccessEntry[]> => {
   );
 };
 
+const createOwnerAccessInTx = async (tx: SqlClient, userId: string): Promise<Result<{ id: string }>> => {
+  const [user] = await tx<{ id: string }[]>`SELECT id FROM auth.users WHERE id = ${userId}::uuid`;
+  if (!user) return fail(err.notFound("User"));
+
+  const [row] = await tx<{ id: string }[]>`
+    INSERT INTO auth.access (user_id, permission)
+    VALUES (${userId}::uuid, 'admin'::auth.permission_level)
+    RETURNING id
+  `;
+  return row ? ok({ id: row.id }) : fail(err.internal("Failed to create access entry"));
+};
+
 const getPermission = async (venueId: string, subjectInput: UserLike | VenueAccessSubject): Promise<PermissionLevel> => {
   const subject = toAccessSubject(subjectInput);
   const entries = await listAccess(venueId);
@@ -466,8 +479,7 @@ const getVenueBySlug = async (slug: string): Promise<Venue | null> => {
   return row ? mapVenue(row) : null;
 };
 
-const createVenue = async (input: VenueInput, user: UserLike): Promise<Result<Venue>> => {
-  return sql.begin(async (tx) => {
+const createVenueInTx = async (tx: SqlClient, input: VenueInput, user: UserLike): Promise<Result<Venue>> => {
     const [row] = await tx<DbVenue[]>`
       INSERT INTO venue.venues (
         slug, name, icon, description, timezone, open_mode, signup_mode, public_enabled,
@@ -483,7 +495,7 @@ const createVenue = async (input: VenueInput, user: UserLike): Promise<Result<Ve
     `;
     if (!row) return fail(err.internal("Failed to create venue"));
 
-    const access = await createAccess({ principal: { type: "user", userId: user.id }, permission: "admin" });
+    const access = await createOwnerAccessInTx(tx, user.id);
     if (!access.ok) return access;
 
     await tx`
@@ -492,7 +504,10 @@ const createVenue = async (input: VenueInput, user: UserLike): Promise<Result<Ve
     `;
     log.info("Venue created", { venueId: row.id, userId: user.id });
     return ok(mapVenue(row, "admin"));
-  });
+};
+
+const createVenue = async (input: VenueInput, user: UserLike): Promise<Result<Venue>> => {
+  return sql.begin((tx) => createVenueInTx(tx, input, user));
 };
 
 const listVenueTemplates = (): VenueTemplateSummary[] =>
@@ -513,37 +528,70 @@ const instantiateVenueTemplate = async (templateId: string, input: VenueTemplate
   if (!template) return fail(err.notFound("Template"));
 
   const name = input.name?.trim() || template.venue.name;
-  const venue = await createVenue(
-    {
-      ...template.venue,
-      name,
-      slug: await resolveAvailableVenueSlug(input.slug?.trim() || name || template.venue.slug),
-    },
-    user,
-  );
-  if (!venue.ok) return venue;
+  const slug = await resolveAvailableVenueSlug(input.slug?.trim() || name || template.venue.slug);
 
   try {
-    for (const rule of template.openingRules) {
-      requireTemplateResult(await createOpeningRule(venue.data.id, rule));
-    }
-    for (const shift of template.shifts) {
-      requireTemplateResult(await createTemplate(venue.data.id, shift));
-    }
-    for (const [index, section] of template.sections.entries()) {
-      requireTemplateResult(await createSection(venue.data.id, { ...section, position: index + 1 }));
-    }
-    return venue;
+    return await sql.begin(async (tx) => {
+      const venue = await createVenueInTx(
+        tx,
+        {
+          ...template.venue,
+          name,
+          slug,
+        },
+        user,
+      );
+      if (!venue.ok) return venue;
+
+      for (const rule of template.openingRules) {
+        requireTemplateResult(await createOpeningRuleInTx(tx, venue.data.id, rule));
+      }
+      for (const shift of template.shifts) {
+        requireTemplateResult(await createTemplateInTx(tx, venue.data.id, shift));
+      }
+      for (const [index, section] of template.sections.entries()) {
+        requireTemplateResult(await createSectionInTx(tx, venue.data.id, { ...section, position: index + 1 }));
+      }
+      return venue;
+    });
   } catch (error) {
-    await sql`DELETE FROM venue.venues WHERE id = ${venue.data.id}::uuid`.catch(() => {});
     log.error("Venue template instantiation failed", {
       templateId,
-      venueId: venue.data.id,
       error: error instanceof Error ? error.message : String(error),
     });
     if (error instanceof TemplateError) return fail(error.resultError);
     return fail(err.internal("Could not create venue from template."));
   }
+};
+
+const createOpeningRuleInTx = async (tx: SqlClient, venueId: string, input: OpeningRuleInput): Promise<Result<OpeningRule>> => {
+  const [row] = await tx<DbOpeningRule[]>`
+    INSERT INTO venue.opening_rules (venue_id, weekday, start_time, end_time, note)
+    VALUES (${venueId}::uuid, ${input.weekday}, ${input.startTime}::time, ${input.endTime}::time, ${input.note?.trim() || null})
+    RETURNING *
+  `;
+  return row ? ok(mapOpeningRule(row)) : fail(err.internal("Failed to create opening rule"));
+};
+
+const createTemplateInTx = async (tx: SqlClient, venueId: string, input: ShiftTemplateInput): Promise<Result<ShiftTemplate>> => {
+  const [row] = await tx<DbShiftTemplate[]>`
+    INSERT INTO venue.shift_templates (venue_id, weekday, title, start_time, end_time, min_people, max_people, active)
+    VALUES (
+      ${venueId}::uuid, ${input.weekday}, ${input.title.trim()}, ${input.startTime}::time, ${input.endTime}::time,
+      ${input.minPeople}, ${input.maxPeople ?? null}, ${input.active}
+    )
+    RETURNING *
+  `;
+  return row ? ok(mapTemplate(row)) : fail(err.internal("Failed to create shift"));
+};
+
+const createSectionInTx = async (tx: SqlClient, venueId: string, input: PublicSectionInput): Promise<Result<PublicSection>> => {
+  const [row] = await tx<DbPublicSection[]>`
+    INSERT INTO venue.public_sections (venue_id, kind, title, content, enabled, position)
+    VALUES (${venueId}::uuid, ${input.kind}, ${input.title.trim()}, ${JSON.stringify(input.content)}::jsonb, ${input.enabled}, ${input.position})
+    RETURNING *
+  `;
+  return row ? ok(mapSection(row)) : fail(err.internal("Failed to create public section"));
 };
 
 const updateVenue = async (id: string, input: VenueInput): Promise<Result<Venue>> => {
@@ -619,12 +667,7 @@ const listOpeningRules = async (venueId: string): Promise<OpeningRule[]> => {
 };
 
 const createOpeningRule = async (venueId: string, input: OpeningRuleInput): Promise<Result<OpeningRule>> => {
-  const [row] = await sql<DbOpeningRule[]>`
-    INSERT INTO venue.opening_rules (venue_id, weekday, start_time, end_time, note)
-    VALUES (${venueId}::uuid, ${input.weekday}, ${input.startTime}::time, ${input.endTime}::time, ${input.note?.trim() || null})
-    RETURNING *
-  `;
-  return row ? ok(mapOpeningRule(row)) : fail(err.internal("Failed to create opening rule"));
+  return createOpeningRuleInTx(sql, venueId, input);
 };
 
 const updateOpeningRule = async (venueId: string, id: string, input: OpeningRuleInput): Promise<Result<OpeningRule>> => {
@@ -703,15 +746,7 @@ const listTemplates = async (venueId: string): Promise<ShiftTemplate[]> => {
 };
 
 const createTemplate = async (venueId: string, input: ShiftTemplateInput): Promise<Result<ShiftTemplate>> => {
-  const [row] = await sql<DbShiftTemplate[]>`
-    INSERT INTO venue.shift_templates (venue_id, weekday, title, start_time, end_time, min_people, max_people, active)
-    VALUES (
-      ${venueId}::uuid, ${input.weekday}, ${input.title.trim()}, ${input.startTime}::time, ${input.endTime}::time,
-      ${input.minPeople}, ${input.maxPeople ?? null}, ${input.active}
-    )
-    RETURNING *
-  `;
-  return row ? ok(mapTemplate(row)) : fail(err.internal("Failed to create shift"));
+  return createTemplateInTx(sql, venueId, input);
 };
 
 const updateTemplate = async (venueId: string, id: string, input: ShiftTemplateInput): Promise<Result<ShiftTemplate>> => {
@@ -832,35 +867,51 @@ const signupTemplate = async (
   input: z.infer<typeof TemplateSignupInputSchema>,
   user: UserLike,
 ): Promise<Result<ShiftAssignment>> => {
-  const [template] = await sql<DbShiftTemplate[]>`
-    SELECT * FROM venue.shift_templates
-    WHERE id = ${templateId}::uuid AND venue_id = ${venue.id}::uuid AND active = true
-  `;
-  if (!template) return fail(err.notFound("Shift"));
+  return sql.begin(async (tx) => {
+    const [template] = await tx<DbShiftTemplate[]>`
+      SELECT * FROM venue.shift_templates
+      WHERE id = ${templateId}::uuid AND venue_id = ${venue.id}::uuid AND active = true
+    `;
+    if (!template) return fail(err.notFound("Shift"));
 
-  const start = instantFor(input.date, toTime(template.start_time) ?? "00:00", venue.timezone);
-  const end = endInstantFor(input.date, toTime(template.start_time) ?? "00:00", toTime(template.end_time) ?? "00:00", venue.timezone);
-  if (end < new Date()) return fail(err.badInput("This shift has already ended"));
+    const startTime = toTime(template.start_time) ?? "00:00";
+    const endTime = toTime(template.end_time) ?? "00:00";
+    const start = instantFor(input.date, startTime, venue.timezone);
+    const end = endInstantFor(input.date, startTime, endTime, venue.timezone);
+    if (end < new Date()) return fail(err.badInput("This shift has already ended"));
 
-  const [row] = await sql<DbShiftAssignment[]>`
-    INSERT INTO venue.shift_assignments (venue_id, template_id, user_id, starts_at, ends_at)
-    SELECT ${venue.id}::uuid, t.id, ${user.id}::uuid, ${start}, ${end}
-    FROM venue.shift_templates t
-    WHERE t.id = ${templateId}::uuid
-      AND t.venue_id = ${venue.id}::uuid
-      AND t.active = true
-      AND (
-        t.max_people IS NULL
-        OR (
-          SELECT COUNT(*)::int
-          FROM venue.shift_assignments sa
-          WHERE sa.template_id = t.id AND sa.starts_at = ${start}
-        ) < t.max_people
-      )
-    RETURNING *, NULL::text AS user_display_name
-  `;
-  if (!row) return fail(err.badInput("This shift is already full"));
-  return ok((await assignmentsForRange(venue.id, start, end)).find((entry) => entry.id === row.id) ?? mapAssignment(row));
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${templateId}), hashtext(${start.toISOString()}))`;
+
+    const [existing] = await tx<{ id: string }[]>`
+      SELECT id FROM venue.shift_assignments
+      WHERE venue_id = ${venue.id}::uuid
+        AND user_id = ${user.id}::uuid
+        AND starts_at = ${start}
+        AND ends_at = ${end}
+      LIMIT 1
+    `;
+    if (existing) return fail(err.badInput("You are already signed up for this shift"));
+
+    const [row] = await tx<DbShiftAssignment[]>`
+      INSERT INTO venue.shift_assignments (venue_id, template_id, user_id, starts_at, ends_at)
+      SELECT ${venue.id}::uuid, t.id, ${user.id}::uuid, ${start}, ${end}
+      FROM venue.shift_templates t
+      WHERE t.id = ${templateId}::uuid
+        AND t.venue_id = ${venue.id}::uuid
+        AND t.active = true
+        AND (
+          t.max_people IS NULL
+          OR (
+            SELECT COUNT(*)::int
+            FROM venue.shift_assignments sa
+            WHERE sa.template_id = t.id AND sa.starts_at = ${start}
+          ) < t.max_people
+        )
+      RETURNING *, NULL::text AS user_display_name
+    `;
+    if (!row) return fail(err.badInput("This shift is already full"));
+    return ok((await assignmentsForRange(venue.id, start, end)).find((entry) => entry.id === row.id) ?? mapAssignment(row));
+  });
 };
 
 const signupTemplateWeeks = async (
@@ -923,12 +974,7 @@ const listSections = async (venueId: string, onlyEnabled = false): Promise<Publi
 };
 
 const createSection = async (venueId: string, input: PublicSectionInput): Promise<Result<PublicSection>> => {
-  const [row] = await sql<DbPublicSection[]>`
-    INSERT INTO venue.public_sections (venue_id, kind, title, content, enabled, position)
-    VALUES (${venueId}::uuid, ${input.kind}, ${input.title.trim()}, ${JSON.stringify(input.content)}::jsonb, ${input.enabled}, ${input.position})
-    RETURNING *
-  `;
-  return row ? ok(mapSection(row)) : fail(err.internal("Failed to create public section"));
+  return createSectionInTx(sql, venueId, input);
 };
 
 const updateSection = async (venueId: string, id: string, input: PublicSectionInput): Promise<Result<PublicSection>> => {
