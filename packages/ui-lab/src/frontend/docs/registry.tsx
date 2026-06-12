@@ -122,6 +122,7 @@ import {
   WidgetRecentNotesDemo,
   WidgetServiceStatesDemo,
 } from "../lab/surfaces-cards";
+import { TemplateEditorDemo, TemplateInvoicePrintShowcaseDemo } from "../lab/template-editor";
 
 export type UiLabDocRenderProps = {
   markdownHtml: string;
@@ -744,6 +745,20 @@ export const uiLabDocs: UiLabDocSection[] = [
         () => (
           <DemoGrid columns="one">
             <StructuredDataPreviewDemo />
+          </DemoGrid>
+        ),
+      ),
+      page(
+        "content",
+        "template-editor",
+        "Template Editor",
+        "ti ti-template",
+        "HTML and Mustache template editor prototype with completions, preview, and sample values.",
+        ["template-editor", "template-invoice-print"],
+        () => (
+          <DemoGrid columns="one">
+            <TemplateEditorDemo />
+            <TemplateInvoicePrintShowcaseDemo />
           </DemoGrid>
         ),
       ),
