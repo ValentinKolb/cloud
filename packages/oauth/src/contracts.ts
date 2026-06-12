@@ -1,10 +1,27 @@
 import { z } from "zod";
 
+const MAX_URL_LENGTH = 2_000;
+const MAX_TEXT_LENGTH = 1_000;
+const MAX_NAME_LENGTH = 120;
+const MAX_ARRAY_ITEMS = 50;
+
+const UrlSchema = z.string().trim().max(MAX_URL_LENGTH).pipe(z.url());
+const TextSchema = z.string().trim().max(MAX_TEXT_LENGTH);
+const NameSchema = z.string().trim().min(1).max(MAX_NAME_LENGTH);
+const AudienceSchema = z.string().trim().min(1).max(255);
+const dedupe = <T>(values: T[]): T[] => Array.from(new Set(values));
+
 export const OAuthScopeSchema = z.enum(["openid", "profile", "email", "groups", "read", "write", "admin"]);
 export type OAuthScope = z.infer<typeof OAuthScopeSchema>;
 
 export const OAuthAllowedProfileSchema = z.enum(["user", "guest"]);
 export type OAuthAllowedProfile = z.infer<typeof OAuthAllowedProfileSchema>;
+
+const AllowedProfilesSchema = z
+  .array(OAuthAllowedProfileSchema)
+  .max(MAX_ARRAY_ITEMS)
+  .transform(dedupe)
+  .refine((values) => values.length <= 2, "Allowed profiles must not contain more than two distinct values");
 
 export const OAuthClientSchema = z.object({
   id: z.string(),
@@ -26,27 +43,31 @@ export const OAuthClientWithSecretSchema = OAuthClientSchema.extend({
   clientSecret: z.string(),
 });
 
+export const OAuthClientParamSchema = z.object({
+  id: z.uuid(),
+});
+
 export const CreateOAuthClientSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
-  redirectUris: z.array(z.url()).default([]),
-  logoutUri: z.url().optional(),
-  scopes: z.array(OAuthScopeSchema).default(["openid", "profile", "email"]),
-  audiences: z.array(z.string().min(1)).default(["cloud"]),
+  name: NameSchema,
+  description: TextSchema.optional(),
+  redirectUris: z.array(UrlSchema).max(MAX_ARRAY_ITEMS).transform(dedupe).default([]),
+  logoutUri: UrlSchema.optional(),
+  scopes: z.array(OAuthScopeSchema).max(MAX_ARRAY_ITEMS).transform(dedupe).default(["openid", "profile", "email"]),
+  audiences: z.array(AudienceSchema).max(MAX_ARRAY_ITEMS).transform(dedupe).default(["cloud"]),
   serviceAccountId: z.uuid().nullable().optional(),
-  allowedProfiles: z.array(OAuthAllowedProfileSchema).default(["user", "guest"]),
+  allowedProfiles: AllowedProfilesSchema.default(["user", "guest"]),
   isPublic: z.boolean().default(false),
 });
 
 export const UpdateOAuthClientSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().nullable().optional(),
-  redirectUris: z.array(z.url()).optional(),
-  logoutUri: z.url().nullable().optional(),
-  scopes: z.array(OAuthScopeSchema).optional(),
-  audiences: z.array(z.string().min(1)).optional(),
+  name: NameSchema.optional(),
+  description: TextSchema.nullable().optional(),
+  redirectUris: z.array(UrlSchema).max(MAX_ARRAY_ITEMS).transform(dedupe).optional(),
+  logoutUri: UrlSchema.nullable().optional(),
+  scopes: z.array(OAuthScopeSchema).max(MAX_ARRAY_ITEMS).transform(dedupe).optional(),
+  audiences: z.array(AudienceSchema).max(MAX_ARRAY_ITEMS).transform(dedupe).optional(),
   serviceAccountId: z.uuid().nullable().optional(),
-  allowedProfiles: z.array(OAuthAllowedProfileSchema).optional(),
+  allowedProfiles: AllowedProfilesSchema.optional(),
 });
 
 export type OAuthClient = z.infer<typeof OAuthClientSchema>;

@@ -92,12 +92,14 @@ export const consume = async (params: {
     if (computedChallenge !== row.code_challenge) return null;
   }
 
-  // Mark as used
-  await sql`
+  // Mark as used atomically so concurrent token exchanges cannot consume the same code twice.
+  const [usedRow] = await sql<{ code: string }[]>`
     UPDATE oauth.codes
     SET used = true
-    WHERE code = ${code}
+    WHERE code = ${code} AND used = false
+    RETURNING code
   `;
+  if (!usedRow) return null;
 
   // Get client
   const client = await clients.getByClientId({ clientId });

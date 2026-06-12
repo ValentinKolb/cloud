@@ -8,6 +8,7 @@ import {
   ErrorResponseSchema,
   MessageResponseSchema,
   OAuthClientSchema,
+  OAuthClientParamSchema,
   OAuthClientWithSecretSchema,
   UpdateOAuthClientSchema,
 } from "@/contracts";
@@ -63,11 +64,13 @@ const app = new Hono<AuthContext>()
       ...requiresAdmin,
       responses: {
         200: jsonResponse(OAuthClientSchema, "OAuth client details"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid client id"),
         404: jsonResponse(ErrorResponseSchema, "Client not found"),
       },
     }),
+    v("param", OAuthClientParamSchema),
     async (c) => {
-      const id = c.req.param("id") ?? "";
+      const { id } = c.req.valid("param");
       const client = await oauthService.client.get({ id });
 
       if (!client) {
@@ -120,12 +123,14 @@ const app = new Hono<AuthContext>()
       ...requiresAdmin,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Client updated"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid client id"),
         404: jsonResponse(ErrorResponseSchema, "Client not found"),
       },
     }),
+    v("param", OAuthClientParamSchema),
     v("json", UpdateOAuthClientSchema),
     async (c) => {
-      const id = c.req.param("id") ?? "";
+      const { id } = c.req.valid("param");
       const data = c.req.valid("json");
 
       return respondMessage(c, oauthService.client.update({ id, data }), "Client updated");
@@ -144,11 +149,13 @@ const app = new Hono<AuthContext>()
       ...requiresAdmin,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Client deleted"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid client id"),
         404: jsonResponse(ErrorResponseSchema, "Client not found"),
       },
     }),
+    v("param", OAuthClientParamSchema),
     async (c) => {
-      const id = c.req.param("id");
+      const { id } = c.req.valid("param");
 
       return respondMessage(c, oauthService.client.remove({ id }), "Client deleted");
     },
@@ -166,12 +173,13 @@ const app = new Hono<AuthContext>()
       ...requiresAdmin,
       responses: {
         200: jsonResponse(z.object({ clientSecret: z.string() }), "New client secret"),
-        400: jsonResponse(ErrorResponseSchema, "Cannot regenerate for public clients"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid request"),
         404: jsonResponse(ErrorResponseSchema, "Client not found"),
       },
     }),
+    v("param", OAuthClientParamSchema),
     async (c) => {
-      const id = c.req.param("id");
+      const { id } = c.req.valid("param");
 
       return respond(c, oauthService.client.regenerateSecret({ id }));
     },

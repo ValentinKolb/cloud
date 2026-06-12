@@ -121,6 +121,58 @@ describe("OAuth resource access tokens", () => {
     }
   });
 
+  test("authorization codes can only be consumed once under concurrent exchange", async () => {
+    if (!(await canUseDatabase())) {
+      console.warn("Skipping OAuth authorization code race DB test: auth/oauth tables are not available.");
+      return;
+    }
+
+    const userId = await insertUser();
+    let clientId: string | null = null;
+
+    try {
+      const created = await oauth.clients.create({
+        createdBy: userId,
+        data: {
+          name: `Authorization code race client ${crypto.randomUUID()}`,
+          redirectUris: ["https://client.example.test/callback"],
+          scopes: ["openid", "profile", "email"],
+          audiences: ["cloud"],
+          allowedProfiles: ["user"],
+          isPublic: false,
+        },
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      clientId = created.data.id;
+
+      const code = await oauth.codes.create({
+        clientId: created.data.clientId,
+        userId,
+        redirectUri: "https://client.example.test/callback",
+      });
+
+      const results = await Promise.all([
+        oauth.codes.consume({
+          code,
+          clientId: created.data.clientId,
+          redirectUri: "https://client.example.test/callback",
+        }),
+        oauth.codes.consume({
+          code,
+          clientId: created.data.clientId,
+          redirectUri: "https://client.example.test/callback",
+        }),
+      ]);
+
+      expect(results.filter((result) => result !== null)).toHaveLength(1);
+      expect(results.filter((result) => result === null)).toHaveLength(1);
+    } finally {
+      if (clientId) await sql`DELETE FROM oauth.clients WHERE id = ${clientId}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
   test("client credentials resolve as resource service-account actors and validate scope/resource", async () => {
     if (!(await canUseDatabase())) {
       console.warn("Skipping OAuth client credentials DB test: auth/oauth tables are not available.");
