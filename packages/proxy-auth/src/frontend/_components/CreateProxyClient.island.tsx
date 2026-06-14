@@ -16,7 +16,7 @@ const CreateProxyClient = () => {
       return result as ProxyAuthClient;
     },
     onSuccess: async (data) => {
-      const verifyUrl = `${window.location.origin}/api/proxy-auth/verify/${data.clientId}`;
+      const verifyUrl = `${window.location.origin}/proxy-auth/verify/${data.clientId}`;
 
       await prompts.alert(
         <div class="space-y-4">

@@ -154,7 +154,7 @@ const ProxyClientActions = (props: Props) => {
 
   const handleCopyVerifyUrl = () => {
     const baseUrl = window.location.origin;
-    clipboard.copy(`${baseUrl}/api/proxy-auth/verify/${client.clientId}`);
+    clipboard.copy(`${baseUrl}/proxy-auth/verify/${client.clientId}`);
     prompts.alert("Verify URL copied to clipboard.", {
       title: "Copied",
       icon: "ti ti-check",

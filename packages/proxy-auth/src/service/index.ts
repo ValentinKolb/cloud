@@ -1,13 +1,16 @@
 import { sql } from "bun";
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, paginate, type PageParams, type Paginated } from "@valentinkolb/stdlib";
 import type { ProxyAuthAllowedGroup, ProxyAuthClient, CreateProxyAuthClient, UpdateProxyAuthClient } from "@/contracts";
+
+type Db = typeof sql;
 
 type ClientRow = {
   id: string;
   name: string;
   client_id: string;
   description: string | null;
-  created_at: string;
+  created_at: string | Date;
   allowed_groups: ProxyAuthAllowedGroup[];
 };
 
@@ -28,7 +31,7 @@ const mapRow = (row: ClientRow): ProxyAuthClient => ({
   clientId: row.client_id,
   description: row.description,
   allowedGroups: row.allowed_groups ?? [],
-  createdAt: row.created_at,
+  createdAt: new Date(row.created_at).toISOString(),
 });
 
 const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
@@ -145,6 +148,32 @@ const getByClientId = async (config: { clientId: string }): Promise<ProxyAuthCli
   return rows.length > 0 ? mapRow(rows[0] as ClientRow) : null;
 };
 
+const validateGroupIds = async (db: Db, groupIds: string[]) => {
+  const rows = await db<{ id: string }[]>`
+    SELECT id
+    FROM auth.groups
+    WHERE id = ANY(${toPgUuidArray(groupIds)}::uuid[])
+  `;
+  if (rows.length !== groupIds.length) {
+    return fail(err.badInput("One or more allowed groups do not exist."));
+  }
+  return ok();
+};
+
+const replaceAllowedGroups = async (db: Db, clientId: string, groupIds: string[]) => {
+  const validation = await validateGroupIds(db, groupIds);
+  if (!validation.ok) return validation;
+
+  await db`DELETE FROM proxy_auth.client_groups WHERE client_id = ${clientId}::uuid`;
+  for (const groupId of groupIds) {
+    await db`
+      INSERT INTO proxy_auth.client_groups (client_id, group_id)
+      VALUES (${clientId}::uuid, ${groupId}::uuid)
+    `;
+  }
+  return ok();
+};
+
 /**
  * Creates a proxy-auth client and persists its allowed-group links.
  */
@@ -152,25 +181,31 @@ const create = async (config: { data: CreateProxyAuthClient; createdBy: string }
   const { data, createdBy } = config;
 
   try {
-    const rows = await sql`
+    const result = await sql.begin(async (tx) => {
+      const groups = await validateGroupIds(tx, data.allowedGroupIds);
+      if (!groups.ok) return groups;
+
+      const rows = await tx`
       INSERT INTO proxy_auth.clients (name, description, created_by)
       VALUES (${data.name}, ${data.description ?? null}, ${createdBy})
       RETURNING *
     `;
-    const client = rows[0]!;
+      const client = rows[0]!;
 
-    for (const groupId of data.allowedGroupIds) {
-      await sql`
+      for (const groupId of data.allowedGroupIds) {
+        await tx`
         INSERT INTO proxy_auth.client_groups (client_id, group_id)
         VALUES (${client.id}, ${groupId})
       `;
-    }
+      }
 
-    const result = await get({ id: client.id as string });
-    if (!result) {
-      return fail(err.internal("Failed to load created client."));
-    }
-    return ok(result);
+      return ok(client.id as string);
+    });
+    if (!result.ok) return result;
+
+    const client = await get({ id: result.data });
+    if (!client) return fail(err.internal("Failed to load created client."));
+    return ok(client);
   } catch (error: unknown) {
     const message = toErrorMessage(error, "Failed to create client.");
     if (message.includes("unique") || (error as { code?: string })?.code === "23505") {
@@ -187,25 +222,23 @@ const update = async (config: { id: string; data: UpdateProxyAuthClient }) => {
   const { id, data } = config;
 
   try {
-    const existing = await sql`SELECT id FROM proxy_auth.clients WHERE id = ${id}`;
-    if (existing.length === 0) {
-      return fail({ code: "NOT_FOUND", message: "Client not found.", status: 404 });
-    }
-
-    if (data.description !== undefined) {
-      await sql`UPDATE proxy_auth.clients SET description = ${data.description} WHERE id = ${id}`;
-    }
-    if (data.allowedGroupIds) {
-      await sql`DELETE FROM proxy_auth.client_groups WHERE client_id = ${id}`;
-      for (const groupId of data.allowedGroupIds) {
-        await sql`
-          INSERT INTO proxy_auth.client_groups (client_id, group_id)
-          VALUES (${id}, ${groupId})
-        `;
+    return await sql.begin(async (tx) => {
+      const existing = await tx`SELECT id FROM proxy_auth.clients WHERE id = ${id}::uuid`;
+      if (existing.length === 0) {
+        return fail(err.notFound("Client"));
       }
-    }
 
-    return ok();
+      if (data.allowedGroupIds) {
+        const groups = await replaceAllowedGroups(tx, id, data.allowedGroupIds);
+        if (!groups.ok) return groups;
+      }
+
+      if (data.description !== undefined) {
+        await tx`UPDATE proxy_auth.clients SET description = ${data.description} WHERE id = ${id}::uuid`;
+      }
+
+      return ok();
+    });
   } catch (error: unknown) {
     return fail(err.internal(toErrorMessage(error, "Failed to update client.")));
   }
@@ -216,9 +249,9 @@ const update = async (config: { id: string; data: UpdateProxyAuthClient }) => {
  */
 const remove = async (config: { id: string }) => {
   try {
-    const rows = await sql`DELETE FROM proxy_auth.clients WHERE id = ${config.id} RETURNING id`;
+    const rows = await sql`DELETE FROM proxy_auth.clients WHERE id = ${config.id}::uuid RETURNING id`;
     if (rows.length === 0) {
-      return fail({ code: "NOT_FOUND", message: "Client not found.", status: 404 });
+      return fail(err.notFound("Client"));
     }
     return ok();
   } catch (error: unknown) {

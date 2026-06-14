@@ -8,6 +8,7 @@ import {
   ErrorResponseSchema,
   MessageResponseSchema,
   ProxyAuthClientSchema,
+  ProxyAuthClientParamSchema,
   UpdateProxyAuthClientSchema,
 } from "@/contracts";
 import { proxyAuthService } from "../service";
@@ -47,11 +48,14 @@ const app = new Hono<AuthContext>()
       ...requiresAdmin,
       responses: {
         200: jsonResponse(ProxyAuthClientSchema, "Proxy auth client details"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid client id"),
         404: jsonResponse(ErrorResponseSchema, "Client not found"),
       },
     }),
+    v("param", ProxyAuthClientParamSchema),
     async (c) => {
-      const client = await proxyAuthService.client.get({ id: c.req.param("id") });
+      const { id } = c.req.valid("param");
+      const client = await proxyAuthService.client.get({ id });
       if (!client) return respond(c, fail(err.notFound("Client")));
       return respond(c, ok(client));
     },
@@ -85,15 +89,18 @@ const app = new Hono<AuthContext>()
       ...requiresAdmin,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Client updated"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid request"),
         404: jsonResponse(ErrorResponseSchema, "Client not found"),
       },
     }),
+    v("param", ProxyAuthClientParamSchema),
     v("json", UpdateProxyAuthClientSchema),
     async (c) => {
+      const { id } = c.req.valid("param");
       return respondMessage(
         c,
         proxyAuthService.client.update({
-          id: c.req.param("id") ?? "",
+          id,
           data: c.req.valid("json"),
         }),
         "Client updated",
@@ -109,11 +116,14 @@ const app = new Hono<AuthContext>()
       ...requiresAdmin,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Client deleted"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid client id"),
         404: jsonResponse(ErrorResponseSchema, "Client not found"),
       },
     }),
+    v("param", ProxyAuthClientParamSchema),
     async (c) => {
-      return respondMessage(c, proxyAuthService.client.remove({ id: c.req.param("id") }), "Client deleted");
+      const { id } = c.req.valid("param");
+      return respondMessage(c, proxyAuthService.client.remove({ id }), "Client deleted");
     },
   );
 

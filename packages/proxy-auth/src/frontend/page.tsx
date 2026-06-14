@@ -44,9 +44,9 @@ export default ssr<AuthContext>(async (c) => {
             <StatCell label="Clients" value={clients.length} sub="registered" accent={{ tone: "blue", icon: "ti ti-shield-half" }} />
             <StatCell label="Allowed groups" value={totalAllowedGroups} sub="across all clients" />
             <StatCell
-              label="Open access"
+              label="No groups"
               value={clientsWithoutGroups}
-              sub={clientsWithoutGroups > 0 ? "any user passes" : "all gated"}
+              sub={clientsWithoutGroups > 0 ? "blocked until configured" : "all gated"}
               valueClass={clientsWithoutGroups > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
               accent={clientsWithoutGroups > 0
                 ? { tone: "amber", icon: "ti ti-alert-triangle" }
@@ -104,7 +104,7 @@ export default ssr<AuthContext>(async (c) => {
             <div class="flex flex-col gap-0.5">
               <span class="opacity-70">Verify URL Pattern:</span>
               <code class="break-all">
-                {baseUrl}/api/proxy-auth/verify/{"<client-id>"}
+                {baseUrl}/proxy-auth/verify/{"<client-id>"}
               </code>
             </div>
           </div>
@@ -115,7 +115,7 @@ export default ssr<AuthContext>(async (c) => {
   middlewares:
     my-proxy-auth:
       forwardAuth:
-        address: "${baseUrl}/api/proxy-auth/verify/<client-id>"
+        address: "${baseUrl}/proxy-auth/verify/<client-id>"
         authResponseHeaders:
           - "X-Forwarded-User"
           - "X-Forwarded-Email"
