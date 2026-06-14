@@ -343,10 +343,7 @@ export const DockWorkspaceDemo = (props: { initialState?: DockWorkspaceState | n
             <div class="grid min-h-0 flex-1 grid-cols-8 items-end gap-2 rounded-lg bg-zinc-50 p-4 dark:bg-zinc-900/70">
               {[42, 64, 51, 78, 69, 92, 58, 83].map((height, index) => (
                 <div class="flex min-h-0 flex-col justify-end gap-2">
-                  <div
-                    class="rounded-t bg-blue-500/80 dark:bg-blue-400/80"
-                    style={{ height: `${height}%`, "min-height": "1.5rem" }}
-                  />
+                  <div class="rounded-t bg-blue-500/80 dark:bg-blue-400/80" style={{ height: `${height}%`, "min-height": "1.5rem" }} />
                   <span class="text-center text-[10px] text-dimmed">{index + 1}</span>
                 </div>
               ))}
@@ -358,7 +355,8 @@ export const DockWorkspaceDemo = (props: { initialState?: DockWorkspaceState | n
           <div class="h-full bg-fuchsia-50/40 dark:bg-fuchsia-950/10">
             <div class="paper h-full p-3 font-mono text-sm leading-6 text-zinc-900 dark:text-zinc-100">
               <p>
-                <span class="text-blue-600 dark:text-blue-300">metric</span> sales.revenue <span class="text-emerald-600 dark:text-emerald-300">sum</span>
+                <span class="text-blue-600 dark:text-blue-300">metric</span> sales.revenue{" "}
+                <span class="text-emerald-600 dark:text-emerald-300">sum</span>
               </p>
               <p>
                 <span class="text-blue-600 dark:text-blue-300">every</span> 1h
@@ -377,7 +375,10 @@ export const DockWorkspaceDemo = (props: { initialState?: DockWorkspaceState | n
           <div class="h-full bg-fuchsia-50/40 dark:bg-fuchsia-950/10">
             <div class="paper grid h-full content-start gap-2 p-3">
               {["Webshop", "Importer", "Billing"].map((name) => (
-                <button type="button" class="rounded-md bg-zinc-100/70 px-3 py-2 text-left text-sm transition hover:bg-zinc-100 dark:bg-zinc-900/60 dark:hover:bg-zinc-900">
+                <button
+                  type="button"
+                  class="rounded-md bg-zinc-100/70 px-3 py-2 text-left text-sm transition hover:bg-zinc-100 dark:bg-zinc-900/60 dark:hover:bg-zinc-900"
+                >
                   <span class="font-medium text-primary">{name}</span>
                   <span class="block text-xs text-dimmed">Click to scope query</span>
                 </button>
@@ -390,7 +391,10 @@ export const DockWorkspaceDemo = (props: { initialState?: DockWorkspaceState | n
           <div class="h-full bg-fuchsia-50/40 dark:bg-fuchsia-950/10">
             <div class="paper grid h-full content-start gap-2 p-3">
               {["Revenue today", "Checkout errors", "Returning users"].map((name) => (
-                <button type="button" class="rounded-md bg-zinc-100/70 px-3 py-2 text-left text-sm transition hover:bg-zinc-100 dark:bg-zinc-900/60 dark:hover:bg-zinc-900">
+                <button
+                  type="button"
+                  class="rounded-md bg-zinc-100/70 px-3 py-2 text-left text-sm transition hover:bg-zinc-100 dark:bg-zinc-900/60 dark:hover:bg-zinc-900"
+                >
                   <span class="font-medium text-primary">{name}</span>
                   <code class="block truncate text-[11px] text-dimmed">metric example.query sum every 1h since 24h</code>
                 </button>

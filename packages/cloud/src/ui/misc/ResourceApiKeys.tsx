@@ -1,6 +1,6 @@
 import { dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import type { PermissionLevel, ServiceAccountCredential } from "../../contracts/shared";
 import { DateTimePicker } from "../input/DatePicker";
 import SelectInput from "../input/Select";
@@ -58,9 +58,7 @@ const permissionLabel = (permission: PermissionLevel, options: ResourceApiKeyPer
 function TokenDialog(props: { token: string }) {
   return (
     <div class="flex flex-col gap-4">
-      <div class="info-block-warning text-xs">
-        Copy this API key now. It is shown once and cannot be recovered later.
-      </div>
+      <div class="info-block-warning text-xs">Copy this API key now. It is shown once and cannot be recovered later.</div>
       <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
         <code class="block break-all font-mono text-xs text-primary">{props.token}</code>
       </div>
@@ -140,7 +138,9 @@ function CreateResourceApiKeyDialog(props: {
         ]}
       />
       <div class="flex justify-end gap-2">
-        <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(null)}>Cancel</button>
+        <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(null)}>
+          Cancel
+        </button>
         <button type="submit" class="btn-primary btn-sm">
           <i class="ti ti-plus" />
           Create key
@@ -153,6 +153,10 @@ function CreateResourceApiKeyDialog(props: {
 export default function ResourceApiKeys(props: ResourceApiKeysProps) {
   const options = () => (props.permissionOptions && props.permissionOptions.length > 0 ? props.permissionOptions : DEFAULT_PERMISSIONS);
   const [keys, setKeys] = createSignal<ResourceApiKey[]>(props.initialKeys);
+
+  createEffect(() => {
+    setKeys(props.initialKeys);
+  });
 
   const createMutation = mutations.create<{ credential: ResourceApiKey; token: string }, CreateResourceApiKeyInput>({
     mutation: props.createKey,
