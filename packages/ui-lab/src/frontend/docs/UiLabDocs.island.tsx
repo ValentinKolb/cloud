@@ -1,7 +1,7 @@
-import { AppWorkspace, layout } from "@valentinkolb/cloud/ui";
 import type { DockWorkspaceState } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, layout } from "@valentinkolb/cloud/ui";
 import { createSignal, onCleanup, onMount } from "solid-js";
-import { docHref, findDocPage, uiLabDocs } from "./registry";
+import { docHref, findDocPage, type UiLabDocPage, uiLabDocs } from "./registry";
 
 type UiLabDocsProps = {
   section: string;
@@ -9,6 +9,11 @@ type UiLabDocsProps = {
   markdownHtml: string;
   dockWorkspaceInitialState?: DockWorkspaceState | null;
 };
+
+type DocPage = NonNullable<ReturnType<typeof findDocPage>>;
+
+const isPlainLeftClick = (event: MouseEvent): boolean =>
+  !event.defaultPrevented && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 
 export default function UiLabDocs(props: UiLabDocsProps) {
   const [route, setRoute] = createSignal({ section: props.section, slug: props.slug });
@@ -21,14 +26,33 @@ export default function UiLabDocs(props: UiLabDocsProps) {
     const page = findDocPage(decodeURIComponent(match[1]), decodeURIComponent(match[2]));
     return page ? { page, href: url.pathname + url.search + url.hash } : null;
   };
-  const applyPage = (page: NonNullable<ReturnType<typeof findDocPage>>) => {
+  const applyPage = (page: DocPage) => {
     setRoute({ section: page.section, slug: page.slug });
     layout.update({
       breadcrumbs: [{ title: "Start", href: "/" }, { title: "UI Lab", href: "/app/ui-lab" }, { title: page.title }],
       title: page.title,
     });
   };
-  const isActive = (page: NonNullable<ReturnType<typeof findDocPage>>) => route().section === page.section && route().slug === page.slug;
+  const isActive = (page: UiLabDocPage) => route().section === page.section && route().slug === page.slug;
+  const renderSidebarItem = (page: UiLabDocPage) => (
+    <AppWorkspace.SidebarItem
+      href={docHref(page)}
+      icon={page.icon}
+      active={isActive(page)}
+      scroll="top"
+      onClick={(event) => {
+        if (isPlainLeftClick(event)) applyPage(page);
+      }}
+      onNavigate={(nav) => {
+        const next = navigateDoc(nav.href);
+        if (!next) return nav.fallback();
+        applyPage(next.page);
+        nav.push(next.href);
+      }}
+    >
+      {page.title}
+    </AppWorkspace.SidebarItem>
+  );
   const applyCurrentLocation = () => {
     const next = navigateDoc(window.location.href);
     if (next) applyPage(next.page);
@@ -45,59 +69,13 @@ export default function UiLabDocs(props: UiLabDocsProps) {
         <AppWorkspace.SidebarHeader title="UI Lab" subtitle="Components and utilities" icon="ti ti-palette" />
 
         <AppWorkspace.SidebarMobile>
-          <AppWorkspace.SidebarMobileItems>
-            {uiLabDocs.map((group) =>
-              group.pages.map((page) => (
-                <AppWorkspace.SidebarItem
-                  href={docHref(page)}
-                  icon={page.icon}
-                  active={isActive(page)}
-                  scroll="top"
-                  onClick={(event) => {
-                    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
-                      return;
-                    applyPage(page);
-                  }}
-                  onNavigate={(nav) => {
-                    const next = navigateDoc(nav.href);
-                    if (!next) return nav.fallback();
-                    applyPage(next.page);
-                    nav.push(next.href);
-                  }}
-                >
-                  {page.title}
-                </AppWorkspace.SidebarItem>
-              )),
-            )}
-          </AppWorkspace.SidebarMobileItems>
+          <AppWorkspace.SidebarMobileItems>{uiLabDocs.map((group) => group.pages.map(renderSidebarItem))}</AppWorkspace.SidebarMobileItems>
         </AppWorkspace.SidebarMobile>
 
         <AppWorkspace.SidebarDesktop>
           <AppWorkspace.SidebarBody scrollPreserveKey="ui-lab-docs-sidebar">
             {uiLabDocs.map((group) => (
-              <AppWorkspace.SidebarSection title={group.title}>
-                {group.pages.map((page) => (
-                  <AppWorkspace.SidebarItem
-                    href={docHref(page)}
-                    icon={page.icon}
-                    active={isActive(page)}
-                    scroll="top"
-                    onClick={(event) => {
-                      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
-                        return;
-                      applyPage(page);
-                    }}
-                    onNavigate={(nav) => {
-                      const next = navigateDoc(nav.href);
-                      if (!next) return nav.fallback();
-                      applyPage(next.page);
-                      nav.push(next.href);
-                    }}
-                  >
-                    {page.title}
-                  </AppWorkspace.SidebarItem>
-                ))}
-              </AppWorkspace.SidebarSection>
+              <AppWorkspace.SidebarSection title={group.title}>{group.pages.map(renderSidebarItem)}</AppWorkspace.SidebarSection>
             ))}
           </AppWorkspace.SidebarBody>
         </AppWorkspace.SidebarDesktop>
