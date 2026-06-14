@@ -2,38 +2,46 @@ import { type AuthContext, auth, respond, v } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
+import { getUserBackedActor } from "../actor";
 import { dashboardSettingsService } from "../service";
-import { normalizeDashboardShortcutHref } from "../shared";
-
-const safeLinkHref = (href: string): boolean => /^(\/|https?:\/\/|mailto:)/i.test(href);
+import {
+  DASHBOARD_MAX_HREF_LENGTH,
+  DASHBOARD_MAX_ID_LENGTH,
+  DASHBOARD_MAX_ITEMS,
+  DASHBOARD_MAX_SHORTCUTS,
+  DASHBOARD_MAX_TITLE_LENGTH,
+  isSafeDashboardShortcutHref,
+  normalizeDashboardShortcutHref,
+} from "../shared";
 
 const ShortcutSchema = z.discriminatedUnion("kind", [
   z.object({
-    id: z.string().min(1),
+    id: z.string().trim().min(1).max(DASHBOARD_MAX_ID_LENGTH),
     kind: z.literal("app"),
-    appId: z.string().min(1),
-    title: z.string().trim().min(1).optional(),
-    icon: z.string().trim().min(1).optional(),
+    appId: z.string().trim().min(1).max(DASHBOARD_MAX_ID_LENGTH),
+    title: z.string().trim().min(1).max(DASHBOARD_MAX_TITLE_LENGTH).optional(),
+    icon: z.string().trim().min(1).max(DASHBOARD_MAX_ID_LENGTH).optional(),
   }),
   z.object({
-    id: z.string().min(1),
+    id: z.string().trim().min(1).max(DASHBOARD_MAX_ID_LENGTH),
     kind: z.literal("link"),
-    href: z.string().trim().min(1).max(2_000).transform(normalizeDashboardShortcutHref).refine(safeLinkHref, "Use a relative, HTTP(S), or mailto link."),
-    title: z.string().trim().min(1).max(80),
-    icon: z.string().trim().min(1).max(120),
+    href: z
+      .string()
+      .trim()
+      .min(1)
+      .max(DASHBOARD_MAX_HREF_LENGTH)
+      .transform(normalizeDashboardShortcutHref)
+      .refine(isSafeDashboardShortcutHref, "Use a relative, HTTP(S), or mailto link."),
+    title: z.string().trim().min(1).max(DASHBOARD_MAX_TITLE_LENGTH),
+    icon: z.string().trim().min(1).max(DASHBOARD_MAX_ID_LENGTH),
   }),
 ]);
 
 const SettingsSchema = z.object({
-  hiddenWidgets: z.array(z.string().min(1)).default([]),
-  gradient: z.string().trim().min(1).default("default"),
-  shortcuts: z.array(ShortcutSchema).default([]),
+  hiddenWidgets: z.array(z.string().trim().min(1).max(DASHBOARD_MAX_ID_LENGTH)).max(DASHBOARD_MAX_ITEMS).default([]),
+  gradient: z.string().trim().min(1).max(DASHBOARD_MAX_ID_LENGTH).default("default"),
+  shortcuts: z.array(ShortcutSchema).max(DASHBOARD_MAX_SHORTCUTS).default([]),
 });
-
-const getUserBackedActor = (c: Context<AuthContext>) => {
-  const actor = c.get("actor");
-  return actor.kind === "user" ? actor.user : actor.delegatedUser;
-};
 
 const requireUserBackedActor = (c: Context<AuthContext>): Result<NonNullable<ReturnType<typeof getUserBackedActor>>> => {
   const user = getUserBackedActor(c);

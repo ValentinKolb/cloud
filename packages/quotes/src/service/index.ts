@@ -25,7 +25,8 @@ const getCachedQuote = async (): Promise<Quote | null> => {
   try {
     const cached = await redis.get(CACHE_KEY);
     if (!cached) return null;
-    return JSON.parse(cached) as Quote;
+    const quote = JSON.parse(cached) as unknown;
+    return isQuote(quote) ? { text: quote.text.trim(), author: quote.author.trim() } : null;
   } catch {
     return null;
   }
@@ -48,6 +49,25 @@ type ZenQuotesResponse = Array<{
   h: string;
 }>;
 
+const isQuote = (value: unknown): value is Quote => {
+  if (!value || typeof value !== "object") return false;
+  const quote = value as Record<string, unknown>;
+  return (
+    typeof quote.text === "string" && quote.text.trim().length > 0 && typeof quote.author === "string" && quote.author.trim().length > 0
+  );
+};
+
+export const parseQuotePayload = (value: unknown): Quote | null => {
+  if (!Array.isArray(value)) return null;
+  const quote = value[0] as Partial<ZenQuotesResponse[number]> | undefined;
+  if (!quote || typeof quote.q !== "string" || typeof quote.a !== "string") return null;
+
+  const text = quote.q.trim();
+  const author = quote.a.trim();
+  if (!text || !author) return null;
+  return { text, author };
+};
+
 /**
  * Fetches one quote from ZenQuotes and maps transport errors into `Result` failures.
  */
@@ -68,16 +88,13 @@ const fetchQuote = async (): Promise<Result<Quote>> => {
       return fail(err.internal("Failed to fetch quote"));
     }
 
-    const data = (await response.json()) as ZenQuotesResponse;
-    const quote = data[0];
+    const quote = parseQuotePayload(await response.json());
     if (!quote) {
+      log.error("ZenQuotes API returned invalid data");
       return fail(err.internal("Quote API returned no data"));
     }
 
-    return ok({
-      text: quote.q ?? "Unknown",
-      author: quote.a ?? "Unknown",
-    });
+    return ok(quote);
   } catch (error) {
     log.error("Failed to fetch quote", {
       error: error instanceof Error ? error.message : String(error),

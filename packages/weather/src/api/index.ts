@@ -1,13 +1,25 @@
-import { type Context, Hono } from "hono";
-import { rateLimit, v, jsonResponse, requiresAuth, auth, type AuthContext, respond } from "@valentinkolb/cloud/server";
-import { describeRoute } from "hono-openapi";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
 import { weatherService } from "@valentinkolb/cloud/services";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { type Context, Hono } from "hono";
+import { describeRoute } from "hono-openapi";
 import { z } from "zod";
+import { getUserBackedActor } from "../actor";
+import { weatherSettingsRouter } from "./settings";
+import widgetRoutes from "./widgets";
+
+const coordinateString = (min: number, max: number) =>
+  z
+    .string()
+    .trim()
+    .refine((value) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed >= min && parsed <= max;
+    }, `Must be a number between ${min} and ${max}`);
 
 const WeatherQuerySchema = z.object({
-  lat: z.string().optional(),
-  lon: z.string().optional(),
+  lat: coordinateString(-90, 90).optional(),
+  lon: coordinateString(-180, 180).optional(),
 });
 
 const CurrentWeatherSchema = z.object({
@@ -59,10 +71,19 @@ const LocationSchema = z.object({
 });
 
 const CreateLocationSchema = z.object({
-  name: z.string().min(1),
-  state: z.string().optional(),
-  lat: z.number(),
-  lon: z.number(),
+  name: z.string().trim().min(1).max(120),
+  state: z
+    .string()
+    .trim()
+    .max(120)
+    .optional()
+    .transform((value) => (value ? value : undefined)),
+  lat: z.number().min(-90).max(90),
+  lon: z.number().min(-180).max(180),
+});
+
+const LocationParamSchema = z.object({
+  id: z.uuid(),
 });
 
 const GeoResultSchema = z.object({
@@ -74,18 +95,13 @@ const GeoResultSchema = z.object({
 });
 
 const GeoSearchQuerySchema = z.object({
-  q: z.string().min(1),
-  country: z.string().optional(),
+  q: z.string().trim().min(1).max(120),
+  country: z.string().trim().min(2).max(2).optional(),
 });
 
 const ForecastByCityQuerySchema = z.object({
-  q: z.string().min(1),
+  q: z.string().trim().min(1).max(120),
 });
-
-const getUserBackedActor = (c: Context<AuthContext>) => {
-  const actor = c.get("actor");
-  return actor.kind === "user" ? actor.user : actor.delegatedUser;
-};
 
 const requireUserBackedActor = (c: Context<AuthContext>): Result<NonNullable<ReturnType<typeof getUserBackedActor>>> => {
   const user = getUserBackedActor(c);
@@ -133,14 +149,16 @@ const locationsApi = new Hono<AuthContext>()
       ...requiresAuth,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Location deleted"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid location id"),
         401: jsonResponse(ErrorResponseSchema, "Unauthorized"),
         404: jsonResponse(ErrorResponseSchema, "Location not found"),
       },
     }),
+    v("param", LocationParamSchema),
     async (c) => {
       const user = requireUserBackedActor(c);
       if (!user.ok) return respond(c, user);
-      const id = c.req.param("id");
+      const { id } = c.req.valid("param");
 
       return respond(c, async () => {
         const result = await weatherService.location.saved.remove({
@@ -159,8 +177,6 @@ const locationsApi = new Hono<AuthContext>()
 //   /api/weather/widget/*  — dashboard widget endpoints (own auth)
 //   /api/weather/admin/*   — settings router (admin-gated)
 //   /api/weather/...       — CRUD (public weather data + auth-gated locations)
-import widgetRoutes from "./widgets";
-import { weatherSettingsRouter } from "./settings";
 
 const app = new Hono<AuthContext>()
   .route("/widget", widgetRoutes)
@@ -176,6 +192,7 @@ const app = new Hono<AuthContext>()
         "Get current weather, hourly forecast (next 24h), and daily forecast (next 5 days). Optionally provide lat/lon coordinates, otherwise uses default location (Ulm).",
       responses: {
         200: jsonResponse(WeatherDataSchema, "Weather data"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid coordinates"),
         500: jsonResponse(ErrorResponseSchema, "Failed to fetch weather"),
       },
     }),
@@ -201,6 +218,7 @@ const app = new Hono<AuthContext>()
       description: "Get only the current weather conditions. Optionally provide lat/lon coordinates.",
       responses: {
         200: jsonResponse(CurrentWeatherSchema, "Current weather"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid coordinates"),
         500: jsonResponse(ErrorResponseSchema, "Failed to fetch weather"),
       },
     }),

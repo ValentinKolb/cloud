@@ -1,11 +1,10 @@
+import type { WidgetBlock, WidgetListItem, WidgetResponse } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth } from "@valentinkolb/cloud/server";
+import { logger, weatherService } from "@valentinkolb/cloud/services";
 import { Hono } from "hono";
-import { auth, type AuthContext } from "@valentinkolb/cloud/server";
-import type {
-  WidgetResponse,
-  WidgetBlock,
-  WidgetListItem,
-} from "@valentinkolb/cloud/contracts";
-import { weatherService } from "@valentinkolb/cloud/services";
+import { getUserBackedActor } from "../actor";
+
+const log = logger("weather");
 
 /**
  * Weather widget — every saved location of the current user, fresh forecast
@@ -37,16 +36,80 @@ const ICON_MAP: Record<string, { ti: string; verbal: string }> = {
 
 const iconFor = (icon: string) => ICON_MAP[icon] ?? { ti: "ti ti-cloud", verbal: icon };
 
-const app = new Hono<AuthContext>()
-  .use(auth.requireRole("*"))
-  .get("/current", async (c) => {
-    const actor = c.get("actor") as AuthContext["Variables"]["actor"] | undefined;
-    const user = actor?.kind === "user" ? actor.user : actor?.delegatedUser;
-    if (!user) return c.body(null, 403);
+const unavailableBody = (message: string): WidgetResponse => ({
+  title: "Weather",
+  icon: "ti ti-cloud",
+  href: "/app/weather",
+  blocks: [
+    {
+      kind: "status",
+      tone: "error",
+      title: "Weather unavailable",
+      message,
+      icon: "ti ti-alert-circle",
+      grow: true,
+    },
+  ],
+});
 
-    const { items: locations } = await weatherService.locations.list({ userId: user.id });
+const app = new Hono<AuthContext>().use(auth.requireRole("*")).get("/current", async (c) => {
+  const user = getUserBackedActor(c);
+  if (!user) return c.body(null, 403);
 
-    if (locations.length === 0) {
+  let locations: Awaited<ReturnType<typeof weatherService.location.saved.list>>["items"];
+  try {
+    ({ items: locations } = await weatherService.location.saved.list({ userId: user.id }));
+  } catch (error) {
+    log.warn("Weather widget locations failed", {
+      userId: user.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return c.json(unavailableBody("Saved locations could not be loaded."));
+  }
+
+  if (locations.length === 0) {
+    const body: WidgetResponse = {
+      title: "Weather",
+      icon: "ti ti-cloud",
+      href: "/app/weather",
+      blocks: [
+        {
+          kind: "hero",
+          icon: "ti ti-map-pin-plus",
+          tone: "blue",
+          title: "No saved locations yet",
+          subtitle: "Add one in Weather to see forecasts here",
+        },
+      ],
+    };
+    return c.json(body);
+  }
+
+  const capped = locations.slice(0, LOCATION_LIMIT);
+  const forecasts = await Promise.all(
+    capped.map(async (loc) => {
+      try {
+        return {
+          loc,
+          data: await weatherService.forecast.current.get({
+            lat: String(loc.lat),
+            lon: String(loc.lon),
+          }),
+        };
+      } catch (error) {
+        log.warn("Weather widget forecast failed", {
+          locationId: loc.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return { loc, data: null };
+      }
+    }),
+  );
+
+  // Single-location → hero + pills (rich single-cell view).
+  if (forecasts.length === 1) {
+    const entry = forecasts[0]!;
+    if (!entry.data) {
       const body: WidgetResponse = {
         title: "Weather",
         icon: "ti ti-cloud",
@@ -54,108 +117,69 @@ const app = new Hono<AuthContext>()
         blocks: [
           {
             kind: "hero",
-            icon: "ti ti-map-pin-plus",
-            tone: "blue",
-            title: "No saved locations yet",
-            subtitle: "Add one in Weather to see forecasts here",
+            icon: "ti ti-cloud-off",
+            title: "Forecast unavailable",
+            subtitle: `Couldn't reach the provider for ${entry.loc.name}`,
           },
         ],
       };
       return c.json(body);
     }
-
-    const capped = locations.slice(0, LOCATION_LIMIT);
-    const forecasts = await Promise.all(
-      capped.map(async (loc) => ({
-        loc,
-        data: await weatherService.forecast.current.get({
-          lat: String(loc.lat),
-          lon: String(loc.lon),
-        }),
-      })),
-    );
-
-    // Single-location → hero + pills (rich single-cell view).
-    if (forecasts.length === 1) {
-      const entry = forecasts[0]!;
-      if (!entry.data) {
-        const body: WidgetResponse = {
-          title: "Weather",
-          icon: "ti ti-cloud",
-          href: "/app/weather",
-          blocks: [
-            {
-              kind: "hero",
-              icon: "ti ti-cloud-off",
-              title: "Forecast unavailable",
-              subtitle: `Couldn't reach the provider for ${entry.loc.name}`,
-            },
-          ],
-        };
-        return c.json(body);
-      }
-      const ic = iconFor(entry.data.icon);
-      const blocks: WidgetBlock[] = [
-        {
-          kind: "hero",
-          icon: ic.ti,
-          tone: "blue",
-          title: `${Math.round(entry.data.temperature)}°C · ${ic.verbal}`,
-          subtitle: entry.loc.name,
-        },
-        {
-          kind: "pills",
-          pills: [
-            { label: "wind", value: `${Math.round(entry.data.windSpeed)} km/h` },
-            ...(entry.data.humidity !== null
-              ? [{ label: "humid", value: `${Math.round(entry.data.humidity)}%` } as const]
-              : []),
-            ...(entry.data.pressure !== null
-              ? [{ label: "hPa", value: Math.round(entry.data.pressure) } as const]
-              : []),
-          ],
-        },
-      ];
-      const body: WidgetResponse = {
-        title: "Weather",
+    const ic = iconFor(entry.data.icon);
+    const blocks: WidgetBlock[] = [
+      {
+        kind: "hero",
         icon: ic.ti,
-        href: "/app/weather",
-        blocks,
-      };
-      return c.json(body);
-    }
-
-    // Multi-location → one row per saved place, list grows to fill the body.
-    const items: WidgetListItem[] = forecasts.map(({ loc, data }) => {
-      if (!data) {
-        return {
-          icon: "ti ti-cloud-off",
-          iconTone: "zinc",
-          label: loc.name,
-          sub: "no data",
-        };
-      }
-      const ic = iconFor(data.icon);
-      return {
-        icon: ic.ti,
-        iconTone: "blue",
-        label: loc.name,
-        sub: ic.verbal,
-        meta: `${Math.round(data.temperature)}°C`,
-      };
-    });
-
+        tone: "blue",
+        title: `${Math.round(entry.data.temperature)}°C · ${ic.verbal}`,
+        subtitle: entry.loc.name,
+      },
+      {
+        kind: "pills",
+        pills: [
+          { label: "wind", value: `${Math.round(entry.data.windSpeed)} km/h` },
+          ...(entry.data.humidity !== null ? [{ label: "humid", value: `${Math.round(entry.data.humidity)}%` } as const] : []),
+          ...(entry.data.pressure !== null ? [{ label: "hPa", value: Math.round(entry.data.pressure) } as const] : []),
+        ],
+      },
+    ];
     const body: WidgetResponse = {
       title: "Weather",
-      icon: "ti ti-cloud",
+      icon: ic.ti,
       href: "/app/weather",
-      meta:
-        locations.length > LOCATION_LIMIT
-          ? `${LOCATION_LIMIT} of ${locations.length}`
-          : undefined,
-      blocks: [{ kind: "list", items, grow: true }],
+      blocks,
     };
     return c.json(body);
+  }
+
+  // Multi-location → one row per saved place, list grows to fill the body.
+  const items: WidgetListItem[] = forecasts.map(({ loc, data }) => {
+    if (!data) {
+      return {
+        icon: "ti ti-cloud-off",
+        iconTone: "zinc",
+        label: loc.name,
+        sub: "no data",
+      };
+    }
+    const ic = iconFor(data.icon);
+    return {
+      icon: ic.ti,
+      iconTone: "blue",
+      label: loc.name,
+      sub: ic.verbal,
+      meta: `${Math.round(data.temperature)}°C`,
+    };
   });
+
+  const body: WidgetResponse = {
+    title: "Weather",
+    icon: "ti ti-cloud",
+    href: "/app/weather",
+    meta: locations.length > LOCATION_LIMIT ? `${LOCATION_LIMIT} of ${locations.length}` : undefined,
+    blocks: [{ kind: "list", items, grow: true }],
+  };
+  return c.json(body);
+});
 
 export default app;
