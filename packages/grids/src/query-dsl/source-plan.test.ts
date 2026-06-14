@@ -59,13 +59,6 @@ describe("DSL source planning", () => {
     expect(collectDslFieldTableIds({ ast: query, currentTableId: orders.id, tables: [orders, customers] })).toEqual([orders.id]);
   });
 
-  test("loads view metadata for untyped refs so resolver can report ambiguity", () => {
-    const query = ast({ source: source("unknown", "Customers") });
-
-    expect(needsDslViewCatalog(query)).toBe(true);
-    expect(collectDslFieldTableIds({ ast: query, tables: [orders, customers], views: [customerView] })).toEqual([customers.id]);
-  });
-
   test("loads the owner table fields for explicit view sources", () => {
     const query = ast({ source: source("view", "view_customers") });
 

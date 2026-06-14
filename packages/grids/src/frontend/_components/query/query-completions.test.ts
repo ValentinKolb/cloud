@@ -73,7 +73,7 @@ describe("query completions", () => {
   });
 
   test("after from table suggests tables by readable name", () => {
-    const suggestions = suggest("#", "", "from table #", "from table ".length);
+    const suggestions = suggest(undefined, "", "from table ", "from table ".length);
     expect(suggestions).toContainEqual(
       expect.objectContaining({ label: "Accounts", expansion: "Accounts", hint: "table · Accounts", appendSpace: false }),
     );
@@ -81,15 +81,91 @@ describe("query completions", () => {
   });
 
   test("after from view suggests views by readable name", () => {
-    const suggestions = suggest("#", "", "from view #", "from view ".length);
+    const suggestions = suggest(undefined, "", "from view ", "from view ".length);
     expect(suggestions).toContainEqual(
-      expect.objectContaining({ label: "Recent transactions", expansion: '"Recent transactions"', hint: 'view · "Recent transactions"', appendSpace: false }),
+      expect.objectContaining({
+        label: "Recent transactions",
+        expansion: '"Recent transactions"',
+        hint: 'view · "Recent transactions"',
+        appendSpace: false,
+      }),
     );
     expect(suggestions).not.toContainEqual(expect.objectContaining({ label: "Accounts" }));
+  });
+
+  test("join source suggestions only offer tables", () => {
+    const keywordSuggestions = suggest(" ", "", "join ", "join ".length - 1);
+    expect(keywordSuggestions).toContainEqual(expect.objectContaining({ label: "table", text: " table " }));
+    expect(keywordSuggestions).not.toContainEqual(expect.objectContaining({ label: "view" }));
+
+    const sourceSuggestions = suggest(undefined, "", "join table ", "join table ".length);
+    expect(sourceSuggestions).toContainEqual(expect.objectContaining({ label: "Accounts", expansion: "Accounts" }));
+    expect(sourceSuggestions).not.toContainEqual(expect.objectContaining({ label: "Recent transactions" }));
   });
 
   test("plain source position suggests the matching sources", () => {
     const suggestions = suggest(undefined, "trans", "from table trans", "from table ".length);
     expect(suggestions).toContainEqual(expect.objectContaining({ label: "Transactions", expansion: "Transactions" }));
+  });
+
+  test("plain source position suggests readable table names while typing", () => {
+    const suggestions = suggest(undefined, "Tr", "from table Tr", "from table ".length);
+    expect(suggestions).toContainEqual(expect.objectContaining({ label: "Transactions", expansion: "Transactions" }));
+  });
+
+  test("after a completed source suggests only follow-up clauses", () => {
+    const text = "from table Transactions ";
+    const suggestions = suggest(" ", "", text, text.length - 1);
+    expect(suggestions).toContainEqual(expect.objectContaining({ label: "select" }));
+    expect(suggestions).toContainEqual(expect.objectContaining({ label: "where", text: "\nwhere " }));
+    expect(suggestions).toContainEqual(expect.objectContaining({ label: "search", text: "\nsearch " }));
+    expect(suggestions).toContainEqual(expect.objectContaining({ label: "offset", text: "\noffset " }));
+    expect(suggestions).toContainEqual(expect.objectContaining({ label: "include deleted", text: "\ninclude deleted" }));
+    expect(suggestions).toContainEqual(expect.objectContaining({ label: "deleted only", text: "\ndeleted only" }));
+    expect(suggestions).not.toContainEqual(expect.objectContaining({ label: "from table" }));
+    expect(suggestions).not.toContainEqual(expect.objectContaining({ label: "from view" }));
+  });
+
+  test("where clauses suggest formula values without inserting a formula wrapper", () => {
+    const text = "from table Transactions\nwhere ";
+    const suggestions = suggest(" ", "", text, text.length - 1);
+    expect(suggestions).toContainEqual(expect.objectContaining({ label: "Amount", expansion: " Amount" }));
+    expect(suggestions).not.toContainEqual(expect.objectContaining({ text: expect.stringContaining("formula(") }));
+  });
+
+  test("where clauses do not suggest removed logical formula functions", () => {
+    const text = "from table Transactions\nwhere ";
+    const suggestions = suggest(" ", "", text, text.length - 1);
+    expect(suggestions).not.toContainEqual(expect.objectContaining({ label: "AND" }));
+    expect(suggestions).not.toContainEqual(expect.objectContaining({ label: "OR" }));
+    expect(suggestions).not.toContainEqual(expect.objectContaining({ label: "NOT" }));
+  });
+
+  test("same-line clause suggestions only switch after a semicolon", () => {
+    const withoutSeparator = suggest(" ", "", "from table Transactions select ", "from table Transactions select ".length - 1);
+    expect(withoutSeparator).not.toContainEqual(expect.objectContaining({ label: "Amount" }));
+
+    const withSeparator = suggest(" ", "", "from table Transactions; select ", "from table Transactions; select ".length - 1);
+    expect(withSeparator).toContainEqual(expect.objectContaining({ label: "Amount", expansion: " Amount" }));
+  });
+
+  test("search in suggests source fields", () => {
+    const text = "from table Transactions\nsearch 'alice' in ";
+    const suggestions = suggest(" ", "", text, text.length - 1);
+    expect(suggestions).toContainEqual(expect.objectContaining({ label: "Amount", expansion: " Amount", text: " Amount" }));
+  });
+
+  test("sort direction suggests null ordering modifiers", () => {
+    const text = "from table Transactions\nsort Amount asc ";
+    const suggestions = suggest(" ", "", text, text.length - 1);
+    expect(suggestions).toContainEqual(expect.objectContaining({ label: "nulls first", text: " nulls first" }));
+    expect(suggestions).toContainEqual(expect.objectContaining({ label: "nulls last", text: " nulls last" }));
+  });
+
+  test("trash clauses are mutually exclusive in keyword suggestions", () => {
+    const text = "from table Transactions include deleted ";
+    const suggestions = suggest(" ", "", text, text.length - 1);
+    expect(suggestions).not.toContainEqual(expect.objectContaining({ label: "include deleted" }));
+    expect(suggestions).not.toContainEqual(expect.objectContaining({ label: "deleted only" }));
   });
 });

@@ -1,16 +1,28 @@
-import { sql } from "bun";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { type ProjectionKind, storageOf } from "./field-storage";
+import { sql } from "bun";
+import type { Expr } from "../formula/types";
+import { normalizeRefKey } from "../ref-syntax";
+import {
+  type AggregateKind,
+  aggregateOutputKey,
+  aggregateOutputKeyFor,
+  aggregateSqlTypeForField,
+  aggregateSqlTypeForFormula,
+  isFieldAggregatable,
+  isFormulaAggregatable,
+} from "./aggregate-capabilities";
+import { storageOf } from "./field-storage";
+import type { FilterTree } from "./filter-compiler";
+import { compileFilter, renderClause } from "./filter-compiler";
 import {
   compileFormulaAstToSql,
   compileFormulaPredicateAstToSql,
   type FormulaSqlExpression,
+  type FormulaSqlFieldResolver,
   type FormulaSqlType,
 } from "./formula-sql-compiler";
-import type { FilterTree } from "./filter-compiler";
-import { compileFilter, renderClause } from "./filter-compiler";
+import { assertSqlIdentifier } from "./sql-ident";
 import type { Field } from "./types";
-import type { Expr } from "../formula/types";
 
 // =============================================================================
 // Group-by + aggregations compiler
@@ -32,10 +44,9 @@ import type { Expr } from "../formula/types";
 // buckets can exceed the total record count — caller documents this as
 // "explode-mode" so the UI can warn.
 //
-// Lookup / rollup grouping: rejected for now (would require either
-// rerunning the correlated subquery as GROUP BY expression or wrapping
-// the whole records query in a CTE — both viable, neither tiny).
-// Keep disabled until we have a concrete product need.
+// Lookup / rollup grouping: the plain saved-view group compiler rejects these.
+// Rich GQL preview/execution routes SQL-projectable computed group keys through
+// query-dsl/sql-compiler.ts instead, where the grouped query can own the CTE.
 //
 // Cursor pagination: keyset on the group-key tuple. Same shape as
 // the records-list cursor (sortValues + id), except `id` is unused
@@ -48,7 +59,7 @@ export type GroupBySpec = {
   granularity?: "day" | "week" | "month" | "quarter" | "year";
 };
 
-type AggKindForGroup = "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max";
+type AggKindForGroup = AggregateKind;
 
 export type GroupAggregationSpec =
   | {
@@ -94,11 +105,6 @@ export type GroupBucket = {
 // descriptor adds the new shape in one place instead of n compilers.
 // ──────────────────────────────────────────────────────────────────
 
-/** Projection kinds whose SQL value is numeric-shaped. sum/avg work
- *  over these; min/max work over these plus date / datetime / text. */
-const NUMERIC_KINDS: ReadonlySet<ProjectionKind> = new Set(["numeric"]);
-const DATE_KINDS: ReadonlySet<ProjectionKind> = new Set(["date", "datetime"]);
-
 /** Field-types that can appear in groupBy.
  *
  *  Routes through the descriptor's `groupable` flag, so adding a new
@@ -113,15 +119,7 @@ export const isGroupable = (field: Field): boolean => {
  *  the descriptor's projection kind; previously this had its own
  *  NUMERIC_TYPES set that could drift from the aggregate-compiler's. */
 export const isAggregatable = (field: Field | null, agg: AggKindForGroup, isStarField: boolean): boolean => {
-  if (isStarField) return agg === "count";
-  if (!field || field.deletedAt) return false;
-  if (agg === "count" || agg === "countEmpty" || agg === "countUnique") return true;
-  const kind = storageOf(field).kind;
-  if (agg === "sum" || agg === "avg") return NUMERIC_KINDS.has(kind);
-  if (agg === "min" || agg === "max") {
-    return NUMERIC_KINDS.has(kind) || DATE_KINDS.has(kind) || kind === "text";
-  }
-  return false;
+  return isFieldAggregatable(field, agg, isStarField);
 };
 
 // ──────────────────────────────────────────────────────────────────
@@ -152,7 +150,7 @@ const FORMULA_AGG_ID = /^[A-Za-z_][A-Za-z0-9_]{0,49}$/;
 const isFormulaAggregation = (req: GroupAggregationSpec): req is Extract<GroupAggregationSpec, { kind: "formula" }> =>
   "kind" in req && req.kind === "formula";
 
-const aggAliasFor = (req: GroupAggregationSpec): string => `${isFormulaAggregation(req) ? req.id : req.fieldId}__${req.agg}`;
+const aggAliasFor = (req: GroupAggregationSpec): string => aggregateOutputKeyFor(req);
 
 /** Build a per-group projection. Scalar / date / relation branches
  *  diverge here. */
@@ -255,19 +253,14 @@ const resolveGroupBy = (
   return { ok: true, resolved };
 };
 
-const isFormulaAggregatable = (type: FormulaSqlType, agg: AggKindForGroup): boolean => {
-  if (agg === "count" || agg === "countEmpty" || agg === "countUnique") return true;
-  if (agg === "sum" || agg === "avg") return type === "numeric";
-  if (agg === "min" || agg === "max") return type === "numeric" || type === "date" || type === "datetime" || type === "text";
-  return false;
-};
-
 const buildFormulaAggExpr = (
   req: Extract<GroupAggregationSpec, { kind: "formula" }>,
   fields: Field[],
   dateConfig?: DateContext,
+  computedFieldSql?: Map<string, FormulaSqlExpression>,
+  resolveField?: FormulaSqlFieldResolver,
 ): { ok: true; expr: any; type: FormulaSqlType } | { ok: false; error: string } => {
-  const compiled = compileFormulaAstToSql(req.expression, { fields, recordAlias: "r", dateConfig });
+  const compiled = compileFormulaAstToSql(req.expression, { fields, recordAlias: "r", dateConfig, computedFieldSql, resolveField });
   if (!compiled.ok) return { ok: false, error: `formula aggregate "${req.id}": ${compiled.error}` };
   if (!isFormulaAggregatable(compiled.expression.type, req.agg)) {
     return { ok: false, error: `agg "${req.agg}" not compatible with formula type "${compiled.expression.type}"` };
@@ -289,10 +282,14 @@ const buildFormulaAggExpr = (
       return { ok: true, expr: sql`SUM((${expr})::numeric)`, type: "numeric" };
     case "avg":
       return { ok: true, expr: sql`AVG((${expr})::numeric)`, type: "numeric" };
+    case "median":
+      return { ok: true, expr: sql`PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY (${expr})::numeric)`, type: "numeric" };
     case "min":
-      return { ok: true, expr: sql`MIN(${expr})`, type: compiled.expression.type };
+    case "earliest":
+      return { ok: true, expr: sql`MIN(${expr})`, type: aggregateSqlTypeForFormula(compiled.expression.type, req.agg) };
     case "max":
-      return { ok: true, expr: sql`MAX(${expr})`, type: compiled.expression.type };
+    case "latest":
+      return { ok: true, expr: sql`MAX(${expr})`, type: aggregateSqlTypeForFormula(compiled.expression.type, req.agg) };
   }
 };
 
@@ -301,8 +298,10 @@ const buildAggExpr = (
   field: Field | null,
   fields: Field[],
   dateConfig?: DateContext,
+  computedFieldSql?: Map<string, FormulaSqlExpression>,
+  resolveField?: FormulaSqlFieldResolver,
 ): { ok: true; expr: any; type: FormulaSqlType } | { ok: false; error: string } => {
-  if (isFormulaAggregation(req)) return buildFormulaAggExpr(req, fields, dateConfig);
+  if (isFormulaAggregation(req)) return buildFormulaAggExpr(req, fields, dateConfig, computedFieldSql, resolveField);
   if (req.fieldId === "*") {
     if (req.agg !== "count") {
       return { ok: false, error: `agg "${req.agg}" requires a fieldId (only count works on "*")` };
@@ -358,6 +357,10 @@ const buildAggExpr = (
       return { ok: true, expr: sql`SUM(${typedProj})`, type: "numeric" };
     case "avg":
       return { ok: true, expr: sql`AVG(${typedProj})`, type: "numeric" };
+    case "median":
+      // Linear-interpolated 50th percentile per bucket — matches the flat
+      // aggregate-compiler's median.
+      return { ok: true, expr: sql`PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${typedProj})`, type: "numeric" };
     case "min":
     case "max": {
       const fn = req.agg === "min" ? sql`MIN` : sql`MAX`;
@@ -365,6 +368,12 @@ const buildAggExpr = (
       // kind. For text fields the descriptor projection IS `data->>id`
       // so min/max gives lexicographic order on raw text — identical
       // to what the old hard-coded fallback emitted.
+      return { ok: true, expr: sql`${fn}(${typedProj})`, type: formulaTypeForAggregate(req, field) };
+    }
+    case "earliest":
+    case "latest": {
+      // Date-only: earliest = MIN, latest = MAX over the typed date projection.
+      const fn = req.agg === "earliest" ? sql`MIN` : sql`MAX`;
       return { ok: true, expr: sql`${fn}(${typedProj})`, type: formulaTypeForAggregate(req, field) };
     }
   }
@@ -378,16 +387,7 @@ type ResolvedAggregations = {
 
 const formulaTypeForAggregate = (req: GroupAggregationSpec, field: Field | null): FormulaSqlType => {
   if (isFormulaAggregation(req)) return "unknown";
-  if (req.fieldId === "*" || req.agg === "count" || req.agg === "countEmpty" || req.agg === "countUnique") return "numeric";
-  if (req.agg === "sum" || req.agg === "avg") return "numeric";
-  if (!field) return "unknown";
-  const desc = storageOf(field);
-  if (desc.kind === "numeric") return "numeric";
-  if (desc.kind === "date") return (field.config as { includeTime?: boolean }).includeTime ? "datetime" : "date";
-  if (desc.kind === "datetime" || desc.kind === "system") return "datetime";
-  if (desc.kind === "text") return "text";
-  if (desc.kind === "boolean") return "boolean";
-  return "unknown";
+  return aggregateSqlTypeForField(field, req.agg, req.fieldId === "*");
 };
 
 const resolveAggregations = (
@@ -395,6 +395,8 @@ const resolveAggregations = (
   fieldsById: Map<string, Field>,
   fields: Field[],
   dateConfig?: DateContext,
+  computedFieldSql?: Map<string, FormulaSqlExpression>,
+  resolveField?: FormulaSqlFieldResolver,
 ): { ok: true; resolved: ResolvedAggregations } | { ok: false; error: string } => {
   const aggKeys: string[] = [];
   const aggExprs: Array<{ key: string; expr: any; type: FormulaSqlType }> = [];
@@ -408,20 +410,24 @@ const resolveAggregations = (
     const field = isFormulaAggregation(req) || req.fieldId === "*" ? null : (fieldsById.get(req.fieldId) ?? null);
     if (!isFormulaAggregation(req) && req.fieldId !== "*" && !field) return { ok: false, error: "unknown aggregate field" };
 
-    const built = buildAggExpr(req, field, fields, dateConfig);
+    const built = buildAggExpr(req, field, fields, dateConfig, computedFieldSql, resolveField);
     if (!built.ok) return built;
 
     const key = aggAliasFor(req);
-    if (seenKeys.has(key)) continue;
+    // Reject duplicate (field, agg) requests rather than silently dropping the
+    // second — mirrors the flat aggregate-compiler so both paths behave the
+    // same. (The auto `*__count` below is injected once and is not a dup.)
+    if (seenKeys.has(key)) return { ok: false, error: `duplicate aggregate "${req.agg}" on the same field` };
     seenKeys.add(key);
     aggKeys.push(key);
     aggExprs.push({ key, expr: built.expr, type: built.type });
   }
 
-  if (!seenKeys.has("*__count")) {
-    seenKeys.add("*__count");
-    aggKeys.unshift("*__count");
-    aggExprs.unshift({ key: "*__count", expr: sql`count(*)::bigint`, type: "numeric" });
+  const countKey = aggregateOutputKey("*", "count");
+  if (!seenKeys.has(countKey)) {
+    seenKeys.add(countKey);
+    aggKeys.unshift(countKey);
+    aggExprs.unshift({ key: countKey, expr: sql`count(*)::bigint`, type: "numeric" });
   }
 
   return { ok: true, resolved: { aggKeys, aggExprs, seenKeys } };
@@ -449,7 +455,7 @@ const buildHavingRefResolver = (
     const key = aggAliasFor(item);
     const resolved = byKey.get(key);
     if (!resolved) continue;
-    byRef.set(item.ref, {
+    byRef.set(normalizeRefKey(item.ref), {
       sql: resolved.expr,
       type:
         resolved.type === "unknown" && !isFormulaAggregation(item)
@@ -457,7 +463,7 @@ const buildHavingRefResolver = (
           : resolved.type,
     });
   }
-  return (ref) => byRef.get(ref) ?? null;
+  return (ref) => byRef.get(normalizeRefKey(ref)) ?? null;
 };
 
 const buildUserHavingClause = (
@@ -479,14 +485,14 @@ const joinSql = (parts: any[]): any => parts.reduce((acc, cur) => sql`${acc}, ${
 
 const buildSelectList = (groups: ResolvedGroup[], aggExprs: Array<{ key: string; expr: any; type: FormulaSqlType }>): any => {
   const selectParts = [
-    ...groups.map((g) => sql`${g.expr} AS ${sql.unsafe(g.alias)}`),
-    ...aggExprs.map((a) => sql`${a.expr} AS ${sql.unsafe(`"${a.key}"`)}`),
+    ...groups.map((g) => sql`${g.expr} AS ${sql.unsafe(assertSqlIdentifier(g.alias))}`),
+    ...aggExprs.map((a) => sql`${a.expr} AS ${sql.unsafe(`"${assertSqlIdentifier(a.key)}"`)}`),
   ];
   return joinSql(selectParts);
 };
 
-const buildFromClause = (groups: ResolvedGroup[], baseRecords?: any): any => {
-  let from: any = sql`${baseRecords ?? sql`grids.records r`}
+const buildFromClause = (groups: ResolvedGroup[]): any => {
+  let from: any = sql`grids.records r
     JOIN grids.tables _t ON _t.id = r.table_id AND _t.deleted_at IS NULL
     JOIN grids.bases _b ON _b.id = _t.base_id AND _b.deleted_at IS NULL`;
 
@@ -538,7 +544,7 @@ const aggregateOrderPart = (sort: GroupSortSpec, reverse: boolean): any => {
   const asc = sort.direction === "asc";
   const dir = reverse ? (asc ? sql`DESC` : sql`ASC`) : asc ? sql`ASC` : sql`DESC`;
   const nulls = reverse ? sql`NULLS FIRST` : sql`NULLS LAST`;
-  return sql`${sql.unsafe(`"${aggAliasFor(sort)}"`)} ${dir} ${nulls}`;
+  return sql`${sql.unsafe(`"${assertSqlIdentifier(aggAliasFor(sort))}"`)} ${dir} ${nulls}`;
 };
 
 const buildOrderBy = (groups: ResolvedGroup[], groupSort: GroupSortSpec[], reverse = false): any => {
@@ -602,10 +608,10 @@ type CompileGroupParams = {
   includeDeleted?: boolean;
   /** When true, only soft-deleted records are included. */
   deletedOnly?: boolean;
-  /** Preview-only: aggregate over a bounded matching-record sample. */
-  baseRecordLimit?: number;
   timeZone?: string;
   dateConfig?: DateContext;
+  computedFieldSql?: Map<string, FormulaSqlExpression>;
+  resolveField?: FormulaSqlFieldResolver;
 };
 
 type CompileGroupResult =
@@ -650,7 +656,14 @@ export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResul
     };
   }
 
-  const aggregations = resolveAggregations(params.aggregations, fieldsById, params.fields, params.dateConfig);
+  const aggregations = resolveAggregations(
+    params.aggregations,
+    fieldsById,
+    params.fields,
+    params.dateConfig,
+    params.computedFieldSql,
+    params.resolveField,
+  );
   if (!aggregations.ok) return aggregations;
 
   const sortCheck = validateGroupSort(groupSort, aggregations.resolved.seenKeys);
@@ -668,20 +681,8 @@ export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResul
   const where = buildWhereClause(params);
   if (!where.ok) return where;
 
-  const baseRecordLimit = params.baseRecordLimit === undefined ? null : Math.min(Math.max(params.baseRecordLimit, 1), 50_000);
-  const baseRecords = baseRecordLimit
-    ? sql`(
-        SELECT r.*
-        FROM grids.records r
-        WHERE ${where.where}
-        ORDER BY r.id ASC
-        LIMIT ${baseRecordLimit}
-      ) r`
-    : undefined;
-  const outerWhere = baseRecordLimit ? sql`TRUE` : where.where;
-
   const selectList = buildSelectList(groups.resolved, aggregations.resolved.aggExprs);
-  const from = buildFromClause(groups.resolved, baseRecords);
+  const from = buildFromClause(groups.resolved);
 
   // GROUP BY (positional — references the SELECT list aliases)
   const groupByPositions = joinSql(groups.resolved.map((_, i) => sql`${sql.unsafe(String(i + 1))}`));
@@ -712,7 +713,7 @@ export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResul
   const groupedQuery = sql`
     SELECT ${selectList}
     FROM ${from}
-    WHERE ${outerWhere}
+    WHERE ${where.where}
     GROUP BY ${groupByPositions}
     HAVING ${havingClause}
   `;

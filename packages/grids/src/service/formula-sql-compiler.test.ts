@@ -1,8 +1,8 @@
+import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
-import { afterAll, describe, expect, test } from "bun:test";
-import type { Field } from "./types";
-import { compileFormulaPredicateAstToSql, compileFormulaSourceToSql } from "./formula-sql-compiler";
 import { parseFormula } from "../formula/parser";
+import { compileFormulaPredicateAstToSql, compileFormulaSourceToSql } from "./formula-sql-compiler";
+import type { Field } from "./types";
 
 const field = (overrides: Partial<Field> & Pick<Field, "id" | "shortId" | "name" | "type">): Field => ({
   id: overrides.id,
@@ -32,8 +32,13 @@ const fields = [
   field({ id: "paid_id", shortId: "paid", name: "Paid", type: "boolean" }),
   field({ id: "due_id", shortId: "due", name: "Due", type: "date" }),
   field({ id: "at_id", shortId: "at", name: "Timestamp", type: "date", config: { includeTime: true } }),
+  field({ id: "created_at_id", shortId: "created_at", name: "Created at", type: "created_at" }),
+  field({ id: "created_by_id", shortId: "created_by", name: "Created by", type: "created_by" }),
   field({ id: "customer_id", shortId: "cust", name: "Customer", type: "relation" }),
-  field({ id: "subtotal_id", shortId: "subtl", name: "Subtotal", type: "formula" }),
+  field({ id: "subtotal_id", shortId: "subtl", name: "Subtotal", type: "formula", config: { expression: "#price * #qty" } }),
+  field({ id: "blank_formula_id", shortId: "blankf", name: "Blank", type: "formula" }),
+  field({ id: "cycle_a_id", shortId: "cyca", name: "Cycle A", type: "formula", config: { expression: "#cycb + 1" } }),
+  field({ id: "cycle_b_id", shortId: "cycb", name: "Cycle B", type: "formula", config: { expression: "#cyca + 1" } }),
 ];
 
 describe("compileFormulaSourceToSql", () => {
@@ -84,6 +89,16 @@ describe("compileFormulaSourceToSql", () => {
     if (result.ok) expect(result.expression.type).toBe("datetime");
   });
 
+  test("types system timestamps as datetime and system users as text", () => {
+    const timestamp = compileFormulaSourceToSql('"Created at"', { fields });
+    expect(timestamp.ok).toBe(true);
+    if (timestamp.ok) expect(timestamp.expression.type).toBe("datetime");
+
+    const user = compileFormulaSourceToSql('"Created by"', { fields });
+    expect(user.ok).toBe(true);
+    if (user.ok) expect(user.expression.type).toBe("text");
+  });
+
   test("rejects unknown field refs", () => {
     const result = compileFormulaSourceToSql("#missing + 1", { fields });
     expect(result.ok).toBe(false);
@@ -96,10 +111,22 @@ describe("compileFormulaSourceToSql", () => {
     if (!result.ok) expect(result.error).toContain("cannot be compiled into SQL formulas");
   });
 
-  test("rejects computed refs until they have a first-class SQL projection", () => {
+  test("inlines a referenced formula field's own expression", () => {
     const result = compileFormulaSourceToSql("#subtl + 1", { fields });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.expression.type).toBe("numeric");
+  });
+
+  test("rejects a formula field that has no expression", () => {
+    const result = compileFormulaSourceToSql("#blankf + 1", { fields });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain("cannot be compiled into SQL formulas");
+    if (!result.ok) expect(result.error).toContain("has no expression");
+  });
+
+  test("rejects a cycle between formula fields", () => {
+    const result = compileFormulaSourceToSql("#cyca + 1", { fields });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("cycle");
   });
 
   test("rejects unsafe record aliases", () => {
@@ -218,10 +245,6 @@ describe("compileFormulaSourceToSql", () => {
 });
 
 const postgresTest = process.env.GRIDS_SQL_COMPILER_DB_TEST === "1" ? test : test.skip;
-
-afterAll(async () => {
-  if (process.env.GRIDS_SQL_COMPILER_DB_TEST === "1") await sql.end();
-});
 
 describe("compileFormulaSourceToSql postgres smoke", () => {
   postgresTest("runs decimal-safe arithmetic in Postgres numeric", async () => {

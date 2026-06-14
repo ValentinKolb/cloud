@@ -1,18 +1,36 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
-import type { AggregationSpec, ColumnSpec, ComputedColumnSpec, GroupBySpec, StatSource, Widget, WidgetFormat } from "../contracts";
-import type { Field, GridRecord } from "./types";
-import type { Form } from "./forms";
+import { sql } from "bun";
+import {
+  type AggregationSpec,
+  type ColumnSpec,
+  type ComputedColumnSpec,
+  type DslQueryPreviewResponse,
+  type GroupBySpec,
+  type StatSource,
+  type Widget,
+  type WidgetFormat,
+} from "../contracts";
+import { parseGridsQueryDsl } from "../query-dsl/parser";
+import { dslPreviewDiagnosticForCompilerError, previewDslQuery } from "../query-dsl/preview";
+import { type DslResolvedSqlQueryPlan, resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
+import { collectDslPlanExtraFieldTableIds } from "../query-dsl/source-plan";
+import { aggregateOutputKey } from "./aggregate-capabilities";
+import * as automations from "./automations";
+import { canReadDashboardIncludedData } from "./dashboard-included-access";
+import * as dashboards from "./dashboards";
 import * as fields from "./fields";
+import type { Form } from "./forms";
 import * as forms from "./forms";
+import { buildBaseGqlResolverContext } from "./gql-resolver-context";
+import type { GqlQuery } from "./gql-queries";
+import * as gqlQueries from "./gql-queries";
+import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 import * as records from "./records";
 import * as relations from "./relations";
 import * as tables from "./tables";
+import type { Field, GridRecord } from "./types";
 import * as views from "./views";
-import * as dashboards from "./dashboards";
-import * as automations from "./automations";
-import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
-import { canReadDashboardIncludedData } from "./dashboard-included-access";
 
 const isComputedColumn = (column: ColumnSpec): column is ComputedColumnSpec => "kind" in column && column.kind === "computed";
 
@@ -124,6 +142,16 @@ type ViewStatsCell = {
 
 const EMBEDDED_VIEW_PAGESIZE = 25;
 
+const fieldsWithPlanExtras = async (
+  fieldsByTableId: Record<string, Field[]>,
+  plan: DslResolvedSqlQueryPlan,
+): Promise<Record<string, Field[]>> => {
+  const missing = collectDslPlanExtraFieldTableIds(plan).filter((tableId) => fieldsByTableId[tableId] === undefined);
+  if (missing.length === 0) return fieldsByTableId;
+  const groups = await Promise.all(missing.map(async (tableId) => ({ tableId, fields: await fields.listByTable(tableId) })));
+  return { ...fieldsByTableId, ...Object.fromEntries(groups.map((group) => [group.tableId, group.fields])) };
+};
+
 /**
  * Viewer context threaded into the widget resolvers — drives per-
  * widget permission gates (form submit, relation expansion). `isAdmin`
@@ -141,6 +169,7 @@ type ResolveOptions = {
   dateConfig?: DateContext;
 };
 
+type DbRow = Record<string, unknown>;
 type SavedView = NonNullable<Awaited<ReturnType<typeof views.get>>>;
 type LinkWidget = Extract<Widget, { kind: "link" }>;
 type AutomationButtonWidget = Extract<Widget, { kind: "automation-button" }>;
@@ -149,6 +178,63 @@ type LinkDataBase = {
   title: string;
   description: string | null;
   icon: string;
+};
+
+type ResolveSavedGqlDashboardQueryOptions = ResolveOptions & {
+  /** Optional base guard for dashboard callers. Mismatches return "not found". */
+  baseId?: string;
+  /** Preview-style row/bucket cap. The underlying query still executes in SQL. */
+  limit?: number;
+};
+
+const previewDiagnostic = (message: string): Extract<DslQueryPreviewResponse, { ok: false }> => ({
+  ok: false,
+  diagnostics: [{ message }],
+});
+
+const canReadSavedGqlDashboardQuery = async (query: GqlQuery, viewer: ViewerContext): Promise<boolean> => {
+  if (viewer.isAdmin) return true;
+  if (query.ownerUserId === null || query.ownerUserId === viewer.userId) return true;
+  const grants = await loadGrantsForUser({ userId: viewer.userId, userGroups: viewer.userGroups, baseId: query.baseId });
+  const level = resolveEffectivePermission(grants, { baseId: query.baseId });
+  return hasAtLeast(level, "admin");
+};
+
+/**
+ * Backend-only contract for dashboard surfaces that want to execute a saved
+ * rich GQL query. This intentionally reuses the normal GQL resolver and preview
+ * compiler so dashboard consumption cannot drift into a second evaluator.
+ *
+ * Access model follows dashboard embedded-data policy: the caller must already
+ * have dashboard read access; this helper scopes the query to live resources in
+ * the saved query's base and still passes `viewer` into relation label/search
+ * expansion, matching the existing chart/view relation gating.
+ */
+export const resolveSavedGqlDashboardQuery = async (
+  queryId: string,
+  viewer: ViewerContext,
+  options: ResolveSavedGqlDashboardQueryOptions = {},
+): Promise<DslQueryPreviewResponse> => {
+  const query = await gqlQueries.get(queryId);
+  if (!query || (options.baseId && query.baseId !== options.baseId) || !(await canReadSavedGqlDashboardQuery(query, viewer)))
+    return previewDiagnostic("GQL query not found");
+
+  const parsed = parseGridsQueryDsl(query.source);
+  if (!parsed.ok) return { ok: false, diagnostics: parsed.diagnostics };
+
+  const context = await buildBaseGqlResolverContext({ baseId: query.baseId, currentTableId: query.tableId, ast: parsed.ast });
+  const resolved = resolveDslQueryToQueryPlan(parsed.ast, context);
+  if (!resolved.ok) return { ok: false, diagnostics: resolved.diagnostics };
+
+  const fieldsByTableId = await fieldsWithPlanExtras(context.fieldsByTableId, resolved.plan);
+  const result = await previewDslQuery(resolved.plan, {
+    fieldsByTableId,
+    limit: options.limit,
+    timeZone: options.dateConfig?.timeZone,
+    viewer,
+  });
+  if (result.ok) return result.data;
+  return { ok: false, diagnostics: [dslPreviewDiagnosticForCompilerError(resolved.plan, result.error.message)] };
 };
 
 /**
@@ -386,7 +472,7 @@ const resolveAutomationButton = async (widget: AutomationButtonWidget): Promise<
 const resolveStat = async (source: StatSource, options: ResolveOptions): Promise<WidgetData> => {
   const agg = source.aggregations[0];
   if (!agg) return { kind: "error", reason: "stat widget has no aggregation" };
-  const aggKey = `${agg.fieldId}__${agg.agg}`;
+  const aggKey = aggregateOutputKey(agg.fieldId, agg.agg);
   // Main scalar aggregation + optional trend group query run in
   // parallel — the trend is independent of the scalar and would
   // otherwise serialise two roundtrips for one widget.
@@ -747,7 +833,7 @@ const resolveGroupedViewStats = async (
     };
   }
   const cells: ViewStatsCell[] = aggs.map((a) => {
-    const key = `${a.fieldId}__${a.agg}`;
+    const key = aggregateOutputKey(a.fieldId, a.agg);
     const targetField = a.fieldId === "*" ? null : (fieldsById.get(a.fieldId) ?? null);
     const fallbackLabel = a.fieldId === "*" ? `${a.agg}(*)` : `${a.agg}(${targetField?.name ?? "?"})`;
     return {

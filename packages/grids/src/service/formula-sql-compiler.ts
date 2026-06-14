@@ -1,10 +1,10 @@
-import { sql } from "bun";
-import { dates, type DateContext } from "@valentinkolb/stdlib";
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { sql } from "bun";
 import { parseFormula } from "../formula/parser";
 import type { BinOp, Expr, Literal } from "../formula/types";
 import { normalizeRefKey } from "../ref-syntax";
-import { storageOf } from "./field-storage";
+import { scalarSqlTypeForField, storageOf } from "./field-storage";
 import type { Field } from "./types";
 
 const SQL_ALIAS = /^[a-z_][a-z0-9_]*$/i;
@@ -18,21 +18,37 @@ export type FormulaSqlExpression = {
   type: FormulaSqlType;
 };
 
+export type FormulaSqlFieldResolver = (ref: string) => FormulaSqlExpression | string | null;
+
 export type FormulaSqlCompileOptions = {
   fields: Field[];
   /** Trusted SQL alias for the records table. Defaults to `r`. */
   recordAlias?: string;
   dateConfig?: DateContext;
   now?: Date;
-  resolveField?: (ref: string) => FormulaSqlExpression | null;
+  resolveField?: FormulaSqlFieldResolver;
+  /** Pre-built SQL for lookup/rollup fields (by field id) so they can be used
+   *  as scalar operands. Built async by the caller (cross-table subqueries). */
+  computedFieldSql?: Map<string, FormulaSqlExpression>;
+  /** GQL-only: allow explicit scoped refs such as customer.name while parsing
+   *  ad-hoc formula sources. Persisted formula fields keep this disabled. */
+  scopedRefs?: boolean;
 };
 
 export type FormulaSqlCompileResult = { ok: true; expression: FormulaSqlExpression } | { ok: false; error: string };
 
 type CompileContext = Required<Pick<FormulaSqlCompileOptions, "recordAlias" | "now">> &
-  Pick<FormulaSqlCompileOptions, "dateConfig" | "resolveField"> & {
+  Pick<FormulaSqlCompileOptions, "dateConfig" | "resolveField" | "computedFieldSql"> & {
     fieldsByRef: Map<string, Field[]>;
+    /** Formula field ids currently being inlined — for cycle detection. */
+    inlineStack: Set<string>;
+    /** Inlining depth guard. */
+    depth: number;
   };
+
+/** Hard cap on nested formula-field inlining so a deep (but acyclic) chain
+ *  can't produce an unbounded SQL expression. */
+const MAX_FORMULA_INLINE_DEPTH = 8;
 
 const ok = (sqlFragment: unknown, type: FormulaSqlType): FormulaSqlCompileResult => ({
   ok: true,
@@ -71,14 +87,8 @@ const fieldByRef = (map: Map<string, Field[]>, ref: string): Field | string => {
   return candidates[0]!;
 };
 
-const typeForField = (field: Field): FormulaSqlType => {
-  const descriptor = storageOf(field);
-  if (descriptor.kind === "numeric") return "numeric";
-  if (descriptor.kind === "text") return "text";
-  if (descriptor.kind === "boolean") return "boolean";
-  if (descriptor.kind === "date") return (field.config as { includeTime?: boolean }).includeTime ? "datetime" : "date";
-  if (descriptor.kind === "datetime" || descriptor.kind === "system") return "datetime";
-  return "unknown";
+export const formulaSqlTypeForField = (field: Field): FormulaSqlType => {
+  return scalarSqlTypeForField(field);
 };
 
 const sqlLiteral = (value: Literal): FormulaSqlExpression => {
@@ -229,6 +239,11 @@ const FORMULA_ARITY: Record<string, { min: number; max: number }> = {
   NOT: { min: 1, max: 1 },
   ISBLANK: { min: 1, max: 1 },
   CONTAINS: { min: 2, max: 2 },
+  STARTSWITH: { min: 2, max: 2 },
+  ENDSWITH: { min: 2, max: 2 },
+  ICONTAINS: { min: 2, max: 2 },
+  ISTARTSWITH: { min: 2, max: 2 },
+  IENDSWITH: { min: 2, max: 2 },
   TODAY: { min: 0, max: 0 },
   NOW: { min: 0, max: 0 },
   YEAR: { min: 1, max: 1 },
@@ -306,6 +321,14 @@ const compileFunction = (fn: string, args: Expr[], ctx: CompileContext): Formula
   if (upper === "NOT") return ok(sql`NOT ${boolArg(0)}`, "boolean");
   if (upper === "ISBLANK") return ok(sql`(${arg(0).sql} IS NULL OR (${arg(0).sql})::text = '')`, "boolean");
   if (upper === "CONTAINS") return ok(sql`POSITION(${textArg(1)} IN ${textArg(0)}) > 0`, "boolean");
+  if (upper === "STARTSWITH") return ok(sql`POSITION(${textArg(1)} IN ${textArg(0)}) = 1`, "boolean");
+  if (upper === "ENDSWITH") return ok(sql`RIGHT(${textArg(0)}, CHAR_LENGTH(${textArg(1)})) = ${textArg(1)}`, "boolean");
+  if (upper === "ICONTAINS")
+    return ok(sql`POSITION(LOWER(${textArg(1)}) IN LOWER(${textArg(0)})) > 0`, "boolean");
+  if (upper === "ISTARTSWITH")
+    return ok(sql`POSITION(LOWER(${textArg(1)}) IN LOWER(${textArg(0)})) = 1`, "boolean");
+  if (upper === "IENDSWITH")
+    return ok(sql`RIGHT(LOWER(${textArg(0)}), CHAR_LENGTH(${textArg(1)})) = LOWER(${textArg(1)})`, "boolean");
 
   if (upper === "TODAY") {
     const timeZone = normalizeTimeZone(ctx.dateConfig?.timeZone, "UTC");
@@ -321,6 +344,20 @@ const compileFunction = (fn: string, args: Expr[], ctx: CompileContext): Formula
   return fail(`Unsupported formula function ${fn}`);
 };
 
+const inlineFormulaField = (field: Field, ctx: CompileContext): FormulaSqlCompileResult => {
+  if (ctx.inlineStack.has(field.id)) return fail(`Formula field "${field.name}" references itself (cycle)`);
+  if (ctx.depth >= MAX_FORMULA_INLINE_DEPTH) return fail(`Formula nesting is too deep at field "${field.name}"`);
+  const expression = (field.config as { expression?: unknown }).expression;
+  if (typeof expression !== "string" || expression.trim().length === 0) {
+    return fail(`Formula field "${field.name}" has no expression`);
+  }
+  const parsed = parseFormula(expression);
+  if (!parsed.ok) return fail(`Formula field "${field.name}": ${parsed.error}`);
+  const nextStack = new Set(ctx.inlineStack);
+  nextStack.add(field.id);
+  return compileExpr(parsed.ast, { ...ctx, inlineStack: nextStack, depth: ctx.depth + 1 });
+};
+
 const compileExpr = (expr: Expr, ctx: CompileContext): FormulaSqlCompileResult => {
   if (expr.kind === "literal") {
     const literal = sqlLiteral(expr.value);
@@ -328,13 +365,25 @@ const compileExpr = (expr: Expr, ctx: CompileContext): FormulaSqlCompileResult =
   }
   if (expr.kind === "field") {
     const custom = ctx.resolveField?.(expr.fieldId);
+    if (typeof custom === "string") return fail(custom);
     if (custom) return ok(custom.sql, custom.type);
     const field = fieldByRef(ctx.fieldsByRef, expr.fieldId);
     if (typeof field === "string") return fail(field);
+    // A formula field referenced inside another expression inlines its own
+    // compiled SQL, so formula fields are first-class operands (filter/sort/
+    // aggregate/nested formula) — not just top-level select columns.
+    if (field.type === "formula") return inlineFormulaField(field, ctx);
+    // Lookup/rollup fields resolve to their pre-built correlated-subquery SQL
+    // when the caller supplied it (GQL); otherwise they fall through to the
+    // "cannot compile" error below.
+    if (field.type === "lookup" || field.type === "rollup") {
+      const computed = ctx.computedFieldSql?.get(field.id);
+      if (computed) return ok(computed.sql, computed.type);
+    }
     const descriptor = storageOf(field);
     const projection = descriptor.project(field, ctx.recordAlias);
     if (projection === null) return fail(`Field ${field.name} (${field.type}) cannot be compiled into SQL formulas yet`);
-    return ok(projection, typeForField(field));
+    return ok(projection, formulaSqlTypeForField(field));
   }
   if (expr.kind === "unop") {
     const operand = compileExpr(expr.operand, ctx);
@@ -361,6 +410,9 @@ export const compileFormulaAstToSql = (ast: Expr, options: FormulaSqlCompileOpti
     dateConfig: options.dateConfig,
     now: options.now ?? new Date(),
     resolveField: options.resolveField,
+    computedFieldSql: options.computedFieldSql,
+    inlineStack: new Set(),
+    depth: 0,
   });
 };
 
@@ -372,7 +424,7 @@ export const compileFormulaPredicateAstToSql = (ast: Expr, options: FormulaSqlCo
 };
 
 export const compileFormulaSourceToSql = (source: string, options: FormulaSqlCompileOptions): FormulaSqlCompileResult => {
-  const parsed = parseFormula(source);
+  const parsed = parseFormula(source, { scopedRefs: options.scopedRefs });
   if (!parsed.ok) return fail(parsed.error);
   return compileFormulaAstToSql(parsed.ast, options);
 };

@@ -1,5 +1,5 @@
 import { sql } from "bun";
-import { afterAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import * as fields from "./fields";
@@ -33,10 +33,6 @@ const readJsonb = <T>(raw: unknown): T => {
   if (typeof raw === "string") return JSON.parse(raw) as T;
   return raw as T;
 };
-
-afterAll(async () => {
-  if (process.env.GRIDS_NAMED_REFS_DB_TEST === "1") await sql.end();
-});
 
 describe("named refs Postgres integration", () => {
   postgresTest("enforces table, field, and view name uniqueness", async () => {

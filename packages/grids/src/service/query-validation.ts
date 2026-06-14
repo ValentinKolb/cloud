@@ -1,5 +1,5 @@
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import type {
   ComputedColumnSpec,
   AggregationSpec,
@@ -10,17 +10,15 @@ import type {
   StatSource,
   ViewQuery,
 } from "../contracts";
+import { collectFieldRefs, parseFormula } from "../formula/parser";
+import { normalizeRefKey } from "../ref-syntax";
 import { compileAggregates } from "./aggregate-compiler";
+import { listByTable } from "./fields";
 import { compileFilter } from "./filter-compiler";
 import { compileGroupQuery, type GroupAggregationSpec } from "./group-compiler";
 import { filterSearchableFields } from "./search";
 import { compileSort } from "./sort-compiler";
-import { listByTable } from "./fields";
 import type { Field } from "./types";
-import { collectFieldRefs, parseFormula } from "../formula/parser";
-import { normalizeRefKey } from "../ref-syntax";
-
-const GROUP_AGGS = new Set(["count", "countEmpty", "countUnique", "sum", "avg", "min", "max"]);
 
 type QueryParts = {
   filter?: FilterTree;
@@ -102,10 +100,6 @@ const validateGroupedQuery = (params: {
   groupSort?: GroupSortSpec[];
   aggregations?: AggregationSpec[];
 }): Result<void> => {
-  const unsupported = (params.aggregations ?? []).filter((a) => !GROUP_AGGS.has(a.agg));
-  if (unsupported.length > 0) {
-    return fail(err.badInput("grouped queries support count, countEmpty, countUnique, sum, avg, min, and max only"));
-  }
   const compiled = compileGroupQuery({
     tableId: params.tableId,
     fields: params.fields,
@@ -183,8 +177,15 @@ export const validateStatSourceForTable = async (
       return fail(err.badInput(`trend field "${trendField.name}" must be a date field`));
     }
     const agg = source.aggregations[0];
-    if (agg && !GROUP_AGGS.has(agg.agg)) {
-      return fail(err.badInput("stat trends support count, countEmpty, countUnique, sum, avg, min, and max only"));
+    if (agg) {
+      const trend = compileGroupQuery({
+        tableId,
+        fields,
+        filter: source.filter ?? null,
+        groupBy: [{ fieldId: source.trend.fieldId, granularity: source.trend.granularity }],
+        aggregations: [{ fieldId: agg.fieldId, agg: agg.agg } as GroupAggregationSpec],
+      });
+      if (!trend.ok) return fail(err.badInput(`trend: ${trend.error}`));
     }
   }
 

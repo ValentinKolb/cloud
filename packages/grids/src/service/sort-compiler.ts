@@ -208,13 +208,15 @@ export const compileSort = (
     }
   }
 
-  // Resolve effective nullsFirst per column (default = nulls-first asc, last desc).
+  // Resolve effective nullsFirst per column. Grids query surfaces default to
+  // NULLS LAST for both directions unless the query explicitly opts into
+  // `nulls first`.
   const resolved = effective.map((s) => {
     const projection = isRecordSort(s) ? recordProjectionFor(s.key)! : projectionForField(fieldsById.get(s.fieldId)!)!;
     return {
       spec: s,
       projection,
-      nullsFirst: s.nullsFirst ?? s.direction === "asc",
+      nullsFirst: s.nullsFirst ?? false,
     };
   });
 

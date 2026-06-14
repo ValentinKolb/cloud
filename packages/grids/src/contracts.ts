@@ -262,7 +262,18 @@ export const AggregateKindSchema = z.enum([
   "earliest",
   "latest",
 ]);
-export const GroupAggregateKindSchema = z.enum(["count", "countEmpty", "countUnique", "sum", "avg", "min", "max"]);
+export const GroupAggregateKindSchema = z.enum([
+  "count",
+  "countEmpty",
+  "countUnique",
+  "sum",
+  "avg",
+  "min",
+  "max",
+  "median",
+  "earliest",
+  "latest",
+]);
 
 export const AggregateRequestSchema = z.object({
   fieldId: z.string(),
@@ -603,10 +614,10 @@ export const TableQueryResponseSchema = z.object({
 export type TableQueryBody = z.infer<typeof TableQueryBodySchema>;
 export type TableQueryResult = z.infer<typeof TableQueryResponseSchema>;
 
-// ── Query DSL preview ────────────────────────────────────────────────────
+// ── GQL preview ──────────────────────────────────────────────────────────
 //
 // Generic tabular response for the query workspace. This is intentionally
-// not GridRecord-shaped: DSL queries can select aliases, formula columns,
+// not GridRecord-shaped: GQL can select aliases, formula columns,
 // joined fields, or grouped buckets that do not map to one editable record.
 
 const DslQueryCurrentSourceSchema = z
@@ -633,8 +644,55 @@ export const DslQueryCompileViewBodySchema = z.object({
 });
 export type DslQueryCompileViewBody = z.infer<typeof DslQueryCompileViewBodySchema>;
 
+// ── Saved GQL queries ────────────────────────────────────────────────────
+//
+// Rich GQL is persisted as canonical query text, not as ViewQuery JSON. This
+// keeps the full language lossless while regular saved views remain the
+// canonical lightweight table preset.
+export const GqlQuerySchema = z.object({
+  id: z.string().uuid(),
+  shortId: ShortIdSchema,
+  baseId: z.string().uuid(),
+  tableId: z.string().uuid(),
+  name: z.string(),
+  icon: IconNameSchema,
+  source: z.string().trim().min(1).max(20_000),
+  ownerUserId: z.string().uuid().nullable(),
+  position: z.number().int(),
+  deletedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type GqlQuery = z.infer<typeof GqlQuerySchema>;
+
+export const CreateGqlQuerySchema = z.object({
+  name: z.string().min(1).max(200),
+  icon: IconNameSchema,
+  query: z.string().trim().min(1).max(20_000),
+  /** Optional table scope for table/view pages where `from` is implicit. */
+  currentTableId: z.string().uuid().optional(),
+  currentSource: DslQueryCurrentSourceSchema,
+  shared: z.boolean().optional(),
+});
+export type CreateGqlQueryInput = z.infer<typeof CreateGqlQuerySchema>;
+
+export const UpdateGqlQuerySchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  icon: IconNameSchema,
+  query: z.string().trim().min(1).max(20_000).optional(),
+  currentTableId: z.string().uuid().optional(),
+  currentSource: DslQueryCurrentSourceSchema,
+  position: z.number().int().optional(),
+  shared: z.boolean().optional(),
+});
+export type UpdateGqlQueryInput = z.infer<typeof UpdateGqlQuerySchema>;
+
+export const GqlQueryListSchema = z.array(GqlQuerySchema);
+
 export const DslQueryPreviewDiagnosticSchema = z.object({
   line: z.number().int().min(1).optional(),
+  column: z.number().int().min(1).optional(),
+  length: z.number().int().min(1).optional(),
   message: z.string(),
 });
 export type DslQueryPreviewDiagnostic = z.infer<typeof DslQueryPreviewDiagnosticSchema>;
@@ -663,6 +721,10 @@ export const DslQueryPreviewSuccessSchema = z.object({
   ),
   limit: z.number().int(),
   truncated: z.boolean().optional(),
+  /** Grouped result where one record can contribute to several buckets
+   *  (multi-select / relation group keys). Bucket counts can exceed the
+   *  record count; the UI should label this. */
+  explode: z.boolean().optional(),
 });
 
 export const DslQueryPreviewFailureSchema = z.object({
@@ -680,6 +742,13 @@ export const DslQueryCompileViewSuccessSchema = z.object({
 });
 export const DslQueryCompileViewResponseSchema = z.union([DslQueryCompileViewSuccessSchema, DslQueryPreviewFailureSchema]);
 export type DslQueryCompileViewResponse = z.infer<typeof DslQueryCompileViewResponseSchema>;
+
+export const GqlQuerySaveSuccessSchema = z.object({
+  ok: z.literal(true),
+  query: GqlQuerySchema,
+});
+export const GqlQuerySaveResponseSchema = z.union([GqlQuerySaveSuccessSchema, DslQueryPreviewFailureSchema]);
+export type GqlQuerySaveResponse = z.infer<typeof GqlQuerySaveResponseSchema>;
 
 // ── View entity ───────────────────────────────────────────────────────────
 export const ViewSchema = z.object({
@@ -785,7 +854,7 @@ export type FormConfig = z.infer<typeof FormConfigSchema>;
 //   - "automation-button": runs one manual Automation from a button.
 //
 // The data source for stat / chart widgets is a thin wrapper over the
-// existing aggregate/group/filter compilers — there is no new query DSL
+// existing aggregate/group/filter compilers — there is no separate GQL
 // for dashboards. A widget is "saved query + presentation hint".
 //
 // Layout: `rows × cells` on a 12-column grid. Each widget owns a

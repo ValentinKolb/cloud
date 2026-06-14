@@ -273,6 +273,11 @@ export const FN_LIBRARY: Record<string, FnImpl> = {
   NOT: ([v]) => !bool(v),
   ISBLANK: ([v]) => isNullish(v) || v === "",
   CONTAINS: ([haystack, needle]) => str(haystack).includes(str(needle)),
+  STARTSWITH: ([haystack, needle]) => str(haystack).startsWith(str(needle)),
+  ENDSWITH: ([haystack, needle]) => str(haystack).endsWith(str(needle)),
+  ICONTAINS: ([haystack, needle]) => str(haystack).toLowerCase().includes(str(needle).toLowerCase()),
+  ISTARTSWITH: ([haystack, needle]) => str(haystack).toLowerCase().startsWith(str(needle).toLowerCase()),
+  IENDSWITH: ([haystack, needle]) => str(haystack).toLowerCase().endsWith(str(needle).toLowerCase()),
 
   // ── Date ────────────────────────────────────────────────────────
   TODAY: (_args, ctx) => dates.formatDateKey(ctx.now ?? new Date(), { ...ctx.dateConfig, timeZone: formulaTimeZone(ctx) }),

@@ -48,10 +48,24 @@ export type CompiledClause =
 
 const TEXT_OPS = new Set(["equals", "notEquals", "contains", "notContains", "startsWith", "endsWith", "regex", "isEmpty", "isNotEmpty"]);
 const NUMBER_OPS = new Set(["=", "!=", "<", "<=", ">", ">=", "between", "isEmpty", "isNotEmpty"]);
-const DATE_OPS = new Set(["=", "before", "after", "between", "today", "thisWeek", "thisMonth", "lastNDays", "isEmpty", "isNotEmpty"]);
+const DATE_OPS = new Set([
+  "=",
+  "notEquals",
+  "before",
+  "after",
+  "onOrBefore",
+  "onOrAfter",
+  "between",
+  "today",
+  "thisWeek",
+  "thisMonth",
+  "lastNDays",
+  "isEmpty",
+  "isNotEmpty",
+]);
 const BOOL_OPS = new Set(["=", "isEmpty", "isNotEmpty"]);
 const SELECT_OPS = new Set(["is", "isNot", "isAnyOf", "isNoneOf", "isEmpty", "isNotEmpty"]);
-const RELATION_OPS = new Set(["containsAny", "isEmpty", "isNotEmpty"]);
+const RELATION_OPS = new Set(["containsAny", "notContainsAny", "isEmpty", "isNotEmpty"]);
 
 const opsForType = (type: string): Set<string> => {
   switch (type) {
@@ -203,7 +217,7 @@ const validateSelectValue = (op: string, value: unknown): string | null => {
 };
 
 const validateRelationValue = (op: string, value: unknown): string | null => {
-  if (op !== "containsAny") return null;
+  if (op !== "containsAny" && op !== "notContainsAny") return null;
   if (!Array.isArray(value) || value.length === 0) return "expected non-empty array of record ids";
   for (const v of value) {
     if (typeof v !== "string" || !UUID_REGEX.test(v)) return "record ids must be UUID strings";
@@ -317,18 +331,25 @@ const renderNumberPredicate = (p: PredicateClause, projection: PredicateProjecti
   }
 };
 
-const renderDateComparison = (p: PredicateClause, projection: PredicateProjection, opSql: "=" | "<" | ">"): any =>
-  p.dateIncludeTime
-    ? opSql === "="
-      ? sql`${projection.date} = ${p.value}::timestamptz`
-      : opSql === "<"
-        ? sql`${projection.date} < ${p.value}::timestamptz`
-        : sql`${projection.date} > ${p.value}::timestamptz`
-    : opSql === "="
-      ? sql`${projection.date} = ${p.value}::date`
-      : opSql === "<"
-        ? sql`${projection.date} < ${p.value}::date`
-        : sql`${projection.date} > ${p.value}::date`;
+type DateCmpOp = "=" | "<>" | "<" | "<=" | ">" | ">=";
+
+const renderDateComparison = (p: PredicateClause, projection: PredicateProjection, opSql: DateCmpOp): any => {
+  const cast = p.dateIncludeTime ? sql`${p.value}::timestamptz` : sql`${p.value}::date`;
+  switch (opSql) {
+    case "=":
+      return sql`${projection.date} = ${cast}`;
+    case "<>":
+      return sql`${projection.date} <> ${cast}`;
+    case "<":
+      return sql`${projection.date} < ${cast}`;
+    case "<=":
+      return sql`${projection.date} <= ${cast}`;
+    case ">":
+      return sql`${projection.date} > ${cast}`;
+    case ">=":
+      return sql`${projection.date} >= ${cast}`;
+  }
+};
 
 const renderDatePredicate = (p: PredicateClause, projection: PredicateProjection): any => {
   const timeZone = p.timeZone ?? "UTC";
@@ -338,10 +359,16 @@ const renderDatePredicate = (p: PredicateClause, projection: PredicateProjection
   switch (p.op) {
     case "=":
       return renderDateComparison(p, projection, "=");
+    case "notEquals":
+      return renderDateComparison(p, projection, "<>");
     case "before":
       return renderDateComparison(p, projection, "<");
+    case "onOrBefore":
+      return renderDateComparison(p, projection, "<=");
     case "after":
       return renderDateComparison(p, projection, ">");
+    case "onOrAfter":
+      return renderDateComparison(p, projection, ">=");
     case "between": {
       const v = p.value as [unknown, unknown] | undefined;
       return p.dateIncludeTime
@@ -432,6 +459,16 @@ const renderRelationPredicate = (p: PredicateClause, options: RenderOptions = {}
     case "containsAny": {
       const ids = (p.value as string[]) ?? [];
       return sql`EXISTS (
+            SELECT 1
+            FROM grids.record_links rl
+            WHERE rl.from_record_id = ${sourceRecordId}
+              AND rl.from_field_id = ${p.fieldId}::uuid
+              AND rl.to_record_id = ANY(${sql.array(ids, "UUID")})
+          )`;
+    }
+    case "notContainsAny": {
+      const ids = (p.value as string[]) ?? [];
+      return sql`NOT EXISTS (
             SELECT 1
             FROM grids.record_links rl
             WHERE rl.from_record_id = ${sourceRecordId}

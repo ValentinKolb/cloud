@@ -88,6 +88,11 @@ test("LEN / LOWER / UPPER / TRIM", () => {
 });
 test("CONTAINS / LEFT / RIGHT / SUBSTRING / REPLACE", () => {
   expect(run("CONTAINS('Invoice paid', 'paid')")).toBe(true);
+  expect(run("STARTSWITH('Invoice paid', 'Invoice')")).toBe(true);
+  expect(run("ENDSWITH('Invoice paid', 'paid')")).toBe(true);
+  expect(run("ICONTAINS('Invoice paid', 'PAID')")).toBe(true);
+  expect(run("ISTARTSWITH('Invoice paid', 'invoice')")).toBe(true);
+  expect(run("IENDSWITH('Invoice paid', 'PAID')")).toBe(true);
   expect(run("LEFT('abcdef', 2)")).toBe("ab");
   expect(run("RIGHT('abcdef', 2)")).toBe("ef");
   expect(run("SUBSTRING('abcdef', 2, 3)")).toBe("cde");

@@ -74,6 +74,10 @@ mock.module("../../../service", () => ({
     table: {
       getByIdOrShortId: async () => null,
     },
+    gqlQuery: {
+      listForBase: async () => [],
+      getByIdOrShortId: async () => null,
+    },
     access: {
       listForDashboard: async () => [],
       listForTable: async () => [],

@@ -8,6 +8,7 @@ export const QUERY_RESERVED_WORDS = new Set([
   "asc",
   "ascending",
   "by",
+  "deleted",
   "desc",
   "descending",
   "false",
@@ -15,13 +16,18 @@ export const QUERY_RESERVED_WORDS = new Set([
   "from",
   "group",
   "having",
+  "include",
   "join",
   "left",
   "limit",
+  "not",
   "null",
+  "nulls",
   "offset",
   "on",
+  "only",
   "or",
+  "search",
   "select",
   "skip",
   "sort",
@@ -68,13 +74,20 @@ const readBareIdentifier = (input: string, start: number): { value: string; end:
   return { value: input.slice(start, end), end };
 };
 
+const readBracedIdentifier = (input: string, start: number): { value: string; end: number } | null => {
+  if (input[start] !== "{") return null;
+  const end = input.indexOf("}", start + 1);
+  if (end === -1) return null;
+  const value = input.slice(start + 1, end).trim();
+  if (!value || value.length > IDENTIFIER_REF_MAX_LENGTH) return null;
+  return { value, end: end + 1 };
+};
+
 export const parseIdentifierRef = (input: string): string | null => {
   const trimmed = input.trim();
   if (!trimmed) return null;
-  if (trimmed.startsWith("#")) {
-    const ref = trimmed.slice(1);
-    return ref && ref.length <= IDENTIFIER_REF_MAX_LENGTH ? ref : null;
-  }
+  const braced = readBracedIdentifier(trimmed, 0);
+  if (braced && braced.end === trimmed.length) return braced.value;
   const quoted = readQuotedIdentifier(trimmed, 0);
   if (quoted && quoted.end === trimmed.length && quoted.value.trim() && quoted.value.length <= IDENTIFIER_REF_MAX_LENGTH)
     return quoted.value;

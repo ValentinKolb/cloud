@@ -49,4 +49,13 @@ export const toDecimalValue = (v: unknown): DecimalValue | null => {
 
 export const decimalToString = (d: Decimal): string => d.toFixed();
 
+export const decimalStringToCanonical = (value: string): string | null => {
+  try {
+    const decimal = new Decimal(value);
+    return decimal.isFinite() ? decimalToString(decimal) : null;
+  } catch {
+    return null;
+  }
+};
+
 export const decimalResult = (d: Decimal, exact: boolean): string | number => (exact ? decimalToString(d) : d.toNumber());

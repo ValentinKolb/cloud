@@ -1,22 +1,25 @@
-import { err, fail, ok, type DateContext, type Result } from "@valentinkolb/stdlib";
+import { type DateContext, err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { lookupTargetMeta } from "../lookup-display";
+import type { ComputedColumnSpec, RecordMetaQuery } from "../contracts";
 import { getRecordWritableFieldType, isRecordWritableFieldType } from "../field-types";
+import type { Expr } from "../formula/types";
+import { lookupTargetMeta } from "../lookup-display";
 import { defaultTableAggregations } from "../table-defaults";
 import { type AggregateRequest, compileAggregates } from "./aggregate-compiler";
 import { logAudit, type SqlClient } from "./audit";
 import {
   applyComputedProjections,
+  buildComputedColumnSqlProjections,
   buildComputedProjections,
   buildFormulaSqlProjections,
   type ComputedProjection,
 } from "./computed-projections";
+import { storageOf } from "./field-storage";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import { listFirstImagePreviews } from "./files";
-import { generateIdValue, generatedIdRequiresRetry, isGeneratedIdUniqueCollision } from "./generated-ids";
 import { compileFilter, type FilterTree, renderClause } from "./filter-compiler";
 import { compileFormulaPredicateAstToSql } from "./formula-sql-compiler";
-import { storageOf } from "./field-storage";
+import { generatedIdRequiresRetry, generateIdValue, isGeneratedIdUniqueCollision } from "./generated-ids";
 import {
   compileGroupQuery,
   type GroupAggregationSpec,
@@ -26,10 +29,10 @@ import {
   type GroupSortSpec,
 } from "./group-compiler";
 import { parseJsonbRow } from "./jsonb";
+import { withLookupTargetMetadata } from "./lookup-display";
 import { liveRecordParentJoinSql, requireTableAlive } from "./parent-checks";
 import { type GridsRecordEvent, publishRecordEvent } from "./record-events";
 import { cleanRecordMeta, compileRecordMetaFilter, listRecordActors, recordMetaRequiresDeletedRows } from "./record-metadata";
-import { withLookupTargetMetadata } from "./lookup-display";
 import {
   attachRelationExpansion,
   type ExpansionViewer,
@@ -42,8 +45,6 @@ import {
 import { compileSearchClause, type SearchSpec } from "./search";
 import { compileSort, decodeCursor, type SortSpec } from "./sort-compiler";
 import type { Field, GridRecord, RecordList } from "./types";
-import type { ComputedColumnSpec, RecordMetaQuery } from "../contracts";
-import type { Expr } from "../formula/types";
 
 type DbRow = Record<string, unknown>;
 
@@ -502,7 +503,10 @@ export const list = async (params: {
   // batch-fetch pass. Single source of truth, single round-trip.
   const computed = await buildComputedProjections(fields);
   const formulaSql = buildFormulaSqlProjections(fields, { dateConfig: params.dateConfig });
-  const projections = [...computed, ...formulaSql];
+  // View computed columns evaluate in SQL when projectable (one semantics with
+  // GQL preview + formula fields); the JS evaluator below only fills the rest.
+  const computedColumnSql = buildComputedColumnSqlProjections(params.computedColumns, fields, { dateConfig: params.dateConfig });
+  const projections = [...computed, ...formulaSql, ...computedColumnSql.projections];
   const projectionFragments = projectionFragmentsFor(projections);
 
   // Live-parent JOIN: records of a trashed table or base never list,
@@ -546,7 +550,10 @@ export const list = async (params: {
     dateConfig: params.dateConfig,
     skipFormulaFieldIds: new Set(formulaSql.map((projection) => projection.fieldId)),
   });
-  enrichRecordsWithComputedColumns(items, fields, params.computedColumns, { dateConfig: params.dateConfig });
+  enrichRecordsWithComputedColumns(items, fields, params.computedColumns, {
+    dateConfig: params.dateConfig,
+    skipColumnIds: computedColumnSql.sqlColumnIds,
+  });
 
   // Optional relation expansion. Runs AFTER hydrateRelationsFromLinks
   // because it reads `record.data[fieldId]` to figure out which UUIDs

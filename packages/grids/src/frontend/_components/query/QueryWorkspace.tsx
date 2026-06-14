@@ -1,9 +1,9 @@
-import { AutocompleteEditor, DataTable, DockWorkspace, prompts, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { AutocompleteEditor, DataTable, type DataTableColumn, DockWorkspace, prompts } from "@valentinkolb/cloud/ui";
 import { highlight } from "@valentinkolb/stdlib";
 import { timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { DslQueryPreviewResponse } from "../../../contracts";
+import type { DslQueryPreviewResponse, GqlQuery } from "../../../contracts";
 import { formatIdentifierRef } from "../../../ref-syntax";
 import type { Field, Table, View } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
@@ -14,6 +14,8 @@ type Props = {
   baseShortId: string;
   initialQuery: string;
   queryPath: string;
+  savedQuery?: GqlQuery;
+  canEditSavedQuery?: boolean;
   currentSource?:
     | { kind: "table"; tableId: string; label: string; ref: string }
     | { kind: "view"; viewId: string; label: string; ref: string };
@@ -33,10 +35,10 @@ const queryHighlight = highlight.compile(
     {
       kind: "keyword",
       match:
-        /\b(?:from|table|view|select|join|left|inner|as|on|where|formula|group|by|aggregate|having|sort|limit|offset|skip|asc|ascending|desc|descending)\b/i,
+        /\b(?:from|table|view|select|join|left|as|on|where|formula|group|by|aggregate|having|sort|search|include|deleted|only|nulls|first|last|limit|offset|asc|desc|and|or|not)\b/i,
     },
     { kind: "function", match: /\b(?:count|countEmpty|countUnique|sum|avg|min|max|median|earliest|latest)\b/i },
-    { kind: "placeholder", match: /#[A-Za-z0-9_-]+|\{[0-9a-f-]{36}\}/i },
+    { kind: "placeholder", match: /\{[A-Za-z0-9_-]{1,200}\}/i },
     { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
     { kind: "operator", match: /<=|>=|!=|=|<|>|\+|-|\*|\/|%|,|\(|\)/ },
   ],
@@ -57,11 +59,11 @@ const queryHref = (queryPath: string, query: string) => {
   return `${queryPath}${search ? `?${search}` : ""}`;
 };
 
-const queryReferenceHref = (baseShortId: string) => `/app/grids/${encodeURIComponent(baseShortId)}/query-reference`;
+const queryReferenceHref = (baseShortId: string) => `/app/grids/${encodeURIComponent(baseShortId)}/reference/gql?defaultTab=gql`;
 
 const openQueryReferenceWindow = (baseShortId: string) => {
   if (typeof window === "undefined") return;
-  window.open(queryReferenceHref(baseShortId), "grids-query-reference", "popup,width=1120,height=820,resizable=yes,scrollbars=yes");
+  window.open(queryReferenceHref(baseShortId), "grids-gql-reference", "popup,width=1120,height=820,resizable=yes,scrollbars=yes");
 };
 
 const safeQueryHref = (queryPath: string, query: string) => {
@@ -107,7 +109,10 @@ function QueryPreview(props: { preview: DslQueryPreviewResponse | null; loading:
                 {(diagnostic) => (
                   <div class="info-block-danger">
                     <Show when={diagnostic.line}>
-                      <span class="font-medium">Line {diagnostic.line}: </span>
+                      <span class="font-medium">
+                        Line {diagnostic.line}
+                        <Show when={diagnostic.column}>{(column) => `, column ${column()}`}</Show>:{" "}
+                      </span>
                     </Show>
                     {diagnostic.message}
                   </div>
@@ -132,6 +137,9 @@ function QueryPreview(props: { preview: DslQueryPreviewResponse | null; loading:
               />
               <Show when={preview().truncated}>
                 <div class="shrink-0 px-3 py-2 text-xs text-dimmed">Limited to {preview().limit} rows.</div>
+              </Show>
+              <Show when={preview().explode}>
+                <div class="shrink-0 px-3 py-2 text-xs text-dimmed">Some records contribute to multiple groups.</div>
               </Show>
             </div>
           )}
@@ -169,9 +177,9 @@ export default function QueryWorkspace(props: Props) {
     }
     setLoading(true);
     try {
-      const response = await apiClient["query-dsl"]["by-base"][":baseId"].preview.$post({
+      const response = await apiClient.gql["by-base"][":baseId"].preview.$post({
         param: { baseId: props.baseId },
-        json: { query: source, limit: 100, ...(props.currentSource ? { currentSource: props.currentSource } : {}) },
+        json: { query: source, ...(props.currentSource ? { currentSource: props.currentSource } : {}) },
       });
       if (!response.ok) throw new Error(await errorMessage(response, "Could not preview query."));
       const data = await response.json();
@@ -196,28 +204,29 @@ export default function QueryWorkspace(props: Props) {
 
   const onInput = (next: string) => {
     setQuery(next);
-    if (typeof window !== "undefined") window.history.replaceState(window.history.state, "", safeQueryHref(props.queryPath, next));
+    if (!props.savedQuery && typeof window !== "undefined") {
+      window.history.replaceState(window.history.state, "", safeQueryHref(props.queryPath, next));
+    }
   };
 
   const insertExample = (source: string) => {
     onInput(source);
   };
 
-  const handleSaveAsView = async () => {
-    if (!query().trim() || saveLoading()) return;
+  const handleSaveAsGqlQuery = async () => {
     const result = await prompts.form({
-      title: "Save view",
-      icon: "ti ti-bookmark-plus",
+      title: "Save query",
+      icon: "ti ti-code",
       fields: {
         name: {
           type: "text",
           label: "Name",
           required: true,
-          placeholder: "e.g. Open orders",
+          placeholder: "e.g. Joined revenue",
         },
         shared: {
           type: "boolean",
-          label: "Share with everyone who can read this table",
+          label: "Share with everyone who can read this grid",
           default: false,
         },
       },
@@ -225,19 +234,88 @@ export default function QueryWorkspace(props: Props) {
     });
     if (!result) return;
 
+    const response = await apiClient.gql["by-base"][":baseId"].saved.$post({
+      param: { baseId: props.baseId },
+      json: {
+        name: String(result.name).trim(),
+        query: query(),
+        shared: Boolean(result.shared),
+        ...(props.currentSource ? { currentSource: props.currentSource } : {}),
+      },
+    });
+    if (!response.ok) throw new Error(await errorMessage(response, "Could not save query."));
+    const saved = await response.json();
+    if (!saved.ok) {
+      const message = saved.diagnostics.map((diagnostic) => diagnostic.message).join("\n");
+      prompts.error(message || "This query could not be saved.");
+      return;
+    }
+    await prompts.success(`Saved "${saved.query.name}".`, { title: "Query saved", icon: "ti ti-bookmark" });
+    if (typeof window !== "undefined") window.location.assign(`/app/grids/${props.baseShortId}/query/${saved.query.shortId}`);
+  };
+
+  const handleUpdateSavedGqlQuery = async () => {
+    const savedQuery = props.savedQuery;
+    if (!savedQuery || !query().trim() || saveLoading()) return;
     setSaveLoading(true);
     try {
-      const compiledResponse = await apiClient["query-dsl"]["by-base"][":baseId"]["compile-view"].$post({
+      const response = await apiClient.gql.saved[":queryId"].$patch({
+        param: { queryId: savedQuery.id },
+        json: { query: query() },
+      });
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not update query."));
+      const saved = await response.json();
+      if (!saved.ok) {
+        const message = saved.diagnostics.map((diagnostic) => diagnostic.message).join("\n");
+        prompts.error(message || "This query could not be updated.");
+        return;
+      }
+      setQuery(saved.query.source);
+      if (typeof window !== "undefined") {
+        window.history.replaceState(window.history.state, "", `/app/grids/${props.baseShortId}/query/${saved.query.shortId}`);
+      }
+      await prompts.success(`Updated "${saved.query.name}".`, { title: "Query updated", icon: "ti ti-bookmark" });
+    } catch (error) {
+      prompts.error(error instanceof Error ? error.message : "Could not update query.");
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const handleSaveAsView = async () => {
+    if (!query().trim() || saveLoading()) return;
+    setSaveLoading(true);
+    try {
+      const compiledResponse = await apiClient.gql["by-base"][":baseId"]["compile-view"].$post({
         param: { baseId: props.baseId },
         json: { query: query(), ...(props.currentSource ? { currentSource: props.currentSource } : {}) },
       });
       if (!compiledResponse.ok) throw new Error(await errorMessage(compiledResponse, "Could not compile query."));
       const compiled = await compiledResponse.json();
       if (!compiled.ok) {
-        const message = compiled.diagnostics.map((diagnostic) => diagnostic.message).join("\n");
-        prompts.error(message || "This query cannot be saved as a regular view yet.");
+        await handleSaveAsGqlQuery();
         return;
       }
+
+      const result = await prompts.form({
+        title: "Save view",
+        icon: "ti ti-bookmark-plus",
+        fields: {
+          name: {
+            type: "text",
+            label: "Name",
+            required: true,
+            placeholder: "e.g. Open orders",
+          },
+          shared: {
+            type: "boolean",
+            label: "Share with everyone who can read this table",
+            default: false,
+          },
+        },
+        confirmText: "Save",
+      });
+      if (!result) return;
 
       const createResponse = await apiClient.views["by-table"][":tableId"].$post({
         param: { tableId: compiled.tableId },
@@ -259,6 +337,32 @@ export default function QueryWorkspace(props: Props) {
       setSaveLoading(false);
     }
   };
+
+  const handleSaveReadonlyCopy = async () => {
+    if (!query().trim() || saveLoading()) return;
+    setSaveLoading(true);
+    try {
+      await handleSaveAsGqlQuery();
+    } catch (error) {
+      prompts.error(error instanceof Error ? error.message : "Could not save query.");
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  const canUpdateSavedQuery = () => !!props.savedQuery && props.canEditSavedQuery === true;
+  const saveButtonLabel = () => (props.savedQuery ? (canUpdateSavedQuery() ? "Update" : "Save copy") : "Save");
+  const saveButtonTitle = () => (props.savedQuery ? (canUpdateSavedQuery() ? "Update query" : "Save query copy") : "Save query");
+  const saveButtonIcon = () =>
+    saveLoading()
+      ? "ti ti-loader-2 animate-spin"
+      : props.savedQuery
+        ? canUpdateSavedQuery()
+          ? "ti ti-device-floppy"
+          : "ti ti-copy"
+        : "ti ti-bookmark-plus";
+  const handleSave = () =>
+    canUpdateSavedQuery() ? handleUpdateSavedGqlQuery() : props.savedQuery ? handleSaveReadonlyCopy() : handleSaveAsView();
 
   const firstTable = () => props.tables[0];
   const firstNumericField = () =>
@@ -282,7 +386,7 @@ export default function QueryWorkspace(props: Props) {
         ? [
             {
               label: "Grouped",
-              code: `from table ${formatIdentifierRef(table.name)}\ngroup by ${formatIdentifierRef(date.name)} by month\naggregate sum(${formatIdentifierRef(amount.name)}) as total\nsort total descending`,
+              code: `from table ${formatIdentifierRef(table.name)}\ngroup by ${formatIdentifierRef(date.name)} by month\naggregate sum(${formatIdentifierRef(amount.name)}) as total\nsort total desc`,
             },
           ]
         : []),
@@ -321,14 +425,15 @@ export default function QueryWorkspace(props: Props) {
                 highlight={queryHighlight}
                 restoreExpansionOnBackspace={false}
                 fill
-                placeholder={"from table Orders\nwhere formula(Status = 'Open')\nsort CreatedAt descending\nlimit 50\nskip 0"}
-                ariaLabel="Grids query"
+                placeholder={"from table Orders\nwhere Status = 'Open'\nsort CreatedAt desc\nlimit 50\noffset 0"}
+                ariaLabel="GQL query"
               />
             </div>
             <p class="text-xs text-dimmed leading-snug">
-              Saved views use stable field IDs. Readable query text and formulas are rewritten best effort on renames; review important queries after renaming tables or fields.
+              Saved views use stable field IDs. Readable query text and formulas are rewritten best effort on renames; review important
+              queries after renaming tables or fields.
             </p>
-            <Show when={queryHref(props.queryPath, query()).length > MAX_SYNCED_QUERY_HREF_LENGTH}>
+            <Show when={!props.savedQuery && queryHref(props.queryPath, query()).length > MAX_SYNCED_QUERY_HREF_LENGTH}>
               <p class="text-xs text-dimmed">
                 This query is too long for the URL. Preview still works, but reload will start with an empty query.
               </p>
@@ -346,18 +451,18 @@ export default function QueryWorkspace(props: Props) {
                 type="button"
                 class="btn-input btn-sm ml-auto"
                 onClick={() => openQueryReferenceWindow(props.baseShortId)}
-                title="Open query reference"
+                title="Open GQL reference"
               >
                 <i class="ti ti-external-link" /> Open reference
               </button>
               <button
                 type="button"
                 class="btn-input btn-sm"
-                onClick={handleSaveAsView}
+                onClick={handleSave}
                 disabled={!query().trim() || saveLoading()}
-                title="Save query as a regular view"
+                title={saveButtonTitle()}
               >
-                <i class={saveLoading() ? "ti ti-loader-2 animate-spin" : "ti ti-bookmark-plus"} /> Save as view
+                <i class={saveButtonIcon()} /> {saveButtonLabel()}
               </button>
             </div>
           </section>

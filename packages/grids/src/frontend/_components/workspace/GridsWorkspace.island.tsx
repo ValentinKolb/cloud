@@ -295,7 +295,7 @@ export default function GridsWorkspace(props: Props) {
     if (route.kind === "records") return `records:${route.activeTable.id}:${route.activeView?.id ?? ""}:${s.adminModeRequested}`;
     if (route.kind === "dashboard") return `dashboard:${route.dashboard.id}:${s.adminModeRequested}`;
     if (route.kind === "automations") return `automations:${s.base.id}`;
-    if (route.kind === "query") return `query:${s.base.id}`;
+    if (route.kind === "query") return `query:${s.base.id}:${route.savedQuery?.id ?? ""}`;
     return `${route.kind}:${s.adminModeRequested}`;
   };
 
@@ -388,11 +388,39 @@ export default function GridsWorkspace(props: Props) {
       baseShortId={state().base.shortId}
       initialQuery={route.initialQuery}
       queryPath={route.queryPath}
+      savedQuery={route.savedQuery}
+      canEditSavedQuery={route.canEditSavedQuery}
       currentSource={route.currentSource}
       tables={state().catalog.tables}
       fieldsByTable={state().catalog.fieldsByTable}
       viewsByTable={state().catalog.viewsByTable}
     />
+  );
+
+  const isUnsavedQueryRoute = () => {
+    const route = state().route;
+    return route.kind === "query" && !route.savedQuery;
+  };
+
+  const renderSavedQuerySidebarSection = () => (
+    <Show when={state().canUseQueryWorkspace && state().catalog.gqlQueries.length > 0}>
+      <AppWorkspace.SidebarSection title="Queries">
+        {state().catalog.gqlQueries.map((query) => {
+          const route = state().route;
+          const active = route.kind === "query" && route.savedQuery?.id === query.id;
+          return (
+            <AppWorkspace.SidebarItem
+              href={`/app/grids/${state().base.shortId}/query/${query.shortId}`}
+              icon={query.icon ?? "ti ti-code"}
+              onNavigate={handleNavigate}
+              active={active}
+            >
+              {query.name}
+            </AppWorkspace.SidebarItem>
+          );
+        })}
+      </AppWorkspace.SidebarSection>
+    </Show>
   );
 
   return (
@@ -443,7 +471,7 @@ export default function GridsWorkspace(props: Props) {
                   href={`/app/grids/${state().base.shortId}/query`}
                   icon="ti ti-code"
                   onNavigate={handleNavigate}
-                  active={state().route.kind === "query"}
+                  active={isUnsavedQueryRoute()}
                 >
                   Query
                 </AppWorkspace.SidebarItem>
@@ -478,6 +506,8 @@ export default function GridsWorkspace(props: Props) {
                   {state().canCreateTables && <CreateDashboardButton baseId={state().base.id} baseShortId={state().base.shortId} />}
                 </AppWorkspace.SidebarSection>
               </Show>
+
+              {renderSavedQuerySidebarSection()}
 
               <Show when={state().catalog.sidebarForms.length > 0}>
                 <AppWorkspace.SidebarSection title="Forms">
@@ -572,7 +602,7 @@ export default function GridsWorkspace(props: Props) {
                     href={`/app/grids/${state().base.shortId}/query`}
                     icon="ti ti-code"
                     onNavigate={handleNavigate}
-                    active={state().route.kind === "query"}
+                    active={isUnsavedQueryRoute()}
                   >
                     Query
                   </AppWorkspace.SidebarItem>
@@ -609,6 +639,8 @@ export default function GridsWorkspace(props: Props) {
                   {state().canCreateTables && <CreateDashboardButton baseId={state().base.id} baseShortId={state().base.shortId} />}
                 </AppWorkspace.SidebarSection>
               </Show>
+
+              {renderSavedQuerySidebarSection()}
 
               <Show when={state().catalog.sidebarForms.length > 0}>
                 <AppWorkspace.SidebarSection title="Forms">

@@ -28,6 +28,22 @@ test("parses field reference", () => {
   if (r.ok) expect(r.ast).toEqual({ kind: "field", fieldId: "fld_x" });
 });
 
+test("scoped field references are opt-in for GQL expressions", () => {
+  expect(parseFormula("customer.name").ok).toBe(false);
+
+  const bare = parseFormula("customer.name", { scopedRefs: true });
+  expect(bare.ok).toBe(true);
+  if (bare.ok) expect(bare.ast).toEqual({ kind: "field", fieldId: "customer.name" });
+
+  const quoted = parseFormula('customer."Full name"', { scopedRefs: true });
+  expect(quoted.ok).toBe(true);
+  if (quoted.ok) expect(quoted.ast).toEqual({ kind: "field", fieldId: 'customer."Full name"' });
+
+  const braced = parseFormula("customer.{fld_x}", { scopedRefs: true });
+  expect(braced.ok).toBe(true);
+  if (braced.ok) expect(braced.ast).toEqual({ kind: "field", fieldId: "customer.{fld_x}" });
+});
+
 test("operator precedence: * binds tighter than +", () => {
   const r = parseFormula("1 + 2 * 3");
   expect(r.ok).toBe(true);

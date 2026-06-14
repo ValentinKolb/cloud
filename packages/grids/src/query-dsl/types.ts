@@ -1,15 +1,23 @@
 import type { Expr } from "../formula/types";
 
-export type DslSourceKind = "table" | "view" | "unknown";
+export type DslSourceSpan = {
+  line: number;
+  column: number;
+  length: number;
+};
+
+export type DslSourceKind = "table" | "view";
 
 export type DslSourceRef = {
   kind: DslSourceKind;
   ref: string;
+  span?: DslSourceSpan;
 };
 
 export type DslQualifiedRef = {
   scope?: string;
   ref: string;
+  span?: DslSourceSpan;
 };
 
 export type DslSelectItem =
@@ -17,12 +25,14 @@ export type DslSelectItem =
       kind: "field";
       field: DslQualifiedRef;
       alias?: string;
+      span?: DslSourceSpan;
     }
   | {
       kind: "formula";
       expression: Expr;
       source: string;
       alias: string;
+      span?: DslSourceSpan;
     };
 
 export type DslJoinMode = "inner" | "left";
@@ -35,16 +45,21 @@ export type DslJoin = {
     left: DslQualifiedRef;
     right: DslQualifiedRef;
   };
+  span?: DslSourceSpan;
 };
 
 export type DslSortItem = {
   target: DslQualifiedRef | { kind: "alias"; alias: string };
   direction: "asc" | "desc";
+  /** `nulls first` / `nulls last` modifier; defaults to last. */
+  nullsFirst?: boolean;
+  span?: DslSourceSpan;
 };
 
 export type DslGroupItem = {
   field: DslQualifiedRef;
   granularity?: "day" | "week" | "month" | "quarter" | "year";
+  span?: DslSourceSpan;
 };
 
 export type DslAggregateFn = "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max" | "median" | "earliest" | "latest";
@@ -53,23 +68,33 @@ export type DslAggregateItem = {
   fn: DslAggregateFn;
   argument: "*" | DslQualifiedRef | { kind: "formula"; expression: Expr; source: string };
   alias: string;
+  span?: DslSourceSpan;
 };
 
 export type DslQueryAst = {
   source?: DslSourceRef;
+  sourceAlias?: string;
   joins: DslJoin[];
   select: DslSelectItem[];
-  where?: { expression: Expr; source: string };
+  where?: { expression: Expr; source: string; span?: DslSourceSpan };
   groupBy: DslGroupItem[];
   aggregations: DslAggregateItem[];
-  having?: { expression: Expr; source: string };
+  having?: { expression: Expr; source: string; span?: DslSourceSpan };
   sort: DslSortItem[];
+  /** `search 'text'` / `search 'text' in #a, #b` — free-text search. */
+  search?: { q: string; fields: DslQualifiedRef[]; span?: DslSourceSpan };
   limit?: number;
   offset?: number;
+  /** `include deleted` — list live and trashed records. */
+  includeDeleted?: boolean;
+  /** `deleted only` — list only trashed records (the trash view). */
+  deletedOnly?: boolean;
 };
 
 export type DslParseDiagnostic = {
   line: number;
+  column?: number;
+  length?: number;
   message: string;
 };
 

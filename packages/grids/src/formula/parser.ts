@@ -20,6 +20,7 @@ type RawToken =
   | { kind: "eof" };
 
 type Token = RawToken & { span: SourceSpan };
+type ParseFormulaOptions = { scopedRefs?: boolean };
 
 const SINGLE_CHAR_OPS = new Set(["+", "-", "*", "/", "%"]);
 const TWO_CHAR_OPS = new Set(["<=", ">=", "!=", "&&", "||"]);
@@ -44,6 +45,12 @@ const isSlugPart = (c: string): boolean => isDigit(c) || (c >= "A" && c <= "Z") 
 const readDigits = (src: string, i: number): number => {
   let j = i;
   while (j < src.length && isDigit(src[j]!)) j++;
+  return j;
+};
+
+const readIdentEnd = (src: string, i: number): number => {
+  let j = i;
+  while (j < src.length && isIdentPart(src[j]!)) j++;
   return j;
 };
 
@@ -119,6 +126,40 @@ const scanBracedField: Scanner = (src, i) => {
   return { token: { kind: "field", value }, next: j + 1 };
 };
 
+const readQuotedFieldEnd = (src: string, i: number): number | null => {
+  if (src[i] !== `"`) return null;
+  for (let j = i + 1; j < src.length; j++) {
+    if (src[j] === `"` && src[j + 1] === `"`) {
+      j++;
+      continue;
+    }
+    if (src[j] === `"`) return j + 1;
+  }
+  throw new Error("unterminated quoted field reference");
+};
+
+const readBracedFieldEnd = (src: string, i: number): number | null => {
+  if (src[i] !== "{") return null;
+  const end = src.indexOf("}", i + 1);
+  if (end === -1) throw new Error("unclosed field reference");
+  const value = src.slice(i + 1, end).trim();
+  if (value.length === 0) throw new Error("empty field reference");
+  if (!FIELD_REF_RE.test(value)) throw new Error("invalid field reference");
+  return end + 1;
+};
+
+const scanScopedField: Scanner = (src, i) => {
+  if (!isIdentStart(src[i]!)) return null;
+  const scopeEnd = readIdentEnd(src, i);
+  if (src[scopeEnd] !== ".") return null;
+  const refStart = scopeEnd + 1;
+  let refEnd: number | null = null;
+  if (isIdentStart(src[refStart]!)) refEnd = readIdentEnd(src, refStart);
+  else refEnd = readQuotedFieldEnd(src, refStart) ?? readBracedFieldEnd(src, refStart);
+  if (!refEnd || refEnd === refStart) throw new Error(`invalid scoped field reference at offset ${i}`);
+  return { token: { kind: "field", value: src.slice(i, refEnd) }, next: refEnd };
+};
+
 const scanSlugField: Scanner = (src, i) => {
   if (src[i] !== "#") return null;
   let j = i + 1;
@@ -137,8 +178,7 @@ const identToken = (ident: string): RawToken => {
 
 const scanIdentifier: Scanner = (src, i) => {
   if (!isIdentStart(src[i]!)) return null;
-  let j = i + 1;
-  while (j < src.length && isIdentPart(src[j]!)) j++;
+  const j = readIdentEnd(src, i);
   return { token: identToken(src.slice(i, j)), next: j };
 };
 
@@ -168,15 +208,27 @@ const SCANNERS: Scanner[] = [
   scanOperator,
 ];
 
-const scanToken = (src: string, i: number): ScanResult => {
-  for (const scanner of SCANNERS) {
+const SCOPED_SCANNERS: Scanner[] = [
+  scanNumber,
+  scanString,
+  scanQuotedField,
+  scanBracedField,
+  scanSlugField,
+  scanScopedField,
+  scanIdentifier,
+  scanPunctuation,
+  scanOperator,
+];
+
+const scanToken = (src: string, i: number, options: ParseFormulaOptions = {}): ScanResult => {
+  for (const scanner of options.scopedRefs ? SCOPED_SCANNERS : SCANNERS) {
     const result = scanner(src, i);
     if (result) return result;
   }
   throw new Error(`unexpected character "${src[i]}" at position ${i}`);
 };
 
-const tokenize = (src: string, offset = 0): Token[] => {
+const tokenize = (src: string, offset = 0, options: ParseFormulaOptions = {}): Token[] => {
   const tokens: Token[] = [];
   let i = 0;
   while (i < src.length) {
@@ -185,7 +237,7 @@ const tokenize = (src: string, offset = 0): Token[] => {
       i++;
       continue;
     }
-    const result = scanToken(src, i);
+    const result = scanToken(src, i, options);
     tokens.push({ ...result.token, span: { start: offset + i, end: offset + result.next } } as Token);
     i = result.next;
   }
@@ -224,17 +276,31 @@ class Parser {
     return this.tokens[this.pos++]!;
   }
 
+  private peekNext(): Token {
+    return this.tokens[this.pos + 1]!;
+  }
+
+  private binaryOpFor(token: Token): BinOp | null {
+    if (token.kind === "op" && BINDING[token.value]) return token.value as BinOp;
+    if (token.kind !== "ident") return null;
+    const lower = token.value.toLowerCase();
+    if (lower === "and") return "&&";
+    if (lower === "or") return "||";
+    return null;
+  }
+
   parseExpr(minBp = 0): Expr {
     let left = this.parsePrefix();
     while (true) {
       const t = this.peek();
-      if (t.kind !== "op") break;
-      const bp = BINDING[t.value];
+      const op = this.binaryOpFor(t);
+      if (!op) break;
+      const bp = BINDING[op];
       if (!bp) break;
       if (bp[0] < minBp) break;
       this.next();
       const right = this.parseExpr(bp[1]);
-      left = withSpan({ kind: "binop", op: t.value as BinOp, left, right }, mergeSpans(left.span, right.span));
+      left = withSpan({ kind: "binop", op, left, right }, mergeSpans(left.span, right.span));
     }
     return left;
   }
@@ -271,6 +337,10 @@ class Parser {
         }
         throw new Error(`unexpected operator ${t.value}`);
       case "ident": {
+        if (t.value.toLowerCase() === "not" && (this.peek().kind !== "lparen" || this.peek().span.start > t.span.end)) {
+          const operand = this.parseExpr(70);
+          return withSpan({ kind: "unop", op: "!", operand }, mergeSpans(t.span, operand.span));
+        }
         if (this.peek().kind !== "lparen") {
           return withSpan({ kind: "field", fieldId: t.value }, t.span);
         }
@@ -304,7 +374,7 @@ const withSpan = <T extends Expr>(expr: T, span: SourceSpan | undefined): T => {
 };
 
 const mergeSpans = (a: SourceSpan | undefined, b: SourceSpan | undefined): SourceSpan | undefined =>
-  a && b ? { start: a.start, end: b.end } : a ?? b;
+  a && b ? { start: a.start, end: b.end } : (a ?? b);
 
 type ParseResult = { ok: true; ast: Expr } | { ok: false; error: string };
 
@@ -320,10 +390,10 @@ const normalizeFormulaSource = (source: string): { source: string; offset: numbe
   };
 };
 
-export const parseFormula = (source: string): ParseResult => {
+export const parseFormula = (source: string, options: ParseFormulaOptions = {}): ParseResult => {
   try {
     const normalized = normalizeFormulaSource(source);
-    const tokens = tokenize(normalized.source, normalized.offset);
+    const tokens = tokenize(normalized.source, normalized.offset, options);
     const parser = new Parser(tokens);
     const ast = parser.parseExpr(0);
     if (parser.peek().kind !== "eof") {

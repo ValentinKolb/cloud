@@ -89,6 +89,9 @@ type StorageDescriptor = {
   searchable: boolean;
 };
 
+export type FieldSqlScalarType = "numeric" | "text" | "boolean" | "date" | "datetime" | "unknown";
+export type FieldSqlOutputType = FieldSqlScalarType | "json";
+
 const data = (alias: string) => sql.unsafe(`${alias}.data`);
 
 const tryNumeric = (alias: string, fieldId: string) => sql`grids.try_numeric(${data(alias)}->>${fieldId})`;
@@ -349,3 +352,32 @@ const UNKNOWN_DESCRIPTOR: StorageDescriptor = {
  * silently coerces.
  */
 export const storageOf = (field: Field): StorageDescriptor => STORAGE[field.type] ?? UNKNOWN_DESCRIPTOR;
+
+const systemSqlTypeFor = (field: Field): FieldSqlScalarType => {
+  if (field.type === "created_at" || field.type === "updated_at" || field.type === "deleted_at") return "datetime";
+  if (field.type === "created_by" || field.type === "updated_by") return "text";
+  return "unknown";
+};
+
+export const scalarSqlTypeForField = (field: Field): FieldSqlScalarType => {
+  const descriptor = storageOf(field);
+  if (descriptor.kind === "numeric") return "numeric";
+  if (descriptor.kind === "text") return "text";
+  if (descriptor.kind === "boolean") return "boolean";
+  if (descriptor.kind === "date") return (field.config as { includeTime?: boolean }).includeTime ? "datetime" : "date";
+  if (descriptor.kind === "datetime") return "datetime";
+  if (descriptor.kind === "system") return systemSqlTypeFor(field);
+  return "unknown";
+};
+
+export const outputSqlTypeForField = (field: Field): FieldSqlOutputType => {
+  const descriptor = storageOf(field);
+  if (descriptor.kind === "json" || descriptor.kind === "jsonbArray" || descriptor.kind === "relationLink") return "json";
+  return scalarSqlTypeForField(field);
+};
+
+export const groupSqlTypeForField = (field: Field): FieldSqlOutputType => {
+  const descriptor = storageOf(field);
+  if (descriptor.kind === "relationLink" || descriptor.kind === "jsonbArray") return "text";
+  return outputSqlTypeForField(field);
+};

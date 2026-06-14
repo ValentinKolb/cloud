@@ -1,10 +1,10 @@
 import { sql } from "bun";
+import type { ComputedColumnSpec } from "../contracts";
 import { evaluate, renderResult } from "../formula/evaluator";
 import type { FormulaRuntimeContext } from "../formula/functions";
 import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { formulaError } from "../formula/types";
 import { normalizeRefKey } from "../ref-syntax";
-import type { ComputedColumnSpec } from "../contracts";
 import type { SqlClient } from "./audit";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
@@ -323,9 +323,12 @@ export const enrichRecordsWithComputedColumns = (
   records: GridRecord[],
   fields: Field[],
   columns: ComputedColumnSpec[] | undefined,
-  options: FormulaRuntimeContext = {},
+  options: FormulaRuntimeContext & { skipColumnIds?: ReadonlySet<string> } = {},
 ): GridRecord[] => {
-  const computedColumns = (columns ?? []).filter((column) => column.expression.trim().length > 0);
+  // Columns already projected in SQL (the common arithmetic/text case) are
+  // skipped here so the two engines never both write the same cell — SQL is
+  // the source of truth, JS only fills the non-projectable remainder.
+  const computedColumns = (columns ?? []).filter((column) => column.expression.trim().length > 0 && !options.skipColumnIds?.has(column.id));
   if (computedColumns.length === 0 || records.length === 0) return records;
 
   const slugToId: Record<string, string> = {};
@@ -477,6 +480,19 @@ export const buildLabelCacheForGroupedKeys = async (
     }
     idsByTargetTable.set(cfg.targetTableId, set);
   }
+  const gated = viewer ? await filterTargetsByViewerPermission(idsByTargetTable, viewer) : idsByTargetTable;
+  return resolveLabelsByTargetTable(gated);
+};
+
+/**
+ * Resolve labels for relation ids the caller already has. This is used by
+ * read-only projections such as GQL preview where the SQL result carries raw
+ * target UUIDs but does not return normal GridRecord shapes.
+ */
+export const buildRelationLabelCacheForIds = async (
+  idsByTargetTable: Map<string, Set<string>>,
+  viewer?: ExpansionViewer,
+): Promise<Record<string, string>> => {
   const gated = viewer ? await filterTargetsByViewerPermission(idsByTargetTable, viewer) : idsByTargetTable;
   return resolveLabelsByTargetTable(gated);
 };

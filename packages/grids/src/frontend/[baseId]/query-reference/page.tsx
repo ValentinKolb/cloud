@@ -1,8 +1,9 @@
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { sql } from "bun";
 import { ssr } from "../../../config";
 import { gridsService } from "../../../service";
-import QueryReferenceWindow from "../../_components/query/QueryReferenceWindow.island";
+import QueryReferenceWindow, { normalizeQueryReferenceTab } from "../../_components/query/QueryReferenceWindow";
 
 type AuthUser = Parameters<typeof hasRole>[0] & {
   id: string;
@@ -20,8 +21,12 @@ const messagePage =
   );
 
 export default ssr<AuthContext>(async (c) => {
-  c.get("page").title = "Query reference";
+  c.get("page").title = "GQL reference";
   const baseSlug = c.req.param("baseId")!;
+  const defaultTabParam = c.req.query("defaultTab");
+  const routeTabParam = c.req.param("tab");
+  const sourceId = c.req.param("sourceId");
+  const defaultTab = normalizeQueryReferenceTab(routeTabParam) ?? normalizeQueryReferenceTab(defaultTabParam) ?? (sourceId ? "tables" : "basics");
   const base = await gridsService.base.getByIdOrShortId(baseSlug);
   if (!base) return messagePage("Base not found");
 
@@ -43,13 +48,31 @@ export default ssr<AuthContext>(async (c) => {
     userGroups: user.memberofGroupIds,
     isAdmin,
   });
+  const tableIds = catalog.tables.map((table) => table.id);
+  const countRows =
+    tableIds.length > 0
+      ? await sql`
+          SELECT table_id, COUNT(*)::int AS record_count
+          FROM grids.records
+          WHERE table_id = ANY(${sql.array(tableIds, "UUID")})
+            AND deleted_at IS NULL
+          GROUP BY table_id
+        `
+      : [];
+  const recordCountsByTable = Object.fromEntries(
+    countRows.map((row: { table_id: string; record_count: number | string | null }) => [row.table_id, Number(row.record_count ?? 0)]),
+  ) as Record<string, number>;
 
   return () => (
     <QueryReferenceWindow
+      baseShortId={base.shortId}
       baseName={base.name}
       tables={catalog.tables}
       fieldsByTable={catalog.fieldsByTable}
       viewsByTable={catalog.viewsByTable}
+      recordCountsByTable={recordCountsByTable}
+      defaultTab={defaultTab}
+      inspectedSourceId={sourceId}
     />
   );
 });

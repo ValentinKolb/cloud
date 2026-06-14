@@ -1,7 +1,7 @@
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
-import type { ComputedColumnSpec, GroupSortSpec, RecordDisplayConfig, ViewQuery } from "../../../contracts";
+import type { ComputedColumnSpec, GqlQuery, GroupSortSpec, RecordDisplayConfig, ViewQuery } from "../../../contracts";
 import type { Automation, Base, Dashboard, Field, Form, GridRecord, Table, View } from "../../../service";
 import { gridsService } from "../../../service";
 import { resolveWidgetData, type WidgetData } from "../../../service/dashboard-widget-data";
@@ -43,6 +43,7 @@ export type WorkspaceCatalog = {
   viewsByTable: Record<string, View[]>;
   formsByTable: Record<string, Form[]>;
   formAccessEntriesByTable: Record<string, Record<string, AccessEntry[]>>;
+  gqlQueries: GqlQuery[];
   tableShortIds: Record<string, string>;
   sidebarForms: Array<{ form: Form; table: Table }>;
 };
@@ -104,6 +105,8 @@ export type WorkspaceQueryRoute = {
   kind: "query";
   initialQuery: string;
   queryPath: string;
+  savedQuery?: GqlQuery;
+  canEditSavedQuery?: boolean;
   currentSource?:
     | { kind: "table"; tableId: string; label: string; ref: string }
     | { kind: "view"; viewId: string; label: string; ref: string };
@@ -189,6 +192,7 @@ type LoadWorkspaceParams = {
   activeTableSlug?: string | null;
   activeViewSlug?: string | null;
   activeDashboardSlug?: string | null;
+  activeGqlQuerySlug?: string | null;
   dateConfig?: DateContext;
 };
 
@@ -244,12 +248,15 @@ const buildChrome = (href: string, base: Base): WorkspaceChrome => {
 };
 
 const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCatalog> => {
-  const catalogRaw = await gridsService.base.catalog({
-    baseId,
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
-    isAdmin: hasRole(user, "admin"),
-  });
+  const [catalogRaw, gqlQueries] = await Promise.all([
+    gridsService.base.catalog({
+      baseId,
+      userId: user.id,
+      userGroups: user.memberofGroupIds,
+      isAdmin: hasRole(user, "admin"),
+    }),
+    gridsService.gqlQuery.listForBase({ baseId, userId: user.id }),
+  ]);
   const tables = catalogRaw.tables;
   const formTables = catalogRaw.formTables ?? [];
   const tableById = Object.fromEntries([...tables, ...formTables].map((t) => [t.id, t]));
@@ -269,6 +276,7 @@ const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCat
     viewsByTable: catalogRaw.viewsByTable,
     formsByTable: catalogRaw.formsByTable,
     formAccessEntriesByTable,
+    gqlQueries,
     tableShortIds: Object.fromEntries([...tables, ...formTables].map((t) => [t.id, t.shortId])),
     sidebarForms,
   };
@@ -331,6 +339,9 @@ const loadDashboardState = async (common: WorkspaceCommon, dashboard: Dashboard)
     manualAutomations,
   });
 };
+
+const canReadSavedGqlQuery = (common: WorkspaceCommon, query: GqlQuery) =>
+  query.ownerUserId === null || query.ownerUserId === common.params.user.id || common.canManageBase;
 
 type InitialRecordsArgs = {
   activeTable: Table;
@@ -607,12 +618,31 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
     canUseEditMode,
     canUseQueryWorkspace: hasBaseRead,
   };
-  const queryWorkspaceRequested = chrome.url.pathname.endsWith("/query");
+  const queryWorkspaceRequested = chrome.url.pathname.endsWith("/query") || !!params.activeGqlQuerySlug;
   const activeDashboard = queryWorkspaceRequested ? null : await resolveActiveDashboard(params, base, catalog.dashboards);
   const renderDashboard = activeDashboard ? (catalog.dashboards.find((d) => d.id === activeDashboard.id) ?? null) : null;
   const activeTableFromSlug = params.activeTableSlug ? await gridsService.table.getByIdOrShortId(baseId, params.activeTableSlug) : null;
   if (queryWorkspaceRequested) {
     if (!hasBaseRead) return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
+    if (params.activeGqlQuerySlug) {
+      const savedQuery = await gridsService.gqlQuery.getByIdOrShortId(baseId, params.activeGqlQuerySlug);
+      if (!savedQuery) return { kind: "notFound", title: "Not found", message: "GQL query not found" };
+      if (!canReadSavedGqlQuery(common, savedQuery)) {
+        return { kind: "accessDenied", title: "Access denied", message: "No access to this query" };
+      }
+      return okState(
+        common,
+        {
+          kind: "query",
+          initialQuery: savedQuery.source,
+          queryPath: `/app/grids/${base.shortId}/query/${savedQuery.shortId}`,
+          savedQuery,
+          canEditSavedQuery: savedQuery.ownerUserId === params.user.id || canManageBase,
+        },
+        [...chrome.titleBase, { title: "Query", href: `/app/grids/${base.shortId}/query` }, { title: savedQuery.name }],
+      );
+    }
+
     const queryTable = activeTableFromSlug ? (catalog.tables.find((t) => t.id === activeTableFromSlug.id) ?? null) : null;
     if (params.activeTableSlug && !queryTable) {
       return { kind: "accessDenied", title: "Access denied", message: "No access to this table" };

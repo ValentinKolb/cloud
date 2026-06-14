@@ -16,7 +16,7 @@ const SCALAR_SEARCH_TYPES = new Set(["text", "longtext", "id", "number", "percen
 
 const SELECT_SEARCH_TYPES = new Set(["select"]);
 
-const escapeLikePattern = (s: string): string => s.replace(/([\\%_])/g, "\\$1");
+export const escapeSearchLikePattern = (s: string): string => s.replace(/([\\%_])/g, "\\$1");
 const dataFor = (alias: string) => sql.unsafe(`${alias}.data`);
 
 /**
@@ -44,7 +44,7 @@ const selectClause = (field: Field, alias: string, q: string): any | null => {
   return sql`(${orClause})`;
 };
 
-const directFieldClause = (field: Field, alias: string, q: string, pattern: string): any | null => {
+export const compileDirectFieldSearchClause = (field: Field, alias: string, q: string, pattern: string): any | null => {
   if (SCALAR_SEARCH_TYPES.has(field.type)) return scalarClause(field, alias, pattern);
   if (SELECT_SEARCH_TYPES.has(field.type)) return selectClause(field, alias, q);
   return null;
@@ -95,7 +95,7 @@ const relationClause = async (params: {
   }
 
   const fieldClauses = relationSearchFields(targetFields)
-    .map((f) => directFieldClause(f, "target", params.q, params.pattern))
+    .map((f) => compileDirectFieldSearchClause(f, "target", params.q, params.pattern))
     .filter((clause): clause is NonNullable<typeof clause> => clause !== null);
   if (fieldClauses.length === 0) return null;
   const targetWhere = fieldClauses.reduce((acc, cur) => sql`${acc} OR ${cur}`);
@@ -125,7 +125,7 @@ export const compileSearchClause = async (params: {
   if (!q) return { clause: sql`TRUE` };
 
   const alias = params.alias ?? "r";
-  const pattern = `%${escapeLikePattern(q)}%`;
+  const pattern = `%${escapeSearchLikePattern(q)}%`;
   const alive = params.fields.filter((f) => !f.deletedAt);
   const scoped =
     params.search?.fieldIds && params.search.fieldIds.length > 0
@@ -137,7 +137,7 @@ export const compileSearchClause = async (params: {
   const targetReadCache = new Map<string, boolean>();
 
   for (const field of scoped) {
-    const direct = directFieldClause(field, alias, q, pattern);
+    const direct = compileDirectFieldSearchClause(field, alias, q, pattern);
     if (direct) {
       clauses.push(direct);
       continue;

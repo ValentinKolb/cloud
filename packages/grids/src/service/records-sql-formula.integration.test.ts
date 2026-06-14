@@ -1,5 +1,5 @@
 import { sql } from "bun";
-import { afterAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { parseFormula } from "../formula/parser";
 import { aggregate, get, group, list } from "./records";
 
@@ -69,10 +69,6 @@ const cleanupFixture = async (baseId: string): Promise<void> => {
   await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
 };
 
-afterAll(async () => {
-  if (process.env.GRIDS_RECORD_SQL_FORMULA_DB_TEST === "1") await sql.end();
-});
-
 describe("records SQL formula projection integration", () => {
   postgresTest("list returns SQL-projected formula values and keeps JS fallback dependencies correct", async () => {
     const fixture = await insertSqlFormulaFixture();
@@ -83,9 +79,9 @@ describe("records SQL formula projection integration", () => {
 
       const record = result.data.items.find((item) => item.id === fixture.recordId);
       const secondRecord = result.data.items.find((item) => item.id === fixture.secondRecordId);
-      expect(record?.data[fixture.subtotalId]).toBe("0.300");
+      expect(record?.data[fixture.subtotalId]).toBe("0.3");
       expect(record?.data[fixture.grossId]).toBe("1.3");
-      expect(secondRecord?.data[fixture.subtotalId]).toBe("1.200");
+      expect(secondRecord?.data[fixture.subtotalId]).toBe("1.2");
       expect(secondRecord?.data[fixture.grossId]).toBe("2.2");
     } finally {
       await cleanupFixture(fixture.baseId);
@@ -111,9 +107,9 @@ describe("records SQL formula projection integration", () => {
 
       const record = result.data.items.find((item) => item.id === fixture.recordId);
       const secondRecord = result.data.items.find((item) => item.id === fixture.secondRecordId);
-      expect(record?.data[fixture.subtotalId]).toBe("0.300");
+      expect(record?.data[fixture.subtotalId]).toBe("0.3");
       expect(record?.data[fixture.grossId]).toBe("1.3");
-      expect(secondRecord?.data[fixture.subtotalId]).toBe("1.200");
+      expect(secondRecord?.data[fixture.subtotalId]).toBe("1.2");
       expect(secondRecord?.data[fixture.grossId]).toBe("2.2");
     } finally {
       await cleanupFixture(fixture.baseId);
@@ -127,7 +123,7 @@ describe("records SQL formula projection integration", () => {
       expect(result).not.toBeNull();
       if (!result) return;
 
-      expect(result.data[fixture.subtotalId]).toBe("0.300");
+      expect(result.data[fixture.subtotalId]).toBe("0.3");
       expect(result.data[fixture.grossId]).toBe("1.3");
     } finally {
       await cleanupFixture(fixture.baseId);

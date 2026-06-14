@@ -1,7 +1,7 @@
 import { DocCode, DocConceptGrid, DocInlineCode, DocLead, DocNote, DocPage, DocRows, DocSection } from "@valentinkolb/cloud/ui";
 import { Layout } from "@valentinkolb/cloud/ssr/islands";
 import { highlight } from "@valentinkolb/stdlib";
-import { For } from "solid-js";
+import { For, type JSX } from "solid-js";
 
 type Step = {
   title: string;
@@ -55,6 +55,8 @@ const QuerySnippet = (props: { code: string; title?: string }) => (
   <DocCode title={props.title} code={props.code} highlight={gridsQueryHighlight} copy />
 );
 
+const HelpDocPage = (props: { children: JSX.Element }) => <DocPage class="!mx-0 !max-w-none w-full">{props.children}</DocPage>;
+
 const StepList = (props: { items: Step[] }) => (
   <ol class="space-y-3">
     <For each={props.items}>
@@ -88,7 +90,7 @@ const RecipeRows = (props: { items: Recipe[] }) => (
 );
 
 const StartTab = () => (
-  <DocPage>
+  <HelpDocPage>
     <DocLead>
       Grids is a flexible database app for structured work. A base contains tables, tables contain records, and fields describe the facts
       each record can store. Views, forms, dashboards, exports, search, aggregations, and automations all read from that saved table data.
@@ -161,11 +163,11 @@ const StartTab = () => (
     <DocNote title="Source of truth">
       Tables store data. Views shape queries. Forms create records. Dashboards present included data. Automations react to record events.
     </DocNote>
-  </DocPage>
+  </HelpDocPage>
 );
 
 const BuildTab = () => (
-  <DocPage>
+  <HelpDocPage>
     <DocLead>
       Pick the smallest Grids feature that makes the workflow clear. Add structure when it removes repeated manual work, not just because it
       is available.
@@ -224,11 +226,11 @@ const BuildTab = () => (
         ]}
       />
     </DocSection>
-  </DocPage>
+  </HelpDocPage>
 );
 
 const FieldsTab = () => (
-  <DocPage>
+  <HelpDocPage>
     <DocLead>
       Field type is a product decision. It controls validation, search, filtering, display, forms, relations, formulas, and dashboard
       behavior.
@@ -308,11 +310,11 @@ const FieldsTab = () => (
         ]}
       />
     </DocSection>
-  </DocPage>
+  </HelpDocPage>
 );
 
 const ViewsTab = () => (
-  <DocPage>
+  <HelpDocPage>
     <DocLead>
       Views define how people inspect records. They can filter, sort, group, aggregate, and choose a display mode without duplicating data.
     </DocLead>
@@ -366,31 +368,31 @@ const ViewsTab = () => (
       />
     </DocSection>
 
-    <DocSection title="Query DSL">
+    <DocSection title="GQL">
       <p class="text-dimmed">
-        The Query workspace is a power-user layer over the same SQL-backed view engine. Use it when the click UI is too slow for a precise
-        report, formula predicate, join, or server-side preview. The normal table and view controls can stay simpler.
+        GQL, the Grids Query Language, is a text way to describe the records you want. Use it when the click UI is too slow for a precise
+        report, formula filter, join, grouped summary, or preview.
       </p>
       <p class="mt-3 text-dimmed">
         References use readable names such as <DocInlineCode>amount</DocInlineCode>. Use double quotes for names with spaces, for example{" "}
-        <DocInlineCode>"Unit price"</DocInlineCode>. Saved views compile to stable field IDs; rename rewrites are best effort, so review
-        formulas and query text after renaming tables or fields.
+        <DocInlineCode>"Unit price"</DocInlineCode>. Use single quotes for text values, for example{" "}
+        <DocInlineCode>status = 'Open'</DocInlineCode>. Leave out <DocInlineCode>select</DocInlineCode> when you want all fields.
       </p>
       <div class="space-y-3">
         <QuerySnippet
           title="Rows"
-          code={"from table orders\nselect customer, amount\nwhere formula(status = 'Open')\nsort due_date ascending\nlimit 50"}
+          code={"from table orders\nselect customer, amount\nwhere status = 'Open'\nsort due_date ascending\nlimit 50"}
         />
         <QuerySnippet
           title="Formula predicate"
           code={
-            "from table products\nselect name, formula(price - cost) as margin\nwhere formula(price <= cost * 1.10)\nsort margin desc"
+            "from table products\nselect name, formula(price - cost) as margin\nwhere price <= cost * 1.10\nsort margin desc"
           }
         />
         <QuerySnippet
           title="Monthly chart source"
           code={
-            "from table orders\ngroup by ordered_at by month\naggregate sum(line_total) as revenue, count(*) as rows\nhaving formula(revenue > 0)\nsort revenue desc"
+            "from table orders\ngroup by ordered_at by month\naggregate sum(line_total) as revenue, count(*) as rows\nhaving revenue > 0\nsort revenue desc"
           }
         />
         <QuerySnippet
@@ -402,9 +404,9 @@ const ViewsTab = () => (
       </div>
     </DocSection>
 
-    <DocNote title="Saving DSL queries">
-      Simple row queries and regular grouped queries can be saved as normal views. SQL-only features such as joins, formula predicates,
-      computed alias sorts, <DocInlineCode>having</DocInlineCode>, and non-zero <DocInlineCode>skip</DocInlineCode> are available for
+    <DocNote title="Saving GQL queries">
+      Simple row queries and regular grouped queries can be saved as normal views. Advanced features such as joins, formula predicates,
+      computed alias sorts, <DocInlineCode>having</DocInlineCode>, and non-zero <DocInlineCode>skip</DocInlineCode> are available in
       preview first.
     </DocNote>
 
@@ -413,11 +415,11 @@ const ViewsTab = () => (
       for values. Donut shows parts of a total, bar compares categories, line works best for ordered categories, and scatter needs two
       numeric values.
     </DocNote>
-  </DocPage>
+  </HelpDocPage>
 );
 
 const SearchTab = () => (
-  <DocPage>
+  <HelpDocPage>
     <DocLead>
       Search finds records by displayed values. Use it for exploration. Use filters when the rule must be exact, saved, exported, or reused
       by a dashboard.
@@ -461,11 +463,11 @@ const SearchTab = () => (
         ]}
       />
     </DocSection>
-  </DocPage>
+  </HelpDocPage>
 );
 
 const DashboardFormsTab = () => (
-  <DocPage>
+  <HelpDocPage>
     <DocLead>
       Forms collect records. Dashboards combine records, summaries, charts, instructions, links, and actions into a working page.
     </DocLead>
@@ -511,11 +513,11 @@ const DashboardFormsTab = () => (
       Data included directly on a dashboard follows dashboard access. Opening the original table or view, submitting a form, and writing a
       record check the original resource.
     </DocNote>
-  </DocPage>
+  </HelpDocPage>
 );
 
 const OperationsTab = () => (
-  <DocPage>
+  <HelpDocPage>
     <DocLead>
       Operational features should make stable workflows repeatable: attach files, send webhooks, refresh live views, and keep record events
       connected to dashboards.
@@ -559,11 +561,11 @@ const OperationsTab = () => (
         copy
       />
     </DocSection>
-  </DocPage>
+  </HelpDocPage>
 );
 
 const PermissionsTab = () => (
-  <DocPage>
+  <HelpDocPage>
     <DocLead>
       Grids permissions are resource-based. A user can have access to a dashboard without automatically receiving open access to every
       linked table, view, or form.
@@ -600,11 +602,11 @@ const PermissionsTab = () => (
       Data shown inside a dashboard follows dashboard access. Opening the original table, opening a full view, or submitting a form checks
       the original resource.
     </DocNote>
-  </DocPage>
+  </HelpDocPage>
 );
 
 const TroubleshootingTab = () => (
-  <DocPage>
+  <HelpDocPage>
     <DocLead>
       Most Grids issues are caused by a mismatch between the current view, the source table, permissions, or a field setting. Check those
       first before changing the data model.
@@ -636,11 +638,11 @@ const TroubleshootingTab = () => (
         ]}
       />
     </DocSection>
-  </DocPage>
+  </HelpDocPage>
 );
 
 const ExampleTab = () => (
-  <DocPage>
+  <HelpDocPage>
     <DocLead>
       This example builds an invoice base that collects invoices, tracks payment, reports monthly income, and notifies another system when
       an invoice is paid.
@@ -680,7 +682,7 @@ const ExampleTab = () => (
     <DocSection title="Formula">
       <FormulaSnippet code="Subtotal + Tax" />
     </DocSection>
-  </DocPage>
+  </HelpDocPage>
 );
 
 export default function GridsLayoutHelp() {

@@ -56,7 +56,7 @@ describe("buildFormulaSqlProjections", () => {
     expect(buildFormulaSqlProjections([relation, formula])).toEqual([]);
   });
 
-  test("keeps decimal formula values as strings when merging result rows", () => {
+  test("keeps decimal formula values as canonical strings when merging result rows", () => {
     const formula = field({
       id: "total_id",
       shortId: "total",
@@ -68,7 +68,7 @@ describe("buildFormulaSqlProjections", () => {
     expect(projection).toBeDefined();
 
     const record = { data: {} as Record<string, unknown> };
-    applyComputedProjections([{ id: "record_1", [projection!.alias]: "0.3" }], new Map([["record_1", record]]), [projection!]);
+    applyComputedProjections([{ id: "record_1", [projection!.alias]: "0.300" }], new Map([["record_1", record]]), [projection!]);
 
     expect(record.data.total_id).toBe("0.3");
   });

@@ -1,24 +1,25 @@
-import * as bases from "./bases";
-import * as baseCatalog from "./base-catalog";
-import * as tables from "./tables";
-import * as fields from "./fields";
-import * as records from "./records";
-import * as audit from "./audit";
 import * as access from "./access";
-import * as views from "./views";
-import * as dashboards from "./dashboards";
-import * as forms from "./forms";
-import * as files from "./files";
+import * as audit from "./audit";
 import * as automations from "./automations";
-import * as templates from "./templates";
-import * as exporter from "./export";
-import * as maintenance from "./maintenance";
-import * as formulaPreview from "./formula-preview";
-import * as relationsModule from "./relations";
-import * as metadataEvents from "./metadata-events";
 import { automationRuntime } from "./automations-runtime";
+import * as baseCatalog from "./base-catalog";
+import * as bases from "./bases";
+import * as dashboards from "./dashboards";
+import * as exporter from "./export";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
-import { resolveEffectivePermission, loadGrantsForUser, hasAtLeast, hasGrantsForResource } from "./permission-resolver";
+import * as fields from "./fields";
+import * as files from "./files";
+import * as forms from "./forms";
+import * as formulaPreview from "./formula-preview";
+import * as gqlQueries from "./gql-queries";
+import * as maintenance from "./maintenance";
+import * as metadataEvents from "./metadata-events";
+import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
+import * as records from "./records";
+import * as relationsModule from "./relations";
+import * as tables from "./tables";
+import * as templates from "./templates";
+import * as views from "./views";
 
 export const gridsService = {
   base: {
@@ -108,6 +109,16 @@ export const gridsService = {
     remove: views.remove,
     restore: views.restore,
   },
+  gqlQuery: {
+    listForBase: gqlQueries.listForBase,
+    get: gqlQueries.get,
+    getByShortId: gqlQueries.getByShortId,
+    getByIdOrShortId: gqlQueries.getByIdOrShortId,
+    create: gqlQueries.create,
+    update: gqlQueries.update,
+    remove: gqlQueries.remove,
+    restore: gqlQueries.restore,
+  },
   dashboard: {
     listForBase: dashboards.listForBase,
     listTrashedByBase: dashboards.listTrashedByBase,
@@ -176,51 +187,70 @@ export const gridsService = {
   metadataEvents,
 };
 
-export { bases, tables, fields, records, audit, access, views, dashboards, forms, files, automations, templates, automationRuntime, exporter, maintenance, formulaPreview, metadataEvents };
-export type { View, ViewQuery, ColumnSpec, FormatSpec } from "./views";
 export type {
+  AggregationSpec,
+  AutomationButtonWidget,
+  ChartWidget,
   Dashboard,
   DashboardConfig,
   DashboardRow,
-  Widget,
-  StatWidget,
-  ChartWidget,
-  ViewWidget,
-  ViewStatsWidget,
   FormWidget,
-  MarkdownWidget,
-  LinkWidget,
-  AutomationButtonWidget,
-  ViewWidgetSource,
-  StatSource,
-  StatTrend,
-  StatTone,
-  WidgetFormat,
-  AggregationSpec,
   GroupBySpec,
+  LinkWidget,
+  MarkdownWidget,
+  StatSource,
+  StatTone,
+  StatTrend,
+  StatWidget,
+  ViewStatsWidget,
+  ViewWidget,
+  ViewWidgetSource,
+  Widget,
+  WidgetFormat,
 } from "../contracts";
+export type { AggKind, AggregateRequest } from "./aggregate-compiler";
+export type { FieldDependent } from "./field-dependents";
+export type { FilterGroup, FilterLeaf, FilterTree } from "./filter-compiler";
 export type { Form, FormConfig, FormFieldEntry } from "./forms";
+export type { GqlQuery } from "./gql-queries";
+export type { Grant, ResolveTarget, ResourceType } from "./permission-resolver";
+export type { ExpansionViewer } from "./relations";
+export type { SortSpec } from "./sort-compiler";
 export type {
-  Base,
-  Table,
-  Field,
-  GridRecord,
-  RecordList,
-  AuditEntry,
   AuditAction,
+  AuditEntry,
+  Automation,
+  AutomationAction,
+  AutomationPayloadConfig,
+  AutomationRun,
+  AutomationSubject,
+  AutomationTrigger,
+  Base,
+  Field,
   GridFile,
   GridFileContent,
   GridFilePreview,
-  Automation,
-  AutomationTrigger,
-  AutomationAction,
-  AutomationPayloadConfig,
-  AutomationSubject,
-  AutomationRun,
+  GridRecord,
+  RecordList,
+  Table,
 } from "./types";
-export type { ExpansionViewer } from "./relations";
-export type { FieldDependent } from "./field-dependents";
-export type { Grant, ResourceType, ResolveTarget } from "./permission-resolver";
-export type { FilterTree, FilterLeaf, FilterGroup } from "./filter-compiler";
-export type { SortSpec } from "./sort-compiler";
-export type { AggregateRequest, AggKind } from "./aggregate-compiler";
+export type { ColumnSpec, FormatSpec, View, ViewQuery } from "./views";
+export {
+  access,
+  audit,
+  automationRuntime,
+  automations,
+  bases,
+  dashboards,
+  exporter,
+  fields,
+  files,
+  forms,
+  formulaPreview,
+  maintenance,
+  metadataEvents,
+  records,
+  tables,
+  templates,
+  views,
+};

@@ -1,6 +1,6 @@
+import { type AuthContext, auth, getDateConfig, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { z } from "zod";
-import { auth, getDateConfig, type AuthContext, v } from "@valentinkolb/cloud/server";
 import { loadGridsWorkspaceState } from "../frontend/_components/workspace/workspace-state";
 
 const parseWorkspaceHref = (href: string) => {
@@ -11,6 +11,15 @@ const parseWorkspaceHref = (href: string) => {
   if (parts.length === 3) return { baseShortId, activeTableSlug: null, activeViewSlug: null, activeDashboardSlug: null };
   if (parts.length === 4 && parts[3] === "query") {
     return { baseShortId, activeTableSlug: null, activeViewSlug: null, activeDashboardSlug: null };
+  }
+  if (parts.length === 5 && parts[3] === "query") {
+    return {
+      baseShortId,
+      activeTableSlug: null,
+      activeViewSlug: null,
+      activeDashboardSlug: null,
+      activeGqlQuerySlug: parts[4],
+    };
   }
   if (parts.length === 6 && parts[3] === "table" && parts[5] === "query") {
     return { baseShortId, activeTableSlug: parts[4], activeViewSlug: null, activeDashboardSlug: null };

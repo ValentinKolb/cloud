@@ -1,6 +1,6 @@
 import { parseFormula } from "../formula/parser";
-import { parseIdentifierRef, parseQualifiedIdentifierRef, splitTrailingKeywordOutsideQuotes } from "../ref-syntax";
 import type { Expr } from "../formula/types";
+import { parseIdentifierRef, parseQualifiedIdentifierRef, QUERY_RESERVED_WORDS, splitTrailingKeywordOutsideQuotes } from "../ref-syntax";
 import type {
   DslAggregateFn,
   DslAggregateItem,
@@ -12,8 +12,8 @@ import type {
   DslQueryAst,
   DslSelectItem,
   DslSortItem,
-  DslSourceKind,
   DslSourceRef,
+  DslSourceSpan,
 } from "./types";
 
 const ALIAS_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
@@ -30,41 +30,7 @@ const AGGREGATE_FNS = new Set<DslAggregateFn>([
   "earliest",
   "latest",
 ]);
-const RESERVED_ALIASES = new Set([
-  "aggregate",
-  "and",
-  "as",
-  "by",
-  "desc",
-  "from",
-  "group",
-  "having",
-  "join",
-  "left",
-  "limit",
-  "on",
-  "or",
-  "offset",
-  "select",
-  "skip",
-  "sort",
-  "where",
-]);
-const INLINE_CLAUSE_STARTS = [
-  "left join",
-  "group by",
-  "aggregate",
-  "select",
-  "where",
-  "having",
-  "offset",
-  "limit",
-  "skip",
-  "sort",
-  "join",
-  "from",
-];
-
+const RESERVED_ALIASES = QUERY_RESERVED_WORDS;
 const emptyAst = (): DslQueryAst => ({
   joins: [],
   select: [],
@@ -73,9 +39,26 @@ const emptyAst = (): DslQueryAst => ({
   sort: [],
 });
 
-const error = (line: number, message: string): DslParseDiagnostic => ({ line, message });
+const error = (line: number, message: string, column?: number, length?: number): DslParseDiagnostic => ({
+  line,
+  ...(column !== undefined ? { column } : {}),
+  ...(length !== undefined ? { length } : {}),
+  message,
+});
 
-const stripComment = (line: string): string => {
+const LEGACY_HASH_REF_MESSAGE =
+  'legacy # references are not valid in GQL; use a field or source name like Amount, a quoted name like "Line total", or a stable id like {fieldId}';
+
+const sourceSpan = (line: number, column: number, text: string): DslSourceSpan => ({
+  line,
+  column,
+  length: Math.max(text.trim().length, 1),
+});
+
+const atColumn = (diagnostic: DslParseDiagnostic, column: number): DslParseDiagnostic =>
+  diagnostic.column === undefined ? { ...diagnostic, column } : diagnostic;
+
+const stripComment = (line: string): { text: string; attachedCommentColumn?: number } => {
   let quote: string | null = null;
   let braceDepth = 0;
   for (let i = 0; i < line.length; i++) {
@@ -101,76 +84,34 @@ const stripComment = (line: string): string => {
       braceDepth++;
       continue;
     }
-    if (c === "-" && line[i + 1] === "-") return line.slice(0, i);
+    if (c === "-" && line[i + 1] === "-") {
+      const previous = line[i - 1];
+      return {
+        text: line.slice(0, i),
+        ...(previous && !/\s/.test(previous) ? { attachedCommentColumn: i + 1 } : {}),
+      };
+    }
   }
-  return line;
+  return { text: line };
 };
 
-const isWhitespace = (c: string | undefined): boolean => c === undefined || /\s/.test(c);
+type InlineClause = { text: string; column: number };
+type InlineClauses = { clauses: InlineClause[]; attachedCommentColumn?: number };
 
-const previousWord = (line: string, index: number): string | null => {
-  const prefix = line.slice(0, index).trimEnd();
-  const match = prefix.match(/([A-Za-z_][A-Za-z0-9_]*)$/);
-  return match?.[1]?.toLowerCase() ?? null;
+const inlineColumn = (leadingOffset: number, source: string, start: number, end = source.length): number => {
+  const raw = source.slice(start, end);
+  const local = raw.search(/\S/);
+  return leadingOffset + start + (local < 0 ? 0 : local) + 1;
 };
 
-const previousNonWhitespace = (line: string, index: number): string | null => {
-  for (let i = index - 1; i >= 0; i--) {
-    const c = line[i]!;
-    if (!isWhitespace(c)) return c;
-  }
-  return null;
-};
+const splitInlineClauses = (line: string): InlineClauses => {
+  const stripped = stripComment(line);
+  const leadingOffset = stripped.text.match(/^\s*/)?.[0].length ?? 0;
+  const trimmed = stripped.text.trim();
+  if (!trimmed)
+    return { clauses: [], ...(stripped.attachedCommentColumn ? { attachedCommentColumn: stripped.attachedCommentColumn } : {}) };
 
-const nextNonWhitespace = (line: string, index: number): string | null => {
-  for (let i = index; i < line.length; i++) {
-    const c = line[i]!;
-    if (!isWhitespace(c)) return c;
-  }
-  return null;
-};
-
-const EMPTY_INLINE_CLAUSE_BODIES = new Set([
-  "from",
-  "select",
-  "where",
-  "left join",
-  "join",
-  "group by",
-  "aggregate",
-  "having",
-  "sort",
-  "limit",
-  "offset",
-  "skip",
-]);
-
-const looksLikeFormulaCallName = (line: string, index: number, clauseLength: number, segmentStart: number): boolean => {
-  if (nextNonWhitespace(line, index + clauseLength) !== "(") return false;
-  const previous = previousNonWhitespace(line, index);
-  if (previous && "+-*/(<>=!,".includes(previous)) return true;
-  return EMPTY_INLINE_CLAUSE_BODIES.has(line.slice(segmentStart, index).trim().toLowerCase());
-};
-
-const startsInlineClauseAt = (line: string, lower: string, index: number, segmentStart: number): boolean => {
-  if (index === 0 || !isWhitespace(line[index - 1])) return false;
-  const prev = previousWord(line, index);
-  if (prev === "as") return false;
-  for (const clause of INLINE_CLAUSE_STARTS) {
-    if (clause === "join" && prev === "left") continue;
-    if (!lower.startsWith(clause, index)) continue;
-    if (looksLikeFormulaCallName(line, index, clause.length, segmentStart)) continue;
-    if (isWhitespace(line[index + clause.length])) return true;
-  }
-  return false;
-};
-
-const splitInlineClauses = (line: string): string[] => {
-  const trimmed = stripComment(line).trim();
-  if (!trimmed) return [];
-
-  const clauses: string[] = [];
-  const lower = trimmed.toLowerCase();
+  const clauses: InlineClause[] = [];
   let start = 0;
   let parenDepth = 0;
   let braceDepth = 0;
@@ -207,20 +148,30 @@ const splitInlineClauses = (line: string): string[] => {
       parenDepth = Math.max(0, parenDepth - 1);
       continue;
     }
-    if (parenDepth === 0 && startsInlineClauseAt(trimmed, lower, i, start)) {
+    if (parenDepth === 0 && c === ";") {
       const previous = trimmed.slice(start, i).trim();
-      if (previous) clauses.push(previous);
-      start = i;
+      if (previous) clauses.push({ text: previous, column: inlineColumn(leadingOffset, trimmed, start, i) });
+      start = i + 1;
     }
   }
 
   const tail = trimmed.slice(start).trim();
-  if (tail) clauses.push(tail);
-  return clauses;
+  if (tail) clauses.push({ text: tail, column: inlineColumn(leadingOffset, trimmed, start) });
+  return { clauses, ...(stripped.attachedCommentColumn ? { attachedCommentColumn: stripped.attachedCommentColumn } : {}) };
 };
 
-const splitTopLevel = (input: string): string[] => {
-  const parts: string[] = [];
+type TopLevelPart = { text: string; start: number };
+
+const trimmedTopLevelPart = (input: string, start: number, end: number): TopLevelPart | null => {
+  const raw = input.slice(start, end);
+  const leading = raw.search(/\S/);
+  if (leading < 0) return null;
+  const text = raw.trim();
+  return text ? { text, start: start + leading } : null;
+};
+
+const splitTopLevelParts = (input: string): TopLevelPart[] => {
+  const parts: TopLevelPart[] = [];
   let start = 0;
   let depth = 0;
   let quote: string | null = null;
@@ -242,13 +193,14 @@ const splitTopLevel = (input: string): string[] => {
     if (c === ")") depth--;
     if (depth < 0) throw new Error("unbalanced closing parenthesis");
     if (c === "," && depth === 0) {
-      parts.push(input.slice(start, i).trim());
+      const part = trimmedTopLevelPart(input, start, i);
+      if (part) parts.push(part);
       start = i + 1;
     }
   }
   if (quote) throw new Error("unterminated string literal");
   if (depth !== 0) throw new Error("unbalanced parenthesis");
-  const tail = input.slice(start).trim();
+  const tail = trimmedTopLevelPart(input, start, input.length);
   if (!tail && input.trimEnd().endsWith(",")) throw new Error("trailing comma");
   if (tail) parts.push(tail);
   return parts;
@@ -269,26 +221,80 @@ const validateAlias = (alias: string, line: number): DslParseDiagnostic | null =
   return null;
 };
 
+const aliasKey = (alias: string): string => alias.toLowerCase();
+const sameAlias = (left: string | undefined, right: string): boolean => Boolean(left && aliasKey(left) === aliasKey(right));
+
 const isIdentifierPart = (c: string | undefined): boolean => !!c && /[A-Za-z0-9_]/.test(c);
 
-const parseRef = (input: string): DslQualifiedRef | null => {
+const legacyHashRefDiagnostic = (input: string, line: number, column: number): DslParseDiagnostic | null => {
+  const trimmed = input.trim();
+  if (!/^#[A-Za-z0-9_][A-Za-z0-9_-]*/.test(trimmed)) return null;
+  return error(
+    line,
+    LEGACY_HASH_REF_MESSAGE,
+    column + input.indexOf(trimmed),
+    trimmed.match(/^#[A-Za-z0-9_][A-Za-z0-9_-]*/)?.[0].length ?? 1,
+  );
+};
+
+const legacySourceHashRefDiagnostic = (input: string, line: number, column: number): DslParseDiagnostic | null => {
+  const trimmed = input.trim();
+  const typed = trimmed.match(/^(?:table|view)\s+(?<ref>[\s\S]+)$/i);
+  const ref = typed?.groups?.ref ?? trimmed;
+  return legacyHashRefDiagnostic(ref, line, column + input.indexOf(ref));
+};
+
+const parseRef = (input: string, line?: number, column?: number): DslQualifiedRef | null => {
   const parsed = parseQualifiedIdentifierRef(input);
   if (!parsed) return null;
   if (parsed.scope && validateAlias(parsed.scope, 0)) return null;
-  return parsed;
+  return {
+    ...parsed,
+    ...(line !== undefined && column !== undefined ? { span: sourceSpan(line, column, input) } : {}),
+  };
 };
 
-const parseSource = (input: string): DslSourceRef | null => {
+const parseSource = (input: string, line?: number, column?: number): DslSourceRef | null => {
   const trimmed = input.trim();
+  const trimmedColumn = column === undefined ? undefined : column + (input.match(/^\s*/)?.[0].length ?? 0);
   const typed = trimmed.match(/^(?<kind>table|view)\s+(?<ref>[\s\S]+)$/i);
   if (typed?.groups) {
     const kind = typed.groups.kind?.toLowerCase();
     const ref = typed.groups.ref ? parseIdentifierRef(typed.groups.ref) : null;
     if ((kind !== "table" && kind !== "view") || !ref) return null;
-    return { kind, ref };
+    const refOffset = typed.groups.ref ? trimmed.indexOf(typed.groups.ref) : 0;
+    return {
+      kind,
+      ref,
+      ...(line !== undefined && trimmedColumn !== undefined
+        ? { span: sourceSpan(line, trimmedColumn + refOffset, typed.groups.ref ?? trimmed) }
+        : {}),
+    };
   }
-  const ref = parseIdentifierRef(trimmed);
-  return ref ? { kind: "unknown", ref } : null;
+  return null;
+};
+
+const parseFromSource = (
+  input: string,
+  line: number,
+  column: number,
+): { source?: DslSourceRef; alias?: string; diagnostic?: DslParseDiagnostic } => {
+  const split = splitTrailingKeywordOutsideQuotes(input.trim(), "as");
+  const sourceRaw = split ? split[0] : input;
+  const aliasRaw = split ? split[1] : undefined;
+  const source = parseSource(sourceRaw, line, column + input.indexOf(sourceRaw));
+  if (!source) {
+    const startsWithSourceKind = /^(?:table|view)(?:\s|$)/i.test(sourceRaw.trim());
+    return {
+      diagnostic:
+        legacySourceHashRefDiagnostic(sourceRaw, line, column + input.indexOf(sourceRaw)) ??
+        error(line, startsWithSourceKind ? "invalid from source" : 'from source must start with "table" or "view"'),
+    };
+  }
+  if (!aliasRaw) return { source };
+  const aliasError = validateAlias(aliasRaw, line);
+  if (aliasError) return { diagnostic: aliasError };
+  return { source, alias: aliasRaw };
 };
 
 const unwrapFormulaCall = (input: string): string | null => {
@@ -318,15 +324,15 @@ const unwrapFormulaCall = (input: string): string | null => {
   return trimmed.slice("formula(".length, -1).trim();
 };
 
-const normalizeFormulaWrappers = (input: string): string => {
-  let out = "";
+const isExpressionIdentifierBoundary = (c: string | undefined): boolean => !c || !isIdentifierPart(c);
+
+const gqlExpressionSyntaxIssue = (input: string): { message: string; offset: number; length: number } | null => {
   let quote: string | null = null;
+  let braceDepth = 0;
   for (let i = 0; i < input.length; i++) {
     const c = input[i]!;
     if (quote) {
-      out += c;
       if (c === "\\" && i + 1 < input.length) {
-        out += input[i + 1]!;
         i++;
         continue;
       }
@@ -335,27 +341,84 @@ const normalizeFormulaWrappers = (input: string): string => {
     }
     if (c === '"' || c === "'") {
       quote = c;
-      out += c;
       continue;
     }
-    if (!isIdentifierPart(input[i - 1]) && input.slice(i, i + "formula(".length).toLowerCase() === "formula(") {
-      out += "(";
-      i += "formula(".length - 1;
+    if (c === "{") {
+      braceDepth++;
       continue;
     }
-    out += c;
+    if (c === "}") {
+      braceDepth = Math.max(0, braceDepth - 1);
+      continue;
+    }
+    if (braceDepth > 0) continue;
+    if (c === "#") {
+      const match = input.slice(i + 1).match(/^[A-Za-z0-9_][A-Za-z0-9_-]*/);
+      if (match) {
+        return {
+          message: `legacy # field references are not valid in GQL; use a field name like Amount, a quoted name like "Line total", or a stable id like {fieldId}`,
+          offset: i,
+          length: match[0].length + 1,
+        };
+      }
+    }
+    if (input.startsWith("&&", i)) return { message: `use "and" instead of "&&" in GQL predicates`, offset: i, length: 2 };
+    if (input.startsWith("||", i)) return { message: `use "or" instead of "||" in GQL predicates`, offset: i, length: 2 };
+    if (c === "!" && input[i + 1] !== "=") return { message: `use "not" instead of "!" in GQL predicates`, offset: i, length: 1 };
+    const maybeFormula = input.slice(i, i + "formula".length);
+    const formulaWrapper = maybeFormula.toLowerCase() === "formula" && input.slice(i + "formula".length).match(/^\s*\(/);
+    if (formulaWrapper && isExpressionIdentifierBoundary(input[i - 1])) {
+      return {
+        message: `where and having clauses already use formula syntax; write the expression directly without formula(...)`,
+        offset: i,
+        length: "formula".length,
+      };
+    }
   }
-  return out;
+  return null;
+};
+
+const gqlLogicalCallIssue = (expr: Expr): { message: string; offset: number; length: number } | null => {
+  switch (expr.kind) {
+    case "call": {
+      const fn = expr.fn.toUpperCase();
+      if (fn === "AND" || fn === "OR" || fn === "NOT") {
+        return {
+          message: `use "${fn.toLowerCase()}" as an operator instead of "${fn}(...)" in GQL expressions`,
+          offset: expr.span?.start ?? 0,
+          length: fn.length,
+        };
+      }
+      for (const arg of expr.args) {
+        const issue = gqlLogicalCallIssue(arg);
+        if (issue) return issue;
+      }
+      return null;
+    }
+    case "binop":
+      return gqlLogicalCallIssue(expr.left) ?? gqlLogicalCallIssue(expr.right);
+    case "unop":
+      return gqlLogicalCallIssue(expr.operand);
+    default:
+      return null;
+  }
 };
 
 const parseExpression = (
   source: string,
   line: number,
+  column: number,
 ): { ok: true; expression: Expr; source: string } | { ok: false; diagnostic: DslParseDiagnostic } => {
-  const expressionSource = normalizeFormulaWrappers(unwrapFormulaCall(source) ?? source.trim());
+  const expressionSource = source.trim();
   if (!expressionSource) return { ok: false, diagnostic: error(line, "missing expression") };
-  const parsed = parseFormula(expressionSource);
+  const issue = gqlExpressionSyntaxIssue(expressionSource);
+  if (issue) return { ok: false, diagnostic: error(line, issue.message, column + issue.offset, issue.length) };
+  const parsed = parseFormula(expressionSource, { scopedRefs: true });
   if (!parsed.ok) return { ok: false, diagnostic: error(line, parsed.error) };
+  const logicalCallIssue = gqlLogicalCallIssue(parsed.ast);
+  if (logicalCallIssue) {
+    return { ok: false, diagnostic: error(line, logicalCallIssue.message, column + logicalCallIssue.offset, logicalCallIssue.length) };
+  }
   return { ok: true, expression: parsed.ast, source: expressionSource };
 };
 
@@ -367,28 +430,32 @@ const normalizeAggregateFn = (fn: string): DslAggregateFn | null => {
   return null;
 };
 
-const parseSelectItem = (input: string, line: number): { item?: DslSelectItem; diagnostic?: DslParseDiagnostic } => {
+const parseSelectItem = (input: string, line: number, column: number): { item?: DslSelectItem; diagnostic?: DslParseDiagnostic } => {
   const { value, alias } = splitAlias(input);
+  const span = sourceSpan(line, column, input);
   const formulaSource = unwrapFormulaCall(value);
   if (formulaSource !== null) {
     if (!alias) return { diagnostic: error(line, "formula select items need an alias") };
     const aliasError = validateAlias(alias, line);
     if (aliasError) return { diagnostic: aliasError };
-    const expr = parseExpression(formulaSource, line);
+    const formulaOffset = Math.max(0, value.indexOf(formulaSource));
+    const expr = parseExpression(formulaSource, line, column + input.indexOf(value) + formulaOffset);
     if (!expr.ok) return { diagnostic: expr.diagnostic };
-    return { item: { kind: "formula", expression: expr.expression, source: expr.source, alias } };
+    return { item: { kind: "formula", expression: expr.expression, source: expr.source, alias, span } };
   }
-  const field = parseRef(value);
-  if (!field) return { diagnostic: error(line, `invalid select item "${input}"`) };
+  const fieldColumn = column + input.indexOf(value);
+  const field = parseRef(value, line, fieldColumn);
+  if (!field) return { diagnostic: legacyHashRefDiagnostic(value, line, fieldColumn) ?? error(line, `invalid select item "${input}"`) };
   if (alias) {
     const aliasError = validateAlias(alias, line);
     if (aliasError) return { diagnostic: aliasError };
   }
-  return { item: { kind: "field", field, ...(alias ? { alias } : {}) } };
+  return { item: { kind: "field", field, ...(alias ? { alias } : {}), span } };
 };
 
-const parseAggregateItem = (input: string, line: number): { item?: DslAggregateItem; diagnostic?: DslParseDiagnostic } => {
+const parseAggregateItem = (input: string, line: number, column: number): { item?: DslAggregateItem; diagnostic?: DslParseDiagnostic } => {
   const { value, alias } = splitAlias(input);
+  const span = sourceSpan(line, column, input);
   if (!alias) return { diagnostic: error(line, "aggregate items need an alias") };
   const aliasError = validateAlias(alias, line);
   if (aliasError) return { diagnostic: aliasError };
@@ -400,46 +467,89 @@ const parseAggregateItem = (input: string, line: number): { item?: DslAggregateI
   const fn = normalizeAggregateFn(fnRaw);
   if (!fn) return { diagnostic: error(line, `unsupported aggregate "${fnRaw}"`) };
   const arg = argRaw.trim();
-  if (arg === "*") return { item: { fn, argument: "*", alias } };
+  if (arg === "*") return { item: { fn, argument: "*", alias, span } };
   const formulaSource = unwrapFormulaCall(arg);
   if (formulaSource !== null) {
-    const expr = parseExpression(formulaSource, line);
+    const formulaOffset = Math.max(0, argRaw.indexOf(formulaSource));
+    const expr = parseExpression(formulaSource, line, column + input.indexOf(argRaw) + formulaOffset);
     if (!expr.ok) return { diagnostic: expr.diagnostic };
-    return { item: { fn, argument: { kind: "formula", expression: expr.expression, source: expr.source }, alias } };
+    return { item: { fn, argument: { kind: "formula", expression: expr.expression, source: expr.source }, alias, span } };
   }
-  const ref = parseRef(arg);
-  if (!ref) return { diagnostic: error(line, `invalid aggregate argument "${arg}"`) };
-  return { item: { fn, argument: ref, alias } };
+  const argColumn = column + input.indexOf(argRaw) + argRaw.indexOf(arg);
+  const ref = parseRef(arg, line, argColumn);
+  if (!ref) return { diagnostic: legacyHashRefDiagnostic(arg, line, argColumn) ?? error(line, `invalid aggregate argument "${arg}"`) };
+  return { item: { fn, argument: ref, alias, span } };
 };
 
-const parseGroupItem = (input: string, line: number): { item?: DslGroupItem; diagnostic?: DslParseDiagnostic } => {
+const parseGroupItem = (input: string, line: number, column: number): { item?: DslGroupItem; diagnostic?: DslParseDiagnostic } => {
   const split = splitTrailingKeywordOutsideQuotes(input.trim(), "by");
   const fieldRaw = split ? split[0] : input.trim();
-  const field = parseRef(fieldRaw);
-  if (!field) return { diagnostic: error(line, `invalid group field "${input}"`) };
+  const fieldColumn = column + input.indexOf(fieldRaw);
+  const field = parseRef(fieldRaw, line, fieldColumn);
+  if (!field) return { diagnostic: legacyHashRefDiagnostic(fieldRaw, line, fieldColumn) ?? error(line, `invalid group field "${input}"`) };
   const granularity = split?.[1]?.toLowerCase();
   if (granularity && !GROUP_GRANULARITIES.has(granularity))
     return { diagnostic: error(line, `unsupported group granularity "${granularity}"`) };
-  return { item: { field, ...(granularity ? { granularity: granularity as DslGroupItem["granularity"] } : {}) } };
+  return {
+    item: {
+      field,
+      ...(granularity ? { granularity: granularity as DslGroupItem["granularity"] } : {}),
+      span: sourceSpan(line, column, input),
+    },
+  };
 };
 
-const parseSortItem = (input: string, line: number): { item?: DslSortItem; diagnostic?: DslParseDiagnostic } => {
-  const split =
-    (["ascending", "descending", "asc", "desc"] as const)
-      .map((direction) => ({ direction, split: splitTrailingKeywordOutsideQuotes(input.trim(), direction) }))
+const parseSortItem = (input: string, line: number, column: number): { item?: DslSortItem; diagnostic?: DslParseDiagnostic } => {
+  // Optional trailing `nulls first` / `nulls last`, stripped before the
+  // direction so `sort due asc nulls first` parses cleanly.
+  let working = input.trim();
+  let nullsFirst: boolean | undefined;
+  const nullsLast = splitTrailingKeywordOutsideQuotes(working, "nulls last");
+  const nullsFirstSplit = splitTrailingKeywordOutsideQuotes(working, "nulls first");
+  if (nullsLast && nullsLast[1] === "") {
+    working = nullsLast[0];
+    nullsFirst = false;
+  } else if (nullsFirstSplit && nullsFirstSplit[1] === "") {
+    working = nullsFirstSplit[0];
+    nullsFirst = true;
+  }
+
+  const legacyDirection =
+    (["ascending", "descending"] as const)
+      .map((direction) => ({ direction, split: splitTrailingKeywordOutsideQuotes(working, direction) }))
       .find((item) => item.split && item.split[1] === "") ?? null;
-  const target = split?.split ? split.split[0] : input.trim();
+  if (legacyDirection) {
+    return {
+      diagnostic: error(
+        line,
+        `use "${legacyDirection.direction === "ascending" ? "asc" : "desc"}" instead of "${legacyDirection.direction}"`,
+        column + input.lastIndexOf(legacyDirection.direction),
+        legacyDirection.direction.length,
+      ),
+    };
+  }
+
+  const split =
+    (["asc", "desc"] as const)
+      .map((direction) => ({ direction, split: splitTrailingKeywordOutsideQuotes(working, direction) }))
+      .find((item) => item.split && item.split[1] === "") ?? null;
+  const target = split?.split ? split.split[0] : working;
   if (!target) return { diagnostic: error(line, `invalid sort item "${input}"`) };
   const directionRaw = split?.direction;
-  const direction = directionRaw === "desc" || directionRaw === "descending" ? "desc" : "asc";
-  const ref = parseRef(target);
-  if (ref) return { item: { target: ref, direction } };
+  const direction = directionRaw === "desc" ? "desc" : "asc";
+  const nulls = nullsFirst === undefined ? {} : { nullsFirst };
+  const targetColumn = column + input.indexOf(target);
+  const span = sourceSpan(line, column, input);
+  const ref = parseRef(target, line, targetColumn);
+  if (ref) return { item: { target: ref, direction, ...nulls, span } };
+  const legacyRef = legacyHashRefDiagnostic(target, line, targetColumn);
+  if (legacyRef) return { diagnostic: legacyRef };
   const aliasError = validateAlias(target, line);
   if (aliasError) return { diagnostic: aliasError };
-  return { item: { target: { kind: "alias", alias: target }, direction } };
+  return { item: { target: { kind: "alias", alias: target }, direction, ...nulls, span } };
 };
 
-const parseJoin = (lineSource: string, line: number): { item?: DslJoin; diagnostic?: DslParseDiagnostic } => {
+const parseJoin = (lineSource: string, line: number, column: number): { item?: DslJoin; diagnostic?: DslParseDiagnostic } => {
   const match = lineSource.match(
     /^(?<mode>left\s+)?join\s+(?<source>[\s\S]+?)\s+as\s+(?<alias>[A-Za-z_][A-Za-z0-9_]*)\s+on\s+(?<left>[\s\S]+?)\s*=\s*(?<right>[\s\S]+)$/i,
   );
@@ -449,28 +559,34 @@ const parseJoin = (lineSource: string, line: number): { item?: DslJoin; diagnost
   const leftRaw = match.groups.left;
   const rightRaw = match.groups.right;
   if (!sourceRaw || !alias || !leftRaw || !rightRaw) return { diagnostic: error(line, "invalid join refs") };
-  const source = parseSource(sourceRaw);
-  const left = parseRef(leftRaw);
-  const right = parseRef(rightRaw);
+  const source = parseSource(sourceRaw, line, column + lineSource.indexOf(sourceRaw));
+  const left = parseRef(leftRaw, line, column + lineSource.indexOf(leftRaw));
+  const right = parseRef(rightRaw, line, column + lineSource.lastIndexOf(rightRaw));
   const aliasError = validateAlias(alias, line);
   if (aliasError) return { diagnostic: aliasError };
-  if (!source || !left || !right) return { diagnostic: error(line, "invalid join refs") };
+  if (!source || !left || !right) {
+    const sourceDiagnostic = legacySourceHashRefDiagnostic(sourceRaw, line, column + lineSource.indexOf(sourceRaw));
+    const leftDiagnostic = legacyHashRefDiagnostic(leftRaw, line, column + lineSource.indexOf(leftRaw));
+    const rightDiagnostic = legacyHashRefDiagnostic(rightRaw, line, column + lineSource.lastIndexOf(rightRaw));
+    return { diagnostic: sourceDiagnostic ?? leftDiagnostic ?? rightDiagnostic ?? error(line, "invalid join refs") };
+  }
   return {
     item: {
       mode: match.groups.mode ? "left" : "inner",
       source,
       alias,
       on: { left, right },
+      span: sourceSpan(line, column, lineSource),
     },
   };
 };
 
 const validateJoinScopes = (join: DslJoin, availableScopes: Set<string>, line: number): DslParseDiagnostic | null => {
-  if (availableScopes.has(join.alias)) return error(line, `duplicate join alias "${join.alias}"`);
+  if (availableScopes.has(aliasKey(join.alias))) return error(line, `duplicate join alias "${join.alias}"`);
   const sides = [join.on.left, join.on.right];
-  const newAliasSides = sides.filter((side) => side.scope === join.alias).length;
+  const newAliasSides = sides.filter((side) => sameAlias(side.scope, join.alias)).length;
   if (newAliasSides !== 1) return error(line, `join on must reference "${join.alias}" on exactly one side`);
-  const unknownScope = sides.find((side) => side.scope && side.scope !== join.alias && !availableScopes.has(side.scope));
+  const unknownScope = sides.find((side) => side.scope && !sameAlias(side.scope, join.alias) && !availableScopes.has(aliasKey(side.scope)));
   if (unknownScope?.scope) return error(line, `unknown join scope "${unknownScope.scope}"`);
   return null;
 };
@@ -478,19 +594,20 @@ const validateJoinScopes = (join: DslJoin, availableScopes: Set<string>, line: n
 const parseCommaItems = <T>(
   body: string,
   line: number,
-  parseItem: (item: string, line: number) => { item?: T; diagnostic?: DslParseDiagnostic },
+  column: number,
+  parseItem: (item: string, line: number, column: number) => { item?: T; diagnostic?: DslParseDiagnostic },
 ): { items: T[]; diagnostics: DslParseDiagnostic[] } => {
   const items: T[] = [];
   const diagnostics: DslParseDiagnostic[] = [];
-  let parts: string[];
+  let parts: TopLevelPart[];
   try {
-    parts = splitTopLevel(body);
+    parts = splitTopLevelParts(body);
   } catch (e) {
     return { items, diagnostics: [error(line, e instanceof Error ? e.message : String(e))] };
   }
   if (parts.length === 0) return { items, diagnostics: [error(line, "missing clause body")] };
   for (const part of parts) {
-    const parsed = parseItem(part, line);
+    const parsed = parseItem(part.text, line, column + part.start);
     if (parsed.diagnostic) diagnostics.push(parsed.diagnostic);
     if (parsed.item) items.push(parsed.item);
   }
@@ -513,6 +630,45 @@ const parseBoundedIntegerClause = (
   return { value };
 };
 
+const SEARCH_QUOTED_RE = /^'((?:\\.|[^'\\])*)'/;
+
+const parseSearch = (
+  body: string,
+  line: number,
+  column: number,
+): { item?: { q: string; fields: DslQualifiedRef[]; span: DslSourceSpan }; diagnostic?: DslParseDiagnostic } => {
+  const match = body.match(SEARCH_QUOTED_RE);
+  if (!match) return { diagnostic: error(line, "search expects quoted text, e.g. search 'open'") };
+  const q = match[1]!.replace(/\\(.)/g, "$1");
+  if (q.trim().length === 0) return { diagnostic: error(line, "search text cannot be empty") };
+
+  const rest = body.slice(match[0].length).trim();
+  const fields: DslQualifiedRef[] = [];
+  if (rest) {
+    const inMatch = rest.match(/^in\s+/i);
+    if (!inMatch) return { diagnostic: error(line, `unexpected "${rest}" after search text; use: search 'text' in field1, field2`) };
+    let parts: TopLevelPart[];
+    const fieldList = rest.slice(inMatch[0].length).trim();
+    const fieldListColumn =
+      column + body.indexOf(rest) + inMatch[0].length + (rest.slice(inMatch[0].length).match(/^\s*/)?.[0].length ?? 0);
+    try {
+      parts = splitTopLevelParts(fieldList);
+    } catch (e) {
+      return { diagnostic: error(line, e instanceof Error ? e.message : String(e)) };
+    }
+    for (const part of parts) {
+      const ref = parseRef(part.text, line, fieldListColumn + part.start);
+      if (!ref)
+        return {
+          diagnostic:
+            legacyHashRefDiagnostic(part.text, line, fieldListColumn + part.start) ?? error(line, `invalid search field "${part.text}"`),
+        };
+      fields.push(ref);
+    }
+  }
+  return { item: { q, fields, span: sourceSpan(line, column, body) } };
+};
+
 type Clause =
   | { kind: "from"; body: string }
   | { kind: "select"; body: string }
@@ -522,12 +678,18 @@ type Clause =
   | { kind: "aggregate"; body: string }
   | { kind: "having"; body: string }
   | { kind: "sort"; body: string }
+  | { kind: "search"; body: string }
   | { kind: "limit"; body: string }
-  | { kind: "offset"; body: string };
+  | { kind: "offset"; body: string }
+  | { kind: "includeDeleted" }
+  | { kind: "deletedOnly" }
+  | { kind: "invalid"; message: string };
 
 const readClause = (line: string): Clause | null => {
   const trimmed = line.trim();
   const lower = trimmed.toLowerCase();
+  if (lower === "include deleted") return { kind: "includeDeleted" };
+  if (lower === "deleted only") return { kind: "deletedOnly" };
   if (lower.startsWith("from ")) return { kind: "from", body: trimmed.slice(5).trim() };
   if (lower.startsWith("select ")) return { kind: "select", body: trimmed.slice(7).trim() };
   if (lower.startsWith("where ")) return { kind: "where", body: trimmed.slice(6).trim() };
@@ -536,117 +698,174 @@ const readClause = (line: string): Clause | null => {
   if (lower.startsWith("aggregate ")) return { kind: "aggregate", body: trimmed.slice(10).trim() };
   if (lower.startsWith("having ")) return { kind: "having", body: trimmed.slice(7).trim() };
   if (lower.startsWith("sort ")) return { kind: "sort", body: trimmed.slice(5).trim() };
+  if (lower.startsWith("search ")) return { kind: "search", body: trimmed.slice(7).trim() };
   if (lower.startsWith("limit ")) return { kind: "limit", body: trimmed.slice(6).trim() };
   if (lower.startsWith("offset ")) return { kind: "offset", body: trimmed.slice(7).trim() };
-  if (lower.startsWith("skip ")) return { kind: "offset", body: trimmed.slice(5).trim() };
+  if (lower.startsWith("skip ")) return { kind: "invalid", message: 'use "offset" instead of "skip"' };
   return null;
 };
 
 export const parseGridsQueryDsl = (source: string): DslParseResult => {
   const ast = emptyAst();
   const diagnostics: DslParseDiagnostic[] = [];
-  const seenSingleton = new Set<"from" | "where" | "having" | "limit" | "offset">();
+  const seenSingleton = new Set<"from" | "where" | "having" | "limit" | "offset" | "search" | "includeDeleted" | "deletedOnly">();
   const availableJoinScopes = new Set<string>();
 
-  const pushSingletonError = (kind: "from" | "where" | "having" | "limit" | "offset", line: number): boolean => {
+  const pushSingletonError = (
+    kind: "from" | "where" | "having" | "limit" | "offset" | "search" | "includeDeleted" | "deletedOnly",
+    line: number,
+    column: number,
+  ): boolean => {
     if (!seenSingleton.has(kind)) {
       seenSingleton.add(kind);
       return false;
     }
-    diagnostics.push(error(line, `duplicate ${kind} clause`));
+    diagnostics.push(error(line, `duplicate ${kind} clause`, column));
     return true;
   };
 
   source.split(/\r?\n/).forEach((rawLine, index) => {
     const lineNo = index + 1;
-    const lines = splitInlineClauses(rawLine);
-    if (lines.length === 0) return;
-    for (const line of lines) {
+    const { clauses, attachedCommentColumn } = splitInlineClauses(rawLine);
+    if (attachedCommentColumn) {
+      diagnostics.push(
+        error(
+          lineNo,
+          'comment marker "--" must be preceded by whitespace; write " --" for a comment or use spaces around subtraction',
+          attachedCommentColumn,
+          2,
+        ),
+      );
+    }
+    if (clauses.length === 0) return;
+    for (const segment of clauses) {
+      const line = segment.text;
+      const column = segment.column;
       const clause = readClause(line);
+      const bodyColumn = "body" in (clause ?? {}) ? column + line.indexOf((clause as Extract<Clause, { body: string }>).body) : column;
       if (!clause) {
-        diagnostics.push(error(lineNo, "unknown clause"));
+        diagnostics.push(error(lineNo, "unknown clause", column, line.length));
+        continue;
+      }
+      if (clause.kind === "invalid") {
+        diagnostics.push(error(lineNo, clause.message, column, line.length));
         continue;
       }
 
       if (clause.kind === "from") {
-        if (pushSingletonError("from", lineNo)) continue;
-        const parsed = parseSource(clause.body);
-        if (!parsed) diagnostics.push(error(lineNo, "invalid from source"));
-        else ast.source = parsed;
+        if (pushSingletonError("from", lineNo, column)) continue;
+        const parsed = parseFromSource(clause.body, lineNo, bodyColumn);
+        if (parsed.diagnostic) {
+          diagnostics.push(atColumn(parsed.diagnostic, column));
+          continue;
+        }
+        if (parsed.alias && availableJoinScopes.has(aliasKey(parsed.alias))) {
+          diagnostics.push(error(lineNo, `duplicate join alias "${parsed.alias}"`, column));
+          continue;
+        }
+        ast.source = parsed.source;
+        if (parsed.alias) {
+          ast.sourceAlias = parsed.alias;
+          availableJoinScopes.add(aliasKey(parsed.alias));
+        }
         continue;
       }
 
       if (clause.kind === "select") {
-        const parsed = parseCommaItems(clause.body, lineNo, parseSelectItem);
+        const parsed = parseCommaItems(clause.body, lineNo, bodyColumn, parseSelectItem);
         ast.select.push(...parsed.items);
-        diagnostics.push(...parsed.diagnostics);
+        diagnostics.push(...parsed.diagnostics.map((diagnostic) => atColumn(diagnostic, column)));
         continue;
       }
 
       if (clause.kind === "where") {
-        if (pushSingletonError("where", lineNo)) continue;
-        const parsed = parseExpression(clause.body, lineNo);
-        if (parsed.ok) ast.where = { expression: parsed.expression, source: parsed.source };
-        else diagnostics.push(parsed.diagnostic);
+        if (pushSingletonError("where", lineNo, column)) continue;
+        const parsed = parseExpression(clause.body, lineNo, bodyColumn);
+        if (parsed.ok)
+          ast.where = { expression: parsed.expression, source: parsed.source, span: sourceSpan(lineNo, bodyColumn, clause.body) };
+        else diagnostics.push(atColumn(parsed.diagnostic, column));
         continue;
       }
 
       if (clause.kind === "join") {
-        const parsed = parseJoin(clause.body, lineNo);
+        const parsed = parseJoin(clause.body, lineNo, bodyColumn);
         if (parsed.item) {
           const scopeError = validateJoinScopes(parsed.item, availableJoinScopes, lineNo);
-          if (scopeError) diagnostics.push(scopeError);
+          if (scopeError) diagnostics.push(atColumn(scopeError, column));
           else {
             ast.joins.push(parsed.item);
-            availableJoinScopes.add(parsed.item.alias);
+            availableJoinScopes.add(aliasKey(parsed.item.alias));
           }
         }
-        if (parsed.diagnostic) diagnostics.push(parsed.diagnostic);
+        if (parsed.diagnostic) diagnostics.push(atColumn(parsed.diagnostic, column));
         continue;
       }
 
       if (clause.kind === "group") {
-        const parsed = parseCommaItems(clause.body, lineNo, parseGroupItem);
+        const parsed = parseCommaItems(clause.body, lineNo, bodyColumn, parseGroupItem);
         ast.groupBy.push(...parsed.items);
-        diagnostics.push(...parsed.diagnostics);
+        diagnostics.push(...parsed.diagnostics.map((diagnostic) => atColumn(diagnostic, column)));
         continue;
       }
 
       if (clause.kind === "aggregate") {
-        const parsed = parseCommaItems(clause.body, lineNo, parseAggregateItem);
+        const parsed = parseCommaItems(clause.body, lineNo, bodyColumn, parseAggregateItem);
         ast.aggregations.push(...parsed.items);
-        diagnostics.push(...parsed.diagnostics);
+        diagnostics.push(...parsed.diagnostics.map((diagnostic) => atColumn(diagnostic, column)));
         continue;
       }
 
       if (clause.kind === "having") {
-        if (pushSingletonError("having", lineNo)) continue;
-        const parsed = parseExpression(clause.body, lineNo);
-        if (parsed.ok) ast.having = { expression: parsed.expression, source: parsed.source };
-        else diagnostics.push(parsed.diagnostic);
+        if (pushSingletonError("having", lineNo, column)) continue;
+        const parsed = parseExpression(clause.body, lineNo, bodyColumn);
+        if (parsed.ok)
+          ast.having = { expression: parsed.expression, source: parsed.source, span: sourceSpan(lineNo, bodyColumn, clause.body) };
+        else diagnostics.push(atColumn(parsed.diagnostic, column));
         continue;
       }
 
       if (clause.kind === "sort") {
-        const parsed = parseCommaItems(clause.body, lineNo, parseSortItem);
+        const parsed = parseCommaItems(clause.body, lineNo, bodyColumn, parseSortItem);
         ast.sort.push(...parsed.items);
-        diagnostics.push(...parsed.diagnostics);
+        diagnostics.push(...parsed.diagnostics.map((diagnostic) => atColumn(diagnostic, column)));
+        continue;
+      }
+
+      if (clause.kind === "search") {
+        if (pushSingletonError("search", lineNo, column)) continue;
+        const parsed = parseSearch(clause.body, lineNo, bodyColumn);
+        if (parsed.diagnostic) diagnostics.push(atColumn(parsed.diagnostic, column));
+        else if (parsed.item) ast.search = parsed.item;
         continue;
       }
 
       if (clause.kind === "limit") {
-        if (pushSingletonError("limit", lineNo)) continue;
+        if (pushSingletonError("limit", lineNo, column)) continue;
         const parsed = parseBoundedIntegerClause("limit", clause.body, lineNo);
-        if (parsed.diagnostic) diagnostics.push(parsed.diagnostic);
+        if (parsed.diagnostic) diagnostics.push(atColumn(parsed.diagnostic, column));
         else ast.limit = parsed.value;
         continue;
       }
 
       if (clause.kind === "offset") {
-        if (pushSingletonError("offset", lineNo)) continue;
+        if (pushSingletonError("offset", lineNo, column)) continue;
         const parsed = parseBoundedIntegerClause("offset", clause.body, lineNo);
-        if (parsed.diagnostic) diagnostics.push(parsed.diagnostic);
+        if (parsed.diagnostic) diagnostics.push(atColumn(parsed.diagnostic, column));
         else ast.offset = parsed.value;
+        continue;
+      }
+
+      if (clause.kind === "includeDeleted") {
+        if (pushSingletonError("includeDeleted", lineNo, column)) continue;
+        if (ast.deletedOnly) diagnostics.push(error(lineNo, `"include deleted" and "deleted only" cannot be combined`, column));
+        else ast.includeDeleted = true;
+        continue;
+      }
+
+      if (clause.kind === "deletedOnly") {
+        if (pushSingletonError("deletedOnly", lineNo, column)) continue;
+        if (ast.includeDeleted) diagnostics.push(error(lineNo, `"include deleted" and "deleted only" cannot be combined`, column));
+        else ast.deletedOnly = true;
       }
     }
   });
