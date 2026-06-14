@@ -6,7 +6,7 @@ export const app = defineApp({
   id: "gateway-ops",
   name: "Gateway",
   icon: "ti ti-route-scan",
-  description: "Admin console for gateway operations, observability, settings, and notifications.",
+  description: "Admin console for gateway operations, observability, and notifications.",
   basePath: "/admin/gateway",
   baseUrl: `http://app-gateway-ops:${port}`,
   adminHref: "/admin/gateway",
@@ -19,11 +19,6 @@ export const app = defineApp({
       description: "Cron schedule for evaluating global gateway health and health webhooks. Uses app.timezone.",
     },
   },
-  legalLinks: [
-    { label: "Imprint", href: "/impressum", icon: "ti ti-info-circle" },
-    { label: "Privacy", href: "/legal/privacy", icon: "ti ti-shield-lock" },
-    { label: "Terms", href: "/legal/terms", icon: "ti ti-file-text" },
-  ],
   widgets: [
     { id: "health", path: "/api/gateway/widget/health" },
     { id: "errors", path: "/api/logging/widget/errors" },
@@ -35,11 +30,7 @@ export const app = defineApp({
     "/api/notifications",
     "/admin/gateway",
     "/admin/observability",
-    "/admin/settings",
     "/public/gateway-ops",
-    "/legal/privacy",
-    "/legal/terms",
-    "/impressum",
   ],
 });
 

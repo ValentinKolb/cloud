@@ -8,7 +8,9 @@
 import { sql } from "bun";
 import { Hono } from "hono";
 import { z } from "zod";
+import { listApps } from "../_internal/registry";
 import { auth, v, type AuthContext } from "../server";
+import { settingsDeleteLegacyKeys, settingsListLegacyKeys } from "../services";
 import * as settings from "../services/settings";
 import { SETTINGS_MAP } from "../services/settings/defaults";
 
@@ -17,8 +19,15 @@ const BulkUpdateSchema = z.record(z.string(), z.unknown());
 type FieldErrors = Record<string, string>;
 
 const isKnownSetting = (key: string): boolean => SETTINGS_MAP.has(key);
+const liveSettingKeys = async () => (await listApps()).flatMap((app) => [...(app.settingKeys ?? [])]);
 
 const app = new Hono<AuthContext>()
+  .get("/legacy", auth.requireRole("admin"), async (c) => {
+    return c.json(await settingsListLegacyKeys(await liveSettingKeys()));
+  })
+  .delete("/legacy", auth.requireRole("admin"), async (c) => {
+    return c.json(await settingsDeleteLegacyKeys(await liveSettingKeys()));
+  })
   .put(
     "/",
     auth.requireRole("admin"),

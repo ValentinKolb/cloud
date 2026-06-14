@@ -1,13 +1,13 @@
 /**
- * Core settings admin form — gateway-ops-internal island.
+ * Core settings admin form.
  *
  * Renders a configurable set of core settings (scoped per group: app/freeipa/...)
  * and bulk-PUTs changed entries to /api/admin/core/settings (atomic, owned by
  * core's own router).
  *
  * NOT a reusable cross-app component: knows the endpoint, knows the snapshot
- * shape, only used by gateway-ops's settings page. Other apps that have their own
- * settings build their own bespoke admin forms (DIY HTTP route + UI).
+ * shape, only used by Core's platform settings page. Other apps that have their
+ * own settings build their own bespoke admin forms (DIY HTTP route + UI).
  */
 
 import { createMemo, createSignal, Show } from "solid-js";
@@ -183,119 +183,145 @@ function FieldRow(props: {
   );
 }
 
-function FieldInput(props: {
+type FieldInputProps = {
   entry: SettingFieldDef;
   value: () => unknown;
   error: () => string | undefined;
   onChange: (value: unknown) => void;
+};
+
+type FieldRenderer = (props: FieldInputProps) => ReturnType<typeof TextInput>;
+
+const FIELD_RENDERERS: Partial<Record<SettingFieldDef["kind"], FieldRenderer>> = {
+  image: (props) => <ImageSettingInput value={props.value} error={props.error} onChange={props.onChange} />,
+  boolean: (props) => <BooleanSettingInput value={props.value} error={props.error} onChange={props.onChange} />,
+  number: (props) => <NumberSettingInput {...props} />,
+  enum: (props) => <EnumSettingInput {...props} />,
+  string_list: (props) => <StringListSettingInput {...props} />,
+  number_list: (props) => <NumberListSettingInput {...props} />,
+  text: (props) => <TextAreaSettingInput {...props} />,
+  template: (props) => <TextAreaSettingInput {...props} />,
+};
+
+function FieldInput(props: FieldInputProps) {
+  const render = FIELD_RENDERERS[props.entry.kind] ?? DefaultTextSettingInput;
+  return render(props);
+}
+
+function FieldError(props: { error: () => string | undefined }) {
+  return (
+    <Show when={props.error()}>
+      <p class="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+        <i class="ti ti-alert-circle text-xs" /> {props.error()}
+      </p>
+    </Show>
+  );
+}
+
+function ImageSettingInput(props: {
+  value: () => unknown;
+  error: () => string | undefined;
+  onChange: (value: unknown) => void;
 }) {
-  const e = props.entry;
+  return (
+    <div class="flex flex-col gap-1">
+      <ImageInput
+        variant="small"
+        value={() => (typeof props.value() === "string" && props.value() ? (props.value() as string) : null)}
+        onChange={(v) => props.onChange(v ?? "")}
+      />
+      <FieldError error={props.error} />
+    </div>
+  );
+}
 
-  if (e.kind === "image") {
-    return (
-      <div class="flex flex-col gap-1">
-        <ImageInput
-          variant="small"
-          value={() => (typeof props.value() === "string" && props.value() ? (props.value() as string) : null)}
-          onChange={(v) => props.onChange(v ?? "")}
-        />
-        <Show when={props.error()}>
-          <p class="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
-            <i class="ti ti-alert-circle text-xs" /> {props.error()}
-          </p>
-        </Show>
-      </div>
-    );
-  }
-
-  if (e.kind === "boolean") {
-    return (
-      <div class="flex flex-col gap-1">
-        <Switch
-          label={props.value() ? "Enabled" : "Disabled"}
-          value={() => Boolean(props.value())}
-          onChange={(v) => props.onChange(v)}
-        />
-        <Show when={props.error()}>
-          <p class="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
-            <i class="ti ti-alert-circle text-xs" /> {props.error()}
-          </p>
-        </Show>
-      </div>
-    );
-  }
-
-  if (e.kind === "number") {
-    return (
-      <NumberInput
-        value={() => (typeof props.value() === "number" ? (props.value() as number) : 0)}
+function BooleanSettingInput(props: {
+  value: () => unknown;
+  error: () => string | undefined;
+  onChange: (value: unknown) => void;
+}) {
+  return (
+    <div class="flex flex-col gap-1">
+      <Switch
+        label={props.value() ? "Enabled" : "Disabled"}
+        value={() => Boolean(props.value())}
         onChange={(v) => props.onChange(v)}
-        min={e.min}
-        max={e.max}
-        error={props.error}
       />
-    );
-  }
+      <FieldError error={props.error} />
+    </div>
+  );
+}
 
-  if (e.kind === "enum") {
-    const opts = (e.options ?? []).map((o) => ({ id: o.value, value: o.value, label: o.label }));
-    return (
-      <SelectInput
-        value={() => (typeof props.value() === "string" ? (props.value() as string) : (e.options?.[0]?.value ?? ""))}
-        onChange={(v) => props.onChange(v)}
-        options={opts}
-        icon="ti ti-selector"
-        error={props.error}
-      />
-    );
-  }
+function NumberSettingInput(props: FieldInputProps) {
+  return (
+    <NumberInput
+      value={() => (typeof props.value() === "number" ? (props.value() as number) : 0)}
+      onChange={(v) => props.onChange(v)}
+      min={props.entry.min}
+      max={props.entry.max}
+      error={props.error}
+    />
+  );
+}
 
-  if (e.kind === "string_list") {
-    return (
-      <TagsInput
-        value={() => (Array.isArray(props.value()) ? (props.value() as string[]) : [])}
-        onChange={(v) => props.onChange(v)}
-        placeholder={e.placeholder ?? e.label}
-        error={props.error}
-      />
-    );
-  }
+function EnumSettingInput(props: FieldInputProps) {
+  const options = (props.entry.options ?? []).map((o) => ({ id: o.value, value: o.value, label: o.label }));
+  return (
+    <SelectInput
+      value={() => (typeof props.value() === "string" ? (props.value() as string) : (props.entry.options?.[0]?.value ?? ""))}
+      onChange={(v) => props.onChange(v)}
+      options={options}
+      icon="ti ti-selector"
+      error={props.error}
+    />
+  );
+}
 
-  if (e.kind === "number_list") {
-    return (
-      <TagsInput
-        value={() => (Array.isArray(props.value()) ? (props.value() as number[]).map(String) : [])}
-        onChange={(v) => props.onChange(v.map((s) => Number(s)).filter((n) => Number.isInteger(n) && n > 0))}
-        placeholder={e.placeholder ?? e.label}
-        error={props.error}
-      />
-    );
-  }
+function StringListSettingInput(props: FieldInputProps) {
+  return (
+    <TagsInput
+      value={() => (Array.isArray(props.value()) ? (props.value() as string[]) : [])}
+      onChange={(v) => props.onChange(v)}
+      placeholder={props.entry.placeholder ?? props.entry.label}
+      error={props.error}
+    />
+  );
+}
 
-  if (e.kind === "text" || e.kind === "template") {
-    return (
-      <TextInput
-        multiline
-        value={() => (typeof props.value() === "string" ? (props.value() as string) : "")}
-        onChange={(v) => props.onChange(v)}
-        placeholder={e.placeholder ?? e.label}
-        error={props.error}
-      />
-    );
-  }
+function NumberListSettingInput(props: FieldInputProps) {
+  return (
+    <TagsInput
+      value={() => (Array.isArray(props.value()) ? (props.value() as number[]).map(String) : [])}
+      onChange={(v) => props.onChange(v.map((s) => Number(s)).filter((n) => Number.isInteger(n) && n > 0))}
+      placeholder={props.entry.placeholder ?? props.entry.label}
+      error={props.error}
+    />
+  );
+}
 
+function TextAreaSettingInput(props: FieldInputProps) {
+  return (
+    <TextInput
+      multiline
+      value={() => (typeof props.value() === "string" ? (props.value() as string) : "")}
+      onChange={(v) => props.onChange(v)}
+      placeholder={props.entry.placeholder ?? props.entry.label}
+      error={props.error}
+    />
+  );
+}
+
+function DefaultTextSettingInput(props: FieldInputProps) {
   // Secrets are server-side redacted (see settings/app.ts redactSecretValue).
   // The input always starts empty; admin types a new value to change, leaves
   // empty to keep the current stored secret.
-  const isSecret = e.kind === "secret";
-  const secretPlaceholder = "Leave empty to keep current value";
-
+  const isSecret = props.entry.kind === "secret";
   return (
     <TextInput
       value={() => (typeof props.value() === "string" ? (props.value() as string) : String(props.value() ?? ""))}
       onChange={(v) => props.onChange(v)}
-      placeholder={isSecret ? secretPlaceholder : (e.placeholder ?? e.label)}
-      type={e.kind === "email" ? "email" : e.kind === "url" ? "url" : "text"}
+      placeholder={isSecret ? "Leave empty to keep current value" : (props.entry.placeholder ?? props.entry.label)}
+      type={props.entry.kind === "email" ? "email" : props.entry.kind === "url" ? "url" : "text"}
       password={isSecret}
       error={props.error}
     />

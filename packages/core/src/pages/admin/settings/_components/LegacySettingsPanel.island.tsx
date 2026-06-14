@@ -1,7 +1,7 @@
 import { DataTable, prompts, toast, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createResource, Show } from "solid-js";
-import { apiClient } from "@/api/client";
+import { coreClient } from "@valentinkolb/cloud/clients/core";
 
 type LegacySetting = {
   key: string;
@@ -15,7 +15,7 @@ const errorMessage = async (response: Response, fallback: string): Promise<strin
 };
 
 const loadLegacySettings = async (): Promise<LegacySetting[]> => {
-  const response = await apiClient.settings.legacy.$get();
+  const response = await coreClient.admin.core.settings.legacy.$get();
   if (!response.ok) throw new Error(await errorMessage(response, "Failed to load legacy settings"));
   return response.json();
 };
@@ -61,7 +61,7 @@ export default function LegacySettingsPanel() {
       );
       if (!confirmed) return { deleted: [] };
 
-      const response = await apiClient.settings.legacy.$delete();
+      const response = await coreClient.admin.core.settings.legacy.$delete();
       if (!response.ok) throw new Error(await errorMessage(response, "Failed to clean up legacy settings"));
       return response.json();
     },

@@ -5,7 +5,7 @@
  * mode = "local"    → render markdown from `legal.<kind>.content`
  * mode = "external" → 302-redirect to `legal.<kind>.url`
  *
- * One small helper, three mounts in `gateway-ops/src/index.ts` — KISS.
+ * One small helper, three mounts in Core's page router — KISS.
  */
 
 import { coreSettings } from "@valentinkolb/cloud/services";
@@ -14,7 +14,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { MarkdownView, Placeholder } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 
-export type LegalKind = "terms" | "privacy" | "imprint";
+type LegalKind = "terms" | "privacy" | "imprint";
 
 type LegalMode = "local" | "external";
 

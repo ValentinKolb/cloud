@@ -77,7 +77,7 @@ export type AppOptions<S extends AppSettingsMap = {}> = {
   /**
    * Legal/info links contributed by this app — aggregated app-wide via
    * `listLegalLinks()` and rendered in login footer, app Footer, rail more
-   * dropdown. Each app contributes its own (e.g. settings owns
+   * dropdown. Each app contributes its own (e.g. core owns
    * Imprint/Privacy/Terms; faq owns FAQ). KISS: no `external` flag, links
    * always open in a new tab from the login footer.
    */
@@ -98,8 +98,8 @@ export type AppOptions<S extends AppSettingsMap = {}> = {
    *   `/admin/<id>`   — admin SSR pages
    *   `/public/<id>`  — built CSS and other static assets
    *
-   * Apps with non-standard URLs (core's `/auth`, `/me`; oauth's `/oauth`,
-   * `/.well-known/...`; settings' `/legal/*`, `/impressum`) list whatever
+   * Apps with non-standard URLs (core's `/auth`, `/me`, `/legal/*`, `/impressum`;
+   * oauth's `/oauth`, `/.well-known/...`) list whatever
    * top-level paths they own. The gateway is dumb — it just builds a
    * prefix-trie from these strings.
    */

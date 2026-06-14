@@ -4,9 +4,11 @@ import { authFlows, coreSettings } from "@valentinkolb/cloud/services";
 import { Hono } from "hono";
 import announcementsAdminPage from "./admin/announcements/page";
 import adminPage from "./admin/page";
+import settingsPage from "./admin/settings/page";
 import newPasswordPage from "./auth/new-password/page";
 import passwordResetPage from "./auth/password-reset/page";
 import loginPage from "./auth/page";
+import { makeLegalPage } from "./legal/page-handler";
 import profilePage from "./me/page";
 import notFoundPage from "./NotFound";
 
@@ -33,6 +35,7 @@ export const createPagesRouter = (options?: { brandingPublicDir?: string }): Hon
     // Admin pages (admin only)
     .get("/admin", auth.requireRole("admin", auth.redirectToLogin), ...adminPage)
     .get("/admin/announcements", auth.requireRole("admin", auth.redirectToLogin), ...announcementsAdminPage)
+    .get("/admin/settings", auth.requireRole("admin", auth.redirectToLogin), ...settingsPage)
     // /admin/apps was merged into the gateway admin page.
     .get("/admin/apps", auth.requireRole("admin", auth.redirectToLogin), (c) => c.redirect("/admin/gateway", 302))
     .get("/admin/sync", auth.requireRole("admin", auth.redirectToLogin), (c) => c.redirect("/app/accounts#sync-activity", 302))
@@ -48,8 +51,10 @@ export const createPagesRouter = (options?: { brandingPublicDir?: string }): Hon
     .get("/auth/extend", auth.requireRole("authenticated", auth.redirectToLogin), async (c) => {
       return c.redirect("/me?action=extend", 302);
     })
-    // Legal pages (Imprint / Privacy / Terms) live in gateway-ops and are
-    // driven by the `legal.*` settings group.
+    // Legal pages are driven by the `legal.*` settings group.
+    .get("/legal/terms", auth.requireRole("*"), ...makeLegalPage("terms"))
+    .get("/legal/privacy", auth.requireRole("*"), ...makeLegalPage("privacy"))
+    .get("/impressum", auth.requireRole("*"), ...makeLegalPage("imprint"))
     // Branding assets (public, no auth, cached)
     .get("/branding/logo", async (c) => {
       return serveBranding(c, "app.logo", join(brandingPublicDir, "logo.svg"), "image/svg+xml");

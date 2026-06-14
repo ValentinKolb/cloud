@@ -1,5 +1,5 @@
 /**
- * Legal-documents admin form — gateway-ops-internal island.
+ * Legal-documents admin form.
  *
  * Edits the 9 `legal.<kind>.{mode,content,url}` settings (3 kinds: terms,
  * privacy, imprint) in one bulk-PUT to `/api/admin/core/settings`.

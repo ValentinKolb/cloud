@@ -1,4 +1,4 @@
-import { ssr } from "../config";
+import { ssr } from "../../../config";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { settingsService, coreSettings } from "@valentinkolb/cloud/services";

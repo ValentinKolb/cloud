@@ -537,7 +537,7 @@ export const SETTINGS: SettingDef[] = [
   // Three pages, three modes each:
   //   mode = "local"    → render markdown from `legal.<kind>.content`
   //   mode = "external" → 302-redirect to `legal.<kind>.url`
-  // All three pages live in the settings app (mounts: /impressum,
+  // All three pages live in Core (mounts: /impressum,
   // /legal/privacy, /legal/terms).
   {
     key: "legal.terms.mode",

@@ -73,9 +73,9 @@ Some domains are deliberately NOT apps — they live in `@valentinkolb/cloud` (`
 | Domain | Where it lives | Why it's core |
 |--------|----------------|---------------|
 | **Accounts / auth** | `packages/cloud/src/services/{accounts,account-lifecycle,auth-flows,ipa,providers,session,service-accounts,service-account-credentials,oauth-tokens,webauthn}/` + `packages/core/src/migrate/core/auth.ts` | Auth is a platform invariant. Every app depends on the same user/role/session/principal model. Provider switching, IPA sync, magic-link, passkeys, service accounts, API credentials, OAuth bearer verification, account lifecycle, and session semantics must not diverge between deployments. |
-| **Logging, notifications, settings** | `packages/cloud/src/services/{logging,notifications,settings}/` + `packages/core/src/migrate/core/*.ts` | Same reasoning — platform primitives, not app features. |
+| **Logging, notifications, settings** | `packages/cloud/src/services/{logging,notifications,settings}/` + `packages/core/src/migrate/core/*.ts` | Same reasoning — platform primitives, not app features. Core owns the platform settings UI and public legal pages. |
 
-The `packages/accounts/` app is **pure admin UI** on top of `@valentinkolb/cloud/services/accounts`. It owns no schema, no service logic, no auth flows. A user may fork it or write a completely different admin frontend, but the underlying authentication, authorization, and account-lifecycle rules stay identical. `packages/gateway-ops/` plays the same role for gateway operations, logging, notifications, and settings UI: it renders and schedules platform operations, while the reusable service logic stays in `@valentinkolb/cloud`.
+The `packages/accounts/` app is **pure admin UI** on top of `@valentinkolb/cloud/services/accounts`. It owns no schema, no service logic, no auth flows. A user may fork it or write a completely different admin frontend, but the underlying authentication, authorization, and account-lifecycle rules stay identical. `packages/gateway-ops/` plays the same role for gateway operations, observability, logging, and notifications: it renders and schedules platform operations, while the reusable service logic stays in `@valentinkolb/cloud`.
 
 Rule of thumb: if it touches `auth.*` tables, implements an auth flow, or defines role/permission semantics — it belongs in `packages/cloud/`, never in an app.
 
@@ -308,7 +308,7 @@ Built-in apps serve as reference implementations. The most instructive ones:
 | App | Good example of... |
 |-----|-------------------|
 | [cloud-template](https://github.com/ValentinKolb/cloud-template) | Standalone reference app (separate repo) — tenancy, child items, permissions, admin, widget, email, logging |
-| `gateway-ops` | Admin sidebar grouping, gateway apps/routes, logs, telemetry, webhooks, settings, notifications |
+| `gateway-ops` | Admin sidebar grouping, gateway apps/routes, logs, telemetry, webhooks, notifications |
 | `files` | Sidebar layout, file operations, Filegate integration |
 | `spaces` | Card grid layout, CRUD with forms, permissions |
 | `contacts` | Multi-column layout, sidebar + list + detail panel |

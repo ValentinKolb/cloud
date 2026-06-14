@@ -17,13 +17,7 @@ import notificationsPage from "./observability/notifications/page";
 import postgresPage from "./observability/postgres/page";
 import redisPage from "./observability/redis/page";
 import telemetryPage from "./observability/telemetry/page";
-import { makeLegalPage } from "./settings/legal/page-handler";
-import settingsPage from "./settings/page";
 import { widgetRoutes } from "./widgets";
-
-const termsPublicPages = new Hono<AuthContext>().get("/", auth.requireRole("*"), ...makeLegalPage("terms"));
-const privacyPublicPages = new Hono<AuthContext>().get("/", auth.requireRole("*"), ...makeLegalPage("privacy"));
-const imprintPublicPages = new Hono<AuthContext>().get("/", auth.requireRole("*"), ...makeLegalPage("imprint"));
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
@@ -49,10 +43,6 @@ const router = new Hono<AuthContext>()
   .get("/admin/observability/redis", auth.requireRole("admin", auth.redirectToLogin), ...redisPage)
   .get("/admin/observability/alerts", auth.requireRole("admin", auth.redirectToLogin), ...alertsPage)
   .get("/admin/observability/notifications", auth.requireRole("admin", auth.redirectToLogin), ...notificationsPage)
-  .get("/admin/settings", auth.requireRole("admin", auth.redirectToLogin), ...settingsPage)
-  .route("/legal/terms", termsPublicPages)
-  .route("/legal/privacy", privacyPublicPages)
-  .route("/impressum", imprintPublicPages)
   .get("/metrics", auth.requireRole("*"), metricsEndpoint)
   .route("/api/gateway/widget", widgetRoutes)
   .route("/api/logging/widget", loggingWidgetRoutes)

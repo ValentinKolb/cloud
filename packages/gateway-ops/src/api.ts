@@ -50,6 +50,8 @@ export const apiRoutes = new Hono<AuthContext>()
     const result = await settingsService.entry.list({ filter: { group: GATEWAY_SETTING_GROUP } });
     return respond(c, ok(result.items));
   })
+  // Compatibility shim for older ops clients. Core owns platform settings now;
+  // the old Gateway Ops URL still delegates to the same platform service.
   .get("/settings/legacy", async (c) => respond(c, ok(await settingsListLegacyKeys(await liveSettingKeys()))))
   .delete("/settings/legacy", async (c) => respond(c, ok(await settingsDeleteLegacyKeys(await liveSettingKeys()))))
   .put("/settings/:key{.+}", v("json", UpdateSettingSchema), async (c) => {

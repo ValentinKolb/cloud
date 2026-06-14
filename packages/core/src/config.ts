@@ -8,6 +8,11 @@ export const app = defineApp({
   description: "Auth, search, admin, and platform services.",
   baseUrl: "http://app-core:3000",
   settings: CORE_SETTINGS,
+  legalLinks: [
+    { label: "Imprint", href: "/impressum", icon: "ti ti-info-circle" },
+    { label: "Privacy", href: "/legal/privacy", icon: "ti ti-shield-lock" },
+    { label: "Terms", href: "/legal/terms", icon: "ti ti-file-text" },
+  ],
   // Core's API surface lives at non-standard paths (/api/auth, /api/search,
   // /api/accounts/entities, ...), so its OpenAPI spec doesn't fit the
   // `/api/<id>/openapi.json` convention. Mounted at the top-level
@@ -22,6 +27,9 @@ export const app = defineApp({
     "/auth",
     "/me",
     "/admin",
+    "/legal/privacy",
+    "/legal/terms",
+    "/impressum",
     "/api/auth",
     "/api/announcements",
     "/api/search",
