@@ -8,6 +8,7 @@ import { buildGatewayHealth } from "./health";
 import {
   createHealthWebhook,
   deleteHealthWebhook,
+  getHealthWebhook,
   type HealthWebhookInput,
   listHealthWebhooks,
   testHealthWebhook,
@@ -21,17 +22,18 @@ const GATEWAY_SETTING_GROUP = "gateway";
 const GATEWAY_SETTING_PREFIX = "gateway.";
 
 const UpdateSettingSchema = z.object({ value: z.unknown() });
+const HealthWebhookIdParamSchema = z.object({ id: z.uuid() });
 const HealthWebhookInputSchema = z.object({
-  name: z.string(),
-  url: z.string(),
+  name: z.string().trim().min(1).max(120),
+  url: z.string().trim().min(1).max(2_000),
   method: z.enum(["GET", "POST"]),
   enabled: z.boolean(),
   scopeKind: z.enum(["all", "include", "exclude"]),
-  scopeAppIds: z.array(z.string()),
+  scopeAppIds: z.array(z.string().trim().min(1).max(200)).max(200),
   sendOn: z.array(z.enum(["ok", "warn", "error", "recovery", "every_check"])),
   minStatus: z.enum(["ok", "warn", "error"]),
-  repeatIntervalMs: z.number(),
-  timeoutMs: z.number(),
+  repeatIntervalMs: z.number().int().min(60_000).max(2_592_000_000),
+  timeoutMs: z.number().int().min(1_000).max(30_000),
 }) satisfies z.ZodType<HealthWebhookInput>;
 
 const liveSettingKeys = async () => (await listApps()).flatMap((app) => [...(app.settingKeys ?? [])]);
@@ -68,9 +70,8 @@ export const apiRoutes = new Hono<AuthContext>()
       return respond(c, fail(err.badInput(error instanceof Error ? error.message : String(error))));
     }
   })
-  .put("/health/webhooks/:id", v("json", HealthWebhookInputSchema), async (c) => {
-    const id = c.req.param("id");
-    if (!id) return respond(c, fail(err.badInput("Missing health webhook id")));
+  .put("/health/webhooks/:id", v("param", HealthWebhookIdParamSchema), v("json", HealthWebhookInputSchema), async (c) => {
+    const { id } = c.req.valid("param");
     try {
       const webhook = await updateHealthWebhook(id, c.req.valid("json"));
       if (!webhook) return respond(c, fail(err.notFound("Health webhook")));
@@ -79,13 +80,16 @@ export const apiRoutes = new Hono<AuthContext>()
       return respond(c, fail(err.badInput(error instanceof Error ? error.message : String(error))));
     }
   })
-  .delete("/health/webhooks/:id", async (c) => {
-    if (!(await deleteHealthWebhook(c.req.param("id")))) return respond(c, fail(err.notFound("Health webhook")));
+  .delete("/health/webhooks/:id", v("param", HealthWebhookIdParamSchema), async (c) => {
+    const { id } = c.req.valid("param");
+    if (!(await deleteHealthWebhook(id))) return respond(c, fail(err.notFound("Health webhook")));
     return respond(c, ok({ message: "Webhook deleted" }));
   })
-  .post("/health/webhooks/:id/test", async (c) => {
-    const webhook = await testHealthWebhook(c.req.param("id"));
-    return respond(c, ok({ message: "Webhook test submitted", webhook }));
+  .post("/health/webhooks/:id/test", v("param", HealthWebhookIdParamSchema), async (c) => {
+    const { id } = c.req.valid("param");
+    if (!(await getHealthWebhook(id))) return respond(c, fail(err.notFound("Health webhook")));
+    const jobId = await testHealthWebhook(id);
+    return respond(c, ok({ message: "Webhook test submitted", jobId }));
   });
 
 export type ApiType = typeof apiRoutes;

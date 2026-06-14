@@ -1,4 +1,4 @@
-import { GATEWAY_TELEMETRY_TENANT, gatewayTelemetryTopic, logger, type GatewayTelemetryEvent } from "@valentinkolb/cloud/services";
+import { GATEWAY_TELEMETRY_TENANT, type GatewayTelemetryEvent, gatewayTelemetryTopic, logger } from "@valentinkolb/cloud/services";
 import type { TopicDelivery } from "@valentinkolb/sync";
 import { sql } from "bun";
 
@@ -141,11 +141,17 @@ export const consumeTelemetry = async (signal: AbortSignal): Promise<void> => {
 };
 
 export const cleanupTelemetry = async (retentionDays = 14): Promise<number> => {
-  const result = await sql`
+  const [eventsResult, rollupsResult] = await Promise.all([
+    sql`
     DELETE FROM gateway.telemetry_events
     WHERE occurred_at < now() - (${retentionDays}::int * INTERVAL '1 day')
-  `;
-  return result.count;
+    `,
+    sql`
+    DELETE FROM gateway.telemetry_rollups_minute
+    WHERE bucket < date_trunc('minute', now() - (${retentionDays}::int * INTERVAL '1 day'))
+    `,
+  ]);
+  return eventsResult.count + rollupsResult.count;
 };
 
 export const getTelemetrySummary = async (hours = 24): Promise<TelemetrySummary> => {

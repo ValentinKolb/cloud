@@ -1,9 +1,11 @@
 import { logger } from "@valentinkolb/cloud/services";
 import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
-import { buildGatewayHealth, type GatewayHealth, type GatewayHealthStatus } from "./health";
+import { buildGatewayHealth, type GatewayHealth, type GatewayHealthStatus, scopeGatewayHealth } from "./health";
 
 const log = logger("gateway:webhooks");
+const MAX_REPEAT_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type HealthWebhook = {
   id: string;
@@ -55,6 +57,7 @@ export type HealthWebhookInput = Omit<
 const asIso = (value: Date | string | null) => (value ? new Date(value).toISOString() : null);
 const asStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+export const isHealthWebhookId = (id: string): boolean => UUID_RE.test(id);
 
 const mapWebhook = (row: DbWebhook): HealthWebhook => ({
   id: row.id,
@@ -79,20 +82,26 @@ const mapWebhook = (row: DbWebhook): HealthWebhook => ({
   failureCount: row.failure_count,
 });
 
-const validateInput = (input: HealthWebhookInput): HealthWebhookInput => {
+export const normalizeHealthWebhookInput = (input: HealthWebhookInput): HealthWebhookInput => {
   const url = new URL(input.url);
   if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("Webhook URL must use http or https.");
+  const name = input.name.trim();
+  if (!name) throw new Error("Webhook name is required.");
+  const repeatIntervalMs = Number.isFinite(input.repeatIntervalMs)
+    ? Math.max(60_000, Math.min(MAX_REPEAT_INTERVAL_MS, Math.trunc(input.repeatIntervalMs)))
+    : 1_800_000;
+  const timeoutMs = Number.isFinite(input.timeoutMs) ? Math.max(1000, Math.min(30_000, Math.trunc(input.timeoutMs))) : 5000;
   return {
     ...input,
-    name: input.name.trim(),
+    name,
     url: url.toString(),
     method: input.method === "POST" ? "POST" : "GET",
     scopeKind: input.scopeKind === "include" || input.scopeKind === "exclude" ? input.scopeKind : "all",
-    scopeAppIds: input.scopeAppIds.filter(Boolean),
+    scopeAppIds: Array.from(new Set(input.scopeAppIds.map((id) => id.trim()).filter(Boolean))),
     sendOn: input.sendOn.length > 0 ? input.sendOn : ["error", "recovery"],
     minStatus: input.minStatus,
-    repeatIntervalMs: Math.max(60_000, input.repeatIntervalMs || 1_800_000),
-    timeoutMs: Math.max(1000, Math.min(30_000, input.timeoutMs || 5000)),
+    repeatIntervalMs,
+    timeoutMs,
   };
 };
 
@@ -106,12 +115,13 @@ export const listHealthWebhooks = async (): Promise<HealthWebhook[]> => {
 };
 
 export const getHealthWebhook = async (id: string): Promise<HealthWebhook | null> => {
+  if (!isHealthWebhookId(id)) return null;
   const [row] = await sql<DbWebhook[]>`SELECT * FROM gateway.health_webhooks WHERE id = ${id}::uuid`;
   return row ? mapWebhook(row) : null;
 };
 
 export const createHealthWebhook = async (raw: HealthWebhookInput): Promise<HealthWebhook> => {
-  const input = validateInput(raw);
+  const input = normalizeHealthWebhookInput(raw);
   const [row] = await sql<DbWebhook[]>`
     INSERT INTO gateway.health_webhooks (
       name, url, method, enabled, scope_kind, scope_app_ids, send_on,
@@ -129,7 +139,8 @@ export const createHealthWebhook = async (raw: HealthWebhookInput): Promise<Heal
 };
 
 export const updateHealthWebhook = async (id: string, raw: HealthWebhookInput): Promise<HealthWebhook | null> => {
-  const input = validateInput(raw);
+  if (!isHealthWebhookId(id)) return null;
+  const input = normalizeHealthWebhookInput(raw);
   const [row] = await sql<DbWebhook[]>`
     UPDATE gateway.health_webhooks
     SET
@@ -151,16 +162,18 @@ export const updateHealthWebhook = async (id: string, raw: HealthWebhookInput): 
 };
 
 export const deleteHealthWebhook = async (id: string): Promise<boolean> => {
+  if (!isHealthWebhookId(id)) return false;
   const result = await sql`DELETE FROM gateway.health_webhooks WHERE id = ${id}::uuid`;
   return result.count > 0;
 };
 
-const scopedHealth = async (webhook: HealthWebhook): Promise<GatewayHealth> => {
-  if (webhook.scopeKind === "all") return buildGatewayHealth();
-  const all = await buildGatewayHealth();
+const scopedHealth = async (webhook: HealthWebhook, baseHealth?: GatewayHealth): Promise<GatewayHealth> => {
+  if (webhook.scopeKind === "all" && !baseHealth) return buildGatewayHealth();
+  const all = baseHealth ?? (await buildGatewayHealth());
+  if (webhook.scopeKind === "all") return all;
   const ids = new Set(webhook.scopeAppIds);
   const scopeIds = webhook.scopeKind === "include" ? webhook.scopeAppIds : all.apps.filter((app) => !ids.has(app.id)).map((app) => app.id);
-  return buildGatewayHealth(scopeIds);
+  return scopeGatewayHealth(all, scopeIds);
 };
 
 const statusRank = { ok: 0, warn: 1, error: 2 } satisfies Record<GatewayHealthStatus, number>;
@@ -237,10 +250,11 @@ export const healthWebhookDeliveryJob = job<{ webhookId: string; mode?: "schedul
 
 export const runHealthWebhookCheck = async (): Promise<{ checked: number; submitted: number }> => {
   const webhooks = await listHealthWebhooks();
+  const baseHealth = await buildGatewayHealth();
   const now = Date.now();
   let submitted = 0;
   for (const webhook of webhooks) {
-    const health = await scopedHealth(webhook);
+    const health = await scopedHealth(webhook, baseHealth);
     await sql`UPDATE gateway.health_webhooks SET last_status = ${health.status}, updated_at = now() WHERE id = ${webhook.id}::uuid`;
     if (!shouldSend(webhook, health.status, now)) continue;
     await healthWebhookDeliveryJob.submit({

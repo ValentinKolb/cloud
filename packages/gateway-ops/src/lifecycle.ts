@@ -25,6 +25,24 @@ let telemetryAbort: AbortController | null = null;
 let telemetryTask: Promise<void> | null = null;
 let schedulerStarted = false;
 let offlineScheduleRegistered = false;
+let registryRefreshInFlight = false;
+
+const isAbortError = (error: unknown): boolean => error instanceof Error && error.name === "AbortError";
+
+const delay = async (ms: number, signal: AbortSignal): Promise<void> => {
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timeout);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+};
 
 const fmtDuration = (ms: number): string => {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -111,20 +129,37 @@ export const refreshRegisteredApps = async (): Promise<void> => {
   await upsertRegisteredApps(await listApps());
 };
 
+const refreshRegisteredAppsOnce = async (): Promise<void> => {
+  if (registryRefreshInFlight) return;
+  registryRefreshInFlight = true;
+  try {
+    await refreshRegisteredApps();
+  } catch (error) {
+    log.error("Registered app refresh failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    registryRefreshInFlight = false;
+  }
+};
+
 const startRegistryWatcher = async (): Promise<void> => {
   registryWatcherAbort?.abort();
   registryWatcherAbort = new AbortController();
   const signal = registryWatcherAbort.signal;
-  try {
-    const snap = await appRegistry.snapshot({ prefix: "apps/" });
-    for await (const _ev of appRegistry.reader({ prefix: "apps/", after: snap.cursor }).stream({ signal })) {
-      await refreshRegisteredApps();
+  while (!signal.aborted) {
+    try {
+      const snap = await appRegistry.snapshot({ prefix: "apps/" });
+      for await (const _ev of appRegistry.reader({ prefix: "apps/", after: snap.cursor }).stream({ signal })) {
+        await refreshRegisteredAppsOnce();
+      }
+    } catch (error) {
+      if (isAbortError(error) || signal.aborted) return;
+      log.error("Registry watcher failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await delay(5_000, signal);
     }
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") return;
-    log.error("Registry watcher failed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
   }
 };
 
@@ -186,7 +221,19 @@ const startTelemetryConsumer = (): void => {
   if (telemetryTask) return;
   telemetryAbort = new AbortController();
   const signal = telemetryAbort.signal;
-  telemetryTask = consumeTelemetry(signal).finally(() => {
+  telemetryTask = (async () => {
+    while (!signal.aborted) {
+      try {
+        await consumeTelemetry(signal);
+      } catch (error) {
+        if (isAbortError(error) || signal.aborted) return;
+        log.error("Gateway telemetry consumer failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        await delay(5_000, signal);
+      }
+    }
+  })().finally(() => {
     if (telemetryAbort?.signal === signal) telemetryAbort = null;
     telemetryTask = null;
   });
@@ -207,7 +254,7 @@ export const gatewayOpsLifecycle: AppLifecycle = {
   },
 
   start: async () => {
-    registryRefreshTimer = setInterval(refreshRegisteredApps, 5_000);
+    registryRefreshTimer = setInterval(() => void refreshRegisteredAppsOnce(), 5_000);
     void startRegistryWatcher();
     await startScheduler();
     startTelemetryConsumer();
