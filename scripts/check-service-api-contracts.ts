@@ -8,12 +8,14 @@ type Violation = {
 
 const workspaceRoot = join(import.meta.dir, "..");
 const packagesRoot = join(workspaceRoot, "packages");
+const rootPackage = JSON.parse(readFileSync(join(workspaceRoot, "package.json"), "utf8")) as { workspaces?: string[] };
+const workspacePackageNames = new Set((rootPackage.workspaces ?? []).map((workspace) => workspace.replace(/^packages\//, "")));
 
 const isDirectory = (path: string): boolean => existsSync(path) && statSync(path).isDirectory();
 
 // Each app lives at packages/<app>/src/ now (cloud-lib at packages/cloud is excluded).
 const appDirs = readdirSync(packagesRoot)
-  .filter((name) => name !== "cloud" && isDirectory(join(packagesRoot, name, "src")))
+  .filter((name) => name !== "cloud" && workspacePackageNames.has(name) && isDirectory(join(packagesRoot, name, "src")))
   .map((name) => join(packagesRoot, name, "src"))
   .sort();
 
