@@ -10,32 +10,54 @@
  * own settings build their own bespoke admin forms (DIY HTTP route + UI).
  */
 
-import { createMemo, createSignal, Show } from "solid-js";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import {
-  TextInput,
-  NumberInput,
-  Switch,
-  ImageInput,
-  TagsInput,
-  SelectInput,
-  prompts,
-  SettingsSaveBar,
-  sameSettingValue,
-  readSettingsError,
-} from "@valentinkolb/cloud/ui";
 import { coreClient } from "@valentinkolb/cloud/clients/core";
+import {
+  createTemplateEditorPanesValue,
+  ImageInput,
+  NumberInput,
+  Panes,
+  prompts,
+  readSettingsError,
+  SelectInput,
+  SettingsSaveBar,
+  Switch,
+  sameSettingValue,
+  TagsInput,
+  TemplateEditor,
+  TemplatePreview,
+  TemplateSampleData,
+  type TemplateVariable,
+  type TemplateVariableKind,
+  TextInput,
+} from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createMemo, createSignal, type JSX, Show } from "solid-js";
 
 export type SettingFieldDef = {
   key: string;
   label: string;
   description: string;
-  kind: "string" | "text" | "email" | "url" | "secret" | "image" | "boolean" | "number" | "enum" | "string_list" | "number_list" | "cron" | "timezone" | "template";
+  kind:
+    | "string"
+    | "text"
+    | "email"
+    | "url"
+    | "secret"
+    | "image"
+    | "boolean"
+    | "number"
+    | "enum"
+    | "string_list"
+    | "number_list"
+    | "cron"
+    | "timezone"
+    | "template";
   value: unknown;
   options?: ReadonlyArray<{ value: string; label: string }>;
   min?: number;
   max?: number;
   placeholder?: string;
+  templateVars?: readonly string[];
 };
 
 type Props = { entries: SettingFieldDef[] };
@@ -190,7 +212,7 @@ type FieldInputProps = {
   onChange: (value: unknown) => void;
 };
 
-type FieldRenderer = (props: FieldInputProps) => ReturnType<typeof TextInput>;
+type FieldRenderer = (props: FieldInputProps) => JSX.Element;
 
 const FIELD_RENDERERS: Partial<Record<SettingFieldDef["kind"], FieldRenderer>> = {
   image: (props) => <ImageSettingInput value={props.value} error={props.error} onChange={props.onChange} />,
@@ -200,7 +222,7 @@ const FIELD_RENDERERS: Partial<Record<SettingFieldDef["kind"], FieldRenderer>> =
   string_list: (props) => <StringListSettingInput {...props} />,
   number_list: (props) => <NumberListSettingInput {...props} />,
   text: (props) => <TextAreaSettingInput {...props} />,
-  template: (props) => <TextAreaSettingInput {...props} />,
+  template: (props) => <TemplateSettingInput {...props} />,
 };
 
 function FieldInput(props: FieldInputProps) {
@@ -218,11 +240,7 @@ function FieldError(props: { error: () => string | undefined }) {
   );
 }
 
-function ImageSettingInput(props: {
-  value: () => unknown;
-  error: () => string | undefined;
-  onChange: (value: unknown) => void;
-}) {
+function ImageSettingInput(props: { value: () => unknown; error: () => string | undefined; onChange: (value: unknown) => void }) {
   return (
     <div class="flex flex-col gap-1">
       <ImageInput
@@ -235,18 +253,10 @@ function ImageSettingInput(props: {
   );
 }
 
-function BooleanSettingInput(props: {
-  value: () => unknown;
-  error: () => string | undefined;
-  onChange: (value: unknown) => void;
-}) {
+function BooleanSettingInput(props: { value: () => unknown; error: () => string | undefined; onChange: (value: unknown) => void }) {
   return (
     <div class="flex flex-col gap-1">
-      <Switch
-        label={props.value() ? "Enabled" : "Disabled"}
-        value={() => Boolean(props.value())}
-        onChange={(v) => props.onChange(v)}
-      />
+      <Switch label={props.value() ? "Enabled" : "Disabled"} value={() => Boolean(props.value())} onChange={(v) => props.onChange(v)} />
       <FieldError error={props.error} />
     </div>
   );
@@ -308,6 +318,198 @@ function TextAreaSettingInput(props: FieldInputProps) {
       placeholder={props.entry.placeholder ?? props.entry.label}
       error={props.error}
     />
+  );
+}
+
+const TEMPLATE_SAMPLE_VALUES: Record<string, string> = {
+  ACCOUNT_KIND: "full account",
+  APP_NAME: "Cloud",
+  CONTACT_EMAIL: "support@example.org",
+  DISPLAY_NAME: "Eva Becker",
+  EMAIL: "eva@example.org",
+  EXPIRY: "31 Dec 2026",
+  EXTEND_URL: "https://cloud.example.org/me",
+  FIRST_NAME: "Eva",
+  LOGIN_URL: "https://cloud.example.org/auth/login",
+  MAGIC_LINK: "https://cloud.example.org/auth/magic-link/example",
+  PASSWORD: "correct horse battery staple",
+  REASON: "The request could not be approved.",
+  RESET_LINK: "https://cloud.example.org/auth/password-reset/example",
+  TOKEN: "123456",
+  USERNAME: "ebecker",
+};
+
+const sampleValueFor = (name: string) => TEMPLATE_SAMPLE_VALUES[name] ?? name.toLowerCase().replaceAll("_", " ");
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const buildEmailPreviewHtml = (content: string) => `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+    <tr><td align="center">
+      <table width="100%" style="max-width:520px;" cellpadding="0" cellspacing="0">
+        <tr><td style="background:#ffffff;padding:20px 24px;border-radius:12px 12px 0 0;border:1px solid #e4e4e7;border-bottom:none;">
+          <table cellpadding="0" cellspacing="0"><tr>
+            <td style="vertical-align:middle;">
+              <span style="font-size:16px;font-weight:600;color:#18181b;">Cloud</span>
+            </td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="background:#ffffff;padding:28px 24px;border-left:1px solid #e4e4e7;border-right:1px solid #e4e4e7;">
+          <div style="font-size:14px;line-height:1.6;color:#27272a;">
+            ${content}
+          </div>
+        </td></tr>
+        <tr><td style="background:#fafafa;padding:16px 24px;border-radius:0 0 12px 12px;border:1px solid #e4e4e7;border-top:none;">
+          <p style="margin:0 0 8px;font-size:11px;color:#71717a;text-align:center;">
+            <a href="https://cloud.example.org/impressum" style="color:#71717a;text-decoration:underline;">Imprint</a>
+            &nbsp;&middot;&nbsp;
+            <a href="https://cloud.example.org/legal/terms" style="color:#71717a;text-decoration:underline;">Terms</a>
+            &nbsp;&middot;&nbsp;
+            <a href="https://cloud.example.org/legal/privacy" style="color:#71717a;text-decoration:underline;">Privacy</a>
+          </p>
+          <p style="margin:0;font-size:11px;color:#a1a1aa;text-align:center;">
+            This message was sent automatically. Please do not reply to this email.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+`;
+
+const createTemplateSampleData = (variables: readonly string[]): Record<string, string> =>
+  Object.fromEntries(variables.map((name) => [name, sampleValueFor(name)]));
+
+const renderTemplatePreviewBody = (template: string, variables: readonly string[], sampleData = createTemplateSampleData(variables)) => {
+  let html = template;
+  for (const name of variables) {
+    const value = sampleData[name] ?? sampleValueFor(name);
+    const sectionPattern = new RegExp(`{{#\\s*${escapeRegExp(name)}\\s*}}([\\s\\S]*?){{/\\s*${escapeRegExp(name)}\\s*}}`, "g");
+    html = html.replace(sectionPattern, value ? "$1" : "");
+    const invertedPattern = new RegExp(`{{\\^\\s*${escapeRegExp(name)}\\s*}}([\\s\\S]*?){{/\\s*${escapeRegExp(name)}\\s*}}`, "g");
+    html = html.replace(invertedPattern, value ? "" : "$1");
+    const variablePattern = new RegExp(`{{\\s*${escapeRegExp(name)}\\s*}}`, "g");
+    html = html.replace(variablePattern, value);
+  }
+  return html;
+};
+
+const renderTemplatePreview = (template: string, variables: readonly string[], sampleData?: Record<string, string>) =>
+  buildEmailPreviewHtml(renderTemplatePreviewBody(template, variables, sampleData));
+
+const inferTemplateVariableKind = (name: string): TemplateVariableKind => {
+  if (name.endsWith("_URL") || name.endsWith("_LINK") || name === "LOGIN_URL" || name === "MAGIC_LINK" || name === "RESET_LINK") {
+    return "url";
+  }
+  if (name.endsWith("_EMAIL") || name === "EMAIL") return "email";
+  if (name.endsWith("_COUNT") || name.endsWith("_DAYS")) return "number";
+  return "string";
+};
+
+function TemplateSettingInput(props: FieldInputProps) {
+  const currentValue = () => (typeof props.value() === "string" ? (props.value() as string) : "");
+  const variables = () => props.entry.templateVars ?? [];
+  const templateVariables = (): TemplateVariable[] => variables().map((name) => ({ name, kind: inferTemplateVariableKind(name) }));
+  const preview = () => renderTemplatePreview(currentValue(), variables());
+
+  const openEditor = async () => {
+    const initialValue = currentValue();
+    const result = await prompts.dialog<string>(
+      (close) => {
+        const [draft, setDraft] = createSignal(initialValue);
+        const [panes, setPanes] = createSignal(createTemplateEditorPanesValue());
+        const [sampleData, setSampleData] = createSignal<Record<string, string>>(createTemplateSampleData(variables()));
+        const renderedPreview = createMemo(() => renderTemplatePreview(draft(), variables(), sampleData()));
+        const setSampleValue = (name: string, value: string) => {
+          setSampleData((current) => ({ ...current, [name]: value }));
+        };
+
+        return (
+          <div class="flex min-h-0 flex-col gap-4">
+            <div>
+              <p class="text-xs text-dimmed">{props.entry.key}</p>
+              <p class="mt-1 text-sm text-secondary">{props.entry.description}</p>
+            </div>
+
+            <p class="text-xs text-dimmed">
+              Type {"{{"} for values or {"<"} for HTML snippets. Use sample data to change preview values.
+            </p>
+
+            <div class="h-[min(62vh,46rem)] min-h-[34rem] min-w-0 overflow-hidden rounded-lg bg-zinc-100 p-2 dark:bg-zinc-900">
+              <Panes.Root value={panes()} onChange={setPanes} class="h-full w-full" allowResize={false}>
+                <Panes.Element id="html" title="HTML" icon="ti ti-code">
+                  <div class="h-full min-h-0 overflow-auto">
+                    <TemplateEditor
+                      value={draft}
+                      onInput={setDraft}
+                      variables={templateVariables()}
+                      placeholder={props.entry.placeholder ?? props.entry.label}
+                      fill
+                    />
+                  </div>
+                </Panes.Element>
+                <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
+                  <TemplatePreview html={renderedPreview} />
+                </Panes.Element>
+                <Panes.Element id="sample-data" title="Sample data" icon="ti ti-database">
+                  <TemplateSampleData variables={templateVariables()} values={sampleData} onChange={setSampleValue} />
+                </Panes.Element>
+              </Panes.Root>
+            </div>
+
+            <div class="flex justify-end gap-2">
+              <button type="button" class="btn-secondary btn-sm" onClick={() => close(undefined)}>
+                Cancel
+              </button>
+              <button type="button" class="btn-primary btn-sm" onClick={() => close(draft())}>
+                <i class="ti ti-check" /> Save
+              </button>
+            </div>
+          </div>
+        );
+      },
+      { title: props.entry.label, icon: "ti ti-template", size: "wide" },
+    );
+
+    if (typeof result === "string" && result !== initialValue) props.onChange(result);
+  };
+
+  return (
+    <div class="flex flex-col gap-2">
+      <div class="grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-900/50 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <div class="min-w-0">
+          <p class="text-xs font-medium text-primary">HTML body template</p>
+          <p class="mt-1 truncate text-xs text-dimmed">{props.entry.description}</p>
+        </div>
+        <button type="button" class="btn-secondary btn-sm justify-center" onClick={() => void openEditor()}>
+          <i class="ti ti-pencil" /> Edit template
+        </button>
+      </div>
+
+      <details class="group rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+        <summary class="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-medium text-secondary">
+          <i class="ti ti-eye text-dimmed" />
+          Preview
+          <i class="ti ti-chevron-down ml-auto text-dimmed transition-transform group-open:rotate-180" />
+        </summary>
+        <iframe
+          class="h-56 w-full border-t border-zinc-200 bg-white dark:border-zinc-800"
+          sandbox=""
+          srcdoc={preview()}
+          title={`${props.entry.label} preview`}
+        />
+      </details>
+
+      <FieldError error={props.error} />
+    </div>
   );
 }
 

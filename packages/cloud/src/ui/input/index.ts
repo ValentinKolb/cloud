@@ -44,4 +44,15 @@ export { default as SelectChip } from "./SelectChip";
 export { default as Slider } from "./Slider";
 export { Switch, SwitchInput } from "./Switch";
 export { default as TagsInput } from "./TagsInput";
+export {
+  createTemplateEditorPanesValue,
+  default as TemplateEditor,
+  type TemplateEditorProps,
+  TemplatePreview,
+  type TemplatePreviewProps,
+  TemplateSampleData,
+  type TemplateSampleDataProps,
+  type TemplateVariable,
+  type TemplateVariableKind,
+} from "./TemplateEditor";
 export { default as TextInput } from "./TextInput";

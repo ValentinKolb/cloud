@@ -8,6 +8,7 @@ const settingsLinks: AdminLink[] = [
   { href: "/admin/settings?tab=user", icon: "ti-users", label: "User Management" },
   { href: "/admin/settings?tab=freeipa", icon: "ti-building-fortress", label: "FreeIPA" },
   { href: "/admin/settings?tab=mail", icon: "ti-mail", label: "Mail" },
+  { href: "/admin/settings?tab=email-templates", icon: "ti-template", label: "Email Templates" },
   { href: "/admin/settings?tab=security", icon: "ti-shield-lock", label: "Security" },
   { href: "/admin/settings?tab=legal", icon: "ti-file-text", label: "Legal" },
 ];
