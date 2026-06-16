@@ -1,16 +1,12 @@
-import { markdown } from "@valentinkolb/cloud/shared";
-import { DataTable, type DataTableColumn, MarkdownView, Placeholder, ProgressBar } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { For, type JSX, Show } from "solid-js";
-import { type AggregationSpec, FormatSpecSchema } from "../../../contracts";
+import type { AggregationSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field, GridRecord, RecordList } from "../../../service";
-import type { ColumnSpec, FormatSpec } from "../../../service/views";
+import type { ColumnSpec } from "../../../service/views";
 import { fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
-import { BarcodeCell, canRenderBarcode } from "./BarcodeCell";
-import { formatCell, progressRatio } from "./format-cell";
-import { RecordLink } from "./RecordLink";
-import { SelectValueBadges } from "./select-badges";
+import { FieldValue, fieldDisplayFormat, formatFieldValueText } from "./FieldValue";
 
 /** Friendly label for an aggregation kind — used as the fallback when
  *  the user didn't set a custom label on the aggregation row. */
@@ -41,12 +37,10 @@ const AGG_LABELS: Record<string, string> = {
  * can share relation links, formatting, and aggregate footers without
  * dragging in page-specific toolbar or detail-panel state.
  *
- * Relation cells: read each record's pre-fetched `expanded` map
- * (populated by `gridsService.record.list({ includeRelations: true })`)
- * and render `<RecordLink>` with a label joined from the linked
- * record's presentable fields. Zero render-time DB calls — the
- * batched-once `attachRelationExpansion` pass on the server is the
- * only roundtrip cost.
+ * Field values are rendered through `FieldValue`, including relation
+ * labels from each record's pre-fetched `expanded` map. Zero render-time
+ * DB calls — the batched-once `attachRelationExpansion` pass on the
+ * server is the only roundtrip cost.
  */
 type Props = {
   /** The list-call response. Items + schema + cursor in one prop. */
@@ -100,43 +94,6 @@ type Props = {
   onFieldMove?: (field: Field, direction: -1 | 1) => void;
   onViewColumnSettings?: (column: ColumnSpec, field: Field | null) => void;
   onViewColumnMove?: (column: ColumnSpec, direction: -1 | 1) => void;
-};
-
-/** Joins a list of arbitrary cell values into a presentable label.
- *  Mirrors the server-side `formatLabelPart` for the field types we
- *  expect in `record.expanded` (presentable fields are typically text,
- *  number, boolean, or currency/location objects). */
-const valueToLabelPart = (v: unknown): string => {
-  if (v === null || v === undefined) return "";
-  if (typeof v === "string") return v;
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
-  if (Array.isArray(v)) return v.map(valueToLabelPart).filter(Boolean).join(", ");
-  if (typeof v === "object") {
-    const obj = v as Record<string, unknown>;
-    if (typeof obj.label === "string") return obj.label;
-    if (typeof obj.amount === "string") return obj.amount;
-  }
-  return "";
-};
-
-/** Builds the link label for a single linked record from its expanded
- *  fields. The server already filtered down to the target table's
- *  label fields, so we just join everything in iteration order with ' · '.
- *  Falls back to a neutral placeholder when expansion is missing
- *  (target table the viewer can't read, or expansion wasn't requested). */
-const buildExpandedLabel = (expandedForUuid: Record<string, unknown> | undefined, _fallbackUuid: string): string => {
-  if (!expandedForUuid) return "Unknown record";
-  const parts = Object.values(expandedForUuid)
-    .map(valueToLabelPart)
-    .filter((s) => s.length > 0);
-  return parts.length > 0 ? parts.join(" · ") : "Untitled record";
-};
-
-const isMarkdownLongtext = (field: Field) => field.type === "longtext" && Boolean((field.config as { markdown?: boolean }).markdown);
-
-const renderMarkdownCell = (value: unknown) => {
-  if (typeof value !== "string" || value.trim().length === 0) return "";
-  return <MarkdownView html={markdown.render(value)} smallHeadings class="text-sm" />;
 };
 
 const isComputedColumn = (column: ColumnSpec): column is Extract<ColumnSpec, { kind: "computed" }> =>
@@ -200,12 +157,7 @@ export default function DatabaseTable(props: Props) {
     return col && "format" in col ? col.format : undefined;
   };
 
-  const fieldConfigFormat = (field: Field): FormatSpec | undefined => {
-    const parsed = FormatSpecSchema.safeParse((field.config as { format?: unknown }).format);
-    return parsed.success ? parsed.data : undefined;
-  };
-
-  const displayFormat = (field: Field) => columnFormat(field.id) ?? fieldConfigFormat(field);
+  const displayFormat = (field: Field) => fieldDisplayFormat(field, columnFormat(field.id));
 
   const columnLabel = (fieldId: string, fallback: string) => {
     if (!props.viewColumns) return fallback;
@@ -213,103 +165,22 @@ export default function DatabaseTable(props: Props) {
     return column && "label" in column ? column.label?.trim() || fallback : fallback;
   };
 
-  /** Renders a relation cell as one or more inline `<RecordLink>`s.
-   *  Each link reads from the parent record's `.expanded` map — no
-   *  extra DB calls, no separate label cache to thread through. */
-  const renderRelationCell = (record: GridRecord, field: Field) => {
-    const raw = record.data[field.id];
-    const ids: string[] = Array.isArray(raw)
-      ? (raw as unknown[]).filter((x): x is string => typeof x === "string")
-      : typeof raw === "string" && raw.length > 0
-        ? [raw]
-        : [];
-    if (ids.length === 0) return "";
-    const targetTableId = (field.config as { targetTableId?: string }).targetTableId;
-    return (
-      <span class="inline-flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        {ids.map((id, i) => (
-          <RecordLink
-            label={buildExpandedLabel(record.expanded?.[id], id)}
-            targetTableId={targetTableId}
-            targetTableShortId={targetTableId ? props.tableShortIds?.[targetTableId] : undefined}
-            targetRecordId={id}
-            baseId={props.baseId}
-            comma={i < ids.length - 1}
-          />
-        ))}
-      </span>
-    );
-  };
-
-  /** Renders a lookup cell: the projected value plus a click-through
-   *  to the first linked record on the source relation. Kept
-   *  consistent so dashboard + records-page feel identical. */
-  const renderLookupCell = (record: GridRecord, field: Field) => {
-    const cfg = field.config as { relationFieldId?: string };
-    const relationField = cfg.relationFieldId
-      ? props.result.fields.find((f) => f.id === cfg.relationFieldId && f.type === "relation" && !f.deletedAt)
-      : undefined;
-    const raw = record.data[field.id];
-    const displayField = effectiveDisplayField(field, props.fieldsByTable);
-    const format = displayFormat(field);
-    const value = renderDisplayValue(raw, displayField, format);
-    if (raw === null || raw === undefined || raw === "" || !relationField) return "—";
-    const targetTableId = (relationField.config as { targetTableId?: string }).targetTableId;
-    const linked = record.data[relationField.id];
-    const targetId = Array.isArray(linked) ? (linked[0] as string | undefined) : typeof linked === "string" ? linked : undefined;
-    const isBarcodeLookup = format?.kind === "barcode";
-    if (isBarcodeLookup) return value;
-    if (!targetTableId || !targetId) return value;
-    return (
-      <a
-        href={`/app/grids/${props.baseId}/table/${props.tableShortIds?.[targetTableId] ?? targetTableId}?record=${targetId}`}
-        class="inline-flex items-baseline gap-1 hover:underline"
-        onClick={(e) => e.stopPropagation()}
-        title="Open this record in the linked table"
-      >
-        <i class="ti ti-arrow-up-right text-[10px] text-dimmed self-center" />
-        <span>{value}</span>
-      </a>
-    );
-  };
-
-  const renderDisplayValue = (value: unknown, field: Field, fmt = displayFormat(field)) => {
-    if (field.type === "select") {
-      return <SelectValueBadges value={value} type={field.type} fieldConfig={field.config} />;
-    }
-    if (isMarkdownLongtext(field)) return renderMarkdownCell(value);
-    if (fmt?.kind === "barcode" && canRenderBarcode(field.type)) {
-      return <BarcodeCell value={value} format={fmt} />;
-    }
-    if (fmt?.kind === "progress" && (field.type === "percent" || field.type === "formula")) {
-      const ratio = progressRatio(value, field.type, field.config);
-      const percent = Math.round(ratio * 100);
-      const label =
-        fmt.label === "none"
-          ? ""
-          : fmt.label === "value"
-            ? formatCell(value, field.type, field.config, undefined, props.dateConfig)
-            : `${percent}%`;
-      return (
-        <span class="flex min-w-36 items-center gap-3">
-          <ProgressBar value={percent} size="sm" class="w-32 shrink-0" />
-          <Show when={label}>
-            <span class="whitespace-nowrap tabular-nums text-primary">{label}</span>
-          </Show>
-        </span>
-      );
-    }
-    return formatCell(value, field.type, field.config, fmt, props.dateConfig);
-  };
-
-  /** Cell dispatcher — picks the relation/lookup specialisations or
-   *  falls back to formatCell for everything else (text, number, date,
-   *  select, currency, etc.). */
-  const renderCell = (record: GridRecord, field: Field) => {
-    if (field.type === "relation") return renderRelationCell(record, field);
-    if (field.type === "lookup") return renderLookupCell(record, field);
-    return renderDisplayValue(record.data[field.id], field);
-  };
+  const renderCell = (record: GridRecord, field: Field) => (
+    <FieldValue
+      field={field}
+      value={record.data[field.id]}
+      record={record}
+      allFields={props.result.fields}
+      baseId={props.baseId}
+      tableShortIds={props.tableShortIds}
+      fieldsByTable={props.fieldsByTable}
+      dateConfig={props.dateConfig}
+      format={displayFormat(field)}
+      mode="table"
+      linkLookup
+      showBarcodeOpenAction
+    />
+  );
 
   const headerLabel = (field: Field, computed: boolean) => (
     <span class={`inline-flex min-w-0 items-center gap-1.5 ${computed ? "text-blue-600 dark:text-blue-300" : ""}`}>
@@ -338,13 +209,7 @@ export default function DatabaseTable(props: Props) {
         {headerLabel(field, computed)}
       </span>
       <Show when={subtitle !== undefined}>
-        <span
-          class={
-            computed
-              ? "text-[10px] font-normal text-blue-500/80 dark:text-blue-300/80"
-              : "text-[10px] font-normal text-dimmed"
-          }
-        >
+        <span class={computed ? "text-[10px] font-normal text-blue-500/80 dark:text-blue-300/80" : "text-[10px] font-normal text-dimmed"}>
           {subtitle}
         </span>
       </Show>
@@ -361,7 +226,13 @@ export default function DatabaseTable(props: Props) {
           const displayValue = () =>
             spec.fieldId === "*"
               ? String(value())
-              : formatCell(value(), displayField.type, displayField.config, displayFormat(field), props.dateConfig);
+              : formatFieldValueText({
+                  field: displayField,
+                  value: value(),
+                  fieldsByTable: props.fieldsByTable,
+                  dateConfig: props.dateConfig,
+                  format: displayFormat(field),
+                });
           const fallbackLabel = AGG_LABELS[spec.agg] ?? spec.agg;
           const label = spec.label?.trim() || fallbackLabel;
           return (

@@ -1,14 +1,9 @@
-import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView, Placeholder } from "@valentinkolb/cloud/ui";
+import { Placeholder } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { For, Show, type JSX } from "solid-js";
-import { FormatSpecSchema, type RecordDisplayConfig } from "../../../contracts";
-import { effectiveDisplayField } from "../../../lookup-display";
-import type { Field, GridRecord, GridFilePreview } from "../../../service";
-import { BarcodeDisplay, canRenderBarcode } from "../table/BarcodeCell";
-import { formatCell } from "../table/format-cell";
-import { RecordLink } from "../table/RecordLink";
-import { selectBadgeItems, selectBadgeStyle } from "../table/select-badge-utils";
+import { For, Show } from "solid-js";
+import type { RecordDisplayConfig } from "../../../contracts";
+import type { Field, GridFilePreview, GridRecord } from "../../../service";
+import { FieldValue, fieldDisplayFormat, formatFieldValueText } from "../table/FieldValue";
 import { displayRecordTitle, visibleCardFields } from "./display-mode";
 import type { CardSize } from "./query-url";
 
@@ -24,149 +19,12 @@ const cardPaddingClass: Record<CardSize, string> = {
   large: "p-3",
 };
 
-const valueToLabelPart = (value: unknown): string => {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return value.map(valueToLabelPart).filter(Boolean).join(", ");
-  if (typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    if (typeof obj.label === "string") return obj.label;
-    if (typeof obj.amount === "string") return obj.amount;
-  }
-  return "";
-};
-
-const expandedLabel = (expandedForUuid: Record<string, unknown> | undefined): string => {
-  if (!expandedForUuid) return "Unknown record";
-  const parts = Object.values(expandedForUuid).map(valueToLabelPart).filter(Boolean);
-  return parts.length > 0 ? parts.join(" · ") : "Untitled record";
-};
-
-const isMarkdownLongtext = (field: Field) => field.type === "longtext" && Boolean((field.config as { markdown?: boolean }).markdown);
-
-const fieldFormat = (field: Field) => {
-  const parsed = FormatSpecSchema.safeParse((field.config as { format?: unknown }).format);
-  return parsed.success ? parsed.data : undefined;
-};
-
-const selectOptionLabel = (field: Field, value: unknown): string => {
-  const options = (field.config as { options?: Array<{ id: string; label: string }> }).options ?? [];
-  const labels = new Map(options.map((option) => [option.id, option.label]));
-  const values = Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : typeof value === "string" && value
-      ? [value]
-      : [];
-  return values.map((id) => labels.get(id) ?? id).filter(Boolean).join(", ");
-};
-
-const relationLabel = (record: GridRecord, value: unknown): string => {
-  const ids = Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : typeof value === "string" && value
-      ? [value]
-      : [];
-  return ids.map((id) => expandedLabel(record.expanded?.[id])).filter(Boolean).join(", ");
-};
-
-const plainCardValue = (record: GridRecord, field: Field): string => {
-  const value = record.data[field.id];
-  if (field.type === "relation") return relationLabel(record, value);
-  if (field.type === "select") return selectOptionLabel(field, value);
-  return valueToLabelPart(value);
-};
+const plainCardValue = (record: GridRecord, field: Field, fieldsByTable?: Record<string, Field[]>, dateConfig?: DateContext): string =>
+  formatFieldValueText({ field, value: record.data[field.id], record, fieldsByTable, dateConfig });
 
 const subtitleCandidate = (field: Field): boolean => ["text", "id", "relation", "select"].includes(field.type);
 
-const hasVisualFormat = (field: Field): boolean => fieldFormat(field)?.kind === "barcode";
-
-const selectWordStyle = (color?: string): JSX.CSSProperties => {
-  const style = selectBadgeStyle(color);
-  return style.color ? { color: style.color } : {};
-};
-
-function CardSelectWords(props: { value: unknown; fieldConfig?: Record<string, unknown> }) {
-  const items = () => selectBadgeItems(props.value, "select", props.fieldConfig);
-  return (
-    <span class="inline-flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-      {items().length === 0
-        ? "—"
-        : items().map((item) => (
-            <span
-              class="min-w-0 font-semibold"
-              classList={{ "opacity-70": !item.known }}
-              style={selectWordStyle(item.color)}
-              title={item.known ? item.id : `Unknown option: ${item.id}`}
-            >
-              {item.label}
-            </span>
-          ))}
-    </span>
-  );
-}
-
-function CardFieldValue(props: {
-  record: GridRecord;
-  field: Field;
-  baseId: string;
-  tableShortIds?: Record<string, string>;
-  fieldsByTable?: Record<string, Field[]>;
-  dateConfig?: DateContext;
-}) {
-  const value = () => props.record.data[props.field.id];
-  const displayField = () => effectiveDisplayField(props.field, props.fieldsByTable);
-  const format = () => fieldFormat(props.field);
-  const renderRelation = () => {
-    const raw = value();
-    const ids = Array.isArray(raw)
-      ? raw.filter((item): item is string => typeof item === "string")
-      : typeof raw === "string" && raw
-        ? [raw]
-        : [];
-    if (ids.length === 0) return "—";
-    const targetTableId = (props.field.config as { targetTableId?: string }).targetTableId;
-    return (
-      <span class="inline-flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <For each={ids}>
-          {(id, index) => (
-            <RecordLink
-              label={expandedLabel(props.record.expanded?.[id])}
-              targetTableId={targetTableId}
-              targetTableShortId={targetTableId ? props.tableShortIds?.[targetTableId] : undefined}
-              targetRecordId={id}
-              baseId={props.baseId}
-              comma={index() < ids.length - 1}
-            />
-          )}
-        </For>
-      </span>
-    );
-  };
-  const renderLookup = () => {
-    const raw = value();
-    const resolved = displayField();
-    const fmt = format();
-    if (fmt?.kind === "barcode" && canRenderBarcode(resolved.type)) return <BarcodeDisplay value={raw} format={fmt} showOpenAction />;
-    return formatCell(raw, resolved.type, resolved.config, fmt, props.dateConfig) || "—";
-  };
-  const renderDefault = (): JSX.Element | string => {
-    const raw = value();
-    const fmt = format();
-    if (props.field.type === "relation") return renderRelation();
-    if (props.field.type === "lookup") return renderLookup();
-    if (props.field.type === "select") return <CardSelectWords value={raw} fieldConfig={props.field.config} />;
-    if (isMarkdownLongtext(props.field))
-      return typeof raw === "string" && raw.trim() ? (
-        <MarkdownView html={markdown.render(raw)} smallHeadings class="line-clamp-3 text-sm" />
-      ) : (
-        "—"
-      );
-    if (fmt?.kind === "barcode" && canRenderBarcode(props.field.type)) return <BarcodeDisplay value={raw} format={fmt} showOpenAction />;
-    return formatCell(raw, props.field.type, props.field.config, fmt, props.dateConfig) || "—";
-  };
-  return <>{renderDefault()}</>;
-}
+const hasVisualFormat = (field: Field): boolean => fieldDisplayFormat(field)?.kind === "barcode";
 
 export function RecordCardsView(props: {
   items: GridRecord[];
@@ -193,7 +51,7 @@ export function RecordCardsView(props: {
     const titleKey = title.trim().toLowerCase();
     return cardFields().filter((field) => {
       if (field.type === "file") return false;
-      const value = plainCardValue(record, field).trim().toLowerCase();
+      const value = plainCardValue(record, field, props.fieldsByTable, props.dateConfig).trim().toLowerCase();
       return value && value !== titleKey;
     });
   };
@@ -202,7 +60,11 @@ export function RecordCardsView(props: {
     const subtitleIds = new Set(subtitleFields(record).map((field) => field.id));
     return displayFields(record).filter((field) => !subtitleIds.has(field.id));
   };
-  const subtitle = (record: GridRecord) => subtitleFields(record).map((field) => plainCardValue(record, field)).filter(Boolean).join(" · ");
+  const subtitle = (record: GridRecord) =>
+    subtitleFields(record)
+      .map((field) => plainCardValue(record, field, props.fieldsByTable, props.dateConfig))
+      .filter(Boolean)
+      .join(" · ");
   const coverPreview = (record: GridRecord): GridFilePreview | undefined => {
     const fieldId = props.displayConfig.cards?.imageFieldId;
     return fieldId ? props.filePreviews?.[record.id]?.[fieldId] : undefined;
@@ -214,7 +76,11 @@ export function RecordCardsView(props: {
     <div class="flex min-h-0 flex-1 flex-col overflow-auto" data-scroll-preserve={`grids-cards-${props.tableId}`}>
       <Show
         when={props.items.length > 0}
-        fallback={<Placeholder icon="ti ti-table" class="min-h-48 justify-center">No records</Placeholder>}
+        fallback={
+          <Placeholder icon="ti ti-table" class="min-h-48 justify-center">
+            No records
+          </Placeholder>
+        }
       >
         <div class={`grid p-0.5 ${cardGridClass[size()]}`}>
           <For each={props.items}>
@@ -253,27 +119,31 @@ export function RecordCardsView(props: {
                     <Show when={factFields(record).length > 0}>
                       <div class="flex flex-col gap-1.5">
                         <For each={factFields(record)}>
-                        {(field) => (
-                          <div class="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-2 gap-y-0.5">
-                            <div class="max-w-[6.5rem] truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-dimmed">
-                              {field.name}
+                          {(field) => (
+                            <div class="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-2 gap-y-0.5">
+                              <div class="max-w-[6.5rem] truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-dimmed">
+                                {field.name}
+                              </div>
+                              <div
+                                class={`min-w-0 overflow-hidden text-xs font-medium leading-snug text-primary [overflow-wrap:anywhere] ${
+                                  hasVisualFormat(field) ? "" : "line-clamp-2"
+                                }`}
+                              >
+                                <FieldValue
+                                  record={record}
+                                  field={field}
+                                  value={record.data[field.id]}
+                                  baseId={props.baseId}
+                                  tableShortIds={props.tableShortIds}
+                                  fieldsByTable={props.fieldsByTable}
+                                  dateConfig={props.dateConfig}
+                                  mode="card"
+                                  markdownClass="line-clamp-3 text-sm"
+                                  showBarcodeOpenAction
+                                />
+                              </div>
                             </div>
-                            <div
-                              class={`min-w-0 overflow-hidden text-xs font-medium leading-snug text-primary [overflow-wrap:anywhere] ${
-                                hasVisualFormat(field) ? "" : "line-clamp-2"
-                              }`}
-                            >
-                              <CardFieldValue
-                                record={record}
-                                field={field}
-                                baseId={props.baseId}
-                                tableShortIds={props.tableShortIds}
-                                fieldsByTable={props.fieldsByTable}
-                                dateConfig={props.dateConfig}
-                              />
-                            </div>
-                          </div>
-                        )}
+                          )}
                         </For>
                       </div>
                     </Show>

@@ -7,6 +7,7 @@ import type { DslQueryPreviewDiagnostic, DslQueryPreviewResponse } from "../../.
 import { formatIdentifierRef } from "../../../ref-syntax";
 import type { Field, Table, View } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
+import { FieldValue } from "../table/FieldValue";
 import { buildBackendGqlCompletions } from "./query-autocomplete";
 import { currentSourceForApi, type QueryWorkspaceCurrentSource, visibleFields, visibleViews } from "./query-workspace-model";
 
@@ -25,6 +26,7 @@ type Props = {
 
 type PreviewSuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 type PreviewRow = PreviewSuccess["rows"][number] & { __rowKey: string };
+type PreviewColumn = PreviewSuccess["columns"][number];
 type QuerySourceRow = {
   id: string;
   kind: "table" | "view";
@@ -136,12 +138,23 @@ const replaceOrPrependSourceClause = (source: string, fromLine: string) => {
   return `${fromLine}\n${source}`;
 };
 
-function QueryPreview(props: { preview: DslQueryPreviewResponse | null; loading: boolean }) {
+function QueryPreview(props: {
+  preview: DslQueryPreviewResponse | null;
+  loading: boolean;
+  baseShortId: string;
+  tables: Table[];
+  fieldsByTable: Record<string, Field[]>;
+}) {
   const success = createMemo(() => (props.preview?.ok ? props.preview : null));
   const diagnostics = createMemo(() => (props.preview && !props.preview.ok ? props.preview.diagnostics : []));
   const rows = createMemo<PreviewRow[]>(() =>
     props.preview?.ok ? props.preview.rows.map((row, index) => ({ ...row, __rowKey: row.recordId ?? `row-${index}` })) : [],
   );
+  const tableShortIds = createMemo(() => Object.fromEntries(props.tables.map((table) => [table.id, table.shortId])));
+  const fieldForColumn = (column: PreviewColumn): Field | null => {
+    if (column.type === "aggregate" || !column.tableId || !column.fieldId) return null;
+    return props.fieldsByTable[column.tableId]?.find((field) => field.id === column.fieldId && !field.deletedAt) ?? null;
+  };
   const columns = createMemo<DataTableColumn<PreviewRow>[]>(() => {
     if (!props.preview?.ok) return [];
     return props.preview.columns.map((column) => ({
@@ -210,7 +223,22 @@ function QueryPreview(props: { preview: DslQueryPreviewResponse | null; loading:
               hoverRows={false}
               cellContentClass="max-h-24 overflow-auto whitespace-pre-wrap break-words"
               empty={<span>No rows match this query.</span>}
-              renderCell={({ value }) => <span>{displayValue(value)}</span>}
+              renderCell={({ col, value }) => {
+                const column = preview().columns.find((item) => item.key === col.id);
+                const field = column ? fieldForColumn(column) : null;
+                if (!field) return <span>{displayValue(value)}</span>;
+                return (
+                  <FieldValue
+                    field={field}
+                    value={value}
+                    baseId={props.baseShortId}
+                    tableShortIds={tableShortIds()}
+                    fieldsByTable={props.fieldsByTable}
+                    mode="table"
+                    relationValueMode={field.type === "relation" ? "labels" : "ids"}
+                  />
+                );
+              }}
               scrollPreserveKey="grids-query-preview"
             />
           )}
@@ -464,7 +492,13 @@ export default function QueryWorkspace(props: Props) {
     <div class="flex min-h-0 flex-1 flex-col bg-zinc-100 p-2 dark:bg-zinc-900" data-scroll-preserve="grids-query-workspace">
       <Panes.Root value={panes()} onChange={setPanes} class="h-full w-full flex-1">
         <Panes.Element id="results" title="Results" icon="ti ti-table-spark">
-          <QueryPreview preview={preview()} loading={loading()} />
+          <QueryPreview
+            preview={preview()}
+            loading={loading()}
+            baseShortId={props.baseShortId}
+            tables={props.tables}
+            fieldsByTable={props.fieldsByTable}
+          />
         </Panes.Element>
 
         <Panes.Element id="query" title="Query" icon="ti ti-code">

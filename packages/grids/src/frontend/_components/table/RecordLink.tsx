@@ -3,8 +3,8 @@ import { Show } from "solid-js";
 type Props = {
   /** Visible link text — usually the presentable label or the projected value. */
   label: string;
-  /** Base short id for the path route. UUID is accepted as a fallback. */
-  baseId: string;
+  /** Base short id for the path route. UUID is accepted as a fallback. Missing base id renders plain text. */
+  baseId?: string;
   /** Target table id (resolved from the relation field's config). */
   targetTableId: string | undefined;
   /** Target table short id. Prefer this in URLs; fallback to targetTableId. */
@@ -31,11 +31,19 @@ type Props = {
 export function RecordLink(props: Props) {
   const tablePathId = () => props.targetTableShortId ?? props.targetTableId;
   const href = () =>
-    tablePathId() && props.targetRecordId
+    props.baseId && tablePathId() && props.targetRecordId
       ? `/app/grids/${props.baseId}/table/${tablePathId()}?record=${props.targetRecordId}`
       : null;
   return (
-    <Show when={href()} fallback={<span>{props.label}{props.comma ? "," : ""}</span>}>
+    <Show
+      when={href()}
+      fallback={
+        <span>
+          {props.label}
+          {props.comma ? "," : ""}
+        </span>
+      }
+    >
       <a
         href={href()!}
         class="inline-flex items-baseline gap-1 hover:underline"

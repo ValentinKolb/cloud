@@ -1,17 +1,14 @@
-import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView, Placeholder, prompts } from "@valentinkolb/cloud/ui";
-import { text, type DateContext } from "@valentinkolb/stdlib";
+import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
+import { type DateContext, text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { ColumnSpec, FormatSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
 import type { AuditEntry, Field, GridFile, GridRecord } from "../../../service";
-import { FormatSpecSchema, type ColumnSpec, type FormatSpec } from "../../../contracts";
 import { isUserEditable } from "../fields/field-prompt-schema";
-import { BarcodeDisplay, barcodeValueText, canRenderBarcode } from "../table/BarcodeCell";
-import { formatCell } from "../table/format-cell";
-import { RecordLink } from "../table/RecordLink";
-import { SelectValueBadges } from "../table/select-badges";
+import { barcodeValueText, canRenderBarcode } from "../table/BarcodeCell";
+import { FieldValue, fieldDisplayFormat, formatFieldValueText } from "../table/FieldValue";
 import { errorMessage } from "../utils/api-helpers";
 import { openRecordUpsertDialog } from "./RecordUpsertDialog";
 
@@ -70,11 +67,13 @@ export default function RecordDetailPanel(props: Props) {
     const titleId = titleField()?.id;
     return visibleFields().filter((f) => f.id !== titleId);
   };
-  const fieldBarcodeFormat = (field: Field): Extract<FormatSpec, { kind: "barcode" }> | undefined => {
+  const fieldFormat = (field: Field): FormatSpec | undefined => {
     const column = props.viewColumns?.find((item) => !("kind" in item) && item.fieldId === field.id);
-    if (column?.format?.kind === "barcode") return column.format;
-    const parsed = FormatSpecSchema.safeParse((field.config as { format?: unknown }).format);
-    return parsed.success && parsed.data.kind === "barcode" ? parsed.data : undefined;
+    return fieldDisplayFormat(field, column?.format);
+  };
+  const fieldBarcodeFormat = (field: Field): Extract<FormatSpec, { kind: "barcode" }> | undefined => {
+    const format = fieldFormat(field);
+    return format?.kind === "barcode" ? format : undefined;
   };
   const isBarcodeDisplayField = (field: Field, rec: GridRecord) => {
     const format = fieldBarcodeFormat(field);
@@ -168,80 +167,6 @@ export default function RecordDetailPanel(props: Props) {
 
   const handleRestore = (rec: GridRecord) => restoreMut.mutate(rec);
 
-  /**
-   * Read-only relation cell — list of inline links to the linked
-   * records. Used in trash mode and for users without write permission.
-   */
-  const renderRelationCellReadOnly = (field: Field, value: unknown) => {
-    const ids = Array.isArray(value) ? (value as string[]) : typeof value === "string" && value.length > 0 ? [value] : [];
-    if (ids.length === 0) return "—";
-    const cache = props.relationLabels ?? {};
-    const targetTableId = (field.config as { targetTableId?: string }).targetTableId;
-    return (
-      <span class="inline-flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        {ids.map((id, i) => (
-          <RecordLink
-            label={cache[id] ?? "Unknown record"}
-            targetTableId={targetTableId}
-            targetTableShortId={targetTableId ? props.tableShortIds?.[targetTableId] : undefined}
-            targetRecordId={id}
-            baseId={props.baseShortId ?? props.baseId}
-            comma={i < ids.length - 1}
-          />
-        ))}
-      </span>
-    );
-  };
-
-  /**
-   * Renders a lookup cell — the projected value, linking back to the
-   * source-relation's first target record.
-   */
-  const renderLookupCell = (field: Field, rec: GridRecord) => {
-    const cfg = field.config as { relationFieldId?: string };
-    const relationField = cfg.relationFieldId ? props.fields.find((f) => f.id === cfg.relationFieldId && f.type === "relation") : undefined;
-    const displayField = effectiveDisplayField(field, props.fieldsByTable);
-    const raw = rec.data[field.id];
-    const value =
-      displayField.type === "select" ? (
-        <SelectValueBadges value={raw} type={displayField.type} fieldConfig={displayField.config} empty="—" />
-      ) : isMarkdownLongtext(displayField) && typeof raw === "string" ? (
-        <MarkdownView html={markdown.render(raw)} smallHeadings class="text-sm" />
-      ) : (
-        formatCell(raw, displayField.type, displayField.config, undefined, props.dateConfig)
-      );
-    if (!value || !relationField) return value || "—";
-    const targetTableId = (relationField.config as { targetTableId?: string }).targetTableId;
-    const linked = rec.data[relationField.id];
-    const targetId = Array.isArray(linked) ? (linked[0] as string | undefined) : typeof linked === "string" ? linked : undefined;
-    if (!targetTableId || !targetId) return value;
-    if (typeof value !== "string") {
-      const tablePathId = props.tableShortIds?.[targetTableId] ?? targetTableId;
-      return (
-        <a
-          href={`/app/grids/${props.baseShortId ?? props.baseId}/table/${tablePathId}?record=${targetId}`}
-          class="inline-flex items-baseline gap-1 hover:underline"
-          onClick={(event) => event.stopPropagation()}
-          title="Open this record in the linked table"
-        >
-          <i class="ti ti-arrow-up-right text-[10px] text-dimmed self-center" />
-          <span>{value}</span>
-        </a>
-      );
-    }
-    return (
-      <RecordLink
-        label={value}
-        targetTableId={targetTableId}
-        targetTableShortId={props.tableShortIds?.[targetTableId]}
-        targetRecordId={targetId}
-        baseId={props.baseShortId ?? props.baseId}
-      />
-    );
-  };
-
-  const isMarkdownLongtext = (field: Field) => field.type === "longtext" && Boolean((field.config as { markdown?: boolean }).markdown);
-
   /** Type-aware field renderer. Returns JSX for relation/lookup cells
    *  (with cross-record links) and a string for everything else. The
    *  detail panel is read-first: relation edits happen through the
@@ -250,19 +175,24 @@ export default function RecordDetailPanel(props: Props) {
     if (field.type === "file") {
       return <FileFieldCell tableId={props.tableId} recordId={rec.id} field={field} canWrite={props.canWrite && mode() === "live"} />;
     }
-    if (field.type === "relation") {
-      return renderRelationCellReadOnly(field, rec.data[field.id]);
-    }
-    const value = rec.data[field.id];
-    if (value === null || value === undefined || value === "") return "—";
-    if (field.type === "select") {
-      return <SelectValueBadges value={value} type={field.type} fieldConfig={field.config} empty="—" />;
-    }
-    if (field.type === "lookup") return renderLookupCell(field, rec);
-    if (isMarkdownLongtext(field) && typeof value === "string") {
-      return <MarkdownView html={markdown.render(value)} smallHeadings class="text-sm" />;
-    }
-    return formatCell(value, field.type, field.config, undefined, props.dateConfig) || "—";
+    return (
+      <FieldValue
+        field={field}
+        value={rec.data[field.id]}
+        record={rec}
+        allFields={props.fields}
+        baseId={props.baseShortId ?? props.baseId}
+        tableShortIds={props.tableShortIds}
+        fieldsByTable={props.fieldsByTable}
+        relationLabels={props.relationLabels}
+        dateConfig={props.dateConfig}
+        format={fieldFormat(field)}
+        mode="detail"
+        empty="—"
+        linkLookup
+        showBarcodeOpenAction
+      />
+    );
   };
 
   // ---- Pick the "title" of the record for the panel header --------------
@@ -271,7 +201,15 @@ export default function RecordDetailPanel(props: Props) {
     if (tf) {
       const v = rec.data[tf.id];
       if (typeof v === "string" && v.length > 0) return v;
-      const formatted = formatCell(v, tf.type, tf.config, undefined, props.dateConfig);
+      const formatted = formatFieldValueText({
+        field: tf,
+        value: v,
+        record: rec,
+        fieldsByTable: props.fieldsByTable,
+        relationLabels: props.relationLabels,
+        dateConfig: props.dateConfig,
+        format: fieldFormat(tf),
+      });
       if (formatted) return formatted;
     }
     return "Untitled record";
@@ -338,7 +276,22 @@ export default function RecordDetailPanel(props: Props) {
           <i class={`${detailIcon(field)} shrink-0`} />
           {field.name}
         </div>
-        <BarcodeDisplay value={rec.data[field.id]} format={format} size="detail" showOpenAction />
+        <FieldValue
+          field={field}
+          value={rec.data[field.id]}
+          record={rec}
+          allFields={props.fields}
+          baseId={props.baseShortId ?? props.baseId}
+          tableShortIds={props.tableShortIds}
+          fieldsByTable={props.fieldsByTable}
+          relationLabels={props.relationLabels}
+          dateConfig={props.dateConfig}
+          format={format}
+          mode="detail"
+          empty="—"
+          linkLookup
+          showBarcodeOpenAction
+        />
       </section>
     );
   };
@@ -412,7 +365,14 @@ export default function RecordDetailPanel(props: Props) {
             </div>
           </section>
 
-          <Show when={hasBodyFields(rec)} fallback={<Placeholder surface="paper" align="left">No fields to show.</Placeholder>}>
+          <Show
+            when={hasBodyFields(rec)}
+            fallback={
+              <Placeholder surface="paper" align="left">
+                No fields to show.
+              </Placeholder>
+            }
+          >
             <For each={barcodeFields(rec)}>{(field) => renderBarcodePaper(field, rec)}</For>
 
             <Show when={detailsFields(rec).length > 0}>
@@ -612,7 +572,9 @@ function RecordHistorySection(props: { tableId: string; recordId: string }) {
           <p class="text-xs text-dimmed">Loading history…</p>
         </Show>
         <Show when={!entries.loading && entries() && entries()!.items.length === 0}>
-          <Placeholder align="left" class="px-0 py-2">No history yet.</Placeholder>
+          <Placeholder align="left" class="px-0 py-2">
+            No history yet.
+          </Placeholder>
         </Show>
         <For each={entries()?.items ?? []}>
           {(entry) => {

@@ -3,8 +3,8 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { Show } from "solid-js";
 import type { Field } from "../../../service";
 import type { FormatSpec } from "../../../service/views";
+import { FieldValue, formatFieldValueText } from "./FieldValue";
 import { formatCell } from "./format-cell";
-import { RecordLink } from "./RecordLink";
 
 /**
  * Server-rendered shape of a group bucket. Mirrors the API contract
@@ -96,9 +96,6 @@ export default function GroupedTable(props: Props) {
     return `${a.agg} ${name}`;
   };
 
-  /** Plain-text fallback for non-relation cells. Relation cells render
-   *  via RecordLink in the JSX path so they get cross-table navigation —
-   *  same UX as the row-mode grid. */
   const formatScalarKey = (val: unknown): string => {
     if (val === null || val === undefined) return "—";
     if (typeof val === "string") return val;
@@ -106,8 +103,8 @@ export default function GroupedTable(props: Props) {
     return String(val);
   };
 
-  /** Label resolution shared by RecordLink + the dash-fallback case. */
-  const relationLabelFor = (val: string): string => props.relationLabels?.[val] ?? "Unknown record";
+  const fieldWithGroupConfig = (field: Field, spec: GroupByCol): Field =>
+    spec.granularity ? { ...field, config: { ...field.config, includeTime: false } } : field;
 
   // Always include the implicit `*__count` column even if the user
   // didn't configure it — the server adds it for every group query
@@ -123,7 +120,10 @@ export default function GroupedTable(props: Props) {
     if (val === null || val === undefined) return "—";
     if (spec.format) {
       const field = spec.fieldId === "*" ? null : fieldsById.get(spec.fieldId);
-      return formatCell(val, field?.type ?? "number", field?.config ?? {}, spec.format, props.dateConfig) || String(val);
+      if (field) {
+        return formatFieldValueText({ field, value: val, format: spec.format, dateConfig: props.dateConfig }) || String(val);
+      }
+      return formatCell(val, "number", {}, spec.format, props.dateConfig) || String(val);
     }
     if (typeof val === "number") return Number.isInteger(val) ? String(val) : val.toFixed(2);
     return String(val);
@@ -241,25 +241,25 @@ export default function GroupedTable(props: Props) {
           const f = fieldsById.get(meta.spec.fieldId);
           const val = row.keys[meta.index];
           if (f && f.type === "relation" && typeof val === "string") {
-            const cfg = f.config as { targetTableId?: string };
             return (
-              <RecordLink
+              <FieldValue
+                field={f}
+                value={val}
                 baseId={props.baseId}
-                targetTableId={cfg.targetTableId}
-                targetTableShortId={cfg.targetTableId ? props.tableShortIds?.[cfg.targetTableId] : undefined}
-                targetRecordId={val}
-                label={relationLabelFor(val)}
+                tableShortIds={props.tableShortIds}
+                relationLabels={props.relationLabels}
+                mode="table"
+                empty="—"
               />
             );
           }
           return f
-            ? formatCell(
-                val,
-                f.type,
-                meta.spec.granularity ? { ...f.config, includeTime: false } : f.config,
-                meta.spec.format,
-                props.dateConfig,
-              ) || formatScalarKey(val)
+            ? formatFieldValueText({
+                field: fieldWithGroupConfig(f, meta.spec),
+                value: val,
+                format: meta.spec.format,
+                dateConfig: props.dateConfig,
+              }) || formatScalarKey(val)
             : formatScalarKey(val);
         }}
       />

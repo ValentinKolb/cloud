@@ -1,11 +1,11 @@
 import { Placeholder, TextInput } from "@valentinkolb/cloud/ui";
-import { dates, type DateContext } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation, timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import type { AggregationSpec, FilterTree, GroupBySpec, TableQueryResult, RecordQuery } from "../../../contracts";
+import type { AggregationSpec, FilterTree, GroupBySpec, RecordQuery, TableQueryResult } from "../../../contracts";
 import type { Field, GridRecord } from "../../../service";
 import { fetchTableQuery } from "../records-view/fetcher";
-import { formatCell } from "./format-cell";
+import { formatFieldValueText } from "./FieldValue";
 import type { GroupBucket } from "./GroupedTable";
 
 const PAGE_SIZE = 30;
@@ -135,19 +135,22 @@ export default function GroupDetailPanel(props: Props) {
     const field = fieldsById().get(spec.fieldId);
     return field?.type === "relation" ? "ti ti-hierarchy" : "ti ti-list-tree";
   };
+  const fieldWithGroupConfig = (field: Field, spec: GroupBySpec): Field =>
+    spec.granularity ? { ...field, config: { ...field.config, includeTime: false } } : field;
 
   const groupValue = (spec: GroupBySpec, index: number) => {
     const field = fieldsById().get(spec.fieldId);
     const raw = props.bucket.keys[index];
     if (!field) return "Unknown";
-    if (field.type === "relation" && typeof raw === "string") {
-      return props.relationLabels[raw] ?? "Unknown record";
-    }
     if (raw == null) return "—";
-    if (field.type === "select") {
-      return formatCell([raw], field.type, field.config, undefined, props.dateConfig) || String(raw);
-    }
-    return formatCell(raw, field.type, spec.granularity ? { ...field.config, includeTime: false } : field.config, undefined, props.dateConfig) || String(raw);
+    return (
+      formatFieldValueText({
+        field: fieldWithGroupConfig(field, spec),
+        value: raw,
+        relationLabels: props.relationLabels,
+        dateConfig: props.dateConfig,
+      }) || String(raw)
+    );
   };
 
   const renderRecordLine = (record: GridRecord) => {
@@ -267,11 +270,7 @@ export default function GroupDetailPanel(props: Props) {
 
   function renderRecordValue(record: GridRecord, field: Field): string {
     const value = record.data[field.id];
-    if (field.type === "relation") {
-      const ids = Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : typeof value === "string" ? [value] : [];
-      return ids.map((id) => expandedLabel(record.expanded?.[id], id)).join(", ");
-    }
-    return formatCell(value, field.type, field.config, undefined, props.dateConfig);
+    return formatFieldValueText({ field, value, record, relationLabels: props.relationLabels, dateConfig: props.dateConfig });
   }
 }
 
@@ -279,26 +278,6 @@ const formatAgg = (value: unknown): string => {
   if (value === null || value === undefined) return "—";
   if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(2);
   return String(value);
-};
-
-const valueToLabelPart = (value: unknown): string => {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  if (Array.isArray(value)) return value.map(valueToLabelPart).filter(Boolean).join(", ");
-  if (typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    if (typeof obj.label === "string") return obj.label;
-    if (typeof obj.amount === "string" || typeof obj.amount === "number") return String(obj.amount);
-  }
-  return "";
-};
-
-const expandedLabel = (expanded: Record<string, unknown> | undefined, _fallbackId: string): string => {
-  if (!expanded) return "Unknown record";
-  const parts = Object.values(expanded).map(valueToLabelPart).filter(Boolean);
-  return parts.length > 0 ? parts.join(" · ") : "Untitled record";
 };
 
 const buildMemberQuery = (params: {
@@ -391,6 +370,8 @@ const dateGroupFilter = (
   return {
     fieldId,
     op: "between",
-    value: includeTime ? [zonedBoundary(`${startDate}T00:00`, dateConfig), zonedBoundary(`${endDate}T23:59:59.999`, dateConfig)] : [startDate, endDate],
+    value: includeTime
+      ? [zonedBoundary(`${startDate}T00:00`, dateConfig), zonedBoundary(`${endDate}T23:59:59.999`, dateConfig)]
+      : [startDate, endDate],
   };
 };

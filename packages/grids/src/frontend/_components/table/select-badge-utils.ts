@@ -22,7 +22,8 @@ const optionList = (fieldConfig?: Record<string, unknown>): SelectOption[] =>
 const normalizeIds = (value: unknown, type: string): string[] => {
   if (value === null || value === undefined || value === "") return [];
   if (type === "select") {
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
+    if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+    return typeof value === "string" && value.length > 0 ? [value] : [];
   }
   return [];
 };

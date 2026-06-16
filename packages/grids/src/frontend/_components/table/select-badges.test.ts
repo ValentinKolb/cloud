@@ -23,7 +23,11 @@ describe("select badge helpers", () => {
 
   test("invalid values render as no badges", () => {
     expect(selectBadgeItems("new", "text", config)).toEqual([]);
-    expect(selectBadgeItems("new", "select", config)).toEqual([]);
+    expect(selectBadgeItems(42, "select", config)).toEqual([]);
+  });
+
+  test("defensively maps scalar select values", () => {
+    expect(selectBadgeItems("new", "select", config)).toEqual([{ id: "new", label: "New", color: "#3b82f6", known: true }]);
   });
 
   test("hex colors become soft badge styles", () => {
