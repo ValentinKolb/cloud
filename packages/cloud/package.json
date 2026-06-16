@@ -33,6 +33,7 @@
     "./config": "./src/config/index.ts",
     "./config/*": "./src/config/*",
     "./contracts": "./src/contracts/index.ts",
+    "./api": "./src/api/index.ts",
     "./clients/core": "./src/clients/core.ts",
     "./styles/global.css": "./src/styles/global.css"
   },

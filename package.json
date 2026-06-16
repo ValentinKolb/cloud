@@ -39,6 +39,7 @@
     "./services": "./packages/cloud/src/services/index.ts",
     "./services/*": "./packages/cloud/src/services/*",
     "./ssr": "./packages/cloud/src/ssr/index.ts",
+    "./ssr/islands": "./packages/cloud/src/ssr/islands/index.ts",
     "./config": "./packages/cloud/src/config/index.ts",
     "./config/*": "./packages/cloud/src/config/*",
     "./contracts": "./packages/cloud/src/contracts/index.ts",
