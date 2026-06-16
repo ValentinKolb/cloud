@@ -2,10 +2,21 @@ import { markdown } from "@valentinkolb/cloud/shared";
 import { MarkdownView, ProgressBar } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { For, type JSX, Show } from "solid-js";
-import { type FormatSpec, FormatSpecSchema } from "../../../contracts";
+import type { FormatSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field, GridRecord } from "../../../service";
-import { BarcodeDisplay, barcodeValueText, canRenderBarcode } from "./BarcodeCell";
+import { expandedRecordLabel, fieldDisplayFormat, isMarkdownLongtext, relationIds, valueToLabelPart } from "./field-value-format";
+
+export {
+  expandedRecordLabel,
+  fieldDisplayFormat,
+  formatFieldValueText,
+  isMarkdownLongtext,
+  relationIds,
+  valueToLabelPart,
+} from "./field-value-format";
+
+import { BarcodeDisplay, canRenderBarcode } from "./BarcodeCell";
 import { formatCell, progressRatio } from "./format-cell";
 import { RecordLink } from "./RecordLink";
 import { SelectValueBadges } from "./select-badges";
@@ -31,39 +42,6 @@ export type FieldValueProps = {
   showBarcodeOpenAction?: boolean;
 };
 
-export const valueToLabelPart = (value: unknown): string => {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return value.map(valueToLabelPart).filter(Boolean).join(", ");
-  if (typeof value === "object") {
-    const obj = value as Record<string, unknown>;
-    if (typeof obj.label === "string") return obj.label;
-    if (typeof obj.amount === "string" || typeof obj.amount === "number") return String(obj.amount);
-  }
-  return "";
-};
-
-export const expandedRecordLabel = (expanded: Record<string, unknown> | undefined): string => {
-  if (!expanded) return "Unknown record";
-  const parts = Object.values(expanded).map(valueToLabelPart).filter(Boolean);
-  return parts.length > 0 ? parts.join(" · ") : "Untitled record";
-};
-
-export const relationIds = (value: unknown): string[] => {
-  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.length > 0);
-  return typeof value === "string" && value.length > 0 ? [value] : [];
-};
-
-export const fieldDisplayFormat = (field: Field, override?: FormatSpec): FormatSpec | undefined => {
-  if (override) return override;
-  const parsed = FormatSpecSchema.safeParse((field.config as { format?: unknown }).format);
-  return parsed.success ? parsed.data : undefined;
-};
-
-export const isMarkdownLongtext = (field: Field): boolean =>
-  field.type === "longtext" && Boolean((field.config as { markdown?: boolean }).markdown);
-
 const defaultEmpty = (field: Field, mode: FieldValueMode): JSX.Element | string => {
   if (mode === "table" && field.type !== "lookup") return "";
   return "—";
@@ -83,31 +61,6 @@ const lookupTarget = (props: FieldValueProps): { relationField: Field; targetId:
   const targetId = relationIds(linked)[0];
   if (!targetId) return null;
   return { relationField, targetId, targetTableId: (relationField.config as { targetTableId?: string }).targetTableId };
-};
-
-export const formatFieldValueText = (props: {
-  field: Field;
-  value: unknown;
-  record?: GridRecord;
-  fieldsByTable?: Record<string, Field[]>;
-  relationLabels?: Record<string, string>;
-  dateConfig?: DateContext;
-  format?: FormatSpec;
-}): string => {
-  const { field, value } = props;
-  if (value === null || value === undefined || value === "") return "";
-  if (field.type === "relation")
-    return relationIds(value)
-      .map((id) => relationLabel(id, props))
-      .filter(Boolean)
-      .join(", ");
-  const displayField = field.type === "lookup" ? effectiveDisplayField(field, props.fieldsByTable) : field;
-  const format = fieldDisplayFormat(field, props.format);
-  if (format?.kind === "barcode" && canRenderBarcode(displayField.type)) return barcodeValueText(value);
-  if (isMarkdownLongtext(displayField)) return valueToLabelPart(value);
-  if (displayField.type === "select" && !Array.isArray(value))
-    return formatCell([value], displayField.type, displayField.config, format, props.dateConfig);
-  return formatCell(value, displayField.type, displayField.config, format, props.dateConfig);
 };
 
 function RelationValue(props: FieldValueProps & { ids: string[]; emptyValue: JSX.Element | string }) {

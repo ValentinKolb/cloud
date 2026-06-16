@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Field, GridRecord } from "../../../service";
-import { fieldDisplayFormat, formatFieldValueText, relationIds } from "./FieldValue";
+import { fieldDisplayFormat, formatFieldValueText, relationIds } from "./field-value-format";
 
 const field = (overrides: Partial<Field> & Pick<Field, "id" | "name" | "type">): Field => ({
   shortId: overrides.id.slice(0, 5),
