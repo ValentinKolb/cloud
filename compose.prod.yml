@@ -102,6 +102,10 @@ services:
     <<: *app-defaults
     image: ghcr.io/valentinkolb/cloud-app-tools:latest
 
+  app-venue:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-venue:latest
+
   app-weather:
     <<: *app-defaults
     image: ghcr.io/valentinkolb/cloud-app-weather:latest
