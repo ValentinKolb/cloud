@@ -1,19 +1,18 @@
 /**
- * Walk the workspace and run `bun run typecheck` in every package that
- * declares one. Beats hardcoding the package list — adding a new app no
- * longer requires touching this file.
+ * Walk the configured workspace packages and run `bun run typecheck` in each
+ * package. This intentionally ignores packages that live under `packages/` but
+ * are not part of the release workspace.
  */
-import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const workspaceRoot = join(import.meta.dir, "..");
-const packagesRoot = join(workspaceRoot, "packages");
+const rootPackage = JSON.parse(readFileSync(join(workspaceRoot, "package.json"), "utf8")) as { workspaces: string[] };
 
-const packages = readdirSync(packagesRoot)
-  .filter((name) => existsSync(join(packagesRoot, name, "package.json")))
-  .sort()
-  .map((name) => {
-    const pkg = JSON.parse(readFileSync(join(packagesRoot, name, "package.json"), "utf8"));
+const packages = rootPackage.workspaces
+  .toSorted()
+  .map((workspace) => {
+    const pkg = JSON.parse(readFileSync(join(workspaceRoot, workspace, "package.json"), "utf8"));
     return pkg.name as string;
   });
 
