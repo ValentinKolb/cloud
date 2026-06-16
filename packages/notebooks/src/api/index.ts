@@ -465,13 +465,11 @@ const requireNoteInNotebook = async (notebookId: string, noteIdOrShortId: string
 };
 
 const fileTooLarge = (c: Context, maxBytes: number) =>
-  c.json(
-    {
-      message: `File exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit`,
-      code: "PAYLOAD_TOO_LARGE",
-    },
-    413,
-  );
+  respond(c, {
+    ok: false,
+    error: `File exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit`,
+    status: 413,
+  });
 
 // ==========================
 // Routes

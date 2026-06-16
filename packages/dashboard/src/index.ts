@@ -23,3 +23,5 @@ export default await app.start({
   },
 });
 export type { ApiType } from "./api";
+export type { DashboardSettingsResult } from "./service";
+export { dashboardService as service, dashboardSettingsService, getUserSettings, saveUserSettings } from "./service";

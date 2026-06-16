@@ -1,13 +1,15 @@
+import { isServiceError, ok, type Result, type ServiceError } from "@valentinkolb/stdlib";
 import type { Context, TypedResponse } from "hono";
 import type { StatusCode } from "hono/utils/http-status";
-import { isServiceError, ok, type Result, type ServiceError } from "@valentinkolb/stdlib";
 
-type LegacyResult<T = void> = { ok: true; data: T } | { ok: false; error: string; status: number };
+type LegacyErrorStatus = ServiceError["status"] | 413;
+type LegacyErrorResult<S extends number = number> = { ok: false; error: string; status: S };
+type LegacyResult<T = void> = { ok: true; data: T } | LegacyErrorResult;
 
 type AnyResult<T = unknown> = Result<T> | LegacyResult<T>;
 type ResultOrFn<T> = T | Promise<T> | (() => T | Promise<T>);
 type SuccessStatus = 200 | 201;
-type ErrorStatus = ServiceError["status"];
+type ErrorStatus = ServiceError["status"] | LegacyErrorStatus;
 type JsonTypedResponse<T, Status extends StatusCode> = TypedResponse<T, Status, "json">;
 
 type ErrorResponseBody = {
@@ -55,6 +57,11 @@ export async function respond<T, E extends ServiceError>(
   resultOrFn: ResultOrFn<Result<T, E>>,
   successStatus?: SuccessStatus,
 ): Promise<JsonTypedResponse<T, SuccessStatus> | JsonTypedResponse<ErrorResponseBody, E["status"]>>;
+export async function respond<S extends LegacyErrorStatus>(
+  c: Context,
+  resultOrFn: ResultOrFn<LegacyErrorResult<S>>,
+  successStatus?: SuccessStatus,
+): Promise<JsonTypedResponse<ErrorResponseBody, S>>;
 export async function respond<T>(
   c: Context,
   resultOrFn: ResultOrFn<AnyResult<T>>,
@@ -69,7 +76,7 @@ export async function respond<T>(
 
   if (!result.ok) {
     const [body, status] = toErrorResponse(result);
-    return c.json(body, status as 400 | 401 | 403 | 404 | 409 | 500) as JsonTypedResponse<ErrorResponseBody, ErrorStatus>;
+    return c.json(body, status as 400 | 401 | 403 | 404 | 409 | 413 | 500) as JsonTypedResponse<ErrorResponseBody, ErrorStatus>;
   }
 
   return c.json(result.data, successStatus as 200 | 201) as JsonTypedResponse<T, SuccessStatus>;

@@ -300,7 +300,7 @@ const app = new Hono<AuthContext>()
       if (!userResult.ok) return respond(c, userResult);
       const href = c.req.valid("query").href;
       const target = parseSpacesWorkspaceHref(href);
-      if (!target) return c.json({ message: "Unsupported workspace route" }, 400);
+      if (!target) return respond(c, fail(err.badInput("Unsupported workspace route")));
       const state = await loadSpacesWorkspaceState({
         user: userResult.data,
         spaceId: target.spaceId,
@@ -309,7 +309,7 @@ const app = new Hono<AuthContext>()
         settings: target.settings,
         dateConfig: getDateConfig(c),
       });
-      return c.json(state);
+      return respond(c, ok(state));
     },
   )
 

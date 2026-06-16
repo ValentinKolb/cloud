@@ -1,4 +1,4 @@
-import { type AuthContext, auth, respond, v } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, rateLimit, respond, v } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
@@ -50,16 +50,17 @@ const requireUserBackedActor = (c: Context<AuthContext>): Result<NonNullable<Ret
 };
 
 const apiRoutes = new Hono<AuthContext>()
+  .use(rateLimit())
   .use(auth.requireRole("authenticated"))
   .get("/settings", async (c) => {
     const user = requireUserBackedActor(c);
     if (!user.ok) return respond(c, user);
-    return c.json((await dashboardSettingsService.get(user.data.id)).settings);
+    return respond(c, ok((await dashboardSettingsService.get(user.data.id)).settings));
   })
   .put("/settings", v("json", SettingsSchema), async (c) => {
     const user = requireUserBackedActor(c);
     if (!user.ok) return respond(c, user);
-    return c.json(await dashboardSettingsService.save(user.data.id, c.req.valid("json")));
+    return respond(c, ok(await dashboardSettingsService.save(user.data.id, c.req.valid("json"))));
   });
 
 export default apiRoutes;
