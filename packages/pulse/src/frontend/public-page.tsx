@@ -1,4 +1,4 @@
-import type { AuthContext } from "@valentinkolb/cloud/server";
+import { getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
 import { ssr } from "../config";
 import { pulseService } from "../service";
 import PublicPulseDashboard from "./PublicPulseDashboard.island";
@@ -17,5 +17,7 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
-  return () => <PublicPulseDashboard token={token} initialSnapshot={snapshot.data} />;
+  const dateConfig = getDateConfig(c);
+
+  return () => <PublicPulseDashboard token={token} initialSnapshot={snapshot.data} initialDateConfig={dateConfig} />;
 });

@@ -1,23 +1,14 @@
 import { Chart, DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import type { PulseDashboardSnapshot, PulsePublicDashboardPanel, MetricQueryPoint } from "../contracts";
+import { compactDate, compactDay, defaultPulseDateContext } from "./workspace/helpers";
 
 type Props = {
   token: string;
   initialSnapshot: PulseDashboardSnapshot;
+  initialDateConfig?: DateContext;
 };
-
-const compactDate = (value: string) =>
-  new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-
-const compactDay = (value: string) =>
-  new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "2-digit",
-  }).format(new Date(value));
 
 const formatValue = (value: number | null | undefined): string => {
   if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
@@ -33,32 +24,33 @@ const gaugeMax = (value: number): number => {
   return Math.ceil(value / magnitude) * magnitude;
 };
 
-const pointsToBars = (points: MetricQueryPoint[]) =>
+const pointsToBars = (points: MetricQueryPoint[], dateContext: DateContext) =>
   points.slice(-48).map((point) => ({
-    label: compactDate(point.bucket),
+    label: compactDate(point.bucket, dateContext),
     value: point.value ?? 0,
   }));
 
 const pointsToHistogram = (points: MetricQueryPoint[]) =>
   points.map((point) => point.value).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 
-const pointsToHeatmap = (points: MetricQueryPoint[]) =>
+const pointsToHeatmap = (points: MetricQueryPoint[], dateContext: DateContext) =>
   points.slice(-240).map((point) => {
     const date = new Date(point.bucket);
     return {
-      x: new Intl.DateTimeFormat(undefined, { hour: "2-digit" }).format(date),
-      y: compactDay(point.bucket),
+      x: compactDate(date.toISOString(), dateContext).slice(0, 2),
+      y: compactDay(point.bucket, dateContext),
       value: point.value ?? 0,
     };
   });
 
-const queryPointColumns: DataTableColumn<MetricQueryPoint>[] = [
-  { id: "bucket", header: "Bucket", value: (point) => compactDate(point.bucket), cellClass: "w-32 whitespace-nowrap" },
+const queryPointColumns = (dateContext: DateContext): DataTableColumn<MetricQueryPoint>[] => [
+  { id: "bucket", header: "Bucket", value: (point) => compactDate(point.bucket, dateContext), cellClass: "w-32 whitespace-nowrap" },
   { id: "value", header: "Value", value: (point) => formatValue(point.value), cellClass: "w-32 whitespace-nowrap" },
 ];
 
 export default function PublicPulseDashboard(props: Props) {
   const [snapshot, setSnapshot] = createSignal(props.initialSnapshot);
+  const dateContext = () => ({ ...defaultPulseDateContext, ...(props.initialDateConfig ?? {}) });
 
   const reload = async (signal?: AbortSignal) => {
     const response = await fetch(`/api/pulse/public-dashboard/${props.token}`, { signal });
@@ -99,7 +91,7 @@ export default function PublicPulseDashboard(props: Props) {
       );
     }
     if (panel.visual === "bar") {
-      return <Chart kind="bar" class="h-56 text-dimmed" data={pointsToBars(data)} showValues={data.length <= 16} />;
+      return <Chart kind="bar" class="h-56 text-dimmed" data={pointsToBars(data, dateContext())} showValues={data.length <= 16} />;
     }
     if (panel.visual === "histogram") {
       return <Chart kind="histogram" class="h-56 text-dimmed" data={pointsToHistogram(data)} bins={12} yAxis={{ label: "Count" }} />;
@@ -109,7 +101,7 @@ export default function PublicPulseDashboard(props: Props) {
         <Chart
           kind="heatmap"
           class="h-56 text-dimmed"
-          data={pointsToHeatmap(data)}
+          data={pointsToHeatmap(data, dateContext())}
           format={(value) => formatValue(value)}
           showValues={data.length <= 48}
         />
@@ -119,7 +111,7 @@ export default function PublicPulseDashboard(props: Props) {
       return (
         <DataTable
           rows={data}
-          columns={queryPointColumns}
+          columns={queryPointColumns(dateContext())}
           getRowId={(point) => point.bucket}
           density="compact"
           class="max-h-72 overflow-auto"
@@ -132,7 +124,7 @@ export default function PublicPulseDashboard(props: Props) {
         kind="line"
         class="h-56 text-dimmed"
         series={[{ label: panel.title, data: data.map((point) => ({ x: Date.parse(point.bucket), y: point.value ?? 0 })) }]}
-        xAxis={{ format: (value) => compactDate(new Date(value).toISOString()) }}
+        xAxis={{ format: (value) => compactDate(new Date(value).toISOString(), dateContext()) }}
         yAxis={{ format: (value) => formatValue(value) }}
         smooth
         area

@@ -1,4 +1,4 @@
-import { formatTimeSpan } from "@valentinkolb/stdlib";
+import { dates, type DateContext } from "@valentinkolb/stdlib";
 import type { DataTableColumn, FilterChipSection } from "@valentinkolb/cloud/ui";
 import type {
   MetricQueryPoint,
@@ -15,12 +15,26 @@ import type {
   PulseRecordedEvent,
   PulseSource,
 } from "../../contracts";
+import { derivePulseResource, pulseResourceKey, pulseSignalSubject } from "../../resource-model";
 import type { QueryHistoryEntry, RefreshIntervalOption } from "./types";
 export { emptyActivityQueryState, readActivityQueryState, readWorkspacePathState } from "./routes";
 
 export const suggestionTagClass =
   "chip max-w-full cursor-pointer border-0 transition hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900 dark:hover:text-blue-200";
 export const FOCUSED_PAGE_SIZE = 100;
+
+export type PulseDateContext = DateContext & { now?: string | Date };
+
+export const defaultPulseDateContext: PulseDateContext = {
+  timeZone: "UTC",
+  locale: "en",
+  firstDayOfWeek: 1,
+};
+
+const dateContext = (context?: DateContext): DateContext => ({
+  ...defaultPulseDateContext,
+  ...(context ?? {}),
+});
 
 const readError = async (response: Response, fallback: string): Promise<string> => {
   const body = await response.json().catch(() => null);
@@ -45,19 +59,29 @@ export const jsonFetch = async <T,>(url: string, init?: RequestInit): Promise<T>
   return JSON.parse(text) as T;
 };
 
-export const compactDate = (value: string) =>
-  new Intl.DateTimeFormat(undefined, {
+export const compactDate = (value: string, context?: DateContext) => {
+  const resolved = dateContext(context);
+  if (resolved.timeZone) return dates.instantToZonedInput(value, resolved.timeZone).slice(11, 16);
+  return new Intl.DateTimeFormat(resolved.locale ?? "en", {
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   }).format(new Date(value));
+};
 
-export const compactDay = (value: string) =>
-  new Intl.DateTimeFormat(undefined, {
+export const compactDay = (value: string, context?: DateContext) => {
+  const resolved = dateContext(context);
+  return new Intl.DateTimeFormat(resolved.locale ?? "en", {
+    timeZone: resolved.timeZone,
     month: "short",
     day: "2-digit",
   }).format(new Date(value));
+};
 
-export const compactDateWithDelta = (value: string) => `${compactDate(value)} (${formatTimeSpan(value)})`;
+export const compactDateWithDelta = (value: string, context?: PulseDateContext) => {
+  const resolved = dateContext(context);
+  return `${compactDate(value, resolved)} (${dates.formatTimeSpan(value, context?.now ?? new Date(), resolved)})`;
+};
 
 export const normalizeEndpointInput = (value: string): string =>
   /^https?:\/\//i.test(value.trim()) ? value.trim() : `https://${value.trim()}`;
@@ -90,7 +114,7 @@ export const parseScrapeInterval = (value: string | null | undefined): number =>
 export const stateRowId = (state: PulseCurrentState): string =>
   [state.key, state.sourceId ?? "", state.entityId, JSON.stringify(state.dimensions)].join(":");
 
-export const eventGroupId = (event: PulseRecordedEvent): string => [event.kind, event.sourceId ?? "", signalSubject(event)].join(":");
+export const eventGroupId = (event: PulseRecordedEvent): string => [event.kind, signalSubject(event)].join(":");
 
 export const stateGroupId = (state: PulseCurrentState): string => [state.key, state.sourceId ?? ""].join(":");
 
@@ -128,21 +152,21 @@ export const gaugeMax = (unit: string | null, value: number): number => {
   return Math.ceil(value / magnitude) * magnitude;
 };
 
-export const pointsToBars = (points: MetricQueryPoint[]) =>
+export const pointsToBars = (points: MetricQueryPoint[], context?: DateContext) =>
   points.slice(-48).map((point) => ({
-    label: compactDate(point.bucket),
+    label: compactDate(point.bucket, context),
     value: point.value ?? 0,
   }));
 
 export const pointsToHistogram = (points: MetricQueryPoint[]) =>
   points.map((point) => point.value).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 
-export const pointsToHeatmap = (points: MetricQueryPoint[]) =>
+export const pointsToHeatmap = (points: MetricQueryPoint[], context?: DateContext) =>
   points.slice(-240).map((point) => {
     const date = new Date(point.bucket);
     return {
-      x: new Intl.DateTimeFormat(undefined, { hour: "2-digit" }).format(date),
-      y: compactDay(point.bucket),
+      x: compactDate(date.toISOString(), context).slice(0, 2),
+      y: compactDay(point.bucket, context),
       value: point.value ?? 0,
     };
   });
@@ -170,64 +194,47 @@ export const seriesLabel = (series: PulseMetricSeries, sourceName?: string): str
 export const quoteQueryPart = (value: string): string =>
   /[\s,=]/.test(value) ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : value;
 
-export const resourceKey = (type: string | null | undefined, id: string): string => `${type?.trim() || "resource"}:${id}`;
+export const resourceKey = pulseResourceKey;
 
 export const signalResourceId = (params: {
-  entityId?: string | null;
-  sourceId?: string | null;
-  dimensions: Record<string, string>;
-}): string | null =>
-  params.entityId ??
-  params.dimensions.host ??
-  params.dimensions.instance ??
-  params.dimensions.node ??
-  params.dimensions.container ??
-  params.dimensions.compose_service ??
-  params.dimensions.service ??
-  params.sourceId ??
-  null;
-
-export const signalResourceType = (params: { entityType?: string | null; dimensions: Record<string, string> }): string | null =>
-  params.entityType ??
-  (params.dimensions.container
-    ? "container"
-    : params.dimensions.mountpoint || params.dimensions.device
-      ? "filesystem"
-      : params.dimensions.host || params.dimensions.instance || params.dimensions.node
-        ? "host"
-        : null);
-
-export const signalResourceKey = (params: {
+  metric?: string;
+  key?: string;
+  kind?: string;
   entityId?: string | null;
   entityType?: string | null;
   sourceId?: string | null;
   dimensions: Record<string, string>;
-}): string | null => {
-  const id = signalResourceId(params);
-  return id ? resourceKey(signalResourceType(params), id) : null;
-};
+}): string | null => derivePulseResource({ signalName: params.metric ?? params.key ?? params.kind, ...params })?.id ?? null;
 
-export const signalSubject = (params: { entityId?: string | null; entityType?: string | null; dimensions: Record<string, string> }): string => {
-  const dimensions = params.dimensions;
-  const primary =
-    dimensions.container ||
-    dimensions.compose_service ||
-    dimensions.service ||
-    dimensions.mountpoint ||
-    dimensions.device ||
-    dimensions.interface ||
-    dimensions.name ||
-    dimensions.host ||
-    dimensions.instance ||
-    params.entityId ||
-    "resource";
-  const type = dimensions.container
-    ? "container"
-    : dimensions.mountpoint || dimensions.device
-      ? "filesystem"
-      : params.entityType || (dimensions.host || dimensions.instance ? "host" : "");
-  return [type, primary].filter(Boolean).join(":");
-};
+export const signalResourceType = (params: {
+  metric?: string;
+  key?: string;
+  kind?: string;
+  entityId?: string | null;
+  entityType?: string | null;
+  sourceId?: string | null;
+  dimensions: Record<string, string>;
+}): string | null => derivePulseResource({ signalName: params.metric ?? params.key ?? params.kind, ...params })?.type ?? null;
+
+export const signalResourceKey = (params: {
+  metric?: string;
+  key?: string;
+  kind?: string;
+  entityId?: string | null;
+  entityType?: string | null;
+  sourceId?: string | null;
+  dimensions: Record<string, string>;
+}): string | null => derivePulseResource({ signalName: params.metric ?? params.key ?? params.kind, ...params })?.key ?? null;
+
+export const signalSubject = (params: {
+  metric?: string;
+  key?: string;
+  kind?: string;
+  entityId?: string | null;
+  entityType?: string | null;
+  sourceId?: string | null;
+  dimensions: Record<string, string>;
+}): string => pulseSignalSubject({ signalName: params.metric ?? params.key ?? params.kind, ...params });
 
 export const dimensionsSummary = (dimensions: Record<string, string>, limit = 3): string =>
   Object.entries(dimensions)

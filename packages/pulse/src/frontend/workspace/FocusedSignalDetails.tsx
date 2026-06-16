@@ -1,10 +1,11 @@
 import { StructuredDataPreview } from "@valentinkolb/cloud/ui";
 import type { PulseCurrentState, PulseMetricSeries, PulseRecordedEvent } from "../../contracts";
-import { compactDateWithDelta, formatSignalValue, formatValue, signalSubject } from "./helpers";
+import { compactDateWithDelta, formatSignalValue, formatValue, signalSubject, type PulseDateContext } from "./helpers";
 
 type SourceProps = {
   sourceId: string | null | undefined;
   sourceNameById: () => Map<string, string>;
+  dateContext: PulseDateContext;
   openSource: (sourceId: string | null | undefined) => void;
 };
 
@@ -23,7 +24,7 @@ const SourceInlineLink = (props: SourceProps) => {
   );
 };
 
-export const FocusedMetricSeriesDetail = (props: SourceProps & { item: PulseMetricSeries; metricName: string }) => (
+export const FocusedMetricSeriesDetail = (props: SourceProps & { item: PulseMetricSeries; metricName: string; metricUnit: string | null }) => (
   <div class="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
     <section class="detail-section-compact">
       <div class="min-w-0">
@@ -37,6 +38,13 @@ export const FocusedMetricSeriesDetail = (props: SourceProps & { item: PulseMetr
     <div class="detail-stack">
       <section class="detail-section">
         <h3 class="detail-section-label">Variant</h3>
+        <div class="detail-row">
+          <i class="ti ti-number detail-row-icon text-blue-500" />
+          <span class="detail-row-label">Current</span>
+          <span class="truncate">
+            {props.item.latestValue === null ? "-" : `${formatValue(props.item.latestValue)}${props.metricUnit ? ` ${props.metricUnit}` : ""}`}
+          </span>
+        </div>
         <div class="detail-row">
           <i class="ti ti-chart-dots detail-row-icon text-blue-500" />
           <span class="detail-row-label">Metric</span>
@@ -57,7 +65,7 @@ export const FocusedMetricSeriesDetail = (props: SourceProps & { item: PulseMetr
         <div class="detail-row">
           <i class="ti ti-clock detail-row-icon text-blue-500" />
           <span class="detail-row-label">Last seen</span>
-          <span>{props.item.lastSeenAt ? compactDateWithDelta(props.item.lastSeenAt) : "-"}</span>
+          <span>{(props.item.latestSampleAt ?? props.item.lastSeenAt) ? compactDateWithDelta((props.item.latestSampleAt ?? props.item.lastSeenAt)!, props.dateContext) : "-"}</span>
         </div>
       </section>
       <section class="detail-section">
@@ -101,7 +109,7 @@ export const FocusedStateDetail = (props: SourceProps & { state: PulseCurrentSta
         <div class="detail-row">
           <i class="ti ti-clock detail-row-icon text-blue-500" />
           <span class="detail-row-label">Updated</span>
-          <span>{compactDateWithDelta(props.state.updatedAt)}</span>
+          <span>{compactDateWithDelta(props.state.updatedAt, props.dateContext)}</span>
         </div>
       </section>
       <section class="detail-section">
@@ -150,7 +158,7 @@ export const FocusedEventDetail = (props: SourceProps & { event: PulseRecordedEv
         <div class="detail-row">
           <i class="ti ti-clock detail-row-icon text-blue-500" />
           <span class="detail-row-label">Time</span>
-          <span>{compactDateWithDelta(props.event.ts)}</span>
+          <span>{compactDateWithDelta(props.event.ts, props.dateContext)}</span>
         </div>
       </section>
       <section class="detail-section">

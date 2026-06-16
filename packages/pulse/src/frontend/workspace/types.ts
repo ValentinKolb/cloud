@@ -1,5 +1,6 @@
 import type { PermissionLevel } from "@valentinkolb/cloud/contracts";
 import type { DockWorkspaceState, ResourceApiKey } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import type {
   MetricQueryPoint,
   MetricType,
@@ -85,8 +86,6 @@ export type PulseWorkspaceProps = {
   initialSeries?: PulseMetricSeries[];
   initialRecentEvents?: PulseRecordedEvent[];
   initialCurrentStates?: PulseCurrentState[];
-  initialActivityMetricSeries?: PulseMetricSeries[];
-  initialActivityMetricPoints?: MetricQueryPoint[];
   initialFocusedMetricSeries?: PulseMetricSeries[];
   initialFocusedEvents?: PulseRecordedEvent[];
   initialFocusedStates?: PulseCurrentState[];
@@ -95,4 +94,7 @@ export type PulseWorkspaceProps = {
   initialSavedQueries?: PulseSavedQuery[];
   initialPanelPoints?: Record<string, MetricQueryPoint[]>;
   initialExplorerDockState?: DockWorkspaceState | null;
+  initialDateConfig?: DateContext;
+  initialNow?: string;
+  initialOrigin?: string;
 };

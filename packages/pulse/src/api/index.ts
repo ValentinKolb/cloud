@@ -403,10 +403,13 @@ const MetricSeriesSchema = z.object({
   entityType: z.string().nullable(),
   dimensions: z.record(z.string(), z.string()),
   lastSeenAt: z.string().nullable(),
+  latestValue: z.number().nullable(),
+  latestSampleAt: z.string().nullable(),
 });
 const ResourceSummarySchema = z.object({
   key: z.string(),
   id: z.string(),
+  label: z.string(),
   type: z.string().nullable(),
   sourceIds: z.array(z.string()),
   metricSeriesCount: z.number(),
@@ -417,6 +420,7 @@ const ResourceSummarySchema = z.object({
   dimensions: z.record(z.string(), z.string()),
 });
 const ResourceMetricSchema = z.object({
+  seriesId: z.string(),
   resourceKey: z.string(),
   resourceId: z.string(),
   resourceType: z.string().nullable(),
@@ -426,6 +430,8 @@ const ResourceMetricSchema = z.object({
   sourceId: z.string().nullable(),
   dimensions: z.record(z.string(), z.string()),
   lastSeenAt: z.string().nullable(),
+  latestValue: z.number().nullable(),
+  latestSampleAt: z.string().nullable(),
 });
 const RecordedEventSchema = z.object({
   id: z.string(),

@@ -1,17 +1,20 @@
 import { DataTable, ResourceApiKeys, type DataTableColumn, type ResourceApiKey, type ResourceApiKeysProps } from "@valentinkolb/cloud/ui";
 import { Show, type JSX } from "solid-js";
 import type { PulseSource, PulseSourceScrape } from "../../contracts";
-import { compactDateWithDelta } from "./helpers";
+import { compactDateWithDelta, type PulseDateContext } from "./helpers";
 
 type Props = {
   source: PulseSource;
+  published: { resources: number; metricVariants: number; states: number; events: number };
   origin: string;
+  dateContext: PulseDateContext;
   loading: boolean;
   scrapes: PulseSourceScrape[];
   apiKeys: ResourceApiKey[];
   scrapeColumns: DataTableColumn<PulseSourceScrape>[];
   renderScrapeCell: (scrape: PulseSourceScrape, col: DataTableColumn<PulseSourceScrape>) => JSX.Element;
   copySetupText: (text: string, label: string) => void;
+  openSourceResources: (source: PulseSource) => void;
   editSource: (source: PulseSource) => void | Promise<void>;
   toggleSource: (source: PulseSource) => void | Promise<void>;
   close: () => void;
@@ -109,7 +112,7 @@ export default function SourceDetailView(props: Props) {
           <div class="detail-row">
             <i class="ti ti-clock detail-row-icon text-blue-500" />
             <span class="detail-row-label">Last seen</span>
-            <span>{props.source.lastSeenAt ? compactDateWithDelta(props.source.lastSeenAt) : "Waiting"}</span>
+            <span>{props.source.lastSeenAt ? compactDateWithDelta(props.source.lastSeenAt, props.dateContext) : "Waiting"}</span>
           </div>
           <Show when={props.source.kind === "metrics"}>
             <div class="detail-row">
@@ -127,6 +130,30 @@ export default function SourceDetailView(props: Props) {
               </div>
             )}
           </Show>
+        </section>
+
+        <section class="detail-section">
+          <h3 class="detail-section-label">Published</h3>
+          <button type="button" class="detail-row w-full text-left transition hover:text-blue-600 dark:hover:text-blue-300" onClick={() => props.openSourceResources(props.source)}>
+            <i class="ti ti-cube detail-row-icon text-blue-500" />
+            <span class="detail-row-label">Resources</span>
+            <span>{props.published.resources.toLocaleString()}</span>
+          </button>
+          <div class="detail-row">
+            <i class="ti ti-chart-dots detail-row-icon text-emerald-600" />
+            <span class="detail-row-label">Metrics</span>
+            <span>{props.published.metricVariants.toLocaleString()} variants</span>
+          </div>
+          <div class="detail-row">
+            <i class="ti ti-toggle-right detail-row-icon text-violet-500" />
+            <span class="detail-row-label">States</span>
+            <span>{props.published.states.toLocaleString()}</span>
+          </div>
+          <div class="detail-row">
+            <i class="ti ti-bolt detail-row-icon text-amber-500" />
+            <span class="detail-row-label">Events</span>
+            <span>{props.published.events.toLocaleString()} recent</span>
+          </div>
         </section>
 
         <Show when={props.source.kind === "metrics"}>

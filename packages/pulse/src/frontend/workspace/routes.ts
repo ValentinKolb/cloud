@@ -5,6 +5,7 @@ export type WorkspaceView =
   | "dashboard-edit"
   | "sources"
   | "resources"
+  | "resource-detail"
   | "explorer"
   | "activity-events"
   | "activity-states"
@@ -23,9 +24,6 @@ export type WorkspaceRouteState = {
 export type ActivityQueryState = {
   q: string;
   type: "" | MetricType;
-  eventId: string;
-  stateId: string;
-  metric: string;
 };
 
 export type WorkspaceHrefState = {
@@ -42,7 +40,7 @@ export type WorkspaceHrefOptions = {
   focusedSearch?: string;
 };
 
-export const emptyActivityQueryState = (): ActivityQueryState => ({ q: "", type: "", eventId: "", stateId: "", metric: "" });
+export const emptyActivityQueryState = (): ActivityQueryState => ({ q: "", type: "" });
 
 export const readActivityQueryState = (search: string): ActivityQueryState => {
   const params = new URLSearchParams(search);
@@ -50,14 +48,11 @@ export const readActivityQueryState = (search: string): ActivityQueryState => {
   return {
     q: params.get("q")?.trim() ?? "",
     type: type === "gauge" || type === "counter" || type === "histogram" || type === "summary" ? type : "",
-    eventId: params.get("event") ?? "",
-    stateId: params.get("state") ?? "",
-    metric: params.get("metric") ?? "",
   };
 };
 
 export const readWorkspacePathState = (path: string, baseId: string): WorkspaceRouteState => {
-  const fallback: WorkspaceRouteState = { view: "dashboard", dashboardId: "", sourceId: "", signalId: "" };
+  const fallback: WorkspaceRouteState = { view: "resources", dashboardId: "", sourceId: "", signalId: "" };
   if (!baseId) return fallback;
   const marker = `/app/pulse/${baseId}`;
   const start = path.indexOf(marker);
@@ -69,6 +64,8 @@ export const readWorkspacePathState = (path: string, baseId: string): WorkspaceR
   if (rest[0] === "dashboards")
     return { view: rest[2] === "edit" ? "dashboard-edit" : "dashboard", dashboardId: rest[1] ?? "", sourceId: "", signalId: "" };
   if (rest[0] === "sources") return { view: "sources", dashboardId: "", sourceId: rest[1] ?? "", signalId: "" };
+  if (rest[0] === "resources" && rest[1])
+    return { view: "resource-detail", dashboardId: "", sourceId: "", signalId: decodeURIComponent(rest[1]) };
   if (rest[0] === "resources") return { view: "resources", dashboardId: "", sourceId: "", signalId: "" };
   if (rest[0] === "metrics" && rest[1])
     return { view: "metric-detail", dashboardId: "", sourceId: "", signalId: decodeURIComponent(rest[1]) };
@@ -83,13 +80,10 @@ export const readWorkspacePathState = (path: string, baseId: string): WorkspaceR
   return fallback;
 };
 
-const activitySearch = (activity: Partial<ActivityQueryState> = {}, includeMetric: boolean) => {
+const activitySearch = (activity: Partial<ActivityQueryState> = {}) => {
   const params = new URLSearchParams();
   if (activity.q?.trim()) params.set("q", activity.q.trim());
   if (activity.type) params.set("type", activity.type);
-  if (activity.eventId) params.set("event", activity.eventId);
-  if (activity.stateId) params.set("state", activity.stateId);
-  if (includeMetric && activity.metric) params.set("metric", activity.metric);
   const query = params.toString();
   return query ? `?${query}` : "";
 };
@@ -97,7 +91,7 @@ const activitySearch = (activity: Partial<ActivityQueryState> = {}, includeMetri
 export const buildPulseWorkspaceHref = ({ baseId, state, activity, focusedSearch }: WorkspaceHrefOptions): string => {
   if (!baseId) return "/app/pulse";
   if (state.view === "dashboard") {
-    return state.dashboardId ? `/app/pulse/${baseId}/dashboards/${state.dashboardId}` : `/app/pulse/${baseId}`;
+    return state.dashboardId ? `/app/pulse/${baseId}/dashboards/${state.dashboardId}` : `/app/pulse/${baseId}/resources`;
   }
   if (state.view === "dashboard-edit") {
     return state.dashboardId ? `/app/pulse/${baseId}/dashboards/${state.dashboardId}/edit` : `/app/pulse/${baseId}`;
@@ -105,6 +99,7 @@ export const buildPulseWorkspaceHref = ({ baseId, state, activity, focusedSearch
   if (state.view === "sources") {
     return state.sourceId ? `/app/pulse/${baseId}/sources/${state.sourceId}` : `/app/pulse/${baseId}/sources`;
   }
+  if (state.view === "resource-detail") return `/app/pulse/${baseId}/resources/${encodeURIComponent(state.signalId ?? "")}`;
   if (state.view === "resources") return `/app/pulse/${baseId}/resources`;
   if (state.view === "metric-detail" || state.view === "state-detail" || state.view === "event-detail") {
     const params = new URLSearchParams();
@@ -114,7 +109,7 @@ export const buildPulseWorkspaceHref = ({ baseId, state, activity, focusedSearch
     return `/app/pulse/${baseId}/${prefix}/${encodeURIComponent(state.signalId ?? "")}${query ? `?${query}` : ""}`;
   }
   if (state.view === "explorer") return `/app/pulse/${baseId}/explorer`;
-  if (state.view === "activity-states") return `/app/pulse/${baseId}/activity/states${activitySearch(activity, false)}`;
-  if (state.view === "activity-metrics") return `/app/pulse/${baseId}/activity/metrics${activitySearch(activity, true)}`;
-  return `/app/pulse/${baseId}/activity/events${activitySearch(activity, false)}`;
+  if (state.view === "activity-states") return `/app/pulse/${baseId}/activity/states${activitySearch(activity)}`;
+  if (state.view === "activity-metrics") return `/app/pulse/${baseId}/activity/metrics${activitySearch(activity)}`;
+  return `/app/pulse/${baseId}/activity/events${activitySearch(activity)}`;
 };

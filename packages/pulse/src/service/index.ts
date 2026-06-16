@@ -55,6 +55,7 @@ import type {
   MetricQuery,
   MetricQueryPoint,
 } from "../contracts";
+import { derivePulseResource } from "../resource-model";
 
 const PULSE_APP_ID = "pulse";
 const PULSE_SOURCE_RESOURCE_TYPE = "pulse_source";
@@ -264,6 +265,8 @@ const normalizeDimensions = (dimensions: Record<string, unknown> | undefined): R
 
 const dimensionsHash = (dimensions: Record<string, string>): string =>
   createHash("sha256").update(JSON.stringify(dimensions)).digest("hex");
+
+const jsonbObject = (value: Record<string, unknown>): string => JSON.stringify(value);
 
 const metricSeriesKey = (params: { sourceId?: string | null; entityId?: string | null; dimensionsHash: string }): string =>
   [params.sourceId ?? "", params.entityId ?? "", params.dimensionsHash].join("\u001f");
@@ -1153,7 +1156,7 @@ const resolveMetricSeries = async (params: {
       ${params.metric.entityType ?? null},
       ${seriesKey},
       ${hash},
-      ${JSON.stringify(params.dimensions)}::jsonb,
+      (${jsonbObject(params.dimensions)}::jsonb #>> '{}')::jsonb,
       now()
     )
     RETURNING id
@@ -1206,8 +1209,8 @@ const recordEvent = async (params: { baseId: string; sourceId?: string | null; e
       ${params.event.sessionId ?? null},
       ${params.event.correlationId ?? null},
       ${hash},
-      ${JSON.stringify(dimensions)}::jsonb,
-      ${JSON.stringify(params.event.payload ?? {})}::jsonb
+      (${jsonbObject(dimensions)}::jsonb #>> '{}')::jsonb,
+      (${jsonbObject(params.event.payload ?? {})}::jsonb #>> '{}')::jsonb
     )
     RETURNING id
   `;
@@ -1241,7 +1244,7 @@ const setState = async (params: { baseId: string; sourceId?: string | null; stat
       ${params.state.entityType ?? null},
       ${encodedValue}::jsonb,
       ${hash},
-      ${JSON.stringify(dimensions)}::jsonb,
+      (${jsonbObject(dimensions)}::jsonb #>> '{}')::jsonb,
       ${changedAt}
     )
     ON CONFLICT (base_id, state_key, entity_id, dimensions_hash)
@@ -1259,7 +1262,7 @@ const setState = async (params: { baseId: string; sourceId?: string | null; stat
       ${params.state.entityType ?? null},
       ${encodedValue}::jsonb,
       ${hash},
-      ${JSON.stringify(dimensions)}::jsonb,
+      (${jsonbObject(dimensions)}::jsonb #>> '{}')::jsonb,
       ${changedAt}
     )
   `;
@@ -1428,6 +1431,8 @@ const listMetricSeries = async (
       entity_type: string | null;
       dimensions: unknown;
       last_seen_at: Date | string | null;
+      latest_value: number | null;
+      latest_sample_at: Date | string | null;
     }[]
   >`
     SELECT
@@ -1437,9 +1442,18 @@ const listMetricSeries = async (
       ms.entity_id,
       ms.entity_type,
       ms.dimensions,
-      ms.last_seen_at
+      ms.last_seen_at,
+      latest.value AS latest_value,
+      latest.ts AS latest_sample_at
     FROM pulse.metric_series ms
     JOIN pulse.metric_defs md ON md.id = ms.metric_id
+    LEFT JOIN LATERAL (
+      SELECT sample.value, sample.ts
+      FROM pulse.metric_samples sample
+      WHERE sample.series_id = ms.id
+      ORDER BY sample.ts DESC
+      LIMIT 1
+    ) latest ON TRUE
     WHERE ms.base_id = ${baseId}::uuid
       AND md.name = ${metric}
       AND ms.source_id IS NOT DISTINCT FROM COALESCE(${params.sourceId ?? null}::uuid, ms.source_id)
@@ -1462,6 +1476,8 @@ const listMetricSeries = async (
       entityType: row.entity_type,
       dimensions: normalizeDimensions(parseJsonObject(row.dimensions)),
       lastSeenAt: isoNullable(row.last_seen_at),
+      latestValue: row.latest_value,
+      latestSampleAt: isoNullable(row.latest_sample_at),
     })),
   );
 };
@@ -1529,6 +1545,7 @@ const listCurrentStates = async (
 };
 
 type InventoryMetricRow = {
+  series_id: string;
   metric: string;
   type: MetricType;
   unit: string | null;
@@ -1537,23 +1554,9 @@ type InventoryMetricRow = {
   entity_type: string | null;
   dimensions: unknown;
   last_seen_at: Date | string | null;
+  latest_value: number | null;
+  latest_sample_at: Date | string | null;
 };
-
-const resourceIdFrom = (params: { entityId?: string | null; sourceId?: string | null; dimensions: Record<string, string> }): string | null =>
-  params.entityId ??
-  params.dimensions.host ??
-  params.dimensions.instance ??
-  params.dimensions.node ??
-  params.dimensions.container ??
-  params.dimensions.compose_service ??
-  params.dimensions.service ??
-  params.sourceId ??
-  null;
-
-const resourceTypeFrom = (entityType: string | null | undefined, dimensions: Record<string, string>): string | null =>
-  entityType ?? (dimensions.container ? "container" : dimensions.host || dimensions.instance || dimensions.node ? "host" : null);
-
-const resourceKey = (type: string | null | undefined, id: string): string => `${type?.trim() || "resource"}:${id}`;
 
 const mergeResourceDimensions = (current: Record<string, string>, next: Record<string, string>): Record<string, string> => {
   const merged = { ...current };
@@ -1578,6 +1581,7 @@ const listInventory = async (baseId: string, user: UserScope): Promise<Result<Pu
   const [metricRows, eventRows, stateRows] = await Promise.all([
     sql<InventoryMetricRow[]>`
       SELECT
+        ms.id AS series_id,
         md.name AS metric,
         md.type,
         md.unit,
@@ -1585,9 +1589,18 @@ const listInventory = async (baseId: string, user: UserScope): Promise<Result<Pu
         ms.entity_id,
         ms.entity_type,
         ms.dimensions,
-        ms.last_seen_at
+        ms.last_seen_at,
+        latest.value AS latest_value,
+        latest.ts AS latest_sample_at
       FROM pulse.metric_series ms
       JOIN pulse.metric_defs md ON md.id = ms.metric_id
+      LEFT JOIN LATERAL (
+        SELECT sample.value, sample.ts
+        FROM pulse.metric_samples sample
+        WHERE sample.series_id = ms.id
+        ORDER BY sample.ts DESC
+        LIMIT 1
+      ) latest ON TRUE
       WHERE ms.base_id = ${baseId}::uuid
       ORDER BY ms.last_seen_at DESC NULLS LAST, md.name ASC
       LIMIT 5000
@@ -1610,22 +1623,22 @@ const listInventory = async (baseId: string, user: UserScope): Promise<Result<Pu
 
   const resources = new Map<string, PulseResourceSummary & { metricNames: Set<string> }>();
   const ensureResource = (params: {
+    signalName: string;
     entityId?: string | null;
     entityType?: string | null;
     sourceId?: string | null;
     dimensions: Record<string, string>;
     lastSeenAt: string | null;
   }) => {
-    const id = resourceIdFrom(params);
-    if (!id) return null;
-    const type = resourceTypeFrom(params.entityType, params.dimensions);
-    const key = resourceKey(type, id);
+    const identity = derivePulseResource(params);
+    if (!identity) return null;
     const current =
-      resources.get(key) ??
+      resources.get(identity.key) ??
       ({
-        key,
-        id,
-        type,
+        key: identity.key,
+        id: identity.id,
+        label: identity.label,
+        type: identity.type,
         sourceIds: [],
         metricSeriesCount: 0,
         metricCount: 0,
@@ -1635,11 +1648,12 @@ const listInventory = async (baseId: string, user: UserScope): Promise<Result<Pu
         dimensions: {},
         metricNames: new Set<string>(),
       } satisfies PulseResourceSummary & { metricNames: Set<string> });
-    if (!current.type && type) current.type = type;
+    if (!current.type && identity.type) current.type = identity.type;
+    if (!current.label && identity.label) current.label = identity.label;
     if (params.sourceId && !current.sourceIds.includes(params.sourceId)) current.sourceIds.push(params.sourceId);
     current.lastSeenAt = maxIsoNullable(current.lastSeenAt, params.lastSeenAt);
     current.dimensions = mergeResourceDimensions(current.dimensions, params.dimensions);
-    resources.set(key, current);
+    resources.set(identity.key, current);
     return current;
   };
 
@@ -1648,6 +1662,7 @@ const listInventory = async (baseId: string, user: UserScope): Promise<Result<Pu
     const dimensions = normalizeDimensions(parseJsonObject(row.dimensions));
     const lastSeenAt = isoNullable(row.last_seen_at);
     const resource = ensureResource({
+      signalName: row.metric,
       entityId: row.entity_id,
       entityType: row.entity_type,
       sourceId: row.source_id,
@@ -1659,6 +1674,7 @@ const listInventory = async (baseId: string, user: UserScope): Promise<Result<Pu
     resource.metricNames.add(row.metric);
     resource.metricCount = resource.metricNames.size;
     metrics.push({
+      seriesId: row.series_id,
       resourceKey: resource.key,
       resourceId: resource.id,
       resourceType: resource.type,
@@ -1668,12 +1684,15 @@ const listInventory = async (baseId: string, user: UserScope): Promise<Result<Pu
       sourceId: row.source_id,
       dimensions,
       lastSeenAt,
+      latestValue: row.latest_value,
+      latestSampleAt: isoNullable(row.latest_sample_at),
     });
   }
 
   const events = eventRows.map(mapRecordedEvent);
   for (const event of events) {
     const resource = ensureResource({
+      signalName: event.kind,
       entityId: event.entityId,
       entityType: event.entityType,
       sourceId: event.sourceId,
@@ -1686,6 +1705,7 @@ const listInventory = async (baseId: string, user: UserScope): Promise<Result<Pu
   const states = stateRows.map(mapCurrentState);
   for (const state of states) {
     const resource = ensureResource({
+      signalName: state.key,
       entityId: state.entityId,
       entityType: state.entityType,
       sourceId: state.sourceId,
@@ -2344,7 +2364,7 @@ const queryEventsData = async (query: EventQuery): Promise<Result<PulseRecordedE
       AND (${query.sourceId ?? null}::uuid IS NULL OR source_id = ${query.sourceId ?? null}::uuid)
       AND (${query.entityId ?? null}::text IS NULL OR entity_id = ${query.entityId ?? null})
       AND (${query.entityType ?? null}::text IS NULL OR entity_type = ${query.entityType ?? null})
-      AND dimensions @> ${JSON.stringify(dimensions)}::jsonb
+      AND dimensions @> (${jsonbObject(dimensions)}::jsonb #>> '{}')::jsonb
       AND ts >= ${since}
     ORDER BY ts DESC, recorded_at DESC
     LIMIT ${query.limit}
@@ -2371,7 +2391,7 @@ const queryStatesData = async (query: StateQuery): Promise<Result<PulseCurrentSt
       AND (${query.sourceId ?? null}::uuid IS NULL OR source_id = ${query.sourceId ?? null}::uuid)
       AND (${query.entityId ?? null}::text IS NULL OR entity_id = ${query.entityId ?? null})
       AND (${query.entityType ?? null}::text IS NULL OR entity_type = ${query.entityType ?? null})
-      AND dimensions @> ${JSON.stringify(dimensions)}::jsonb
+      AND dimensions @> (${jsonbObject(dimensions)}::jsonb #>> '{}')::jsonb
       AND (${since}::timestamptz IS NULL OR updated_at >= ${since}::timestamptz)
     ORDER BY updated_at DESC, state_key ASC
     LIMIT ${query.limit}

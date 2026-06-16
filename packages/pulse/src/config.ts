@@ -15,7 +15,7 @@ export const app = defineApp({
     requiresRoles: ["user"],
   },
   openapi: "/api/pulse/openapi.json",
-  routes: ["/api/pulse", "/app/pulse"],
+  routes: ["/api/pulse", "/app/pulse", "/public/pulse"],
 });
 
 export const { ssr, plugin } = app;

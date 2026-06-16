@@ -39,7 +39,7 @@ const SidebarSections = (props: Props) => (
     <AppWorkspace.SidebarSection title="Data">
       <AppWorkspace.SidebarItem
         icon="ti ti-cube"
-        active={props.activeView === "resources"}
+        active={props.activeView === "resources" || props.activeView === "resource-detail"}
         onClick={props.openResources}
         meta={props.resourceCount}
       >
@@ -53,7 +53,7 @@ const SidebarSections = (props: Props) => (
       </AppWorkspace.SidebarItem>
     </AppWorkspace.SidebarSection>
 
-    <AppWorkspace.SidebarSection title="Activity">
+    <AppWorkspace.SidebarSection title="Signals">
       <AppWorkspace.SidebarItem
         icon="ti ti-bolt"
         active={props.activeView === "activity-events"}

@@ -289,6 +289,37 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_saved_queries_base_updated ON pulse.saved_queries(base_id, updated_at DESC)`.simple();
 
   await sql`
+    UPDATE pulse.metric_series
+    SET dimensions = (dimensions #>> '{}')::jsonb
+    WHERE jsonb_typeof(dimensions) = 'string'
+      AND left(dimensions #>> '{}', 1) = '{'
+  `.simple();
+  await sql`
+    UPDATE pulse.events
+    SET dimensions = (dimensions #>> '{}')::jsonb
+    WHERE jsonb_typeof(dimensions) = 'string'
+      AND left(dimensions #>> '{}', 1) = '{'
+  `.simple();
+  await sql`
+    UPDATE pulse.events
+    SET payload = (payload #>> '{}')::jsonb
+    WHERE jsonb_typeof(payload) = 'string'
+      AND left(payload #>> '{}', 1) = '{'
+  `.simple();
+  await sql`
+    UPDATE pulse.states_current
+    SET dimensions = (dimensions #>> '{}')::jsonb
+    WHERE jsonb_typeof(dimensions) = 'string'
+      AND left(dimensions #>> '{}', 1) = '{'
+  `.simple();
+  await sql`
+    UPDATE pulse.state_changes
+    SET dimensions = (dimensions #>> '{}')::jsonb
+    WHERE jsonb_typeof(dimensions) = 'string'
+      AND left(dimensions #>> '{}', 1) = '{'
+  `.simple();
+
+  await sql`
     DO $$
     BEGIN
       IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN

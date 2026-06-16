@@ -57,10 +57,10 @@ import type {
 } from "../contracts";
 import PulseLayoutHelp from "./PulseLayoutHelp";
 import { buildPulseQuery, buildPulseQueryCompletions, defaultPulseQuery, pulseQueryHighlight } from "./query-authoring";
-import { ActivityEventDetail, ActivityMetricDetail, ActivityStateDetail } from "./workspace/ActivityDetails";
 import { FocusedEventDetail, FocusedMetricSeriesDetail, FocusedStateDetail } from "./workspace/FocusedSignalDetails";
 import PulseSidebar from "./workspace/PulseSidebar";
 import ResourceBrowserView from "./workspace/ResourceBrowserView";
+import ResourceDetailView from "./workspace/ResourceDetailView";
 import SourceDetailView from "./workspace/SourceDetailView";
 import { navigatePulseWorkspace, replacePulseWorkspaceUrl } from "./workspace/navigation";
 import { buildPulseWorkspaceHref } from "./workspace/routes";
@@ -76,6 +76,7 @@ import {
   dashboardLayoutWidgets,
   dashboardMetricPanels,
   dashboardToDsl,
+  defaultPulseDateContext,
   dimensionsSummary,
   eventGroupId,
   formatIngestCounts,
@@ -125,7 +126,7 @@ import type {
 
 export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const initialBaseId = props.initialBaseId ?? props.initialBases[0]?.id ?? "";
-  const initialRouteState = props.initialRouteState ?? { view: "dashboard" as const, dashboardId: "", sourceId: "", signalId: "" };
+  const initialRouteState = props.initialRouteState ?? { view: "resources" as const, dashboardId: "", sourceId: "", signalId: "" };
   const initialDashboardId =
     props.initialDashboards?.find((dashboard) => dashboard.id === initialRouteState.dashboardId)?.id ??
     props.initialDashboards?.[0]?.id ??
@@ -141,7 +142,9 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const [metrics, setMetrics] = createSignal<PulseMetricSummary[]>(props.initialMetrics ?? []);
   const [inventory, setInventory] = createSignal<PulseInventory>(props.initialInventory ?? { resources: [], metrics: [], events: [], states: [] });
   const [resourceSearch, setResourceSearch] = createSignal("");
-  const [selectedResourceKey, setSelectedResourceKey] = createSignal(props.initialInventory?.resources[0]?.key ?? "");
+  const [selectedResourceKey, setSelectedResourceKey] = createSignal(
+    initialRouteState.view === "resource-detail" ? initialRouteState.signalId : (props.initialInventory?.resources[0]?.key ?? ""),
+  );
   const [activityMetrics, setActivityMetrics] = createSignal<PulseMetricSummary[]>(props.initialActivityMetrics ?? []);
   const [series, setSeries] = createSignal<PulseMetricSeries[]>(props.initialSeries ?? []);
   const [recentEvents, setRecentEvents] = createSignal<PulseRecordedEvent[]>(props.initialRecentEvents ?? []);
@@ -152,11 +155,9 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const [activeView, setActiveView] = createSignal<WorkspaceView>(initialRouteState.view);
   const [selectedMetric, setSelectedMetric] = createSignal(props.initialMetrics?.[0]?.name ?? "");
   const [selectedSourceId, setSelectedSourceId] = createSignal(initialRouteState.sourceId);
+  const [selectedQuerySourceId, setSelectedQuerySourceId] = createSignal("");
   const [activitySearch, setActivitySearch] = createSignal(initialActivityQuery.q);
   const [metricTypeFilter, setMetricTypeFilter] = createSignal<"" | MetricType>(initialActivityQuery.type);
-  const [selectedEventId, setSelectedEventId] = createSignal(initialActivityQuery.eventId);
-  const [selectedStateId, setSelectedStateId] = createSignal(initialActivityQuery.stateId);
-  const [selectedActivityMetricName, setSelectedActivityMetricName] = createSignal(initialActivityQuery.metric);
   const [focusedSignalId, setFocusedSignalId] = createSignal(initialRouteState.signalId);
   const [focusedSearch, setFocusedSearch] = createSignal(initialFocusedSearch);
   const [focusedMetricSeries, setFocusedMetricSeries] = createSignal<PulseMetricSeries[]>(props.initialFocusedMetricSeries ?? []);
@@ -167,8 +168,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const [selectedFocusedSeriesId, setSelectedFocusedSeriesId] = createSignal("");
   const [selectedFocusedStateId, setSelectedFocusedStateId] = createSignal("");
   const [selectedFocusedEventId, setSelectedFocusedEventId] = createSignal("");
-  const [activityMetricSeries, setActivityMetricSeries] = createSignal<PulseMetricSeries[]>(props.initialActivityMetricSeries ?? []);
-  const [activityMetricPoints, setActivityMetricPoints] = createSignal<MetricQueryPoint[]>(props.initialActivityMetricPoints ?? []);
   const [selectedSeriesId, setSelectedSeriesId] = createSignal("");
   const [selectedVisual, setSelectedVisual] = createSignal<PanelVisual>("line");
   const [selectedAggregation, setSelectedAggregation] = createSignal<Aggregation>("avg");
@@ -195,7 +194,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const [dashboardPreviewConfig, setDashboardPreviewConfig] = createSignal<PulseDashboardConfig | null>(null);
   const [dashboardDslSeededFor, setDashboardDslSeededFor] = createSignal("");
   const [dashboardDslSaving, setDashboardDslSaving] = createSignal(false);
-  const [origin, setOrigin] = createSignal("");
+  const [origin, setOrigin] = createSignal(props.initialOrigin ?? "");
   const [loading, setLoading] = createSignal(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = createSignal(false);
   let queryRunId = 0;
@@ -211,7 +210,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const selectedSource = createMemo(() => sources().find((source) => source.id === selectedSourceId()) ?? null);
   const selectedSourceScrapes = createMemo(() => (selectedSourceId() ? (sourceScrapes()[selectedSourceId()] ?? []) : []));
   const selectedSourceApiKeys = createMemo(() => (selectedSourceId() ? (sourceApiKeys()[selectedSourceId()] ?? []) : []));
-  const selectedActivityMetric = createMemo(() => activityMetrics().find((metric) => metric.name === selectedActivityMetricName()) ?? null);
   const focusedMetric = createMemo(() => metrics().find((metric) => metric.name === focusedSignalId()) ?? null);
   const selectedFocusedSeries = createMemo(
     () => focusedMetricSeries().find((item) => item.id === selectedFocusedSeriesId()) ?? focusedMetricSeries()[0] ?? null,
@@ -226,6 +224,11 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const sourceNameById = createMemo(() => new Map(sources().map((source) => [source.id, source.name])));
   const metricByName = createMemo(() => new Map(metrics().map((metric) => [metric.name, metric])));
   const sourceById = createMemo(() => new Map(sources().map((source) => [source.id, source])));
+  const pulseDateContext = createMemo(() => ({
+    ...defaultPulseDateContext,
+    ...(props.initialDateConfig ?? {}),
+    now: props.initialNow ?? new Date().toISOString(),
+  }));
   const eventGroups = createMemo<ActivityEventGroup[]>(() => {
     const groups = new Map<string, ActivityEventGroup>();
     for (const event of recentEvents()) {
@@ -267,8 +270,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     for (const group of groups.values()) group.rows.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
     return [...groups.values()].sort((left, right) => Date.parse(right.latest.updatedAt) - Date.parse(left.latest.updatedAt));
   });
-  const selectedEvent = createMemo(() => eventGroups().find((group) => group.id === selectedEventId()) ?? null);
-  const selectedState = createMemo(() => stateGroups().find((group) => group.id === selectedStateId()) ?? null);
   const resourceByKey = createMemo(() => new Map(inventory().resources.map((resource) => [resource.key, resource])));
   const selectedResource = createMemo(() => resourceByKey().get(selectedResourceKey()) ?? inventory().resources[0] ?? null);
   const resourceNeedle = createMemo(() => resourceSearch().trim().toLowerCase());
@@ -281,6 +282,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     inventory().resources.filter((resource) =>
       resourceMatches([
         resource.id,
+        resource.label,
         resource.type,
         ...resource.sourceIds.map((sourceId) => sourceNameById().get(sourceId) ?? sourceId),
         ...Object.keys(resource.dimensions),
@@ -310,17 +312,11 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       [source.name, source.kind, source.endpointUrl ?? "", source.lastError ?? ""].some((value) => value.toLowerCase().includes(q)),
     );
   });
-  const activityMetricSources = createMemo(() => {
-    const unique = new Map<string, PulseSource>();
-    for (const item of activityMetricSeries()) {
-      const source = sourceById().get(item.sourceId ?? "");
-      if (source) unique.set(source.id, source);
-    }
-    return [...unique.values()];
-  });
   const sourceColumns: DataTableColumn<PulseSource>[] = [
     { id: "source", header: "Source", value: "name", cellClass: "min-w-56" },
     { id: "status", header: "Status", cellClass: "w-28 whitespace-nowrap" },
+    { id: "resources", header: "Resources", cellClass: "w-24 whitespace-nowrap" },
+    { id: "signals", header: "Signals", cellClass: "w-32 whitespace-nowrap" },
     { id: "target", header: "Target", cellClass: "min-w-48" },
     { id: "seen", header: "Last seen", cellClass: "w-48 whitespace-nowrap" },
   ];
@@ -343,7 +339,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     { id: "kind", header: "Event", value: "kind", cellClass: "min-w-52" },
     { id: "subject", header: "Subject", value: "subject", cellClass: "min-w-56" },
     { id: "source", header: "Source", cellClass: "w-40 whitespace-nowrap" },
-    { id: "value", header: "Latest value", cellClass: "w-28 whitespace-nowrap" },
+    { id: "value", header: "Latest value", cellClass: "min-w-32 whitespace-nowrap" },
     { id: "count", header: "Rows", cellClass: "w-20 whitespace-nowrap" },
     { id: "time", header: "Latest", cellClass: "w-44 whitespace-nowrap" },
   ];
@@ -365,11 +361,14 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     { id: "name", header: "Metric", value: "name", cellClass: "min-w-72" },
     { id: "type", header: "Type", value: "type", cellClass: "w-24 whitespace-nowrap" },
     { id: "unit", header: "Unit", cellClass: "w-24 whitespace-nowrap" },
+    { id: "sources", header: "Sources", cellClass: "w-24 whitespace-nowrap" },
+    { id: "resources", header: "Resources", cellClass: "w-28 whitespace-nowrap" },
     { id: "series", header: "Variants", cellClass: "w-24 whitespace-nowrap" },
     { id: "lastSeen", header: "Last seen", cellClass: "w-44 whitespace-nowrap" },
   ];
   const metricSeriesColumns: DataTableColumn<PulseMetricSeries>[] = [
     { id: "subject", header: "Subject", cellClass: "min-w-56" },
+    { id: "current", header: "Current", cellClass: "w-32 whitespace-nowrap" },
     { id: "source", header: "Source", cellClass: "w-40 whitespace-nowrap" },
     { id: "dimensions", header: "Dimensions", cellClass: "min-w-56" },
     { id: "lastSeen", header: "Last seen", cellClass: "w-44 whitespace-nowrap" },
@@ -389,8 +388,30 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       series: series(),
     }),
   );
+  const metricScopeByName = createMemo(() => {
+    const scopes = new Map<string, { sources: Set<string>; resources: Set<string> }>();
+    for (const metric of inventory().metrics) {
+      const scope = scopes.get(metric.metric) ?? { sources: new Set<string>(), resources: new Set<string>() };
+      if (metric.sourceId) scope.sources.add(metric.sourceId);
+      scope.resources.add(metric.resourceKey);
+      scopes.set(metric.metric, scope);
+    }
+    return scopes;
+  });
   const browseEntities = createMemo(() => {
     const entities = new Map<string, BrowseEntity>();
+    const resourceIds = new Set(inventory().resources.map((resource) => resource.id));
+    for (const resource of inventory().resources) {
+      entities.set(resource.id, {
+        id: resource.id,
+        type: resource.type,
+        sourceIds: resource.sourceIds,
+        metricCount: resource.metricCount,
+        eventCount: resource.eventCount,
+        stateCount: resource.stateCount,
+        dimensions: resource.dimensions,
+      });
+    }
     const ensure = (entityId: string | null, entityType: string | null, sourceId: string | null, dimensions: Record<string, string>) => {
       if (!entityId) return null;
       const current =
@@ -412,15 +433,15 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     };
     for (const item of series()) {
       const entity = ensure(item.entityId, item.entityType, item.sourceId, item.dimensions);
-      if (entity) entity.metricCount += 1;
+      if (entity && !resourceIds.has(entity.id)) entity.metricCount += 1;
     }
     for (const item of recentEvents()) {
       const entity = ensure(item.entityId, item.entityType, item.sourceId, item.dimensions);
-      if (entity) entity.eventCount += 1;
+      if (entity && !resourceIds.has(entity.id)) entity.eventCount += 1;
     }
     for (const item of currentStates()) {
       const entity = ensure(item.entityId, item.entityType, item.sourceId, item.dimensions);
-      if (entity) entity.stateCount += 1;
+      if (entity && !resourceIds.has(entity.id)) entity.stateCount += 1;
     }
     return [...entities.values()].sort((left, right) => {
       const rightCount = right.metricCount + right.eventCount + right.stateCount;
@@ -646,7 +667,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     const metric = selectedMetric();
     if (!metric) return "";
     const seriesFilter = selectedSeries();
-    const sourceId = seriesFilter?.sourceId ?? selectedSourceId();
+    const sourceId = seriesFilter?.sourceId ?? selectedQuerySourceId();
     return buildPulseQuery({
       metric,
       aggregation: selectedAggregation(),
@@ -710,17 +731,12 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     ) {
       return;
     }
-    const nextEventGroupIds = new Set(nextEvents.map(eventGroupId));
-    const nextStateGroupIds = new Set(nextStates.map(stateGroupId));
     setRecentEvents(nextEvents);
     setCurrentStates(nextStates);
     setActivityMetrics(nextMetrics);
-    setSelectedEventId((current) => (current && nextEventGroupIds.has(current) ? current : ""));
-    setSelectedStateId((current) => (current && nextStateGroupIds.has(current) ? current : ""));
-    setSelectedActivityMetricName((current) => (current && nextMetrics.some((metric) => metric.name === current) ? current : ""));
   };
 
-  const loadSeries = async (baseId = selectedBaseId(), metric = selectedMetric(), sourceId = selectedSourceId()) => {
+  const loadSeries = async (baseId = selectedBaseId(), metric = selectedMetric(), sourceId = selectedQuerySourceId()) => {
     if (!baseId || !metric) {
       setSeries([]);
       setSelectedSeriesId("");
@@ -829,9 +845,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       activity: {
         q: activitySearch(),
         type: metricTypeFilter(),
-        eventId: nextState.view === "activity-events" ? selectedEventId() : "",
-        stateId: nextState.view === "activity-states" ? selectedStateId() : "",
-        metric: nextState.view === "activity-metrics" ? selectedActivityMetricName() : "",
       },
       focusedSearch: focusedSearch(),
     });
@@ -850,9 +863,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       activity: {
         q: activitySearch(),
         type: metricTypeFilter(),
-        eventId: nextState.view === "activity-events" ? selectedEventId() : "",
-        stateId: nextState.view === "activity-states" ? selectedStateId() : "",
-        metric: nextState.view === "activity-metrics" ? selectedActivityMetricName() : "",
       },
       focusedSearch: focusedSearch(),
     };
@@ -1414,29 +1424,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     return "latest";
   };
 
-  const loadActivityMetricDetail = async (metric: PulseMetricSummary | null, baseId = selectedBaseId()) => {
-    if (!baseId || !metric) {
-      setActivityMetricSeries([]);
-      setActivityMetricPoints([]);
-      return;
-    }
-    const [nextSeries, nextPoints] = await Promise.all([
-      fetchMetricSeries(baseId, metric.name).catch(() => []),
-      jsonFetch<MetricQueryPoint[]>("/api/pulse/query/metric", {
-        method: "POST",
-        body: JSON.stringify({
-          baseId,
-          metric: metric.name,
-          aggregation: defaultMetricAggregation(metric.type),
-          bucket: metric.type === "gauge" ? "1m" : "5m",
-          since: "24h",
-        }),
-      }).catch(() => []),
-    ]);
-    setActivityMetricSeries(nextSeries);
-    setActivityMetricPoints(nextPoints);
-  };
-
   const currentExplorerQuery = () => queryText().trim() || defaultQueryText() || defaultPulseQuery(metrics());
 
   const applyQueryDimensionFilter = (key: string, value: string) => {
@@ -1536,7 +1523,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         setSelectedAggregation(result.compiled.aggregation);
         setSelectedBucket(result.compiled.bucket);
         setSelectedSince(result.compiled.since);
-        setSelectedSourceId(result.compiled.sourceId ?? "");
+        setSelectedQuerySourceId(result.compiled.sourceId ?? "");
       } else if (explorerResultView() === "chart") {
         setExplorerResultView("table");
       }
@@ -2014,7 +2001,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       );
     }
     if (panel.visual === "bar") {
-      return <Chart kind="bar" class="h-48 text-dimmed" data={pointsToBars(data)} showValues={data.length <= 16} />;
+      return <Chart kind="bar" class="h-48 text-dimmed" data={pointsToBars(data, pulseDateContext())} showValues={data.length <= 16} />;
     }
     if (panel.visual === "histogram") {
       return <Chart kind="histogram" class="h-48 text-dimmed" data={pointsToHistogram(data)} bins={12} yAxis={{ label: "Count" }} />;
@@ -2024,7 +2011,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         <Chart
           kind="heatmap"
           class="h-48 text-dimmed"
-          data={pointsToHeatmap(data)}
+          data={pointsToHeatmap(data, pulseDateContext())}
           format={(value) => formatValue(value)}
           showValues={data.length <= 48}
         />
@@ -2047,7 +2034,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         kind="line"
         class="h-48 text-dimmed"
         series={[{ label: panel.title, data: data.map((point) => ({ x: Date.parse(point.bucket), y: point.value ?? 0 })) }]}
-        xAxis={{ format: (value) => compactDate(new Date(value).toISOString()) }}
+        xAxis={{ format: (value) => compactDate(new Date(value).toISOString(), pulseDateContext()) }}
         yAxis={{ format: (value) => formatValue(value) }}
         smooth
         area
@@ -2159,7 +2146,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   };
 
   onMount(() => {
-    setOrigin(window.location.origin);
+    if (!origin()) setOrigin(window.location.origin);
     void loadBaseData();
   });
 
@@ -2298,7 +2285,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   });
 
   createEffect(() => {
-    void loadSeries(selectedBaseId(), selectedMetric(), selectedSourceId()).catch(() => {
+    void loadSeries(selectedBaseId(), selectedMetric(), selectedQuerySourceId()).catch(() => {
       setSeries([]);
       setSelectedSeriesId("");
     });
@@ -2326,15 +2313,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       setActivityMetrics([]);
     });
     onCleanup(() => refresh.abort());
-  });
-
-  createEffect(() => {
-    const baseId = selectedBaseId();
-    const metric = selectedActivityMetric();
-    void loadActivityMetricDetail(metric, baseId).catch(() => {
-      setActivityMetricSeries([]);
-      setActivityMetricPoints([]);
-    });
   });
 
   createEffect(() => {
@@ -2404,15 +2382,22 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   };
 
   const openSources = () => {
-    navigateWorkspace({ view: "sources", sourceId: selectedSourceId() });
+    const sourceId = sources().some((source) => source.id === selectedSourceId()) ? selectedSourceId() : "";
+    setSelectedSourceId(sourceId);
+    navigateWorkspace({ view: "sources", sourceId });
   };
 
   const selectSource = (source: PulseSource) => {
+    setSelectedSourceId(source.id);
     navigateWorkspace({ view: "sources", sourceId: source.id });
   };
 
   const openQueryExplorer = () => navigateWorkspace({ view: "explorer" });
   const openResources = () => navigateWorkspace({ view: "resources" });
+  const openResourceDetailView = (key: string) => {
+    setSelectedResourceKey(key);
+    navigateWorkspace({ view: "resource-detail", signalId: key });
+  };
   const openActivityEvents = () => navigateWorkspace({ view: "activity-events" });
   const openActivityStates = () => navigateWorkspace({ view: "activity-states" });
   const openActivityMetrics = () => navigateWorkspace({ view: "activity-metrics" });
@@ -2433,34 +2418,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
   const updateMetricTypeFilter = (value: string[]) => {
     setMetricTypeFilter((value[0] ?? "") as "" | MetricType);
-    replaceActivityUrl();
-  };
-
-  const selectEvent = (group: ActivityEventGroup) => {
-    setSelectedEventId(group.id);
-    setSelectedStateId("");
-    setSelectedActivityMetricName("");
-    replaceActivityUrl();
-  };
-
-  const selectState = (group: ActivityStateGroup) => {
-    setSelectedStateId(group.id);
-    setSelectedEventId("");
-    setSelectedActivityMetricName("");
-    replaceActivityUrl();
-  };
-
-  const selectActivityMetric = (metric: PulseMetricSummary) => {
-    setSelectedActivityMetricName(metric.name);
-    setSelectedEventId("");
-    setSelectedStateId("");
-    replaceActivityUrl();
-  };
-
-  const closeActivityDetail = () => {
-    setSelectedEventId("");
-    setSelectedStateId("");
-    setSelectedActivityMetricName("");
     replaceActivityUrl();
   };
 
@@ -2762,6 +2719,19 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         </span>
       );
     }
+    if (col.id === "resources") {
+      const counts = sourcePublishedCounts(source.id);
+      return <span class="text-xs text-secondary">{counts.resources.toLocaleString()}</span>;
+    }
+    if (col.id === "signals") {
+      const counts = sourcePublishedCounts(source.id);
+      const total = counts.metricVariants + counts.states + counts.events;
+      return (
+        <span class="text-xs text-secondary">
+          {total.toLocaleString()} <span class="text-dimmed">({counts.metricVariants}m/{counts.states}s/{counts.events}e)</span>
+        </span>
+      );
+    }
     if (col.id === "target") {
       if (source.kind === "metrics") {
         return (
@@ -2776,7 +2746,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       if (source.kind === "http_ingest") return <span class="text-xs text-secondary">Token ingest endpoint</span>;
       return <span class="text-xs text-secondary">Internal app telemetry</span>;
     }
-    if (col.id === "seen") return source.lastSeenAt ? compactDateWithDelta(source.lastSeenAt) : "Waiting";
+    if (col.id === "seen") return source.lastSeenAt ? compactDateWithDelta(source.lastSeenAt, pulseDateContext()) : "Waiting";
     return render(source[col.id as keyof PulseSource]);
   };
 
@@ -2795,7 +2765,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         </span>
       );
     }
-    if (col.id === "finished") return <span class="text-xs text-secondary">{compactDateWithDelta(scrape.finishedAt)}</span>;
+    if (col.id === "finished") return <span class="text-xs text-secondary">{compactDateWithDelta(scrape.finishedAt, pulseDateContext())}</span>;
     if (col.id === "samples") return <span class="text-xs text-secondary">{formatIngestCounts(scrape)}</span>;
     if (col.id === "duration") return <span class="text-xs text-secondary">{scrape.durationMs}ms</span>;
     if (col.id === "error") {
@@ -2834,7 +2804,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       );
     }
     if (col.id === "value") return <span class="text-xs text-secondary">{event.value === null ? "-" : formatValue(event.value)}</span>;
-    if (col.id === "time") return <span class="text-xs text-secondary">{compactDateWithDelta(event.ts)}</span>;
+    if (col.id === "time") return <span class="text-xs text-secondary">{compactDateWithDelta(event.ts, pulseDateContext())}</span>;
     return render(event[col.id as keyof PulseRecordedEvent]);
   };
 
@@ -2846,16 +2816,15 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     if (col.id === "kind") {
       return (
         <span class="flex min-w-0 items-center gap-1.5">
-          {renderFullViewButton("Open full event view", () => openEventDetailView(group.kind))}
+          {renderSignalInfoButton("Open event", () => openEventDetailView(group.kind))}
           <span class="truncate">{group.kind}</span>
         </span>
       );
     }
     if (col.id === "source") return renderSourceLink(group.sourceId);
-    if (col.id === "value")
-      return <span class="text-xs text-secondary">{group.latest.value === null ? "-" : formatValue(group.latest.value)}</span>;
+    if (col.id === "value") return <span class="text-xs text-secondary">{group.latest.value === null ? "-" : formatValue(group.latest.value)}</span>;
     if (col.id === "count") return <span class="text-xs text-secondary">{group.rows.length}</span>;
-    if (col.id === "time") return <span class="text-xs text-secondary">{compactDateWithDelta(group.latest.ts)}</span>;
+    if (col.id === "time") return <span class="text-xs text-secondary">{compactDateWithDelta(group.latest.ts, pulseDateContext())}</span>;
     return render(group[col.id as keyof ActivityEventGroup]);
   };
 
@@ -2887,7 +2856,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         </span>
       );
     }
-    if (col.id === "updated") return <span class="text-xs text-secondary">{compactDateWithDelta(state.updatedAt)}</span>;
+    if (col.id === "updated") return <span class="text-xs text-secondary">{compactDateWithDelta(state.updatedAt, pulseDateContext())}</span>;
     return render(state[col.id as keyof PulseCurrentState]);
   };
 
@@ -2899,7 +2868,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     if (col.id === "key") {
       return (
         <span class="flex min-w-0 items-center gap-1.5">
-          {renderFullViewButton("Open full state view", () => openStateDetailView(group.key))}
+          {renderSignalInfoButton("Open state", () => openStateDetailView(group.key))}
           <span class="truncate">{group.key}</span>
         </span>
       );
@@ -2913,7 +2882,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         </span>
       );
     }
-    if (col.id === "updated") return <span class="text-xs text-secondary">{compactDateWithDelta(group.latest.updatedAt)}</span>;
+    if (col.id === "updated") return <span class="text-xs text-secondary">{compactDateWithDelta(group.latest.updatedAt, pulseDateContext())}</span>;
     return render(group[col.id as keyof ActivityStateGroup]);
   };
 
@@ -2925,15 +2894,23 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     if (col.id === "name") {
       return (
         <span class="flex min-w-0 items-center gap-1.5">
-          {renderFullViewButton("Open full metric view", () => openMetricDetailView(metric.name))}
+          {renderSignalInfoButton("Open metric", () => openMetricDetailView(metric.name))}
           <span class="truncate">{metric.name}</span>
         </span>
       );
     }
     if (col.id === "unit") return <span class="text-xs text-secondary">{metric.unit ?? "-"}</span>;
+    if (col.id === "sources") {
+      const count = metricScopeByName().get(metric.name)?.sources.size ?? 0;
+      return <span class="text-xs text-secondary">{count || "-"}</span>;
+    }
+    if (col.id === "resources") {
+      const count = metricScopeByName().get(metric.name)?.resources.size ?? 0;
+      return <span class="text-xs text-secondary">{count || "-"}</span>;
+    }
     if (col.id === "series") return <span class="text-xs text-secondary">{metric.seriesCount}</span>;
     if (col.id === "lastSeen")
-      return <span class="text-xs text-secondary">{metric.lastSeenAt ? compactDateWithDelta(metric.lastSeenAt) : "-"}</span>;
+      return <span class="text-xs text-secondary">{metric.lastSeenAt ? compactDateWithDelta(metric.lastSeenAt, pulseDateContext()) : "-"}</span>;
     return render(metric[col.id as keyof PulseMetricSummary]);
   };
 
@@ -2945,6 +2922,14 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     if (col.id === "subject") {
       return <span class="truncate text-xs font-medium text-secondary">{signalSubject(item)}</span>;
     }
+    if (col.id === "current") {
+      const unit = focusedMetric()?.unit;
+      return (
+        <span class="text-xs font-medium text-primary">
+          {item.latestValue === null ? "-" : `${formatValue(item.latestValue)}${unit ? ` ${unit}` : ""}`}
+        </span>
+      );
+    }
     if (col.id === "source") return renderSourceLink(item.sourceId);
     if (col.id === "dimensions") {
       const summary = dimensionsSummary(item.dimensions, 6);
@@ -2954,7 +2939,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         </span>
       );
     }
-    if (col.id === "lastSeen") return <span class="text-xs text-secondary">{item.lastSeenAt ? compactDateWithDelta(item.lastSeenAt) : "-"}</span>;
+    if (col.id === "lastSeen") return <span class="text-xs text-secondary">{item.lastSeenAt ? compactDateWithDelta(item.lastSeenAt, pulseDateContext()) : "-"}</span>;
     return render(item[col.id as keyof PulseMetricSeries]);
   };
 
@@ -2984,6 +2969,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
   const openSourceFromDetail = (sourceId: string | null | undefined) => {
     if (!sourceId) return;
+    setSelectedSourceId(sourceId);
     navigateWorkspace({ view: "sources", sourceId });
   };
 
@@ -3005,7 +2991,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     );
   };
 
-  const renderFullViewButton = (label: string, onClick: () => void) => (
+  const renderSignalInfoButton = (label: string, onClick: () => void) => (
     <button
       type="button"
       class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-dimmed transition hover:bg-blue-100 hover:text-blue-600 dark:hover:bg-blue-950 dark:hover:text-blue-300"
@@ -3015,31 +3001,65 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         onClick();
       }}
     >
-      <i class="ti ti-eye text-sm" />
+      <i class="ti ti-info-circle text-sm" />
     </button>
   );
 
   const resourceSourceLabel = (resource: PulseResourceSummary): string =>
     resource.sourceIds.map((sourceId) => sourceNameById().get(sourceId) ?? "Unknown source").join(", ") || "No source";
 
+  const openSourceResources = (source: PulseSource) => {
+    setResourceSearch(source.name);
+    navigateWorkspace({ view: "resources" });
+  };
+
+  const sourcePublishedCounts = (sourceId: string) => ({
+    resources: inventory().resources.filter((resource) => resource.sourceIds.includes(sourceId)).length,
+    metricVariants: inventory().metrics.filter((metric) => metric.sourceId === sourceId).length,
+    states: inventory().states.filter((state) => state.sourceId === sourceId).length,
+    events: inventory().events.filter((event) => event.sourceId === sourceId).length,
+  });
+
   const renderResourceBrowserView = () => (
-    <ResourceBrowserView
+      <ResourceBrowserView
       search={resourceSearch}
       setSearch={setResourceSearch}
       inventory={inventory}
       filteredResources={filteredResources}
-      selectedResource={visibleSelectedResource}
-      setSelectedResourceKey={setSelectedResourceKey}
-      resourceSourceLabel={resourceSourceLabel}
-      selectedResourceMetrics={selectedResourceMetrics}
-      selectedResourceStates={selectedResourceStates}
-      selectedResourceEvents={selectedResourceEvents}
-      sourceNameById={sourceNameById}
-      openMetricQuery={openMetricQuery}
-      openStateQuery={openStateQuery}
-      openEventQuery={openEventQuery}
-    />
+        selectedResource={visibleSelectedResource}
+        dateContext={pulseDateContext()}
+        openResource={openResourceDetailView}
+        resourceSourceLabel={resourceSourceLabel}
+      />
   );
+
+  const renderResourceDetailView = () => {
+    const resource = selectedResource();
+    if (!resource) {
+      return (
+        <section class="paper flex min-h-0 flex-1 items-center justify-center p-6 text-center text-sm text-dimmed">
+          Resource not found.
+        </section>
+      );
+    }
+    return (
+      <ResourceDetailView
+        resource={resource}
+        metrics={selectedResourceMetrics()}
+        states={selectedResourceStates()}
+        events={selectedResourceEvents()}
+        dateContext={pulseDateContext()}
+        sourceNameById={sourceNameById}
+        openSource={openSourceFromDetail}
+        openMetricQuery={openMetricQuery}
+        openMetricVariants={openMetricDetailView}
+        openStateQuery={openStateQuery}
+        openStateVariants={openStateDetailView}
+        openEventQuery={openEventQuery}
+        openEventVariants={openEventDetailView}
+      />
+    );
+  };
 
   const renderSourcesView = () => (
     <section class="flex min-h-0 flex-1 flex-col gap-3">
@@ -3253,7 +3273,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       );
     }
     if (selectedVisual() === "bar")
-      return <Chart kind="bar" class="h-full min-h-72 text-dimmed" data={pointsToBars(data)} showValues={data.length <= 16} />;
+      return <Chart kind="bar" class="h-full min-h-72 text-dimmed" data={pointsToBars(data, pulseDateContext())} showValues={data.length <= 16} />;
     if (selectedVisual() === "histogram")
       return (
         <Chart kind="histogram" class="h-full min-h-72 text-dimmed" data={pointsToHistogram(data)} bins={12} yAxis={{ label: "Count" }} />
@@ -3263,7 +3283,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         <Chart
           kind="heatmap"
           class="h-full min-h-72 text-dimmed"
-          data={pointsToHeatmap(data)}
+          data={pointsToHeatmap(data, pulseDateContext())}
           format={(value) => formatValue(value)}
           showValues={data.length <= 48}
         />
@@ -3273,7 +3293,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         kind="line"
         class="h-full min-h-72 text-dimmed"
         series={previewSeries()}
-        xAxis={{ format: (value) => compactDate(new Date(value).toISOString()) }}
+        xAxis={{ format: (value) => compactDate(new Date(value).toISOString(), pulseDateContext()) }}
         yAxis={{ format: (value) => formatValue(value) }}
         smooth
         area
@@ -3593,15 +3613,15 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
               {(entity) => (
                 <span class={scopeTagClass}>
                   <i class="ti ti-cube" />
-                  <span class="truncate">Entity: {entity().id}</span>
-                  <button type="button" class={clearScopeButtonClass} onClick={() => setBrowseEntityId("")} aria-label="Clear entity scope">
+                  <span class="truncate">Resource: {entity().id}</span>
+                  <button type="button" class={clearScopeButtonClass} onClick={() => setBrowseEntityId("")} aria-label="Clear resource scope">
                     <i class="ti ti-x" />
                   </button>
                 </span>
               )}
             </Show>
             <Show when={!selectedBrowseSource() && !selectedBrowseEntity()}>
-              <span class="text-xs text-dimmed">Select a source or entity to narrow the signals below.</span>
+              <span class="text-xs text-dimmed">Select a source or resource to narrow the signals below.</span>
             </Show>
           </div>
         </div>
@@ -3635,12 +3655,12 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
             <section class="rounded bg-zinc-50/80 p-2 dark:bg-zinc-900/45">
               <div class="mb-1 flex items-center justify-between gap-2 px-1">
-                <h3 class="text-label text-xs">Entities</h3>
+                <h3 class="text-label text-xs">Resources</h3>
                 <span class="text-[11px] text-dimmed">{plural(browseVisibleEntities().length, "shown")}</span>
               </div>
               <Show
                 when={browseVisibleEntities().length > 0}
-                fallback={<p class="px-1 py-2 text-xs text-dimmed">No matching entities yet.</p>}
+                fallback={<p class="px-1 py-2 text-xs text-dimmed">No matching resources yet.</p>}
               >
                 <For each={browseVisibleEntities()}>
                   {(entity) => (
@@ -3820,7 +3840,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
               onClick={() => setQueryText(item.query)}
             >
               <code class="block truncate font-mono text-[11px] text-secondary">{item.query}</code>
-              <span class="text-[11px] text-dimmed">{compactDateWithDelta(item.ranAt)}</span>
+              <span class="text-[11px] text-dimmed">{compactDateWithDelta(item.ranAt, pulseDateContext())}</span>
             </button>
           )}
         </For>
@@ -3857,8 +3877,8 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         rows={eventGroups()}
         columns={eventGroupColumns}
         getRowId={(group) => group.id}
-        selectedRowId={selectedEventId() || null}
-        onRowClick={selectEvent}
+        selectedRowId={null}
+        onRowClick={(group) => openEventDetailView(group.kind)}
         density="compact"
         fillHeight
         class="paper flex-1 min-h-0 overflow-auto"
@@ -3876,8 +3896,8 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         rows={stateGroups()}
         columns={stateGroupColumns}
         getRowId={(group) => group.id}
-        selectedRowId={selectedStateId() || null}
-        onRowClick={selectState}
+        selectedRowId={null}
+        onRowClick={(group) => openStateDetailView(group.key)}
         density="compact"
         fillHeight
         class="paper flex-1 min-h-0 overflow-auto"
@@ -3895,8 +3915,8 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         rows={activityMetrics()}
         columns={metricColumns}
         getRowId={(metric) => metric.name}
-        selectedRowId={selectedActivityMetricName() || null}
-        onRowClick={selectActivityMetric}
+        selectedRowId={null}
+        onRowClick={(metric) => openMetricDetailView(metric.name)}
         density="compact"
         fillHeight
         class="paper flex-1 min-h-0 overflow-auto"
@@ -3948,6 +3968,8 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
               ? renderSourcesView()
               : activeView() === "resources"
                 ? renderResourceBrowserView()
+                : activeView() === "resource-detail"
+                  ? renderResourceDetailView()
                 : activeView() === "metric-detail" || activeView() === "state-detail" || activeView() === "event-detail"
                   ? renderFocusedSignalView()
                   : activeView() === "explorer"
@@ -3962,9 +3984,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       <AppWorkspace.Detail
         open={
           (activeView() === "sources" && Boolean(selectedSource())) ||
-          (activeView() === "activity-events" && Boolean(selectedEvent())) ||
-          (activeView() === "activity-states" && Boolean(selectedState())) ||
-          (activeView() === "activity-metrics" && Boolean(selectedActivityMetric())) ||
           (activeView() === "metric-detail" && Boolean(selectedFocusedSeries())) ||
           (activeView() === "state-detail" && Boolean(selectedFocusedState())) ||
           (activeView() === "event-detail" && Boolean(selectedFocusedEvent()))
@@ -3977,16 +3996,22 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
             {(source) => (
               <SourceDetailView
                 source={source}
+                published={sourcePublishedCounts(source.id)}
                 origin={origin()}
+                dateContext={pulseDateContext()}
                 loading={loading()}
                 scrapes={selectedSourceScrapes()}
                 apiKeys={selectedSourceApiKeys()}
                 scrapeColumns={sourceScrapeColumns}
                 renderScrapeCell={renderSourceScrapeCell}
                 copySetupText={copySetupText}
+                openSourceResources={openSourceResources}
                 editSource={editSource}
                 toggleSource={toggleSource}
-                close={() => navigateWorkspace({ view: "sources" })}
+                close={() => {
+                  setSelectedSourceId("");
+                  navigateWorkspace({ view: "sources" });
+                }}
                 scrape={scrape}
                 removeSource={removeSource}
                 createApiKey={async (input) => {
@@ -4014,51 +4039,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
               />
             )}
           </Show>
-        ) : activeView() === "activity-events" ? (
-          <Show when={selectedEvent()} keyed>
-            {(event) => (
-              <ActivityEventDetail
-                group={event}
-                sourceNameById={sourceNameById}
-                openSource={openSourceFromDetail}
-                eventColumns={eventColumns}
-                renderEventCell={renderEventCell}
-                close={closeActivityDetail}
-                openFullView={openEventDetailView}
-              />
-            )}
-          </Show>
-        ) : activeView() === "activity-states" ? (
-          <Show when={selectedState()} keyed>
-            {(state) => (
-              <ActivityStateDetail
-                group={state}
-                sourceNameById={sourceNameById}
-                openSource={openSourceFromDetail}
-                stateColumns={stateColumns}
-                renderStateCell={renderStateCell}
-                close={closeActivityDetail}
-                openFullView={openStateDetailView}
-              />
-            )}
-          </Show>
-        ) : activeView() === "activity-metrics" ? (
-          <Show when={selectedActivityMetric()} keyed>
-            {(metric) => (
-              <ActivityMetricDetail
-                metric={metric}
-                points={activityMetricPoints()}
-                series={activityMetricSeries()}
-                sources={activityMetricSources()}
-                sourceNameById={sourceNameById}
-                openSource={openSourceFromDetail}
-                metricSeriesColumns={metricSeriesColumns}
-                renderMetricSeriesCell={renderMetricSeriesCell}
-                close={closeActivityDetail}
-                openFullView={openMetricDetailView}
-              />
-            )}
-          </Show>
         ) : activeView() === "metric-detail" ? (
           <Show when={selectedFocusedSeries()} keyed>
             {(item) => (
@@ -4067,6 +4047,8 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
                 metricName={focusedSignalId()}
                 sourceId={item.sourceId}
                 sourceNameById={sourceNameById}
+                dateContext={pulseDateContext()}
+                metricUnit={focusedMetric()?.unit ?? null}
                 openSource={openSourceFromDetail}
               />
             )}
@@ -4078,6 +4060,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
                 state={state}
                 sourceId={state.sourceId}
                 sourceNameById={sourceNameById}
+                dateContext={pulseDateContext()}
                 openSource={openSourceFromDetail}
               />
             )}
@@ -4089,6 +4072,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
                 event={event}
                 sourceId={event.sourceId}
                 sourceNameById={sourceNameById}
+                dateContext={pulseDateContext()}
                 openSource={openSourceFromDetail}
               />
             )}

@@ -1,13 +1,7 @@
-import { StructuredDataPreview, TextInput } from "@valentinkolb/cloud/ui";
-import { For, Show } from "solid-js";
-import type {
-  PulseCurrentState,
-  PulseInventory,
-  PulseRecordedEvent,
-  PulseResourceMetric,
-  PulseResourceSummary,
-} from "../../contracts";
-import { compactDateWithDelta, dimensionsSummary, formatSignalValue, plural } from "./helpers";
+import { DataTable, TextInput, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { createMemo, For, Show } from "solid-js";
+import type { PulseInventory, PulseResourceSummary } from "../../contracts";
+import { compactDateWithDelta, dimensionsSummary, plural, type PulseDateContext } from "./helpers";
 
 type Props = {
   search: () => string;
@@ -15,18 +9,72 @@ type Props = {
   inventory: () => PulseInventory;
   filteredResources: () => PulseResourceSummary[];
   selectedResource: () => PulseResourceSummary | null;
-  setSelectedResourceKey: (key: string) => void;
+  dateContext: PulseDateContext;
+  openResource: (key: string) => void;
   resourceSourceLabel: (resource: PulseResourceSummary) => string;
-  selectedResourceMetrics: () => PulseResourceMetric[];
-  selectedResourceStates: () => PulseCurrentState[];
-  selectedResourceEvents: () => PulseRecordedEvent[];
-  sourceNameById: () => Map<string, string>;
-  openMetricQuery: (metric: PulseResourceMetric) => void;
-  openStateQuery: (state: PulseCurrentState) => void;
-  openEventQuery: (event: PulseRecordedEvent) => void;
+};
+
+const resourceIcon = (type: string | null) => {
+  if (type === "container") return "ti ti-box";
+  if (type === "host") return "ti ti-server";
+  if (type === "service") return "ti ti-route";
+  if (type === "project") return "ti ti-layout-grid";
+  if (type === "filesystem") return "ti ti-folder";
+  if (type === "network") return "ti ti-network";
+  if (type === "source") return "ti ti-database-share";
+  return "ti ti-cube";
 };
 
 export default function ResourceBrowserView(props: Props) {
+  const resourceColumns: DataTableColumn<PulseResourceSummary>[] = [
+    { id: "resource", header: "Resource", value: "label", cellClass: "min-w-72" },
+    { id: "type", header: "Type", value: "type", cellClass: "w-32 whitespace-nowrap" },
+    { id: "source", header: "Source", cellClass: "min-w-40" },
+    { id: "signals", header: "Signals", cellClass: "w-40 whitespace-nowrap" },
+    { id: "lastSeen", header: "Last seen", value: "lastSeenAt", cellClass: "w-44 whitespace-nowrap" },
+  ];
+  const typeCounts = createMemo(() => {
+    const counts = new Map<string, number>();
+    for (const resource of props.inventory().resources) {
+      const type = resource.type ?? "resource";
+      counts.set(type, (counts.get(type) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+  });
+  const sourceCount = createMemo(() => new Set(props.inventory().resources.flatMap((resource) => resource.sourceIds)).size);
+
+  const renderResourceCell = (resource: PulseResourceSummary, col: DataTableColumn<PulseResourceSummary>) => {
+    if (col.id === "resource") {
+      return (
+        <div class="flex min-w-0 items-center gap-2">
+          <span class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
+            <i class={`${resourceIcon(resource.type)} text-sm`} />
+          </span>
+          <div class="min-w-0">
+            <p class="truncate text-sm font-medium text-primary">{resource.label || resource.id}</p>
+            <p class="mt-0.5 truncate text-[11px] text-dimmed">{dimensionsSummary(resource.dimensions, 3) || resource.id}</p>
+          </div>
+        </div>
+      );
+    }
+    if (col.id === "type") return <span class="text-xs text-secondary">{resource.type ?? "resource"}</span>;
+    if (col.id === "source") return <span class="text-xs text-secondary">{props.resourceSourceLabel(resource)}</span>;
+    if (col.id === "signals") {
+      const count = resource.metricCount + resource.stateCount + resource.eventCount;
+      return (
+        <span class="text-xs text-secondary">
+          {plural(count, "signal")}{" "}
+          <span class="text-dimmed">
+            ({resource.metricCount}m/{resource.stateCount}s/{resource.eventCount}e)
+          </span>
+        </span>
+      );
+    }
+    if (col.id === "lastSeen")
+      return <span class="text-xs text-secondary">{resource.lastSeenAt ? compactDateWithDelta(resource.lastSeenAt, props.dateContext) : "-"}</span>;
+    return resource[col.id as keyof PulseResourceSummary] as string;
+  };
+
   return (
     <section class="flex min-h-0 flex-1 flex-col gap-3">
       <div class="flex shrink-0 flex-wrap items-center gap-2">
@@ -36,200 +84,49 @@ export default function ResourceBrowserView(props: Props) {
             icon="ti ti-search"
             value={props.search}
             onInput={props.setSearch}
-            placeholder="Search resources, sources, labels, hosts, containers..."
+            placeholder="Search resources, sources, labels, hosts, services..."
             clearable
           />
         </div>
-        <span class="chip">
-          <i class="ti ti-cube" />
-          {plural(props.inventory().resources.length, "resource")}
-        </span>
-        <span class="chip">
-          <i class="ti ti-chart-dots" />
-          {plural(props.inventory().metrics.length, "variant")}
-        </span>
       </div>
 
-      <div class="grid min-h-0 flex-1 gap-3 xl:grid-cols-[24rem_minmax(0,1fr)]">
-        <aside class="paper min-h-0 overflow-hidden">
-          <div class="flex h-full min-h-0 flex-col">
-            <div class="shrink-0 px-3 py-2">
-              <p class="text-label text-xs">Resources</p>
-              <p class="mt-1 text-xs text-dimmed">Hosts, containers, services, jobs, and other entities inferred from incoming data.</p>
-            </div>
-            <div class="min-h-0 flex-1 overflow-auto px-2 pb-2">
-              <Show when={props.filteredResources().length > 0} fallback={<p class="px-2 py-3 text-xs text-dimmed">No matching resources.</p>}>
-                <For each={props.filteredResources()}>
-                  {(item) => {
-                    const selected = () => props.selectedResource()?.key === item.key;
-                    return (
-                      <button
-                        type="button"
-                        class="block w-full rounded px-2 py-2 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                        classList={{ "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200": selected() }}
-                        onClick={() => props.setSelectedResourceKey(item.key)}
-                      >
-                        <span class="flex min-w-0 items-center gap-2">
-                          <i class={`ti ${item.type === "container" ? "ti-box" : item.type === "host" ? "ti-server" : "ti-cube"} text-sm`} />
-                          <span class="min-w-0 flex-1 truncate text-sm font-semibold">{item.id}</span>
-                          <span class="text-[11px] text-dimmed">{item.type ?? "resource"}</span>
-                        </span>
-                        <span class="mt-1 block truncate text-[11px] text-dimmed">{props.resourceSourceLabel(item)}</span>
-                        <span class="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-dimmed">
-                          <span>{plural(item.metricCount, "metric")}</span>
-                          <span>{plural(item.stateCount, "state")}</span>
-                          <span>{plural(item.eventCount, "event")}</span>
-                        </span>
-                      </button>
-                    );
-                  }}
-                </For>
-              </Show>
-            </div>
-          </div>
-        </aside>
-
-        <Show
-          when={props.selectedResource()}
-          fallback={
-            <div class="paper flex min-h-0 items-center justify-center p-6 text-center text-sm text-dimmed">
-              No resources detected yet. Push or scrape data with host, service, container, or entity dimensions to make Pulse browsable.
-            </div>
-          }
-        >
-          {(item) => (
-            <div class="min-h-0 overflow-auto">
-              <div class="grid gap-3">
-                <section class="paper p-4">
-                  <div class="flex flex-wrap items-start justify-between gap-3">
-                    <div class="min-w-0">
-                      <p class="text-label text-xs">Selected resource</p>
-                      <h2 class="mt-1 truncate text-xl font-semibold text-primary">{item().id}</h2>
-                      <p class="mt-1 text-sm text-dimmed">
-                        {item().type ?? "resource"} · {props.resourceSourceLabel(item())}
-                        {item().lastSeenAt ? ` · ${compactDateWithDelta(item().lastSeenAt as string)}` : ""}
-                      </p>
-                    </div>
-                    <div class="flex flex-wrap gap-2 text-xs text-dimmed">
-                      <span class="chip">
-                        <i class="ti ti-chart-dots" />
-                        {plural(item().metricCount, "metric")}
-                      </span>
-                      <span class="chip">
-                        <i class="ti ti-toggle-right" />
-                        {plural(item().stateCount, "state")}
-                      </span>
-                      <span class="chip">
-                        <i class="ti ti-bolt" />
-                        {plural(item().eventCount, "event")}
-                      </span>
-                    </div>
-                  </div>
-                  <Show when={Object.keys(item().dimensions).length > 0}>
-                    <div class="mt-3">
-                      <StructuredDataPreview title="Dimensions" data={item().dimensions} empty="No dimensions." />
-                    </div>
-                  </Show>
-                </section>
-
-                <div class="grid min-h-0 gap-3 2xl:grid-cols-3">
-                  <section class="paper min-h-80 overflow-hidden">
-                    <div class="flex items-center justify-between gap-2 px-3 py-2">
-                      <h3 class="text-label text-xs">Metrics</h3>
-                      <span class="text-[11px] text-dimmed">{plural(props.selectedResourceMetrics().length, "variant")}</span>
-                    </div>
-                    <div class="max-h-[36rem] overflow-auto px-2 pb-2">
-                      <Show when={props.selectedResourceMetrics().length > 0} fallback={<p class="px-1 py-3 text-xs text-dimmed">No metrics for this resource.</p>}>
-                        <For each={props.selectedResourceMetrics()}>
-                          {(metric) => (
-                            <button
-                              type="button"
-                              class="group block w-full rounded px-2 py-2 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                              onClick={() => props.openMetricQuery(metric)}
-                            >
-                              <span class="flex min-w-0 items-center gap-2">
-                                <i class="ti ti-chart-dots text-dimmed" />
-                                <span class="min-w-0 flex-1 truncate text-sm font-medium text-secondary">{metric.metric}</span>
-                                <i class="ti ti-arrow-right text-dimmed opacity-0 transition group-hover:opacity-100" />
-                              </span>
-                              <span class="mt-1 block truncate text-[11px] text-dimmed">
-                                {metric.type}
-                                {metric.unit ? ` · ${metric.unit}` : ""} · {props.sourceNameById().get(metric.sourceId ?? "") ?? "No source"}
-                              </span>
-                              <Show when={dimensionsSummary(metric.dimensions)}>
-                                {(summary) => <span class="mt-1 block truncate text-[11px] text-dimmed">{summary()}</span>}
-                              </Show>
-                            </button>
-                          )}
-                        </For>
-                      </Show>
-                    </div>
-                  </section>
-
-                  <section class="paper min-h-80 overflow-hidden">
-                    <div class="flex items-center justify-between gap-2 px-3 py-2">
-                      <h3 class="text-label text-xs">States</h3>
-                      <span class="text-[11px] text-dimmed">{plural(props.selectedResourceStates().length, "state")}</span>
-                    </div>
-                    <div class="max-h-[36rem] overflow-auto px-2 pb-2">
-                      <Show when={props.selectedResourceStates().length > 0} fallback={<p class="px-1 py-3 text-xs text-dimmed">No states for this resource.</p>}>
-                        <For each={props.selectedResourceStates()}>
-                          {(state) => (
-                            <button
-                              type="button"
-                              class="group block w-full rounded px-2 py-2 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                              onClick={() => props.openStateQuery(state)}
-                            >
-                              <span class="flex min-w-0 items-center gap-2">
-                                <i class="ti ti-toggle-right text-dimmed" />
-                                <span class="min-w-0 flex-1 truncate text-sm font-medium text-secondary">{state.key}</span>
-                                <i class="ti ti-arrow-right text-dimmed opacity-0 transition group-hover:opacity-100" />
-                              </span>
-                              <span class="mt-1 block truncate text-[11px] text-dimmed">{formatSignalValue(state.value)}</span>
-                              <span class="mt-1 block truncate text-[11px] text-dimmed">
-                                {props.sourceNameById().get(state.sourceId ?? "") ?? "No source"} · {compactDateWithDelta(state.updatedAt)}
-                              </span>
-                            </button>
-                          )}
-                        </For>
-                      </Show>
-                    </div>
-                  </section>
-
-                  <section class="paper min-h-80 overflow-hidden">
-                    <div class="flex items-center justify-between gap-2 px-3 py-2">
-                      <h3 class="text-label text-xs">Events</h3>
-                      <span class="text-[11px] text-dimmed">{plural(props.selectedResourceEvents().length, "recent event")}</span>
-                    </div>
-                    <div class="max-h-[36rem] overflow-auto px-2 pb-2">
-                      <Show when={props.selectedResourceEvents().length > 0} fallback={<p class="px-1 py-3 text-xs text-dimmed">No recent events for this resource.</p>}>
-                        <For each={props.selectedResourceEvents()}>
-                          {(event) => (
-                            <button
-                              type="button"
-                              class="group block w-full rounded px-2 py-2 text-left transition hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                              onClick={() => props.openEventQuery(event)}
-                            >
-                              <span class="flex min-w-0 items-center gap-2">
-                                <i class="ti ti-bolt text-dimmed" />
-                                <span class="min-w-0 flex-1 truncate text-sm font-medium text-secondary">{event.kind}</span>
-                                <i class="ti ti-arrow-right text-dimmed opacity-0 transition group-hover:opacity-100" />
-                              </span>
-                              <span class="mt-1 block truncate text-[11px] text-dimmed">
-                                {props.sourceNameById().get(event.sourceId ?? "") ?? "No source"} · {compactDateWithDelta(event.ts)}
-                              </span>
-                            </button>
-                          )}
-                        </For>
-                      </Show>
-                    </div>
-                  </section>
-                </div>
-              </div>
-            </div>
-          )}
-        </Show>
+      <div class="paper shrink-0 px-3 py-2">
+        <div class="flex flex-wrap items-center gap-2 text-xs text-secondary">
+          <span class="chip border-0">
+            <i class="ti ti-cube" />
+            {plural(props.inventory().resources.length, "resource")}
+          </span>
+          <span class="chip border-0">
+            <i class="ti ti-database-share" />
+            {plural(sourceCount(), "source")}
+          </span>
+          <For each={typeCounts().slice(0, 8)}>
+            {([type, count]) => (
+              <span class="chip border-0">
+                <i class={resourceIcon(type)} />
+                {type} · {count}
+              </span>
+            )}
+          </For>
+          <Show when={typeCounts().length > 8}>
+            <span class="text-xs text-dimmed">+{typeCounts().length - 8} types</span>
+          </Show>
+        </div>
       </div>
+
+      <DataTable
+        rows={props.filteredResources()}
+        columns={resourceColumns}
+        getRowId={(resource) => resource.key}
+        selectedRowId={props.selectedResource()?.key ?? null}
+        onRowClick={(resource) => props.openResource(resource.key)}
+        density="compact"
+        fillHeight
+        class="paper flex-1 min-h-0 overflow-auto"
+        empty="No resources detected yet."
+        scrollPreserveKey="pulse-resources-table"
+        renderCell={({ row, col }) => renderResourceCell(row, col)}
+      />
     </section>
   );
 }

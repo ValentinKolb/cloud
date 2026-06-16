@@ -1,11 +1,11 @@
 import { Layout } from "@valentinkolb/cloud/ssr";
-import type { AuthContext } from "@valentinkolb/cloud/server";
+import { getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
+import { get as getSetting } from "@valentinkolb/cloud/services";
 import { readDockWorkspaceStateCookie } from "@valentinkolb/cloud/ui";
 import type { ResourceApiKey } from "@valentinkolb/cloud/ui";
 import type {
   MetricQuery,
   MetricQueryPoint,
-  MetricType,
   PulseDashboard,
   PulseDashboardMetricWidget,
   PulseDashboardPanel,
@@ -47,17 +47,29 @@ const panelQuery = (baseId: string, panel: PulseDashboardPanel): MetricQuery => 
   dimensions: panel.dimensions ?? undefined,
 });
 
-const defaultMetricAggregation = (type: MetricType): MetricQuery["aggregation"] => {
-  if (type === "counter") return "rate";
-  if (type === "histogram" || type === "summary") return "p95";
-  return "latest";
-};
-
 const FOCUSED_PAGE_SIZE = 100;
+
+const publicOrigin = (rawAppUrl: string | null | undefined, requestOrigin: string): string => {
+  const raw = String(rawAppUrl ?? "").trim();
+  if (!raw) return requestOrigin;
+  const withScheme = /^https?:\/\//i.test(raw)
+    ? raw
+    : raw.startsWith("localhost") || raw.startsWith("127.") || raw.startsWith("[::1]")
+      ? `http://${raw}`
+      : `https://${raw}`;
+  try {
+    return new URL(withScheme).origin;
+  } catch {
+    return requestOrigin;
+  }
+};
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
   const url = new URL(c.req.raw.url);
+  const dateConfig = getDateConfig(c);
+  const appUrl = await getSetting<string>("app.url").catch(() => "");
+  const initialOrigin = publicOrigin(appUrl, url.origin);
   const baseId = c.req.param("baseId") ?? "";
   const [basesResult, baseResult, capabilitiesResult] = await Promise.all([
     pulseService.base.list(user),
@@ -108,13 +120,9 @@ export default ssr<AuthContext>(async (c) => {
   const dashboards = dashboardsResult.ok ? dashboardsResult.data : [];
   const selectedDashboard = dashboards.find((dashboard) => dashboard.id === routeState.dashboardId) ?? dashboards[0] ?? null;
   const selectedSource = sources.find((source) => source.id === routeState.sourceId) ?? null;
-  const selectedActivityMetricName = initialActivityQuery.metric;
-  const selectedActivityMetric = activityMetrics.find((metric) => metric.name === selectedActivityMetricName) ?? null;
   const [
     selectedSourceScrapesResult,
     selectedSourceApiKeysResult,
-    selectedActivityMetricSeriesResult,
-    selectedActivityMetricPointsResult,
     focusedMetricSeriesResult,
     focusedEventsResult,
     focusedStatesResult,
@@ -124,22 +132,6 @@ export default ssr<AuthContext>(async (c) => {
         : Promise.resolve(null),
       selectedSource?.kind === "http_ingest"
         ? pulseService.source.apiKeys.list({ baseId: baseResult.data.id, sourceId: selectedSource.id, user })
-        : Promise.resolve(null),
-      selectedActivityMetric
-        ? pulseService.query.series(baseResult.data.id, user, { metric: selectedActivityMetric.name })
-        : Promise.resolve(null),
-      selectedActivityMetric
-        ? pulseService.query.metric(
-            {
-              kind: "metric",
-              baseId: baseResult.data.id,
-              metric: selectedActivityMetric.name,
-              aggregation: defaultMetricAggregation(selectedActivityMetric.type),
-              bucket: selectedActivityMetric.type === "gauge" ? "1m" : "5m",
-              since: "24h",
-            },
-            user,
-          )
         : Promise.resolve(null),
       routeState.view === "metric-detail" && routeState.signalId
         ? pulseService.query.series(baseResult.data.id, user, {
@@ -208,8 +200,6 @@ export default ssr<AuthContext>(async (c) => {
         initialActivityMetrics={activityMetrics}
         initialRecentEvents={eventsResult.ok ? eventsResult.data : []}
         initialCurrentStates={statesResult.ok ? statesResult.data : []}
-        initialActivityMetricSeries={selectedActivityMetricSeriesResult?.ok ? selectedActivityMetricSeriesResult.data : []}
-        initialActivityMetricPoints={selectedActivityMetricPointsResult?.ok ? selectedActivityMetricPointsResult.data : []}
         initialFocusedMetricSeries={focusedMetricSeries}
         initialFocusedEvents={focusedEvents}
         initialFocusedStates={focusedStates}
@@ -218,6 +208,9 @@ export default ssr<AuthContext>(async (c) => {
         initialSavedQueries={savedQueriesResult.ok ? savedQueriesResult.data : []}
         initialPanelPoints={Object.fromEntries(panelPointsEntries)}
         initialExplorerDockState={explorerDockState}
+        initialDateConfig={dateConfig}
+        initialNow={new Date().toISOString()}
+        initialOrigin={initialOrigin}
       />
     </Layout>
   );

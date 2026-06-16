@@ -136,11 +136,14 @@ export type PulseMetricSeries = {
   entityType: string | null;
   dimensions: Record<string, string>;
   lastSeenAt: string | null;
+  latestValue: number | null;
+  latestSampleAt: string | null;
 };
 
 export type PulseResourceSummary = {
   key: string;
   id: string;
+  label: string;
   type: string | null;
   sourceIds: string[];
   metricSeriesCount: number;
@@ -152,6 +155,7 @@ export type PulseResourceSummary = {
 };
 
 export type PulseResourceMetric = {
+  seriesId: string;
   resourceKey: string;
   resourceId: string;
   resourceType: string | null;
@@ -161,6 +165,8 @@ export type PulseResourceMetric = {
   sourceId: string | null;
   dimensions: Record<string, string>;
   lastSeenAt: string | null;
+  latestValue: number | null;
+  latestSampleAt: string | null;
 };
 
 export type PulseInventory = {
