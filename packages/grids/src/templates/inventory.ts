@@ -15,7 +15,8 @@ export const inventoryTemplate: GridTemplate = {
       fields: [
         {
           key: "name",
-          name: "name",
+          name: "Name",
+          description: "Category name shown on items and kits.",
           type: "text",
           required: true,
           presentable: true,
@@ -23,7 +24,8 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "description",
-          name: "description",
+          name: "Description",
+          description: "Optional notes that explain what belongs in this category.",
           type: "longtext",
           config: { markdown: true },
           icon: "ti ti-align-left",
@@ -36,17 +38,19 @@ export const inventoryTemplate: GridTemplate = {
       fields: [
         {
           key: "name",
-          name: "name",
+          name: "Name",
+          description: "Location name shown in item records.",
           type: "text",
           required: true,
           presentable: true,
           icon: "ti ti-map-pin",
         },
-        { key: "room", name: "room", type: "text", icon: "ti ti-door" },
-        { key: "shelf", name: "shelf", type: "text", icon: "ti ti-stack" },
+        { key: "room", name: "Room", description: "Room or area where this location sits.", type: "text", icon: "ti ti-door" },
+        { key: "shelf", name: "Shelf", description: "Shelf, cabinet, or bin identifier.", type: "text", icon: "ti ti-stack" },
         {
           key: "notes",
-          name: "notes",
+          name: "Notes",
+          description: "Internal notes about this storage location.",
           type: "longtext",
           config: { markdown: true },
           icon: "ti ti-notes",
@@ -75,7 +79,7 @@ export const inventoryTemplate: GridTemplate = {
       fields: [
         {
           key: "asset_id",
-          name: "asset_id",
+          name: "Asset ID",
           description: "Server-generated inventory number for this item.",
           type: "id",
           config: { strategy: "sequence", prefix: "ITEM-", padding: 4 },
@@ -84,7 +88,7 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "asset_barcode",
-          name: "asset_barcode",
+          name: "Asset barcode",
           description: "Scannable barcode for the asset ID.",
           type: "formula",
           config: {
@@ -95,7 +99,8 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "name",
-          name: "name",
+          name: "Name",
+          description: "Item name shown in inventory lists and cards.",
           type: "text",
           required: true,
           presentable: true,
@@ -103,21 +108,24 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "category",
-          name: "category",
+          name: "Category",
+          description: "Category this item belongs to.",
           type: "relation",
           icon: "ti ti-tag",
           config: { targetTableId: table("categories"), cardinality: "single" },
         },
         {
           key: "location",
-          name: "location",
+          name: "Location",
+          description: "Current storage location for this item.",
           type: "relation",
           icon: "ti ti-map-pin",
           config: { targetTableId: table("locations"), cardinality: "single" },
         },
         {
           key: "status",
-          name: "status",
+          name: "Status",
+          description: "Availability state used for filtering and loan planning.",
           type: "select",
           icon: "ti ti-traffic-lights",
           config: {
@@ -131,7 +139,8 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "condition",
-          name: "condition",
+          name: "Condition",
+          description: "Physical condition of this item.",
           type: "select",
           icon: "ti ti-stars",
           config: {
@@ -145,13 +154,15 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "serial_no",
-          name: "serial_no",
+          name: "Serial number",
+          description: "Manufacturer serial number or other external identifier.",
           type: "text",
           icon: "ti ti-barcode",
         },
         {
           key: "tags",
-          name: "tags",
+          name: "Tags",
+          description: "Reusable tags for item handling and search.",
           type: "select",
           icon: "ti ti-tags",
           config: {
@@ -166,7 +177,8 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "quantity",
-          name: "quantity",
+          name: "Quantity",
+          description: "Number of units represented by this record.",
           type: "number",
           required: true,
           defaultValue: "1",
@@ -175,7 +187,8 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "replacement_value",
-          name: "replacement_value",
+          name: "Replacement value",
+          description: "Estimated cost to replace one unit.",
           type: "number",
           config: {
             precision: 16,
@@ -187,7 +200,8 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "total_value",
-          name: "total_value",
+          name: "Total value",
+          description: "Quantity multiplied by replacement value.",
           type: "formula",
           config: {
             expression: formula(field("items.quantity"), " * ", field("items.replacement_value")),
@@ -201,20 +215,23 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "purchase_date",
-          name: "purchase_date",
+          name: "Purchase date",
+          description: "Date this item was purchased or added.",
           type: "date",
           icon: "ti ti-calendar",
         },
         {
           key: "files",
-          name: "files",
+          name: "Files",
+          description: "Photos, manuals, receipts, or other attachments.",
           type: "file",
           icon: "ti ti-paperclip",
           config: { maxFiles: 5 },
         },
         {
           key: "notes",
-          name: "notes",
+          name: "Notes",
+          description: "Internal notes about this item.",
           type: "longtext",
           config: { markdown: true },
           icon: "ti ti-notes",
@@ -227,7 +244,7 @@ export const inventoryTemplate: GridTemplate = {
       fields: [
         {
           key: "kit_code",
-          name: "kit_code",
+          name: "Kit code",
           description: "Short generated code for this kit.",
           type: "id",
           config: { strategy: "short_code", prefix: "KIT-", length: 6 },
@@ -236,7 +253,8 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "name",
-          name: "name",
+          name: "Name",
+          description: "Kit name shown to staff and requesters.",
           type: "text",
           required: true,
           presentable: true,
@@ -244,21 +262,24 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "category",
-          name: "category",
+          name: "Category",
+          description: "Category this kit belongs to.",
           type: "relation",
           icon: "ti ti-tag",
           config: { targetTableId: table("categories"), cardinality: "single" },
         },
         {
           key: "items",
-          name: "items",
+          name: "Items",
+          description: "Inventory items included in this kit.",
           type: "relation",
           icon: "ti ti-packages",
           config: { targetTableId: table("items"), cardinality: "multiple" },
         },
         {
           key: "status",
-          name: "status",
+          name: "Status",
+          description: "Operational state of this kit.",
           type: "select",
           icon: "ti ti-circle-check",
           config: {
@@ -273,21 +294,24 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "requestable",
-          name: "requestable",
+          name: "Requestable",
+          description: "Whether this kit can be requested through forms.",
           type: "boolean",
           defaultValue: true,
           icon: "ti ti-world-check",
         },
         {
           key: "description",
-          name: "description",
+          name: "Description",
+          description: "Public-facing explanation of what the kit contains.",
           type: "longtext",
           config: { markdown: true },
           icon: "ti ti-align-left",
         },
         {
           key: "notes",
-          name: "admin_notes",
+          name: "Admin notes",
+          description: "Internal staff notes about this kit.",
           type: "longtext",
           config: { markdown: true },
           icon: "ti ti-notes",
@@ -300,7 +324,7 @@ export const inventoryTemplate: GridTemplate = {
       fields: [
         {
           key: "loan_no",
-          name: "loan_no",
+          name: "Loan number",
           description: "Generated loan request number.",
           type: "id",
           config: { strategy: "date_sequence", prefix: "LOAN-", period: "year", padding: 4 },
@@ -309,7 +333,8 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "requester_name",
-          name: "requester_name",
+          name: "Requester name",
+          description: "Person requesting or borrowing the kit.",
           type: "text",
           required: true,
           presentable: true,
@@ -317,45 +342,52 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "requester_email",
-          name: "requester_email",
+          name: "Requester email",
+          description: "Email address for loan communication.",
           type: "text",
           config: { regex: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" },
           icon: "ti ti-mail",
         },
         {
           key: "organization",
-          name: "organization",
+          name: "Organization",
+          description: "Optional team, department, or external organization.",
           type: "text",
           icon: "ti ti-building",
         },
         {
           key: "kits",
-          name: "kits",
+          name: "Kits",
+          description: "Kits requested or borrowed in this loan.",
           type: "relation",
           icon: "ti ti-briefcase",
           config: { targetTableId: table("kits"), cardinality: "multiple" },
         },
         {
           key: "start_date",
-          name: "requested_from",
+          name: "Requested from",
+          description: "Requested start date for the loan.",
           type: "date",
           icon: "ti ti-calendar-plus",
         },
         {
           key: "due_date",
-          name: "due_date",
+          name: "Due date",
+          description: "Expected return date for borrowed kits.",
           type: "date",
           icon: "ti ti-calendar-due",
         },
         {
           key: "returned_at",
-          name: "returned_at",
+          name: "Returned at",
+          description: "Actual date when the kits were returned.",
           type: "date",
           icon: "ti ti-calendar-check",
         },
         {
           key: "status",
-          name: "status",
+          name: "Status",
+          description: "Current approval and return status.",
           type: "select",
           icon: "ti ti-progress",
           config: {
@@ -371,13 +403,15 @@ export const inventoryTemplate: GridTemplate = {
         },
         {
           key: "purpose",
-          name: "purpose",
+          name: "Purpose",
+          description: "Requester-provided reason for the loan.",
           type: "longtext",
           icon: "ti ti-message",
         },
         {
           key: "notes",
-          name: "admin_notes",
+          name: "Admin notes",
+          description: "Internal staff notes about this loan.",
           type: "longtext",
           config: { markdown: true },
           icon: "ti ti-notes",
@@ -541,7 +575,7 @@ export const inventoryTemplate: GridTemplate = {
       ),
       ui: {
         columns: [
-          { fieldId: field("items.asset_barcode"), label: "asset_id", format: { kind: "barcode", bcid: "code128", showText: true } },
+          { fieldId: field("items.asset_barcode"), label: "Asset ID", format: { kind: "barcode", bcid: "code128", showText: true } },
           { fieldId: field("items.name") },
           { fieldId: field("items.category") },
           { fieldId: field("items.location") },

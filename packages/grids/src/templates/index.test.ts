@@ -1,9 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { parseDataUrl } from "@valentinkolb/cloud/shared";
+import {
+  CreateBaseSchema,
+  CreateDashboardSchema,
+  CreateFieldSchema,
+  CreateTableSchema,
+  CreateViewSchema,
+  DashboardConfigSchema,
+  FormConfigSchema,
+  RecordDisplayConfigSchema,
+  ViewUiSettingsSchema,
+} from "../contracts";
+import { fieldTypeRegistry, getRecordWritableFieldType } from "../field-types";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { templates } from ".";
-import { field, formula } from "./types";
 import type { GridTemplate, TemplateDateExpression, TemplateRef } from "./types";
+import { field, formula } from "./types";
 
 const isRef = (value: unknown): value is TemplateRef =>
   !!value &&
@@ -22,6 +34,69 @@ const refsIn = (value: unknown): TemplateRef[] => {
   if (Array.isArray(value)) return value.flatMap(refsIn);
   if (value && typeof value === "object") return Object.values(value).flatMap(refsIn);
   return [];
+};
+
+type TemplateTestContext = {
+  tables: Map<string, string>;
+  fields: Map<string, string>;
+  records: Map<string, string>;
+  views: Map<string, string>;
+  forms: Map<string, string>;
+  dashboards: Map<string, string>;
+};
+
+const testUuid = (index: number): string => `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`;
+
+const templateTestContext = (template: GridTemplate): TemplateTestContext => {
+  let index = 1;
+  const tables = new Map<string, string>();
+  const fields = new Map<string, string>();
+  const records = new Map<string, string>();
+  const views = new Map<string, string>();
+  const forms = new Map<string, string>();
+  const dashboards = new Map<string, string>();
+
+  for (const table of template.tables) {
+    tables.set(table.key, testUuid(index++));
+    for (const field of table.fields) fields.set(`${table.key}.${field.key}`, testUuid(index++));
+  }
+  for (const record of template.records ?? []) records.set(record.key, testUuid(index++));
+  for (const view of template.views ?? []) views.set(view.key, testUuid(index++));
+  for (const form of template.forms ?? []) forms.set(form.key, testUuid(index++));
+  for (const dashboard of template.dashboards ?? []) dashboards.set(dashboard.key, testUuid(index++));
+
+  return { tables, fields, records, views, forms, dashboards };
+};
+
+const resolveTestRef = (ref: TemplateRef, ctx: TemplateTestContext): string => {
+  const value =
+    ref.$ref === "table"
+      ? ctx.tables.get(ref.key)
+      : ref.$ref === "field"
+        ? ctx.fields.get(ref.key)
+        : ref.$ref === "record"
+          ? ctx.records.get(ref.key)
+          : ref.$ref === "view"
+            ? ctx.views.get(ref.key)
+            : ref.$ref === "form"
+              ? ctx.forms.get(ref.key)
+              : ctx.dashboards.get(ref.key);
+  if (!value) throw new Error(`missing template test ref ${ref.$ref}:${ref.key}`);
+  return value;
+};
+
+const resolveTestValue = (value: unknown, ctx: TemplateTestContext): unknown => {
+  if (value === undefined) return undefined;
+  if (isRef(value)) return resolveTestRef(value, ctx);
+  if (isFormulaExpression(value)) {
+    return value.$formula.map((part) => (typeof part === "string" ? part : `{${resolveTestRef(part, ctx)}}`)).join("");
+  }
+  if (isCurrentMonthDate(value)) return "2026-06-15";
+  if (Array.isArray(value)) return value.map((item) => resolveTestValue(item, ctx));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, resolveTestValue(nested, ctx)]));
+  }
+  return value;
 };
 
 const indexTemplate = (template: GridTemplate) => {
@@ -47,6 +122,15 @@ const dashboardCells = (template: GridTemplate) =>
       return Array.isArray(cells) ? (cells as Array<Record<string, unknown>>) : [];
     });
   });
+
+const labelsIn = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.flatMap(labelsIn);
+  if (!value || typeof value !== "object") return [];
+  return Object.entries(value).flatMap(([key, nested]) => [
+    ...(key === "label" && typeof nested === "string" ? [nested] : []),
+    ...labelsIn(nested),
+  ]);
+};
 
 const GQL_RESERVED_REFS = new Set([
   "aggregate",
@@ -98,7 +182,8 @@ const templateNamesForGql = (template: GridTemplate) => {
 
 const resolveTemplateGqlValue = (value: unknown, names: ReturnType<typeof templateNamesForGql>): unknown => {
   if (isRef(value)) {
-    const resolved = value.$ref === "table" ? names.tables.get(value.key) : value.$ref === "field" ? names.fields.get(value.key) : undefined;
+    const resolved =
+      value.$ref === "table" ? names.tables.get(value.key) : value.$ref === "field" ? names.fields.get(value.key) : undefined;
     if (!resolved) throw new Error(`unsupported GQL template ref ${value.$ref}:${value.key}`);
     return gqlRef(resolved);
   }
@@ -169,7 +254,7 @@ describe("built-in grid templates", () => {
     const columns = (availableItems?.ui as { columns?: Array<Record<string, unknown>> } | undefined)?.columns ?? [];
     const firstColumn = columns[0];
     expect(firstColumn?.fieldId).toEqual(field("items.asset_barcode"));
-    expect(firstColumn?.label).toBe("asset_id");
+    expect(firstColumn?.label).toBe("Asset ID");
     expect(firstColumn?.format).toEqual({ kind: "barcode", bcid: "code128", showText: true });
   });
 
@@ -199,18 +284,19 @@ describe("built-in grid templates", () => {
     const orderCalendar = bookshop?.views?.find((view) => view.key === "order_calendar");
     const loanCalendar = inventory?.views?.find((view) => view.key === "open_loans");
     const transactionCalendar = finance?.views?.find((view) => view.key === "transaction_calendar");
-    expect(((orderCalendar?.ui as { displayConfig?: { mode?: unknown } } | undefined)?.displayConfig)?.mode).toBe("calendar");
-    expect(((loanCalendar?.ui as { displayConfig?: { mode?: unknown } } | undefined)?.displayConfig)?.mode).toBe("calendar");
-    expect(((transactionCalendar?.ui as { displayConfig?: { mode?: unknown } } | undefined)?.displayConfig)?.mode).toBe("calendar");
-    expect(((orderCalendar?.ui as { displayConfig?: { calendar?: { dateFieldId?: unknown } } } | undefined)?.displayConfig)?.calendar?.dateFieldId).toEqual(
-      field("orders.ordered_at"),
-    );
-    expect(((loanCalendar?.ui as { displayConfig?: { calendar?: { dateFieldId?: unknown } } } | undefined)?.displayConfig)?.calendar?.dateFieldId).toEqual(
-      field("loans.due_date"),
-    );
-    expect(((transactionCalendar?.ui as { displayConfig?: { calendar?: { dateFieldId?: unknown } } } | undefined)?.displayConfig)?.calendar?.dateFieldId).toEqual(
-      field("transactions.date"),
-    );
+    expect((orderCalendar?.ui as { displayConfig?: { mode?: unknown } } | undefined)?.displayConfig?.mode).toBe("calendar");
+    expect((loanCalendar?.ui as { displayConfig?: { mode?: unknown } } | undefined)?.displayConfig?.mode).toBe("calendar");
+    expect((transactionCalendar?.ui as { displayConfig?: { mode?: unknown } } | undefined)?.displayConfig?.mode).toBe("calendar");
+    expect(
+      (orderCalendar?.ui as { displayConfig?: { calendar?: { dateFieldId?: unknown } } } | undefined)?.displayConfig?.calendar?.dateFieldId,
+    ).toEqual(field("orders.ordered_at"));
+    expect(
+      (loanCalendar?.ui as { displayConfig?: { calendar?: { dateFieldId?: unknown } } } | undefined)?.displayConfig?.calendar?.dateFieldId,
+    ).toEqual(field("loans.due_date"));
+    expect(
+      (transactionCalendar?.ui as { displayConfig?: { calendar?: { dateFieldId?: unknown } } } | undefined)?.displayConfig?.calendar
+        ?.dateFieldId,
+    ).toEqual(field("transactions.date"));
   });
 
   test("calendar templates include current-month sample records", () => {
@@ -334,19 +420,129 @@ describe("built-in grid templates", () => {
     }
   });
 
-  test("bookshop fields use polished labels and descriptions", () => {
-    const bookshop = templates.find((template) => template.id === "bookshop");
-    expect(bookshop, "bookshop template").toBeDefined();
-    if (!bookshop) return;
+  test("template resources pass the same write schemas used during creation", () => {
+    for (const template of templates) {
+      const ctx = templateTestContext(template);
 
-    for (const table of bookshop.tables) {
-      for (const field of table.fields) {
+      expect(
+        CreateBaseSchema.safeParse({
+          name: template.baseName,
+          description: template.baseDescription ?? template.description,
+        }).success,
+        `${template.id} base payload`,
+      ).toBe(true);
+
+      for (const table of template.tables) {
+        const displayConfig = resolveTestValue(table.displayConfig, ctx);
         expect(
-          typeof field.description === "string" && field.description.trim().length > 0,
-          `bookshop.${table.key}.${field.key} description`,
+          CreateTableSchema.safeParse({
+            name: table.name,
+            description: table.description ?? null,
+            displayConfig,
+          }).success,
+          `${template.id}.${table.key} table payload`,
         ).toBe(true);
-        expect(field.name.includes("_"), `bookshop.${table.key}.${field.key} label must not expose snake_case`).toBe(false);
-        expect(field.name[0], `bookshop.${table.key}.${field.key} label should be human-readable`).toBe(field.name[0]?.toUpperCase());
+        if (displayConfig !== undefined) {
+          expect(RecordDisplayConfigSchema.safeParse(displayConfig).success, `${template.id}.${table.key} display config`).toBe(true);
+        }
+
+        for (const templateField of table.fields) {
+          const config = resolveTestValue(templateField.config ?? {}, ctx);
+          const defaultValue = resolveTestValue(templateField.defaultValue, ctx);
+          const fieldType = fieldTypeRegistry[templateField.type];
+          expect(fieldType, `${template.id}.${table.key}.${templateField.key} field type`).toBeDefined();
+          expect(
+            CreateFieldSchema.safeParse({
+              name: templateField.name,
+              description: templateField.description ?? null,
+              icon: templateField.icon ?? null,
+              type: templateField.type,
+              config,
+              required: templateField.required,
+              presentable: templateField.presentable,
+              hideInTable: templateField.hideInTable,
+              defaultValue,
+              indexed: templateField.indexed,
+              uniqueConstraint: templateField.uniqueConstraint,
+            }).success,
+            `${template.id}.${table.key}.${templateField.key} field payload`,
+          ).toBe(true);
+          if (!fieldType) continue;
+
+          const parsedConfig = fieldType.configSchema.safeParse(config);
+          expect(parsedConfig.success, `${template.id}.${table.key}.${templateField.key} field config`).toBe(true);
+
+          const writableType = getRecordWritableFieldType(templateField.type);
+          if (writableType && defaultValue !== undefined) {
+            expect(
+              writableType.validate(defaultValue, parsedConfig.success ? parsedConfig.data : config, templateField.required === true).ok,
+              `${template.id}.${table.key}.${templateField.key} default value`,
+            ).toBe(true);
+          }
+        }
+      }
+
+      for (const view of template.views ?? []) {
+        const source = resolveTemplateGqlValue(view.source ?? `from table ${view.table}`, templateNamesForGql(template));
+        const ui = resolveTestValue(view.ui ?? {}, ctx);
+        expect(
+          CreateViewSchema.safeParse({
+            name: view.name,
+            source,
+            ui,
+            shared: view.shared,
+          }).success,
+          `${template.id}.${view.key} view payload`,
+        ).toBe(true);
+        expect(ViewUiSettingsSchema.safeParse(ui).success, `${template.id}.${view.key} view ui`).toBe(true);
+      }
+
+      for (const form of template.forms ?? []) {
+        const config = resolveTestValue(form.config, ctx);
+        expect(FormConfigSchema.safeParse(config).success, `${template.id}.${form.key} form config`).toBe(true);
+      }
+
+      for (const dashboard of template.dashboards ?? []) {
+        const config = resolveTestValue(dashboard.config, ctx);
+        expect(
+          CreateDashboardSchema.safeParse({
+            name: dashboard.name,
+            description: dashboard.description ?? null,
+            config,
+            shared: dashboard.shared,
+          }).success,
+          `${template.id}.${dashboard.key} dashboard payload`,
+        ).toBe(true);
+        expect(DashboardConfigSchema.safeParse(config).success, `${template.id}.${dashboard.key} dashboard config`).toBe(true);
+      }
+    }
+  });
+
+  test("template fields use polished labels and descriptions", () => {
+    for (const template of templates) {
+      for (const label of labelsIn(template)) {
+        expect(label.trim().length, `${template.id} UI label`).toBeGreaterThan(0);
+        expect(label.includes("_"), `${template.id} UI label must not expose snake_case: ${label}`).toBe(false);
+      }
+
+      for (const table of template.tables) {
+        expect(table.name.trim().length, `${template.id}.${table.key} table name`).toBeGreaterThan(0);
+        expect(table.name.includes("_"), `${template.id}.${table.key} table label must not expose snake_case`).toBe(false);
+
+        const presentableFields = table.fields.filter((field) => field.presentable);
+        expect(presentableFields.length, `${template.id}.${table.key} presentable field`).toBeGreaterThan(0);
+
+        for (const field of table.fields) {
+          expect(
+            typeof field.description === "string" && field.description.trim().length > 0,
+            `${template.id}.${table.key}.${field.key} description`,
+          ).toBe(true);
+          expect(field.name.trim().length, `${template.id}.${table.key}.${field.key} label`).toBeGreaterThan(0);
+          expect(field.name.includes("_"), `${template.id}.${table.key}.${field.key} label must not expose snake_case`).toBe(false);
+          expect(field.icon?.trim().length, `${template.id}.${table.key}.${field.key} icon`).toBeGreaterThan(0);
+          if (field.required !== undefined)
+            expect(typeof field.required, `${template.id}.${table.key}.${field.key} required flag`).toBe("boolean");
+        }
       }
     }
   });
