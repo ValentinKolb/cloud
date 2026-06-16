@@ -3,7 +3,7 @@
 #   docker build --build-arg APP_ID=<id> -t cloud-<id> .
 #
 # `deps` is independent of APP_ID, so the same install layer is cached
-# across all 21 apps. `build` and `runtime` are app-specific.
+# across all release apps. `build` and `runtime` are app-specific.
 
 # ──────────────────────────────────────────────────────────────────────
 # Stage 1: deps — install workspace dependencies (cache-shared).
@@ -24,7 +24,6 @@ COPY packages/grids/package.json         packages/grids/
 COPY packages/gateway/package.json       packages/gateway/
 COPY packages/gateway-ops/package.json   packages/gateway-ops/
 COPY packages/ipa-hosts/package.json     packages/ipa-hosts/
-COPY packages/invoices/package.json      packages/invoices/
 COPY packages/notebooks/package.json     packages/notebooks/
 COPY packages/oauth/package.json         packages/oauth/
 COPY packages/pulse/package.json         packages/pulse/

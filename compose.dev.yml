@@ -198,18 +198,6 @@ services:
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/quotes/src/index.ts
 
-  app-invoices:
-    <<: *app
-    container_name: app-invoices
-    environment: { <<: *env, APP_ID: invoices }
-    profiles: [extra]
-    volumes:
-      - ./packages/cloud/src:/app/packages/cloud/src
-      - ./packages/cloud/scripts:/app/packages/cloud/scripts
-      - ./packages/invoices/src:/app/packages/invoices/src
-      - ./styles.css:/app/styles.css
-    command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/invoices/src/index.ts
-
   app-pulse:
     <<: *app
     container_name: app-pulse

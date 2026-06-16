@@ -16,7 +16,6 @@
     "packages/gateway-ops",
     "packages/grids",
     "packages/ipa-hosts",
-    "packages/invoices",
     "packages/notebooks",
     "packages/oauth",
     "packages/pulse",

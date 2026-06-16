@@ -16,7 +16,6 @@ COPY packages/grids/package.json packages/grids/
 COPY packages/gateway/package.json packages/gateway/
 COPY packages/gateway-ops/package.json packages/gateway-ops/
 COPY packages/ipa-hosts/package.json packages/ipa-hosts/
-COPY packages/invoices/package.json packages/invoices/
 COPY packages/notebooks/package.json packages/notebooks/
 COPY packages/oauth/package.json packages/oauth/
 COPY packages/pulse/package.json packages/pulse/

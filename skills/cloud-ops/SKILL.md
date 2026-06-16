@@ -110,7 +110,7 @@ Every app container:
 
 **Core set (5, no profile — started by `bun run dev`):** `gateway`, `app-gateway-ops`, `app-core`, `app-dashboard`, `app-accounts`.
 
-**Extras (16, `profiles: [extra]` — `bun run dev:full` or ad-hoc via `dev:start`):** `app-notebooks`, `app-contacts`, `app-faq`, `app-grids`, `app-files`, `app-ipa-hosts`, `app-oauth`, `app-proxy-auth`, `app-quotes`, `app-invoices`, `app-spaces`, `app-tools`, `app-ui-lab`, `app-venue`, `app-weather`, `app-api-docs`.
+**Extras (15, `profiles: [extra]` — `bun run dev:full` or ad-hoc via `dev:start`):** `app-notebooks`, `app-contacts`, `app-faq`, `app-grids`, `app-files`, `app-ipa-hosts`, `app-oauth`, `app-proxy-auth`, `app-quotes`, `app-spaces`, `app-tools`, `app-ui-lab`, `app-venue`, `app-weather`, `app-api-docs`.
 
 `gateway` is router-only: it reads the Redis app registry, builds a local prefix trie, proxies HTTP/WS traffic, exposes minimal `/health`, and publishes telemetry/snapshot data. `app-core` owns platform routes such as `/auth`, `/me`, `/admin/settings`, `/impressum`, `/legal/privacy`, and `/legal/terms`. `app-gateway-ops` is a normal Cloud app that owns `/admin/gateway`, `/admin/observability/*`, `/api/gateway`, `/api/logging`, `/api/notifications`, dashboard widgets, telemetry rollups, health webhooks, and registry observability. Gateway Ops keeps `/api/gateway/settings/legacy` only as a compatibility shim; the platform settings UI and cleanup live in Core.
 
