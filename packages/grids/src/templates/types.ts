@@ -66,8 +66,8 @@ export type TemplateView = {
   key: string;
   table: string;
   name: string;
-  query?: unknown;
-  displayConfig?: unknown;
+  source?: unknown;
+  ui?: unknown;
   shared?: boolean;
 };
 

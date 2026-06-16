@@ -35,18 +35,18 @@ a small query language for Grids, not like a permissive SQL clone.
   joined lookup/rollup select/sort/formula output, formula aggregates over
   joined scalar fields, and direct aggregates over SQL-projectable
   formula/lookup/rollup values all compile to SQL-only preview plans.
-- **Persistence boundary:** a single resolver builds the full query plan; saving
-  as a plain ViewQuery is accepted only for features that ViewQuery can actually
-  represent. Rich GQL features are saved losslessly as canonical GQL in
-  `grids.gql_queries`, not degraded into `ViewQuery`. Both the API and direct
-  `gqlQueries.create/update` service path canonicalize against live base
-  metadata and reject root-table/source mismatches.
-- **Public API path:** the saved/preview/compile GQL API is exposed under
-  `/gql`; the legacy `/query-dsl` route alias was removed before release.
-- **Saved-query lifecycle:** persisted rich GQL queries are first-class
-  workspace artifacts: visible saved queries appear in the Grids sidebar,
-  `/app/grids/<base>/query/<query>` direct links reload, and opening one updates
-  that artifact instead of creating duplicate saves.
+- **Persistence boundary:** a single resolver builds the full query plan. Views
+  persist canonical GQL source text in `grids.views.source`, and UI-only
+  presentation state lives in `grids.views.ui`. Record-shaped table execution
+  uses the internal `RecordQuery` model where that is the simplest runtime
+  shape; richer GQL features keep their semantics in the resolved SQL plan
+  instead of being downgraded.
+- **Public API path:** the preview/compile/intelligence GQL API is exposed
+  under `/gql`; the legacy `/query-dsl` route alias was removed before release.
+- **View lifecycle:** views are first-class saved GQL artifacts: visible views
+  appear in the Grids sidebar, direct links reload through the workspace route,
+  and View settings expose the canonical GQL source plus UI presentation
+  settings.
 - **Derived saved-view sources:** grouped and aggregate saved views can be used
   as read-only derived GQL sources. Their output columns are queryable with
   `select`, `where`, `search`, `sort`, `group by`, `aggregate`, `having`,
@@ -67,10 +67,10 @@ a small query language for Grids, not like a permissive SQL clone.
   viewer-gated by target-table read access. A non-admin viewer without read on
   the target table receives neutral relation labels and no relation-search
   matches instead of linked record data.
-- **Dashboard backend contract:** saved GQL statements can be resolved for
+- **Dashboard backend contract:** saved view GQL sources can be resolved for
   dashboard-style backend consumption through the same parser, resolver, preview
   compiler, statement timeout, diagnostics, and relation viewer-gating as normal
-  GQL preview. The helper enforces saved-query owner/shared/admin visibility;
+  GQL preview. The helper enforces view read/admin visibility;
   visible widget schema/editor wiring is intentionally deferred.
 - **Canonical numeric outputs:** SQL-projected formula/computed numeric results
   are normalized through the same Decimal.js rendering used by the formula
@@ -93,10 +93,11 @@ filter citizen**, all compiled to SQL (no JS). Files: `query-dsl/resolver.ts`
 - **Boolean**: bare `where paid` means `= true`; `!= true` → `= false`.
 - **Text**: `= != contains startswith endswith`.
 - **Routing**: `field <op> literal` and the predicate functions → typed filter
-  leaf (saveable, index-friendly). Field-vs-field / arithmetic / scalar funcs →
-  boolean SQL formula. Canonical logical spelling is `and`/`or`/`not`. Mixed filter+formula predicates
-  compile to one SQL boolean (`NOT`/cross-field aren't saveable-as-plain-view yet,
-  but execute fully in SQL in preview).
+  leaf (RecordQuery-compatible, index-friendly). Field-vs-field / arithmetic /
+  scalar funcs → boolean SQL formula. Canonical logical spelling is
+  `and`/`or`/`not`. Mixed
+  filter+formula predicates compile to one SQL boolean; forms that do not fit
+  the RecordQuery runtime still execute fully in SQL in preview.
 - **NULLS parity** (A2): GQL preview sort now `NULLS LAST` for both directions,
   matching saved-view semantics.
 - Tests: 21 new resolver cases + 3 new Postgres integration cases (relation
@@ -135,11 +136,12 @@ Full grids suite green (698 pass), typecheck clean.
   applies to the raw value instead of a pre-stringified one. Combined with the
   A5 formula-field inlining, the JS evaluator is now a true edge fallback
   (relation/select/file refs only), not the default path.
-- **D1 — one resolver**: `resolveDslQueryToViewQuery` is now a thin saveability
+- **D1 — one resolver**: `resolveDslQueryToRecordQuery` is now a thin runtime
   check over the single `resolveDslQueryToQueryPlan` (deleted ~330 lines of
-  duplicated select/aggregate/sort resolution + dead helpers). Preview and save
-  can no longer drift — they share the exact same resolution; save just rejects
-  the plan features a plain view can't carry yet, with clear messages.
+  duplicated select/aggregate/sort resolution + dead helpers). Preview and
+  records-table execution can no longer drift — they share the exact same
+  resolution; the compatibility helper just rejects plan features that
+  RecordQuery cannot carry yet, with clear messages.
 
 Full grids suite green (699 pass), typecheck clean, biome clean.
 
@@ -148,7 +150,7 @@ Full grids suite green (699 pass), typecheck clean, biome clean.
 - **C7 — `nulls first` / `nulls last`** sort modifier (parser + resolver + GQL
   sort SQL); defaults to NULLS LAST to match saved views.
 - **C8 — `search 'text'`** and `search 'text' in a, b` (parser + resolver →
-  `ViewQuery.search`, saveable). Preview wires the async `compileSearchClause`
+  `RecordQuery.search`, RecordQuery-compatible). Preview wires the async `compileSearchClause`
   (scalar + relation search, viewer-scoped) as a precompiled predicate into the
   row/group/aggregate compilers.
 - **C9 — trash queries**: `include deleted` (live + trashed) and `deleted only`
@@ -188,7 +190,7 @@ formula output, joined group keys, and direct aggregate expressions.
 - **A3 cleanup**: removed the remaining dead preview sampling knobs
   (`previewBaseLimit` / `baseRecordLimit`) and unit tests now assert that
   aggregate/group previews compile over the full matching set.
-- **Validation drift**: saved query/stat trend validation now delegates grouped
+- **Validation drift**: saved source/stat trend validation now delegates grouped
   aggregate compatibility to `compileGroupQuery` instead of carrying an old
   allow-list.
 - **C15 — source aliases / self-joins**: `from table X as o` parses as a base
@@ -238,7 +240,7 @@ green (14 pass).
 ### Ninth batch — grouped relation joins
 
 - **C2 — grouped relation joins + joined aggregates**: grouped GQL plans can now
-  carry SQL-only group/aggregate metadata with `joinAlias`, so ViewQuery stays
+  carry SQL-only group/aggregate metadata with `joinAlias`, so RecordQuery stays
   base-only while preview can group by joined scalar fields and aggregate joined
   numeric/date/text-compatible fields. The grouped compiler uses the same
   relation-join fragments as row queries, then renders `GROUP BY` / aggregate
@@ -281,7 +283,7 @@ green (17 pass).
 - **A11 semantic source spans**: parsed GQL nodes now carry source spans through
   references, select items, joins, groups, sorts, aggregates, `where`, `having`,
   and `search`. Resolver diagnostics preserve `line`/`column`/`length`, so
-  unknown fields, unsupported scoped operations, saveability blockers, and
+  unknown fields, unsupported scoped operations, RecordQuery blockers, and
   formula/predicate errors can point at the relevant token or expression instead
   of only the clause line.
 - **Formula-layer mapping**: `where`/`having` formula AST spans are mapped back
@@ -338,7 +340,7 @@ Cloud UI a11y findings outside the GQL scope.
   multi-selects, JSON, and files fail with direct diagnostics instead of
   falling back to guessed base fields.
 - **Save boundary:** computed selects that contain GQL-only scoped refs are
-  preview-only. They are not persisted as plain `ViewQuery` computed columns,
+  preview-only. They are not converted into `RecordQuery` computed columns,
   because saved formula-field syntax intentionally does not know join aliases.
 - **Guardrail UX:** row-shaped saved views remain valid GQL sources, but
   grouped/aggregate saved views are explicitly rejected as non-record sources.
@@ -376,27 +378,25 @@ skips); targeted DB test
 `DATABASE_URL=postgresql://ipa:ipa@localhost:5432/ipa GRIDS_QUERY_DSL_DB_TEST=1
 bun test src/query-dsl/sql-compiler.integration.test.ts` is green (20 pass).
 
-### Fifteenth batch — rich GQL persistence
+### Fifteenth batch — view GQL persistence
 
 - **Canonical GQL source:** `query-dsl/canonical.ts` emits deterministic GQL
   with explicit `from table/view {id}`, stable braced field refs, scoped join
   refs, formula refs, aliases, search, trash, sort/nulls, limit/offset, groups,
   aggregates, and having. Golden tests assert idempotence by parse →
   canonicalize → parse → canonicalize.
-- **Separate persisted artifact:** `grids.gql_queries` stores base-scoped saved
-  GQL as canonical source text plus resolved root `table_id`, owner/shared
-  visibility, position, short id, audit, and metadata events. It deliberately
-  does not overload `ViewQuery`, so joins/having/offset/aggregate-only/scoped
-  formulas keep their real semantics.
-- **API + UX path:** `/gql/by-base/:baseId/saved` supports list/create and
-  `/gql/saved/:queryId` supports get/update/delete/restore. Create/update route
-  through parser, resolver, and canonicalizer before persistence. Query
-  workspace keeps the regular View save path for saveable queries and falls
-  back to saved Rich GQL for preview-valid queries that cannot become a plain
-  view.
-- **DB coverage:** the opt-in Postgres GQL suite now migrates `gql_queries` and
-  covers create/list/name-conflict/update/delete/restore without touching other
-  schemas or foreign bases.
+- **Views are the persisted artifact:** `grids.views` stores canonical GQL
+  source text plus the view's owner, read/admin grants, sidebar identity, and
+  UI presentation state. Full GQL semantics stay in the canonical source and
+  resolved SQL plan; `RecordQuery` remains an internal records-table runtime
+  shape, not the persistence format.
+- **API + UX path:** view create/update routes parse, resolve, canonicalize,
+  and validate the supplied source before writing. Query workspace saves a
+  preview-valid query as a View source, and View settings can later inspect or
+  edit that source directly.
+- **DB coverage:** the opt-in Postgres GQL suite covers view create/list/update
+  flows and canonical source persistence without touching other schemas or
+  foreign bases.
 
 Verification: targeted Biome clean; `cd packages/grids && bun run typecheck`
 green; full Grids suite green (747 pass / 36 skips); DB release gate green with
@@ -405,21 +405,19 @@ bun test` (768 pass / 15 skips); targeted DB test
 `DATABASE_URL=postgresql://ipa:ipa@localhost:5432/ipa GRIDS_QUERY_DSL_DB_TEST=1
 bun test src/query-dsl/sql-compiler.integration.test.ts` green (21 pass).
 
-### Sixteenth batch — first-class saved GQL workspace lifecycle
+### Sixteenth batch — first-class view workspace lifecycle
 
-- **Direct routes:** `/app/grids/:base/query/:query` is now registered for SSR
-  and parsed by the in-app workspace router. Reloads and client navigation share
-  the same `WorkspaceQueryRoute`.
-- **Catalog + visibility:** workspace state includes visible saved GQL queries.
-  Direct links enforce the same owner/shared/admin visibility boundary as the
-  saved-query API.
-- **Sidebar + active state:** saved GQL queries render in a `Queries` sidebar
-  section. The existing `Query` action remains the ad-hoc workspace, so the UI
-  keeps one obvious entry for drafts and one for each saved artifact.
-- **Update semantics:** opening an editable saved GQL query makes `Save` update
-  that query through `/gql/saved/:queryId`; read-only shared queries expose
-  `Save copy` instead. Ad-hoc queries still save as a normal View when
-  representable and fall back to a Rich GQL artifact when needed.
+- **Direct routes:** `/app/grids/:base/table/:table` and view routes are the
+  canonical workspace entry points. Reloads and client navigation share the
+  same view/table workspace state.
+- **Catalog + visibility:** workspace state includes visible views. Direct
+  links enforce the same owner/read/admin visibility boundary as the view API.
+- **Sidebar + active state:** views render as the saved GQL artifacts in the
+  table sidebar. The existing Query action remains the ad-hoc explorer for
+  drafts and inspection.
+- **Update semantics:** View settings update the view's canonical source
+  through the view API. Read access lets a user see the view output; admin
+  access is required to change the view source, UI settings, or grants.
 
 Verification: targeted Biome clean; `cd packages/grids && bun run typecheck`
 green; focused workspace-state tests green (5 pass); full Grids suite green
@@ -430,7 +428,7 @@ bun test` (771 pass / 15 skips).
 ### Seventeenth batch — derived saved-view sources
 
 - **Grouped/aggregate view sources:** `from view ...` now accepts saved
-  grouped and aggregate-only `ViewQuery` sources as derived SQL tables instead
+  grouped and aggregate-only `RecordQuery` sources as derived SQL tables instead
   of treating them as record sources.
 - **SQL-only derived pipeline:** the compiler wraps the saved grouped/aggregate
   SQL as an inner query, exposes typed output columns, and applies outer
@@ -438,7 +436,7 @@ bun test` (771 pass / 15 skips).
   Aggregate-only saved views are expanded from the existing JSON result into
   typed SQL columns before the outer query runs.
 - **Stable output refs:** canonical GQL emits derived output keys such as
-  `"gk_0"`, `"*__count"`, and `"<fieldId>__sum"`, so saved rich GQL remains
+  `"gk_0"`, `"*__count"`, and `"<fieldId>__sum"`, so saved view GQL remains
   stable across label/name edits while users can still author by label.
 - **Guardrails:** derived view sources still reject joins, search,
   deleted-row clauses, record-metadata view sources, and re-grouping or
@@ -463,7 +461,7 @@ bun test` (776 pass / 15 skips).
   aliases, `nulls first/last`, `limit`, and `offset`.
 - **Stable canonical refs:** canonical GQL now emits stable derived refs through
   `search`, `group by`, aggregate arguments, `having`, and grouped sort. Users
-  can author by label, but persisted rich GQL keeps output keys.
+  can author by label, but persisted view GQL keeps output keys.
 - **Guardrail kept:** joins over derived sources still fail clearly. A derived
   row has no record id or relation-link lifecycle, so join semantics need a
   separate product decision instead of an implicit SQL guess.
@@ -516,7 +514,7 @@ bun test` (781 pass / 15 skips).
   of falling back to JS.
 - **Computed joined group keys:** grouped relation-join queries can now group by
   joined formula, lookup, and rollup fields when they are SQL-projectable. Base
-  grouped ViewQuery behavior stays unchanged; this remains a SQL-only rich-GQL
+  grouped RecordQuery behavior stays unchanged; this remains a SQL-only GQL
   preview feature.
 - **Exact grouped previews:** the row-preview fanout cap stays on row-shaped
   previews, but grouped/aggregate previews no longer pass `joinFanoutLimit`, so
@@ -538,9 +536,9 @@ bun test` (783 pass / 15 skips / 2942 expects).
 - **No wrapper tax for computed values:** `aggregate sum(total) as revenue` and
   `aggregate sum(customer.lookup_total) as revenue` now route through the same
   SQL formula-aggregate path as `sum(formula(...))`, using the real
-  `computedFieldSql` / `computedFieldSqlByJoinAlias` maps. Plain `ViewQuery`
-  remains unchanged; these rich SQL-only aggregates stay preview/saved-GQL
-  features until the view contract can represent them.
+  `computedFieldSql` / `computedFieldSqlByJoinAlias` maps. Plain `RecordQuery`
+  remains unchanged; these SQL-only aggregates stay in the GQL plan until the
+  records-table runtime can represent them directly.
 - **Type safety at the SQL boundary:** lookup/rollup fields resolve with a
   type-only placeholder, then the compiler validates the injected SQL type
   before rendering the aggregate. `sum(text_lookup)` fails with a direct type
@@ -676,11 +674,10 @@ bun test` (795 pass / 15 skips / 3085 expects).
 
 ### Twenty-seventh batch — dashboard backend GQL consumption contract
 
-- **Backend execution path:** `resolveSavedGqlDashboardQuery` executes a
-  persisted rich GQL query for dashboard-style consumers without introducing a
-  second evaluator. It loads the saved GQL source, builds a base-scoped
-  dashboard resolver context, resolves the plan, and delegates to
-  `previewDslQuery`.
+- **Backend execution path:** the dashboard resolver executes persisted view GQL
+  sources for dashboard-style consumers without introducing a second evaluator.
+  It loads the saved view source, builds a base-scoped dashboard resolver
+  context, resolves the plan, and delegates to `previewDslQuery`.
 - **Same SQL semantics:** dashboard GQL consumption inherits preview's SQL-only
   compiler path, lookup/rollup/formula SQL maps, statement timeout, compiler
   diagnostics, and relation viewer-gating.
@@ -728,18 +725,18 @@ bun test` (800 pass / 15 skips / 3137 expects).
   option labels to option ids in comparisons and membership predicates. Unknown
   or ambiguous labels fail with direct diagnostics instead of persisting unstable
   display text.
-- **Service-level canonicalization:** direct `gqlQueries.create/update` now
-  parses, resolves, and canonicalizes against the base's live tables, views, and
-  fields before writing. A saved source whose `from` table/view resolves to a
-  different root table than the supplied `tableId` is rejected.
+- **Service-level canonicalization:** view create/update now parses, resolves,
+  and canonicalizes against the base's live tables, views, and fields before
+  writing. A saved source whose `from` table/view resolves to a different root
+  table than the supplied `tableId` is rejected.
 - **Scoped text predicates over joins:** the text predicate family
   (`contains`, `startswith`, `endswith`, and case-insensitive variants) is
   supported by the formula SQL compiler, so joined predicates like
   `icontains(customer.name, 'al')` execute in SQL instead of failing as unknown
   formula functions.
-- **Saved-GQL dashboard visibility:** `resolveSavedGqlDashboardQuery` now
-  mirrors saved-query visibility policy: shared, owner, or admin only. Other
-  viewers get the same neutral `GQL query not found` diagnostic as the API.
+- **View dashboard visibility:** dashboard view resolution mirrors view
+  visibility policy: read access or admin only. Other viewers get a neutral not
+  found diagnostic instead of an existence leak.
 - **Public route concentration:** the legacy `/query-dsl` API alias was dropped;
   `/gql` is the single public backend route for GQL.
 
@@ -750,7 +747,7 @@ targeted Postgres GQL integration green (34 pass / 394 expects);
 `DATABASE_URL=postgresql://ipa:ipa@localhost:5432/ipa GRIDS_QUERY_DSL_DB_TEST=1
 bun test` (805 pass / 15 skips / 3184 expects).
 
-### Thirtieth batch — saved-GQL API contract coverage
+### Thirtieth batch — GQL API contract coverage
 
 - **Testable route construction:** `api/query-dsl.ts` now exposes a small
   `createGqlApi` factory so backend tests can inject an authenticated actor
@@ -759,22 +756,20 @@ bun test` (805 pass / 15 skips / 3184 expects).
 - **Public route contract:** the mounted Grids API is covered at the route
   boundary: `/gql/...` is present and auth-protected, while the removed legacy
   `/query-dsl/...` alias returns 404.
-- **Precise save responses:** the saved-query route declares the actual
-  transport contract explicitly: successful creates return `201`, while
-  parser/resolver/canonicalization diagnostics return `200` with
-  `{ ok: false, diagnostics }`.
-- **Admin list visibility:** the list route now matches direct saved-query read
-  policy. Base admins can list private saved GQL queries in the base; non-admin
-  service callers still get the previous shared-or-owned default unless they
-  explicitly opt into private visibility.
-- **Neutral mutation privacy:** `PATCH`, `DELETE`, and `restore` now run the
-  same saved-query readability precheck as direct `GET` before mutation gates.
-  Unreadable query ids return the neutral `GQL query not found` response instead
-  of leaking existence through `403` vs `404` differences.
-- **Saved-source persistence:** `POST /gql/by-base/:baseId/saved` and
-  `PATCH /gql/saved/:queryId` are covered through Hono against Postgres. The
-  test verifies that editable field names and select labels are persisted as
-  canonical table/field ids and option ids.
+- **Precise source responses:** the view routes declare the actual transport
+  contract explicitly: create/update validate GQL through parser,
+  resolver, and canonicalizer before persistence and return diagnostics instead
+  of silently accepting invalid source text.
+- **Admin list visibility:** the view list path matches direct view read
+  policy. Base admins can list private views in the base; non-admin callers see
+  only views they can read.
+- **Neutral mutation privacy:** view `PATCH`, `DELETE`, and restore run the
+  same readability precheck as direct `GET` before mutation gates. Unreadable
+  view ids return neutral not-found responses instead of leaking existence
+  through `403` vs `404` differences.
+- **Saved-source persistence:** view create/update routes are covered through
+  Hono against Postgres. The test verifies that editable field names and select
+  labels are persisted as canonical table/field ids and option ids.
 - **Implicit source contexts:** route coverage also pins `currentSource` for
   table and view contexts, so query-workspace saves without an explicit `from`
   clause still persist with a stable canonical `from table {id}` /
@@ -896,10 +891,10 @@ full local Grids suite green (774 pass / 60 skips / 2805 expects);
   `sqlGroupBy` compiler path and reuse the same formula / lookup / rollup SQL
   projections as row select, sort, filter, and aggregate paths. No JS grouping
   or evaluation was added.
-- **Persistence boundary kept explicit:** plain ViewQuery save still rejects
-  computed group keys with a direct diagnostic; rich GQL preview/execution is
-  the supported backend path until normal saved views can model computed group
-  keys.
+- **Persistence boundary kept explicit:** RecordQuery conversion still rejects
+  computed group keys with a direct diagnostic; GQL preview/execution is the
+  supported backend path until the records-table runtime can model computed
+  group keys directly.
 
 Verification: `cd packages/grids && bun run typecheck` green; focused
 resolver/group-compiler tests green (161 pass / 880 expects); targeted Postgres
@@ -1018,25 +1013,26 @@ behavior.
 supports explicit `nulls first` / `nulls last`.
 
 ### A3 — Silent sampling makes aggregate/grouped previews wrong
-`preview.ts:18` `MAX_PREVIEW_SCAN_ROWS = 5_000`: aggregate-only and grouped previews compute over `(SELECT … ORDER BY r.id LIMIT 5000)` (`sql-compiler.ts:847-855`, `group-compiler.ts:671-681`). On tables >5k rows the preview shows **wrong sums/counts with no indication** — response has no `sampled` flag, UI shows nothing. Then "Save as view" produces different numbers than the preview did. Directly contradicts the SQL-correctness goal.
+`preview.ts:18` `MAX_PREVIEW_SCAN_ROWS = 5_000`: aggregate-only and grouped previews compute over `(SELECT … ORDER BY r.id LIMIT 5000)` (`sql-compiler.ts:847-855`, `group-compiler.ts:671-681`). On tables >5k rows the preview shows **wrong sums/counts with no indication** — response has no `sampled` flag, UI shows nothing. A saved view source can then produce different numbers than the preview did. Directly contradicts the SQL-correctness goal.
 **Fix:** drop the sampling (V1 query audit measured 100k-row aggregates at 39–166 ms) and protect with `SET LOCAL statement_timeout` instead; or, if kept, return + render a "computed over first N records" banner.
 **Status:** fixed: aggregate/grouped previews no longer sample silently and run
 under a transaction-scoped statement timeout.
 
 ### A4 — JS vs SQL semantic drift (the "100% SQL" gap)
-GQL preview compiles formula selects/predicates to **SQL**. But "Save as view" stores them as `ComputedColumnSpec`, which the records pipeline evaluates in **JS** (`computed-projections.ts: enrichRecordsWithComputedColumns`, per V1 design "display-only columns"). Known divergences for the *same expression*:
+GQL preview compiles formula selects/predicates to **SQL**. Older view setup stored them as `ComputedColumnSpec`, which the records pipeline evaluated in **JS** (`computed-projections.ts: enrichRecordsWithComputedColumns`, per V1 design "display-only columns"). Known divergences for the *same expression*:
 - `1/0`: SQL → `NULL` (`NULLIF`), JS → `#DIV/0` error sentinel.
 - `=`: SQL `IS NOT DISTINCT FROM` with type coercion; JS strict `===` (plus nullish special-case).
 - Boolean/text coercions (`asBoolean`/`asText` COALESCE defaults) vs JS truthiness rules.
 - Decimal handling: JS uses Decimal.js for decimal-string shapes; SQL uses `numeric` (usually agrees, but formatting differs).
 Additionally formula *fields* of non-SQL-safe shape fall back to JS enrichment in the records pipeline.
 **Fix:** make ComputedColumnSpec evaluation use `compileFormulaSourceToSql` in `records.list` (infrastructure exists — formula fields already project via SQL there). Then delete the JS evaluation path for view columns; one semantics, SQL.
-**Status:** fixed for GQL execution and save boundaries: preview/rich saved GQL
-executes in SQL, plain ViewQuery saves reject GQL computed selects that cannot
-compile to SQL, and SQL-projectable ViewQuery computed columns are projected in
-SQL. SQL-projected decimal formula outputs are normalized through the same
-Decimal renderer as the JS formula engine. The remaining JS evaluator is a
-non-GQL fallback for non-projectable general ViewQuery computed columns.
+**Status:** fixed for GQL execution and RecordQuery boundaries: GQL preview and
+view source execution run in SQL, RecordQuery conversion rejects computed
+selects that cannot compile to SQL, and SQL-projectable RecordQuery computed
+columns are projected in SQL. SQL-projected decimal formula outputs are
+normalized through the same Decimal renderer as the JS formula engine. The
+remaining JS evaluator is a
+non-GQL fallback for non-projectable general RecordQuery computed columns.
 
 ### A5 — Formula fields can't be referenced inside expressions
 Top-level `select myFormulaField` works (`sql-compiler.ts:232-239` special-cases formula fields and inlines them). But `myFormulaField` **inside** any expression (`where`, `formula()` select, aggregate argument) fails — `formula-sql-compiler.ts:332-336` only consults `storageOf().project()` which is null for formula. Inconsistent and surprising: users see the field work in `select` but not in `where`.
@@ -1103,7 +1099,9 @@ GQL lets authenticated users author arbitrary-shaped queries (5 joins × depth 3
 
 ### B4 — Permission boundary is solid ✅
 - Per-table read gates feed `readableTableIds`; sources, joins, relation outputs, joined sorts all check it (`resolver.ts:202-206`, `sql-compiler.ts:191-195`).
-- View sources merge the saved filter via `AND` (`resolver.ts:444-448`); WHERE applies **before** GROUP BY, so HAVING/aggregates cannot see filtered-out rows (an agent claimed otherwise — wrong; verified in `group-compiler.ts:712-718`).
+- View sources merge the saved source filter via `AND` (`resolver.ts:444-448`);
+  WHERE applies **before** GROUP BY, so HAVING/aggregates cannot see
+  filtered-out rows (verified in `group-compiler.ts:712-718`).
 - Joined records re-check live-parent chain (`sql-compiler.ts:484-492`).
 - UUID probing of unreadable tables/views yields "source not available" without existence leak distinction (readable-set filtering happens before matching). ✅
 
@@ -1122,7 +1120,7 @@ Query ≤ 20k chars, limit ≤ 10k (preview 500), offset ≤ 10k, joins ≤ 5, d
 
 ## D. KISS / DRY Findings
 
-1. **Resolver split** — fixed in the third batch: save-as-view now checks the
+1. **Resolver split** — fixed in the third batch: RecordQuery now checks the
    single QueryPlan resolver output.
 2. **Aggregate compatibility/key drift** — fixed in the sixth batch via
    `service/aggregate-capabilities.ts` over the storage descriptor.
@@ -1154,10 +1152,10 @@ Query ≤ 20k chars, limit ≤ 10k (preview 500), offset ≤ 10k, joins ≤ 5, d
   label search with raw-UUID non-match, derived select label search,
   aggregate-only system-column counts,
   joined-derived search/where/regrouping, permission-sensitive relation
-  labels/search, dashboard backend consumption of saved GQL over table and
-  saved-view sources, saved dashboard GQL owner/shared visibility, plus rich GQL
+  labels/search, dashboard backend consumption of view GQL sources over table
+  and saved-view sources, view dashboard read/admin visibility, plus view GQL
   persistence.
-- Saved-GQL route/API integration covers the public `/gql` route, removed
+- GQL route/API integration covers the public `/gql` route, removed
   `/query-dsl` alias, admin list visibility, neutral unreadable mutation
   responses, save/update canonicalization, implicit `currentSource` table/view
   contexts, derived relation search/label preview through the public route, and

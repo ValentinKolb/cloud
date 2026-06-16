@@ -14,15 +14,7 @@
  * — otherwise an expansion's tail could cascade into another match.
  */
 
-import {
-  type Completion,
-  type QueryContext,
-  type Suggestion,
-  type SuggestContext,
-  TRIGGER_CHARS,
-  WORD_CHAR,
-  suggestSync,
-} from "./engine";
+import { type Completion, type QueryContext, type Suggestion, type SuggestContext, TRIGGER_CHARS, WORD_CHAR, suggestSync } from "./engine";
 
 type LastExpansion = {
   textarea: HTMLTextAreaElement;
@@ -170,6 +162,17 @@ export const applySuggestion = (
   suggestion: Suggestion,
   options: { trackExpansion?: boolean } = {},
 ): boolean => {
+  if (suggestion.textEdit) {
+    const { start, end, text } = suggestion.textEdit;
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || end > textarea.value.length) {
+      return false;
+    }
+    if (textarea.value.slice(start, end) === text) return false;
+    textarea.setSelectionRange(start, end);
+    document.execCommand("insertText", false, text);
+    return true;
+  }
+
   const baseText = suggestion.expansion ?? suggestion.text;
   if (baseText === ctx.text) return false;
 

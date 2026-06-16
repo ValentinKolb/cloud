@@ -123,9 +123,7 @@ export function RecordDisplayConfigEditor(props: {
             clearable
           />
         </div>
-        <p class="text-xs text-dimmed">
-          Cards still use the same SQL query, filters, sorting, and permissions as the table.
-        </p>
+        <p class="text-xs text-dimmed">Cards still use the same GQL source and permissions.</p>
       </Show>
 
       <Show when={display().mode === "calendar"}>

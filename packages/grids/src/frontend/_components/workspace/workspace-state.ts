@@ -1,7 +1,23 @@
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
-import type { ComputedColumnSpec, GqlQuery, GroupSortSpec, RecordDisplayConfig, ViewQuery } from "../../../contracts";
+import type {
+  ComputedColumnSpec,
+  DslQueryPreviewResponse,
+  GroupSortSpec,
+  RecordDisplayConfig,
+  RecordQuery,
+} from "../../../contracts";
+import { parseGridsQueryDsl } from "../../../query-dsl/parser";
+import {
+  type DslResolverContext,
+  type DslResolverDiagnostic,
+  type DslTableSource,
+  type DslViewSource,
+  resolveDslQueryToRecordQuery,
+} from "../../../query-dsl/resolver";
+import { collectDslFieldTableIds } from "../../../query-dsl/source-plan";
+import type { DslQueryAst } from "../../../query-dsl/types";
 import type { Automation, Base, Dashboard, Field, Form, GridRecord, Table, View } from "../../../service";
 import { gridsService } from "../../../service";
 import { resolveWidgetData, type WidgetData } from "../../../service/dashboard-widget-data";
@@ -27,7 +43,7 @@ type AggregationRaw = {
   label?: string;
 };
 
-const isComputedColumn = (column: NonNullable<ViewQuery["columns"]>[number]): column is ComputedColumnSpec =>
+const isComputedColumn = (column: NonNullable<RecordQuery["columns"]>[number]): column is ComputedColumnSpec =>
   "kind" in column && column.kind === "computed";
 
 export type WorkspaceGroupBucket = {
@@ -43,15 +59,19 @@ export type WorkspaceCatalog = {
   viewsByTable: Record<string, View[]>;
   formsByTable: Record<string, Form[]>;
   formAccessEntriesByTable: Record<string, Record<string, AccessEntry[]>>;
-  gqlQueries: GqlQuery[];
   tableShortIds: Record<string, string>;
   sidebarForms: Array<{ form: Form; table: Table }>;
+};
+
+type RuntimeView = View & {
+  query: RecordQuery;
+  displayConfig: RecordDisplayConfig;
 };
 
 export type WorkspaceRecordsRoute = {
   kind: "records";
   activeTable: Table;
-  activeView: View | null;
+  activeView: RuntimeView | null;
   fields: Field[];
   formsForTable: Form[];
   canWriteRecords: boolean;
@@ -75,10 +95,10 @@ export type WorkspaceRecordsRoute = {
   };
   initialSelectedRecord: GridRecord | null;
   relationLabels: Record<string, string>;
-  activeViewColumns: ViewQuery["columns"] | undefined;
+  activeViewColumns: RecordQuery["columns"] | undefined;
   searchableFields: Field[];
   groupedExplode: boolean;
-  activeViewQuery: ViewQuery | null;
+  activeRecordQuery: RecordQuery | null;
   displayConfig: RecordDisplayConfig;
 };
 
@@ -104,9 +124,8 @@ export type WorkspaceAutomationsRoute = {
 export type WorkspaceQueryRoute = {
   kind: "query";
   initialQuery: string;
+  initialPreview?: DslQueryPreviewResponse | null;
   queryPath: string;
-  savedQuery?: GqlQuery;
-  canEditSavedQuery?: boolean;
   currentSource?:
     | { kind: "table"; tableId: string; label: string; ref: string }
     | { kind: "view"; viewId: string; label: string; ref: string };
@@ -122,6 +141,7 @@ export type GridsWorkspaceRoute =
 export type GridsWorkspaceState =
   | { kind: "notFound"; title: string; message: string }
   | { kind: "accessDenied"; title: string; message: string }
+  | { kind: "invalidQuery"; title: string; message: string }
   | {
       kind: "ok";
       base: Base;
@@ -192,7 +212,6 @@ type LoadWorkspaceParams = {
   activeTableSlug?: string | null;
   activeViewSlug?: string | null;
   activeDashboardSlug?: string | null;
-  activeGqlQuerySlug?: string | null;
   dateConfig?: DateContext;
 };
 
@@ -248,15 +267,12 @@ const buildChrome = (href: string, base: Base): WorkspaceChrome => {
 };
 
 const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCatalog> => {
-  const [catalogRaw, gqlQueries] = await Promise.all([
-    gridsService.base.catalog({
-      baseId,
-      userId: user.id,
-      userGroups: user.memberofGroupIds,
-      isAdmin: hasRole(user, "admin"),
-    }),
-    gridsService.gqlQuery.listForBase({ baseId, userId: user.id }),
-  ]);
+  const catalogRaw = await gridsService.base.catalog({
+    baseId,
+    userId: user.id,
+    userGroups: user.memberofGroupIds,
+    isAdmin: hasRole(user, "admin"),
+  });
   const tables = catalogRaw.tables;
   const formTables = catalogRaw.formTables ?? [];
   const tableById = Object.fromEntries([...tables, ...formTables].map((t) => [t.id, t]));
@@ -276,7 +292,6 @@ const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCat
     viewsByTable: catalogRaw.viewsByTable,
     formsByTable: catalogRaw.formsByTable,
     formAccessEntriesByTable,
-    gqlQueries,
     tableShortIds: Object.fromEntries([...tables, ...formTables].map((t) => [t.id, t.shortId])),
     sidebarForms,
   };
@@ -340,21 +355,97 @@ const loadDashboardState = async (common: WorkspaceCommon, dashboard: Dashboard)
   });
 };
 
-const canReadSavedGqlQuery = (common: WorkspaceCommon, query: GqlQuery) =>
-  query.ownerUserId === null || query.ownerUserId === common.params.user.id || common.canManageBase;
+const gqlDiagnosticsMessage = (diagnostics: Array<Pick<DslResolverDiagnostic, "message">>) =>
+  diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid GQL source";
+
+const withViewPresentation = (query: RecordQuery, presentation: View["ui"] | undefined): RecordQuery => {
+  if (!presentation) return query;
+  return {
+    ...query,
+    ...(presentation.columns ? { columns: presentation.columns } : {}),
+    ...(presentation.groupedColumnOrder ? { groupedColumnOrder: presentation.groupedColumnOrder } : {}),
+    ...(presentation.hiddenGroupedColumns ? { hiddenGroupedColumns: presentation.hiddenGroupedColumns } : {}),
+  };
+};
+
+const buildWorkspaceGqlResolverContext = (catalog: WorkspaceCatalog, currentTableId: string, ast: DslQueryAst): DslResolverContext => {
+  const tables: DslTableSource[] = catalog.tables.map((table) => ({
+    kind: "table",
+    id: table.id,
+    shortId: table.shortId,
+    name: table.name,
+  }));
+  const views: DslViewSource[] = Object.values(catalog.viewsByTable)
+    .flat()
+    .map((view) => ({
+      kind: "view" as const,
+      id: view.id,
+      shortId: view.shortId,
+      name: view.name,
+      tableId: view.tableId,
+      source: view.source,
+      query: {},
+    }));
+  const fieldTableIds = collectDslFieldTableIds({ ast, currentTableId, tables, views });
+  const fieldsByTableId = Object.fromEntries(fieldTableIds.map((tableId) => [tableId, catalog.fieldsByTable[tableId] ?? []])) as Record<
+    string,
+    Field[]
+  >;
+  const currentTable = tables.find((table) => table.id === currentTableId);
+  return {
+    ...(currentTable ? { currentTable } : {}),
+    tables,
+    views,
+    fieldsByTableId,
+  };
+};
+
+const compileWorkspaceViewSource = (
+  catalog: WorkspaceCatalog,
+  activeTable: Table,
+  view: View,
+): { ok: true; query: RecordQuery } | { ok: false; diagnostics: Array<Pick<DslResolverDiagnostic, "message">> } => {
+  const parsed = parseGridsQueryDsl(view.source);
+  if (!parsed.ok) return { ok: false, diagnostics: parsed.diagnostics };
+  const context = buildWorkspaceGqlResolverContext(catalog, activeTable.id, parsed.ast);
+  const resolved = resolveDslQueryToRecordQuery(parsed.ast, context);
+  if (!resolved.ok) return { ok: false, diagnostics: resolved.diagnostics };
+  return { ok: true, query: withViewPresentation(resolved.plan.query, view.ui) };
+};
+
+const outputFieldsForRecordQuery = (fields: Field[], query: RecordQuery): Field[] => {
+  const ids = new Set<string>();
+  for (const column of query.columns ?? []) {
+    if ("fieldId" in column) ids.add(column.fieldId);
+  }
+  for (const group of query.groupBy ?? []) ids.add(group.fieldId);
+  return ids.size === 0 ? fields : fields.filter((field) => ids.has(field.id));
+};
+
+const viewLevelForUser = async (user: AuthUser, baseId: string, tableId: string, viewId: string) => {
+  if (hasRole(user, "admin")) return "admin" as const;
+  const grants = await gridsService.permission.loadGrants({
+    userId: user.id,
+    userGroups: user.memberofGroupIds,
+    baseId,
+    tableId,
+    viewId,
+  });
+  return gridsService.permission.resolve(grants, { baseId, tableId, viewId });
+};
 
 type InitialRecordsArgs = {
   activeTable: Table;
   fields: Field[];
   recordsState: RecordsState;
-  activeView: View | null;
+  activeView: RuntimeView | null;
   displayConfig: RecordDisplayConfig;
   trashMode: boolean;
   user: AuthUser;
   dateConfig?: DateContext;
 };
 
-const resolveInitialQuery = (recordsState: RecordsState, activeView: View | null) => {
+const resolveInitialQuery = (recordsState: RecordsState, activeView: RuntimeView | null) => {
   const effective = resolveEffectiveQuery(recordsState, activeView);
   const effectiveFilter = effective.filter ?? null;
   const effectiveSort = effective.sort ?? [];
@@ -502,19 +593,56 @@ const loadInitialRecords = async (args: InitialRecordsArgs) => {
   };
 };
 
-const loadRecordsState = async (common: WorkspaceCommon, activeTable: Table, activeViewSlug?: string | null): Promise<OkWorkspaceState> => {
+const loadRecordsState = async (
+  common: WorkspaceCommon,
+  activeTable: Table,
+  activeViewSlug?: string | null,
+): Promise<OkWorkspaceState | Extract<GridsWorkspaceState, { kind: "invalidQuery" }>> => {
   const activeTableLevel = common.catalog.tableLevels[activeTable.id] ?? "none";
-  const fields = common.catalog.fieldsByTable[activeTable.id] ?? [];
   const viewsForTable = common.catalog.viewsByTable[activeTable.id] ?? [];
   const candidateView = activeViewSlug ? await gridsService.view.getByIdOrShortId(activeTable.id, activeViewSlug) : null;
-  const activeView = candidateView ? (viewsForTable.find((v) => v.id === candidateView.id) ?? null) : null;
+  const catalogView = candidateView ? (viewsForTable.find((v) => v.id === candidateView.id) ?? null) : null;
+  const candidateViewLevel = candidateView ? await viewLevelForUser(common.params.user, common.base.id, activeTable.id, candidateView.id) : "none";
+  const activeView =
+    catalogView ??
+    (candidateView && gridsService.permission.hasAtLeast(candidateViewLevel, "read") ? candidateView : null);
+  const allFields =
+    common.catalog.fieldsByTable[activeTable.id] ??
+    (activeView ? await gridsService.field.listByTable(activeTable.id) : []);
+  const viewCompilerCatalog: WorkspaceCatalog =
+    activeView && !catalogView
+      ? {
+          ...common.catalog,
+          tables: common.catalog.tables.some((table) => table.id === activeTable.id) ? common.catalog.tables : [...common.catalog.tables, activeTable],
+          tableLevels: { ...common.catalog.tableLevels, [activeTable.id]: activeTableLevel },
+          fieldsByTable: { ...common.catalog.fieldsByTable, [activeTable.id]: allFields },
+          viewsByTable: { ...common.catalog.viewsByTable, [activeTable.id]: [activeView] },
+        }
+      : common.catalog;
+  const compiledView = activeView ? compileWorkspaceViewSource(viewCompilerCatalog, activeTable, activeView) : null;
+  if (compiledView && !compiledView.ok) {
+    return {
+      kind: "invalidQuery",
+      title: "Invalid view GQL source",
+      message: gqlDiagnosticsMessage(compiledView.diagnostics),
+    };
+  }
+  const activeViewForQuery: RuntimeView | null =
+    activeView && compiledView?.ok
+      ? {
+          ...activeView,
+          query: compiledView.query,
+          displayConfig: activeView.ui.displayConfig ?? { mode: "table" },
+        }
+      : null;
+  const fields = activeViewForQuery ? outputFieldsForRecordQuery(allFields, activeViewForQuery.query) : allFields;
   const recordsState = parseRecordsState(common.chrome.url.searchParams);
-  const displayConfig = activeDisplayConfig(activeTable.displayConfig, activeView?.displayConfig);
+  const displayConfig = activeDisplayConfig(activeTable.displayConfig, activeViewForQuery?.displayConfig);
   const initial = await loadInitialRecords({
     activeTable,
     fields,
     recordsState,
-    activeView,
+    activeView: activeViewForQuery,
     displayConfig,
     trashMode: common.chrome.trashMode,
     user: common.params.user,
@@ -528,18 +656,16 @@ const loadRecordsState = async (common: WorkspaceCommon, activeTable: Table, act
       (await gridsService.record.get(activeTable.id, selectedRecordId, { dateConfig: common.params.dateConfig })));
   const canEditActiveView =
     !!activeView &&
-    (activeView.ownerUserId === null
-      ? gridsService.permission.hasAtLeast(activeTableLevel, "write")
-      : activeView.ownerUserId === common.params.user.id && gridsService.permission.hasAtLeast(activeTableLevel, "read"));
+    (activeView.ownerUserId === common.params.user.id || gridsService.permission.hasAtLeast(candidateViewLevel, "admin"));
 
   return okState(
     common,
     {
       kind: "records",
       activeTable,
-      activeView,
+      activeView: activeViewForQuery,
       fields,
-      formsForTable: common.catalog.formsByTable[activeTable.id] ?? [],
+      formsForTable: gridsService.permission.hasAtLeast(activeTableLevel, "read") ? (common.catalog.formsByTable[activeTable.id] ?? []) : [],
       canWriteRecords: gridsService.permission.hasAtLeast(activeTableLevel, "write"),
       canManageActiveTable: gridsService.permission.hasAtLeast(activeTableLevel, "admin"),
       activeTableAccessEntries: gridsService.permission.hasAtLeast(activeTableLevel, "admin")
@@ -579,7 +705,7 @@ const loadRecordsState = async (common: WorkspaceCommon, activeTable: Table, act
       activeViewColumns: initial.effective.columns,
       searchableFields: filterSearchableFields(fields),
       groupedExplode: initial.groupedExplode,
-      activeViewQuery: activeView?.query ?? null,
+      activeRecordQuery: activeViewForQuery?.query ?? null,
       displayConfig,
     },
     [
@@ -600,7 +726,14 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
   const catalog = await loadCatalog(baseId, params.user);
   const hasBaseRead = gridsService.permission.hasAtLeast(level, "read");
   const hasFormOnlyAccess = catalog.sidebarForms.length > 0;
-  if (!hasBaseRead && !hasFormOnlyAccess) {
+  const requestedViewTable =
+    params.activeTableSlug && params.activeViewSlug ? await gridsService.table.getByIdOrShortId(baseId, params.activeTableSlug) : null;
+  const requestedView =
+    requestedViewTable && params.activeViewSlug ? await gridsService.view.getByIdOrShortId(requestedViewTable.id, params.activeViewSlug) : null;
+  const hasViewRouteAccess = requestedView
+    ? gridsService.permission.hasAtLeast(await viewLevelForUser(params.user, baseId, requestedView.tableId, requestedView.id), "read")
+    : false;
+  if (!hasBaseRead && !hasFormOnlyAccess && !hasViewRouteAccess) {
     return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
   }
 
@@ -618,31 +751,12 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
     canUseEditMode,
     canUseQueryWorkspace: hasBaseRead,
   };
-  const queryWorkspaceRequested = chrome.url.pathname.endsWith("/query") || !!params.activeGqlQuerySlug;
+  const queryWorkspaceRequested = chrome.url.pathname.endsWith("/query");
   const activeDashboard = queryWorkspaceRequested ? null : await resolveActiveDashboard(params, base, catalog.dashboards);
   const renderDashboard = activeDashboard ? (catalog.dashboards.find((d) => d.id === activeDashboard.id) ?? null) : null;
-  const activeTableFromSlug = params.activeTableSlug ? await gridsService.table.getByIdOrShortId(baseId, params.activeTableSlug) : null;
+  const activeTableFromSlug = requestedViewTable ?? (params.activeTableSlug ? await gridsService.table.getByIdOrShortId(baseId, params.activeTableSlug) : null);
   if (queryWorkspaceRequested) {
     if (!hasBaseRead) return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
-    if (params.activeGqlQuerySlug) {
-      const savedQuery = await gridsService.gqlQuery.getByIdOrShortId(baseId, params.activeGqlQuerySlug);
-      if (!savedQuery) return { kind: "notFound", title: "Not found", message: "GQL query not found" };
-      if (!canReadSavedGqlQuery(common, savedQuery)) {
-        return { kind: "accessDenied", title: "Access denied", message: "No access to this query" };
-      }
-      return okState(
-        common,
-        {
-          kind: "query",
-          initialQuery: savedQuery.source,
-          queryPath: `/app/grids/${base.shortId}/query/${savedQuery.shortId}`,
-          savedQuery,
-          canEditSavedQuery: savedQuery.ownerUserId === params.user.id || canManageBase,
-        },
-        [...chrome.titleBase, { title: "Query", href: `/app/grids/${base.shortId}/query` }, { title: savedQuery.name }],
-      );
-    }
-
     const queryTable = activeTableFromSlug ? (catalog.tables.find((t) => t.id === activeTableFromSlug.id) ?? null) : null;
     if (params.activeTableSlug && !queryTable) {
       return { kind: "accessDenied", title: "Access denied", message: "No access to this table" };
@@ -689,7 +803,7 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
 
   const activeTableId = activeTableFromSlug?.id ?? null;
   const activeTable = activeTableId
-    ? (catalog.tables.find((t) => t.id === activeTableId) ?? null)
+    ? (catalog.tables.find((t) => t.id === activeTableId) ?? (params.activeViewSlug ? activeTableFromSlug : null))
     : activeDashboard
       ? null
       : (catalog.tables[0] ?? null);

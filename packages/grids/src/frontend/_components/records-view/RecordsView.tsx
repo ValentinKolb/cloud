@@ -4,7 +4,8 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { AggregationSpec, GroupBySpec, RecordDisplayConfig, TableQueryResult, ViewQuery } from "../../../contracts";
+import type { AggregationSpec, GroupBySpec, RecordDisplayConfig, TableQueryResult, RecordQuery } from "../../../contracts";
+import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
 import type { Field, Form, GridRecord, Table, View } from "../../../service";
 import type { ColumnSpec, FieldColumnSpec } from "../../../service/views";
 import { defaultTableAggregations } from "../../../table-defaults";
@@ -13,6 +14,8 @@ import { openViewColumnSettingsDialog } from "../dialogs/ViewColumnSettingsDialo
 import { openViewSettingsDialog } from "../dialogs/ViewSettingsDialogs";
 import { FormulaExpressionEditor } from "../fields/FormulaExpressionEditor";
 import { openFieldEditDialog } from "../fields/TableFieldDialogs";
+import QueryWorkspace from "../query/QueryWorkspace";
+import type { QueryWorkspaceCurrentSource } from "../query/query-workspace-model";
 import { openExportRecordsDialog } from "../records/ExportRecordsDialog";
 import RecordDetailPanel from "../records/RecordDetailPanel";
 import DatabaseTable from "../table/DatabaseTable";
@@ -51,6 +54,10 @@ import { applyToolbarQueryPatch, type ToolbarQueryPatch } from "./toolbar-query"
 const UI_AGG_KINDS: ReadonlySet<AggKindUI> = new Set(["count", "countEmpty", "countUnique", "sum", "avg", "min", "max"]);
 
 const ADMIN_BUTTON_CLASS = "btn-input-success btn-input-sm";
+const QUERY_PANEL_DIALOG_OPTIONS = {
+  ...panelDialogOptions,
+  panelClassName: panelDialogOptions.panelClassName.replace("w-[min(96vw,48rem)]", "w-[min(98vw,76rem)]"),
+};
 
 const isComputedColumn = (column: ColumnSpec): column is Extract<ColumnSpec, { kind: "computed" }> =>
   "kind" in column && column.kind === "computed";
@@ -148,7 +155,7 @@ const toAggregationRows = (specs: AggregationSpec[] | undefined): AggregationRow
     .filter((s): s is AggregationSpec & { agg: AggKindUI } => UI_AGG_KINDS.has(s.agg as AggKindUI))
     .map((s) => ({ fieldId: s.fieldId, agg: s.agg, label: s.label }));
 
-const filterRowsFromQuery = (filter: ViewQuery["filter"]): FilterLeaf[] => {
+const filterRowsFromQuery = (filter: RecordQuery["filter"]): FilterLeaf[] => {
   if (!filter || typeof filter !== "object" || (filter as { op?: string }).op !== "AND") return [];
   const filters = (filter as { filters?: unknown[] }).filters;
   if (!Array.isArray(filters)) return [];
@@ -168,6 +175,11 @@ const filterRowsFromQuery = (filter: ViewQuery["filter"]): FilterLeaf[] => {
  * record-detail-context custom-event bus, which we honour by emitting
  * a `popstate` synthetic so the panel can resync its highlight.
  */
+
+type RuntimeView = View & {
+  query: RecordQuery;
+  displayConfig: RecordDisplayConfig;
+};
 
 type Props = {
   /** UUID of the base — for API calls. */
@@ -193,6 +205,8 @@ type Props = {
    *  the `/view/<short>` URL segment. */
   viewShortId: string | null;
   fields: Field[];
+  tables: Table[];
+  viewsByTable: Record<string, View[]>;
   forms: Form[];
   canWrite: boolean;
   canManageTable: boolean;
@@ -200,7 +214,7 @@ type Props = {
   initialAdminMode: boolean;
   initialAccessEntries: AccessEntry[];
   initialFormAccessEntries: Record<string, AccessEntry[]>;
-  activeView?: View | null;
+  activeView?: RuntimeView | null;
   activeViewAccessEntries?: AccessEntry[];
   canEditActiveView?: boolean;
   /** Tables in the same base, including the active table for self-relations. */
@@ -232,7 +246,7 @@ type Props = {
    * value get omitted from the URL — keeps view URLs symbolic instead
    * of freezing the view's snapshot at navigation time. See post-cleanup #4.
    */
-  activeViewQuery: ViewQuery | null;
+  activeRecordQuery: RecordQuery | null;
   displayConfig: RecordDisplayConfig;
   dateConfig?: DateContext;
 };
@@ -264,13 +278,13 @@ export default function RecordsView(props: Props) {
       : `/app/grids/${props.baseShortId}/table/${props.tableShortId}/query`;
   const [adminMode, setAdminMode] = createSignal(props.initialAdminMode && canUseEditMode());
   const [viewColumns, setViewColumns] = createSignal<ColumnSpec[] | undefined>(props.viewColumns ?? props.initialState.query.columns);
-  const [query, setQuery] = createSignal<ViewQuery>(props.initialState.query);
+  const [query, setQuery] = createSignal<RecordQuery>(props.initialState.query);
   const [cursor, setCursor] = createSignal<string | null>(props.initialState.cursor);
   const [selectedRecordId, setSelectedRecordId] = createSignal<string | null>(props.initialState.selectedRecordId);
   const [selectedGroup, setSelectedGroup] = createSignal<GroupBucket | null>(null);
   const resolvedSearchState = (state: RecordsState["search"]): RecordsState["search"] => {
     if (state.override) return state;
-    const saved = props.activeViewQuery?.search;
+    const saved = props.activeRecordQuery?.search;
     if (!saved) return state;
     return {
       q: saved.q,
@@ -319,7 +333,7 @@ export default function RecordsView(props: Props) {
   // step — the records service compiles it into SQL separately from the
   // structured FilterTree.
   let resourceFetchEpochCounter = 0;
-  const queryWithSearch = (): ViewQuery => {
+  const queryWithSearch = (): RecordQuery => {
     const { search: _savedSearch, ...baseQuery } = query();
     const q = search().q.trim();
     const withSearch = q ? { ...baseQuery, search: { q, fieldIds: search().fieldIds } } : baseQuery;
@@ -335,12 +349,65 @@ export default function RecordsView(props: Props) {
     };
     return renderMode() === "calendar" && !withCalendar.limit ? { ...withCalendar, limit: 500 } : withCalendar;
   };
+
+  const queryCurrentSource = (): QueryWorkspaceCurrentSource =>
+    props.activeView
+      ? {
+          kind: "view",
+          viewId: props.activeView.id,
+          label: props.activeView.name,
+          ref: props.activeView.shortId,
+        }
+      : {
+          kind: "table",
+          tableId: props.tableId,
+          label: tableName(),
+          ref: props.tableShortId,
+        };
+
+  const queryPanelInitialSource = () => {
+    const source = simpleQueryToGqlSource({ tableId: props.tableId, query: queryWithSearch() });
+    return source.ok ? source.source : "";
+  };
+
+  const openQueryPanel = () => {
+    void dialogCore.open<void>((close) => (
+      <PanelDialog>
+        <PanelDialog.Header title="Query" subtitle={tableName()} icon="ti ti-code" close={() => close()} />
+        <PanelDialog.Body>
+          <div class="flex h-[min(72vh,46rem)] min-h-[30rem] overflow-hidden">
+            <QueryWorkspace
+              baseId={props.baseId}
+              baseShortId={props.baseShortId}
+              initialQuery={queryPanelInitialSource()}
+              queryPath={queryWorkspaceHref()}
+              currentSource={queryCurrentSource()}
+              tables={props.tables}
+              fieldsByTable={{ ...props.fieldsByTable, [props.tableId]: fields() }}
+              viewsByTable={props.viewsByTable}
+              syncQueryToUrl={false}
+            />
+          </div>
+        </PanelDialog.Body>
+        <PanelDialog.Footer>
+          <a href={queryWorkspaceHref()} class="btn-input btn-sm">
+            <i class="ti ti-arrows-maximize" /> Full workspace
+          </a>
+          <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
+            Done
+          </button>
+        </PanelDialog.Footer>
+      </PanelDialog>
+    ), QUERY_PANEL_DIALOG_OPTIONS);
+  };
+
   const [data, { refetch, mutate }] = createResource<
     RecordsTableQueryResult,
-    { tableId: string; query: ViewQuery; cursor: string | null; filePreviewFieldIds?: string[]; calendar: RecordsState["calendar"] }
+    { tableId: string; viewId?: string; query: RecordQuery; cursor: string | null; filePreviewFieldIds?: string[]; calendar: RecordsState["calendar"] }
   >(
     () => ({
       tableId: props.tableId,
+      viewId: props.activeView?.id,
       query: queryWithSearch(),
       cursor: cursor(),
       filePreviewFieldIds: renderMode() === "cards" ? cardImageFieldIds(displayConfig()) : [],
@@ -476,7 +543,7 @@ export default function RecordsView(props: Props) {
   // for query churn (filter / sort / group / agg / search — frequent),
   // `replace=false` for semantic navigation (cursor pagination, detail
   // panel open) so back-button has the right semantics.
-  const queryForUrl = (): ViewQuery => {
+  const queryForUrl = (): RecordQuery => {
     const current = query();
     if (renderMode() !== "calendar") return current;
     return {
@@ -521,7 +588,7 @@ export default function RecordsView(props: Props) {
         viewShortId: props.viewShortId,
       },
       currentUrlState(),
-      props.activeViewQuery,
+      props.activeRecordQuery,
     );
     const finalUrl = adminMode() ? withAdminModeParam(next) : stripAdminModeParam(next);
     if (finalUrl === location.pathname + location.search) return;
@@ -603,7 +670,7 @@ export default function RecordsView(props: Props) {
 
   const hasBlockingDialog = () => dialogCore.isOpen();
 
-  const fetchFlatLiveRefresh = async (baseQuery: ViewQuery, targetCount: number, signal: AbortSignal): Promise<TableQueryResult> => {
+  const fetchFlatLiveRefresh = async (baseQuery: RecordQuery, targetCount: number, signal: AbortSignal): Promise<TableQueryResult> => {
     const filePreviewFieldIds = renderMode() === "cards" ? cardImageFieldIds(displayConfig()) : [];
     const desiredCount = Math.max(targetCount, 1);
     let nextCursor: string | null = null;
@@ -615,6 +682,7 @@ export default function RecordsView(props: Props) {
       const page = await fetchTableQuery(
         {
           tableId: props.tableId,
+          viewId: props.activeView?.id,
           query: liveRefreshQuery(baseQuery, Math.max(desiredCount - combinedItems.length, 1)),
           cursor: nextCursor,
           filePreviewFieldIds,
@@ -666,6 +734,7 @@ export default function RecordsView(props: Props) {
         ? await fetchTableQuery(
             {
               tableId: props.tableId,
+              viewId: props.activeView?.id,
               query: queryWithSearch(),
               cursor: null,
               filePreviewFieldIds: renderMode() === "cards" ? cardImageFieldIds(displayConfig()) : [],
@@ -1053,33 +1122,44 @@ export default function RecordsView(props: Props) {
       fields: fields(),
       initialAccessEntries: props.activeViewAccessEntries ?? [],
       canEditAccess: props.canManageTable,
-      onSaved: (next) => setViewDisplayConfig(next.displayConfig),
+      onSaved: (next) => setViewDisplayConfig(next.ui.displayConfig ?? { mode: "table" }),
     });
   };
 
-  const patchViewQueryMut = mutations.create<View, Partial<ViewQuery>>({
+  const patchRecordQueryMut = mutations.create<{ view: View; query: RecordQuery }, Partial<RecordQuery>>({
     mutation: async (patch) => {
       const view = props.activeView;
       if (!view) throw new Error("No active view");
       const cur = await apiClient.views[":viewId"].$get({ param: { viewId: view.id } });
       if (!cur.ok) throw new Error(await errorMessage(cur, "Failed to load view"));
       const current = await cur.json();
+      const nextQuery = { ...view.query, ...patch };
+      const converted = simpleQueryToGqlSource({ tableId: view.tableId, query: nextQuery });
+      if (!converted.ok) throw new Error(converted.reason);
       const res = await apiClient.views[":viewId"].$patch({
         param: { viewId: view.id },
-        json: { query: { ...current.query, ...patch } },
+        json: {
+          source: converted.source,
+          ui: {
+            ...current.ui,
+            ...(nextQuery.columns ? { columns: nextQuery.columns } : {}),
+            ...(nextQuery.groupedColumnOrder ? { groupedColumnOrder: nextQuery.groupedColumnOrder } : {}),
+            ...(nextQuery.hiddenGroupedColumns ? { hiddenGroupedColumns: nextQuery.hiddenGroupedColumns } : {}),
+          },
+        },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save view columns"));
-      return res.json();
+      return { view: await res.json(), query: nextQuery };
     },
-    onSuccess: (view) => {
-      setViewColumns(view.query.columns);
+    onSuccess: (result) => {
+      setViewColumns(result.query.columns);
       setQuery((prev) => ({
         ...prev,
-        columns: view.query.columns,
-        groupBy: view.query.groupBy,
-        aggregations: view.query.aggregations,
-        groupedColumnOrder: view.query.groupedColumnOrder,
-        hiddenGroupedColumns: view.query.hiddenGroupedColumns,
+        columns: result.query.columns,
+        groupBy: result.query.groupBy,
+        aggregations: result.query.aggregations,
+        groupedColumnOrder: result.query.groupedColumnOrder,
+        hiddenGroupedColumns: result.query.hiddenGroupedColumns,
       }));
     },
     onError: (e) => prompts.error(e.message),
@@ -1117,7 +1197,7 @@ export default function RecordsView(props: Props) {
     const cleaned = columns.map(cleanViewColumn);
     setViewColumns(cleaned);
     setQuery((prev) => ({ ...prev, columns: cleaned.some(isComputedColumn) || isSavedView() ? cleaned : undefined }));
-    if (isSavedView()) patchViewQueryMut.mutate({ columns: cleaned });
+    if (isSavedView()) patchRecordQueryMut.mutate({ columns: cleaned });
     else {
       syncUrl({ replace: true });
       if (!cleaned.some(isComputedColumn)) patchTableColumnsMut.mutate(cleaned.filter(isFieldColumn));
@@ -1214,7 +1294,7 @@ export default function RecordsView(props: Props) {
   const hideGroupedColumn = (columnId: string) => {
     const ids = new Set(groupedColumnIds());
     const next = [...new Set([...(query().hiddenGroupedColumns ?? []), columnId])].filter((id) => ids.has(id));
-    patchViewQueryMut.mutate({ hiddenGroupedColumns: next });
+    patchRecordQueryMut.mutate({ hiddenGroupedColumns: next });
   };
 
   const moveGroupedViewColumnInline = (columnId: string, direction: -1 | 1) => {
@@ -1223,7 +1303,7 @@ export default function RecordsView(props: Props) {
     const next = moveGroupedColumn(order, index, direction);
     if (next) {
       const hidden = effectiveGroupedColumnOrder().filter((id) => hiddenGroupedColumnIds().has(id));
-      patchViewQueryMut.mutate({ groupedColumnOrder: [...next, ...hidden] });
+      patchRecordQueryMut.mutate({ groupedColumnOrder: [...next, ...hidden] });
     }
   };
 
@@ -1253,7 +1333,7 @@ export default function RecordsView(props: Props) {
       hideGroupedColumn(columnId);
       return;
     }
-    patchViewQueryMut.mutate({
+    patchRecordQueryMut.mutate({
       groupBy: groupBy().map((spec, idx) => (idx === index ? { ...spec, label: result.label, format: result.format } : spec)),
     });
   };
@@ -1277,7 +1357,7 @@ export default function RecordsView(props: Props) {
       hideGroupedColumn(columnId);
       return;
     }
-    patchViewQueryMut.mutate({
+    patchRecordQueryMut.mutate({
       aggregations: displayAggregations().map((spec, idx) =>
         idx === index ? { ...spec, label: result.label, format: result.format } : spec,
       ),
@@ -1328,7 +1408,7 @@ export default function RecordsView(props: Props) {
               ...label,
               add: () => {
                 const next = (query().hiddenGroupedColumns ?? []).filter((hiddenId) => hiddenId !== id);
-                patchViewQueryMut.mutate({ hiddenGroupedColumns: next });
+                patchRecordQueryMut.mutate({ hiddenGroupedColumns: next });
               },
             }
           : null;
@@ -1350,7 +1430,7 @@ export default function RecordsView(props: Props) {
         const selected = selectedColumnIds();
         if (selected.length === 0) return;
         if (isGrouped()) {
-          patchViewQueryMut.mutate({
+          patchRecordQueryMut.mutate({
             hiddenGroupedColumns: (query().hiddenGroupedColumns ?? []).filter((hiddenId) => !selected.includes(hiddenId)),
           });
         } else {
@@ -1539,6 +1619,8 @@ export default function RecordsView(props: Props) {
               initialAggregations={toolbarAggregationRows()}
               recordMeta={query().recordMeta}
               columns={effectiveViewColumns()}
+              queryHref={queryWorkspaceHref()}
+              onOpenQuery={openQueryPanel}
               onAddComputedColumn={openAddComputedColumn}
               onClearColumns={clearComputedColumns}
               currentSearch={search()}

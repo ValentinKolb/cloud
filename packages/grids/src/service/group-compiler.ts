@@ -44,8 +44,8 @@ import type { Field } from "./types";
 // buckets can exceed the total record count — caller documents this as
 // "explode-mode" so the UI can warn.
 //
-// Lookup / rollup grouping: the plain saved-view group compiler rejects these.
-// Rich GQL preview/execution routes SQL-projectable computed group keys through
+// Lookup / rollup grouping: RecordQuery grouping rejects these. GQL
+// preview/execution routes SQL-projectable computed group keys through
 // query-dsl/sql-compiler.ts instead, where the grouped query can own the CTE.
 //
 // Cursor pagination: keyset on the group-key tuple. Same shape as

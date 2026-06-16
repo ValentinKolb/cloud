@@ -29,8 +29,8 @@ const ACCENT_TONE: Record<NonNullable<StatWidget["tone"]>, "zinc" | "blue" | "em
  * with values pulled from a resolved StatWidget's WidgetData.
  *
  * Mapping rules:
- *  - Label: explicit `widget.title` wins; otherwise derive a compact
- *    label from the first aggregation (`COUNT(*)`, `SUM(x)`, …).
+ *  - Label: explicit `widget.title` wins; otherwise use a neutral
+ *    fallback. Query semantics live in the saved view.
  *  - Value: `formatWidgetValue` for stat data; em-dash fallback for
  *    missing / errored data keeps the row's typography stable.
  *  - Error state: render the cell red and surface the reason as the
@@ -43,10 +43,7 @@ const ACCENT_TONE: Record<NonNullable<StatWidget["tone"]>, "zinc" | "blue" | "em
 export default function StatWidgetCell(props: Props) {
   const labelOf = (): string => {
     if (props.widget.title) return props.widget.title;
-    const agg = props.widget.source.aggregations[0];
-    if (!agg) return "Stat";
-    if (agg.fieldId === "*") return `${agg.agg}(*)`;
-    return agg.label ?? agg.agg;
+    return "Stat";
   };
 
   const data = (): WidgetData => props.data ?? { kind: "error", reason: "no data" };

@@ -13,7 +13,7 @@ import type { AggregationSpec, ChartWidget, Field, GroupBySpec } from "../../../
  * { keys: unknown[]; values: Record<"<fieldId>__<agg>", unknown> }
  * ```
  *
- *  - `keys` is parallel to `widget.source.groupBy` (one entry per groupBy spec).
+ *  - `keys` is parallel to the saved view's grouped GQL output.
  *  - `values` keys are namespaced `${fieldId}__${agg}` (mirrors `record.aggregate()`).
  *    The shorthand `*` is used for COUNT(*).
  *

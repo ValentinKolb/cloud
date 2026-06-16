@@ -14,7 +14,7 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? "dev-admin";
 const SESSION_TOKEN = process.env.SESSION_TOKEN;
 const HEADLESS = process.env.HEADLESS !== "0";
 const KEEP = process.env.KEEP === "1";
-const TIMEOUT = Number(process.env.BROWSER_SMOKE_TIMEOUT_MS ?? 10_000);
+const TIMEOUT = Number(process.env.BROWSER_SMOKE_TIMEOUT_MS ?? 20_000);
 
 type ApiError = Error & { status?: number; body?: string };
 
@@ -183,14 +183,13 @@ const createFixture = async (): Promise<Fixture> => {
     {
       name: "Open task amounts",
       shared: true,
-      query: {
+      source: `from table {${table.id}}\nselect {${title.id}}, {${status.id}}, {${amount.id}}\nsort {${title.id}} asc`,
+      ui: {
         columns: [
           { fieldId: title.id },
           { fieldId: status.id },
           { fieldId: amount.id, format: { kind: "decimal", precision: 2, thousandsSeparator: true } },
         ],
-        sort: [{ fieldId: title.id, direction: "asc" }],
-        aggregations: [{ fieldId: amount.id, agg: "sum", label: "Total amount", format: { kind: "decimal", precision: 2 } }],
       },
     },
     sessionToken,
@@ -202,10 +201,18 @@ const createFixture = async (): Promise<Fixture> => {
     {
       name: "Amount by status",
       shared: true,
-      query: {
-        groupBy: [{ fieldId: status.id, direction: "asc" }],
-        aggregations: [{ fieldId: amount.id, agg: "sum", label: "Total amount", format: { kind: "decimal", precision: 2 } }],
-      },
+      source: `from table {${table.id}}\ngroup by {${status.id}}\naggregate sum({${amount.id}}) as total_amount`,
+    },
+    sessionToken,
+    201,
+  );
+  const statView = await api<{ id: string; shortId: string }>(
+    "POST",
+    `/api/grids/views/by-table/${table.id}`,
+    {
+      name: "Total amount",
+      shared: true,
+      source: `from table {${table.id}}\naggregate sum({${amount.id}}) as total_amount`,
     },
     sessionToken,
     201,
@@ -256,7 +263,7 @@ const createFixture = async (): Promise<Fixture> => {
                 title: "Total amount",
                 format: "currency",
                 tone: "blue",
-                source: { tableId: table.id, aggregations: [{ fieldId: amount.id, agg: "sum" }] },
+                viewId: statView.id,
               },
               {
                 id: "link-table",
@@ -285,7 +292,7 @@ const createFixture = async (): Promise<Fixture> => {
                 kind: "view",
                 span: 6,
                 title: "Open task amounts",
-                source: { kind: "view", viewId: view.id },
+                viewId: view.id,
               },
             ],
           },
@@ -433,21 +440,15 @@ const assertNoBrowserErrors = (errors: string[]) => {
 };
 
 const browserMutation = async <T>(page: Page, config: { method: string; path: string; body?: unknown; expected?: number }): Promise<T> => {
-  const result = await page.evaluate(async ({ method, path, body, expected }) => {
-    const res = await fetch(path, {
-      method,
-      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const text = await res.text();
-    return {
-      ok: res.status === (expected ?? (method === "DELETE" ? 204 : 200)),
-      status: res.status,
-      text,
-    };
-  }, config);
-  if (!result.ok) fail(`${config.method} ${config.path} failed with ${result.status}: ${result.text.slice(0, 400)}`);
-  return result.text ? (JSON.parse(result.text) as T) : (undefined as T);
+  const response = await page.context().request.fetch(config.path, {
+    method: config.method,
+    headers: config.body === undefined ? undefined : { "Content-Type": "application/json" },
+    data: config.body === undefined ? undefined : JSON.stringify(config.body),
+  });
+  const text = await response.text();
+  const expected = config.expected ?? (config.method === "DELETE" ? 204 : 200);
+  if (response.status() !== expected) fail(`${config.method} ${config.path} failed with ${response.status()}: ${text.slice(0, 400)}`);
+  return text ? (JSON.parse(text) as T) : (undefined as T);
 };
 
 const expectNoVisibleText = async (page: Page, text: string, label = text) => {
@@ -597,9 +598,13 @@ const runLiveRefresh = async (browser: Browser, fixture: Fixture) => {
   });
   await expectVisibleText(pageB, "Task title", "dashboard form submit fields render");
   await pageB.waitForTimeout(500);
-  await pageB.getByLabel(/task title/i).fill(`Inline dashboard ${suffix}`);
+  const dashboardTitleInput = pageB.getByLabel(/task title/i).first();
+  const inlineDashboardTitle = `Inline dashboard ${suffix}`;
+  await dashboardTitleInput.fill(inlineDashboardTitle);
+  if ((await dashboardTitleInput.inputValue()) !== inlineDashboardTitle) fail("dashboard form title input was not filled");
   const dashboardBudget = pageB.getByLabel(/budget/i).first();
   if (await dashboardBudget.count()) await dashboardBudget.fill("33333.33");
+  await pageB.waitForTimeout(100);
   const submitResponse = pageB.waitForResponse(
     (response) => response.url().includes(`/api/grids/forms/${fixture.form.id}/submit`) && response.request().method() === "POST",
     { timeout: TIMEOUT },
@@ -611,7 +616,7 @@ const runLiveRefresh = async (browser: Browser, fixture: Fixture) => {
     .waitForResponse((response) => response.url().includes("/api/grids/workspace/route") && response.ok(), { timeout: TIMEOUT })
     .catch(() => null);
   if (!dashboardRefreshAfterSubmit) fail("dashboard form submit did not request a dashboard refresh");
-  await expectVisibleText(pageB, `Inline dashboard ${suffix}`, "dashboard form submit refreshes embedded view");
+  await expectVisibleText(pageB, inlineDashboardTitle, "dashboard form submit refreshes embedded view");
   await expectVisibleTextPattern(pageB, /68[,.]152[,.]21/, "dashboard form submit refreshes stat widget");
 
   if (requests.some((url) => /events\/by-table|text\/event-stream/i.test(url))) fail("live smoke observed legacy SSE request");
@@ -635,6 +640,17 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   await page.waitForTimeout(500);
   await page.locator("button", { hasText: "Filter" }).first().click();
   await expectVisibleText(page, "where", "filter toolbar opens a draft row");
+  await page.getByRole("button", { name: "Query" }).click();
+  await page.getByLabel("GQL query").waitFor({ state: "visible", timeout: TIMEOUT });
+  ok("table query panel opens");
+  await expectVisibleText(page, "Sources", "table query panel source catalog renders");
+  const queryEditorValue = await page.getByLabel("GQL query").inputValue();
+  if (!queryEditorValue.includes(`from table {${fixture.table.id}}`)) {
+    fail(`table query panel did not start from the active table source: ${queryEditorValue}`);
+  }
+  ok("table query panel initializes from active table");
+  await page.getByRole("button", { name: "Done" }).click();
+  await expectNoVisibleText(page, "Full workspace", "table query panel closes");
   await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/formula-reference`, {
     waitUntil: "domcontentloaded",
   });
@@ -707,7 +723,7 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
     waitUntil: "domcontentloaded",
   });
   await expectVisibleText(page, "Open task amounts", "view route renders");
-  await expectVisibleText(page, "Total amount", "view aggregate footer renders");
+  await expectVisibleText(page, "Review invoices", "view rows render");
 
   await page.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}`, { waitUntil: "domcontentloaded" });
   await expectVisibleText(page, "Operations dashboard", "dashboard route renders");

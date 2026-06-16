@@ -14,7 +14,6 @@ import {
 import { parseJsonbRow } from "./jsonb";
 import { getFieldType, getRecordWritableFieldType, isKnownFieldType } from "../field-types";
 import { insertWithShortId } from "./short-id";
-import { ViewQuerySchema } from "../contracts";
 import { normalizeRefKey } from "../ref-syntax";
 import { rewriteFieldNameReferences } from "./reference-renames";
 import type { Field, CreateFieldInput, UpdateFieldInput } from "./types";
@@ -630,14 +629,6 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
     WHERE table_id = ${existing.tableId}::uuid
       AND config->'fields' @> jsonb_build_array(jsonb_build_object('fieldId', ${id}::text))
   `;
-  // Same auto-cleanup for saved views. View.query carries field refs in
-  // filter (FilterTree leaf.fieldId), sort/groupBy/aggregations.fieldId,
-  // and columns[].fieldId. The field-dependents scan reports views as
-  // non-blocking (Phase-1A promised auto-cleanup), but the cleanup
-  // itself was missing — saved views ended up with stale fieldIds and
-  // record queries failed at compile time with `unknown field "X"`
-  // (chunk 4 important).
-  await cleanupViewFieldRefs(existing.tableId, id);
   // Drop any expression index since the field is gone.
   if (existing.indexed) void dropFieldIndex(id);
   if (existing.uniqueConstraint) void dropFieldUniqueIndex(id);
@@ -648,94 +639,4 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
     actorId,
   });
   return ok();
-};
-
-/**
- * Strips every reference to `fieldId` from saved-view query JSONB on
- * `tableId`: filter tree, sort, groupBy, groupSort, aggregations, columns. Run
- * after a soft-delete so saved views don't carry stale references that
- * would compile-error at record-list time.
- *
- * Implementation: read each view's query, walk the JS-side mutation
- * path (small enough that doing it in JS is clearer than building 5
- * jsonb_set sub-expressions), write back. Touching only views that
- * actually contained the ref keeps writes minimal.
- */
-const cleanupViewFieldRefs = async (tableId: string, fieldId: string): Promise<void> => {
-  const views = await sql<{ id: string; query: unknown }[]>`
-    SELECT id::text AS id, query FROM grids.views
-    WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL
-  `;
-
-  type Q = {
-    filter?: unknown;
-    search?: { q?: string; fieldIds?: string[] };
-    sort?: Array<{ fieldId?: string }>;
-    groupBy?: Array<{ fieldId?: string }>;
-    groupSort?: Array<{ fieldId?: string }>;
-    aggregations?: Array<{ fieldId?: string }>;
-    columns?: Array<{ fieldId?: string }>;
-    [k: string]: unknown;
-  };
-
-  const stripFromFilter = (node: unknown): unknown => {
-    if (!node || typeof node !== "object") return node;
-    const n = node as { op?: string; filters?: unknown[]; fieldId?: string };
-    if (n.op === "AND" || n.op === "OR") {
-      const filtered = (n.filters ?? []).map(stripFromFilter).filter((f) => f !== null);
-      return filtered.length === 0 ? null : { ...n, filters: filtered };
-    }
-    if (n.op === "NOT") {
-      const inner = stripFromFilter((n as { filter?: unknown }).filter);
-      return inner === null ? null : { ...n, filter: inner };
-    }
-    // Leaf
-    return n.fieldId === fieldId ? null : node;
-  };
-
-  for (const v of views) {
-    const q: Q = (typeof v.query === "string" ? JSON.parse(v.query) : v.query) ?? {};
-    let changed = false;
-
-    if (q.filter !== undefined) {
-      const next = stripFromFilter(q.filter);
-      if (JSON.stringify(next) !== JSON.stringify(q.filter)) {
-        if (next === null) delete q.filter;
-        else q.filter = next;
-        changed = true;
-      }
-    }
-    for (const key of ["sort", "groupBy", "groupSort", "aggregations", "columns"] as const) {
-      const arr = q[key] as Array<{ fieldId?: string }> | undefined;
-      if (Array.isArray(arr)) {
-        const next = arr.filter((e) => e.fieldId !== fieldId);
-        if (next.length !== arr.length) {
-          if (next.length === 0) delete (q as Record<string, unknown>)[key];
-          else (q as Record<string, unknown>)[key] = next;
-          changed = true;
-        }
-      }
-    }
-    // search.fieldIds is the explicit search-scope list (when omitted,
-    // search hits every text-ish field). Strip the deleted id; if that
-    // empties the array, drop it so search reverts to "all fields"
-    // rather than degenerating into an always-empty match list.
-    if (q.search && Array.isArray(q.search.fieldIds)) {
-      const next = q.search.fieldIds.filter((id) => id !== fieldId);
-      if (next.length !== q.search.fieldIds.length) {
-        if (next.length === 0) delete q.search.fieldIds;
-        else q.search.fieldIds = next;
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      const parsed = ViewQuerySchema.safeParse(q);
-      await sql`
-        UPDATE grids.views
-        SET query = ${parsed.success ? parsed.data : {}}::jsonb, updated_at = now()
-        WHERE id = ${v.id}::uuid
-      `;
-    }
-  }
 };

@@ -1,19 +1,20 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { sql } from "bun";
 import {
   type AggregationSpec,
   type ColumnSpec,
   type ComputedColumnSpec,
-  type DslQueryPreviewResponse,
   type GroupBySpec,
-  type StatSource,
+  type View,
+  type RecordQuery,
   type Widget,
   type WidgetFormat,
+  type DslQueryPreviewColumn,
+  type DslQueryPreviewResponse,
 } from "../contracts";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
-import { dslPreviewDiagnosticForCompilerError, previewDslQuery } from "../query-dsl/preview";
-import { type DslResolvedSqlQueryPlan, resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
+import { previewDslQuery } from "../query-dsl/preview";
+import { type DslResolvedSqlQueryPlan, resolveDslQueryToQueryPlan, resolveDslQueryToRecordQuery } from "../query-dsl/resolver";
 import { collectDslPlanExtraFieldTableIds } from "../query-dsl/source-plan";
 import { aggregateOutputKey } from "./aggregate-capabilities";
 import * as automations from "./automations";
@@ -23,11 +24,8 @@ import * as fields from "./fields";
 import type { Form } from "./forms";
 import * as forms from "./forms";
 import { buildBaseGqlResolverContext } from "./gql-resolver-context";
-import type { GqlQuery } from "./gql-queries";
-import * as gqlQueries from "./gql-queries";
 import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 import * as records from "./records";
-import * as relations from "./relations";
 import * as tables from "./tables";
 import type { Field, GridRecord } from "./types";
 import * as views from "./views";
@@ -142,16 +140,6 @@ type ViewStatsCell = {
 
 const EMBEDDED_VIEW_PAGESIZE = 25;
 
-const fieldsWithPlanExtras = async (
-  fieldsByTableId: Record<string, Field[]>,
-  plan: DslResolvedSqlQueryPlan,
-): Promise<Record<string, Field[]>> => {
-  const missing = collectDslPlanExtraFieldTableIds(plan).filter((tableId) => fieldsByTableId[tableId] === undefined);
-  if (missing.length === 0) return fieldsByTableId;
-  const groups = await Promise.all(missing.map(async (tableId) => ({ tableId, fields: await fields.listByTable(tableId) })));
-  return { ...fieldsByTableId, ...Object.fromEntries(groups.map((group) => [group.tableId, group.fields])) };
-};
-
 /**
  * Viewer context threaded into the widget resolvers — drives per-
  * widget permission gates (form submit, relation expansion). `isAdmin`
@@ -171,6 +159,7 @@ type ResolveOptions = {
 
 type DbRow = Record<string, unknown>;
 type SavedView = NonNullable<Awaited<ReturnType<typeof views.get>>>;
+type RuntimeView = SavedView & { query: RecordQuery };
 type LinkWidget = Extract<Widget, { kind: "link" }>;
 type AutomationButtonWidget = Extract<Widget, { kind: "automation-button" }>;
 type LinkDataBase = {
@@ -180,61 +169,58 @@ type LinkDataBase = {
   icon: string;
 };
 
-type ResolveSavedGqlDashboardQueryOptions = ResolveOptions & {
-  /** Optional base guard for dashboard callers. Mismatches return "not found". */
-  baseId?: string;
-  /** Preview-style row/bucket cap. The underlying query still executes in SQL. */
-  limit?: number;
-};
-
-const previewDiagnostic = (message: string): Extract<DslQueryPreviewResponse, { ok: false }> => ({
-  ok: false,
-  diagnostics: [{ message }],
+const withViewUiPresentation = (query: RecordQuery, view: Pick<View, "ui">): RecordQuery => ({
+  ...query,
+  ...(view.ui.columns ? { columns: view.ui.columns } : {}),
+  ...(view.ui.groupedColumnOrder ? { groupedColumnOrder: view.ui.groupedColumnOrder } : {}),
+  ...(view.ui.hiddenGroupedColumns ? { hiddenGroupedColumns: view.ui.hiddenGroupedColumns } : {}),
 });
 
-const canReadSavedGqlDashboardQuery = async (query: GqlQuery, viewer: ViewerContext): Promise<boolean> => {
-  if (viewer.isAdmin) return true;
-  if (query.ownerUserId === null || query.ownerUserId === viewer.userId) return true;
-  const grants = await loadGrantsForUser({ userId: viewer.userId, userGroups: viewer.userGroups, baseId: query.baseId });
-  const level = resolveEffectivePermission(grants, { baseId: query.baseId });
-  return hasAtLeast(level, "admin");
+const compileRuntimeView = async (view: SavedView): Promise<RuntimeView | { error: string }> => {
+  const table = await tables.get(view.tableId);
+  if (!table) return { error: "view's parent table not found" };
+  const parsed = parseGridsQueryDsl(view.source);
+  if (!parsed.ok) return { error: parsed.diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid view source" };
+  const context = await buildBaseGqlResolverContext({ baseId: table.baseId, currentTableId: view.tableId, ast: parsed.ast });
+  const resolved = resolveDslQueryToRecordQuery(parsed.ast, context);
+  if (!resolved.ok) return { error: resolved.diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid view source" };
+  return { ...view, query: withViewUiPresentation(resolved.plan.query, view) };
 };
 
-/**
- * Backend-only contract for dashboard surfaces that want to execute a saved
- * rich GQL query. This intentionally reuses the normal GQL resolver and preview
- * compiler so dashboard consumption cannot drift into a second evaluator.
- *
- * Access model follows dashboard embedded-data policy: the caller must already
- * have dashboard read access; this helper scopes the query to live resources in
- * the saved query's base and still passes `viewer` into relation label/search
- * expansion, matching the existing chart/view relation gating.
- */
-export const resolveSavedGqlDashboardQuery = async (
-  queryId: string,
+type PreviewSuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
+
+const fieldsWithPlanExtras = async (
+  fieldsByTableId: Record<string, Field[]>,
+  plan: DslResolvedSqlQueryPlan,
+): Promise<Record<string, Field[]>> => {
+  const missing = collectDslPlanExtraFieldTableIds(plan).filter((tableId) => fieldsByTableId[tableId] === undefined);
+  if (missing.length === 0) return fieldsByTableId;
+  const groups = await Promise.all(missing.map(async (tableId) => ({ tableId, fields: await fields.listByTable(tableId) })));
+  return { ...fieldsByTableId, ...Object.fromEntries(groups.map((group) => [group.tableId, group.fields])) };
+};
+
+const previewSavedView = async (
+  view: SavedView,
   viewer: ViewerContext,
-  options: ResolveSavedGqlDashboardQueryOptions = {},
-): Promise<DslQueryPreviewResponse> => {
-  const query = await gqlQueries.get(queryId);
-  if (!query || (options.baseId && query.baseId !== options.baseId) || !(await canReadSavedGqlDashboardQuery(query, viewer)))
-    return previewDiagnostic("GQL query not found");
-
-  const parsed = parseGridsQueryDsl(query.source);
-  if (!parsed.ok) return { ok: false, diagnostics: parsed.diagnostics };
-
-  const context = await buildBaseGqlResolverContext({ baseId: query.baseId, currentTableId: query.tableId, ast: parsed.ast });
+  options: ResolveOptions,
+  limit?: number,
+): Promise<{ view: SavedView; preview: PreviewSuccess; fieldsByTableId: Record<string, Field[]> } | { error: string }> => {
+  const table = await tables.get(view.tableId);
+  if (!table) return { error: "view's parent table not found" };
+  const parsed = parseGridsQueryDsl(view.source);
+  if (!parsed.ok) return { error: parsed.diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid view source" };
+  const context = await buildBaseGqlResolverContext({ baseId: table.baseId, currentTableId: view.tableId, ast: parsed.ast });
   const resolved = resolveDslQueryToQueryPlan(parsed.ast, context);
-  if (!resolved.ok) return { ok: false, diagnostics: resolved.diagnostics };
-
+  if (!resolved.ok) return { error: resolved.diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid view source" };
   const fieldsByTableId = await fieldsWithPlanExtras(context.fieldsByTableId, resolved.plan);
   const result = await previewDslQuery(resolved.plan, {
     fieldsByTableId,
-    limit: options.limit,
     timeZone: options.dateConfig?.timeZone,
+    limit,
     viewer,
   });
-  if (result.ok) return result.data;
-  return { ok: false, diagnostics: [dslPreviewDiagnosticForCompilerError(resolved.plan, result.error.message)] };
+  if (!result.ok) return { error: result.error.message };
+  return { view, preview: result.data, fieldsByTableId };
 };
 
 /**
@@ -253,7 +239,7 @@ export const resolveWidgetData = async (widget: Widget, viewer: ViewerContext, o
   try {
     switch (widget.kind) {
       case "stat":
-        return await resolveStat(widget.source, options);
+        return await resolveStat(widget, viewer, options);
       case "chart":
         return await resolveChart(widget, viewer, options);
       case "view":
@@ -469,53 +455,47 @@ const resolveAutomationButton = async (widget: AutomationButtonWidget): Promise<
 // stat
 // =============================================================================
 
-const resolveStat = async (source: StatSource, options: ResolveOptions): Promise<WidgetData> => {
-  const agg = source.aggregations[0];
-  if (!agg) return { kind: "error", reason: "stat widget has no aggregation" };
-  const aggKey = aggregateOutputKey(agg.fieldId, agg.agg);
-  // Main scalar aggregation + optional trend group query run in
-  // parallel — the trend is independent of the scalar and would
-  // otherwise serialise two roundtrips for one widget.
+const firstAggregateColumn = (columns: DslQueryPreviewColumn[]): DslQueryPreviewColumn | undefined =>
+  columns.find((column) => column.type === "aggregate") ?? columns[0];
+
+const resolveStat = async (
+  widget: Extract<Widget, { kind: "stat" }>,
+  viewer: ViewerContext,
+  options: ResolveOptions,
+): Promise<WidgetData> => {
+  const saved = await views.get(widget.viewId);
+  if (!saved) return { kind: "error", reason: "source view not found" };
   const [scalar, trend] = await Promise.all([
-    records.aggregate({
-      tableId: source.tableId,
-      filter: source.filter ?? null,
-      requests: source.aggregations.map((a) => ({ fieldId: a.fieldId, agg: a.agg })),
-      dateConfig: options.dateConfig,
-    }),
-    source.trend ? resolveStatTrend(source, aggKey, options) : Promise.resolve<number[] | null>(null),
+    previewSavedView(saved, viewer, options, 1),
+    widget.trend ? resolveStatTrend(widget.trend.viewId, widget.trend.windowSize, viewer, options) : Promise.resolve<number[] | null>(null),
   ]);
-  if (!scalar.ok) return { kind: "error", reason: scalar.error.message };
+  if ("error" in scalar) return { kind: "error", reason: scalar.error };
+  const column = firstAggregateColumn(scalar.preview.columns);
+  if (!column) return { kind: "error", reason: "stat source view has no output columns" };
+  const value = scalar.preview.rows[0]?.values[column.key] ?? null;
   return {
     kind: "stat",
-    value: scalar.data[aggKey] ?? null,
+    value,
     ...(trend && trend.length > 0 ? { trend } : {}),
   };
 };
 
-const resolveStatTrend = async (source: StatSource, aggKey: string, options: ResolveOptions): Promise<number[] | null> => {
-  if (!source.trend) return null;
-  const agg = source.aggregations[0];
-  if (!agg) return null;
+const resolveStatTrend = async (
+  viewId: string,
+  windowSize: number,
+  viewer: ViewerContext,
+  options: ResolveOptions,
+): Promise<number[] | null> => {
   try {
-    const result = await records.group({
-      tableId: source.tableId,
-      filter: source.filter ?? null,
-      groupBy: [{ fieldId: source.trend.fieldId, granularity: source.trend.granularity }],
-      aggregations: [
-        {
-          fieldId: agg.fieldId,
-          agg: agg.agg as "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max",
-        },
-      ],
-      limit: source.trend.windowSize,
-      fromEnd: true,
-      dateConfig: options.dateConfig,
-    });
-    if (!result.ok) return null;
+    const saved = await views.get(viewId);
+    if (!saved) return null;
+    const result = await previewSavedView(saved, viewer, options, windowSize);
+    if ("error" in result) return null;
+    const column = firstAggregateColumn(result.preview.columns);
+    if (!column) return null;
     const numbers: number[] = [];
-    for (const b of result.data.buckets) {
-      const raw = b.values[aggKey];
+    for (const row of result.preview.rows.slice(-windowSize)) {
+      const raw = row.values[column.key];
       const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
       if (Number.isFinite(n)) numbers.push(n);
     }
@@ -526,73 +506,82 @@ const resolveStatTrend = async (source: StatSource, aggKey: string, options: Res
 };
 
 // =============================================================================
-// chart — reads from a saved view (filter + groupBy + aggregations come
-// from view.query), optionally trims to the most-recent `limit` buckets.
+// chart — reads from a saved view's GQL result, optionally trimming to
+// the most-recent `limit` buckets.
 // =============================================================================
 
+const inferAggKind = (key: string): AggregationSpec["agg"] => {
+  const suffix = key.split("__").pop();
+  return suffix === "count" ||
+    suffix === "countEmpty" ||
+    suffix === "countUnique" ||
+    suffix === "sum" ||
+    suffix === "avg" ||
+    suffix === "min" ||
+    suffix === "max" ||
+    suffix === "median" ||
+    suffix === "earliest" ||
+    suffix === "latest"
+    ? suffix
+    : "count";
+};
+
+const previewChartShape = (preview: PreviewSuccess): { groupBy: GroupBySpec[]; aggregations: AggregationSpec[]; buckets: Array<{ keys: unknown[]; values: Record<string, unknown> }> } => {
+  const groupColumns = preview.columns.filter((column) => column.type !== "aggregate");
+  const aggregateColumns = preview.columns.filter((column) => column.type === "aggregate");
+  const aggregations = aggregateColumns.map((column) => ({
+    fieldId: column.key,
+    agg: inferAggKind(column.key),
+    label: column.label,
+  }));
+  return {
+    groupBy: groupColumns.map((column) => ({
+      fieldId: column.fieldId ?? column.key,
+      label: column.label,
+    })),
+    aggregations,
+    buckets: preview.rows.map((row) => {
+      const values: Record<string, unknown> = {};
+      for (const [index, column] of aggregateColumns.entries()) {
+        const spec = aggregations[index];
+        if (spec) values[aggregateOutputKey(spec.fieldId, spec.agg)] = row.values[column.key] ?? null;
+      }
+      return {
+        keys: groupColumns.map((column) => row.values[column.key] ?? null),
+        values,
+      };
+    }),
+  };
+};
+
 const resolveChart = async (widget: Extract<Widget, { kind: "chart" }>, viewer: ViewerContext, options: ResolveOptions): Promise<WidgetData> => {
-  const view = await views.get(widget.viewId);
-  if (!view) return { kind: "error", reason: "source view not found" };
-  const groupBy = view.query.groupBy ?? [];
-  const aggregations = view.query.aggregations ?? [];
-  if (groupBy.length === 0 || aggregations.length === 0) {
+  const saved = await views.get(widget.viewId);
+  if (!saved) return { kind: "error", reason: "source view not found" };
+  const result = await previewSavedView(saved, viewer, options, widget.limit);
+  if ("error" in result) return { kind: "error", reason: result.error };
+  const shape = previewChartShape(result.preview);
+  if (shape.groupBy.length === 0 || shape.aggregations.length === 0) {
     return {
       kind: "error",
       reason: "chart source view must be grouped with at least one aggregation",
     };
   }
-  const [result, sourceFields] = await Promise.all([
-    records.group({
-      tableId: view.tableId,
-      filter: view.query.filter ?? null,
-      search: view.query.search ?? null,
-      recordMeta: view.query.recordMeta ?? null,
-      groupBy,
-      aggregations: aggregations.map((a) => ({
-        fieldId: a.fieldId,
-        agg: a.agg as "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max",
-      })),
-      groupSort: view.query.groupSort,
-      includeDeleted: view.query.includeDeleted,
-      deletedOnly: view.query.deletedOnly,
-      limit: widget.limit,
-      fromEnd: widget.limit !== undefined,
-      viewer,
-      dateConfig: options.dateConfig,
-    }),
-    fields.listByTable(view.tableId),
-  ]);
-  if (!result.ok) return { kind: "error", reason: result.error.message };
-  const buckets = result.data.buckets;
-  // Relation-typed groupBy columns return raw UUIDs as bucket keys.
-  // Resolve those to presentable labels server-side (same batched
-  // helper the records page uses for grouped relation cells) so the
-  // chart renderer doesn't paint UUIDs on the axis. Empty map when
-  // no groupBy column is a relation.
-  const relationLabels = await relations.buildLabelCacheForGroupedKeys(
-    buckets,
-    groupBy.map((g) => g.fieldId),
-    sourceFields,
-    viewer,
-  );
+  const sourceFields = result.fieldsByTableId[saved.tableId] ?? [];
   return {
     kind: "chart",
-    buckets,
+    buckets: shape.buckets,
     fields: sourceFields,
-    viewQuery: { groupBy, aggregations },
-    relationLabels,
+    viewQuery: { groupBy: shape.groupBy, aggregations: shape.aggregations },
+    relationLabels: {},
   };
 };
 
 // =============================================================================
-// view — embedded read-only table of a saved view OR a raw table
+// view — embedded read-only table of a saved view
 // =============================================================================
 
 const resolveView = async (widget: Extract<Widget, { kind: "view" }>, viewer: ViewerContext, options: ResolveOptions): Promise<WidgetData> => {
-  if (widget.source.kind === "view") {
-    return resolveSavedView(widget.source.viewId, widget.title, viewer, options);
-  }
-  return resolveRawTable(widget.source.tableId, widget.title, viewer, options);
+  return resolveSavedView(widget.viewId, widget.title, viewer, options);
 };
 
 const resolveSavedView = async (
@@ -603,6 +592,8 @@ const resolveSavedView = async (
 ): Promise<WidgetData> => {
   const view = await views.get(viewId);
   if (!view) return { kind: "error", reason: "view not found" };
+  const runtime = await compileRuntimeView(view);
+  if ("error" in runtime) return { kind: "error", reason: runtime.error };
   const table = await tables.get(view.tableId);
   if (!table) return { kind: "error", reason: "view's parent table not found" };
   const baseTables = await tables.listByBase(table.baseId);
@@ -612,12 +603,12 @@ const resolveSavedView = async (
   // expanded, so DatabaseTable falls back to a neutral placeholder.
   const recordList = await records.list({
     tableId: view.tableId,
-    filter: view.query.filter ?? null,
-    search: view.query.search ?? null,
-    recordMeta: view.query.recordMeta ?? null,
-    sort: view.query.sort ?? [],
-    includeDeleted: view.query.includeDeleted,
-    deletedOnly: view.query.deletedOnly,
+    filter: runtime.query.filter ?? null,
+    search: runtime.query.search ?? null,
+    recordMeta: runtime.query.recordMeta ?? null,
+    sort: runtime.query.sort ?? [],
+    includeDeleted: runtime.query.includeDeleted,
+    deletedOnly: runtime.query.deletedOnly,
     limit: EMBEDDED_VIEW_PAGESIZE,
     includeRelations: true,
     viewer,
@@ -629,37 +620,9 @@ const resolveSavedView = async (
     title: titleOverride ?? view.name,
     fields: recordList.data.fields,
     records: recordList.data.items,
-    viewColumns: view.query.columns,
+    viewColumns: runtime.query.columns,
     tableShortIds,
     fullViewLink: { tableShortId: table.shortId, viewShortId: view.shortId },
-  };
-};
-
-const resolveRawTable = async (
-  tableId: string,
-  titleOverride: string | undefined,
-  viewer: ViewerContext,
-  options: ResolveOptions,
-): Promise<WidgetData> => {
-  const table = await tables.get(tableId);
-  if (!table) return { kind: "error", reason: "table not found" };
-  const baseTables = await tables.listByBase(table.baseId);
-  const tableShortIds = Object.fromEntries(baseTables.map((t) => [t.id, t.shortId]));
-  const recordList = await records.list({
-    tableId,
-    limit: EMBEDDED_VIEW_PAGESIZE,
-    includeRelations: true,
-    viewer,
-    dateConfig: options.dateConfig,
-  });
-  if (!recordList.ok) return { kind: "error", reason: recordList.error.message };
-  return {
-    kind: "view",
-    title: titleOverride ?? table.name,
-    fields: recordList.data.fields,
-    records: recordList.data.items,
-    tableShortIds,
-    fullViewLink: null,
   };
 };
 
@@ -698,15 +661,25 @@ const resolveViewStats = async (
   }
   const link = { tableShortId: table.shortId, viewShortId: view.shortId };
   const title = widget.title ?? view.name;
-  const isGrouped = (view.query.groupBy ?? []).length > 0;
-  if (isGrouped) {
-    return await resolveGroupedViewStats(view, title, link, viewer, options);
+  const runtime = await compileRuntimeView(view);
+  if ("error" in runtime) {
+    return {
+      kind: "view-stats",
+      title,
+      cells: [],
+      notice: runtime.error,
+      fullViewLink: link,
+    };
   }
-  return await resolveUngroupedViewStats(view, title, link, viewer, options);
+  const isGrouped = (runtime.query.groupBy ?? []).length > 0;
+  if (isGrouped) {
+    return await resolveGroupedViewStats(runtime, title, link, viewer, options);
+  }
+  return await resolveUngroupedViewStats(runtime, title, link, viewer, options);
 };
 
 const resolveUngroupedViewStats = async (
-  view: SavedView,
+  view: RuntimeView,
   title: string,
   link: { tableShortId: string; viewShortId: string },
   viewer: ViewerContext,
@@ -778,7 +751,7 @@ const resolveUngroupedViewStats = async (
 };
 
 const resolveGroupedViewStats = async (
-  view: SavedView,
+  view: RuntimeView,
   title: string,
   link: { tableShortId: string; viewShortId: string },
   viewer: ViewerContext,

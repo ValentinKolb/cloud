@@ -1,5 +1,5 @@
 import { sql } from "bun";
-import type { ViewQuery } from "../contracts";
+import type { RecordQuery } from "../contracts";
 import { normalizeRefKey } from "../ref-syntax";
 import {
   aggregateOutputKey,
@@ -80,6 +80,8 @@ const compileWherePredicate = (
       if (!compiled.ok) return { ok: false, error: compiled.error };
       return { ok: true, sql: renderClause(compiled.clause) };
     }
+    case "recordMeta":
+      return { ok: true, sql: compileRecordMetaFilter(node.meta) };
     case "formula": {
       const compiled = compileFormulaPredicateAstToSql(node.expression, {
         fields,
@@ -178,8 +180,8 @@ export type DslSqlCompiledAggregateQuery = {
 
 export type DslSqlAggregateCompileResult = { ok: true; query: DslSqlCompiledAggregateQuery } | { ok: false; error: string };
 
-type ViewQueryColumn = NonNullable<ViewQuery["columns"]>[number];
-type ViewQueryComputedColumn = Extract<ViewQueryColumn, { kind: "computed" }>;
+type RecordQueryColumn = NonNullable<RecordQuery["columns"]>[number];
+type RecordQueryComputedColumn = Extract<RecordQueryColumn, { kind: "computed" }>;
 type GroupAggKind = GroupAggregationSpec["agg"];
 type GroupFieldAggregation = Extract<GroupAggregationSpec, { fieldId: string | "*" }>;
 
@@ -227,11 +229,11 @@ const isFormulaGroupAggregation = (aggregation: GroupAggregationSpec): aggregati
 const aggregateKey = (aggregation: GroupAggregationSpec): string => aggregateOutputKeyFor(aggregation);
 const isGroupAggKind = (agg: string): agg is GroupAggKind => isAggregateKind(agg);
 
-const isComputedColumn = (column: ViewQueryColumn): column is ViewQueryComputedColumn => (column as { kind?: unknown }).kind === "computed";
+const isComputedColumn = (column: RecordQueryColumn): column is RecordQueryComputedColumn => (column as { kind?: unknown }).kind === "computed";
 
 const outputColumnsForPlan = (plan: DslResolvedSqlQueryPlan, baseFields: Field[]): DslOutputColumn[] => {
   if (plan.outputColumns && plan.outputColumns.length > 0) return plan.outputColumns;
-  const baseColumns: NonNullable<ViewQuery["columns"]> = plan.query.columns?.length
+  const baseColumns: NonNullable<RecordQuery["columns"]> = plan.query.columns?.length
     ? plan.query.columns
     : baseFields
         .filter((field) => isImplicitlySelectableField(field) && relationTargetIsReadable(field, plan.readableTableIds))
@@ -296,7 +298,7 @@ const formulaAggregateSqlType = (aggregation: DslFormulaAggregation): FormulaSql
 };
 
 const viewAggregateSqlType = (
-  aggregation: NonNullable<ViewQuery["aggregations"]>[number],
+  aggregation: NonNullable<RecordQuery["aggregations"]>[number],
   fieldsById: Map<string, Field>,
 ): FormulaSqlType => {
   if (aggregation.fieldId === "*") return aggregateSqlTypeForField(null, aggregation.agg, true);
@@ -351,7 +353,7 @@ const fieldProjection = (
   if (descriptor.kind === "json" || descriptor.kind === "jsonbArray") {
     return { ok: true, projection: sql`${sql.unsafe(recordAlias)}.data->${field.id}` };
   }
-  return { ok: false, error: `field "${field.name}" (type "${field.type}") cannot be selected by the SQL query DSL yet` };
+  return { ok: false, error: `field "${field.name}" (type "${field.type}") cannot be selected by GQL yet` };
 };
 
 const compileBaseFieldColumn = (params: {
@@ -653,7 +655,7 @@ const joinFragments = (parts: unknown[], separator: unknown): unknown => {
 const recordDeletedCondition = (plan: DslResolvedSqlQueryPlan): unknown =>
   plan.query.deletedOnly ? sql`r.deleted_at IS NOT NULL` : plan.query.includeDeleted ? sql`TRUE` : sql`r.deleted_at IS NULL`;
 
-const queryDeletedCondition = (query: ViewQuery): unknown =>
+const queryDeletedCondition = (query: RecordQuery): unknown =>
   query.deletedOnly || recordMetaRequiresDeletedRows(query.recordMeta)
     ? sql`r.deleted_at IS NOT NULL`
     : query.includeDeleted

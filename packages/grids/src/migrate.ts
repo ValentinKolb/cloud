@@ -116,10 +116,6 @@ export const migrate = async (): Promise<void> => {
       CONSTRAINT tables_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
     )
   `.simple();
-  await sql`
-    ALTER TABLE grids.tables
-    ADD COLUMN IF NOT EXISTS display_config JSONB NOT NULL DEFAULT '{"mode":"table"}'::jsonb
-  `.simple();
   // Hot-path index: list live tables of a base in order.
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_tables_base_live ON grids.tables(base_id, position) WHERE deleted_at IS NULL`.simple();
   console.log("  ✓ grids.tables");
@@ -246,29 +242,31 @@ export const migrate = async (): Promise<void> => {
   // views
   // ──────────────────────────────────────────────────────────────────
   // owner_user_id NULL = shared (visible to anyone with table-read).
-  // `query` carries the canonical ViewQuery JSON (filter/sort/columns/
-  // groupBy/aggregations/limit).
+  // `source` carries the canonical GQL query. `ui` carries view-owned
+  // presentation settings; data semantics are never persisted as RecordQuery.
   await sql`
     CREATE TABLE IF NOT EXISTS grids.views (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       short_id TEXT NOT NULL,
       table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
+      description TEXT,
       icon TEXT,
-      query JSONB NOT NULL DEFAULT '{}'::jsonb,
-      display_config JSONB NOT NULL DEFAULT '{"mode":"table"}'::jsonb,
+      source TEXT NOT NULL,
+      ui JSONB NOT NULL DEFAULT '{}'::jsonb,
       owner_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
       position INT NOT NULL DEFAULT 0,
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT views_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
+      CONSTRAINT views_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
+      CONSTRAINT views_source_length_chk CHECK (length(source) BETWEEN 1 AND 20000)
     )
   `.simple();
-  await sql`
-    ALTER TABLE grids.views
-    ADD COLUMN IF NOT EXISTS display_config JSONB NOT NULL DEFAULT '{"mode":"table"}'::jsonb
-  `.simple();
+  await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS description TEXT`.simple();
+  await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS ui JSONB NOT NULL DEFAULT '{}'::jsonb`.simple();
+  await sql`ALTER TABLE grids.views DROP COLUMN IF EXISTS query`.simple();
+  await sql`ALTER TABLE grids.views DROP COLUMN IF EXISTS display_config`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_views_table_live ON grids.views(table_id, position) WHERE deleted_at IS NULL`.simple();
   console.log("  ✓ grids.views");
 
@@ -282,41 +280,7 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_view_access_access ON grids.view_access(access_id)`.simple();
   console.log("  ✓ grids.view_access");
 
-  // ──────────────────────────────────────────────────────────────────
-  // gql_queries — lossless saved GQL statements
-  // ──────────────────────────────────────────────────────────────────
-  // Rich GQL can express joins, SQL-only formulas, offsets, joined sort,
-  // and other shapes that intentionally do not fit ViewQuery. Store the
-  // canonical GQL source directly instead of degrading it into a view.
-  await sql`
-    CREATE TABLE IF NOT EXISTS grids.gql_queries (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      short_id TEXT NOT NULL,
-      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
-      table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      icon TEXT,
-      source TEXT NOT NULL,
-      owner_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-      position INT NOT NULL DEFAULT 0,
-      deleted_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT gql_queries_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
-      CONSTRAINT gql_queries_source_length_chk CHECK (length(source) BETWEEN 1 AND 20000)
-    )
-  `.simple();
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_grids_gql_queries_base_live
-    ON grids.gql_queries(base_id, position, created_at)
-    WHERE deleted_at IS NULL
-  `.simple();
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_grids_gql_queries_table_live
-    ON grids.gql_queries(table_id, position, created_at)
-    WHERE deleted_at IS NULL
-  `.simple();
-  console.log("  ✓ grids.gql_queries");
+  await sql`DROP TABLE IF EXISTS grids.gql_queries CASCADE`.simple();
 
   // ──────────────────────────────────────────────────────────────────
   // forms — record-entry surface for internal users + optional public URLs
@@ -407,18 +371,14 @@ export const migrate = async (): Promise<void> => {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_views_short_id
     ON grids.views(table_id, short_id) WHERE deleted_at IS NULL
   `.simple();
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_gql_queries_short_id
-    ON grids.gql_queries(base_id, short_id) WHERE deleted_at IS NULL
-  `.simple();
-  console.log("  ✓ grids.{bases,tables,fields,forms,views,gql_queries}.short_id + unique indexes");
+  console.log("  ✓ grids.{bases,tables,fields,forms,views}.short_id + unique indexes");
 
   // ──────────────────────────────────────────────────────────────────
   // dashboards
   // ──────────────────────────────────────────────────────────────────
   // Per-base composition surface. The `config` JSONB carries the full
   // layout tree (rows × cells × widgets) — same blob-on-row pattern as
-  // forms.config and views.query. Keeps reads atomic and lets us evolve
+  // forms.config and views.ui. Keeps reads atomic and lets us evolve
   // the widget shape without DDL. owner_user_id mirrors the views model
   // (NULL = shared, UUID = personal). dashboard_access narrows visibility
   // for shared dashboards the same way view_access does.

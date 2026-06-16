@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { TableQueryResult, ViewQuery } from "../../../contracts";
+import type { TableQueryResult, RecordQuery } from "../../../contracts";
 import {
   highlightedIdsForLiveRefresh,
   isLiveRecordEventForTable,
@@ -42,7 +42,7 @@ describe("records live refresh helpers", () => {
   });
 
   test("keeps each live refetch page bounded while covering visible rows", () => {
-    const query = { filter: undefined } as ViewQuery;
+    const query = { filter: undefined } as RecordQuery;
     expect(liveRefreshQuery(query, 140).limit).toBe(140);
     expect(liveRefreshQuery({ ...query, limit: 20 }, 5).limit).toBe(20);
     expect(liveRefreshQuery({ ...query, limit: 1000 }, 700).limit).toBe(500);

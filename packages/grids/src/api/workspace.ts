@@ -2,6 +2,7 @@ import { type AuthContext, auth, getDateConfig, v } from "@valentinkolb/cloud/se
 import { Hono } from "hono";
 import { z } from "zod";
 import { loadGridsWorkspaceState } from "../frontend/_components/workspace/workspace-state";
+import { withInitialQueryPreview } from "./workspace-query-preview";
 
 const parseWorkspaceHref = (href: string) => {
   const url = new URL(href, "http://grids.local");
@@ -11,15 +12,6 @@ const parseWorkspaceHref = (href: string) => {
   if (parts.length === 3) return { baseShortId, activeTableSlug: null, activeViewSlug: null, activeDashboardSlug: null };
   if (parts.length === 4 && parts[3] === "query") {
     return { baseShortId, activeTableSlug: null, activeViewSlug: null, activeDashboardSlug: null };
-  }
-  if (parts.length === 5 && parts[3] === "query") {
-    return {
-      baseShortId,
-      activeTableSlug: null,
-      activeViewSlug: null,
-      activeDashboardSlug: null,
-      activeGqlQuerySlug: parts[4],
-    };
   }
   if (parts.length === 6 && parts[3] === "table" && parts[5] === "query") {
     return { baseShortId, activeTableSlug: parts[4], activeViewSlug: null, activeDashboardSlug: null };
@@ -53,7 +45,7 @@ const app = new Hono<AuthContext>()
       dateConfig: await getDateConfig(c),
       ...target,
     });
-    return c.json(state);
+    return c.json(await withInitialQueryPreview(c, state));
   });
 
 export default app;

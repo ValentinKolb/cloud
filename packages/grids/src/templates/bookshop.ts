@@ -1,5 +1,5 @@
 import { createMockCover } from "@valentinkolb/cloud/shared";
-import { currentMonthDate, field, form, type GridTemplate, record, table, view } from "./types";
+import { currentMonthDate, field, form, formula, type GridTemplate, record, table, view } from "./types";
 
 export const bookshopTemplate: GridTemplate = {
   id: "bookshop",
@@ -598,7 +598,24 @@ export const bookshopTemplate: GridTemplate = {
       table: "books",
       name: "Recent books",
       shared: true,
-      query: {
+      source: formula(
+        "from table ",
+        table("books"),
+        "\nselect ",
+        field("books.title"),
+        ", ",
+        field("books.isbn"),
+        ", ",
+        field("books.author"),
+        ", ",
+        field("books.price"),
+        ", ",
+        field("books.published"),
+        "\nsort ",
+        field("books.published"),
+        " desc\nlimit 20",
+      ),
+      ui: {
         columns: [
           { fieldId: field("books.title") },
           { fieldId: field("books.isbn"), format: { kind: "barcode", bcid: "isbn", showText: true } },
@@ -606,14 +623,12 @@ export const bookshopTemplate: GridTemplate = {
           { fieldId: field("books.price") },
           { fieldId: field("books.published") },
         ],
-        sort: [{ fieldId: field("books.published"), direction: "desc" }],
-        limit: 20,
-      },
-      displayConfig: {
-        mode: "cards",
-        cards: {
-          imageFieldId: field("books.cover"),
-          fieldIds: [field("books.title"), field("books.author"), field("books.genre"), field("books.price"), field("books.published")],
+        displayConfig: {
+          mode: "cards",
+          cards: {
+            imageFieldId: field("books.cover"),
+            fieldIds: [field("books.title"), field("books.author"), field("books.genre"), field("books.price"), field("books.published")],
+          },
         },
       },
     },
@@ -622,20 +637,28 @@ export const bookshopTemplate: GridTemplate = {
       table: "orders",
       name: "Order calendar",
       shared: true,
-      query: {
-        columns: [
-          { fieldId: field("orders.ordered_at") },
-          { fieldId: field("orders.customer") },
-          { fieldId: field("orders.book") },
-          { fieldId: field("orders.qty") },
-          { fieldId: field("orders.status") },
-        ],
-        sort: [{ fieldId: field("orders.ordered_at"), direction: "asc" }],
-        limit: 100,
-      },
-      displayConfig: {
-        mode: "calendar",
-        calendar: { dateFieldId: field("orders.ordered_at") },
+      source: formula(
+        "from table ",
+        table("orders"),
+        "\nselect ",
+        field("orders.ordered_at"),
+        ", ",
+        field("orders.customer"),
+        ", ",
+        field("orders.book"),
+        ", ",
+        field("orders.qty"),
+        ", ",
+        field("orders.status"),
+        "\nsort ",
+        field("orders.ordered_at"),
+        " asc\nlimit 100",
+      ),
+      ui: {
+        displayConfig: {
+          mode: "calendar",
+          calendar: { dateFieldId: field("orders.ordered_at") },
+        },
       },
     },
     {
@@ -643,24 +666,45 @@ export const bookshopTemplate: GridTemplate = {
       table: "orders",
       name: "Monthly revenue",
       shared: true,
-      query: {
-        groupBy: [{ fieldId: field("orders.ordered_at"), granularity: "month" }],
-        aggregations: [
-          { fieldId: field("orders.line_total"), agg: "sum", label: "revenue" },
-          { fieldId: "*", agg: "count", label: "orders" },
-        ],
-      },
+      source: formula(
+        "from table ",
+        table("orders"),
+        "\ngroup by ",
+        field("orders.ordered_at"),
+        " by month\naggregate sum(",
+        field("orders.line_total"),
+        ") as revenue, count(*) as orders\nsort ",
+        field("orders.ordered_at"),
+        " asc",
+      ),
     },
     {
       key: "books_by_genre",
       table: "books",
       name: "Books by genre",
       shared: true,
-      query: {
-        groupBy: [{ fieldId: field("books.genre") }],
-        aggregations: [{ fieldId: "*", agg: "count", label: "books" }],
-        groupSort: [{ fieldId: "*", agg: "count", direction: "desc" }],
-      },
+      source: formula("from table ", table("books"), "\ngroup by ", field("books.genre"), "\naggregate count(*) as books\nsort books desc"),
+    },
+    {
+      key: "orders_count",
+      table: "orders",
+      name: "Orders count",
+      shared: true,
+      source: formula("from table ", table("orders"), "\naggregate count(*) as orders"),
+    },
+    {
+      key: "total_revenue",
+      table: "orders",
+      name: "Total revenue",
+      shared: true,
+      source: formula("from table ", table("orders"), "\naggregate sum(", field("orders.line_total"), ") as revenue"),
+    },
+    {
+      key: "books_count",
+      table: "books",
+      name: "Books count",
+      shared: true,
+      source: formula("from table ", table("books"), "\naggregate count(*) as books"),
     },
   ],
   forms: [
@@ -872,10 +916,7 @@ export const bookshopTemplate: GridTemplate = {
                 title: "Orders",
                 icon: "ti ti-shopping-cart",
                 format: "integer",
-                source: {
-                  tableId: table("orders"),
-                  aggregations: [{ fieldId: "*", agg: "count" }],
-                },
+                viewId: view("orders_count"),
               },
               {
                 id: "w_revenue",
@@ -883,10 +924,7 @@ export const bookshopTemplate: GridTemplate = {
                 title: "Total revenue",
                 icon: "ti ti-currency-euro",
                 format: "currency",
-                source: {
-                  tableId: table("orders"),
-                  aggregations: [{ fieldId: field("orders.line_total"), agg: "sum" }],
-                },
+                viewId: view("total_revenue"),
               },
               {
                 id: "w_books",
@@ -894,10 +932,7 @@ export const bookshopTemplate: GridTemplate = {
                 title: "Books",
                 icon: "ti ti-books",
                 format: "integer",
-                source: {
-                  tableId: table("books"),
-                  aggregations: [{ fieldId: "*", agg: "count" }],
-                },
+                viewId: view("books_count"),
               },
             ],
           },
@@ -940,7 +975,7 @@ export const bookshopTemplate: GridTemplate = {
                 id: "w_recent",
                 kind: "view",
                 title: "Recent books",
-                source: { kind: "view", viewId: view("recent_books") },
+                viewId: view("recent_books"),
                 span: 6,
               },
               {

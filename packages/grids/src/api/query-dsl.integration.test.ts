@@ -30,25 +30,15 @@ type GqlRelationApiFixture = {
   customerNameId: string;
 };
 
-type SaveResponse =
-  | {
-      ok: true;
-      query: {
-        id: string;
-        baseId: string;
-        tableId: string;
-        name: string;
-        source: string;
-        ownerUserId: string | null;
-      };
-    }
+type CompileViewResponse =
+  | { ok: true; tableId: string; source: string }
   | { ok: false; diagnostics: Array<{ message: string; line?: number; column?: number }> };
 
-type ListResponse = Array<{
-  id: string;
-  name: string;
-  ownerUserId: string | null;
-}>;
+type AutocompleteResponse = {
+  ok: true;
+  diagnostics: Array<{ message: string; line?: number; column?: number }>;
+  items: Array<{ label: string; insertText: string; detail?: string }>;
+};
 
 const testUser = (overrides: { id?: string; uid?: string; roles?: User["roles"] } = {}): User => {
   const id = overrides.id ?? uuid();
@@ -133,11 +123,62 @@ const insertFixture = async (): Promise<GqlApiFixture> => {
       )
   `;
   await sql`
-    INSERT INTO grids.views (id, short_id, table_id, name, query, position)
-    VALUES (${viewId}::uuid, ${shortId("V")}, ${tableId}::uuid, 'Visible orders', '{}'::jsonb, 0)
+    INSERT INTO grids.views (id, short_id, table_id, name, source, ui, position)
+    VALUES (${viewId}::uuid, ${shortId("V")}, ${tableId}::uuid, 'Visible orders', ${`from table {${tableId}}`}, '{}'::jsonb, 0)
   `;
 
   return { baseId, tableId, viewId, amountId, stageId };
+};
+
+const insertAutocompletePermissionFixture = async (
+  userId: string,
+): Promise<{
+  baseId: string;
+  accessIds: string[];
+}> => {
+  const baseId = uuid();
+  const publicTableId = uuid();
+  const secretTableId = uuid();
+  const publicAmountId = uuid();
+  const secretCodeId = uuid();
+  const secretViewId = uuid();
+
+  await sql`
+    INSERT INTO grids.bases (id, short_id, name)
+    VALUES (${baseId}::uuid, ${shortId("B")}, 'GQL autocomplete permissions')
+  `;
+  await sql`
+    INSERT INTO grids.tables (id, short_id, base_id, name, position)
+    VALUES
+      (${publicTableId}::uuid, ${shortId("P")}, ${baseId}::uuid, 'PublicOrders', 0),
+      (${secretTableId}::uuid, ${shortId("S")}, ${baseId}::uuid, 'SecretDeals', 1)
+  `;
+  await sql`
+    INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
+    VALUES
+      (${publicAmountId}::uuid, 'PUBAM', ${publicTableId}::uuid, 'PublicAmount', 'number', '{}'::jsonb, 0),
+      (${secretCodeId}::uuid, 'SECRT', ${secretTableId}::uuid, 'SecretCode', 'text', '{}'::jsonb, 0)
+  `;
+  await sql`
+    INSERT INTO grids.views (id, short_id, table_id, name, source, ui, position)
+    VALUES (${secretViewId}::uuid, 'SVIEW', ${secretTableId}::uuid, 'Secret view', ${`from table {${secretTableId}}`}, '{}'::jsonb, 0)
+  `;
+
+  const [baseAccess] = await sql<{ id: string }[]>`
+    INSERT INTO auth.access (user_id, permission)
+    VALUES (${userId}::uuid, 'read'::auth.permission_level)
+    RETURNING id::text AS id
+  `;
+  const [secretDeny] = await sql<{ id: string }[]>`
+    INSERT INTO auth.access (user_id, permission)
+    VALUES (${userId}::uuid, 'none'::auth.permission_level)
+    RETURNING id::text AS id
+  `;
+  if (!baseAccess || !secretDeny) throw new Error("Failed to create test access rows");
+  await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${baseAccess.id}::uuid)`;
+  await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${secretTableId}::uuid, ${secretDeny.id}::uuid)`;
+
+  return { baseId, accessIds: [baseAccess.id, secretDeny.id] };
 };
 
 const insertRelationFixture = async (): Promise<GqlRelationApiFixture> => {
@@ -171,16 +212,14 @@ const insertRelationFixture = async (): Promise<GqlRelationApiFixture> => {
       (${customerNameId}::uuid, 'NAME1', ${customersTableId}::uuid, 'Name', 'text', '{}'::jsonb, 0)
   `;
   await sql`
-    INSERT INTO grids.views (id, short_id, table_id, name, query, position)
+    INSERT INTO grids.views (id, short_id, table_id, name, source, ui, position)
     VALUES (
       ${byCustomerViewId}::uuid,
       'BYCUS',
       ${ordersTableId}::uuid,
       'Revenue by customer',
-      ${{
-        groupBy: [{ fieldId: customerLinkId }],
-        aggregations: [{ fieldId: amountId, agg: "sum", label: "revenue" }],
-      }}::jsonb,
+      ${`from table {${ordersTableId}}\ngroup by {${customerLinkId}}\naggregate sum({${amountId}}) as revenue`},
+      '{}'::jsonb,
       0
     )
   `;
@@ -207,6 +246,13 @@ const cleanupFixture = async (baseId: string): Promise<void> => {
   await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
 };
 
+const cleanupAutocompletePermissionFixture = async (baseId: string, accessIds: string[]): Promise<void> => {
+  await cleanupFixture(baseId);
+  for (const accessId of accessIds) {
+    await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;
+  }
+};
+
 beforeAll(async () => {
   if (process.env.GRIDS_QUERY_DSL_DB_TEST === "1") await migrate();
 });
@@ -215,161 +261,50 @@ describe("GQL API route contract", () => {
   postgresTest("exposes GQL under /gql and leaves the legacy /query-dsl alias removed", async () => {
     const baseId = uuid();
 
-    const gqlResponse = await apiRoutes.request(`/gql/by-base/${baseId}/saved`);
+    const gqlResponse = await apiRoutes.request(`/gql/by-base/${baseId}/preview`);
     expect(gqlResponse.status).toBe(401);
     expect(await gqlResponse.json()).toEqual({ message: "Authentication required" });
 
-    const legacyResponse = await apiRoutes.request(`/query-dsl/by-base/${baseId}/saved`);
+    const legacyResponse = await apiRoutes.request(`/query-dsl/by-base/${baseId}/preview`);
     expect(legacyResponse.status).toBe(404);
   });
 
-  postgresTest("lists private saved GQL queries for base admins", async () => {
-    const fixture = await insertFixture();
-    const ownerId = await existingAuthUserId();
-    const privateQueryId = uuid();
-    const admin = testUser({ id: uuid(), roles: ["admin"] });
-    const app = apiFor(admin);
+  postgresTest("autocomplete filters source and field suggestions through table permissions", async () => {
+    const userId = await existingAuthUserId();
+    const fixture = await insertAutocompletePermissionFixture(userId);
+    const app = apiFor(testUser({ id: userId, roles: ["user"] }));
 
     try {
-      await sql`
-        INSERT INTO grids.gql_queries (id, short_id, base_id, table_id, name, source, owner_user_id, position)
-        VALUES (
-          ${privateQueryId}::uuid,
-          ${shortId("Q")},
-          ${fixture.baseId}::uuid,
-          ${fixture.tableId}::uuid,
-          'Owner private query',
-          ${`from table {${fixture.tableId}}\nselect {${fixture.amountId}}`},
-          ${ownerId}::uuid,
-          0
-        )
-      `;
-
-      const response = await app.request(`/gql/by-base/${fixture.baseId}/saved`);
-      expect(response.status).toBe(200);
-      const list = (await response.json()) as ListResponse;
-      expect(list.map((query) => query.id)).toContain(privateQueryId);
-      expect(list.find((query) => query.id === privateQueryId)?.ownerUserId).toBe(ownerId);
-    } finally {
-      await cleanupFixture(fixture.baseId);
-    }
-  });
-
-  postgresTest("returns neutral not found for unreadable saved GQL mutations", async () => {
-    const fixture = await insertFixture();
-    const ownerId = await existingAuthUserId();
-    const privateQueryId = uuid();
-    const deletedPrivateQueryId = uuid();
-    const app = apiFor(testUser({ id: uuid(), roles: ["user"] }));
-
-    try {
-      await sql`
-        INSERT INTO grids.gql_queries (id, short_id, base_id, table_id, name, source, owner_user_id, position, deleted_at)
-        VALUES
-          (
-            ${privateQueryId}::uuid,
-            ${shortId("Q")},
-            ${fixture.baseId}::uuid,
-            ${fixture.tableId}::uuid,
-            'Private query',
-            ${`from table {${fixture.tableId}}\nselect {${fixture.amountId}}`},
-            ${ownerId}::uuid,
-            0,
-            NULL
-          ),
-          (
-            ${deletedPrivateQueryId}::uuid,
-            ${shortId("Q")},
-            ${fixture.baseId}::uuid,
-            ${fixture.tableId}::uuid,
-            'Deleted private query',
-            ${`from table {${fixture.tableId}}\nselect {${fixture.amountId}}`},
-            ${ownerId}::uuid,
-            1,
-            now()
-          )
-      `;
-
-      const patch = await app.request(`/gql/saved/${privateQueryId}`, jsonRequest("PATCH", { name: "Leaked" }));
-      expect(patch.status).toBe(404);
-      expect(await patch.json()).toEqual({ message: "GQL query not found" });
-
-      const remove = await app.request(`/gql/saved/${privateQueryId}`, { method: "DELETE" });
-      expect(remove.status).toBe(404);
-      expect(await remove.json()).toEqual({ message: "GQL query not found" });
-
-      const restore = await app.request(`/gql/saved/${deletedPrivateQueryId}/restore`, { method: "POST" });
-      expect(restore.status).toBe(404);
-      expect(await restore.json()).toEqual({ message: "GQL query not found" });
-    } finally {
-      await cleanupFixture(fixture.baseId);
-    }
-  });
-
-  postgresTest("canonicalizes saved query source at the public API boundary", async () => {
-    const fixture = await insertFixture();
-    const user = testUser({ id: await existingAuthUserId() });
-    const app = apiFor(user);
-
-    try {
-      const created = await app.request(
-        `/gql/by-base/${fixture.baseId}/saved`,
-        jsonRequest("POST", {
-          name: "Open orders",
-          shared: true,
-          query: `
-            from table Orders
-            select Amount
-            where Stage = 'Open'
-            limit 5
-          `,
-        }),
+      const sourceResponse = await app.request(
+        `/gql/by-base/${fixture.baseId}/autocomplete`,
+        jsonRequest("POST", { query: "from table " }),
       );
-      expect(created.status).toBe(201);
-      const createdBody = (await created.json()) as SaveResponse;
-      expect(createdBody.ok).toBe(true);
-      if (!createdBody.ok) throw new Error(createdBody.diagnostics.map((diagnostic) => diagnostic.message).join("; "));
-      expect(createdBody.query).toMatchObject({
-        baseId: fixture.baseId,
-        tableId: fixture.tableId,
-        name: "Open orders",
-        ownerUserId: null,
-        source: `from table {${fixture.tableId}}
-select {${fixture.amountId}}
-where {${fixture.stageId}} = 'open'
-limit 5`,
-      });
+      expect(sourceResponse.status).toBe(200);
+      const sources = (await sourceResponse.json()) as AutocompleteResponse;
+      expect(sources.items.map((item) => item.label)).toContain("PublicOrders");
+      expect(sources.items.map((item) => item.label)).not.toContain("SecretDeals");
 
-      const updated = await app.request(
-        `/gql/saved/${createdBody.query.id}`,
-        jsonRequest("PATCH", {
-          name: "Closed or held orders",
-          query: `
-            from table Orders
-            where oneof(Stage, 'Closed', 'On hold')
-            include deleted
-            limit 10
-          `,
-        }),
+      const viewResponse = await app.request(`/gql/by-base/${fixture.baseId}/autocomplete`, jsonRequest("POST", { query: "from view " }));
+      const views = (await viewResponse.json()) as AutocompleteResponse;
+      expect(views.items.map((item) => item.label)).not.toContain("Secret view");
+
+      const fieldResponse = await app.request(
+        `/gql/by-base/${fixture.baseId}/autocomplete`,
+        jsonRequest("POST", { query: "from table PublicOrders\nselect " }),
       );
-      expect(updated.status).toBe(200);
-      const updatedBody = (await updated.json()) as SaveResponse;
-      expect(updatedBody.ok).toBe(true);
-      if (!updatedBody.ok) throw new Error(updatedBody.diagnostics.map((diagnostic) => diagnostic.message).join("; "));
-      expect(updatedBody.query).toMatchObject({
-        name: "Closed or held orders",
-        source: `from table {${fixture.tableId}}
-where oneof({${fixture.stageId}}, 'closed', 'hold')
-limit 10
-include deleted`,
-      });
+      const fields = (await fieldResponse.json()) as AutocompleteResponse;
+      expect(fields.items.map((item) => item.label)).toContain("PublicAmount");
+      expect(fields.items.map((item) => item.label)).not.toContain("SecretCode");
 
-      const loaded = await app.request(`/gql/saved/${createdBody.query.id}`);
-      expect(loaded.status).toBe(200);
-      const loadedBody = (await loaded.json()) as { source: string };
-      expect(loadedBody.source).toBe(updatedBody.query.source);
+      const deniedResponse = await app.request(
+        `/gql/by-base/${fixture.baseId}/autocomplete`,
+        jsonRequest("POST", { query: "from table SecretDeals\nselect SecretCode" }),
+      );
+      const denied = (await deniedResponse.json()) as AutocompleteResponse;
+      expect(denied.diagnostics.map((diagnostic) => diagnostic.message)).toContain('source "SecretDeals" is not available');
+      expect(JSON.stringify(denied.items)).not.toContain("SecretCode");
     } finally {
-      await cleanupFixture(fixture.baseId);
+      await cleanupAutocompletePermissionFixture(fixture.baseId, fixture.accessIds);
     }
   });
 
@@ -380,10 +315,8 @@ include deleted`,
 
     try {
       const tableScoped = await app.request(
-        `/gql/by-base/${fixture.baseId}/saved`,
+        `/gql/by-base/${fixture.baseId}/compile-view`,
         jsonRequest("POST", {
-          name: "Current table query",
-          shared: true,
           currentSource: { kind: "table", tableId: fixture.tableId },
           query: `
             select Amount
@@ -391,19 +324,17 @@ include deleted`,
           `,
         }),
       );
-      expect(tableScoped.status).toBe(201);
-      const tableBody = (await tableScoped.json()) as SaveResponse;
+      expect(tableScoped.status).toBe(200);
+      const tableBody = (await tableScoped.json()) as CompileViewResponse;
       expect(tableBody.ok).toBe(true);
       if (!tableBody.ok) throw new Error(tableBody.diagnostics.map((diagnostic) => diagnostic.message).join("; "));
-      expect(tableBody.query.source).toBe(`from table {${fixture.tableId}}
+      expect(tableBody.source).toBe(`from table {${fixture.tableId}}
 select {${fixture.amountId}}
 where {${fixture.stageId}} = 'open'`);
 
       const viewScoped = await app.request(
-        `/gql/by-base/${fixture.baseId}/saved`,
+        `/gql/by-base/${fixture.baseId}/compile-view`,
         jsonRequest("POST", {
-          name: "Current view query",
-          shared: true,
           currentSource: { kind: "view", viewId: fixture.viewId },
           query: `
             select Amount
@@ -411,11 +342,11 @@ where {${fixture.stageId}} = 'open'`);
           `,
         }),
       );
-      expect(viewScoped.status).toBe(201);
-      const viewBody = (await viewScoped.json()) as SaveResponse;
+      expect(viewScoped.status).toBe(200);
+      const viewBody = (await viewScoped.json()) as CompileViewResponse;
       expect(viewBody.ok).toBe(true);
       if (!viewBody.ok) throw new Error(viewBody.diagnostics.map((diagnostic) => diagnostic.message).join("; "));
-      expect(viewBody.query.source).toBe(`from view {${fixture.viewId}}
+      expect(viewBody.source).toBe(`from view {${fixture.viewId}}
 select {${fixture.amountId}}
 limit 2`);
     } finally {
@@ -434,7 +365,7 @@ limit 2`);
           currentSource: { kind: "view", viewId: fixture.byCustomerViewId },
           query: `
             search 'Alice' in Customer
-            select Customer, revenue
+            select Customer, "${fixture.amountId}__sum"
           `,
         }),
       );
@@ -445,7 +376,7 @@ limit 2`);
         mode: "groups";
         rows: Array<{ values: Record<string, unknown> }>;
       };
-      expect(body.ok).toBe(true);
+      if (!body.ok) throw new Error(JSON.stringify(body));
       expect(body.mode).toBe("groups");
       expect(body.rows).toHaveLength(1);
       expect(body.rows[0]?.values.gk_0).toBe("Alice");
@@ -461,27 +392,25 @@ limit 2`);
 
     try {
       const legacySyntax = await app.request(
-        `/gql/by-base/${fixture.baseId}/saved`,
+        `/gql/by-base/${fixture.baseId}/compile-view`,
         jsonRequest("POST", {
-          name: "Legacy syntax",
           query: "from table #Orders",
         }),
       );
       expect(legacySyntax.status).toBe(200);
-      const legacyBody = (await legacySyntax.json()) as SaveResponse;
+      const legacyBody = (await legacySyntax.json()) as CompileViewResponse;
       expect(legacyBody.ok).toBe(false);
       if (legacyBody.ok) throw new Error("expected parser diagnostics");
       expect(legacyBody.diagnostics[0]?.message.startsWith("legacy # references are not valid in GQL")).toBe(true);
 
       const unknownOption = await app.request(
-        `/gql/by-base/${fixture.baseId}/saved`,
+        `/gql/by-base/${fixture.baseId}/compile-view`,
         jsonRequest("POST", {
-          name: "Unknown option",
           query: "from table Orders\nwhere Stage = 'Missing'",
         }),
       );
       expect(unknownOption.status).toBe(200);
-      const optionBody = (await unknownOption.json()) as SaveResponse;
+      const optionBody = (await unknownOption.json()) as CompileViewResponse;
       expect(optionBody.ok).toBe(false);
       if (optionBody.ok) throw new Error("expected canonicalization diagnostics");
       expect(optionBody.diagnostics[0]?.message).toBe('unknown option "Missing" for "Stage"; expected one of: Open, Closed, On hold');

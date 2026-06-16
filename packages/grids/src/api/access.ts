@@ -152,10 +152,10 @@ const app = new Hono<AuthContext>()
     "/by-view/:viewId",
     describeRoute({
       tags: ["Grids:Access"],
-      summary: "Grant read access on a view (only 'read' / 'none' accepted)",
+      summary: "Grant access on a view (only 'read' / 'admin' / 'none' accepted)",
       responses: {
         201: jsonResponse(z.object({ accessId: z.string().uuid() }), "Created"),
-        400: jsonResponse(ErrorResponseSchema, "View only accepts level 'read' or 'none'"),
+        400: jsonResponse(ErrorResponseSchema, "View only accepts level 'read', 'admin', or 'none'"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
       },
     }),
@@ -163,8 +163,8 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const viewId = c.req.param("viewId")!;
       const body = c.req.valid("json");
-      if (body.permission !== "read" && body.permission !== "none") {
-        return c.json({ message: "View ACL only accepts 'read' or 'none'" }, 400);
+      if (body.permission !== "read" && body.permission !== "admin" && body.permission !== "none") {
+        return c.json({ message: "View ACL only accepts 'read', 'admin', or 'none'" }, 400);
       }
       // Resolve view → table → base for the gate.
       const [viewRow] = await sql<{ table_id: string; base_id: string }[]>`
@@ -366,10 +366,10 @@ const app = new Hono<AuthContext>()
       if (binding.resourceType === "table" && permission === "admin") {
         return c.json({ message: "Table grants only accept 'read' / 'write' / 'none'" }, 400);
       }
-      // View grants stay capped at read/none even on update — the resolver
-      // never re-caps so we have to enforce on every write to the row.
-      if (binding.resourceType === "view" && permission !== "read" && permission !== "none") {
-        return c.json({ message: "View grants only accept 'read' or 'none'" }, 400);
+      // View grants expose only read/admin/none. There is no view-write
+      // level: editing a view definition is an admin action.
+      if (binding.resourceType === "view" && permission !== "read" && permission !== "admin" && permission !== "none") {
+        return c.json({ message: "View grants only accept 'read', 'admin', or 'none'" }, 400);
       }
       // Same enforcement for forms: write-or-none only.
       if (binding.resourceType === "form" && permission !== "write" && permission !== "none") {

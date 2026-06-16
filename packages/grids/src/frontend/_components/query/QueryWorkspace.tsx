@@ -1,32 +1,82 @@
-import { AutocompleteEditor, DataTable, type DataTableColumn, DockWorkspace, prompts } from "@valentinkolb/cloud/ui";
+import { AutocompleteEditor, DataTable, type DataTableColumn, Panes, type PanesValue, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { highlight } from "@valentinkolb/stdlib";
 import { timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { DslQueryPreviewResponse, GqlQuery } from "../../../contracts";
+import type { DslQueryPreviewDiagnostic, DslQueryPreviewResponse } from "../../../contracts";
 import { formatIdentifierRef } from "../../../ref-syntax";
 import type { Field, Table, View } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
-import { buildQueryCompletions } from "./query-completions";
+import { buildBackendGqlCompletions } from "./query-autocomplete";
+import { currentSourceForApi, type QueryWorkspaceCurrentSource, visibleFields, visibleViews } from "./query-workspace-model";
 
 type Props = {
   baseId: string;
   baseShortId: string;
   initialQuery: string;
+  initialPreview?: DslQueryPreviewResponse | null;
   queryPath: string;
-  savedQuery?: GqlQuery;
-  canEditSavedQuery?: boolean;
-  currentSource?:
-    | { kind: "table"; tableId: string; label: string; ref: string }
-    | { kind: "view"; viewId: string; label: string; ref: string };
+  currentSource?: QueryWorkspaceCurrentSource;
   tables: Table[];
   fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
+  syncQueryToUrl?: boolean;
 };
 
 type PreviewSuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 type PreviewRow = PreviewSuccess["rows"][number] & { __rowKey: string };
+type QuerySourceRow = {
+  id: string;
+  kind: "table" | "view";
+  name: string;
+  parent?: string;
+  icon: string;
+  metaLabel: string;
+  fields: Field[];
+  fromLine: string;
+  search: string;
+};
 const MAX_SYNCED_QUERY_HREF_LENGTH = 2800;
+
+const createQueryWorkspacePanesValue = (): PanesValue => ({
+  root: {
+    type: "split",
+    id: "gql-query-root",
+    direction: "vertical",
+    sizes: [56, 44],
+    children: [
+      {
+        type: "leaf",
+        id: "gql-query-results",
+        elementIds: ["results"],
+        activeElementId: "results",
+        presentation: "single",
+      },
+      {
+        type: "split",
+        id: "gql-query-bottom",
+        direction: "horizontal",
+        sizes: [62, 38],
+        children: [
+          {
+            type: "leaf",
+            id: "gql-query-editor",
+            elementIds: ["query"],
+            activeElementId: "query",
+            presentation: "single",
+          },
+          {
+            type: "leaf",
+            id: "gql-query-sources",
+            elementIds: ["sources"],
+            activeElementId: "sources",
+            presentation: "single",
+          },
+        ],
+      },
+    ],
+  },
+});
 
 const queryHighlight = highlight.compile(
   [
@@ -71,6 +121,21 @@ const safeQueryHref = (queryPath: string, query: string) => {
   return href.length <= MAX_SYNCED_QUERY_HREF_LENGTH ? href : queryPath;
 };
 
+const plural = (count: number, singular: string, pluralLabel = `${singular}s`) => `${count} ${count === 1 ? singular : pluralLabel}`;
+
+const compactCount = (count: number, suffix: string) => `${count}${suffix}`;
+
+const replaceOrPrependSourceClause = (source: string, fromLine: string) => {
+  if (!source.trim()) return fromLine;
+  const lines = source.split(/\r\n|\r|\n/);
+  const sourceIndex = lines.findIndex((line) => /^\s*from\s+(?:table|view)\b/i.test(line));
+  if (sourceIndex >= 0) {
+    lines[sourceIndex] = fromLine;
+    return lines.join("\n");
+  }
+  return `${fromLine}\n${source}`;
+};
+
 function QueryPreview(props: { preview: DslQueryPreviewResponse | null; loading: boolean }) {
   const success = createMemo(() => (props.preview?.ok ? props.preview : null));
   const diagnostics = createMemo(() => (props.preview && !props.preview.ok ? props.preview.diagnostics : []));
@@ -88,60 +153,66 @@ function QueryPreview(props: { preview: DslQueryPreviewResponse | null; loading:
   });
 
   return (
-    <div class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-surface p-3">
+    <div class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-surface">
       <Show
         when={props.preview}
         fallback={
-          <div class="paper flex flex-1 items-center justify-center p-8 text-sm text-dimmed">
-            <Show when={props.loading} fallback="Write a query to preview records.">
-              <span class="inline-flex items-center gap-2">
-                <i class="ti ti-loader-2 animate-spin" /> Checking
+          <div class="flex flex-1 items-center justify-center text-sm text-dimmed">
+            <div class="flex max-w-sm flex-col items-center gap-2 text-center">
+              <span class="grid h-11 w-11 place-items-center rounded-lg border border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
+                <i class={props.loading ? "ti ti-loader-2 animate-spin text-lg" : "ti ti-table-spark text-lg"} />
               </span>
-            </Show>
+              <p class="font-medium text-primary">{props.loading ? "Running query" : "No result yet"}</p>
+            </div>
           </div>
         }
       >
         <Show
           when={success()}
           fallback={
-            <div class="paper flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-4 text-sm">
-              <For each={diagnostics()}>
-                {(diagnostic) => (
-                  <div class="info-block-danger">
-                    <Show when={diagnostic.line}>
-                      <span class="font-medium">
-                        Line {diagnostic.line}
-                        <Show when={diagnostic.column}>{(column) => `, column ${column()}`}</Show>:{" "}
-                      </span>
-                    </Show>
-                    {diagnostic.message}
-                  </div>
-                )}
-              </For>
+            <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div class="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 text-xs dark:border-zinc-800">
+                <span class="inline-flex items-center gap-1.5 font-medium text-red-700 dark:text-red-300">
+                  <i class="ti ti-alert-triangle" /> Diagnostics
+                </span>
+                <span class="text-dimmed">{plural(diagnostics().length, "issue")}</span>
+              </div>
+              <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-3 text-sm">
+                <For each={diagnostics()}>
+                  {(diagnostic) => (
+                    <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-800 dark:border-red-900 dark:bg-red-950/45 dark:text-red-300">
+                      <div class="mb-1 flex flex-wrap items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide">
+                        <Show when={diagnostic.line} fallback={<span>Query</span>}>
+                          {(line) => (
+                            <span class="rounded bg-white/70 px-1.5 py-0.5 dark:bg-black/20">
+                              Line {line()}
+                              <Show when={diagnostic.column}>{(column) => ` · Col ${column()}`}</Show>
+                            </span>
+                          )}
+                        </Show>
+                      </div>
+                      <p class="leading-relaxed">{diagnostic.message}</p>
+                    </div>
+                  )}
+                </For>
+              </div>
             </div>
           }
         >
           {(preview) => (
-            <div class="paper flex min-h-0 flex-1 flex-col overflow-hidden">
-              <DataTable
-                rows={rows()}
-                columns={columns()}
-                getRowId={(row) => row.__rowKey}
-                class="flex-1 overflow-auto"
-                density="compact"
-                hoverRows={false}
-                cellContentClass="max-h-24 overflow-auto whitespace-pre-wrap break-words"
-                empty={<span>No rows match this query.</span>}
-                renderCell={({ value }) => <span>{displayValue(value)}</span>}
-                scrollPreserveKey="grids-query-preview"
-              />
-              <Show when={preview().truncated}>
-                <div class="shrink-0 px-3 py-2 text-xs text-dimmed">Limited to {preview().limit} rows.</div>
-              </Show>
-              <Show when={preview().explode}>
-                <div class="shrink-0 px-3 py-2 text-xs text-dimmed">Some records contribute to multiple groups.</div>
-              </Show>
-            </div>
+            <DataTable
+              rows={rows()}
+              columns={columns()}
+              getRowId={(row) => row.__rowKey}
+              class="paper h-full min-h-0 flex-1 overflow-auto"
+              density="compact"
+              fillHeight
+              hoverRows={false}
+              cellContentClass="max-h-24 overflow-auto whitespace-pre-wrap break-words"
+              empty={<span>No rows match this query.</span>}
+              renderCell={({ value }) => <span>{displayValue(value)}</span>}
+              scrollPreserveKey="grids-query-preview"
+            />
           )}
         </Show>
       </Show>
@@ -151,21 +222,72 @@ function QueryPreview(props: { preview: DslQueryPreviewResponse | null; loading:
 
 export default function QueryWorkspace(props: Props) {
   const [query, setQuery] = createSignal(props.initialQuery);
-  const [preview, setPreview] = createSignal<DslQueryPreviewResponse | null>(null);
+  const [preview, setPreview] = createSignal<DslQueryPreviewResponse | null>(props.initialPreview ?? null);
   const [loading, setLoading] = createSignal(false);
   const [saveLoading, setSaveLoading] = createSignal(false);
+  const [panes, setPanes] = createSignal<PanesValue>(createQueryWorkspacePanesValue());
+  const [sourceSearch, setSourceSearch] = createSignal("");
+  const apiSource = createMemo(() => currentSourceForApi(props.currentSource));
+  const sourceTables = createMemo(() => props.tables.filter((table) => !table.deletedAt));
+  const sourceRows = createMemo<QuerySourceRow[]>(() =>
+    sourceTables().flatMap((table) => {
+      const fields = visibleFields(props.fieldsByTable[table.id]);
+      const tableRow: QuerySourceRow = {
+        id: `table:${table.id}`,
+        kind: "table",
+        name: table.name,
+        icon: table.icon ?? "ti ti-table",
+        metaLabel: compactCount(fields.length, "f"),
+        fields,
+        fromLine: `from table ${formatIdentifierRef(table.name)}`,
+        search: [table.name, table.description ?? "", fields.map((field) => `${field.name} ${field.type}`).join(" ")]
+          .join(" ")
+          .toLowerCase(),
+      };
+      const viewRows = visibleViews(props.viewsByTable[table.id]).map(
+        (view): QuerySourceRow => ({
+          id: `view:${view.id}`,
+          kind: "view",
+          name: view.name,
+          parent: table.name,
+          icon: "ti ti-table-spark",
+          metaLabel: `view · ${compactCount(fields.length, "f")}`,
+          fields,
+          fromLine: `from view ${formatIdentifierRef(view.name)}`,
+          search: [view.name, table.name, fields.map((field) => `${field.name} ${field.type}`).join(" ")].join(" ").toLowerCase(),
+        }),
+      );
+      return [tableRow, ...viewRows];
+    }),
+  );
+  const filteredSourceRows = createMemo(() => {
+    const search = sourceSearch().trim().toLowerCase();
+    if (!search) return sourceRows();
+    return sourceRows().filter((source) => source.search.includes(search));
+  });
   const completions = createMemo(() =>
-    buildQueryCompletions({
-      currentSource: props.currentSource,
-      tables: props.tables,
-      fieldsByTable: props.fieldsByTable,
-      viewsByTable: props.viewsByTable,
+    buildBackendGqlCompletions({
+      currentSource: apiSource(),
+      fetchAutocomplete: async (request, signal) => {
+        const response = await apiClient.gql["by-base"][":baseId"].autocomplete.$post(
+          { param: { baseId: props.baseId }, json: request },
+          { init: { signal } },
+        );
+        if (!response.ok) throw new Error(await errorMessage(response, "Could not load query suggestions."));
+        return response.json();
+      },
     }),
   );
   let previewToken = 0;
+  let lastPreviewQuery = props.initialPreview !== undefined ? props.initialQuery : "";
 
   createEffect(() => {
-    setQuery(props.initialQuery);
+    setQuery((current) => (current === props.initialQuery ? current : props.initialQuery));
+    if (props.initialPreview !== undefined) {
+      setPreview(props.initialPreview);
+      setLoading(false);
+      lastPreviewQuery = props.initialQuery;
+    }
   });
 
   const loadPreview = async (source: string) => {
@@ -177,11 +299,11 @@ export default function QueryWorkspace(props: Props) {
     }
     setLoading(true);
     try {
-      const response = await apiClient.gql["by-base"][":baseId"].preview.$post({
+      const response = await apiClient.gql["by-base"][":baseId"].execute.$post({
         param: { baseId: props.baseId },
-        json: { query: source, ...(props.currentSource ? { currentSource: props.currentSource } : {}) },
+        json: { query: source, ...(apiSource() ? { currentSource: apiSource() } : {}) },
       });
-      if (!response.ok) throw new Error(await errorMessage(response, "Could not preview query."));
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not execute query."));
       const data = await response.json();
       if (token === previewToken) setPreview(data);
     } catch (error) {
@@ -199,12 +321,16 @@ export default function QueryWorkspace(props: Props) {
   const previewDebounce = timed.debounce(loadPreview, 250);
 
   createEffect(() => {
-    previewDebounce.debouncedFn(query());
+    const source = query();
+    if (source === lastPreviewQuery) return;
+    lastPreviewQuery = source;
+    previewDebounce.debouncedFn(source);
   });
 
   const onInput = (next: string) => {
+    if (next === query()) return;
     setQuery(next);
-    if (!props.savedQuery && typeof window !== "undefined") {
+    if (props.syncQueryToUrl !== false && typeof window !== "undefined") {
       window.history.replaceState(window.history.state, "", safeQueryHref(props.queryPath, next));
     }
   };
@@ -213,73 +339,34 @@ export default function QueryWorkspace(props: Props) {
     onInput(source);
   };
 
-  const handleSaveAsGqlQuery = async () => {
-    const result = await prompts.form({
-      title: "Save query",
-      icon: "ti ti-code",
-      fields: {
-        name: {
-          type: "text",
-          label: "Name",
-          required: true,
-          placeholder: "e.g. Joined revenue",
-        },
-        shared: {
-          type: "boolean",
-          label: "Share with everyone who can read this grid",
-          default: false,
-        },
-      },
-      confirmText: "Save",
-    });
-    if (!result) return;
-
-    const response = await apiClient.gql["by-base"][":baseId"].saved.$post({
-      param: { baseId: props.baseId },
-      json: {
-        name: String(result.name).trim(),
-        query: query(),
-        shared: Boolean(result.shared),
-        ...(props.currentSource ? { currentSource: props.currentSource } : {}),
-      },
-    });
-    if (!response.ok) throw new Error(await errorMessage(response, "Could not save query."));
-    const saved = await response.json();
-    if (!saved.ok) {
-      const message = saved.diagnostics.map((diagnostic) => diagnostic.message).join("\n");
-      prompts.error(message || "This query could not be saved.");
-      return;
-    }
-    await prompts.success(`Saved "${saved.query.name}".`, { title: "Query saved", icon: "ti ti-bookmark" });
-    if (typeof window !== "undefined") window.location.assign(`/app/grids/${props.baseShortId}/query/${saved.query.shortId}`);
+  const insertSource = (source: QuerySourceRow) => {
+    onInput(replaceOrPrependSourceClause(query(), source.fromLine));
   };
 
-  const handleUpdateSavedGqlQuery = async () => {
-    const savedQuery = props.savedQuery;
-    if (!savedQuery || !query().trim() || saveLoading()) return;
-    setSaveLoading(true);
-    try {
-      const response = await apiClient.gql.saved[":queryId"].$patch({
-        param: { queryId: savedQuery.id },
-        json: { query: query() },
-      });
-      if (!response.ok) throw new Error(await errorMessage(response, "Could not update query."));
-      const saved = await response.json();
-      if (!saved.ok) {
-        const message = saved.diagnostics.map((diagnostic) => diagnostic.message).join("\n");
-        prompts.error(message || "This query could not be updated.");
-        return;
-      }
-      setQuery(saved.query.source);
-      if (typeof window !== "undefined") {
-        window.history.replaceState(window.history.state, "", `/app/grids/${props.baseShortId}/query/${saved.query.shortId}`);
-      }
-      await prompts.success(`Updated "${saved.query.name}".`, { title: "Query updated", icon: "ti ti-bookmark" });
-    } catch (error) {
-      prompts.error(error instanceof Error ? error.message : "Could not update query.");
-    } finally {
-      setSaveLoading(false);
+  const insertAtEditorCursor = (text: string) => {
+    if (typeof document === "undefined") {
+      onInput(`${query()}${text}`);
+      return;
     }
+    const textarea = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="GQL query"]');
+    if (!textarea) {
+      onInput(`${query()}${text}`);
+      return;
+    }
+    const start = textarea.selectionStart ?? query().length;
+    const end = textarea.selectionEnd ?? start;
+    const current = query();
+    const next = `${current.slice(0, start)}${text}${current.slice(end)}`;
+    onInput(next);
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const caret = start + text.length;
+      textarea.setSelectionRange(caret, caret);
+    });
+  };
+
+  const insertField = (field: Field) => {
+    insertAtEditorCursor(formatIdentifierRef(field.name));
   };
 
   const handleSaveAsView = async () => {
@@ -288,12 +375,13 @@ export default function QueryWorkspace(props: Props) {
     try {
       const compiledResponse = await apiClient.gql["by-base"][":baseId"]["compile-view"].$post({
         param: { baseId: props.baseId },
-        json: { query: query(), ...(props.currentSource ? { currentSource: props.currentSource } : {}) },
+        json: { query: query(), ...(apiSource() ? { currentSource: apiSource() } : {}) },
       });
       if (!compiledResponse.ok) throw new Error(await errorMessage(compiledResponse, "Could not compile query."));
       const compiled = await compiledResponse.json();
       if (!compiled.ok) {
-        await handleSaveAsGqlQuery();
+        const message = compiled.diagnostics.map((diagnostic: DslQueryPreviewDiagnostic) => diagnostic.message).join("\n");
+        prompts.error(message || "This query could not be saved as a view.");
         return;
       }
 
@@ -321,7 +409,7 @@ export default function QueryWorkspace(props: Props) {
         param: { tableId: compiled.tableId },
         json: {
           name: String(result.name).trim(),
-          query: compiled.query,
+          source: compiled.source,
           shared: Boolean(result.shared),
         },
       });
@@ -338,31 +426,10 @@ export default function QueryWorkspace(props: Props) {
     }
   };
 
-  const handleSaveReadonlyCopy = async () => {
-    if (!query().trim() || saveLoading()) return;
-    setSaveLoading(true);
-    try {
-      await handleSaveAsGqlQuery();
-    } catch (error) {
-      prompts.error(error instanceof Error ? error.message : "Could not save query.");
-    } finally {
-      setSaveLoading(false);
-    }
-  };
-
-  const canUpdateSavedQuery = () => !!props.savedQuery && props.canEditSavedQuery === true;
-  const saveButtonLabel = () => (props.savedQuery ? (canUpdateSavedQuery() ? "Update" : "Save copy") : "Save");
-  const saveButtonTitle = () => (props.savedQuery ? (canUpdateSavedQuery() ? "Update query" : "Save query copy") : "Save query");
-  const saveButtonIcon = () =>
-    saveLoading()
-      ? "ti ti-loader-2 animate-spin"
-      : props.savedQuery
-        ? canUpdateSavedQuery()
-          ? "ti ti-device-floppy"
-          : "ti ti-copy"
-        : "ti ti-bookmark-plus";
-  const handleSave = () =>
-    canUpdateSavedQuery() ? handleUpdateSavedGqlQuery() : props.savedQuery ? handleSaveReadonlyCopy() : handleSaveAsView();
+  const saveButtonLabel = () => "Save";
+  const saveButtonTitle = () => "Save view";
+  const saveButtonIcon = () => (saveLoading() ? "ti ti-loader-2 animate-spin" : "ti ti-bookmark-plus");
+  const handleSave = () => handleSaveAsView();
 
   const firstTable = () => props.tables[0];
   const firstNumericField = () =>
@@ -394,29 +461,14 @@ export default function QueryWorkspace(props: Props) {
   };
 
   return (
-    <div class="flex min-h-0 flex-1 flex-col" data-scroll-preserve="grids-query-workspace">
-      <DockWorkspace storageKey={`grids-query-${props.baseShortId}`} defaultResultSize={58} class="flex-1">
-        <DockWorkspace.Result title="Preview" icon="ti ti-table-spark">
+    <div class="flex min-h-0 flex-1 flex-col bg-zinc-100 p-2 dark:bg-zinc-900" data-scroll-preserve="grids-query-workspace">
+      <Panes.Root value={panes()} onChange={setPanes} class="h-full w-full flex-1">
+        <Panes.Element id="results" title="Results" icon="ti ti-table-spark">
           <QueryPreview preview={preview()} loading={loading()} />
-        </DockWorkspace.Result>
+        </Panes.Element>
 
-        <DockWorkspace.Pane id="query" title="Query" icon="ti ti-code" section="editor">
-          <section class="flex h-full min-h-0 flex-col gap-3 overflow-hidden p-3">
-            <Show when={props.currentSource}>
-              {(source) => (
-                <div class="flex items-center justify-between gap-3 rounded-md border border-dashed border-zinc-200 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950/70">
-                  <span class="inline-flex min-w-0 items-center gap-2 text-dimmed">
-                    <i class={source().kind === "view" ? "ti ti-table-spark" : "ti ti-table"} />
-                    <span class="shrink-0">Implicit source</span>
-                    <span class="truncate font-medium text-primary">{source().label}</span>
-                  </span>
-                  <code class="shrink-0 text-xs text-dimmed">
-                    from {source().kind} {formatIdentifierRef(source().label)}
-                  </code>
-                </div>
-              )}
-            </Show>
-
+        <Panes.Element id="query" title="Query" icon="ti ti-code">
+          <section class="flex h-full min-h-0 flex-col overflow-hidden">
             <div class="min-h-0 flex-1">
               <AutocompleteEditor
                 value={query}
@@ -424,40 +476,44 @@ export default function QueryWorkspace(props: Props) {
                 completions={completions()}
                 highlight={queryHighlight}
                 restoreExpansionOnBackspace={false}
+                variant="paper"
                 fill
                 placeholder={"from table Orders\nwhere Status = 'Open'\nsort CreatedAt desc\nlimit 50\noffset 0"}
                 ariaLabel="GQL query"
               />
             </div>
-            <p class="text-xs text-dimmed leading-snug">
-              Saved views use stable field IDs. Readable query text and formulas are rewritten best effort on renames; review important
-              queries after renaming tables or fields.
-            </p>
-            <Show when={!props.savedQuery && queryHref(props.queryPath, query()).length > MAX_SYNCED_QUERY_HREF_LENGTH}>
-              <p class="text-xs text-dimmed">
-                This query is too long for the URL. Preview still works, but reload will start with an empty query.
-              </p>
+            <Show when={queryHref(props.queryPath, query()).length > MAX_SYNCED_QUERY_HREF_LENGTH}>
+              <div class="info-block-warning mx-3 mt-3 text-xs">
+                This query is too long for the URL. Results still work, but reload will start with an empty query.
+              </div>
             </Show>
 
-            <div class="flex shrink-0 flex-wrap items-center gap-2">
-              <For each={examples()}>
-                {(example) => (
-                  <button type="button" class="btn-input btn-sm" onClick={() => insertExample(example.code)}>
-                    <i class="ti ti-sparkles" /> {example.label}
-                  </button>
-                )}
-              </For>
-              <button
-                type="button"
-                class="btn-input btn-sm ml-auto"
-                onClick={() => openQueryReferenceWindow(props.baseShortId)}
-                title="Open GQL reference"
-              >
-                <i class="ti ti-external-link" /> Open reference
-              </button>
+            <div class="flex shrink-0 flex-wrap items-center gap-2 border-t border-zinc-100 pt-2 dark:border-zinc-800">
+              <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <For each={examples()}>
+                  {(example) => (
+                    <button
+                      type="button"
+                      class="btn-input btn-sm"
+                      onClick={() => insertExample(example.code)}
+                      title={`Insert ${example.label} example`}
+                    >
+                      <i class="ti ti-sparkles" /> {example.label}
+                    </button>
+                  )}
+                </For>
+              </div>
               <button
                 type="button"
                 class="btn-input btn-sm"
+                onClick={() => openQueryReferenceWindow(props.baseShortId)}
+                title="Open GQL reference"
+              >
+                <i class="ti ti-external-link" /> Reference
+              </button>
+              <button
+                type="button"
+                class="btn-input-primary btn-sm"
                 onClick={handleSave}
                 disabled={!query().trim() || saveLoading()}
                 title={saveButtonTitle()}
@@ -466,47 +522,100 @@ export default function QueryWorkspace(props: Props) {
               </button>
             </div>
           </section>
-        </DockWorkspace.Pane>
+        </Panes.Element>
 
-        <DockWorkspace.Pane id="sources" title="Sources" icon="ti ti-database" section="context">
-          <section class="flex h-full min-h-0 flex-col overflow-hidden p-3">
-            <div class="paper min-h-0 flex-1 overflow-auto p-2">
-              <For each={props.tables}>
-                {(table) => (
-                  <div class="rounded-md px-2 py-2">
-                    <div class="flex items-center justify-between gap-3">
-                      <span class="inline-flex min-w-0 items-center gap-2 text-sm font-medium text-primary">
-                        <i class={table.icon ?? "ti ti-table"} /> <span class="truncate">{table.name}</span>
+        <Panes.Element id="sources" title="Sources" icon="ti ti-database">
+          <section class="flex h-full min-h-0 flex-col gap-1 overflow-hidden">
+            <TextInput
+              type="search"
+              icon="ti ti-search"
+              activeIcon="ti ti-search"
+              placeholder="Search sources and fields..."
+              ariaLabel="Search query sources"
+              value={sourceSearch}
+              onInput={setSourceSearch}
+              clearable
+            />
+
+            <div class="min-h-0 flex-1 overflow-auto">
+              <Show
+                when={filteredSourceRows().length > 0}
+                fallback={
+                  <div class="flex h-full items-center justify-center p-6 text-center text-sm text-dimmed">
+                    <div class="flex max-w-xs flex-col items-center gap-2">
+                      <span class="grid h-10 w-10 place-items-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
+                        <i class="ti ti-database-off text-lg" />
                       </span>
-                      <code class="text-xs text-dimmed">{formatIdentifierRef(table.name)}</code>
+                      <span>{sourceSearch().trim() ? "No matching sources." : "No readable sources."}</span>
                     </div>
-                    <div class="mt-1 flex flex-wrap gap-1.5">
-                      <For each={(props.fieldsByTable[table.id] ?? []).slice(0, 8)}>
-                        {(field) => (
-                          <code class="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] text-dimmed dark:bg-zinc-900">
-                            {formatIdentifierRef(field.name)}
-                          </code>
-                        )}
-                      </For>
-                    </div>
-                    <Show when={(props.viewsByTable[table.id] ?? []).length > 0}>
-                      <div class="mt-1 flex flex-wrap gap-1.5">
-                        <For each={props.viewsByTable[table.id]}>
-                          {(view) => (
-                            <code class="rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
-                              view {formatIdentifierRef(view.name)}
-                            </code>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
                   </div>
-                )}
-              </For>
+                }
+              >
+                <div class="space-y-2">
+                  <For each={filteredSourceRows()}>
+                    {(source) => {
+                      const shown = () => source.fields.slice(0, 8);
+                      const hidden = () => Math.max(0, source.fields.length - shown().length);
+                      return (
+                        <article class="paper px-2.5 py-2">
+                          <div class="flex items-start justify-between gap-2">
+                            <button
+                              type="button"
+                              class="group flex min-w-0 flex-1 items-center gap-2 text-left"
+                              onClick={() => insertSource(source)}
+                              title={`Insert ${source.fromLine}`}
+                            >
+                              <span class="grid h-6 w-6 shrink-0 place-items-center rounded bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                                <i class={source.icon} />
+                              </span>
+                              <span class="min-w-0">
+                                <span class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                                  <span class="truncate text-sm font-medium text-primary group-hover:text-blue-600">{source.name}</span>
+                                  <span class="text-[11px] text-dimmed">{source.metaLabel}</span>
+                                </span>
+                                <Show when={source.parent}>
+                                  <span class="block truncate text-[11px] text-dimmed">of {source.parent}</span>
+                                </Show>
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              class="btn-ghost btn-sm shrink-0 px-2"
+                              onClick={() => insertSource(source)}
+                              title={`Insert ${source.fromLine}`}
+                            >
+                              from
+                            </button>
+                          </div>
+
+                          <div class="mt-2 flex flex-wrap gap-1">
+                            <For each={shown()}>
+                              {(field) => (
+                                <button
+                                  type="button"
+                                  class="inline-flex max-w-full items-center gap-1 rounded bg-zinc-100 px-1.5 py-0.5 text-left text-[11px] text-zinc-700 hover:bg-blue-50 hover:text-blue-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"
+                                  onClick={() => insertField(field)}
+                                  title={field.description || `${field.name} (${field.type})`}
+                                >
+                                  <span class="truncate">{formatIdentifierRef(field.name)}</span>
+                                  <span class="text-[10px] text-dimmed">{field.type}</span>
+                                </button>
+                              )}
+                            </For>
+                            <Show when={hidden() > 0}>
+                              <span class="rounded bg-zinc-50 px-1.5 py-0.5 text-[11px] text-dimmed dark:bg-zinc-950">+{hidden()}</span>
+                            </Show>
+                          </div>
+                        </article>
+                      );
+                    }}
+                  </For>
+                </div>
+              </Show>
             </div>
           </section>
-        </DockWorkspace.Pane>
-      </DockWorkspace>
+        </Panes.Element>
+      </Panes.Root>
     </div>
   );
 }

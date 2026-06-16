@@ -220,6 +220,8 @@ export default function GridsWorkspace(props: Props) {
     metadataProvider = createGridsMetadataEventsProvider({
       baseId: state().base.id,
       onReady: () => {
+        const route = state().route;
+        if (route.kind === "query" && route.initialPreview !== undefined) return;
         scheduleMetadataRefresh();
       },
       onEvent: (cursor) => {
@@ -295,7 +297,7 @@ export default function GridsWorkspace(props: Props) {
     if (route.kind === "records") return `records:${route.activeTable.id}:${route.activeView?.id ?? ""}:${s.adminModeRequested}`;
     if (route.kind === "dashboard") return `dashboard:${route.dashboard.id}:${s.adminModeRequested}`;
     if (route.kind === "automations") return `automations:${s.base.id}`;
-    if (route.kind === "query") return `query:${s.base.id}:${route.savedQuery?.id ?? ""}`;
+    if (route.kind === "query") return `query:${s.base.id}:${route.queryPath}`;
     return `${route.kind}:${s.adminModeRequested}`;
   };
 
@@ -314,6 +316,8 @@ export default function GridsWorkspace(props: Props) {
         tableShortIds={state().catalog.tableShortIds}
         viewShortId={route.activeView?.shortId ?? null}
         fields={route.fields}
+        tables={state().catalog.tables}
+        viewsByTable={state().catalog.viewsByTable}
         forms={route.formsForTable}
         canWrite={route.canWriteRecords}
         canManageTable={route.canManageActiveTable}
@@ -334,7 +338,7 @@ export default function GridsWorkspace(props: Props) {
         viewColumns={route.activeViewColumns}
         searchableFields={route.searchableFields}
         groupedExplode={route.groupedExplode}
-        activeViewQuery={route.activeViewQuery}
+        activeRecordQuery={route.activeRecordQuery}
         displayConfig={route.displayConfig}
         dateConfig={state().dateConfig}
       />
@@ -387,9 +391,8 @@ export default function GridsWorkspace(props: Props) {
       baseId={state().base.id}
       baseShortId={state().base.shortId}
       initialQuery={route.initialQuery}
+      initialPreview={route.initialPreview}
       queryPath={route.queryPath}
-      savedQuery={route.savedQuery}
-      canEditSavedQuery={route.canEditSavedQuery}
       currentSource={route.currentSource}
       tables={state().catalog.tables}
       fieldsByTable={state().catalog.fieldsByTable}
@@ -399,29 +402,8 @@ export default function GridsWorkspace(props: Props) {
 
   const isUnsavedQueryRoute = () => {
     const route = state().route;
-    return route.kind === "query" && !route.savedQuery;
+    return route.kind === "query";
   };
-
-  const renderSavedQuerySidebarSection = () => (
-    <Show when={state().canUseQueryWorkspace && state().catalog.gqlQueries.length > 0}>
-      <AppWorkspace.SidebarSection title="Queries">
-        {state().catalog.gqlQueries.map((query) => {
-          const route = state().route;
-          const active = route.kind === "query" && route.savedQuery?.id === query.id;
-          return (
-            <AppWorkspace.SidebarItem
-              href={`/app/grids/${state().base.shortId}/query/${query.shortId}`}
-              icon={query.icon ?? "ti ti-code"}
-              onNavigate={handleNavigate}
-              active={active}
-            >
-              {query.name}
-            </AppWorkspace.SidebarItem>
-          );
-        })}
-      </AppWorkspace.SidebarSection>
-    </Show>
-  );
 
   return (
     <>
@@ -507,7 +489,6 @@ export default function GridsWorkspace(props: Props) {
                 </AppWorkspace.SidebarSection>
               </Show>
 
-              {renderSavedQuerySidebarSection()}
 
               <Show when={state().catalog.sidebarForms.length > 0}>
                 <AppWorkspace.SidebarSection title="Forms">
@@ -640,7 +621,6 @@ export default function GridsWorkspace(props: Props) {
                 </AppWorkspace.SidebarSection>
               </Show>
 
-              {renderSavedQuerySidebarSection()}
 
               <Show when={state().catalog.sidebarForms.length > 0}>
                 <AppWorkspace.SidebarSection title="Forms">

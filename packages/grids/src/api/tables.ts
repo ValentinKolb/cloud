@@ -15,10 +15,18 @@ import {
   RecordMetaUserKeySchema,
   RelationLookupResponseSchema,
   type ComputedColumnSpec,
+  type RecordQuery,
 } from "../contracts";
 import type { GroupAggregationSpec } from "../service/group-compiler";
-import { validateViewQueryForTable } from "../service/query-validation";
-import { gateAt } from "./permissions";
+import { validateRecordQueryForTable } from "../service/query-validation";
+import { compileGqlToRecordQuery } from "./gql-runtime";
+import { gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
+
+const viewUiPresentation = (view: { ui?: { columns?: RecordQuery["columns"]; groupedColumnOrder?: string[]; hiddenGroupedColumns?: string[] } }): RecordQuery => ({
+  ...(view.ui?.columns ? { columns: view.ui.columns } : {}),
+  ...(view.ui?.groupedColumnOrder ? { groupedColumnOrder: view.ui.groupedColumnOrder } : {}),
+  ...(view.ui?.hiddenGroupedColumns ? { hiddenGroupedColumns: view.ui.hiddenGroupedColumns } : {}),
+});
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
@@ -161,8 +169,8 @@ const app = new Hono<AuthContext>()
   )
 
   // ── Unified query endpoint (v3 Slice 5) ──────────────────────────────
-  // Body: { query: ViewQuery, cursor? }. Response shape depends on what
-  // the ViewQuery asked for — see TableQueryResponseSchema.
+  // Body: { query: RecordQuery, cursor? }. Response shape depends on what
+  // the RecordQuery asked for — see TableQueryResponseSchema.
   // Old per-action read routes (/by-table/:id list, /aggregate/:id,
   // /group/:id) were removed in alpha. This is the only table-read
   // path so saved views, ad-hoc queries, exports, and dashboards share
@@ -171,7 +179,7 @@ const app = new Hono<AuthContext>()
     "/:tableId/query",
     describeRoute({
       tags: ["Grids:Table"],
-      summary: "Unified query — list / aggregate / group based on ViewQuery body",
+      summary: "Unified query — list / aggregate / group based on RecordQuery body",
       responses: {
         200: jsonResponse(TableQueryResponseSchema, "Query envelope"),
         400: jsonResponse(ErrorResponseSchema, "Invalid query"),
@@ -182,11 +190,47 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const body = c.req.valid("json");
+      const view = body.viewId ? await gridsService.view.get(body.viewId) : null;
+      if (body.viewId && (!view || view.tableId !== tableId)) return c.json({ message: "View not found" }, 404);
 
-      const { query, cursor, filePreviewFieldIds } = c.req.valid("json");
-      const queryValid = await validateViewQueryForTable(tableId, query);
+      const tableGate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      if (view) {
+        const target = { baseId: table.baseId, tableId, viewId: view.id };
+        const { level, grants } = await resolveWithGrants(c, target);
+        if (!gridsService.permission.hasAtLeast(level, "read")) {
+          return c.json({ message: "You do not have permission to access this resource." }, 403);
+        }
+        const user = c.get("user");
+        const isOwner = view.ownerUserId === user.id;
+        const explicitGrant = hasExplicitGrant(grants, hasRole(user, "admin"), "view", view.id);
+        if (view.ownerUserId !== null && !isOwner && !explicitGrant) {
+          return c.json({ message: "View not found" }, 404);
+        }
+      }
+      if (!tableGate.ok) {
+        if (!view) return respond(c, () => Promise.resolve(tableGate));
+      }
+
+      const trustedView = view && !tableGate.ok ? view : null;
+      const compiled =
+        body.source !== undefined || trustedView
+          ? await compileGqlToRecordQuery(c, {
+              baseId: table.baseId,
+              tableId,
+              source: trustedView ? trustedView.source : (body.source ?? view?.source ?? `from table {${tableId}}`),
+              ...(trustedView ? { presentation: viewUiPresentation(trustedView), trustedAllSources: true } : body.query ? { presentation: body.query } : {}),
+            })
+          : null;
+      if (compiled && !compiled.ok) {
+        const message = compiled.diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid GQL source";
+        return c.json({ message }, 400);
+      }
+
+      const query = compiled?.ok ? compiled.query : body.query;
+      if (!query) return c.json({ message: "source or query is required" }, 400);
+      const { cursor, filePreviewFieldIds } = body;
+      const queryValid = await validateRecordQueryForTable(tableId, query);
       if (!queryValid.ok) return c.json({ message: queryValid.error.message }, queryValid.error.status);
 
       // Free-text search stays separate from the structured FilterTree.

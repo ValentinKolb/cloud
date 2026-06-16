@@ -1,7 +1,7 @@
 /**
  * Typed wrapper around POST /api/grids/tables/:tableId/query — the
  * unified records-area endpoint from Slice 5. Returns whichever of
- * { items, aggregates, buckets, nextCursor, explode } the ViewQuery
+ * { items, aggregates, buckets, nextCursor, explode } the RecordQuery
  * asked for; consumers (RecordsView's createResource) react via Solid's
  * loading-state machinery.
  *
@@ -12,12 +12,14 @@
  */
 
 import { apiClient } from "../../../api/client";
-import type { TableQueryBody, TableQueryResult, ViewQuery } from "../../../contracts";
+import type { TableQueryBody, TableQueryResult, RecordQuery } from "../../../contracts";
+import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
 import { errorMessage } from "../utils/api-helpers";
 
 type FetchTableQueryArgs = {
   tableId: string;
-  query: ViewQuery;
+  viewId?: string;
+  query: RecordQuery;
   cursor: string | null;
   filePreviewFieldIds?: string[];
 };
@@ -38,12 +40,20 @@ export class TableQueryError extends Error {
   }
 }
 
-export const fetchTableQuery = async (args: FetchTableQueryArgs, opts: { signal?: AbortSignal } = {}): Promise<TableQueryResult> => {
-  const body: TableQueryBody = {
+export const buildTableQueryBody = (args: FetchTableQueryArgs): TableQueryBody => {
+  const source = simpleQueryToGqlSource({ tableId: args.tableId, query: args.query });
+  if (!source.ok) throw new TableQueryError(400, source.reason);
+  return {
+    source: source.source,
     query: args.query,
+    viewId: args.viewId,
     cursor: args.cursor ?? undefined,
     filePreviewFieldIds: args.filePreviewFieldIds,
   };
+};
+
+export const fetchTableQuery = async (args: FetchTableQueryArgs, opts: { signal?: AbortSignal } = {}): Promise<TableQueryResult> => {
+  const body = buildTableQueryBody(args);
   // Hono's RPC client takes RequestInit as the second positional arg —
   // signal lives there alongside any future header / credentials needs.
   const res = await apiClient.tables[":tableId"].query.$post(

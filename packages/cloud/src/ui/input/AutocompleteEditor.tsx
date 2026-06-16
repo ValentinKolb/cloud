@@ -51,7 +51,6 @@ import {
   collectKnownLabels,
   detectQuery,
   displayLabel,
-  pickGhost,
   plainTextHighlight,
   renderWithOverlay,
   resetCompletionState,
@@ -114,6 +113,8 @@ export type AutocompleteEditorProps = {
   maxLength?: number;
   /** Visual error state — adds red border. */
   error?: boolean;
+  /** Visual variant. Defaults to the compact zinc input surface. */
+  variant?: "default" | "paper";
 };
 
 const AutocompleteEditor = (props: AutocompleteEditorProps) => {
@@ -139,6 +140,15 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
   const activeSuggestion = (): Suggestion | null => {
     const s = completionState();
     return s ? (s.suggestions[s.selectedIndex] ?? null) : null;
+  };
+
+  const suggestionGhost = (state: CompletionState, suggestion: Suggestion): { at: number; text: string } | undefined => {
+    const edit = suggestion.textEdit;
+    if (!edit) return { at: state.ctx.end, text: suggestion.text.slice(state.ctx.text.length) };
+    if (edit.end !== state.ctx.end) return undefined;
+    const replacing = localValue().slice(edit.start, edit.end);
+    if (!edit.text.toLowerCase().startsWith(replacing.toLowerCase())) return undefined;
+    return { at: edit.end, text: edit.text.slice(replacing.length) };
   };
 
   // Async fetch lifecycle. One AbortController per in-flight request;
@@ -180,10 +190,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
     const state = completionState();
     const active = activeSuggestion();
 
-    const ghostArg =
-      state && active
-        ? { at: state.ctx.end, text: active.text.slice(state.ctx.text.length) }
-        : undefined;
+    const ghostArg = state && active ? suggestionGhost(state, active) : undefined;
 
     const highlight = props.highlight ?? plainTextHighlight;
     previewEl.innerHTML = renderWithOverlay(localValue(), highlight, {
@@ -246,9 +253,16 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
    *  with the current selection state. */
   const applySuggestionList = (ctx: QueryContext, list: Suggestion[]): void => {
     const lower = ctx.text.toLowerCase();
-    const usable = list.filter(
-      (s) => s.text.toLowerCase().startsWith(lower) && s.text.length > ctx.text.length,
-    );
+    const currentText = localValue();
+    const usable = list.filter((s) => {
+      const edit = s.textEdit;
+      if (edit) {
+        if (!Number.isInteger(edit.start) || !Number.isInteger(edit.end) || edit.start < 0 || edit.end < edit.start) return false;
+        if (edit.end > currentText.length) return false;
+        return currentText.slice(edit.start, edit.end) !== edit.text;
+      }
+      return s.text.toLowerCase().startsWith(lower) && s.text.length > ctx.text.length;
+    });
     if (usable.length === 0) {
       clearCompletion();
       return;
@@ -380,9 +394,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
 
   const syncTheme = (): void => {
     if (typeof document === "undefined") return;
-    setIsDarkTheme(
-      document.documentElement.classList.contains("dark") || document.body.classList.contains("dark"),
-    );
+    setIsDarkTheme(document.documentElement.classList.contains("dark") || document.body.classList.contains("dark"));
   };
 
   const acceptActiveSuggestion = (): boolean => {
@@ -390,12 +402,13 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
     const state = completionState();
     const active = activeSuggestion();
     if (!state || !active) return false;
-    if (active.text === state.ctx.text) {
+    if (!active.textEdit && active.text === state.ctx.text) {
       clearCompletion();
       return false;
     }
-    applySuggestion(textareaEl, state.ctx, active, { trackExpansion: props.restoreExpansionOnBackspace ?? true });
+    const applied = applySuggestion(textareaEl, state.ctx, active, { trackExpansion: props.restoreExpansionOnBackspace ?? true });
     clearCompletion();
+    if (!applied) return false;
     queueMicrotask(recomputeCompletion);
     return true;
   };
@@ -527,6 +540,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
       data-fill={props.fill && !props.singleLine ? "true" : undefined}
       data-disabled={props.disabled ? "true" : undefined}
       data-error={props.error ? "true" : undefined}
+      data-variant={props.variant === "paper" ? "paper" : undefined}
     >
       <div class="ac-editor-surface" style={surfaceStyle()}>
         <Show when={!localValue() && props.placeholder}>
@@ -575,13 +589,8 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
           popover="manual"
           class="popup fixed inset-auto m-0 border border-zinc-200 p-1 dark:border-zinc-700"
           classList={{ dark: isDarkTheme() }}
-          aria-label="Completion suggestions"
         >
-          <div
-            class="flex max-h-60 flex-col gap-0.5 overflow-y-auto"
-            role="listbox"
-            aria-label="Suggestions"
-          >
+          <div class="flex max-h-60 flex-col gap-0.5 overflow-y-auto" role="listbox" aria-label="Suggestions">
             <Show when={loading()}>
               <div class="flex items-center gap-2 px-2 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                 <i class="ti ti-loader-2 animate-spin" /> Loading...
@@ -616,9 +625,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
                           acceptActiveSuggestion();
                           textareaEl?.focus();
                         }}
-                        onMouseEnter={() =>
-                          setCompletionState({ ...state(), selectedIndex: index() })
-                        }
+                        onMouseEnter={() => setCompletionState({ ...state(), selectedIndex: index() })}
                         role="option"
                         aria-selected={isSelected()}
                         class={`group flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors ${
@@ -629,9 +636,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
                       >
                         <span class="font-mono truncate">{displayLabel(suggestion, state().ctx.completion)}</span>
                         <Show when={suggestion.hint}>
-                          <span class="ml-auto text-xs text-zinc-500 dark:text-zinc-400 truncate">
-                            {suggestion.hint}
-                          </span>
+                          <span class="ml-auto text-xs text-zinc-500 dark:text-zinc-400 truncate">{suggestion.hint}</span>
                         </Show>
                       </div>
                     );

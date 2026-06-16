@@ -7,8 +7,7 @@ import type {
   GroupBySpec,
   GroupSortSpec,
   SearchSpec,
-  StatSource,
-  ViewQuery,
+  RecordQuery,
 } from "../contracts";
 import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { normalizeRefKey } from "../ref-syntax";
@@ -23,11 +22,11 @@ import type { Field } from "./types";
 type QueryParts = {
   filter?: FilterTree;
   search?: SearchSpec;
-  sort?: ViewQuery["sort"];
+  sort?: RecordQuery["sort"];
   groupBy?: GroupBySpec[];
   groupSort?: GroupSortSpec[];
   aggregations?: AggregationSpec[];
-  columns?: ViewQuery["columns"];
+  columns?: RecordQuery["columns"];
 };
 
 const unknownField = (): Result<void> =>
@@ -151,45 +150,12 @@ const validatePartsForFields = (tableId: string, parts: QueryParts, fields: Fiel
   });
 };
 
-export const validateViewQueryForTable = async (
+export const validateRecordQueryForTable = async (
   tableId: string,
-  query: ViewQuery,
+  query: RecordQuery,
 ): Promise<Result<void>> => {
   const fields = await listByTable(tableId);
   return validatePartsForFields(tableId, query, fields);
-};
-
-export const validateStatSourceForTable = async (
-  tableId: string,
-  source: StatSource,
-): Promise<Result<void>> => {
-  const fields = await listByTable(tableId);
-  const base = validatePartsForFields(tableId, {
-    filter: source.filter,
-    aggregations: source.aggregations,
-  }, fields);
-  if (!base.ok) return base;
-
-  if (source.trend) {
-    const trendField = fields.find((f) => f.id === source.trend?.fieldId && !f.deletedAt);
-    if (!trendField) return unknownField();
-    if (trendField.type !== "date") {
-      return fail(err.badInput(`trend field "${trendField.name}" must be a date field`));
-    }
-    const agg = source.aggregations[0];
-    if (agg) {
-      const trend = compileGroupQuery({
-        tableId,
-        fields,
-        filter: source.filter ?? null,
-        groupBy: [{ fieldId: source.trend.fieldId, granularity: source.trend.granularity }],
-        aggregations: [{ fieldId: agg.fieldId, agg: agg.agg } as GroupAggregationSpec],
-      });
-      if (!trend.ok) return fail(err.badInput(`trend: ${trend.error}`));
-    }
-  }
-
-  return ok();
 };
 
 export const tableBelongsToBase = async (tableId: string, baseId: string): Promise<boolean> => {

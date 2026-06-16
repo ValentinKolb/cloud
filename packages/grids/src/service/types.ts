@@ -28,9 +28,9 @@ export type Table = {
   name: string;
   description: string | null;
   icon?: string | null;
-  /** Default table columns. Saved views can override this with their
-   *  own ViewQuery.columns, but the renderer consumes the same
-   *  ColumnSpec shape in both cases. */
+  /** Default table columns. Views can override this through their
+   *  UI settings, but the renderer consumes the same ColumnSpec shape
+   *  in both cases. */
   columns: FieldColumnSpec[];
   displayConfig: RecordDisplayConfig;
   position: number;
@@ -70,7 +70,7 @@ export type Field = {
   presentable: boolean;
   /** When true, the field is hidden from the default records grid by
    *  default; still rendered in the record detail panel. Views can
-   *  override via `view.query.columns`. */
+   *  override via `view.ui.columns`. */
   hideInTable: boolean;
   defaultValue: unknown;
   indexed: boolean;

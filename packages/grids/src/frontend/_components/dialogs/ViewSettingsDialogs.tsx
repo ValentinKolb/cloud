@@ -11,10 +11,9 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, View } from "../../../service";
-import type { ViewQuery } from "../../../service/views";
 import { createDraft } from "../editor-draft";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
@@ -32,13 +31,9 @@ type Props = {
   tableName: string;
   initialView: View;
   fields: Field[];
-  /** Pre-fetched ACL entries for this view (server-side load). The
-   *  PermissionEditor is given allowedLevels=["read"] because the API
-   *  caps view-grants to read/none — write or admin on a view doesn't
-   *  exist semantically (you can't "write to a saved query"). */
+  /** Pre-fetched ACL entries for this view (server-side load). */
   initialAccessEntries: AccessEntry[];
-  /** Whether the current user can mutate the view's ACL. The API gates
-   *  this at table-admin; we mirror it client-side for the UI. */
+  /** Whether the current user can mutate the view's ACL. */
   canEditAccess: boolean;
   onSaved?: (view: View) => void;
 };
@@ -60,7 +55,9 @@ function ViewSettingsDialog(props: { props: Props; close: () => void }) {
 }
 
 function ViewSettingsBody(props: Props & { onDirtyChange?: (dirty: boolean) => void }) {
-  const isGrouped = (props.initialView.query.groupBy ?? []).length > 0;
+  const [generalDirty, setGeneralDirty] = createSignal(false);
+  const [queryDirty, setQueryDirty] = createSignal(false);
+  createEffect(() => props.onDirtyChange?.(generalDirty() || queryDirty()));
   return (
     <PanelDialog.Body>
       <GeneralSection
@@ -69,16 +66,16 @@ function ViewSettingsBody(props: Props & { onDirtyChange?: (dirty: boolean) => v
         tableName={props.tableName}
         fields={props.fields}
         onSaved={props.onSaved}
-        onDirtyChange={props.onDirtyChange}
+        onDirtyChange={setGeneralDirty}
       />
 
-      <QuerySnapshotSection query={props.initialView.query} fields={props.fields} isGrouped={isGrouped} />
+      <QuerySourceSection viewId={props.initialView.id} initial={props.initialView} onSaved={props.onSaved} onDirtyChange={setQueryDirty} />
 
       <SectionCard title="Permissions" subtitle="Choose who can open this view. Views only support View access.">
         <ViewPermissions viewId={props.initialView.id} initialEntries={props.initialAccessEntries} canEdit={props.canEditAccess} />
       </SectionCard>
 
-      <SectionCard title="Danger zone" subtitle="Delete this view. Records remain; only this saved setup is removed." variant="danger">
+      <SectionCard title="Danger zone" subtitle="Delete this view. Records remain; only this saved view is removed." variant="danger">
         <DeleteButton
           viewId={props.initialView.id}
           baseShortId={props.baseShortId}
@@ -105,7 +102,7 @@ function GeneralSection(props: {
   const draft = createDraft({
     name: props.initial.name,
     icon: props.initial.icon ?? "",
-    displayConfig: props.initial.displayConfig,
+    displayConfig: props.initial.ui.displayConfig ?? { mode: "table" },
     shared: props.initial.ownerUserId === null,
   });
   const patch = (partial: Partial<ReturnType<typeof draft.draft>>) => {
@@ -121,7 +118,7 @@ function GeneralSection(props: {
     mutation: async () => {
       const res = await apiClient.views[":viewId"].$patch({
         param: { viewId: props.viewId },
-        json: { name: name().trim(), icon: icon() || null, displayConfig: displayConfig(), shared: shared() },
+        json: { name: name().trim(), icon: icon() || null, ui: { ...props.initial.ui, displayConfig: displayConfig() }, shared: shared() },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save"));
       return res.json();
@@ -130,7 +127,7 @@ function GeneralSection(props: {
       draft.markSaved({
         name: saved.name,
         icon: saved.icon ?? "",
-        displayConfig: saved.displayConfig,
+        displayConfig: saved.ui.displayConfig ?? { mode: "table" },
         shared: saved.ownerUserId === null,
       });
       props.onDirtyChange?.(false);
@@ -146,7 +143,7 @@ function GeneralSection(props: {
       <RecordDisplayConfigEditor value={displayConfig} onChange={(value) => patch({ displayConfig: value })} fields={() => props.fields} />
       <Checkbox
         label="Shared view"
-        description={`Visible to users who can read ${props.tableName}. Permissions below can narrow access.`}
+        description={`Visible on ${props.tableName} by default. View permissions below can grant direct access or narrow access.`}
         value={shared}
         onChange={(v) => patch({ shared: v })}
       />
@@ -170,47 +167,55 @@ function GeneralSection(props: {
   );
 }
 
-function QuerySnapshotSection(props: { query: ViewQuery; fields: Field[]; isGrouped: boolean }) {
-  const items = createMemo(() => querySnapshotItems(props.query, props.fields));
-  const queryItems = createMemo(() => items().filter((item) => item.group === "query"));
-  const structureItems = createMemo(() => items().filter((item) => item.group === "structure"));
-  return (
-    <SectionCard
-      title="Saved view setup"
-      subtitle="This view saves its current search, filters, sorting, groups, summary values, and columns."
-      meta={props.isGrouped ? "Grouped view" : "Record view"}
-    >
-      <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <SnapshotGroup title="Query" items={queryItems()} />
-        <SnapshotGroup title="Structure" items={structureItems()} />
-      </div>
-      <p class="text-[11px] leading-snug text-dimmed">
-        This page edits the view name, visibility, and permissions. To change the saved setup, open the records page and save a new view.
-      </p>
-    </SectionCard>
-  );
-}
+function QuerySourceSection(props: { viewId: string; initial: View; onSaved?: (view: View) => void; onDirtyChange?: (dirty: boolean) => void }) {
+  const draft = createDraft({
+    source: props.initial.source,
+  });
+  const source = () => draft.draft().source;
+  const patch = (value: string) => {
+    draft.patch({ source: value });
+    props.onDirtyChange?.(true);
+  };
+  const mut = mutations.create<View, void>({
+    mutation: async () => {
+      const trimmed = source().trim();
+      if (!trimmed) throw new Error("GQL source is required");
+      const res = await apiClient.views[":viewId"].$patch({
+        param: { viewId: props.viewId },
+        json: { source: trimmed },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to save GQL source"));
+      return res.json();
+    },
+    onSuccess: (saved) => {
+      draft.markSaved({ source: saved.source });
+      props.onDirtyChange?.(false);
+      props.onSaved?.(saved);
+    },
+    onError: (e) => prompts.error(e.message),
+  });
 
-function SnapshotGroup(props: { title: string; items: SnapshotItem[] }) {
   return (
-    <div class="min-w-0">
-      <h3 class="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-secondary">{props.title}</h3>
-      <dl class="flex flex-col gap-1.5 text-sm">
-        <For each={props.items}>
-          {(item) => (
-            <div class="flex min-w-0 items-center gap-3 rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-900/40">
-              <dt class="flex min-w-[8rem] max-w-[8rem] items-center gap-2 text-secondary">
-                <i class={`${item.icon} shrink-0 text-sm text-dimmed`} />
-                <span class="truncate">{item.label}</span>
-              </dt>
-              <dd class="min-w-0 flex-1 truncate font-semibold text-primary" title={item.value}>
-                {item.value}
-              </dd>
-            </div>
-          )}
-        </For>
-      </dl>
-    </div>
+    <SectionCard title="Query" subtitle="The saved GQL source for this view.">
+      <TextInput
+        name={`view-source-${props.viewId}`}
+        label="GQL source"
+        value={source}
+        onInput={patch}
+        multiline
+        monospace
+        lines={8}
+        spellcheck={false}
+        autocapitalize="off"
+        autocomplete="off"
+        icon="ti ti-code"
+      />
+      <Show when={draft.dirty()}>
+        <button type="button" class="btn-primary btn-sm self-start" onClick={() => mut.mutate(undefined)} disabled={mut.loading()}>
+          {mut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save query"}
+        </button>
+      </Show>
+    </SectionCard>
   );
 }
 
@@ -247,104 +252,11 @@ function DeleteButton(props: { viewId: string; baseShortId: string; tableShortId
   );
 }
 
-type SnapshotItem = {
-  label: string;
-  value: string;
-  icon: string;
-  group: "query" | "structure";
-};
-
-const fieldName = (fieldsById: Map<string, Field>, fieldId: string) => fieldsById.get(fieldId)?.name ?? "Deleted field";
-
-const aggregationName = (fieldsById: Map<string, Field>, agg: { fieldId: string; agg: string; label?: string }) => {
-  if (agg.label?.trim()) return agg.label.trim();
-  if (agg.fieldId === "*") return `${agg.agg} records`;
-  return `${agg.agg} ${fieldName(fieldsById, agg.fieldId)}`;
-};
-
-const collectFilterFieldIds = (node: unknown, out = new Set<string>()) => {
-  if (!node || typeof node !== "object") return out;
-  const obj = node as { fieldId?: unknown; filters?: unknown };
-  if (typeof obj.fieldId === "string") out.add(obj.fieldId);
-  if (Array.isArray(obj.filters)) {
-    for (const child of obj.filters) collectFilterFieldIds(child, out);
-  }
-  return out;
-};
-
-const joinNames = (values: string[], empty: string) => {
-  if (values.length === 0) return empty;
-  if (values.length <= 3) return values.join(", ");
-  return `${values.slice(0, 3).join(", ")} +${values.length - 3}`;
-};
-
-const recordSortName = (key: string) =>
-  key === "createdAt" ? "Created time" : key === "updatedAt" ? "Modified time" : key === "deletedAt" ? "Deleted time" : "Record info";
-
-const querySnapshotItems = (query: ViewQuery, fields: Field[]): SnapshotItem[] => {
-  const fieldsById = new Map(fields.map((field) => [field.id, field]));
-  const filterFields = [...collectFilterFieldIds(query.filter)].map((id) => fieldName(fieldsById, id));
-  const groupBy = query.groupBy ?? [];
-  const aggregations = query.aggregations ?? [];
-  const sort = query.sort ?? [];
-  const columns = query.columns ?? [];
-
-  return [
-    {
-      label: "Search",
-      value: query.search?.q ? `"${query.search.q}"` : "No search",
-      icon: "ti ti-search",
-      group: "query",
-    },
-    {
-      label: "Filter",
-      value: joinNames(filterFields, "No filter"),
-      icon: "ti ti-filter",
-      group: "query",
-    },
-    {
-      label: "Sort",
-      value: joinNames(
-        sort.map((s) => `${s.source === "record" ? recordSortName(s.key) : fieldName(fieldsById, s.fieldId)} ${s.direction}`),
-        "No sort",
-      ),
-      icon: "ti ti-arrows-sort",
-      group: "query",
-    },
-    {
-      label: "Group",
-      value: joinNames(
-        groupBy.map((g) => (g.granularity ? `${fieldName(fieldsById, g.fieldId)} by ${g.granularity}` : fieldName(fieldsById, g.fieldId))),
-        "No grouping",
-      ),
-      icon: "ti ti-hierarchy",
-      group: "structure",
-    },
-    {
-      label: "Summary values",
-      value: joinNames(
-        aggregations.map((a) => aggregationName(fieldsById, a)),
-        "No summary values",
-      ),
-      icon: "ti ti-math-function",
-      group: "structure",
-    },
-    {
-      label: "Columns",
-      value: columns.length > 0 ? `${columns.length} custom` : groupBy.length > 0 ? "Generated" : "Table default",
-      icon: "ti ti-layout-columns",
-      group: "structure",
-    },
-  ];
-};
-
 // =============================================================================
 // ViewPermissions — wraps the platform PermissionEditor with view-API wires
 // =============================================================================
-// Mirrors the table permissions editor. The only difference: we pass
-// `allowedLevels={["read"]}` so the editor renders as plain inline badges
-// (no SegmentedControl, no chevron dropdown) — there's no Write or Admin
-// for a view, the API caps every grant at "read" or "none".
+// Views intentionally expose read/admin only. There is no view-write level:
+// editing the view definition is an admin action.
 
 function ViewPermissions(props: { viewId: string; initialEntries: AccessEntry[]; canEdit: boolean }) {
   return (
@@ -352,7 +264,10 @@ function ViewPermissions(props: { viewId: string; initialEntries: AccessEntry[];
       scope={{ type: "view", id: props.viewId }}
       initialEntries={props.initialEntries}
       canEdit={props.canEdit}
-      allowedLevels={[{ level: "read", label: "View" }]}
+      allowedLevels={[
+        { level: "read", label: "Read" },
+        { level: "admin", label: "Admin" },
+      ]}
     />
   );
 }

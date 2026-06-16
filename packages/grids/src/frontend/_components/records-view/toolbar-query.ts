@@ -1,13 +1,13 @@
-import type { ViewQuery } from "../../../contracts";
+import type { RecordQuery } from "../../../contracts";
 
 export type ToolbarQueryPatch = {
-  filter?: ViewQuery["filter"];
-  sort?: ViewQuery["sort"];
-  groupBy?: ViewQuery["groupBy"];
-  aggregations?: ViewQuery["aggregations"];
+  filter?: RecordQuery["filter"];
+  sort?: RecordQuery["sort"];
+  groupBy?: RecordQuery["groupBy"];
+  aggregations?: RecordQuery["aggregations"];
 };
 
-export const applyToolbarQueryPatch = (previous: ViewQuery, patch: ToolbarQueryPatch): ViewQuery => {
+export const applyToolbarQueryPatch = (previous: RecordQuery, patch: ToolbarQueryPatch): RecordQuery => {
   const groupShapeChanged = patch.groupBy !== undefined || patch.aggregations !== undefined;
   return {
     ...previous,

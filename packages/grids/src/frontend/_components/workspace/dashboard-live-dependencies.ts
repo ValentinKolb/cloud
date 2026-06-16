@@ -4,12 +4,12 @@ import type { GridsWorkspaceState } from "./workspace-state";
 const widgetTableDependency = (widget: Widget, viewToTable: Map<string, string>, formToTable: Map<string, string>): string | null => {
   switch (widget.kind) {
     case "stat":
-      return widget.source.tableId;
+      return viewToTable.get(widget.viewId) ?? null;
     case "chart":
     case "view-stats":
       return viewToTable.get(widget.viewId) ?? null;
     case "view":
-      return widget.source.kind === "table" ? widget.source.tableId : (viewToTable.get(widget.source.viewId) ?? null);
+      return viewToTable.get(widget.viewId) ?? null;
     case "form":
       return formToTable.get(widget.formId) ?? null;
     case "link":

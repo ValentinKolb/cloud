@@ -2,7 +2,7 @@ import { Placeholder, TextInput } from "@valentinkolb/cloud/ui";
 import { dates, type DateContext } from "@valentinkolb/stdlib";
 import { mutation, timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import type { AggregationSpec, FilterTree, GroupBySpec, TableQueryResult, ViewQuery } from "../../../contracts";
+import type { AggregationSpec, FilterTree, GroupBySpec, TableQueryResult, RecordQuery } from "../../../contracts";
 import type { Field, GridRecord } from "../../../service";
 import { fetchTableQuery } from "../records-view/fetcher";
 import { formatCell } from "./format-cell";
@@ -26,7 +26,7 @@ const AGG_LABELS: Record<string, string> = {
 type Props = {
   tableId: string;
   fields: Field[];
-  query: ViewQuery;
+  query: RecordQuery;
   groupBy: GroupBySpec[];
   aggregations: AggregationSpec[];
   bucket: GroupBucket;
@@ -302,13 +302,13 @@ const expandedLabel = (expanded: Record<string, unknown> | undefined, _fallbackI
 };
 
 const buildMemberQuery = (params: {
-  baseQuery: ViewQuery;
+  baseQuery: RecordQuery;
   fields: Field[];
   groupBy: GroupBySpec[];
   keys: unknown[];
   q: string;
   dateConfig?: DateContext;
-}): ViewQuery => {
+}): RecordQuery => {
   const leaves = params.groupBy
     .map((spec, index) => groupFilterLeaf(spec, params.keys[index], params.fields, params.dateConfig))
     .filter((leaf): leaf is FilterLeaf => !!leaf);

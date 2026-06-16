@@ -26,6 +26,7 @@ export type DslQueryPreviewOptions = {
   fieldsByTableId: Record<string, Field[]>;
   timeZone?: string;
   limit?: number;
+  maxRows?: number;
   /** Viewer for `search` over relation fields (target-table read scoping). */
   viewer?: ExpansionViewer;
 };
@@ -119,8 +120,8 @@ const groupExplodes = (plan: DslResolvedSqlQueryPlan, fieldsByTableId: Record<st
   });
 };
 
-export const resolveDslPreviewLimit = (plan: DslResolvedSqlQueryPlan, requested: number | undefined): number =>
-  Math.min(Math.max(requested ?? plan.query.limit ?? 100, 1), MAX_PREVIEW_ROWS);
+export const resolveDslPreviewLimit = (plan: DslResolvedSqlQueryPlan, requested: number | undefined, maxRows = MAX_PREVIEW_ROWS): number =>
+  Math.min(Math.max(requested ?? plan.query.limit ?? 100, 1), maxRows);
 
 const withPlanSpan = (message: string, span: { line: number; column: number; length: number } | undefined): DslQueryPreviewDiagnostic => ({
   ...(span ? { line: span.line, column: span.column, length: span.length } : {}),
@@ -304,8 +305,9 @@ export const previewDslQuery = async (
   plan: DslResolvedSqlQueryPlan,
   options: DslQueryPreviewOptions,
 ): Promise<Result<DslQueryPreviewSuccess>> => {
-  const limit = resolveDslPreviewLimit(plan, options.limit);
-  const fetchLimit = Math.min(limit + 1, MAX_PREVIEW_ROWS + 1);
+  const maxRows = options.maxRows ?? MAX_PREVIEW_ROWS;
+  const limit = resolveDslPreviewLimit(plan, options.limit, maxRows);
+  const fetchLimit = Math.min(limit + 1, maxRows + 1);
 
   try {
     // Full-text search compiles async (relation search batch-reads target

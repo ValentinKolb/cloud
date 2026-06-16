@@ -4,7 +4,11 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { CreateViewSchema, UpdateViewSchema, ViewListSchema, ViewSchema } from "../contracts";
 import { gridsService } from "../service";
+import { compileGqlViewWrite } from "./gql-runtime";
 import { gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
+
+const gqlDiagnosticMessage = (diagnostics: Array<{ message: string }>): string =>
+  diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid GQL source";
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
@@ -57,6 +61,12 @@ const app = new Hono<AuthContext>()
         ? await gateAt(c, { baseId: table.baseId }, "admin")
         : await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const compiled = await compileGqlViewWrite(c, {
+        baseId: table.baseId,
+        tableId,
+        ...(body.source !== undefined ? { source: body.source } : {}),
+      });
+      if (!compiled.ok) return c.json({ message: gqlDiagnosticMessage(compiled.diagnostics) }, 400);
       const user = c.get("user");
       return respond(
         c,
@@ -65,9 +75,10 @@ const app = new Hono<AuthContext>()
             {
               tableId,
               name: body.name,
+              description: body.description ?? null,
               icon: body.icon ?? null,
-              query: body.query,
-              displayConfig: body.displayConfig,
+              source: compiled.source,
+              ui: body.ui,
               ownerUserId: body.shared ? null : user.id,
             },
             user.id,
@@ -142,30 +153,36 @@ const app = new Hono<AuthContext>()
       const body = c.req.valid("json");
       const isOwner = view.ownerUserId === user.id;
 
-      // Ownership transitions (publish / unpublish) require base-admin
-      // regardless of who owns the view today. Without this gate, a
-      // table-reader who happens to own a personal view could flip
-      // shared:true and publish to the whole base — an obvious privilege
-      // escalation we shipped to alpha (chunk 7 critical).
-      const isPublishing = body.shared === true && view.ownerUserId !== null;
-      const isUnpublishing = body.shared === false && view.ownerUserId === null;
-
-      let gate: Awaited<ReturnType<typeof gateAt>>;
-      if (isPublishing || isUnpublishing) {
-        gate = await gateAt(c, { baseId: table.baseId }, "admin");
-      } else if (view.ownerUserId === null) {
-        // Editing an existing shared view: base-admin only.
-        gate = await gateAt(c, { baseId: table.baseId }, "admin");
-      } else if (isOwner) {
-        // Editing one's own personal view: just need parent table-read.
-        gate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read");
-      } else {
-        // Editing someone else's personal view: base-admin only.
-        gate = await gateAt(c, { baseId: table.baseId }, "admin");
-      }
+      const gate = isOwner
+        ? await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "read")
+        : await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      if (!isOwner && !gridsService.permission.hasAtLeast(gate.data, "admin")) {
+        return c.json({ message: "Only view admins can update this view" }, 403);
+      }
+      const tableReadGate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read");
 
-      return respond(c, () => gridsService.view.update(viewId, body, user.id));
+      const compiled =
+        body.source !== undefined
+          ? await compileGqlViewWrite(c, {
+              baseId: table.baseId,
+              tableId: view.tableId,
+              trustedAllSources: !tableReadGate.ok,
+              ...(body.source !== undefined ? { source: body.source } : {}),
+            })
+          : null;
+      if (compiled && !compiled.ok) return c.json({ message: gqlDiagnosticMessage(compiled.diagnostics) }, 400);
+
+      return respond(c, () =>
+        gridsService.view.update(
+          viewId,
+          {
+            ...body,
+            ...(compiled?.ok ? { source: compiled.source } : {}),
+          },
+          user.id,
+        ),
+      );
     },
   )
 
@@ -187,17 +204,13 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const user = c.get("user");
       const isOwner = view.ownerUserId === user.id;
-      // Same gate shape as PATCH (minus the ownership-transition case,
-      // which doesn't apply to delete). Shared view ⇒ base-admin.
-      // Own personal view ⇒ table-read. Someone else's personal view
-      // ⇒ base-admin.
-      const gate =
-        view.ownerUserId === null
-          ? await gateAt(c, { baseId: table.baseId }, "admin")
-          : isOwner
-            ? await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read")
-            : await gateAt(c, { baseId: table.baseId }, "admin");
+      const gate = isOwner
+        ? await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "read")
+        : await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      if (!isOwner && !gridsService.permission.hasAtLeast(gate.data, "admin")) {
+        return c.json({ message: "Only view admins can delete this view" }, 403);
+      }
       const result = await gridsService.view.remove(viewId, user.id);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
@@ -222,13 +235,12 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const user = c.get("user");
       const isOwner = view.ownerUserId === user.id;
-      const gate =
-        view.ownerUserId === null
-          ? await gateAt(c, { baseId: table.baseId }, "admin")
-          : await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read");
+      const gate = isOwner
+        ? await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "read")
+        : await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      if (view.ownerUserId !== null && !isOwner) {
-        return c.json({ message: "Only the owner can restore a personal view" }, 403);
+      if (!isOwner && !gridsService.permission.hasAtLeast(gate.data, "admin")) {
+        return c.json({ message: "Only view admins can restore this view" }, 403);
       }
       return respond(c, () => gridsService.view.restore(viewId, user.id));
     },

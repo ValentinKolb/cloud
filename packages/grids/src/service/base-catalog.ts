@@ -1,7 +1,7 @@
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import { FieldColumnSpecSchema, RecordDisplayConfigSchema, type View, ViewQuerySchema } from "../contracts";
+import { FieldColumnSpecSchema, RecordDisplayConfigSchema, type View, ViewUiSettingsSchema } from "../contracts";
 import { listForBase as listDashboardsForBase } from "./dashboards";
 import { normalizeFormConfig, toRenderableForm, type Form } from "./forms";
 import { parseJsonbRow } from "./jsonb";
@@ -41,6 +41,11 @@ const parseDisplayConfig = (raw: unknown) => {
   return parsed.success ? parsed.data : { mode: "table" as const };
 };
 
+const parseViewUi = (raw: unknown) => {
+  const parsed = ViewUiSettingsSchema.safeParse(parseJsonbRow<unknown>(raw, {}));
+  return parsed.success ? parsed.data : {};
+};
+
 const mapTable = (row: DbRow): Table => ({
   id: row.id as string,
   shortId: row.short_id as string,
@@ -78,23 +83,21 @@ const mapField = (row: DbRow): Field => ({
   updatedAt: (row.updated_at as Date).toISOString(),
 });
 
-const mapView = (row: DbRow): View => {
-  const parsed = ViewQuerySchema.safeParse(parseJsonbRow<unknown>(row.query, {}));
-  return {
-    id: row.id as string,
-    shortId: row.short_id as string,
-    tableId: row.table_id as string,
-    name: row.name as string,
-    icon: (row.icon as string | null) ?? null,
-    query: parsed.success ? parsed.data : {},
-    displayConfig: parseDisplayConfig(row.display_config),
-    ownerUserId: (row.owner_user_id as string | null) ?? null,
-    position: row.position as number,
-    deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
-    createdAt: (row.created_at as Date).toISOString(),
-    updatedAt: (row.updated_at as Date).toISOString(),
-  };
-};
+const mapView = (row: DbRow): View => ({
+  id: row.id as string,
+  shortId: row.short_id as string,
+  tableId: row.table_id as string,
+  name: row.name as string,
+  description: (row.description as string | null) ?? null,
+  icon: (row.icon as string | null) ?? null,
+  source: row.source as string,
+  ui: parseViewUi(row.ui),
+  ownerUserId: (row.owner_user_id as string | null) ?? null,
+  position: row.position as number,
+  deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
+  createdAt: (row.created_at as Date).toISOString(),
+  updatedAt: (row.updated_at as Date).toISOString(),
+});
 
 const mapForm = (row: DbRow): Form => ({
   id: row.id as string,

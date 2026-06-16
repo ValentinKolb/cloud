@@ -1,10 +1,10 @@
 import { Select } from "@valentinkolb/cloud/ui";
 import { createMemo, Index } from "solid-js";
-import type { RecordMetaSortKey, ViewQuery } from "../../../contracts";
+import type { RecordMetaSortKey, RecordQuery } from "../../../contracts";
 import type { Field } from "../../../service";
 import { fieldOption } from "../fields/field-type-meta";
 
-export type SortRow = NonNullable<ViewQuery["sort"]>[number];
+export type SortRow = NonNullable<RecordQuery["sort"]>[number];
 type Direction = SortRow["direction"];
 
 /**

@@ -3,7 +3,7 @@
  * returns parsed JS values, INSERT/UPDATE RETURNING (and a few SELECT
  * paths) return the raw JSON text. parseJsonbRow papers over the
  * difference for the call sites that pass JSONB documents back to
- * consumers (record.data, fields.config, views.query, forms.config,
+ * consumers (record.data, fields.config, views.ui, forms.config,
  * dashboards.config, audit.diff).
  *
  * Strategy:

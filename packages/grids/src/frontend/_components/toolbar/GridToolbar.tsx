@@ -11,17 +11,15 @@ import {
   untrack,
 } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { ColumnSpec, ViewQuery } from "../../../contracts";
+import type { ColumnSpec, RecordQuery } from "../../../contracts";
+import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
 import type { Field, Form, GridRecord, View } from "../../../service";
 import { isUserEditable } from "../fields/field-prompt-schema";
 import type { CardSize } from "../records-view/query-url";
 import { openFormModal } from "../records/FormSubmitModal";
 import { openRecordUpsertDialog } from "../records/RecordUpsertDialog";
 import { errorMessage } from "../utils/api-helpers";
-import AggregationsPanel, {
-  type AggregationRow,
-  isAggregationRowComplete,
-} from "./AggregationsPanel";
+import { type AggregationRow, isAggregationRowComplete } from "./AggregationsPanel";
 import { CardSizeDropdown } from "./CardSizeDropdown";
 import FilterPanel, {
   blankLeaf,
@@ -29,11 +27,7 @@ import FilterPanel, {
   isFilterLeafComplete,
 } from "./FilterPanel";
 import { filterableFields } from "./filter-ops";
-import GroupByPanel, {
-  blankGroupByRow,
-  type GroupByRow,
-  isGroupByRowComplete,
-} from "./GroupByPanel";
+import { type GroupByRow, isGroupByRowComplete } from "./GroupByPanel";
 import SortPanel, {
   blankSortRow,
   isSortRowComplete,
@@ -50,8 +44,10 @@ type Props = {
   initialSort: SortRow[];
   initialGroupBy: GroupByRow[];
   initialAggregations: AggregationRow[];
-  recordMeta?: ViewQuery["recordMeta"];
+  recordMeta?: RecordQuery["recordMeta"];
   columns?: ColumnSpec[];
+  queryHref?: string;
+  onOpenQuery?: () => void;
   onAddComputedColumn?: () => void;
   onClearColumns?: () => void;
   currentSearch: { q: string; fieldIds: string[] };
@@ -60,15 +56,15 @@ type Props = {
   /**
    * Emit the toolbar's current filter / sort / group / aggregations
    * shape to the parent (RecordsView). The parent owns the canonical
-   * ViewQuery + URL sync; the toolbar is a pure controlled component
+   * RecordQuery + URL sync; the toolbar is a pure controlled component
    * here. Patch keys are `undefined` when their panel is empty so the
    * parent can drop them from the URL representation.
    */
   onCommit: (patch: {
-    filter?: ViewQuery["filter"];
-    sort?: ViewQuery["sort"];
-    groupBy?: ViewQuery["groupBy"];
-    aggregations?: ViewQuery["aggregations"];
+    filter?: RecordQuery["filter"];
+    sort?: RecordQuery["sort"];
+    groupBy?: RecordQuery["groupBy"];
+    aggregations?: RecordQuery["aggregations"];
   }) => void;
   /**
    * Emitted after a successful manual row create. The parent
@@ -259,16 +255,6 @@ export default function GridToolbar(props: Props) {
     const blank = blankSortRow(props.fields);
     if (blank) setSortRows([...sortRows(), blank]);
   };
-  const onGroupClick = () => {
-    if (groupByRows().length >= 3) return; // .max(3) at the schema
-    const blank = blankGroupByRow(props.fields);
-    if (blank) setGroupByRows([...groupByRows(), blank]);
-  };
-  const onAggClick = () => {
-    // Default to "*" / count — the universally-useful starter.
-    setAggRows([...aggRows(), { fieldId: "*", agg: "count" }]);
-  };
-
   // ---- Save as view ------------------------------------------------------
   // Reads SIGNAL state, not URL state — so unapplied changes get
   // captured too ("save what you see"). Once saved, the view is FROZEN:
@@ -294,10 +280,12 @@ export default function GridToolbar(props: Props) {
           groupBy: g.length > 0 ? g : undefined,
           aggregations: a.length > 0 ? a : undefined,
           columns: hasCustomColumns() ? props.columns : undefined,
-        };
+        } satisfies RecordQuery;
+        const source = simpleQueryToGqlSource({ tableId: props.tableId, query });
+        if (!source.ok) throw new Error(source.reason);
         const res = await apiClient.views["by-table"][":tableId"].$post({
           param: { tableId: props.tableId },
-          json: { name: input.name, query, shared: input.shared },
+          json: { name: input.name, source: source.source, ui: { columns: query.columns }, shared: input.shared },
         });
         if (!res.ok)
           throw new Error(await errorMessage(res, "Failed to save view"));
@@ -449,6 +437,36 @@ export default function GridToolbar(props: Props) {
           </Show>
         </Show>
 
+        <Show when={props.onOpenQuery || props.queryHref}>
+          {(queryTarget) => (
+            <Show
+              when={props.onOpenQuery}
+              fallback={
+                <a
+                  href={queryTarget() as string}
+                  class={`btn-input btn-input-sm ${hasGroupBy() || hasAgg() ? "btn-input-active" : ""}`}
+                  title="Open GQL query explorer"
+                >
+                  <i class="ti ti-code" />
+                  Query
+                </a>
+              }
+            >
+              {(openQuery) => (
+                <button
+                  type="button"
+                  class={`btn-input btn-input-sm ${hasGroupBy() || hasAgg() ? "btn-input-active" : ""}`}
+                  onClick={openQuery()}
+                  title="Open GQL query editor"
+                >
+                  <i class="ti ti-code" />
+                  Query
+                </button>
+              )}
+            </Show>
+          )}
+        </Show>
+
         {/* Filter — clicking adds a blank row; the panel below renders iff rows > 0. */}
         <button
           type="button"
@@ -473,30 +491,6 @@ export default function GridToolbar(props: Props) {
         >
           <i class="ti ti-arrows-sort" />
           Sort
-        </button>
-
-        {/* Group — multi-level (max 3); records area switches to
-            GroupedTable when groupBy is set. */}
-        <button
-          type="button"
-          class={`btn-input btn-input-sm ${
-            hasGroupBy() ? "btn-input-active" : ""
-          }`}
-          onClick={onGroupClick}
-        >
-          <i class="ti ti-list-tree" />
-          Group
-        </button>
-
-        {/* Aggregate — without groupBy: footer row. With groupBy: bucket
-            columns. */}
-        <button
-          type="button"
-          class={`btn-input btn-input-sm ${hasAgg() ? "btn-input-active" : ""}`}
-          onClick={onAggClick}
-        >
-          <i class="ti ti-math-function" />
-          Aggregate
         </button>
 
         <Show when={props.onAddComputedColumn}>
@@ -566,28 +560,6 @@ export default function GridToolbar(props: Props) {
             fields={props.fields}
             rows={sortRows}
             onRowsChange={setSortRows}
-          />
-        </div>
-      </Show>
-
-      {/* Group-by panel */}
-      <Show when={hasGroupBy()}>
-        <div class="paper p-2.5">
-          <GroupByPanel
-            fields={props.fields}
-            rows={groupByRows}
-            onRowsChange={setGroupByRows}
-          />
-        </div>
-      </Show>
-
-      {/* Aggregations panel */}
-      <Show when={hasAgg()}>
-        <div class="paper p-2.5">
-          <AggregationsPanel
-            fields={props.fields}
-            rows={aggRows}
-            onRowsChange={setAggRows}
           />
         </div>
       </Show>

@@ -1,4 +1,4 @@
-import type { TableQueryResult, ViewQuery } from "../../../contracts";
+import type { TableQueryResult, RecordQuery } from "../../../contracts";
 import type { GridRecord } from "../../../service";
 
 export type LiveRecordEvent = {
@@ -53,7 +53,7 @@ export const highlightedIdsForLiveRefresh = (params: {
   return [...highlighted];
 };
 
-export const liveRefreshQuery = (query: ViewQuery, visibleCount: number): ViewQuery => {
+export const liveRefreshQuery = (query: RecordQuery, visibleCount: number): RecordQuery => {
   const currentLimit = typeof query.limit === "number" && Number.isFinite(query.limit) ? query.limit : 100;
   const limit = Math.min(Math.max(currentLimit, visibleCount, 1), 500);
   return { ...query, limit };
@@ -62,5 +62,5 @@ export const liveRefreshQuery = (query: ViewQuery, visibleCount: number): ViewQu
 export const shouldLoadNextLiveRefreshPage = (params: { loadedCount: number; targetCount: number; nextCursor: string | null }): boolean =>
   !!params.nextCursor && params.loadedCount < Math.max(params.targetCount, 1);
 
-export const shouldOptimisticallyRemoveDeletedRecord = (query: Pick<ViewQuery, "includeDeleted" | "deletedOnly">): boolean =>
+export const shouldOptimisticallyRemoveDeletedRecord = (query: Pick<RecordQuery, "includeDeleted" | "deletedOnly">): boolean =>
   !query.includeDeleted && !query.deletedOnly;

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { resolveEffectiveQuery } from "./effective-query";
 import type { View } from "../../../service";
+import type { RecordQuery } from "../../../contracts";
 import type { RecordsState } from "./query-url";
 
 const fieldId = "11111111-1111-4111-8111-111111111111";
@@ -16,13 +17,18 @@ const state = (overrides: Partial<RecordsState> = {}): RecordsState => ({
   ...overrides,
 });
 
-const view = (query: View["query"]): View => ({
+type RuntimeView = View & { query: RecordQuery };
+
+const view = (query: RecordQuery): RuntimeView => ({
   id: "22222222-2222-4222-8222-222222222222",
   shortId: "VW000",
   tableId: "33333333-3333-4333-8333-333333333333",
   name: "Saved",
+  description: null,
+  icon: null,
+  source: "from table {33333333-3333-4333-8333-333333333333}",
+  ui: {},
   query,
-  displayConfig: { mode: "table" },
   ownerUserId: null,
   position: 0,
   deletedAt: null,

@@ -21,7 +21,7 @@ const IconNameSchema = z.string().max(200).nullable().optional();
 // ── Record display ────────────────────────────────────────────────────────
 //
 // Presentation-only settings for records surfaces. Kept deliberately
-// separate from ViewQuery: filters, sort, grouping, search and aggregations
+// separate from RecordQuery: filters, sort, grouping, search and aggregations
 // remain the SQL source of truth; this only decides how the returned records
 // are rendered.
 export const RecordDisplayModeSchema = z.enum(["table", "cards", "calendar"]);
@@ -241,6 +241,7 @@ const RecordSortSpecSchema = z.object({
 });
 
 export const SortSpecSchema = z.union([RecordSortSpecSchema, FieldSortSpecSchema]);
+export type SortSpec = z.infer<typeof SortSpecSchema>;
 
 export const RecordListQuerySchema = z.object({
   cursor: z.string().optional(),
@@ -298,7 +299,7 @@ export const RecordListResponseSchema = z.object({
 
 // ── Group-by + aggregations endpoint (v3 Slice 8) ─────────────────────────
 // Request: same FilterTree shape as records.list, plus groupBy and
-// aggregations from ViewQuery. Response: an array of buckets where
+// aggregations from RecordQuery. Response: an array of buckets where
 // each bucket has its key tuple and the aggregated values.
 
 export const GroupByRequestSchema = z.object({
@@ -340,7 +341,7 @@ export const GroupResponseSchema = z.object({
 
 // ── Unified /tables/:id/query endpoint (v3 Slice 5) ────────────────────────
 // The canonical "ask this table for data" endpoint. Body carries a
-// ViewQuery (filter/sort/columns/limit/groupBy/aggregations from the
+// RecordQuery (filter/sort/columns/limit/groupBy/aggregations from the
 // canonical type defined below); response is a discriminated envelope
 // whose populated fields depend on what the query asked for:
 //
@@ -352,7 +353,7 @@ export const GroupResponseSchema = z.object({
 // were removed in alpha. Record writes and exports keep their dedicated
 // endpoints; table reads go through this query endpoint.
 
-// ── ViewQuery (canonical "how to query this table") ───────────────────────
+// ── RecordQuery (canonical "how to query this table") ───────────────────────
 // One shape, used by views (saved presets), records list, export, and
 // future group/aggregate endpoints. Replaces the old loose `ViewConfig`
 // blob whose `filter: unknown` typing meant saved views were untyped
@@ -432,7 +433,7 @@ export const ColumnSpecSchema = z.union([FieldColumnSpecSchema, ComputedColumnSp
 export type ColumnSpec = z.infer<typeof ColumnSpecSchema>;
 
 /**
- * Group-by dimension. Stored in ViewQuery so saved views, URL state,
+ * Group-by dimension. Stored in RecordQuery so saved views, URL state,
  * dashboard charts, and exports use the same query contract.
  */
 export const GroupBySpecSchema = z.object({
@@ -500,16 +501,18 @@ export const RecordActorListResponseSchema = z.object({
 export type RecordActorListResponse = z.infer<typeof RecordActorListResponseSchema>;
 
 /**
- * Canonical query for a table. Used by:
- *  - saved Views (stored as `view.query`)
- *  - `POST /tables/:id/query` (Slice 5)
- *  - URL serialization on the records page (`?filter=...&groupBy=...`)
- *  - export endpoint (Slice 5)
+ * Transient structured query shape for table execution and toolbar patches.
+ * Persisted Views store canonical GQL in `view.source`; when the records UI
+ * needs this shape, it derives it from the GQL source at the service boundary.
  *
- * Any layer that asks "how do I query this table?" answers with
- * exactly this object. No drift between layers.
+ * Used by:
+ *  - `POST /tables/:id/query`
+ *  - URL serialization on the records page (`?filter=...&groupBy=...`)
+ *  - export endpoint
+ *
+ * Do not persist this object as the View definition.
  */
-export const ViewQuerySchema = z.object({
+export const RecordQuerySchema = z.object({
   filter: FilterTreeSchema.optional(),
   search: SearchSpecSchema.optional(),
   /** Record/system metadata criteria. Kept separate from field filters
@@ -538,14 +541,23 @@ export const ViewQuerySchema = z.object({
   /** Trash-mode query: only soft-deleted records are returned. */
   deletedOnly: z.boolean().optional(),
 });
-export type ViewQuery = z.infer<typeof ViewQuerySchema>;
+export type RecordQuery = z.infer<typeof RecordQuerySchema>;
 
-/** Body for POST /tables/:id/query — a ViewQuery plus pagination state. */
-export const TableQueryBodySchema = z.object({
-  query: ViewQuerySchema,
-  cursor: z.string().optional(),
-  filePreviewFieldIds: z.array(z.string().uuid()).max(3).optional(),
-});
+/** Body for POST /tables/:id/query.
+ *
+ * `source` is the canonical GQL read shape for the records surface. `query`
+ * remains accepted while the existing toolbar builder still emits structured
+ * patches for UI-only cases that do not have GQL syntax yet.
+ */
+export const TableQueryBodySchema = z
+  .object({
+    source: z.string().trim().min(1).max(20_000).optional(),
+    query: RecordQuerySchema.optional(),
+    viewId: z.string().uuid().optional(),
+    cursor: z.string().optional(),
+    filePreviewFieldIds: z.array(z.string().uuid()).max(3).optional(),
+  })
+  .refine((body) => body.source !== undefined || body.query !== undefined, { message: "source or query is required" });
 
 export const ExportRelationModeSchema = z.enum(["ids", "labels", "fields"]);
 export type ExportRelationMode = z.infer<typeof ExportRelationModeSchema>;
@@ -564,7 +576,7 @@ export type ExportFieldSpec = z.infer<typeof ExportFieldSpecSchema>;
 
 export const ExportBodySchema = z.object({
   format: z.enum(["csv", "json"]).default("csv"),
-  query: ViewQuerySchema.optional().default({}),
+  query: RecordQuerySchema.optional().default({}),
   fields: z.array(ExportFieldSpecSchema).max(200).optional(),
   csv: z
     .object({
@@ -578,7 +590,7 @@ export type ExportBody = z.infer<typeof ExportBodySchema>;
 
 /**
  * Discriminated response envelope. Fields are populated based on what
- * the ViewQuery asked for (see comment block above).
+ * the RecordQuery asked for (see comment block above).
  */
 export const TableQueryResponseSchema = z.object({
   items: z.array(GridRecordSchema).optional(),
@@ -614,7 +626,7 @@ export const TableQueryResponseSchema = z.object({
 export type TableQueryBody = z.infer<typeof TableQueryBodySchema>;
 export type TableQueryResult = z.infer<typeof TableQueryResponseSchema>;
 
-// ── GQL preview ──────────────────────────────────────────────────────────
+// ── GQL preview / execution ──────────────────────────────────────────────
 //
 // Generic tabular response for the query workspace. This is intentionally
 // not GridRecord-shaped: GQL can select aliases, formula columns,
@@ -636,6 +648,13 @@ export const DslQueryPreviewBodySchema = z.object({
 });
 export type DslQueryPreviewBody = z.infer<typeof DslQueryPreviewBodySchema>;
 
+export const DslQueryExecuteBodySchema = DslQueryPreviewBodySchema.extend({
+  limit: z.number().int().min(1).max(10_000).optional(),
+  cursor: z.string().optional(),
+  filePreviewFieldIds: z.array(z.string().uuid()).max(3).optional(),
+});
+export type DslQueryExecuteBody = z.infer<typeof DslQueryExecuteBodySchema>;
+
 export const DslQueryCompileViewBodySchema = z.object({
   query: z.string().trim().min(1).max(20_000),
   /** Optional table scope for table/view pages where `from` is implicit. */
@@ -644,50 +663,20 @@ export const DslQueryCompileViewBodySchema = z.object({
 });
 export type DslQueryCompileViewBody = z.infer<typeof DslQueryCompileViewBodySchema>;
 
-// ── Saved GQL queries ────────────────────────────────────────────────────
-//
-// Rich GQL is persisted as canonical query text, not as ViewQuery JSON. This
-// keeps the full language lossless while regular saved views remain the
-// canonical lightweight table preset.
-export const GqlQuerySchema = z.object({
-  id: z.string().uuid(),
-  shortId: ShortIdSchema,
-  baseId: z.string().uuid(),
-  tableId: z.string().uuid(),
-  name: z.string(),
-  icon: IconNameSchema,
-  source: z.string().trim().min(1).max(20_000),
-  ownerUserId: z.string().uuid().nullable(),
-  position: z.number().int(),
-  deletedAt: z.string().datetime().nullable(),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-});
-export type GqlQuery = z.infer<typeof GqlQuerySchema>;
-
-export const CreateGqlQuerySchema = z.object({
-  name: z.string().min(1).max(200),
-  icon: IconNameSchema,
-  query: z.string().trim().min(1).max(20_000),
+const DslQueryAutocompleteBaseBodySchema = z.object({
+  query: z.string().max(20_000),
+  /** UTF-16 offset in `query`; defaults to the end of the text. */
+  caret: z.number().int().min(0).max(20_000).optional(),
   /** Optional table scope for table/view pages where `from` is implicit. */
   currentTableId: z.string().uuid().optional(),
   currentSource: DslQueryCurrentSourceSchema,
-  shared: z.boolean().optional(),
 });
-export type CreateGqlQueryInput = z.infer<typeof CreateGqlQuerySchema>;
 
-export const UpdateGqlQuerySchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  icon: IconNameSchema,
-  query: z.string().trim().min(1).max(20_000).optional(),
-  currentTableId: z.string().uuid().optional(),
-  currentSource: DslQueryCurrentSourceSchema,
-  position: z.number().int().optional(),
-  shared: z.boolean().optional(),
-});
-export type UpdateGqlQueryInput = z.infer<typeof UpdateGqlQuerySchema>;
-
-export const GqlQueryListSchema = z.array(GqlQuerySchema);
+export const DslQueryAutocompleteBodySchema = DslQueryAutocompleteBaseBodySchema.refine(
+  (body) => body.caret === undefined || body.caret <= body.query.length,
+  { message: "caret must be inside query", path: ["caret"] },
+);
+export type DslQueryAutocompleteBody = z.infer<typeof DslQueryAutocompleteBodySchema>;
 
 export const DslQueryPreviewDiagnosticSchema = z.object({
   line: z.number().int().min(1).optional(),
@@ -734,32 +723,68 @@ export const DslQueryPreviewFailureSchema = z.object({
 
 export const DslQueryPreviewResponseSchema = z.union([DslQueryPreviewSuccessSchema, DslQueryPreviewFailureSchema]);
 export type DslQueryPreviewResponse = z.infer<typeof DslQueryPreviewResponseSchema>;
+export const DslQueryExecuteResponseSchema = DslQueryPreviewResponseSchema;
+export type DslQueryExecuteResponse = z.infer<typeof DslQueryExecuteResponseSchema>;
+
+export const DslQueryCompletionKindSchema = z.enum(["keyword", "source", "field", "column", "alias", "function", "modifier", "literal"]);
+export type DslQueryCompletionKind = z.infer<typeof DslQueryCompletionKindSchema>;
+
+export const DslQueryTextRangeSchema = z.object({
+  start: z.number().int().min(0),
+  end: z.number().int().min(0),
+});
+export type DslQueryTextRange = z.infer<typeof DslQueryTextRangeSchema>;
+
+export const DslQueryCompletionTextEditSchema = DslQueryTextRangeSchema.extend({
+  text: z.string(),
+});
+export type DslQueryCompletionTextEdit = z.infer<typeof DslQueryCompletionTextEditSchema>;
+
+export const DslQueryCompletionItemSchema = z.object({
+  label: z.string(),
+  kind: DslQueryCompletionKindSchema,
+  detail: z.string().optional(),
+  insertText: z.string(),
+  textEdit: DslQueryCompletionTextEditSchema,
+  commitCharacters: z.array(z.string()).optional(),
+});
+export type DslQueryCompletionItem = z.infer<typeof DslQueryCompletionItemSchema>;
+
+export const DslQueryAutocompleteResponseSchema = z.object({
+  ok: z.literal(true),
+  diagnostics: z.array(DslQueryPreviewDiagnosticSchema),
+  items: z.array(DslQueryCompletionItemSchema),
+});
+export type DslQueryAutocompleteResponse = z.infer<typeof DslQueryAutocompleteResponseSchema>;
 
 export const DslQueryCompileViewSuccessSchema = z.object({
   ok: z.literal(true),
   tableId: z.string().uuid(),
-  query: ViewQuerySchema,
+  source: z.string().trim().min(1).max(20_000),
 });
 export const DslQueryCompileViewResponseSchema = z.union([DslQueryCompileViewSuccessSchema, DslQueryPreviewFailureSchema]);
 export type DslQueryCompileViewResponse = z.infer<typeof DslQueryCompileViewResponseSchema>;
 
-export const GqlQuerySaveSuccessSchema = z.object({
-  ok: z.literal(true),
-  query: GqlQuerySchema,
-});
-export const GqlQuerySaveResponseSchema = z.union([GqlQuerySaveSuccessSchema, DslQueryPreviewFailureSchema]);
-export type GqlQuerySaveResponse = z.infer<typeof GqlQuerySaveResponseSchema>;
-
 // ── View entity ───────────────────────────────────────────────────────────
+export const ViewUiSettingsSchema = z.object({
+  displayConfig: RecordDisplayConfigSchema.optional(),
+  columns: z.array(ColumnSpecSchema).optional(),
+  groupedColumnOrder: z.array(z.string().min(1)).optional(),
+  hiddenGroupedColumns: z.array(z.string().min(1)).optional(),
+});
+export type ViewUiSettings = z.infer<typeof ViewUiSettingsSchema>;
+
 export const ViewSchema = z.object({
   id: z.string().uuid(),
   shortId: ShortIdSchema,
   tableId: z.string().uuid(),
   name: z.string(),
+  description: z.string().nullable(),
   icon: IconNameSchema,
-  /** Canonical query — replaces the old loose `config: unknown` blob. */
-  query: ViewQuerySchema,
-  displayConfig: RecordDisplayConfigSchema,
+  /** Canonical data query for this view. */
+  source: z.string().trim().min(1).max(20_000),
+  /** View-owned presentation settings. Data semantics live in `source`. */
+  ui: ViewUiSettingsSchema,
   /** null = shared (visible to all table-readers); else owner's user id. */
   ownerUserId: z.string().uuid().nullable(),
   position: z.number().int(),
@@ -771,18 +796,20 @@ export type View = z.infer<typeof ViewSchema>;
 
 export const CreateViewSchema = z.object({
   name: z.string().min(1).max(200),
+  description: z.string().max(2_000).nullable().optional(),
   icon: IconNameSchema,
-  query: ViewQuerySchema.optional(),
-  displayConfig: RecordDisplayConfigSchema.optional(),
+  source: z.string().trim().min(1).max(20_000).optional(),
+  ui: ViewUiSettingsSchema.optional(),
   shared: z.boolean().optional(),
 });
 export type CreateViewInput = z.infer<typeof CreateViewSchema>;
 
 export const UpdateViewSchema = z.object({
   name: z.string().min(1).max(200).optional(),
+  description: z.string().max(2_000).nullable().optional(),
   icon: IconNameSchema,
-  query: ViewQuerySchema.optional(),
-  displayConfig: RecordDisplayConfigSchema.optional(),
+  source: z.string().trim().min(1).max(20_000).optional(),
+  ui: ViewUiSettingsSchema.optional(),
   position: z.number().int().optional(),
   shared: z.boolean().optional(),
 });
@@ -844,18 +871,18 @@ export type FormConfig = z.infer<typeof FormConfigSchema>;
 // A dashboard is a per-base composition of widgets that pull data from
 // any table in the base. Widget kinds:
 //
-//   - "stat"  : single number from records.aggregate(source) — e.g.
-//               "1,247 orders this month". One aggregation, no groupBy.
+//   - "stat"  : single number from a saved View's GQL result — e.g.
+//               "1,247 orders this month". The view owns the query.
 //   - "chart" : multi-bucket data from a grouped saved View.
-//   - "view"  : embedded saved View — mounts the existing RecordsView
-//               island scoped to a fixed view id with pagesize 25.
+//   - "view"  : embedded saved View — mounts records from a fixed
+//               view id with pagesize 25.
 //   - "view-stats": derives compact stat cells from a saved View.
 //   - "form"  : embeds a saved Form for inline record creation.
 //   - "automation-button": runs one manual Automation from a button.
 //
-// The data source for stat / chart widgets is a thin wrapper over the
-// existing aggregate/group/filter compilers — there is no separate GQL
-// for dashboards. A widget is "saved query + presentation hint".
+// Dashboard widgets do not carry filter/sort/aggregate semantics.
+// Query semantics live in saved Views (`view.source` GQL); widgets are
+// only "view reference + presentation hint".
 //
 // Layout: `rows × cells` on a 12-column grid. Each widget owns a
 // `span` (1..12), so editors can make a chart wider than a stat
@@ -871,43 +898,17 @@ export type WidgetFormat = z.infer<typeof WidgetFormatSchema>;
 export const StatToneSchema = z.enum(["neutral", "blue", "green", "amber", "red"]);
 export type StatTone = z.infer<typeof StatToneSchema>;
 
-/** Stat source — pick a table, optional filter, one aggregation.
- *  Earlier this was a discriminated union with a `view-cell` variant;
- *  reverted in favour of a dedicated `view-stats` row type which
- *  auto-derives every column of a view's first row as a stat (see
- *  `ViewStatsRowSchema`). Single-cell-of-a-view turned out to be the
- *  wrong granularity (gnarly editor UX, awkward stable-id story);
- *  the row-level abstraction is the cleaner KISS replacement. */
 /**
- * Optional trend spec attached to a stat source. When set, the
- * resolver runs an additional `record.group()` query — same filter
- * + same primary aggregation as the main stat — bucketed by a date
- * field. The last `windowSize` buckets surface as a small inline
- * sparkline beneath the stat value.
- *
- * Keeping this on the source (rather than a separate widget kind)
- * means a single stat cell can show both a number and its recent
- * history without doubling the widget count or splitting the editor.
+ * Optional trend view attached to a stat widget. The trend view must
+ * be a saved grouped GQL query; the first aggregate column of each
+ * bucket becomes the sparkline value. This keeps dashboard config free
+ * of table/filter/aggregate semantics.
  */
 export const StatTrendSchema = z.object({
-  /** Date field to bucket records by. Must resolve to type "date";
-   *  the editor only offers date fields here. */
-  fieldId: z.string().uuid(),
-  granularity: z.enum(["day", "week", "month", "quarter", "year"]),
-  /** How many most-recent buckets to keep. Defaults to 12 — long
-   *  enough to spot a trend, short enough for a compact sparkline. */
+  viewId: z.string().uuid(),
   windowSize: z.number().int().min(2).max(60).default(12),
 });
 export type StatTrend = z.infer<typeof StatTrendSchema>;
-
-export const StatSourceSchema = z.object({
-  tableId: z.string().uuid(),
-  filter: FilterTreeSchema.optional(),
-  aggregations: z.array(AggregationSpecSchema).min(1),
-  /** Optional inline trend — see {@link StatTrendSchema}. */
-  trend: StatTrendSchema.optional(),
-});
-export type StatSource = z.infer<typeof StatSourceSchema>;
 
 // Per-kind widget schemas. `id` is client-generated so DnD can track
 // widgets across reorders without server round-trips. `span` is the
@@ -918,7 +919,11 @@ export const StatWidgetSchema = z.object({
   kind: z.literal("stat"),
   span: z.number().int().min(1).max(12).optional(),
   title: z.string().max(200).optional(),
-  source: StatSourceSchema,
+  /** Saved view that supplies the scalar value. The first aggregate
+   *  column from its GQL result is rendered. */
+  viewId: z.string().uuid(),
+  /** Optional inline trend — see {@link StatTrendSchema}. */
+  trend: StatTrendSchema.optional(),
   icon: z.string().max(60).optional(),
   format: WidgetFormatSchema.optional(),
   /** Pure presentation hint for the value colour. No KPI semantics. */
@@ -1058,36 +1063,11 @@ export const AutomationButtonWidgetSchema = z.object({
   buttonLabel: z.string().max(80).optional(),
 });
 
-/** Embedded-table source for a `view` widget. Two kinds:
- *
- *  - `view`: read records via a saved View (filter / sort / columns
- *    apply). The original behaviour.
- *  - `table`: read records of a table directly, no filter, default-
- *    visibility columns. Use when a saved view is overkill — the
- *    user just wants the latest 25 rows of some table on a
- *    dashboard. Filtering is intentionally not configurable here;
- *    if you need a filter, save a view.
- *
- *  Permission gate is the same in both cases: dashboard-level read.
- *  The settings page warns shared-dashboard authors that this can
- *  surface data the viewer wouldn't see directly. */
-export const ViewWidgetSourceSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("view"),
-    viewId: z.string().uuid(),
-  }),
-  z.object({
-    kind: z.literal("table"),
-    tableId: z.string().uuid(),
-  }),
-]);
-export type ViewWidgetSource = z.infer<typeof ViewWidgetSourceSchema>;
-
 export const ViewWidgetSchema = z.object({
   id: z.string().min(1),
   kind: z.literal("view"),
   span: z.number().int().min(1).max(12).optional(),
-  source: ViewWidgetSourceSchema,
+  viewId: z.string().uuid(),
   title: z.string().max(200).optional(),
 });
 

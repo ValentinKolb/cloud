@@ -1,7 +1,15 @@
 import { sql } from "bun";
-import { type AggregationSpec, type FilterTree, type ViewQuery, ViewQuerySchema } from "../contracts";
+import {
+  type AggregationSpec,
+  type FilterTree,
+  type RecordMetaQuery,
+  type RecordMetaSortKey,
+  type RecordMetaUserKey,
+  type RecordQuery,
+  RecordQuerySchema,
+} from "../contracts";
 import type { Expr, Literal } from "../formula/types";
-import { formatIdentifierRef, normalizeRefKey } from "../ref-syntax";
+import { formatIdentifierRef, normalizeRefKey, parseQualifiedIdentifierRef } from "../ref-syntax";
 import {
   aggregateOutputKey,
   aggregateSqlTypeForField,
@@ -54,7 +62,8 @@ export type DslViewSource = {
   shortId: string;
   name: string;
   tableId: string;
-  query: ViewQuery;
+  source?: string;
+  query: RecordQuery;
 };
 
 export type DslResolverContext = {
@@ -68,7 +77,7 @@ export type DslResolvedQueryPlan = {
   source: DslTableSource | DslViewSource;
   tableId: string;
   sourceAlias?: string;
-  query: ViewQuery;
+  query: RecordQuery;
   offset?: number;
 };
 
@@ -146,7 +155,7 @@ export type DslOutputColumn =
 
 export type DslResolvedSqlQueryPlan = DslResolvedQueryPlan & {
   readableTableIds: string[];
-  viewSourceQuery?: ViewQuery;
+  viewSourceQuery?: RecordQuery;
   joins?: DslResolvedRelationJoin[];
   outputColumns?: DslOutputColumn[];
   joinedColumns?: DslJoinedColumn[];
@@ -274,7 +283,7 @@ export type DslDerivedViewGroupSort = {
 };
 
 export type DslResolvedDerivedViewSource = {
-  query: ViewQuery;
+  query: RecordQuery;
   columns: DslDerivedViewColumn[];
   outputColumns: DslDerivedViewColumn[];
   sort: Array<{ column: DslDerivedViewColumn; direction: "asc" | "desc"; nullsFirst?: boolean }>;
@@ -301,7 +310,7 @@ export type DslSqlQueryPlanResolveResult =
 type ResolvedSource = {
   source: DslTableSource | DslViewSource;
   tableId: string;
-  baseQuery: ViewQuery;
+  baseQuery: RecordQuery;
   span?: DslSourceSpan;
 };
 
@@ -461,7 +470,7 @@ const resolveSource = (astSource: DslSourceRef | undefined, ctx: DslResolverCont
   return { source, tableId: source.id, baseQuery: {}, span: astSource.span };
 };
 
-const unsupportedViewSourceKeys = (query: ViewQuery): string[] => {
+const unsupportedViewSourceKeys = (query: RecordQuery): string[] => {
   const keys: string[] = [];
   if ((query.groupBy?.length ?? 0) > 0) keys.push("group by");
   if ((query.groupSort?.length ?? 0) > 0) keys.push("group sort");
@@ -499,7 +508,7 @@ const uniqueRefs = (refs: Array<string | null | undefined>): string[] => {
   return result;
 };
 
-const derivedViewColumns = (query: ViewQuery, fields: Field[]): DslDerivedViewColumn[] | DslResolverDiagnostic => {
+export const derivedViewColumns = (query: RecordQuery, fields: Field[]): DslDerivedViewColumn[] | DslResolverDiagnostic => {
   const fieldsById = new Map(fields.map((field) => [field.id, field]));
   const columns: DslDerivedViewColumn[] = [];
 
@@ -1352,9 +1361,9 @@ const scopedFormulaResolverForScope = (scope: Scope) =>
 const resolveQueryPlanSelect = (
   select: DslSelectItem[],
   scope: Scope,
-): { columns?: ViewQuery["columns"]; joinedColumns: DslJoinedColumn[]; outputColumns: DslOutputColumn[] } | DslResolverDiagnostic => {
+): { columns?: RecordQuery["columns"]; joinedColumns: DslJoinedColumn[]; outputColumns: DslOutputColumn[] } | DslResolverDiagnostic => {
   if (select.length === 0) return { joinedColumns: [], outputColumns: [] };
-  const columns: NonNullable<ViewQuery["columns"]> = [];
+  const columns: NonNullable<RecordQuery["columns"]> = [];
   const joinedColumns: DslJoinedColumn[] = [];
   const outputColumns: DslOutputColumn[] = [];
   const computedIds = new Set<string>();
@@ -1422,7 +1431,7 @@ const resolveQueryPlanSelect = (
   return { columns: columns.length > 0 ? columns : undefined, joinedColumns, outputColumns };
 };
 
-const mergeScopedFilter = (baseFilter: ViewQuery["filter"], dslFilter: ViewQuery["filter"]): ViewQuery["filter"] => {
+const mergeScopedFilter = (baseFilter: RecordQuery["filter"], dslFilter: RecordQuery["filter"]): RecordQuery["filter"] => {
   if (!baseFilter) return dslFilter;
   if (!dslFilter) return baseFilter;
   return { op: "AND", filters: [baseFilter, dslFilter] };
@@ -1684,9 +1693,10 @@ const resolveDerivedJoins = (
 // ──────────────────────────────────────────────────────────────────
 // A `where` expression is a boolean predicate. We resolve it into a
 // DslWherePredicate tree where every leaf is either a *typed filter*
-// (compiled by the shared filter-compiler — index-friendly, saveable as
-// a view) or a *formula* (compiled to SQL by the formula compiler —
-// cross-field / arithmetic predicates). Both paths execute 100% in SQL.
+// (compiled by the shared filter-compiler — index-friendly and directly
+// representable as FilterTree) or a *formula* (compiled to SQL by the formula
+// compiler — cross-field / arithmetic predicates). Both paths execute 100% in
+// SQL.
 //
 // Routing is deterministic so there are no surprising gaps:
 //   - `field <op> literal` and the predicate functions below → typed
@@ -1694,9 +1704,8 @@ const resolveDerivedJoins = (
 //   - field-vs-field, arithmetic, scalar functions, bare non-boolean
 //     fields → formula leaf.
 //   - `and` / `or` / `not` → boolean predicate nodes.
-// A predicate is "pure" (and saveable as a normal view filter) when it
-// contains only and/or + typed-filter leaves. NOT and formula leaves
-// are execution-only until the saved-view contract grows to carry them.
+// A predicate is "pure" for the RecordQuery runtime when it contains only
+// and/or + typed-filter leaves. NOT and formula leaves stay in the SQL plan.
 
 type DslFilterLeaf = { fieldId: string; op: string; value?: unknown; caseInsensitive?: boolean };
 
@@ -1705,13 +1714,14 @@ export type DslWherePredicate =
   | { kind: "or"; parts: DslWherePredicate[] }
   | { kind: "not"; part: DslWherePredicate }
   | { kind: "filter"; leaf: DslFilterLeaf }
+  | { kind: "recordMeta"; meta: RecordMetaQuery }
   /** Pre-built FilterTree (e.g. a view source's saved filter) folded in. */
   | { kind: "tree"; tree: FilterTree }
   /** Boolean SQL formula — cross-field / arithmetic / scalar-function predicate. */
   | { kind: "formula"; expression: Expr };
 
 type WhereResolution =
-  | { kind: "filter"; tree: FilterTree }
+  | { kind: "filter"; tree?: FilterTree; recordMeta?: RecordMetaQuery }
   | { kind: "predicate"; node: DslWherePredicate }
   | { kind: "error"; diagnostic: DslResolverDiagnostic };
 
@@ -1736,6 +1746,52 @@ const PREDICATE_FNS = new Set([
 ]);
 const REMOVED_EMPTY_PREDICATE_FNS = new Set(["ISEMPTY", "ISNOTEMPTY"]);
 const REMOVED_MEMBERSHIP_PREDICATE_FNS = new Set(["ANYOF", "CONTAINSANY"]);
+const RECORD_SCOPE = "record";
+const RECORD_META_USER_KEYS = new Set<RecordMetaUserKey>(["createdBy", "updatedBy", "deletedBy"]);
+
+const normalizeRecordRef = (ref: string): string => ref.replaceAll("_", "").toLowerCase();
+
+const recordMetaUserKeyForRef = (ref: string): RecordMetaUserKey | null => {
+  const parsed = parseQualifiedIdentifierRef(ref);
+  if (!parsed?.scope || normalizeRefKey(parsed.scope) !== RECORD_SCOPE) return null;
+  const normalized = normalizeRecordRef(parsed.ref);
+  for (const key of RECORD_META_USER_KEYS) {
+    if (normalizeRecordRef(key) === normalized) return key;
+  }
+  return null;
+};
+
+const recordMetaSortKeyForRef = (ref: DslQualifiedRef): RecordMetaSortKey | null => {
+  if (!ref.scope || normalizeRefKey(ref.scope) !== RECORD_SCOPE) return null;
+  const normalized = normalizeRecordRef(ref.ref);
+  if (normalized === "createdat") return "createdAt";
+  if (normalized === "updatedat") return "updatedAt";
+  if (normalized === "deletedat") return "deletedAt";
+  return null;
+};
+
+const isRecordScopedRef = (ref: DslQualifiedRef): boolean => Boolean(ref.scope && normalizeRefKey(ref.scope) === RECORD_SCOPE);
+
+const recordMetaPredicate = (key: RecordMetaUserKey, values: Literal[], span?: DslSourceSpan): DslWherePredicate | DslResolverDiagnostic => {
+  const ids: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string" || !UUID_RE.test(value)) return diagnostic(`record.${key} expects user ids (uuid)`, span);
+    ids.push(value);
+  }
+  if (ids.length === 0) return diagnostic(`record.${key} needs at least one user id`, span);
+  return { kind: "recordMeta", meta: { users: { [key]: [...new Set(ids)] } } };
+};
+
+const mergeRecordMeta = (...items: Array<RecordMetaQuery | null | undefined>): RecordMetaQuery | undefined => {
+  const users: NonNullable<RecordMetaQuery["users"]> = {};
+  for (const item of items) {
+    for (const key of ["createdBy", "updatedBy", "deletedBy"] as const) {
+      const values = item?.users?.[key] ?? [];
+      if (values.length > 0) users[key] = [...new Set([...(users[key] ?? []), ...values])];
+    }
+  }
+  return Object.keys(users).length > 0 ? { users } : undefined;
+};
 
 const invertComparison = (op: string): string => {
   switch (op) {
@@ -1948,6 +2004,16 @@ const buildPredicateFunction = (
   if (!PREDICATE_FNS.has(expr.fn)) return null;
   const [first, ...rest] = expr.args;
   if (!first || first.kind !== "field") return null;
+  const metaKey = recordMetaUserKeyForRef(first.fieldId);
+  if (metaKey) {
+    if (expr.fn !== "ONEOF") return diagnostic(`record.${metaKey} supports oneof(record.${metaKey}, ...) only`, spanForExpr(baseSpan, expr));
+    const values: Literal[] = [];
+    for (const arg of rest) {
+      if (arg.kind !== "literal") return diagnostic(`record.${metaKey} expects literal user ids`, spanForExpr(baseSpan, arg));
+      values.push(arg.value);
+    }
+    return recordMetaPredicate(metaKey, values, spanForExpr(baseSpan, expr));
+  }
   if (isScopedFormulaFieldRef(first.fieldId)) return null;
   const fieldSpan = spanForExpr(baseSpan, first);
   const callSpan = spanForExpr(baseSpan, expr);
@@ -2012,6 +2078,13 @@ const buildComparisonPredicate = (
   if (leftField !== rightField) {
     const fieldExpr = (leftField ? expr.left : expr.right) as Extract<Expr, { kind: "field" }>;
     const valueExpr = leftField ? expr.right : expr.left;
+    const metaKey = recordMetaUserKeyForRef(fieldExpr.fieldId);
+    if (metaKey) {
+      if (valueExpr.kind !== "literal") return diagnostic(`record.${metaKey} expects a literal user id`, spanForExpr(baseSpan, valueExpr));
+      const op = leftField ? expr.op : invertComparison(expr.op);
+      if (op !== "=") return diagnostic(`record.${metaKey} supports "=" or oneof(...) only`, spanForExpr(baseSpan, expr));
+      return recordMetaPredicate(metaKey, [valueExpr.value], spanForExpr(baseSpan, expr));
+    }
     if (isScopedFormulaFieldRef(fieldExpr.fieldId)) return formulaLeaf(expr, scope, baseSpan);
     if (valueExpr.kind !== "literal") return formulaLeaf(expr, scope, baseSpan); // field vs expression → formula
     const fieldSpan = spanForExpr(baseSpan, fieldExpr);
@@ -2047,6 +2120,8 @@ const buildPredicate = (expr: Expr, scope: Scope, baseSpan?: DslSourceSpan): Dsl
   }
   if (expr.kind === "binop" && COMPARISON_OPS.has(expr.op)) return buildComparisonPredicate(expr, scope, baseSpan);
   if (expr.kind === "field") {
+    const metaKey = recordMetaUserKeyForRef(expr.fieldId);
+    if (metaKey) return diagnostic(`record.${metaKey} must be compared to a user id`, spanForExpr(baseSpan, expr));
     if (isScopedFormulaFieldRef(expr.fieldId)) return formulaLeaf(expr, scope, baseSpan);
     const field = fieldByRef(scope, expr.fieldId, spanForExpr(baseSpan, expr));
     if (isDiagnostic(field)) return field;
@@ -2068,32 +2143,61 @@ const isPurePredicate = (node: DslWherePredicate): boolean => {
       return node.parts.every(isPurePredicate);
     case "filter":
     case "tree":
+    case "recordMeta":
       return true;
     default:
       return false;
   }
 };
 
-const predicateToFilterTree = (node: DslWherePredicate): FilterTree => {
+const purePredicateParts = (
+  node: DslWherePredicate,
+): { ok: true; filter?: FilterTree; recordMeta?: RecordMetaQuery } | { ok: false; diagnostic: DslResolverDiagnostic } => {
   switch (node.kind) {
-    case "and":
-      return { op: "AND", filters: node.parts.map(predicateToFilterTree) };
-    case "or":
-      return { op: "OR", filters: node.parts.map(predicateToFilterTree) };
-    case "tree":
-      return node.tree;
     case "filter":
-      return node.leaf as FilterTree;
+      return { ok: true, filter: node.leaf as FilterTree };
+    case "tree":
+      return { ok: true, filter: node.tree };
+    case "recordMeta":
+      return { ok: true, recordMeta: node.meta };
+    case "and": {
+      const filters: FilterTree[] = [];
+      let recordMeta: RecordMetaQuery | undefined;
+      for (const part of node.parts) {
+        const split = purePredicateParts(part);
+        if (!split.ok) return split;
+        if (split.filter) filters.push(split.filter);
+        recordMeta = mergeRecordMeta(recordMeta, split.recordMeta);
+      }
+      return {
+        ok: true,
+        ...(filters.length === 1 ? { filter: filters[0] } : filters.length > 1 ? { filter: { op: "AND", filters } as FilterTree } : {}),
+        ...(recordMeta ? { recordMeta } : {}),
+      };
+    }
+    case "or": {
+      const filters: FilterTree[] = [];
+      for (const part of node.parts) {
+        const split = purePredicateParts(part);
+        if (!split.ok) return split;
+        if (split.recordMeta) return { ok: false, diagnostic: diagnostic("record metadata predicates can only be combined with and") };
+        if (split.filter) filters.push(split.filter);
+      }
+      return { ok: true, filter: filters.length === 1 ? filters[0] : ({ op: "OR", filters } as FilterTree) };
+    }
     default:
-      // Unreachable: only called on pure predicates.
-      throw new Error("predicateToFilterTree called on a non-pure predicate");
+      return { ok: false, diagnostic: diagnostic("predicate cannot be represented as a RecordQuery filter") };
   }
 };
 
 const resolveWhere = (where: NonNullable<DslQueryAst["where"]>, scope: Scope): WhereResolution => {
   const built = buildPredicate(where.expression, scope, where.span);
   if (isDiagnostic(built)) return { kind: "error", diagnostic: built };
-  if (isPurePredicate(built)) return { kind: "filter", tree: predicateToFilterTree(built) };
+  if (isPurePredicate(built)) {
+    const split = purePredicateParts(built);
+    if (!split.ok) return { kind: "error", diagnostic: split.diagnostic };
+    return { kind: "filter", ...(split.filter ? { tree: split.filter } : {}), ...(split.recordMeta ? { recordMeta: split.recordMeta } : {}) };
+  }
   return { kind: "predicate", node: built };
 };
 
@@ -2159,12 +2263,12 @@ const resolveSqlAggregations = (
   scope: Scope,
   options: { grouped: boolean; joinedQuery: boolean; groupLabels?: string[] },
 ): {
-  aggregations: NonNullable<ViewQuery["aggregations"]>;
+  aggregations: NonNullable<RecordQuery["aggregations"]>;
   sqlAggregations: DslResolvedSqlAggregation[];
   formulaAggregations: DslFormulaAggregation[];
   diagnostics: DslResolverDiagnostic[];
 } => {
-  const aggregations: NonNullable<ViewQuery["aggregations"]> = [];
+  const aggregations: NonNullable<RecordQuery["aggregations"]> = [];
   const sqlAggregations: DslResolvedSqlAggregation[] = [];
   const formulaAggregations: DslFormulaAggregation[] = [];
   const diagnostics: DslResolverDiagnostic[] = [];
@@ -2402,8 +2506,8 @@ const resolveGroupBy = (
   items: DslGroupItem[],
   scope: Scope,
   options: { joinedQuery: boolean },
-): { viewGroupBy: NonNullable<ViewQuery["groupBy"]>; sqlGroupBy: DslResolvedSqlGroupBy[] } | DslResolverDiagnostic => {
-  const viewGroupBy: NonNullable<ViewQuery["groupBy"]> = [];
+): { viewGroupBy: NonNullable<RecordQuery["groupBy"]>; sqlGroupBy: DslResolvedSqlGroupBy[] } | DslResolverDiagnostic => {
+  const viewGroupBy: NonNullable<RecordQuery["groupBy"]> = [];
   const sqlGroupBy: DslResolvedSqlGroupBy[] = [];
   for (const item of items) {
     const resolved = resolveScopedField(scope, item.field);
@@ -2438,8 +2542,8 @@ const resolveGroupBy = (
 const resolveQueryPlanSort = (
   items: DslSortItem[],
   scope: Scope,
-): { viewSort: NonNullable<ViewQuery["sort"]>; sqlSort: DslResolvedSqlSort[] } | DslResolverDiagnostic => {
-  const viewSort: NonNullable<ViewQuery["sort"]> = [];
+): { viewSort: NonNullable<RecordQuery["sort"]>; sqlSort: DslResolvedSqlSort[] } | DslResolverDiagnostic => {
+  const viewSort: NonNullable<RecordQuery["sort"]> = [];
   const sqlSort: DslResolvedSqlSort[] = [];
   for (const item of items) {
     const nulls = item.nullsFirst === undefined ? {} : { nullsFirst: item.nullsFirst };
@@ -2463,6 +2567,14 @@ const resolveQueryPlanSort = (
       return diagnostic(`unknown sort alias "${alias}"`, item.span);
     }
     if (!isQualifiedSortTarget(target)) return diagnostic(`unknown sort alias "${target.alias}"`, item.span);
+    const recordSortKey = recordMetaSortKeyForRef(target);
+    if (recordSortKey) {
+      viewSort.push({ source: "record", key: recordSortKey, direction: item.direction, ...nulls });
+      continue;
+    }
+    if (isRecordScopedRef(target)) {
+      return diagnostic(`record.${target.ref} is not sortable; use record.createdAt, record.updatedAt, or record.deletedAt`, target.span);
+    }
     if (isBaseScope(scope, target.scope)) {
       const field = fieldByRef(scope, target.ref, target.span);
       if (isDiagnostic(field)) return field;
@@ -2494,20 +2606,20 @@ const resolveQueryPlanSort = (
 };
 
 type ResolvedGroupedSort = {
-  groupBy: NonNullable<ViewQuery["groupBy"]>;
-  groupSort: NonNullable<ViewQuery["groupSort"]>;
+  groupBy: NonNullable<RecordQuery["groupBy"]>;
+  groupSort: NonNullable<RecordQuery["groupSort"]>;
   formulaGroupSort: GroupSortSpec[];
 };
 
 const resolveGroupedQueryPlanSort = (
   items: DslSortItem[],
   scope: Scope,
-  groupBy: NonNullable<ViewQuery["groupBy"]>,
-  aggregations: NonNullable<ViewQuery["aggregations"]>,
+  groupBy: NonNullable<RecordQuery["groupBy"]>,
+  aggregations: NonNullable<RecordQuery["aggregations"]>,
   formulaAggregations: DslFormulaAggregation[],
 ): ResolvedGroupedSort | DslResolverDiagnostic => {
   const nextGroupBy = groupBy.map((item) => ({ ...item }));
-  const groupSort: NonNullable<ViewQuery["groupSort"]> = [];
+  const groupSort: NonNullable<RecordQuery["groupSort"]> = [];
   const formulaGroupSort: GroupSortSpec[] = [];
 
   for (const item of items) {
@@ -2644,64 +2756,64 @@ const exprHasScopedFieldRef = (expr: Expr): boolean => {
   }
 };
 
-/** Why a successfully-previewable plan can't yet be persisted as a plain saved
- *  view. Returns null when the plan IS saveable. */
-const viewSaveBlocker = (plan: DslResolvedSqlQueryPlan, ast: DslQueryAst): DslResolverDiagnostic | null => {
+/** Why a successfully-previewable plan can't yet be represented by the
+ *  records-table runtime. Returns null when a RecordQuery can carry it. */
+const recordQueryBlocker = (plan: DslResolvedSqlQueryPlan, ast: DslQueryAst): DslResolverDiagnostic | null => {
   if (plan.derivedViewSource)
-    return diagnostic("derived view source queries cannot be saved as a plain view yet; save as rich GQL", ast.source?.span);
+    return diagnostic("derived view source queries cannot be represented by the records-table runtime yet", ast.source?.span);
   if (plan.viewSourceQuery)
-    return diagnostic("view sources with limit/scope semantics cannot be saved as a plain view yet; use preview", ast.source?.span);
+    return diagnostic("view sources with limit/scope semantics cannot be represented by the records-table runtime yet", ast.source?.span);
   if (plan.wherePredicate) {
     return diagnostic(
-      "this where clause uses a formula, NOT, or cross-field comparison and cannot be saved as a plain view yet",
+      "this where clause uses a formula, NOT, or cross-field comparison and cannot be represented as a RecordQuery filter yet",
       ast.where?.span,
     );
   }
   if ((plan.joins?.length ?? 0) > 0)
-    return diagnostic("queries with relation joins cannot be saved as a plain view yet; use preview", ast.joins[0]?.span);
-  if (plan.formulaHaving) return diagnostic("having cannot be saved as a plain view yet; use preview", ast.having?.span);
+    return diagnostic("queries with relation joins cannot be represented by the records-table runtime yet", ast.joins[0]?.span);
+  if (plan.formulaHaving) return diagnostic("having cannot be represented by the records-table runtime yet", ast.having?.span);
   if ((plan.formulaAggregations?.length ?? 0) > 0)
-    return diagnostic("formula aggregates cannot be saved as a plain view yet; use preview", ast.aggregations[0]?.span);
+    return diagnostic("formula aggregates cannot be represented by the records-table runtime yet", ast.aggregations[0]?.span);
   if ((plan.sqlGroupBy?.length ?? 0) > 0 && (plan.query.groupBy?.length ?? 0) !== plan.sqlGroupBy?.length) {
-    return diagnostic("group by computed fields cannot be saved as a plain view yet; use preview", ast.groupBy[0]?.span);
+    return diagnostic("group by computed fields cannot be represented by the records-table runtime yet", ast.groupBy[0]?.span);
   }
-  if ((plan.offset ?? 0) > 0) return diagnostic("offset cannot be saved as a regular view yet");
+  if ((plan.offset ?? 0) > 0) return diagnostic("offset cannot be represented by the records-table runtime yet");
   if (ast.aggregations.length > 0 && (plan.query.groupBy?.length ?? 0) === 0) {
     return diagnostic(
-      "aggregate-only DSL queries cannot be saved as a regular view yet; add group by or use preview",
+      "aggregate-only queries cannot be represented by the records-table runtime yet; add group by or use preview",
       ast.aggregations[0]?.span,
     );
   }
   const scopedFormulaSelect = ast.select.find((item) => item.kind === "formula" && exprHasScopedFieldRef(item.expression));
   if (scopedFormulaSelect) {
     return diagnostic(
-      "computed formulas with scoped field refs cannot be saved as a plain view yet; use preview",
+      "computed formulas with scoped field refs cannot be represented by the records-table runtime yet",
       scopedFormulaSelect.span,
     );
   }
   const computedSort = (plan.sqlSort ?? []).find((sort) => sort.kind === "computed");
   if (computedSort?.kind === "computed") {
-    return diagnostic(`sort by computed alias "${computedSort.alias}" is not supported by ViewQuery yet`, ast.sort[0]?.span);
+    return diagnostic(`sort by computed alias "${computedSort.alias}" is not supported by RecordQuery yet`, ast.sort[0]?.span);
   }
   if ((plan.sqlSort ?? []).some((sort) => sort.kind === "joined" || sort.kind === "joinedField")) {
-    return diagnostic("sort by a joined field is not supported by ViewQuery yet", ast.sort[0]?.span);
+    return diagnostic("sort by a joined field is not supported by RecordQuery yet", ast.sort[0]?.span);
   }
   return null;
 };
 
 /**
- * Resolve to a saveable ViewQuery. There is a single resolver — this runs the
- * full QueryPlan resolver, then accepts the result only when it uses features a
- * plain saved view can carry. Anything richer (joins, formula aggregates,
- * having, offset, formula/NOT where, computed/joined sort, aggregate-only)
- * previews fine but is reported here as not-yet-saveable.
+ * Resolve to the RecordQuery runtime shape. There is a single resolver — this
+ * runs the full QueryPlan resolver, then accepts the result only when the
+ * records-table endpoint can carry it directly. Richer GQL still resolves and
+ * previews through the SQL plan, but this compatibility helper reports why it
+ * cannot be downgraded to RecordQuery.
  */
-export const resolveDslQueryToViewQuery = (ast: DslQueryAst, ctx: DslResolverContext): DslResolveResult => {
+export const resolveDslQueryToRecordQuery = (ast: DslQueryAst, ctx: DslResolverContext): DslResolveResult => {
   const resolved = resolveDslQueryToQueryPlan(ast, ctx);
   if (!resolved.ok) return resolved;
   const plan = resolved.plan;
 
-  const blocker = viewSaveBlocker(plan, ast);
+  const blocker = recordQueryBlocker(plan, ast);
   if (blocker) return { ok: false, diagnostics: [blocker] };
 
   // When the user wrote no select/group/aggregate, leave `columns` unset so the
@@ -2713,7 +2825,7 @@ export const resolveDslQueryToViewQuery = (ast: DslQueryAst, ctx: DslResolverCon
   return { ok: true, plan: { source: plan.source, tableId: plan.tableId, query } };
 };
 
-const withoutColumns = (query: ViewQuery): ViewQuery => {
+const withoutColumns = (query: RecordQuery): RecordQuery => {
   const { columns: _columns, ...rest } = query;
   return rest;
 };
@@ -2737,11 +2849,15 @@ export const resolveDslQueryToQueryPlan = (ast: DslQueryAst, ctx: DslResolverCon
   if (isDiagnostic(select)) errors.push(select);
 
   let whereFilter: FilterTree | undefined;
+  let whereRecordMeta: RecordMetaQuery | undefined;
   let wherePredicate: DslWherePredicate | undefined;
   if (ast.where) {
     const resolved = resolveWhere(ast.where, scope);
     if (resolved.kind === "error") errors.push(resolved.diagnostic);
-    else if (resolved.kind === "filter") whereFilter = resolved.tree;
+    else if (resolved.kind === "filter") {
+      whereFilter = resolved.tree;
+      whereRecordMeta = resolved.recordMeta;
+    }
     else wherePredicate = resolved.node;
   }
 
@@ -2849,7 +2965,7 @@ export const resolveDslQueryToQueryPlan = (ast: DslQueryAst, ctx: DslResolverCon
   // still applies in SQL exactly once.
   const scopedViewSource = viewSourceNeedsRecordScope(source);
   const { filter: baseFilter, ...baseQueryRestWithSourceScope } = source.baseQuery;
-  let baseQueryRest: Omit<ViewQuery, "filter"> = baseQueryRestWithSourceScope;
+  let baseQueryRest: Omit<RecordQuery, "filter"> = baseQueryRestWithSourceScope;
   if (scopedViewSource) {
     const { search: _search, recordMeta: _recordMeta, ...rest } = baseQueryRest;
     baseQueryRest = rest;
@@ -2862,14 +2978,16 @@ export const resolveDslQueryToQueryPlan = (ast: DslQueryAst, ctx: DslResolverCon
     wherePredicate = { kind: "and", parts: [{ kind: "tree", tree: baseFilter }, wherePredicate] };
   }
   const scopedFilter = wherePredicate ? undefined : mergeScopedFilter(baseFilter, whereFilter);
+  const scopedRecordMeta = mergeRecordMeta(baseQueryRest.recordMeta, whereRecordMeta);
   const resolvedGroupBy = usesSqlGroupedPlan ? [] : groupedSort ? groupedSort.groupBy : groupBy.viewGroupBy;
   const defaultColumns =
     ast.select.length === 0 && groupBy.sqlGroupBy.length === 0 && ast.aggregations.length === 0 && !ast.having
       ? fields.filter((field) => isDefaultSelectableField(field, scope)).map((field) => ({ fieldId: field.id }))
       : undefined;
-  const query: ViewQuery = {
+  const query: RecordQuery = {
     ...baseQueryRest,
     ...(scopedFilter !== undefined ? { filter: scopedFilter } : {}),
+    ...(scopedRecordMeta ? { recordMeta: scopedRecordMeta } : {}),
     ...(select.columns !== undefined ? { columns: select.columns } : defaultColumns !== undefined ? { columns: defaultColumns } : {}),
     ...(resolvedGroupBy.length > 0 ? { groupBy: resolvedGroupBy } : {}),
     ...(sqlAggregations.aggregations.length > 0 ? { aggregations: sqlAggregations.aggregations } : {}),
@@ -2880,9 +2998,9 @@ export const resolveDslQueryToQueryPlan = (ast: DslQueryAst, ctx: DslResolverCon
     ...(ast.deletedOnly ? { deletedOnly: true } : ast.includeDeleted ? { includeDeleted: true } : {}),
   };
 
-  const parsed = ViewQuerySchema.safeParse(query);
+  const parsed = RecordQuerySchema.safeParse(query);
   if (!parsed.success) {
-    return { ok: false, diagnostics: [diagnostic("resolved query does not match the ViewQuery contract")] };
+    return { ok: false, diagnostics: [diagnostic("resolved query does not match the RecordQuery contract")] };
   }
 
   const plan: DslResolvedSqlQueryPlan = {

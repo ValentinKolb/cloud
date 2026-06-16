@@ -105,7 +105,11 @@ const configuredNewWidget = (
   const widget = newWidget(kind, ctx.tableId);
   if (widget.kind === "view") {
     const view = firstView(ctx.viewsByTable);
-    return view ? ({ ...widget, source: { kind: "view", viewId: view.id }, title: view.name } as Widget) : null;
+    return view ? ({ ...widget, viewId: view.id, title: view.name } as Widget) : null;
+  }
+  if (widget.kind === "stat") {
+    const view = firstView(ctx.viewsByTable);
+    return view ? ({ ...widget, viewId: view.id } as Widget) : null;
   }
   if (widget.kind === "chart") {
     const view = firstChartReadyView(ctx.viewsByTable);

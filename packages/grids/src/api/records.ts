@@ -9,7 +9,7 @@ import { ok, fail, err } from "@valentinkolb/stdlib";
 import { gridsService } from "../service";
 import { GridRecordSchema, RecordPayloadSchema, ExportBodySchema } from "../contracts";
 import { gateAt } from "./permissions";
-import { validateViewQueryForTable } from "../service/query-validation";
+import { validateRecordQueryForTable } from "../service/query-validation";
 
 const GridFileSchema = z.object({
   id: z.string().uuid(),
@@ -288,7 +288,7 @@ const app = new Hono<AuthContext>()
 
       const user = c.get("user");
       const body = c.req.valid("json");
-      const queryValid = await validateViewQueryForTable(tableId, body.query);
+      const queryValid = await validateRecordQueryForTable(tableId, body.query);
       if (!queryValid.ok) return c.json({ message: queryValid.error.message }, queryValid.error.status);
       if ((body.query.groupBy?.length ?? 0) > 0) {
         return c.json({ message: "Grouped exports are not supported yet. Clear Group before exporting." }, 400);

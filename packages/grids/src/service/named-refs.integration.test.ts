@@ -68,7 +68,7 @@ describe("named refs Postgres integration", () => {
     }
   });
 
-  postgresTest("rewrites saved formula and computed-column expressions on field rename", async () => {
+  postgresTest("rewrites saved formula expressions on field rename", async () => {
     const baseId = await createBase();
     try {
       const table = await tables.create({ baseId, name: "Orders" }, null);
@@ -90,24 +90,6 @@ describe("named refs Postgres integration", () => {
       expect(total.ok).toBe(true);
       if (!total.ok) throw new Error(total.error.message);
 
-      const view = await views.create({
-        tableId: table.data.id,
-        name: "Computed totals",
-        query: {
-          columns: [
-            { fieldId: price.data.id },
-            {
-              kind: "computed",
-              id: "computed_margin",
-              label: "Margin",
-              expression: "Price - IFEMPTY(Notes, 'Price')",
-            },
-          ],
-        },
-      }, null);
-      expect(view.ok).toBe(true);
-      if (!view.ok) throw new Error(view.error.message);
-
       const renamed = await fields.update(price.data.id, { name: "Unit price" }, null);
       expect(renamed.ok).toBe(true);
       if (!renamed.ok) throw new Error(renamed.error.message);
@@ -118,11 +100,6 @@ describe("named refs Postgres integration", () => {
       const formulaConfig = readJsonb<{ expression: string }>(formulaRow?.config);
       expect(formulaConfig.expression).toBe('ROUND("Unit price" * Quantity, 2)');
 
-      const [viewRow] = await sql<{ query: unknown }[]>`
-        SELECT query FROM grids.views WHERE id = ${view.data.id}::uuid
-      `;
-      const query = readJsonb<{ columns: Array<{ kind?: string; expression?: string }> }>(viewRow?.query);
-      expect(query.columns[1]?.expression).toBe('"Unit price" - IFEMPTY(Notes, \'Price\')');
     } finally {
       await cleanupBase(baseId);
     }
@@ -142,7 +119,8 @@ describe("named refs Postgres integration", () => {
       const view = await views.create({
         tableId: table.data.id,
         name: "Current orders",
-        query: { columns: [{ fieldId: price.data.id }] },
+        source: `from table {${table.data.id}}\nselect {${price.data.id}}`,
+        ui: { columns: [{ fieldId: price.data.id }] },
       }, null);
       expect(view.ok).toBe(true);
       if (!view.ok) throw new Error(view.error.message);
@@ -155,7 +133,7 @@ describe("named refs Postgres integration", () => {
       if (!renamedView.ok) throw new Error(renamedView.error.message);
 
       const persisted = await views.get(view.data.id);
-      expect(persisted?.query.columns?.[0]).toEqual({ fieldId: price.data.id });
+      expect(persisted?.ui.columns?.[0]).toEqual({ fieldId: price.data.id });
 
       const query = parseGridsQueryDsl(`
         from table Invoices
@@ -168,7 +146,7 @@ describe("named refs Postgres integration", () => {
       const tableFields = await fields.listByTable(table.data.id);
       const resolved = resolveDslQueryToQueryPlan(query.ast, {
         tables: [{ kind: "table", id: table.data.id, shortId: table.data.shortId, name: "Invoices" }],
-        views: [{ kind: "view", id: view.data.id, shortId: view.data.shortId, tableId: table.data.id, name: "Current invoices", query: persisted?.query ?? {} }],
+        views: [{ kind: "view", id: view.data.id, shortId: view.data.shortId, tableId: table.data.id, name: "Current invoices", query: {} }],
         fieldsByTableId: { [table.data.id]: tableFields },
       });
       expect(resolved.ok).toBe(true);

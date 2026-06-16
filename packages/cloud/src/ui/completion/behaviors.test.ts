@@ -80,4 +80,16 @@ describe("completion behaviours", () => {
     expect(tryRestore(el)).toBe(false);
     expect(el.value).toBe("#Wf87H ");
   });
+
+  test("applies explicit suggestion text edits", () => {
+    installExecCommand();
+    const el = textarea("from table Ord\nselect Amount");
+    const suggestion: Suggestion = {
+      text: "Orders",
+      textEdit: { start: "from table ".length, end: "from table Ord".length, text: "Orders" },
+    };
+
+    expect(applySuggestion(el, ctx("Ord"), suggestion)).toBe(true);
+    expect(el.value).toBe("from table Orders\nselect Amount");
+  });
 });

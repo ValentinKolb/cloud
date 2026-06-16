@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { parseDataUrl } from "@valentinkolb/cloud/shared";
-import { isAggregatable } from "../service/group-compiler";
+import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { templates } from ".";
 import { field, formula } from "./types";
-import type { GridTemplate, TemplateDateExpression, TemplateField, TemplateRef } from "./types";
+import type { GridTemplate, TemplateDateExpression, TemplateRef } from "./types";
 
 const isRef = (value: unknown): value is TemplateRef =>
   !!value &&
@@ -13,6 +13,9 @@ const isRef = (value: unknown): value is TemplateRef =>
 
 const isCurrentMonthDate = (value: unknown): value is TemplateDateExpression =>
   !!value && typeof value === "object" && (value as { $date?: unknown }).$date === "current_month";
+
+const isFormulaExpression = (value: unknown): value is { $formula: Array<string | TemplateRef> } =>
+  !!value && typeof value === "object" && Array.isArray((value as { $formula?: unknown }).$formula);
 
 const refsIn = (value: unknown): TemplateRef[] => {
   if (isRef(value)) return [value];
@@ -45,34 +48,69 @@ const dashboardCells = (template: GridTemplate) =>
     });
   });
 
-const templateFieldByRef = (template: GridTemplate) => {
-  const fields = new Map<string, GridTemplate["tables"][number]["fields"][number]>();
-  for (const table of template.tables) {
-    for (const field of table.fields) fields.set(`${table.key}.${field.key}`, field);
-  }
-  return fields;
+const GQL_RESERVED_REFS = new Set([
+  "aggregate",
+  "and",
+  "as",
+  "by",
+  "deleted",
+  "false",
+  "first",
+  "from",
+  "group",
+  "having",
+  "include",
+  "join",
+  "last",
+  "left",
+  "limit",
+  "not",
+  "null",
+  "nulls",
+  "offset",
+  "on",
+  "only",
+  "or",
+  "search",
+  "select",
+  "sort",
+  "table",
+  "true",
+  "view",
+  "where",
+]);
+
+const gqlRef = (name: string): string => {
+  const trimmed = name.trim();
+  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed) && !GQL_RESERVED_REFS.has(trimmed.toLowerCase())) return trimmed;
+  return `"${trimmed.replaceAll('"', '""')}"`;
 };
 
-const compilerFieldFromTemplate = (field: TemplateField): Parameters<typeof isAggregatable>[0] => ({
-  id: field.key,
-  shortId: field.key,
-  tableId: "template",
-  name: field.name,
-  description: field.description ?? null,
-  icon: field.icon,
-  type: field.type,
-  config: field.config ?? {},
-  position: 0,
-  required: field.required ?? false,
-  presentable: field.presentable ?? false,
-  hideInTable: field.hideInTable ?? false,
-  defaultValue: field.defaultValue,
-  indexed: field.indexed ?? false,
-  uniqueConstraint: field.uniqueConstraint ?? false,
-  deletedAt: null,
-  createdAt: "",
-  updatedAt: "",
-});
+const templateNamesForGql = (template: GridTemplate) => {
+  const tables = new Map<string, string>();
+  const fields = new Map<string, string>();
+  for (const table of template.tables) {
+    tables.set(table.key, table.name);
+    for (const field of table.fields) fields.set(`${table.key}.${field.key}`, field.name);
+  }
+  return { tables, fields };
+};
+
+const resolveTemplateGqlValue = (value: unknown, names: ReturnType<typeof templateNamesForGql>): unknown => {
+  if (isRef(value)) {
+    const resolved = value.$ref === "table" ? names.tables.get(value.key) : value.$ref === "field" ? names.fields.get(value.key) : undefined;
+    if (!resolved) throw new Error(`unsupported GQL template ref ${value.$ref}:${value.key}`);
+    return gqlRef(resolved);
+  }
+  if (isFormulaExpression(value)) {
+    return value.$formula.map((part) => (typeof part === "string" ? part : resolveTemplateGqlValue(part, names))).join("");
+  }
+  if (Array.isArray(value)) return value.map((item) => resolveTemplateGqlValue(item, names));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, resolveTemplateGqlValue(nested, names)]));
+  }
+  return value;
+};
 
 describe("built-in grid templates", () => {
   test("template ids are unique", () => {
@@ -101,7 +139,7 @@ describe("built-in grid templates", () => {
     expect((merchantWebsite?.config as { targetFieldId?: unknown } | undefined)?.targetFieldId).toEqual(field("merchants.website"));
 
     const recentTransactions = finance.views?.find((view) => view.key === "recent_transactions");
-    const columns = (recentTransactions?.query as { columns?: Array<Record<string, unknown>> } | undefined)?.columns ?? [];
+    const columns = (recentTransactions?.ui as { columns?: Array<Record<string, unknown>> } | undefined)?.columns ?? [];
     const qrColumn = columns.find(
       (column) => column.fieldId && isRef(column.fieldId) && column.fieldId.key === "transactions.merchant_website",
     );
@@ -128,7 +166,7 @@ describe("built-in grid templates", () => {
     expect((barcode?.config as { format?: unknown } | undefined)?.format).toEqual({ kind: "barcode", bcid: "code128", showText: true });
 
     const availableItems = inventory.views?.find((view) => view.key === "available_items");
-    const columns = (availableItems?.query as { columns?: Array<Record<string, unknown>> } | undefined)?.columns ?? [];
+    const columns = (availableItems?.ui as { columns?: Array<Record<string, unknown>> } | undefined)?.columns ?? [];
     const firstColumn = columns[0];
     expect(firstColumn?.fieldId).toEqual(field("items.asset_barcode"));
     expect(firstColumn?.label).toBe("asset_id");
@@ -161,16 +199,16 @@ describe("built-in grid templates", () => {
     const orderCalendar = bookshop?.views?.find((view) => view.key === "order_calendar");
     const loanCalendar = inventory?.views?.find((view) => view.key === "open_loans");
     const transactionCalendar = finance?.views?.find((view) => view.key === "transaction_calendar");
-    expect((orderCalendar?.displayConfig as { mode?: unknown } | undefined)?.mode).toBe("calendar");
-    expect((loanCalendar?.displayConfig as { mode?: unknown } | undefined)?.mode).toBe("calendar");
-    expect((transactionCalendar?.displayConfig as { mode?: unknown } | undefined)?.mode).toBe("calendar");
-    expect((orderCalendar?.displayConfig as { calendar?: { dateFieldId?: unknown } } | undefined)?.calendar?.dateFieldId).toEqual(
+    expect(((orderCalendar?.ui as { displayConfig?: { mode?: unknown } } | undefined)?.displayConfig)?.mode).toBe("calendar");
+    expect(((loanCalendar?.ui as { displayConfig?: { mode?: unknown } } | undefined)?.displayConfig)?.mode).toBe("calendar");
+    expect(((transactionCalendar?.ui as { displayConfig?: { mode?: unknown } } | undefined)?.displayConfig)?.mode).toBe("calendar");
+    expect(((orderCalendar?.ui as { displayConfig?: { calendar?: { dateFieldId?: unknown } } } | undefined)?.displayConfig)?.calendar?.dateFieldId).toEqual(
       field("orders.ordered_at"),
     );
-    expect((loanCalendar?.displayConfig as { calendar?: { dateFieldId?: unknown } } | undefined)?.calendar?.dateFieldId).toEqual(
+    expect(((loanCalendar?.ui as { displayConfig?: { calendar?: { dateFieldId?: unknown } } } | undefined)?.displayConfig)?.calendar?.dateFieldId).toEqual(
       field("loans.due_date"),
     );
-    expect((transactionCalendar?.displayConfig as { calendar?: { dateFieldId?: unknown } } | undefined)?.calendar?.dateFieldId).toEqual(
+    expect(((transactionCalendar?.ui as { displayConfig?: { calendar?: { dateFieldId?: unknown } } } | undefined)?.displayConfig)?.calendar?.dateFieldId).toEqual(
       field("transactions.date"),
     );
   });
@@ -269,59 +307,29 @@ describe("built-in grid templates", () => {
 
         const view = viewsByKey.get(viewId.key);
         expect(view, `${template.id}.${String(chart.id)} chart view exists`).toBeDefined();
-        const query = (view?.query ?? {}) as {
-          groupBy?: unknown;
-          aggregations?: unknown;
-        };
-        expect(Array.isArray(query.groupBy) && query.groupBy.length > 0, `${template.id}.${viewId.key} chart groupBy`).toBe(true);
-        expect(Array.isArray(query.aggregations) && query.aggregations.length > 0, `${template.id}.${viewId.key} chart aggregations`).toBe(
-          true,
-        );
-
-        const firstAggregation = Array.isArray(query.aggregations)
-          ? (query.aggregations[0] as Record<string, unknown> | undefined)
-          : undefined;
+        const source = String(resolveTemplateGqlValue(view?.source ?? "", templateNamesForGql(template)));
+        expect(source, `${template.id}.${viewId.key} chart groupBy`).toContain("group by");
+        expect(source, `${template.id}.${viewId.key} chart aggregations`).toContain("aggregate");
         if (chart.format === "currency") {
-          expect(firstAggregation?.fieldId, `${template.id}.${viewId.key} currency chart value field`).not.toBe("*");
-          expect(firstAggregation?.agg, `${template.id}.${viewId.key} currency chart aggregation`).not.toBe("count");
+          expect(source, `${template.id}.${viewId.key} currency chart value field`).toMatch(
+            /aggregate[^\n]*(?:sum|avg|median|min|max|earliest|latest)\(/,
+          );
         }
       }
     }
   });
 
-  test("template grouped aggregations are backend-compatible", () => {
+  test("template views provide parseable GQL sources", () => {
     for (const template of templates) {
-      const fieldsByRef = templateFieldByRef(template);
-
+      const names = templateNamesForGql(template);
       for (const view of template.views ?? []) {
-        const query = (view.query ?? {}) as {
-          aggregations?: unknown;
-          groupSort?: unknown;
-        };
-        const aggregationLike = [
-          ...(Array.isArray(query.aggregations) ? query.aggregations : []),
-          ...(Array.isArray(query.groupSort) ? query.groupSort : []),
-        ];
-
-        for (const rawAggregation of aggregationLike as Array<Record<string, unknown>>) {
-          const fieldId = rawAggregation.fieldId;
-          const agg = rawAggregation.agg;
-          if (typeof agg !== "string") continue;
-          if (fieldId === "*") {
-            expect(agg, `${template.id}.${view.key} "*" aggregate`).toBe("count");
-            continue;
-          }
-          expect(isRef(fieldId), `${template.id}.${view.key} aggregate field ref`).toBe(true);
-          if (!isRef(fieldId)) continue;
-
-          const field = fieldsByRef.get(fieldId.key);
-          expect(field, `${template.id}.${view.key} aggregate field exists`).toBeDefined();
-          if (!field) continue;
-          expect(
-            isAggregatable(compilerFieldFromTemplate(field), agg as Parameters<typeof isAggregatable>[1], false),
-            `${template.id}.${view.key} ${agg} on ${field.key} (${field.type})`,
-          ).toBe(true);
-        }
+        const source = resolveTemplateGqlValue(view.source ?? "", names);
+        expect(typeof source).toBe("string");
+        expect(String(source), `${template.id}.${view.key} should use readable refs`).not.toMatch(
+          /\{[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\}/i,
+        );
+        const parsed = parseGridsQueryDsl(String(source));
+        expect(parsed.ok, `${template.id}.${view.key} parses as GQL`).toBe(true);
       }
     }
   });

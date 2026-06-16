@@ -19,6 +19,8 @@ type TextInputProps = {
   clearLabel?: string;
   error?: () => string | undefined;
   multiline?: boolean;
+  /** Use a monospace font. Intended for code-like text such as queries. */
+  monospace?: boolean;
   required?: boolean;
   disabled?: boolean;
   password?: boolean;
@@ -70,6 +72,10 @@ type TextInputProps = {
   maxLength?: number;
   /** Browser autocomplete hint, e.g. "email", "current-password", "off". */
   autocomplete?: string;
+  /** Browser spellcheck. Defaults to the platform behaviour. */
+  spellcheck?: boolean;
+  /** Browser autocapitalization hint. Use "off" for code-like inputs. */
+  autocapitalize?: JSX.HTMLAutocapitalize;
   /**
    * JSX slot rendered between the (optional) left icon and the input.
    * Use for short inline labels like a currency symbol or a unit
@@ -108,6 +114,7 @@ const TextInput = (props: TextInputProps) => {
   const activeIcon = () => props.activeIcon ?? "ti ti-pencil";
   const multiline = () => props.multiline ?? markdown(); // markdown implies multiline
   const disabled = () => props.disabled ?? false;
+  const monospaceClass = () => (props.monospace ? "font-mono text-sm leading-6" : "");
   const canClear = () => props.clearable && !multiline() && !props.password && !disabled();
   const currentValue = () => props.value?.() ?? "";
   const hasValue = () => currentValue().length > 0;
@@ -194,7 +201,7 @@ const TextInput = (props: TextInputProps) => {
           <textarea
             id={a11y.inputId}
             name={props.name}
-            class={`input w-full pl-9 ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
+            class={`input w-full pl-9 ${monospaceClass()} ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
             style={props.lines ? `min-height: ${props.lines * 1.5}em; max-height: ${Math.max(props.lines * 1.5, 20)}em` : "min-height: 3.75rem; height: 5rem; max-height: 12.5rem"}
             placeholder={props.placeholder}
             value={props.value?.() ?? ""}
@@ -208,6 +215,9 @@ const TextInput = (props: TextInputProps) => {
             }}
             disabled={disabled()}
             maxLength={props.maxLength}
+            spellcheck={props.spellcheck}
+            autocapitalize={props.autocapitalize}
+            autocomplete={props.autocomplete}
             aria-label={!props.label ? (props.ariaLabel ?? props.placeholder) : undefined}
             aria-describedby={a11y.ariaDescribedBy()}
             aria-invalid={!!props.error?.()}
@@ -219,7 +229,7 @@ const TextInput = (props: TextInputProps) => {
             id={a11y.inputId}
             name={props.name}
             type={props.password && !showPassword() ? "password" : (props.type ?? "text")}
-            class={`input w-full ${props.prefix ? "pl-12" : "pl-9"} ${props.password || canClear() || props.suffix ? "pr-9" : ""} ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
+            class={`input w-full ${props.prefix ? "pl-12" : "pl-9"} ${props.password || canClear() || props.suffix ? "pr-9" : ""} ${monospaceClass()} ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
             placeholder={props.placeholder}
             value={currentValue()}
             onChange={(e) => props.onChange?.(e.target.value)}
@@ -228,6 +238,8 @@ const TextInput = (props: TextInputProps) => {
             inputMode={props.inputMode}
             maxLength={props.maxLength}
             autocomplete={props.autocomplete}
+            spellcheck={props.spellcheck}
+            autocapitalize={props.autocapitalize}
             aria-label={!props.label ? (props.ariaLabel ?? props.placeholder) : undefined}
             aria-describedby={a11y.ariaDescribedBy()}
             aria-invalid={!!props.error?.()}

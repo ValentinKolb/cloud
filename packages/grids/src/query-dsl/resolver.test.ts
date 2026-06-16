@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
-import type { ViewQuery } from "../contracts";
+import type { RecordQuery } from "../contracts";
 import type { FormulaSqlExpression } from "../service/formula-sql-compiler";
 import type { Field } from "../service/types";
 import { parseGridsQueryDsl } from "./parser";
 import { dslPreviewDiagnosticForCompilerError, resolveDslPreviewLimit } from "./preview";
-import { type DslResolverContext, resolveDslQueryToQueryPlan, resolveDslQueryToViewQuery } from "./resolver";
+import { type DslResolverContext, resolveDslQueryToQueryPlan, resolveDslQueryToRecordQuery } from "./resolver";
 import {
   compileDslAggregateQueryPlanToSql,
   compileDslDerivedViewSourcePlanToSql,
@@ -158,8 +158,8 @@ const normalizedSqlParts = (query: unknown): { text: string; values: unknown[] }
 };
 const normalizedSql = (query: unknown): string => normalizedSqlParts(query).text;
 
-describe("resolveDslQueryToViewQuery", () => {
-  test("resolves a table DSL query into the canonical ViewQuery shape", () => {
+describe("resolveDslQueryToRecordQuery", () => {
+  test("resolves a table DSL query into the canonical RecordQuery shape", () => {
     const ast = parseOk(`
       from table Orders
       select customer, amount as net, formula(amount * 1.19) as gross
@@ -168,7 +168,7 @@ describe("resolveDslQueryToViewQuery", () => {
       limit 50
     `);
 
-    const result = resolveDslQueryToViewQuery(ast, ctx());
+    const result = resolveDslQueryToRecordQuery(ast, ctx());
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -199,7 +199,7 @@ describe("resolveDslQueryToViewQuery", () => {
       sort net desc
     `);
 
-    const result = resolveDslQueryToViewQuery(ast, ctx());
+    const result = resolveDslQueryToRecordQuery(ast, ctx());
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -220,14 +220,36 @@ describe("resolveDslQueryToViewQuery", () => {
   });
 
   test("uses the current table when from is omitted", () => {
-    const result = resolveDslQueryToViewQuery(parseOk(`select amount`), ctx());
+    const result = resolveDslQueryToRecordQuery(parseOk(`select amount`), ctx());
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.plan.source).toEqual(orders);
   });
 
-  test("rejects saving view sources that need scoped preview semantics", () => {
-    const viewQuery: ViewQuery = {
+  test("maps explicit record metadata refs to the RecordQuery recordMeta contract", () => {
+    const userId = "11111111-1111-4111-8111-111111111111";
+    const otherUserId = "22222222-2222-4222-8222-222222222222";
+    const result = resolveDslQueryToRecordQuery(
+      parseOk(`
+        where oneof(record.createdBy, '${userId}', '${otherUserId}') and record.updatedBy = '${userId}'
+        sort record.createdAt desc
+      `),
+      ctx(),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.query.recordMeta).toEqual({
+      users: {
+        createdBy: [userId, otherUserId],
+        updatedBy: [userId],
+      },
+    });
+    expect(result.plan.query.sort).toEqual([{ source: "record", key: "createdAt", direction: "desc" }]);
+  });
+
+  test("rejects RecordQuery conversion for view sources that need scoped preview semantics", () => {
+    const viewQuery: RecordQuery = {
       filter: { fieldId: paidFieldId, op: "=", value: true },
       sort: [{ fieldId: orderedAtFieldId, direction: "desc" }],
       limit: 25,
@@ -238,7 +260,7 @@ describe("resolveDslQueryToViewQuery", () => {
       limit 5
     `);
 
-    const result = resolveDslQueryToViewQuery(
+    const result = resolveDslQueryToRecordQuery(
       ast,
       ctx({
         views: [
@@ -257,7 +279,7 @@ describe("resolveDslQueryToViewQuery", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.diagnostics.map((d) => d.message)).toEqual([
-        "view sources with limit/scope semantics cannot be saved as a plain view yet; use preview",
+        "view sources with limit/scope semantics cannot be represented by the records-table runtime yet",
       ]);
     }
   });
@@ -269,7 +291,7 @@ describe("resolveDslQueryToViewQuery", () => {
       where status = 'open'
     `);
 
-    const result = resolveDslQueryToViewQuery(
+    const result = resolveDslQueryToRecordQuery(
       ast,
       ctx({
         views: [
@@ -299,7 +321,7 @@ describe("resolveDslQueryToViewQuery", () => {
       aggregate sum(amount) as revenue, count(*) as rows
     `);
 
-    const result = resolveDslQueryToViewQuery(ast, ctx());
+    const result = resolveDslQueryToRecordQuery(ast, ctx());
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -311,14 +333,14 @@ describe("resolveDslQueryToViewQuery", () => {
   });
 
   test("rejects sources the caller did not expose to the resolver", () => {
-    const result = resolveDslQueryToViewQuery(parseOk(`from table Secret`), ctx());
+    const result = resolveDslQueryToRecordQuery(parseOk(`from table Secret`), ctx());
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(['source "Secret" is not available']);
   });
 
   test("typed sources do not guess between tables and views with the same ref", () => {
-    const result = resolveDslQueryToViewQuery(
+    const result = resolveDslQueryToRecordQuery(
       parseOk(`from table Orders`),
       ctx({
         views: [
@@ -338,24 +360,24 @@ describe("resolveDslQueryToViewQuery", () => {
     if (result.ok) expect(result.plan.tableId).toBe(orders.id);
   });
 
-  test("rejects duplicate select aliases before ViewQuery validation", () => {
+  test("rejects duplicate select aliases before RecordQuery validation", () => {
     const ast = parseOk(`select customer as label, formula(amount * 2) as label`);
 
-    const result = resolveDslQueryToViewQuery(ast, ctx());
+    const result = resolveDslQueryToRecordQuery(ast, ctx());
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(['duplicate select alias "label"']);
   });
 
   test("rejects duplicate field aliases before alias-based sorting can become ambiguous", () => {
-    const result = resolveDslQueryToViewQuery(parseOk(`select amount as value, cost as value`), ctx());
+    const result = resolveDslQueryToRecordQuery(parseOk(`select amount as value, cost as value`), ctx());
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(['duplicate select alias "value"']);
   });
 
   test("generates stable distinct computed ids for aliases that normalize similarly", () => {
-    const result = resolveDslQueryToViewQuery(parseOk(`select formula(amount * 2) as a, formula(amount * 3) as a_`), ctx());
+    const result = resolveDslQueryToRecordQuery(parseOk(`select formula(amount * 2) as a, formula(amount * 3) as a_`), ctx());
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -367,7 +389,7 @@ describe("resolveDslQueryToViewQuery", () => {
   });
 
   test("rejects unknown field refs with a direct diagnostic", () => {
-    const result = resolveDslQueryToViewQuery(parseOk(`where missing = 'x'`), ctx());
+    const result = resolveDslQueryToRecordQuery(parseOk(`where missing = 'x'`), ctx());
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(['unknown field "missing"']);
@@ -387,29 +409,29 @@ sort missing desc`),
   });
 
   test("allows count(*) but rejects other aggregate functions over *", () => {
-    const result = resolveDslQueryToViewQuery(parseOk(`group by status\naggregate sum(*) as total`), ctx());
+    const result = resolveDslQueryToRecordQuery(parseOk(`group by status\naggregate sum(*) as total`), ctx());
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(['aggregate "sum" cannot use *']);
   });
 
-  test("rejects aggregate-only save-as-view because preview renders a synthetic aggregate row", () => {
-    const result = resolveDslQueryToViewQuery(parseOk(`aggregate sum(amount) as revenue`), ctx());
+  test("rejects aggregate-only RecordQuery because preview renders a synthetic aggregate row", () => {
+    const result = resolveDslQueryToRecordQuery(parseOk(`aggregate sum(amount) as revenue`), ctx());
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.diagnostics.map((d) => d.message)).toContain(
-        "aggregate-only DSL queries cannot be saved as a regular view yet; add group by or use preview",
+        "aggregate-only queries cannot be represented by the records-table runtime yet; add group by or use preview",
       );
     }
   });
 
   test("query plan still supports aggregate-only previews", () => {
-    const median = resolveDslQueryToViewQuery(parseOk(`aggregate median(amount) as middle`), ctx());
+    const median = resolveDslQueryToRecordQuery(parseOk(`aggregate median(amount) as middle`), ctx());
     expect(median.ok).toBe(false);
     if (!median.ok) {
       expect(median.diagnostics.map((d) => d.message)).toContain(
-        "aggregate-only DSL queries cannot be saved as a regular view yet; add group by or use preview",
+        "aggregate-only queries cannot be represented by the records-table runtime yet; add group by or use preview",
       );
     }
 
@@ -418,22 +440,22 @@ sort missing desc`),
     if (latest.ok) expect(latest.plan.query.aggregations).toEqual([{ fieldId: orderedAtFieldId, agg: "latest", label: "latest_order" }]);
   });
 
-  test("rejects save-as-view grouped shapes that the group compiler cannot run", () => {
-    const textSum = resolveDslQueryToViewQuery(parseOk(`group by status\naggregate sum(customer) as total`), ctx());
+  test("rejects RecordQuery grouped shapes that the group compiler cannot run", () => {
+    const textSum = resolveDslQueryToRecordQuery(parseOk(`group by status\naggregate sum(customer) as total`), ctx());
     expect(textSum.ok).toBe(false);
     if (!textSum.ok) expect(textSum.diagnostics.map((d) => d.message)).toEqual(['agg "sum" not compatible with field type "text"']);
 
     // Grouped median / earliest / latest are now first-class (C12).
-    const median = resolveDslQueryToViewQuery(parseOk(`group by status\naggregate median(amount) as middle`), ctx());
+    const median = resolveDslQueryToRecordQuery(parseOk(`group by status\naggregate median(amount) as middle`), ctx());
     expect(median.ok).toBe(true);
     if (median.ok) expect(median.plan.query.aggregations).toEqual([{ fieldId: amountFieldId, agg: "median", label: "middle" }]);
 
-    const latest = resolveDslQueryToViewQuery(parseOk(`group by status\naggregate latest(ordered_at) as last_order`), ctx());
+    const latest = resolveDslQueryToRecordQuery(parseOk(`group by status\naggregate latest(ordered_at) as last_order`), ctx());
     expect(latest.ok).toBe(true);
     if (latest.ok) expect(latest.plan.query.aggregations).toEqual([{ fieldId: orderedAtFieldId, agg: "latest", label: "last_order" }]);
 
     const fileField = field({ id: attachmentFieldId, shortId: "files", name: "Files", type: "file", position: 8 });
-    const fileGroup = resolveDslQueryToViewQuery(
+    const fileGroup = resolveDslQueryToRecordQuery(
       parseOk(`group by files`),
       ctx({ fieldsByTableId: { ...ctx().fieldsByTableId, [orders.id]: [...fields, fileField] } }),
     );
@@ -441,42 +463,42 @@ sort missing desc`),
     if (!fileGroup.ok) expect(fileGroup.diagnostics.map((d) => d.message)).toEqual(['field "Files" (type "file") is not groupable']);
   });
 
-  test("rejects saving a preview-valid query that uses formula aggregates", () => {
+  test("rejects RecordQuery conversion for a preview-valid query that uses formula aggregates", () => {
     // Valid in preview (grouped formula aggregate); not yet expressible as a
-    // plain saved view — the single resolver flags it at the save boundary.
+    // RecordQuery runtime — the single resolver flags it at the save boundary.
     const ast = parseOk(`
       from table Orders
       group by Status
       aggregate avg(formula(amount - cost)) as margin
     `);
 
-    const viewResult = resolveDslQueryToViewQuery(ast, ctx());
+    const viewResult = resolveDslQueryToRecordQuery(ast, ctx());
     const planResult = resolveDslQueryToQueryPlan(ast, ctx());
 
     expect(planResult.ok).toBe(true);
     expect(viewResult.ok).toBe(false);
     if (!viewResult.ok) {
-      expect(viewResult.diagnostics.map((d) => d.message)).toEqual(["formula aggregates cannot be saved as a plain view yet; use preview"]);
+      expect(viewResult.diagnostics.map((d) => d.message)).toEqual(["formula aggregates cannot be represented by the records-table runtime yet"]);
     }
   });
 
-  test("rejects saving a query that uses relation joins", () => {
+  test("rejects RecordQuery conversion for a query that uses relation joins", () => {
     const ast = parseOk(`
       join table Custs as c on customer_link = c.id
       select amount, c.name as customer_name
     `);
 
-    const viewResult = resolveDslQueryToViewQuery(ast, ctx());
+    const viewResult = resolveDslQueryToRecordQuery(ast, ctx());
     expect(viewResult.ok).toBe(false);
     if (!viewResult.ok) {
       expect(viewResult.diagnostics.map((d) => d.message)).toEqual([
-        "queries with relation joins cannot be saved as a plain view yet; use preview",
+        "queries with relation joins cannot be represented by the records-table runtime yet",
       ]);
     }
   });
 
-  test("rejects save-as-view computed selects that cannot compile to SQL", () => {
-    const result = resolveDslQueryToViewQuery(parseOk(`select formula(customer_link) as linked`), ctx());
+  test("rejects RecordQuery computed selects that cannot compile to SQL", () => {
+    const result = resolveDslQueryToRecordQuery(parseOk(`select formula(customer_link) as linked`), ctx());
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -489,69 +511,69 @@ sort missing desc`),
   test("rejects formula filters instead of silently running them client-side", () => {
     const ast = parseOk(`where amount > cost * 1.10`);
 
-    const result = resolveDslQueryToViewQuery(ast, ctx());
+    const result = resolveDslQueryToRecordQuery(ast, ctx());
 
     expect(result.ok).toBe(false);
     if (!result.ok)
       expect(result.diagnostics.map((d) => d.message)).toEqual([
-        "this where clause uses a formula, NOT, or cross-field comparison and cannot be saved as a plain view yet",
+        "this where clause uses a formula, NOT, or cross-field comparison and cannot be represented as a RecordQuery filter yet",
       ]);
   });
 
-  test("rejects sorting by computed aliases because ViewQuery cannot sort them yet", () => {
+  test("rejects sorting by computed aliases because RecordQuery cannot sort them yet", () => {
     const ast = parseOk(`
       select formula(amount * 2) as doubled
       sort doubled desc
     `);
 
-    const result = resolveDslQueryToViewQuery(ast, ctx());
+    const result = resolveDslQueryToRecordQuery(ast, ctx());
 
     expect(result.ok).toBe(false);
     if (!result.ok)
-      expect(result.diagnostics.map((d) => d.message)).toEqual(['sort by computed alias "doubled" is not supported by ViewQuery yet']);
+      expect(result.diagnostics.map((d) => d.message)).toEqual(['sort by computed alias "doubled" is not supported by RecordQuery yet']);
   });
 
-  test("query plan accepts sorting by computed select aliases without changing ViewQuery behavior", () => {
+  test("query plan accepts sorting by computed select aliases without changing RecordQuery behavior", () => {
     const ast = parseOk(`
       select formula(amount * 2) as doubled
       sort doubled desc
     `);
 
-    const viewResult = resolveDslQueryToViewQuery(ast, ctx());
+    const viewResult = resolveDslQueryToRecordQuery(ast, ctx());
     const planResult = resolveDslQueryToQueryPlan(ast, ctx());
 
     expect(viewResult.ok).toBe(false);
     if (!viewResult.ok)
-      expect(viewResult.diagnostics.map((d) => d.message)).toEqual(['sort by computed alias "doubled" is not supported by ViewQuery yet']);
+      expect(viewResult.diagnostics.map((d) => d.message)).toEqual(['sort by computed alias "doubled" is not supported by RecordQuery yet']);
     expect(planResult.ok).toBe(true);
     if (!planResult.ok) return;
     expect(planResult.plan.query.sort).toBeUndefined();
     expect(planResult.plan.sqlSort).toEqual([{ kind: "computed", alias: "doubled", direction: "desc" }]);
   });
 
-  test("rejects non-zero offset when compiling to a regular ViewQuery", () => {
-    const result = resolveDslQueryToViewQuery(parseOk(`select amount\noffset 10`), ctx());
+  test("rejects non-zero offset when compiling to RecordQuery", () => {
+    const result = resolveDslQueryToRecordQuery(parseOk(`select amount\noffset 10`), ctx());
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(["offset cannot be saved as a regular view yet"]);
+    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(["offset cannot be represented by the records-table runtime yet"]);
   });
 
-  test("allows no-op offset when compiling to a regular ViewQuery", () => {
-    const result = resolveDslQueryToViewQuery(parseOk(`select amount\noffset 0`), ctx());
+  test("allows no-op offset when compiling to RecordQuery", () => {
+    const result = resolveDslQueryToRecordQuery(parseOk(`select amount\noffset 0`), ctx());
 
     expect(result.ok).toBe(true);
   });
 
-  test("query plan accepts SQL-valid formula where predicates without changing ViewQuery behavior", () => {
+  test("query plan accepts SQL-valid formula where predicates without changing RecordQuery behavior", () => {
     const ast = parseOk(`where amount > cost * 1.10`);
 
-    const viewResult = resolveDslQueryToViewQuery(ast, ctx());
+    const viewResult = resolveDslQueryToRecordQuery(ast, ctx());
     const planResult = resolveDslQueryToQueryPlan(ast, ctx());
 
     expect(viewResult.ok).toBe(false);
     if (!viewResult.ok)
       expect(viewResult.diagnostics.map((d) => d.message)).toEqual([
-        "this where clause uses a formula, NOT, or cross-field comparison and cannot be saved as a plain view yet",
+        "this where clause uses a formula, NOT, or cross-field comparison and cannot be represented as a RecordQuery filter yet",
       ]);
     expect(planResult.ok).toBe(true);
     if (!planResult.ok) return;
@@ -1209,7 +1231,7 @@ sort missing desc`),
   });
 
   test("rejects duplicate aggregate output keys even when aliases differ", () => {
-    const saved = resolveDslQueryToViewQuery(
+    const saved = resolveDslQueryToRecordQuery(
       parseOk(`
         group by ordered_at by month
         aggregate sum(amount) as revenue, sum(amount) as total
@@ -1632,7 +1654,7 @@ sort missing desc`),
   });
 
   test("compile-view rejects scoped computed formulas instead of persisting GQL-only refs", () => {
-    const result = resolveDslQueryToViewQuery(
+    const result = resolveDslQueryToRecordQuery(
       parseOk(`
         from table Orders as o
         select formula(o.amount * 2) as doubled
@@ -1643,7 +1665,7 @@ sort missing desc`),
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.diagnostics.map((d) => d.message)).toEqual([
-        "computed formulas with scoped field refs cannot be saved as a plain view yet; use preview",
+        "computed formulas with scoped field refs cannot be represented by the records-table runtime yet",
       ]);
     }
   });
@@ -2703,7 +2725,7 @@ describe("GQL where predicates — first-class per field type", () => {
     ctx({ fieldsByTableId: { ...ctx().fieldsByTableId, [orders.id]: optionFields }, ...overrides });
 
   const filterOf = (source: string, context = optCtx()) => {
-    const result = resolveDslQueryToViewQuery(parseOk(source), context);
+    const result = resolveDslQueryToRecordQuery(parseOk(source), context);
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error(result.diagnostics.map((d) => d.message).join("; "));
     return result.plan.query.filter;
@@ -2835,7 +2857,7 @@ describe("GQL where predicates — first-class per field type", () => {
       join table Custs as customer on customer_link = customer.id
       where icontains(customer.name, 'AL') and startswith(customer.name, 'A') and endswith(customer.name, 'e')
     `;
-    const view = resolveDslQueryToViewQuery(parseOk(source), optCtx());
+    const view = resolveDslQueryToRecordQuery(parseOk(source), optCtx());
     expect(view.ok).toBe(false);
 
     const sql = planSql(source);
@@ -2879,7 +2901,7 @@ describe("GQL where predicates — first-class per field type", () => {
   });
 
   test("AND/OR/NOT and mixed filter+formula predicates compile to one SQL boolean (preview only)", () => {
-    // Pure select+number AND → saveable FilterTree.
+    // Pure select+number AND -> representable FilterTree.
     expect(filterOf(`where Status = 'Open' and amount > 100`)).toEqual({
       op: "AND",
       filters: [
@@ -2888,8 +2910,9 @@ describe("GQL where predicates — first-class per field type", () => {
       ],
     });
 
-    // Mixed: select filter + cross-field arithmetic → not saveable, but fully SQL in preview.
-    const mixed = resolveDslQueryToViewQuery(parseOk(`where Status = 'Open' and amount > cost`), optCtx());
+    // Mixed: select filter + cross-field arithmetic -> not representable as FilterTree,
+    // but fully SQL in preview.
+    const mixed = resolveDslQueryToRecordQuery(parseOk(`where Status = 'Open' and amount > cost`), optCtx());
     expect(mixed.ok).toBe(false);
 
     const sql = planSql(`where Status = 'Open' and amount > cost`);
@@ -2909,8 +2932,8 @@ describe("GQL where predicates — first-class per field type", () => {
     ];
     const context = ctx({ fieldsByTableId: { ...ctx().fieldsByTableId, [orders.id]: withFormula } });
 
-    // Not saveable as a plain view (computed predicate), but compiles to SQL.
-    const view = resolveDslQueryToViewQuery(parseOk(`where margin > 0`), context);
+    // Not representable as RecordQuery (computed predicate), but compiles to SQL.
+    const view = resolveDslQueryToRecordQuery(parseOk(`where margin > 0`), context);
     expect(view.ok).toBe(false);
 
     const sql = planSql(`where margin > 0`, context);
@@ -2945,7 +2968,7 @@ describe("GQL clauses: nulls, trash, grouped median/earliest/latest", () => {
     const previewSql = rowSqlOf(`sort amount asc`);
     expect(previewSql).toContain("ASC NULLS LAST");
 
-    const view = resolveDslQueryToViewQuery(parseOk(`sort amount asc`), ctx());
+    const view = resolveDslQueryToRecordQuery(parseOk(`sort amount asc`), ctx());
     expect(view.ok).toBe(true);
     if (!view.ok) throw new Error(view.diagnostics.map((d) => d.message).join("; "));
 
@@ -2992,7 +3015,7 @@ describe("GQL clauses: nulls, trash, grouped median/earliest/latest", () => {
     if (compiled.ok) expect(normalizedSql(compiled.query.sql)).toContain("PERCENTILE_CONT(0.5) WITHIN GROUP");
   });
 
-  test("search resolves to a ViewQuery search spec (default and scoped fields)", () => {
+  test("search resolves to a RecordQuery search spec (default and scoped fields)", () => {
     expect(planOf(`search 'open'`).query.search).toEqual({ q: "open" });
     expect(planOf(`search 'open' in customer, status`).query.search).toEqual({
       q: "open",
@@ -3000,7 +3023,7 @@ describe("GQL clauses: nulls, trash, grouped median/earliest/latest", () => {
     });
   });
 
-  test("search can target joined fields without pretending to be a ViewQuery search", () => {
+  test("search can target joined fields without pretending to be a RecordQuery search", () => {
     const result = resolveDslQueryToQueryPlan(
       parseOk(`
         join table Custs as customer on customer_link = customer.id
@@ -3015,14 +3038,14 @@ describe("GQL clauses: nulls, trash, grouped median/earliest/latest", () => {
     expect(result.plan.sqlSearch).toEqual([{ q: "Alice", tableId: customers.id, joinAlias: "customer", fieldIds: [customerNameFieldId] }]);
   });
 
-  test("a search clause is saveable as a plain view", () => {
-    const view = resolveDslQueryToViewQuery(parseOk(`from table Orders\nsearch 'open'`), ctx());
+  test("a search clause is representable as RecordQuery", () => {
+    const view = resolveDslQueryToRecordQuery(parseOk(`from table Orders\nsearch 'open'`), ctx());
     expect(view.ok).toBe(true);
     if (view.ok) expect(view.plan.query.search).toEqual({ q: "open" });
   });
 
-  test("joined search clauses are not saveable as plain views", () => {
-    const view = resolveDslQueryToViewQuery(
+  test("joined search clauses are not representable as RecordQuery", () => {
+    const view = resolveDslQueryToRecordQuery(
       parseOk(`
         join table Custs as customer on customer_link = customer.id
         search 'Alice' in customer.name
@@ -3032,7 +3055,7 @@ describe("GQL clauses: nulls, trash, grouped median/earliest/latest", () => {
     expect(view.ok).toBe(false);
     if (!view.ok)
       expect(view.diagnostics.map((d) => d.message)).toEqual([
-        "queries with relation joins cannot be saved as a plain view yet; use preview",
+        "queries with relation joins cannot be represented by the records-table runtime yet",
       ]);
   });
 
@@ -3188,10 +3211,10 @@ describe("GQL lookup/rollup fields (C3)", () => {
     expect(text).toContain("ORDER BY 1 ASC NULLS LAST, 2 DESC NULLS LAST, 3 ASC NULLS LAST");
   });
 
-  test("base computed group keys stay out of plain ViewQuery persistence", () => {
-    const result = resolveDslQueryToViewQuery(parseOk(`group by total\naggregate count(*) as rows`), rollupCtx());
+  test("base computed group keys stay out of RecordQuery runtime", () => {
+    const result = resolveDslQueryToRecordQuery(parseOk(`group by total\naggregate count(*) as rows`), rollupCtx());
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(["group by computed fields cannot be saved as a plain view yet; use preview"]);
+    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(["group by computed fields cannot be represented by the records-table runtime yet"]);
   });
 
   test("direct rollup aggregate aliases resolve case-insensitively in having", () => {

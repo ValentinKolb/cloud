@@ -29,42 +29,52 @@ const table = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
-const savedQuery = {
-  id: "33333333-3333-4333-8333-333333333333",
-  shortId: "GQL01",
-  baseId: base.id,
+const statusField = {
+  id: "88888888-8888-4888-8888-888888888888",
+  shortId: "STAT1",
   tableId: table.id,
-  name: "Joined revenue",
+  name: "Status",
+  description: null,
   icon: null,
-  source: `from table {${table.id}}\nselect`,
-  ownerUserId: viewerId,
+  type: "text",
+  config: {},
+  position: 0,
+  required: false,
+  presentable: false,
+  hideInTable: false,
+  defaultValue: null,
+  indexed: false,
+  uniqueConstraint: false,
+  deletedAt: null,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
+
+const savedView = {
+  id: "99999999-9999-4999-8999-999999999999",
+  shortId: "VIEW1",
+  tableId: table.id,
+  name: "Open orders",
+  description: null,
+  icon: null,
+  source: `from table {${table.id}}\nwhere {${statusField.id}} = 'Open'\nsort {${statusField.id}} asc`,
+  ui: { displayConfig: { mode: "table" as const } },
+  ownerUserId: null,
   position: 0,
   deletedAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
-const otherPrivateQuery = {
-  ...savedQuery,
-  id: "55555555-5555-4555-8555-555555555555",
-  shortId: "GQL02",
-  name: "Private query",
-  ownerUserId: "66666666-6666-4666-8666-666666666666",
-};
-
-const sharedQuery = {
-  ...savedQuery,
-  id: "77777777-7777-4777-8777-777777777777",
-  shortId: "GQL03",
-  name: "Shared query",
-  ownerUserId: null,
-};
-
-type TestGqlQuery = typeof savedQuery | typeof otherPrivateQuery | typeof sharedQuery;
-
-let visibleGqlQueries: TestGqlQuery[] = [savedQuery];
-let lookupGqlQuery: TestGqlQuery | null = savedQuery;
 let baseLevel: "none" | "read" | "write" | "admin" = "read";
+let viewLevel: "none" | "read" | "write" | "admin" = "read";
+let catalogTables: unknown[] = [table];
+let catalogTableLevels: Record<string, "none" | "read" | "write" | "admin"> = { [table.id]: "read" };
+let catalogFieldsByTable: Record<string, unknown[]> = { [table.id]: [statusField] };
+let catalogViewsByTable: Record<string, unknown[]> = { [table.id]: [] };
+let lookupTable: typeof table | null = null;
+let lookupView: typeof savedView | null = null;
+let lastRecordListParams: Record<string, unknown> | null = null;
 
 mock.module("../../../service", () => ({
   gridsService: {
@@ -72,10 +82,10 @@ mock.module("../../../service", () => ({
       getByIdOrShortId: async () => base,
       catalog: async () => ({
         dashboards: [],
-        tables: [table],
-        tableLevels: { [table.id]: "read" },
-        fieldsByTable: { [table.id]: [] },
-        viewsByTable: { [table.id]: [] },
+        tables: catalogTables,
+        tableLevels: catalogTableLevels,
+        fieldsByTable: catalogFieldsByTable,
+        viewsByTable: catalogViewsByTable,
         formsByTable: { [table.id]: [] },
         formLevels: {},
         formTables: [],
@@ -84,7 +94,7 @@ mock.module("../../../service", () => ({
     },
     permission: {
       loadGrants: async () => [],
-      resolve: () => baseLevel,
+      resolve: (_grants: unknown, target: Record<string, unknown>) => ("viewId" in target ? viewLevel : baseLevel),
       hasAtLeast: (actual: "none" | "read" | "write" | "admin", expected: "none" | "read" | "write" | "admin") => {
         const rank = { none: 0, read: 1, write: 2, admin: 3 };
         return rank[actual] >= rank[expected];
@@ -95,18 +105,34 @@ mock.module("../../../service", () => ({
       get: async () => null,
     },
     table: {
-      getByIdOrShortId: async () => null,
-    },
-    gqlQuery: {
-      listForBase: async () => visibleGqlQueries,
       getByIdOrShortId: async (_baseId: string, idOrSlug: string) =>
-        lookupGqlQuery && (lookupGqlQuery.id === idOrSlug || lookupGqlQuery.shortId === idOrSlug) ? lookupGqlQuery : null,
+        lookupTable && (lookupTable.id === idOrSlug || lookupTable.shortId === idOrSlug) ? lookupTable : null,
+    },
+    view: {
+      getByIdOrShortId: async (_tableId: string, idOrSlug: string) =>
+        lookupView && (lookupView.id === idOrSlug || lookupView.shortId === idOrSlug) ? lookupView : null,
+    },
+    field: {
+      listByTable: async () => [statusField],
     },
     access: {
       listForDashboard: async () => [],
       listForTable: async () => [],
       listForForm: async () => [],
       listForView: async () => [],
+    },
+    record: {
+      list: async (params: Record<string, unknown>) => {
+        lastRecordListParams = params;
+        return { ok: true, data: { items: [], aggregates: {}, nextCursor: null, filePreviews: {} } };
+      },
+      group: async () => ({ ok: true, data: { buckets: [], explode: false, nextCursor: null } }),
+      get: async () => null,
+    },
+    aggregate: {},
+    relations: {
+      buildLabelCache: async () => ({}),
+      buildLabelCacheForGroupedKeys: async () => ({}),
     },
   },
 }));
@@ -119,67 +145,65 @@ const user = {
   memberofGroupIds: [],
 };
 
-describe("loadGridsWorkspaceState — saved GQL queries", () => {
+describe("loadGridsWorkspaceState — GQL-backed views", () => {
   beforeEach(() => {
-    visibleGqlQueries = [savedQuery];
-    lookupGqlQuery = savedQuery;
     baseLevel = "read";
+    viewLevel = "read";
+    catalogTables = [table];
+    catalogTableLevels = { [table.id]: "read" };
+    catalogFieldsByTable = { [table.id]: [statusField] };
+    catalogViewsByTable = { [table.id]: [] };
+    lookupTable = null;
+    lookupView = null;
+    lastRecordListParams = null;
   });
 
-  test("loads a saved GQL query as the active query workspace route", async () => {
+  test("loads records views from canonical GQL source instead of cached RecordQuery JSON", async () => {
+    catalogViewsByTable = { [table.id]: [savedView] };
+    lookupTable = table;
+    lookupView = savedView;
+
     const state = await loadGridsWorkspaceState({
       user,
       baseShortId: base.shortId,
-      href: `/app/grids/${base.shortId}/query/${savedQuery.shortId}`,
-      activeGqlQuerySlug: savedQuery.shortId,
+      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${savedView.shortId}`,
+      activeTableSlug: table.shortId,
+      activeViewSlug: savedView.shortId,
     });
 
     expect(state.kind).toBe("ok");
     if (state.kind !== "ok") return;
-    expect(state.catalog.gqlQueries).toEqual([savedQuery]);
-    expect(state.route.kind).toBe("query");
-    if (state.route.kind !== "query") return;
-    expect(state.route.savedQuery).toEqual(savedQuery);
-    expect(state.route.canEditSavedQuery).toBe(true);
-    expect(state.route.initialQuery).toBe(savedQuery.source);
-    expect(state.route.queryPath).toBe(`/app/grids/${base.shortId}/query/${savedQuery.shortId}`);
-    expect(state.title.at(-1)?.title).toBe(savedQuery.name);
+    expect(state.route.kind).toBe("records");
+    if (state.route.kind !== "records") return;
+    expect(state.route.initialState.query.filter).toEqual({ fieldId: statusField.id, op: "equals", value: "Open" });
+    expect(state.route.initialState.query.sort).toEqual([{ fieldId: statusField.id, direction: "asc" }]);
+    expect(lastRecordListParams?.filter).toEqual({ fieldId: statusField.id, op: "equals", value: "Open" });
   });
 
-  test("loads shared saved GQL queries as read-only for non-admin readers", async () => {
-    visibleGqlQueries = [sharedQuery];
-    lookupGqlQuery = sharedQuery;
+  test("loads an explicitly readable view even when the parent table is hidden from the catalog", async () => {
+    catalogTables = [];
+    catalogTableLevels = {};
+    catalogFieldsByTable = {};
+    lookupTable = table;
+    lookupView = savedView;
+    viewLevel = "read";
 
     const state = await loadGridsWorkspaceState({
       user,
       baseShortId: base.shortId,
-      href: `/app/grids/${base.shortId}/query/${sharedQuery.shortId}`,
-      activeGqlQuerySlug: sharedQuery.shortId,
+      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${savedView.shortId}`,
+      activeTableSlug: table.shortId,
+      activeViewSlug: savedView.shortId,
     });
 
     expect(state.kind).toBe("ok");
     if (state.kind !== "ok") return;
-    expect(state.route.kind).toBe("query");
-    if (state.route.kind !== "query") return;
-    expect(state.route.savedQuery).toEqual(sharedQuery);
-    expect(state.route.canEditSavedQuery).toBe(false);
-  });
-
-  test("denies direct links to private saved GQL queries owned by another user", async () => {
-    visibleGqlQueries = [];
-    lookupGqlQuery = otherPrivateQuery;
-
-    const state = await loadGridsWorkspaceState({
-      user,
-      baseShortId: base.shortId,
-      href: `/app/grids/${base.shortId}/query/${otherPrivateQuery.shortId}`,
-      activeGqlQuerySlug: otherPrivateQuery.shortId,
-    });
-
-    expect(state).toEqual({
-      kind: "accessDenied",
-      title: "Access denied",
-      message: "No access to this query",
-    });
+    expect(state.route.kind).toBe("records");
+    if (state.route.kind !== "records") return;
+    expect(state.catalog.tables).toEqual([]);
+    expect(state.route.activeTable.id).toBe(table.id);
+    expect(state.route.activeView?.id).toBe(savedView.id);
+    expect(state.route.fields.map((field) => field.id)).toEqual([statusField.id]);
+    expect(state.route.canWriteRecords).toBe(false);
   });
 });

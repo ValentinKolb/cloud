@@ -11,7 +11,6 @@ import * as fields from "./fields";
 import * as files from "./files";
 import * as forms from "./forms";
 import * as formulaPreview from "./formula-preview";
-import * as gqlQueries from "./gql-queries";
 import * as maintenance from "./maintenance";
 import * as metadataEvents from "./metadata-events";
 import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
@@ -109,16 +108,6 @@ export const gridsService = {
     remove: views.remove,
     restore: views.restore,
   },
-  gqlQuery: {
-    listForBase: gqlQueries.listForBase,
-    get: gqlQueries.get,
-    getByShortId: gqlQueries.getByShortId,
-    getByIdOrShortId: gqlQueries.getByIdOrShortId,
-    create: gqlQueries.create,
-    update: gqlQueries.update,
-    remove: gqlQueries.remove,
-    restore: gqlQueries.restore,
-  },
   dashboard: {
     listForBase: dashboards.listForBase,
     listTrashedByBase: dashboards.listTrashedByBase,
@@ -198,13 +187,11 @@ export type {
   GroupBySpec,
   LinkWidget,
   MarkdownWidget,
-  StatSource,
   StatTone,
   StatTrend,
   StatWidget,
   ViewStatsWidget,
   ViewWidget,
-  ViewWidgetSource,
   Widget,
   WidgetFormat,
 } from "../contracts";
@@ -212,7 +199,6 @@ export type { AggKind, AggregateRequest } from "./aggregate-compiler";
 export type { FieldDependent } from "./field-dependents";
 export type { FilterGroup, FilterLeaf, FilterTree } from "./filter-compiler";
 export type { Form, FormConfig, FormFieldEntry } from "./forms";
-export type { GqlQuery } from "./gql-queries";
 export type { Grant, ResolveTarget, ResourceType } from "./permission-resolver";
 export type { ExpansionViewer } from "./relations";
 export type { SortSpec } from "./sort-compiler";
@@ -234,7 +220,7 @@ export type {
   RecordList,
   Table,
 } from "./types";
-export type { ColumnSpec, FormatSpec, View, ViewQuery } from "./views";
+export type { ColumnSpec, FormatSpec, View, RecordQuery } from "./views";
 export {
   access,
   audit,

@@ -1,7 +1,7 @@
 import { dialogCore, MultiSelectInput, panelDialogOptions, PanelDialog } from "@valentinkolb/cloud/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { ExportBody, Field, ViewQuery } from "../../../contracts";
+import type { ExportBody, Field, RecordQuery } from "../../../contracts";
 import { errorMessage } from "../utils/api-helpers";
 
 type RowState = {
@@ -15,7 +15,7 @@ type RowState = {
 type OpenArgs = {
   tableId: string;
   fields: Field[];
-  query: ViewQuery;
+  query: RecordQuery;
   viewColumns?: { fieldId: string }[];
 };
 

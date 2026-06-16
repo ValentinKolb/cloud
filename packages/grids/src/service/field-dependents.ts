@@ -83,15 +83,16 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
   const sourceBaseId = sourceRow.base_id as string;
 
   // ── views ─────────────────────────────────────────────
-  // v3 renamed views.config → views.query. The previous SELECT used
-  // `v.config` and 500'd at runtime (chunk 4 critical).
+  // Views store GQL in source and presentation in ui. Both can contain
+  // stable field ids, but dependents stay non-blocking because a deleted
+  // field should surface as a compile-time view error, not prevent deletion.
   const viewRows = await sql<DbRow[]>`
-    SELECT v.id, v.name, v.query AS config
+    SELECT v.id, v.name, v.source, v.ui
     FROM grids.views v
     WHERE v.table_id = ${sourceTableId}::uuid AND v.deleted_at IS NULL
   `;
   for (const row of viewRows) {
-    const config = (row.config as Record<string, unknown>) ?? {};
+    const config = { source: row.source, ui: row.ui };
     const contexts = findFieldRefContexts(config, fieldId);
     for (const context of contexts) {
       dependents.push({

@@ -1,6 +1,5 @@
 import { dialogCore, IconInput, MarkdownEditor, panelDialogOptions, PanelDialog, prompts, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
-import type { AggregationSpec } from "../../../contracts";
 import type {
   Automation,
   AutomationButtonWidget,
@@ -19,34 +18,32 @@ import type {
 } from "../../../service";
 import { formatWidgetValue } from "../dashboard/widget-format";
 
-const DEFAULT_AGG: AggregationSpec = { fieldId: "*", agg: "count" };
-
 const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
 
 export const isChartReadyView = (view: View): boolean =>
-  (view.query.groupBy?.length ?? 0) > 0 && (view.query.aggregations?.length ?? 0) > 0;
+  groupItemsFromSource(view.source).length > 0 && aggregateItemsFromSource(view.source).length > 0;
 
 const isChartReadyForType = (view: View, chartType: ChartWidget["chartType"]): boolean => {
   if (!isChartReadyView(view)) return false;
-  if (chartType === "scatter") return (view.query.aggregations?.length ?? 0) >= 2;
+  if (chartType === "scatter") return aggregateItemsFromSource(view.source).length >= 2;
   return true;
 };
 
-export const defaultStatWidget = (tableId: string): StatWidget => ({
+export const defaultStatWidget = (_tableId: string): StatWidget => ({
   id: newId("w"),
   kind: "stat",
   span: 3,
   title: "New stat",
   format: "plain",
   tone: "blue",
-  source: { tableId, aggregations: [DEFAULT_AGG] },
+  viewId: "",
 });
 
 export const defaultViewWidget = (): ViewWidget => ({
   id: newId("w"),
   kind: "view",
   span: 6,
-  source: { kind: "view", viewId: "" },
+  viewId: "",
 });
 
 export const defaultChartWidget = (): ChartWidget => ({
@@ -214,7 +211,7 @@ function CellEditorBody(props: {
           widget={props.widget}
           onUpdate={props.onUpdate as (w: StatWidget) => void}
           tables={props.tables}
-          fieldsByTable={props.fieldsByTable}
+          viewsByTable={props.viewsByTable}
         />
       );
     case "view":
@@ -278,36 +275,6 @@ function CellEditorBody(props: {
   }
 }
 
-const AGG_OPTIONS = [
-  { id: "count", label: "count" },
-  { id: "countEmpty", label: "count empty" },
-  { id: "countUnique", label: "count unique" },
-  { id: "sum", label: "sum" },
-  { id: "avg", label: "avg" },
-  { id: "min", label: "min" },
-  { id: "max", label: "max" },
-];
-
-const NUMERIC_AGG_FIELD_TYPES = new Set(["number", "percent", "duration"]);
-const MIN_MAX_FIELD_TYPES = new Set([...NUMERIC_AGG_FIELD_TYPES, "date", "text", "longtext"]);
-
-function fieldWorksForAgg(field: Field, agg: AggregationSpec["agg"]): boolean {
-  if (field.deletedAt) return false;
-  if (field.type === "relation" || field.type === "formula" || field.type === "lookup" || field.type === "rollup") return false;
-  if (agg === "count" || agg === "countEmpty" || agg === "countUnique") return true;
-  if (agg === "sum" || agg === "avg") return NUMERIC_AGG_FIELD_TYPES.has(field.type);
-  if (agg === "min" || agg === "max") return MIN_MAX_FIELD_TYPES.has(field.type);
-  return false;
-}
-
-function normalizeAggForFields(agg: AggregationSpec, fields: Field[]): AggregationSpec {
-  if (agg.fieldId === "*" && agg.agg === "count") return agg;
-  const field = fields.find((f) => f.id === agg.fieldId);
-  if (field && fieldWorksForAgg(field, agg.agg)) return agg;
-  const first = fields.find((f) => fieldWorksForAgg(f, agg.agg));
-  return first ? { ...agg, fieldId: first.id } : DEFAULT_AGG;
-}
-
 const FORMAT_OPTIONS = [
   { id: "plain", label: "Plain number" },
   { id: "integer", label: "Integer" },
@@ -327,35 +294,16 @@ function StatCellBody(props: {
   widget: StatWidget;
   onUpdate: (w: StatWidget) => void;
   tables: Array<{ id: string; name: string; slug: string }>;
-  fieldsByTable: Record<string, Field[]>;
+  viewsByTable: Record<string, View[]>;
 }) {
-  const fields = () => (props.fieldsByTable[props.widget.source.tableId] ?? []).filter((f) => !f.deletedAt);
-  const currentAgg = () => props.widget.source.aggregations[0] ?? DEFAULT_AGG;
-  const fieldOptions = () => {
-    const agg = currentAgg().agg;
-    const options = fields()
-      .filter((field) => fieldWorksForAgg(field, agg))
-      .map((field) => ({ id: field.id, label: field.name, description: field.type }));
-    return agg === "count" ? [{ id: "*", label: "* (records)", description: "Counts all records." }, ...options] : options;
-  };
-
-  const updateAgg = (patch: Partial<AggregationSpec>) => {
-    const nextAgg = normalizeAggForFields({ ...currentAgg(), ...patch }, fields());
-    props.onUpdate({
-      ...props.widget,
-      source: {
-        ...props.widget.source,
-        aggregations: [nextAgg],
-      },
-    });
-  };
+  const allViews = createMemo(() => sortedViews(props.tables, props.viewsByTable));
 
   return (
-    <WidgetEditorSection title="Source" subtitle="Pick the table and the value this stat should show." icon="ti ti-database">
+    <WidgetEditorSection title="Source" subtitle="Pick the saved view this stat should read." icon="ti ti-database">
       <WidgetInfoBlock
         title="Stat widget"
-        body="Shows one number from one table. Pick an aggregation, then a compatible field."
-        detail="Use Count + * (records) for record totals. Sum and Average only work on number-like fields."
+        body="Shows one number from one saved GQL view."
+        detail="Use an aggregate view such as `aggregate count(*) as rows` or `aggregate sum(Amount) as revenue`."
       />
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <TextInput
@@ -370,31 +318,17 @@ function StatCellBody(props: {
           placeholder="e.g. last 24h"
         />
         <Select
-          label="Source table"
-          value={() => props.widget.source.tableId}
-          onChange={(v) =>
-            props.onUpdate({
-              ...props.widget,
-              source: {
-                ...props.widget.source,
-                tableId: v,
-                aggregations: [normalizeAggForFields(DEFAULT_AGG, props.fieldsByTable[v] ?? [])],
-              },
-            })
-          }
-          options={props.tables.map((t) => ({ id: t.id, label: t.name }))}
-        />
-        <Select
-          label="Aggregation"
-          value={() => props.widget.source.aggregations[0]?.agg ?? "count"}
-          onChange={(v) => updateAgg({ agg: v as AggregationSpec["agg"] })}
-          options={AGG_OPTIONS}
-        />
-        <Select
-          label="Field"
-          value={() => props.widget.source.aggregations[0]?.fieldId ?? "*"}
-          onChange={(v) => updateAgg({ fieldId: v })}
-          options={fieldOptions()}
+          label="Source view"
+          value={() => props.widget.viewId}
+          onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
+          options={[
+            { id: "", label: "(pick a view)" },
+            ...allViews().map(({ view, tableName }) => ({
+              id: view.id,
+              label: `${tableName} · ${view.name}`,
+              description: statViewDescription(view),
+            })),
+          ]}
         />
         <Select
           label="Format"
@@ -418,40 +352,36 @@ function StatCellBody(props: {
       <div class="text-xs text-dimmed">
         Format preview: <code class="font-mono">{formatWidgetValue(1234.56, props.widget.format)}</code>
       </div>
-      <StatTrendSection widget={props.widget} fields={fields()} onUpdate={props.onUpdate} />
+      <StatTrendSection widget={props.widget} views={allViews()} onUpdate={props.onUpdate} />
     </WidgetEditorSection>
   );
 }
 
-function StatTrendSection(props: { widget: StatWidget; fields: Field[]; onUpdate: (w: StatWidget) => void }) {
-  const dateFields = () => props.fields.filter((f) => f.type === "date");
-  const trend = () => props.widget.source.trend;
+function StatTrendSection(props: { widget: StatWidget; views: Array<{ view: View; tableName: string }>; onUpdate: (w: StatWidget) => void }) {
+  const trend = () => props.widget.trend;
 
   const enable = () => {
-    const first = dateFields()[0];
+    const first = props.views[0]?.view;
     if (!first) return;
     props.onUpdate({
       ...props.widget,
-      source: {
-        ...props.widget.source,
-        trend: { fieldId: first.id, granularity: "month", windowSize: 12 },
-      },
+      trend: { viewId: first.id, windowSize: 12 },
     });
   };
 
   const disable = () => {
-    const { trend: _drop, ...source } = props.widget.source;
-    props.onUpdate({ ...props.widget, source });
+    const { trend: _drop, ...widget } = props.widget;
+    props.onUpdate(widget);
   };
 
-  const patchTrend = (patch: Partial<NonNullable<StatWidget["source"]["trend"]>>) => {
+  const patchTrend = (patch: Partial<NonNullable<StatWidget["trend"]>>) => {
     const current = trend();
     if (!current) return;
-    props.onUpdate({ ...props.widget, source: { ...props.widget.source, trend: { ...current, ...patch } } });
+    props.onUpdate({ ...props.widget, trend: { ...current, ...patch } });
   };
 
   return (
-    <Show when={dateFields().length > 0}>
+    <Show when={props.views.length > 0}>
       <div class="paper flex flex-col gap-2 p-3">
         <div class="flex items-center justify-between gap-2">
           <span class="text-xs font-semibold uppercase tracking-wider text-dimmed">Trend</span>
@@ -468,27 +398,19 @@ function StatTrendSection(props: { widget: StatWidget; fields: Field[]; onUpdate
             </button>
           </Show>
         </div>
-        <p class="text-xs text-dimmed">Adds a small history line using the same stat value grouped by a date field.</p>
+        <p class="text-xs text-dimmed">Adds a small history line from a grouped saved view.</p>
         <Show when={trend()}>
           {(t) => (
-            <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
               <Select
-                label="Date field"
-                value={() => t().fieldId}
-                onChange={(v) => patchTrend({ fieldId: v })}
-                options={dateFields().map((f) => ({ id: f.id, label: f.name }))}
-              />
-              <Select
-                label="Bucket by"
-                value={() => t().granularity}
-                onChange={(v) => patchTrend({ granularity: v as NonNullable<StatWidget["source"]["trend"]>["granularity"] })}
-                options={[
-                  { id: "day", label: "Day" },
-                  { id: "week", label: "Week" },
-                  { id: "month", label: "Month" },
-                  { id: "quarter", label: "Quarter" },
-                  { id: "year", label: "Year" },
-                ]}
+                label="Trend view"
+                value={() => t().viewId}
+                onChange={(v) => patchTrend({ viewId: v })}
+                options={props.views.map(({ view, tableName }) => ({
+                  id: view.id,
+                  label: `${tableName} · ${view.name}`,
+                  description: statViewDescription(view),
+                }))}
               />
               <Select
                 label="Window size"
@@ -589,73 +511,34 @@ function ViewCellBody(props: {
   tables: Array<{ id: string; name: string; slug: string }>;
 }) {
   const allViews = createMemo(() => sortedViews(props.tables, props.viewsByTable));
-  const setSourceKind = (kind: "view" | "table") => {
-    if (props.widget.source.kind === kind) return;
-    props.onUpdate({
-      ...props.widget,
-      source: kind === "view" ? { kind: "view", viewId: "" } : { kind: "table", tableId: props.tables[0]?.id ?? "" },
-    });
-  };
 
   return (
-    <WidgetEditorSection title="Source" subtitle="Use a saved view for filters, or a raw table for recent records." icon="ti ti-table">
+    <WidgetEditorSection title="Source" subtitle="Use a saved view for filters, sorting, and columns." icon="ti ti-table">
       <WidgetInfoBlock
         title="Embedded records"
         body="Shows records inside the dashboard."
-        detail="Saved views keep their filters, sorting, and columns. Tables show recent records without saved filters."
+        detail="Saved views keep their filters, sorting, and columns. Create a simple `from table …` view for raw table records."
       />
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="text-xs text-dimmed">Source</span>
-        <button
-          type="button"
-          class={props.widget.source.kind === "view" ? "btn-input-primary btn-sm" : "btn-input btn-sm"}
-          onClick={() => setSourceKind("view")}
-        >
-          Saved view
-        </button>
-        <button
-          type="button"
-          class={props.widget.source.kind === "table" ? "btn-input-primary btn-sm" : "btn-input btn-sm"}
-          onClick={() => setSourceKind("table")}
-        >
-          Table
-        </button>
-      </div>
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <TextInput
           label="Title"
           value={() => props.widget.title ?? ""}
           onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
-          placeholder={props.widget.source.kind === "view" ? "Defaults to the view name" : "Defaults to the table name"}
+          placeholder="Defaults to the view name"
         />
-        <Show
-          when={props.widget.source.kind === "view"}
-          fallback={
-            <Select
-              label="Table"
-              value={() => (props.widget.source.kind === "table" ? props.widget.source.tableId : "")}
-              onChange={(v) => props.onUpdate({ ...props.widget, source: { kind: "table", tableId: v } })}
-              options={[
-                { id: "", label: "(pick a table)" },
-                ...props.tables.map((t) => ({ id: t.id, label: t.name, description: "Recent records, no saved filters." })),
-              ]}
-            />
-          }
-        >
-          <Select
-            label="View"
-            value={() => (props.widget.source.kind === "view" ? props.widget.source.viewId : "")}
-            onChange={(v) => props.onUpdate({ ...props.widget, source: { kind: "view", viewId: v } })}
-            options={[
-              { id: "", label: "(pick a view)" },
-              ...allViews().map(({ view, tableName }) => ({
-                id: view.id,
-                label: `${tableName} · ${view.name}`,
-                description: embeddedViewDescription(view),
-              })),
-            ]}
-          />
-        </Show>
+        <Select
+          label="View"
+          value={() => props.widget.viewId}
+          onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
+          options={[
+            { id: "", label: "(pick a view)" },
+            ...allViews().map(({ view, tableName }) => ({
+              id: view.id,
+              label: `${tableName} · ${view.name}`,
+              description: embeddedViewDescription(view),
+            })),
+          ]}
+        />
       </div>
     </WidgetEditorSection>
   );
@@ -818,13 +701,14 @@ function withChartType(widget: ChartWidget, chartType: ChartWidget["chartType"])
   return { ...rest, chartType };
 }
 
-function chartViewDescription(chartType: ChartWidget["chartType"], view: View, fields: Field[]): string {
-  const fieldsById = new Map(fields.map((field) => [field.id, field]));
-  const category = labelForGroupBy(view, fieldsById);
-  const firstValue = labelForAggregation(view, fieldsById, 0);
-  const secondValue = labelForAggregation(view, fieldsById, 1);
-  const categoryCount = view.query.groupBy?.length ?? 0;
-  const valueCount = view.query.aggregations?.length ?? 0;
+function chartViewDescription(chartType: ChartWidget["chartType"], view: View, _fields: Field[]): string {
+  const groupItems = groupItemsFromSource(view.source);
+  const aggregateItems = aggregateItemsFromSource(view.source);
+  const category = labelForGroupBySourceItem(groupItems[0]);
+  const firstValue = labelForAggregateSourceItem(aggregateItems[0], 0);
+  const secondValue = labelForAggregateSourceItem(aggregateItems[1], 1);
+  const categoryCount = groupItems.length;
+  const valueCount = aggregateItems.length;
   const counts = `${categoryCount} ${categoryCount === 1 ? "category" : "categories"} · ${valueCount} ${valueCount === 1 ? "value" : "values"}`;
 
   if (chartType === "donut") return `Slices ${category} by ${firstValue} · ${counts}`;
@@ -833,24 +717,25 @@ function chartViewDescription(chartType: ChartWidget["chartType"], view: View, f
   return `Plots ${category} against ${firstValue} · ${counts}`;
 }
 
-function labelForGroupBy(view: View, fieldsById: Map<string, Field>): string {
-  const group = view.query.groupBy?.[0];
-  if (!group) return "category";
-  const field = fieldsById.get(group.fieldId);
-  return group.label?.trim() || field?.name || "category";
+function labelForGroupBySourceItem(item: string | undefined): string {
+  if (!item) return "category";
+  return readableSourceName(item.replace(/\s+by\s+(day|week|month|quarter|year)\s*$/i, "")) || "category";
 }
 
-function labelForAggregation(view: View, fieldsById: Map<string, Field>, index: number): string {
-  const aggregation = view.query.aggregations?.[index];
-  if (!aggregation) return `value ${index + 1}`;
-  if (aggregation.label?.trim()) return aggregation.label.trim();
-  if (aggregation.fieldId === "*") return readableAgg(aggregation.agg);
-  const field = fieldsById.get(aggregation.fieldId);
-  return `${readableAgg(aggregation.agg)} ${field?.name ?? "value"}`;
+function labelForAggregateSourceItem(item: string | undefined, index: number): string {
+  if (!item) return `value ${index + 1}`;
+  const alias = aliasFromSourceItem(item);
+  if (alias) return alias;
+  const match = item.match(/\b([a-zA-Z][a-zA-Z0-9_]*)\s*\((.*)\)/);
+  if (!match) return readableSourceName(item) || `value ${index + 1}`;
+  const fn = match[1] ?? "";
+  const arg = match[2] ?? "";
+  if (arg.trim() === "*") return readableAgg(fn);
+  return `${readableAgg(fn)} ${readableSourceName(arg) || "value"}`;
 }
 
-function readableAgg(agg: AggregationSpec["agg"]): string {
-  const labels: Record<AggregationSpec["agg"], string> = {
+function readableAgg(agg: string): string {
+  const labels: Record<string, string> = {
     count: "Count",
     countEmpty: "Empty count",
     countUnique: "Unique count",
@@ -867,18 +752,25 @@ function readableAgg(agg: AggregationSpec["agg"]): string {
 
 function embeddedViewDescription(view: View): string {
   const parts = [];
-  if ((view.query.columns?.length ?? 0) > 0) parts.push(`${view.query.columns!.length} columns`);
-  if (view.query.filter) parts.push("filtered");
-  if ((view.query.groupBy?.length ?? 0) > 0) parts.push("grouped");
-  if ((view.query.sort?.length ?? 0) > 0) parts.push("sorted");
+  const selected = selectItemsFromSource(view.source);
+  if (selected.length > 0) parts.push(`${selected.length} columns`);
+  if (/\bwhere\b/i.test(view.source)) parts.push("filtered");
+  if (groupItemsFromSource(view.source).length > 0) parts.push("grouped");
+  if (/\bsort\b/i.test(view.source)) parts.push("sorted");
   return parts.length > 0 ? parts.join(" · ") : "Saved columns and records.";
 }
 
 function viewStatsViewDescription(view: View): string {
-  const groupBy = view.query.groupBy?.length ?? 0;
-  const aggs = view.query.aggregations?.length ?? 0;
+  const groupBy = groupItemsFromSource(view.source).length;
+  const aggs = aggregateItemsFromSource(view.source).length;
   if (groupBy > 0) return `First group bucket · ${aggs} ${aggs === 1 ? "value" : "values"}`;
   return "First record · visible fields";
+}
+
+function statViewDescription(view: View): string {
+  const aggs = aggregateItemsFromSource(view.source).length;
+  if (aggs > 0) return `${aggs} ${aggs === 1 ? "value" : "values"} from saved query`;
+  return "First output column from saved query";
 }
 
 const LINK_TARGET_OPTIONS: { id: LinkWidget["target"]["kind"]; label: string; icon: string }[] = [
@@ -1147,7 +1039,25 @@ function validateWidgetDraft(widget: Widget, viewsByTable: Record<string, View[]
       .find((candidate) => candidate.id === widget.viewId);
     if (!view) return "Pick an existing source view.";
     if (!isChartReadyView(view)) return "Chart views need grouped rows and at least one summary value.";
-    if (widget.chartType === "scatter" && (view.query.aggregations?.length ?? 0) < 2) return "Scatter needs two summary values.";
+    if (widget.chartType === "scatter" && aggregateItemsFromSource(view.source).length < 2) {
+      return "Scatter needs two summary values.";
+    }
+  }
+  if (widget.kind === "stat") {
+    if (!widget.viewId) return "Pick a source view.";
+    const view = Object.values(viewsByTable)
+      .flat()
+      .find((candidate) => candidate.id === widget.viewId);
+    if (!view) return "Pick an existing source view.";
+    if (widget.trend?.viewId) {
+      const trendView = Object.values(viewsByTable)
+        .flat()
+        .find((candidate) => candidate.id === widget.trend?.viewId);
+      if (!trendView) return "Pick an existing trend view.";
+    }
+  }
+  if (widget.kind === "view") {
+    if (!widget.viewId) return "Pick a view.";
   }
   if (widget.kind === "link") {
     if (widget.target.kind === "url") {
@@ -1166,4 +1076,63 @@ function validateWidgetDraft(widget: Widget, viewsByTable: Record<string, View[]
   }
   if (widget.kind === "automation-button" && !widget.automationId) return "Pick an automation.";
   return null;
+}
+
+function selectItemsFromSource(source: string): string[] {
+  return splitSourceList(sourceClause(source, "select"));
+}
+
+function groupItemsFromSource(source: string): string[] {
+  return splitSourceList(sourceClause(source, "group\\s+by"));
+}
+
+function aggregateItemsFromSource(source: string): string[] {
+  return splitSourceList(sourceClause(source, "aggregate"));
+}
+
+function sourceClause(source: string, keywordPattern: string): string {
+  const match = source.match(new RegExp(`(?:^|\\n)\\s*${keywordPattern}\\b([\\s\\S]*?)(?=\\n\\s*(?:from|join|select|where|group\\s+by|aggregate|sort|limit|search|include\\s+deleted|deleted\\s+only)\\b|$)`, "i"));
+  return match?.[1]?.trim() ?? "";
+}
+
+function splitSourceList(input: string): string[] {
+  const items: string[] = [];
+  let current = "";
+  let depth = 0;
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i]!;
+    if (quote) {
+      current += ch;
+      if (ch === quote && input[i - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === "(") depth++;
+    if (ch === ")") depth = Math.max(0, depth - 1);
+    if (ch === "," && depth === 0) {
+      if (current.trim()) items.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim()) items.push(current.trim());
+  return items;
+}
+
+function aliasFromSourceItem(item: string): string | null {
+  const match = item.match(/\bas\s+("[^"]+"|'[^']+'|[^\s,]+)\s*$/i);
+  return match ? readableSourceName(match[1]!) : null;
+}
+
+function readableSourceName(input: string): string {
+  const trimmed = input.trim();
+  const withoutAlias = trimmed.replace(/\bas\s+("[^"]+"|'[^']+'|[^\s,]+)\s*$/i, "").trim();
+  const token = withoutAlias.match(/"([^"]+)"|'([^']+)'|\{([^}]+)\}|([A-Za-z0-9_ -]+)$/)?.slice(1).find(Boolean);
+  return (token ?? withoutAlias).replace(/[_-]+/g, " ").trim();
 }

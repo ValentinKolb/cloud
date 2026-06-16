@@ -1,7 +1,7 @@
 import { markdown as markdownRenderer } from "@valentinkolb/cloud/shared";
 import { dates, err, fail, ok, type DateContext, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { ExportFieldSpec, SearchSpec, ViewQuery } from "../contracts";
+import type { ExportFieldSpec, SearchSpec, RecordQuery } from "../contracts";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
@@ -22,7 +22,7 @@ const MAX_EXPORT_ROWS = 10_000;
 
 const fetchAllForExport = async (params: {
   tableId: string;
-  query: ViewQuery;
+  query: RecordQuery;
   viewer?: ExpansionViewer;
   dateConfig?: DateContext;
 }): Promise<Result<{ items: GridRecord[]; truncated: boolean }>> => {
@@ -144,7 +144,7 @@ const pickColumns = async (params: {
   tableId: string;
   fields: Field[];
   specs?: ExportFieldSpec[];
-  query: ViewQuery;
+  query: RecordQuery;
   viewer?: ExpansionViewer;
 }): Promise<Result<{ columns: ExportColumn[]; selected: Array<{ field: Field; spec?: ExportFieldSpec }> }>> => {
   const byId = new Map(params.fields.map((f) => [f.id, f]));
@@ -316,7 +316,7 @@ const jsonValue = (params: {
 export const exportRecords = async (params: {
   tableId: string;
   format: ExportFormat;
-  query?: ViewQuery;
+  query?: RecordQuery;
   fields?: ExportFieldSpec[];
   csv?: { delimiter?: string };
   markdown?: "raw" | "html";

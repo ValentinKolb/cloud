@@ -5,10 +5,7 @@ import { logAudit } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
-import {
-  tableBelongsToBase,
-  validateStatSourceForTable,
-} from "./query-validation";
+import { tableBelongsToBase } from "./query-validation";
 import {
   DashboardConfigSchema,
   type Dashboard,
@@ -153,12 +150,12 @@ export const sourceTableIds = async (dashboard: Dashboard): Promise<string[]> =>
 
   for (const widget of widgetsOf(dashboard.config)) {
     if (widget.kind === "stat") {
-      directTableIds.add(widget.source.tableId);
+      viewIds.add(widget.viewId);
+      if (widget.trend) viewIds.add(widget.trend.viewId);
     } else if (widget.kind === "chart" || widget.kind === "view-stats") {
       viewIds.add(widget.viewId);
     } else if (widget.kind === "view") {
-      if (widget.source.kind === "table") directTableIds.add(widget.source.tableId);
-      else viewIds.add(widget.source.viewId);
+      viewIds.add(widget.viewId);
     } else if (widget.kind === "form") {
       formIds.add(widget.formId);
     }
@@ -211,9 +208,13 @@ const validateWidgetRefs = async (
 ): Promise<Result<void>> => {
   switch (widget.kind) {
     case "stat": {
-      const table = await ensureTableInBase(widget.source.tableId, baseId, "stat source");
-      if (!table.ok) return table;
-      return validateStatSourceForTable(widget.source.tableId, widget.source);
+      const view = await ensureViewInBase(widget.viewId, baseId, "stat source");
+      if (!view.ok) return view;
+      if (widget.trend) {
+        const trend = await ensureViewInBase(widget.trend.viewId, baseId, "stat trend source");
+        if (!trend.ok) return trend;
+      }
+      return ok();
     }
     case "chart": {
       const view = await ensureViewInBase(widget.viewId, baseId, "chart source");
@@ -224,11 +225,10 @@ const validateWidgetRefs = async (
       return view.ok ? ok() : view;
     }
     case "view":
-      if (widget.source.kind === "view") {
-        const view = await ensureViewInBase(widget.source.viewId, baseId, "view widget source");
+      {
+        const view = await ensureViewInBase(widget.viewId, baseId, "view widget source");
         return view.ok ? ok() : view;
       }
-      return ensureTableInBase(widget.source.tableId, baseId, "view widget source");
     case "form":
       return ensureFormInBase(widget.formId, baseId, "form widget source");
     case "markdown":

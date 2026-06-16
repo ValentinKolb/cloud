@@ -32,10 +32,10 @@
  * in the path.
  */
 
-import { ColumnSpecSchema, type ViewQuery } from "../../../contracts";
+import { ColumnSpecSchema, type RecordQuery } from "../../../contracts";
 
 /**
- * URL-owned subset of ViewQuery. The full ViewQuery additionally
+ * URL-owned subset of RecordQuery. The full RecordQuery additionally
  * includes `limit` and `search` — `limit` is saved-view metadata only,
  * `search` lives on the sibling `search` field. `columns` is URL state
  * only for ad-hoc column overrides, mainly in-place computed columns.
@@ -43,7 +43,7 @@ import { ColumnSpecSchema, type ViewQuery } from "../../../contracts";
  * actually hold for every well-formed state.
  */
 type RecordsUrlQuery = Pick<
-  ViewQuery,
+  RecordQuery,
   "filter" | "recordMeta" | "sort" | "groupBy" | "groupSort" | "aggregations" | "columns" | "includeDeleted" | "deletedOnly"
 >;
 
@@ -83,8 +83,8 @@ const entryOf = <K extends string, V>(key: K, value: V | undefined): Array<[K, V
 const nonEmptyArray = <T>(items: T[]): T[] | undefined => (items.length > 0 ? items : undefined);
 const isDirection = (value: unknown): value is "asc" | "desc" => value === "asc" || value === "desc";
 
-const parseFilterParam = (params: URLSearchParams): ViewQuery["filter"] | undefined =>
-  tryParseJson<ViewQuery["filter"]>(params.get("filter")) ?? undefined;
+const parseFilterParam = (params: URLSearchParams): RecordQuery["filter"] | undefined =>
+  tryParseJson<RecordQuery["filter"]>(params.get("filter")) ?? undefined;
 
 const parseRecordMetaParam = (params: URLSearchParams): RecordsUrlQuery["recordMeta"] | undefined => {
   const parsed = tryParseJson<unknown>(params.get("meta"));
@@ -197,7 +197,7 @@ export const parseRecordsState = (params: URLSearchParams): RecordsState => ({
   query: parseRecordsQuery(params),
   cursor: params.get("cursor") || null,
   selectedRecordId: params.get("record") || null,
-  // Free-text search lives outside ViewQuery (SSR merges it into the filter
+  // Free-text search lives outside RecordQuery (SSR merges it into the filter
   // tree before the service call so ad-hoc typing layers cleanly on top of
   // saved-view filters).
   search: parseSearchState(params),
@@ -228,17 +228,17 @@ const recordsPath = (path: UrlPathContext): string =>
 // from the same Zod-validated shapes, so key order is stable in practice.
 const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
-const matchesViewQuery = (query: RecordsUrlQuery, viewQuery: ViewQuery | null | undefined, key: keyof RecordsUrlQuery): boolean =>
+const matchesRecordQuery = (query: RecordsUrlQuery, viewQuery: RecordQuery | null | undefined, key: keyof RecordsUrlQuery): boolean =>
   Boolean(viewQuery && sameJson(query[key], viewQuery[key]));
 
 const hasUrlValue = (value: unknown): boolean => Boolean(value) && (!Array.isArray(value) || value.length > 0);
 
-const appendJsonOverride = (url: URL, query: RecordsUrlQuery, viewQuery: ViewQuery | null | undefined, key: keyof RecordsUrlQuery) => {
+const appendJsonOverride = (url: URL, query: RecordsUrlQuery, viewQuery: RecordQuery | null | undefined, key: keyof RecordsUrlQuery) => {
   const value = query[key];
-  if (hasUrlValue(value) && !matchesViewQuery(query, viewQuery, key)) url.searchParams.set(key, JSON.stringify(value));
+  if (hasUrlValue(value) && !matchesRecordQuery(query, viewQuery, key)) url.searchParams.set(key, JSON.stringify(value));
 };
 
-const viewSearchOf = (viewQuery: ViewQuery | null | undefined): { q: string; fieldIds: string[] } | null =>
+const viewSearchOf = (viewQuery: RecordQuery | null | undefined): { q: string; fieldIds: string[] } | null =>
   viewQuery?.search
     ? {
         q: viewQuery.search.q.trim(),
@@ -252,7 +252,7 @@ const searchMatchesView = (search: RecordsState["search"], viewSearch: { q: stri
 const shouldWriteSearchOverride = (search: RecordsState["search"], viewSearch: { q: string; fieldIds: string[] } | null): boolean =>
   search.override === true ? Boolean(search.q || viewSearch) : Boolean(search.q && !searchMatchesView(search, viewSearch));
 
-const appendSearchOverride = (url: URL, search: RecordsState["search"], viewQuery: ViewQuery | null | undefined) => {
+const appendSearchOverride = (url: URL, search: RecordsState["search"], viewQuery: RecordQuery | null | undefined) => {
   const viewSearch = viewSearchOf(viewQuery);
   if (!shouldWriteSearchOverride(search, viewSearch)) return;
 
@@ -279,13 +279,13 @@ const appendSearchOverride = (url: URL, search: RecordsState["search"], viewQuer
  * to the bookmark. Suppressing matches keeps view URLs symbolic
  * ("the view, as it stands") rather than denormalized snapshots.
  */
-export const buildRecordsUrl = (path: UrlPathContext, state: RecordsState, viewQuery?: ViewQuery | null): string => {
+export const buildRecordsUrl = (path: UrlPathContext, state: RecordsState, viewQuery?: RecordQuery | null): string => {
   const url = new URL(recordsPath(path), "http://x");
 
   const { query, search } = state;
   appendJsonOverride(url, query, viewQuery, "filter");
   const recordMeta = query.recordMeta;
-  if (hasUrlValue(recordMeta) && !matchesViewQuery(query, viewQuery, "recordMeta"))
+  if (hasUrlValue(recordMeta) && !matchesRecordQuery(query, viewQuery, "recordMeta"))
     url.searchParams.set("meta", JSON.stringify(recordMeta));
   appendJsonOverride(url, query, viewQuery, "sort");
   appendJsonOverride(url, query, viewQuery, "groupBy");

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ViewQuery } from "../../../contracts";
+import type { RecordQuery } from "../../../contracts";
 import { applyToolbarQueryPatch } from "./toolbar-query";
 
 describe("applyToolbarQueryPatch", () => {
@@ -7,7 +7,7 @@ describe("applyToolbarQueryPatch", () => {
     const previous = {
       groupBy: [{ fieldId: "group-field", direction: "asc" }],
       groupSort: [{ fieldId: "*", agg: "count", direction: "asc" }],
-    } as ViewQuery;
+    } as RecordQuery;
 
     expect(applyToolbarQueryPatch(previous, { sort: [{ fieldId: "name", direction: "asc" }] }).groupSort).toEqual(previous.groupSort);
   });
@@ -16,7 +16,7 @@ describe("applyToolbarQueryPatch", () => {
     const previous = {
       groupBy: [{ fieldId: "group-field", direction: "asc" }],
       groupSort: [{ fieldId: "*", agg: "count", direction: "asc" }],
-    } as ViewQuery;
+    } as RecordQuery;
 
     expect(applyToolbarQueryPatch(previous, { groupBy: [{ fieldId: "other-field", direction: "asc" }] }).groupSort).toBeUndefined();
   });
@@ -25,7 +25,7 @@ describe("applyToolbarQueryPatch", () => {
     const previous = {
       groupBy: [{ fieldId: "group-field", direction: "asc" }],
       groupSort: [{ fieldId: "amount", agg: "sum", direction: "desc" }],
-    } as ViewQuery;
+    } as RecordQuery;
 
     expect(applyToolbarQueryPatch(previous, { aggregations: [{ fieldId: "*", agg: "count" }] }).groupSort).toBeUndefined();
   });

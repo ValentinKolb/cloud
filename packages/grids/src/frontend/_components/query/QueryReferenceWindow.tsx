@@ -63,6 +63,8 @@ type SourceRow = {
   id: string;
   shortId: string;
   kind: "table" | "view";
+  tableId?: string;
+  parentTableId?: string;
   name: string;
   ref: string;
   parent?: string;
@@ -74,6 +76,7 @@ type SourceRow = {
 
 type FieldRow = {
   id: string;
+  tableId: string;
   table: string;
   name: string;
   ref: string;
@@ -211,6 +214,8 @@ limit 20`;
 };
 
 const Doc = (props: { children: JSX.Element }) => <DocPage class="!mx-0 !max-w-none w-full">{props.children}</DocPage>;
+
+const plural = (count: number, singular: string, pluralLabel = `${singular}s`) => `${count} ${count === 1 ? singular : pluralLabel}`;
 
 const FormulaSnippet = (props: { code: string; title?: string }) => (
   <DocCode title={props.title} code={props.code} highlight={formulaHighlight} copy />
@@ -528,9 +533,31 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
   const inspectedFields = createMemo(() => {
     const source = inspectedSource();
     if (!source) return [];
-    const tableName = source.kind === "table" ? source.name : source.parent;
-    return props.fieldRows.filter((field) => field.table === tableName);
+    const tableId = source.kind === "table" ? source.tableId : source.parentTableId;
+    return props.fieldRows.filter((field) => field.tableId === tableId);
   });
+  const tableSources = createMemo(() => props.sourceRows.filter((source) => source.kind === "table"));
+  const viewsForTable = (table: SourceRow) =>
+    props.sourceRows.filter((source) => source.kind === "view" && source.parentTableId === table.tableId);
+  const fieldsForTable = (table: SourceRow) => props.fieldRows.filter((field) => field.tableId === table.tableId);
+  const refSourceLabel = (source: SourceRow) => `from ${source.kind} ${source.ref}`;
+  const shownFields = (table: SourceRow) => fieldsForTable(table).slice(0, 8);
+  const hiddenFieldCount = (table: SourceRow) => Math.max(0, fieldsForTable(table).length - shownFields(table).length);
+  const fieldReason = (field: FieldRow) => field.description || field.typeLabel;
+
+  const SourceRef = (source: SourceRow) => (
+    <div class="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-zinc-50 px-2 py-1 text-xs dark:bg-zinc-950">
+      <span class="shrink-0 text-dimmed">use:</span>
+      <code class="truncate font-mono text-primary">{refSourceLabel(source)}</code>
+    </div>
+  );
+
+  const FieldChip = (field: FieldRow) => (
+    <code class="inline-flex max-w-full items-center gap-1 rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+      <span class="truncate">{field.ref}</span>
+      <span class="text-[10px] text-dimmed">{field.typeLabel}</span>
+    </code>
+  );
 
   return (
     <Doc>
@@ -544,45 +571,74 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
         fallback={
           <>
             <DocSection title="Sources">
-              <div class="grid gap-3 xl:grid-cols-2">
-                <For each={props.sourceRows}>
-                  {(source) => (
-                    <article class="paper flex flex-col gap-3 p-4">
-                      <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                          <h3 class="flex items-center gap-2 font-semibold text-primary">
-                            <i class={`ti ${source.kind === "view" ? "ti-table-spark" : "ti-table"}`} />
-                            <span class="truncate">{source.name}</span>
-                          </h3>
-                          <p class="mt-1 text-sm text-dimmed">
-                            {source.kind === "view" ? `View of ${source.parent ?? "a table"}` : "Table"}
-                          </p>
+              <div class="space-y-3">
+                <For each={tableSources()}>
+                  {(table) => (
+                    <article class="paper px-4 py-3">
+                      <div class="flex flex-wrap items-start justify-between gap-3">
+                        <div class="min-w-0 flex-1">
+                          <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                            <h3 class="inline-flex min-w-0 items-center gap-2 font-semibold text-primary">
+                              <i class="ti ti-table text-dimmed" />
+                              <span class="truncate">{table.name}</span>
+                            </h3>
+                            <span class="badge">Table</span>
+                            <span class="text-xs text-dimmed">
+                              {plural(table.recordCount, "record")} · {plural(table.fieldCount, "field")}
+                            </span>
+                          </div>
+                          <Show when={table.description}>
+                            <p class="mt-1 text-sm leading-relaxed text-dimmed">{table.description}</p>
+                          </Show>
                         </div>
-                        <span class="badge">{source.kind === "view" ? "View" : "Table"}</span>
+                        <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                          {SourceRef(table)}
+                          <CopyButton text={refSourceLabel(table)} class="btn-input btn-sm" />
+                          <a class="btn-input btn-sm" href={referenceSourceHref(props.baseShortId, table)}>
+                            <i class="ti ti-eye" /> Inspect
+                          </a>
+                        </div>
                       </div>
-                      <Show when={source.description}>
-                        <p class="text-sm leading-relaxed text-dimmed">{source.description}</p>
+
+                      <div class="mt-3 flex flex-wrap gap-1.5">
+                        <For each={shownFields(table)}>{FieldChip}</For>
+                        <Show when={hiddenFieldCount(table) > 0}>
+                          <span class="rounded bg-zinc-50 px-1.5 py-0.5 text-[11px] text-dimmed dark:bg-zinc-950">
+                            +{hiddenFieldCount(table)}
+                          </span>
+                        </Show>
+                      </div>
+
+                      <Show when={viewsForTable(table).length > 0}>
+                        <div class="mt-3 space-y-2 border-l border-zinc-200 pl-4 dark:border-zinc-800">
+                          <For each={viewsForTable(table)}>
+                            {(view) => (
+                              <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
+                                <div class="min-w-0">
+                                  <div class="flex min-w-0 flex-wrap items-center gap-2">
+                                    <span class="inline-flex min-w-0 items-center gap-1.5 font-medium text-primary">
+                                      <i class="ti ti-table-spark text-dimmed" />
+                                      <span class="truncate">{view.name}</span>
+                                    </span>
+                                    <span class="badge">View</span>
+                                    <span class="text-xs text-dimmed">of {view.parent}</span>
+                                  </div>
+                                </div>
+                                <div class="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                                  {SourceRef(view)}
+                                  <CopyButton
+                                    text={refSourceLabel(view)}
+                                    class="btn-ghost btn-sm inline-flex h-8 w-8 items-center justify-center p-0"
+                                  />
+                                  <a class="btn-ghost btn-sm" href={referenceSourceHref(props.baseShortId, view)}>
+                                    Inspect
+                                  </a>
+                                </div>
+                              </div>
+                            )}
+                          </For>
+                        </div>
                       </Show>
-                      <dl class="grid grid-cols-3 gap-2 text-sm">
-                        <div>
-                          <dt class="text-xs uppercase tracking-wide text-dimmed">{source.kind === "view" ? "Base records" : "Records"}</dt>
-                          <dd class="font-semibold text-primary">{source.recordCount}</dd>
-                        </div>
-                        <div>
-                          <dt class="text-xs uppercase tracking-wide text-dimmed">Fields</dt>
-                          <dd class="font-semibold text-primary">{source.fieldCount}</dd>
-                        </div>
-                        <div>
-                          <dt class="text-xs uppercase tracking-wide text-dimmed">Use as</dt>
-                          <dd class="font-mono text-xs text-primary">{source.ref}</dd>
-                        </div>
-                      </dl>
-                      <div class="flex items-center justify-between gap-2">
-                        <CopyButton text={source.ref} class="btn-input btn-sm" />
-                        <a class="btn-input btn-sm" href={referenceSourceHref(props.baseShortId, source)}>
-                          <i class="ti ti-eye" /> Inspect
-                        </a>
-                      </div>
                     </article>
                   )}
                 </For>
@@ -594,43 +650,71 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
         {(source) => (
           <>
             <DocSection title={source().name}>
-              <div class="paper p-4">
-                <div class="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p class="text-sm text-dimmed">{source().kind === "view" ? `View of ${source().parent ?? "a table"}` : "Table"}</p>
+              <div class="paper px-4 py-3">
+                <div class="flex flex-wrap items-start justify-between gap-4">
+                  <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="badge">{source().kind === "view" ? "View" : "Table"}</span>
+                      <span class="text-sm text-dimmed">
+                        {source().kind === "view" ? `of ${source().parent ?? "a table"}` : "Base source"}
+                      </span>
+                      <span class="text-sm text-dimmed">
+                        {plural(source().recordCount, source().kind === "view" ? "base record" : "record")} ·{" "}
+                        {plural(source().fieldCount, "field")}
+                      </span>
+                    </div>
                     <p class="mt-2 max-w-3xl text-sm leading-relaxed text-dimmed">{source().description || "No description yet."}</p>
                   </div>
-                  <div class="flex flex-wrap gap-2">
-                    <span class="badge">
-                      {source().recordCount} {source().kind === "view" ? "base records" : "records"}
-                    </span>
-                    <span class="badge">{source().fieldCount} fields</span>
-                    <CopyButton text={source().ref} class="btn-input btn-sm" />
+                  <div class="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                    {SourceRef(source())}
+                    <CopyButton text={refSourceLabel(source())} class="btn-input btn-sm" />
                   </div>
                 </div>
               </div>
             </DocSection>
 
             <DocSection title="Fields">
-              <div class="grid gap-3 xl:grid-cols-2">
-                <For each={inspectedFields()}>
-                  {(field) => (
-                    <article class="paper p-4">
-                      <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                          <h3 class="flex items-center gap-2 font-semibold text-primary">
-                            <i class={`${fieldTypeIcon(field.type)} text-dimmed`} />
-                            <span class="truncate">{field.name}</span>
-                          </h3>
-                          <p class="mt-1 text-sm text-dimmed">{field.typeLabel}</p>
-                        </div>
-                        <CopyButton text={field.ref} class="btn-ghost btn-sm inline-flex h-8 w-8 items-center justify-center p-0" />
-                      </div>
-                      <p class="mt-3 text-sm leading-relaxed text-dimmed">{field.description || "No description yet."}</p>
-                      <code class="mt-3 inline-flex rounded bg-zinc-100 px-2 py-1 text-xs text-primary dark:bg-zinc-900">{field.ref}</code>
-                    </article>
-                  )}
-                </For>
+              <div class="paper overflow-auto">
+                <table class="min-w-[820px] w-full table-fixed text-sm">
+                  <colgroup>
+                    <col class="w-[30%]" />
+                    <col class="w-[14%]" />
+                    <col class="w-[40%]" />
+                    <col class="w-[16%]" />
+                  </colgroup>
+                  <thead class="bg-zinc-50 text-xs font-medium uppercase tracking-wide text-dimmed dark:bg-zinc-950">
+                    <tr class="border-b border-zinc-100 dark:border-zinc-800">
+                      <th class="px-4 py-2 text-left font-medium">Field</th>
+                      <th class="px-4 py-2 text-left font-medium">Type</th>
+                      <th class="px-4 py-2 text-left font-medium">Description</th>
+                      <th class="px-4 py-2 text-right font-medium">Use as</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
+                    <For each={inspectedFields()}>
+                      {(field) => (
+                        <tr>
+                          <td class="px-4 py-3 align-middle">
+                            <h3 class="flex min-w-0 items-center gap-2 font-semibold text-primary">
+                              <i class={`${fieldTypeIcon(field.type)} shrink-0 text-dimmed`} />
+                              <span class="truncate">{field.name}</span>
+                            </h3>
+                          </td>
+                          <td class="px-4 py-3 align-middle text-dimmed">{field.typeLabel}</td>
+                          <td class="px-4 py-3 align-middle leading-relaxed text-dimmed">{fieldReason(field)}</td>
+                          <td class="px-4 py-3 align-middle">
+                            <div class="flex items-center justify-end gap-2">
+                              <code class="inline-flex rounded bg-zinc-100 px-2 py-1 text-xs text-primary dark:bg-zinc-900">
+                                {field.ref}
+                              </code>
+                              <CopyButton text={field.ref} class="btn-ghost btn-sm inline-flex h-8 w-8 items-center justify-center p-0" />
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </For>
+                  </tbody>
+                </table>
               </div>
             </DocSection>
 
@@ -1469,7 +1553,7 @@ where Status != 'Done'`}
             {
               title: "Open from a view",
               icon: "ti-table-spark",
-              text: "The current view can be the source. The GQL rules are applied on top of the view's saved query.",
+              text: "The current view can be the source. The GQL rules are applied on top of the view's saved GQL source.",
             },
             {
               title: "Open reference",
@@ -1533,6 +1617,7 @@ export default function QueryReferenceWindow(props: Props) {
       id: `table:${table.id}`,
       shortId: table.shortId,
       kind: "table" as const,
+      tableId: table.id,
       name: table.name,
       ref: formatIdentifierRef(table.name),
       description: table.description ?? "",
@@ -1545,6 +1630,7 @@ export default function QueryReferenceWindow(props: Props) {
         id: `view:${view.id}`,
         shortId: view.shortId,
         kind: "view" as const,
+        parentTableId: table.id,
         name: view.name,
         parent: table.name,
         ref: formatIdentifierRef(view.name),
@@ -1561,6 +1647,7 @@ export default function QueryReferenceWindow(props: Props) {
     props.tables.flatMap((table) =>
       (props.fieldsByTable[table.id] ?? []).map((field) => ({
         id: field.id,
+        tableId: table.id,
         table: table.name,
         name: field.name,
         ref: formatIdentifierRef(field.name),

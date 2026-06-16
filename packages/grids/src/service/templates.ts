@@ -30,9 +30,11 @@ export type InstantiateTemplateInput = {
 
 type TemplateContext = {
   tables: Map<string, string>;
+  tableNames: Map<string, string>;
   fields: Map<string, Field>;
   records: Map<string, string>;
   views: Map<string, string>;
+  viewNames: Map<string, string>;
   forms: Map<string, string>;
   dashboards: Map<string, string>;
 };
@@ -118,6 +120,71 @@ const resolveValue = (value: unknown, ctx: TemplateContext): unknown => {
   return value;
 };
 
+const GQL_RESERVED_REFS = new Set([
+  "aggregate",
+  "and",
+  "as",
+  "by",
+  "deleted",
+  "false",
+  "first",
+  "from",
+  "group",
+  "having",
+  "include",
+  "join",
+  "last",
+  "left",
+  "limit",
+  "not",
+  "null",
+  "nulls",
+  "offset",
+  "on",
+  "only",
+  "or",
+  "search",
+  "select",
+  "sort",
+  "table",
+  "true",
+  "view",
+  "where",
+]);
+
+const gqlRef = (name: string): string => {
+  const trimmed = name.trim();
+  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed) && !GQL_RESERVED_REFS.has(trimmed.toLowerCase())) return trimmed;
+  return `"${trimmed.replaceAll('"', '""')}"`;
+};
+
+const resolveGqlRef = (ref: TemplateRef, ctx: TemplateContext): string => {
+  const value =
+    ref.$ref === "table"
+      ? ctx.tableNames.get(ref.key)
+      : ref.$ref === "field"
+        ? ctx.fields.get(ref.key)?.name
+        : ref.$ref === "view"
+          ? ctx.viewNames.get(ref.key)
+          : null;
+
+  if (!value) throw new TemplateError(err.badInput(`template GQL reference not found: ${ref.$ref}:${ref.key}`));
+  return gqlRef(value);
+};
+
+const resolveGqlValue = (value: unknown, ctx: TemplateContext): unknown => {
+  if (value === undefined) return undefined;
+  if (isRef(value)) return resolveGqlRef(value, ctx);
+  if (isFormulaExpression(value)) {
+    return value.$formula.map((part) => (typeof part === "string" ? part : resolveGqlRef(part, ctx))).join("");
+  }
+  if (Array.isArray(value)) return value.map((item) => resolveGqlValue(item, ctx));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, resolveGqlValue(nested, ctx)]));
+  }
+  return value;
+};
+
 const createTables = async (template: GridTemplate, baseId: string, actorId: string | null, ctx: TemplateContext) => {
   for (const table of template.tables) {
     const created = requireResult(
@@ -131,6 +198,7 @@ const createTables = async (template: GridTemplate, baseId: string, actorId: str
       ),
     );
     ctx.tables.set(table.key, created.id);
+    ctx.tableNames.set(table.key, created.name);
   }
 };
 
@@ -224,20 +292,25 @@ const createViews = async (template: GridTemplate, actorId: string | null, ctx: 
   for (const view of template.views ?? []) {
     const tableId = ctx.tables.get(view.table);
     if (!tableId) throw new TemplateError(err.badInput(`template table not found: ${view.table}`));
+    const source = view.source === undefined ? `from table ${resolveGqlRef({ $ref: "table", key: view.table }, ctx)}` : resolveGqlValue(view.source, ctx);
+    if (typeof source !== "string" || !source.trim()) {
+      throw new TemplateError(err.badInput(`template view "${view.name}" must provide a GQL source`));
+    }
 
     const created = requireResult(
       await views.create(
         {
           tableId,
           name: view.name,
-          query: (resolveValue(view.query ?? {}, ctx) as Parameters<typeof views.create>[0]["query"]) ?? {},
-          displayConfig: resolveValue(view.displayConfig ?? { mode: "table" }, ctx) as Parameters<typeof views.create>[0]["displayConfig"],
+          source: source.trim(),
+          ui: resolveValue(view.ui ?? {}, ctx) as Parameters<typeof views.create>[0]["ui"],
           ownerUserId: view.shared === false ? actorId : null,
         },
         actorId,
       ),
     );
     ctx.views.set(view.key, created.id);
+    ctx.viewNames.set(view.key, created.name);
   }
 };
 
@@ -296,9 +369,11 @@ export const instantiate = async (templateId: string, input: InstantiateTemplate
 
   const ctx: TemplateContext = {
     tables: new Map(),
+    tableNames: new Map(),
     fields: new Map(),
     records: new Map(),
     views: new Map(),
+    viewNames: new Map(),
     forms: new Map(),
     dashboards: new Map(),
   };

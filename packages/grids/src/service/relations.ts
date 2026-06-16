@@ -317,7 +317,7 @@ export const enrichRecordsWithFormulas = (
 /**
  * Evaluates view-only computed columns for visible records. These are
  * intentionally not Fields and never persist into records.data in the
- * database; they are derived cells owned by a saved/ad-hoc ViewQuery.
+ * database; they are derived cells owned by a saved/ad-hoc RecordQuery.
  */
 export const enrichRecordsWithComputedColumns = (
   records: GridRecord[],

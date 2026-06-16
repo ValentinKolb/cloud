@@ -1,6 +1,8 @@
-import type { ViewQuery } from "../../../contracts";
+import type { RecordQuery } from "../../../contracts";
 import type { View } from "../../../service";
 import type { RecordsState } from "./query-url";
+
+type RuntimeView = View & { query: RecordQuery };
 
 /**
  * Effective query = URL state layered on top of the saved view's stored
@@ -26,13 +28,13 @@ import type { RecordsState } from "./query-url";
  * view with user customizations layered on top, or pure ad-hoc URL
  * state. The UI uses this to surface a "filter modified" badge.
  */
-type EffectiveQuery = ViewQuery & {
+type EffectiveQuery = RecordQuery & {
   source: "ad-hoc" | "view" | "view-customized";
 };
 
 const isNonEmpty = <T>(v: T[] | undefined): v is T[] => Array.isArray(v) && v.length > 0;
 
-export const resolveEffectiveQuery = (state: RecordsState, view: View | null): EffectiveQuery => {
+export const resolveEffectiveQuery = (state: RecordsState, view: RuntimeView | null): EffectiveQuery => {
   if (!view) {
     const q = state.search.q.trim();
     return {
@@ -49,7 +51,7 @@ export const resolveEffectiveQuery = (state: RecordsState, view: View | null): E
   // the view's stored sort. (If users want "no sort" on a view, they
   // edit the view itself; ad-hoc URL toolbar edits are non-destructive
   // overrides.)
-  const merged: ViewQuery = {
+  const merged: RecordQuery = {
     filter: state.query.filter ?? view.query.filter,
     recordMeta: state.query.recordMeta ?? view.query.recordMeta,
     search: state.search.override

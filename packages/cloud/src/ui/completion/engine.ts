@@ -53,6 +53,14 @@ export type Suggestion = {
   appendSpace?: boolean;
   /** Optional sub-label for dropdown rows (e.g. type hint, category). */
   hint?: string;
+  /** Optional explicit replacement range. Editors that support this
+   *  apply `text` to `[start, end)` instead of replacing the detected
+   *  prefix. Intended for language-server-style completions. */
+  textEdit?: {
+    start: number;
+    end: number;
+    text: string;
+  };
 };
 
 /**
@@ -83,11 +91,7 @@ export type Completion = {
    * debounced path. The `signal` is set up by the caller — abort it
    * yourself in long-running fetches to avoid races.
    */
-  suggest: (
-    query: string,
-    ctx: SuggestContext,
-    signal: AbortSignal,
-  ) => Suggestion[] | Promise<Suggestion[]>;
+  suggest: (query: string, ctx: SuggestContext, signal: AbortSignal) => Suggestion[] | Promise<Suggestion[]>;
   /** When `true`, the editor opens a caret-anchored dropdown listing
    * all matches. Default `false` — only the inline ghost preview shows. */
   dropdown?: boolean;
@@ -153,9 +157,7 @@ export const abbreviations = (dict: Record<string, string>): Completion => {
 
 /** Characters that close a word and may trigger an abbreviation
  *  expansion. Anything "punctuation-y" outside the word body counts. */
-export const TRIGGER_CHARS = new Set([
-  " ", "\t", "\n", ",", ".", "!", "?", ";", ":", ")", "]", "}", '"', "'",
-]);
+export const TRIGGER_CHARS = new Set([" ", "\t", "\n", ",", ".", "!", "?", ";", ":", ")", "]", "}", '"', "'"]);
 
 /** Unicode word-char regex — letters, numbers, underscore. */
 export const WORD_CHAR = /[\p{L}\p{N}_]/u;
@@ -251,21 +253,14 @@ export const detectQuery = (
  * Lets the caller fast-path on `kind === "sync"` and await the
  * promise on `kind === "async"`.
  */
-export type ResolveResult =
-  | { kind: "sync"; data: Suggestion[] }
-  | { kind: "async"; promise: Promise<Suggestion[]> };
+export type ResolveResult = { kind: "sync"; data: Suggestion[] } | { kind: "async"; promise: Promise<Suggestion[]> };
 
 /**
  * Call `completion.suggest` and discriminate between sync and async
  * results. The caller owns the `AbortController`; abort it when the
  * query changes mid-flight to drop the stale response.
  */
-export const resolveSuggestions = (
-  completion: Completion,
-  query: string,
-  ctx: SuggestContext,
-  signal: AbortSignal,
-): ResolveResult => {
+export const resolveSuggestions = (completion: Completion, query: string, ctx: SuggestContext, signal: AbortSignal): ResolveResult => {
   const r = completion.suggest(query, ctx, signal);
   if (r instanceof Promise) return { kind: "async", promise: r };
   return { kind: "sync", data: r };
@@ -286,11 +281,7 @@ export const resolveSuggestions = (
  * reload. The promise here is dead-end by design (we don't want
  * its value), so silently dropping any rejection is correct.
  */
-export const suggestSync = (
-  completion: Completion,
-  query: string,
-  ctx: SuggestContext,
-): Suggestion[] | null => {
+export const suggestSync = (completion: Completion, query: string, ctx: SuggestContext): Suggestion[] | null => {
   const ctrl = new AbortController();
   let result: Suggestion[] | Promise<Suggestion[]>;
   try {
@@ -370,10 +361,7 @@ export const displayLabel = (suggestion: Suggestion, completion: Completion): st
  * editor builds this before calling `suggest` (sync or async) — the
  * engine doesn't, because it doesn't own the textarea state.
  */
-export const buildSuggestContext = (
-  textarea: HTMLTextAreaElement,
-  queryCtx: QueryContext,
-): SuggestContext => ({
+export const buildSuggestContext = (textarea: HTMLTextAreaElement, queryCtx: QueryContext): SuggestContext => ({
   fullText: textarea.value,
   caret: textarea.selectionStart,
   tokenStart: queryCtx.start,

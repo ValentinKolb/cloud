@@ -431,10 +431,7 @@ const main = async (): Promise<void> => {
   const chartView = must(await gridsService.view.create({
     tableId: recordsTable.id,
     name: "Monthly Chart View",
-    query: {
-      groupBy: [{ fieldId: day.id, granularity: "month", direction: "asc" }],
-      aggregations: [{ fieldId: "*", agg: "count" }],
-    },
+    source: `from table {${recordsTable.id}}\ngroup by {${day.id}} by month\naggregate count(*) as rows\nsort {${day.id}} asc`,
   }, null));
   const chartData = await resolveWidgetData({
     id: "smoke-chart",
@@ -449,14 +446,21 @@ const main = async (): Promise<void> => {
   assert(chartKeys[0]?.startsWith("2026-03"), `chart widget first key should be March, got ${chartKeys[0]}`);
   assert(chartKeys[2]?.startsWith("2026-05"), `chart widget third key should be May, got ${chartKeys[2]}`);
 
+  const statView = must(await gridsService.view.create({
+    tableId: recordsTable.id,
+    name: "Amount Sum Stat View",
+    source: `from table {${recordsTable.id}}\naggregate sum({${amount.id}}) as total`,
+  }, null));
+  const trendView = must(await gridsService.view.create({
+    tableId: recordsTable.id,
+    name: "Amount Monthly Trend View",
+    source: `from table {${recordsTable.id}}\ngroup by {${day.id}} by month\naggregate sum({${amount.id}}) as total\nsort {${day.id}} asc`,
+  }, null));
   const statData = await resolveWidgetData({
     id: "smoke-stat",
     kind: "stat",
-    source: {
-      tableId: recordsTable.id,
-      aggregations: [{ fieldId: amount.id, agg: "sum" }],
-      trend: { fieldId: day.id, granularity: "month", windowSize: 3 },
-    },
+    viewId: statView.id,
+    trend: { viewId: trendView.id, windowSize: 3 },
   }, { userId: userA, userGroups: [] });
   assert(statData.kind === "stat", `stat widget expected stat data, got ${statData.kind}`);
   assert(statData.value === 150, `stat widget total should be 150, got ${String(statData.value)}`);

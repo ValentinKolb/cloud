@@ -5,47 +5,39 @@ import { logAudit } from "./audit";
 import { emitTableMetadataEvent } from "./metadata-events";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
-import { validateViewQueryForTable } from "./query-validation";
 import { normalizeRefKey } from "../ref-syntax";
 import {
-  RecordDisplayConfigSchema,
-  ViewQuerySchema,
   type View,
-  type ViewQuery,
+  type RecordQuery,
   type ColumnSpec,
   type ComputedColumnSpec,
   type FieldColumnSpec,
   type FormatSpec,
-  type RecordDisplayConfig,
+  ViewUiSettingsSchema,
+  type ViewUiSettings,
 } from "../contracts";
 
 type DbRow = Record<string, unknown>;
 
-// View / ViewQuery / ColumnSpec / FormatSpec definitions live in contracts.ts —
+// View / RecordQuery / ColumnSpec / FormatSpec definitions live in contracts.ts —
 // re-export so consumers can keep importing them from the service layer.
-export type { View, ViewQuery, ColumnSpec, ComputedColumnSpec, FieldColumnSpec, FormatSpec };
+export type { View, RecordQuery, ColumnSpec, ComputedColumnSpec, FieldColumnSpec, FormatSpec };
 
-/**
- * Reads a stored view row and validates the JSONB query blob against
- * ViewQuerySchema. If the stored blob fails validation (e.g. references
- * deleted fields, schema-drifted shape from before v3), we coerce to an
- * empty query rather than throwing — better than the whole listing
- * crashing because one corrupt view exists. The user can re-edit the
- * view to fix it.
- */
+const parseUi = (raw: unknown): ViewUiSettings => {
+  const parsed = ViewUiSettingsSchema.safeParse(parseJsonbRow<unknown>(raw, {}));
+  return parsed.success ? parsed.data : {};
+};
+
 const mapRow = (row: DbRow): View => {
-  const rawQuery = parseJsonbRow<unknown>(row.query, {});
-  const parsed = ViewQuerySchema.safeParse(rawQuery);
-  const rawDisplay = parseJsonbRow<unknown>(row.display_config, { mode: "table" });
-  const display = RecordDisplayConfigSchema.safeParse(rawDisplay);
   return {
     id: row.id as string,
     shortId: row.short_id as string,
     tableId: row.table_id as string,
     name: row.name as string,
+    description: (row.description as string | null) ?? null,
     icon: (row.icon as string | null) ?? null,
-    query: parsed.success ? parsed.data : {},
-    displayConfig: display.success ? display.data : { mode: "table" },
+    source: row.source as string,
+    ui: parseUi(row.ui),
     ownerUserId: (row.owner_user_id as string | null) ?? null,
     position: row.position as number,
     deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
@@ -116,7 +108,7 @@ export const listForTable = async (params: {
   // MAX(positive rank).
   const rows = await sql<DbRow[]>`
     WITH ranked AS (
-      SELECT v.id, v.short_id, v.table_id, v.name, v.icon, v.query, v.display_config, v.owner_user_id, v.position, v.deleted_at, v.created_at, v.updated_at,
+      SELECT v.id, v.short_id, v.table_id, v.name, v.description, v.icon, v.source, v.ui, v.owner_user_id, v.position, v.deleted_at, v.created_at, v.updated_at,
         (
           SELECT CASE
             WHEN COUNT(*) = 0 THEN NULL
@@ -161,7 +153,7 @@ export const listForTable = async (params: {
       JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
       WHERE v.table_id = ${params.tableId}::uuid AND v.deleted_at IS NULL
     )
-    SELECT id, short_id, table_id, name, icon, query, display_config, owner_user_id, position, deleted_at, created_at, updated_at
+    SELECT id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
     FROM ranked
     WHERE COALESCE(user_rank, group_rank, auth_rank, public_rank) >= 1
        OR (
@@ -250,11 +242,11 @@ const ensureUniqueViewName = async (
 export type CreateViewServiceInput = {
   tableId: string;
   name: string;
+  description?: string | null;
   icon?: string | null;
-  /** Canonical query — undefined means "empty preset" (just a named view
-   *  with no filter/sort/etc, useful as a starting point in the UI). */
-  query?: ViewQuery;
-  displayConfig?: RecordDisplayConfig;
+  /** Canonical GQL source. Undefined means the base table source. */
+  source?: string;
+  ui?: ViewUiSettings;
   ownerUserId?: string | null;
 };
 
@@ -267,32 +259,27 @@ export const create = async (
   const uniqueName = await ensureUniqueViewName(input.tableId, name);
   if (!uniqueName.ok) return uniqueName;
 
-  // Re-validate the query at the service boundary even though the API
-  // layer already did. Defensive: the service is also called by SSR and
-  // future imports — every entry path validates.
-  const queryParsed = ViewQuerySchema.safeParse(input.query ?? {});
-  if (!queryParsed.success) {
-    return fail(err.badInput(`invalid view query: ${queryParsed.error.message}`));
-  }
-  const queryValid = await validateViewQueryForTable(input.tableId, queryParsed.data);
-  if (!queryValid.ok) return queryValid;
-  const displayConfigParsed = RecordDisplayConfigSchema.safeParse(input.displayConfig ?? { mode: "table" });
-  if (!displayConfigParsed.success) return fail(err.badInput("invalid view display config"));
+  const source = input.source?.trim() || `from table {${input.tableId}}`;
+  if (source.length === 0) return fail(err.badInput("view source required"));
+  if (source.length > 20_000) return fail(err.badInput("view source is too long"));
+  const uiParsed = ViewUiSettingsSchema.safeParse(input.ui ?? {});
+  if (!uiParsed.success) return fail(err.badInput("invalid view UI settings"));
 
   const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
-      INSERT INTO grids.views (short_id, table_id, name, icon, query, display_config, owner_user_id, position)
+      INSERT INTO grids.views (short_id, table_id, name, description, icon, source, ui, owner_user_id, position)
       VALUES (
         ${shortId},
         ${input.tableId}::uuid,
         ${name},
+        ${input.description ?? null},
         ${input.icon ?? null},
-        ${queryParsed.data}::jsonb,
-        ${displayConfigParsed.data}::jsonb,
+        ${source},
+        ${uiParsed.data}::jsonb,
         ${input.ownerUserId ?? null}::uuid,
         COALESCE((SELECT MAX(position) + 1 FROM grids.views WHERE table_id = ${input.tableId}::uuid), 0)
       )
-      RETURNING id, short_id, table_id, name, icon, query, display_config, owner_user_id, position, deleted_at, created_at, updated_at
+      RETURNING id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
     `;
     if (!r) throw new Error("insert returned no row");
     return r;
@@ -309,9 +296,10 @@ export const create = async (
 
 export type UpdateViewServiceInput = {
   name?: string;
+  description?: string | null;
   icon?: string | null;
-  query?: ViewQuery;
-  displayConfig?: RecordDisplayConfig;
+  source?: string;
+  ui?: ViewUiSettings;
   position?: number;
   /** Shared toggle: true → ownerUserId becomes null (anyone can read);
    *  false → ownerUserId becomes `actorId` (the editor takes ownership). */
@@ -338,38 +326,33 @@ export const update = async (
       ? null
       : actorId;
 
-  let nextQuery: ViewQuery = existing.query;
-  if (input.query !== undefined) {
-    const queryParsed = ViewQuerySchema.safeParse(input.query);
-    if (!queryParsed.success) {
-      return fail(err.badInput(`invalid view query: ${queryParsed.error.message}`));
-    }
-    const queryValid = await validateViewQueryForTable(existing.tableId, queryParsed.data);
-    if (!queryValid.ok) return queryValid;
-    nextQuery = queryParsed.data;
-  }
-  const displayConfigParsed = RecordDisplayConfigSchema.safeParse(input.displayConfig ?? existing.displayConfig);
-  if (!displayConfigParsed.success) return fail(err.badInput("invalid view display config"));
+  const uiParsed = ViewUiSettingsSchema.safeParse(input.ui ?? existing.ui);
+  if (!uiParsed.success) return fail(err.badInput("invalid view UI settings"));
+  const nextSource = input.source?.trim() ?? existing.source;
+  if (nextSource.length === 0) return fail(err.badInput("view source required"));
+  if (nextSource.length > 20_000) return fail(err.badInput("view source is too long"));
 
   const next = {
     name: name ?? existing.name,
+    description: input.description !== undefined ? input.description : existing.description,
     icon: input.icon !== undefined ? input.icon : existing.icon,
-    query: nextQuery,
-    displayConfig: displayConfigParsed.data,
+    source: nextSource,
+    ui: uiParsed.data,
     position: input.position ?? existing.position,
   };
 
   const [row] = await sql<DbRow[]>`
     UPDATE grids.views
     SET name = ${next.name},
+        description = ${next.description},
         icon = ${next.icon},
-        query = ${next.query}::jsonb,
-        display_config = ${next.displayConfig}::jsonb,
+        source = ${next.source},
+        ui = ${next.ui}::jsonb,
         position = ${next.position},
         owner_user_id = ${ownerUserId}::uuid,
         updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
-    RETURNING id, short_id, table_id, name, icon, query, display_config, owner_user_id, position, deleted_at, created_at, updated_at
+    RETURNING id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("update failed"));
   const view = mapRow(row);
@@ -406,7 +389,7 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   const [row] = await sql<DbRow[]>`
     UPDATE grids.views SET deleted_at = NULL, updated_at = now()
     WHERE id = ${id}::uuid
-    RETURNING id, short_id, table_id, name, icon, query, display_config, owner_user_id, position, deleted_at, created_at, updated_at
+    RETURNING id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("restore failed"));
   const view = mapRow(row);

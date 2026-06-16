@@ -28,10 +28,6 @@ export type GridsMetadataEvent = {
     | "view.updated"
     | "view.deleted"
     | "view.restored"
-    | "gqlQuery.created"
-    | "gqlQuery.updated"
-    | "gqlQuery.deleted"
-    | "gqlQuery.restored"
     | "form.created"
     | "form.updated"
     | "form.deleted"
@@ -43,7 +39,7 @@ export type GridsMetadataEvent = {
     | "access.changed";
   baseId: string;
   resource: {
-    kind: "base" | "table" | "field" | "view" | "gqlQuery" | "form" | "dashboard" | "access";
+    kind: "base" | "table" | "field" | "view" | "form" | "dashboard" | "access";
     id: string;
     tableId?: string;
   };
