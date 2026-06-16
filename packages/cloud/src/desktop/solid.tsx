@@ -282,7 +282,7 @@ const useContextMenu = () => {
 ContextMenu.Trigger = (props) => {
   const menu = useContextMenu();
   return (
-    <div class={props.class} onContextMenu={menu.open}>
+    <div class={props.class} role="group" onContextMenu={menu.open}>
       {props.children}
     </div>
   );

@@ -350,6 +350,7 @@ const DockWorkspaceRoot = (props: DockWorkspaceProps) => {
                 <section
                   class="flex min-h-0 min-w-0 flex-col gap-1 overflow-hidden bg-surface"
                   style={{ width: `${section.size}%` }}
+                  role="region"
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={(event) => {
                     event.preventDefault();

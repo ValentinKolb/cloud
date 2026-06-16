@@ -363,6 +363,7 @@ const NumberInput = (props: NumberInputProps) => {
             id={a11y.inputId}
             name={props.name}
             type="text"
+            role="spinbutton"
             inputMode={decimalPlaces() === 0 ? "numeric" : "decimal"}
             // Transparent / borderless / zero-padding: the wrapping
             // <div class="input"> owns the visual box, the native

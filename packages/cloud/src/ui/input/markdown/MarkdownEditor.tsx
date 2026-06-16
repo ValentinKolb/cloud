@@ -730,6 +730,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
             popover="manual"
             class="popup fixed inset-auto m-0 border border-zinc-200 p-1 dark:border-zinc-700"
             classList={{ dark: isDarkTheme() }}
+            role="presentation"
             aria-label="Completion suggestions"
           >
             <div class="flex max-h-60 flex-col gap-0.5 overflow-y-auto" role="listbox" aria-label="Suggestions">
