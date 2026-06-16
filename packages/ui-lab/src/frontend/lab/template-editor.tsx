@@ -36,22 +36,12 @@ export type TemplateCssEditorProps = {
   placeholder?: string;
 };
 
-export type TemplatePaper = "fluid" | "a4" | "a5";
-export type TemplateOrientation = "portrait" | "landscape";
-
 export type TemplatePreviewProps = {
   title?: string;
   description?: string;
   class?: string;
   iframeClass?: string;
   chrome?: boolean;
-  paper?: TemplatePaper;
-  orientation?: TemplateOrientation;
-  defaultZoom?: number;
-  minZoom?: number;
-  maxZoom?: number;
-  showPrintButton?: boolean;
-  paginate?: boolean;
 };
 
 export type TemplateSampleDataProps = {
@@ -78,10 +68,10 @@ type TemplateContextValue = {
 const DEFAULT_TEMPLATE = [
   "<p>Hello {{EMAIL}},</p>",
   "",
-  "<p>Your {{APP_NAME}} invoice is ready.</p>",
+  "<p>Welcome to {{APP_NAME}}. Your workspace is ready.</p>",
   "",
   "{{#ITEMS}}",
-  "<p>{{name}} - <strong>{{price}}</strong></p>",
+  "<p><strong>{{name}}</strong><br>{{description}}</p>",
   "{{/ITEMS}}",
   "",
   "{{#CONTACT_EMAIL}}",
@@ -90,24 +80,17 @@ const DEFAULT_TEMPLATE = [
 ].join("\n");
 
 const DEFAULT_CSS = [
-  "@page {",
-  "  size: A4 portrait;",
-  "  margin: 0;",
-  "}",
-  "",
-  ".template-page {",
-  "  padding: 18mm;",
-  "}",
-  "",
   "body {",
   "  font-family: system-ui, sans-serif;",
-  "  font-size: 11pt;",
+  "  font-size: 14px;",
   "  line-height: 1.45;",
   "  color: #18181b;",
+  "  margin: 0;",
+  "  padding: 24px;",
   "}",
   "",
   "p {",
-  "  margin: 0 0 4mm;",
+  "  margin: 0 0 12px;",
   "}",
   "",
   "strong {",
@@ -143,8 +126,8 @@ const TEMPLATE_VARIABLES: TemplateVariable[] = [
     description: "JSON array used by the {{#ITEMS}} loop.",
     kind: "array",
     defaultValue: [
-      { name: "Membership", price: "12.00 EUR" },
-      { name: "Storage", price: "3.50 EUR" },
+      { name: "Profile", description: "Invite teammates and complete your account settings." },
+      { name: "Templates", description: "Edit HTML, CSS, and sample data in one place." },
     ],
   },
 ];
@@ -174,208 +157,6 @@ const createTemplateEditorPanesValue = (): PanesValue => ({
   },
 });
 
-const INVOICE_ITEMS = Array.from({ length: 42 }, (_, index) => {
-  const quantity = (index % 4) + 1;
-  const unitPrice = 24 + (index % 7) * 8;
-  return {
-    position: String(index + 1).padStart(2, "0"),
-    name: `Consulting package ${index + 1}`,
-    description: "Implementation, review, and project coordination.",
-    quantity,
-    unitPrice: `${unitPrice.toFixed(2)} EUR`,
-    total: `${(quantity * unitPrice).toFixed(2)} EUR`,
-  };
-});
-
-const INVOICE_TEMPLATE = [
-  '<section data-print-header class="invoice-header">',
-  "  <div>",
-  "    <strong>{{COMPANY_NAME}}</strong>",
-  "    <div>{{COMPANY_ADDRESS}}</div>",
-  "  </div>",
-  "  <div>",
-  "    <strong>Invoice {{INVOICE_NUMBER}}</strong>",
-  "    <div>{{INVOICE_DATE}}</div>",
-  "  </div>",
-  "</section>",
-  "",
-  '<section class="invoice-recipient">',
-  "  <span>Bill to</span>",
-  "  <strong>{{CUSTOMER_NAME}}</strong>",
-  "  <div>{{CUSTOMER_ADDRESS}}</div>",
-  "</section>",
-  "",
-  '<table class="invoice-table">',
-  "  <thead>",
-  "    <tr>",
-  "      <th>Pos.</th>",
-  "      <th>Description</th>",
-  "      <th>Qty</th>",
-  "      <th>Unit</th>",
-  "      <th>Total</th>",
-  "    </tr>",
-  "  </thead>",
-  "  <tbody>",
-  "    {{#ITEMS}}",
-  "    <tr>",
-  "      <td>{{position}}</td>",
-  "      <td><strong>{{name}}</strong><br><span>{{description}}</span></td>",
-  "      <td>{{quantity}}</td>",
-  "      <td>{{unitPrice}}</td>",
-  "      <td>{{total}}</td>",
-  "    </tr>",
-  "    {{/ITEMS}}",
-  "  </tbody>",
-  "</table>",
-  "",
-  '<section data-print-footer class="invoice-footer">',
-  "  <span>{{COMPANY_NAME}} · {{COMPANY_EMAIL}}</span>",
-  "  <span>Page <span data-page-number></span> / <span data-page-count></span></span>",
-  "</section>",
-].join("\n");
-
-const INVOICE_CSS = [
-  "@page {",
-  "  size: A4 portrait;",
-  "  margin: 0;",
-  "}",
-  "",
-  ".template-page {",
-  "  padding: 18mm 16mm 18mm;",
-  "}",
-  "",
-  "body {",
-  "  font-family: Inter, system-ui, sans-serif;",
-  "  font-size: 9.5pt;",
-  "  color: #18181b;",
-  "}",
-  "",
-  ".invoice-header,",
-  ".invoice-footer {",
-  "  display: flex;",
-  "  justify-content: space-between;",
-  "  gap: 12mm;",
-  "}",
-  "",
-  ".invoice-header {",
-  "  border-bottom: 0.3mm solid #18181b;",
-  "  padding-bottom: 4mm;",
-  "  margin-bottom: 12mm;",
-  "}",
-  "",
-  ".invoice-footer {",
-  "  border-top: 0.2mm solid #d4d4d8;",
-  "  padding-top: 3mm;",
-  "  margin-top: 10mm;",
-  "  color: #71717a;",
-  "  font-size: 8pt;",
-  "}",
-  "",
-  ".invoice-recipient {",
-  "  margin-bottom: 10mm;",
-  "}",
-  "",
-  ".invoice-recipient span {",
-  "  display: block;",
-  "  color: #71717a;",
-  "  font-size: 8pt;",
-  "  text-transform: uppercase;",
-  "  letter-spacing: 0.04em;",
-  "}",
-  "",
-  ".invoice-table {",
-  "  width: 100%;",
-  "  border-collapse: collapse;",
-  "}",
-  "",
-  ".invoice-table th,",
-  ".invoice-table td {",
-  "  border-bottom: 0.2mm solid #e4e4e7;",
-  "  padding: 3mm 2mm;",
-  "  text-align: left;",
-  "  vertical-align: top;",
-  "}",
-  "",
-  ".invoice-table th {",
-  "  background: #f4f4f5;",
-  "  font-size: 8pt;",
-  "  text-transform: uppercase;",
-  "}",
-  "",
-  ".invoice-table td:nth-child(3),",
-  ".invoice-table td:nth-child(4),",
-  ".invoice-table td:nth-child(5) {",
-  "  text-align: right;",
-  "}",
-  "",
-  "@media print {",
-  "  .template-page {",
-  "    padding: 18mm 16mm 18mm;",
-  "  }",
-  "",
-  "  thead {",
-  "    display: table-header-group;",
-  "  }",
-  "",
-  "  tr {",
-  "    break-inside: avoid;",
-  "  }",
-  "}",
-].join("\n");
-
-const INVOICE_VARIABLES: TemplateVariable[] = [
-  {
-    name: "COMPANY_NAME",
-    label: "Company name",
-    description: "Shown in the repeated print header and footer.",
-    defaultValue: "Stuve Cloud GmbH",
-  },
-  {
-    name: "COMPANY_ADDRESS",
-    label: "Company address",
-    description: "Sender address in the invoice header.",
-    defaultValue: "Cloudstrasse 12 · 10115 Berlin",
-  },
-  {
-    name: "COMPANY_EMAIL",
-    label: "Company email",
-    description: "Footer contact address.",
-    kind: "email",
-    defaultValue: "billing@example.com",
-  },
-  {
-    name: "CUSTOMER_NAME",
-    label: "Customer name",
-    description: "Recipient block.",
-    defaultValue: "Example Customer AG",
-  },
-  {
-    name: "CUSTOMER_ADDRESS",
-    label: "Customer address",
-    description: "Recipient address.",
-    defaultValue: "Main Street 4 · 80331 Munich",
-  },
-  {
-    name: "INVOICE_NUMBER",
-    label: "Invoice number",
-    description: "Shown in the header.",
-    defaultValue: "RE-2026-0042",
-  },
-  {
-    name: "INVOICE_DATE",
-    label: "Invoice date",
-    description: "Shown in the header.",
-    defaultValue: "11.06.2026",
-  },
-  {
-    name: "ITEMS",
-    label: "Invoice items",
-    description: "Long JSON array used by the table loop.",
-    kind: "array",
-    defaultValue: INVOICE_ITEMS,
-  },
-];
-
 const HTML_TAGS = [
   { name: "p", snippet: "<p></p>", hint: "paragraph" },
   { name: "a", snippet: '<a href="{{LOGIN_URL}}">Link</a>', hint: "link" },
@@ -387,23 +168,16 @@ const HTML_TAGS = [
 ];
 
 const CSS_SNIPPETS = [
-  { name: "@page", snippet: "@page {\n  size: A4 portrait;\n  margin: 0;\n}", hint: "print page" },
-  { name: ".template-page", snippet: ".template-page {\n  padding: 18mm;\n}", hint: "paper content" },
   { name: "body", snippet: "body {\n  font-family: system-ui, sans-serif;\n}", hint: "selector" },
-  { name: "p", snippet: "p {\n  margin: 0 0 4mm;\n}", hint: "selector" },
+  { name: "p", snippet: "p {\n  margin: 0 0 12px;\n}", hint: "selector" },
   { name: "table", snippet: "table {\n  width: 100%;\n  border-collapse: collapse;\n}", hint: "selector" },
   { name: "color", snippet: "color: #18181b;", hint: "property" },
-  { name: "font-size", snippet: "font-size: 11pt;", hint: "property" },
+  { name: "font-size", snippet: "font-size: 14px;", hint: "property" },
   { name: "line-height", snippet: "line-height: 1.45;", hint: "property" },
-  { name: "margin", snippet: "margin: 0 0 4mm;", hint: "property" },
-  { name: "padding", snippet: "padding: 4mm;", hint: "property" },
-  { name: "border", snippet: "border: 0.25mm solid #d4d4d8;", hint: "property" },
+  { name: "margin", snippet: "margin: 0 0 12px;", hint: "property" },
+  { name: "padding", snippet: "padding: 16px;", hint: "property" },
+  { name: "border", snippet: "border: 1px solid #d4d4d8;", hint: "property" },
 ];
-
-const PAPER_SIZES: Record<Exclude<TemplatePaper, "fluid">, { widthMm: number; heightMm: number; label: string }> = {
-  a4: { widthMm: 210, heightMm: 297, label: "DIN A4" },
-  a5: { widthMm: 148, heightMm: 210, label: "DIN A5" },
-};
 
 const escapeHtml = (value: string): string =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -581,238 +355,17 @@ const highlightCss = (text: string): string => {
   return out;
 };
 
-const clampZoom = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
-
-const paperSizeCss = (paper: TemplatePaper, orientation: TemplateOrientation, zoom: number): string => {
-  if (paper === "fluid") {
-    return `
-      :root {
-        --template-preview-zoom: ${zoom};
-      }`;
-  }
-  const size = PAPER_SIZES[paper];
-  const width = orientation === "portrait" ? size.widthMm : size.heightMm;
-  const height = orientation === "portrait" ? size.heightMm : size.widthMm;
-  return `
-      :root {
-        --template-paper-width: ${width}mm;
-        --template-paper-height: ${height}mm;
-        --template-paper-display-width: ${width * zoom}mm;
-        --template-paper-display-height: ${height * zoom}mm;
-        --template-preview-zoom: ${zoom};
-      }`;
-};
-
 const escapeStyleText = (value: string): string => value.replace(/<\/style/gi, "<\\/style");
 
-const paginationScript = (): string => `
-(() => {
-  const source = document.querySelector("[data-template-source]");
-  const pages = document.querySelector("[data-template-pages]");
-  if (!source || !pages) return;
-
-  const header = source.querySelector("[data-print-header]");
-  const footer = source.querySelector("[data-print-footer]");
-  const table = source.querySelector("table");
-  if (!header || !footer || !table) {
-    const frame = document.createElement("div");
-    frame.className = "template-page-frame";
-    const page = document.createElement("main");
-    page.className = "template-page";
-    page.innerHTML = source.innerHTML;
-    frame.append(page);
-    pages.append(frame);
-    source.remove();
-    return;
-  }
-
-  const beforeTable = [];
-  const afterTable = [];
-  let seenTable = false;
-  for (const node of Array.from(source.childNodes)) {
-    if (node === table) {
-      seenTable = true;
-      continue;
-    }
-    if (node === header || node === footer) continue;
-    if (seenTable) afterTable.push(node.cloneNode(true));
-    else beforeTable.push(node.cloneNode(true));
-  }
-
-  const tableClasses = table.getAttribute("class") || "";
-  const tableHead = table.querySelector("thead");
-  const rows = Array.from(table.querySelectorAll("tbody tr"));
-  let currentBody = null;
-  let currentTbody = null;
-
-  const makeTable = () => {
-    const nextTable = document.createElement("table");
-    if (tableClasses) nextTable.setAttribute("class", tableClasses);
-    if (tableHead) nextTable.append(tableHead.cloneNode(true));
-    const tbody = document.createElement("tbody");
-    nextTable.append(tbody);
-    return { table: nextTable, tbody };
-  };
-
-  const makePage = (includeIntro) => {
-    const frame = document.createElement("div");
-    frame.className = "template-page-frame";
-    const page = document.createElement("main");
-    page.className = "template-page";
-    page.append(header.cloneNode(true));
-    const body = document.createElement("section");
-    body.className = "template-page-body";
-    if (includeIntro) for (const node of beforeTable) body.append(node.cloneNode(true));
-    const next = makeTable();
-    body.append(next.table);
-    page.append(body);
-    page.append(footer.cloneNode(true));
-    frame.append(page);
-    pages.append(frame);
-    currentBody = body;
-    currentTbody = next.tbody;
-  };
-
-  const overflows = () => currentBody && currentBody.scrollHeight > currentBody.clientHeight + 1;
-
-  makePage(true);
-  for (const row of rows) {
-    const nextRow = row.cloneNode(true);
-    currentTbody.append(nextRow);
-    if (overflows() && currentTbody.children.length > 1) {
-      nextRow.remove();
-      makePage(false);
-      currentTbody.append(nextRow);
-    }
-  }
-
-  if (afterTable.length > 0) {
-    for (const node of afterTable) currentBody.append(node.cloneNode(true));
-    if (overflows()) {
-      for (const node of afterTable) currentBody.lastChild?.remove();
-      makePage(false);
-      currentBody.append(...afterTable.map((node) => node.cloneNode(true)));
-    }
-  }
-
-  const frames = Array.from(pages.querySelectorAll(".template-page-frame"));
-  const total = String(frames.length);
-  frames.forEach((frame, index) => {
-    for (const node of frame.querySelectorAll("[data-page-number]")) node.textContent = String(index + 1);
-    for (const node of frame.querySelectorAll("[data-page-count]")) node.textContent = total;
-    const page = frame.querySelector(".template-page");
-    if (page) frame.style.height = page.getBoundingClientRect().height + "px";
-  });
-  source.remove();
-})();
-`;
-
-const buildPreviewSrcdoc = (
-  html: string,
-  css: string,
-  paper: TemplatePaper,
-  orientation: TemplateOrientation,
-  zoom: number,
-  paginate: boolean,
-): string => {
-  const isPaper = paper !== "fluid";
-  const pageCss = isPaper
-    ? `
-      @page {
-        size: ${paper.toUpperCase()} ${orientation};
-        margin: 0;
-      }
-      html {
-        background: #f4f4f5;
-      }
-      body {
-        min-height: 100%;
-        margin: 0;
-        padding: 16mm;
-        background: #f4f4f5;
-      }
-      .template-page-frame {
-        width: var(--template-paper-display-width);
-        height: var(--template-paper-display-height);
-        margin: 0 auto;
-        break-after: page;
-        page-break-after: always;
-      }
-      .template-page-frame:last-child {
-        break-after: auto;
-        page-break-after: auto;
-      }
-      .template-page {
-        width: var(--template-paper-width);
-        height: var(--template-paper-height);
-        box-sizing: border-box;
-        margin: 0;
-        overflow: hidden;
-        background: #fff;
-        box-shadow: 0 8px 28px rgba(24, 24, 27, 0.16), 0 0 0 1px rgba(24, 24, 27, 0.08);
-        transform: scale(var(--template-preview-zoom));
-        transform-origin: top left;
-      }
-      .template-pages {
-        display: flex;
-        flex-direction: column;
-        gap: 8mm;
-      }
-      .template-page {
-        display: flex;
-        flex-direction: column;
-      }
-      .template-page-body {
-        flex: 1 1 auto;
-        min-height: 0;
-        overflow: hidden;
-      }
-      @media print {
-        html,
-        body {
-          width: var(--template-paper-width);
-          min-height: auto;
-          padding: 0;
-          background: #fff;
-        }
-        .template-pages {
-          display: block;
-          gap: 0;
-        }
-        .template-page-frame,
-        .template-page {
-          width: var(--template-paper-width);
-          height: var(--template-paper-height);
-          margin: 0;
-        }
-        .template-page {
-          box-shadow: none;
-          transform: none;
-        }
-      }`
-    : `
-      body {
-        margin: 0;
-        padding: 18px;
-        background: #fff;
-        zoom: var(--template-preview-zoom);
-      }
-      .template-page {
-        min-height: 100%;
-      }`;
-
-  const body = paginate
-    ? `<body><div data-template-source hidden>${html}</div><div class="template-pages" data-template-pages></div><script>${paginationScript()}</script></body>`
-    : `<body><div class="template-page-frame"><main class="template-page">${html}</main></div></body>`;
-
-  return `<!doctype html>
+const buildPreviewSrcdoc = (html: string, css: string): string => `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8">
     <style>
-      ${paperSizeCss(paper, orientation, zoom)}
-      ${pageCss}
       body {
+        margin: 0;
+        padding: 18px;
+        background: #fff;
         color: #18181b;
         font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
@@ -822,9 +375,8 @@ const buildPreviewSrcdoc = (
       ${escapeStyleText(css)}
     </style>
   </head>
-  ${body}
+  <body>${html}</body>
 </html>`;
-};
 
 const TemplateContext = createContext<TemplateContextValue>();
 
@@ -917,7 +469,7 @@ const TemplateCssEditor = (props: TemplateCssEditorProps) => {
       onInput={template.onCssInput}
       lines={props.lines ?? 14}
       spellcheck={false}
-      placeholder={props.placeholder ?? "Write print CSS..."}
+      placeholder={props.placeholder ?? "Write CSS..."}
       highlight={highlightCss}
       completions={template.cssCompletions()}
     />
@@ -925,33 +477,14 @@ const TemplateCssEditor = (props: TemplateCssEditorProps) => {
 };
 
 const TemplatePreview = (props: TemplatePreviewProps) => {
-  let iframeEl: HTMLIFrameElement | undefined;
   const template = useTemplateContext();
   const chrome = props.chrome ?? true;
-  const minZoom = createMemo(() => props.minZoom ?? 0.5);
-  const maxZoom = createMemo(() => props.maxZoom ?? 1.4);
-  const [zoom, setZoom] = createSignal(clampZoom(props.defaultZoom ?? 0.72, minZoom(), maxZoom()));
-  const paper = createMemo(() => props.paper ?? "fluid");
-  const orientation = createMemo(() => props.orientation ?? "portrait");
-  const paperLabel = createMemo(() => {
-    const currentPaper = paper();
-    return currentPaper === "fluid" ? "Fluid" : `${PAPER_SIZES[currentPaper].label} ${orientation()}`;
-  });
-  const zoomLabel = createMemo(() => `${Math.round(zoom() * 100)}%`);
-  const adjustZoom = (delta: number) => {
-    setZoom((current) => clampZoom(Number((current + delta).toFixed(2)), minZoom(), maxZoom()));
-  };
-  const printPreview = () => {
-    iframeEl?.contentWindow?.focus();
-    iframeEl?.contentWindow?.print();
-  };
   const iframe = () => (
     <iframe
-      ref={iframeEl}
       title="Template preview"
       class={props.iframeClass ?? "w-full h-[720px] bg-white"}
-      sandbox={props.paginate ? "allow-modals allow-same-origin allow-scripts" : "allow-modals allow-same-origin"}
-      srcdoc={buildPreviewSrcdoc(template.renderedHtml(), template.css(), paper(), orientation(), zoom(), props.paginate ?? false)}
+      sandbox="allow-modals allow-same-origin"
+      srcdoc={buildPreviewSrcdoc(template.renderedHtml(), template.css())}
     />
   );
 
@@ -963,38 +496,6 @@ const TemplatePreview = (props: TemplatePreviewProps) => {
         <div>
           <h4 class="text-sm font-semibold">{props.title ?? "Preview"}</h4>
           <p class="text-xs text-dimmed">{props.description ?? "Sandboxed HTML rendered with Mustache and template CSS."}</p>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <span class="badge badge-muted">{paperLabel()}</span>
-          {props.showPrintButton && (
-            <button type="button" class="btn btn-secondary btn-sm" onClick={printPreview} title="Open browser print dialog">
-              <i class="ti ti-printer text-sm" />
-              Save as PDF
-            </button>
-          )}
-          <div class="inline-flex items-center gap-1 rounded border border-default bg-subtle px-1 py-0.5">
-            <button
-              type="button"
-              class="inline-flex h-6 w-6 items-center justify-center rounded text-zinc-600 hover:bg-zinc-200 dark:text-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-40"
-              onClick={() => adjustZoom(-0.1)}
-              disabled={zoom() <= minZoom()}
-              title="Zoom out"
-              aria-label="Zoom out"
-            >
-              <i class="ti ti-minus text-sm" />
-            </button>
-            <span class="min-w-10 text-center text-xs tabular-nums text-dimmed">{zoomLabel()}</span>
-            <button
-              type="button"
-              class="inline-flex h-6 w-6 items-center justify-center rounded text-zinc-600 hover:bg-zinc-200 dark:text-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-40"
-              onClick={() => adjustZoom(0.1)}
-              disabled={zoom() >= maxZoom()}
-              title="Zoom in"
-              aria-label="Zoom in"
-            >
-              <i class="ti ti-plus text-sm" />
-            </button>
-          </div>
         </div>
       </header>
       {iframe()}
@@ -1050,17 +551,14 @@ export const Template = {
 export const TemplateEditorDemo = () => {
   const [value, setValue] = createSignal(DEFAULT_TEMPLATE);
   const [css, setCss] = createSignal(DEFAULT_CSS);
-  const [paper, setPaper] = createSignal<TemplatePaper>("a4");
-  const [orientation, setOrientation] = createSignal<TemplateOrientation>("portrait");
   const [panes, setPanes] = createSignal<PanesValue>(createTemplateEditorPanesValue());
-  const optionClass = (active: boolean): string => ["btn btn-sm", active ? "btn-primary" : "btn-secondary"].join(" ");
 
   return (
     <DemoCard
       id="template-editor"
       chip={{ kind: "component", name: "TemplateEditor", from: FROM_UI_LAB }}
-      variant="compound API + print preview"
-      description="UI-Lab-only prototype for email and invoice templates. Template.Root owns the SSR-safe HTML, CSS, sample-data, and Mustache render state; Template.Editor, Template.CssEditor, Template.Preview, and Template.SampleData can be arranged by the consuming app in columns, tabs, or omitted entirely."
+      variant="compound API + HTML preview"
+      description="UI-Lab-only prototype for email and HTML templates. Template.Root owns the SSR-safe HTML, CSS, sample-data, and Mustache render state; Template.Editor, Template.CssEditor, Template.Preview, and Template.SampleData can be arranged by the consuming app in panes, tabs, columns, or omitted entirely."
       code={`<Template.Root
   value={template}
   onInput={setTemplate}
@@ -1076,7 +574,7 @@ export const TemplateEditorDemo = () => {
       <Template.CssEditor lines={14} />
     </Panes.Element>
     <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
-      <Template.Preview paper="a4" orientation="portrait" />
+      <Template.Preview />
     </Panes.Element>
     <Panes.Element id="sample-data" title="Sample data" icon="ti ti-database">
       <Template.SampleData />
@@ -1086,28 +584,9 @@ export const TemplateEditorDemo = () => {
     >
       <Template.Root value={value} onInput={setValue} css={css} onCssInput={setCss} variables={TEMPLATE_VARIABLES}>
         <div class="flex flex-col gap-3">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <p class="text-xs text-dimmed">
-              Type {"{{"} for values, {"<"} for HTML snippets, or edit CSS for print styling.
-            </p>
-            <div class="flex flex-wrap items-center gap-1.5">
-              <button type="button" class={optionClass(paper() === "fluid")} onClick={() => setPaper("fluid")}>
-                Fluid
-              </button>
-              <button type="button" class={optionClass(paper() === "a4")} onClick={() => setPaper("a4")}>
-                DIN A4
-              </button>
-              <button type="button" class={optionClass(paper() === "a5")} onClick={() => setPaper("a5")}>
-                DIN A5
-              </button>
-              <button type="button" class={optionClass(orientation() === "portrait")} onClick={() => setOrientation("portrait")}>
-                Portrait
-              </button>
-              <button type="button" class={optionClass(orientation() === "landscape")} onClick={() => setOrientation("landscape")}>
-                Landscape
-              </button>
-            </div>
-          </div>
+          <p class="text-xs text-dimmed">
+            Type {"{{"} for values, {"<"} for HTML snippets, or edit CSS for preview styling.
+          </p>
           <div class="h-[46rem] min-w-0 overflow-hidden rounded-lg bg-zinc-100 p-2 dark:bg-zinc-900">
             <Panes.Root value={panes()} onChange={setPanes} class="h-full w-full" allowResize={false}>
               <Panes.Element id="html" title="HTML" icon="ti ti-code">
@@ -1121,55 +600,12 @@ export const TemplateEditorDemo = () => {
                 </div>
               </Panes.Element>
               <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
-                <Template.Preview
-                  paper={paper()}
-                  orientation={orientation()}
-                  class="paper flex h-full min-h-0 flex-col overflow-hidden"
-                  iframeClass="min-h-0 flex-1 w-full bg-white"
-                />
+                <Template.Preview class="paper flex h-full min-h-0 flex-col overflow-hidden" iframeClass="min-h-0 flex-1 w-full bg-white" />
               </Panes.Element>
               <Panes.Element id="sample-data" title="Sample data" icon="ti ti-database">
                 <Template.SampleData class="paper h-full min-h-0 overflow-auto p-3 flex flex-col gap-3" />
               </Panes.Element>
             </Panes.Root>
-          </div>
-        </div>
-      </Template.Root>
-    </DemoCard>
-  );
-};
-
-export const TemplateInvoicePrintShowcaseDemo = () => {
-  const [value, setValue] = createSignal(INVOICE_TEMPLATE);
-  const [css, setCss] = createSignal(INVOICE_CSS);
-
-  return (
-    <DemoCard
-      id="template-invoice-print"
-      chip={{ kind: "component", name: "Template.Preview", from: FROM_UI_LAB }}
-      variant="single template invoice print"
-      description="Quick showcase for invoices: the user writes one HTML template, marks header and footer with data-print-header/data-print-footer, loops a long table with Mustache, and uses browser print to save as PDF. Header/footer repetition is handled by print CSS, not by separate template fields."
-      code={`<Template.Root value={html} onInput={setHtml} css={css} onCssInput={setCss} variables={invoiceVariables}>
-  <Template.Editor lines={18} />
-  <Template.CssEditor lines={12} />
-  <Template.Preview paper="a4" orientation="portrait" showPrintButton />
-</Template.Root>`}
-    >
-      <Template.Root value={value} onInput={setValue} css={css} onCssInput={setCss} variables={INVOICE_VARIABLES}>
-        <div class="grid gap-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(420px,1.05fr)]">
-          <div class="min-w-0 grid gap-3">
-            <Template.Editor lines={18} />
-            <Template.CssEditor lines={14} />
-          </div>
-          <div class="min-w-0">
-            <Template.Preview
-              paper="a4"
-              orientation="portrait"
-              defaultZoom={0.62}
-              paginate
-              showPrintButton
-              description="A4 print preview with browser Save as PDF."
-            />
           </div>
         </div>
       </Template.Root>
