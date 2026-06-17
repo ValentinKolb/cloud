@@ -1,10 +1,11 @@
 import { sql } from "bun";
 import { accounts } from "../accounts";
+import { logger } from "../logging";
 import { providers } from "../providers";
 import type { User } from "../../contracts/shared";
 
 type IpaLoginFailure =
-  | { ok: false; status: 401; reason: "password_expired"; message: string }
+  | { ok: false; status: 401; reason: "password_expired"; message: string; uid: string }
   | { ok: false; status: 401; reason: "invalid_credentials"; message: string }
   | { ok: false; status: 400; reason: "user_not_synced"; message: string }
   | { ok: false; status: 400; reason: "user_not_found"; message: string }
@@ -19,6 +20,42 @@ type IpaLoginSuccess = {
 };
 
 export type IpaLoginFlowResult = IpaLoginSuccess | IpaLoginFailure;
+
+const log = logger("auth:ipa");
+const DUMMY_LOGIN_UID = "__cloud_invalid_ipa_email_login__";
+
+const normalizeEmail = (value: string): string => value.trim().toLowerCase();
+
+const resolveIpaLoginUid = async (identifier: string): Promise<string | null> => {
+  const trimmed = identifier.trim();
+  if (!trimmed) return null;
+  if (!trimmed.includes("@")) return trimmed;
+
+  const rows = await sql<{ uid: string }[]>`
+    SELECT uid
+    FROM auth.users
+    WHERE provider = 'ipa'
+      AND lower(btrim(mail)) = ${normalizeEmail(trimmed)}
+  `;
+
+  if (rows.length !== 1) {
+    if (rows.length > 1) {
+      log.warn("FreeIPA email login skipped: ambiguous email", {
+        email: normalizeEmail(trimmed),
+        matches: rows.length,
+      });
+    }
+    return null;
+  }
+  return rows[0]!.uid;
+};
+
+const failInvalidCredentials = async (params: { identifier: string; password: string }): Promise<IpaLoginFailure> => {
+  if (params.identifier.trim().includes("@")) {
+    await providers.ipa.auth.login(DUMMY_LOGIN_UID, params.password).catch(() => undefined);
+  }
+  return { ok: false, status: 401, reason: "invalid_credentials", message: "Invalid username or password" };
+};
 
 const loadSyncedIpaUser = async (uid: string): Promise<{ ok: true; userId: string; user: User } | IpaLoginFailure> => {
   const userRows = await sql`
@@ -50,9 +87,14 @@ const loadSyncedIpaUser = async (uid: string): Promise<{ ok: true; userId: strin
 };
 
 export const login = async (params: { username: string; password: string }): Promise<IpaLoginFlowResult> => {
-  const loginResult = await providers.ipa.auth.login(params.username, params.password);
+  const uid = await resolveIpaLoginUid(params.username);
+  if (!uid) {
+    return failInvalidCredentials({ identifier: params.username, password: params.password });
+  }
+
+  const loginResult = await providers.ipa.auth.login(uid, params.password);
   if (loginResult.status === "password_expired") {
-    return { ok: false, status: 401, reason: "password_expired", message: "Password expired" };
+    return { ok: false, status: 401, reason: "password_expired", message: "Password expired", uid };
   }
   if (loginResult.status !== "success") {
     return { ok: false, status: 401, reason: "invalid_credentials", message: "Invalid username or password" };
@@ -61,7 +103,7 @@ export const login = async (params: { username: string; password: string }): Pro
   // Must reach a "synced" outcome before granting a session. Stale mirror rows
   // (expired remotely, dropped from sync scope, or fetch failures) must never
   // grant a fresh local session on the back of successful FreeIPA credentials.
-  const syncOutcome = await providers.ipa.sync.user(params.username);
+  const syncOutcome = await providers.ipa.sync.user(uid);
   switch (syncOutcome.status) {
     case "synced":
       break;
@@ -97,7 +139,7 @@ export const login = async (params: { username: string; password: string }): Pro
       };
   }
 
-  const userResult = await loadSyncedIpaUser(params.username);
+  const userResult = await loadSyncedIpaUser(uid);
   if (!userResult.ok) return userResult;
 
   return {

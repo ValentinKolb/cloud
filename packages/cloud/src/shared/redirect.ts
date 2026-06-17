@@ -30,9 +30,13 @@ export const createLoginRedirectUrl = (requestUrl: string): string => {
 };
 
 /** Build an absolute auth login URL while preserving only safe local redirects. */
-export const createAuthLoginUrl = (appUrl: string, params: { token?: string; redirectTo?: string | null | undefined } = {}): string => {
+export const createAuthLoginUrl = (
+  appUrl: string,
+  params: { token?: string; method?: "email" | "ipa" | "admin"; redirectTo?: string | null | undefined } = {},
+): string => {
   const url = new URL(`${appUrl.replace(/\/$/, "")}/auth/login`);
   if (params.token) url.searchParams.set("token", params.token);
+  if (params.method) url.searchParams.set("method", params.method);
 
   const redirectTo = normalizeRedirectTo(params.redirectTo);
   if (redirectTo) url.searchParams.set("redirectTo", redirectTo);

@@ -33,6 +33,15 @@ describe("redirect helpers", () => {
     expect(externalUrl).toBe("https://cloud.example/auth/login?token=token-id");
   });
 
+  test("builds method-specific login links with safe redirects only", () => {
+    const url = createAuthLoginUrl("https://cloud.example", {
+      method: "ipa",
+      redirectTo: "/app/dashboard",
+    });
+
+    expect(url).toBe("https://cloud.example/auth/login?method=ipa&redirectTo=%2Fapp%2Fdashboard");
+  });
+
   test("builds password reset links with safe redirects only", () => {
     const safeUrl = createAuthPasswordResetUrl("https://cloud.example", {
       token: "token-id",

@@ -439,6 +439,21 @@ export const SETTINGS: SettingDef[] = [
     templateVars: ["TOKEN", "MAGIC_LINK", "APP_NAME"],
   },
   {
+    key: "mail.ipa_email_login_hint",
+    label: "FreeIPA Email Login Hint Template",
+    kind: "template",
+    default: `<p>A sign-in link was requested for <code style="background:#f4f4f5;padding:2px 6px;border-radius:4px;">{{EMAIL}}</code>.</p>
+<p>This email address belongs to a FreeIPA-managed account. Please sign in with your FreeIPA username and password. If your email address is unique in FreeIPA, you can also use it instead of your username.</p>
+<p style="text-align:center;margin:24px 0;">
+  <a href="{{LOGIN_URL}}" target="_blank" style="color:#3b82f6;text-decoration:underline;">Open FreeIPA sign-in</a>
+</p>
+<p style="color:#71717a;font-size:12px;margin:0 0 8px 0;">No email login code was created. If you didn't request this, please ignore this email.</p>
+{{#CONTACT_EMAIL}}<p style="color:#71717a;font-size:12px;margin:0;">If you need help, contact <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>{{/CONTACT_EMAIL}}`,
+    description: "FreeIPA email-login hint template (HTML). Subject: {{APP_NAME}} FreeIPA Sign In",
+    group: "mail",
+    templateVars: ["EMAIL", "LOGIN_URL", "CONTACT_EMAIL", "APP_NAME"],
+  },
+  {
     key: "mail.password_reset",
     label: "Password Reset Template",
     kind: "template",

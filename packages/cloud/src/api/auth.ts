@@ -49,8 +49,8 @@ const app = new Hono<AuthContext>()
 
       const loginResult = await authFlows.ipa.login({ username, password });
       if (!loginResult.ok && loginResult.reason === "password_expired") {
-        log.info("Login failed", { uid: username, reason: "password_expired" });
-        return c.json({ message: "Password expired", passwordExpired: true }, 401);
+        log.info("Login failed", { uid: loginResult.uid, reason: "password_expired" });
+        return c.json({ message: "Password expired", passwordExpired: true, ipaUid: loginResult.uid }, 401);
       }
       if (!loginResult.ok) {
         log.info("Login failed", {
@@ -63,7 +63,7 @@ const app = new Hono<AuthContext>()
       // Store minimal session in Redis
       const sessionToken = await auth.session.create(c, loginResult.userId);
 
-      log.info("Login successful", { uid: username });
+      log.info("Login successful", { uid: loginResult.user.uid });
       return c.json({
         session_token: sessionToken,
         user: loginResult.user,
