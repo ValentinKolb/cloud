@@ -1,11 +1,11 @@
 import {
   createPagination,
   ErrorResponseSchema,
-  type User,
   MessageResponseSchema,
   PaginationQuerySchema,
   PaginationResponseSchema,
   parsePagination,
+  type User,
 } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, rateLimit, requiresAdmin, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
@@ -27,6 +27,8 @@ const UpdateNotificationSchema = z.object({
   recipient: z.email().optional().describe("Recipient email"),
 });
 
+const NotificationStatusSchema = z.enum(["sent", "pending", "error"]);
+
 const NotificationSchema = z.object({
   id: z.uuid(),
   type: z.enum(["email"]),
@@ -44,6 +46,12 @@ const NotificationSchema = z.object({
 const NotificationListResponseSchema = z.object({
   notifications: z.array(NotificationSchema),
   pagination: PaginationResponseSchema,
+});
+
+const NotificationSummaryResponseSchema = z.object({
+  sent: z.number(),
+  pending: z.number(),
+  error: z.number(),
 });
 
 /**
@@ -139,7 +147,7 @@ const app = new Hono<AuthContext>()
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
       },
     }),
-    v("query", PaginationQuerySchema.extend({ search: z.string().optional() })),
+    v("query", PaginationQuerySchema.extend({ search: z.string().optional(), status: NotificationStatusSchema.optional() })),
     async (c) => {
       const user = requireUserBackedActor(c);
       if (!user.ok) return respond(c, user);
@@ -153,6 +161,7 @@ const app = new Hono<AuthContext>()
           isAdmin: user.data.roles.includes("admin"),
           sentBy: user.data.id,
           search: query.search,
+          status: query.status,
         },
       });
 
@@ -162,6 +171,36 @@ const app = new Hono<AuthContext>()
           notifications: items.map(toNotificationDto),
           pagination: createPagination(pagination, total),
         }),
+      );
+    },
+  )
+  // Get recent notification status summary
+  .get(
+    "/summary",
+    describeRoute({
+      tags: ["Notifications"],
+      summary: "Get notification status summary",
+      description: "Get counts by current notification status for entries created in the last seven days.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(NotificationSummaryResponseSchema, "Notification status summary"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+      },
+    }),
+    async (c) => {
+      const user = requireUserBackedActor(c);
+      if (!user.ok) return respond(c, user);
+      return respond(
+        c,
+        ok(
+          await notificationsService.notification.summary({
+            access: {
+              isAdmin: user.data.roles.includes("admin"),
+              sentBy: user.data.id,
+            },
+            days: 7,
+          }),
+        ),
       );
     },
   )

@@ -1,13 +1,14 @@
 import { sql } from "bun";
-import { sendEmail } from "./email";
 import type { PaginationParams } from "../../contracts/shared";
-import { escapeLikePattern } from "../postgres";
 import { logger } from "../logging";
+import { escapeLikePattern } from "../postgres";
+import { sendEmail } from "./email";
 
 const log = logger("notifications");
 
 export type NotificationType = "email";
 export type NotificationStatus = "sent" | "pending" | "error";
+export type NotificationStatusSummary = Record<NotificationStatus, number>;
 
 /**
  * Computes notification delivery status from sent/error timestamps.
@@ -55,6 +56,12 @@ export type NotificationMessage = {
   sentByName: string | null;
   status: NotificationStatus;
 };
+
+const emptyStatusSummary = (): NotificationStatusSummary => ({
+  sent: 0,
+  pending: 0,
+  error: 0,
+});
 
 type DbNotificationRow = {
   id: string;
@@ -143,23 +150,26 @@ export const sendToUser = async (params: SendToUserParams): Promise<{ ok: true; 
  */
 export const list = async (
   pagination: PaginationParams,
-  options?: { sentBy?: string; isAdmin?: boolean; search?: string },
+  options?: { sentBy?: string; isAdmin?: boolean; search?: string; status?: NotificationStatus },
 ): Promise<{ notifications: NotificationMessage[]; total: number }> => {
   const { offset, perPage } = pagination;
-  const { sentBy, isAdmin, search } = options ?? {};
+  const { sentBy, isAdmin, search, status } = options ?? {};
 
   // Build query based on permissions
   let countRows: Array<{ count: number | string }> = [];
   let dataRows: DbNotificationRow[] = [];
 
   const searchPattern = search ? `%${escapeLikePattern(search)}%` : null;
+  const statusFilter = status ?? null;
 
   if (isAdmin) {
     // Admins see all notifications
     if (searchPattern) {
       countRows = await sql`
         SELECT COUNT(*)::int as count FROM notifications.messages
-        WHERE subject ILIKE ${searchPattern} ESCAPE '\' OR content ILIKE ${searchPattern} ESCAPE '\' OR recipient ILIKE ${searchPattern} ESCAPE '\'
+        WHERE
+          (${statusFilter}::text IS NULL OR CASE WHEN sent_at IS NOT NULL THEN 'sent' WHEN error IS NOT NULL THEN 'error' ELSE 'pending' END = ${statusFilter})
+          AND (subject ILIKE ${searchPattern} ESCAPE '\' OR content ILIKE ${searchPattern} ESCAPE '\' OR recipient ILIKE ${searchPattern} ESCAPE '\')
       `;
       dataRows = await sql`
         SELECT
@@ -168,12 +178,17 @@ export const list = async (
           u.display_name as sent_by_name
         FROM notifications.messages m
         LEFT JOIN auth.users u ON m.sent_by = u.id
-        WHERE m.subject ILIKE ${searchPattern} ESCAPE '\' OR m.content ILIKE ${searchPattern} ESCAPE '\' OR m.recipient ILIKE ${searchPattern} ESCAPE '\'
+        WHERE
+          (${statusFilter}::text IS NULL OR CASE WHEN m.sent_at IS NOT NULL THEN 'sent' WHEN m.error IS NOT NULL THEN 'error' ELSE 'pending' END = ${statusFilter})
+          AND (m.subject ILIKE ${searchPattern} ESCAPE '\' OR m.content ILIKE ${searchPattern} ESCAPE '\' OR m.recipient ILIKE ${searchPattern} ESCAPE '\')
         ORDER BY m.created_at DESC
         LIMIT ${perPage} OFFSET ${offset}
       `;
     } else {
-      countRows = await sql`SELECT COUNT(*)::int as count FROM notifications.messages`;
+      countRows = await sql`
+        SELECT COUNT(*)::int as count FROM notifications.messages
+        WHERE ${statusFilter}::text IS NULL OR CASE WHEN sent_at IS NOT NULL THEN 'sent' WHEN error IS NOT NULL THEN 'error' ELSE 'pending' END = ${statusFilter}
+      `;
       dataRows = await sql`
         SELECT
           m.id, m.type, m.recipient, m.subject, m.content,
@@ -181,6 +196,7 @@ export const list = async (
           u.display_name as sent_by_name
         FROM notifications.messages m
         LEFT JOIN auth.users u ON m.sent_by = u.id
+        WHERE ${statusFilter}::text IS NULL OR CASE WHEN m.sent_at IS NOT NULL THEN 'sent' WHEN m.error IS NOT NULL THEN 'error' ELSE 'pending' END = ${statusFilter}
         ORDER BY m.created_at DESC
         LIMIT ${perPage} OFFSET ${offset}
       `;
@@ -190,7 +206,10 @@ export const list = async (
     if (searchPattern) {
       countRows = await sql`
         SELECT COUNT(*)::int as count FROM notifications.messages
-        WHERE sent_by = ${sentBy} AND (subject ILIKE ${searchPattern} ESCAPE '\' OR content ILIKE ${searchPattern} ESCAPE '\' OR recipient ILIKE ${searchPattern} ESCAPE '\')
+        WHERE
+          sent_by = ${sentBy}
+          AND (${statusFilter}::text IS NULL OR CASE WHEN sent_at IS NOT NULL THEN 'sent' WHEN error IS NOT NULL THEN 'error' ELSE 'pending' END = ${statusFilter})
+          AND (subject ILIKE ${searchPattern} ESCAPE '\' OR content ILIKE ${searchPattern} ESCAPE '\' OR recipient ILIKE ${searchPattern} ESCAPE '\')
       `;
       dataRows = await sql`
         SELECT
@@ -199,12 +218,20 @@ export const list = async (
           u.display_name as sent_by_name
         FROM notifications.messages m
         LEFT JOIN auth.users u ON m.sent_by = u.id
-        WHERE m.sent_by = ${sentBy} AND (m.subject ILIKE ${searchPattern} ESCAPE '\' OR m.content ILIKE ${searchPattern} ESCAPE '\' OR m.recipient ILIKE ${searchPattern} ESCAPE '\')
+        WHERE
+          m.sent_by = ${sentBy}
+          AND (${statusFilter}::text IS NULL OR CASE WHEN m.sent_at IS NOT NULL THEN 'sent' WHEN m.error IS NOT NULL THEN 'error' ELSE 'pending' END = ${statusFilter})
+          AND (m.subject ILIKE ${searchPattern} ESCAPE '\' OR m.content ILIKE ${searchPattern} ESCAPE '\' OR m.recipient ILIKE ${searchPattern} ESCAPE '\')
         ORDER BY m.created_at DESC
         LIMIT ${perPage} OFFSET ${offset}
       `;
     } else {
-      countRows = await sql`SELECT COUNT(*)::int as count FROM notifications.messages WHERE sent_by = ${sentBy}`;
+      countRows = await sql`
+        SELECT COUNT(*)::int as count FROM notifications.messages
+        WHERE
+          sent_by = ${sentBy}
+          AND (${statusFilter}::text IS NULL OR CASE WHEN sent_at IS NOT NULL THEN 'sent' WHEN error IS NOT NULL THEN 'error' ELSE 'pending' END = ${statusFilter})
+      `;
       dataRows = await sql`
         SELECT
           m.id, m.type, m.recipient, m.subject, m.content,
@@ -212,7 +239,9 @@ export const list = async (
           u.display_name as sent_by_name
         FROM notifications.messages m
         LEFT JOIN auth.users u ON m.sent_by = u.id
-        WHERE m.sent_by = ${sentBy}
+        WHERE
+          m.sent_by = ${sentBy}
+          AND (${statusFilter}::text IS NULL OR CASE WHEN m.sent_at IS NOT NULL THEN 'sent' WHEN m.error IS NOT NULL THEN 'error' ELSE 'pending' END = ${statusFilter})
         ORDER BY m.created_at DESC
         LIMIT ${perPage} OFFSET ${offset}
       `;
@@ -244,6 +273,47 @@ export const list = async (
   });
 
   return { notifications, total };
+};
+
+/**
+ * Count current notification statuses for recent entries.
+ */
+export const getStatusSummary = async (options?: {
+  sentBy?: string;
+  isAdmin?: boolean;
+  days?: number;
+}): Promise<NotificationStatusSummary> => {
+  const { sentBy, isAdmin, days = 7 } = options ?? {};
+  const windowDays = Math.max(1, Math.floor(days));
+  const summary = emptyStatusSummary();
+
+  let rows: Array<{ status: NotificationStatus; count: number | string }> = [];
+  if (isAdmin) {
+    rows = await sql`
+      SELECT
+        CASE WHEN sent_at IS NOT NULL THEN 'sent' WHEN error IS NOT NULL THEN 'error' ELSE 'pending' END as status,
+        COUNT(*)::int as count
+      FROM notifications.messages
+      WHERE created_at >= now() - (${windowDays}::int * interval '1 day')
+      GROUP BY status
+    `;
+  } else if (sentBy) {
+    rows = await sql`
+      SELECT
+        CASE WHEN sent_at IS NOT NULL THEN 'sent' WHEN error IS NOT NULL THEN 'error' ELSE 'pending' END as status,
+        COUNT(*)::int as count
+      FROM notifications.messages
+      WHERE sent_by = ${sentBy} AND created_at >= now() - (${windowDays}::int * interval '1 day')
+      GROUP BY status
+    `;
+  }
+
+  for (const row of rows) {
+    const count = typeof row.count === "string" ? Number.parseInt(row.count, 10) : row.count;
+    summary[row.status] = Number.isFinite(count) ? count : 0;
+  }
+
+  return summary;
 };
 
 /**
@@ -410,4 +480,5 @@ export const notifications = {
   update,
   getPendingSystemCount,
   sendAllPendingSystem,
+  getStatusSummary,
 };

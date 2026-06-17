@@ -1,8 +1,7 @@
-import { Dropdown } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { apiClient } from "../api-client";
+import { Dropdown, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { apiClient } from "../api-client";
 
 type NotificationActionsProps = {
   id: string;
@@ -10,6 +9,7 @@ type NotificationActionsProps = {
   subject: string;
   content: string;
   recipient: string;
+  error: string | null;
   isAdmin?: boolean;
 };
 
@@ -106,6 +106,28 @@ const NotificationActions = (props: NotificationActionsProps) => {
     }
   };
 
+  const showError = () => {
+    if (!props.error) return;
+    void prompts.dialog<void>(
+      (close) => (
+        <div class="flex flex-col gap-3">
+          <pre class="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-md bg-zinc-100 px-3 py-2 font-mono text-[11px] leading-relaxed text-secondary dark:bg-zinc-800">
+            {props.error}
+          </pre>
+          <div class="flex justify-end">
+            <button type="button" class="btn-secondary btn-sm" onClick={() => close()}>
+              Close
+            </button>
+          </div>
+        </div>
+      ),
+      {
+        title: "Notification Error",
+        icon: "ti ti-alert-circle",
+      },
+    );
+  };
+
   // Admins can always edit, non-admins only pending/error
   const canEdit = props.isAdmin || props.status !== "sent";
   const sendLabel = props.status === "pending" ? "Send" : "Resend";
@@ -133,6 +155,15 @@ const NotificationActions = (props: NotificationActionsProps) => {
                     icon: "ti ti-pencil",
                     label: "Edit",
                     action: handleEdit,
+                  },
+                ]
+              : []),
+            ...(props.status === "error" && props.error
+              ? [
+                  {
+                    icon: "ti ti-alert-circle",
+                    label: "Show Error",
+                    action: showError,
                   },
                 ]
               : []),

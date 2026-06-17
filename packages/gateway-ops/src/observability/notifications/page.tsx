@@ -1,13 +1,19 @@
 import { createPagination, hasRole } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../config";
 import NotificationActions from "./_components/NotificationActions.island";
-import SendAllPending from "./_components/SendAllPending.island";
+import NotificationFilterBar, { type NotificationStatusFilter } from "./_components/NotificationFilterBar.island";
 import { notificationsService } from "./service";
+
+const notificationStatusFilters = new Set<NotificationStatusFilter>(["all", "sent", "pending", "error"]);
+
+const parseStatusFilter = (value: string | undefined): NotificationStatusFilter => {
+  if (value && notificationStatusFilters.has(value as NotificationStatusFilter)) return value as NotificationStatusFilter;
+  return "all";
+};
 
 /** Admin notifications list page with pagination and search. */
 export default ssr<AuthContext>(async (c) => {
@@ -16,20 +22,36 @@ export default ssr<AuthContext>(async (c) => {
   const page = Number(c.req.query("page") ?? "1");
   const perPage = 100;
   const search = c.req.query("search") ?? "";
+  const status = parseStatusFilter(c.req.query("status") ?? undefined);
+  const isAdmin = hasRole(user, "admin");
 
-  const { items: notifs, total } = await notificationsService.notification.list({
-    pagination: { page, perPage },
-    access: {
-      isAdmin: hasRole(user, "admin"),
-      sentBy: user.id,
-      search: search || undefined,
-    },
-  });
+  const [{ items: notifs, total }, summary] = await Promise.all([
+    notificationsService.notification.list({
+      pagination: { page, perPage },
+      access: {
+        isAdmin,
+        sentBy: user.id,
+        search: search || undefined,
+        status: status === "all" ? undefined : status,
+      },
+    }),
+    notificationsService.notification.summary({
+      access: {
+        isAdmin,
+        sentBy: user.id,
+      },
+      days: 7,
+    }),
+  ]);
 
   const pagination = createPagination({ page, perPage, offset: (page - 1) * perPage }, total);
-  const baseUrl = search
-    ? `/admin/observability/notifications?search=${encodeURIComponent(search)}&page=`
-    : "/admin/observability/notifications?page=";
+  const baseUrl = (() => {
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (status !== "all") params.set("status", status);
+    const query = params.toString();
+    return query ? `/admin/observability/notifications?${query}&page=` : "/admin/observability/notifications?page=";
+  })();
 
   const formatDate = (date: Date) => {
     return new Intl.DateTimeFormat("de-DE", {
@@ -90,25 +112,38 @@ export default ssr<AuthContext>(async (c) => {
             <p class="mt-1 text-xs text-dimmed">{total} entries</p>
           </div>
 
+          <StatGrid columns={3}>
+            <StatCell
+              label="Errors 7d"
+              value={summary.error.toLocaleString()}
+              sub={summary.error > 0 ? "last 7 days" : "none"}
+              valueClass={summary.error > 0 ? "text-red-500" : "text-primary"}
+              accent={summary.error > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
+            />
+            <StatCell
+              label="Pending 7d"
+              value={summary.pending.toLocaleString()}
+              sub={summary.pending > 0 ? "last 7 days" : "none"}
+              valueClass={summary.pending > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
+              accent={summary.pending > 0 ? { tone: "amber", icon: "ti ti-clock" } : undefined}
+            />
+            <StatCell
+              label="Sent 7d"
+              value={summary.sent.toLocaleString()}
+              sub="last 7 days"
+              accent={{ tone: "emerald", icon: "ti ti-check" }}
+            />
+          </StatGrid>
+
           <section class="paper overflow-hidden" style="view-transition-name: admin-notifications-table">
             <div class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
               <div>
-                <h2 class="text-xs font-semibold text-primary">Notifications</h2>
+                <h2 class="text-xs font-semibold text-primary">Entries</h2>
                 <p class="text-[10px] text-dimmed">
                   {notifs.length} of {total} entries
                 </p>
               </div>
-              <SearchBar
-                action="/admin/observability/notifications"
-                value={search}
-                placeholder="Search notifications..."
-                ariaLabel="Search notifications"
-              />
-              <div class="flex flex-wrap items-center gap-2">
-                <div class="ml-auto">
-                  <SendAllPending />
-                </div>
-              </div>
+              <NotificationFilterBar search={search} status={status} />
             </div>
             <DataTable
               rows={notifs}
@@ -138,7 +173,8 @@ export default ssr<AuthContext>(async (c) => {
                       subject={notification.subject}
                       content={notification.content}
                       recipient={notification.recipient}
-                      isAdmin={hasRole(user, "admin")}
+                      error={notification.error}
+                      isAdmin={isAdmin}
                     />
                   );
                 }

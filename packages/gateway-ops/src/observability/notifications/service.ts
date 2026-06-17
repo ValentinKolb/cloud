@@ -1,7 +1,8 @@
 import { notifications } from "@valentinkolb/cloud/services";
-import { err, fail, ok, paginate, tryCatch, type PageParams, type Paginated } from "@valentinkolb/stdlib";
+import { err, fail, ok, type PageParams, type Paginated, paginate, tryCatch } from "@valentinkolb/stdlib";
 
 type NotificationItem = Awaited<ReturnType<typeof notifications.list>>["notifications"][number];
+type NotificationStatus = NotificationItem["status"];
 
 /**
  * Translates notification mutation errors into stable API error variants.
@@ -23,7 +24,7 @@ export const notificationsService = {
   notification: {
     list: async (config: {
       pagination?: PageParams;
-      access: { sentBy: string; isAdmin: boolean; search?: string };
+      access: { sentBy: string; isAdmin: boolean; search?: string; status?: NotificationStatus };
     }): Promise<Paginated<NotificationItem>> => {
       const { page, perPage, offset } = paginate(config.pagination);
       const result = await notifications.list(
@@ -32,6 +33,7 @@ export const notificationsService = {
           sentBy: config.access.sentBy,
           isAdmin: config.access.isAdmin,
           search: config.access.search,
+          status: config.access.status,
         },
       );
       return {
@@ -43,6 +45,12 @@ export const notificationsService = {
       };
     },
     get: async (config: { id: string }) => notifications.getById(config.id),
+    summary: async (config: { access: { sentBy: string; isAdmin: boolean }; days?: number }) =>
+      notifications.getStatusSummary({
+        sentBy: config.access.sentBy,
+        isAdmin: config.access.isAdmin,
+        days: config.days,
+      }),
     sendToUser: async (config: { userId: string; subject: string; content?: string; rawHtml?: string; sentBy: string }) => {
       const result = await notifications.sendToUser(config);
       if (!result.ok) return fail(mapSendToUserError(result.error));
