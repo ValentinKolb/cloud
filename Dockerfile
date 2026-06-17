@@ -35,11 +35,13 @@ COPY packages/ui-lab/package.json        packages/ui-lab/
 COPY packages/venue/package.json         packages/venue/
 COPY packages/weather/package.json       packages/weather/
 
+# --production keeps CI/dev-only tools (Biome, TypeScript, @types, etc.) out
+# of production images. This avoids optional platform binaries in multi-arch
+# Docker installs while preserving runtime/build dependencies.
 # --ignore-scripts: bun-plugin-tailwind declares `bun` as a peer dep, which
 # pulls the npm `bun` package whose postinstall extracts a platform binary
-# and fails inside the build sandbox. We don't need it (oven/bun image has
-# bun) and there are no other postinstalls that matter here.
-RUN bun install --frozen-lockfile --ignore-scripts
+# and fails inside the build sandbox. We don't need it (oven/bun image has bun).
+RUN bun install --frozen-lockfile --ignore-scripts --production
 
 # ──────────────────────────────────────────────────────────────────────
 # Stage 2: build — bundle one app into /app/dist.
