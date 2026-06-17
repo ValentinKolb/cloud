@@ -8,7 +8,19 @@ import {
   ServiceAccountCredentialSchema,
   UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, auth, err, fail, hasPermission, jsonResponse, ok, rateLimit, respond, v } from "@valentinkolb/cloud/server";
+import {
+  type AuthContext,
+  auth,
+  err,
+  fail,
+  hasPermission,
+  jsonResponse,
+  ok,
+  rateLimit,
+  respond,
+  respondMessage,
+  v,
+} from "@valentinkolb/cloud/server";
 import { coreSettings, serviceAccountCredentials, serviceAccounts } from "@valentinkolb/cloud/services";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
@@ -332,6 +344,25 @@ const venueRoutes = new Hono<AuthContext>()
     if (!venue.ok) return respond(c, venue);
     return respond(c, () => venueService.venues.update(venue.data.id, c.req.valid("json")));
   })
+  .delete(
+    "/:id",
+    describeRoute({
+      tags: ["Venues"],
+      summary: "Delete venue",
+      description: "Delete a venue and all venue-owned data. Requires admin permission.",
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Venue deleted"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Venue not found"),
+      },
+    }),
+    v("param", VenueIdParamSchema),
+    async (c) => {
+      const venue = await adminVenue(c, c.req.valid("param").id);
+      if (!venue.ok) return respond(c, venue);
+      return respondMessage(c, venueService.venues.delete(venue.data.id), "Venue deleted");
+    },
+  )
   .get("/:id/access", v("param", VenueIdParamSchema), async (c) => {
     const venue = await adminVenue(c, c.req.valid("param").id);
     if (!venue.ok) return respond(c, venue);

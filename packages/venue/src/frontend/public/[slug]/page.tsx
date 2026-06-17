@@ -30,7 +30,10 @@ function PublicSectionView(props: { section: PublicSection }) {
     return (
       <section class="rounded-2xl bg-white/90 p-5 shadow-sm ring-1 ring-black/5">
         <h2 class="mb-3 text-base font-semibold text-zinc-950">{section.title}</h2>
-        <MarkdownView html={markdown.renderSync(sectionText(section, "markdown"))} />
+        <MarkdownView
+          html={markdown.renderSync(sectionText(section, "markdown"))}
+          class="!text-zinc-700 [&_a]:!text-blue-700 [&_blockquote]:!text-zinc-700 [&_code]:!text-zinc-950 [&_h1]:!text-zinc-950 [&_h2]:!text-zinc-950 [&_h3]:!text-zinc-950 [&_h4]:!text-zinc-950 [&_h5]:!text-zinc-950 [&_h6]:!text-zinc-950 [&_li]:!text-zinc-700 [&_p]:!text-zinc-700 [&_strong]:!text-zinc-950"
+        />
       </section>
     );
   }

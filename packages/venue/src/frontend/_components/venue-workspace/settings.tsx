@@ -15,7 +15,7 @@ import {
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -26,11 +26,56 @@ import type {
   OpeningRuleInput,
   ShiftTemplate,
   ShiftTemplateInput,
+  Venue,
   VenueDashboard,
 } from "../../../contracts";
 import { weekdays } from "./constants";
 import { ClosedDayDialog, OpeningRuleDialog, ScheduleActionButton, ShiftTemplateDialog } from "./schedule";
 import { bannerTransform, canAdmin, readError, sortOpeningRules, sortOverrides, sortShiftTemplates } from "./utils";
+
+function VenueDangerZone(props: { venue: Venue }) {
+  const remove = mutation.create<void, void>({
+    mutation: async () => {
+      const res = await apiClient.venues[":id"].$delete({
+        param: { id: props.venue.id },
+      });
+      if (!res.ok) throw new Error(await readError(res, "Failed to delete venue."));
+    },
+    onSuccess: () => navigateTo("/app/venue"),
+    onError: (err) => prompts.error(err.message),
+  });
+
+  const handleDelete = async () => {
+    const confirmed = await prompts.confirm(`Delete "${props.venue.name}" and all venue data? This cannot be undone.`, {
+      title: "Delete venue",
+      icon: "ti ti-trash",
+      variant: "danger",
+      confirmText: "Delete",
+    });
+    if (confirmed) remove.mutate();
+  };
+
+  return (
+    <div class="flex flex-col gap-3">
+      <p class="text-xs text-dimmed">
+        This removes opening hours, shifts, public sections, feedback, access grants, and API keys. It cannot be undone.
+      </p>
+      <button type="button" onClick={handleDelete} disabled={remove.loading()} class="btn-danger btn-md self-start">
+        {remove.loading() ? (
+          <>
+            <i class="ti ti-loader-2 animate-spin" />
+            Deleting
+          </>
+        ) : (
+          <>
+            <i class="ti ti-trash" />
+            Delete venue
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
 
 export function SettingsDialog(props: {
   dashboard: VenueDashboard;
@@ -563,6 +608,18 @@ export function SettingsDialog(props: {
             </a>
           </div>
         </SettingsModal.Tab>
+
+        {canAdmin(venue) && (
+          <SettingsModal.Tab
+            id="danger"
+            title="Danger zone"
+            icon="ti ti-alert-triangle"
+            description="Permanently delete this venue and all of its data."
+            tone="danger"
+          >
+            <VenueDangerZone venue={venue} />
+          </SettingsModal.Tab>
+        )}
       </SettingsModal>
     </div>
   );

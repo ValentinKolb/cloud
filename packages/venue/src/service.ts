@@ -13,7 +13,7 @@ import {
   resolveDisplayNames,
   updateAccess,
 } from "@valentinkolb/cloud/server";
-import { logger } from "@valentinkolb/cloud/services";
+import { logger, serviceAccounts } from "@valentinkolb/cloud/services";
 import { dates } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { z } from "zod";
@@ -43,6 +43,8 @@ import type {
 import { getVenueTemplate, templates as venueTemplates } from "./templates";
 
 const log = logger("venue:service");
+const VENUE_APP_ID = "venue";
+const VENUE_RESOURCE_TYPE = "venue";
 
 type DbVenue = {
   id: string;
@@ -480,7 +482,7 @@ const getVenueBySlug = async (slug: string): Promise<Venue | null> => {
 };
 
 const createVenueInTx = async (tx: SqlClient, input: VenueInput, user: UserLike): Promise<Result<Venue>> => {
-    const [row] = await tx<DbVenue[]>`
+  const [row] = await tx<DbVenue[]>`
       INSERT INTO venue.venues (
         slug, name, icon, description, timezone, open_mode, signup_mode, public_enabled,
         feedback_enabled, accent_color, logo_base64, banner_base64
@@ -493,17 +495,17 @@ const createVenueInTx = async (tx: SqlClient, input: VenueInput, user: UserLike)
       )
       RETURNING *
     `;
-    if (!row) return fail(err.internal("Failed to create venue"));
+  if (!row) return fail(err.internal("Failed to create venue"));
 
-    const access = await createOwnerAccessInTx(tx, user.id);
-    if (!access.ok) return access;
+  const access = await createOwnerAccessInTx(tx, user.id);
+  if (!access.ok) return access;
 
-    await tx`
+  await tx`
       INSERT INTO venue.venue_access (venue_id, access_id)
       VALUES (${row.id}::uuid, ${access.data.id}::uuid)
     `;
-    log.info("Venue created", { venueId: row.id, userId: user.id });
-    return ok(mapVenue(row, "admin"));
+  log.info("Venue created", { venueId: row.id, userId: user.id });
+  return ok(mapVenue(row, "admin"));
 };
 
 const createVenue = async (input: VenueInput, user: UserLike): Promise<Result<Venue>> => {
@@ -615,6 +617,21 @@ const updateVenue = async (id: string, input: VenueInput): Promise<Result<Venue>
     RETURNING *
   `;
   return row ? ok(mapVenue(row)) : fail(err.notFound("Venue"));
+};
+
+const deleteVenue = async (id: string): Promise<Result<void>> => {
+  const result = await sql`
+    DELETE FROM venue.venues
+    WHERE id = ${id}::uuid
+  `;
+  if (result.count === 0) return fail(err.notFound("Venue"));
+
+  await serviceAccounts.deleteForResource({
+    appId: VENUE_APP_ID,
+    resourceType: VENUE_RESOURCE_TYPE,
+    resourceId: id,
+  });
+  return ok();
 };
 
 const grantAccess = async (venueId: string, principal: Principal, permission: PermissionLevel): Promise<Result<AccessEntry>> => {
@@ -740,6 +757,7 @@ const listTemplates = async (venueId: string): Promise<ShiftTemplate[]> => {
   const rows = await sql<DbShiftTemplate[]>`
     SELECT * FROM venue.shift_templates
     WHERE venue_id = ${venueId}::uuid
+      AND active = true
     ORDER BY weekday, start_time
   `;
   return rows.map(mapTemplate);
@@ -1205,7 +1223,7 @@ const generateUserIcs = async (userId: string, baseUrl: string): Promise<string>
 
 export const venueService = {
   access: { list: listAccess, grant: grantAccess, update: changeAccess, revoke: revokeAccess, require: requirePermission },
-  venues: { list: listVenues, get: getVenue, getBySlug: getVenueBySlug, create: createVenue, update: updateVenue },
+  venues: { list: listVenues, get: getVenue, getBySlug: getVenueBySlug, create: createVenue, update: updateVenue, delete: deleteVenue },
   venueTemplates: { list: listVenueTemplates, instantiate: instantiateVenueTemplate },
   openingRules: { list: listOpeningRules, create: createOpeningRule, update: updateOpeningRule, delete: deleteOpeningRule },
   overrides: { list: listOverrides, upsert: upsertOverride, update: updateOverride, delete: deleteOverride },
