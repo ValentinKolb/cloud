@@ -38,6 +38,7 @@ The configured FreeIPA service account must be able to perform every directory
 mutation that Cloud authorizes:
 
 - user create, modify, delete, and lookup;
+- read the UPG managed-entry definition used by FreeIPA during user creation;
 - user account-expiry updates;
 - admin password reset for users;
 - group create, modify, delete, and lookup;
@@ -112,6 +113,7 @@ ipa privilege-add-permission "Cloud User Management" \
   --permissions="System: Modify Users" \
   --permissions="System: Change User password" \
   --permissions="System: Remove Users" \
+  --permissions="System: Read UPG Definition" \
   --permissions="Modify User Expiration"
 
 ipa role-add-privilege "$ROLE" \
@@ -178,7 +180,7 @@ Expected minimum output includes the Cloud role plus indirect membership in:
 
 - `Modify User Expiration`;
 - `System: Add Users`, `System: Modify Users`, `System: Change User password`,
-  and `System: Remove Users`;
+  `System: Remove Users`, and `System: Read UPG Definition`;
 - `System: Add Groups`, `System: Modify Groups`, `System: Remove Groups`, and
   `System: Modify Group Membership`;
 - `System: Modify Hosts`;
@@ -195,6 +197,7 @@ privilege to ...`, map the mentioned LDAP attribute or operation back to the
 missing FreeIPA permission. For example:
 
 - `krbPrincipalExpiration` → `Modify User Expiration`;
+- `Could not read UPG Definition originfilter` → `System: Read UPG Definition`;
 - `nsHostLocation`, `l`, `description`, or `macAddress` → `System: Modify Hosts`;
 - hostgroup membership changes → `System: Modify Hostgroup Membership`.
 - user create/update/delete/reset flows → the `Cloud User Management`
@@ -230,5 +233,9 @@ action, outcome, provider, and time-range inspection.
   into generic service-account execution.
 - Local development without FreeIPA must keep working; service-account lookup
   failures must stay scoped to IPA-backed mutations.
+- Hardening: configure `krb5kdc` with a systemd restart policy and a worker
+  count appropriate for the host size (for example `KRB5KDC_ARGS="-w 2"` on
+  small VMs). A KDC OOM kill otherwise leaves FreeIPA login unavailable until
+  the service is restarted manually.
 - Do not run destructive FreeIPA smoke tests against production-linked local
   environments. Verify manually in a safe target realm.
