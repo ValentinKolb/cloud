@@ -146,8 +146,8 @@
        4. `text-rendering: geometricPrecision` — disables kerning so
           even non-monospace fallback fonts don't shift glyph X
           positions across layers. */
-  /* IBM Plex Mono is shipped via @fontsource (regular + italic + 500
-     + 600 weights — see global.css). Pinning the font here means the
+  /* IBM Plex Mono is shipped via `/public/fonts.css` (regular + italic +
+     500 + 600 weights). Pinning the font here means the
      editor looks identical across OSes and we control the italic
      variant precisely. The bold/heading "weight" is faked via
      text-shadow further down so we never actually request a weight

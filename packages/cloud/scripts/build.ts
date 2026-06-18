@@ -21,11 +21,13 @@
  * it ships a `scripts/build-extras.ts` that this script runs at the end.
  */
 import { existsSync } from "node:fs";
-import { cp, mkdir, readdir, rm } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { brotliCompress, constants as zlibConstants, gzip } from "node:zlib";
 import tailwind from "bun-plugin-tailwind";
 import { Glob, CryptoHasher } from "bun";
+import { promisify } from "node:util";
 
 const appId = process.env.APP_ID;
 if (!appId) throw new Error("APP_ID env var required");
@@ -47,6 +49,8 @@ if (!existsSync(appDir)) throw new Error(`Unknown app dir: ${appDir} (set APP_DI
 
 const dist = resolve(root, "dist");
 const distPublic = resolve(dist, "public");
+const compressBrotli = promisify(brotliCompress);
+const compressGzip = promisify(gzip);
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(distPublic, { recursive: true });
@@ -58,6 +62,29 @@ const islandId = (file: string): string => {
   const rel = file.slice(root.length + 1).replace(/\\/g, "/");
   return new CryptoHasher("md5").update(rel).digest("hex").slice(0, 12);
 };
+
+const compressibleExtensions = new Set([".css", ".html", ".js", ".json", ".map", ".svg", ".txt", ".xml"]);
+
+async function precompressDistAssets(dir: string): Promise<void> {
+  if (!existsSync(dir)) return;
+
+  for await (const file of new Glob("**/*").scan({ cwd: dir, absolute: true, onlyFiles: true })) {
+    if (file.endsWith(".br") || file.endsWith(".gz")) continue;
+    if (!compressibleExtensions.has(extname(file))) continue;
+
+    const source = await readFile(file);
+    const [br, gz] = await Promise.all([
+      compressBrotli(source, {
+        params: {
+          [zlibConstants.BROTLI_PARAM_QUALITY]: zlibConstants.BROTLI_MAX_QUALITY,
+        },
+      }),
+      compressGzip(source, { level: zlibConstants.Z_BEST_COMPRESSION }),
+    ]);
+
+    await Promise.all([writeFile(`${file}.br`, br), writeFile(`${file}.gz`, gz)]);
+  }
+}
 
 // Register the app's SSR plugin (Solid JSX transform + island bundler).
 // In the monorepo this resolves via `packages/<id>/src/config`; in standalone
@@ -132,5 +159,8 @@ if (existsSync(extras)) {
   process.env.DIST_DIR = dist;
   await import(extras);
 }
+
+await precompressDistAssets(resolve(dist, "public"));
+await precompressDistAssets(resolve(dist, "_ssr"));
 
 console.log(`Built ${appId} → ${dist}`);

@@ -9,7 +9,6 @@ import type { SsrConfig } from "@valentinkolb/ssr";
 import { createConfig as createSsrConfig } from "@valentinkolb/ssr";
 import { createSSRHandler, routes } from "@valentinkolb/ssr/hono";
 import { Hono } from "hono";
-import { serveStatic } from "hono/bun";
 import { generateSpecs } from "hono-openapi";
 import type { AppCapabilities, AppLifecycle, AppMeta, AppSearchContext, CloudContext } from "../contracts/app";
 import type { AppRegistryEntry } from "../contracts/registry";
@@ -23,6 +22,7 @@ import { createSettingsAPI, type SettingsAPI } from "../services/settings/api";
 import { registerSettings, type SettingDef } from "../services/settings/defaults";
 import { createHeartbeat } from "./heartbeat";
 import { ensureRuntimeWatcher, getCurrentRuntime, stopRuntimeWatcher } from "./runtime-watcher";
+import { servePublicAsset } from "./static-assets";
 
 /** Cache-busting version stamp — changes on every server start / rebuild. */
 const v = Date.now();
@@ -252,6 +252,9 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     <meta name="mobile-web-app-capable" content="yes">
     <link rel="icon" href="/branding/favicon">
     <style data-cloud-css-layers>@layer theme, base, components, utilities;</style>
+    <link rel="preload" href="/public/tabler-icons.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/public/fonts.css?v=${v}">
+    <link rel="stylesheet" href="/public/tabler-icons.css?v=${v}">
     <link rel="stylesheet" href="/public/${opts.id}/app.css?v=${v}">
     <link rel="stylesheet" href="/public/global.css?v=${v}">
     <script>${themeBootstrapScript}</script>
@@ -349,19 +352,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
 
     const server = new Hono()
       .route(ssrMountPath, routes(config))
-      .use(
-        "/public/*",
-        serveStatic({
-          root: "./",
-          onFound: (_path, c) => {
-            c.header("Cache-Control", isDevelopment ? "no-store" : "public, max-age=31536000, immutable");
-          },
-        }),
-      )
-      // serveStatic calls next() on miss — terminate /public/* here so a
-      // missing asset is a clean 404 instead of falling through to the app
-      // fetch (which might render an HTML page for the missing path).
-      .all("/public/*", (c) => c.notFound());
+      .all("/public/*", servePublicAsset(isDevelopment));
 
     if (startOpts.capabilities?.search) {
       const searchRun = startOpts.capabilities.search.run;

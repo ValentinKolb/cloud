@@ -118,10 +118,14 @@ export const proxyRequest = async (
       method: req.method,
       headers: fwdHeaders,
       body: req.body,
+      // Bun fetch decompresses upstream responses by default while preserving
+      // Content-Encoding headers. A reverse proxy must forward the wire body
+      // unchanged so precompressed static assets stay valid and small.
+      decompress: false,
       // @ts-ignore - Bun supports duplex for streaming request bodies
       duplex: req.body ? "half" : undefined,
       redirect: "manual",
-    });
+    } as RequestInit & { decompress: false });
 
     const ms = performance.now() - start;
     appStats.totalMs += ms;

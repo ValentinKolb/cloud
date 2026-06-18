@@ -1,6 +1,9 @@
 /**
  * Core ships the assets routed through `/public/<plain-name>`:
  *   global.css   workspace-wide Tailwind stylesheet
+ *   fonts.css    IBM Plex @font-face declarations
+ *   fonts/*      IBM Plex WOFF2 files
+ *   tabler-icons.css / .woff2  icon font stylesheet + font
  *   logo.svg     default branding fallback
  *   katex.css    consumed by any app rendering math (e.g. notebooks)
  *
@@ -9,6 +12,8 @@
 import { cp } from "node:fs/promises";
 import { resolve } from "node:path";
 import tailwind from "bun-plugin-tailwind";
+import { buildFontAssets } from "./font-assets";
+import { buildTablerIconAssets } from "./tabler-assets";
 
 const root = process.env.WORKSPACE_ROOT!;
 const dist = process.env.DIST_DIR!;
@@ -29,3 +34,5 @@ if (!css.success) {
 
 await cp(resolve(root, "packages/cloud/public/logo.svg"), resolve(publicDir, "logo.svg"));
 await cp(resolve(root, "node_modules/katex/dist/katex.min.css"), resolve(publicDir, "katex.css"));
+await buildFontAssets(root, publicDir);
+await buildTablerIconAssets(root, publicDir);

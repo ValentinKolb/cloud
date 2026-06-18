@@ -61,6 +61,7 @@ services:
       - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/cloud/public:/app/packages/cloud/public
       - ./packages/core/src:/app/packages/core/src
+      - ./packages/core/scripts:/app/packages/core/scripts
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/core/src/index.ts
 
