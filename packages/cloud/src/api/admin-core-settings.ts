@@ -11,10 +11,14 @@ import { z } from "zod";
 import { listApps } from "../_internal/registry";
 import { auth, v, type AuthContext } from "../server";
 import { settingsDeleteLegacyKeys, settingsListLegacyKeys } from "../services";
+import { sendEmail } from "../services/notifications/email";
 import * as settings from "../services/settings";
 import { SETTINGS_MAP } from "../services/settings/defaults";
 
 const BulkUpdateSchema = z.record(z.string(), z.unknown());
+const TestEmailSchema = z.object({
+  recipient: z.email(),
+});
 
 type FieldErrors = Record<string, string>;
 
@@ -27,6 +31,24 @@ const app = new Hono<AuthContext>()
   })
   .delete("/legacy", auth.requireRole("admin"), async (c) => {
     return c.json(await settingsDeleteLegacyKeys(await liveSettingKeys()));
+  })
+  .post("/test-email", auth.requireRole("admin"), v("json", TestEmailSchema), async (c) => {
+    const { recipient } = c.req.valid("json");
+    const sentAt = new Date().toISOString();
+
+    try {
+      await sendEmail(recipient, "Cloud test email", {
+        rawHtml: `
+          <p>This is a test email from Cloud.</p>
+          <p>If you received this message, SMTP delivery is configured correctly.</p>
+          <p style="margin-top:24px;color:#71717a;font-size:12px;">Sent at ${sentAt}</p>
+        `,
+      });
+      return c.json({ ok: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to send test email";
+      return c.json({ message }, 500);
+    }
   })
   .put(
     "/",

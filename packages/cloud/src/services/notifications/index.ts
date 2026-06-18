@@ -9,6 +9,11 @@ const log = logger("notifications");
 export type NotificationType = "email";
 export type NotificationStatus = "sent" | "pending" | "error";
 export type NotificationStatusSummary = Record<NotificationStatus, number>;
+export type NotificationSearchSummary = NotificationStatusSummary & {
+  total: number;
+  system: number;
+  latestCreatedAt: Date | null;
+};
 
 /**
  * Computes notification delivery status from sent/error timestamps.
@@ -61,6 +66,15 @@ const emptyStatusSummary = (): NotificationStatusSummary => ({
   sent: 0,
   pending: 0,
   error: 0,
+});
+
+const emptySearchSummary = (): NotificationSearchSummary => ({
+  total: 0,
+  sent: 0,
+  pending: 0,
+  error: 0,
+  system: 0,
+  latestCreatedAt: null,
 });
 
 type DbNotificationRow = {
@@ -317,6 +331,79 @@ export const getStatusSummary = async (options?: {
 };
 
 /**
+ * Count statuses across all entries matching a search term in the current access scope.
+ */
+export const getSearchSummary = async (options: {
+  search: string;
+  sentBy?: string;
+  isAdmin?: boolean;
+}): Promise<NotificationSearchSummary> => {
+  const { sentBy, isAdmin } = options;
+  const search = options.search.trim();
+  if (!search) return emptySearchSummary();
+
+  const searchPattern = `%${escapeLikePattern(search)}%`;
+  let rows: Array<{
+    total: number | string;
+    sent: number | string;
+    pending: number | string;
+    error: number | string;
+    system: number | string;
+    latest_created_at: Date | null;
+  }> = [];
+
+  if (isAdmin) {
+    rows = await sql`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE sent_at IS NOT NULL)::int AS sent,
+        COUNT(*) FILTER (WHERE sent_at IS NULL AND error IS NULL)::int AS pending,
+        COUNT(*) FILTER (WHERE sent_at IS NULL AND error IS NOT NULL)::int AS error,
+        COUNT(*) FILTER (WHERE sent_by IS NULL)::int AS system,
+        MAX(created_at) AS latest_created_at
+      FROM notifications.messages
+      WHERE subject ILIKE ${searchPattern} ESCAPE '\'
+        OR content ILIKE ${searchPattern} ESCAPE '\'
+        OR recipient ILIKE ${searchPattern} ESCAPE '\'
+    `;
+  } else if (sentBy) {
+    rows = await sql`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE sent_at IS NOT NULL)::int AS sent,
+        COUNT(*) FILTER (WHERE sent_at IS NULL AND error IS NULL)::int AS pending,
+        COUNT(*) FILTER (WHERE sent_at IS NULL AND error IS NOT NULL)::int AS error,
+        COUNT(*) FILTER (WHERE sent_by IS NULL)::int AS system,
+        MAX(created_at) AS latest_created_at
+      FROM notifications.messages
+      WHERE sent_by = ${sentBy}
+        AND (
+          subject ILIKE ${searchPattern} ESCAPE '\'
+          OR content ILIKE ${searchPattern} ESCAPE '\'
+          OR recipient ILIKE ${searchPattern} ESCAPE '\'
+        )
+    `;
+  }
+
+  const row = rows[0];
+  if (!row) return emptySearchSummary();
+
+  const toNumber = (value: number | string) => {
+    const parsed = typeof value === "string" ? Number.parseInt(value, 10) : value;
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  return {
+    total: toNumber(row.total),
+    sent: toNumber(row.sent),
+    pending: toNumber(row.pending),
+    error: toNumber(row.error),
+    system: toNumber(row.system),
+    latestCreatedAt: row.latest_created_at,
+  };
+};
+
+/**
  * Get a single notification by ID.
  */
 export const getById = async (id: string): Promise<NotificationMessage | null> => {
@@ -481,4 +568,5 @@ export const notifications = {
   getPendingSystemCount,
   sendAllPendingSystem,
   getStatusSummary,
+  getSearchSummary,
 };

@@ -21,11 +21,11 @@ export default ssr<AuthContext>(async (c) => {
 
   const page = Number(c.req.query("page") ?? "1");
   const perPage = 100;
-  const search = c.req.query("search") ?? "";
+  const search = (c.req.query("search") ?? "").trim();
   const status = parseStatusFilter(c.req.query("status") ?? undefined);
   const isAdmin = hasRole(user, "admin");
 
-  const [{ items: notifs, total }, summary] = await Promise.all([
+  const [{ items: notifs, total }, summary, searchSummary] = await Promise.all([
     notificationsService.notification.list({
       pagination: { page, perPage },
       access: {
@@ -42,6 +42,15 @@ export default ssr<AuthContext>(async (c) => {
       },
       days: 7,
     }),
+    search
+      ? notificationsService.notification.searchSummary({
+          access: {
+            isAdmin,
+            sentBy: user.id,
+          },
+          search,
+        })
+      : Promise.resolve(null),
   ]);
 
   const pagination = createPagination({ page, perPage, offset: (page - 1) * perPage }, total);
@@ -61,6 +70,66 @@ export default ssr<AuthContext>(async (c) => {
       hour: "2-digit",
       minute: "2-digit",
     }).format(date);
+  };
+  const formatPercent = (value: number) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(value);
+
+  const getSearchStats = () => {
+    if (!searchSummary) return null;
+    const errorRate = searchSummary.total > 0 ? (searchSummary.error / searchSummary.total) * 100 : 0;
+    return [
+      {
+        icon: "ti ti-search",
+        label: `${searchSummary.total.toLocaleString()} matches`,
+        class: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200",
+      },
+      {
+        icon: "ti ti-alert-circle",
+        label: `${searchSummary.error.toLocaleString()} errors`,
+        class:
+          searchSummary.error > 0
+            ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200"
+            : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+      },
+      {
+        icon: "ti ti-percentage",
+        label: `${formatPercent(errorRate)}% error rate`,
+        class:
+          searchSummary.error > 0
+            ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200"
+            : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+      },
+      {
+        icon: "ti ti-clock",
+        label: `${searchSummary.pending.toLocaleString()} pending`,
+        class:
+          searchSummary.pending > 0
+            ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200"
+            : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+      },
+      {
+        icon: "ti ti-check",
+        label: `${searchSummary.sent.toLocaleString()} sent`,
+        class: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200",
+      },
+      ...(searchSummary.system > 0
+        ? [
+            {
+              icon: "ti ti-settings",
+              label: `${searchSummary.system.toLocaleString()} system`,
+              class: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200",
+            },
+          ]
+        : []),
+      ...(searchSummary.latestCreatedAt
+        ? [
+            {
+              icon: "ti ti-calendar-time",
+              label: `latest ${formatDate(searchSummary.latestCreatedAt)}`,
+              class: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200",
+            },
+          ]
+        : []),
+    ];
   };
 
   const getStatusBadge = (status: "sent" | "pending" | "error") => {
@@ -144,6 +213,16 @@ export default ssr<AuthContext>(async (c) => {
                 </p>
               </div>
               <NotificationFilterBar search={search} status={status} />
+              {searchSummary && (
+                <div class="flex flex-wrap items-center gap-1.5">
+                  {getSearchStats()?.map((stat) => (
+                    <span class={`inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium ${stat.class}`}>
+                      <i class={`${stat.icon} text-sm`} />
+                      <span>{stat.label}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <DataTable
               rows={notifs}

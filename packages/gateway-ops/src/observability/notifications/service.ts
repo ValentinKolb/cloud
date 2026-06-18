@@ -51,6 +51,12 @@ export const notificationsService = {
         isAdmin: config.access.isAdmin,
         days: config.days,
       }),
+    searchSummary: async (config: { access: { sentBy: string; isAdmin: boolean }; search: string }) =>
+      notifications.getSearchSummary({
+        sentBy: config.access.sentBy,
+        isAdmin: config.access.isAdmin,
+        search: config.search,
+      }),
     sendToUser: async (config: { userId: string; subject: string; content?: string; rawHtml?: string; sentBy: string }) => {
       const result = await notifications.sendToUser(config);
       if (!result.ok) return fail(mapSendToUserError(result.error));

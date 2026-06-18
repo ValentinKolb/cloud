@@ -117,7 +117,7 @@ export default ssr<AuthContext>(async (c) => {
 
           {tab.group ? (
             <section class="paper overflow-hidden" style="view-transition-name: admin-settings-content">
-              <CoreSettingsForm entries={entries} />
+              <CoreSettingsForm entries={entries} showTestEmailAction={tab.id === "mail"} />
             </section>
           ) : null}
 

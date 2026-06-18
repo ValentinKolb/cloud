@@ -60,7 +60,7 @@ export type SettingFieldDef = {
   templateVars?: readonly string[];
 };
 
-type Props = { entries: SettingFieldDef[] };
+type Props = { entries: SettingFieldDef[]; showTestEmailAction?: boolean };
 
 export default function CoreSettingsForm(props: Props) {
   const [drafts, setDrafts] = createSignal<Record<string, unknown>>({});
@@ -136,8 +136,35 @@ export default function CoreSettingsForm(props: Props) {
     onError: (e) => prompts.error(e.message),
   });
 
+  const openTestEmailDialog = () => {
+    void prompts.dialog<void>((close) => <TestEmailDialog close={close} />, {
+      title: "Send test email",
+      icon: "ti ti-mail-check",
+    });
+  };
+
   return (
     <div>
+      <Show when={props.showTestEmailAction}>
+        <div class="flex flex-col gap-3 border-b border-zinc-100 px-3 py-3 dark:border-zinc-800 sm:flex-row sm:items-center sm:justify-between">
+          <div class="min-w-0">
+            <h2 class="text-sm font-medium text-primary">Test delivery</h2>
+            <p class="mt-1 text-xs text-dimmed">
+              {hasChanges() ? "Save pending changes before sending a test message." : "Send a test message with the saved SMTP settings."}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn-secondary btn-sm justify-center"
+            onClick={openTestEmailDialog}
+            disabled={hasChanges()}
+            title={hasChanges() ? "Save pending changes before sending a test email" : "Send test email"}
+          >
+            <i class="ti ti-send" /> Send test email
+          </button>
+        </div>
+      </Show>
+
       <div class="divide-y divide-zinc-100 dark:divide-zinc-800">
         {props.entries.map((entry) => (
           <FieldRow
@@ -159,6 +186,73 @@ export default function CoreSettingsForm(props: Props) {
         onSave={() => save.mutate()}
       />
     </div>
+  );
+}
+
+function TestEmailDialog(props: { close: () => void }) {
+  const [recipient, setRecipient] = createSignal("");
+
+  const send = mutations.create<void, void>({
+    mutation: async () => {
+      const email = recipient().trim();
+      if (!email) throw new Error("Enter a recipient email address.");
+
+      const response = await coreClient.admin.core.settings["test-email"].$post({ json: { recipient: email } });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        const message =
+          body && typeof body === "object" && "message" in body && typeof body.message === "string"
+            ? body.message
+            : `Failed to send test email (HTTP ${response.status})`;
+        throw new Error(message);
+      }
+    },
+    onSuccess: () => {
+      props.close();
+      void prompts.dialog<void>(
+        (close) => (
+          <div class="flex flex-col gap-4">
+            <p class="text-sm text-secondary">The test email was handed to the configured SMTP server.</p>
+            <div class="flex justify-end">
+              <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
+                Close
+              </button>
+            </div>
+          </div>
+        ),
+        { title: "Test email sent", icon: "ti ti-check" },
+      );
+    },
+    onError: (e) => prompts.error(e.message),
+  });
+
+  return (
+    <form
+      class="flex flex-col gap-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        send.mutate();
+      }}
+    >
+      <TextInput
+        label="Recipient email"
+        description="The test message is sent only to this address."
+        type="email"
+        required
+        value={recipient}
+        onChange={setRecipient}
+        placeholder="you@example.org"
+      />
+
+      <div class="flex justify-end gap-2">
+        <button type="button" class="btn-secondary btn-sm" onClick={props.close} disabled={send.loading()}>
+          Cancel
+        </button>
+        <button type="submit" class="btn-primary btn-sm" disabled={send.loading()}>
+          <i class={send.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-send"} /> Send
+        </button>
+      </div>
+    </form>
   );
 }
 
