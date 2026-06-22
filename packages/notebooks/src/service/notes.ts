@@ -1,7 +1,8 @@
-import { sql } from "bun";
-import * as Y from "yjs";
 import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import type { PaginationParams } from "@valentinkolb/cloud/contracts";
+import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { sql } from "bun";
+import * as Y from "yjs";
 import { reindexNoteRefsSafe } from "./note-refs";
 import { noteCreated, noteDeleted, noteUpdated } from "./workspace-events";
 import { parseStreamCursor } from "./yjs-sync";
@@ -92,11 +93,6 @@ type DbNoteVersion = {
 };
 
 const VERSION_MIN_INTERVAL = "5 minutes";
-
-const toPgUuidArray = (values: string[] | null | undefined): string => {
-  if (!Array.isArray(values) || values.length === 0) return "{}";
-  return `{${values.join(",")}}`;
-};
 
 // ==========================
 // Helpers
@@ -240,7 +236,7 @@ export const recentForUser = async (params: {
   groups: string[];
   limit: number;
 }): Promise<RecentNote[]> => {
-  const groupsArr = `{${params.groups.map((g) => `"${g}"`).join(",")}}`;
+  const groupsArr = toPgUuidArray(params.groups);
   const rows = await sql<{
     id: string;
     short_id: string;
@@ -479,7 +475,7 @@ export const resolveShortIdsToNotebookShortIds = async (params: {
   bypassAccess?: boolean;
 }): Promise<Map<string, { notebookShortId: string; noteShortId: string }>> => {
   if (params.shortIds.length === 0) return new Map();
-  const arr = `{${params.shortIds.join(",")}}`;
+  const arr = toPgTextArray(params.shortIds);
   const rows = params.bypassAccess
     ? await sql<{ note_short_id: string; notebook_short_id: string }[]>`
       SELECT n.short_id AS note_short_id, nb.short_id AS notebook_short_id

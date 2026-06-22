@@ -399,7 +399,7 @@ export const dashboardSnapshot = async (params: {
   todoLimit: number;
   dateConfig?: DateContext;
 }): Promise<{ openTodoCount: number; urgentCount: number; events: DashboardItem[]; todos: DashboardItem[] }> => {
-  const groupsArr = `{${params.groups.map((g) => `"${g}"`).join(",")}}`;
+  const groupsArr = toPgUuidArray(params.groups);
   const { todayStart, tomorrowStart } = deadlineWindow(params.dateConfig);
 
   // Open-todo aggregate (count + urgent-count) across all reachable spaces.

@@ -1,4 +1,5 @@
 import { sql } from "bun";
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { dates, ok, fail, err, type DateContext, type Result } from "@valentinkolb/stdlib";
 import { logAudit, type SqlClient } from "./audit";
 import { emitTableMetadataEvent } from "./metadata-events";
@@ -554,7 +555,7 @@ export const reorder = async (tableId: string, fieldIds: string[], actorId: stri
 
   // Single-statement reorder via VALUES (id, position).
   const positions = `{${validOrdered.map((_, i) => i).join(",")}}`;
-  const ids = `{${validOrdered.join(",")}}`;
+  const ids = toPgUuidArray(validOrdered);
   await sql`
     UPDATE grids.fields AS f
     SET position = u.position, updated_at = now()

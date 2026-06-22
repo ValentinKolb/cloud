@@ -1,4 +1,5 @@
 import { sql } from "bun";
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import type { ComputedColumnSpec } from "../contracts";
 import { evaluate, renderResult } from "../formula/evaluator";
 import type { FormulaRuntimeContext } from "../formula/functions";
@@ -122,8 +123,8 @@ const runInClient = async (client: SqlClient, fromRecordId: string, fromFieldId:
 const readRecordLinksBatch = async (recordIds: string[], fieldIds: string[]): Promise<Map<string, Map<string, string[]>>> => {
   const out = new Map<string, Map<string, string[]>>();
   if (recordIds.length === 0 || fieldIds.length === 0) return out;
-  const recArr = `{${recordIds.join(",")}}`;
-  const fldArr = `{${fieldIds.join(",")}}`;
+  const recArr = toPgUuidArray(recordIds);
+  const fldArr = toPgUuidArray(fieldIds);
   const rows = await sql<DbRow[]>`
     SELECT from_record_id, from_field_id, to_record_id, position
     FROM grids.record_links
@@ -428,7 +429,7 @@ const resolveLabelsByTargetTable = async (idsByTargetTable: Map<string, Set<stri
     if (idSet.size === 0) continue;
     const targetFields = await listFields(targetTableId);
     const labelFields = relationLabelFields(targetFields);
-    const idArr = `{${[...idSet].join(",")}}`;
+    const idArr = toPgUuidArray([...idSet]);
     const rows = await sql<DbRow[]>`
       SELECT r.id, r.data
       FROM grids.records r
@@ -641,7 +642,7 @@ const resolveExpansionByTargetTable = async (
     const labelFields = relationLabelFields(targetFields);
     if (labelFields.length === 0) continue;
 
-    const idArr = `{${[...idSet].join(",")}}`;
+    const idArr = toPgUuidArray([...idSet]);
     const rows = await sql<DbRow[]>`
       SELECT r.id, r.data
       FROM grids.records r

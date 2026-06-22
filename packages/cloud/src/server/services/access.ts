@@ -1,5 +1,6 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import { toPgUuidArray } from "../../services/postgres";
 
 // ==========================
 // Permission Levels
@@ -84,14 +85,6 @@ type DbAccessUser = {
 // ==========================
 // Helper Functions
 // ==========================
-
-/**
- * Converts UUID strings into a PostgreSQL uuid[] literal for relation queries.
- */
-const toPgUuidArray = (values: string[] | null | undefined): string => {
-  if (!Array.isArray(values) || values.length === 0) return "{}";
-  return `{${values.join(",")}}`;
-};
 
 const uniqueIds = (values: string[] | null | undefined): string[] => [...new Set((values ?? []).filter(Boolean))];
 

@@ -1,17 +1,9 @@
 import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
-import { serviceAccounts } from "@valentinkolb/cloud/services";
+import { serviceAccounts, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { CreateSpace, MutationResult, Space, SpaceDetail, UpdateSpace } from "@/contracts";
 import { getSpacePermission, grantSpaceAccess, SPACE_RESOURCE_TYPE, SPACES_APP_ID } from "./access";
 import { rank } from "./rank";
-
-/**
- * Escapes group IDs into a Postgres `uuid[]` literal for `ANY(...)` access filters.
- */
-const toPgUuidArray = (values: string[] | null | undefined): string => {
-  if (!Array.isArray(values) || values.length === 0) return "{}";
-  return `{${values.join(",")}}`;
-};
 
 // ==========================
 // Spaces Service

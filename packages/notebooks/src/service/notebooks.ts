@@ -1,6 +1,6 @@
 import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
-import { serviceAccounts } from "@valentinkolb/cloud/services";
+import { serviceAccounts, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { generateUniqueShortId, isShortId } from "../lib/short-id";
 import { getNotebookPermission, grantNotebookAccess, NOTEBOOK_RESOURCE_TYPE, NOTEBOOKS_APP_ID } from "./access";
@@ -68,14 +68,6 @@ export type NotebookAdminListItem = Notebook & {
 // ==========================
 // Helpers
 // ==========================
-
-/**
- * Escapes group IDs into a Postgres `uuid[]` literal for notebook access filters.
- */
-const toPgUuidArray = (values: string[] | null | undefined): string => {
-  if (!Array.isArray(values) || values.length === 0) return "{}";
-  return `{${values.join(",")}}`;
-};
 
 /**
  * Converts one `notebooks.notebooks` row into the API-facing `Notebook` model.

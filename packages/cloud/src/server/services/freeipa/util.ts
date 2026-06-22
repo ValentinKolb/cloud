@@ -1,3 +1,5 @@
+import { toPgTextArray as serializePgTextArray } from "../../../services/postgres";
+
 export class IpaError extends Error {
   constructor(
     message: string,
@@ -54,7 +56,4 @@ export const mapIpaErrorCode = (code: number): 400 | 401 | 403 => {
   return 400;
 };
 
-export const toPgTextArray = (values: string[] | null | undefined): string => {
-  if (!Array.isArray(values) || values.length === 0) return "{}";
-  return `{${values.map((value) => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join(",")}}`;
-};
+export const toPgTextArray = serializePgTextArray;

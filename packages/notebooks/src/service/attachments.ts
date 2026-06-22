@@ -14,6 +14,7 @@
  */
 
 import { fileIcons } from "@valentinkolb/stdlib";
+import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { generateUniqueShortId, isShortId } from "../lib/short-id";
 
@@ -151,10 +152,7 @@ export const list = async (params: { notebookId: string }): Promise<Attachment[]
  *  when only `attach://` ids referenced in the current note matter. */
 export const listByIds = async (params: { ids: string[] }): Promise<Attachment[]> => {
   if (params.ids.length === 0) return [];
-  // Bun's sql tag does not expand JS arrays into Postgres array literals —
-  // manually serialise to `{uuid,uuid,...}` form. Same pattern as
-  // `notebooks.ts` toPgUuidArray.
-  const idArray = `{${params.ids.join(",")}}`;
+  const idArray = toPgUuidArray(params.ids);
   const rows = await sql<DbRow[]>`
     SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
     FROM notebooks.attachments
@@ -169,7 +167,7 @@ export const listByIds = async (params: { ids: string[] }): Promise<Attachment[]
  *  query, served from the unique `short_id` index. */
 export const listByShortIds = async (params: { shortIds: string[]; notebookId?: string }): Promise<Attachment[]> => {
   if (params.shortIds.length === 0) return [];
-  const arr = `{${params.shortIds.join(",")}}`;
+  const arr = toPgTextArray(params.shortIds);
   const rows = await sql<DbRow[]>`
     SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
     FROM notebooks.attachments
@@ -271,7 +269,7 @@ export const reindexAttachmentRefs = async (params: { noteId: string; notebookId
     // notebook — defensive against cross-notebook copy/paste of an
     // `attach://` URL whose blob isn't visible from here. Lookup by
     // short_id since that's the form carried in markdown bodies.
-    const arr = `{${shortIds.join(",")}}`;
+    const arr = toPgTextArray(shortIds);
     const valid = await tx<{ id: string }[]>`
       SELECT id FROM notebooks.attachments
       WHERE notebook_id = ${params.notebookId}

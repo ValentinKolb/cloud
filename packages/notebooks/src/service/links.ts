@@ -1,4 +1,4 @@
-import { logger } from "@valentinkolb/cloud/services";
+import { logger, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 
 const log = logger("notebooks:links");
@@ -151,7 +151,7 @@ export const reindexLinks = async (sourceNoteId: string, contentMd: string | nul
 
   if (targetShortIds.length === 0) return;
 
-  const arr = `{${targetShortIds.join(",")}}`;
+  const arr = toPgTextArray(targetShortIds);
   await sql`
     INSERT INTO notebooks.note_links (source_note_id, target_note_id)
     SELECT ${sourceNoteId}::uuid, n.id
@@ -181,8 +181,6 @@ export const reindexLinksSafe = async (sourceNoteId: string, contentMd: string |
 // ==========================
 // Backlinks query
 // ==========================
-
-const toPgUuidArray = (values: string[]): string => `{${values.join(",")}}`;
 
 type BacklinkRow = {
   note_id: string;

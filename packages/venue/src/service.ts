@@ -13,7 +13,7 @@ import {
   resolveDisplayNames,
   updateAccess,
 } from "@valentinkolb/cloud/server";
-import { logger, serviceAccounts } from "@valentinkolb/cloud/services";
+import { logger, serviceAccounts, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { dates } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { z } from "zod";
@@ -458,7 +458,7 @@ const listVenues = async (subjectInput: UserLike | VenueAccessSubject): Promise<
       AND (
         a.user_id = ${subject.userId}::uuid
         OR a.authenticated_only = true
-        OR a.group_id = ANY(${`{${subject.userGroups.join(",")}}`}::uuid[])
+        OR a.group_id = ANY(${toPgUuidArray(subject.userGroups)}::uuid[])
       )
     ORDER BY v.name
   `;
