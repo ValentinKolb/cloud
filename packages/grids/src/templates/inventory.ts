@@ -611,7 +611,7 @@ export const inventoryTemplate: GridTemplate = {
         field("items.category"),
         "\naggregate sum(",
         field("items.quantity"),
-        ") as quantity, count(*) as items\nsort quantity desc",
+        ") as units, count(*) as items\nsort units desc",
       ),
     },
     {

@@ -13,8 +13,10 @@ import {
 } from "../contracts";
 import { fieldTypeRegistry, getRecordWritableFieldType } from "../field-types";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
+import { type DslResolverContext, resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
+import type { Field } from "../service/types";
 import { templates } from ".";
-import type { GridTemplate, TemplateDateExpression, TemplateRef } from "./types";
+import type { GridTemplate, TemplateDateExpression, TemplateField, TemplateRef } from "./types";
 import { field, formula } from "./types";
 
 const isRef = (value: unknown): value is TemplateRef =>
@@ -195,6 +197,63 @@ const resolveTemplateGqlValue = (value: unknown, names: ReturnType<typeof templa
     return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, resolveTemplateGqlValue(nested, names)]));
   }
   return value;
+};
+
+const templateFieldForResolver = (
+  templateField: TemplateField,
+  tableId: string,
+  fieldId: string,
+  position: number,
+  ctx: TemplateTestContext,
+): Field => ({
+  id: fieldId,
+  shortId: templateField.key,
+  tableId,
+  name: templateField.name,
+  description: templateField.description ?? null,
+  icon: templateField.icon ?? null,
+  type: templateField.type,
+  config: (resolveTestValue(templateField.config ?? {}, ctx) ?? {}) as Record<string, unknown>,
+  position,
+  required: templateField.required === true,
+  presentable: templateField.presentable === true,
+  hideInTable: templateField.hideInTable === true,
+  defaultValue: resolveTestValue(templateField.defaultValue ?? null, ctx),
+  indexed: templateField.indexed === true,
+  uniqueConstraint: templateField.uniqueConstraint === true,
+  deletedAt: null,
+  createdAt: "2026-06-15T00:00:00.000Z",
+  updatedAt: "2026-06-15T00:00:00.000Z",
+});
+
+const templateResolverContext = (template: GridTemplate, currentTableKey: string, ctx: TemplateTestContext): DslResolverContext => {
+  const tables = template.tables.map((table) => ({
+    kind: "table" as const,
+    id: resolveTestRef({ $ref: "table", key: table.key }, ctx),
+    shortId: table.key,
+    name: table.name,
+  }));
+  const fieldsByTableId = Object.fromEntries(
+    template.tables.map((table) => {
+      const tableId = resolveTestRef({ $ref: "table", key: table.key }, ctx);
+      return [
+        tableId,
+        table.fields.map((templateField, index) =>
+          templateFieldForResolver(
+            templateField,
+            tableId,
+            resolveTestRef({ $ref: "field", key: `${table.key}.${templateField.key}` }, ctx),
+            index,
+            ctx,
+          ),
+        ),
+      ];
+    }),
+  ) as Record<string, Field[]>;
+  const currentTableId = resolveTestRef({ $ref: "table", key: currentTableKey }, ctx);
+  const currentTable = tables.find((table) => table.id === currentTableId);
+  if (!currentTable) throw new Error(`missing current template table ${currentTableKey}`);
+  return { currentTable, tables, fieldsByTableId, views: [] };
 };
 
 describe("built-in grid templates", () => {
@@ -405,9 +464,10 @@ describe("built-in grid templates", () => {
     }
   });
 
-  test("template views provide parseable GQL sources", () => {
+  test("template views provide resolvable GQL sources", () => {
     for (const template of templates) {
       const names = templateNamesForGql(template);
+      const ctx = templateTestContext(template);
       for (const view of template.views ?? []) {
         const source = resolveTemplateGqlValue(view.source ?? "", names);
         expect(typeof source).toBe("string");
@@ -416,6 +476,12 @@ describe("built-in grid templates", () => {
         );
         const parsed = parseGridsQueryDsl(String(source));
         expect(parsed.ok, `${template.id}.${view.key} parses as GQL`).toBe(true);
+        if (!parsed.ok) continue;
+        const resolved = resolveDslQueryToQueryPlan(parsed.ast, templateResolverContext(template, view.table, ctx));
+        expect(
+          resolved.ok,
+          `${template.id}.${view.key} resolves as GQL: ${resolved.ok ? "" : resolved.diagnostics.map((diagnostic) => diagnostic.message).join("; ")}`,
+        ).toBe(true);
       }
     }
   });
