@@ -7,6 +7,7 @@ export type AccountsNavActiveKey =
   | "requests"
   | "audit"
   | "service-accounts"
+  | "notifications"
   | "deleted-accounts"
   | "reminders"
   | null;
@@ -57,6 +58,12 @@ export default function AccountsNavSidebar(props: Props) {
       icon: "ti ti-user-key",
       label: "Service Accounts",
       active: props.active === "service-accounts",
+    },
+    {
+      href: "/app/accounts/notifications",
+      icon: "ti ti-mail-share",
+      label: "Notifications",
+      active: props.active === "notifications",
     },
     { href: "/app/accounts/audit", icon: "ti ti-clipboard-list", label: "Audit Log", active: props.active === "audit" },
     {

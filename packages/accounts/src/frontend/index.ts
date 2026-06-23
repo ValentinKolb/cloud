@@ -11,6 +11,8 @@ import auditPage from "./audit/page";
 import serviceAccountsPage from "./service-accounts/page";
 import deletedAccountsPage from "./deleted-accounts/page";
 import remindersPage from "./reminders/page";
+import notificationsPage from "./notifications/page";
+import notificationDetailPage from "./notifications/detail.page";
 
 export default new Hono<AuthContext>()
   .get("/", auth.requireRole("user", auth.redirectToLogin), ...landingPage)
@@ -20,6 +22,8 @@ export default new Hono<AuthContext>()
   .get("/requests", auth.requireRole("admin", auth.redirectToLogin), ...requestsPage)
   .get("/audit", auth.requireRole("admin", auth.redirectToLogin), ...auditPage)
   .get("/service-accounts", auth.requireRole("admin", auth.redirectToLogin), ...serviceAccountsPage)
+  .get("/notifications", auth.requireRole("admin", auth.redirectToLogin), ...notificationsPage)
+  .get("/notifications/:id", auth.requireRole("admin", auth.redirectToLogin), ...notificationDetailPage)
   .get("/deleted-accounts", auth.requireRole("admin", auth.redirectToLogin), ...deletedAccountsPage)
   .get("/reminders", auth.requireRole("admin", auth.redirectToLogin), ...remindersPage)
   .get("/groups", auth.requireRole("user", auth.redirectToLogin), ...groupsPage)

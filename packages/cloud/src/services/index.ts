@@ -23,8 +23,14 @@ export {
 } from "./gateway";
 export type { GatewayRouteSnapshot, GatewayRouteSnapshotInput, GatewayRouteWarning, GatewayTelemetryEvent } from "./gateway";
 
-export { notifications } from "./notifications";
+export { notificationBatches, notifications } from "./notifications";
 export type {
+  NotificationBatch,
+  NotificationBatchPreview,
+  NotificationBatchRecipient,
+  NotificationBatchRecipientStatus,
+  NotificationBatchSelection,
+  NotificationBatchStatus,
   NotificationType,
   NotificationStatus,
   SendNotificationParams,

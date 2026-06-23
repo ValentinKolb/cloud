@@ -570,3 +570,13 @@ export const notifications = {
   getStatusSummary,
   getSearchSummary,
 };
+
+export { notificationBatches } from "./batches";
+export type {
+  NotificationBatch,
+  NotificationBatchPreview,
+  NotificationBatchRecipient,
+  NotificationBatchRecipientStatus,
+  NotificationBatchSelection,
+  NotificationBatchStatus,
+} from "./batches";
