@@ -8,7 +8,7 @@ import {
   type NotificationBatchRecipientStatus,
 } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { DataTable, type DataTableColumn, MarkdownView, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, MarkdownView, Pagination, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
@@ -129,8 +129,8 @@ export default ssr<AuthContext>(async (c) => {
       ]}
     >
       <AccountsWorkspace active="notifications" isAdmin pendingRequests={pendingRequestsPage.total} scrollPreserveKey="accounts-notification-detail">
-        <div class="flex flex-col gap-3">
-          <div class="flex items-start gap-3">
+        <div class="flex flex-col gap-2">
+          <div class="flex items-start gap-2">
             <div class="min-w-0 flex-1">
               <h1 class="truncate text-base font-semibold text-primary">{batch.subject}</h1>
               <p class="mt-1 text-xs text-dimmed">Created {dates.formatDateTime(batch.createdAt)}</p>
@@ -144,36 +144,24 @@ export default ssr<AuthContext>(async (c) => {
             />
           </div>
 
-          <div class="grid gap-2 md:grid-cols-5">
-            <div class="paper p-4">
-              <p class="text-[11px] font-semibold uppercase tracking-wide text-dimmed">Status</p>
-              <span class={`mt-2 inline-flex w-fit rounded px-1.5 py-0.5 text-[10px] font-medium ${statusClass(batch.status)}`}>
-                {statusLabel(batch.status)}
-              </span>
-            </div>
-            <div class="paper p-4">
-              <p class="text-[11px] font-semibold uppercase tracking-wide text-dimmed">Matched</p>
-              <p class="mt-2 text-xl font-semibold text-primary">{formatCount.format(batch.targetCount)}</p>
-            </div>
-            <div class="paper p-4">
-              <p class="text-[11px] font-semibold uppercase tracking-wide text-dimmed">Deliverable</p>
-              <p class="mt-2 text-xl font-semibold text-primary">{formatCount.format(batch.deliverableCount)}</p>
-              <p class="mt-1 text-[11px] text-dimmed">{formatCount.format(batch.skippedCount)} skipped</p>
-            </div>
-            <div class="paper p-4">
-              <p class="text-[11px] font-semibold uppercase tracking-wide text-dimmed">Sent</p>
-              <p class="mt-2 text-xl font-semibold text-primary">{formatCount.format(batch.sentCount)}</p>
-            </div>
-            <div class="paper p-4">
-              <p class="text-[11px] font-semibold uppercase tracking-wide text-dimmed">Errors</p>
-              <p class={batch.errorCount > 0 ? "mt-2 text-xl font-semibold text-red-600" : "mt-2 text-xl font-semibold text-primary"}>
-                {formatCount.format(batch.errorCount)}
-              </p>
-            </div>
-          </div>
+          <StatGrid columns={5}>
+            <StatCell
+              label="Status"
+              value={<span class={`inline-flex w-fit rounded px-1.5 py-0.5 text-[10px] font-medium ${statusClass(batch.status)}`}>{statusLabel(batch.status)}</span>}
+            />
+            <StatCell label="Matched" value={formatCount.format(batch.targetCount)} />
+            <StatCell label="Deliverable" value={formatCount.format(batch.deliverableCount)} sub={`${formatCount.format(batch.skippedCount)} skipped`} />
+            <StatCell label="Sent" value={formatCount.format(batch.sentCount)} />
+            <StatCell
+              label="Errors"
+              value={formatCount.format(batch.errorCount)}
+              valueClass={batch.errorCount > 0 ? "text-red-600 dark:text-red-400" : undefined}
+              accent={batch.errorCount > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
+            />
+          </StatGrid>
 
           <div class="paper p-4">
-            <div class="flex items-start gap-3">
+            <div class="flex items-start gap-2">
               <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
                 <i class={batch.selection.mode === "specific" ? "ti ti-user-plus" : "ti ti-filter"} />
               </span>
@@ -189,7 +177,7 @@ export default ssr<AuthContext>(async (c) => {
               </div>
             </div>
 
-            <div class="mt-4 grid gap-3 lg:grid-cols-2">
+            <div class="mt-2 grid gap-2 lg:grid-cols-2">
               <div>
                 <p class="text-[11px] font-semibold uppercase tracking-wide text-dimmed">
                   {batch.selection.mode === "specific" ? "Users" : "Rule filters"}
@@ -271,13 +259,13 @@ export default ssr<AuthContext>(async (c) => {
 
           <div class="paper p-4">
             <h2 class="text-sm font-semibold text-primary">Message preview</h2>
-            <div class="mt-3 rounded-lg bg-muted/30 p-4">
+            <div class="mt-2 rounded-lg bg-muted/30 p-4">
               <MarkdownView html={batch.bodyHtml} smallHeadings />
             </div>
           </div>
 
           <div class="flex flex-col gap-2">
-            <div class="flex items-end gap-3">
+            <div class="flex items-end gap-2">
               <div class="min-w-0 flex-1">
                 <h2 class="text-sm font-semibold text-primary">Recipients</h2>
                 <p class="mt-1 text-xs text-dimmed">
