@@ -1,6 +1,7 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import { ImageInput, MarkdownView, Placeholder, prompts, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
 import { createSignal, For, Show } from "solid-js";
+import { createStore } from "solid-js/store";
 import type { PublicSection, PublicSectionInput } from "../../../contracts";
 import { DialogFrame } from "./schedule";
 
@@ -117,20 +118,26 @@ export function PublicSectionDialog(props: {
   const [contentText, setContentText] = createSignal(
     props.initial ? sectionText(props.initial, props.initial.kind === "markdown" ? "markdown" : "text") : "",
   );
-  const [items, setItems] = createSignal<MenuItemDraft[]>(initialItems.length > 0 ? initialItems : [newItem()]);
-  const [links, setLinks] = createSignal<LinkDraft[]>(initialLinks.length > 0 ? initialLinks : [newLink()]);
+  const [items, setItems] = createStore<MenuItemDraft[]>(initialItems.length > 0 ? initialItems : [newItem()]);
+  const [links, setLinks] = createStore<LinkDraft[]>(initialLinks.length > 0 ? initialLinks : [newLink()]);
 
   const updateItem = (id: string, patch: Partial<MenuItemDraft>) => {
-    setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+    const index = items.findIndex((item) => item.id === id);
+    if (index >= 0) setItems(index, patch);
   };
   const updateLink = (id: string, patch: Partial<LinkDraft>) => {
-    setLinks((current) => current.map((link) => (link.id === id ? { ...link, ...patch } : link)));
+    const index = links.findIndex((link) => link.id === id);
+    if (index >= 0) setLinks(index, patch);
   };
 
-  const addItem = () => setItems((current) => [...current, newItem()]);
-  const removeItem = (id: string) => setItems((current) => (current.length > 1 ? current.filter((item) => item.id !== id) : current));
-  const addLink = () => setLinks((current) => [...current, newLink()]);
-  const removeLink = (id: string) => setLinks((current) => (current.length > 1 ? current.filter((link) => link.id !== id) : current));
+  const addItem = () => setItems(items.length, newItem());
+  const removeItem = (id: string) => {
+    if (items.length > 1) setItems(items.filter((item) => item.id !== id));
+  };
+  const addLink = () => setLinks(links.length, newLink());
+  const removeLink = (id: string) => {
+    if (links.length > 1) setLinks(links.filter((link) => link.id !== id));
+  };
 
   const submit = () => {
     if (!title().trim()) {
@@ -138,7 +145,7 @@ export function PublicSectionDialog(props: {
       return;
     }
 
-    const result = buildPublicSectionContent(kind(), contentText(), items(), links());
+    const result = buildPublicSectionContent(kind(), contentText(), Array.from(items), Array.from(links));
     if (result.error || !result.content) {
       prompts.error(result.error ?? "Section content is invalid.");
       return;
@@ -204,7 +211,7 @@ export function PublicSectionDialog(props: {
               }
             >
               <div class="grid gap-2">
-                <For each={links()}>
+                <For each={links}>
                   {(link, index) => (
                     <div class="paper p-3">
                       <div class="mb-3 flex items-center justify-between gap-2">
@@ -241,7 +248,7 @@ export function PublicSectionDialog(props: {
           }
         >
           <div class="grid gap-2">
-            <For each={items()}>
+            <For each={items}>
               {(item, index) => (
                 <div class="paper p-3">
                   <div class="mb-3 flex items-center justify-between gap-2">
