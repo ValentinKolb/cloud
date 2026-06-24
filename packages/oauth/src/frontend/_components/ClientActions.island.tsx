@@ -1,12 +1,18 @@
-import { Dropdown, prompts, CopyButton } from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts, CopyButton, dialogCore, panelDialogOptions } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import { clipboard } from "@valentinkolb/stdlib/browser";
 import type { OAuthClient, UpdateOAuthClient } from "@/contracts";
+import OAuthClientDialog from "./OAuthClientDialog";
 
 type ClientActionsProps = {
   client: OAuthClient;
+};
+
+const clientDialogOptions = {
+  ...panelDialogOptions,
+  panelClassName: panelDialogOptions.panelClassName.replace("w-[min(96vw,48rem)]", "w-[min(96vw,72rem)]"),
 };
 
 const ClientActions = (props: ClientActionsProps) => {
@@ -84,117 +90,22 @@ const ClientActions = (props: ClientActionsProps) => {
     onError: (err) => prompts.error(err.message),
   });
 
-  const currentProfileAccess = client.allowedProfiles.includes("guest") ? "everybody" : "user";
-
   const handleEdit = async () => {
-    const result = await prompts.form({
-      title: `Edit: ${client.name}`,
-      icon: "ti ti-pencil",
-      confirmText: "Save",
-      fields: {
-        clientInfo: {
-          type: "info" as const,
-          content: (
-            <div class="text-xs text-dimmed mb-2 info-block-info">
-              <p>
-                Client ID: <code class="bg-zinc-50 dark:bg-zinc-800 px-1 rounded">{client.clientId}</code>
-              </p>
-              <p>Type: {client.isPublic ? "Public" : "Confidential"}</p>
-            </div>
-          ),
-        },
-        description: {
-          type: "text" as const,
-          label: "Description",
-          placeholder: "Optional description for this client",
-          icon: "ti ti-file-description",
-          default: client.description ?? "",
-        },
-        redirectUri: {
-          type: "text" as const,
-          label: "Redirect URI (Callback URL)",
-          placeholder: "https://myapp.example.com/callback",
-          icon: "ti ti-link",
-          required: true,
-          default: client.redirectUris[0] ?? "",
-        },
-        logoutUri: {
-          type: "text" as const,
-          label: "Logout URI (optional)",
-          placeholder: "https://myapp.example.com/logout-callback",
-          icon: "ti ti-logout",
-          default: client.logoutUri ?? "",
-        },
-        profileInfo: {
-          type: "info" as const,
-          content: <div class="text-xs text-dimmed border-t border-zinc-200 dark:border-zinc-700 pt-3 mt-1">Allowed Profiles</div>,
-        },
-        profileAccess: {
-          type: "select" as const,
-          label: "Who can use this client?",
-          options: [
-            {
-              id: "everybody",
-              label: "Everybody",
-              description: "Full users and guests can use this client.",
-            },
-            {
-              id: "user",
-              label: "Full Users Only",
-              description: "Only full user accounts can use this client.",
-            },
-          ],
-          default: currentProfileAccess,
-          required: true,
-        },
-        scopesInfo: {
-          type: "info" as const,
-          content: (
-            <div class="text-xs text-dimmed border-t border-zinc-200 dark:border-zinc-700 pt-3 mt-1">
-              Scopes (what data the client can access)
-            </div>
-          ),
-        },
-        scopeProfile: {
-          type: "boolean" as const,
-          label: "Profile (name, display name)",
-          default: client.scopes.includes("profile"),
-        },
-        scopeEmail: {
-          type: "boolean" as const,
-          label: "Email address",
-          default: client.scopes.includes("email"),
-        },
-        scopeGroups: {
-          type: "boolean" as const,
-          label: "Group memberships",
-          default: client.scopes.includes("groups"),
-        },
-      },
-    });
-
-    if (result) {
-      const scopes: ("openid" | "profile" | "email" | "groups")[] = ["openid"];
-      if (result.scopeProfile) scopes.push("profile");
-      if (result.scopeEmail) scopes.push("email");
-      if (result.scopeGroups) scopes.push("groups");
-
-      const allowedProfiles: ("user" | "guest")[] = result.profileAccess === "everybody" ? ["user", "guest"] : ["user"];
-
-      // Clean up redirect URI (remove quotes and whitespace)
-      const cleanRedirectUri = result.redirectUri.trim().replace(/^["']|["']$/g, "");
-
-      // Clean up logout URI
-      const cleanLogoutUri = result.logoutUri?.trim() || null;
-
-      await updateMutation.mutate({
-        description: result.description || null,
-        redirectUris: [cleanRedirectUri],
-        logoutUri: cleanLogoutUri,
-        scopes,
-        allowedProfiles,
-      });
-    }
+    void dialogCore.open<void>(
+      (close) => (
+        <OAuthClientDialog
+          mode="edit"
+          client={client}
+          close={close}
+          loading={updateMutation.loading}
+          onSubmit={async (data) => {
+            await updateMutation.mutate(data);
+            if (!updateMutation.error()) close();
+          }}
+        />
+      ),
+      clientDialogOptions,
+    );
   };
 
   const handleDelete = async () => {

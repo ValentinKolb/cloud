@@ -17,11 +17,30 @@ export type OAuthScope = z.infer<typeof OAuthScopeSchema>;
 export const OAuthAllowedProfileSchema = z.enum(["user", "guest"]);
 export type OAuthAllowedProfile = z.infer<typeof OAuthAllowedProfileSchema>;
 
+export const OAuthAccessModeSchema = z.enum(["profiles", "specific"]);
+export type OAuthAccessMode = z.infer<typeof OAuthAccessModeSchema>;
+
 const AllowedProfilesSchema = z
   .array(OAuthAllowedProfileSchema)
   .max(MAX_ARRAY_ITEMS)
   .transform(dedupe)
   .refine((values) => values.length <= 2, "Allowed profiles must not contain more than two distinct values");
+const IdListSchema = z.array(z.uuid()).max(MAX_ARRAY_ITEMS).transform(dedupe);
+
+export const OAuthAccessUserSchema = z.object({
+  id: z.uuid(),
+  uid: z.string(),
+  displayName: z.string(),
+  mail: z.string().nullable(),
+  provider: z.enum(["ipa", "local"]),
+});
+
+export const OAuthAccessGroupSchema = z.object({
+  id: z.uuid(),
+  provider: z.enum(["ipa", "local"]),
+  name: z.string(),
+  description: z.string().nullable(),
+});
 
 export const OAuthClientSchema = z.object({
   id: z.string(),
@@ -34,6 +53,9 @@ export const OAuthClientSchema = z.object({
   audiences: z.array(z.string()),
   serviceAccountId: z.uuid().nullable(),
   allowedProfiles: z.array(OAuthAllowedProfileSchema),
+  accessMode: OAuthAccessModeSchema,
+  accessUsers: z.array(OAuthAccessUserSchema),
+  accessGroups: z.array(OAuthAccessGroupSchema),
   isPublic: z.boolean(),
   createdAt: z.string(),
   createdBy: z.string().nullable(),
@@ -56,6 +78,9 @@ export const CreateOAuthClientSchema = z.object({
   audiences: z.array(AudienceSchema).max(MAX_ARRAY_ITEMS).transform(dedupe).default(["cloud"]),
   serviceAccountId: z.uuid().nullable().optional(),
   allowedProfiles: AllowedProfilesSchema.default(["user", "guest"]),
+  accessMode: OAuthAccessModeSchema.default("profiles"),
+  allowedUserIds: IdListSchema.default([]),
+  allowedGroupIds: IdListSchema.default([]),
   isPublic: z.boolean().default(false),
 });
 
@@ -68,10 +93,15 @@ export const UpdateOAuthClientSchema = z.object({
   audiences: z.array(AudienceSchema).max(MAX_ARRAY_ITEMS).transform(dedupe).optional(),
   serviceAccountId: z.uuid().nullable().optional(),
   allowedProfiles: AllowedProfilesSchema.optional(),
+  accessMode: OAuthAccessModeSchema.optional(),
+  allowedUserIds: IdListSchema.optional(),
+  allowedGroupIds: IdListSchema.optional(),
 });
 
 export type OAuthClient = z.infer<typeof OAuthClientSchema>;
 export type OAuthClientWithSecret = z.infer<typeof OAuthClientWithSecretSchema>;
+export type OAuthAccessUser = z.infer<typeof OAuthAccessUserSchema>;
+export type OAuthAccessGroup = z.infer<typeof OAuthAccessGroupSchema>;
 export type CreateOAuthClient = z.infer<typeof CreateOAuthClientSchema>;
 export type UpdateOAuthClient = z.infer<typeof UpdateOAuthClientSchema>;
 

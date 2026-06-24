@@ -12,12 +12,18 @@ const canUseDatabase = async () => {
     const [row] = await sql<{
       users: string | null;
       service_accounts: string | null;
+      groups: string | null;
+      user_groups: string | null;
+      group_groups: string | null;
     }[]>`
       SELECT
         to_regclass('auth.users')::text AS users,
-        to_regclass('auth.service_accounts')::text AS service_accounts
+        to_regclass('auth.service_accounts')::text AS service_accounts,
+        to_regclass('auth.groups')::text AS groups,
+        to_regclass('auth.user_groups_v2')::text AS user_groups,
+        to_regclass('auth.group_groups_v2')::text AS group_groups
     `;
-    if (!row?.users || !row.service_accounts) return false;
+    if (!row?.users || !row.service_accounts || !row.groups || !row.user_groups || !row.group_groups) return false;
     await migrate();
     return true;
   } catch {
@@ -30,6 +36,16 @@ const insertUser = async () => {
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO auth.users (uid, provider, profile, display_name, mail, given_name, sn)
     VALUES (${`oauth-token-${suffix}`}, 'local', 'user', 'OAuth Token Test', ${`oauth-token-${suffix}@example.test`}, 'OAuth', 'Token')
+    RETURNING id
+  `;
+  return row!.id;
+};
+
+const insertGroup = async (name: string) => {
+  const suffix = crypto.randomUUID();
+  const [row] = await sql<{ id: string }[]>`
+    INSERT INTO auth.groups (cn, provider, name, description)
+    VALUES (${`${name}-${suffix}`}, 'local', ${`${name}-${suffix}`}, ${`${name} group`})
     RETURNING id
   `;
   return row!.id;
@@ -88,6 +104,9 @@ describe("OAuth resource access tokens", () => {
           scopes: ["openid", "profile", "email"],
           audiences: ["cloud", "test-api"],
           allowedProfiles: ["user"],
+          accessMode: "profiles",
+          allowedUserIds: [],
+          allowedGroupIds: [],
           isPublic: false,
         },
       });
@@ -139,6 +158,9 @@ describe("OAuth resource access tokens", () => {
           scopes: ["openid", "profile", "email"],
           audiences: ["cloud"],
           allowedProfiles: ["user"],
+          accessMode: "profiles",
+          allowedUserIds: [],
+          allowedGroupIds: [],
           isPublic: false,
         },
       });
@@ -173,6 +195,54 @@ describe("OAuth resource access tokens", () => {
     }
   });
 
+  test("specific client access allows direct users and recursive group members only", async () => {
+    if (!(await canUseDatabase())) {
+      console.warn("Skipping OAuth specific access DB test: auth/oauth tables are not available.");
+      return;
+    }
+
+    const creatorId = await insertUser();
+    const directUserId = await insertUser();
+    const nestedUserId = await insertUser();
+    const deniedUserId = await insertUser();
+    const parentGroupId = await insertGroup("oauth-parent");
+    const childGroupId = await insertGroup("oauth-child");
+    let clientId: string | null = null;
+
+    try {
+      await sql`INSERT INTO auth.group_groups_v2 (parent_group_id, child_group_id) VALUES (${parentGroupId}::uuid, ${childGroupId}::uuid)`;
+      await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${nestedUserId}::uuid, ${childGroupId}::uuid)`;
+
+      const created = await oauth.clients.create({
+        createdBy: creatorId,
+        data: {
+          name: `Specific access client ${crypto.randomUUID()}`,
+          redirectUris: ["https://client.example.test/callback"],
+          scopes: ["openid", "profile", "email"],
+          audiences: ["cloud"],
+          allowedProfiles: ["user", "guest"],
+          accessMode: "specific",
+          allowedUserIds: [directUserId],
+          allowedGroupIds: [parentGroupId],
+          isPublic: false,
+        },
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      clientId = created.data.id;
+
+      expect(await oauth.clients.canAuthorizeUser({ client: created.data, userId: directUserId, profile: "user" })).toBe(true);
+      expect(await oauth.clients.canAuthorizeUser({ client: created.data, userId: nestedUserId, profile: "user" })).toBe(true);
+      expect(await oauth.clients.canAuthorizeUser({ client: created.data, userId: deniedUserId, profile: "user" })).toBe(false);
+    } finally {
+      if (clientId) await sql`DELETE FROM oauth.clients WHERE id = ${clientId}::uuid`;
+      await sql`DELETE FROM auth.user_groups_v2 WHERE user_id IN (${directUserId}::uuid, ${nestedUserId}::uuid, ${deniedUserId}::uuid)`;
+      await sql`DELETE FROM auth.group_groups_v2 WHERE parent_group_id = ${parentGroupId}::uuid OR child_group_id = ${childGroupId}::uuid`;
+      await sql`DELETE FROM auth.groups WHERE id IN (${parentGroupId}::uuid, ${childGroupId}::uuid)`;
+      await sql`DELETE FROM auth.users WHERE id IN (${creatorId}::uuid, ${directUserId}::uuid, ${nestedUserId}::uuid, ${deniedUserId}::uuid)`;
+    }
+  });
+
   test("client credentials resolve as resource service-account actors and validate scope/resource", async () => {
     if (!(await canUseDatabase())) {
       console.warn("Skipping OAuth client credentials DB test: auth/oauth tables are not available.");
@@ -204,6 +274,9 @@ describe("OAuth resource access tokens", () => {
           audiences: ["cloud"],
           serviceAccountId: serviceAccount.data.id,
           allowedProfiles: ["user"],
+          accessMode: "profiles",
+          allowedUserIds: [],
+          allowedGroupIds: [],
           isPublic: true,
         },
       });
@@ -218,6 +291,9 @@ describe("OAuth resource access tokens", () => {
           audiences: ["cloud", "oauth-test-api"],
           serviceAccountId: serviceAccount.data.id,
           allowedProfiles: ["user"],
+          accessMode: "profiles",
+          allowedUserIds: [],
+          allowedGroupIds: [],
           isPublic: false,
         },
       });

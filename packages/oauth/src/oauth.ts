@@ -151,7 +151,7 @@ const app = new Hono<AuthContext>()
         return c.redirect(buildLoginRedirect());
       }
 
-      if (!client.allowedProfiles.includes(user.profile)) {
+      if (!(await oauth.clients.canAuthorizeUser({ client, userId: user.id, profile: user.profile }))) {
         return c.redirect(
           `/oauth/error?error=access_denied&error_description=${encodeURIComponent(
             "You do not have access to this application",
@@ -267,6 +267,11 @@ const app = new Hono<AuthContext>()
 
       const issuer = await getIssuer();
       try {
+        const user = await accounts.users.get({ id: result.userId });
+        if (!user || !(await oauth.clients.canAuthorizeUser({ client: result.client, userId: user.id, profile: user.profile }))) {
+          return c.json({ message: "User is not allowed to access this client" }, 403);
+        }
+
         const tokens = await oauth.tokens.createTokens({
           userId: result.userId,
           client: result.client,

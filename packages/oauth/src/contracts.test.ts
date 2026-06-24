@@ -11,6 +11,12 @@ describe("OAuth contracts", () => {
       scopes: ["openid", "profile", "profile", "email"],
       audiences: [" cloud ", "cloud", "api"],
       allowedProfiles: ["user", "user", "guest"],
+      accessMode: "specific",
+      allowedUserIds: [
+        "11111111-1111-4111-8111-111111111111",
+        "11111111-1111-4111-8111-111111111111",
+      ],
+      allowedGroupIds: ["22222222-2222-4222-8222-222222222222"],
       isPublic: true,
     });
 
@@ -23,6 +29,9 @@ describe("OAuth contracts", () => {
       audiences: ["cloud", "api"],
       serviceAccountId: undefined,
       allowedProfiles: ["user", "guest"],
+      accessMode: "specific",
+      allowedUserIds: ["11111111-1111-4111-8111-111111111111"],
+      allowedGroupIds: ["22222222-2222-4222-8222-222222222222"],
       isPublic: true,
     });
   });
@@ -34,6 +43,9 @@ describe("OAuth contracts", () => {
     expect(parsed.scopes).toEqual(["openid", "profile", "email"]);
     expect(parsed.audiences).toEqual(["cloud"]);
     expect(parsed.allowedProfiles).toEqual(["user", "guest"]);
+    expect(parsed.accessMode).toBe("profiles");
+    expect(parsed.allowedUserIds).toEqual([]);
+    expect(parsed.allowedGroupIds).toEqual([]);
     expect(parsed.isPublic).toBe(false);
   });
 
@@ -55,6 +67,12 @@ describe("OAuth contracts", () => {
       scopes: ["read", "read", "write"],
       audiences: [" api ", "api"],
       allowedProfiles: ["guest", "guest"],
+      accessMode: "specific",
+      allowedUserIds: [
+        "11111111-1111-4111-8111-111111111111",
+        "11111111-1111-4111-8111-111111111111",
+      ],
+      allowedGroupIds: ["22222222-2222-4222-8222-222222222222"],
     });
 
     expect(parsed).toEqual({
@@ -65,6 +83,9 @@ describe("OAuth contracts", () => {
       scopes: ["read", "write"],
       audiences: ["api"],
       allowedProfiles: ["guest"],
+      accessMode: "specific",
+      allowedUserIds: ["11111111-1111-4111-8111-111111111111"],
+      allowedGroupIds: ["22222222-2222-4222-8222-222222222222"],
     });
   });
 });

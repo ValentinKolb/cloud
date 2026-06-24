@@ -30,6 +30,7 @@ export default ssr<AuthContext>(async (c) => {
     { id: "client", header: "Client", value: (client) => client.name },
     { id: "description", header: "Description", value: (client) => client.description, cellClass: "max-w-[18rem]" },
     { id: "type", header: "Type", value: (client) => client.isPublic },
+    { id: "access", header: "Access", value: (client) => client.accessMode },
     { id: "scopes", header: "Scopes", value: (client) => client.scopes },
     { id: "profiles", header: "Profiles", value: (client) => client.allowedProfiles },
     { id: "created", header: "Created", value: (client) => client.createdAt, cellClass: "whitespace-nowrap" },
@@ -98,6 +99,16 @@ export default ssr<AuthContext>(async (c) => {
                         ))}
                       </div>
                     );
+                  }
+                  if (col.id === "access") {
+                    if (client.accessMode === "specific") {
+                      return (
+                        <span class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                          {client.accessUsers.length + client.accessGroups.length} selected
+                        </span>
+                      );
+                    }
+                    return <span class="text-dimmed">Profiles</span>;
                   }
                   if (col.id === "profiles") {
                     return (

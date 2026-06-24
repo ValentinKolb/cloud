@@ -32,6 +32,24 @@ export const migrate = async (): Promise<void> => {
     ADD COLUMN IF NOT EXISTS service_account_id UUID REFERENCES auth.service_accounts(id) ON DELETE SET NULL
   `.simple();
   await sql`
+    ALTER TABLE oauth.clients
+    ADD COLUMN IF NOT EXISTS access_mode TEXT NOT NULL DEFAULT 'profiles'
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'oauth_clients_access_mode_check'
+          AND conrelid = 'oauth.clients'::regclass
+      ) THEN
+        ALTER TABLE oauth.clients
+        ADD CONSTRAINT oauth_clients_access_mode_check CHECK (access_mode IN ('profiles', 'specific'));
+      END IF;
+    END $$
+  `.simple();
+  await sql`
     CREATE INDEX IF NOT EXISTS idx_oauth_clients_service_account
     ON oauth.clients(service_account_id)
   `.simple();
@@ -47,6 +65,30 @@ export const migrate = async (): Promise<void> => {
     END $$;
   `.simple();
   console.log("  ✓ oauth.clients table");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS oauth.client_access_users (
+      client_id UUID NOT NULL REFERENCES oauth.clients(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      PRIMARY KEY (client_id, user_id)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_oauth_client_access_users_user
+    ON oauth.client_access_users(user_id)
+  `.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS oauth.client_access_groups (
+      client_id UUID NOT NULL REFERENCES oauth.clients(id) ON DELETE CASCADE,
+      group_id UUID NOT NULL REFERENCES auth.groups(id) ON DELETE CASCADE,
+      PRIMARY KEY (client_id, group_id)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_oauth_client_access_groups_group
+    ON oauth.client_access_groups(group_id)
+  `.simple();
+  console.log("  ✓ oauth client access tables");
 
   await sql`
     CREATE TABLE IF NOT EXISTS oauth.codes (
