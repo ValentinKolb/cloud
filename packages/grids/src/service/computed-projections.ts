@@ -67,7 +67,23 @@ export const computedOutputToFormulaType = (output: ComputedProjectionOutputType
 const lookupAlias = (fieldId: string): string => `lkp_${fieldId.replace(/-/g, "")}`;
 const rollupAlias = (fieldId: string): string => `rlp_${fieldId.replace(/-/g, "")}`;
 const formulaAlias = (fieldId: string): string => `fml_${fieldId.replace(/-/g, "")}`;
-const computedColumnAlias = (columnId: string): string => `ccl_${columnId.replace(/[^a-z0-9]/gi, "")}`;
+
+const stableAliasHash = (value: string): string => {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+};
+
+const computedColumnAlias = (columnId: string): string => {
+  const slug = columnId
+    .replace(/[^a-z0-9]/gi, "")
+    .toLowerCase()
+    .slice(0, 32);
+  return `ccl_${slug}_${stableAliasHash(columnId)}`;
+};
 
 const outputTypeForFormula = (type: FormulaSqlType): ComputedProjection["outputType"] => {
   if (type === "numeric") return "decimal";

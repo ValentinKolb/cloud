@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applyComputedProjections, buildFormulaSqlProjections } from "./computed-projections";
+import { applyComputedProjections, buildComputedColumnSqlProjections, buildFormulaSqlProjections } from "./computed-projections";
 import type { Field } from "./types";
 
 const field = (overrides: Partial<Field> & Pick<Field, "id" | "shortId" | "name" | "type">): Field => ({
@@ -71,5 +71,25 @@ describe("buildFormulaSqlProjections", () => {
     applyComputedProjections([{ id: "record_1", [projection!.alias]: "0.300" }], new Map([["record_1", record]]), [projection!]);
 
     expect(record.data.total_id).toBe("0.3");
+  });
+});
+
+describe("buildComputedColumnSqlProjections", () => {
+  test("uses postgres-stable aliases for mixed-case computed column ids", () => {
+    const name = field({ id: "name_id", shortId: "name", name: "Name", type: "text" });
+
+    const { projections, sqlColumnIds } = buildComputedColumnSqlProjections(
+      [{ kind: "computed", id: "computed_j3rz0Y3fwW", label: "Name length", expression: "LEN(Name)" }],
+      [name],
+    );
+
+    expect(sqlColumnIds.has("computed_j3rz0Y3fwW")).toBe(true);
+    expect(projections).toHaveLength(1);
+    expect(projections[0]!.alias).toBe(projections[0]!.alias.toLowerCase());
+
+    const record = { data: {} as Record<string, unknown> };
+    applyComputedProjections([{ id: "record_1", [projections[0]!.alias]: "12" }], new Map([["record_1", record]]), projections);
+
+    expect(record.data.computed_j3rz0Y3fwW).toBe("12");
   });
 });
