@@ -1,4 +1,4 @@
-import type { RecordMetaQuery, SearchSpec, SortSpec, RecordQuery } from "../contracts";
+import type { RecordMetaQuery, RecordQuery, SearchSpec, SortSpec } from "../contracts";
 
 const fieldRef = (fieldId: string) => `{${fieldId}}`;
 const computedRef = (expression: string) => `formula(${expression.trim()})`;
@@ -59,6 +59,28 @@ type ConvertResult = { ok: true; source: string } | { ok: false; reason: string 
 const unsupported = (reason: string): ConvertResult => ({ ok: false, reason });
 
 const validAlias = (value: string): boolean => ALIAS_RE.test(value) && !RESERVED_ALIASES.has(value.toLowerCase());
+const aliasKey = (value: string): string => value.toLowerCase();
+
+const computedColumnAlias = (column: NonNullable<RecordQuery["columns"]>[number], index: number, used: Set<string>): string => {
+  const source = "id" in column ? column.id : `computed_${index}`;
+  const base = `__${source}`.replace(/[^A-Za-z0-9_]/g, "_").slice(0, 64);
+  const candidates = [base, `__computed_${index}`];
+  for (const candidate of candidates) {
+    if (validAlias(candidate) && !used.has(aliasKey(candidate))) {
+      used.add(aliasKey(candidate));
+      return candidate;
+    }
+  }
+  let suffix = 1;
+  while (true) {
+    const candidate = `__computed_${index}_${suffix}`;
+    if (validAlias(candidate) && !used.has(aliasKey(candidate))) {
+      used.add(aliasKey(candidate));
+      return candidate;
+    }
+    suffix++;
+  }
+};
 
 const recordMetaRef = (key: "createdBy" | "updatedBy" | "deletedBy") => `record.${key}`;
 
@@ -192,10 +214,10 @@ export const sortToGql = (sort: RecordQuery["sort"]): ConvertResult | undefined 
 const columnsToGql = (columns: RecordQuery["columns"]): ConvertResult | undefined => {
   if (!columns || columns.length === 0) return undefined;
   const parts: string[] = [];
-  for (const column of columns) {
+  const usedComputedAliases = new Set<string>();
+  for (const [index, column] of columns.entries()) {
     if (!("fieldId" in column)) {
-      const alias = column.label.trim();
-      if (!validAlias(alias)) return unsupported(`computed column label "${column.label}" is not a valid GQL alias`);
+      const alias = computedColumnAlias(column, index, usedComputedAliases);
       parts.push(`${computedRef(column.expression)} as ${alias}`);
       continue;
     }
@@ -213,7 +235,9 @@ const groupByToGql = (groupBy: RecordQuery["groupBy"]): ConvertResult | undefine
 const aggregationAlias = (aggregation: NonNullable<RecordQuery["aggregations"]>[number]): ConvertResult => {
   const label =
     aggregation.label?.trim() ??
-    (aggregation.fieldId === "*" && aggregation.agg === "count" ? "rows" : `${aggregation.agg}_${aggregation.fieldId.replace(/[^A-Za-z0-9_]/g, "_").slice(0, 24)}`);
+    (aggregation.fieldId === "*" && aggregation.agg === "count"
+      ? "rows"
+      : `${aggregation.agg}_${aggregation.fieldId.replace(/[^A-Za-z0-9_]/g, "_").slice(0, 24)}`);
   if (!validAlias(label)) return unsupported(`aggregation label "${label}" is not a valid GQL alias`);
   return { ok: true, source: label };
 };
@@ -276,7 +300,8 @@ export const simpleQueryToGqlSource = (args: { tableId: string; query: RecordQue
       whereParts.push(where.source);
     }
   }
-  if (whereParts.length > 0) lines.push(`where ${whereParts.length === 1 ? whereParts[0] : whereParts.map((part) => `(${part})`).join(" and ")}`);
+  if (whereParts.length > 0)
+    lines.push(`where ${whereParts.length === 1 ? whereParts[0] : whereParts.map((part) => `(${part})`).join(" and ")}`);
   const groupBy = groupByToGql(args.query.groupBy);
   if (groupBy) {
     if (!groupBy.ok) return groupBy;

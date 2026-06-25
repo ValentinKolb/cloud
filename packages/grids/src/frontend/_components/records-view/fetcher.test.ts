@@ -1,4 +1,4 @@
-import { test, expect, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { TableQueryBodySchema } from "../../../contracts";
 import { buildTableQueryBody, TableQueryError } from "./fetcher";
 
@@ -56,13 +56,44 @@ describe("buildTableQueryBody", () => {
     });
   });
 
-  test("rejects table footer aggregations instead of falling back to RecordQuery", () => {
-    expect(() =>
-      buildTableQueryBody({
-        tableId: "11111111-1111-4111-8111-111111111111",
-        query: { aggregations: [{ fieldId: "*", agg: "count" }] },
-        cursor: null,
-      }),
-    ).toThrow("table footer aggregations are not part of row GQL source");
+  test("falls back to RecordQuery when a toolbar query has no row-shaped GQL source", () => {
+    const body = buildTableQueryBody({
+      tableId: "11111111-1111-4111-8111-111111111111",
+      query: { aggregations: [{ fieldId: "*", agg: "count" }] },
+      cursor: null,
+    });
+
+    expect(body).toEqual({
+      query: { aggregations: [{ fieldId: "*", agg: "count" }] },
+      cursor: undefined,
+      filePreviewFieldIds: undefined,
+      viewId: undefined,
+    });
+  });
+
+  test("does not throw for computed column labels that are not valid GQL aliases", () => {
+    const body = buildTableQueryBody({
+      tableId: "11111111-1111-4111-8111-111111111111",
+      query: {
+        columns: [
+          { fieldId: "22222222-2222-4222-8222-222222222222" },
+          {
+            kind: "computed",
+            id: "computed_j3rz0Y3fwW",
+            label: "name+l#nge",
+            expression: "LEN(Name)",
+          },
+        ],
+      },
+      cursor: null,
+    });
+
+    expect(body.source).toBe(
+      [
+        "from table {11111111-1111-4111-8111-111111111111}",
+        "select {22222222-2222-4222-8222-222222222222}, formula(LEN(Name)) as __computed_j3rz0Y3fwW",
+      ].join("\n"),
+    );
+    expect(body.query?.columns?.[1]).toMatchObject({ label: "name+l#nge" });
   });
 });

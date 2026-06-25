@@ -12,7 +12,7 @@
  */
 
 import { apiClient } from "../../../api/client";
-import type { TableQueryBody, TableQueryResult, RecordQuery } from "../../../contracts";
+import type { RecordQuery, TableQueryBody, TableQueryResult } from "../../../contracts";
 import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
 import { errorMessage } from "../utils/api-helpers";
 
@@ -42,9 +42,8 @@ export class TableQueryError extends Error {
 
 export const buildTableQueryBody = (args: FetchTableQueryArgs): TableQueryBody => {
   const source = simpleQueryToGqlSource({ tableId: args.tableId, query: args.query });
-  if (!source.ok) throw new TableQueryError(400, source.reason);
   return {
-    source: source.source,
+    ...(source.ok ? { source: source.source } : {}),
     query: args.query,
     viewId: args.viewId,
     cursor: args.cursor ?? undefined,

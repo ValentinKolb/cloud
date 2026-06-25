@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
 import { parseFormula } from "../../../formula/parser";
 import type { Field } from "../../../service";
 import {
@@ -84,6 +85,20 @@ describe("formula authoring helpers", () => {
     expect(labels).toContain("Quantity");
     expect(labels).toContain("SUM");
     expect(labels.indexOf("Unit price")).toBeLessThan(labels.indexOf("Product name"));
+  });
+
+  test("value suggestions expose every catalogued formula function", () => {
+    const suggestions = formulaValueSuggestions(fields, "", {
+      fullText: "",
+      tokenStart: 0,
+    });
+    const labels = suggestions.map((s) => s.label ?? s.text);
+
+    for (const fn of GRID_FORMULA_FUNCTIONS) {
+      expect(labels).toContain(fn.name);
+    }
+    expect(labels).toContain("STARTSWITH");
+    expect(labels).toContain("IENDSWITH");
   });
 
   test("numeric operator contexts still show matching non-numeric fields", () => {

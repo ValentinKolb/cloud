@@ -40,22 +40,20 @@
  * comment on focus-trap rationale.
  */
 
-import { createSignal, createEffect, createMemo, onMount, onCleanup, untrack, For, Show } from "solid-js";
 import { timed } from "@valentinkolb/stdlib/solid";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
 import {
-  type Completion,
-  type QueryContext,
-  type Suggestion,
   applySuggestion,
   buildSuggestContext,
-  collectKnownLabels,
+  type Completion,
   detectQuery,
   displayLabel,
   plainTextHighlight,
+  type QueryContext,
   renderWithOverlay,
   resetCompletionState,
   resolveSuggestions,
-  suggestSync,
+  type Suggestion,
   tryExpand,
   tryRestore,
 } from "../completion";
@@ -162,7 +160,6 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
   /* ── Memoised inputs ──────────────────────────────────── */
 
   const completions = createMemo(() => props.completions);
-  const knownLabels = createMemo(() => collectKnownLabels(completions()));
   const useOverlay = createMemo(() => Boolean(props.highlight));
 
   /* ── External value sync ──────────────────────────────── */
@@ -214,6 +211,11 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
     currentAbort = null;
   };
 
+  const isAbortError = (e: unknown): boolean =>
+    e instanceof DOMException
+      ? e.name === "AbortError"
+      : Boolean(e && typeof e === "object" && "name" in e && (e as { name: string }).name === "AbortError");
+
   const recomputeCompletion = (): void => {
     if (!textareaEl) return;
     const ctx = detectQuery(textareaEl, completions());
@@ -230,7 +232,15 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
     currentAbort = new AbortController();
     const signal = currentAbort.signal;
 
-    const result = resolveSuggestions(ctx.completion, ctx.query, suggestCtx, signal);
+    let result: ReturnType<typeof resolveSuggestions>;
+    try {
+      result = resolveSuggestions(ctx.completion, ctx.query, suggestCtx, signal);
+    } catch (e: unknown) {
+      if (isAbortError(e)) return;
+      setLoading(false);
+      setError(e instanceof Error ? e.message : String(e));
+      return;
+    }
 
     if (result.kind === "sync") {
       setError(null);
@@ -239,14 +249,25 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
       return;
     }
 
-    // Async path: keep previous suggestions visible (dimmed via
-    // `loading` state) and schedule the debounced fetch.
+    // Async path: keep previous suggestions visible only while the
+    // same completion token is being refined. A new token/context can
+    // mean a different language slot (e.g. GQL source → predicate), so
+    // stale rows would be actively misleading.
+    const prev = completionState();
+    if (prev && (prev.ctx.start !== ctx.start || prev.ctx.completion !== ctx.completion)) {
+      setCompletionState(null);
+      closeDropdown();
+    }
     setError(null);
     setLoading(true);
     lastAsyncCompletion = ctx.completion;
     lastAsyncQuery = ctx.query;
     lastAsyncCtx = suggestCtx;
-    debouncedFetch.debouncedFn(ctx, suggestCtx, result.promise, signal);
+    const promise = result.promise.catch((e: unknown) => {
+      if (signal.aborted || isAbortError(e)) return [];
+      throw e;
+    });
+    debouncedFetch.debouncedFn(ctx, suggestCtx, promise, signal);
   };
 
   /** Take a fresh suggestion list, filter to usable ones, and merge
@@ -308,7 +329,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
       applySuggestionList(ctx, list);
     } catch (e: unknown) {
       if (signal.aborted) return;
-      if (e && typeof e === "object" && "name" in e && (e as { name: string }).name === "AbortError") return;
+      if (isAbortError(e)) return;
       setLoading(false);
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -652,5 +673,5 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
 };
 
 export default AutocompleteEditor;
-export type { Completion, Suggestion, SuggestContext } from "../completion";
+export type { Completion, SuggestContext, Suggestion } from "../completion";
 export { abbreviations } from "../completion";

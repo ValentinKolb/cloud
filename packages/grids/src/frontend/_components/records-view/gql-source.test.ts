@@ -103,7 +103,26 @@ describe("GQL source builder", () => {
 
     expect(simpleQueryToGqlSource({ tableId, query })).toEqual({
       ok: true,
-      source: [`from table {${tableId}}`, `select {${amountId}}, formula({${amountId}} * 0.2) as margin`].join("\n"),
+      source: [`from table {${tableId}}`, `select {${amountId}}, formula({${amountId}} * 0.2) as __computed_margin`].join("\n"),
+    });
+  });
+
+  test("uses safe internal aliases for computed labels that are not GQL aliases", () => {
+    const query: RecordQuery = {
+      columns: [
+        { fieldId: amountId },
+        {
+          kind: "computed",
+          id: "computed_j3rz0Y3fwW",
+          label: "name+l#nge",
+          expression: "LEN(Name)",
+        },
+      ],
+    };
+
+    expect(simpleQueryToGqlSource({ tableId, query })).toEqual({
+      ok: true,
+      source: [`from table {${tableId}}`, `select {${amountId}}, formula(LEN(Name)) as __computed_j3rz0Y3fwW`].join("\n"),
     });
   });
 

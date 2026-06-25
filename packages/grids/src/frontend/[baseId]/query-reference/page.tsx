@@ -26,7 +26,8 @@ export default ssr<AuthContext>(async (c) => {
   const defaultTabParam = c.req.query("defaultTab");
   const routeTabParam = c.req.param("tab");
   const sourceId = c.req.param("sourceId");
-  const defaultTab = normalizeQueryReferenceTab(routeTabParam) ?? normalizeQueryReferenceTab(defaultTabParam) ?? (sourceId ? "tables" : "basics");
+  const defaultTab =
+    normalizeQueryReferenceTab(routeTabParam) ?? normalizeQueryReferenceTab(defaultTabParam) ?? (sourceId ? "tables" : "basics");
   const base = await gridsService.base.getByIdOrShortId(baseSlug);
   if (!base) return messagePage("Base not found");
 
@@ -65,6 +66,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <QueryReferenceWindow
+      baseId={base.id}
       baseShortId={base.shortId}
       baseName={base.name}
       tables={catalog.tables}

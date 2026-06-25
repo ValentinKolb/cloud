@@ -1,20 +1,22 @@
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
-import { Hono, type MiddlewareHandler } from "hono";
+import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
 import {
   DslQueryAutocompleteBodySchema,
   DslQueryAutocompleteResponseSchema,
-  DslQueryExecuteBodySchema,
-  DslQueryExecuteResponseSchema,
   DslQueryCompileViewBodySchema,
   DslQueryCompileViewResponseSchema,
+  DslQueryExecuteBodySchema,
+  DslQueryExecuteResponseSchema,
   DslQueryPreviewBodySchema,
   DslQueryPreviewResponseSchema,
 } from "../contracts";
+import { renderGqlAssistantContext, renderGqlAssistantSkill } from "../query-dsl/assistant-docs";
 import { buildDslQueryIntelligence } from "../query-dsl/intelligence";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
+import { gridsService } from "../service";
 import { buildPermissionedGqlResolverContext, canonicalGqlSource, emptyDslAst, executeGqlSource, sourceAst } from "./gql-runtime";
 import { gateAt } from "./permissions";
 
@@ -22,9 +24,67 @@ type GqlApiOptions = {
   requireAuthenticated?: MiddlewareHandler<AuthContext>;
 };
 
+const markdownAttachment = (c: Context, filename: string, body: string) =>
+  c.text(body, 200, {
+    "Content-Type": "text/markdown; charset=utf-8",
+    "Content-Disposition": `attachment; filename="${filename}"`,
+    "Cache-Control": "no-store",
+  });
+
 export const createGqlApi = (options: GqlApiOptions = {}) =>
   new Hono<AuthContext>()
     .use(options.requireAuthenticated ?? auth.requireRole("authenticated"))
+    .get(
+      "/by-base/:baseId/assistant/SKILL.md",
+      describeRoute({
+        tags: ["Grids:GQL"],
+        summary: "Download the Grids GQL assistant skill",
+        responses: {
+          200: { description: "Markdown skill file" },
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      async (c) => {
+        const baseId = c.req.param("baseId")!;
+        const gate = await gateAt(c, { baseId }, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+
+        return markdownAttachment(c, "SKILL.md", renderGqlAssistantSkill());
+      },
+    )
+    .get(
+      "/by-base/:baseId/assistant/context.md",
+      describeRoute({
+        tags: ["Grids:GQL"],
+        summary: "Download permission-safe Grids schema context for a GQL assistant",
+        responses: {
+          200: { description: "Markdown schema context file" },
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      async (c) => {
+        const baseId = c.req.param("baseId")!;
+        const gate = await gateAt(c, { baseId }, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+
+        const base = await gridsService.base.get(baseId);
+        if (!base) return c.text("Base not found", 404);
+        const ctx = await buildPermissionedGqlResolverContext(c, base.id, undefined, undefined, emptyDslAst(), {
+          loadViews: true,
+          loadAllFields: true,
+        });
+
+        return markdownAttachment(
+          c,
+          "context.md",
+          renderGqlAssistantContext({
+            base,
+            ctx,
+            generatedAt: new Date().toISOString(),
+          }),
+        );
+      },
+    )
     .post(
       "/by-base/:baseId/preview",
       describeRoute({

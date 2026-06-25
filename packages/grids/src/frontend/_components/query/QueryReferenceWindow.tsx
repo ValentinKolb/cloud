@@ -14,10 +14,10 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { highlight } from "@valentinkolb/stdlib";
 import { createMemo, For, type JSX, Show } from "solid-js";
+import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
 import { formatIdentifierRef } from "../../../ref-syntax";
 import type { Field, Table, View } from "../../../service";
 import { fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
-import { GRID_FORMULA_FUNCTIONS } from "../fields/formula-authoring";
 
 const TAB_ALIASES = {
   overview: "basics",
@@ -49,6 +49,7 @@ export const isQueryReferenceTab = (value: string | null | undefined): value is 
   normalizeQueryReferenceTab(value) !== null;
 
 type Props = {
+  baseId: string;
   baseShortId: string;
   baseName: string;
   defaultTab?: GqlReferenceTab;
@@ -185,7 +186,26 @@ const functionCategory = (name: string, returnType: string): string => {
   if (["SUM", "AVG", "MEAN", "COUNT", "MIN", "MAX", "MEDIAN"].includes(name)) return "Aggregate";
   if (["ABS", "ROUND", "FLOOR", "CEIL", "SQRT", "POW", "MOD", "PERCENT"].includes(name)) return "Number";
   if (["IF", "IFEMPTY", "IFERROR", "AND", "OR", "NOT", "ISBLANK"].includes(name)) return "Logic";
-  if (["CONTAINS", "CONCAT", "LEN", "LOWER", "UPPER", "TRIM", "LEFT", "RIGHT", "SUBSTRING", "REPLACE"].includes(name)) return "Text";
+  if (
+    [
+      "CONTAINS",
+      "STARTSWITH",
+      "ENDSWITH",
+      "ICONTAINS",
+      "ISTARTSWITH",
+      "IENDSWITH",
+      "CONCAT",
+      "LEN",
+      "LOWER",
+      "UPPER",
+      "TRIM",
+      "LEFT",
+      "RIGHT",
+      "SUBSTRING",
+      "REPLACE",
+    ].includes(name)
+  )
+    return "Text";
   if (["TODAY", "NOW", "YEAR", "MONTH", "DAY", "DATEADD", "DATEDIFF"].includes(name)) return "Date";
   return returnType === "number" ? "Number" : "General";
 };
@@ -305,6 +325,9 @@ const referenceTabHref = (baseShortId: string, tab: GqlReferenceTab) =>
 
 const referenceSourceHref = (baseShortId: string, source: SourceRow) =>
   `/app/grids/${encodeURIComponent(baseShortId)}/reference/tables/${encodeURIComponent(source.shortId)}`;
+
+const assistantFileHref = (baseId: string, file: "SKILL.md" | "context.md") =>
+  `/api/grids/gql/by-base/${encodeURIComponent(baseId)}/assistant/${file}`;
 
 function ReferenceSidebar(props: { activeTab: GqlReferenceTab; baseShortId: string; baseName: string }) {
   const items = (
@@ -835,7 +858,7 @@ function FormulasTab(props: { functionRows: FunctionRow[] }) {
   );
 }
 
-function QueryLanguageTab() {
+function QueryLanguageTab(props: { baseId: string }) {
   return (
     <Doc>
       <DocLead>
@@ -843,6 +866,23 @@ function QueryLanguageTab() {
         writing the rule directly: filter rows, pick fields, sort results, group records, calculate summaries, preview the result, and save
         compatible queries as normal views.
       </DocLead>
+
+      <DocSection title="AI assistant files">
+        <div class="paper flex flex-wrap items-center justify-between gap-3 p-4">
+          <div class="min-w-0">
+            <h3 class="font-semibold text-primary">Download assistant context</h3>
+            <p class="mt-1 text-sm text-dimmed">Use the skill once, then pair it with this base's permission-filtered schema context.</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <a class="btn-input btn-sm" href={assistantFileHref(props.baseId, "SKILL.md")} download="SKILL.md">
+              <i class="ti ti-download" /> SKILL.md
+            </a>
+            <a class="btn-input btn-sm" href={assistantFileHref(props.baseId, "context.md")} download="context.md">
+              <i class="ti ti-download" /> context.md
+            </a>
+          </div>
+        </div>
+      </DocSection>
 
       <DocSection title="Minimal query">
         <DocRows
@@ -1694,7 +1734,7 @@ export default function QueryReferenceWindow(props: Props) {
       case "formulas":
         return <FormulasTab functionRows={functionRows()} />;
       case "gql":
-        return <QueryLanguageTab />;
+        return <QueryLanguageTab baseId={props.baseId} />;
       case "examples":
         return <ExamplesTab catalogExample={catalogExample()} />;
       case "how-it-works":

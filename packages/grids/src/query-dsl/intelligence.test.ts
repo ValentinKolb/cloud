@@ -37,6 +37,7 @@ const accounts = table("accounts", "ACC01", "Accounts");
 const transactions = table("transactions", "TRN01", "Transactions");
 
 const amount = field(orders.id, "amount", "AMT01", "Amount", "number");
+const orderedAt = field(orders.id, "ordered_at", "DAT01", "Ordered at", "date");
 const stage = field(orders.id, "stage", "STG01", "Stage", "select", {
   options: [
     { id: "open", label: "Open" },
@@ -65,7 +66,7 @@ const ctx = (overrides: Partial<DslResolverContext> = {}): DslResolverContext =>
   tables: [orders, customers, accounts, transactions],
   views: [revenueView],
   fieldsByTableId: {
-    [orders.id]: [amount, stage, customerLink],
+    [orders.id]: [amount, orderedAt, stage, customerLink],
     [customers.id]: [customerName],
     [accounts.id]: [accountName],
     [transactions.id]: [transactionAmount],
@@ -90,6 +91,84 @@ describe("GQL query intelligence", () => {
     expect(labels("from view ")).toContain("Revenue by customer");
   });
 
+  test("stops suggesting sources once a from source is complete", () => {
+    const suggestions = labels("from table Orders w");
+
+    expect(suggestions).toContain("where");
+    expect(suggestions).not.toContain("Orders");
+    expect(suggestions).not.toContain("Customers");
+    expect(item("from table Orders w", "where")?.textEdit).toMatchObject({
+      start: "from table Orders ".length,
+      end: "from table Orders w".length,
+      text: "\nwhere ",
+    });
+  });
+
+  test("treats same-line clause typing after a source as canonical newline insertion", () => {
+    const query = "from table Orders where ";
+    const amountSuggestion = item(query, "Amount");
+    const suggestions = labels(query);
+
+    expect(suggestions[0]).toBe("Amount");
+    expect(suggestions).toContain("Stage");
+    expect(suggestions).not.toContain("Orders");
+    expect(amountSuggestion?.textEdit).toMatchObject({
+      start: "from table Orders ".length,
+      end: query.length,
+      text: "\nwhere Amount",
+    });
+  });
+
+  test("suggests source aliases before leaving the from clause", () => {
+    const aliasQuery = "from table Orders as ";
+    const nextClauseQuery = "from table Orders as orders w";
+
+    expect(labels("from table Orders")).toContain("as");
+    expect(labels("from table Orders")).not.toContain("Customers");
+    expect(item("from table Orders a", "as")?.textEdit).toMatchObject({
+      start: "from table Orders ".length,
+      end: "from table Orders a".length,
+      text: "as ",
+    });
+    expect(item(aliasQuery, "orders")?.textEdit).toMatchObject({
+      start: aliasQuery.length,
+      end: aliasQuery.length,
+      text: "orders",
+    });
+    expect(labels(aliasQuery)).not.toContain("where");
+    expect(item(nextClauseQuery, "where")?.textEdit).toMatchObject({
+      start: "from table Orders as orders ".length,
+      end: nextClauseQuery.length,
+      text: "\nwhere ",
+    });
+    expect(labels("from table Orders as 1")).toEqual([]);
+  });
+
+  test("suggests predicate operators after a completed operand", () => {
+    const suggestions = labels("from table Orders\nwhere Amount ");
+
+    expect(suggestions).toContain("=");
+    expect(suggestions).toContain(">");
+    expect(suggestions).not.toContain("Orders");
+    expect(suggestions).not.toContain("Amount");
+  });
+
+  test("suggests boolean continuation after a completed comparison predicate", () => {
+    const suggestions = labels("from table Orders\nwhere Amount = 10 ");
+
+    expect(suggestions).toContain("and");
+    expect(suggestions).toContain("or");
+    expect(suggestions).not.toContain("=");
+  });
+
+  test("returns to predicate operands after a comparison operator", () => {
+    const suggestions = labels("from table Orders\nwhere Amount = ");
+
+    expect(suggestions).toContain("Amount");
+    expect(suggestions).toContain("Stage");
+    expect(suggestions).not.toContain("Orders");
+  });
+
   test("uses an explicit from source instead of the current table scope", () => {
     const context = ctx({ currentTable: accounts });
     const suggestions = labels("from table Transactions\nselect ", context);
@@ -106,6 +185,20 @@ describe("GQL query intelligence", () => {
     );
   });
 
+  test("keeps select field and formula alias slots distinct", () => {
+    expect(labels("from table Orders\nselect Amount ")).toContain("as");
+    expect(labels("from table Orders\nselect Amount ")).not.toContain("Stage");
+    expect(item("from table Orders\nselect Amount w", "where")?.textEdit).toMatchObject({
+      start: "from table Orders\nselect Amount ".length,
+      end: "from table Orders\nselect Amount w".length,
+      text: "\nwhere ",
+    });
+    expect(item("from table Orders\nselect formula(Amount + 1) ", "as")?.textEdit.text).toBe("as ");
+    expect(item("from table Orders\nselect formula(Amount + 1) as ", "formula_result")?.textEdit.text).toBe("formula_result");
+    expect(labels("from table Orders\nselect formula(Amount + 1) as 1")).toEqual([]);
+    expect(labels("from table Orders\nselect Amount, ")).toContain("Stage");
+  });
+
   test("suggests fields for the scoped join alias", () => {
     const query = "from table Orders\njoin table Customers as customer on Customer = customer.id\nselect customer.";
     const suggestions = labels(query);
@@ -113,6 +206,118 @@ describe("GQL query intelligence", () => {
     expect(suggestions).toContain("Name");
     expect(suggestions).not.toContain("Amount");
     expect(item(query, "Name")?.textEdit).toMatchObject({ text: "Name", start: query.length, end: query.length });
+  });
+
+  test("suggests join structure after a completed join source", () => {
+    const query = "from table Orders\njoin table Customers ";
+    const suggestions = labels(query);
+
+    expect(labels("from table Orders\njoin table Customers")).toContain("as");
+    expect(labels("from table Orders\njoin table Customers")).not.toContain("Accounts");
+    expect(suggestions).toContain("as");
+    expect(suggestions).not.toContain("Orders");
+    expect(suggestions).not.toContain("Customers");
+    expect(item(query, "as")?.textEdit).toMatchObject({
+      start: query.length,
+      end: query.length,
+      text: "as ",
+    });
+  });
+
+  test("suggests join alias and on slots in order", () => {
+    const aliasQuery = "from table Orders\njoin table Customers as ";
+    const onQuery = "from table Orders\njoin table Customers as customer ";
+
+    expect(item(aliasQuery, "customers")?.textEdit).toMatchObject({
+      start: aliasQuery.length,
+      end: aliasQuery.length,
+      text: "customers",
+    });
+    expect(labels(aliasQuery)).not.toContain("Orders");
+    expect(item(onQuery, "on")?.textEdit).toMatchObject({
+      start: onQuery.length,
+      end: onQuery.length,
+      text: "on ",
+    });
+  });
+
+  test("suggests join equality slots instead of stale field lists", () => {
+    const equalsQuery = "from table Orders\njoin table Customers as customer on Customer ";
+    const rightQuery = "from table Orders\njoin table Customers as customer on Customer = ";
+    const nextClauseQuery = "from table Orders\njoin table Customers as customer on Customer = customer.id w";
+
+    expect(labels(equalsQuery)).toContain("=");
+    expect(labels(equalsQuery)).not.toContain("Amount");
+    expect(labels(rightQuery)).toContain("Name");
+    expect(item(nextClauseQuery, "where")?.textEdit).toMatchObject({
+      start: "from table Orders\njoin table Customers as customer on Customer = customer.id ".length,
+      end: nextClauseQuery.length,
+      text: "\nwhere ",
+    });
+  });
+
+  test("keeps group-by field and date granularity slots distinct", () => {
+    expect(labels("from table Orders\ngroup by ")).toContain("Stage");
+    expect(labels("from table Orders\ngroup by ")).not.toContain("day");
+    expect(labels('from table Orders\ngroup by "Ordered at" ')).toContain("by");
+    expect(labels('from table Orders\ngroup by "Ordered at" b')).toContain("by");
+    expect(labels('from table Orders\ngroup by "Ordered at" by ')).toContain("month");
+    expect(item("from table Orders\ngroup by Stage w", "where")?.textEdit).toMatchObject({
+      start: "from table Orders\ngroup by Stage ".length,
+      end: "from table Orders\ngroup by Stage w".length,
+      text: "\nwhere ",
+    });
+  });
+
+  test("suggests aggregate aliases after completed aggregate calls", () => {
+    const asQuery = "from table Orders\ngroup by Stage\naggregate sum(Amount) ";
+    const aliasQuery = "from table Orders\ngroup by Stage\naggregate sum(Amount) as ";
+    const nextClauseQuery = "from table Orders\ngroup by Stage\naggregate sum(Amount) as total s";
+
+    expect(labels(asQuery)).toContain("as");
+    expect(labels(asQuery)).not.toContain("sum");
+    expect(item(aliasQuery, "sum_amount")?.textEdit).toMatchObject({
+      start: aliasQuery.length,
+      end: aliasQuery.length,
+      text: "sum_amount",
+    });
+    expect(item(nextClauseQuery, "sort")?.textEdit).toMatchObject({
+      start: "from table Orders\ngroup by Stage\naggregate sum(Amount) as total ".length,
+      end: nextClauseQuery.length,
+      text: "\nsort ",
+    });
+    expect(labels("from table Orders\ngroup by Stage\naggregate sum(Amount) as 1")).toEqual([]);
+  });
+
+  test("suggests search field scoping only after quoted search text", () => {
+    expect(item("from table Orders\nsearch ", "quoted search text")?.textEdit.text).toBe("''");
+    expect(labels("from table Orders\nsearch 'open' ")).toContain("in");
+    expect(labels("from table Orders\nsearch 'open' in ")).toContain("Stage");
+    expect(item("from table Orders\nsearch 'open' in Stage w", "where")?.textEdit).toMatchObject({
+      start: "from table Orders\nsearch 'open' in Stage ".length,
+      end: "from table Orders\nsearch 'open' in Stage w".length,
+      text: "\nwhere ",
+    });
+  });
+
+  test("keeps sort, numeric, and trash clause completions inside their grammar slots", () => {
+    const sortDone = "from table Orders\nsort Amount asc nulls first s";
+    const limitDone = "from table Orders\nlimit 10 s";
+
+    expect(item("from table Orders\nsort Amount asc nulls first ", "sort")?.textEdit.text).toBe("\nsort ");
+    expect(item(sortDone, "sort")?.textEdit).toMatchObject({
+      start: "from table Orders\nsort Amount asc nulls first ".length,
+      end: sortDone.length,
+      text: "\nsort ",
+    });
+    expect(labels("from table Orders\nlimit ")).toEqual([]);
+    expect(item(limitDone, "sort")?.textEdit).toMatchObject({
+      start: "from table Orders\nlimit 10 ".length,
+      end: limitDone.length,
+      text: "\nsort ",
+    });
+    expect(item("from table Orders\ninclude ", "deleted")?.textEdit.text).toBe("deleted");
+    expect(item("from table Orders\ndeleted ", "only")?.textEdit.text).toBe("only");
   });
 
   test("suggests GQL predicate helpers in where clauses", () => {

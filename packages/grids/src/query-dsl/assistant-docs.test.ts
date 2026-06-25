@@ -1,0 +1,146 @@
+import { describe, expect, test } from "bun:test";
+import { GRID_FORMULA_FUNCTIONS } from "../formula/function-catalog";
+import { FN_LIBRARY } from "../formula/functions";
+import type { Field } from "../service/types";
+import { renderGqlAssistantContext, renderGqlAssistantSkill } from "./assistant-docs";
+import type { DslResolverContext } from "./resolver";
+
+const table = { kind: "table" as const, id: "11111111-1111-4111-8111-111111111111", shortId: "ITEMS", name: "Items" };
+const hiddenTableId = "22222222-2222-4222-8222-222222222222";
+
+const field = (overrides: Partial<Field> & Pick<Field, "id" | "shortId" | "name" | "type">): Field => ({
+  id: overrides.id,
+  shortId: overrides.shortId,
+  tableId: overrides.tableId ?? table.id,
+  name: overrides.name,
+  description: overrides.description ?? null,
+  icon: overrides.icon ?? null,
+  type: overrides.type,
+  config: overrides.config ?? {},
+  position: overrides.position ?? 0,
+  required: overrides.required ?? false,
+  presentable: overrides.presentable ?? false,
+  hideInTable: overrides.hideInTable ?? false,
+  defaultValue: overrides.defaultValue ?? null,
+  indexed: overrides.indexed ?? false,
+  uniqueConstraint: overrides.uniqueConstraint ?? false,
+  deletedAt: overrides.deletedAt ?? null,
+  createdAt: "2026-06-01T00:00:00.000Z",
+  updatedAt: "2026-06-01T00:00:00.000Z",
+});
+
+const quantity = field({
+  id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+  shortId: "QTY01",
+  name: "Quantity",
+  type: "number",
+  description: "Available unit count.",
+  position: 1,
+});
+
+const status = field({
+  id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2",
+  shortId: "STAT1",
+  name: "Status",
+  type: "select",
+  position: 2,
+  config: {
+    options: [
+      { id: "available", label: "Available" },
+      { id: "loaned", label: "Loaned" },
+    ],
+  },
+});
+
+const hiddenRelation = field({
+  id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3",
+  shortId: "CAT01",
+  name: "Category",
+  type: "relation",
+  position: 3,
+  config: { targetTableId: hiddenTableId, cardinality: "single" },
+});
+
+const ctx = (): DslResolverContext => ({
+  currentTable: table,
+  tables: [table],
+  views: [
+    {
+      kind: "view",
+      id: "33333333-3333-4333-8333-333333333333",
+      shortId: "STOCK",
+      tableId: table.id,
+      name: "Stock by status",
+      source: "from table Items\ngroup by Status\naggregate sum(Quantity) as units",
+      query: {
+        groupBy: [{ fieldId: status.id, label: "Status" }],
+        aggregations: [{ fieldId: quantity.id, agg: "sum", label: "units" }],
+      },
+    },
+  ],
+  fieldsByTableId: {
+    [table.id]: [quantity, status, hiddenRelation],
+  },
+});
+
+describe("GQL assistant docs", () => {
+  test("skill explains the assistant contract and GQL guardrails", () => {
+    const skill = renderGqlAssistantSkill();
+
+    expect(skill).toContain("# Grids GQL Assistant Skill");
+    expect(skill).toContain("Use only sources and fields listed in `context.md`.");
+    expect(skill).toContain("Do not use legacy `#field` references in GQL.");
+    expect(skill).toContain("```gql");
+    expect(skill).toContain("from table ...");
+    expect(skill.indexOf("join table ... as alias on ... = ...")).toBeLessThan(skill.indexOf("select ..."));
+    expect(skill).toContain("from view Source");
+    expect(skill).toContain("left join ...");
+    expect(skill).toContain("select formula(expression) as alias");
+    expect(skill).toContain("aggregate fn(formula(expression)) as alias");
+    expect(skill).toContain("include deleted` includes live and deleted rows");
+    expect(skill).toContain("`deleted only` returns only deleted rows");
+  });
+
+  test("skill covers every formula function supported by the formula engine", () => {
+    const skill = renderGqlAssistantSkill();
+    const catalogNames = GRID_FORMULA_FUNCTIONS.map((fn) => fn.name).sort();
+
+    expect(catalogNames).toEqual(Object.keys(FN_LIBRARY).sort());
+    for (const fn of GRID_FORMULA_FUNCTIONS) {
+      expect(skill).toContain(`\`${fn.signature}\``);
+    }
+    expect(skill).toContain("`STARTSWITH(text, prefix)`");
+    expect(skill).toContain("`IENDSWITH(text, suffix)`");
+    expect(skill).toContain("use `and`, `or`, and `not` operators");
+  });
+
+  test("context renders only the permission-shaped resolver context", () => {
+    const markdown = renderGqlAssistantContext({
+      base: { name: "Inventory", shortId: "INV01", description: "Equipment tracking." },
+      ctx: ctx(),
+      generatedAt: "2026-06-24T10:00:00.000Z",
+    });
+
+    expect(markdown).toContain("# Grids Schema Context");
+    expect(markdown).toContain("Base: Inventory");
+    expect(markdown).toContain("Use as: `from table Items`");
+    expect(markdown).toContain("`Quantity`: number - Available unit count.");
+    expect(markdown).toContain("`Status`: select [Available, Loaned]");
+    expect(markdown).toContain("`Category`: relation");
+    expect(markdown).not.toContain(hiddenTableId);
+    expect(markdown).not.toContain("Hidden");
+    expect(markdown).not.toContain("-> Categories");
+  });
+
+  test("context describes derived saved-view output columns", () => {
+    const markdown = renderGqlAssistantContext({
+      base: { name: "Inventory", shortId: "INV01", description: null },
+      ctx: ctx(),
+    });
+
+    expect(markdown).toContain('Use as: `from view "Stock by status"`');
+    expect(markdown).toContain("Shape: derived/grouped output");
+    expect(markdown).toContain("`Status`: select sql:text");
+    expect(markdown).toContain("`units`: aggregate sum sql:numeric");
+  });
+});

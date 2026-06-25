@@ -1,10 +1,10 @@
 import type { DslQueryCompletionItem, DslQueryCompletionKind, DslQueryTextRange } from "../contracts";
-import { formatIdentifierRef, normalizeRefKey, parseIdentifierRef } from "../ref-syntax";
+import { formatIdentifierRef, normalizeRefKey, parseIdentifierRef, parseQualifiedIdentifierRef } from "../ref-syntax";
 import { type AggregateKind, isFieldAggregatable } from "../service/aggregate-capabilities";
 import { isGroupable } from "../service/group-compiler";
 import { filterSearchableFields } from "../service/search";
 import type { Field } from "../service/types";
-import { derivedViewColumns, type DslDerivedViewColumn, type DslResolverContext, type DslViewSource } from "./resolver";
+import { type DslDerivedViewColumn, type DslResolverContext, type DslViewSource, derivedViewColumns } from "./resolver";
 
 type CompletionPurpose = "output" | "predicate" | "group" | "aggregate" | "search" | "sort" | "join";
 
@@ -88,8 +88,19 @@ const PREDICATE_OPERATORS = [
   { label: "or", insertText: "or ", detail: "Boolean OR" },
   { label: "not", insertText: "not ", detail: "Boolean NOT" },
 ];
+const PREDICATE_COMPARISON_OPERATORS = [
+  { label: "=", insertText: "= ", detail: "equals" },
+  { label: "!=", insertText: "!= ", detail: "does not equal" },
+  { label: ">", insertText: "> ", detail: "greater than" },
+  { label: ">=", insertText: ">= ", detail: "greater than or equal" },
+  { label: "<", insertText: "< ", detail: "less than" },
+  { label: "<=", insertText: "<= ", detail: "less than or equal" },
+];
+const PREDICATE_JOIN_OPERATORS = PREDICATE_OPERATORS.filter((item) => item.label !== "not");
 
 const SOURCE_REF_RE = String.raw`(?:\{[^}\r\n]+\}|"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*|[0-9A-Fa-f-]{8,})`;
+const QUALIFIED_REF_RE = String.raw`(?:[A-Za-z_][A-Za-z0-9_]*\.)?${SOURCE_REF_RE}`;
+const SEARCH_QUOTED_RE = /^'((?:\\.|[^'\\])*)'/;
 
 const isDiagnostic = (value: unknown): value is { message: string } => typeof value === "object" && value !== null && "message" in value;
 
@@ -106,6 +117,17 @@ const matchesNeedle = (query: string, range: DslQueryTextRange, values: string[]
   return values.some((value) => value.toLowerCase().includes(needle));
 };
 
+const COMPLETION_KIND_ORDER: Record<DslQueryCompletionKind, number> = {
+  source: 0,
+  field: 0,
+  column: 0,
+  alias: 1,
+  function: 2,
+  keyword: 3,
+  modifier: 4,
+  literal: 5,
+};
+
 const rankItems = (query: string, range: DslQueryTextRange, items: DslQueryCompletionItem[]): DslQueryCompletionItem[] => {
   const needle = tokenNeedle(query, range).trim();
   const score = (item: DslQueryCompletionItem) => {
@@ -116,9 +138,11 @@ const rankItems = (query: string, range: DslQueryTextRange, items: DslQueryCompl
     return 2;
   };
   return items
-    .filter((item) => score(item) < 2)
-    .sort((a, b) => score(a) - score(b) || a.label.localeCompare(b.label))
-    .slice(0, 80);
+    .map((item, index) => ({ item, index, score: score(item) }))
+    .filter((entry) => entry.score < 2)
+    .sort((a, b) => a.score - b.score || COMPLETION_KIND_ORDER[a.item.kind] - COMPLETION_KIND_ORDER[b.item.kind] || a.index - b.index)
+    .slice(0, 80)
+    .map((entry) => entry.item);
 };
 
 const completionItem = (
@@ -170,7 +194,7 @@ const tokenRangeAt = (query: string, caret: number): DslQueryTextRange => {
   return { start, end: caret };
 };
 
-const activeClauseSegment = (line: string): string => {
+const activeSegmentStart = (line: string): number => {
   let quote: string | null = null;
   let parenDepth = 0;
   let braceDepth = 0;
@@ -195,15 +219,16 @@ const activeClauseSegment = (line: string): string => {
     else if (c === "}") braceDepth = Math.max(0, braceDepth - 1);
     else if (c === ";" && parenDepth === 0 && braceDepth === 0) start = i + 1;
   }
-  return line.slice(start);
+  return start;
 };
 
-const lineBeforeCaret = (query: string, caret: number): string => {
+const activeSegmentRangeBeforeCaret = (query: string, caret: number): { text: string; start: number } => {
   const before = query.slice(0, caret);
-  return before.slice(before.lastIndexOf("\n") + 1);
+  const lineStart = before.lastIndexOf("\n") + 1;
+  const line = before.slice(lineStart);
+  const localStart = activeSegmentStart(line);
+  return { text: line.slice(localStart), start: lineStart + localStart };
 };
-
-const activeSegmentBeforeCaret = (query: string, caret: number): string => activeClauseSegment(lineBeforeCaret(query, caret));
 
 const isInsideSingleQuotedString = (segment: string): boolean => {
   let quote = false;
@@ -489,12 +514,208 @@ const sourceSuggestions = (
 const sourceKindSuggestions = (query: string, range: DslQueryTextRange, join = false): DslQueryCompletionItem[] =>
   keywordItems(query, range, join ? JOIN_KIND_KEYWORDS : SOURCE_KIND_KEYWORDS);
 
+const sourceRefExists = (ctx: DslResolverContext, kind: "table" | "view", ref: string): boolean =>
+  kind === "table" ? ctx.tables.some((table) => sourceMatches(table, ref)) : (ctx.views ?? []).some((view) => sourceMatches(view, ref));
+
+const defaultAliasForRef = (ref: string): string => {
+  const alias = normalizeRefKey(ref)
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (!alias) return "joined";
+  return /^[a-z_]/.test(alias) ? alias : `joined_${alias}`;
+};
+
+const defaultAggregateAlias = (fn: string, arg: string): string => {
+  if (arg.trim() === "*") return `${fn.toLowerCase()}_rows`;
+  return `${fn.toLowerCase()}_${defaultAliasForRef(arg)}`;
+};
+
+const completedQualifiedRef = (input: string): { ref: string; tail: string } | null => {
+  const match = input.match(new RegExp(String.raw`^\s*(${QUALIFIED_REF_RE})([\s\S]*)$`, "i"));
+  const ref = match?.[1];
+  if (!ref || !parseQualifiedIdentifierRef(ref)) return null;
+  return { ref, tail: match[2] ?? "" };
+};
+
+const splitJoinEquality = (input: string): { left: string; right: string } | null => {
+  let quote: string | null = null;
+  let braceDepth = 0;
+  for (let i = 0; i < input.length; i++) {
+    const c = input[i]!;
+    if (quote) {
+      if (quote === `"` && c === `"` && input[i + 1] === `"`) {
+        i++;
+        continue;
+      }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === `"` || c === "'") {
+      quote = c;
+      continue;
+    }
+    if (c === "{") {
+      braceDepth++;
+      continue;
+    }
+    if (c === "}") {
+      braceDepth = Math.max(0, braceDepth - 1);
+      continue;
+    }
+    if (braceDepth === 0 && c === "=") return { left: input.slice(0, i), right: input.slice(i + 1) };
+  }
+  return null;
+};
+
+const containsComparisonOperator = (input: string): boolean => {
+  let quote: string | null = null;
+  let braceDepth = 0;
+  for (let i = 0; i < input.length; i++) {
+    const c = input[i]!;
+    if (quote) {
+      if (quote === `"` && c === `"` && input[i + 1] === `"`) {
+        i++;
+        continue;
+      }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === `"` || c === "'") {
+      quote = c;
+      continue;
+    }
+    if (c === "{") {
+      braceDepth++;
+      continue;
+    }
+    if (c === "}") {
+      braceDepth = Math.max(0, braceDepth - 1);
+      continue;
+    }
+    if (braceDepth === 0 && /[=<>!]/.test(c)) return true;
+  }
+  return false;
+};
+
+const groupRefSupportsGranularity = (
+  ctx: DslResolverContext,
+  query: string,
+  rawRef: string,
+  currentSource?: CompletionRequest["currentSource"],
+): boolean => {
+  const parsed = parseQualifiedIdentifierRef(rawRef.trim());
+  if (!parsed) return false;
+
+  const source = resolveSource(ctx, query, currentSource);
+  const joins = collectJoinScopes(ctx, query);
+  const isDateLike = (type: string | undefined, sqlType?: string) =>
+    type === "date" || type === "datetime" || sqlType === "date" || sqlType === "datetime";
+
+  if (parsed.scope) {
+    const join = joins.find((item) => normalizeRefKey(item.alias) === normalizeRefKey(parsed.scope!));
+    if (join) return isDateLike(join.fields.find((field) => sourceMatches(field, parsed.ref))?.type);
+    if (source?.alias && normalizeRefKey(source.alias) === normalizeRefKey(parsed.scope) && !source.derivedColumns) {
+      return isDateLike(source.fields.find((field) => sourceMatches(field, parsed.ref))?.type);
+    }
+    return false;
+  }
+
+  if (source?.derivedColumns) {
+    const column = source.derivedColumns.find((item) =>
+      [item.key, item.label, ...item.refs].some((ref) => normalizeRefKey(ref) === normalizeRefKey(parsed.ref)),
+    );
+    return isDateLike(column?.type, column?.sqlType);
+  }
+  return isDateLike(source?.fields.find((field) => sourceMatches(field, parsed.ref))?.type);
+};
+
+const completedFromSource = (
+  ctx: DslResolverContext,
+  segment: string,
+): { kind: "table" | "view"; ref: string; tail: string; tailStart: number } | null => {
+  const leading = segment.match(/^\s*/)?.[0].length ?? 0;
+  const sourceMatch = segment
+    .slice(leading)
+    .match(new RegExp(String.raw`^from\s+(table|view)\s+(${SOURCE_REF_RE})(?:\s+as\s+[A-Za-z_][A-Za-z0-9_]*)?`, "i"));
+  if (!sourceMatch) return null;
+  const kind = sourceMatch[1]!.toLowerCase() as "table" | "view";
+  const ref = sourceMatch[2] ? unquoteRef(sourceMatch[2]) : null;
+  if (!ref || !sourceRefExists(ctx, kind, ref)) return null;
+  const tailStart = leading + sourceMatch[0].length;
+  return { kind, ref, tail: segment.slice(tailStart), tailStart };
+};
+
+const SAME_LINE_CLAUSE_KEYWORDS = [
+  { clause: "select", re: /^select\b/i },
+  { clause: "where", re: /^where\b/i },
+  { clause: "left join", re: /^left\s+join\b/i },
+  { clause: "join", re: /^join\b/i },
+  { clause: "group by", re: /^group\s+by\b/i },
+  { clause: "aggregate", re: /^aggregate\b/i },
+  { clause: "having", re: /^having\b/i },
+  { clause: "sort", re: /^sort\b/i },
+  { clause: "search", re: /^search\b/i },
+  { clause: "limit", re: /^limit\b/i },
+  { clause: "offset", re: /^offset\b/i },
+  { clause: "include deleted", re: /^include\s+deleted\b/i },
+  { clause: "deleted only", re: /^deleted\s+only\b/i },
+] as const;
+
+const sameLineClauseSegment = (
+  segment: string,
+  absoluteSegmentStart: number,
+  source: NonNullable<ReturnType<typeof completedFromSource>>,
+): { segment: string; absoluteStart: number } | null => {
+  const firstNonSpace = source.tail.search(/\S/);
+  if (firstNonSpace < 0) return null;
+  const trimmedTail = source.tail.slice(firstNonSpace);
+  const keyword = SAME_LINE_CLAUSE_KEYWORDS.find((item) => item.re.test(trimmedTail));
+  if (!keyword) return null;
+  const absoluteStart = absoluteSegmentStart + source.tailStart + firstNonSpace;
+  return { segment: segment.slice(source.tailStart + firstNonSpace), absoluteStart };
+};
+
+const newlinePrefixedItems = (items: DslQueryCompletionItem[]): DslQueryCompletionItem[] =>
+  items.map((item) => ({
+    ...item,
+    insertText: `\n${item.insertText}`,
+    textEdit: { ...item.textEdit, text: `\n${item.textEdit.text}` },
+  }));
+
+const rewriteSameLineClauseItems = (query: string, items: DslQueryCompletionItem[], clauseStart: number): DslQueryCompletionItem[] =>
+  items.map((item) => ({
+    ...item,
+    textEdit: {
+      start: clauseStart,
+      end: item.textEdit.end,
+      text: `\n${query.slice(clauseStart, item.textEdit.start)}${item.textEdit.text}`,
+    },
+  }));
+
 const sourceClauseSuggestions = (
   ctx: DslResolverContext,
   query: string,
   range: DslQueryTextRange,
   segment: string,
 ): DslQueryCompletionItem[] => {
+  const completed = completedFromSource(ctx, segment);
+  if (completed && /^\s+a?s?$/i.test(completed.tail)) {
+    return keywordItems(query, range, [{ label: "as", insertText: "as ", detail: "Name this source scope" }]);
+  }
+  if (completed && /^\s+as\s*$/i.test(completed.tail)) {
+    const alias = defaultAliasForRef(completed.ref);
+    return keywordItems(query, range, [{ label: alias, insertText: alias, detail: "Source alias" }], "alias");
+  }
+  if (completed?.tail === "") {
+    return keywordItems(query, { start: range.end, end: range.end }, [
+      { label: "as", insertText: " as ", detail: "Name this source scope" },
+    ]);
+  }
+  if (completed?.tail.trim().length === 0 && /\s$/.test(completed.tail)) return newlinePrefixedItems(topLevelSuggestions(query, range));
+  if (completed && completed.tail.trim().length > 0 && !sameLineClauseSegment(segment, 0, completed)) {
+    return newlinePrefixedItems(topLevelSuggestions(query, range));
+  }
+
   const restRaw = segment.trimStart().replace(/^from\b/i, "");
   const rest = restRaw.trimStart();
   if (!rest || /^(?:t|ta|tab|tabl|v|vi|vie)$/i.test(rest)) return sourceKindSuggestions(query, range);
@@ -514,12 +735,53 @@ const joinClauseSuggestions = (
   const restRaw = segment.trimStart().replace(/^(?:left\s+)?join\b/i, "");
   const rest = restRaw.trimStart();
   if (!rest || /^(?:t|ta|tab|tabl)$/i.test(rest)) return sourceKindSuggestions(query, range, true);
-  const sourceMatch = rest.match(/^table(?:\s+([\s\S]*))?$/i);
-  if (sourceMatch && !/\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+on\s+/i.test(rest)) {
-    if (sourceMatch[1] === undefined && !/\s$/.test(restRaw)) return sourceKindSuggestions(query, range, true);
-    return sourceSuggestions(ctx, query, range, "table");
+  const tableMatch = rest.match(/^table\b([\s\S]*)$/i);
+  if (!tableMatch) return [];
+  const afterTable = tableMatch[1] ?? "";
+  if (!afterTable && !/\s$/.test(restRaw)) return sourceKindSuggestions(query, range, true);
+
+  const sourceMatch = afterTable.match(new RegExp(String.raw`^\s+(${SOURCE_REF_RE})([\s\S]*)$`, "i"));
+  if (!sourceMatch) return sourceSuggestions(ctx, query, range, "table");
+
+  const sourceRef = sourceMatch[1] ? unquoteRef(sourceMatch[1]) : null;
+  if (!sourceRef || !sourceRefExists(ctx, "table", sourceRef)) return sourceSuggestions(ctx, query, range, "table");
+
+  const tail = sourceMatch[2] ?? "";
+  if (tail === "") {
+    return keywordItems(query, { start: range.end, end: range.end }, [{ label: "as", insertText: " as ", detail: "Name this join scope" }]);
   }
-  if (/\s+on\s+/i.test(rest)) return fieldReferenceSuggestions(ctx, query, range, "join", undefined, currentSource);
+  const onMatch = tail.match(/\s+on\b([\s\S]*)$/i);
+  if (onMatch) {
+    const condition = onMatch[1] ?? "";
+    if (condition.trim() === "") return fieldReferenceSuggestions(ctx, query, range, "join", undefined, currentSource);
+
+    const equality = splitJoinEquality(condition);
+    if (!equality) {
+      const left = completedQualifiedRef(condition);
+      if (left && left.tail.trim() === "" && /\s$/.test(condition)) {
+        return keywordItems(query, range, [{ label: "=", insertText: "= ", detail: "Join equality" }], "modifier");
+      }
+      return fieldReferenceSuggestions(ctx, query, range, "join", undefined, currentSource);
+    }
+
+    if (equality.right.trim() === "") return fieldReferenceSuggestions(ctx, query, range, "join", undefined, currentSource);
+    const right = completedQualifiedRef(equality.right);
+    if (right && right.tail.trim() === "" && /\s$/.test(equality.right)) {
+      return newlinePrefixedItems(topLevelSuggestions(query, range));
+    }
+    if (right && right.tail.trim().length > 0) return newlinePrefixedItems(topLevelSuggestions(query, range));
+    return fieldReferenceSuggestions(ctx, query, range, "join", undefined, currentSource);
+  }
+  if (/\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+\w*$/i.test(tail)) {
+    return keywordItems(query, range, [{ label: "on", insertText: "on ", detail: "Join condition" }]);
+  }
+  if (/\s+as\s*$/i.test(tail)) {
+    const alias = defaultAliasForRef(sourceRef);
+    return keywordItems(query, range, [{ label: alias, insertText: alias, detail: "Join alias" }], "alias");
+  }
+  if (/^\s+a?s?$/i.test(tail)) {
+    return keywordItems(query, range, [{ label: "as", insertText: "as ", detail: "Name this join scope" }]);
+  }
   return [];
 };
 
@@ -536,6 +798,22 @@ const aggregateClauseSuggestions = (
   currentSource?: CompletionRequest["currentSource"],
 ): DslQueryCompletionItem[] => {
   const body = segment.trimStart().replace(/^aggregate\b/i, "");
+  const completedCall = body.match(/([A-Za-z][A-Za-z0-9_]*)\(([^()]*)\)([\s\S]*)$/);
+  if (completedCall?.[1] && aggregateFromFunction(completedCall[1])) {
+    const fn = completedCall[1];
+    const arg = completedCall[2] ?? "";
+    const tail = completedCall[3] ?? "";
+    if (/^\s+a?s?$/i.test(tail)) return keywordItems(query, range, [{ label: "as", insertText: "as ", detail: "Name this aggregate" }]);
+    if (/^\s+as\s*$/i.test(tail)) {
+      const alias = defaultAggregateAlias(fn, arg);
+      return keywordItems(query, range, [{ label: alias, insertText: alias, detail: "Aggregate alias" }], "alias");
+    }
+    if (/^\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s*$/i.test(tail)) {
+      if (/\s$/.test(tail)) return newlinePrefixedItems(topLevelSuggestions(query, range));
+      return [];
+    }
+    if (/^\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+\S/i.test(tail)) return newlinePrefixedItems(topLevelSuggestions(query, range));
+  }
   const call = body.match(/([A-Za-z][A-Za-z0-9_]*)\([^()]*$/);
   if (call?.[1]) {
     const aggregate = aggregateFromFunction(call[1]);
@@ -552,6 +830,58 @@ const aggregateClauseSuggestions = (
     AGGREGATE_FUNCTIONS.map((fn) => ({ label: fn, insertText: `${fn}(`, detail: "aggregate function" })),
     "function",
   );
+};
+
+const selectClauseSuggestions = (
+  ctx: DslResolverContext,
+  query: string,
+  range: DslQueryTextRange,
+  segment: string,
+  currentSource?: CompletionRequest["currentSource"],
+): DslQueryCompletionItem[] => {
+  const body = segment.trimStart().replace(/^select\b/i, "");
+  const part = body.slice(body.lastIndexOf(",") + 1);
+  if (scopeBeforeToken(query, range)) return fieldReferenceSuggestions(ctx, query, range, "output", undefined, currentSource);
+  if (part.trim() === "") return fieldReferenceSuggestions(ctx, query, range, "output", undefined, currentSource);
+
+  const formulaMatch = part.match(/^\s*formula\([\s\S]*\)([\s\S]*)$/i);
+  if (formulaMatch) {
+    const tail = formulaMatch[1] ?? "";
+    if (/^\s+a?s?$/i.test(tail))
+      return keywordItems(query, range, [{ label: "as", insertText: "as ", detail: "Name this formula output" }]);
+    if (/^\s+as\s*$/i.test(tail)) {
+      return keywordItems(query, range, [{ label: "formula_result", insertText: "formula_result", detail: "Select alias" }], "alias");
+    }
+    if (/^\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s*$/i.test(tail)) {
+      if (/\s$/.test(tail)) return newlinePrefixedItems(topLevelSuggestions(query, range));
+      return [];
+    }
+    if (/^\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+\S/i.test(tail)) return newlinePrefixedItems(topLevelSuggestions(query, range));
+    return [];
+  }
+
+  const completed = completedQualifiedRef(part);
+  if (completed) {
+    if (completed.tail === "") return fieldReferenceSuggestions(ctx, query, range, "output", undefined, currentSource);
+    if (/^\s+a?s?$/i.test(completed.tail))
+      return keywordItems(query, range, [{ label: "as", insertText: "as ", detail: "Name this output" }]);
+    if (/^\s+as\s*$/i.test(completed.tail)) {
+      return keywordItems(
+        query,
+        range,
+        [{ label: defaultAliasForRef(completed.ref), insertText: defaultAliasForRef(completed.ref), detail: "Select alias" }],
+        "alias",
+      );
+    }
+    if (/^\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s*$/i.test(completed.tail)) {
+      if (/\s$/.test(completed.tail)) return newlinePrefixedItems(topLevelSuggestions(query, range));
+      return [];
+    }
+    if (/^\s+as\s+[A-Za-z_][A-Za-z0-9_]*\s+\S/i.test(completed.tail)) return newlinePrefixedItems(topLevelSuggestions(query, range));
+    return newlinePrefixedItems(topLevelSuggestions(query, range));
+  }
+
+  return fieldReferenceSuggestions(ctx, query, range, "output", undefined, currentSource);
 };
 
 const aliasSuggestions = (query: string, range: DslQueryTextRange, clause: "select" | "aggregate"): DslQueryCompletionItem[] => {
@@ -589,6 +919,9 @@ const sortClauseSuggestions = (
 ): DslQueryCompletionItem[] => {
   const body = segment.trimStart().replace(/^sort\b/i, "");
   const item = body.slice(body.lastIndexOf(",") + 1);
+  if (/\bnulls\s+(?:first|last)\s+\S*$/i.test(item) || (/\bnulls\s+(?:first|last)\s*$/i.test(item) && /\s$/.test(item))) {
+    return newlinePrefixedItems(topLevelSuggestions(query, range));
+  }
   if (/\bnulls\s+\w*$/i.test(item)) {
     return keywordItems(
       query,
@@ -616,6 +949,36 @@ const sortClauseSuggestions = (
   return sortTargetSuggestions(ctx, query, range, currentSource);
 };
 
+const numericClauseSuggestions = (
+  query: string,
+  range: DslQueryTextRange,
+  segment: string,
+  clause: "limit" | "offset",
+): DslQueryCompletionItem[] => {
+  const body = segment.trimStart().replace(new RegExp(String.raw`^${clause}\b`, "i"), "");
+  if (/^\s*\d+\s+\S*$/i.test(body) || (/^\s*\d+\s*$/i.test(body) && /\s$/.test(body))) {
+    return newlinePrefixedItems(topLevelSuggestions(query, range));
+  }
+  return [];
+};
+
+const deletedClauseSuggestions = (query: string, range: DslQueryTextRange, segment: string): DslQueryCompletionItem[] => {
+  const lower = segment.trimStart().toLowerCase();
+  if (/^include\s+\w*$/i.test(lower)) {
+    return keywordItems(query, range, [{ label: "deleted", insertText: "deleted", detail: "Include trashed records" }], "modifier");
+  }
+  if (/^deleted\s+\w*$/i.test(lower)) {
+    return keywordItems(query, range, [{ label: "only", insertText: "only", detail: "Only trashed records" }], "modifier");
+  }
+  if (
+    /^(?:include\s+deleted|deleted\s+only)\s+\S*$/i.test(segment) ||
+    (/^(?:include\s+deleted|deleted\s+only)\s*$/i.test(segment) && /\s$/.test(segment))
+  ) {
+    return newlinePrefixedItems(topLevelSuggestions(query, range));
+  }
+  return [];
+};
+
 const groupClauseSuggestions = (
   ctx: DslResolverContext,
   query: string,
@@ -623,13 +986,25 @@ const groupClauseSuggestions = (
   segment: string,
   currentSource?: CompletionRequest["currentSource"],
 ): DslQueryCompletionItem[] => {
-  if (/\s+by\s+\w*$/i.test(segment)) {
+  const body = segment.trimStart().replace(/^group\s+by\b/i, "");
+  const item = body.slice(body.lastIndexOf(",") + 1);
+  if (/\s+by\s+\w*$/i.test(item)) {
     return keywordItems(
       query,
       range,
       GROUP_GRANULARITIES.map((label) => ({ label, insertText: label, detail: "date bucket" })),
       "modifier",
     );
+  }
+  const completed = completedQualifiedRef(item);
+  if (completed && completed.tail !== "") {
+    if (/^\s+b?y?$/i.test(completed.tail) && groupRefSupportsGranularity(ctx, query, completed.ref, currentSource)) {
+      return keywordItems(query, range, [{ label: "by", insertText: "by ", detail: "Date granularity" }]);
+    }
+    return newlinePrefixedItems(topLevelSuggestions(query, range));
+  }
+  if (/\s$/.test(item) && groupRefSupportsGranularity(ctx, query, item.trim(), currentSource)) {
+    return keywordItems(query, range, [{ label: "by", insertText: "by ", detail: "Date granularity" }]);
   }
   return fieldReferenceSuggestions(ctx, query, range, "group", undefined, currentSource);
 };
@@ -638,9 +1013,24 @@ const predicateSuggestions = (
   ctx: DslResolverContext,
   query: string,
   range: DslQueryTextRange,
+  segment: string,
   includeAggregateAliases = false,
   currentSource?: CompletionRequest["currentSource"],
 ): DslQueryCompletionItem[] => {
+  const body = segment.trimStart().replace(/^(?:where|having)\b/i, "");
+  const trimmedBody = body.trimEnd();
+  const expectsOperand =
+    trimmedBody.length === 0 ||
+    /(?:^|\s)(?:and|or|not)\s*$/i.test(trimmedBody) ||
+    /(?:=|!=|>=|<=|>|<|\(|,)\s*$/.test(trimmedBody) ||
+    !/\s$/.test(body);
+  if (!expectsOperand) {
+    const operators = containsComparisonOperator(trimmedBody)
+      ? PREDICATE_JOIN_OPERATORS
+      : [...PREDICATE_COMPARISON_OPERATORS, ...PREDICATE_JOIN_OPERATORS];
+    return keywordItems(query, range, operators, "modifier");
+  }
+
   const items = [
     ...fieldReferenceSuggestions(ctx, query, range, "predicate", undefined, currentSource),
     ...keywordItems(query, range, PREDICATE_FUNCTIONS, "function"),
@@ -657,18 +1047,33 @@ const searchClauseSuggestions = (
   segment: string,
   currentSource?: CompletionRequest["currentSource"],
 ): DslQueryCompletionItem[] => {
-  if (/\bin\s+[\s\S]*$/i.test(segment)) return fieldReferenceSuggestions(ctx, query, range, "search", undefined, currentSource);
+  const body = segment.trimStart().replace(/^search\b/i, "");
+  const quoted = body.trimStart().match(SEARCH_QUOTED_RE);
+  if (quoted) {
+    const rest = body.trimStart().slice(quoted[0].length);
+    if (/^\s+i?n?$/i.test(rest)) return keywordItems(query, range, [{ label: "in", insertText: "in ", detail: "Search specific fields" }]);
+    if (/^\s+in\s+[\s\S]*$/i.test(rest)) {
+      const fieldList = rest.replace(/^\s+in\b/i, "");
+      const part = fieldList.slice(fieldList.lastIndexOf(",") + 1);
+      const completed = completedQualifiedRef(part);
+      if (completed && completed.tail.trim().length > 0) return newlinePrefixedItems(topLevelSuggestions(query, range));
+      return fieldReferenceSuggestions(ctx, query, range, "search", undefined, currentSource);
+    }
+    return [];
+  }
   if (matchesNeedle(query, range, ["'text'"])) return [completionItem(range, "literal", "quoted search text", "''", "search text")];
   return [];
 };
 
-export const buildDslQueryIntelligence = ({ query, caret, ctx, currentSource }: CompletionRequest): DslQueryCompletionItem[] => {
-  const safeCaret = Math.max(0, Math.min(caret, query.length));
-  const range = tokenRangeAt(query, safeCaret);
-  const segment = activeSegmentBeforeCaret(query, safeCaret);
-  if (isInsideSingleQuotedString(segment)) return [];
-
-  switch (clauseKind(segment)) {
+const clauseSuggestions = (
+  kind: string,
+  ctx: DslResolverContext,
+  query: string,
+  range: DslQueryTextRange,
+  segment: string,
+  currentSource?: CompletionRequest["currentSource"],
+): DslQueryCompletionItem[] => {
+  switch (kind) {
     case "":
       return topLevelSuggestions(query, range);
     case "from":
@@ -676,20 +1081,43 @@ export const buildDslQueryIntelligence = ({ query, caret, ctx, currentSource }: 
     case "join":
       return joinClauseSuggestions(ctx, query, range, segment, currentSource);
     case "select":
-      return fieldReferenceSuggestions(ctx, query, range, "output", undefined, currentSource);
+      return selectClauseSuggestions(ctx, query, range, segment, currentSource);
     case "where":
-      return predicateSuggestions(ctx, query, range, false, currentSource);
+      return predicateSuggestions(ctx, query, range, segment, false, currentSource);
     case "group":
       return groupClauseSuggestions(ctx, query, range, segment, currentSource);
     case "aggregate":
       return aggregateClauseSuggestions(ctx, query, range, segment, currentSource);
     case "having":
-      return predicateSuggestions(ctx, query, range, true, currentSource);
+      return predicateSuggestions(ctx, query, range, segment, true, currentSource);
     case "sort":
       return sortClauseSuggestions(ctx, query, range, segment, currentSource);
     case "search":
       return searchClauseSuggestions(ctx, query, range, segment, currentSource);
+    case "limit":
+      return numericClauseSuggestions(query, range, segment, "limit");
+    case "offset":
+      return numericClauseSuggestions(query, range, segment, "offset");
+    case "deleted":
+      return deletedClauseSuggestions(query, range, segment);
     default:
       return topLevelSuggestions(query, range);
   }
+};
+
+export const buildDslQueryIntelligence = ({ query, caret, ctx, currentSource }: CompletionRequest): DslQueryCompletionItem[] => {
+  const safeCaret = Math.max(0, Math.min(caret, query.length));
+  const range = tokenRangeAt(query, safeCaret);
+  const active = activeSegmentRangeBeforeCaret(query, safeCaret);
+  const segment = active.text;
+  if (isInsideSingleQuotedString(segment)) return [];
+
+  const completed = completedFromSource(ctx, segment);
+  const sameLine = completed ? sameLineClauseSegment(segment, active.start, completed) : null;
+  if (sameLine) {
+    const items = clauseSuggestions(clauseKind(sameLine.segment), ctx, query, range, sameLine.segment, currentSource);
+    return rewriteSameLineClauseItems(query, items, sameLine.absoluteStart);
+  }
+
+  return clauseSuggestions(clauseKind(segment), ctx, query, range, segment, currentSource);
 };

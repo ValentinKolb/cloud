@@ -1,9 +1,10 @@
-import { fuzzy } from "@valentinkolb/stdlib";
 import { CopyButton, DataTable, type DataTableColumn, TextInput } from "@valentinkolb/cloud/ui";
+import { fuzzy } from "@valentinkolb/stdlib";
 import { createMemo, createSignal } from "solid-js";
+import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
 import type { Field } from "../../../service";
 import { FIELD_TYPE_LABELS, fieldTypeIcon, fieldTypeLabel } from "./field-type-meta";
-import { formulaFieldRefs, formulaFieldToken, GRID_FORMULA_FUNCTIONS } from "./formula-authoring";
+import { formulaFieldRefs, formulaFieldToken } from "./formula-authoring";
 
 type RefField = ReturnType<typeof formulaFieldRefs>[number];
 type FunctionCategory = "number" | "text" | "date" | "logic";
@@ -56,7 +57,25 @@ const functionCategory = (name: string): FunctionCategory => {
   if (["TODAY", "NOW", "YEAR", "MONTH", "DAY", "DATEADD", "DATEDIFF"].includes(name)) {
     return "date";
   }
-  if (["CONTAINS", "CONCAT", "LEN", "LOWER", "UPPER", "TRIM", "LEFT", "RIGHT", "SUBSTRING", "REPLACE"].includes(name)) {
+  if (
+    [
+      "CONTAINS",
+      "STARTSWITH",
+      "ENDSWITH",
+      "ICONTAINS",
+      "ISTARTSWITH",
+      "IENDSWITH",
+      "CONCAT",
+      "LEN",
+      "LOWER",
+      "UPPER",
+      "TRIM",
+      "LEFT",
+      "RIGHT",
+      "SUBSTRING",
+      "REPLACE",
+    ].includes(name)
+  ) {
     return "text";
   }
   return "logic";
@@ -87,6 +106,11 @@ const functionExample = (name: string): string => {
     NOT: "NOT(Active)",
     ISBLANK: "ISBLANK(Notes)",
     CONTAINS: "CONTAINS(Name, 'Pro')",
+    STARTSWITH: "STARTSWITH(Name, 'A')",
+    ENDSWITH: "ENDSWITH(Name, 'Ltd')",
+    ICONTAINS: "ICONTAINS(Name, 'pro')",
+    ISTARTSWITH: "ISTARTSWITH(Name, 'a')",
+    IENDSWITH: "IENDSWITH(Name, 'ltd')",
     CONCAT: "CONCAT(Name, ' - ', Price)",
     LEN: "LEN(Name)",
     LOWER: "LOWER(Name)",
