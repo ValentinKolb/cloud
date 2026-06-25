@@ -92,13 +92,34 @@ describe("GQL assistant docs", () => {
     expect(skill).toContain("Do not use legacy `#field` references in GQL.");
     expect(skill).toContain("```gql");
     expect(skill).toContain("from table ...");
-    expect(skill.indexOf("join table ... as alias on ... = ...")).toBeLessThan(skill.indexOf("select ..."));
+    expect(skill).toContain(["from table ...", "join table ... as alias on ... = ...", "select ..."].join("\n"));
     expect(skill).toContain("from view Source");
     expect(skill).toContain("left join ...");
     expect(skill).toContain("select formula(expression) as alias");
     expect(skill).toContain("aggregate fn(formula(expression)) as alias");
     expect(skill).toContain("include deleted` includes live and deleted rows");
     expect(skill).toContain("`deleted only` returns only deleted rows");
+  });
+
+  test("skill documents GQL capabilities and intentional limits", () => {
+    const skill = renderGqlAssistantSkill();
+
+    expect(skill).toContain("## Capabilities");
+    expect(skill).toContain("Read visible tables with `from table ...` and visible saved views with `from view ...`.");
+    expect(skill).toContain("Use a saved view as a source even when its parent table is not listed in `context.md`");
+    expect(skill).toContain("Join related tables through relation fields");
+    expect(skill).toContain("GQL execution happens on the server in SQL");
+
+    expect(skill).toContain("## Limitations");
+    expect(skill).toContain("GQL is not SQL");
+    expect(skill).toContain("Joins are relation/id joins, not arbitrary SQL joins.");
+    expect(skill).toContain("never write `items.Name = alias.Name`");
+    expect(skill).toContain("If no relation field connects the records, ask the user to create or use a relation field before joining.");
+    expect(skill).toContain("Derived or grouped saved views expose only their listed output columns.");
+    expect(skill).toContain("do not wrap them in `formula(...)`");
+    expect(skill).toContain("Do not generate `AND(...)`, `OR(...)`, or `NOT(...)` calls.");
+    expect(skill).toContain("GQL does not support arbitrary JavaScript evaluation or assistant-side aggregation.");
+    expect(skill).toContain("`include deleted` and `deleted only` are mutually exclusive.");
   });
 
   test("skill covers every formula function supported by the formula engine", () => {
