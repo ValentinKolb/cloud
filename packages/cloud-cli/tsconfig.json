@@ -21,6 +21,9 @@
       ],
       "@valentinkolb/cloud-app-notebooks/cli": [
         "../notebooks/src/cli.ts"
+      ],
+      "@valentinkolb/cloud-app-spaces/cli": [
+        "../spaces/src/cli.ts"
       ]
     },
     "moduleResolution": "bundler",
@@ -40,7 +43,8 @@
     "./src/**/*.ts",
     "../cloud/src/types/**/*.d.ts",
     "../cloud/src/cli/**/*.ts",
-    "../notebooks/src/cli.ts"
+    "../notebooks/src/cli.ts",
+    "../spaces/src/cli.ts"
   ],
   "exclude": [
     "./dist",

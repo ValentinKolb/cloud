@@ -82,18 +82,20 @@ const help = () => `cld notebooks
 
 Usage:
   cld notebooks list [--q <query>] [--page <n>] [--per-page <n>]
-  cld notebooks get <notebook>
-  cld notebooks create <name> [--description <text>] [--icon <icon>]
-  cld notebooks tree <notebook>
-  cld notebooks notes <notebook> [--q <query>] [--parent <note>] [--page <n>] [--per-page <n>]
-  cld notebooks search <notebook> <query> [--page <n>] [--per-page <n>]
-  cld notebooks read <notebook> <note> [--number-lines] [--blocks]
-  cld notebooks note <notebook> <note> [--content]
-  cld notebooks content <notebook> <note>
-  cld notebooks edit <notebook> <note> <operation> [--file <path>|--stdin|--content <markdown>] [guards]
-  cld notebooks create-note <notebook> <title> [--parent <note>] [--content <markdown>]
-  cld notebooks versions <notebook> <note> [--page <n>] [--per-page <n>]
-  cld notebooks version <notebook> <note> <version> [--content]
+  cld notebooks use <notebook>
+  cld notebooks current
+  cld notebooks get [<notebook>] [--notebook <notebook>]
+  cld notebooks create <name> [--description <text>] [--icon <icon>] [--use]
+  cld notebooks tree [<notebook>] [--notebook <notebook>]
+  cld notebooks notes [<notebook>] [--notebook <notebook>] [--q <query>] [--parent <note>] [--page <n>] [--per-page <n>]
+  cld notebooks search [<notebook>] <query> [--notebook <notebook>] [--page <n>] [--per-page <n>]
+  cld notebooks read [<notebook>] <note> [--notebook <notebook>] [--note <note>] [--number-lines] [--blocks]
+  cld notebooks note [<notebook>] <note> [--notebook <notebook>] [--note <note>] [--content]
+  cld notebooks content [<notebook>] <note> [--notebook <notebook>] [--note <note>]
+  cld notebooks edit [<notebook>] <note> [--notebook <notebook>] [--note <note>] <operation> [--file <path>|--stdin|--content <markdown>] [guards]
+  cld notebooks create-note [<notebook>] <title> [--notebook <notebook>] [--parent <note>] [--content <markdown>]
+  cld notebooks versions [<notebook>] <note> [--notebook <notebook>] [--note <note>] [--page <n>] [--per-page <n>]
+  cld notebooks version [<notebook>] <note> <version> [--notebook <notebook>] [--note <note>] [--content]
 
 Edit operations:
   --replace-lines <start:end>       Replace 1-based inclusive line range
@@ -115,7 +117,13 @@ Edit options:
   --if-content-hash <sha256:...>    Reject if full content changed
   --if-block-hash <sha256:...>      Reject if selected block body changed
   --dry-run                         Apply locally and print the resulting edit metadata
+
+Reference notes:
+  Quote multi-word notebook and note names. With a default notebook, prefer --note "My Note" for unambiguous agent calls.
+  For multi-word searches with a default notebook, use --q "search words" or quote the query.
 `;
+
+const NOTEBOOK_DEFAULT_KEY = "notebooks.notebook";
 
 const stringFlag = (flags: CloudCliFlags, ...names: string[]): string | undefined => {
   for (const name of names) {
@@ -189,6 +197,37 @@ const requireArg = (args: string[], index: number, label: string): string => {
   const value = args[index];
   if (!value) throw new Error(`Missing ${label}.`);
   return value;
+};
+
+const requireDefaultNotebookRef = async (ctx: CloudCliContext): Promise<string> => {
+  const ref = await ctx.getDefault(NOTEBOOK_DEFAULT_KEY);
+  if (!ref) throw new Error("Missing notebook. Pass --notebook <notebook> or run `cld notebooks use <notebook>`.");
+  return ref;
+};
+
+const resolveNotebookArg = async (
+  ctx: CloudCliContext,
+  args: string[],
+  requiredTrailingArgs: number,
+): Promise<{ notebookRef: string; rest: string[] }> => {
+  const flagged = stringFlag(ctx.flags, "notebook");
+  if (flagged) return { notebookRef: flagged, rest: args };
+  if (args.length > requiredTrailingArgs) return { notebookRef: requireArg(args, 0, "notebook"), rest: args.slice(1) };
+  return { notebookRef: await requireDefaultNotebookRef(ctx), rest: args };
+};
+
+const resolveNoteCommandArgs = async (
+  ctx: CloudCliContext,
+  args: string[],
+  requiredTrailingAfterNote = 0,
+): Promise<{ notebookRef: string; noteRef: string; rest: string[] }> => {
+  const flaggedNote = stringFlag(ctx.flags, "note");
+  if (flaggedNote) {
+    const { notebookRef, rest } = await resolveNotebookArg(ctx, args, requiredTrailingAfterNote);
+    return { notebookRef, noteRef: flaggedNote, rest };
+  }
+  const { notebookRef, rest } = await resolveNotebookArg(ctx, args, requiredTrailingAfterNote + 1);
+  return { notebookRef, noteRef: requireArg(rest, 0, "note"), rest: rest.slice(1) };
 };
 
 const parseLineRange = (value: string): { startLine: number; endLine: number } => {
@@ -368,10 +407,27 @@ export default defineCloudCliModule({
       return 0;
     }
 
+    if (command === "use") {
+      const notebookRef = requireArg(args, 0, "notebook");
+      const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+      await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, notebook.shortId);
+      if (ctx.options.output === "json") ctx.json({ notebook, defaultNotebook: notebook.shortId });
+      else ctx.print(`Using notebook ${notebook.name} (${notebook.shortId}).`);
+      return 0;
+    }
+
+    if (command === "current") {
+      const notebookRef = await ctx.getDefault(NOTEBOOK_DEFAULT_KEY);
+      if (!notebookRef) throw new Error("No default notebook configured. Run `cld notebooks use <notebook>`.");
+      const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+      if (ctx.options.output === "json") ctx.json({ notebook, defaultNotebook: notebook.shortId });
+      else ctx.print(`${notebook.name} (${notebook.shortId})`);
+      return 0;
+    }
+
     if (command === "get") {
-      const id = requireArg(args, 0, "notebook id");
-      const response = await api[":id"].$get({ param: { id } });
-      const payload = await ctx.readJson<Notebook>(response);
+      const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+      const payload = await resolveNotebookRef(ctx, api, notebookRef);
       if (ctx.options.output === "json") ctx.json(payload);
       else {
         ctx.print(`${payload.name} (${payload.shortId})`);
@@ -392,14 +448,16 @@ export default defineCloudCliModule({
         },
       });
       const payload = await ctx.readJson<Notebook>(response);
+      if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, payload.shortId);
       if (ctx.options.output === "json") ctx.json(payload);
-      else ctx.print(`Created ${payload.name} (${payload.shortId}).`);
+      else ctx.print(`Created ${payload.name} (${payload.shortId}).${booleanFlag(ctx.flags, "use") ? " Using it as default." : ""}`);
       return 0;
     }
 
     if (command === "tree") {
-      const id = requireArg(args, 0, "notebook id");
-      const response = await api[":id"].tree.$get({ param: { id } });
+      const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+      const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+      const response = await api[":id"].tree.$get({ param: { id: notebook.shortId } });
       const payload = await ctx.readJson<NoteTreeNode[]>(response);
       if (ctx.options.output === "json") ctx.json(payload);
       else printTree(ctx, payload);
@@ -407,9 +465,10 @@ export default defineCloudCliModule({
     }
 
     if (command === "notes") {
-      const id = requireArg(args, 0, "notebook id");
+      const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+      const notebook = await resolveNotebookRef(ctx, api, notebookRef);
       const response = await api[":id"].notes.$get({
-        param: { id },
+        param: { id: notebook.shortId },
         query: paginationQuery(ctx.flags, {
           q: stringFlag(ctx.flags, "q", "query"),
           parentId: stringFlag(ctx.flags, "parent", "parent-id"),
@@ -426,12 +485,13 @@ export default defineCloudCliModule({
     }
 
     if (command === "search") {
-      const id = requireArg(args, 0, "notebook id");
-      const queryText = args.slice(1).join(" ").trim() || stringFlag(ctx.flags, "q", "query");
+      const { notebookRef, rest } = await resolveNotebookArg(ctx, args, 1);
+      const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+      const queryText = rest.join(" ").trim() || stringFlag(ctx.flags, "q", "query");
       if (!queryText) throw new Error("Missing search query.");
       const query = { ...paginationQuery(ctx.flags), q: queryText };
       const response = await api[":id"].search.$get({
-        param: { id },
+        param: { id: notebook.shortId },
         query,
       });
       const payload = await ctx.readJson<Page<Note>>(response);
@@ -445,8 +505,7 @@ export default defineCloudCliModule({
     }
 
     if (command === "read") {
-      const notebookRef = requireArg(args, 0, "notebook");
-      const noteRef = requireArg(args, 1, "note");
+      const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
       const notebook = await resolveNotebookRef(ctx, api, notebookRef);
       const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
       const response = await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: note.shortId } });
@@ -475,8 +534,7 @@ export default defineCloudCliModule({
     }
 
     if (command === "edit") {
-      const notebookRef = requireArg(args, 0, "notebook");
-      const noteRef = requireArg(args, 1, "note");
+      const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
       const notebook = await resolveNotebookRef(ctx, api, notebookRef);
       const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
       const operation = await buildEditOperation(ctx);
@@ -517,11 +575,11 @@ export default defineCloudCliModule({
     }
 
     if (command === "note") {
-      const id = requireArg(args, 0, "notebook id");
-      const noteId = requireArg(args, 1, "note id");
+      const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
+      const notebook = await resolveNotebookRef(ctx, api, notebookRef);
       const response = booleanFlag(ctx.flags, "content")
-        ? await api[":id"].notes[":noteId"].content.$get({ param: { id, noteId } })
-        : await api[":id"].notes[":noteId"].$get({ param: { id, noteId } });
+        ? await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: noteRef } })
+        : await api[":id"].notes[":noteId"].$get({ param: { id: notebook.shortId, noteId: noteRef } });
       const payload = await ctx.readJson<Note | NoteWithContent>(response);
       if (ctx.options.output === "json") ctx.json(payload);
       else {
@@ -536,9 +594,9 @@ export default defineCloudCliModule({
     }
 
     if (command === "content") {
-      const id = requireArg(args, 0, "notebook id");
-      const noteId = requireArg(args, 1, "note id");
-      const response = await api[":id"].notes[":noteId"].content.$get({ param: { id, noteId } });
+      const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
+      const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+      const response = await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: noteRef } });
       const payload = await ctx.readJson<NoteWithContent>(response);
       if (ctx.options.output === "json") ctx.json(payload);
       else ctx.print(payload.contentMd ?? "");
@@ -546,10 +604,11 @@ export default defineCloudCliModule({
     }
 
     if (command === "create-note") {
-      const id = requireArg(args, 0, "notebook id");
-      const title = requireArg(args, 1, "note title");
+      const { notebookRef, rest } = await resolveNotebookArg(ctx, args, 1);
+      const title = requireArg(rest, 0, "note title");
+      const notebook = await resolveNotebookRef(ctx, api, notebookRef);
       const response = await api[":id"].notes.$post({
-        param: { id },
+        param: { id: notebook.shortId },
         json: {
           title,
           parentId: stringFlag(ctx.flags, "parent", "parent-id"),
@@ -563,10 +622,10 @@ export default defineCloudCliModule({
     }
 
     if (command === "versions") {
-      const id = requireArg(args, 0, "notebook id");
-      const noteId = requireArg(args, 1, "note id");
+      const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
+      const notebook = await resolveNotebookRef(ctx, api, notebookRef);
       const response = await api[":id"].notes[":noteId"].versions.$get({
-        param: { id, noteId },
+        param: { id: notebook.shortId, noteId: noteRef },
         query: paginationQuery(ctx.flags),
       });
       const payload = await ctx.readJson<Page<NoteVersion>>(response);
@@ -584,12 +643,14 @@ export default defineCloudCliModule({
     }
 
     if (command === "version") {
-      const id = requireArg(args, 0, "notebook id");
-      const noteId = requireArg(args, 1, "note id");
-      const versionId = requireArg(args, 2, "version id");
+      const { notebookRef, noteRef, rest } = await resolveNoteCommandArgs(ctx, args, 1);
+      const versionId = requireArg(rest, 0, "version id");
+      const notebook = await resolveNotebookRef(ctx, api, notebookRef);
       const response = booleanFlag(ctx.flags, "content")
-        ? await api[":id"].notes[":noteId"].versions[":versionId"].content.$get({ param: { id, noteId, versionId } })
-        : await api[":id"].notes[":noteId"].versions[":versionId"].$get({ param: { id, noteId, versionId } });
+        ? await api[":id"].notes[":noteId"].versions[":versionId"].content.$get({
+            param: { id: notebook.shortId, noteId: noteRef, versionId },
+          })
+        : await api[":id"].notes[":noteId"].versions[":versionId"].$get({ param: { id: notebook.shortId, noteId: noteRef, versionId } });
       const payload = await ctx.readJson<unknown>(response);
       ctx.json(payload);
       return 0;

@@ -26,6 +26,8 @@ export type CloudCliContext = {
   args: string[];
   flags: CloudCliFlags;
   options: CloudCliOptions;
+  getDefault: (key: string) => Promise<string | undefined>;
+  setDefault: (key: string, value: string | undefined) => Promise<void>;
   createApiClient: <TApi extends Hono<any, any, any>>(basePath: string) => CloudApiClient<TApi>;
   fetch: (path: string, init?: RequestInit) => Promise<Response>;
   readJson: <T>(response: Response) => Promise<T>;

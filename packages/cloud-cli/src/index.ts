@@ -13,6 +13,7 @@ import type {
   CloudCliTableColumn,
 } from "@valentinkolb/cloud/cli";
 import notebooksCliModule from "@valentinkolb/cloud-app-notebooks/cli";
+import spacesCliModule from "@valentinkolb/cloud-app-spaces/cli";
 import type { Hono } from "hono";
 import { hc } from "hono/client";
 
@@ -31,6 +32,7 @@ type TokenProviderConfig = {
 
 type CloudCliProfile = TokenProviderConfig & {
   server?: string;
+  defaults?: Record<string, string>;
 };
 
 type CloudCliConfig = {
@@ -59,8 +61,9 @@ const DEFAULT_PROFILE = "default";
 const CONFIG_PATH =
   process.env.CLD_CONFIG ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "cloud", "cld", "config.json");
 const TOKEN_TIMEOUT_MS = 10_000;
+const BOOLEAN_FLAGS = new Set(["json"]);
 
-const modules: CloudCliModule[] = [notebooksCliModule];
+const modules: CloudCliModule[] = [notebooksCliModule, spacesCliModule];
 
 const moduleByName = new Map(modules.map((module) => [module.name, module]));
 
@@ -108,6 +111,11 @@ const parseArgs = (argv: string[]): ParsedArgs => {
     const equalsIndex = flag.indexOf("=");
     if (equalsIndex !== -1) {
       setFlag(flags, flag.slice(0, equalsIndex), flag.slice(equalsIndex + 1));
+      continue;
+    }
+
+    if (BOOLEAN_FLAGS.has(flag)) {
+      setFlag(flags, flag, true);
       continue;
     }
 
@@ -181,6 +189,9 @@ const maskToken = (token: string | undefined): string | undefined => {
   if (token.length <= 16) return "********";
   return `${token.slice(0, 8)}...${token.slice(-4)}`;
 };
+
+const hasPersistentTokenProvider = (profile: CloudCliProfile): boolean =>
+  Boolean(profile.token || profile.tokenFile || profile.tokenCommand || profile.fd0);
 
 const loadConfig = async (): Promise<CloudCliConfig> => {
   try {
@@ -313,6 +324,30 @@ const createContext = (args: string[], flags: CloudCliFlags, options: CloudCliOp
     args,
     flags,
     options,
+    getDefault: async (key) => {
+      const config = await loadConfig();
+      return config.profiles?.[options.profile]?.defaults?.[key];
+    },
+    setDefault: async (key, value) => {
+      const config = await loadConfig();
+      config.profiles ??= {};
+      const profile = config.profiles[options.profile] ?? {};
+      const hadPersistentToken = hasPersistentTokenProvider(profile);
+      const defaults = { ...(profile.defaults ?? {}) };
+      if (value === undefined) delete defaults[key];
+      else defaults[key] = value;
+      config.profiles[options.profile] = {
+        ...profile,
+        server: profile.server ?? options.server,
+        defaults: Object.keys(defaults).length > 0 ? defaults : undefined,
+      };
+      await saveConfig(config);
+      if (value !== undefined && !hadPersistentToken) {
+        console.error(
+          `Warning: saved a default for profile "${options.profile}", but this profile has no persistent token provider. Run \`cld profile set ${options.profile} --server ${options.server} --token-file <path>\` or pass a token/env token on future calls.`,
+        );
+      }
+    },
     createApiClient: <TApi extends Hono<any, any, any>>(basePath: string) =>
       hc<TApi>(joinUrl(options.server, basePath), {
         headers,
@@ -496,8 +531,12 @@ export const main = async (argv = Bun.argv.slice(2)): Promise<number> => {
     return 0;
   }
 
-  const options = await resolveOptions(global);
   const parsed = parseArgs(moduleArgs);
+  const resolvedOptions = await resolveOptions(global);
+  const options: CloudCliOptions = {
+    ...resolvedOptions,
+    output: takeBooleanFlag(parsed.flags, "json") ? "json" : resolvedOptions.output,
+  };
   const code = await module.run(createContext(parsed.args, parsed.flags, options));
   return code ?? 0;
 };
