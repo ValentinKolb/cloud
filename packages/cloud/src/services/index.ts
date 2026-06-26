@@ -92,3 +92,11 @@ export type { WeatherService, WeatherData, DailyForecast, CurrentWeather, Hourly
 export { migrate as migrateWeather } from "./weather/migrate";
 export { getFreeIpaConfig } from "./freeipa-config";
 export type { FreeIpaConfig } from "./freeipa-config";
+export { GotenbergRenderError, getGotenbergConfig, renderHtmlToPdf, renderHtmlToPdfWithConfig, testGotenberg } from "./pdf";
+export type {
+  GotenbergConfig,
+  GotenbergRenderErrorCode,
+  RenderHtmlToPdfInput,
+  RenderHtmlToPdfOptions,
+  RenderHtmlToPdfResult,
+} from "./pdf";

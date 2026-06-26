@@ -99,6 +99,53 @@ export const CORE_SETTINGS = {
     description: "Five-field cron schedule used by all automatic cleanup jobs in app.timezone",
   },
 
+  // ── PDF rendering ─────────────────────────────────────────────────────
+  "gotenberg.url": {
+    kind: "url",
+    label: "Gotenberg URL",
+    default: "",
+    description: "Internal base URL of the Gotenberg service used for HTML-to-PDF rendering.",
+    placeholder: "e.g. http://gotenberg:3000",
+  },
+  "gotenberg.username": {
+    kind: "string",
+    label: "Basic Auth Username",
+    default: "",
+    description: "Optional Gotenberg Basic Auth username.",
+    placeholder: "Gotenberg username",
+  },
+  "gotenberg.password": {
+    kind: "secret",
+    label: "Basic Auth Password",
+    default: "",
+    description: "Optional Gotenberg Basic Auth password.",
+    placeholder: "Gotenberg password",
+  },
+  "gotenberg.timeout_ms": {
+    kind: "number",
+    label: "Timeout",
+    default: 10000,
+    min: 100,
+    max: 120000,
+    description: "Maximum time in milliseconds for one Gotenberg render request.",
+  },
+  "gotenberg.max_html_bytes": {
+    kind: "number",
+    label: "Max HTML Bytes",
+    default: 1048576,
+    min: 1024,
+    max: 10485760,
+    description: "Maximum HTML input size accepted before sending a render request.",
+  },
+  "gotenberg.max_pdf_bytes": {
+    kind: "number",
+    label: "Max PDF Bytes",
+    default: 10485760,
+    min: 1024,
+    max: 104857600,
+    description: "Maximum PDF output size accepted from Gotenberg.",
+  },
+
   // ── FreeIPA ─────────────────────────────────────────────────────────────
   "freeipa.enable": {
     kind: "boolean",

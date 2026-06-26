@@ -1761,6 +1761,11 @@ const recordMetaUserKeyForRef = (ref: string): RecordMetaUserKey | null => {
   return null;
 };
 
+const isRecordIdRef = (ref: string): boolean => {
+  const parsed = parseQualifiedIdentifierRef(ref);
+  return Boolean(parsed?.scope && normalizeRefKey(parsed.scope) === RECORD_SCOPE && normalizeRecordRef(parsed.ref) === "id");
+};
+
 const recordMetaSortKeyForRef = (ref: DslQualifiedRef): RecordMetaSortKey | null => {
   if (!ref.scope || normalizeRefKey(ref.scope) !== RECORD_SCOPE) return null;
   const normalized = normalizeRecordRef(ref.ref);
@@ -1772,7 +1777,21 @@ const recordMetaSortKeyForRef = (ref: DslQualifiedRef): RecordMetaSortKey | null
 
 const isRecordScopedRef = (ref: DslQualifiedRef): boolean => Boolean(ref.scope && normalizeRefKey(ref.scope) === RECORD_SCOPE);
 
-const recordMetaPredicate = (key: RecordMetaUserKey, values: Literal[], span?: DslSourceSpan): DslWherePredicate | DslResolverDiagnostic => {
+const recordIdPredicate = (values: Literal[], span?: DslSourceSpan): DslWherePredicate | DslResolverDiagnostic => {
+  const ids: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string" || !UUID_RE.test(value)) return diagnostic("record.id expects record ids (uuid)", span);
+    ids.push(value);
+  }
+  if (ids.length === 0) return diagnostic("record.id needs at least one record id", span);
+  return { kind: "recordMeta", meta: { ids: [...new Set(ids)] } };
+};
+
+const recordMetaPredicate = (
+  key: RecordMetaUserKey,
+  values: Literal[],
+  span?: DslSourceSpan,
+): DslWherePredicate | DslResolverDiagnostic => {
   const ids: string[] = [];
   for (const value of values) {
     if (typeof value !== "string" || !UUID_RE.test(value)) return diagnostic(`record.${key} expects user ids (uuid)`, span);
@@ -1783,14 +1802,18 @@ const recordMetaPredicate = (key: RecordMetaUserKey, values: Literal[], span?: D
 };
 
 const mergeRecordMeta = (...items: Array<RecordMetaQuery | null | undefined>): RecordMetaQuery | undefined => {
+  const ids = new Set<string>();
   const users: NonNullable<RecordMetaQuery["users"]> = {};
   for (const item of items) {
+    for (const id of item?.ids ?? []) ids.add(id);
     for (const key of ["createdBy", "updatedBy", "deletedBy"] as const) {
       const values = item?.users?.[key] ?? [];
       if (values.length > 0) users[key] = [...new Set([...(users[key] ?? []), ...values])];
     }
   }
-  return Object.keys(users).length > 0 ? { users } : undefined;
+  return ids.size > 0 || Object.keys(users).length > 0
+    ? { ...(ids.size > 0 ? { ids: [...ids] } : {}), ...(Object.keys(users).length > 0 ? { users } : {}) }
+    : undefined;
 };
 
 const invertComparison = (op: string): string => {
@@ -2005,8 +2028,18 @@ const buildPredicateFunction = (
   const [first, ...rest] = expr.args;
   if (!first || first.kind !== "field") return null;
   const metaKey = recordMetaUserKeyForRef(first.fieldId);
+  if (isRecordIdRef(first.fieldId)) {
+    if (expr.fn !== "ONEOF") return diagnostic("record.id supports oneof(record.id, ...) only", spanForExpr(baseSpan, expr));
+    const values: Literal[] = [];
+    for (const arg of rest) {
+      if (arg.kind !== "literal") return diagnostic("record.id expects literal record ids", spanForExpr(baseSpan, arg));
+      values.push(arg.value);
+    }
+    return recordIdPredicate(values, spanForExpr(baseSpan, expr));
+  }
   if (metaKey) {
-    if (expr.fn !== "ONEOF") return diagnostic(`record.${metaKey} supports oneof(record.${metaKey}, ...) only`, spanForExpr(baseSpan, expr));
+    if (expr.fn !== "ONEOF")
+      return diagnostic(`record.${metaKey} supports oneof(record.${metaKey}, ...) only`, spanForExpr(baseSpan, expr));
     const values: Literal[] = [];
     for (const arg of rest) {
       if (arg.kind !== "literal") return diagnostic(`record.${metaKey} expects literal user ids`, spanForExpr(baseSpan, arg));
@@ -2079,6 +2112,12 @@ const buildComparisonPredicate = (
     const fieldExpr = (leftField ? expr.left : expr.right) as Extract<Expr, { kind: "field" }>;
     const valueExpr = leftField ? expr.right : expr.left;
     const metaKey = recordMetaUserKeyForRef(fieldExpr.fieldId);
+    if (isRecordIdRef(fieldExpr.fieldId)) {
+      if (valueExpr.kind !== "literal") return diagnostic("record.id expects a literal record id", spanForExpr(baseSpan, valueExpr));
+      const op = leftField ? expr.op : invertComparison(expr.op);
+      if (op !== "=") return diagnostic('record.id supports "=" or oneof(...) only', spanForExpr(baseSpan, expr));
+      return recordIdPredicate([valueExpr.value], spanForExpr(baseSpan, expr));
+    }
     if (metaKey) {
       if (valueExpr.kind !== "literal") return diagnostic(`record.${metaKey} expects a literal user id`, spanForExpr(baseSpan, valueExpr));
       const op = leftField ? expr.op : invertComparison(expr.op);
@@ -2120,6 +2159,7 @@ const buildPredicate = (expr: Expr, scope: Scope, baseSpan?: DslSourceSpan): Dsl
   }
   if (expr.kind === "binop" && COMPARISON_OPS.has(expr.op)) return buildComparisonPredicate(expr, scope, baseSpan);
   if (expr.kind === "field") {
+    if (isRecordIdRef(expr.fieldId)) return diagnostic("record.id must be compared to a record id", spanForExpr(baseSpan, expr));
     const metaKey = recordMetaUserKeyForRef(expr.fieldId);
     if (metaKey) return diagnostic(`record.${metaKey} must be compared to a user id`, spanForExpr(baseSpan, expr));
     if (isScopedFormulaFieldRef(expr.fieldId)) return formulaLeaf(expr, scope, baseSpan);
@@ -2196,7 +2236,11 @@ const resolveWhere = (where: NonNullable<DslQueryAst["where"]>, scope: Scope): W
   if (isPurePredicate(built)) {
     const split = purePredicateParts(built);
     if (!split.ok) return { kind: "error", diagnostic: split.diagnostic };
-    return { kind: "filter", ...(split.filter ? { tree: split.filter } : {}), ...(split.recordMeta ? { recordMeta: split.recordMeta } : {}) };
+    return {
+      kind: "filter",
+      ...(split.filter ? { tree: split.filter } : {}),
+      ...(split.recordMeta ? { recordMeta: split.recordMeta } : {}),
+    };
   }
   return { kind: "predicate", node: built };
 };
@@ -2857,8 +2901,7 @@ export const resolveDslQueryToQueryPlan = (ast: DslQueryAst, ctx: DslResolverCon
     else if (resolved.kind === "filter") {
       whereFilter = resolved.tree;
       whereRecordMeta = resolved.recordMeta;
-    }
-    else wherePredicate = resolved.node;
+    } else wherePredicate = resolved.node;
   }
 
   let searchSpec: { q: string; fieldIds?: string[] } | undefined;

@@ -1,10 +1,10 @@
-import { sql } from "bun";
+import { createHmac } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { createHmac } from "node:crypto";
-import { dates, ok, fail, err, type DateContext, type Result } from "@valentinkolb/stdlib";
 import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
+import { type DateContext, err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
 import {
   AutomationActionSchema,
   AutomationPayloadConfigSchema,
@@ -13,14 +13,15 @@ import {
   type CreateAutomationInput,
   type UpdateAutomationInput,
 } from "../contracts";
-import { parseJsonbRow } from "./jsonb";
 import { logAudit } from "./audit";
-import { insertWithShortId } from "./short-id";
-import { get as getTable } from "./tables";
+import { createRunForRecord, getTemplate, renderRunPdf } from "./documents";
 import { listByTable as listFields } from "./fields";
 import { compileFilter, renderClause } from "./filter-compiler";
-import { get as getRecord } from "./records";
+import { parseJsonbRow } from "./jsonb";
 import type { GridsRecordEvent } from "./record-events";
+import { get as getRecord } from "./records";
+import { insertWithShortId } from "./short-id";
+import { get as getTable } from "./tables";
 import type {
   Automation,
   AutomationAction,
@@ -56,6 +57,8 @@ type WebhookAttempt = {
   durationMs: number;
   errorMessage: string | null;
 };
+type ActionAttempt = WebhookAttempt;
+type WebhookAutomation = AutomationWithSecret & { action: Extract<AutomationAction, { kind: "webhook" }> };
 
 const AUTOMATION_COLS = sql`
   id, short_id, base_id, name, description, trigger, action, payload,
@@ -241,7 +244,21 @@ const validateInput = async (
   if (!schedule.ok) return schedule;
   const recordTrigger = await validateRecordTrigger(baseId, input.trigger);
   if (!recordTrigger.ok) return recordTrigger;
-  if (input.action.kind !== "webhook") return fail(err.badInput("unsupported automation action"));
+  if (input.action.kind === "webhook") return ok();
+
+  const template = await getTemplate(input.action.templateId);
+  if (!template) return fail(err.badInput("document template does not exist"));
+  const table = await getTable(template.tableId);
+  if (!table || table.baseId !== baseId) return fail(err.badInput("document template must belong to the automation base"));
+  if (input.trigger.kind !== "record" || !input.trigger.tableId) {
+    return fail(err.badInput("document automations require a selected record trigger table"));
+  }
+  if (input.trigger.event === "deleted") {
+    return fail(err.badInput("document automations cannot run after record deletion"));
+  }
+  if (input.trigger.tableId !== template.tableId) {
+    return fail(err.badInput("document automation trigger table must match the template table"));
+  }
   return ok();
 };
 
@@ -708,7 +725,7 @@ const webhookHeaders = (args: {
 };
 
 const postWebhook = async (
-  automation: AutomationWithSecret,
+  automation: WebhookAutomation,
   targetUrl: URL,
   headers: Record<string, string>,
   body: string,
@@ -748,6 +765,43 @@ const postWebhook = async (
   return { status, httpStatus, durationMs: Date.now() - started, errorMessage };
 };
 
+const renderDocumentAction = async (
+  automation: AutomationWithSecret,
+  subject: AutomationSubject,
+  actorId: string | null,
+): Promise<ActionAttempt> => {
+  const started = Date.now();
+  try {
+    if (automation.action.kind !== "document")
+      return { status: "failed", httpStatus: null, durationMs: 0, errorMessage: "Unsupported automation action" };
+    if (subject.type !== "record") {
+      return { status: "failed", httpStatus: null, durationMs: 0, errorMessage: "Document automation requires a record subject" };
+    }
+    const template = await getTemplate(automation.action.templateId);
+    if (!template) return { status: "failed", httpStatus: null, durationMs: 0, errorMessage: "Document template not found" };
+    const table = await getTable(template.tableId);
+    if (!table || table.baseId !== automation.baseId || subject.tableId !== table.id) {
+      return { status: "failed", httpStatus: null, durationMs: 0, errorMessage: "Document template does not match the subject record" };
+    }
+
+    const run = await createRunForRecord({
+      template,
+      table,
+      recordId: subject.recordId,
+      actorId,
+      dateConfig: await automationDateConfig(),
+    });
+    if (!run.ok) return { status: "failed", httpStatus: null, durationMs: Date.now() - started, errorMessage: run.error.message };
+
+    const pdf = await renderRunPdf(run.data);
+    if (!pdf.ok) return { status: "failed", httpStatus: null, durationMs: Date.now() - started, errorMessage: pdf.error.message };
+
+    return { status: "succeeded", httpStatus: null, durationMs: Date.now() - started, errorMessage: null };
+  } catch (error) {
+    return { status: "failed", httpStatus: null, durationMs: Date.now() - started, errorMessage: safeError(error) };
+  }
+};
+
 const finishAutomationRun = async (args: {
   automation: AutomationWithSecret;
   runRow: DbRow;
@@ -757,7 +811,7 @@ const finishAutomationRun = async (args: {
   subject: AutomationSubject;
   actorId: string | null;
   targetHost: string;
-  attempt: WebhookAttempt;
+  attempt: ActionAttempt;
 }): Promise<AutomationRun> =>
   sql.begin(async (tx) => {
     const [updatedRow] = await tx<DbRow[]>`
@@ -776,7 +830,14 @@ const finishAutomationRun = async (args: {
         tableId: args.subject.type === "record" ? args.subject.tableId : null,
         recordId: args.subject.type === "record" ? args.subject.recordId : null,
         userId: args.actorId,
-        action: args.attempt.status === "succeeded" ? "automation.webhook.sent" : "automation.webhook.failed",
+        action:
+          args.automation.action.kind === "document"
+            ? args.attempt.status === "succeeded"
+              ? "automation.document.generated"
+              : "automation.document.failed"
+            : args.attempt.status === "succeeded"
+              ? "automation.webhook.sent"
+              : "automation.webhook.failed",
         diff: {
           automation: {
             old: null,
@@ -806,7 +867,6 @@ export const execute = async (params: ExecuteAutomationParams): Promise<Result<A
   if (!automation.enabled && params.triggerKind !== "manual") {
     return fail(err.badInput("automation is disabled"));
   }
-  if (automation.action.kind !== "webhook") return fail(err.badInput("unsupported automation action"));
 
   const subject = params.subject ?? { type: "base" };
   const input = params.input === undefined ? null : params.input;
@@ -814,32 +874,62 @@ export const execute = async (params: ExecuteAutomationParams): Promise<Result<A
   if (inputJson.length > MAX_INPUT_BYTES) {
     return fail(err.badInput("automation input exceeds 64 KB"));
   }
-  const recordResult = await resolveAutomationRecordForRun(automation, subject, params.eventName);
-  if (!recordResult.ok) return recordResult;
-
-  const target = await validateWebhookTarget(automation.action.url);
-  if (!target.ok) return target;
 
   const event = eventFor(params.triggerKind, subject, params.eventName);
   const trigger = buildTriggerDetails(params);
-  const targetHost = target.data.host;
+
+  if (automation.action.kind === "webhook") {
+    const webhookAutomation = automation as WebhookAutomation;
+    const recordResult = await resolveAutomationRecordForRun(webhookAutomation, subject, params.eventName);
+    if (!recordResult.ok) return recordResult;
+    const target = await validateWebhookTarget(webhookAutomation.action.url);
+    if (!target.ok) return target;
+
+    const targetHost = target.data.host;
+    const inserted = await insertAutomationRun({ automation: webhookAutomation, subject, inputJson, event, trigger, targetHost });
+    if (!inserted.ok) return inserted;
+    const { runRow, runId } = inserted.data;
+    const body = JSON.stringify(
+      buildPayload({
+        automation: webhookAutomation,
+        runId,
+        event,
+        trigger,
+        subject,
+        input,
+        record: recordResult.data,
+      }),
+    );
+    const timestamp = new Date().toISOString();
+    const headers = webhookHeaders({
+      automation: webhookAutomation,
+      runId,
+      event,
+      triggerKind: params.triggerKind,
+      slotTs: params.slotTs,
+      timestamp,
+      body,
+    });
+    const attempt = await postWebhook(webhookAutomation, target.data, headers, body);
+    const run = await finishAutomationRun({
+      automation: webhookAutomation,
+      runRow,
+      runId,
+      event,
+      triggerKind: params.triggerKind,
+      subject,
+      actorId: params.actorId ?? null,
+      targetHost,
+      attempt,
+    });
+    return ok(run);
+  }
+
+  const targetHost = `document:${automation.action.templateId}`;
   const inserted = await insertAutomationRun({ automation, subject, inputJson, event, trigger, targetHost });
   if (!inserted.ok) return inserted;
   const { runRow, runId } = inserted.data;
-  const body = JSON.stringify(
-    buildPayload({
-      automation,
-      runId,
-      event,
-      trigger,
-      subject,
-      input,
-      record: recordResult.data,
-    }),
-  );
-  const timestamp = new Date().toISOString();
-  const headers = webhookHeaders({ automation, runId, event, triggerKind: params.triggerKind, slotTs: params.slotTs, timestamp, body });
-  const attempt = await postWebhook(automation, target.data, headers, body);
+  const attempt = await renderDocumentAction(automation, subject, params.actorId ?? null);
   const run = await finishAutomationRun({
     automation,
     runRow,

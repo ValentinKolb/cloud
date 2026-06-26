@@ -152,7 +152,9 @@ export type AuditAction =
   | "access.updated"
   | "access.revoked"
   | "automation.webhook.sent"
-  | "automation.webhook.failed";
+  | "automation.webhook.failed"
+  | "automation.document.generated"
+  | "automation.document.failed";
 
 export type AuditEntry = {
   id: string;
@@ -198,11 +200,16 @@ export type AutomationTrigger =
   | { kind: "schedule"; cron: string; timezone?: string }
   | { kind: "record"; event: "created" | "updated" | "deleted"; tableId?: string; filter?: FilterTree };
 
-export type AutomationAction = {
-  kind: "webhook";
-  url: string;
-  timeoutMs?: number;
-};
+export type AutomationAction =
+  | {
+      kind: "webhook";
+      url: string;
+      timeoutMs?: number;
+    }
+  | {
+      kind: "document";
+      templateId: string;
+    };
 
 export type AutomationPayloadConfig = {
   includeRecord?: boolean;

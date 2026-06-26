@@ -88,6 +88,12 @@ const recordSortRef = (key: "createdAt" | "updatedAt" | "deletedAt") => `record.
 
 const recordMetaToGqlWhere = (meta: RecordMetaQuery | undefined): ConvertResult | undefined => {
   const parts: string[] = [];
+  const recordIds = [...new Set(meta?.ids ?? [])].filter(Boolean);
+  if (recordIds.length > 0) {
+    const values = recordIds.map(literal);
+    if (!values.every((item): item is string => item !== null)) return unsupported("record.id needs literal record ids");
+    parts.push(values.length === 1 ? `record.id = ${values[0]}` : `oneof(record.id, ${values.join(", ")})`);
+  }
   for (const key of ["createdBy", "updatedBy", "deletedBy"] as const) {
     const ids = [...new Set(meta?.users?.[key] ?? [])].filter(Boolean);
     if (ids.length === 0) continue;

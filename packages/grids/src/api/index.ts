@@ -1,20 +1,21 @@
-import { Hono } from "hono";
 import { rateLimit } from "@valentinkolb/cloud/server";
-import basesRoutes from "./bases";
-import tablesRoutes from "./tables";
-import fieldsRoutes from "./fields";
-import recordsRoutes from "./records";
+import { Hono } from "hono";
+import wsRoutes from "../ws";
 import accessRoutes from "./access";
-import viewsRoutes from "./views";
-import dashboardsRoutes from "./dashboards";
-import formsRoutes from "./forms";
-import workspaceRoutes from "./workspace";
-import automationsRoutes from "./automations";
 import adminSettingsRoutes from "./admin-settings";
-import templatesRoutes from "./templates";
+import automationsRoutes from "./automations";
+import basesRoutes from "./bases";
+import dashboardsRoutes from "./dashboards";
+import documentsRoutes from "./documents";
+import fieldsRoutes from "./fields";
+import formsRoutes from "./forms";
 import formulasRoutes from "./formulas";
 import gqlRoutes from "./query-dsl";
-import wsRoutes from "../ws";
+import recordsRoutes from "./records";
+import tablesRoutes from "./tables";
+import templatesRoutes from "./templates";
+import viewsRoutes from "./views";
+import workspaceRoutes from "./workspace";
 
 const app = new Hono()
   .use(rateLimit())
@@ -28,6 +29,7 @@ const app = new Hono()
   .route("/access", accessRoutes)
   .route("/views", viewsRoutes)
   .route("/dashboards", dashboardsRoutes)
+  .route("/documents", documentsRoutes)
   .route("/formulas", formulasRoutes)
   .route("/gql", gqlRoutes)
   .route("/automations", automationsRoutes)

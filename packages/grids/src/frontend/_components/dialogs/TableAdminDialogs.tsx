@@ -4,15 +4,16 @@ import {
   confirmDiscardIfDirty,
   dialogCore,
   IconInput,
-  panelDialogOptions,
   PanelDialog,
+  panelDialogOptions,
   prompts,
   TextInput,
 } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For } from "solid-js";
+import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { DocumentTemplate } from "../../../contracts";
 import type { Field, Form, Table } from "../../../service";
 import { createDraft } from "../editor-draft";
 import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field-config-editor";
@@ -31,7 +32,13 @@ export const openTableSettingsDialog = (args: {
 }) => dialogCore.open<void>((close) => <TableSettingsDialog args={args} close={close} />, panelDialogOptions);
 
 function TableSettingsDialog(props: {
-  args: { table: TableHeader; fields: Field[]; initialAccessEntries: AccessEntry[]; onSaved: (table: Table) => void; onDeleted?: () => void };
+  args: {
+    table: TableHeader;
+    fields: Field[];
+    initialAccessEntries: AccessEntry[];
+    onSaved: (table: Table) => void;
+    onDeleted?: () => void;
+  };
   close: () => void;
 }) {
   const [dirty, setDirty] = createSignal(false);
@@ -120,6 +127,34 @@ const FIELD_TYPE_PICKER_DESCRIPTIONS: Record<string, string> = {
 };
 
 const CREATE_TYPE_OPTIONS = TYPE_OPTIONS.filter((type) => type.value !== "json");
+
+const defaultDocumentSource = (tableId: string) => `from table {${tableId}}\nwhere record.id = '{{ record.id }}'\nlimit 1`;
+
+const defaultDocumentHtml = `<html>
+  <head>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 40px; color: #18181b; }
+      h1 { margin: 0 0 12px; font-size: 24px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 24px; }
+      th, td { border-bottom: 1px solid #e4e4e7; padding: 8px; text-align: left; }
+    </style>
+  </head>
+  <body>
+    <h1>{{ table.name }} · {{ record.id }}</h1>
+    <table>
+      <tbody>
+        {% for row in rows %}
+          {% for column in columns %}
+            <tr>
+              <th>{{ column.label }}</th>
+              <td>{{ row[column.key] }}</td>
+            </tr>
+          {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </body>
+</html>`;
 
 const chooseFieldType = () =>
   dialogCore.open<string | null>(
@@ -310,11 +345,23 @@ function TableSettingsBody(props: {
         </PanelDialog.Section>
 
         <PanelDialog.Section title="Display" subtitle="Choose how records are shown on table pages." icon="ti ti-layout">
-          <RecordDisplayConfigEditor value={displayConfig} onChange={(value) => patch({ displayConfig: value })} fields={() => props.fields} />
+          <RecordDisplayConfigEditor
+            value={displayConfig}
+            onChange={(value) => patch({ displayConfig: value })}
+            fields={() => props.fields}
+          />
         </PanelDialog.Section>
 
         <PanelDialog.Section title="Permissions" subtitle="These permissions apply only to this table." icon="ti ti-lock">
           <TablePermissions tableId={props.table.id} initialEntries={props.initialAccessEntries} />
+        </PanelDialog.Section>
+
+        <PanelDialog.Section
+          title="Documents"
+          subtitle="HTML and GQL templates available on record detail pages."
+          icon="ti ti-file-type-pdf"
+        >
+          <DocumentTemplatesManager tableId={props.table.id} />
         </PanelDialog.Section>
 
         <PanelDialog.Section title="Danger zone" subtitle="Remove this table from the active app." icon="ti ti-trash">
@@ -341,5 +388,158 @@ function TableSettingsBody(props: {
         </div>
       </PanelDialog.Footer>
     </>
+  );
+}
+
+function DocumentTemplatesManager(props: { tableId: string }) {
+  const [templates, { refetch }] = createResource(
+    () => props.tableId,
+    async (tableId) => {
+      const res = await apiClient.documents.templates["by-table"][":tableId"].$get({ param: { tableId } });
+      if (!res.ok) {
+        prompts.error(await errorMessage(res, "Failed to load document templates"));
+        return [] as DocumentTemplate[];
+      }
+      return res.json();
+    },
+  );
+  const [editing, setEditing] = createSignal<DocumentTemplate | null>(null);
+  const [creating, setCreating] = createSignal(false);
+  const [name, setName] = createSignal("");
+  const [description, setDescription] = createSignal("");
+  const [source, setSource] = createSignal(defaultDocumentSource(props.tableId));
+  const [html, setHtml] = createSignal(defaultDocumentHtml);
+  const activeTemplate = () => editing();
+
+  const reset = () => {
+    setEditing(null);
+    setCreating(false);
+    setName("");
+    setDescription("");
+    setSource(defaultDocumentSource(props.tableId));
+    setHtml(defaultDocumentHtml);
+  };
+
+  const edit = (template: DocumentTemplate) => {
+    setEditing(template);
+    setCreating(false);
+    setName(template.name);
+    setDescription(template.description ?? "");
+    setSource(template.source);
+    setHtml(template.html);
+  };
+
+  const create = () => {
+    setCreating(true);
+    setEditing(null);
+    setName("");
+    setDescription("");
+    setSource(defaultDocumentSource(props.tableId));
+    setHtml(defaultDocumentHtml);
+  };
+
+  const saveMut = mutations.create<DocumentTemplate, void>({
+    mutation: async () => {
+      const payload = {
+        name: name().trim(),
+        description: description().trim() || null,
+        source: source().trim(),
+        html: html().trim(),
+      };
+      if (!payload.name) throw new Error("Name is required");
+      if (!payload.source) throw new Error("GQL source is required");
+      if (!payload.html) throw new Error("HTML template is required");
+      const current = activeTemplate();
+      const res = current
+        ? await apiClient.documents.templates[":templateId"].$patch({ param: { templateId: current.id }, json: payload })
+        : await apiClient.documents.templates["by-table"][":tableId"].$post({ param: { tableId: props.tableId }, json: payload });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to save document template"));
+      return res.json();
+    },
+    onSuccess: async () => {
+      reset();
+      await refetch();
+    },
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const deleteTemplate = async (template: DocumentTemplate) => {
+    const confirmed = await prompts.confirm(`Delete "${template.name}"? Existing generated documents can still be redownloaded.`, {
+      title: "Delete document template?",
+      variant: "danger",
+      confirmText: "Delete",
+    });
+    if (!confirmed) return;
+    const res = await apiClient.documents.templates[":templateId"].$delete({ param: { templateId: template.id } });
+    if (!res.ok) {
+      prompts.error(await errorMessage(res, "Failed to delete document template"));
+      return;
+    }
+    if (editing()?.id === template.id) reset();
+    await refetch();
+  };
+
+  return (
+    <div class="flex flex-col gap-3">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-xs text-dimmed">{templates.loading ? "Loading..." : `${templates()?.length ?? 0} templates`}</span>
+        <button type="button" class="btn-input btn-sm" onClick={create}>
+          <i class="ti ti-plus" /> Add template
+        </button>
+      </div>
+
+      <Show when={!templates.loading && (templates()?.length ?? 0) === 0 && !creating()}>
+        <div class="paper p-3 text-sm text-dimmed">No document templates yet.</div>
+      </Show>
+
+      <For each={templates() ?? []}>
+        {(template) => (
+          <div class="paper flex items-start gap-3 p-3">
+            <i class="ti ti-file-type-pdf mt-0.5 text-lg text-dimmed" />
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="truncate text-sm font-semibold text-primary">{template.name}</span>
+                <Show when={!template.enabled}>
+                  <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-dimmed dark:bg-zinc-800">disabled</span>
+                </Show>
+              </div>
+              <Show when={template.description}>
+                <p class="mt-1 text-xs text-dimmed">{template.description}</p>
+              </Show>
+            </div>
+            <button type="button" class="btn-simple btn-sm" title="Edit template" onClick={() => edit(template)}>
+              <i class="ti ti-pencil" />
+            </button>
+            <button
+              type="button"
+              class="btn-simple btn-sm text-dimmed hover:text-red-500"
+              title="Delete template"
+              onClick={() => void deleteTemplate(template)}
+            >
+              <i class="ti ti-trash" />
+            </button>
+          </div>
+        )}
+      </For>
+
+      <Show when={creating() || editing()}>
+        <div class="paper p-3">
+          <div class="grid gap-3">
+            <TextInput label="Name" value={name} onInput={setName} icon="ti ti-typography" required />
+            <TextInput label="Description" value={description} onInput={setDescription} icon="ti ti-align-left" placeholder="Optional" />
+            <TextInput label="GQL source" value={source} onInput={setSource} icon="ti ti-code" multiline lines={4} monospace required />
+            <TextInput label="HTML template" value={html} onInput={setHtml} icon="ti ti-template" multiline lines={10} monospace required />
+            <div class="flex justify-end gap-2">
+              <button type="button" class="btn-input btn-sm" onClick={reset}>
+                Cancel
+              </button>
+              <button type="button" class="btn-primary btn-sm" onClick={() => saveMut.mutate(undefined)} disabled={saveMut.loading()}>
+                {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save template"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Show>
+    </div>
   );
 }

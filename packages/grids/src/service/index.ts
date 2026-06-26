@@ -5,6 +5,7 @@ import { automationRuntime } from "./automations-runtime";
 import * as baseCatalog from "./base-catalog";
 import * as bases from "./bases";
 import * as dashboards from "./dashboards";
+import * as documents from "./documents";
 import * as exporter from "./export";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
 import * as fields from "./fields";
@@ -120,6 +121,26 @@ export const gridsService = {
     remove: dashboards.remove,
     restore: dashboards.restore,
   },
+  document: {
+    listTemplatesForTable: documents.listTemplatesForTable,
+    getTemplate: documents.getTemplate,
+    createTemplate: documents.createTemplate,
+    updateTemplate: documents.updateTemplate,
+    removeTemplate: documents.removeTemplate,
+    createRecordSnapshot: documents.createRecordSnapshot,
+    getSnapshot: documents.getSnapshot,
+    buildTemplateInputContext: documents.buildTemplateInputContext,
+    buildRenderData: documents.buildRenderData,
+    buildLiveRenderData: documents.buildLiveRenderData,
+    rowsWithColumnLabels: documents.rowsWithColumnLabels,
+    renderSource: documents.renderDocumentSource,
+    renderHtml: documents.renderDocumentHtml,
+    createRun: documents.createRun,
+    createRunForRecord: documents.createRunForRecord,
+    listRunsForRecord: documents.listRunsForRecord,
+    getRun: documents.getRun,
+    renderRunPdf: documents.renderRunPdf,
+  },
   form: {
     listForTable: forms.listForTable,
     listTrashedByBase: forms.listTrashedByBase,
@@ -220,7 +241,7 @@ export type {
   RecordList,
   Table,
 } from "./types";
-export type { ColumnSpec, FormatSpec, View, RecordQuery } from "./views";
+export type { ColumnSpec, FormatSpec, RecordQuery, View } from "./views";
 export {
   access,
   audit,
@@ -228,6 +249,7 @@ export {
   automations,
   bases,
   dashboards,
+  documents,
   exporter,
   fields,
   files,

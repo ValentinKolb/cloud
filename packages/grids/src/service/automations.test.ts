@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
-import { AutomationTriggerSchema } from "../contracts";
+import { AutomationActionSchema, AutomationTriggerSchema } from "../contracts";
 import {
   buildWebhookSignature,
   eventFor,
@@ -124,6 +124,12 @@ describe("automations", () => {
     });
     expect(parsed.success).toBe(true);
     expect(AutomationTriggerSchema.safeParse({ kind: "record", event: "renamed" }).success).toBe(false);
+  });
+
+  test("automation actions accept webhooks and document templates", () => {
+    expect(AutomationActionSchema.safeParse({ kind: "webhook", url: "https://example.com/grids", timeoutMs: 5000 }).success).toBe(true);
+    expect(AutomationActionSchema.safeParse({ kind: "document", templateId: "550e8400-e29b-41d4-a716-446655440002" }).success).toBe(true);
+    expect(AutomationActionSchema.safeParse({ kind: "document" }).success).toBe(false);
   });
 
   test("automation trigger input accepts legacy JSON strings but rejects invalid shapes", () => {

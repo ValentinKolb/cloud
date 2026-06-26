@@ -1,5 +1,5 @@
-import { sql } from "bun";
 import { type AccessUser, listUsersWithAccess } from "@valentinkolb/cloud/server";
+import { sql } from "bun";
 import type { RecordMetaQuery, RecordMetaUserKey } from "../contracts";
 
 export type RecordActor = {
@@ -14,6 +14,7 @@ const nonEmpty = (ids: string[] | undefined): string[] => [...new Set((ids ?? []
 
 export const cleanRecordMeta = (meta: RecordMetaQuery | null | undefined): RecordMetaQuery | undefined => {
   if (!meta) return undefined;
+  const ids = nonEmpty(meta.ids);
   const createdBy = nonEmpty(meta.users?.createdBy);
   const updatedBy = nonEmpty(meta.users?.updatedBy);
   const deletedBy = nonEmpty(meta.users?.deletedBy);
@@ -25,7 +26,7 @@ export const cleanRecordMeta = (meta: RecordMetaQuery | null | undefined): Recor
           ...(deletedBy.length ? { deletedBy } : {}),
         }
       : undefined;
-  return users ? { users } : undefined;
+  return ids.length || users ? { ...(ids.length ? { ids } : {}), ...(users ? { users } : {}) } : undefined;
 };
 
 export const recordMetaRequiresDeletedRows = (meta: RecordMetaQuery | null | undefined): boolean => {
@@ -36,6 +37,9 @@ export const recordMetaRequiresDeletedRows = (meta: RecordMetaQuery | null | und
 export const compileRecordMetaFilter = (meta: RecordMetaQuery | null | undefined): any => {
   const cleaned = cleanRecordMeta(meta);
   const parts: any[] = [];
+
+  const ids = cleaned?.ids ?? [];
+  if (ids.length > 0) parts.push(sql`r.id = ANY(${sql.array(ids, "UUID")})`);
 
   const createdBy = cleaned?.users?.createdBy ?? [];
   if (createdBy.length > 0) parts.push(sql`r.created_by = ANY(${sql.array(createdBy, "UUID")})`);
@@ -98,5 +102,5 @@ export const listRecordActors = async (params: {
 export const recordMetaActiveCount = (meta: RecordMetaQuery | null | undefined): number => {
   const cleaned = cleanRecordMeta(meta);
   if (!cleaned) return 0;
-  return USER_KEYS.reduce((count, key) => count + (cleaned.users?.[key]?.length ? 1 : 0), 0);
+  return (cleaned.ids?.length ? 1 : 0) + USER_KEYS.reduce((count, key) => count + (cleaned.users?.[key]?.length ? 1 : 0), 0);
 };

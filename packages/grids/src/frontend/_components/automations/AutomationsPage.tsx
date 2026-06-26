@@ -2,21 +2,21 @@ import {
   CheckboxCard,
   DataTable,
   type DataTableColumn,
-  MultiSelectInput,
-  Select,
-  TextInput,
   dialogCore,
-  panelDialogOptions,
+  MultiSelectInput,
   PanelDialog,
   Placeholder,
+  panelDialogOptions,
   prompts,
+  Select,
+  TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
 import { createResource, createSignal, For, type JSX, Show } from "solid-js";
-import type { Automation, AutomationRun, Field, Table } from "../../../service";
-import type { FilterTree } from "../../../contracts";
 import { apiClient } from "../../../api/client";
-import FilterPanel, { blankLeaf, isFilterLeafComplete, type FilterLeaf } from "../toolbar/FilterPanel";
+import type { DocumentTemplate, FilterTree } from "../../../contracts";
+import type { Automation, AutomationRun, Field, Table } from "../../../service";
+import FilterPanel, { blankLeaf, type FilterLeaf, isFilterLeafComplete } from "../toolbar/FilterPanel";
 import { errorMessage } from "../utils/api-helpers";
 
 type Props = {
@@ -27,6 +27,7 @@ type Props = {
 };
 
 type TriggerKind = "manual" | "schedule" | "record.created" | "record.updated" | "record.deleted";
+type ActionKind = "webhook" | "document";
 
 const TRIGGER_OPTIONS: Array<{ id: TriggerKind; label: string; description: string; icon: string }> = [
   { id: "record.created", label: "Record created", description: "Run after a new record is added.", icon: "ti ti-plus" },
@@ -34,6 +35,11 @@ const TRIGGER_OPTIONS: Array<{ id: TriggerKind; label: string; description: stri
   { id: "record.deleted", label: "Record deleted", description: "Run after a record is deleted.", icon: "ti ti-trash" },
   { id: "schedule", label: "Schedule", description: "Run from a cron schedule.", icon: "ti ti-clock" },
   { id: "manual", label: "Manual", description: "Run only when an admin starts it.", icon: "ti ti-user-check" },
+];
+
+const ACTION_OPTIONS: Array<{ id: ActionKind; label: string; description: string; icon: string }> = [
+  { id: "webhook", label: "Webhook", description: "Send a signed HTTP request.", icon: "ti ti-webhook" },
+  { id: "document", label: "Document", description: "Generate a record document.", icon: "ti ti-file-type-pdf" },
 ];
 
 const triggerLabel = (automation: Automation): string => {
@@ -44,6 +50,7 @@ const triggerLabel = (automation: Automation): string => {
 };
 
 const targetHost = (automation: Automation): string => {
+  if (automation.action.kind === "document") return "Document";
   try {
     return new URL(automation.action.url).host;
   } catch {
@@ -81,7 +88,7 @@ export default function AutomationsPage(props: Props) {
     },
     {
       id: "target",
-      header: "Webhook",
+      header: "Action",
       value: (a) => targetHost(a),
       cellClass: "text-secondary",
     },
@@ -200,13 +207,17 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
   const [description, setDescription] = createSignal(props.automation?.description ?? "");
   const [enabled, setEnabled] = createSignal(props.automation?.enabled ?? true);
   const [triggerKind, setTriggerKind] = createSignal<TriggerKind>(triggerKindOf(props.automation));
+  const [actionKind, setActionKind] = createSignal<ActionKind>(props.automation?.action.kind ?? "webhook");
   const [tableId, setTableId] = createSignal(props.automation?.trigger.kind === "record" ? (props.automation.trigger.tableId ?? "") : "");
   const [cron, setCron] = createSignal(props.automation?.trigger.kind === "schedule" ? props.automation.trigger.cron : "0 8 * * *");
   const [timezone, setTimezone] = createSignal(
     props.automation?.trigger.kind === "schedule" ? (props.automation.trigger.timezone ?? "") : "",
   );
-  const [url, setUrl] = createSignal(props.automation?.action.url ?? "");
-  const [timeoutMs, setTimeoutMs] = createSignal(String(props.automation?.action.timeoutMs ?? 15000));
+  const [url, setUrl] = createSignal(props.automation?.action.kind === "webhook" ? props.automation.action.url : "");
+  const [timeoutMs, setTimeoutMs] = createSignal(
+    String(props.automation?.action.kind === "webhook" ? (props.automation.action.timeoutMs ?? 15000) : 15000),
+  );
+  const [templateId, setTemplateId] = createSignal(props.automation?.action.kind === "document" ? props.automation.action.templateId : "");
   const [secret, setSecret] = createSignal("");
   const [includeRecord, setIncludeRecord] = createSignal(props.automation?.payload.includeRecord !== false);
   const [fieldMode, setFieldMode] = createSignal(props.automation?.payload.fieldIds ? "selected" : "all");
@@ -214,7 +225,19 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
   const [filterRows, setFilterRows] = createSignal<FilterLeaf[]>(filterRowsFromTrigger(props.automation));
   const fields = () => (tableId() ? (props.fieldsByTable[tableId()] ?? []) : []);
   const isRecordTrigger = () => triggerKind().startsWith("record.");
+  const isWebhookAction = () => actionKind() === "webhook";
+  const isDocumentAction = () => actionKind() === "document";
   const selectedTableFields = () => fields().filter((field) => !field.deletedAt);
+
+  const [templates] = createResource(
+    () => (isDocumentAction() && tableId() ? tableId() : ""),
+    async (selectedTableId) => {
+      if (!selectedTableId) return [] as DocumentTemplate[];
+      const res = await apiClient.documents.templates["by-table"][":tableId"].$get({ param: { tableId: selectedTableId } });
+      if (!res.ok) return [] as DocumentTemplate[];
+      return res.json();
+    },
+  );
 
   const [runs, { refetch: refetchRuns }] = createResource(
     () => props.automation?.id,
@@ -251,12 +274,15 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
         description: description().trim() || null,
         enabled: enabled(),
         trigger,
-        action: { kind: "webhook" as const, url: url().trim(), timeoutMs: Number.isFinite(selectedTimeout) ? selectedTimeout : undefined },
+        action:
+          actionKind() === "document"
+            ? { kind: "document" as const, templateId: templateId() }
+            : { kind: "webhook" as const, url: url().trim(), timeoutMs: Number.isFinite(selectedTimeout) ? selectedTimeout : undefined },
         payload: {
-          includeRecord: isRecordTrigger() ? includeRecord() : false,
-          fieldIds: isRecordTrigger() && tableId() && fieldMode() === "selected" ? fieldIds() : undefined,
+          includeRecord: isWebhookAction() && isRecordTrigger() ? includeRecord() : false,
+          fieldIds: isWebhookAction() && isRecordTrigger() && tableId() && fieldMode() === "selected" ? fieldIds() : undefined,
         },
-        webhookSecret: secret().trim() ? secret().trim() : undefined,
+        webhookSecret: isWebhookAction() && secret().trim() ? secret().trim() : undefined,
       };
       const res = props.automation
         ? await apiClient.automations[":automationId"].$patch({ param: { automationId: props.automation.id }, json: payload })
@@ -316,7 +342,11 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
                 description="Choose when this automation runs."
                 value={triggerKind}
                 onChange={(value) => setTriggerKind(value as TriggerKind)}
-                options={TRIGGER_OPTIONS}
+                options={
+                  isDocumentAction()
+                    ? TRIGGER_OPTIONS.filter((option) => option.id === "record.created" || option.id === "record.updated")
+                    : TRIGGER_OPTIONS
+                }
               />
             </div>
             <Show when={isRecordTrigger()}>
@@ -325,11 +355,15 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
                 value={tableId}
                 onChange={(value) => {
                   setTableId(value);
+                  setTemplateId("");
                   setFilterRows([]);
                   setFieldIds([]);
                 }}
-                placeholder="Any table"
-                options={[{ id: "", label: "Any table" }, ...props.tables.map((table) => ({ id: table.id, label: table.name }))]}
+                placeholder={isDocumentAction() ? "Select table" : "Any table"}
+                options={[
+                  ...(isDocumentAction() ? [] : [{ id: "", label: "Any table" }]),
+                  ...props.tables.map((table) => ({ id: table.id, label: table.name })),
+                ]}
               />
             </Show>
             <Show when={triggerKind() === "schedule"}>
@@ -364,20 +398,51 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
 
         <div class="flex flex-col gap-3">
           <div class="grid gap-3 sm:grid-cols-2">
-            <TextInput label="Webhook URL" value={url} onInput={setUrl} placeholder="https://api.example.com/grids" required />
-            <TextInput label="Timeout ms" value={timeoutMs} onInput={setTimeoutMs} placeholder="15000" />
-            <div class="sm:col-span-2">
-              <TextInput
-                label={props.automation?.webhookSecretSet ? "Replace secret" : "Secret"}
-                value={secret}
-                onInput={setSecret}
-                placeholder={props.automation?.webhookSecretSet ? "Leave empty to keep current secret" : "Optional HMAC secret"}
+            <Select
+              label="Action"
+              value={actionKind}
+              onChange={(value) => {
+                const next = value as ActionKind;
+                setActionKind(next);
+                if (
+                  next === "document" &&
+                  (triggerKind() === "manual" || triggerKind() === "schedule" || triggerKind() === "record.deleted")
+                ) {
+                  setTriggerKind("record.updated");
+                }
+              }}
+              options={ACTION_OPTIONS}
+            />
+            <Show when={isDocumentAction()}>
+              <Select
+                label="Document template"
+                description="Generated for the matching record."
+                value={templateId}
+                onChange={setTemplateId}
+                placeholder={tableId() ? "Choose template" : "Select a table first"}
+                options={(templates() ?? []).map((template) => ({
+                  id: template.id,
+                  label: template.name,
+                  description: template.enabled ? "Enabled" : "Disabled",
+                }))}
               />
-            </div>
+            </Show>
+            <Show when={isWebhookAction()}>
+              <TextInput label="Webhook URL" value={url} onInput={setUrl} placeholder="https://api.example.com/grids" required />
+              <TextInput label="Timeout ms" value={timeoutMs} onInput={setTimeoutMs} placeholder="15000" />
+              <div class="sm:col-span-2">
+                <TextInput
+                  label={props.automation?.webhookSecretSet ? "Replace secret" : "Secret"}
+                  value={secret}
+                  onInput={setSecret}
+                  placeholder={props.automation?.webhookSecretSet ? "Leave empty to keep current secret" : "Optional HMAC secret"}
+                />
+              </div>
+            </Show>
           </div>
         </div>
 
-        <Show when={isRecordTrigger()}>
+        <Show when={isWebhookAction() && isRecordTrigger()}>
           <div class="flex flex-col gap-3">
             <div>
               <h3 class="text-xs font-semibold uppercase tracking-[0.12em] text-secondary">Payload</h3>
@@ -434,7 +499,14 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
               </button>
             </div>
             <div class="mt-3 flex flex-col gap-2 text-xs">
-              <For each={runs()?.items ?? []} fallback={<Placeholder align="left" class="px-0 py-2">No runs yet.</Placeholder>}>
+              <For
+                each={runs()?.items ?? []}
+                fallback={
+                  <Placeholder align="left" class="px-0 py-2">
+                    No runs yet.
+                  </Placeholder>
+                }
+              >
                 {(run) => (
                   <div class="paper flex items-center justify-between gap-3 px-2.5 py-1.5">
                     <span class={run.status === "failed" ? "text-red-600 dark:text-red-400" : "text-secondary"}>{run.status}</span>

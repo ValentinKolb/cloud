@@ -478,6 +478,7 @@ export const RecordMetaUserKeySchema = z.enum(["createdBy", "updatedBy", "delete
 export type RecordMetaUserKey = z.infer<typeof RecordMetaUserKeySchema>;
 
 export const RecordMetaQuerySchema = z.object({
+  ids: z.array(z.string().uuid()).max(100).optional(),
   users: z
     .object({
       createdBy: z.array(z.string().uuid()).max(50).optional(),
@@ -816,6 +817,93 @@ export const UpdateViewSchema = z.object({
 export type UpdateViewInput = z.infer<typeof UpdateViewSchema>;
 
 export const ViewListSchema = z.array(ViewSchema);
+
+// ── Documents ─────────────────────────────────────────────────────────────
+export const DocumentTemplateSchema = z.object({
+  id: z.string().uuid(),
+  shortId: ShortIdSchema,
+  tableId: z.string().uuid(),
+  name: z.string(),
+  description: z.string().nullable(),
+  source: z.string().trim().min(1).max(20_000),
+  html: z.string().trim().min(1).max(200_000),
+  enabled: z.boolean(),
+  position: z.number().int(),
+  createdBy: z.string().uuid().nullable(),
+  updatedBy: z.string().uuid().nullable(),
+  deletedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type DocumentTemplate = z.infer<typeof DocumentTemplateSchema>;
+
+export const DocumentTemplateListSchema = z.array(DocumentTemplateSchema);
+
+export const CreateDocumentTemplateSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().max(2_000).nullable().optional(),
+  source: z.string().trim().min(1).max(20_000),
+  html: z.string().trim().min(1).max(200_000),
+  enabled: z.boolean().optional(),
+});
+export type CreateDocumentTemplateInput = z.infer<typeof CreateDocumentTemplateSchema>;
+
+export const UpdateDocumentTemplateSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(2_000).nullable().optional(),
+  source: z.string().trim().min(1).max(20_000).optional(),
+  html: z.string().trim().min(1).max(200_000).optional(),
+  enabled: z.boolean().optional(),
+  position: z.number().int().optional(),
+});
+export type UpdateDocumentTemplateInput = z.infer<typeof UpdateDocumentTemplateSchema>;
+
+export const RecordSnapshotSchema = z.object({
+  id: z.string().uuid(),
+  baseId: z.string().uuid(),
+  tableId: z.string().uuid(),
+  recordId: z.string().uuid(),
+  root: z.record(z.string(), z.unknown()),
+  graph: z.record(z.string(), z.unknown()),
+  createdBy: z.string().uuid().nullable(),
+  createdAt: z.string().datetime(),
+});
+export type RecordSnapshot = z.infer<typeof RecordSnapshotSchema>;
+
+export const DocumentRunSchema = z.object({
+  id: z.string().uuid(),
+  shortId: ShortIdSchema,
+  templateId: z.string().uuid().nullable(),
+  snapshotId: z.string().uuid(),
+  baseId: z.string().uuid(),
+  tableId: z.string().uuid(),
+  recordId: z.string().uuid(),
+  documentNumber: z.string(),
+  templateSnapshot: z.record(z.string(), z.unknown()),
+  renderData: z.record(z.string(), z.unknown()),
+  generatedBy: z.string().uuid().nullable(),
+  generatedAt: z.string().datetime(),
+});
+export type DocumentRun = z.infer<typeof DocumentRunSchema>;
+
+export const DocumentRunListSchema = z.array(DocumentRunSchema);
+
+export const DocumentRecordBodySchema = z.object({
+  recordId: z.string().uuid(),
+});
+export type DocumentRecordBody = z.infer<typeof DocumentRecordBodySchema>;
+
+export const DocumentPreviewResponseSchema = z.object({
+  html: z.string(),
+  source: z.string(),
+  data: z.record(z.string(), z.unknown()),
+});
+export type DocumentPreviewResponse = z.infer<typeof DocumentPreviewResponseSchema>;
+
+export const CreateRecordSnapshotResponseSchema = z.object({
+  snapshot: RecordSnapshotSchema,
+});
+export type CreateRecordSnapshotResponse = z.infer<typeof CreateRecordSnapshotResponseSchema>;
 
 // ── Forms ────────────────────────────────────────────────────────────────
 //
@@ -1200,6 +1288,10 @@ export const AutomationActionSchema = z.discriminatedUnion("kind", [
     url: HttpUrlSchema,
     timeoutMs: z.number().int().min(1000).max(60_000).optional(),
   }),
+  z.object({
+    kind: z.literal("document"),
+    templateId: z.string().uuid(),
+  }),
 ]);
 export type AutomationAction = z.infer<typeof AutomationActionSchema>;
 
@@ -1305,7 +1397,17 @@ export const AuditEntrySchema = z.object({
   tableId: z.string().uuid().nullable(),
   recordId: z.string().uuid().nullable(),
   userId: z.string().uuid().nullable(),
-  action: z.enum(["created", "updated", "deleted", "restored", "imported", "automation.webhook.sent", "automation.webhook.failed"]),
+  action: z.enum([
+    "created",
+    "updated",
+    "deleted",
+    "restored",
+    "imported",
+    "automation.webhook.sent",
+    "automation.webhook.failed",
+    "automation.document.generated",
+    "automation.document.failed",
+  ]),
   diff: z.record(z.string(), z.object({ old: z.unknown(), new: z.unknown() })).nullable(),
   ip: z.string().nullable(),
   userAgent: z.string().nullable(),

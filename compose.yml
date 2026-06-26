@@ -48,6 +48,13 @@ services:
     depends_on:
       - valkey
 
+  gotenberg:
+    image: docker.io/gotenberg/gotenberg:8
+    container_name: gotenberg
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+
 volumes:
   ipa_postgres_data:
   ipa_valkey_data:

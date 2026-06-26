@@ -60,7 +60,7 @@ export type SettingFieldDef = {
   templateVars?: readonly string[];
 };
 
-type Props = { entries: SettingFieldDef[]; showTestEmailAction?: boolean };
+type Props = { entries: SettingFieldDef[]; showTestEmailAction?: boolean; showTestPdfAction?: boolean };
 
 export default function CoreSettingsForm(props: Props) {
   const [drafts, setDrafts] = createSignal<Record<string, unknown>>({});
@@ -143,6 +143,39 @@ export default function CoreSettingsForm(props: Props) {
     });
   };
 
+  const testPdf = mutations.create<{ bytes: number; contentType: string }, void>({
+    mutation: async () => {
+      const response = await coreClient.admin.core.settings["test-pdf"].$post();
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        const message =
+          body && typeof body === "object" && "message" in body && typeof body.message === "string"
+            ? body.message
+            : `Failed to test PDF rendering (HTTP ${response.status})`;
+        throw new Error(message);
+      }
+      return body as { bytes: number; contentType: string };
+    },
+    onSuccess: (result) => {
+      void prompts.dialog<void>(
+        (close) => (
+          <div class="flex flex-col gap-4">
+            <p class="text-sm text-secondary">
+              Gotenberg returned a {formatBytes(result.bytes)} {result.contentType} response.
+            </p>
+            <div class="flex justify-end">
+              <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
+                Close
+              </button>
+            </div>
+          </div>
+        ),
+        { title: "PDF renderer is reachable", icon: "ti ti-check" },
+      );
+    },
+    onError: (e) => prompts.error(e.message),
+  });
+
   return (
     <div>
       <Show when={props.showTestEmailAction}>
@@ -161,6 +194,28 @@ export default function CoreSettingsForm(props: Props) {
             title={hasChanges() ? "Save pending changes before sending a test email" : "Send test email"}
           >
             <i class="ti ti-send" /> Send test email
+          </button>
+        </div>
+      </Show>
+
+      <Show when={props.showTestPdfAction}>
+        <div class="flex flex-col gap-3 border-b border-zinc-100 px-3 py-3 dark:border-zinc-800 sm:flex-row sm:items-center sm:justify-between">
+          <div class="min-w-0">
+            <h2 class="text-sm font-medium text-primary">Test renderer</h2>
+            <p class="mt-1 text-xs text-dimmed">
+              {hasChanges()
+                ? "Save pending changes before testing Gotenberg."
+                : "Render a minimal HTML document with the saved Gotenberg settings."}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn-secondary btn-sm justify-center"
+            onClick={() => testPdf.mutate()}
+            disabled={hasChanges() || testPdf.loading()}
+            title={hasChanges() ? "Save pending changes before testing Gotenberg" : "Test PDF renderer"}
+          >
+            <i class={testPdf.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-file-type-pdf"} /> Test PDF renderer
           </button>
         </div>
       </Show>
@@ -188,6 +243,12 @@ export default function CoreSettingsForm(props: Props) {
     </div>
   );
 }
+
+const formatBytes = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+};
 
 function TestEmailDialog(props: { close: () => void }) {
   const [recipient, setRecipient] = createSignal("");

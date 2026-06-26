@@ -3,7 +3,7 @@ import { type DateContext, text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { ColumnSpec, FormatSpec } from "../../../contracts";
+import type { ColumnSpec, DocumentRun, DocumentTemplate, FormatSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
 import type { AuditEntry, Field, GridFile, GridRecord } from "../../../service";
 import { isUserEditable } from "../fields/field-prompt-schema";
@@ -406,9 +406,151 @@ export default function RecordDetailPanel(props: Props) {
             </Show>
           </Show>
 
+          <RecordDocumentsSection tableId={props.tableId} recordId={rec.id} />
           <RecordHistorySection tableId={props.tableId} recordId={rec.id} />
         </div>
       )}
+    </Show>
+  );
+}
+
+function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
+  const [templates] = createResource(
+    () => props.tableId,
+    async (tableId) => {
+      const res = await apiClient.documents.templates["by-table"][":tableId"].$get({ param: { tableId } });
+      if (!res.ok) return [] as DocumentTemplate[];
+      return res.json();
+    },
+  );
+  const [runs, { refetch: refetchRuns }] = createResource(
+    () => `${props.tableId}:${props.recordId}`,
+    async () => {
+      const res = await apiClient.documents.runs["by-record"][":tableId"][":recordId"].$get({
+        param: { tableId: props.tableId, recordId: props.recordId },
+      });
+      if (!res.ok) return [] as DocumentRun[];
+      return res.json();
+    },
+  );
+  const [busy, setBusy] = createSignal<string | null>(null);
+
+  const downloadPdfResponse = async (res: Response, fallbackName: string) => {
+    if (!res.ok) throw new Error(await errorMessage(res, "Failed to render PDF"));
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fallbackName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const generate = async (template: DocumentTemplate) => {
+    setBusy(template.id);
+    try {
+      const res = await fetch(`/api/grids/documents/templates/${template.id}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordId: props.recordId }),
+      });
+      const number = res.headers.get("X-Grids-Document-Number") ?? template.name;
+      await downloadPdfResponse(res, `${number}.pdf`);
+      await refetchRuns();
+    } catch (error) {
+      prompts.error(error instanceof Error ? error.message : "Failed to generate document");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const redownload = async (run: DocumentRun) => {
+    setBusy(run.id);
+    try {
+      const res = await fetch(`/api/grids/documents/runs/${run.id}/download`);
+      await downloadPdfResponse(res, `${run.documentNumber}.pdf`);
+    } catch (error) {
+      prompts.error(error instanceof Error ? error.message : "Failed to download document");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const createSnapshot = async () => {
+    setBusy("snapshot");
+    try {
+      const res = await apiClient.documents.snapshots["by-record"][":tableId"][":recordId"].$post({
+        param: { tableId: props.tableId, recordId: props.recordId },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to create snapshot"));
+      prompts.success("Snapshot created.");
+    } catch (error) {
+      prompts.error(error instanceof Error ? error.message : "Failed to create snapshot");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const availableTemplates = () => (templates() ?? []).filter((template) => template.enabled);
+  const generatedRuns = () => {
+    const value = runs();
+    return Array.isArray(value) ? value : (value?.items ?? []);
+  };
+  const hasContent = () => templates.loading || runs.loading || availableTemplates().length > 0 || generatedRuns().length > 0;
+
+  return (
+    <Show when={hasContent()}>
+      <section class="paper p-4 flex flex-col gap-3">
+        <div class="flex items-center justify-between gap-2">
+          <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">Documents</h3>
+          <button type="button" class="btn-input btn-sm" onClick={() => void createSnapshot()} disabled={busy() === "snapshot"}>
+            {busy() === "snapshot" ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
+            Snapshot
+          </button>
+        </div>
+
+        <Show when={availableTemplates().length > 0}>
+          <div class="flex flex-col gap-2">
+            <For each={availableTemplates()}>
+              {(template) => (
+                <div class="flex items-center gap-2 rounded-md bg-zinc-50 px-2.5 py-2 text-sm dark:bg-zinc-900">
+                  <i class="ti ti-file-type-pdf text-dimmed" />
+                  <span class="min-w-0 flex-1 truncate font-medium text-primary">{template.name}</span>
+                  <button
+                    type="button"
+                    class="btn-primary btn-sm"
+                    onClick={() => void generate(template)}
+                    disabled={busy() === template.id}
+                  >
+                    {busy() === template.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
+                    Generate
+                  </button>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+
+        <Show when={generatedRuns().length > 0}>
+          <div class="flex flex-col gap-2">
+            <p class="text-[11px] font-medium uppercase tracking-wide text-dimmed">Generated</p>
+            <For each={generatedRuns()}>
+              {(run) => (
+                <div class="flex items-center gap-2 text-xs">
+                  <i class="ti ti-file-description text-dimmed" />
+                  <span class="min-w-0 flex-1 truncate font-mono text-secondary">{run.documentNumber}</span>
+                  <span class="shrink-0 text-dimmed">{formatRelativeTime(run.generatedAt)}</span>
+                  <button type="button" class="btn-input btn-sm" onClick={() => void redownload(run)} disabled={busy() === run.id}>
+                    {busy() === run.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
+                  </button>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+      </section>
     </Show>
   );
 }

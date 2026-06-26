@@ -283,6 +283,92 @@ export const migrate = async (): Promise<void> => {
   await sql`DROP TABLE IF EXISTS grids.gql_queries CASCADE`.simple();
 
   // ──────────────────────────────────────────────────────────────────
+  // document templates / snapshots / runs
+  // ──────────────────────────────────────────────────────────────────
+  // Templates are table-level render definitions. They store a Liquid-rendered
+  // GQL source plus a Liquid-rendered HTML template. Official document runs
+  // snapshot the template and render data; PDFs are regenerated on download.
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.document_templates (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
+      table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      source TEXT NOT NULL,
+      html TEXT NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      position INT NOT NULL DEFAULT 0,
+      created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT document_templates_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
+      CONSTRAINT document_templates_source_length_chk CHECK (length(source) BETWEEN 1 AND 20000),
+      CONSTRAINT document_templates_html_length_chk CHECK (length(html) BETWEEN 1 AND 200000)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_document_templates_table_live
+    ON grids.document_templates(table_id, position) WHERE deleted_at IS NULL
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_document_templates_short_id
+    ON grids.document_templates(table_id, short_id) WHERE deleted_at IS NULL
+  `.simple();
+  console.log("  ✓ grids.document_templates");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.record_snapshots (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      base_id UUID NOT NULL,
+      table_id UUID NOT NULL,
+      record_id UUID NOT NULL,
+      root JSONB NOT NULL,
+      graph JSONB NOT NULL,
+      created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_record_snapshots_record
+    ON grids.record_snapshots(table_id, record_id, created_at DESC)
+  `.simple();
+  console.log("  ✓ grids.record_snapshots");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.document_runs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
+      template_id UUID,
+      snapshot_id UUID NOT NULL REFERENCES grids.record_snapshots(id) ON DELETE RESTRICT,
+      base_id UUID NOT NULL,
+      table_id UUID NOT NULL,
+      record_id UUID NOT NULL,
+      document_number TEXT NOT NULL,
+      template_snapshot JSONB NOT NULL,
+      render_data JSONB NOT NULL,
+      generated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT document_runs_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
+    )
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_document_runs_number
+    ON grids.document_runs(document_number)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_document_runs_record
+    ON grids.document_runs(table_id, record_id, generated_at DESC)
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_document_runs_short_id
+    ON grids.document_runs(table_id, short_id)
+  `.simple();
+  console.log("  ✓ grids.document_runs");
+
+  // ──────────────────────────────────────────────────────────────────
   // forms — record-entry surface for internal users + optional public URLs
   // ──────────────────────────────────────────────────────────────────
   // The "default form" per table is virtual (computed from active fields)

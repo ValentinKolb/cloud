@@ -29,6 +29,12 @@ const TABS = [
   },
   { id: "mail", title: "Mail Settings", description: "SMTP delivery and sender credentials.", group: "mail" as const },
   {
+    id: "pdf-rendering",
+    title: "PDF Rendering Settings",
+    description: "Gotenberg connection, credentials, and render limits.",
+    group: "gotenberg" as const,
+  },
+  {
     id: "email-templates",
     title: "Email Template Settings",
     description: "Transactional email bodies and available template variables.",
@@ -117,7 +123,7 @@ export default ssr<AuthContext>(async (c) => {
 
           {tab.group ? (
             <section class="paper overflow-hidden" style="view-transition-name: admin-settings-content">
-              <CoreSettingsForm entries={entries} showTestEmailAction={tab.id === "mail"} />
+              <CoreSettingsForm entries={entries} showTestEmailAction={tab.id === "mail"} showTestPdfAction={tab.id === "pdf-rendering"} />
             </section>
           ) : null}
 

@@ -229,9 +229,10 @@ describe("resolveDslQueryToRecordQuery", () => {
   test("maps explicit record metadata refs to the RecordQuery recordMeta contract", () => {
     const userId = "11111111-1111-4111-8111-111111111111";
     const otherUserId = "22222222-2222-4222-8222-222222222222";
+    const recordId = "33333333-3333-4333-8333-333333333333";
     const result = resolveDslQueryToRecordQuery(
       parseOk(`
-        where oneof(record.createdBy, '${userId}', '${otherUserId}') and record.updatedBy = '${userId}'
+        where record.id = '${recordId}' and oneof(record.createdBy, '${userId}', '${otherUserId}') and record.updatedBy = '${userId}'
         sort record.createdAt desc
       `),
       ctx(),
@@ -240,6 +241,7 @@ describe("resolveDslQueryToRecordQuery", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.plan.query.recordMeta).toEqual({
+      ids: [recordId],
       users: {
         createdBy: [userId, otherUserId],
         updatedBy: [userId],
@@ -478,7 +480,9 @@ sort missing desc`),
     expect(planResult.ok).toBe(true);
     expect(viewResult.ok).toBe(false);
     if (!viewResult.ok) {
-      expect(viewResult.diagnostics.map((d) => d.message)).toEqual(["formula aggregates cannot be represented by the records-table runtime yet"]);
+      expect(viewResult.diagnostics.map((d) => d.message)).toEqual([
+        "formula aggregates cannot be represented by the records-table runtime yet",
+      ]);
     }
   });
 
@@ -544,7 +548,9 @@ sort missing desc`),
 
     expect(viewResult.ok).toBe(false);
     if (!viewResult.ok)
-      expect(viewResult.diagnostics.map((d) => d.message)).toEqual(['sort by computed alias "doubled" is not supported by RecordQuery yet']);
+      expect(viewResult.diagnostics.map((d) => d.message)).toEqual([
+        'sort by computed alias "doubled" is not supported by RecordQuery yet',
+      ]);
     expect(planResult.ok).toBe(true);
     if (!planResult.ok) return;
     expect(planResult.plan.query.sort).toBeUndefined();
@@ -555,7 +561,8 @@ sort missing desc`),
     const result = resolveDslQueryToRecordQuery(parseOk(`select amount\noffset 10`), ctx());
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(["offset cannot be represented by the records-table runtime yet"]);
+    if (!result.ok)
+      expect(result.diagnostics.map((d) => d.message)).toEqual(["offset cannot be represented by the records-table runtime yet"]);
   });
 
   test("allows no-op offset when compiling to RecordQuery", () => {
@@ -941,9 +948,7 @@ sort missing desc`),
     );
     expect(groupCollision.ok).toBe(false);
     if (!groupCollision.ok)
-      expect(groupCollision.diagnostics.map((d) => d.message)).toContain(
-        'aggregate alias "customer_link" conflicts with a derived column',
-      );
+      expect(groupCollision.diagnostics.map((d) => d.message)).toContain('aggregate alias "customer_link" conflicts with a derived column');
 
     const derivedColumnCollision = resolveDslQueryToQueryPlan(parseOk(`from view ByCust\naggregate sum(revenue) as revenue`), context);
     expect(derivedColumnCollision.ok).toBe(false);
@@ -3214,7 +3219,10 @@ describe("GQL lookup/rollup fields (C3)", () => {
   test("base computed group keys stay out of RecordQuery runtime", () => {
     const result = resolveDslQueryToRecordQuery(parseOk(`group by total\naggregate count(*) as rows`), rollupCtx());
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.diagnostics.map((d) => d.message)).toEqual(["group by computed fields cannot be represented by the records-table runtime yet"]);
+    if (!result.ok)
+      expect(result.diagnostics.map((d) => d.message)).toEqual([
+        "group by computed fields cannot be represented by the records-table runtime yet",
+      ]);
   });
 
   test("direct rollup aggregate aliases resolve case-insensitively in having", () => {
