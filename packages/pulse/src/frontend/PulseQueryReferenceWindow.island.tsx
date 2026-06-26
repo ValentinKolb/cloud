@@ -62,6 +62,8 @@ const metricSyntax = `metric <metric> <aggregation>
   [every <duration>]
   [since <duration>]
   [source <uuid>]
+  [entity <id>]
+  [entity_type <type>]
   [where <key>=<value>, ...]`;
 
 const eventsSyntax = `events [<kind>|*]
@@ -83,13 +85,28 @@ const statesSyntax = `states [<key>|*]
 const dashboardSyntax = `dashboard "Name" {
   description "Optional context."
 
-  section "Section" {
-    card "Card title" {
-      description "Optional card context."
+  controls {
+    range "Range" variable range default 24h options 1h, 6h, 24h, 7d
+    source "Source" variable source_id default 00000000-0000-4000-8000-000000000000
+    entity "Entity" variable entity_id type container default container:app-core
+    label "Region" variable region default eu options eu, us
+    text "Search" variable search default ""
+  }
 
+  section "Section" {
+    grid height md {
       chart "Chart title" {
-        query metric orders.created increase every 1h since 7d
+        query metric orders.created increase every 1h since $range source $source_id where region=$region
+        warn when value > 100
       }
+    }
+
+    table "Recent events" {
+      query events deploy.finished since $range entity $entity_id limit 50
+    }
+
+    table "Current states" {
+      query states service.online entity $entity_id limit 50
     }
 
     markdown "Notes" {
@@ -113,6 +130,8 @@ const dashboardExample = `dashboard "Solar overview" {
       gauge "Charge" {
         description "Latest state of charge reported by the inverter."
         query metric solar.battery.charge_percent latest since 10m
+        warn when value < 20 message "Battery is low"
+        critical when value < 10 message "Battery is critical"
       }
     }
 
@@ -135,8 +154,8 @@ const syntaxRows: SyntaxRow[] = [
   { clause: "every <duration>", appliesTo: "metric", meaning: "Bucket metric samples into fixed time windows. Defaults to 5m.", example: "every 15m" },
   { clause: "since <duration>", appliesTo: "metric, events, states", meaning: "Limit by time. Metric/events default to 24h. States only filter stale current values when provided.", example: "since 7d" },
   { clause: "source <uuid>", appliesTo: "all", meaning: "Restrict results to one source.", example: "source 00000000-0000-4000-8000-000000000000" },
-  { clause: "entity <id>", appliesTo: "events, states", meaning: "Restrict rows to one entity identifier such as a customer, order, device, service, or host.", example: "entity order-1001" },
-  { clause: "entity_type <type>", appliesTo: "events, states", meaning: "Restrict rows to one entity type.", example: "entity_type order" },
+  { clause: "entity <id>", appliesTo: "all", meaning: "Restrict results to one entity identifier such as a customer, order, device, service, or host.", example: "entity order-1001" },
+  { clause: "entity_type <type>", appliesTo: "all", meaning: "Restrict results to one entity type.", example: "entity_type order" },
   { clause: "where <key>=<value>", appliesTo: "all", meaning: "Filter dimensions. Separate multiple filters with commas.", example: "where env=prod, region=eu" },
   { clause: "limit <rows>", appliesTo: "events, states", meaning: "Limit returned rows. Values above 1000 are clamped.", example: "limit 100" },
 ];
@@ -485,6 +504,14 @@ export default function PulseQueryReferenceWindow(props: Props) {
           <DocNote title="Use it for repeatable layouts" variant="tip">
             Prefer Dashboard DSL when a dashboard should be reviewed, copied, generated, or changed as text. It keeps layout intent and
             query intent close together.
+          </DocNote>
+          <DocNote title="Controls define variables" variant="info">
+            Declare controls once with <DocInlineCode>controls</DocInlineCode>, then use variables such as <DocInlineCode>$range</DocInlineCode>{" "}
+            or <DocInlineCode>$entity_id</DocInlineCode> inside widget queries. Pulse renders controls above the dashboard.
+          </DocNote>
+          <DocNote title="Conditions are visual" variant="warning">
+            Use <DocInlineCode>warn when value &gt; 80</DocInlineCode> or <DocInlineCode>critical when value = false</DocInlineCode> to
+            mark widgets visually. Alert delivery and webhooks are a separate future layer.
           </DocNote>
         </div>
       </DocSection>

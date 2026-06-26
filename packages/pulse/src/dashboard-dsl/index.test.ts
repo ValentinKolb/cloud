@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { MetricQuery, PulseExplorerQuery } from "../contracts";
+import { compilePulseQueryText } from "../query-dsl";
 import { compileDashboardDsl, parseDashboardDsl } from ".";
 
 const metricQuery = (query: string): { ok: true; data: PulseExplorerQuery } | { ok: false; message: string } => {
@@ -77,6 +78,99 @@ describe("Pulse dashboard DSL", () => {
     expect(gauge.since).toBe("10m");
     const markdown = section?.rows[0]?.cells[1];
     expect(markdown?.kind).toBe("markdown");
+  });
+
+  test("compiles controls and visual conditions", () => {
+    const result = compileDashboardDsl(
+      `dashboard "Controlled" {
+        controls {
+          range "Range" variable range options 1h, 6h
+        }
+
+        section "Main" {
+          stat "Orders" {
+            query metric sales.orders increase every 1h since $range
+            warn when value > 100 message "High order volume"
+          }
+        }
+      }`,
+      metricQuery,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.layout?.controls?.[0]).toMatchObject({ kind: "range", variable: "range", defaultValue: "1h" });
+    const widget = result.data.layout?.sections[0]?.rows[0]?.cells[0];
+    expect(widget?.kind).toBe("metric");
+    if (widget?.kind !== "metric") return;
+    expect(widget.since).toBe("1h");
+    expect(widget.conditions?.[0]).toMatchObject({ level: "warn", operator: ">", value: 100 });
+  });
+
+  test("supports grid rows and label/text controls", () => {
+    const result = compileDashboardDsl(
+      `dashboard "Scoped" {
+        controls {
+          label "Region" variable region default eu options eu, us
+          text "Search" variable search default checkout
+        }
+
+        section "Main" {
+          grid height lg {
+            chart "Orders" {
+              query metric sales.orders increase every 1h since 24h where region=$region, term=$search
+            }
+          }
+        }
+      }`,
+      (query) => {
+        const compiled = compilePulseQueryText("base", query);
+        return compiled.ok ? { ok: true, data: compiled.data } : { ok: false, message: compiled.error.message };
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.layout?.controls?.map((control) => control.kind)).toEqual(["label", "text"]);
+    const row = result.data.layout?.sections[0]?.rows[0];
+    expect(row?.height).toBe("lg");
+    const widget = row?.cells[0];
+    expect(widget?.kind).toBe("metric");
+    if (widget?.kind !== "metric") return;
+    expect(widget.dimensions).toEqual({ region: "eu", term: "checkout" });
+  });
+
+  test("compiles events and states as table widgets", () => {
+    const result = compileDashboardDsl(
+      `dashboard "Ops" {
+        section "Activity" {
+          table "Deploys" {
+            query events deploy.finished since 24h entity service:api limit 25
+          }
+
+          table "Current states" {
+            query states service.online entity_type service limit 50
+          }
+        }
+      }`,
+      (query) => {
+        const compiled = compilePulseQueryText("base", query);
+        return compiled.ok ? { ok: true, data: compiled.data } : { ok: false, message: compiled.error.message };
+      },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [eventsWidget, statesWidget] = result.data.layout?.sections[0]?.rows[0]?.cells ?? [];
+    expect(eventsWidget?.kind).toBe("events");
+    if (eventsWidget?.kind !== "events") return;
+    expect(eventsWidget.query.kind).toBe("events");
+    expect(eventsWidget.query.event).toBe("deploy.finished");
+    expect(eventsWidget.query.entityId).toBe("service:api");
+    expect(eventsWidget.query.limit).toBe(25);
+    expect(statesWidget?.kind).toBe("states");
+    if (statesWidget?.kind !== "states") return;
+    expect(statesWidget.query.kind).toBe("states");
+    expect(statesWidget.query.state).toBe("service.online");
+    expect(statesWidget.query.entityType).toBe("service");
+    expect(statesWidget.query.limit).toBe(50);
   });
 
   test("reports syntax diagnostics for unknown statements", () => {

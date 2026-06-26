@@ -198,12 +198,97 @@ export type PulseDashboardPanel = {
   bucket: string;
   since: string;
   sourceId?: string | null;
+  entityId?: string | null;
+  entityType?: string | null;
   dimensions?: Record<string, string | number | boolean | null>;
 };
 
+export type PulseDashboardConditionOperator = ">" | ">=" | "<" | "<=" | "=" | "!=";
+export type PulseDashboardConditionLevel = "warn" | "critical";
+
+export type PulseDashboardCondition = {
+  level: PulseDashboardConditionLevel;
+  operator: PulseDashboardConditionOperator;
+  value: string | number | boolean;
+  message?: string | null;
+};
+
+export type PulseDashboardControl = {
+  id: string;
+  kind: "range" | "source" | "entity" | "entity_type" | "label" | "text";
+  variable: string;
+  label: string;
+  defaultValue: string;
+  options?: string[];
+  entityType?: string | null;
+};
+
+export type PulseDashboardMetricQuery = {
+  kind: "metric";
+  metric: string;
+  aggregation: Aggregation;
+  bucket: string;
+  since: string;
+  sourceId?: string | null;
+  entityId?: string | null;
+  entityType?: string | null;
+  dimensions?: Record<string, string | number | boolean | null>;
+};
+
+export type PulseDashboardEventQuery = {
+  kind: "events";
+  event: string | null;
+  since: string;
+  sourceId?: string | null;
+  entityId?: string | null;
+  entityType?: string | null;
+  dimensions?: Record<string, string | number | boolean | null>;
+  limit: number;
+};
+
+export type PulseDashboardStateQuery = {
+  kind: "states";
+  state: string | null;
+  since?: string | null;
+  sourceId?: string | null;
+  entityId?: string | null;
+  entityType?: string | null;
+  dimensions?: Record<string, string | number | boolean | null>;
+  limit: number;
+};
+
+export type PulseDashboardWidgetQuery = PulseDashboardMetricQuery | PulseDashboardEventQuery | PulseDashboardStateQuery;
+
 export type PulseDashboardMetricWidget = PulseDashboardPanel & {
   kind: "metric";
+  queryText?: string;
+  query?: PulseDashboardMetricQuery;
   description?: string | null;
+  conditions?: PulseDashboardCondition[];
+  span?: number;
+};
+
+export type PulseDashboardEventsWidget = {
+  id: string;
+  kind: "events";
+  title: string;
+  visual: "table";
+  queryText: string;
+  query: PulseDashboardEventQuery;
+  description?: string | null;
+  conditions?: PulseDashboardCondition[];
+  span?: number;
+};
+
+export type PulseDashboardStatesWidget = {
+  id: string;
+  kind: "states";
+  title: string;
+  visual: "table" | "stat";
+  queryText: string;
+  query: PulseDashboardStateQuery;
+  description?: string | null;
+  conditions?: PulseDashboardCondition[];
   span?: number;
 };
 
@@ -225,7 +310,12 @@ export type PulseDashboardCardWidget = {
   span?: number;
 };
 
-export type PulseDashboardWidget = PulseDashboardMetricWidget | PulseDashboardMarkdownWidget | PulseDashboardCardWidget;
+export type PulseDashboardWidget =
+  | PulseDashboardMetricWidget
+  | PulseDashboardEventsWidget
+  | PulseDashboardStatesWidget
+  | PulseDashboardMarkdownWidget
+  | PulseDashboardCardWidget;
 
 export type PulseDashboardRow = {
   id: string;
@@ -246,13 +336,14 @@ export type PulseDashboardSection = {
 export type PulseDashboardLayout = {
   version: 1;
   description?: string | null;
+  controls?: PulseDashboardControl[];
   sections: PulseDashboardSection[];
 };
 
 export type PulseDashboardConfig = {
-  panels: PulseDashboardPanel[];
-  layout?: PulseDashboardLayout | null;
-  dsl?: string | null;
+  dsl: string;
+  layout: PulseDashboardLayout | null;
+  panels?: PulseDashboardPanel[];
   refreshIntervalSeconds?: DashboardRefreshInterval | null;
 };
 
@@ -276,16 +367,11 @@ export type PulseSavedQuery = {
   updatedAt: string;
 };
 
-export type PulsePublicDashboardPanel = Pick<
-  PulseDashboardPanel,
-  "id" | "title" | "metric" | "visual" | "aggregation" | "bucket" | "since"
->;
-
 export type PulsePublicDashboard = {
   id: string;
   name: string;
   config: {
-    panels: PulsePublicDashboardPanel[];
+    layout: PulseDashboardLayout | null;
     refreshIntervalSeconds?: DashboardRefreshInterval | null;
   };
 };
@@ -293,6 +379,8 @@ export type PulsePublicDashboard = {
 export type PulseDashboardSnapshot = {
   dashboard: PulsePublicDashboard;
   points: Record<string, MetricQueryPoint[]>;
+  events: Record<string, PulseRecordedEvent[]>;
+  states: Record<string, PulseCurrentState[]>;
 };
 
 export type PulseDashboardDslDiagnostic = {
@@ -316,6 +404,8 @@ export type MetricQuery = {
   bucket: string;
   since: string;
   sourceId?: string | null;
+  entityId?: string | null;
+  entityType?: string | null;
   dimensions?: Record<string, string | number | boolean | null>;
 };
 

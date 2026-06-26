@@ -95,6 +95,7 @@ export type PulseWorkspaceProps = {
   initialSavedQueries?: PulseSavedQuery[];
   initialPanelPoints?: Record<string, MetricQueryPoint[]>;
   initialExplorerDockState?: DockWorkspaceState | null;
+  initialDashboardEditorDockState?: DockWorkspaceState | null;
   initialDateConfig?: DateContext;
   initialNow?: string;
   initialOrigin?: string;

@@ -7,9 +7,14 @@ import type {
   PulseCurrentState,
   PulseDashboard,
   PulseDashboardConfig,
+  PulseDashboardEventQuery,
+  PulseDashboardEventsWidget,
+  PulseDashboardMetricQuery,
   PulseDashboardMetricWidget,
   PulseDashboardPanel,
   PulseDashboardSection,
+  PulseDashboardStateQuery,
+  PulseDashboardStatesWidget,
   PulseDashboardWidget,
   PulseMetricSeries,
   PulseRecordedEvent,
@@ -121,13 +126,34 @@ export const stateGroupId = (state: PulseCurrentState): string => [state.key, st
 export const panelQuery = (baseId: string, panel: PulseDashboardPanel) => ({
   kind: "metric" as const,
   baseId,
-  metric: panel.metric,
-  aggregation: panel.aggregation,
-  bucket: panel.bucket,
-  since: panel.since,
-  sourceId: panel.sourceId ?? null,
-  dimensions: panel.dimensions ?? undefined,
+  metric: (panel as PulseDashboardMetricWidget).query?.metric ?? panel.metric,
+  aggregation: (panel as PulseDashboardMetricWidget).query?.aggregation ?? panel.aggregation,
+  bucket: (panel as PulseDashboardMetricWidget).query?.bucket ?? panel.bucket,
+  since: (panel as PulseDashboardMetricWidget).query?.since ?? panel.since,
+  sourceId: (panel as PulseDashboardMetricWidget).query?.sourceId ?? panel.sourceId ?? null,
+  entityId: (panel as PulseDashboardMetricWidget).query?.entityId ?? panel.entityId ?? null,
+  entityType: (panel as PulseDashboardMetricWidget).query?.entityType ?? panel.entityType ?? null,
+  dimensions: (panel as PulseDashboardMetricWidget).query?.dimensions ?? panel.dimensions ?? undefined,
 });
+
+const queryFiltersToText = (query: PulseDashboardMetricQuery | PulseDashboardEventQuery | PulseDashboardStateQuery): string => {
+  const source = query.sourceId ? ` source ${query.sourceId}` : "";
+  const entity = query.entityId ? ` entity ${quoteQueryPart(query.entityId)}` : "";
+  const entityType = query.entityType ? ` entity_type ${quoteQueryPart(query.entityType)}` : "";
+  const dimensions = Object.entries(query.dimensions ?? {});
+  const where = dimensions.length ? ` where ${dimensions.map(([key, value]) => `${key}=${quoteQueryPart(String(value))}`).join(", ")}` : "";
+  const limit = query.kind === "events" || query.kind === "states" ? ` limit ${query.limit}` : "";
+  return `${source}${entity}${entityType}${where}${limit}`;
+};
+
+export const dashboardMetricQueryText = (query: PulseDashboardMetricQuery): string =>
+  `metric ${query.metric} ${query.aggregation} every ${query.bucket} since ${query.since}${queryFiltersToText(query)}`;
+
+export const dashboardEventQueryText = (query: PulseDashboardEventQuery): string =>
+  `events ${query.event ?? "*"} since ${query.since}${queryFiltersToText(query)}`;
+
+export const dashboardStateQueryText = (query: PulseDashboardStateQuery): string =>
+  `states ${query.state ?? "*"}${query.since ? ` since ${query.since}` : ""}${queryFiltersToText(query)}`;
 
 export const formatValue = (value: number | null | undefined): string => {
   if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
@@ -255,9 +281,15 @@ export const dashboardLayoutWidgets = (config: PulseDashboardConfig): PulseDashb
   config.layout?.sections.flatMap(dashboardSectionWidgets) ?? [];
 
 export const dashboardMetricPanels = (config: PulseDashboardConfig): PulseDashboardPanel[] => [
-  ...config.panels,
   ...dashboardLayoutWidgets(config).filter((widget): widget is PulseDashboardMetricWidget => widget.kind === "metric"),
+  ...(!config.layout ? (config.panels ?? []) : []),
 ];
+
+export const dashboardEventsWidgets = (config: PulseDashboardConfig) =>
+  dashboardLayoutWidgets(config).filter((widget) => widget.kind === "events");
+
+export const dashboardStatesWidgets = (config: PulseDashboardConfig) =>
+  dashboardLayoutWidgets(config).filter((widget) => widget.kind === "states");
 
 export const quoteDashboardDslString = (value: string): string => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 
@@ -274,8 +306,9 @@ export const panelToDashboardDsl = (panel: PulseDashboardPanel): string => {
 
 export const dashboardToDsl = (dashboard: PulseDashboard): string => {
   if (dashboard.config.dsl?.trim()) return dashboard.config.dsl;
-  const panelBlocks = dashboard.config.panels.length
-    ? dashboard.config.panels.map(panelToDashboardDsl).join("\n\n")
+  const legacyPanels = dashboard.config.panels ?? [];
+  const panelBlocks = legacyPanels.length
+    ? legacyPanels.map(panelToDashboardDsl).join("\n\n")
     : `    markdown "Start here" {
       """
       Add cards, charts, tables, and notes with the Pulse dashboard DSL.

@@ -97,7 +97,7 @@ const StartTab = () => (
           {
             title: "Metric",
             icon: "ti-chart-dots",
-            text: "Numeric time-series data for charts, aggregation, comparison, dashboard panels, and alerts later.",
+            text: "Numeric time-series data for charts, aggregation, comparison, dashboard widgets, and alerts later.",
           },
           {
             title: "Event",
@@ -112,7 +112,7 @@ const StartTab = () => (
           {
             title: "Dashboard",
             icon: "ti-layout-dashboard",
-            text: "A saved set of query panels. Public dashboards expose only their included panel data through a UUID URL.",
+            text: "A saved Dashboard DSL document. Public dashboards expose only the data used by that DSL through a UUID URL.",
           },
         ]}
       />
@@ -126,7 +126,7 @@ const StartTab = () => (
             "Add one source and wait until it publishes data.",
             "Open Sources to verify scrape or ingest health.",
             "Open Metrics, pick one metric, then jump to the explorer.",
-            "Run the query, choose Chart or Table, and add it to a dashboard.",
+            "Run the query, then paste the stable shape into a dashboard DSL widget.",
           ]}
         >
           {(step, index) => (
@@ -194,7 +194,7 @@ const FeaturesTab = () => (
           {
             title: "Realtime",
             icon: "ti-refresh",
-            text: "Workspace data and public dashboards refresh live. Public dashboards receive only data for panels included in that dashboard.",
+            text: "Workspace data and public dashboards refresh live. Public dashboards receive only data referenced by the dashboard DSL.",
           },
           {
             title: "Retention",
@@ -209,7 +209,7 @@ const FeaturesTab = () => (
           {
             title: "Saved queries",
             icon: "ti-bookmark",
-            text: "Name investigations you run repeatedly. Save first, then turn stable queries into dashboard panels.",
+            text: "Name investigations you run repeatedly. Save first, then turn stable queries into dashboard DSL widgets.",
           },
         ]}
       />
@@ -222,7 +222,7 @@ const QueryTab = () => (
     <DocLead>
       Pulse queries support three statement types: <DocInlineCode>metric</DocInlineCode> for metric time series,{" "}
       <DocInlineCode>events</DocInlineCode> for event rows, and <DocInlineCode>states</DocInlineCode> for current state values. The same
-      filters work across the model so queries can become dashboard panels later.
+      filters work across the model so queries can become dashboard widgets later.
     </DocLead>
 
     <DocSection title="Full syntax" eyebrow="Reference">

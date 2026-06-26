@@ -30,10 +30,10 @@ const dashboardSectionWidgets = (section: PulseDashboardSection): PulseDashboard
 ];
 
 const dashboardMetricPanels = (dashboard: PulseDashboard): PulseDashboardPanel[] => [
-  ...dashboard.config.panels,
   ...(dashboard.config.layout?.sections
     .flatMap(dashboardSectionWidgets)
     .filter((widget): widget is PulseDashboardMetricWidget => widget.kind === "metric") ?? []),
+  ...(!dashboard.config.layout ? (dashboard.config.panels ?? []) : []),
 ];
 
 const panelQuery = (baseId: string, panel: PulseDashboardPanel): MetricQuery => ({
@@ -44,6 +44,8 @@ const panelQuery = (baseId: string, panel: PulseDashboardPanel): MetricQuery => 
   bucket: panel.bucket,
   since: panel.since,
   sourceId: panel.sourceId ?? null,
+  entityId: panel.entityId ?? null,
+  entityType: panel.entityType ?? null,
   dimensions: panel.dimensions ?? undefined,
 });
 
@@ -98,6 +100,7 @@ export default ssr<AuthContext>(async (c) => {
   const routeState = readWorkspacePathState(url.pathname, baseResult.data.id);
   const initialActivityQuery = readActivityQueryState(url.search);
   const explorerDockState = readDockWorkspaceStateCookie(c.req.header("Cookie"), "pulse.query-explorer");
+  const dashboardEditorDockState = readDockWorkspaceStateCookie(c.req.header("Cookie"), "pulse.dashboard-editor");
   const activityQuery = {
     q: initialActivityQuery.q || undefined,
     type: initialActivityQuery.type || undefined,
@@ -208,6 +211,7 @@ export default ssr<AuthContext>(async (c) => {
         initialSavedQueries={savedQueriesResult.ok ? savedQueriesResult.data : []}
         initialPanelPoints={Object.fromEntries(panelPointsEntries)}
         initialExplorerDockState={explorerDockState}
+        initialDashboardEditorDockState={dashboardEditorDockState}
         initialDateConfig={dateConfig}
         initialNow={new Date().toISOString()}
         initialOrigin={initialOrigin}

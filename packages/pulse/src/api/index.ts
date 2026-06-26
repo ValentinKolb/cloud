@@ -126,12 +126,85 @@ const DashboardPanelSchema = z.object({
     .trim()
     .regex(/^\d+[mhd]$/),
   sourceId: z.string().uuid().nullable().optional(),
+  entityId: z.string().nullable().optional(),
+  entityType: z.string().nullable().optional(),
   dimensions: DimensionsSchema,
 });
 
 const DashboardMetricWidgetSchema = DashboardPanelSchema.extend({
   kind: z.literal("metric"),
+  queryText: z.string().trim().max(8_000).optional(),
+  query: z
+    .object({
+      kind: z.literal("metric"),
+      metric: z.string().trim().min(1).max(240),
+      aggregation: z.enum(AGGREGATIONS),
+      bucket: z.string().trim().regex(/^\d+[mhd]$/),
+      since: z.string().trim().regex(/^\d+[mhd]$/),
+      sourceId: z.string().uuid().nullable().optional(),
+      entityId: z.string().nullable().optional(),
+      entityType: z.string().nullable().optional(),
+      dimensions: DimensionsSchema,
+    })
+    .optional(),
   description: z.string().trim().max(500).nullable().optional(),
+  conditions: z
+    .array(
+      z.object({
+        level: z.enum(["warn", "critical"]),
+        operator: z.enum([">", ">=", "<", "<=", "=", "!="]),
+        value: z.union([z.string(), z.number(), z.boolean()]),
+        message: z.string().trim().max(240).nullable().optional(),
+      }),
+    )
+    .max(8)
+    .optional(),
+  span: z.number().int().min(1).max(12).optional(),
+});
+
+const DashboardEventQuerySchema = z.object({
+  kind: z.literal("events"),
+  event: z.string().trim().min(1).max(240).nullable(),
+  since: z.string().trim().regex(/^\d+[mhd]$/),
+  sourceId: z.string().uuid().nullable().optional(),
+  entityId: z.string().nullable().optional(),
+  entityType: z.string().nullable().optional(),
+  dimensions: DimensionsSchema,
+  limit: z.number().int().min(1).max(1_000),
+});
+
+const DashboardStateQuerySchema = z.object({
+  kind: z.literal("states"),
+  state: z.string().trim().min(1).max(240).nullable(),
+  since: z.string().trim().regex(/^\d+[mhd]$/).nullable().optional(),
+  sourceId: z.string().uuid().nullable().optional(),
+  entityId: z.string().nullable().optional(),
+  entityType: z.string().nullable().optional(),
+  dimensions: DimensionsSchema,
+  limit: z.number().int().min(1).max(1_000),
+});
+
+const DashboardEventsWidgetSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  kind: z.literal("events"),
+  title: z.string().trim().min(1).max(160),
+  visual: z.literal("table"),
+  queryText: z.string().trim().max(8_000),
+  query: DashboardEventQuerySchema,
+  description: z.string().trim().max(500).nullable().optional(),
+  conditions: DashboardMetricWidgetSchema.shape.conditions,
+  span: z.number().int().min(1).max(12).optional(),
+});
+
+const DashboardStatesWidgetSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  kind: z.literal("states"),
+  title: z.string().trim().min(1).max(160),
+  visual: z.enum(["table", "stat"]),
+  queryText: z.string().trim().max(8_000),
+  query: DashboardStateQuerySchema,
+  description: z.string().trim().max(500).nullable().optional(),
+  conditions: DashboardMetricWidgetSchema.shape.conditions,
   span: z.number().int().min(1).max(12).optional(),
 });
 
@@ -146,6 +219,8 @@ const DashboardMarkdownWidgetSchema = z.object({
 
 type DashboardWidgetInput =
   | z.infer<typeof DashboardMetricWidgetSchema>
+  | z.infer<typeof DashboardEventsWidgetSchema>
+  | z.infer<typeof DashboardStatesWidgetSchema>
   | z.infer<typeof DashboardMarkdownWidgetSchema>
   | {
       id: string;
@@ -164,6 +239,8 @@ type DashboardRowInput = {
 const DashboardWidgetSchema: z.ZodType<DashboardWidgetInput> = z.lazy(() =>
   z.union([
     DashboardMetricWidgetSchema,
+    DashboardEventsWidgetSchema,
+    DashboardStatesWidgetSchema,
     DashboardMarkdownWidgetSchema,
     z.object({
       id: z.string().trim().min(1).max(80),
@@ -204,13 +281,27 @@ const DashboardSectionSchema: z.ZodType<DashboardSectionInput> = z.lazy(() =>
 const DashboardLayoutSchema = z.object({
   version: z.literal(1),
   description: z.string().trim().max(1_000).nullable().optional(),
+  controls: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(80),
+        kind: z.enum(["range", "source", "entity", "entity_type", "label", "text"]),
+        variable: z.string().trim().min(1).max(80),
+        label: z.string().trim().min(1).max(160),
+        defaultValue: z.string().trim().max(240),
+        options: z.array(z.string().trim().min(1).max(240)).max(100).optional(),
+        entityType: z.string().trim().min(1).max(80).nullable().optional(),
+      }),
+    )
+    .max(24)
+    .optional(),
   sections: z.array(DashboardSectionSchema).max(24),
 });
 
 const DashboardConfigSchema = z.object({
-  panels: z.array(DashboardPanelSchema).max(24).default([]),
-  layout: DashboardLayoutSchema.nullable().optional(),
-  dsl: z.string().trim().max(40_000).nullable().optional(),
+  dsl: z.string().trim().max(40_000),
+  layout: DashboardLayoutSchema.nullable(),
+  panels: z.array(DashboardPanelSchema).max(24).optional(),
   refreshIntervalSeconds: z
     .union([z.literal(1), z.literal(5), z.literal(10), z.literal(60)])
     .nullable()
@@ -366,15 +457,11 @@ const DashboardSchema = z.object({
   updatedAt: z.string(),
 });
 const StreamPointSchema = z.object({ bucket: z.string(), value: z.number().nullable() });
-const PublicDashboardPanelSchema = DashboardPanelSchema.omit({
-  sourceId: true,
-  dimensions: true,
-});
 const PublicDashboardSchema = z.object({
   id: z.string(),
   name: z.string(),
   config: z.object({
-    panels: z.array(PublicDashboardPanelSchema),
+    layout: DashboardLayoutSchema.nullable(),
     refreshIntervalSeconds: z.number().nullable().optional(),
   }),
 });
@@ -401,6 +488,8 @@ const DashboardDslCompileResultSchema = z.object({
 const DashboardSnapshotSchema = z.object({
   dashboard: PublicDashboardSchema,
   points: z.record(z.string(), z.array(StreamPointSchema)),
+  events: z.record(z.string(), z.array(z.unknown())),
+  states: z.record(z.string(), z.array(z.unknown())),
 });
 const MetricSeriesSchema = z.object({
   id: z.string(),
