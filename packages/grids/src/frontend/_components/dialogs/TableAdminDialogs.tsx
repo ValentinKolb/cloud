@@ -356,14 +356,6 @@ function TableSettingsBody(props: {
           <TablePermissions tableId={props.table.id} initialEntries={props.initialAccessEntries} />
         </PanelDialog.Section>
 
-        <PanelDialog.Section
-          title="Documents"
-          subtitle="HTML and GQL templates available on record detail pages."
-          icon="ti ti-file-type-pdf"
-        >
-          <DocumentTemplatesManager tableId={props.table.id} />
-        </PanelDialog.Section>
-
         <PanelDialog.Section title="Danger zone" subtitle="Remove this table from the active app." icon="ti ti-trash">
           <button type="button" class="btn-danger btn-sm self-start" onClick={deleteTable} disabled={deleteMut.loading()}>
             <i class="ti ti-trash" /> Delete table
@@ -391,7 +383,20 @@ function TableSettingsBody(props: {
   );
 }
 
-function DocumentTemplatesManager(props: { tableId: string }) {
+export const openDocumentTemplatesDialog = (args: { tableId: string; tableName: string }) =>
+  dialogCore.open<void>(
+    (close) => (
+      <PanelDialog>
+        <PanelDialog.Header title={`Templates — ${args.tableName}`} icon="ti ti-file-type-pdf" close={() => close()} />
+        <PanelDialog.Body>
+          <DocumentTemplatesManager tableId={args.tableId} tableName={args.tableName} />
+        </PanelDialog.Body>
+      </PanelDialog>
+    ),
+    panelDialogOptions,
+  );
+
+function DocumentTemplatesManager(props: { tableId: string; tableName: string }) {
   const [templates, { refetch }] = createResource(
     () => props.tableId,
     async (tableId) => {
@@ -403,65 +408,6 @@ function DocumentTemplatesManager(props: { tableId: string }) {
       return res.json();
     },
   );
-  const [editing, setEditing] = createSignal<DocumentTemplate | null>(null);
-  const [creating, setCreating] = createSignal(false);
-  const [name, setName] = createSignal("");
-  const [description, setDescription] = createSignal("");
-  const [source, setSource] = createSignal(defaultDocumentSource(props.tableId));
-  const [html, setHtml] = createSignal(defaultDocumentHtml);
-  const activeTemplate = () => editing();
-
-  const reset = () => {
-    setEditing(null);
-    setCreating(false);
-    setName("");
-    setDescription("");
-    setSource(defaultDocumentSource(props.tableId));
-    setHtml(defaultDocumentHtml);
-  };
-
-  const edit = (template: DocumentTemplate) => {
-    setEditing(template);
-    setCreating(false);
-    setName(template.name);
-    setDescription(template.description ?? "");
-    setSource(template.source);
-    setHtml(template.html);
-  };
-
-  const create = () => {
-    setCreating(true);
-    setEditing(null);
-    setName("");
-    setDescription("");
-    setSource(defaultDocumentSource(props.tableId));
-    setHtml(defaultDocumentHtml);
-  };
-
-  const saveMut = mutations.create<DocumentTemplate, void>({
-    mutation: async () => {
-      const payload = {
-        name: name().trim(),
-        description: description().trim() || null,
-        source: source().trim(),
-        html: html().trim(),
-      };
-      if (!payload.name) throw new Error("Name is required");
-      if (!payload.source) throw new Error("GQL source is required");
-      if (!payload.html) throw new Error("HTML template is required");
-      const current = activeTemplate();
-      const res = current
-        ? await apiClient.documents.templates[":templateId"].$patch({ param: { templateId: current.id }, json: payload })
-        : await apiClient.documents.templates["by-table"][":tableId"].$post({ param: { tableId: props.tableId }, json: payload });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to save document template"));
-      return res.json();
-    },
-    onSuccess: async () => {
-      reset();
-      await refetch();
-    },
-    onError: (e) => prompts.error(e.message),
-  });
 
   const deleteTemplate = async (template: DocumentTemplate) => {
     const confirmed = await prompts.confirm(`Delete "${template.name}"? Existing generated documents can still be redownloaded.`, {
@@ -475,20 +421,28 @@ function DocumentTemplatesManager(props: { tableId: string }) {
       prompts.error(await errorMessage(res, "Failed to delete document template"));
       return;
     }
-    if (editing()?.id === template.id) reset();
     await refetch();
+  };
+
+  const openEditor = (template?: DocumentTemplate) => {
+    openDocumentTemplateEditorDialog({
+      tableId: props.tableId,
+      tableName: props.tableName,
+      template,
+      onSaved: () => void refetch(),
+    });
   };
 
   return (
     <div class="flex flex-col gap-3">
       <div class="flex items-center justify-between gap-2">
         <span class="text-xs text-dimmed">{templates.loading ? "Loading..." : `${templates()?.length ?? 0} templates`}</span>
-        <button type="button" class="btn-input btn-sm" onClick={create}>
+        <button type="button" class="btn-input btn-sm" onClick={() => openEditor()}>
           <i class="ti ti-plus" /> Add template
         </button>
       </div>
 
-      <Show when={!templates.loading && (templates()?.length ?? 0) === 0 && !creating()}>
+      <Show when={!templates.loading && (templates()?.length ?? 0) === 0}>
         <div class="paper p-3 text-sm text-dimmed">No document templates yet.</div>
       </Show>
 
@@ -507,7 +461,7 @@ function DocumentTemplatesManager(props: { tableId: string }) {
                 <p class="mt-1 text-xs text-dimmed">{template.description}</p>
               </Show>
             </div>
-            <button type="button" class="btn-simple btn-sm" title="Edit template" onClick={() => edit(template)}>
+            <button type="button" class="btn-simple btn-sm" title="Edit template" onClick={() => openEditor(template)}>
               <i class="ti ti-pencil" />
             </button>
             <button
@@ -521,25 +475,93 @@ function DocumentTemplatesManager(props: { tableId: string }) {
           </div>
         )}
       </For>
-
-      <Show when={creating() || editing()}>
-        <div class="paper p-3">
-          <div class="grid gap-3">
-            <TextInput label="Name" value={name} onInput={setName} icon="ti ti-typography" required />
-            <TextInput label="Description" value={description} onInput={setDescription} icon="ti ti-align-left" placeholder="Optional" />
-            <TextInput label="GQL source" value={source} onInput={setSource} icon="ti ti-code" multiline lines={4} monospace required />
-            <TextInput label="HTML template" value={html} onInput={setHtml} icon="ti ti-template" multiline lines={10} monospace required />
-            <div class="flex justify-end gap-2">
-              <button type="button" class="btn-input btn-sm" onClick={reset}>
-                Cancel
-              </button>
-              <button type="button" class="btn-primary btn-sm" onClick={() => saveMut.mutate(undefined)} disabled={saveMut.loading()}>
-                {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save template"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </Show>
     </div>
+  );
+}
+
+function openDocumentTemplateEditorDialog(args: {
+  tableId: string;
+  tableName: string;
+  template?: DocumentTemplate;
+  onSaved?: (template: DocumentTemplate) => void;
+}) {
+  return dialogCore.open<void>((close) => <DocumentTemplateEditorDialog args={args} close={close} />, panelDialogOptions);
+}
+
+function DocumentTemplateEditorDialog(props: {
+  args: {
+    tableId: string;
+    tableName: string;
+    template?: DocumentTemplate;
+    onSaved?: (template: DocumentTemplate) => void;
+  };
+  close: () => void;
+}) {
+  const template = props.args.template;
+  const [name, setName] = createSignal(template?.name ?? "");
+  const [description, setDescription] = createSignal(template?.description ?? "");
+  const [source, setSource] = createSignal(template?.source ?? defaultDocumentSource(props.args.tableId));
+  const [html, setHtml] = createSignal(template?.html ?? defaultDocumentHtml);
+  const dirty = () =>
+    name() !== (template?.name ?? "") ||
+    description() !== (template?.description ?? "") ||
+    source() !== (template?.source ?? defaultDocumentSource(props.args.tableId)) ||
+    html() !== (template?.html ?? defaultDocumentHtml);
+
+  const closeIfClean = async () => {
+    if (await confirmDiscardIfDirty(dirty)) props.close();
+  };
+
+  const saveMut = mutations.create<DocumentTemplate, void>({
+    mutation: async () => {
+      const payload = {
+        name: name().trim(),
+        description: description().trim() || null,
+        source: source().trim(),
+        html: html().trim(),
+      };
+      if (!payload.name) throw new Error("Name is required");
+      if (!payload.source) throw new Error("GQL source is required");
+      if (!payload.html) throw new Error("HTML template is required");
+      const res = template
+        ? await apiClient.documents.templates[":templateId"].$patch({ param: { templateId: template.id }, json: payload })
+        : await apiClient.documents.templates["by-table"][":tableId"].$post({ param: { tableId: props.args.tableId }, json: payload });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to save document template"));
+      return res.json();
+    },
+    onSuccess: (saved) => {
+      props.args.onSaved?.(saved);
+      props.close();
+    },
+    onError: (e) => prompts.error(e.message),
+  });
+
+  return (
+    <PanelDialog>
+      <PanelDialog.Header
+        title={`${template ? "Edit" : "Add"} template — ${props.args.tableName}`}
+        icon="ti ti-file-type-pdf"
+        close={closeIfClean}
+      />
+      <PanelDialog.Body>
+        <div class="grid gap-3">
+          <TextInput label="Name" value={name} onInput={setName} icon="ti ti-typography" required />
+          <TextInput label="Description" value={description} onInput={setDescription} icon="ti ti-align-left" placeholder="Optional" />
+          <TextInput label="GQL source" value={source} onInput={setSource} icon="ti ti-code" multiline lines={4} monospace required />
+          <TextInput label="HTML template" value={html} onInput={setHtml} icon="ti ti-template" multiline lines={12} monospace required />
+        </div>
+      </PanelDialog.Body>
+      <PanelDialog.Footer>
+        <span />
+        <div class="flex items-center justify-end gap-2">
+          <button type="button" class="btn-input btn-sm" onClick={closeIfClean}>
+            Cancel
+          </button>
+          <button type="button" class="btn-primary btn-sm" onClick={() => saveMut.mutate(undefined)} disabled={saveMut.loading()}>
+            {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save template"}
+          </button>
+        </div>
+      </PanelDialog.Footer>
+    </PanelDialog>
   );
 }

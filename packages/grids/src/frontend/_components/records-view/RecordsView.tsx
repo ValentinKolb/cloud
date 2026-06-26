@@ -4,12 +4,18 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { AggregationSpec, GroupBySpec, RecordDisplayConfig, TableQueryResult, RecordQuery } from "../../../contracts";
+import type { AggregationSpec, GroupBySpec, RecordDisplayConfig, RecordQuery, TableQueryResult } from "../../../contracts";
 import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
 import type { Field, Form, GridRecord, Table, View } from "../../../service";
 import type { ColumnSpec, FieldColumnSpec } from "../../../service/views";
 import { defaultTableAggregations } from "../../../table-defaults";
-import { createFieldFromPrompt, deleteFieldWithChecks, openFormsDialog, openTableSettingsDialog } from "../dialogs/TableAdminDialogs";
+import {
+  createFieldFromPrompt,
+  deleteFieldWithChecks,
+  openDocumentTemplatesDialog,
+  openFormsDialog,
+  openTableSettingsDialog,
+} from "../dialogs/TableAdminDialogs";
 import { openViewColumnSettingsDialog } from "../dialogs/ViewColumnSettingsDialog";
 import { openViewSettingsDialog } from "../dialogs/ViewSettingsDialogs";
 import { FormulaExpressionEditor } from "../fields/FormulaExpressionEditor";
@@ -41,10 +47,10 @@ import {
   shouldOptimisticallyRemoveDeletedRecord,
   visibleIdsFromResult,
 } from "./live-refresh";
-import { buildRecordsUrl, parseRecordsState, type CardSize, type RecordsState } from "./query-url";
-import { cleanRecordMetaQuery, openRecordMetadataDialog, recordMetaActiveCount } from "./RecordMetadataDialog";
+import { buildRecordsUrl, type CardSize, parseRecordsState, type RecordsState } from "./query-url";
 import { RecordCalendarView } from "./RecordCalendarView";
 import { RecordCardsView } from "./RecordCardsView";
+import { cleanRecordMetaQuery, openRecordMetadataDialog, recordMetaActiveCount } from "./RecordMetadataDialog";
 import { applyToolbarQueryPatch, type ToolbarQueryPatch } from "./toolbar-query";
 
 /** UI-supported agg kinds — narrower than the contract's AggregateKind
@@ -371,39 +377,49 @@ export default function RecordsView(props: Props) {
   };
 
   const openQueryPanel = () => {
-    void dialogCore.open<void>((close) => (
-      <PanelDialog>
-        <PanelDialog.Header title="Query" subtitle={tableName()} icon="ti ti-code" close={() => close()} />
-        <PanelDialog.Body>
-          <div class="flex h-[min(72vh,46rem)] min-h-[30rem] overflow-hidden">
-            <QueryWorkspace
-              baseId={props.baseId}
-              baseShortId={props.baseShortId}
-              initialQuery={queryPanelInitialSource()}
-              queryPath={queryWorkspaceHref()}
-              currentSource={queryCurrentSource()}
-              tables={props.tables}
-              fieldsByTable={{ ...props.fieldsByTable, [props.tableId]: fields() }}
-              viewsByTable={props.viewsByTable}
-              syncQueryToUrl={false}
-            />
-          </div>
-        </PanelDialog.Body>
-        <PanelDialog.Footer>
-          <a href={queryWorkspaceHref()} class="btn-input btn-sm">
-            <i class="ti ti-arrows-maximize" /> Full workspace
-          </a>
-          <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
-            Done
-          </button>
-        </PanelDialog.Footer>
-      </PanelDialog>
-    ), QUERY_PANEL_DIALOG_OPTIONS);
+    void dialogCore.open<void>(
+      (close) => (
+        <PanelDialog>
+          <PanelDialog.Header title="Query" subtitle={tableName()} icon="ti ti-code" close={() => close()} />
+          <PanelDialog.Body>
+            <div class="flex h-[min(72vh,46rem)] min-h-[30rem] overflow-hidden">
+              <QueryWorkspace
+                baseId={props.baseId}
+                baseShortId={props.baseShortId}
+                initialQuery={queryPanelInitialSource()}
+                queryPath={queryWorkspaceHref()}
+                currentSource={queryCurrentSource()}
+                tables={props.tables}
+                fieldsByTable={{ ...props.fieldsByTable, [props.tableId]: fields() }}
+                viewsByTable={props.viewsByTable}
+                syncQueryToUrl={false}
+              />
+            </div>
+          </PanelDialog.Body>
+          <PanelDialog.Footer>
+            <a href={queryWorkspaceHref()} class="btn-input btn-sm">
+              <i class="ti ti-arrows-maximize" /> Full workspace
+            </a>
+            <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
+              Done
+            </button>
+          </PanelDialog.Footer>
+        </PanelDialog>
+      ),
+      QUERY_PANEL_DIALOG_OPTIONS,
+    );
   };
 
   const [data, { refetch, mutate }] = createResource<
     RecordsTableQueryResult,
-    { tableId: string; viewId?: string; query: RecordQuery; cursor: string | null; filePreviewFieldIds?: string[]; calendar: RecordsState["calendar"] }
+    {
+      tableId: string;
+      viewId?: string;
+      query: RecordQuery;
+      cursor: string | null;
+      filePreviewFieldIds?: string[];
+      calendar: RecordsState["calendar"];
+    }
   >(
     () => ({
       tableId: props.tableId,
@@ -1110,6 +1126,13 @@ export default function RecordsView(props: Props) {
     });
   };
 
+  const openTemplates = () => {
+    openDocumentTemplatesDialog({
+      tableId: props.tableId,
+      tableName: tableName(),
+    });
+  };
+
   const openViewSettings = () => {
     const view = props.activeView;
     if (!view || !props.canEditActiveView) return;
@@ -1651,6 +1674,9 @@ export default function RecordsView(props: Props) {
                   </button>
                   <button type="button" class={ADMIN_BUTTON_CLASS} onClick={() => openForms()}>
                     <i class="ti ti-forms" /> {formsButtonLabel()}
+                  </button>
+                  <button type="button" class={ADMIN_BUTTON_CLASS} onClick={openTemplates}>
+                    <i class="ti ti-file-type-pdf" /> Templates
                   </button>
                 </>
               }
