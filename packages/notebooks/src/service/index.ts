@@ -161,6 +161,7 @@ export const notebooksService = {
     getTree: notes.getTree,
     create: notes.create,
     update: notes.update,
+    editContent: notes.editContent,
     remove: notes.remove,
     move: notes.move,
     save: notes.save,

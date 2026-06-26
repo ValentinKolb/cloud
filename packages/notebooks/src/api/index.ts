@@ -91,6 +91,57 @@ const NoteWithContentSchema = NoteSchema.extend({
   yjsSnapshot: z.string().nullable().describe("Base64-encoded Yjs snapshot"),
 });
 
+const NamedBlockTypeSchema = z.enum(["table", "list", "data", "section", "script", "unknown"]);
+
+const NoteEditBlockFields = {
+  name: z.string().min(1),
+  type: NamedBlockTypeSchema.optional(),
+  index: z.number().int().nonnegative().optional(),
+};
+
+const NoteEditOperationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("set-content"), content: z.string() }),
+  z.object({ kind: z.literal("append"), content: z.string() }),
+  z.object({ kind: z.literal("prepend"), content: z.string() }),
+  z.object({ kind: z.literal("insert-before-line"), line: z.number().int().positive(), content: z.string() }),
+  z.object({ kind: z.literal("insert-after-line"), line: z.number().int().positive(), content: z.string() }),
+  z.object({
+    kind: z.literal("replace-lines"),
+    startLine: z.number().int().positive(),
+    endLine: z.number().int().positive(),
+    content: z.string(),
+  }),
+  z.object({ kind: z.literal("delete-lines"), startLine: z.number().int().positive(), endLine: z.number().int().positive() }),
+  z.object({ kind: z.literal("replace-block"), ...NoteEditBlockFields, includeHandle: z.boolean().optional(), content: z.string() }),
+  z.object({ kind: z.literal("append-block"), ...NoteEditBlockFields, content: z.string() }),
+  z.object({ kind: z.literal("prepend-block"), ...NoteEditBlockFields, content: z.string() }),
+]);
+
+const EditNoteContentSchema = z.object({
+  operations: z.array(NoteEditOperationSchema).min(1).max(20),
+  ifUpdatedAt: z.string().optional(),
+  ifContentHash: z.string().optional(),
+  ifBlockHash: z.string().optional(),
+});
+
+const NoteEditBlockSummarySchema = z.object({
+  name: z.string(),
+  type: NamedBlockTypeSchema,
+  line: z.number().int().positive(),
+  startLine: z.number().int().positive(),
+  endLine: z.number().int().positive(),
+  hash: z.string(),
+});
+
+const EditNoteContentResponseSchema = z.object({
+  note: NoteSchema,
+  content: z.string(),
+  changed: z.boolean(),
+  beforeHash: z.string(),
+  afterHash: z.string(),
+  blocks: z.array(NoteEditBlockSummarySchema),
+});
+
 const NoteTreeNodeSchema: z.ZodType<unknown> = NoteSchema.extend({
   children: z.lazy(() => z.array(NoteTreeNodeSchema)),
 });
@@ -916,6 +967,46 @@ const app = new Hono<AuthContext>()
       }
 
       return respond(c, ok(note));
+    },
+  )
+
+  // Edit Note Content
+  .patch(
+    "/:id/notes/:noteId/content",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Edit note content",
+      description: "Apply structured line or named-block markdown edits to a note.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(EditNoteContentResponseSchema, "Edited note content"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid edit"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Note not found"),
+        409: jsonResponse(ErrorResponseSchema, "Edit conflict"),
+      },
+    }),
+    v("json", EditNoteContentSchema),
+    async (c) => {
+      let notebookId = c.req.param("id")!;
+      let noteId = c.req.param("noteId")!;
+      const data = c.req.valid("json");
+
+      const { notebook, user, error } = await checkNotebookAccess(c, notebookId, "write");
+      if (error) return error;
+      notebookId = notebook!.id;
+      const noteCheck = await requireNoteInNotebook(notebookId, noteId);
+      if (!noteCheck.ok) return respond(c, noteCheck);
+      noteId = noteCheck.data.id;
+
+      return respond(
+        c,
+        notebooksService.note.editContent({
+          noteId,
+          data,
+          createdBy: user?.id ?? null,
+        }),
+      );
     },
   )
 

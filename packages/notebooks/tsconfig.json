@@ -28,6 +28,9 @@
       "@valentinkolb/cloud/browser": [
         "../cloud/src/server/api-client.ts"
       ],
+      "@valentinkolb/cloud/cli": [
+        "../cloud/src/cli/index.ts"
+      ],
       "@valentinkolb/cloud/shared": [
         "../cloud/src/shared/index.ts"
       ],

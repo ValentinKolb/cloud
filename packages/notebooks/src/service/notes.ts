@@ -1,12 +1,20 @@
-import type { MutationResult } from "@valentinkolb/cloud/contracts";
-import type { PaginationParams } from "@valentinkolb/cloud/contracts";
+import type { MutationResult, PaginationParams } from "@valentinkolb/cloud/contracts";
 import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import * as Y from "yjs";
+import {
+  applyNoteEdits,
+  NoteEditError,
+  type NoteEditOperation,
+  type NoteEditPreconditions,
+  type NoteEditResult,
+  noteContentHash,
+  summarizeNoteEditBlocks,
+} from "../lib/note-edit";
+import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
 import { reindexNoteRefsSafe } from "./note-refs";
 import { noteCreated, noteDeleted, noteUpdated } from "./workspace-events";
-import { parseStreamCursor } from "./yjs-sync";
-import { generateUniqueShortId, isShortId } from "../lib/short-id";
+import { createYjsTopic, NODE_ID, parseStreamCursor, replayYjsTopicToCursor, toBase64 } from "./yjs-sync";
 
 // ==========================
 // Types
@@ -57,6 +65,17 @@ export type NoteVersion = {
   title: string | null;
   createdBy: string | null;
   createdAt: string;
+};
+
+export type EditNoteContent = {
+  operations: NoteEditOperation[];
+  ifUpdatedAt?: string;
+  ifContentHash?: string;
+  ifBlockHash?: string;
+};
+
+export type EditNoteContentResult = NoteEditResult & {
+  note: Note;
 };
 
 type DbNote = {
@@ -162,6 +181,27 @@ const sortTreeNodes = (nodes: NoteTreeNode[]): void => {
   }
 };
 
+const NOTE_TEXT_NAME = "codemirror";
+const NOOP_YJS_UPDATE = (() => {
+  const doc = new Y.Doc();
+  try {
+    return Y.encodeStateAsUpdate(doc);
+  } finally {
+    doc.destroy();
+  }
+})();
+
+const createDocFromState = (state: Uint8Array | null, fallbackContent: string | null | undefined): Y.Doc => {
+  const doc = new Y.Doc({ gc: true });
+  if (state) {
+    Y.applyUpdate(doc, state, "snapshot");
+    return doc;
+  }
+  const content = fallbackContent ?? "";
+  if (content.length > 0) doc.getText(NOTE_TEXT_NAME).insert(0, content);
+  return doc;
+};
+
 // ==========================
 // Lock Helpers
 // ==========================
@@ -231,22 +271,20 @@ export type RecentNote = {
   notebookName: string;
 };
 
-export const recentForUser = async (params: {
-  userId: string;
-  groups: string[];
-  limit: number;
-}): Promise<RecentNote[]> => {
+export const recentForUser = async (params: { userId: string; groups: string[]; limit: number }): Promise<RecentNote[]> => {
   const groupsArr = toPgUuidArray(params.groups);
-  const rows = await sql<{
-    id: string;
-    short_id: string;
-    notebook_id: string;
-    notebook_short_id: string;
-    title: string;
-    updated_at: string;
-    notebook_icon: string | null;
-    notebook_name: string;
-  }[]>`
+  const rows = await sql<
+    {
+      id: string;
+      short_id: string;
+      notebook_id: string;
+      notebook_short_id: string;
+      title: string;
+      updated_at: string;
+      notebook_icon: string | null;
+      notebook_name: string;
+    }[]
+  >`
     SELECT
       nt.id, nt.short_id, nt.notebook_id, nt.title, nt.updated_at,
       nb.short_id AS notebook_short_id, nb.icon AS notebook_icon, nb.name AS notebook_name
@@ -309,11 +347,7 @@ export const listPaged = async (params: {
   const pattern = query && query.length > 0 ? `%${query}%` : null;
   const parentId = params.parentId;
   const parentCondition =
-    parentId === undefined
-      ? sql`true`
-      : parentId === null
-        ? sql`n.parent_id IS NULL`
-        : sql`n.parent_id = ${parentId}::uuid`;
+    parentId === undefined ? sql`true` : parentId === null ? sql`n.parent_id IS NULL` : sql`n.parent_id = ${parentId}::uuid`;
 
   const rows =
     params.pagination === undefined
@@ -439,6 +473,7 @@ export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise
     `;
     return row ? mapToNote(row) : null;
   }
+  if (!isUuid(v)) return null;
   return get({ id: v });
 };
 
@@ -524,6 +559,7 @@ export const getWithContentByIdOrShortId = async (params: { idOrShortId: string 
     `;
     return row ? mapToNoteWithContent(row) : null;
   }
+  if (!isUuid(v)) return null;
   return getWithContent({ id: v });
 };
 
@@ -863,6 +899,135 @@ export const save = async (params: {
   return { ok: true, data: undefined };
 };
 
+export const editContent = async (params: {
+  noteId: string;
+  data: EditNoteContent;
+  createdBy: string | null;
+}): Promise<MutationResult<EditNoteContentResult>> => {
+  const existing = await getWithContent({ id: params.noteId });
+  if (!existing) return { ok: false, error: "Note not found", status: 404 };
+  if (existing.lockedAt) return { ok: false, error: "Cannot modify locked note", status: 403 };
+  if (params.data.ifUpdatedAt && params.data.ifUpdatedAt !== existing.updatedAt) {
+    return {
+      ok: false,
+      error: `Note updatedAt mismatch. Expected ${params.data.ifUpdatedAt}, got ${existing.updatedAt}.`,
+      status: 409,
+    };
+  }
+
+  const initialState = await getYjsStateWithCursor({ noteId: params.noteId });
+  if (!initialState) return { ok: false, error: "Note not found", status: 404 };
+
+  const requestedAt = Date.now();
+  const noteTopic = createYjsTopic(params.noteId);
+  const marker = await noteTopic.pub({
+    data: {
+      kind: "sync",
+      payload: toBase64(NOOP_YJS_UPDATE),
+      originNodeId: NODE_ID,
+      originPeerId: null,
+    },
+  });
+
+  const editDoc = createDocFromState(initialState.yjsState, existing.contentMd);
+  try {
+    await replayYjsTopicToCursor({
+      noteId: params.noteId,
+      after: initialState.streamCursor ?? "0-0",
+      targetCursor: marker.cursor,
+      doc: editDoc,
+    });
+  } catch (error) {
+    editDoc.destroy();
+    return {
+      ok: false,
+      error: `Failed to synchronize note stream before editing: ${error instanceof Error ? error.message : String(error)}`,
+      status: 409,
+    };
+  }
+
+  const ytext = editDoc.getText(NOTE_TEXT_NAME);
+  let editResult: NoteEditResult;
+  try {
+    const preconditions: NoteEditPreconditions = {
+      ifContentHash: params.data.ifContentHash,
+      ifBlockHash: params.data.ifBlockHash,
+    };
+    editResult = applyNoteEdits(ytext.toString(), params.data.operations, preconditions);
+  } catch (error) {
+    editDoc.destroy();
+    if (error instanceof NoteEditError) return { ok: false, error: error.message, status: error.status };
+    throw error;
+  }
+
+  if (!editResult.changed) {
+    const note = await get({ id: params.noteId });
+    editDoc.destroy();
+    return note ? { ok: true, data: { ...editResult, note } } : { ok: false, error: "Note not found", status: 404 };
+  }
+
+  const beforeEditState = Y.encodeStateVector(editDoc);
+  editDoc.transact(() => {
+    if (ytext.length > 0) ytext.delete(0, ytext.length);
+    if (editResult.content.length > 0) ytext.insert(0, editResult.content);
+  }, "cli-edit");
+  const editUpdate = Y.encodeStateAsUpdate(editDoc, beforeEditState);
+  const published = await noteTopic.pub({
+    data: {
+      kind: "sync",
+      payload: toBase64(editUpdate),
+      originNodeId: NODE_ID,
+      originPeerId: null,
+    },
+  });
+  editDoc.destroy();
+
+  const persistedDoc = createDocFromState(initialState.yjsState, existing.contentMd);
+  let persistedContent = editResult.content;
+  try {
+    await replayYjsTopicToCursor({
+      noteId: params.noteId,
+      after: initialState.streamCursor ?? "0-0",
+      targetCursor: published.cursor,
+      doc: persistedDoc,
+      timeoutMs: 10_000,
+    });
+    persistedContent = persistedDoc.getText(NOTE_TEXT_NAME).toString();
+    const saveResult = await save({
+      noteId: params.noteId,
+      yjsState: Y.encodeStateAsUpdate(persistedDoc),
+      contentMd: persistedContent,
+      createdBy: params.createdBy,
+      createVersion: true,
+      streamCursor: published.cursor,
+      requestedAt,
+    });
+    if (!saveResult.ok) return { ok: false, error: saveResult.error, status: saveResult.status };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Failed to persist note edit: ${error instanceof Error ? error.message : String(error)}`,
+      status: 500,
+    };
+  } finally {
+    persistedDoc.destroy();
+  }
+
+  const note = await get({ id: params.noteId });
+  if (!note) return { ok: false, error: "Note not found", status: 404 };
+  await noteUpdated(note);
+  return {
+    ok: true,
+    data: {
+      ...editResult,
+      content: persistedContent,
+      afterHash: noteContentHash(persistedContent),
+      blocks: summarizeNoteEditBlocks(persistedContent),
+      note,
+    },
+  };
+};
+
 /**
  * Get the stored Yjs state for a note.
  */
@@ -877,10 +1042,7 @@ export const getYjsStateWithCursor = async (params: {
   if (!row) return null;
   return {
     yjsState: row.yjs_snapshot ? new Uint8Array(row.yjs_snapshot) : null,
-    streamCursor:
-      row.yjs_stream_ms !== null && row.yjs_stream_seq !== null
-        ? `${row.yjs_stream_ms}-${row.yjs_stream_seq}`
-        : null,
+    streamCursor: row.yjs_stream_ms !== null && row.yjs_stream_seq !== null ? `${row.yjs_stream_ms}-${row.yjs_stream_seq}` : null,
   };
 };
 

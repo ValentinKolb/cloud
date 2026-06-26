@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "module": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./cli": "./src/cli.ts"
+  },
   "scripts": {
     "test": "bun test",
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.typecheck.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')"

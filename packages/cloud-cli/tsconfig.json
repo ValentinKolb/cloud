@@ -1,0 +1,49 @@
+{
+  "compilerOptions": {
+    "lib": [
+      "ESNext",
+      "DOM",
+      "DOM.AsyncIterable"
+    ],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "../notebooks/src/*"
+      ],
+      "@valentinkolb/cloud/cli": [
+        "../cloud/src/cli/index.ts"
+      ],
+      "@valentinkolb/cloud/services/*": [
+        "../cloud/src/services/*"
+      ],
+      "@valentinkolb/cloud-app-notebooks/cli": [
+        "../notebooks/src/cli.ts"
+      ]
+    },
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noPropertyAccessFromIndexSignature": false
+  },
+  "include": [
+    "./src/**/*.ts",
+    "../cloud/src/types/**/*.d.ts",
+    "../cloud/src/cli/**/*.ts",
+    "../notebooks/src/cli.ts"
+  ],
+  "exclude": [
+    "./dist",
+    "./node_modules"
+  ]
+}

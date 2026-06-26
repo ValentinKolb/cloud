@@ -13,10 +13,10 @@
  * responsible for `notebook.permission.get(...)` checks before calling.
  */
 
-import { fileIcons } from "@valentinkolb/stdlib";
 import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { fileIcons } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { generateUniqueShortId, isShortId } from "../lib/short-id";
+import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
 
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -112,6 +112,7 @@ export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise
     `;
     return row ? mapRow(row) : null;
   }
+  if (!isUuid(v)) return null;
   return get({ id: v });
 };
 
@@ -135,6 +136,7 @@ export const getContentByIdOrShortId = async (params: { idOrShortId: string }): 
     `;
     return row ? { ...mapRow(row), content: row.content } : null;
   }
+  if (!isUuid(v)) return null;
   return getContent({ id: v });
 };
 

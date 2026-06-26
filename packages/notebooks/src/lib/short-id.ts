@@ -19,8 +19,8 @@
  * notes and attachments live in a single global scope (one short-id
  * column per table, no compound uniqueness).
  */
-import { sql } from "bun";
 import { crypto } from "@valentinkolb/stdlib";
+import { sql } from "bun";
 
 /** Length of the generated short-id — 6 base62 chars. */
 const SHORT_ID_LEN = 6;
@@ -33,8 +33,10 @@ const MAX_ATTEMPTS = 10;
  *  charset (`[0-9a-zA-Z]`) overlaps with the UUID hex alphabet at the
  *  character level, so we anchor on length: 6 = short-id, 36 = UUID. */
 export const SHORT_ID_REGEX = /^[0-9a-zA-Z]{6}$/;
+export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const isShortId = (value: string): boolean => SHORT_ID_REGEX.test(value);
+export const isUuid = (value: string): boolean => UUID_REGEX.test(value);
 
 /**
  * Tables that carry a `short_id` alias column. Each entry pairs the

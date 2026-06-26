@@ -2,7 +2,7 @@ import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { serviceAccounts, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import { generateUniqueShortId, isShortId } from "../lib/short-id";
+import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
 import { getNotebookPermission, grantNotebookAccess, NOTEBOOK_RESOURCE_TYPE, NOTEBOOKS_APP_ID } from "./access";
 import helloMd from "./hello.md" with { type: "text" };
 import * as notes from "./notes";
@@ -395,6 +395,7 @@ export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise
     `;
     return row ? mapToNotebook(row) : null;
   }
+  if (!isUuid(v)) return null;
   return get({ id: v });
 };
 
