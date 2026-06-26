@@ -1,4 +1,4 @@
-import { DataTable, StatCell, StatGrid, StructuredDataPreview, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { DataTable, Panes, StatCell, StatGrid, StructuredDataPreview, type DataTableColumn, type PanesValue } from "@valentinkolb/cloud/ui";
 import { createEffect, createMemo, createSignal, Show, type JSX } from "solid-js";
 import type {
   PulseCurrentState,
@@ -42,10 +42,46 @@ const SourceLink = (props: { sourceId: string | null | undefined; sourceNameById
   );
 };
 
+type ResourceSignalTab = "metrics" | "states" | "events";
+
+const createResourcePanesValue = (): PanesValue => ({
+  root: {
+    type: "split",
+    id: "resource-detail-root",
+    direction: "horizontal",
+    sizes: [62, 38],
+    children: [
+      {
+        type: "leaf",
+        id: "signals",
+        elementIds: ["metrics", "states", "events"],
+        activeElementId: "metrics",
+        presentation: "tabs",
+      },
+      {
+        type: "leaf",
+        id: "detail",
+        elementIds: ["detail"],
+        activeElementId: "detail",
+        presentation: "single",
+      },
+    ],
+  },
+});
+
+const findLeafActiveElement = (node: PanesValue["root"], leafId: string): string | undefined => {
+  if (node.type === "leaf") return node.id === leafId ? node.activeElementId ?? node.elementIds[0] : undefined;
+  for (const child of node.children) {
+    const activeElement = findLeafActiveElement(child, leafId);
+    if (activeElement) return activeElement;
+  }
+  return undefined;
+};
+
 export default function ResourceDetailView(props: Props) {
-  type ResourceSignalTab = "metrics" | "states" | "events";
   const stateId = (state: PulseCurrentState) => `${state.key}:${state.sourceId ?? ""}:${state.entityId}:${JSON.stringify(state.dimensions)}`;
   const [activeTab, setActiveTab] = createSignal<ResourceSignalTab>("metrics");
+  const [panesValue, setPanesValue] = createSignal<PanesValue>(createResourcePanesValue());
   const [selectedMetricId, setSelectedMetricId] = createSignal(props.metrics[0]?.seriesId ?? "");
   const [selectedStateId, setSelectedStateId] = createSignal(props.states[0] ? stateId(props.states[0]) : "");
   const [selectedEventId, setSelectedEventId] = createSignal(props.events[0]?.id ?? "");
@@ -62,14 +98,11 @@ export default function ResourceDetailView(props: Props) {
 
   const metricValue = (metric: PulseResourceMetric) =>
     metric.latestValue === null ? "-" : `${formatValue(metric.latestValue)}${metric.unit ? ` ${metric.unit}` : ""}`;
-  const tabCount = (tab: ResourceSignalTab) =>
-    tab === "metrics" ? props.metrics.length : tab === "states" ? props.states.length : props.events.length;
-  const tabButtonClass = (tab: ResourceSignalTab) =>
-    `inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${
-      activeTab() === tab
-        ? "bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-200"
-        : "bg-zinc-100/70 text-secondary hover:bg-zinc-100 hover:text-primary dark:bg-zinc-900/60 dark:hover:bg-zinc-900"
-    }`;
+  const updatePanesValue = (value: PanesValue) => {
+    setPanesValue(value);
+    const activeElement = findLeafActiveElement(value.root, "signals");
+    if (activeElement === "metrics" || activeElement === "states" || activeElement === "events") setActiveTab(activeElement);
+  };
 
   const metricColumns: DataTableColumn<PulseResourceMetric>[] = [
     { id: "metric", header: "Metric", value: "metric", cellClass: "min-w-72" },
@@ -104,7 +137,7 @@ export default function ResourceDetailView(props: Props) {
   };
 
   return (
-    <section class="flex min-h-0 flex-1 flex-col gap-3">
+    <section class="flex min-h-0 flex-1 flex-col gap-3 pb-2">
       <section class="paper shrink-0 p-4">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div class="min-w-0">
@@ -129,22 +162,18 @@ export default function ResourceDetailView(props: Props) {
         <StructuredDataPreview title="Dimensions" data={props.resource.dimensions} empty="No dimensions." />
       </section>
 
-      <section class="grid min-h-[36rem] flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,30rem)]">
-        <div class="flex min-h-0 flex-col gap-2">
-          <div class="flex shrink-0 flex-wrap items-center gap-2">
-            <button type="button" class={tabButtonClass("metrics")} onClick={() => setActiveTab("metrics")}>
-              <i class="ti ti-chart-dots" /> Metrics <span class="text-dimmed">{tabCount("metrics")}</span>
-            </button>
-            <button type="button" class={tabButtonClass("states")} onClick={() => setActiveTab("states")}>
-              <i class="ti ti-toggle-right" /> States <span class="text-dimmed">{tabCount("states")}</span>
-            </button>
-            <button type="button" class={tabButtonClass("events")} onClick={() => setActiveTab("events")}>
-              <i class="ti ti-bolt" /> Events <span class="text-dimmed">{tabCount("events")}</span>
-            </button>
-          </div>
-
-          <Show when={activeTab() === "metrics"}>
-            <div class="paper min-h-0 flex-1 overflow-hidden">
+      <section class="h-[min(68vh,54rem)] min-h-[32rem] shrink-0 overflow-hidden">
+        <Panes.Root
+          value={panesValue()}
+          onChange={updatePanesValue}
+          class="h-full min-h-0"
+          allowMove={false}
+          allowReorder={false}
+          allowHorizontalSplit={false}
+          allowVerticalSplit={false}
+        >
+          <Panes.Element id="metrics" title={`Metrics ${props.metrics.length}`} icon="ti-chart-dots">
+            <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
               <DataTable
                 rows={props.metrics}
                 columns={metricColumns}
@@ -152,6 +181,7 @@ export default function ResourceDetailView(props: Props) {
                 selectedRowId={selectedMetric()?.seriesId ?? null}
                 density="compact"
                 fillHeight
+                class="min-h-0 flex-1 overflow-auto"
                 empty="No metrics for this resource."
                 scrollPreserveKey={`pulse-resource-${props.resource.key}-metrics`}
                 onRowClick={(metric) => setSelectedMetricId(metric.seriesId)}
@@ -174,10 +204,10 @@ export default function ResourceDetailView(props: Props) {
                 }}
               />
             </div>
-          </Show>
+          </Panes.Element>
 
-          <Show when={activeTab() === "states"}>
-            <div class="paper min-h-0 flex-1 overflow-hidden">
+          <Panes.Element id="states" title={`States ${props.states.length}`} icon="ti-toggle-right">
+            <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
               <DataTable
                 rows={props.states}
                 columns={stateColumns}
@@ -185,6 +215,7 @@ export default function ResourceDetailView(props: Props) {
                 selectedRowId={selectedState() ? stateId(selectedState()!) : null}
                 density="compact"
                 fillHeight
+                class="min-h-0 flex-1 overflow-auto"
                 empty="No states for this resource."
                 scrollPreserveKey={`pulse-resource-${props.resource.key}-states`}
                 onRowClick={(state) => setSelectedStateId(stateId(state))}
@@ -197,10 +228,10 @@ export default function ResourceDetailView(props: Props) {
                 }}
               />
             </div>
-          </Show>
+          </Panes.Element>
 
-          <Show when={activeTab() === "events"}>
-            <div class="paper min-h-0 flex-1 overflow-hidden">
+          <Panes.Element id="events" title={`Events ${props.events.length}`} icon="ti-bolt">
+            <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
               <DataTable
                 rows={props.events}
                 columns={eventColumns}
@@ -208,6 +239,7 @@ export default function ResourceDetailView(props: Props) {
                 selectedRowId={selectedEvent()?.id ?? null}
                 density="compact"
                 fillHeight
+                class="min-h-0 flex-1 overflow-auto"
                 empty="No recent events for this resource."
                 scrollPreserveKey={`pulse-resource-${props.resource.key}-events`}
                 onRowClick={(event) => setSelectedEventId(event.id)}
@@ -220,113 +252,115 @@ export default function ResourceDetailView(props: Props) {
                 }}
               />
             </div>
-          </Show>
-        </div>
+          </Panes.Element>
 
-        <aside class="grid min-h-0 content-start gap-3 overflow-auto">
-          <Show when={selectedMetric()}>
-            {(metric) => (
-              <section class={activeTab() === "metrics" ? "paper p-4" : "hidden"}>
-                <p class="text-label text-xs">Metric value</p>
-                <h3 class="mt-2 break-words text-lg font-semibold text-primary">{metric().metric}</h3>
-                <p class="mt-1 text-sm text-dimmed">
-                  {metric().type}
-                  {metric().unit ? ` · ${metric().unit}` : ""}
-                  {metric().latestSampleAt ? ` · ${compactDateWithDelta(metric().latestSampleAt!, props.dateContext)}` : ""}
-                </p>
-                <div class="mt-3">
-                  <SourceLink sourceId={metric().sourceId} sourceNameById={props.sourceNameById} openSource={props.openSource} />
-                </div>
-                <p class="mt-4 text-3xl font-semibold text-primary">{metricValue(metric())}</p>
-                <div class="mt-4 flex flex-wrap gap-2">
-                  <button type="button" class="btn-input btn-input-sm" onClick={() => props.openMetricQuery(metric())}>
-                    <i class="ti ti-code" /> Open query
-                  </button>
-                  <button type="button" class="btn-input btn-input-sm" onClick={() => props.openMetricVariants(metric().metric)}>
-                    <i class="ti ti-stack-2" /> All variants
-                  </button>
-                </div>
-              </section>
-            )}
-          </Show>
+          <Panes.Element id="detail" title="Detail" icon="ti-info-circle">
+            <aside class="grid h-full min-h-0 content-start gap-3 overflow-auto">
+              <Show when={selectedMetric()}>
+                {(metric) => (
+                  <section class={activeTab() === "metrics" ? "paper p-4" : "hidden"}>
+                    <p class="text-label text-xs">Metric value</p>
+                    <h3 class="mt-2 break-words text-lg font-semibold text-primary">{metric().metric}</h3>
+                    <p class="mt-1 text-sm text-dimmed">
+                      {metric().type}
+                      {metric().unit ? ` · ${metric().unit}` : ""}
+                      {metric().latestSampleAt ? ` · ${compactDateWithDelta(metric().latestSampleAt!, props.dateContext)}` : ""}
+                    </p>
+                    <div class="mt-3">
+                      <SourceLink sourceId={metric().sourceId} sourceNameById={props.sourceNameById} openSource={props.openSource} />
+                    </div>
+                    <p class="mt-4 text-3xl font-semibold text-primary">{metricValue(metric())}</p>
+                    <div class="mt-4 flex flex-wrap gap-2">
+                      <button type="button" class="btn-input btn-input-sm" onClick={() => props.openMetricQuery(metric())}>
+                        <i class="ti ti-code" /> Open query
+                      </button>
+                      <button type="button" class="btn-input btn-input-sm" onClick={() => props.openMetricVariants(metric().metric)}>
+                        <i class="ti ti-stack-2" /> All variants
+                      </button>
+                    </div>
+                  </section>
+                )}
+              </Show>
 
-          <Show when={selectedState()}>
-            {(state) => (
-              <section class={activeTab() === "states" ? "paper p-4" : "hidden"}>
-                <p class="text-label text-xs">State value</p>
-                <h3 class="mt-2 break-words text-lg font-semibold text-primary">{state().key}</h3>
-                <p class="mt-1 text-sm text-dimmed">{compactDateWithDelta(state().updatedAt, props.dateContext)}</p>
-                <div class="mt-3">
-                  <SourceLink sourceId={state().sourceId} sourceNameById={props.sourceNameById} openSource={props.openSource} />
-                </div>
-                <p class="mt-4 break-words text-2xl font-semibold text-primary">{formatSignalValue(state().value)}</p>
-                <div class="mt-4 flex flex-wrap gap-2">
-                  <button type="button" class="btn-input btn-input-sm" onClick={() => props.openStateQuery(state())}>
-                    <i class="ti ti-code" /> Open query
-                  </button>
-                  <button type="button" class="btn-input btn-input-sm" onClick={() => props.openStateVariants(state().key)}>
-                    <i class="ti ti-stack-2" /> All variants
-                  </button>
-                </div>
-              </section>
-            )}
-          </Show>
+              <Show when={selectedState()}>
+                {(state) => (
+                  <section class={activeTab() === "states" ? "paper p-4" : "hidden"}>
+                    <p class="text-label text-xs">State value</p>
+                    <h3 class="mt-2 break-words text-lg font-semibold text-primary">{state().key}</h3>
+                    <p class="mt-1 text-sm text-dimmed">{compactDateWithDelta(state().updatedAt, props.dateContext)}</p>
+                    <div class="mt-3">
+                      <SourceLink sourceId={state().sourceId} sourceNameById={props.sourceNameById} openSource={props.openSource} />
+                    </div>
+                    <p class="mt-4 break-words text-2xl font-semibold text-primary">{formatSignalValue(state().value)}</p>
+                    <div class="mt-4 flex flex-wrap gap-2">
+                      <button type="button" class="btn-input btn-input-sm" onClick={() => props.openStateQuery(state())}>
+                        <i class="ti ti-code" /> Open query
+                      </button>
+                      <button type="button" class="btn-input btn-input-sm" onClick={() => props.openStateVariants(state().key)}>
+                        <i class="ti ti-stack-2" /> All variants
+                      </button>
+                    </div>
+                  </section>
+                )}
+              </Show>
 
-          <Show when={selectedEvent()}>
-            {(event) => (
-              <section class={activeTab() === "events" ? "paper p-4" : "hidden"}>
-                <p class="text-label text-xs">Event row</p>
-                <h3 class="mt-2 break-words text-lg font-semibold text-primary">{event().kind}</h3>
-                <p class="mt-1 text-sm text-dimmed">
-                  {signalSubject(event())}
-                  {" · "}
-                  {compactDateWithDelta(event().ts, props.dateContext)}
-                </p>
-                <div class="mt-3">
-                  <SourceLink sourceId={event().sourceId} sourceNameById={props.sourceNameById} openSource={props.openSource} />
-                </div>
-                <p class="mt-4 text-2xl font-semibold text-primary">{event().value === null ? "-" : formatValue(event().value)}</p>
-                <div class="mt-4 flex flex-wrap gap-2">
-                  <button type="button" class="btn-input btn-input-sm" onClick={() => props.openEventQuery(event())}>
-                    <i class="ti ti-code" /> Open query
-                  </button>
-                  <button type="button" class="btn-input btn-input-sm" onClick={() => props.openEventVariants(event().kind)}>
-                    <i class="ti ti-stack-2" /> All variants
-                  </button>
-                </div>
-              </section>
-            )}
-          </Show>
+              <Show when={selectedEvent()}>
+                {(event) => (
+                  <section class={activeTab() === "events" ? "paper p-4" : "hidden"}>
+                    <p class="text-label text-xs">Event row</p>
+                    <h3 class="mt-2 break-words text-lg font-semibold text-primary">{event().kind}</h3>
+                    <p class="mt-1 text-sm text-dimmed">
+                      {signalSubject(event())}
+                      {" · "}
+                      {compactDateWithDelta(event().ts, props.dateContext)}
+                    </p>
+                    <div class="mt-3">
+                      <SourceLink sourceId={event().sourceId} sourceNameById={props.sourceNameById} openSource={props.openSource} />
+                    </div>
+                    <p class="mt-4 text-2xl font-semibold text-primary">{event().value === null ? "-" : formatValue(event().value)}</p>
+                    <div class="mt-4 flex flex-wrap gap-2">
+                      <button type="button" class="btn-input btn-input-sm" onClick={() => props.openEventQuery(event())}>
+                        <i class="ti ti-code" /> Open query
+                      </button>
+                      <button type="button" class="btn-input btn-input-sm" onClick={() => props.openEventVariants(event().kind)}>
+                        <i class="ti ti-stack-2" /> All variants
+                      </button>
+                    </div>
+                  </section>
+                )}
+              </Show>
 
-          <Show when={selectedMetric()}>
-            {(metric) => (
-              <section class={activeTab() === "metrics" ? "paper p-4" : "hidden"}>
-                <StructuredDataPreview title="Metric dimensions" data={metric().dimensions} empty="No dimensions." />
-              </section>
-            )}
-          </Show>
-          <Show when={selectedState()}>
-            {(state) => (
-              <section class={activeTab() === "states" ? "paper p-4" : "hidden"}>
-                <StructuredDataPreview title="State dimensions" data={state().dimensions} empty="No dimensions." />
-              </section>
-            )}
-          </Show>
-          <Show when={selectedEvent()}>
-            {(event) => (
-              <section class={activeTab() === "events" ? "paper p-4" : "hidden"}>
-                <StructuredDataPreview title="Event dimensions" data={event().dimensions} empty="No dimensions." />
-              </section>
-            )}
-          </Show>
-          <Show when={selectedEvent()}>
-            {(event) => (
-              <section class={activeTab() === "events" ? "paper p-4" : "hidden"}>
-                <StructuredDataPreview title="Event payload" data={event().payload} empty="No payload." />
-              </section>
-            )}
-          </Show>
-        </aside>
+              <Show when={selectedMetric()}>
+                {(metric) => (
+                  <section class={activeTab() === "metrics" ? "paper p-4" : "hidden"}>
+                    <StructuredDataPreview title="Metric dimensions" data={metric().dimensions} empty="No dimensions." />
+                  </section>
+                )}
+              </Show>
+              <Show when={selectedState()}>
+                {(state) => (
+                  <section class={activeTab() === "states" ? "paper p-4" : "hidden"}>
+                    <StructuredDataPreview title="State dimensions" data={state().dimensions} empty="No dimensions." />
+                  </section>
+                )}
+              </Show>
+              <Show when={selectedEvent()}>
+                {(event) => (
+                  <section class={activeTab() === "events" ? "paper p-4" : "hidden"}>
+                    <StructuredDataPreview title="Event dimensions" data={event().dimensions} empty="No dimensions." />
+                  </section>
+                )}
+              </Show>
+              <Show when={selectedEvent()}>
+                {(event) => (
+                  <section class={activeTab() === "events" ? "paper p-4" : "hidden"}>
+                    <StructuredDataPreview title="Event payload" data={event().payload} empty="No payload." />
+                  </section>
+                )}
+              </Show>
+            </aside>
+          </Panes.Element>
+        </Panes.Root>
       </section>
     </section>
   );

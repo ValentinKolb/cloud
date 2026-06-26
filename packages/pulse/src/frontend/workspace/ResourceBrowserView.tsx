@@ -1,4 +1,4 @@
-import { DataTable, TextInput, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { DataTable, FilterChip, TextInput, type DataTableColumn, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { createMemo, For, Show } from "solid-js";
 import type { PulseInventory, PulseResourceSummary } from "../../contracts";
 import { compactDateWithDelta, dimensionsSummary, plural, type PulseDateContext } from "./helpers";
@@ -6,12 +6,18 @@ import { compactDateWithDelta, dimensionsSummary, plural, type PulseDateContext 
 type Props = {
   search: () => string;
   setSearch: (value: string) => void;
+  sourceFilter: () => string;
+  setSourceFilter: (value: string[]) => void;
+  typeFilter: () => string;
+  setTypeFilter: (value: string[]) => void;
+  clearFilters: () => void;
   inventory: () => PulseInventory;
   filteredResources: () => PulseResourceSummary[];
   selectedResource: () => PulseResourceSummary | null;
   dateContext: PulseDateContext;
   openResource: (key: string) => void;
   resourceSourceLabel: (resource: PulseResourceSummary) => string;
+  sourceNameById: () => Map<string, string>;
 };
 
 const resourceIcon = (type: string | null) => {
@@ -41,7 +47,36 @@ export default function ResourceBrowserView(props: Props) {
     }
     return [...counts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
   });
+  const sourceLabel = (sourceId: string) => props.sourceNameById().get(sourceId) ?? "Unknown source";
+  const sourceCounts = createMemo(() => {
+    const counts = new Map<string, number>();
+    for (const resource of props.inventory().resources) {
+      for (const sourceId of resource.sourceIds) counts.set(sourceId, (counts.get(sourceId) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((left, right) => right[1] - left[1] || sourceLabel(left[0]).localeCompare(sourceLabel(right[0])));
+  });
   const sourceCount = createMemo(() => new Set(props.inventory().resources.flatMap((resource) => resource.sourceIds)).size);
+  const selectedSourceLabel = createMemo(() => (props.sourceFilter() ? sourceLabel(props.sourceFilter()) : ""));
+  const selectedTypeLabel = createMemo(() => props.typeFilter());
+  const hasFilters = createMemo(() => Boolean(props.sourceFilter() || props.typeFilter()));
+  const typeFilterOptions = createMemo<FilterChipSection[]>(() => [
+    {
+      options: typeCounts().map(([type, count]) => ({
+        value: type,
+        label: `${type} (${count})`,
+        icon: resourceIcon(type),
+      })),
+    },
+  ]);
+  const sourceFilterOptions = createMemo<FilterChipSection[]>(() => [
+    {
+      options: sourceCounts().map(([sourceId, count]) => ({
+        value: sourceId,
+        label: `${sourceLabel(sourceId)} (${count})`,
+        icon: "ti ti-database-share",
+      })),
+    },
+  ]);
 
   const renderResourceCell = (resource: PulseResourceSummary, col: DataTableColumn<PulseResourceSummary>) => {
     if (col.id === "resource") {
@@ -88,18 +123,59 @@ export default function ResourceBrowserView(props: Props) {
             clearable
           />
         </div>
+        <FilterChip
+          label="Source"
+          icon="ti ti-database-share"
+          options={sourceFilterOptions()}
+          value={props.sourceFilter() ? [props.sourceFilter()] : []}
+          onChange={props.setSourceFilter}
+          isActive={Boolean(props.sourceFilter())}
+          defaultValue={[]}
+        />
+        <FilterChip
+          label="Type"
+          icon="ti ti-filter"
+          options={typeFilterOptions()}
+          value={props.typeFilter() ? [props.typeFilter()] : []}
+          onChange={props.setTypeFilter}
+          isActive={Boolean(props.typeFilter())}
+          defaultValue={[]}
+        />
       </div>
 
       <div class="paper shrink-0 px-3 py-2">
         <div class="flex flex-wrap items-center gap-2 text-xs text-secondary">
           <span class="chip border-0">
             <i class="ti ti-cube" />
-            {plural(props.inventory().resources.length, "resource")}
+            {plural(props.filteredResources().length, "resource")}
+            <Show when={props.filteredResources().length !== props.inventory().resources.length}>
+              <span class="text-dimmed">of {props.inventory().resources.length.toLocaleString()}</span>
+            </Show>
           </span>
           <span class="chip border-0">
             <i class="ti ti-database-share" />
             {plural(sourceCount(), "source")}
           </span>
+          <Show when={props.sourceFilter()}>
+            <button type="button" class="chip border-0 bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-200" onClick={() => props.setSourceFilter([])}>
+              <i class="ti ti-database-share" />
+              {selectedSourceLabel()}
+              <i class="ti ti-x text-[10px]" />
+            </button>
+          </Show>
+          <Show when={props.typeFilter()}>
+            <button type="button" class="chip border-0 bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-200" onClick={() => props.setTypeFilter([])}>
+              <i class={resourceIcon(props.typeFilter())} />
+              {selectedTypeLabel()}
+              <i class="ti ti-x text-[10px]" />
+            </button>
+          </Show>
+          <Show when={hasFilters()}>
+            <button type="button" class="chip border-0 text-dimmed transition hover:text-primary" onClick={props.clearFilters}>
+              <i class="ti ti-filter-off" />
+              Clear filters
+            </button>
+          </Show>
           <For each={typeCounts().slice(0, 8)}>
             {([type, count]) => (
               <span class="chip border-0">

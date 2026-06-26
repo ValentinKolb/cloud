@@ -18,8 +18,8 @@ import type {
   PulseSource,
   PulseSourceScrape,
 } from "../../contracts";
-export type { ActivityQueryState, WorkspaceRouteState, WorkspaceView } from "./routes";
-import type { ActivityQueryState, WorkspaceRouteState } from "./routes";
+export type { ActivityQueryState, ResourceQueryState, WorkspaceRouteState, WorkspaceView } from "./routes";
+import type { ActivityQueryState, ResourceQueryState, WorkspaceRouteState } from "./routes";
 
 export type MetricTextQueryResult = {
   compiled: PulseExplorerQuery;
@@ -77,6 +77,7 @@ export type PulseWorkspaceProps = {
   initialSearch?: string;
   initialRouteState?: WorkspaceRouteState;
   initialActivityQuery?: ActivityQueryState;
+  initialResourceQuery?: ResourceQueryState;
   initialSources?: PulseSource[];
   initialSourceScrapes?: Record<string, PulseSourceScrape[]>;
   initialSourceApiKeys?: Record<string, ResourceApiKey[]>;

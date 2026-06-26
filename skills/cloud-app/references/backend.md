@@ -322,6 +322,71 @@ export default await app.start({
 await sql`ALTER TABLE my_app.items ADD COLUMN IF NOT EXISTS priority INT NOT NULL DEFAULT 0`.simple();
 ```
 
+### Deleting Large Resource Trees
+
+For resources with large child tables, do not delete the parent row directly from
+the request handler. PostgreSQL cascades are useful as a final safety net, but a
+single multi-GB `ON DELETE CASCADE` can hold locks long enough to stall the app.
+
+Use this pattern instead:
+
+1. Keep `ON DELETE CASCADE` foreign keys in the schema.
+2. In the HTTP request, verify access, mark the parent as deleting, disable new
+   writers, and enqueue a durable `@valentinkolb/sync` job.
+3. In the job, delete the largest child tables manually in bounded batches.
+4. Reschedule the job after each non-empty batch so leases stay short and the
+   work resumes after crashes.
+5. Delete the parent row only after the large children are drained; cascades then
+   clean up any small leftovers.
+
+```typescript
+const deleteWorkspace = async ({ workspaceId, user }: Input): Promise<Result<void>> => {
+  const access = await requireWorkspaceAccess(workspaceId, user, "admin");
+  if (!access.ok) return fail(access.error);
+
+  await sql.begin(async (tx) => {
+    await tx`
+      UPDATE my_app.workspaces
+      SET deletion_started_at = now(), updated_at = now()
+      WHERE id = ${workspaceId}::uuid
+    `;
+    await tx`
+      UPDATE my_app.sources
+      SET enabled = FALSE
+      WHERE workspace_id = ${workspaceId}::uuid
+    `;
+  });
+
+  await workspaceDeletionJob.submit({
+    key: `workspace:${workspaceId}`,
+    input: { workspaceId },
+  });
+  return ok();
+};
+```
+
+```typescript
+const deleteEventsChunk = async (workspaceId: string): Promise<number> => {
+  const result = await sql`
+    WITH victim AS (
+      SELECT ctid
+      FROM my_app.events
+      WHERE workspace_id = ${workspaceId}::uuid
+      LIMIT 50000
+    )
+    DELETE FROM my_app.events item
+    USING victim
+    WHERE item.ctid = victim.ctid
+  `;
+  return result.count ?? 0;
+};
+```
+
+Keep the job idempotent. A retry should continue from the current database
+state, not from process memory. Store only coarse progress such as phase,
+deleted row count, and the last error. Do not use Redis or process-local state as
+the source of truth for destructive work.
+
 ## Testing Patterns
 
 Use `bun:test` for app tests. Prefer small pure tests first, then add integration tests only when a real database or browser boundary is the behavior under test.

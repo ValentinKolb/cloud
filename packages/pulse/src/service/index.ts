@@ -11,6 +11,7 @@ import {
   type Result,
 } from "@valentinkolb/cloud/server";
 import { decryptSecret, encryptSecret, serviceAccountCredentials, serviceAccounts, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { AGGREGATIONS, PANEL_VISUALS } from "../contracts";
 import { compileDashboardDsl } from "../dashboard-dsl";
@@ -60,6 +61,7 @@ import { derivePulseResource } from "../resource-model";
 const PULSE_APP_ID = "pulse";
 const PULSE_SOURCE_RESOURCE_TYPE = "pulse_source";
 const PULSE_INGEST_SCOPE = "pulse:ingest";
+const BASE_DELETE_BATCH_SIZE = 50_000;
 
 type UserScope = {
   id: string;
@@ -72,6 +74,13 @@ type BaseRow = {
   description: string | null;
   retention_days: number;
   created_by: string | null;
+  deletion_started_at: Date | string | null;
+  deletion_failed_at: Date | string | null;
+  deletion_error: string | null;
+  data_clear_started_at: Date | string | null;
+  data_clear_completed_at: Date | string | null;
+  data_clear_failed_at: Date | string | null;
+  data_clear_error: string | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -184,6 +193,13 @@ const mapBase = (row: BaseRow): PulseBase => ({
   description: row.description,
   retentionDays: row.retention_days,
   createdBy: row.created_by,
+  deletionStartedAt: isoNullable(row.deletion_started_at),
+  deletionFailedAt: isoNullable(row.deletion_failed_at),
+  deletionError: row.deletion_error,
+  dataClearStartedAt: isoNullable(row.data_clear_started_at),
+  dataClearCompletedAt: isoNullable(row.data_clear_completed_at),
+  dataClearFailedAt: isoNullable(row.data_clear_failed_at),
+  dataClearError: row.data_clear_error,
   createdAt: iso(row.created_at),
   updatedAt: iso(row.updated_at),
 });
@@ -510,6 +526,497 @@ const requireBaseAccess = async (baseId: string, user: UserScope, required: Perm
   return rank[level] >= rank[required] ? ok() : fail(err.forbidden("Access denied"));
 };
 
+const requireBaseActive = async (baseId: string): Promise<Result<void>> => {
+  const [row] = await sql<{
+    deletion_started_at: Date | string | null;
+    data_clear_started_at: Date | string | null;
+    data_clear_completed_at: Date | string | null;
+    data_clear_failed_at: Date | string | null;
+  }[]>`
+    SELECT deletion_started_at, data_clear_started_at, data_clear_completed_at, data_clear_failed_at
+    FROM pulse.bases
+    WHERE id = ${baseId}::uuid
+  `;
+  if (!row) return fail(err.notFound("Pulse base"));
+  if (row.deletion_started_at) return fail(err.conflict("Pulse base is being deleted"));
+  if (row.data_clear_started_at && !row.data_clear_completed_at && !row.data_clear_failed_at) {
+    return fail(err.conflict("Pulse base data is being cleared"));
+  }
+  return ok();
+};
+
+type BaseDeletionBatch = {
+  phase: string;
+  deletedRows: number;
+  done: boolean;
+};
+
+const recordBaseDeletionProgress = async (params: {
+  baseId: string;
+  phase: string;
+  deletedRows: number;
+  status?: "queued" | "deleting" | "failed";
+  errorMessage?: string | null;
+}): Promise<void> => {
+  await sql`
+    INSERT INTO pulse.base_deletions (
+      base_id,
+      status,
+      phase,
+      deleted_rows,
+      last_batch_rows,
+      error_message,
+      updated_at
+    )
+    VALUES (
+      ${params.baseId}::uuid,
+      ${params.status ?? "deleting"},
+      ${params.phase},
+      ${params.deletedRows},
+      ${params.deletedRows},
+      ${params.errorMessage ?? null},
+      now()
+    )
+    ON CONFLICT (base_id)
+    DO UPDATE SET
+      status = EXCLUDED.status,
+      phase = EXCLUDED.phase,
+      deleted_rows = pulse.base_deletions.deleted_rows + EXCLUDED.deleted_rows,
+      last_batch_rows = EXCLUDED.last_batch_rows,
+      error_message = EXCLUDED.error_message,
+      updated_at = now()
+  `;
+};
+
+const deleteMetricSamplesChunk = async (baseId: string): Promise<number> => {
+  const result = await sql`
+    WITH victim AS (
+      SELECT ctid
+      FROM pulse.metric_samples
+      WHERE base_id = ${baseId}::uuid
+      LIMIT ${BASE_DELETE_BATCH_SIZE}
+    )
+    DELETE FROM pulse.metric_samples item
+    USING victim
+    WHERE item.ctid = victim.ctid
+  `;
+  return result.count ?? 0;
+};
+
+const deleteMetricRollupsChunk = async (baseId: string): Promise<number> => {
+  const result = await sql`
+    WITH victim AS (
+      SELECT ctid
+      FROM pulse.metric_rollups_hourly
+      WHERE base_id = ${baseId}::uuid
+      LIMIT ${BASE_DELETE_BATCH_SIZE}
+    )
+    DELETE FROM pulse.metric_rollups_hourly item
+    USING victim
+    WHERE item.ctid = victim.ctid
+  `;
+  return result.count ?? 0;
+};
+
+const deleteStateChangesChunk = async (baseId: string): Promise<number> => {
+  const result = await sql`
+    WITH victim AS (
+      SELECT ctid
+      FROM pulse.state_changes
+      WHERE base_id = ${baseId}::uuid
+      LIMIT ${BASE_DELETE_BATCH_SIZE}
+    )
+    DELETE FROM pulse.state_changes item
+    USING victim
+    WHERE item.ctid = victim.ctid
+  `;
+  return result.count ?? 0;
+};
+
+const deleteEventDimensionsChunk = async (baseId: string): Promise<number> => {
+  const result = await sql`
+    WITH victim AS (
+      SELECT ctid
+      FROM pulse.event_dimensions
+      WHERE base_id = ${baseId}::uuid
+      LIMIT ${BASE_DELETE_BATCH_SIZE}
+    )
+    DELETE FROM pulse.event_dimensions item
+    USING victim
+    WHERE item.ctid = victim.ctid
+  `;
+  return result.count ?? 0;
+};
+
+const deleteEventsChunk = async (baseId: string): Promise<number> => {
+  const result = await sql`
+    WITH victim AS (
+      SELECT ctid
+      FROM pulse.events
+      WHERE base_id = ${baseId}::uuid
+      LIMIT ${BASE_DELETE_BATCH_SIZE}
+    )
+    DELETE FROM pulse.events item
+    USING victim
+    WHERE item.ctid = victim.ctid
+  `;
+  return result.count ?? 0;
+};
+
+const deleteCurrentStatesChunk = async (baseId: string): Promise<number> => {
+  const result = await sql`
+    WITH victim AS (
+      SELECT ctid
+      FROM pulse.states_current
+      WHERE base_id = ${baseId}::uuid
+      LIMIT ${BASE_DELETE_BATCH_SIZE}
+    )
+    DELETE FROM pulse.states_current item
+    USING victim
+    WHERE item.ctid = victim.ctid
+  `;
+  return result.count ?? 0;
+};
+
+const deleteMetricSeriesDimensionsChunk = async (baseId: string): Promise<number> => {
+  const result = await sql`
+    WITH victim AS (
+      SELECT dims.series_id, dims.key
+      FROM pulse.metric_series_dimensions dims
+      JOIN pulse.metric_series series ON series.id = dims.series_id
+      WHERE series.base_id = ${baseId}::uuid
+      LIMIT ${BASE_DELETE_BATCH_SIZE}
+    )
+    DELETE FROM pulse.metric_series_dimensions item
+    USING victim
+    WHERE item.series_id = victim.series_id
+      AND item.key = victim.key
+  `;
+  return result.count ?? 0;
+};
+
+const deleteRowsByBaseChunk = async (
+  baseId: string,
+  table:
+    | "pulse.source_scrapes"
+    | "pulse.metric_series"
+    | "pulse.metric_defs"
+    | "pulse.dimension_metadata"
+    | "pulse.saved_queries"
+    | "pulse.dashboards"
+    | "pulse.sources",
+): Promise<number> => {
+  switch (table) {
+    case "pulse.source_scrapes": {
+      const result = await sql`
+        WITH victim AS (SELECT ctid FROM pulse.source_scrapes WHERE base_id = ${baseId}::uuid LIMIT ${BASE_DELETE_BATCH_SIZE})
+        DELETE FROM pulse.source_scrapes item USING victim WHERE item.ctid = victim.ctid
+      `;
+      return result.count ?? 0;
+    }
+    case "pulse.metric_series": {
+      const result = await sql`
+        WITH victim AS (SELECT ctid FROM pulse.metric_series WHERE base_id = ${baseId}::uuid LIMIT ${BASE_DELETE_BATCH_SIZE})
+        DELETE FROM pulse.metric_series item USING victim WHERE item.ctid = victim.ctid
+      `;
+      return result.count ?? 0;
+    }
+    case "pulse.metric_defs": {
+      const result = await sql`
+        WITH victim AS (SELECT ctid FROM pulse.metric_defs WHERE base_id = ${baseId}::uuid LIMIT ${BASE_DELETE_BATCH_SIZE})
+        DELETE FROM pulse.metric_defs item USING victim WHERE item.ctid = victim.ctid
+      `;
+      return result.count ?? 0;
+    }
+    case "pulse.dimension_metadata": {
+      const result = await sql`
+        WITH victim AS (SELECT ctid FROM pulse.dimension_metadata WHERE base_id = ${baseId}::uuid LIMIT ${BASE_DELETE_BATCH_SIZE})
+        DELETE FROM pulse.dimension_metadata item USING victim WHERE item.ctid = victim.ctid
+      `;
+      return result.count ?? 0;
+    }
+    case "pulse.saved_queries": {
+      const result = await sql`
+        WITH victim AS (SELECT ctid FROM pulse.saved_queries WHERE base_id = ${baseId}::uuid LIMIT ${BASE_DELETE_BATCH_SIZE})
+        DELETE FROM pulse.saved_queries item USING victim WHERE item.ctid = victim.ctid
+      `;
+      return result.count ?? 0;
+    }
+    case "pulse.dashboards": {
+      const result = await sql`
+        WITH victim AS (SELECT ctid FROM pulse.dashboards WHERE base_id = ${baseId}::uuid LIMIT ${BASE_DELETE_BATCH_SIZE})
+        DELETE FROM pulse.dashboards item USING victim WHERE item.ctid = victim.ctid
+      `;
+      return result.count ?? 0;
+    }
+    case "pulse.sources": {
+      const result = await sql`
+        WITH victim AS (SELECT ctid FROM pulse.sources WHERE base_id = ${baseId}::uuid LIMIT ${BASE_DELETE_BATCH_SIZE})
+        DELETE FROM pulse.sources item USING victim WHERE item.ctid = victim.ctid
+      `;
+      return result.count ?? 0;
+    }
+  }
+};
+
+const deleteBaseAccessChunk = async (baseId: string): Promise<number> => {
+  const result = await sql`
+    WITH victim AS (
+      SELECT access_id
+      FROM pulse.base_access
+      WHERE base_id = ${baseId}::uuid
+      LIMIT 1000
+    )
+    DELETE FROM auth.access item
+    USING victim
+    WHERE item.id = victim.access_id
+  `;
+  return result.count ?? 0;
+};
+
+const BASE_DELETE_STEPS: Array<{ phase: string; run: (baseId: string) => Promise<number> }> = [
+  { phase: "metric_samples", run: deleteMetricSamplesChunk },
+  { phase: "metric_rollups_hourly", run: deleteMetricRollupsChunk },
+  { phase: "state_changes", run: deleteStateChangesChunk },
+  { phase: "event_dimensions", run: deleteEventDimensionsChunk },
+  { phase: "events", run: deleteEventsChunk },
+  { phase: "states_current", run: deleteCurrentStatesChunk },
+  { phase: "metric_series_dimensions", run: deleteMetricSeriesDimensionsChunk },
+  { phase: "source_scrapes", run: (baseId) => deleteRowsByBaseChunk(baseId, "pulse.source_scrapes") },
+  { phase: "metric_series", run: (baseId) => deleteRowsByBaseChunk(baseId, "pulse.metric_series") },
+  { phase: "metric_defs", run: (baseId) => deleteRowsByBaseChunk(baseId, "pulse.metric_defs") },
+  { phase: "dimension_metadata", run: (baseId) => deleteRowsByBaseChunk(baseId, "pulse.dimension_metadata") },
+  { phase: "saved_queries", run: (baseId) => deleteRowsByBaseChunk(baseId, "pulse.saved_queries") },
+  { phase: "dashboards", run: (baseId) => deleteRowsByBaseChunk(baseId, "pulse.dashboards") },
+  { phase: "sources", run: (baseId) => deleteRowsByBaseChunk(baseId, "pulse.sources") },
+  { phase: "access", run: deleteBaseAccessChunk },
+];
+
+const BASE_DATA_CLEAR_STEPS: Array<{ phase: string; run: (baseId: string) => Promise<number> }> = [
+  { phase: "metric_samples", run: deleteMetricSamplesChunk },
+  { phase: "metric_rollups_hourly", run: deleteMetricRollupsChunk },
+  { phase: "state_changes", run: deleteStateChangesChunk },
+  { phase: "event_dimensions", run: deleteEventDimensionsChunk },
+  { phase: "events", run: deleteEventsChunk },
+  { phase: "states_current", run: deleteCurrentStatesChunk },
+  { phase: "metric_series_dimensions", run: deleteMetricSeriesDimensionsChunk },
+  { phase: "source_scrapes", run: (baseId) => deleteRowsByBaseChunk(baseId, "pulse.source_scrapes") },
+  { phase: "metric_series", run: (baseId) => deleteRowsByBaseChunk(baseId, "pulse.metric_series") },
+  { phase: "metric_defs", run: (baseId) => deleteRowsByBaseChunk(baseId, "pulse.metric_defs") },
+  { phase: "dimension_metadata", run: (baseId) => deleteRowsByBaseChunk(baseId, "pulse.dimension_metadata") },
+];
+
+const recordBaseDataClearProgress = async (params: {
+  baseId: string;
+  phase: string;
+  deletedRows: number;
+  status?: "queued" | "clearing" | "failed" | "completed";
+  errorMessage?: string | null;
+}): Promise<void> => {
+  await sql`
+    INSERT INTO pulse.base_data_clears (
+      base_id,
+      status,
+      phase,
+      deleted_rows,
+      last_batch_rows,
+      error_message,
+      updated_at
+    )
+    VALUES (
+      ${params.baseId}::uuid,
+      ${params.status ?? "clearing"},
+      ${params.phase},
+      ${params.deletedRows},
+      ${params.deletedRows},
+      ${params.errorMessage ?? null},
+      now()
+    )
+    ON CONFLICT (base_id)
+    DO UPDATE SET
+      status = EXCLUDED.status,
+      phase = EXCLUDED.phase,
+      deleted_rows = pulse.base_data_clears.deleted_rows + EXCLUDED.deleted_rows,
+      last_batch_rows = EXCLUDED.last_batch_rows,
+      error_message = EXCLUDED.error_message,
+      updated_at = now()
+  `;
+};
+
+const purgeBaseDeletionBatch = async (baseId: string): Promise<BaseDeletionBatch> => {
+  await sql`
+    UPDATE pulse.base_deletions
+    SET status = 'deleting', phase = 'deleting', updated_at = now()
+    WHERE base_id = ${baseId}::uuid
+  `;
+
+  for (const step of BASE_DELETE_STEPS) {
+    const deletedRows = await step.run(baseId);
+    if (deletedRows > 0) {
+      await recordBaseDeletionProgress({ baseId, phase: step.phase, deletedRows });
+      return { phase: step.phase, deletedRows, done: false };
+    }
+  }
+
+  const finalDelete = await sql`
+    DELETE FROM pulse.bases
+    WHERE id = ${baseId}::uuid
+  `;
+  return { phase: "base", deletedRows: finalDelete.count ?? 0, done: true };
+};
+
+const purgeBaseDataClearBatch = async (baseId: string): Promise<BaseDeletionBatch> => {
+  const [base] = await sql<{ data_clear_completed_at: Date | string | null }[]>`
+    SELECT data_clear_completed_at
+    FROM pulse.bases
+    WHERE id = ${baseId}::uuid
+  `;
+  if (!base) return { phase: "base", deletedRows: 0, done: true };
+  if (base.data_clear_completed_at) return { phase: "completed", deletedRows: 0, done: true };
+
+  await sql`
+    UPDATE pulse.base_data_clears
+    SET status = 'clearing', phase = 'clearing', updated_at = now()
+    WHERE base_id = ${baseId}::uuid
+  `;
+
+  for (const step of BASE_DATA_CLEAR_STEPS) {
+    const deletedRows = await step.run(baseId);
+    if (deletedRows > 0) {
+      await recordBaseDataClearProgress({ baseId, phase: step.phase, deletedRows });
+      return { phase: step.phase, deletedRows, done: false };
+    }
+  }
+
+  await sql.begin(async (tx) => {
+    await tx`
+      UPDATE pulse.sources
+      SET last_seen_at = NULL,
+          last_error = NULL,
+          last_error_at = NULL,
+          updated_at = now()
+      WHERE base_id = ${baseId}::uuid
+    `;
+    await tx`
+      UPDATE pulse.bases
+      SET data_clear_completed_at = now(),
+          data_clear_failed_at = NULL,
+          data_clear_error = NULL,
+          updated_at = now()
+      WHERE id = ${baseId}::uuid
+    `;
+    await tx`
+      UPDATE pulse.base_data_clears
+      SET status = 'completed',
+          phase = 'completed',
+          last_batch_rows = 0,
+          error_message = NULL,
+          completed_at = now(),
+          updated_at = now()
+      WHERE base_id = ${baseId}::uuid
+    `;
+  });
+
+  return { phase: "completed", deletedRows: 0, done: true };
+};
+
+const baseDeletionJob = job<{ baseId: string }, BaseDeletionBatch>({
+  id: "pulse:base-delete",
+  defaults: { leaseMs: 2 * 60_000 },
+  process: async ({ ctx }) => purgeBaseDeletionBatch(ctx.input.baseId),
+  after: async ({ ctx }) => {
+    if (ctx.error) {
+      const message = ctx.error instanceof Error ? ctx.error.message : "Pulse base deletion failed";
+      const failed = ctx.failureCount >= 10;
+      await sql`
+        UPDATE pulse.base_deletions
+        SET status = ${failed ? "failed" : "deleting"},
+            error_message = ${message},
+            updated_at = now()
+        WHERE base_id = ${ctx.input.baseId}::uuid
+      `;
+      await sql`
+        UPDATE pulse.bases
+        SET deletion_failed_at = CASE WHEN ${failed} THEN now() ELSE deletion_failed_at END,
+            deletion_error = ${message},
+            updated_at = now()
+        WHERE id = ${ctx.input.baseId}::uuid
+      `;
+      if (!failed) ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 5 * 60_000 }) });
+      return;
+    }
+    if (ctx.data && !ctx.data.done) ctx.reschedule({ delayMs: 0 });
+  },
+});
+
+const baseDataClearJob = job<{ baseId: string }, BaseDeletionBatch>({
+  id: "pulse:base-data-clear",
+  defaults: { leaseMs: 2 * 60_000 },
+  process: async ({ ctx }) => purgeBaseDataClearBatch(ctx.input.baseId),
+  after: async ({ ctx }) => {
+    if (ctx.error) {
+      const message = ctx.error instanceof Error ? ctx.error.message : "Pulse data clear failed";
+      const failed = ctx.failureCount >= 10;
+      await sql`
+        UPDATE pulse.base_data_clears
+        SET status = ${failed ? "failed" : "clearing"},
+            error_message = ${message},
+            updated_at = now()
+        WHERE base_id = ${ctx.input.baseId}::uuid
+      `;
+      await sql`
+        UPDATE pulse.bases
+        SET data_clear_failed_at = CASE WHEN ${failed} THEN now() ELSE data_clear_failed_at END,
+            data_clear_error = ${message},
+            updated_at = now()
+        WHERE id = ${ctx.input.baseId}::uuid
+      `;
+      if (!failed) ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 5 * 60_000 }) });
+      return;
+    }
+    if (ctx.data && !ctx.data.done) ctx.reschedule({ delayMs: 0 });
+  },
+});
+
+const submitBaseDeletionJob = async (baseId: string): Promise<void> => {
+  await baseDeletionJob.submit({
+    key: `base:${baseId}`,
+    input: { baseId },
+  });
+};
+
+const submitBaseDataClearJob = async (baseId: string): Promise<void> => {
+  await baseDataClearJob.submit({
+    key: `base:${baseId}`,
+    input: { baseId },
+  });
+};
+
+export const resumePulseBaseDeletionJobs = async (): Promise<void> => {
+  const rows = await sql<{ base_id: string }[]>`
+    SELECT base_id
+    FROM pulse.base_deletions
+    WHERE status IN ('queued', 'deleting')
+    ORDER BY updated_at ASC
+    LIMIT 100
+  `;
+  for (const row of rows) await submitBaseDeletionJob(row.base_id);
+};
+
+export const resumePulseBaseDataClearJobs = async (): Promise<void> => {
+  const rows = await sql<{ base_id: string }[]>`
+    SELECT base_id
+    FROM pulse.base_data_clears
+    WHERE status IN ('queued', 'clearing')
+    ORDER BY updated_at ASC
+    LIMIT 100
+  `;
+  for (const row of rows) await submitBaseDataClearJob(row.base_id);
+};
+
+export const stopPulseBaseDeletionJob = (): void => baseDeletionJob.stop();
+export const stopPulseBaseDataClearJob = (): void => baseDataClearJob.stop();
+
 const upsertDimensionMetadata = async (params: {
   baseId: string;
   sourceId?: string | null;
@@ -533,9 +1040,12 @@ const listBases = async (user: UserScope): Promise<Result<PulseBase[]>> => {
     FROM pulse.bases b
     JOIN pulse.base_access ba ON ba.base_id = b.id
     JOIN auth.access a ON a.id = ba.access_id
-    WHERE a.user_id = ${user.id}::uuid
-       OR a.group_id = ANY(${groups}::uuid[])
-       OR a.authenticated_only = TRUE
+    WHERE b.deletion_started_at IS NULL
+      AND (
+        a.user_id = ${user.id}::uuid
+        OR a.group_id = ANY(${groups}::uuid[])
+        OR a.authenticated_only = TRUE
+      )
     ORDER BY b.updated_at DESC, b.name ASC
   `;
   return ok(rows.map(mapBase));
@@ -665,7 +1175,12 @@ const revokeBaseAccess = async (params: { accessId: string; user: UserScope }): 
 const getBase = async (baseId: string, user: UserScope): Promise<Result<PulseBase>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
-  const [row] = await sql<BaseRow[]>`SELECT * FROM pulse.bases WHERE id = ${baseId}::uuid`;
+  const [row] = await sql<BaseRow[]>`
+    SELECT *
+    FROM pulse.bases
+    WHERE id = ${baseId}::uuid
+      AND deletion_started_at IS NULL
+  `;
   return row ? ok(mapBase(row)) : fail(err.notFound("Pulse base"));
 };
 
@@ -680,6 +1195,7 @@ const updateBase = async (params: {
   if (!access.ok) return fail(access.error);
   const [existing] = await sql<BaseRow[]>`SELECT * FROM pulse.bases WHERE id = ${params.baseId}::uuid`;
   if (!existing) return fail(err.notFound("Pulse base"));
+  if (existing.deletion_started_at) return fail(err.conflict("Pulse base is being deleted"));
 
   const name = params.name?.trim() || existing.name;
   const description = params.description === undefined ? existing.description : params.description?.trim() || null;
@@ -695,6 +1211,127 @@ const updateBase = async (params: {
   `;
   if (!row) return fail(err.internal("Failed to update Pulse base"));
   return ok(mapBase(row));
+};
+
+const deleteBase = async (params: { baseId: string; user: UserScope }): Promise<Result<void>> => {
+  const [existing] = await sql<BaseRow[]>`SELECT * FROM pulse.bases WHERE id = ${params.baseId}::uuid`;
+  if (!existing) return fail(err.notFound("Pulse base"));
+
+  const access = await requireBaseAccess(params.baseId, params.user, "admin");
+  if (!access.ok) return fail(access.error);
+
+  if (existing.deletion_started_at) {
+    await submitBaseDeletionJob(params.baseId);
+    return ok();
+  }
+
+  const queued = await sql.begin(async (tx): Promise<Result<void>> => {
+    await tx`
+      UPDATE pulse.bases
+      SET deletion_started_at = now(),
+          deletion_failed_at = NULL,
+          deletion_error = NULL,
+          updated_at = now()
+      WHERE id = ${params.baseId}::uuid
+    `;
+    await tx`
+      UPDATE pulse.sources
+      SET enabled = FALSE, updated_at = now()
+      WHERE base_id = ${params.baseId}::uuid
+    `;
+    await tx`
+      DELETE FROM auth.service_accounts
+      WHERE kind = 'resource_bound'
+        AND app_id = ${PULSE_APP_ID}
+        AND resource_type = ${PULSE_SOURCE_RESOURCE_TYPE}
+        AND resource_id IN (
+          SELECT id::text
+          FROM pulse.sources
+          WHERE base_id = ${params.baseId}::uuid
+        )
+    `;
+    await tx`
+      INSERT INTO pulse.base_deletions (base_id, requested_by, status, phase, updated_at)
+      VALUES (${params.baseId}::uuid, ${params.user.id}::uuid, 'queued', 'queued', now())
+      ON CONFLICT (base_id)
+      DO UPDATE SET
+        requested_by = EXCLUDED.requested_by,
+        status = 'queued',
+        phase = 'queued',
+        error_message = NULL,
+        updated_at = now()
+    `;
+    return ok();
+  });
+
+  if (!queued.ok) return fail(queued.error);
+  await submitBaseDeletionJob(params.baseId);
+  return ok();
+};
+
+const clearBaseData = async (params: { baseId: string; user: UserScope }): Promise<Result<void>> => {
+  const [existing] = await sql<BaseRow[]>`SELECT * FROM pulse.bases WHERE id = ${params.baseId}::uuid`;
+  if (!existing) return fail(err.notFound("Pulse base"));
+
+  const access = await requireBaseAccess(params.baseId, params.user, "admin");
+  if (!access.ok) return fail(access.error);
+
+  if (existing.deletion_started_at) return fail(err.conflict("Pulse base is being deleted"));
+  if (existing.data_clear_started_at && !existing.data_clear_completed_at && !existing.data_clear_failed_at) {
+    await submitBaseDataClearJob(params.baseId);
+    return ok();
+  }
+
+  const queued = await sql.begin(async (tx): Promise<Result<void>> => {
+    await tx`
+      UPDATE pulse.bases
+      SET data_clear_started_at = now(),
+          data_clear_completed_at = NULL,
+          data_clear_failed_at = NULL,
+          data_clear_error = NULL,
+          updated_at = now()
+      WHERE id = ${params.baseId}::uuid
+    `;
+    await tx`
+      INSERT INTO pulse.base_data_clears (
+        base_id,
+        requested_by,
+        status,
+        phase,
+        deleted_rows,
+        last_batch_rows,
+        error_message,
+        completed_at,
+        updated_at
+      )
+      VALUES (
+        ${params.baseId}::uuid,
+        ${params.user.id}::uuid,
+        'queued',
+        'queued',
+        0,
+        0,
+        NULL,
+        NULL,
+        now()
+      )
+      ON CONFLICT (base_id)
+      DO UPDATE SET
+        requested_by = EXCLUDED.requested_by,
+        status = 'queued',
+        phase = 'queued',
+        deleted_rows = 0,
+        last_batch_rows = 0,
+        error_message = NULL,
+        completed_at = NULL,
+        updated_at = now()
+    `;
+    return ok();
+  });
+
+  if (!queued.ok) return fail(queued.error);
+  await submitBaseDataClearJob(params.baseId);
+  return ok();
 };
 
 const listSources = async (baseId: string, user: UserScope): Promise<Result<PulseSource[]>> => {
@@ -743,6 +1380,8 @@ const createDashboard = async (params: {
 }): Promise<Result<PulseDashboard>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "write");
   if (!access.ok) return fail(access.error);
+  const active = await requireBaseActive(params.baseId);
+  if (!active.ok) return fail(active.error);
   const name = params.name.trim();
   if (!name) return fail(err.badInput("Dashboard name is required"));
   const config = normalizeDashboardConfig(params.config ?? { panels: [] });
@@ -769,6 +1408,8 @@ const updateDashboard = async (params: {
   if (!existing) return fail(err.notFound("Pulse dashboard"));
   const access = await requireBaseAccess(existing.base_id, params.user, "write");
   if (!access.ok) return fail(access.error);
+  const active = await requireBaseActive(existing.base_id);
+  if (!active.ok) return fail(active.error);
   const name = params.name?.trim() || existing.name;
   const config = normalizeDashboardConfig(params.config ?? existing.config);
   const [row] = await sql<DashboardRow[]>`
@@ -790,6 +1431,8 @@ const deleteDashboard = async (params: { dashboardId: string; user: UserScope })
   if (!existing) return fail(err.notFound("Pulse dashboard"));
   const access = await requireBaseAccess(existing.base_id, params.user, "write");
   if (!access.ok) return fail(access.error);
+  const active = await requireBaseActive(existing.base_id);
+  if (!active.ok) return fail(active.error);
   const deleted = await sql`DELETE FROM pulse.dashboards WHERE id = ${params.dashboardId}::uuid`;
   if ((deleted.count ?? 0) === 0) return fail(err.notFound("Pulse dashboard"));
   return ok();
@@ -807,6 +1450,8 @@ const enablePublicDashboard = async (params: {
   if (!existing) return fail(err.notFound("Pulse dashboard"));
   const access = await requireBaseAccess(existing.base_id, params.user, "write");
   if (!access.ok) return fail(access.error);
+  const active = await requireBaseActive(existing.base_id);
+  if (!active.ok) return fail(active.error);
 
   const token = existing.public_enabled && existing.public_token ? existing.public_token : randomUUID();
   const [row] = await sql<DashboardRow[]>`
@@ -828,6 +1473,8 @@ const disablePublicDashboard = async (params: { dashboardId: string; user: UserS
   if (!existing) return fail(err.notFound("Pulse dashboard"));
   const access = await requireBaseAccess(existing.base_id, params.user, "write");
   if (!access.ok) return fail(access.error);
+  const active = await requireBaseActive(existing.base_id);
+  if (!active.ok) return fail(active.error);
 
   const [row] = await sql<DashboardRow[]>`
     UPDATE pulse.dashboards
@@ -861,6 +1508,8 @@ const createSavedQuery = async (params: {
 }): Promise<Result<PulseSavedQuery>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "write");
   if (!access.ok) return fail(access.error);
+  const active = await requireBaseActive(params.baseId);
+  if (!active.ok) return fail(active.error);
   const name = params.name.trim();
   const query = params.query.trim();
   if (!name) return fail(err.badInput("Query name is required"));
@@ -879,6 +1528,8 @@ const createSavedQuery = async (params: {
 const deleteSavedQuery = async (params: { baseId: string; queryId: string; user: UserScope }): Promise<Result<void>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "write");
   if (!access.ok) return fail(access.error);
+  const active = await requireBaseActive(params.baseId);
+  if (!active.ok) return fail(active.error);
   const deleted = await sql`
     DELETE FROM pulse.saved_queries
     WHERE base_id = ${params.baseId}::uuid
@@ -890,10 +1541,12 @@ const deleteSavedQuery = async (params: { baseId: string; queryId: string; user:
 
 const getPublicDashboardByToken = async (token: string): Promise<Result<PulseDashboard>> => {
   const [row] = await sql<DashboardRow[]>`
-    SELECT *
-    FROM pulse.dashboards
-    WHERE public_enabled = TRUE
-      AND (public_token = ${token} OR public_token_hash = ${tokenHash(token)})
+    SELECT d.*
+    FROM pulse.dashboards d
+    JOIN pulse.bases b ON b.id = d.base_id
+    WHERE d.public_enabled = TRUE
+      AND b.deletion_started_at IS NULL
+      AND (d.public_token = ${token} OR d.public_token_hash = ${tokenHash(token)})
   `;
   return row ? ok(mapDashboard(row)) : fail(err.notFound("Pulse dashboard"));
 };
@@ -909,6 +1562,8 @@ const createSource = async (params: {
 }): Promise<Result<PulseSource>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "write");
   if (!access.ok) return fail(access.error);
+  const active = await requireBaseActive(params.baseId);
+  if (!active.ok) return fail(active.error);
 
   const encryptedBearer = params.bearerToken?.trim() ? await encryptSecret(params.bearerToken.trim()) : null;
   const endpointUrl = normalizeEndpointUrl(params.endpointUrl);
@@ -940,6 +1595,8 @@ const createSource = async (params: {
 const removeSource = async (params: { baseId: string; sourceId: string; user: UserScope }): Promise<Result<void>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "write");
   if (!access.ok) return fail(access.error);
+  const active = await requireBaseActive(params.baseId);
+  if (!active.ok) return fail(active.error);
   const result = await sql`
     DELETE FROM pulse.sources
     WHERE id = ${params.sourceId}::uuid
@@ -961,6 +1618,8 @@ const updateSource = async (params: {
 }): Promise<Result<PulseSource>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "write");
   if (!access.ok) return fail(access.error);
+  const active = await requireBaseActive(params.baseId);
+  if (!active.ok) return fail(active.error);
   const [existing] = await sql<SourceRow[]>`
     SELECT *
     FROM pulse.sources
@@ -1051,6 +1710,8 @@ const createSourceApiKey = async (params: {
 }): Promise<Result<{ credential: PulseSourceApiKey; token: string }>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "admin");
   if (!access.ok) return fail(access.error);
+  const active = await requireBaseActive(params.baseId);
+  if (!active.ok) return fail(active.error);
   const source = await ensureHttpIngestSource({ baseId: params.baseId, sourceId: params.sourceId });
   if (!source.ok) return fail(source.error);
   const name = params.name.trim();
@@ -1091,6 +1752,8 @@ const removeSourceApiKey = async (params: {
 }): Promise<Result<void>> => {
   const access = await requireBaseAccess(params.baseId, params.user, "admin");
   if (!access.ok) return fail(access.error);
+  const active = await requireBaseActive(params.baseId);
+  if (!active.ok) return fail(active.error);
   const keys = await listSourceApiKeys(params);
   if (!keys.ok) return fail(keys.error);
   if (!keys.data.some((key) => key.id === params.credentialId)) return fail(err.notFound("API key"));
@@ -1107,11 +1770,18 @@ const resolveIngestSourceForServiceAccount = async (serviceAccount: ServiceAccou
     return fail(err.forbidden("API key is not bound to a Pulse ingest source"));
   }
   const [source] = await sql<{ id: string; base_id: string }[]>`
-    SELECT id, base_id
-    FROM pulse.sources
-    WHERE id = ${serviceAccount.resourceId}::uuid
-      AND kind = 'http_ingest'::pulse.source_kind
-      AND enabled = TRUE
+    SELECT s.id, s.base_id
+    FROM pulse.sources s
+    JOIN pulse.bases b ON b.id = s.base_id
+    WHERE s.id = ${serviceAccount.resourceId}::uuid
+      AND s.kind = 'http_ingest'::pulse.source_kind
+      AND s.enabled = TRUE
+      AND b.deletion_started_at IS NULL
+      AND (
+        b.data_clear_started_at IS NULL
+        OR b.data_clear_completed_at IS NOT NULL
+        OR b.data_clear_failed_at IS NOT NULL
+      )
   `;
   return source ? ok({ id: source.id, baseId: source.base_id }) : fail(err.notFound("Ingest source"));
 };
@@ -1277,6 +1947,8 @@ const ingestBatch = async (params: {
 }): Promise<Result<{ metrics: number; events: number; states: number }>> => {
   const requestedCount = (params.batch.metrics?.length ?? 0) + (params.batch.events?.length ?? 0) + (params.batch.states?.length ?? 0);
   if (requestedCount === 0) return fail(err.badInput("Ingest batch is empty"));
+  const active = await requireBaseActive(params.baseId);
+  if (!active.ok) return fail(active.error);
 
   let metrics = 0;
   let events = 0;
@@ -1831,12 +2503,19 @@ export const scrapeMetricsSource = async (params: {
 }): Promise<Result<{ metrics: number; events: number; states: number }>> => {
   const startedAt = new Date();
   const [source] = await sql<{ endpoint_url: string | null; bearer_token_encrypted: string | null }[]>`
-    SELECT endpoint_url, bearer_token_encrypted
-    FROM pulse.sources
-    WHERE id = ${params.sourceId}::uuid
-      AND base_id = ${params.baseId}::uuid
-      AND kind = 'metrics'::pulse.source_kind
-      AND enabled = TRUE
+    SELECT s.endpoint_url, s.bearer_token_encrypted
+    FROM pulse.sources s
+    JOIN pulse.bases b ON b.id = s.base_id
+    WHERE s.id = ${params.sourceId}::uuid
+      AND s.base_id = ${params.baseId}::uuid
+      AND s.kind = 'metrics'::pulse.source_kind
+      AND s.enabled = TRUE
+      AND b.deletion_started_at IS NULL
+      AND (
+        b.data_clear_started_at IS NULL
+        OR b.data_clear_completed_at IS NOT NULL
+        OR b.data_clear_failed_at IS NOT NULL
+      )
   `;
   if (!source?.endpoint_url) {
     const message = "Metrics source is missing or disabled";
@@ -2507,6 +3186,8 @@ export const pulseService = {
     create: createBase,
     get: getBase,
     update: updateBase,
+    remove: deleteBase,
+    clearData: clearBaseData,
     access: {
       require: requireBaseAccess,
       list: listBaseAccess,

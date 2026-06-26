@@ -26,6 +26,49 @@ export const migrate = async (): Promise<void> => {
     END $$
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_bases_created_by ON pulse.bases(created_by)`.simple();
+  await sql`ALTER TABLE pulse.bases ADD COLUMN IF NOT EXISTS deletion_started_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE pulse.bases ADD COLUMN IF NOT EXISTS deletion_failed_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE pulse.bases ADD COLUMN IF NOT EXISTS deletion_error TEXT`.simple();
+  await sql`ALTER TABLE pulse.bases ADD COLUMN IF NOT EXISTS data_clear_started_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE pulse.bases ADD COLUMN IF NOT EXISTS data_clear_completed_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE pulse.bases ADD COLUMN IF NOT EXISTS data_clear_failed_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE pulse.bases ADD COLUMN IF NOT EXISTS data_clear_error TEXT`.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_pulse_bases_active_updated
+    ON pulse.bases(updated_at DESC)
+    WHERE deletion_started_at IS NULL
+  `.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS pulse.base_deletions (
+      base_id UUID PRIMARY KEY REFERENCES pulse.bases(id) ON DELETE CASCADE,
+      requested_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'deleting', 'failed')),
+      phase TEXT NOT NULL DEFAULT 'queued',
+      deleted_rows BIGINT NOT NULL DEFAULT 0,
+      last_batch_rows INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_base_deletions_status ON pulse.base_deletions(status, updated_at)`.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS pulse.base_data_clears (
+      base_id UUID PRIMARY KEY REFERENCES pulse.bases(id) ON DELETE CASCADE,
+      requested_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'clearing', 'failed', 'completed')),
+      phase TEXT NOT NULL DEFAULT 'queued',
+      deleted_rows BIGINT NOT NULL DEFAULT 0,
+      last_batch_rows INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      completed_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_base_data_clears_status ON pulse.base_data_clears(status, updated_at)`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.base_access (

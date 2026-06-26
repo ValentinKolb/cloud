@@ -22,6 +22,13 @@ export type PulseBase = {
   description: string | null;
   retentionDays: number;
   createdBy: string | null;
+  deletionStartedAt: string | null;
+  deletionFailedAt: string | null;
+  deletionError: string | null;
+  dataClearStartedAt: string | null;
+  dataClearCompletedAt: string | null;
+  dataClearFailedAt: string | null;
+  dataClearError: string | null;
   createdAt: string;
   updatedAt: string;
 };

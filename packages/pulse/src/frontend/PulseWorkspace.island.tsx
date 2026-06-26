@@ -8,6 +8,7 @@ import {
   FilterChip,
   MarkdownView,
   NumberInput,
+  Panes,
   PanelDialog,
   panelDialogOptions,
   PermissionEditor,
@@ -18,6 +19,7 @@ import {
   TextInput,
   toast,
   type DataTableColumn,
+  type PanesValue,
   type ResourceApiKey,
 } from "@valentinkolb/cloud/ui";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
@@ -63,7 +65,7 @@ import ResourceBrowserView from "./workspace/ResourceBrowserView";
 import ResourceDetailView from "./workspace/ResourceDetailView";
 import SourceDetailView from "./workspace/SourceDetailView";
 import { navigatePulseWorkspace, replacePulseWorkspaceUrl } from "./workspace/navigation";
-import { buildPulseWorkspaceHref } from "./workspace/routes";
+import { buildPulseWorkspaceHref, readResourceQueryState } from "./workspace/routes";
 import {
   DASHBOARD_REFRESH_OPTIONS,
   FOCUSED_PAGE_SIZE,
@@ -124,6 +126,36 @@ import type {
   WorkspaceView,
 } from "./workspace/types";
 
+const createPulseListDetailPanesValue = (): PanesValue => ({
+  root: {
+    type: "split",
+    id: "pulse-list-detail-root",
+    direction: "horizontal",
+    sizes: [68, 32],
+    children: [
+      {
+        type: "leaf",
+        id: "list",
+        elementIds: ["list"],
+        activeElementId: "list",
+        presentation: "single",
+      },
+      {
+        type: "leaf",
+        id: "detail",
+        elementIds: ["detail"],
+        activeElementId: "detail",
+        presentation: "single",
+      },
+    ],
+  },
+});
+
+type SignalCatalogKind = "events" | "states" | "metrics";
+
+const signalCatalogKindForView = (view: WorkspaceView): SignalCatalogKind =>
+  view === "activity-states" ? "states" : view === "activity-metrics" ? "metrics" : "events";
+
 export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const initialBaseId = props.initialBaseId ?? props.initialBases[0]?.id ?? "";
   const initialRouteState = props.initialRouteState ?? { view: "resources" as const, dashboardId: "", sourceId: "", signalId: "" };
@@ -132,6 +164,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     props.initialDashboards?.[0]?.id ??
     initialRouteState.dashboardId;
   const initialActivityQuery = props.initialActivityQuery ?? readActivityQueryState(props.initialSearch ?? "");
+  const initialResourceQuery = props.initialResourceQuery ?? readResourceQueryState(props.initialSearch ?? "");
   const initialFocusedSearch = new URLSearchParams(props.initialSearch ?? "").get("q")?.trim() ?? "";
   const [bases, setBases] = createSignal(props.initialBases);
   const [selectedBaseId, setSelectedBaseId] = createSignal(initialBaseId);
@@ -141,7 +174,9 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const [sourceSearch, setSourceSearch] = createSignal("");
   const [metrics, setMetrics] = createSignal<PulseMetricSummary[]>(props.initialMetrics ?? []);
   const [inventory, setInventory] = createSignal<PulseInventory>(props.initialInventory ?? { resources: [], metrics: [], events: [], states: [] });
-  const [resourceSearch, setResourceSearch] = createSignal("");
+  const [resourceSearch, setResourceSearch] = createSignal(initialResourceQuery.q);
+  const [resourceSourceFilter, setResourceSourceFilter] = createSignal(initialResourceQuery.sourceId);
+  const [resourceTypeFilter, setResourceTypeFilter] = createSignal(initialResourceQuery.type);
   const [selectedResourceKey, setSelectedResourceKey] = createSignal(
     initialRouteState.view === "resource-detail" ? initialRouteState.signalId : (props.initialInventory?.resources[0]?.key ?? ""),
   );
@@ -155,6 +190,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const [activeView, setActiveView] = createSignal<WorkspaceView>(initialRouteState.view);
   const [selectedMetric, setSelectedMetric] = createSignal(props.initialMetrics?.[0]?.name ?? "");
   const [selectedSourceId, setSelectedSourceId] = createSignal(initialRouteState.sourceId);
+  const [sourcePanesValue, setSourcePanesValue] = createSignal<PanesValue>(createPulseListDetailPanesValue());
   const [selectedQuerySourceId, setSelectedQuerySourceId] = createSignal("");
   const [activitySearch, setActivitySearch] = createSignal(initialActivityQuery.q);
   const [metricTypeFilter, setMetricTypeFilter] = createSignal<"" | MetricType>(initialActivityQuery.type);
@@ -168,6 +204,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const [selectedFocusedSeriesId, setSelectedFocusedSeriesId] = createSignal("");
   const [selectedFocusedStateId, setSelectedFocusedStateId] = createSignal("");
   const [selectedFocusedEventId, setSelectedFocusedEventId] = createSignal("");
+  const [focusedPanesValue, setFocusedPanesValue] = createSignal<PanesValue>(createPulseListDetailPanesValue());
   const [selectedSeriesId, setSelectedSeriesId] = createSignal("");
   const [selectedVisual, setSelectedVisual] = createSignal<PanelVisual>("line");
   const [selectedAggregation, setSelectedAggregation] = createSignal<Aggregation>("avg");
@@ -279,16 +316,18 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     return values.some((value) => value?.toLowerCase().includes(needle));
   };
   const filteredResources = createMemo(() =>
-    inventory().resources.filter((resource) =>
-      resourceMatches([
+    inventory().resources.filter((resource) => {
+      if (resourceSourceFilter() && !resource.sourceIds.includes(resourceSourceFilter())) return false;
+      if (resourceTypeFilter() && (resource.type ?? "resource") !== resourceTypeFilter()) return false;
+      return resourceMatches([
         resource.id,
         resource.label,
         resource.type,
         ...resource.sourceIds.map((sourceId) => sourceNameById().get(sourceId) ?? sourceId),
         ...Object.keys(resource.dimensions),
         ...Object.values(resource.dimensions),
-      ]),
-    ),
+      ]);
+    }),
   );
   const visibleSelectedResource = createMemo(() => {
     const selected = selectedResource();
@@ -846,6 +885,11 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         q: activitySearch(),
         type: metricTypeFilter(),
       },
+      resources: {
+        q: resourceSearch(),
+        sourceId: resourceSourceFilter(),
+        type: resourceTypeFilter(),
+      },
       focusedSearch: focusedSearch(),
     });
   };
@@ -863,6 +907,11 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       activity: {
         q: activitySearch(),
         type: metricTypeFilter(),
+      },
+      resources: {
+        q: resourceSearch(),
+        sourceId: resourceSourceFilter(),
+        type: resourceTypeFilter(),
       },
       focusedSearch: focusedSearch(),
     };
@@ -977,11 +1026,86 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
           const revokeAccess = (accessId: string) => jsonFetch<void>(`/api/pulse/access/${accessId}`, { method: "DELETE" });
 
-          const cannotDeleteYet = async () => {
-            await prompts.alert("Pulse base deletion is not available yet. Remove sources or revoke access instead.", {
-              title: "Deletion unavailable",
-              icon: "ti ti-alert-triangle",
-            });
+          const clearBaseData = async () => {
+            const confirmed = await prompts.confirm(
+              `Clear all metrics, events, states, observed resources, and scrape history from "${base.name}"? Sources, API keys, dashboards, saved queries, access, and settings will be kept.`,
+              {
+                title: "Clear Pulse data",
+                variant: "danger",
+                confirmText: "Clear data",
+              },
+            );
+            if (!confirmed) return;
+
+            setLoading(true);
+            try {
+              await jsonFetch<void>(`/api/pulse/bases/${base.id}/clear-data`, { method: "POST" });
+              setSelectedMetric("");
+              setSelectedResourceKey("");
+              setRecentEvents([]);
+              setCurrentStates([]);
+              setActivityMetrics([]);
+              setMetrics([]);
+              setSeries([]);
+              setSourceScrapes({});
+              setInventory({ resources: [], metrics: [], events: [], states: [] });
+              setSources((items) => items.map((item) => ({ ...item, lastSeenAt: null, lastError: null, lastErrorAt: null })));
+              toast.success("Pulse data clear started");
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "Could not clear Pulse data");
+            } finally {
+              setLoading(false);
+            }
+          };
+
+          const deleteBase = async () => {
+            const confirmed = await prompts.confirm(
+              `Delete "${base.name}" and all Pulse data in this base? This cannot be undone. Large bases are removed in the background.`,
+              {
+                title: "Delete Pulse base",
+                variant: "danger",
+                confirmText: "Delete",
+              },
+            );
+            if (!confirmed) return;
+
+            setLoading(true);
+            try {
+              await jsonFetch<void>(`/api/pulse/bases/${base.id}`, { method: "DELETE" });
+              const nextBases = bases().filter((item) => item.id !== base.id);
+              const nextBase = nextBases[0] ?? null;
+              setBases(nextBases);
+              setSelectedBaseId(nextBase?.id ?? "");
+              setSelectedSourceId("");
+              setSelectedMetric("");
+              setSelectedDashboardId("");
+              setSelectedResourceKey("");
+              setRecentEvents([]);
+              setCurrentStates([]);
+              setActivityMetrics([]);
+              setSeries([]);
+              setSourceScrapes({});
+              setSourceApiKeys({});
+
+              if (nextBase) {
+                navigatePulseWorkspace({ baseId: nextBase.id, state: { view: "resources" } });
+                await loadBaseData(nextBase.id);
+              } else {
+                setSources([]);
+                setMetrics([]);
+                setInventory({ resources: [], metrics: [], events: [], states: [] });
+                setDashboards([]);
+                setSavedQueries([]);
+                navigatePulseWorkspace({ baseId: "", state: { view: "resources" } });
+              }
+
+              close();
+              toast.success("Pulse base deletion started");
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "Could not delete Pulse base");
+            } finally {
+              setLoading(false);
+            }
           };
 
           return (
@@ -1083,11 +1207,18 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
                   tone="danger"
                   description="Destructive actions for this Pulse base."
                 >
-                  <div class="info-block-warning mb-4">
-                    Pulse base deletion is not wired yet. Source removal and access changes are available from the regular workspace
-                    controls.
+                  <div class="info-block-warning mb-3">
+                    Clearing data removes observed metrics, events, states, resources, and scrape history. Sources, API keys, dashboards, saved
+                    queries, access, and settings are kept.
                   </div>
-                  <button type="button" class="btn-danger btn-sm" onClick={() => void cannotDeleteYet()}>
+                  <button type="button" class="btn-danger btn-sm mb-5" disabled={loading()} onClick={() => void clearBaseData()}>
+                    <i class="ti ti-eraser text-sm" />
+                    Clear all telemetry data
+                  </button>
+                  <div class="info-block-warning mb-3">
+                    Deleting this Pulse base removes its sources, dashboards, saved queries, metrics, events, states, and ingest keys.
+                  </div>
+                  <button type="button" class="btn-danger btn-sm" disabled={loading()} onClick={() => void deleteBase()}>
                     <i class="ti ti-trash text-sm" />
                     Delete Pulse base
                   </button>
@@ -2411,6 +2542,11 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     navigateWorkspace({ view }, "replace");
   };
 
+  const replaceResourceUrl = () => {
+    if (activeView() !== "resources") return;
+    navigateWorkspace({ view: "resources" }, "replace");
+  };
+
   const updateActivitySearch = (value: string) => {
     setActivitySearch(value);
     replaceActivityUrl();
@@ -2419,6 +2555,27 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const updateMetricTypeFilter = (value: string[]) => {
     setMetricTypeFilter((value[0] ?? "") as "" | MetricType);
     replaceActivityUrl();
+  };
+
+  const updateResourceSearch = (value: string) => {
+    setResourceSearch(value);
+    replaceResourceUrl();
+  };
+
+  const updateResourceSourceFilter = (value: string[]) => {
+    setResourceSourceFilter(value[0] ?? "");
+    replaceResourceUrl();
+  };
+
+  const updateResourceTypeFilter = (value: string[]) => {
+    setResourceTypeFilter(value[0] ?? "");
+    replaceResourceUrl();
+  };
+
+  const clearResourceFilters = () => {
+    setResourceSourceFilter("");
+    setResourceTypeFilter("");
+    replaceResourceUrl();
   };
 
   const renderDashboardConfigContent = (config: () => PulseDashboardConfig | null, options: { removable?: boolean } = {}) => {
@@ -2967,6 +3124,33 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     </div>
   );
 
+  const signalCatalogTabs = (activeKind: SignalCatalogKind) => [
+    { kind: "events" as const, label: "Events", icon: "ti ti-bolt", count: eventGroups().length, open: openActivityEvents },
+    { kind: "states" as const, label: "States", icon: "ti ti-toggle-right", count: stateGroups().length, open: openActivityStates },
+    { kind: "metrics" as const, label: "Metrics", icon: "ti ti-chart-dots", count: activityMetrics().length, open: openActivityMetrics },
+  ].map((tab) => ({ ...tab, active: tab.kind === activeKind }));
+
+  const signalCatalogTabClass = (active: boolean) =>
+    `inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition ${
+      active
+        ? "bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-200"
+        : "bg-zinc-100/70 text-secondary hover:bg-zinc-100 hover:text-primary dark:bg-zinc-900/60 dark:hover:bg-zinc-900"
+    }`;
+
+  const renderSignalCatalogTabs = (kind: SignalCatalogKind) => (
+    <div class="flex shrink-0 flex-wrap items-center gap-2">
+      <For each={signalCatalogTabs(kind)}>
+        {(tab) => (
+          <button type="button" class={signalCatalogTabClass(tab.active)} aria-current={tab.active ? "page" : undefined} onClick={tab.open}>
+            <i class={tab.icon} />
+            <span>{tab.label}</span>
+            <span class="text-dimmed">{tab.count}</span>
+          </button>
+        )}
+      </For>
+    </div>
+  );
+
   const openSourceFromDetail = (sourceId: string | null | undefined) => {
     if (!sourceId) return;
     setSelectedSourceId(sourceId);
@@ -3009,7 +3193,8 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     resource.sourceIds.map((sourceId) => sourceNameById().get(sourceId) ?? "Unknown source").join(", ") || "No source";
 
   const openSourceResources = (source: PulseSource) => {
-    setResourceSearch(source.name);
+    setResourceSearch("");
+    setResourceSourceFilter(source.id);
     navigateWorkspace({ view: "resources" });
   };
 
@@ -3021,16 +3206,22 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   });
 
   const renderResourceBrowserView = () => (
-      <ResourceBrowserView
+    <ResourceBrowserView
       search={resourceSearch}
-      setSearch={setResourceSearch}
+      setSearch={updateResourceSearch}
+      sourceFilter={resourceSourceFilter}
+      setSourceFilter={updateResourceSourceFilter}
+      typeFilter={resourceTypeFilter}
+      setTypeFilter={updateResourceTypeFilter}
+      clearFilters={clearResourceFilters}
       inventory={inventory}
       filteredResources={filteredResources}
-        selectedResource={visibleSelectedResource}
-        dateContext={pulseDateContext()}
-        openResource={openResourceDetailView}
-        resourceSourceLabel={resourceSourceLabel}
-      />
+      selectedResource={visibleSelectedResource}
+      dateContext={pulseDateContext()}
+      openResource={openResourceDetailView}
+      resourceSourceLabel={resourceSourceLabel}
+      sourceNameById={sourceNameById}
+    />
   );
 
   const renderResourceDetailView = () => {
@@ -3061,8 +3252,55 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     );
   };
 
+  const renderSelectedSourceDetail = () => (
+    <Show when={selectedSource()} keyed fallback={<div class="paper h-full p-4 text-sm text-dimmed">Select a source.</div>}>
+      {(source) => (
+        <SourceDetailView
+          source={source}
+          published={sourcePublishedCounts(source.id)}
+          origin={origin()}
+          dateContext={pulseDateContext()}
+          loading={loading()}
+          scrapes={selectedSourceScrapes()}
+          apiKeys={selectedSourceApiKeys()}
+          scrapeColumns={sourceScrapeColumns}
+          renderScrapeCell={renderSourceScrapeCell}
+          copySetupText={copySetupText}
+          openSourceResources={openSourceResources}
+          editSource={editSource}
+          toggleSource={toggleSource}
+          close={() => {
+            setSelectedSourceId("");
+            navigateWorkspace({ view: "sources" });
+          }}
+          scrape={scrape}
+          removeSource={removeSource}
+          createApiKey={async (input) => {
+            const baseId = selectedBaseId();
+            if (!baseId) throw new Error("No Pulse base selected.");
+            const created = await jsonFetch<{ credential: ResourceApiKey; token: string }>(`/api/pulse/bases/${baseId}/sources/${source.id}/api-keys`, {
+              method: "POST",
+              body: JSON.stringify(input),
+            });
+            setSourceApiKeys((current) => ({ ...current, [source.id]: [created.credential, ...(current[source.id] ?? [])] }));
+            return created;
+          }}
+          revokeApiKey={async (credentialId) => {
+            const baseId = selectedBaseId();
+            if (!baseId) throw new Error("No Pulse base selected.");
+            await jsonFetch<void>(`/api/pulse/bases/${baseId}/sources/${source.id}/api-keys/${credentialId}`, { method: "DELETE" });
+            setSourceApiKeys((current) => ({
+              ...current,
+              [source.id]: (current[source.id] ?? []).filter((key) => key.id !== credentialId),
+            }));
+          }}
+        />
+      )}
+    </Show>
+  );
+
   const renderSourcesView = () => (
-    <section class="flex min-h-0 flex-1 flex-col gap-3">
+    <section class="flex min-h-0 flex-1 flex-col gap-3 pb-2">
       <div class="flex shrink-0 flex-wrap items-center gap-2">
         <div class="min-w-64 flex-1">
           <TextInput
@@ -3078,19 +3316,38 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           <i class="ti ti-plus" /> Source
         </button>
       </div>
-      <DataTable
-        rows={filteredSources()}
-        columns={sourceColumns}
-        getRowId={(source) => source.id}
-        selectedRowId={selectedSourceId() || null}
-        onRowClick={selectSource}
-        density="compact"
-        fillHeight
-        class="paper flex-1 min-h-0 overflow-auto"
-        empty="No sources yet."
-        scrollPreserveKey="pulse-sources-table"
-        renderCell={({ row: source, col, render }) => renderSourceCell(source, col, render)}
-      />
+      <section class="h-[min(72vh,54rem)] min-h-[32rem] shrink-0 overflow-hidden">
+        <Panes.Root
+          value={sourcePanesValue()}
+          onChange={setSourcePanesValue}
+          class="h-full min-h-0"
+          allowMove={false}
+          allowReorder={false}
+          allowHorizontalSplit={false}
+          allowVerticalSplit={false}
+        >
+          <Panes.Element id="list" title="Sources" icon="ti-database-share">
+            <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
+              <DataTable
+                rows={filteredSources()}
+                columns={sourceColumns}
+                getRowId={(source) => source.id}
+                selectedRowId={selectedSourceId() || null}
+                onRowClick={selectSource}
+                density="compact"
+                fillHeight
+                class="min-h-0 flex-1 overflow-auto"
+                empty="No sources yet."
+                scrollPreserveKey="pulse-sources-table"
+                renderCell={({ row: source, col, render }) => renderSourceCell(source, col, render)}
+              />
+            </div>
+          </Panes.Element>
+          <Panes.Element id="detail" title="Detail" icon="ti-info-circle">
+            <div class="h-full min-h-0 overflow-auto">{renderSelectedSourceDetail()}</div>
+          </Panes.Element>
+        </Panes.Root>
+      </section>
     </section>
   );
 
@@ -3111,7 +3368,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         : `event · ${rowsLabel}`;
 
     return (
-      <section class="flex min-h-0 flex-1 flex-col gap-3">
+      <section class="flex min-h-0 flex-1 flex-col gap-3 pb-2">
         <div class="paper shrink-0 p-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0">
@@ -3170,60 +3427,120 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           </span>
         </div>
 
-        <Show when={isMetric}>
-          <DataTable
-            rows={focusedMetricSeries()}
-            columns={metricSeriesColumns}
-            getRowId={(item) => item.id}
-            selectedRowId={selectedFocusedSeries()?.id ?? null}
-            onRowClick={(item) => setSelectedFocusedSeriesId(item.id)}
-            density="compact"
-            fillHeight
-            class="paper flex-1 min-h-0 overflow-auto"
-            empty="No variants found."
-            hasMore={focusedHasMore()}
-            loadingMore={focusedLoadingMore()}
-            onLoadMore={() => void loadFocusedRows({ append: true })}
-            scrollPreserveKey={`pulse-focused-metric-${signalId}`}
-            renderCell={({ row, col, render }) => renderMetricSeriesCell(row, col, render)}
-          />
-        </Show>
-        <Show when={isState}>
-          <DataTable
-            rows={focusedStates()}
-            columns={stateColumns}
-            getRowId={stateRowId}
-            selectedRowId={selectedFocusedState() ? stateRowId(selectedFocusedState()!) : null}
-            onRowClick={(state) => setSelectedFocusedStateId(stateRowId(state))}
-            density="compact"
-            fillHeight
-            class="paper flex-1 min-h-0 overflow-auto"
-            empty="No state variants found."
-            hasMore={focusedHasMore()}
-            loadingMore={focusedLoadingMore()}
-            onLoadMore={() => void loadFocusedRows({ append: true })}
-            scrollPreserveKey={`pulse-focused-state-${signalId}`}
-            renderCell={({ row, col, render }) => renderStateCell(row, col, render)}
-          />
-        </Show>
-        <Show when={view === "event-detail"}>
-          <DataTable
-            rows={focusedEvents()}
-            columns={eventColumns}
-            getRowId={(event) => event.id}
-            selectedRowId={selectedFocusedEvent()?.id ?? null}
-            onRowClick={(event) => setSelectedFocusedEventId(event.id)}
-            density="compact"
-            fillHeight
-            class="paper flex-1 min-h-0 overflow-auto"
-            empty="No events found."
-            hasMore={focusedHasMore()}
-            loadingMore={focusedLoadingMore()}
-            onLoadMore={() => void loadFocusedRows({ append: true })}
-            scrollPreserveKey={`pulse-focused-event-${signalId}`}
-            renderCell={({ row, col, render }) => renderEventCell(row, col, render)}
-          />
-        </Show>
+        <section class="h-[min(68vh,54rem)] min-h-[32rem] shrink-0 overflow-hidden">
+          <Panes.Root
+            value={focusedPanesValue()}
+            onChange={setFocusedPanesValue}
+            class="h-full min-h-0"
+            allowMove={false}
+            allowReorder={false}
+            allowHorizontalSplit={false}
+            allowVerticalSplit={false}
+          >
+            <Panes.Element id="list" title={isMetric || isState ? "Variants" : "Events"} icon={isMetric ? "ti-stack-3" : isState ? "ti-toggle-right" : "ti-bolt"}>
+              <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
+                <Show when={isMetric}>
+                  <DataTable
+                    rows={focusedMetricSeries()}
+                    columns={metricSeriesColumns}
+                    getRowId={(item) => item.id}
+                    selectedRowId={selectedFocusedSeries()?.id ?? null}
+                    onRowClick={(item) => setSelectedFocusedSeriesId(item.id)}
+                    density="compact"
+                    fillHeight
+                    class="min-h-0 flex-1 overflow-auto"
+                    empty="No variants found."
+                    hasMore={focusedHasMore()}
+                    loadingMore={focusedLoadingMore()}
+                    onLoadMore={() => void loadFocusedRows({ append: true })}
+                    scrollPreserveKey={`pulse-focused-metric-${signalId}`}
+                    renderCell={({ row, col, render }) => renderMetricSeriesCell(row, col, render)}
+                  />
+                </Show>
+                <Show when={isState}>
+                  <DataTable
+                    rows={focusedStates()}
+                    columns={stateColumns}
+                    getRowId={stateRowId}
+                    selectedRowId={selectedFocusedState() ? stateRowId(selectedFocusedState()!) : null}
+                    onRowClick={(state) => setSelectedFocusedStateId(stateRowId(state))}
+                    density="compact"
+                    fillHeight
+                    class="min-h-0 flex-1 overflow-auto"
+                    empty="No state variants found."
+                    hasMore={focusedHasMore()}
+                    loadingMore={focusedLoadingMore()}
+                    onLoadMore={() => void loadFocusedRows({ append: true })}
+                    scrollPreserveKey={`pulse-focused-state-${signalId}`}
+                    renderCell={({ row, col, render }) => renderStateCell(row, col, render)}
+                  />
+                </Show>
+                <Show when={view === "event-detail"}>
+                  <DataTable
+                    rows={focusedEvents()}
+                    columns={eventColumns}
+                    getRowId={(event) => event.id}
+                    selectedRowId={selectedFocusedEvent()?.id ?? null}
+                    onRowClick={(event) => setSelectedFocusedEventId(event.id)}
+                    density="compact"
+                    fillHeight
+                    class="min-h-0 flex-1 overflow-auto"
+                    empty="No events found."
+                    hasMore={focusedHasMore()}
+                    loadingMore={focusedLoadingMore()}
+                    onLoadMore={() => void loadFocusedRows({ append: true })}
+                    scrollPreserveKey={`pulse-focused-event-${signalId}`}
+                    renderCell={({ row, col, render }) => renderEventCell(row, col, render)}
+                  />
+                </Show>
+              </div>
+            </Panes.Element>
+
+            <Panes.Element id="detail" title="Detail" icon="ti-info-circle">
+              <div class="h-full min-h-0 overflow-auto">
+                {isMetric ? (
+                  <Show when={selectedFocusedSeries()} keyed fallback={<div class="paper h-full p-4 text-sm text-dimmed">Select a metric variant.</div>}>
+                    {(item) => (
+                      <FocusedMetricSeriesDetail
+                        item={item}
+                        metricName={focusedSignalId()}
+                        sourceId={item.sourceId}
+                        sourceNameById={sourceNameById}
+                        dateContext={pulseDateContext()}
+                        metricUnit={focusedMetric()?.unit ?? null}
+                        openSource={openSourceFromDetail}
+                      />
+                    )}
+                  </Show>
+                ) : isState ? (
+                  <Show when={selectedFocusedState()} keyed fallback={<div class="paper h-full p-4 text-sm text-dimmed">Select a state variant.</div>}>
+                    {(state) => (
+                      <FocusedStateDetail
+                        state={state}
+                        sourceId={state.sourceId}
+                        sourceNameById={sourceNameById}
+                        dateContext={pulseDateContext()}
+                        openSource={openSourceFromDetail}
+                      />
+                    )}
+                  </Show>
+                ) : (
+                  <Show when={selectedFocusedEvent()} keyed fallback={<div class="paper h-full p-4 text-sm text-dimmed">Select an event.</div>}>
+                    {(event) => (
+                      <FocusedEventDetail
+                        event={event}
+                        sourceId={event.sourceId}
+                        sourceNameById={sourceNameById}
+                        dateContext={pulseDateContext()}
+                        openSource={openSourceFromDetail}
+                      />
+                    )}
+                  </Show>
+                )}
+              </div>
+            </Panes.Element>
+          </Panes.Root>
+        </section>
       </section>
     );
   };
@@ -3870,47 +4187,42 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     </section>
   );
 
-  const renderActivityEventsView = () => (
-    <section class="flex min-h-0 flex-1 flex-col gap-3">
-      <div class="flex flex-wrap items-center gap-2">{renderActivityToolbar("events")}</div>
-      <DataTable
-        rows={eventGroups()}
-        columns={eventGroupColumns}
-        getRowId={(group) => group.id}
-        selectedRowId={null}
-        onRowClick={(group) => openEventDetailView(group.kind)}
-        density="compact"
-        fillHeight
-        class="paper flex-1 min-h-0 overflow-auto"
-        empty="No events ingested yet."
-        scrollPreserveKey="pulse-activity-events"
-        renderCell={({ row, col, render }) => renderEventGroupCell(row, col, render)}
-      />
-    </section>
-  );
-
-  const renderActivityStatesView = () => (
-    <section class="flex min-h-0 flex-1 flex-col gap-3">
-      <div class="flex flex-wrap items-center gap-2">{renderActivityToolbar("states")}</div>
-      <DataTable
-        rows={stateGroups()}
-        columns={stateGroupColumns}
-        getRowId={(group) => group.id}
-        selectedRowId={null}
-        onRowClick={(group) => openStateDetailView(group.key)}
-        density="compact"
-        fillHeight
-        class="paper flex-1 min-h-0 overflow-auto"
-        empty="No states ingested yet."
-        scrollPreserveKey="pulse-activity-states"
-        renderCell={({ row, col, render }) => renderStateGroupCell(row, col, render)}
-      />
-    </section>
-  );
-
-  const renderActivityMetricsView = () => (
-    <section class="flex min-h-0 flex-1 flex-col gap-3">
-      <div class="flex flex-wrap items-center gap-2">{renderActivityToolbar("metrics")}</div>
+  const renderSignalCatalogTable = (kind: SignalCatalogKind) => {
+    if (kind === "events") {
+      return (
+        <DataTable
+          rows={eventGroups()}
+          columns={eventGroupColumns}
+          getRowId={(group) => group.id}
+          selectedRowId={null}
+          onRowClick={(group) => openEventDetailView(group.kind)}
+          density="compact"
+          fillHeight
+          class="paper flex-1 min-h-0 overflow-auto"
+          empty="No events ingested yet."
+          scrollPreserveKey="pulse-signals-events"
+          renderCell={({ row, col, render }) => renderEventGroupCell(row, col, render)}
+        />
+      );
+    }
+    if (kind === "states") {
+      return (
+        <DataTable
+          rows={stateGroups()}
+          columns={stateGroupColumns}
+          getRowId={(group) => group.id}
+          selectedRowId={null}
+          onRowClick={(group) => openStateDetailView(group.key)}
+          density="compact"
+          fillHeight
+          class="paper flex-1 min-h-0 overflow-auto"
+          empty="No states ingested yet."
+          scrollPreserveKey="pulse-signals-states"
+          renderCell={({ row, col, render }) => renderStateGroupCell(row, col, render)}
+        />
+      );
+    }
+    return (
       <DataTable
         rows={activityMetrics()}
         columns={metricColumns}
@@ -3921,9 +4233,19 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         fillHeight
         class="paper flex-1 min-h-0 overflow-auto"
         empty="No metrics ingested yet."
-        scrollPreserveKey="pulse-activity-metrics"
+        scrollPreserveKey="pulse-signals-metrics"
         renderCell={({ row, col, render }) => renderMetricCell(row, col, render)}
       />
+    );
+  };
+
+  const renderSignalCatalogView = (kind: SignalCatalogKind) => (
+    <section class="flex min-h-0 flex-1 flex-col gap-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        {renderSignalCatalogTabs(kind)}
+        {renderActivityToolbar(kind)}
+      </div>
+      {renderSignalCatalogTable(kind)}
     </section>
   );
 
@@ -3974,111 +4296,9 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
                   ? renderFocusedSignalView()
                   : activeView() === "explorer"
                     ? renderMetricExplorerView()
-                    : activeView() === "activity-states"
-                      ? renderActivityStatesView()
-                      : activeView() === "activity-metrics"
-                        ? renderActivityMetricsView()
-                        : renderActivityEventsView()}
+                    : renderSignalCatalogView(signalCatalogKindForView(activeView()))}
       </AppWorkspace.Main>
 
-      <AppWorkspace.Detail
-        open={
-          (activeView() === "sources" && Boolean(selectedSource())) ||
-          (activeView() === "metric-detail" && Boolean(selectedFocusedSeries())) ||
-          (activeView() === "state-detail" && Boolean(selectedFocusedState())) ||
-          (activeView() === "event-detail" && Boolean(selectedFocusedEvent()))
-        }
-        width="lg"
-        viewTransitionName="pulse-source-detail"
-      >
-        {activeView() === "sources" ? (
-          <Show when={selectedSource()} keyed>
-            {(source) => (
-              <SourceDetailView
-                source={source}
-                published={sourcePublishedCounts(source.id)}
-                origin={origin()}
-                dateContext={pulseDateContext()}
-                loading={loading()}
-                scrapes={selectedSourceScrapes()}
-                apiKeys={selectedSourceApiKeys()}
-                scrapeColumns={sourceScrapeColumns}
-                renderScrapeCell={renderSourceScrapeCell}
-                copySetupText={copySetupText}
-                openSourceResources={openSourceResources}
-                editSource={editSource}
-                toggleSource={toggleSource}
-                close={() => {
-                  setSelectedSourceId("");
-                  navigateWorkspace({ view: "sources" });
-                }}
-                scrape={scrape}
-                removeSource={removeSource}
-                createApiKey={async (input) => {
-                  const baseId = selectedBaseId();
-                  if (!baseId) throw new Error("No Pulse base selected.");
-                  const created = await jsonFetch<{ credential: ResourceApiKey; token: string }>(
-                    `/api/pulse/bases/${baseId}/sources/${source.id}/api-keys`,
-                    {
-                      method: "POST",
-                      body: JSON.stringify(input),
-                    },
-                  );
-                  setSourceApiKeys((current) => ({ ...current, [source.id]: [created.credential, ...(current[source.id] ?? [])] }));
-                  return created;
-                }}
-                revokeApiKey={async (credentialId) => {
-                  const baseId = selectedBaseId();
-                  if (!baseId) throw new Error("No Pulse base selected.");
-                  await jsonFetch<void>(`/api/pulse/bases/${baseId}/sources/${source.id}/api-keys/${credentialId}`, { method: "DELETE" });
-                  setSourceApiKeys((current) => ({
-                    ...current,
-                    [source.id]: (current[source.id] ?? []).filter((key) => key.id !== credentialId),
-                  }));
-                }}
-              />
-            )}
-          </Show>
-        ) : activeView() === "metric-detail" ? (
-          <Show when={selectedFocusedSeries()} keyed>
-            {(item) => (
-              <FocusedMetricSeriesDetail
-                item={item}
-                metricName={focusedSignalId()}
-                sourceId={item.sourceId}
-                sourceNameById={sourceNameById}
-                dateContext={pulseDateContext()}
-                metricUnit={focusedMetric()?.unit ?? null}
-                openSource={openSourceFromDetail}
-              />
-            )}
-          </Show>
-        ) : activeView() === "state-detail" ? (
-          <Show when={selectedFocusedState()} keyed>
-            {(state) => (
-              <FocusedStateDetail
-                state={state}
-                sourceId={state.sourceId}
-                sourceNameById={sourceNameById}
-                dateContext={pulseDateContext()}
-                openSource={openSourceFromDetail}
-              />
-            )}
-          </Show>
-        ) : (
-          <Show when={selectedFocusedEvent()} keyed>
-            {(event) => (
-              <FocusedEventDetail
-                event={event}
-                sourceId={event.sourceId}
-                sourceNameById={sourceNameById}
-                dateContext={pulseDateContext()}
-                openSource={openSourceFromDetail}
-              />
-            )}
-          </Show>
-        )}
-      </AppWorkspace.Detail>
     </AppWorkspace>
   );
 }

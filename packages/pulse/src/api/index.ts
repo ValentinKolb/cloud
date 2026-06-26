@@ -316,6 +316,13 @@ const BaseSchema = z.object({
   description: z.string().nullable(),
   retentionDays: z.number(),
   createdBy: z.string().nullable(),
+  deletionStartedAt: z.string().nullable(),
+  deletionFailedAt: z.string().nullable(),
+  deletionError: z.string().nullable(),
+  dataClearStartedAt: z.string().nullable(),
+  dataClearCompletedAt: z.string().nullable(),
+  dataClearFailedAt: z.string().nullable(),
+  dataClearError: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -574,6 +581,16 @@ const app = new Hono<AuthContext>()
       return respond(c, pulseService.base.update({ baseId: baseId.value, user: c.get("user"), ...c.req.valid("json") }));
     },
   )
+  .delete("/bases/:baseId", async (c) => {
+    const baseId = requireParam(c.req.param("baseId"), "base ID");
+    if (!baseId.ok) return respond(c, baseId.result);
+    return respondMessage(c, pulseService.base.remove({ baseId: baseId.value, user: c.get("user") }), "Pulse base deletion started");
+  })
+  .post("/bases/:baseId/clear-data", async (c) => {
+    const baseId = requireParam(c.req.param("baseId"), "base ID");
+    if (!baseId.ok) return respond(c, baseId.result);
+    return respondMessage(c, pulseService.base.clearData({ baseId: baseId.value, user: c.get("user") }), "Pulse data clear started");
+  })
   .get(
     "/bases/:baseId/access",
     describeRoute({

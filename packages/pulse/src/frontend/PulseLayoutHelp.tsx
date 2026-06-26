@@ -182,7 +182,7 @@ const FeaturesTab = () => (
             ),
           },
           {
-            title: "Activity",
+            title: "Signals",
             icon: "ti-list-search",
             text: "Search events, states, and metrics by name. Filter metrics by type when you know whether the value is a gauge, counter, histogram, or summary.",
           },
@@ -328,7 +328,7 @@ export default function PulseLayoutHelp() {
         id="pulse-features"
         title="Pulse features"
         icon="ti ti-apps"
-        description="Sources, activity, dashboards, realtime, access, and retention."
+        description="Sources, signals, dashboards, realtime, access, and retention."
         order={110}
       >
         <FeaturesTab />

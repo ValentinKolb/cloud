@@ -1,7 +1,13 @@
 import { logger } from "@valentinkolb/cloud/services";
 import { job, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
-import { scrapeMetricsSource } from "./index";
+import {
+  resumePulseBaseDataClearJobs,
+  resumePulseBaseDeletionJobs,
+  scrapeMetricsSource,
+  stopPulseBaseDataClearJob,
+  stopPulseBaseDeletionJob,
+} from "./index";
 
 const log = logger("pulse:runtime");
 
@@ -119,17 +125,24 @@ let started = false;
 
 const submitDueScrapes = async (slotTs: number): Promise<{ submitted: number }> => {
   const rows = await sql<{ id: string; base_id: string }[]>`
-    SELECT id, base_id
-    FROM pulse.sources
-    WHERE kind = 'metrics'::pulse.source_kind
-      AND enabled = TRUE
-      AND endpoint_url IS NOT NULL
-      AND scrape_interval_seconds IS NOT NULL
+    SELECT s.id, s.base_id
+    FROM pulse.sources s
+    JOIN pulse.bases b ON b.id = s.base_id
+    WHERE s.kind = 'metrics'::pulse.source_kind
+      AND s.enabled = TRUE
+      AND s.endpoint_url IS NOT NULL
+      AND s.scrape_interval_seconds IS NOT NULL
+      AND b.deletion_started_at IS NULL
       AND (
-        last_seen_at IS NULL
-        OR last_seen_at <= now() - (scrape_interval_seconds * interval '1 second')
+        b.data_clear_started_at IS NULL
+        OR b.data_clear_completed_at IS NOT NULL
+        OR b.data_clear_failed_at IS NOT NULL
       )
-    ORDER BY last_seen_at NULLS FIRST, created_at ASC
+      AND (
+        s.last_seen_at IS NULL
+        OR s.last_seen_at <= now() - (s.scrape_interval_seconds * interval '1 second')
+      )
+    ORDER BY s.last_seen_at NULLS FIRST, s.created_at ASC
     LIMIT 200
   `;
 
@@ -193,6 +206,8 @@ export const pulseRuntime = {
       },
     });
     pulseScheduler.start();
+    await resumePulseBaseDeletionJobs();
+    await resumePulseBaseDataClearJobs();
     started = true;
   },
   stop: async (): Promise<void> => {
@@ -201,6 +216,8 @@ export const pulseRuntime = {
     scrapeJob.stop();
     hourlyRollupJob.stop();
     retentionJob.stop();
+    stopPulseBaseDeletionJob();
+    stopPulseBaseDataClearJob();
     started = false;
   },
 };
