@@ -3,6 +3,7 @@ import { exec, execFile, spawn } from "node:child_process";
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { promisify } from "node:util";
 import type {
   CloudCliContext,
@@ -848,9 +849,183 @@ const openBrowser = async (url: string): Promise<void> => {
   }
 };
 
+const promptToOpenBrowser = async (url: string, signal: AbortSignal): Promise<void> => {
+  if (!process.stdin.isTTY) {
+    console.log("Waiting for the OAuth callback. Open the URL above in a browser.");
+    return;
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    await rl.question("Press Enter to open this URL in your browser, or copy it into another browser.\n", { signal });
+    await openBrowser(url);
+  } catch (error) {
+    if ((error as { name?: string }).name !== "AbortError") {
+      console.error(`Warning: could not open browser: ${(error as Error).message}`);
+    }
+  } finally {
+    rl.close();
+  }
+};
+
+const escapeHtml = (value: string): string =>
+  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+const oauthCallbackPage = (options: { title: string; message: string; logoUrl: string; appTitle: string }): string => {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${escapeHtml(options.title)}</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #fafafa;
+        --panel: #f4f4f5;
+        --border: #e4e4e7;
+        --text: #18181b;
+        --muted: #71717a;
+        --accent: #2563eb;
+        --shadow: 0 16px 48px rgb(24 24 27 / 0.12);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #09090b;
+          --panel: rgb(24 24 27 / 0.62);
+          --border: #27272a;
+          --text: #fafafa;
+          --muted: #71717a;
+          --accent: #60a5fa;
+          --shadow: 0 16px 48px rgb(0 0 0 / 0.35);
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        padding: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      main {
+        width: min(100%, 460px);
+        min-height: 560px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 40px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        background: var(--panel);
+        padding: 48px 40px;
+        box-shadow: var(--shadow);
+      }
+
+      .brand-center {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        text-align: center;
+      }
+
+      .logo {
+        max-width: 112px;
+        max-height: 112px;
+        object-fit: contain;
+      }
+
+      .eyebrow {
+        margin: 0 0 18px;
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      .welcome {
+        margin: 0;
+        font-size: 34px;
+        line-height: 1.1;
+        letter-spacing: 0;
+      }
+
+      .brand-copy {
+        max-width: 340px;
+        margin-top: 22px;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.6;
+      }
+
+      @media (max-width: 720px) {
+        body {
+          padding: 16px;
+        }
+
+        main {
+          min-height: 0;
+          padding: 28px;
+        }
+
+        .brand-center {
+          min-height: 220px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand-center">
+        <img src="${escapeHtml(options.logoUrl)}" alt="${escapeHtml(options.appTitle)}" width="112" height="112" class="logo">
+      </div>
+      <div>
+        <p class="eyebrow">Secure access</p>
+        <h1 class="welcome">${escapeHtml(options.title)}</h1>
+        <p class="brand-copy">${escapeHtml(options.message)}</p>
+      </div>
+    </main>
+  </body>
+</html>`;
+};
+
+const oauthCallbackResponse = (options: { title: string; message: string; logoUrl: string; appTitle: string }, status = 200): Response =>
+  new Response(oauthCallbackPage(options), {
+    status,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "text/html; charset=utf-8",
+    },
+  });
+
 const waitForOAuthCode = async (authorizationUrl: URL, expectedState: string, open: boolean): Promise<string> => {
   let resolveCode!: (code: string) => void;
   let rejectCode!: (error: Error) => void;
+  const callbackBranding = {
+    appTitle: "Cloud",
+    logoUrl: new URL("/branding/logo", authorizationUrl.origin).toString(),
+  };
   const codePromise = new Promise<string>((resolve, reject) => {
     resolveCode = resolve;
     rejectCode = reject;
@@ -862,43 +1037,50 @@ const waitForOAuthCode = async (authorizationUrl: URL, expectedState: string, op
     fetch: (request) => {
       const url = new URL(request.url);
       if (url.pathname !== "/callback") {
-        return new Response("Not found", { status: 404 });
+        return oauthCallbackResponse({ ...callbackBranding, title: "Not found", message: "This is not a Cloud CLI login callback." }, 404);
       }
 
       const error = url.searchParams.get("error");
       if (error) {
-        rejectCode(new CliError(url.searchParams.get("error_description") ?? error));
-        return new Response("Login failed. You can close this tab.", {
-          headers: { "content-type": "text/plain; charset=utf-8" },
-        });
+        const message = url.searchParams.get("error_description") ?? error;
+        rejectCode(new CliError(message));
+        return oauthCallbackResponse({ ...callbackBranding, title: "Login failed", message: `${message}. You can close this window.` });
       }
 
       const state = url.searchParams.get("state");
       const code = url.searchParams.get("code");
       if (!code || state !== expectedState) {
         rejectCode(new CliError("OAuth callback did not match the expected state."));
-        return new Response("Login failed. You can close this tab.", {
-          headers: { "content-type": "text/plain; charset=utf-8" },
+        return oauthCallbackResponse({
+          ...callbackBranding,
+          title: "Login failed",
+          message: "The OAuth callback did not match the expected state. You can close this window.",
         });
       }
 
       resolveCode(code);
-      return new Response("Login complete. You can close this tab.", {
-        headers: { "content-type": "text/plain; charset=utf-8" },
+      return oauthCallbackResponse({
+        ...callbackBranding,
+        title: "Login succeeded",
+        message: "The login finished. You can close this window and return to your terminal.",
       });
     },
   });
 
   authorizationUrl.searchParams.set("redirect_uri", `http://127.0.0.1:${server.port}/callback`);
   const timeout = setTimeout(() => rejectCode(new CliError("Timed out waiting for OAuth login callback.")), 5 * 60_000);
+  const promptAbort = new AbortController();
+  const url = authorizationUrl.toString();
 
   try {
-    if (open) await openBrowser(authorizationUrl.toString());
-    else console.log(`Open this URL in your browser:\n${authorizationUrl.toString()}`);
+    console.log(`Login URL:\n${url}`);
+    if (open) void promptToOpenBrowser(url, promptAbort.signal);
+    else console.log("Waiting for the OAuth callback. Open the URL above in a browser.");
     return await codePromise;
   } finally {
+    promptAbort.abort();
     clearTimeout(timeout);
-    server.stop(true);
+    server.stop(false);
   }
 };
 

@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 
 type MockServerState = {
   refreshCalls: number;
+  authorizationCodeCalls?: number;
   revokeCalls: number;
   meCalls: number;
   failFirstMe?: boolean;
@@ -45,16 +46,24 @@ const startMockServer = (state: MockServerState) =>
     fetch: async (request) => {
       const url = new URL(request.url);
       if (url.pathname === "/oauth/token") {
-        state.refreshCalls += 1;
         const body = await request.formData();
-        expect(body.get("grant_type")).toBe("refresh_token");
+        const grantType = body.get("grant_type");
+        if (grantType === "authorization_code") {
+          state.authorizationCodeCalls = (state.authorizationCodeCalls ?? 0) + 1;
+          expect(body.get("code")).toBe("test-code");
+          expect(body.get("client_id")).toBe("cloud-cli");
+          expect(body.get("redirect_uri")).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/);
+        } else {
+          state.refreshCalls += 1;
+          expect(grantType).toBe("refresh_token");
+        }
         return Response.json({
-          access_token: "new-access",
+          access_token: grantType === "authorization_code" ? "login-access" : "new-access",
           token_type: "Bearer",
           expires_in: 3600,
           id_token: null,
           scope: "openid",
-          refresh_token: "new-refresh",
+          refresh_token: grantType === "authorization_code" ? "login-refresh" : "new-refresh",
         });
       }
 
@@ -75,24 +84,91 @@ const startMockServer = (state: MockServerState) =>
     },
   });
 
-const writeConfig = async (path: string, value: unknown): Promise<void> => {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-};
-
-const runCli = async (configPath: string, args: string[], extraEnv: Record<string, string> = {}) => {
-  const proc = Bun.spawn({
+const startCli = (configPath: string, args: string[], extraEnv: Record<string, string> = {}) =>
+  Bun.spawn({
     cmd: [process.execPath, "run", "packages/cloud-cli/src/index.ts", ...args],
     cwd: process.cwd(),
     env: { ...process.env, ...extraEnv, CLD_CONFIG: configPath },
     stdout: "pipe",
     stderr: "pipe",
   });
+
+const writeConfig = async (path: string, value: unknown): Promise<void> => {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+};
+
+const runCli = async (configPath: string, args: string[], extraEnv: Record<string, string> = {}) => {
+  const proc = startCli(configPath, args, extraEnv);
   const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
   return { exitCode, stdout, stderr };
 };
 
+const readUntil = async (stream: ReadableStream<Uint8Array>, marker: string): Promise<string> => {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+
+  while (!text.includes(marker)) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    text += decoder.decode(value, { stream: true });
+  }
+
+  reader.releaseLock();
+  return text;
+};
+
 describe("cloud CLI OAuth session handling", () => {
+  test("login callback returns a browser-readable completion page", async () => {
+    const state: MockServerState = { refreshCalls: 0, authorizationCodeCalls: 0, revokeCalls: 0, meCalls: 0 };
+    const server = startMockServer(state);
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    try {
+      const proc = startCli(configPath, ["login", "local", "--server", `http://127.0.0.1:${server.port}`, "--no-open"]);
+      const stderrPromise = new Response(proc.stderr).text();
+      const stdout = await readUntil(proc.stdout, "Waiting for the OAuth callback.");
+      const loginUrlMatch = stdout.match(/Login URL:\n(?<url>http:\/\/127\.0\.0\.1:\d+\/oauth\/authorize[^\n]+)/);
+      const printedLoginUrl = loginUrlMatch?.groups?.url;
+      expect(printedLoginUrl).toBeString();
+      if (!printedLoginUrl) throw new Error("CLI did not print a login URL.");
+
+      const loginUrl = new URL(printedLoginUrl);
+      const redirectUri = loginUrl.searchParams.get("redirect_uri");
+      const stateParam = loginUrl.searchParams.get("state");
+      expect(redirectUri).toBeString();
+      expect(stateParam).toBeString();
+
+      const callbackUrl = new URL(redirectUri!);
+      callbackUrl.searchParams.set("code", "test-code");
+      callbackUrl.searchParams.set("state", stateParam!);
+      const callbackResponse = await fetch(callbackUrl);
+      const callbackHtml = await callbackResponse.text();
+
+      expect(callbackResponse.status).toBe(200);
+      expect(callbackResponse.headers.get("content-type")).toContain("text/html");
+      expect(callbackHtml).toContain("Login succeeded");
+      expect(callbackHtml).toContain("You can close this window and return to your terminal.");
+
+      const exitCode = await proc.exited;
+      expect(exitCode).toBe(0);
+      expect(await stderrPromise).toBe("");
+      expect(state.authorizationCodeCalls).toBe(1);
+
+      const config = JSON.parse(await readFile(configPath, "utf8")) as {
+        currentProfile: string;
+        profiles: { local: { oauth: { accessToken: string; refreshToken: string } } };
+      };
+      expect(config.currentProfile).toBe("local");
+      expect(config.profiles.local.oauth.accessToken).toBe("login-access");
+      expect(config.profiles.local.oauth.refreshToken).toBe("login-refresh");
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("refresh recovers stale profile locks and persists the rotated token", async () => {
     const state: MockServerState = { refreshCalls: 0, revokeCalls: 0, meCalls: 0 };
     const server = startMockServer(state);
