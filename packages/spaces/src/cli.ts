@@ -283,6 +283,7 @@ const normalizeDateTime = (value: string | undefined, label: string, endOfDay = 
 export default defineCloudCliModule({
   name: "spaces",
   summary: "Inspect and update Spaces through the Spaces REST API.",
+  booleanFlags: ["stdin", "use"],
   help,
   async run(ctx) {
     const [command, ...args] = ctx.args;

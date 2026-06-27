@@ -39,6 +39,7 @@ export type CloudCliContext = {
 export type CloudCliModule = {
   name: string;
   summary: string;
+  booleanFlags?: readonly string[];
   help?: () => string;
   run: (context: CloudCliContext) => Promise<number | void> | number | void;
 };

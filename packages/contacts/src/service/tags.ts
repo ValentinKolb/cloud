@@ -128,8 +128,9 @@ export const remove = async (config: { bookId: string; id: string }): Promise<Re
  * Returns the deduplicated, validated id list on success.
  */
 export const validateTagsInBook = async (config: { bookId: string; tagIds: string[] }): Promise<Result<string[]>> => {
-  const validIds = config.tagIds.filter(isUuid);
-  if (validIds.length !== config.tagIds.length) {
+  const deduplicatedIds = Array.from(new Set(config.tagIds));
+  const validIds = deduplicatedIds.filter(isUuid);
+  if (validIds.length !== deduplicatedIds.length) {
     return fail(err.badInput("Tag ids must be UUIDs"));
   }
   if (validIds.length === 0) return ok([]);

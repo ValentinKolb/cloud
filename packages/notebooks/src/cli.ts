@@ -384,6 +384,7 @@ const buildEditOperation = async (ctx: CloudCliContext): Promise<NoteEditOperati
 export default defineCloudCliModule({
   name: "notebooks",
   summary: "Read, search, and create notebooks through the Notebooks REST API.",
+  booleanFlags: ["append", "dry-run", "include-handle", "prepend", "set-content", "stdin", "use"],
   help,
   async run(ctx) {
     const api = ctx.createApiClient<ApiType>("/api/notebooks");

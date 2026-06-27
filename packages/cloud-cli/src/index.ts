@@ -12,6 +12,7 @@ import type {
   CloudCliOptions,
   CloudCliTableColumn,
 } from "@valentinkolb/cloud/cli";
+import contactsCliModule from "@valentinkolb/cloud-app-contacts/cli";
 import notebooksCliModule from "@valentinkolb/cloud-app-notebooks/cli";
 import spacesCliModule from "@valentinkolb/cloud-app-spaces/cli";
 import type { Hono } from "hono";
@@ -63,7 +64,7 @@ const CONFIG_PATH =
 const TOKEN_TIMEOUT_MS = 10_000;
 const BOOLEAN_FLAGS = new Set(["json"]);
 
-const modules: CloudCliModule[] = [notebooksCliModule, spacesCliModule];
+const modules: CloudCliModule[] = [contactsCliModule, notebooksCliModule, spacesCliModule];
 
 const moduleByName = new Map(modules.map((module) => [module.name, module]));
 
@@ -91,7 +92,7 @@ const setFlag = (flags: CloudCliFlags, name: string, value: CloudCliFlagValue) =
   flags[name] = [String(existing), String(value)];
 };
 
-const parseArgs = (argv: string[]): ParsedArgs => {
+const parseArgs = (argv: string[], booleanFlags = BOOLEAN_FLAGS): ParsedArgs => {
   const args: string[] = [];
   const flags: CloudCliFlags = {};
 
@@ -114,7 +115,7 @@ const parseArgs = (argv: string[]): ParsedArgs => {
       continue;
     }
 
-    if (BOOLEAN_FLAGS.has(flag)) {
+    if (booleanFlags.has(flag)) {
       setFlag(flags, flag, true);
       continue;
     }
@@ -531,7 +532,7 @@ export const main = async (argv = Bun.argv.slice(2)): Promise<number> => {
     return 0;
   }
 
-  const parsed = parseArgs(moduleArgs);
+  const parsed = parseArgs(moduleArgs, new Set([...BOOLEAN_FLAGS, ...(module.booleanFlags ?? [])]));
   const resolvedOptions = await resolveOptions(global);
   const options: CloudCliOptions = {
     ...resolvedOptions,
