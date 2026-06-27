@@ -1,10 +1,4 @@
-/**
- * Mustache-based template rendering for email templates stored in settings.
- */
+import { renderLiquidTemplate } from "../../shared/template-rendering";
 
-import Mustache from "mustache";
-
-/** Render a mustache template with variables. */
-export function renderTemplate(template: string, vars: Record<string, string>): string {
-  return Mustache.render(template, vars);
-}
+/** Render a Liquid template with Cloud's legacy-compatible HTML escaping. */
+export const renderTemplate = (template: string, vars: Record<string, unknown>): string => renderLiquidTemplate(template, vars);

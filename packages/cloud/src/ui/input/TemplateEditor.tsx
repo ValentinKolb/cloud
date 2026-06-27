@@ -57,7 +57,7 @@ export const createTemplateEditorPanesValue = (): PanesValue => ({
 
 const HTML_TAGS = [
   { name: "p", snippet: "<p></p>", hint: "paragraph" },
-  { name: "a", snippet: '<a href="{{LOGIN_URL}}">Link</a>', hint: "link" },
+  { name: "a", snippet: '<a href="{{ LOGIN_URL }}">Link</a>', hint: "link" },
   { name: "strong", snippet: "<strong></strong>", hint: "bold" },
   { name: "em", snippet: "<em></em>", hint: "emphasis" },
   { name: "br", snippet: "<br>", hint: "line break" },
@@ -83,29 +83,44 @@ const makeCompletions = (variables: readonly TemplateVariable[]): Completion[] =
     suggest: (query, ctx) => {
       const normalized = query.toLowerCase();
       const hasLeadingBrace = ctx.tokenStart > 0 && ctx.fullText[ctx.tokenStart - 1] === "{";
-      const open = hasLeadingBrace ? "{" : "{{";
+      const open = hasLeadingBrace ? "{ " : "{{ ";
+      const close = hasLeadingBrace ? " }}" : " }}";
       const variableSuggestions = variables
         .filter((variable) => variable.name.toLowerCase().startsWith(normalized))
-        .map((variable) => buildSuggestion(`${open}${variable.name}}}`, variable.kind ?? "string", variable.name));
+        .map((variable) => buildSuggestion(`${open}${variable.name}${close}`, variable.kind ?? "string", variable.name));
 
       const sectionSuggestions = variables
-        .filter((variable) => variable.kind === "array" || variable.kind === "object" || variable.kind === "boolean")
+        .filter((variable) => variable.kind !== "array")
         .filter((variable) => variable.name.toLowerCase().startsWith(normalized))
-        .map((variable) => buildSuggestion(`${open}#${variable.name}}}\n  \n{{/${variable.name}}}`, "section", `#${variable.name}`));
+        .map((variable) => buildSuggestion(`{% if ${variable.name} != blank %}\n  \n{% endif %}`, "condition", `if ${variable.name}`));
 
-      return [...variableSuggestions, ...sectionSuggestions];
+      const loopSuggestions = variables
+        .filter((variable) => variable.kind === "array")
+        .filter((variable) => variable.name.toLowerCase().startsWith(normalized))
+        .map((variable) =>
+          buildSuggestion(`{% for item in ${variable.name} %}\n  {{ item }}\n{% endfor %}`, "loop", `for ${variable.name}`),
+        );
+
+      return [...variableSuggestions, ...sectionSuggestions, ...loopSuggestions];
     },
   },
   {
-    trigger: "#",
+    trigger: "%",
     dropdown: true,
     allowAfterWord: true,
     suggest: (query) => {
       const normalized = query.toLowerCase();
-      return variables
-        .filter((variable) => variable.kind === "array" || variable.kind === "object" || variable.kind === "boolean")
+      const conditionSuggestions = variables
+        .filter((variable) => variable.kind !== "array")
         .filter((variable) => variable.name.toLowerCase().startsWith(normalized))
-        .map((variable) => buildSuggestion(`#${variable.name}}}\n  \n{{/${variable.name}}}`, "section", `#${variable.name}`));
+        .map((variable) => buildSuggestion(`% if ${variable.name} != blank %}\n  \n{% endif %}`, "condition", `if ${variable.name}`));
+      const loopSuggestions = variables
+        .filter((variable) => variable.kind === "array")
+        .filter((variable) => variable.name.toLowerCase().startsWith(normalized))
+        .map((variable) =>
+          buildSuggestion(`% for item in ${variable.name} %}\n  {{ item }}\n{% endfor %}`, "loop", `for ${variable.name}`),
+        );
+      return [...conditionSuggestions, ...loopSuggestions];
     },
   },
   {
@@ -119,22 +134,16 @@ const makeCompletions = (variables: readonly TemplateVariable[]): Completion[] =
   },
 ];
 
-const highlightMustacheToken = (token: string): string => {
-  const inner = token
-    .replace(/^\{\{\{?/, "")
-    .replace(/\}\}\}?$/, "")
-    .trim();
-  const prefix = inner[0];
-  const tone =
-    prefix === "#"
-      ? "text-emerald-600 dark:text-emerald-400"
-      : prefix === "/"
-        ? "text-amber-600 dark:text-amber-400"
-        : prefix === "^"
-          ? "text-rose-600 dark:text-rose-400"
-          : token.startsWith("{{{")
-            ? "text-red-600 dark:text-red-400"
-            : "text-violet-600 dark:text-violet-400";
+const highlightLiquidToken = (token: string): string => {
+  const inner = token.replace(/^\{\{|\}\}$|^\{%|\%}$/g, "").trim();
+  const keyword = inner.split(/\s+/)[0] ?? "";
+  const tone = token.startsWith("{%")
+    ? keyword.startsWith("end")
+      ? "text-amber-600 dark:text-amber-400"
+      : "text-emerald-600 dark:text-emerald-400"
+    : inner.includes("| raw")
+      ? "text-red-600 dark:text-red-400"
+      : "text-violet-600 dark:text-violet-400";
   return `<span class="${tone}">${escapeHtml(token)}</span>`;
 };
 
@@ -154,9 +163,9 @@ const highlightTag = (tag: string): string => {
 
 const highlightTemplate = (text: string): string => {
   const stashed: string[] = [];
-  const escaped = escapeHtml(text).replace(/{{{?[\s\S]*?}}}?/g, (token) => {
+  const escaped = escapeHtml(text).replace(/{{[\s\S]*?}}|{%[\s\S]*?%}/g, (token) => {
     const marker = `\uE000${stashed.length}\uE001`;
-    stashed.push(highlightMustacheToken(token));
+    stashed.push(highlightLiquidToken(token));
     return marker;
   });
 
@@ -178,7 +187,7 @@ export default function TemplateEditor(props: TemplateEditorProps) {
       lines={props.lines ?? 22}
       fill={props.fill}
       spellcheck={false}
-      placeholder={props.placeholder ?? "Write HTML with {{MUSTACHE_VALUES}}..."}
+      placeholder={props.placeholder ?? "Write HTML with Liquid values like {{ APP_NAME }}..."}
       highlight={highlightTemplate}
       completions={completions()}
     />
@@ -200,7 +209,7 @@ export function TemplateSampleData(props: TemplateSampleDataProps) {
         <For each={props.variables}>
           {(variable) => (
             <TextInput
-              label={`{{${variable.name}}}`}
+              label={`{{ ${variable.name} }}`}
               value={() => props.values()[variable.name] ?? ""}
               onInput={(value) => props.onChange(variable.name, value)}
             />

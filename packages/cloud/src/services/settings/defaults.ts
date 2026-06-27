@@ -10,6 +10,7 @@
  */
 
 import type { SettingKind, SettingOption } from "../../contracts/shared";
+import { migrateLegacyMustacheTemplate, validateLiquidTemplate } from "../../shared/template-rendering";
 
 export type { SettingKind, SettingOption };
 
@@ -459,10 +460,10 @@ export const SETTINGS: SettingDef[] = [
 <p><strong>Login credentials:</strong></p>
 <p>Username: <code style="background:#f4f4f5;padding:2px 6px;border-radius:4px;">{{USERNAME}}</code></p>
 <p>Temporary password: <code style="background:#f4f4f5;padding:2px 6px;border-radius:4px;">{{PASSWORD}}</code></p>
-{{#EXPIRY}}<p>Your account is valid until: <strong>{{EXPIRY}}</strong></p>{{/EXPIRY}}
+{% if EXPIRY != blank %}<p>Your account is valid until: <strong>{{EXPIRY}}</strong></p>{% endif %}
 <p><a href="{{LOGIN_URL}}">Click here to login</a></p>
 <p style="margin-top:24px;padding:12px;background:#f4f4f5;border-radius:6px;"><strong>Your username:</strong> <code style="font-size:16px;">{{USERNAME}}</code></p>
-{{#CONTACT_EMAIL}}<p>If you have any questions, please contact us at <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>{{/CONTACT_EMAIL}}`,
+{% if CONTACT_EMAIL != blank %}<p>If you have any questions, please contact us at <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>{% endif %}`,
     description: "FreeIPA welcome email template (HTML). Subject: Welcome to {{APP_NAME}}",
     group: "mail",
     templateVars: ["USERNAME", "PASSWORD", "EXPIRY", "LOGIN_URL", "CONTACT_EMAIL", "APP_NAME"],
@@ -473,9 +474,9 @@ export const SETTINGS: SettingDef[] = [
     kind: "template",
     default: `<p>Your account has been created.</p>
 <p>Sign in with your email address: <code style="background:#f4f4f5;padding:2px 6px;border-radius:4px;">{{EMAIL}}</code></p>
-{{#EXPIRY}}<p>Your account is valid until: <strong>{{EXPIRY}}</strong></p>{{/EXPIRY}}
+{% if EXPIRY != blank %}<p>Your account is valid until: <strong>{{EXPIRY}}</strong></p>{% endif %}
 <p><a href="{{LOGIN_URL}}">Open the login page</a> and choose email sign-in.</p>
-{{#CONTACT_EMAIL}}<p>If you have any questions, please contact us at <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>{{/CONTACT_EMAIL}}`,
+{% if CONTACT_EMAIL != blank %}<p>If you have any questions, please contact us at <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>{% endif %}`,
     description: "Local welcome email template (HTML). Subject: Welcome to {{APP_NAME}}",
     group: "mail",
     templateVars: ["EMAIL", "EXPIRY", "LOGIN_URL", "CONTACT_EMAIL", "APP_NAME"],
@@ -505,7 +506,7 @@ export const SETTINGS: SettingDef[] = [
   <a href="{{LOGIN_URL}}" target="_blank" style="color:#3b82f6;text-decoration:underline;">Open FreeIPA sign-in</a>
 </p>
 <p style="color:#71717a;font-size:12px;margin:0 0 8px 0;">No email login code was created. If you didn't request this, please ignore this email.</p>
-{{#CONTACT_EMAIL}}<p style="color:#71717a;font-size:12px;margin:0;">If you need help, contact <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>{{/CONTACT_EMAIL}}`,
+{% if CONTACT_EMAIL != blank %}<p style="color:#71717a;font-size:12px;margin:0;">If you need help, contact <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>{% endif %}`,
     description: "FreeIPA email-login hint template (HTML). Subject: {{APP_NAME}} FreeIPA Sign In",
     group: "mail",
     templateVars: ["EMAIL", "LOGIN_URL", "CONTACT_EMAIL", "APP_NAME"],
@@ -519,7 +520,7 @@ export const SETTINGS: SettingDef[] = [
   <a href="{{RESET_LINK}}" target="_blank" style="color:#3b82f6;text-decoration:underline;">Set a new password</a>
 </p>
 <p style="color:#71717a;font-size:12px;margin:0 0 8px 0;">This link expires in 15 minutes. Never share this link with anyone. If you didn't request this, you can ignore this email.</p>
-{{#CONTACT_EMAIL}}<p style="color:#71717a;font-size:12px;margin:0;">If you need help, contact <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>{{/CONTACT_EMAIL}}`,
+{% if CONTACT_EMAIL != blank %}<p style="color:#71717a;font-size:12px;margin:0;">If you need help, contact <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>{% endif %}`,
     description: "Password reset email template (HTML). Subject: {{APP_NAME}} Password Reset",
     group: "mail",
     templateVars: ["RESET_LINK", "APP_NAME", "CONTACT_EMAIL"],
@@ -531,7 +532,7 @@ export const SETTINGS: SettingDef[] = [
     default: `<p>Hi {{FIRST_NAME}},</p>
 <p>Your {{APP_NAME}} account ({{ACCOUNT_KIND}}) will expire on <strong>{{EXPIRY}}</strong>.</p>
 <p>You can extend your account here: <a href="{{EXTEND_URL}}">{{EXTEND_URL}}</a></p>
-{{#CONTACT_EMAIL}}<p>If you need help, contact <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>{{/CONTACT_EMAIL}}`,
+{% if CONTACT_EMAIL != blank %}<p>If you need help, contact <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>{% endif %}`,
     description: "Account expiry reminder email template (HTML). Subject: {{APP_NAME}} Account Expiry",
     group: "mail",
     templateVars: ["FIRST_NAME", "DISPLAY_NAME", "EXPIRY", "EXTEND_URL", "APP_NAME", "CONTACT_EMAIL", "ACCOUNT_KIND"],
@@ -543,7 +544,7 @@ export const SETTINGS: SettingDef[] = [
     default: `<p>Hi {{FIRST_NAME}},</p>
 <p>Your request for an account has been reviewed and unfortunately cannot be approved at this time.</p>
 <p><strong>Reason:</strong> {{REASON}}</p>
-{{#CONTACT_EMAIL}}<p>If you have questions, please contact <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>{{/CONTACT_EMAIL}}`,
+{% if CONTACT_EMAIL != blank %}<p>If you have questions, please contact <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a>.</p>{% endif %}`,
     description: "Account request denial email template (HTML). Subject: Account Request Update",
     group: "mail",
     templateVars: ["FIRST_NAME", "REASON", "CONTACT_EMAIL", "APP_NAME"],
@@ -891,6 +892,12 @@ export const validateSettingValue = (def: SettingDef, raw: unknown): SettingVali
       return value.length === 0 || isValidTimezone(value)
         ? { ok: true, value }
         : { ok: false, error: `${getSettingLabel(def)} must be a valid IANA timezone` };
+    case "template": {
+      if (typeof value !== "string") return { ok: false, error: `${getSettingLabel(def)} must be text` };
+      const migrated = migrateLegacyMustacheTemplate(value);
+      const valid = validateLiquidTemplate(migrated);
+      return valid.ok ? { ok: true, value: migrated } : { ok: false, error: `${getSettingLabel(def)} ${valid.error}` };
+    }
     default:
       if (!isNonEmptyStringKind(def.kind)) {
         return { ok: false, error: `${getSettingLabel(def)} is invalid` };

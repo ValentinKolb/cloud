@@ -1,3 +1,4 @@
+import { renderLiquidTemplate } from "@valentinkolb/cloud/shared";
 import {
   createTemplateEditorPanesValue,
   Panes,
@@ -16,9 +17,9 @@ const DEFAULT_TEMPLATE = [
   "",
   "<p>Welcome to {{APP_NAME}}. Your workspace is ready.</p>",
   "",
-  "{{#CONTACT_EMAIL}}",
+  "{% if CONTACT_EMAIL != blank %}",
   '<p>Questions? <a href="mailto:{{CONTACT_EMAIL}}">{{CONTACT_EMAIL}}</a></p>',
-  "{{/CONTACT_EMAIL}}",
+  "{% endif %}",
 ].join("\n");
 
 const TEMPLATE_VARIABLES: TemplateVariable[] = [
@@ -34,8 +35,6 @@ const createSampleData = (): Record<string, string> => ({
   EMAIL: "email@example.com",
   LOGIN_URL: "https://cloud.example.org/auth/login",
 });
-
-const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const buildPreviewSrcdoc = (content: string): string => `<!doctype html>
 <html>
@@ -57,23 +56,12 @@ const buildPreviewSrcdoc = (content: string): string => `<!doctype html>
 </html>`;
 
 const renderTemplatePreview = (template: string, sampleData: Record<string, string>): string => {
-  let html = template;
-  for (const variable of TEMPLATE_VARIABLES) {
-    const value = sampleData[variable.name] ?? "";
-    const sectionPattern = new RegExp(
-      `{{#\\s*${escapeRegExp(variable.name)}\\s*}}([\\s\\S]*?){{/\\s*${escapeRegExp(variable.name)}\\s*}}`,
-      "g",
-    );
-    html = html.replace(sectionPattern, value ? "$1" : "");
-    const invertedPattern = new RegExp(
-      `{{\\^\\s*${escapeRegExp(variable.name)}\\s*}}([\\s\\S]*?){{/\\s*${escapeRegExp(variable.name)}\\s*}}`,
-      "g",
-    );
-    html = html.replace(invertedPattern, value ? "" : "$1");
-    const variablePattern = new RegExp(`{{\\s*${escapeRegExp(variable.name)}\\s*}}`, "g");
-    html = html.replace(variablePattern, value);
+  try {
+    return buildPreviewSrcdoc(renderLiquidTemplate(template, sampleData));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Template preview failed";
+    return buildPreviewSrcdoc(`<p style="color:#b91c1c;">${message}</p>`);
   }
-  return buildPreviewSrcdoc(html);
 };
 
 export const TemplateEditorDemo = () => {
@@ -90,7 +78,7 @@ export const TemplateEditorDemo = () => {
       id="template-editor"
       chip={{ kind: "component", name: "TemplateEditor", from: FROM_CLOUD_UI }}
       variant="Core component + panes"
-      description="Core email template editor with HTML/Mustache highlighting, completions, preview, and editable sample data."
+      description="Core email template editor with HTML/Liquid highlighting, completions, preview, and editable sample data."
       code={`<Panes.Root value={panes()} onChange={setPanes} allowResize={false}>
   <Panes.Element id="html" title="HTML" icon="ti ti-code">
     <TemplateEditor value={template} onInput={setTemplate} variables={variables} fill />
@@ -105,7 +93,7 @@ export const TemplateEditorDemo = () => {
     >
       <div class="flex flex-col gap-3">
         <p class="text-xs text-dimmed">
-          Type {"{{"} for values or {"<"} for HTML snippets. Use sample data to change preview values.
+          Type {"{{"} for values, {"{%"} for Liquid logic, or {"<"} for HTML snippets. Use sample data to change preview values.
         </p>
         <div class="h-[46rem] min-w-0 overflow-hidden rounded-lg bg-zinc-100 p-2 dark:bg-zinc-900">
           <Panes.Root value={panes()} onChange={setPanes} class="h-full w-full" allowResize={false}>

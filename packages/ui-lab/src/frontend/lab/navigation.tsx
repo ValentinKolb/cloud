@@ -538,7 +538,7 @@ const editorFiles = [
     icon: "ti ti-file-type-html",
     badge: "HTML",
     class: "bg-orange-50 dark:bg-orange-950/30",
-    body: ["<section>", "  <h1>{{ invoice.number }}</h1>", "  {{#items}}...{{/items}}", "</section>"],
+    body: ["<section>", "  <h1>{{ invoice.number }}</h1>", "  {% for item in items %}...{% endfor %}", "</section>"],
   },
   {
     id: "print.css",

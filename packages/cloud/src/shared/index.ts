@@ -11,6 +11,7 @@ export { createProgressValue, evaluateFormula, formatValue, isFormula, isTotalRo
 export type { EvalContext, EvalError, EvalResult, EvalValue, ErrorCode, ProgressValue } from "./markdown/formula";
 export { createMockCover, createMockCoverSvg, parseDataUrl } from "./mock-cover";
 export type { MockCover, MockCoverIcon, MockCoverOptions, MockCoverTheme } from "./mock-cover";
+export { escapeTemplateOutput, migrateLegacyMustacheTemplate, renderLiquidTemplate, validateLiquidTemplate } from "./template-rendering";
 
 // Re-export from stdlib for backward compatibility
 // Prefer importing directly from @valentinkolb/stdlib

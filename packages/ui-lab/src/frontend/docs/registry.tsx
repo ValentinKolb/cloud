@@ -753,7 +753,7 @@ export const uiLabDocs: UiLabDocSection[] = [
         "template-editor",
         "Template Editor",
         "ti ti-template",
-        "HTML and Mustache template editor prototype with completions, preview, and sample values.",
+        "HTML and Liquid template editor prototype with completions, preview, and sample values.",
         ["template-editor"],
         () => (
           <DemoGrid columns="one">

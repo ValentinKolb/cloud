@@ -11,6 +11,7 @@
  */
 
 import { coreClient } from "@valentinkolb/cloud/clients/core";
+import { renderLiquidTemplate } from "@valentinkolb/cloud/shared";
 import {
   createTemplateEditorPanesValue,
   ImageInput,
@@ -496,7 +497,8 @@ const TEMPLATE_SAMPLE_VALUES: Record<string, string> = {
 
 const sampleValueFor = (name: string) => TEMPLATE_SAMPLE_VALUES[name] ?? name.toLowerCase().replaceAll("_", " ");
 
-const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapePreviewText = (value: string): string =>
+  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 const buildEmailPreviewHtml = (content: string) => `
 <!DOCTYPE html>
@@ -544,17 +546,12 @@ const createTemplateSampleData = (variables: readonly string[]): Record<string, 
   Object.fromEntries(variables.map((name) => [name, sampleValueFor(name)]));
 
 const renderTemplatePreviewBody = (template: string, variables: readonly string[], sampleData = createTemplateSampleData(variables)) => {
-  let html = template;
-  for (const name of variables) {
-    const value = sampleData[name] ?? sampleValueFor(name);
-    const sectionPattern = new RegExp(`{{#\\s*${escapeRegExp(name)}\\s*}}([\\s\\S]*?){{/\\s*${escapeRegExp(name)}\\s*}}`, "g");
-    html = html.replace(sectionPattern, value ? "$1" : "");
-    const invertedPattern = new RegExp(`{{\\^\\s*${escapeRegExp(name)}\\s*}}([\\s\\S]*?){{/\\s*${escapeRegExp(name)}\\s*}}`, "g");
-    html = html.replace(invertedPattern, value ? "" : "$1");
-    const variablePattern = new RegExp(`{{\\s*${escapeRegExp(name)}\\s*}}`, "g");
-    html = html.replace(variablePattern, value);
+  try {
+    return renderLiquidTemplate(template, Object.fromEntries(variables.map((name) => [name, sampleData[name] ?? sampleValueFor(name)])));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Template preview failed";
+    return `<p style="color:#b91c1c;">${escapePreviewText(message)}</p>`;
   }
-  return html;
 };
 
 const renderTemplatePreview = (template: string, variables: readonly string[], sampleData?: Record<string, string>) =>
@@ -595,7 +592,7 @@ function TemplateSettingInput(props: FieldInputProps) {
             </div>
 
             <p class="text-xs text-dimmed">
-              Type {"{{"} for values or {"<"} for HTML snippets. Use sample data to change preview values.
+              Type {"{{"} for values, {"{%"} for Liquid logic, or {"<"} for HTML snippets. Use sample data to change preview values.
             </p>
 
             <div class="h-[min(62vh,46rem)] min-h-[34rem] min-w-0 overflow-hidden rounded-lg bg-zinc-100 p-2 dark:bg-zinc-900">

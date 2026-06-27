@@ -9,19 +9,10 @@
  * env-backed entries into Postgres.
  */
 
-import { sql } from "bun";
-import { env } from "../../config/env";
-import { encryptValue, decryptValue, getAppSecret } from "./crypto";
-import {
-  SETTINGS,
-  SETTINGS_MAP,
-  getSettingLabel,
-  type SettingDef,
-  type SettingKind,
-  type SettingOption,
-  validateSettingValue,
-} from "./defaults";
-import { readKey, writeKey, deleteKey, bulkRead } from "./store";
+import { redis, sql } from "bun";
+import { decryptValue, encryptValue, getAppSecret } from "./crypto";
+import { getSettingLabel, SETTINGS, SETTINGS_MAP, type SettingDef, validateSettingValue } from "./defaults";
+import { bulkRead, deleteKey, readKey, writeKey } from "./store";
 
 type StoredRow = { key: string; value: string };
 type PendingRow = { key: string; value: unknown; rewrite: boolean; existed: boolean };
@@ -31,6 +22,8 @@ type NormalizationStats = {
   envBootstrapped: number;
   invalidSkipped: number;
 };
+
+const REDIS_KEY = (key: string) => `settings:${key}`;
 
 const isEqual = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right);
 
@@ -71,6 +64,7 @@ const upsertEncryptedRow = async (key: string, value: unknown): Promise<void> =>
     ON CONFLICT (key)
     DO UPDATE SET value = ${encryptedValue}, updated_at = now()
   `;
+  await redis.del(REDIS_KEY(key));
 };
 
 const normalizeStoredEntries = async (): Promise<{ rows: Array<{ key: string; value: unknown }>; stats: NormalizationStats }> => {
@@ -174,6 +168,7 @@ export async function remove(key: string): Promise<void> {
 }
 
 import type { SettingEntry } from "../../contracts/shared";
+
 export type { SettingEntry } from "../../contracts/shared";
 
 export async function getAll(): Promise<SettingEntry[]> {
