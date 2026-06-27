@@ -1,14 +1,11 @@
-import { Hono } from "hono";
-import { z } from "zod";
-import { describeRoute } from "hono-openapi";
-import { v } from "@valentinkolb/cloud/server";
-import { jsonResponse } from "@valentinkolb/cloud/server";
-import { auth, type AuthContext } from "@valentinkolb/cloud/server";
-import { oauth } from "./service/oauth";
-import { accounts, get } from "@valentinkolb/cloud/services";
-import { ErrorResponseSchema, type OAuthScope } from "@/contracts";
-import { logger } from "@valentinkolb/cloud/services";
+import { type AuthContext, auth, jsonResponse, v } from "@valentinkolb/cloud/server";
+import { accounts, get, logger } from "@valentinkolb/cloud/services";
 import { createLoginRedirectUrl } from "@valentinkolb/cloud/shared";
+import { Hono } from "hono";
+import { describeRoute } from "hono-openapi";
+import { z } from "zod";
+import { ErrorResponseSchema, type OAuthScope } from "@/contracts";
+import { oauth } from "./service/oauth";
 
 const log = logger("oauth");
 
@@ -17,8 +14,37 @@ const getIssuer = async (): Promise<string> => {
   return appUrl.startsWith("http") ? appUrl : `https://${appUrl}`;
 };
 
-const OAUTH_SCOPES: OAuthScope[] = ["openid", "profile", "email", "groups", "read", "write", "admin"];
+const OAUTH_SCOPES: OAuthScope[] = ["openid", "profile", "email", "groups", "offline_access", "read", "write", "admin"];
+const DEFAULT_AUTHORIZATION_SCOPES: OAuthScope[] = ["openid"];
+const PKCE_VALUE_PATTERN = /^[A-Za-z0-9._~-]{43,128}$/;
 const isOAuthScope = (value: string): value is OAuthScope => OAUTH_SCOPES.includes(value as OAuthScope);
+
+const parseScopes = (value: string | undefined): string[] =>
+  value
+    ?.split(" ")
+    .map((scope) => scope.trim())
+    .filter((scope) => scope.length > 0) ?? [];
+
+const resolveRequestedScopes = (clientScopes: OAuthScope[], requestedScope: string | undefined): OAuthScope[] | null => {
+  const requested = parseScopes(requestedScope);
+  if (requested.length === 0) {
+    const allowed = new Set(clientScopes);
+    return DEFAULT_AUTHORIZATION_SCOPES.filter((scope) => allowed.has(scope));
+  }
+  const allowed = new Set(clientScopes);
+  if (requested.some((scope) => !isOAuthScope(scope) || !allowed.has(scope as OAuthScope))) return null;
+  return Array.from(new Set(requested)) as OAuthScope[];
+};
+
+const resolveRefreshScopes = (grantedScopes: OAuthScope[], requestedScope: string | undefined): OAuthScope[] | null => {
+  const requested = parseScopes(requestedScope);
+  if (requested.length === 0) return grantedScopes;
+  const granted = new Set(grantedScopes);
+  if (requested.some((scope) => !isOAuthScope(scope) || !granted.has(scope as OAuthScope))) return null;
+  return Array.from(new Set(requested)) as OAuthScope[];
+};
+
+const isPkceValue = (value: string | undefined): value is string => Boolean(value && PKCE_VALUE_PATTERN.test(value));
 
 /**
  * Decode `Authorization: Basic base64(client_id:client_secret)` into its parts.
@@ -46,7 +72,7 @@ const AuthorizeQuerySchema = z.object({
   client_id: z.string().min(1),
   redirect_uri: z.url(),
   response_type: z.literal("code"),
-  scope: z.string().optional().default("openid"),
+  scope: z.string().optional(),
   state: z.string().optional(),
   nonce: z.string().optional(),
   code_challenge: z.string().optional(),
@@ -72,6 +98,13 @@ const TokenBodySchema = z.discriminatedUnion("grant_type", [
     scope: z.string().optional(),
     resource: z.string().optional(),
   }),
+  z.object({
+    grant_type: z.literal("refresh_token"),
+    refresh_token: z.string().min(1),
+    client_id: z.string().min(1).optional(),
+    client_secret: z.string().optional(),
+    scope: z.string().optional(),
+  }),
 ]);
 
 const TokenResponseSchema = z.object({
@@ -80,6 +113,14 @@ const TokenResponseSchema = z.object({
   expires_in: z.number(),
   id_token: z.string().nullable(),
   scope: z.string(),
+  refresh_token: z.string().optional(),
+});
+
+const RevokeTokenBodySchema = z.object({
+  token: z.string().min(1),
+  token_type_hint: z.string().optional(),
+  client_id: z.string().min(1).optional(),
+  client_secret: z.string().optional(),
 });
 
 /** OAuth 2.0 / OpenID Connect routes mounted at root-level standard paths. */
@@ -129,8 +170,21 @@ const app = new Hono<AuthContext>()
         return c.json({ message: "Invalid redirect_uri" }, 400);
       }
 
-      if (client.isPublic && !code_challenge) {
-        return c.json({ message: "PKCE required for public clients" }, 400);
+      const scopes = resolveRequestedScopes(client.scopes, query.scope);
+      if (!scopes) {
+        return c.json({ message: "Requested scope is not allowed for this client" }, 400);
+      }
+
+      if (client.isPublic) {
+        if (!code_challenge) {
+          return c.json({ message: "PKCE required for public clients" }, 400);
+        }
+        if (code_challenge_method !== "S256") {
+          return c.json({ message: "Public clients must use PKCE S256" }, 400);
+        }
+      }
+      if (code_challenge && !isPkceValue(code_challenge)) {
+        return c.json({ message: "Invalid PKCE code_challenge" }, 400);
       }
 
       const token = auth.session.getToken(c);
@@ -163,6 +217,7 @@ const app = new Hono<AuthContext>()
         clientId: client.clientId,
         userId: user.id,
         redirectUri: redirect_uri,
+        scopes,
         nonce,
         codeChallenge: code_challenge,
         codeChallengeMethod: code_challenge_method,
@@ -252,6 +307,36 @@ const app = new Hono<AuthContext>()
         }
       }
 
+      if (body.grant_type === "refresh_token") {
+        const rotated = await oauth.refreshTokens.rotate(body.refresh_token, client_id);
+        if (!rotated.ok) {
+          return c.json({ message: "invalid_grant" }, 400);
+        }
+
+        const scopes = resolveRefreshScopes(rotated.scopes, body.scope);
+        if (!scopes) {
+          return c.json({ message: "Requested scope is not allowed for this refresh token" }, 400);
+        }
+
+        const issuer = await getIssuer();
+        const tokens = await oauth.tokens.createTokens({
+          userId: rotated.userId,
+          client: rotated.client,
+          issuer,
+          scopes,
+          audiences: rotated.audiences,
+        });
+
+        return c.json({
+          access_token: tokens.accessToken,
+          token_type: "Bearer" as const,
+          expires_in: tokens.expiresIn,
+          id_token: tokens.idToken,
+          scope: tokens.scope,
+          refresh_token: rotated.refreshToken,
+        });
+      }
+
       const { code, redirect_uri, code_verifier } = body;
 
       const result = await oauth.codes.consume({
@@ -276,6 +361,8 @@ const app = new Hono<AuthContext>()
           userId: result.userId,
           client: result.client,
           issuer,
+          scopes: result.scopes,
+          issueRefreshToken: true,
           nonce: result.nonce,
         });
 
@@ -284,7 +371,8 @@ const app = new Hono<AuthContext>()
           token_type: "Bearer" as const,
           expires_in: tokens.expiresIn,
           id_token: tokens.idToken,
-          scope: result.client.scopes.join(" "),
+          scope: tokens.scope,
+          ...(tokens.refreshToken ? { refresh_token: tokens.refreshToken } : {}),
         });
       } catch (err) {
         log.error("Failed to generate tokens", {
@@ -299,6 +387,41 @@ const app = new Hono<AuthContext>()
           500,
         );
       }
+    },
+  )
+  .post(
+    "/oauth/revoke",
+    describeRoute({
+      tags: ["OAuth"],
+      summary: "Token revocation endpoint",
+      description: "Revokes a refresh token grant. Invalid tokens still return success.",
+      responses: {
+        200: { description: "Token revoked or already invalid" },
+        401: jsonResponse(ErrorResponseSchema, "Invalid client credentials"),
+      },
+    }),
+    v("form", RevokeTokenBodySchema),
+    async (c) => {
+      const body = c.req.valid("form");
+      const basic = parseBasicAuth(c.req.header("Authorization"));
+      const client_id = body.client_id ?? basic?.clientId;
+      const client_secret = body.client_secret ?? basic?.clientSecret;
+      if (!client_id) {
+        return c.json({ message: "Missing client_id" }, 401);
+      }
+
+      const client = await oauth.clients.validateCredentials({
+        clientId: client_id,
+        clientSecret: client_secret,
+      });
+      if (!client) {
+        return c.json({ message: "Invalid client credentials" }, 401);
+      }
+
+      if (body.token_type_hint !== "access_token") {
+        await oauth.refreshTokens.revoke(body.token, client.clientId);
+      }
+      return new Response(null, { status: 200 });
     },
   )
   .get(

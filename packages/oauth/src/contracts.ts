@@ -11,7 +11,7 @@ const NameSchema = z.string().trim().min(1).max(MAX_NAME_LENGTH);
 const AudienceSchema = z.string().trim().min(1).max(255);
 const dedupe = <T>(values: T[]): T[] => Array.from(new Set(values));
 
-export const OAuthScopeSchema = z.enum(["openid", "profile", "email", "groups", "read", "write", "admin"]);
+export const OAuthScopeSchema = z.enum(["openid", "profile", "email", "groups", "offline_access", "read", "write", "admin"]);
 export type OAuthScope = z.infer<typeof OAuthScopeSchema>;
 
 export const OAuthAllowedProfileSchema = z.enum(["user", "guest"]);
@@ -105,5 +105,5 @@ export type OAuthAccessGroup = z.infer<typeof OAuthAccessGroupSchema>;
 export type CreateOAuthClient = z.infer<typeof CreateOAuthClientSchema>;
 export type UpdateOAuthClient = z.infer<typeof UpdateOAuthClientSchema>;
 
-export { ErrorResponseSchema, MessageResponseSchema } from "@valentinkolb/cloud/contracts";
 export type { MutationResult } from "@valentinkolb/cloud/contracts";
+export { ErrorResponseSchema, MessageResponseSchema } from "@valentinkolb/cloud/contracts";

@@ -1,6 +1,7 @@
-import { sql } from "bun";
 import { serviceAccounts, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { sql } from "bun";
 import type {
+  CreateOAuthClient,
   MutationResult,
   OAuthAccessGroup,
   OAuthAccessMode,
@@ -8,9 +9,8 @@ import type {
   OAuthAllowedProfile,
   OAuthClient,
   OAuthClientWithSecret,
-  CreateOAuthClient,
-  UpdateOAuthClient,
   OAuthScope,
+  UpdateOAuthClient,
 } from "@/contracts";
 
 // ==========================
@@ -125,11 +125,7 @@ const loadAccessPrincipals = async (clientIds: string[]): Promise<Map<string, Ac
   return access;
 };
 
-const validateAccessSelection = (params: {
-  accessMode: OAuthAccessMode;
-  userIds: string[];
-  groupIds: string[];
-}): MutationResult<void> => {
+const validateAccessSelection = (params: { accessMode: OAuthAccessMode; userIds: string[]; groupIds: string[] }): MutationResult<void> => {
   if (params.accessMode === "specific" && params.userIds.length === 0 && params.groupIds.length === 0) {
     return { ok: false, error: "Select at least one user or group for specific OAuth access", status: 400 };
   }
@@ -442,7 +438,24 @@ export const validateCredentials = async (params: { clientId: string; clientSecr
  * Validate that a redirect URI is allowed for this client
  */
 export const validateRedirectUri = (client: OAuthClient, redirectUri: string): boolean => {
-  return client.redirectUris.includes(redirectUri);
+  return client.redirectUris.some((registeredUri) => registeredUri === redirectUri || isLoopbackRedirectMatch(registeredUri, redirectUri));
+};
+
+const LOOPBACK_IP_LITERAL_HOSTS = new Set(["127.0.0.1", "::1", "[::1]"]);
+
+const isLoopbackRedirectMatch = (registeredUri: string, redirectUri: string): boolean => {
+  let registered: URL;
+  let requested: URL;
+  try {
+    registered = new URL(registeredUri);
+    requested = new URL(redirectUri);
+  } catch {
+    return false;
+  }
+
+  if (registered.protocol !== "http:" || requested.protocol !== "http:") return false;
+  if (!LOOPBACK_IP_LITERAL_HOSTS.has(registered.hostname) || !LOOPBACK_IP_LITERAL_HOSTS.has(requested.hostname)) return false;
+  return registered.pathname === requested.pathname && registered.search === requested.search;
 };
 
 /**
@@ -452,11 +465,7 @@ export const isProfileAllowed = (client: OAuthClient, profile: OAuthAllowedProfi
   return client.allowedProfiles.includes(profile);
 };
 
-export const canAuthorizeUser = async (params: {
-  client: OAuthClient;
-  userId: string;
-  profile: OAuthAllowedProfile;
-}): Promise<boolean> => {
+export const canAuthorizeUser = async (params: { client: OAuthClient; userId: string; profile: OAuthAllowedProfile }): Promise<boolean> => {
   if (!isProfileAllowed(params.client, params.profile)) return false;
   if (params.client.accessMode !== "specific") return true;
 

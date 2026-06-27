@@ -96,6 +96,7 @@ export const migrate = async (): Promise<void> => {
       client_id TEXT NOT NULL REFERENCES oauth.clients(client_id) ON DELETE CASCADE,
       user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
       redirect_uri TEXT NOT NULL,
+      scopes TEXT[] NOT NULL DEFAULT ARRAY['openid', 'profile', 'email'],
       nonce TEXT,
       code_challenge TEXT,
       code_challenge_method TEXT CHECK (code_challenge_method IN ('S256', 'plain')),
@@ -108,6 +109,10 @@ export const migrate = async (): Promise<void> => {
     ADD COLUMN IF NOT EXISTS nonce TEXT
   `.simple();
   await sql`
+    ALTER TABLE oauth.codes
+    ADD COLUMN IF NOT EXISTS scopes TEXT[] NOT NULL DEFAULT ARRAY['openid', 'profile', 'email']
+  `.simple();
+  await sql`
     CREATE INDEX IF NOT EXISTS idx_oauth_codes_expires
     ON oauth.codes(expires_at)
   `.simple();
@@ -116,6 +121,124 @@ export const migrate = async (): Promise<void> => {
     ON oauth.codes(client_id)
   `.simple();
   console.log("  ✓ oauth.codes table");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS oauth.refresh_token_families (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      client_id TEXT NOT NULL REFERENCES oauth.clients(client_id) ON DELETE CASCADE,
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      scopes TEXT[] NOT NULL,
+      audiences TEXT[] NOT NULL DEFAULT ARRAY['cloud'],
+      label TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_used_at TIMESTAMPTZ,
+      revoked_at TIMESTAMPTZ,
+      revoked_reason TEXT,
+      CONSTRAINT oauth_refresh_token_families_status_check CHECK (status IN ('active', 'revoked'))
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_oauth_refresh_token_families_user
+    ON oauth.refresh_token_families(user_id)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_oauth_refresh_token_families_client
+    ON oauth.refresh_token_families(client_id)
+  `.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS oauth.refresh_tokens (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      family_id UUID NOT NULL REFERENCES oauth.refresh_token_families(id) ON DELETE CASCADE,
+      token_prefix TEXT NOT NULL UNIQUE,
+      secret_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      generation INTEGER NOT NULL,
+      previous_token_id UUID REFERENCES oauth.refresh_tokens(id),
+      issued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ,
+      rotated_at TIMESTAMPTZ,
+      revoked_at TIMESTAMPTZ,
+      CONSTRAINT oauth_refresh_tokens_status_check CHECK (status IN ('active', 'rotated', 'revoked', 'reused'))
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family
+    ON oauth.refresh_tokens(family_id)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_expires
+    ON oauth.refresh_tokens(expires_at)
+  `.simple();
+  console.log("  ✓ oauth refresh token tables");
+
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM oauth.clients WHERE client_id = 'cloud-cli') THEN
+        UPDATE oauth.clients
+        SET description = COALESCE(description, 'First-party public OAuth client for the cloud CLI.'),
+          redirect_uris = ARRAY(
+            SELECT DISTINCT value
+            FROM unnest(redirect_uris || ARRAY['http://127.0.0.1/callback', 'http://[::1]/callback']) AS added(value)
+          ),
+          scopes = ARRAY(
+            SELECT DISTINCT value
+            FROM unnest(scopes || ARRAY['openid', 'profile', 'email', 'offline_access', 'read', 'write']) AS added(value)
+          ),
+          audiences = ARRAY(
+            SELECT DISTINCT value
+            FROM unnest(audiences || ARRAY['cloud']) AS added(value)
+          ),
+          is_public = true
+        WHERE client_id = 'cloud-cli';
+      ELSIF EXISTS (SELECT 1 FROM oauth.clients WHERE name = 'Cloud CLI') THEN
+        UPDATE oauth.clients
+        SET client_id = 'cloud-cli',
+          description = COALESCE(description, 'First-party public OAuth client for the cloud CLI.'),
+          redirect_uris = ARRAY(
+            SELECT DISTINCT value
+            FROM unnest(redirect_uris || ARRAY['http://127.0.0.1/callback', 'http://[::1]/callback']) AS added(value)
+          ),
+          scopes = ARRAY(
+            SELECT DISTINCT value
+            FROM unnest(scopes || ARRAY['openid', 'profile', 'email', 'offline_access', 'read', 'write']) AS added(value)
+          ),
+          audiences = ARRAY(
+            SELECT DISTINCT value
+            FROM unnest(audiences || ARRAY['cloud']) AS added(value)
+          ),
+          is_public = true
+        WHERE name = 'Cloud CLI';
+      ELSE
+        INSERT INTO oauth.clients (
+          name,
+          description,
+          client_id,
+          redirect_uris,
+          scopes,
+          audiences,
+          allowed_profiles,
+          access_mode,
+          is_public
+        )
+        VALUES (
+          'Cloud CLI',
+          'First-party public OAuth client for the cloud CLI.',
+          'cloud-cli',
+          ARRAY['http://127.0.0.1/callback', 'http://[::1]/callback'],
+          ARRAY['openid', 'profile', 'email', 'offline_access', 'read', 'write'],
+          ARRAY['cloud'],
+          ARRAY['user', 'guest'],
+          'profiles',
+          true
+        );
+      END IF;
+    END $$
+  `.simple();
+  console.log("  ✓ oauth first-party CLI client");
 
   await sql`
     CREATE TABLE IF NOT EXISTS oauth.keys (

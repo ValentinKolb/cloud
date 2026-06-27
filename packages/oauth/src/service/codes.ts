@@ -1,5 +1,6 @@
+import { toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import type { OAuthClient } from "@/contracts";
+import type { OAuthClient, OAuthScope } from "@/contracts";
 import * as clients from "./clients";
 
 // ==========================
@@ -11,12 +12,15 @@ type DbCode = {
   client_id: string;
   user_id: string;
   redirect_uri: string;
+  scopes: string[];
   nonce: string | null;
   code_challenge: string | null;
   code_challenge_method: string | null;
   expires_at: Date;
   used: boolean;
 };
+
+const PKCE_VERIFIER_PATTERN = /^[A-Za-z0-9._~-]{43,128}$/;
 
 /**
  * Create an authorization code
@@ -25,15 +29,24 @@ export const create = async (params: {
   clientId: string;
   userId: string;
   redirectUri: string;
+  scopes: OAuthScope[];
   nonce?: string;
   codeChallenge?: string;
   codeChallengeMethod?: "S256" | "plain";
 }): Promise<string> => {
-  const { clientId, userId, redirectUri, nonce, codeChallenge, codeChallengeMethod } = params;
+  const { clientId, userId, redirectUri, scopes, nonce, codeChallenge, codeChallengeMethod } = params;
 
   const [row] = await sql<{ code: string }[]>`
-    INSERT INTO oauth.codes (client_id, user_id, redirect_uri, nonce, code_challenge, code_challenge_method)
-    VALUES (${clientId}, ${userId}, ${redirectUri}, ${nonce ?? null}, ${codeChallenge ?? null}, ${codeChallengeMethod ?? null})
+    INSERT INTO oauth.codes (client_id, user_id, redirect_uri, scopes, nonce, code_challenge, code_challenge_method)
+    VALUES (
+      ${clientId},
+      ${userId},
+      ${redirectUri},
+      ${toPgTextArray(scopes)}::text[],
+      ${nonce ?? null},
+      ${codeChallenge ?? null},
+      ${codeChallengeMethod ?? null}
+    )
     RETURNING code
   `;
 
@@ -49,12 +62,12 @@ export const consume = async (params: {
   clientId: string;
   redirectUri: string;
   codeVerifier?: string;
-}): Promise<{ userId: string; client: OAuthClient; nonce: string | null } | null> => {
+}): Promise<{ userId: string; client: OAuthClient; scopes: OAuthScope[]; nonce: string | null } | null> => {
   const { code, clientId, redirectUri, codeVerifier } = params;
 
   // Get and validate code
   const [row] = await sql<DbCode[]>`
-    SELECT code, client_id, user_id, redirect_uri, nonce, code_challenge, code_challenge_method, expires_at, used
+    SELECT code, client_id, user_id, redirect_uri, scopes, nonce, code_challenge, code_challenge_method, expires_at, used
     FROM oauth.codes
     WHERE code = ${code}
   `;
@@ -75,7 +88,7 @@ export const consume = async (params: {
 
   // PKCE validation
   if (row.code_challenge) {
-    if (!codeVerifier) return null;
+    if (!codeVerifier || !PKCE_VERIFIER_PATTERN.test(codeVerifier)) return null;
 
     let computedChallenge: string;
     if (row.code_challenge_method === "S256") {
@@ -105,7 +118,7 @@ export const consume = async (params: {
   const client = await clients.getByClientId({ clientId });
   if (!client) return null;
 
-  return { userId: row.user_id, client, nonce: row.nonce };
+  return { userId: row.user_id, client, scopes: row.scopes as OAuthScope[], nonce: row.nonce };
 };
 
 /**

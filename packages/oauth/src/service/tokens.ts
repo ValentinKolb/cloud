@@ -1,7 +1,8 @@
+import { accounts, serviceAccounts } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import * as jose from "jose";
 import type { OAuthClient, OAuthScope } from "@/contracts";
-import { accounts, serviceAccounts } from "@valentinkolb/cloud/services";
+import * as refreshTokens from "./refresh-tokens";
 
 // ==========================
 // OAuth Tokens Service (JWT with jose)
@@ -144,12 +145,13 @@ export const getOpenIdConfiguration = (issuer: string) => ({
   token_endpoint: `${issuer}/oauth/token`,
   userinfo_endpoint: `${issuer}/oauth/userinfo`,
   end_session_endpoint: `${issuer}/oauth/logout`,
+  revocation_endpoint: `${issuer}/oauth/revoke`,
   jwks_uri: `${issuer}/.well-known/jwks.json`,
   response_types_supported: ["code"],
   subject_types_supported: ["public"],
   id_token_signing_alg_values_supported: ["RS256"],
-  scopes_supported: ["openid", "profile", "email", "groups", "read", "write", "admin"],
-  token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
+  scopes_supported: ["openid", "profile", "email", "groups", "offline_access", "read", "write", "admin"],
+  token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
   claims_supported: [
     "sub",
     "uid",
@@ -177,7 +179,7 @@ export const getOpenIdConfiguration = (issuer: string) => ({
     "resource_id",
   ],
   code_challenge_methods_supported: ["S256", "plain"],
-  grant_types_supported: ["authorization_code", "client_credentials"],
+  grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
   resource_parameter_supported: true,
 });
 
@@ -189,8 +191,14 @@ export const createTokens = async (params: {
   client: OAuthClient;
   issuer: string;
   nonce?: string | null;
-}): Promise<{ accessToken: string; idToken: string | null; expiresIn: number }> => {
+  scopes?: OAuthScope[];
+  audiences?: string[];
+  issueRefreshToken?: boolean;
+  refreshTokenLabel?: string | null;
+}): Promise<{ accessToken: string; idToken: string | null; expiresIn: number; scope: string; refreshToken?: string }> => {
   const { userId, client, issuer, nonce } = params;
+  const scopes = params.scopes ?? client.scopes;
+  const audiences = params.audiences ?? client.audiences;
   const { privateKey, kid } = await getOrCreateKeyPair();
 
   // Load user to get uid for sub claim
@@ -201,6 +209,7 @@ export const createTokens = async (params: {
 
   const now = Math.floor(Date.now() / 1000);
   const expiresIn = 3600; // 1 hour
+  const scopeValue = scopes.join(" ");
 
   // Use uid as subject (not internal UUID)
   const subject = user.uid;
@@ -213,12 +222,12 @@ export const createTokens = async (params: {
     id: user.id,
     client_id: client.clientId,
     azp: client.clientId,
-    scope: client.scopes.join(" "),
+    scope: scopeValue,
   })
     .setProtectedHeader({ alg: "RS256", kid })
     .setIssuer(issuer)
     .setSubject(subject)
-    .setAudience(getAccessTokenAudience(client))
+    .setAudience(dedupe(["cloud", client.clientId, ...audiences]))
     .setIssuedAt(now)
     .setExpirationTime(now + expiresIn)
     .setJti(crypto.randomUUID())
@@ -226,7 +235,7 @@ export const createTokens = async (params: {
 
   // ID Token (only if openid scope)
   let idToken: string | null = null;
-  if (client.scopes.includes("openid")) {
+  if (scopes.includes("openid")) {
     const idTokenClaims: Record<string, unknown> = {
       uid: user.uid,
       id: user.id,
@@ -236,18 +245,18 @@ export const createTokens = async (params: {
       idTokenClaims.nonce = nonce;
     }
 
-    if (client.scopes.includes("profile")) {
+    if (scopes.includes("profile")) {
       idTokenClaims.name = user.displayName;
       idTokenClaims.display_name = user.displayName;
       idTokenClaims.given_name = user.givenname;
       idTokenClaims.family_name = user.sn;
     }
 
-    if (client.scopes.includes("email")) {
+    if (scopes.includes("email")) {
       idTokenClaims.email = user.mail;
     }
 
-    if (client.scopes.includes("groups")) {
+    if (scopes.includes("groups")) {
       const groups = await accounts.users.getGroups({ id: userId, recursive: true });
       idTokenClaims.groups = groups;
     }
@@ -262,7 +271,23 @@ export const createTokens = async (params: {
       .sign(privateKey);
   }
 
-  return { accessToken, idToken, expiresIn };
+  const refreshToken =
+    params.issueRefreshToken && refreshTokens.shouldIssueRefreshToken(scopes)
+      ? await refreshTokens.create({
+          userId,
+          client,
+          scopes,
+          label: params.refreshTokenLabel,
+        })
+      : null;
+
+  return {
+    accessToken,
+    idToken,
+    expiresIn,
+    scope: scopeValue,
+    ...(refreshToken ? { refreshToken: refreshToken.refreshToken } : {}),
+  };
 };
 
 /**
