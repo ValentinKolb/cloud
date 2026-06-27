@@ -12,6 +12,7 @@ import type {
   CloudCliOptions,
   CloudCliTableColumn,
 } from "@valentinkolb/cloud/cli";
+import accountCliModule from "@valentinkolb/cloud/cli/account";
 import contactsCliModule from "@valentinkolb/cloud-app-contacts/cli";
 import notebooksCliModule from "@valentinkolb/cloud-app-notebooks/cli";
 import spacesCliModule from "@valentinkolb/cloud-app-spaces/cli";
@@ -65,7 +66,7 @@ const CONFIG_PATH =
 const TOKEN_TIMEOUT_MS = 10_000;
 const BOOLEAN_FLAGS = new Set(["json"]);
 
-const modules: CloudCliModule[] = [contactsCliModule, notebooksCliModule, spacesCliModule, toolsCliModule];
+const modules: CloudCliModule[] = [accountCliModule, contactsCliModule, notebooksCliModule, spacesCliModule, toolsCliModule];
 
 const moduleByName = new Map(modules.map((module) => [module.name, module]));
 
