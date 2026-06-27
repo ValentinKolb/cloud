@@ -11,7 +11,8 @@
     "sql-boundary-smoke": "bun run scripts/sql-boundary-smoke.ts",
     "webhook-receiver": "bun run scripts/webhook-receiver.ts",
     "smoke": "bash scripts/smoke.sh",
-    "soak:100k": "bun run scripts/soak-100k.ts"
+    "soak:100k": "bun run scripts/soak-100k.ts",
+    "pdf-previews": "bun run scripts/render-document-template-previews.ts"
   },
   "dependencies": {
     "@bwip-js/generic": "4.11.1",
@@ -23,12 +24,12 @@
     "hono": "^4.11.1",
     "hono-openapi": "^1.1.2",
     "lean-qr": "^2.4.0",
-    "liquidjs": "^10.27.1",
     "zod": "^4.3.4"
   },
   "devDependencies": {
     "@types/bun": "1.3.9",
     "playwright": "^1.60.0",
     "typescript": "^5.9.3"
-  }
+  },
+  "license": "AGPL-3.0-or-later"
 }
