@@ -4,19 +4,19 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { createEffect, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
 import type {
   MetricQueryPoint,
-  PulseDashboardCardWidget,
   PulseDashboardCondition,
-  PulseDashboardEventsWidget,
-  PulseDashboardMarkdownWidget,
-  PulseDashboardMetricWidget,
-  PulseDashboardRow,
-  PulseDashboardSection,
-  PulseDashboardStatesWidget,
-  PulseDashboardWidget,
   PulseDashboardSnapshot,
+  PulsePublicCurrentState,
+  PulsePublicDashboardEventsWidget,
+  PulsePublicDashboardMarkdownWidget,
+  PulsePublicDashboardMetricWidget,
+  PulsePublicDashboardRow,
+  PulsePublicDashboardSection,
+  PulsePublicDashboardStatesWidget,
+  PulsePublicDashboardWidget,
+  PulsePublicRecordedEvent,
 } from "../contracts";
-import { compactDate, compactDateWithDelta, compactDay, defaultPulseDateContext, formatSignalValue, stateRowId } from "./workspace/helpers";
-import { signalSubject } from "./workspace/helpers";
+import { compactDate, compactDateWithDelta, compactDay, defaultPulseDateContext, formatSignalValue } from "./workspace/helpers";
 
 type Props = {
   token: string;
@@ -62,6 +62,30 @@ const queryPointColumns = (dateContext: DateContext): DataTableColumn<MetricQuer
   { id: "value", header: "Value", value: (point) => formatValue(point.value), cellClass: "w-32 whitespace-nowrap" },
 ];
 
+const spanClasses: Record<number, string> = {
+  1: "lg:col-span-1",
+  2: "lg:col-span-2",
+  3: "lg:col-span-3",
+  4: "lg:col-span-4",
+  5: "lg:col-span-5",
+  6: "lg:col-span-6",
+  7: "lg:col-span-7",
+  8: "lg:col-span-8",
+  9: "lg:col-span-9",
+  10: "lg:col-span-10",
+  11: "lg:col-span-11",
+  12: "lg:col-span-12",
+};
+
+const publicEventSubject = (event: PulsePublicRecordedEvent): string => event.entityId || event.entityType || "-";
+
+const publicStateRowId = (state: PulsePublicCurrentState): string => [state.key, state.entityId, state.entityType ?? ""].join(":");
+
+const sanitizePublicMarkdown = (input: string): string =>
+  input
+    .replace(/!\[[^\]]*]\(\s*https?:\/\/[^)]+\)/gi, "")
+    .replace(/<img\b[^>]*>/gi, "");
+
 export default function PublicPulseDashboard(props: Props) {
   const [snapshot, setSnapshot] = createSignal(props.initialSnapshot);
   const dateContext = () => ({ ...defaultPulseDateContext, ...(props.initialDateConfig ?? {}) });
@@ -72,9 +96,9 @@ export default function PublicPulseDashboard(props: Props) {
     setSnapshot((await response.json()) as PulseDashboardSnapshot);
   };
 
-  const pointsFor = (widget: PulseDashboardMetricWidget): MetricQueryPoint[] => snapshot().points[widget.id] ?? [];
+  const pointsFor = (widget: PulsePublicDashboardMetricWidget): MetricQueryPoint[] => snapshot().points[widget.id] ?? [];
 
-  const renderMetricWidget = (widget: PulseDashboardMetricWidget) => {
+  const renderMetricWidget = (widget: PulsePublicDashboardMetricWidget) => {
     const data = pointsFor(widget);
     const last = data.at(-1)?.value ?? null;
     if (widget.visual === "stat") {
@@ -158,7 +182,7 @@ export default function PublicPulseDashboard(props: Props) {
     </article>
   );
 
-  const matchedMetricCondition = (widget: PulseDashboardMetricWidget): PulseDashboardCondition | null => {
+  const matchedMetricCondition = (widget: PulsePublicDashboardMetricWidget): PulseDashboardCondition | null => {
     const value = pointsFor(widget).at(-1)?.value ?? null;
     if (value === null) return null;
     let match: PulseDashboardCondition | null = null;
@@ -188,7 +212,7 @@ export default function PublicPulseDashboard(props: Props) {
   const conditionText = (condition: PulseDashboardCondition): string =>
     condition.message?.trim() || `${condition.level === "critical" ? "Critical" : "Warning"} when value ${condition.operator} ${String(condition.value)}`;
 
-  const renderMetricWidgetFrame = (widget: PulseDashboardMetricWidget) => {
+  const renderMetricWidgetFrame = (widget: PulsePublicDashboardMetricWidget) => {
     const condition = matchedMetricCondition(widget);
     const level = condition?.level ?? null;
     return (
@@ -225,10 +249,10 @@ export default function PublicPulseDashboard(props: Props) {
     );
   };
 
-  const renderMarkdownWidget = (widget: PulseDashboardMarkdownWidget) =>
-    renderWidgetFrame(widget, <MarkdownView html={markdown.render(widget.markdown)} smallHeadings class="text-sm" />);
+  const renderMarkdownWidget = (widget: PulsePublicDashboardMarkdownWidget) =>
+    renderWidgetFrame(widget, <MarkdownView html={markdown.render(sanitizePublicMarkdown(widget.markdown))} smallHeadings class="text-sm" />);
 
-  const renderEventsWidget = (widget: PulseDashboardEventsWidget) =>
+  const renderEventsWidget = (widget: PulsePublicDashboardEventsWidget) =>
     renderWidgetFrame(
       widget,
       <DataTable
@@ -236,7 +260,7 @@ export default function PublicPulseDashboard(props: Props) {
         columns={[
           { id: "time", header: "Time", value: (event) => compactDateWithDelta(event.ts, dateContext()) },
           { id: "event", header: "Event", value: (event) => event.kind },
-          { id: "subject", header: "Subject", value: (event) => signalSubject(event) },
+          { id: "subject", header: "Subject", value: (event) => publicEventSubject(event) },
           { id: "value", header: "Value", value: (event) => formatSignalValue(event.value) },
         ]}
         getRowId={(event) => event.id}
@@ -246,25 +270,40 @@ export default function PublicPulseDashboard(props: Props) {
       />,
     );
 
-  const renderStatesWidget = (widget: PulseDashboardStatesWidget) =>
-    renderWidgetFrame(
+  const renderStatesWidget = (widget: PulsePublicDashboardStatesWidget) => {
+    const rows = snapshot().states[widget.id] ?? [];
+    if (widget.visual === "stat") {
+      const state = rows[0];
+      return renderWidgetFrame(
+        widget,
+        <Chart
+          kind="stat"
+          class="h-40 text-primary"
+          label={state?.key ?? widget.title}
+          value={state ? formatSignalValue(state.value) : "n/a"}
+          sparkline={[]}
+        />,
+      );
+    }
+    return renderWidgetFrame(
       widget,
       <DataTable
-        rows={snapshot().states[widget.id] ?? []}
+        rows={rows}
         columns={[
           { id: "state", header: "State", value: (state) => state.key },
           { id: "value", header: "Value", value: (state) => formatSignalValue(state.value) },
           { id: "entity", header: "Entity", value: (state) => state.entityId },
           { id: "updated", header: "Updated", value: (state) => compactDateWithDelta(state.updatedAt, dateContext()) },
         ]}
-        getRowId={(state) => stateRowId(state)}
+        getRowId={(state) => publicStateRowId(state)}
         density="compact"
         class="max-h-80 overflow-auto"
         empty="No states matched this query."
       />,
     );
+  };
 
-  const renderCardWidget = (widget: PulseDashboardCardWidget) =>
+  const renderCardWidget = (widget: PulsePublicDashboardWidget & { kind: "card" }) =>
     renderWidgetFrame(
       widget,
       <div class="space-y-3">
@@ -272,10 +311,10 @@ export default function PublicPulseDashboard(props: Props) {
       </div>,
     );
 
-  const renderDashboardWidget = (widget: PulseDashboardWidget) => {
+  const renderDashboardWidget = (widget: PulsePublicDashboardWidget) => {
     const span = Math.min(12, Math.max(1, widget.span ?? 12));
     return (
-      <div style={{ "grid-column": `span ${span} / span ${span}` }}>
+      <div class={`col-span-1 ${spanClasses[span] ?? spanClasses[12]}`}>
         {widget.kind === "metric"
           ? renderMetricWidgetFrame(widget)
           : widget.kind === "markdown"
@@ -289,13 +328,13 @@ export default function PublicPulseDashboard(props: Props) {
     );
   };
 
-  const renderDashboardRow = (row: PulseDashboardRow) => (
+  const renderDashboardRow = (row: PulsePublicDashboardRow) => (
     <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
       <For each={row.cells}>{(widget) => renderDashboardWidget(widget)}</For>
     </div>
   );
 
-  const renderDashboardSection = (section: PulseDashboardSection) => (
+  const renderDashboardSection = (section: PulsePublicDashboardSection) => (
     <section class="space-y-4">
       <div>
         <h2 class="text-base font-semibold text-primary">{section.title}</h2>

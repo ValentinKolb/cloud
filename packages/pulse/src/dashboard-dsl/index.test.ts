@@ -138,6 +138,46 @@ describe("Pulse dashboard DSL", () => {
     expect(widget.dimensions).toEqual({ region: "eu", term: "checkout" });
   });
 
+  test("does not replace partial dashboard control variable names", () => {
+    const result = compileDashboardDsl(
+      `dashboard "Scoped" {
+        controls {
+          label "Env" variable env default prod
+        }
+
+        section "Main" {
+          chart "Orders" {
+            query metric sales.orders avg every 5m since 24h where environment=$environment, env=$env
+          }
+        }
+      }`,
+      (query) => {
+        expect(query).toContain("environment=$environment");
+        expect(query).toContain("env=prod");
+        return { ok: false, message: "stop" };
+      },
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  test("reports query diagnostics for excessive dashboard lookback", () => {
+    const result = compileDashboardDsl(
+      `dashboard "Too broad" {
+        section "Main" {
+          chart "Orders" {
+            query metric sales.orders avg every 1h since 365d
+          }
+        }
+      }`,
+      (query) => {
+        const compiled = compilePulseQueryText("base", query);
+        return compiled.ok ? { ok: true, data: compiled.data } : { ok: false, message: compiled.error.message };
+      },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics[0]?.message).toContain("compact durations");
+  });
+
   test("compiles events and states as table widgets", () => {
     const result = compileDashboardDsl(
       `dashboard "Ops" {

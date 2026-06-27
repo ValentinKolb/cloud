@@ -34,6 +34,7 @@ import type {
   PulseDashboardMetricQuery,
   PulseDashboardMetricWidget,
   PulseDashboardPanel,
+  PulsePublicDashboardCardWidget,
   PulseDashboardRow,
   PulseDashboardSection,
   PulseDashboardStateQuery,
@@ -49,8 +50,17 @@ import type {
   PulseMetric,
   PulseMetricSeries,
   PulseInventory,
+  PulsePublicCurrentState,
   PulseQueryCompileResult,
   PulsePublicDashboard,
+  PulsePublicDashboardEventsWidget,
+  PulsePublicDashboardLayout,
+  PulsePublicDashboardMetricWidget,
+  PulsePublicDashboardRow,
+  PulsePublicDashboardSection,
+  PulsePublicDashboardStatesWidget,
+  PulsePublicDashboardWidget,
+  PulsePublicRecordedEvent,
   PulseRecordedEvent,
   PulseResourceMetric,
   PulseResourceSummary,
@@ -69,6 +79,8 @@ const PULSE_APP_ID = "pulse";
 const PULSE_SOURCE_RESOURCE_TYPE = "pulse_source";
 const PULSE_INGEST_SCOPE = "pulse:ingest";
 const BASE_DELETE_BATCH_SIZE = 50_000;
+const MAX_METRIC_BUCKETS = 2_000;
+const MAX_PUBLIC_EXECUTED_WIDGETS = 36;
 
 type UserScope = {
   id: string;
@@ -383,7 +395,15 @@ const normalizeDashboardConditions = (conditions: unknown): PulseDashboardCondit
 const normalizeDashboardControl = (control: unknown): PulseDashboardControl | null => {
   if (typeof control !== "object" || control === null) return null;
   const value = control as Record<string, unknown>;
-  const kind = value.kind === "range" || value.kind === "source" || value.kind === "entity" || value.kind === "entity_type" ? value.kind : null;
+  const kind =
+    value.kind === "range" ||
+    value.kind === "source" ||
+    value.kind === "entity" ||
+    value.kind === "entity_type" ||
+    value.kind === "label" ||
+    value.kind === "text"
+      ? value.kind
+      : null;
   const variable = typeof value.variable === "string" && value.variable.trim() ? value.variable.trim().slice(0, 80) : "";
   const label = typeof value.label === "string" && value.label.trim() ? value.label.trim().slice(0, 160) : variable;
   if (!kind || !variable || !label) return null;
@@ -719,6 +739,100 @@ const dashboardRenderConfig = (dashboard: PulseDashboard): PulseDashboardConfig 
   const compiled = compileDashboardConfigForSave(dashboard.baseId, dashboard.name, dashboard.config);
   return compiled.ok ? compiled.data : dashboard.config;
 };
+
+const publicMetricWidget = (widget: PulseDashboardMetricWidget): PulsePublicDashboardMetricWidget => ({
+  id: widget.id,
+  kind: "metric",
+  title: widget.title,
+  metric: widget.metric,
+  visual: widget.visual,
+  aggregation: widget.aggregation,
+  bucket: widget.bucket,
+  since: widget.since,
+  description: widget.description,
+  conditions: widget.conditions,
+  span: widget.span,
+});
+
+const publicEventsWidget = (widget: PulseDashboardEventsWidget): PulsePublicDashboardEventsWidget => ({
+  id: widget.id,
+  kind: "events",
+  title: widget.title,
+  visual: widget.visual,
+  description: widget.description,
+  conditions: widget.conditions,
+  span: widget.span,
+});
+
+const publicStatesWidget = (widget: PulseDashboardStatesWidget): PulsePublicDashboardStatesWidget => ({
+  id: widget.id,
+  kind: "states",
+  title: widget.title,
+  visual: widget.visual,
+  description: widget.description,
+  conditions: widget.conditions,
+  span: widget.span,
+});
+
+const publicDashboardWidget = (widget: PulseDashboardWidget): PulsePublicDashboardWidget => {
+  if (widget.kind === "metric") return publicMetricWidget(widget);
+  if (widget.kind === "events") return publicEventsWidget(widget);
+  if (widget.kind === "states") return publicStatesWidget(widget);
+  if (widget.kind === "markdown") return widget;
+  const card: PulsePublicDashboardCardWidget = {
+    id: widget.id,
+    kind: "card",
+    title: widget.title,
+    description: widget.description,
+    span: widget.span,
+    rows: widget.rows.map(publicDashboardRow),
+  };
+  return card;
+};
+
+const publicDashboardRow = (row: PulseDashboardRow): PulsePublicDashboardRow => ({
+  id: row.id,
+  kind: "row",
+  height: row.height,
+  cells: row.cells.map(publicDashboardWidget),
+});
+
+const publicDashboardSection = (section: PulseDashboardSection): PulsePublicDashboardSection => ({
+  id: section.id,
+  kind: "section",
+  title: section.title,
+  description: section.description,
+  rows: section.rows.map(publicDashboardRow),
+  sections: section.sections?.map(publicDashboardSection),
+});
+
+const publicDashboardLayout = (layout: PulseDashboardLayout | null): PulsePublicDashboardLayout | null =>
+  layout
+    ? {
+        version: 1,
+        description: layout.description,
+        sections: layout.sections.map(publicDashboardSection),
+      }
+    : null;
+
+const publicRecordedEvent = (event: PulseRecordedEvent): PulsePublicRecordedEvent => ({
+  id: event.id,
+  kind: event.kind,
+  ts: event.ts,
+  value: event.value,
+  entityId: event.entityId,
+  entityType: event.entityType,
+});
+
+const publicCurrentState = (state: PulseCurrentState): PulsePublicCurrentState => ({
+  key: state.key,
+  value: state.value,
+  entityId: state.entityId,
+  entityType: state.entityType,
+  updatedAt: state.updatedAt,
+});
+
+const publicRefreshInterval = (value: DashboardRefreshInterval | null | undefined): DashboardRefreshInterval | null | undefined => (value === 1 ? 5 : value);
 
 const parseTime = (value: string | undefined): Date => {
   if (!value) return new Date();
@@ -2827,6 +2941,10 @@ const queryMetricData = async (query: MetricQuery): Promise<Result<MetricQueryPo
   const bucketInterval = durationToInterval(query.bucket);
   const sinceMs = intervalToMs(query.since);
   if (!bucketInterval || !sinceMs) return fail(err.badInput("Use compact durations like 5m, 1h, or 7d"));
+  const bucketMs = intervalToMs(query.bucket) ?? 0;
+  if (!bucketMs || Math.ceil(sinceMs / bucketMs) > MAX_METRIC_BUCKETS) {
+    return fail(err.badInput(`This query creates too many buckets. Use a larger bucket or a shorter range.`));
+  }
 
   const since = new Date(Date.now() - sinceMs);
   const dimensions = normalizeDimensions(query.dimensions);
@@ -2862,7 +2980,6 @@ const queryMetricData = async (query: MetricQuery): Promise<Result<MetricQueryPo
   }
 
   const aggregation = query.aggregation;
-  const bucketMs = intervalToMs(query.bucket) ?? 0;
   const canUseHourlyRollup =
     sinceMs >= 7 * 24 * 60 * 60_000 &&
     bucketMs >= 60 * 60_000 &&
@@ -3112,10 +3229,12 @@ const getPublicDashboardSnapshot = async (token: string): Promise<Result<PulseDa
   const dashboard = dashboardResult.data;
   const config = dashboardRenderConfig(dashboard);
   const points: Record<string, MetricQueryPoint[]> = {};
-  const events: Record<string, PulseRecordedEvent[]> = {};
-  const states: Record<string, PulseCurrentState[]> = {};
+  const events: Record<string, PulsePublicRecordedEvent[]> = {};
+  const states: Record<string, PulsePublicCurrentState[]> = {};
+  let remainingWidgets = MAX_PUBLIC_EXECUTED_WIDGETS;
 
   for (const widget of dashboardMetricWidgets(config)) {
+    if (remainingWidgets-- <= 0) break;
     const result = await queryMetricData({
       kind: "metric",
       baseId: dashboard.baseId,
@@ -3132,21 +3251,23 @@ const getPublicDashboardSnapshot = async (token: string): Promise<Result<PulseDa
   }
 
   for (const widget of dashboardEventsWidgets(config)) {
+    if (remainingWidgets-- <= 0) break;
     const result = await queryEventsData({ baseId: dashboard.baseId, ...widget.query });
-    events[widget.id] = result.ok ? result.data : [];
+    events[widget.id] = result.ok ? result.data.map(publicRecordedEvent) : [];
   }
 
   for (const widget of dashboardStatesWidgets(config)) {
+    if (remainingWidgets-- <= 0) break;
     const result = await queryStatesData({ baseId: dashboard.baseId, ...widget.query });
-    states[widget.id] = result.ok ? result.data : [];
+    states[widget.id] = result.ok ? result.data.map(publicCurrentState) : [];
   }
 
   const publicDashboard: PulsePublicDashboard = {
     id: dashboard.id,
     name: dashboard.name,
     config: {
-      refreshIntervalSeconds: config.refreshIntervalSeconds,
-      layout: config.layout,
+      refreshIntervalSeconds: publicRefreshInterval(config.refreshIntervalSeconds),
+      layout: publicDashboardLayout(config.layout),
     },
   };
 

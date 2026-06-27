@@ -357,6 +357,45 @@ export type PulseDashboard = {
   updatedAt: string;
 };
 
+export type PulsePublicRecordedEvent = Pick<PulseRecordedEvent, "id" | "kind" | "ts" | "value" | "entityId" | "entityType">;
+
+export type PulsePublicCurrentState = Pick<PulseCurrentState, "key" | "value" | "entityId" | "entityType" | "updatedAt">;
+
+export type PulsePublicDashboardMetricWidget = Omit<
+  PulseDashboardMetricWidget,
+  "query" | "queryText" | "sourceId" | "entityId" | "entityType" | "dimensions"
+>;
+
+export type PulsePublicDashboardEventsWidget = Omit<PulseDashboardEventsWidget, "query" | "queryText">;
+
+export type PulsePublicDashboardStatesWidget = Omit<PulseDashboardStatesWidget, "query" | "queryText">;
+
+export type PulsePublicDashboardMarkdownWidget = PulseDashboardMarkdownWidget;
+
+export type PulsePublicDashboardCardWidget = Omit<PulseDashboardCardWidget, "rows"> & {
+  rows: PulsePublicDashboardRow[];
+};
+
+export type PulsePublicDashboardWidget =
+  | PulsePublicDashboardMetricWidget
+  | PulsePublicDashboardEventsWidget
+  | PulsePublicDashboardStatesWidget
+  | PulsePublicDashboardMarkdownWidget
+  | PulsePublicDashboardCardWidget;
+
+export type PulsePublicDashboardRow = Omit<PulseDashboardRow, "cells"> & {
+  cells: PulsePublicDashboardWidget[];
+};
+
+export type PulsePublicDashboardSection = Omit<PulseDashboardSection, "rows" | "sections"> & {
+  rows: PulsePublicDashboardRow[];
+  sections?: PulsePublicDashboardSection[];
+};
+
+export type PulsePublicDashboardLayout = Omit<PulseDashboardLayout, "controls" | "sections"> & {
+  sections: PulsePublicDashboardSection[];
+};
+
 export type PulseSavedQuery = {
   id: string;
   baseId: string;
@@ -371,7 +410,7 @@ export type PulsePublicDashboard = {
   id: string;
   name: string;
   config: {
-    layout: PulseDashboardLayout | null;
+    layout: PulsePublicDashboardLayout | null;
     refreshIntervalSeconds?: DashboardRefreshInterval | null;
   };
 };
@@ -379,8 +418,8 @@ export type PulsePublicDashboard = {
 export type PulseDashboardSnapshot = {
   dashboard: PulsePublicDashboard;
   points: Record<string, MetricQueryPoint[]>;
-  events: Record<string, PulseRecordedEvent[]>;
-  states: Record<string, PulseCurrentState[]>;
+  events: Record<string, PulsePublicRecordedEvent[]>;
+  states: Record<string, PulsePublicCurrentState[]>;
 };
 
 export type PulseDashboardDslDiagnostic = {

@@ -24,6 +24,21 @@ import { z } from "zod";
 import { AGGREGATIONS, METRIC_TYPES, PANEL_VISUALS, SOURCE_KINDS } from "../contracts";
 import { pulseService } from "../service";
 
+const durationToMs = (value: string): number | null => {
+  const match = value.match(/^(\d+)(m|h|d)$/);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const duration = match[2] === "m" ? amount * 60_000 : match[2] === "h" ? amount * 60 * 60_000 : amount * 24 * 60 * 60_000;
+  return duration <= 90 * 24 * 60 * 60_000 ? duration : null;
+};
+
+const DurationSchema = z
+  .string()
+  .trim()
+  .regex(/^\d+[mhd]$/)
+  .refine((value) => durationToMs(value) !== null, "Duration must be 90d or shorter");
+
 const DimensionValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const DimensionsSchema = z.record(z.string(), DimensionValueSchema).optional();
 
@@ -117,14 +132,8 @@ const DashboardPanelSchema = z.object({
   metric: z.string().trim().min(1).max(240),
   visual: z.enum(PANEL_VISUALS),
   aggregation: z.enum(AGGREGATIONS),
-  bucket: z
-    .string()
-    .trim()
-    .regex(/^\d+[mhd]$/),
-  since: z
-    .string()
-    .trim()
-    .regex(/^\d+[mhd]$/),
+  bucket: DurationSchema,
+  since: DurationSchema,
   sourceId: z.string().uuid().nullable().optional(),
   entityId: z.string().nullable().optional(),
   entityType: z.string().nullable().optional(),
@@ -139,8 +148,8 @@ const DashboardMetricWidgetSchema = DashboardPanelSchema.extend({
       kind: z.literal("metric"),
       metric: z.string().trim().min(1).max(240),
       aggregation: z.enum(AGGREGATIONS),
-      bucket: z.string().trim().regex(/^\d+[mhd]$/),
-      since: z.string().trim().regex(/^\d+[mhd]$/),
+      bucket: DurationSchema,
+      since: DurationSchema,
       sourceId: z.string().uuid().nullable().optional(),
       entityId: z.string().nullable().optional(),
       entityType: z.string().nullable().optional(),
@@ -165,7 +174,7 @@ const DashboardMetricWidgetSchema = DashboardPanelSchema.extend({
 const DashboardEventQuerySchema = z.object({
   kind: z.literal("events"),
   event: z.string().trim().min(1).max(240).nullable(),
-  since: z.string().trim().regex(/^\d+[mhd]$/),
+  since: DurationSchema,
   sourceId: z.string().uuid().nullable().optional(),
   entityId: z.string().nullable().optional(),
   entityType: z.string().nullable().optional(),
@@ -176,7 +185,7 @@ const DashboardEventQuerySchema = z.object({
 const DashboardStateQuerySchema = z.object({
   kind: z.literal("states"),
   state: z.string().trim().min(1).max(240).nullable(),
-  since: z.string().trim().regex(/^\d+[mhd]$/).nullable().optional(),
+  since: DurationSchema.nullable().optional(),
   sourceId: z.string().uuid().nullable().optional(),
   entityId: z.string().nullable().optional(),
   entityType: z.string().nullable().optional(),
@@ -300,13 +309,13 @@ const DashboardLayoutSchema = z.object({
 
 const DashboardConfigSchema = z.object({
   dsl: z.string().trim().max(40_000),
-  layout: DashboardLayoutSchema.nullable(),
+  layout: DashboardLayoutSchema.nullable().optional(),
   panels: z.array(DashboardPanelSchema).max(24).optional(),
   refreshIntervalSeconds: z
     .union([z.literal(1), z.literal(5), z.literal(10), z.literal(60)])
     .nullable()
     .optional(),
-});
+}).transform((config) => ({ ...config, layout: config.layout ?? null }));
 
 const CreateDashboardSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -322,15 +331,11 @@ const MetricQuerySchema = z.object({
   baseId: z.string().uuid(),
   metric: z.string().trim().min(1),
   aggregation: z.enum(AGGREGATIONS),
-  bucket: z
-    .string()
-    .trim()
-    .regex(/^\d+[mhd]$/),
-  since: z
-    .string()
-    .trim()
-    .regex(/^\d+[mhd]$/),
+  bucket: DurationSchema,
+  since: DurationSchema,
   sourceId: z.string().uuid().nullable().optional(),
+  entityId: z.string().nullable().optional(),
+  entityType: z.string().nullable().optional(),
   dimensions: DimensionsSchema,
 });
 const CompiledMetricQuerySchema = MetricQuerySchema.extend({ kind: z.literal("metric") });
@@ -338,10 +343,7 @@ const EventQuerySchema = z.object({
   kind: z.literal("events"),
   baseId: z.string().uuid(),
   event: z.string().nullable(),
-  since: z
-    .string()
-    .trim()
-    .regex(/^\d+[mhd]$/),
+  since: DurationSchema,
   sourceId: z.string().uuid().nullable().optional(),
   entityId: z.string().nullable().optional(),
   entityType: z.string().nullable().optional(),
@@ -352,12 +354,7 @@ const StateQuerySchema = z.object({
   kind: z.literal("states"),
   baseId: z.string().uuid(),
   state: z.string().nullable(),
-  since: z
-    .string()
-    .trim()
-    .regex(/^\d+[mhd]$/)
-    .nullable()
-    .optional(),
+  since: DurationSchema.nullable().optional(),
   sourceId: z.string().uuid().nullable().optional(),
   entityId: z.string().nullable().optional(),
   entityType: z.string().nullable().optional(),
@@ -461,9 +458,24 @@ const PublicDashboardSchema = z.object({
   id: z.string(),
   name: z.string(),
   config: z.object({
-    layout: DashboardLayoutSchema.nullable(),
+    layout: z.unknown().nullable(),
     refreshIntervalSeconds: z.number().nullable().optional(),
   }),
+});
+const PublicRecordedEventSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  ts: z.string(),
+  value: z.number().nullable(),
+  entityId: z.string().nullable(),
+  entityType: z.string().nullable(),
+});
+const PublicCurrentStateSchema = z.object({
+  key: z.string(),
+  value: z.unknown(),
+  entityId: z.string(),
+  entityType: z.string().nullable(),
+  updatedAt: z.string(),
 });
 const SavedQuerySchema = z.object({
   id: z.string(),
@@ -488,8 +500,8 @@ const DashboardDslCompileResultSchema = z.object({
 const DashboardSnapshotSchema = z.object({
   dashboard: PublicDashboardSchema,
   points: z.record(z.string(), z.array(StreamPointSchema)),
-  events: z.record(z.string(), z.array(z.unknown())),
-  states: z.record(z.string(), z.array(z.unknown())),
+  events: z.record(z.string(), z.array(PublicRecordedEventSchema)),
+  states: z.record(z.string(), z.array(PublicCurrentStateSchema)),
 });
 const MetricSeriesSchema = z.object({
   id: z.string(),

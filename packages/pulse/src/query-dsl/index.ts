@@ -2,15 +2,16 @@ import { err, fail, ok, type Result } from "@valentinkolb/cloud/server";
 import { AGGREGATIONS } from "../contracts";
 import type { Aggregation, EventQuery, MetricQuery, PulseExplorerQuery, StateQuery } from "../contracts";
 
+const MAX_DURATION_MS = 90 * 24 * 60 * 60_000;
+
 export const intervalToMs = (input: string): number | null => {
   const match = input.trim().match(/^(\d+)(m|h|d)$/);
   if (!match) return null;
   const amount = Number(match[1]);
   const unit = match[2];
   if (!Number.isFinite(amount) || amount <= 0) return null;
-  if (unit === "m") return amount * 60_000;
-  if (unit === "h") return amount * 60 * 60_000;
-  return amount * 24 * 60 * 60_000;
+  const duration = unit === "m" ? amount * 60_000 : unit === "h" ? amount * 60 * 60_000 : amount * 24 * 60 * 60_000;
+  return duration <= MAX_DURATION_MS ? duration : null;
 };
 
 export const durationToInterval = (input: string): string | null => {
@@ -235,4 +236,3 @@ export const compilePulseQueryText = (baseId: string, text: string): Result<Puls
   if (kind === "states") return compileStateQueryTokens(baseId, tokens);
   return fail(err.badInput('Query must start with "metric", "events", or "states"'));
 };
-

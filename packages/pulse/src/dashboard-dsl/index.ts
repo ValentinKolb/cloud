@@ -124,11 +124,8 @@ const variableFromLabel = (label: string): string =>
     .slice(0, 40) || "value";
 
 const queryWithDefaultControls = (query: string, controls: DashboardDslControl[]): string => {
-  let result = query;
-  for (const control of controls) {
-    result = result.replaceAll(`$${control.variable}`, quoteQueryValue(control.defaultValue));
-  }
-  return result;
+  const defaults = new Map(controls.map((control) => [control.variable, quoteQueryValue(control.defaultValue)]));
+  return query.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, variable: string) => defaults.get(variable) ?? match);
 };
 
 const quoteQueryValue = (value: string): string => (/[\s,=]/.test(value) ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : value);

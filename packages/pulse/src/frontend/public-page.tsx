@@ -4,6 +4,7 @@ import { pulseService } from "../service";
 import PublicPulseDashboard from "./PublicPulseDashboard.island";
 
 export default ssr<AuthContext>(async (c) => {
+  c.header("Referrer-Policy", "no-referrer");
   const token = c.req.param("token") ?? "";
   const snapshot = await pulseService.dashboard.publicSnapshot(token);
   if (!snapshot.ok) {

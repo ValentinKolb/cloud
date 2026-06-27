@@ -165,6 +165,21 @@ type SignalCatalogKind = "events" | "states" | "metrics";
 const signalCatalogKindForView = (view: WorkspaceView): SignalCatalogKind =>
   view === "activity-states" ? "states" : view === "activity-metrics" ? "metrics" : "events";
 
+const dashboardSpanClasses: Record<number, string> = {
+  1: "lg:col-span-1",
+  2: "lg:col-span-2",
+  3: "lg:col-span-3",
+  4: "lg:col-span-4",
+  5: "lg:col-span-5",
+  6: "lg:col-span-6",
+  7: "lg:col-span-7",
+  8: "lg:col-span-8",
+  9: "lg:col-span-9",
+  10: "lg:col-span-10",
+  11: "lg:col-span-11",
+  12: "lg:col-span-12",
+};
+
 export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const initialBaseId = props.initialBaseId ?? props.initialBases[0]?.id ?? "";
   const initialRouteState = props.initialRouteState ?? { view: "resources" as const, dashboardId: "", sourceId: "", signalId: "" };
@@ -240,6 +255,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const [dashboardControlValues, setDashboardControlValues] = createSignal<Record<string, Record<string, string>>>({});
   const [dashboardDslText, setDashboardDslText] = createSignal("");
   const [dashboardDslDiagnostics, setDashboardDslDiagnostics] = createSignal<PulseDashboardDslCompileResult | null>(null);
+  const [dashboardDslDiagnosticsText, setDashboardDslDiagnosticsText] = createSignal("");
   const [dashboardPreviewConfig, setDashboardPreviewConfig] = createSignal<PulseDashboardConfig | null>(null);
   const [dashboardDslSeededFor, setDashboardDslSeededFor] = createSignal("");
   const [dashboardDslSaving, setDashboardDslSaving] = createSignal(false);
@@ -249,6 +265,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   let queryRunId = 0;
   let activityDataRequestId = 0;
   let focusedRowsRequestId = 0;
+  let dashboardDslCompileRequestId = 0;
   let lastAutoRunQuery = "";
 
   const selectedBase = createMemo(() => bases().find((base) => base.id === selectedBaseId()) ?? null);
@@ -871,25 +888,33 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     setSourceApiKeys((current) => ({ ...current, [sourceId]: nextKeys }));
   };
 
-  const dashboardValues = (dashboard = selectedDashboard()) => {
+  const dashboardValues = (dashboard = selectedDashboard(), config = dashboard?.config) => {
     if (!dashboard) return {};
-    const defaults = Object.fromEntries((dashboard.config.layout?.controls ?? []).map((control) => [control.variable, control.defaultValue]));
+    const defaults = Object.fromEntries((config?.layout?.controls ?? []).map((control) => [control.variable, control.defaultValue]));
     return { ...defaults, ...(dashboardControlValues()[dashboard.id] ?? {}) };
   };
 
   const quoteDashboardQueryValue = (value: string): string => quoteQueryPart(value);
 
-  const resolveDashboardQueryText = (text: string, dashboard = selectedDashboard()): string => {
-    const values = dashboardValues(dashboard);
-    return Object.entries(values).reduce((query, [variable, value]) => query.replaceAll(`$${variable}`, quoteDashboardQueryValue(value)), text);
+  const resolveDashboardQueryText = (text: string, dashboard = selectedDashboard(), config = dashboard?.config): string => {
+    const values = dashboardValues(dashboard, config);
+    return text.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, variable: string) =>
+      typeof values[variable] === "string" ? quoteDashboardQueryValue(values[variable]) : match,
+    );
   };
 
-  const loadPanel = async (panel: PulseDashboardPanel, baseId = selectedBaseId(), signal?: AbortSignal) => {
+  const loadPanel = async (
+    panel: PulseDashboardPanel,
+    baseId = selectedBaseId(),
+    signal?: AbortSignal,
+    dashboard = selectedDashboard(),
+    config = dashboard?.config,
+  ) => {
     if (!baseId) return;
     const widget = panel as PulseDashboardMetricWidget;
     const query =
       widget.queryText && widget.query
-        ? resolveDashboardQueryText(widget.queryText)
+        ? resolveDashboardQueryText(widget.queryText, dashboard, config)
         : dashboardMetricQueryText(
             widget.query ?? {
               kind: "metric",
@@ -911,33 +936,50 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     setPanelPoints((current) => ({ ...current, [panel.id]: data.points ?? [] }));
   };
 
-  const loadDashboardEventsWidget = async (widget: PulseDashboardEventsWidget, baseId = selectedBaseId(), signal?: AbortSignal) => {
+  const loadDashboardEventsWidget = async (
+    widget: PulseDashboardEventsWidget,
+    baseId = selectedBaseId(),
+    signal?: AbortSignal,
+    dashboard = selectedDashboard(),
+    config = dashboard?.config,
+  ) => {
     if (!baseId) return;
     const data = await jsonFetch<{ events: PulseRecordedEvent[] }>("/api/pulse/query/metric-text", {
       method: "POST",
       signal,
-      body: JSON.stringify({ query: resolveDashboardQueryText(widget.queryText || dashboardEventQueryText(widget.query)), baseId }),
+      body: JSON.stringify({ query: resolveDashboardQueryText(widget.queryText || dashboardEventQueryText(widget.query), dashboard, config), baseId }),
     });
     setDashboardEvents((current) => ({ ...current, [widget.id]: data.events ?? [] }));
   };
 
-  const loadDashboardStatesWidget = async (widget: PulseDashboardStatesWidget, baseId = selectedBaseId(), signal?: AbortSignal) => {
+  const loadDashboardStatesWidget = async (
+    widget: PulseDashboardStatesWidget,
+    baseId = selectedBaseId(),
+    signal?: AbortSignal,
+    dashboard = selectedDashboard(),
+    config = dashboard?.config,
+  ) => {
     if (!baseId) return;
     const data = await jsonFetch<{ states: PulseCurrentState[] }>("/api/pulse/query/metric-text", {
       method: "POST",
       signal,
-      body: JSON.stringify({ query: resolveDashboardQueryText(widget.queryText || dashboardStateQueryText(widget.query)), baseId }),
+      body: JSON.stringify({ query: resolveDashboardQueryText(widget.queryText || dashboardStateQueryText(widget.query), dashboard, config), baseId }),
     });
     setDashboardStates((current) => ({ ...current, [widget.id]: data.states ?? [] }));
   };
 
-  const refreshDashboard = async (dashboard = selectedDashboard(), baseId = selectedBaseId(), signal?: AbortSignal) => {
+  const refreshDashboardConfig = async (config: PulseDashboardConfig, dashboard = selectedDashboard(), baseId = selectedBaseId(), signal?: AbortSignal) => {
     if (!dashboard || !baseId) return;
     await Promise.all([
-      ...dashboardMetricPanels(dashboard.config).map((panel) => loadPanel(panel, baseId, signal).catch(() => undefined)),
-      ...dashboardEventsWidgets(dashboard.config).map((widget) => loadDashboardEventsWidget(widget, baseId, signal).catch(() => undefined)),
-      ...dashboardStatesWidgets(dashboard.config).map((widget) => loadDashboardStatesWidget(widget, baseId, signal).catch(() => undefined)),
+      ...dashboardMetricPanels(config).map((panel) => loadPanel(panel, baseId, signal, dashboard, config).catch(() => undefined)),
+      ...dashboardEventsWidgets(config).map((widget) => loadDashboardEventsWidget(widget, baseId, signal, dashboard, config).catch(() => undefined)),
+      ...dashboardStatesWidgets(config).map((widget) => loadDashboardStatesWidget(widget, baseId, signal, dashboard, config).catch(() => undefined)),
     ]);
+  };
+
+  const refreshDashboard = async (dashboard = selectedDashboard(), baseId = selectedBaseId(), signal?: AbortSignal) => {
+    if (!dashboard) return;
+    await refreshDashboardConfig(dashboard.config, dashboard, baseId, signal);
   };
 
   const workspaceHref = (nextState: { view: WorkspaceView; dashboardId?: string; sourceId?: string; signalId?: string }) => {
@@ -1809,9 +1851,24 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
   const insertDashboardSnippet = (dsl: string, snippet: string): string => {
     const trimmed = dsl.trimEnd();
+    const sectionStart = trimmed.lastIndexOf("\n  section ");
+    if (sectionStart >= 0) {
+      const openIndex = trimmed.indexOf("{", sectionStart);
+      if (openIndex >= 0) {
+        let depth = 0;
+        for (let index = openIndex; index < trimmed.length; index += 1) {
+          const char = trimmed[index];
+          if (char === "{") depth += 1;
+          if (char === "}") depth -= 1;
+          if (depth === 0) {
+            return `${trimmed.slice(0, index).trimEnd()}\n\n${snippet}\n${trimmed.slice(index)}`;
+          }
+        }
+      }
+    }
     const index = trimmed.lastIndexOf("}");
-    if (index >= 0) return `${trimmed.slice(0, index).trimEnd()}\n\n${snippet}\n${trimmed.slice(index)}`;
-    return `${dsl.trimEnd()}\n\n  section "Added" {\n${snippet}\n  }\n}`;
+    if (index >= 0) return `${trimmed.slice(0, index).trimEnd()}\n\n  section "Added" {\n${snippet}\n  }\n${trimmed.slice(index)}`;
+    return `${trimmed}\n\n  section "Added" {\n${snippet}\n  }\n}`;
   };
 
   const appendExplorerQueryToDashboardDsl = async () => {
@@ -1868,6 +1925,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     setDashboardDslText(nextDsl);
     setDashboardPreviewConfig(null);
     setDashboardDslDiagnostics(null);
+    setDashboardDslDiagnosticsText("");
     setDashboardDslSeededFor(dashboard.id);
     setSelectedDashboardId(dashboard.id);
     navigateWorkspace({ view: "dashboard-edit", dashboardId: dashboard.id });
@@ -1894,23 +1952,24 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     const baseId = selectedBaseId();
     if (!baseId || !text.trim()) {
       setDashboardDslDiagnostics(null);
+      setDashboardDslDiagnosticsText("");
       return;
     }
+    const requestId = ++dashboardDslCompileRequestId;
     try {
       const result = await jsonFetch<PulseDashboardDslCompileResult>("/api/pulse/dashboard-dsl/compile", {
         method: "POST",
         body: JSON.stringify({ baseId, text }),
       });
+      if (requestId !== dashboardDslCompileRequestId || dashboard.id !== selectedDashboard()?.id || text !== dashboardDslText()) return;
       setDashboardDslDiagnostics(result);
+      setDashboardDslDiagnosticsText(text);
       if (result.ok && result.config) {
         setDashboardPreviewConfig(result.config);
-        await Promise.all([
-          ...dashboardMetricPanels(result.config).map((panel) => loadPanel(panel, baseId).catch(() => undefined)),
-          ...dashboardEventsWidgets(result.config).map((widget) => loadDashboardEventsWidget(widget, baseId).catch(() => undefined)),
-          ...dashboardStatesWidgets(result.config).map((widget) => loadDashboardStatesWidget(widget, baseId).catch(() => undefined)),
-        ]);
+        await refreshDashboardConfig(result.config, dashboard, baseId);
       }
     } catch (error) {
+      if (requestId !== dashboardDslCompileRequestId || dashboard.id !== selectedDashboard()?.id || text !== dashboardDslText()) return;
       setDashboardDslDiagnostics({
         ok: false,
         diagnostics: [
@@ -1918,13 +1977,14 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         ],
         config: null,
       });
+      setDashboardDslDiagnosticsText(text);
     }
   };
 
   const saveDashboardDsl = async () => {
     const dashboard = selectedDashboard();
     const compiled = dashboardDslDiagnostics();
-    if (!dashboard || !compiled?.ok || !compiled.config) {
+    if (!dashboard || dashboardDslDiagnosticsText() !== dashboardDslText() || !compiled?.ok || !compiled.config) {
       toast.error("Fix dashboard DSL errors before saving");
       return;
     }
@@ -2369,32 +2429,48 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     </article>
   );
 
-  const renderStatesWidget = (widget: PulseDashboardStatesWidget) => (
-    <article class="paper p-4">
-      <div class="mb-3">
-        <p class="text-sm font-semibold text-primary">{widget.title}</p>
-        <Show when={widget.description}>{(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
-      </div>
-      <DataTable
-        rows={dashboardStates()[widget.id] ?? []}
-        columns={[
-          { id: "state", header: "State", value: (state) => state.key },
-          { id: "value", header: "Value", value: (state) => formatSignalValue(state.value) },
-          { id: "entity", header: "Entity", value: (state) => state.entityId },
-          { id: "updated", header: "Updated", value: (state) => compactDateWithDelta(state.updatedAt, pulseDateContext()) },
-        ]}
-        getRowId={(state) => stateRowId(state)}
-        density="compact"
-        class="max-h-80 overflow-auto"
-        empty="No states matched this query."
-      />
-    </article>
-  );
+  const renderStatesWidget = (widget: PulseDashboardStatesWidget) => {
+    const rows = dashboardStates()[widget.id] ?? [];
+    return (
+      <article class="paper p-4">
+        <div class="mb-3">
+          <p class="text-sm font-semibold text-primary">{widget.title}</p>
+          <Show when={widget.description}>{(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
+        </div>
+        <Show
+          when={widget.visual === "stat"}
+          fallback={
+            <DataTable
+              rows={rows}
+              columns={[
+                { id: "state", header: "State", value: (state) => state.key },
+                { id: "value", header: "Value", value: (state) => formatSignalValue(state.value) },
+                { id: "entity", header: "Entity", value: (state) => state.entityId },
+                { id: "updated", header: "Updated", value: (state) => compactDateWithDelta(state.updatedAt, pulseDateContext()) },
+              ]}
+              getRowId={(state) => stateRowId(state)}
+              density="compact"
+              class="max-h-80 overflow-auto"
+              empty="No states matched this query."
+            />
+          }
+        >
+          <Chart
+            kind="stat"
+            class="h-40 text-primary"
+            label={rows[0]?.key ?? widget.title}
+            value={rows[0] ? formatSignalValue(rows[0].value) : "n/a"}
+            sparkline={[]}
+          />
+        </Show>
+      </article>
+    );
+  };
 
   const renderDashboardWidget = (widget: PulseDashboardWidget) => {
     const span = Math.min(12, Math.max(1, widget.span ?? 12));
     return (
-      <div style={{ "grid-column": `span ${span} / span ${span}` }}>
+      <div class={`col-span-1 ${dashboardSpanClasses[span] ?? dashboardSpanClasses[12]}`}>
         {widget.kind === "metric"
           ? renderPanelCard(widget, { description: widget.description })
           : widget.kind === "markdown"
@@ -2445,7 +2521,10 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         [control.variable]: value,
       },
     }));
-    queueMicrotask(() => void refreshDashboard(dashboard));
+    queueMicrotask(() => {
+      const preview = activeView() === "dashboard-edit" && dashboard.id === selectedDashboard()?.id ? dashboardPreviewConfig() : null;
+      void (preview ? refreshDashboardConfig(preview, dashboard) : refreshDashboard(dashboard));
+    });
   };
 
   const renderDashboardControls = (dashboard: PulseDashboard, config: PulseDashboardConfig) => (
@@ -2617,6 +2696,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     setDashboardDslText(text);
     setDashboardPreviewConfig(dashboard.config);
     setDashboardDslDiagnostics(null);
+    setDashboardDslDiagnosticsText("");
     setDashboardDslSeededFor(dashboard.id);
     void refreshDashboard(dashboard);
   });
@@ -2941,7 +3021,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     metrics().map((metric) => ({
       label: metric.name,
       meta: metric.type,
-      snippet: `chart ${quoteDashboardDslString(metric.name)} {\n  query metric ${metric.name} ${metric.type === "counter" ? "rate" : "avg"} every 5m since 24h\n}`,
+      snippet: `chart ${quoteDashboardDslString(metric.name)} {\n  query metric ${quoteQueryPart(metric.name)} ${metric.type === "counter" ? "rate" : "avg"} every 5m since 24h\n}`,
     })),
   );
 
@@ -2950,7 +3030,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     return names.map((name) => ({
       label: name,
       meta: "event",
-      snippet: `table ${quoteDashboardDslString(name)} {\n  query events ${name} since 24h limit 100\n}`,
+      snippet: `table ${quoteDashboardDslString(name)} {\n  query events ${quoteQueryPart(name)} since 24h limit 100\n}`,
     }));
   });
 
@@ -2959,7 +3039,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     return names.map((name) => ({
       label: name,
       meta: "state",
-      snippet: `table ${quoteDashboardDslString(name)} {\n  query states ${name} limit 100\n}`,
+      snippet: `table ${quoteDashboardDslString(name)} {\n  query states ${quoteQueryPart(name)} limit 100\n}`,
     }));
   });
 

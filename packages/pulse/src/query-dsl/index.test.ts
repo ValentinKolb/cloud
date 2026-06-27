@@ -45,4 +45,10 @@ describe("Pulse query DSL", () => {
     if (events.ok) expect(events.data).toMatchObject({ kind: "events", event: "deploy.finished", entityId: "app-core", limit: 50 });
     if (states.ok) expect(states.data).toMatchObject({ kind: "states", state: "service.online", entityId: "app-core", entityType: "service", limit: 10 });
   });
+
+  test("rejects excessive lookback windows", () => {
+    const result = compilePulseQueryText(baseId, "metric docker.container.cpu.usage avg every 1h since 365d");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("compact durations");
+  });
 });
