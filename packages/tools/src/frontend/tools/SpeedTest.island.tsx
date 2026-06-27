@@ -5,15 +5,25 @@ import { ToolCodeBlock } from "./ToolOutput";
 
 type Phase = "idle" | "ping" | "download" | "upload" | "done" | "error";
 
-type CliVariant = "bun" | "node" | "python";
+type CliVariant = "cloud" | "bun" | "node" | "python";
 
 type SpeedTestProps = {
   /** Public-facing base URL of the speedtest API, e.g. `https://cloud.example.org/tools/api/speedtest`. */
   cliBaseUrl?: string;
 };
 
+const speedtestServerFromBase = (base: string): string => {
+  try {
+    return new URL(base).origin;
+  } catch {
+    return base.replace(/\/tools\/api\/speedtest\/?$/, "").replace(/\/+$/, "");
+  }
+};
+
 const buildSnippet = (variant: CliVariant, base: string): string => {
   switch (variant) {
+    case "cloud":
+      return `cld tools speedtest --server ${speedtestServerFromBase(base)}`;
     case "bun":
       return `curl -fsSL ${base}/cli | bun -`;
     case "node":
@@ -271,7 +281,7 @@ export default function SpeedTest(props: SpeedTestProps) {
 
   const isRunning = () => phase() === "ping" || phase() === "download" || phase() === "upload";
 
-  const [cliVariant, setCliVariant] = createSignal<CliVariant>("bun");
+  const [cliVariant, setCliVariant] = createSignal<CliVariant>("cloud");
   const cliSnippet = createMemo(() => (props.cliBaseUrl ? buildSnippet(cliVariant(), props.cliBaseUrl) : ""));
 
   return (
@@ -347,12 +357,14 @@ export default function SpeedTest(props: SpeedTestProps) {
             <div>
               <h2 class="text-sm font-semibold">Run from your terminal</h2>
               <p class="text-xs text-dimmed">
-                Pipe the script into your runtime — no install needed. Append <code class="text-[11px]">--json</code> for structured output.
+                Use the Cloud CLI or pipe the script into your runtime. Append <code class="text-[11px]">--json</code> for structured
+                output.
               </p>
             </div>
             <div class="flex items-center gap-0.5 text-xs" role="tablist" aria-label="CLI runtime">
               <For
                 each={[
+                  { value: "cloud" as CliVariant, label: "Cloud CLI" },
                   { value: "bun" as CliVariant, label: "Bun" },
                   { value: "node" as CliVariant, label: "Node" },
                   { value: "python" as CliVariant, label: "Python" },

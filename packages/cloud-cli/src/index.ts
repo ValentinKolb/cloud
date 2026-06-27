@@ -15,6 +15,7 @@ import type {
 import contactsCliModule from "@valentinkolb/cloud-app-contacts/cli";
 import notebooksCliModule from "@valentinkolb/cloud-app-notebooks/cli";
 import spacesCliModule from "@valentinkolb/cloud-app-spaces/cli";
+import toolsCliModule from "@valentinkolb/cloud-app-tools/cli";
 import type { Hono } from "hono";
 import { hc } from "hono/client";
 
@@ -64,7 +65,7 @@ const CONFIG_PATH =
 const TOKEN_TIMEOUT_MS = 10_000;
 const BOOLEAN_FLAGS = new Set(["json"]);
 
-const modules: CloudCliModule[] = [contactsCliModule, notebooksCliModule, spacesCliModule];
+const modules: CloudCliModule[] = [contactsCliModule, notebooksCliModule, spacesCliModule, toolsCliModule];
 
 const moduleByName = new Map(modules.map((module) => [module.name, module]));
 
@@ -274,6 +275,19 @@ const resolveOptions = async (global: GlobalArgs): Promise<CloudCliOptions> => {
     profile: profileName,
     server: normalizeServer(server),
     token: await resolveToken(global, profile),
+    output: global.output,
+  };
+};
+
+const resolveOfflineOptions = async (global: GlobalArgs): Promise<CloudCliOptions> => {
+  const config = await loadConfig();
+  const profileName = resolveProfileName(config, global.profile);
+  const profile = config.profiles?.[profileName] ?? {};
+  const server = global.server ?? process.env.CLD_SERVER ?? profile.server ?? "";
+  return {
+    profile: profileName,
+    server: server ? normalizeServer(server) : "",
+    token: global.token ?? process.env.CLD_TOKEN ?? profile.token ?? "",
     output: global.output,
   };
 };
@@ -533,7 +547,7 @@ export const main = async (argv = Bun.argv.slice(2)): Promise<number> => {
   }
 
   const parsed = parseArgs(moduleArgs, new Set([...BOOLEAN_FLAGS, ...(module.booleanFlags ?? [])]));
-  const resolvedOptions = await resolveOptions(global);
+  const resolvedOptions = module.requiresCloud === false ? await resolveOfflineOptions(global) : await resolveOptions(global);
   const options: CloudCliOptions = {
     ...resolvedOptions,
     output: takeBooleanFlag(parsed.flags, "json") ? "json" : resolvedOptions.output,

@@ -95,6 +95,7 @@
         "@valentinkolb/cloud-app-contacts": "workspace:*",
         "@valentinkolb/cloud-app-notebooks": "workspace:*",
         "@valentinkolb/cloud-app-spaces": "workspace:*",
+        "@valentinkolb/cloud-app-tools": "workspace:*",
         "hono": "^4.11.1",
       },
       "devDependencies": {
