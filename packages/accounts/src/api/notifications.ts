@@ -251,6 +251,7 @@ const app = new Hono<AuthContext>()
         200: jsonResponse(RecipientListResponseSchema, "Paginated recipients"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
+        404: jsonResponse(ErrorResponseSchema, "Batch not found"),
       },
     }),
     v("param", BatchIdParamSchema),
@@ -258,6 +259,8 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const params = c.req.valid("param");
       const query = c.req.valid("query");
+      const batch = await notificationBatches.get(params.id);
+      if (!batch) return respond(c, fail(err.notFound("Notification batch not found")));
       const pagination = parsePagination(query);
       const page = await notificationBatches.listRecipients({
         batchId: params.id,

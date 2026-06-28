@@ -51,6 +51,11 @@ type LogSummary = {
   lastErrorAt: string | null;
 };
 
+type LogStatsResponse = {
+  groupBy: "source" | "level";
+  items: { key: string; count: number }[];
+};
+
 type TelemetryEvent = {
   id: number;
   appId: string;
@@ -252,6 +257,14 @@ const pageQuery = (flags: { page?: number; perPage?: number }) => ({
 const truncate = (value: string | null | undefined, max = 90): string => {
   if (!value) return "";
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+};
+
+const PG_BIGINT_MAX = 9_223_372_036_854_775_807n;
+
+const parseLogId = (value: string): string => {
+  if (!/^[1-9]\d*$/.test(value)) throw new Error("Log id must be a positive integer.");
+  if (BigInt(value) > PG_BIGINT_MAX) throw new Error("Log id must fit into a Postgres BIGINT.");
+  return value;
 };
 
 const formatBytes = (bytes: number): string => {
@@ -491,6 +504,37 @@ const safeCollect = async <T>(
   }
 };
 
+const DIAGNOSE_SECTIONS = ["health", "logs", "telemetry", "postgres", "redis", "metrics"] as const;
+type DiagnoseSection = (typeof DIAGNOSE_SECTIONS)[number];
+
+const parseDiagnoseSections = (value: string | undefined, label: string): Set<DiagnoseSection> | null => {
+  if (!value) return null;
+  const sections = new Set<DiagnoseSection>();
+  for (const raw of value.split(",")) {
+    const section = raw.trim();
+    if (!section) continue;
+    if (!DIAGNOSE_SECTIONS.includes(section as DiagnoseSection)) {
+      throw new Error(`${label} must contain only: ${DIAGNOSE_SECTIONS.join(", ")}.`);
+    }
+    sections.add(section as DiagnoseSection);
+  }
+  return sections;
+};
+
+const skippedCollect = (label: string): { ok: false; label: string; skipped: true; error: string } => ({
+  ok: false,
+  label,
+  skipped: true,
+  error: "Skipped by diagnose filters.",
+});
+
+const trimLogMessages = <T extends { entries: LogEntry[] }>(result: T, messageLength: number): T => ({
+  ...result,
+  entries: result.entries.map((entry) => ({ ...entry, message: truncate(entry.message, messageLength) })),
+});
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 export default defineCliCommands({
   name: "admin",
   summary: "Inspect and operate Cloud administration surfaces.",
@@ -531,37 +575,78 @@ export default defineCliCommands({
       flags: {
         since: flag.string({ default: "24h", description: "Lookback window like 30m, 6h, or 7d" }),
         logLimit: flag.int({ name: "log-limit", default: 20, min: 1, max: 50, description: "Recent error/warn logs per level" }),
+        include: flag.string({ description: "Comma-separated sections: health,logs,telemetry,postgres,redis,metrics" }),
+        skip: flag.string({ description: "Comma-separated sections to skip" }),
+        messageLength: flag.int({
+          name: "message-length",
+          default: 500,
+          min: 40,
+          max: 5000,
+          description: "Log message length in JSON bundle",
+        }),
+        fullLogs: flag.boolean({ name: "full-logs", description: "Do not trim log messages in the JSON bundle" }),
       },
       run: async ({ ctx, flags }) => {
         const hours = parseLookbackHours(flags.since);
         const logLimit = flags.logLimit ?? 20;
+        const include = parseDiagnoseSections(flags.include, "--include");
+        const skip = parseDiagnoseSections(flags.skip, "--skip");
+        const shouldCollect = (section: DiagnoseSection) => (!include || include.has(section)) && !skip?.has(section);
         const [health, logSummary, logErrors, logWarnings, telemetrySummary, telemetryErrors, postgres, redis, metrics] = await Promise.all(
           [
-            safeCollect("gateway health", () => apiGet<GatewayHealth>(ctx, "/api/gateway/health")),
-            safeCollect("log summary", () => apiGet<LogSummary>(ctx, "/api/logging/summary")),
-            safeCollect("error logs", () => getLogs(ctx, { level: "error", sinceHours: hours, perPage: logLimit })),
-            safeCollect("warning logs", () => getLogs(ctx, { level: "warn", sinceHours: hours, perPage: logLimit })),
-            safeCollect("telemetry summary", () =>
-              apiGet<Record<string, number | null>>(ctx, `/api/gateway/telemetry/summary${queryString({ hours })}`),
-            ),
-            safeCollect("telemetry errors", () =>
-              apiGet<{ items: TelemetryEvent[]; total: number }>(
-                ctx,
-                `/api/gateway/telemetry/events${queryString({ errors: "1", hours, page: 1, per_page: Math.min(logLimit, 50) })}`,
-              ),
-            ),
-            safeCollect("postgres", () => apiGet<PostgresDiagnostics>(ctx, "/api/gateway/data/postgres")),
-            safeCollect("redis", () => apiGet<RedisDiagnostics>(ctx, "/api/gateway/data/redis")),
-            safeCollect("metrics", () =>
-              apiGet<{ generatedAt: string; series: number; collectors: MetricsCollector[] }>(ctx, "/api/gateway/metrics/snapshot"),
-            ),
+            shouldCollect("health")
+              ? safeCollect("gateway health", () => apiGet<GatewayHealth>(ctx, "/api/gateway/health"))
+              : skippedCollect("gateway health"),
+            shouldCollect("logs")
+              ? safeCollect("log summary", () => apiGet<LogSummary>(ctx, "/api/logging/summary"))
+              : skippedCollect("log summary"),
+            shouldCollect("logs")
+              ? safeCollect("error logs", () => getLogs(ctx, { level: "error", sinceHours: hours, perPage: logLimit }))
+              : skippedCollect("error logs"),
+            shouldCollect("logs")
+              ? safeCollect("warning logs", () => getLogs(ctx, { level: "warn", sinceHours: hours, perPage: logLimit }))
+              : skippedCollect("warning logs"),
+            shouldCollect("telemetry")
+              ? safeCollect("telemetry summary", () =>
+                  apiGet<Record<string, number | null>>(ctx, `/api/gateway/telemetry/summary${queryString({ hours })}`),
+                )
+              : skippedCollect("telemetry summary"),
+            shouldCollect("telemetry")
+              ? safeCollect("telemetry errors", () =>
+                  apiGet<{ items: TelemetryEvent[]; total: number }>(
+                    ctx,
+                    `/api/gateway/telemetry/events${queryString({ errors: "1", hours, page: 1, per_page: Math.min(logLimit, 50) })}`,
+                  ),
+                )
+              : skippedCollect("telemetry errors"),
+            shouldCollect("postgres")
+              ? safeCollect("postgres", () => apiGet<PostgresDiagnostics>(ctx, "/api/gateway/data/postgres"))
+              : skippedCollect("postgres"),
+            shouldCollect("redis")
+              ? safeCollect("redis", () => apiGet<RedisDiagnostics>(ctx, "/api/gateway/data/redis"))
+              : skippedCollect("redis"),
+            shouldCollect("metrics")
+              ? safeCollect("metrics", () =>
+                  apiGet<{ generatedAt: string; series: number; collectors: MetricsCollector[] }>(ctx, "/api/gateway/metrics/snapshot"),
+                )
+              : skippedCollect("metrics"),
           ],
         );
         const bundle = {
           generatedAt: new Date().toISOString(),
           lookbackHours: hours,
           health,
-          logs: { summary: logSummary, errors: logErrors, warnings: logWarnings },
+          logs: {
+            summary: logSummary,
+            errors:
+              logErrors.ok && !flags.fullLogs
+                ? { ...logErrors, data: trimLogMessages(logErrors.data, flags.messageLength ?? 500) }
+                : logErrors,
+            warnings:
+              logWarnings.ok && !flags.fullLogs
+                ? { ...logWarnings, data: trimLogMessages(logWarnings.data, flags.messageLength ?? 500) }
+                : logWarnings,
+          },
           telemetry: { summary: telemetrySummary, errors: telemetryErrors },
           postgres,
           redis,
@@ -699,6 +784,28 @@ export default defineCliCommands({
         );
       },
     }),
+    command("logs stats", {
+      summary: "Group log volume by source or level",
+      flags: {
+        groupBy: flag.enum(["source", "level"], { name: "group-by", default: "source", description: "Stats dimension" }),
+        since: flag.string({ default: "24h", description: "Lookback window like 30m, 6h, or 7d" }),
+        limit: flag.int({ default: 50, min: 1, max: 200, description: "Maximum groups" }),
+      },
+      run: async ({ ctx, flags }) => {
+        const result = await apiGet<LogStatsResponse>(
+          ctx,
+          `/api/logging/stats${queryString({
+            group_by: flags.groupBy,
+            since_hours: parseLookbackHours(flags.since),
+            limit: flags.limit,
+          })}`,
+        );
+        printJsonOrTable(ctx, result, result.items, [
+          { key: "key", label: flags.groupBy === "level" ? "level" : "source" },
+          { key: "count" },
+        ]);
+      },
+    }),
     command("logs errors", {
       summary: "List recent error logs for incident debugging",
       flags: {
@@ -738,14 +845,75 @@ export default defineCliCommands({
       summary: "Show one log entry with full message and metadata",
       args: { id: arg.required({ valueLabel: "id" }) },
       run: async ({ ctx, args }) => {
-        if (!/^\d+$/.test(args.id)) throw new Error("Log id must be a positive integer.");
-        const result = await apiGet<LogEntry>(ctx, `/api/logging/${args.id}`);
+        const id = parseLogId(args.id);
+        const result = await apiGet<LogEntry>(ctx, `/api/logging/${id}`);
         if (ctx.options.output === "json") {
           ctx.json(result);
           return;
         }
         const metadata = result.metadata ? `\nmetadata:\n${JSON.stringify(result.metadata, null, 2)}` : "";
         ctx.print(`[${result.createdAt}] ${result.level} ${result.source} #${result.id}\n${result.message}${metadata}`);
+      },
+    }),
+    command("logs explain", {
+      summary: "Collect one log entry with nearby diagnostic context",
+      args: { id: arg.required({ valueLabel: "id" }) },
+      flags: {
+        since: flag.string({ default: "24h", description: "Context lookback window like 30m, 6h, or 7d" }),
+        limit: flag.int({ default: 20, min: 1, max: 50, description: "Context rows per section" }),
+        messageLength: flag.int({ name: "message-length", default: 500, min: 40, max: 5000, description: "Context log message length" }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const id = parseLogId(args.id);
+        const log = await apiGet<LogEntry>(ctx, `/api/logging/${id}`);
+        const sinceHours = parseLookbackHours(flags.since);
+        const limit = flags.limit ?? 20;
+        const [sameSource, recentProblems, telemetryErrors, appHealth] = await Promise.all([
+          safeCollect("same source logs", () => getLogs(ctx, { source: log.source, sinceHours, perPage: limit })),
+          safeCollect("recent warn/error logs", async () => {
+            const [errors, warnings] = await Promise.all([
+              getLogs(ctx, { level: "error", sinceHours, perPage: limit }),
+              getLogs(ctx, { level: "warn", sinceHours, perPage: limit }),
+            ]);
+            return sortByTimeDesc([...errors.entries, ...warnings.entries]).slice(0, limit);
+          }),
+          safeCollect("telemetry errors", () =>
+            apiGet<{ items: TelemetryEvent[]; total: number }>(
+              ctx,
+              `/api/gateway/telemetry/events${queryString({ errors: "1", hours: sinceHours, page: 1, per_page: limit })}`,
+            ),
+          ),
+          safeCollect("app health", async () => {
+            const health = await apiGet<GatewayHealth>(ctx, "/api/gateway/health");
+            return health.apps.find((app) => app.id === log.source || app.name === log.source) ?? null;
+          }),
+        ]);
+        const trimEntry = (entry: LogEntry) => ({ ...entry, message: truncate(entry.message, flags.messageLength ?? 500) });
+        const bundle = {
+          log,
+          lookbackHours: sinceHours,
+          sameSource:
+            sameSource.ok && flags.messageLength
+              ? { ...sameSource, data: trimLogMessages(sameSource.data, flags.messageLength) }
+              : sameSource,
+          recentProblems: recentProblems.ok ? { ...recentProblems, data: recentProblems.data.map(trimEntry) } : recentProblems,
+          telemetryErrors,
+          appHealth,
+        };
+        if (ctx.options.output === "json") {
+          ctx.json(bundle);
+          return;
+        }
+        const lines = [
+          `[${log.createdAt}] ${log.level} ${log.source} #${log.id}`,
+          log.message,
+          "",
+          `same-source logs: ${sameSource.ok ? sameSource.data.entries.length : `unavailable (${sameSource.error})`}`,
+          `recent problems: ${recentProblems.ok ? recentProblems.data.length : `unavailable (${recentProblems.error})`}`,
+          `telemetry errors: ${telemetryErrors.ok ? telemetryErrors.data.items.length : `unavailable (${telemetryErrors.error})`}`,
+          `app health: ${appHealth.ok ? (appHealth.data ? `${appHealth.data.status} (${appHealth.data.id})` : "no matching app") : `unavailable (${appHealth.error})`}`,
+        ];
+        ctx.print(lines.join("\n"));
       },
     }),
     command("logs tail", {
@@ -756,17 +924,35 @@ export default defineCliCommands({
         level: flag.enum(["debug", "info", "warn", "error"], { description: "Log level filter" }),
         since: flag.string({ description: "Lookback window like 30m, 6h, or 7d" }),
         lines: flag.int({ default: 20, min: 1, max: 100, description: "Rows to show" }),
+        follow: flag.boolean({ aliases: ["f"], description: "Poll and print new rows until interrupted" }),
+        interval: flag.int({ default: 2, min: 1, max: 60, description: "Follow poll interval in seconds" }),
         messageLength: flag.int({ name: "message-length", default: 180, min: 40, max: 1000, description: "Table message preview length" }),
       },
       run: async ({ ctx, flags }) => {
-        const result = await getLogs(ctx, {
-          search: flags.search,
-          source: flags.source,
-          level: flags.level,
-          sinceHours: flags.since ? parseLookbackHours(flags.since) : undefined,
-          perPage: flags.lines ?? 20,
-        });
+        const load = () =>
+          getLogs(ctx, {
+            search: flags.search,
+            source: flags.source,
+            level: flags.level,
+            sinceHours: flags.since ? parseLookbackHours(flags.since) : undefined,
+            perPage: flags.lines ?? 20,
+          });
+        const result = await load();
         printJsonOrTable(ctx, result, logRows(result.entries, flags.messageLength), logColumns);
+        if (!flags.follow) return;
+        const seen = new Set(result.entries.map((entry) => entry.id));
+        while (true) {
+          await sleep((flags.interval ?? 2) * 1000);
+          const next = await load();
+          const fresh = next.entries.filter((entry) => !seen.has(entry.id)).reverse();
+          for (const entry of fresh) seen.add(entry.id);
+          if (fresh.length === 0) continue;
+          if (ctx.options.output === "json") {
+            for (const entry of fresh) ctx.json(entry);
+          } else {
+            ctx.table(logRows(fresh, flags.messageLength), logColumns);
+          }
+        }
       },
     }),
     command("logs sources", {
@@ -1074,27 +1260,6 @@ export default defineCliCommands({
         printJsonOrTable(ctx, result, [result], [{ key: "sent" }, { key: "pending" }, { key: "error" }]);
       },
     }),
-    command("notifications show", {
-      summary: "Show one notification",
-      args: { id: arg.required({ valueLabel: "id" }) },
-      run: async ({ ctx, args }) => {
-        const result = await apiGet<Notification>(ctx, `/api/notifications/${encodeURIComponent(args.id)}`);
-        printJsonOrTable(
-          ctx,
-          result,
-          [result as unknown as Record<string, unknown>],
-          [
-            { key: "status" },
-            { key: "recipient" },
-            { key: "subject" },
-            { key: "error" },
-            { key: "sentAt" },
-            { key: "createdAt" },
-            { key: "id" },
-          ],
-        );
-      },
-    }),
     command("notifications get", {
       summary: "Show one notification",
       args: { id: arg.required({ valueLabel: "id" }) },
@@ -1119,7 +1284,9 @@ export default defineCliCommands({
     command("notifications resend", {
       summary: "Resend a pending or failed notification",
       args: { id: arg.required({ valueLabel: "id" }) },
-      run: async ({ ctx, args }) => {
+      flags: { yes: confirmFlag("Confirm resending this notification") },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Refusing to resend a notification without --yes.");
         const result = await apiJson<{ message: string }>(ctx, "POST", `/api/notifications/${encodeURIComponent(args.id)}/resend`);
         if (ctx.options.output === "json") ctx.json(result);
         else ctx.print(result.message);
@@ -1130,16 +1297,6 @@ export default defineCliCommands({
       run: async ({ ctx }) => {
         const result = await apiGet<{ count: number }>(ctx, "/api/notifications/pending-system/count");
         printJsonOrTable(ctx, result, [result], [{ key: "count" }]);
-      },
-    }),
-    command("notifications send-pending", {
-      summary: "Send all pending system notifications",
-      flags: { yes: confirmFlag("Confirm sending all pending system notifications") },
-      run: async ({ ctx, flags }) => {
-        if (!flags.yes) throw new Error("Refusing to send all pending system notifications without --yes.");
-        const result = await apiJson<unknown>(ctx, "POST", "/api/notifications/pending-system/send-all");
-        if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print("Pending system notification send submitted.");
       },
     }),
     command("notifications send-pending-system", {
@@ -1560,7 +1717,9 @@ export default defineCliCommands({
     command("webhooks test", {
       summary: "Submit a gateway health webhook test delivery",
       args: { id: arg.required({ valueLabel: "id" }) },
-      run: async ({ ctx, args }) => {
+      flags: { yes: confirmFlag("Confirm sending a webhook test delivery") },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Refusing to test a webhook without --yes.");
         const result = await apiJson<{ message: string; jobId: string }>(
           ctx,
           "POST",

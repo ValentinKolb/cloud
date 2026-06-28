@@ -297,4 +297,17 @@ exit 0
       server.stop(true);
     }
   });
+
+  test("prints JSON errors when --json is requested", async () => {
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    const result = await runCli(configPath, ["--json", "admin", "status"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+
+    const payload = JSON.parse(result.stderr) as { error: { message: string; exitCode: number } };
+    expect(payload.error.message).toContain("No server configured");
+    expect(payload.error.exitCode).toBe(1);
+  });
 });

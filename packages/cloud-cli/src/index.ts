@@ -1268,12 +1268,28 @@ export const main = async (argv = Bun.argv.slice(2)): Promise<number> => {
   return code ?? 0;
 };
 
+const wantsJsonError = (argv: string[]): boolean => argv.includes("--json");
+
+const errorPayload = (error: unknown, exitCode: number) => {
+  const message = error instanceof Error ? error.message : String(error);
+  const statusMatch = message.match(/^(\d{3})\s+(.+)$/);
+  return {
+    error: {
+      message: statusMatch?.[2] ?? message,
+      ...(statusMatch ? { status: Number.parseInt(statusMatch[1]!, 10) } : {}),
+      exitCode,
+    },
+  };
+};
+
 if (import.meta.main) {
   main().then(
     (code) => process.exit(code),
     (error) => {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exit(error instanceof CliError ? error.exitCode : 1);
+      const exitCode = error instanceof CliError ? error.exitCode : 1;
+      if (wantsJsonError(Bun.argv.slice(2))) console.error(JSON.stringify(errorPayload(error, exitCode), null, 2));
+      else console.error(error instanceof Error ? error.message : String(error));
+      process.exit(exitCode);
     },
   );
 }

@@ -54,6 +54,13 @@ type DbLogRow = {
   created_at: string;
 };
 
+export type LogStatsGroupBy = "source" | "level";
+
+export type LogStatsRow = {
+  key: string;
+  count: number;
+};
+
 // ==========================
 // Helpers
 // ==========================
@@ -240,6 +247,45 @@ const getSources = async (): Promise<string[]> => {
   return rows.map((row: { source: string }) => row.source);
 };
 
+const normalizeSinceHours = (sinceHours: number | undefined): number | null =>
+  Number.isFinite(sinceHours) && sinceHours && sinceHours > 0 ? Math.trunc(sinceHours) : null;
+
+const normalizeStatsLimit = (limit: number | undefined): number => Math.min(Math.max(Math.trunc(limit ?? 50), 1), 200);
+
+/** Group log volume by source or level for admin diagnostics. */
+const statsBy = async (
+  groupBy: LogStatsGroupBy,
+  options?: {
+    sinceHours?: number;
+    limit?: number;
+  },
+): Promise<LogStatsRow[]> => {
+  const filterSinceHours = normalizeSinceHours(options?.sinceHours);
+  const limit = normalizeStatsLimit(options?.limit);
+
+  if (groupBy === "level") {
+    const rows = await sql<{ key: string; count: number }[]>`
+      SELECT level as key, COUNT(*)::int as count
+      FROM logging.entries
+      WHERE (${filterSinceHours}::int IS NULL OR created_at >= now() - (${filterSinceHours}::int * INTERVAL '1 hour'))
+      GROUP BY level
+      ORDER BY count DESC, key ASC
+      LIMIT ${limit}
+    `;
+    return rows;
+  }
+
+  const rows = await sql<{ key: string; count: number }[]>`
+    SELECT source as key, COUNT(*)::int as count
+    FROM logging.entries
+    WHERE (${filterSinceHours}::int IS NULL OR created_at >= now() - (${filterSinceHours}::int * INTERVAL '1 hour'))
+    GROUP BY source
+    ORDER BY count DESC, key ASC
+    LIMIT ${limit}
+  `;
+  return rows;
+};
+
 /** Get a single log entry by id. */
 const getById = async (id: string): Promise<LogEntry | null> => {
   const rows = await sql<DbLogRow[]>`
@@ -314,4 +360,5 @@ export const logging = {
   getSources,
   cleanup,
   summary,
+  statsBy,
 };

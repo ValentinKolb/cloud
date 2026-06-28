@@ -27,6 +27,17 @@ const LogSummaryResponseSchema = z.object({
   sources: z.number(),
   lastErrorAt: z.string().nullable(),
 });
+const LogStatsResponseSchema = z.object({
+  groupBy: z.enum(["source", "level"]),
+  items: z.array(z.object({ key: z.string(), count: z.number() })),
+});
+const PG_BIGINT_MAX = 9_223_372_036_854_775_807n;
+const LogIdParamSchema = z.object({
+  id: z
+    .string()
+    .regex(/^[1-9]\d*$/)
+    .refine((value) => BigInt(value) <= PG_BIGINT_MAX, "Log id must fit into a Postgres BIGINT."),
+});
 
 // Mounted at `/api/logging`. Sub-routes:
 //   /api/logging/widget/*  — dashboard widget endpoints (own auth)
@@ -101,6 +112,41 @@ const app = new Hono<AuthContext>()
     async (c) => respond(c, ok(await loggingService.stats.summary())),
   )
 
+  // Get grouped log stats
+  .get(
+    "/stats",
+    describeRoute({
+      tags: ["Logs"],
+      summary: "Get grouped log stats",
+      ...requiresAdmin,
+      responses: {
+        200: jsonResponse(LogStatsResponseSchema, "Grouped log stats"),
+      },
+    }),
+    v(
+      "query",
+      z.object({
+        group_by: z.enum(["source", "level"]).default("source"),
+        since_hours: z.coerce
+          .number()
+          .int()
+          .positive()
+          .max(24 * 31)
+          .optional(),
+        limit: z.coerce.number().int().positive().max(200).optional().default(50),
+      }),
+    ),
+    async (c) => {
+      const query = c.req.valid("query");
+      const items = await loggingService.stats.by({
+        groupBy: query.group_by,
+        sinceHours: query.since_hours,
+        limit: query.limit,
+      });
+      return respond(c, ok({ groupBy: query.group_by, items }));
+    },
+  )
+
   // Get all unique source names
   .get(
     "/sources",
@@ -130,7 +176,7 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Log entry not found"),
       },
     }),
-    v("param", z.object({ id: z.string().regex(/^\d+$/) })),
+    v("param", LogIdParamSchema),
     async (c) => {
       const entry = await loggingService.entry.get({ id: c.req.valid("param").id });
       return respond(c, entry ? ok(entry) : fail(err.notFound("Log entry not found")));
