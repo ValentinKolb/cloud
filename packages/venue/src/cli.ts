@@ -200,6 +200,18 @@ const printMessage = (ctx: CloudCliContext, result: MessageResponse) => {
   else ctx.print(result.message);
 };
 
+const printMutationResult = (ctx: CloudCliContext, result: unknown, fallback: string) => {
+  if (ctx.options.output === "json") {
+    ctx.json(result);
+    return;
+  }
+  const message =
+    result && typeof result === "object" && "message" in result && typeof (result as { message?: unknown }).message === "string"
+      ? (result as { message: string }).message
+      : fallback;
+  ctx.print(message);
+};
+
 export default defineCliCommands({
   name: "venue",
   summary: "Manage venues.",
@@ -302,8 +314,8 @@ export default defineCliCommands({
       },
       async run({ ctx, args, flags }) {
         const venue = await resolveVenueRef(ctx, args.venue);
-        const result = await apiJson<MessageResponse>(ctx, "PATCH", `/venues/${encode(venue.id)}`, buildVenueInput(venue, flags));
-        printMessage(ctx, result);
+        const result = await apiJson<Venue>(ctx, "PATCH", `/venues/${encode(venue.id)}`, buildVenueInput(venue, flags));
+        printMutationResult(ctx, result, `Updated ${result.name}`);
       },
     }),
     command("delete", {
@@ -313,8 +325,8 @@ export default defineCliCommands({
       async run({ ctx, args, flags }) {
         if (!flags.yes) throw new Error("Refusing to delete without --yes.");
         const venue = await resolveVenueRef(ctx, args.venue);
-        const result = await apiJson<MessageResponse>(ctx, "DELETE", `/venues/${encode(venue.id)}`);
-        printMessage(ctx, result);
+        const result = await apiJson<unknown>(ctx, "DELETE", `/venues/${encode(venue.id)}`);
+        printMutationResult(ctx, result, `Deleted ${venue.name}`);
       },
     }),
     command("api-keys list", {
@@ -365,8 +377,8 @@ export default defineCliCommands({
       async run({ ctx, args, flags }) {
         if (!flags.yes) throw new Error("Refusing to revoke without --yes.");
         const venue = await resolveVenueRef(ctx, args.venue);
-        const result = await apiJson<MessageResponse>(ctx, "DELETE", `/venues/${encode(venue.id)}/api-keys/${encode(args.credential)}`);
-        printMessage(ctx, result);
+        const result = await apiJson<unknown>(ctx, "DELETE", `/venues/${encode(venue.id)}/api-keys/${encode(args.credential)}`);
+        printMutationResult(ctx, result, "API key revoked");
       },
     }),
     command("opening-rules list", {
@@ -414,8 +426,8 @@ export default defineCliCommands({
       async run({ ctx, args, flags }) {
         if (!flags.yes) throw new Error("Refusing to delete without --yes.");
         const venue = await resolveVenueRef(ctx, args.venue);
-        const result = await apiJson<MessageResponse>(ctx, "DELETE", `/venues/${encode(venue.id)}/opening-rules/${encode(args.rule)}`);
-        printMessage(ctx, result);
+        const result = await apiJson<unknown>(ctx, "DELETE", `/venues/${encode(venue.id)}/opening-rules/${encode(args.rule)}`);
+        printMutationResult(ctx, result, "Opening rule deleted");
       },
     }),
     command("sections list", {
@@ -482,8 +494,8 @@ export default defineCliCommands({
           enabled: !flags.disabled,
           position: flags.position ?? 0,
         };
-        const result = await apiJson<MessageResponse>(ctx, "PATCH", `/venues/${encode(venue.id)}/sections/${encode(args.section)}`, input);
-        printMessage(ctx, result);
+        const result = await apiJson<PublicSection>(ctx, "PATCH", `/venues/${encode(venue.id)}/sections/${encode(args.section)}`, input);
+        printMutationResult(ctx, result, `Updated section ${result.id}`);
       },
     }),
     command("sections delete", {
@@ -496,8 +508,8 @@ export default defineCliCommands({
       async run({ ctx, args, flags }) {
         if (!flags.yes) throw new Error("Refusing to delete without --yes.");
         const venue = await resolveVenueRef(ctx, args.venue);
-        const result = await apiJson<MessageResponse>(ctx, "DELETE", `/venues/${encode(venue.id)}/sections/${encode(args.section)}`);
-        printMessage(ctx, result);
+        const result = await apiJson<unknown>(ctx, "DELETE", `/venues/${encode(venue.id)}/sections/${encode(args.section)}`);
+        printMutationResult(ctx, result, "Section deleted");
       },
     }),
     command("shifts list", {
@@ -526,8 +538,8 @@ export default defineCliCommands({
       async run({ ctx, args, flags }) {
         if (!flags.yes) throw new Error("Refusing to cancel without --yes.");
         const venue = await resolveVenueRef(ctx, args.venue);
-        const result = await apiJson<MessageResponse>(ctx, "DELETE", `/venues/${encode(venue.id)}/assignments/${encode(args.assignment)}`);
-        printMessage(ctx, result);
+        const result = await apiJson<unknown>(ctx, "DELETE", `/venues/${encode(venue.id)}/assignments/${encode(args.assignment)}`);
+        printMutationResult(ctx, result, "Assignment cancelled");
       },
     }),
   ],
