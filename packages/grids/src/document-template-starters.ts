@@ -306,19 +306,51 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
   {
     id: "label",
     name: "Label",
-    description: "Clean 90mm x 54mm operational label without internal identifiers.",
-    icon: "ti ti-tag",
+    description: "90mm x 54mm operational label with a print-ready Code 128 barcode.",
+    icon: "ti ti-barcode",
     source: recordSource,
     pageCss: `@page { size: 90mm 54mm; margin: 0; }
 * { box-sizing: border-box; }
 html, body { width: 90mm; height: 54mm; margin: 0; }
 body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
-.label { width: 78mm; height: 42mm; border: 1.6px solid #0f172a; border-radius: 5px; padding: 5mm; display: flex; flex-direction: column; justify-content: center; overflow: hidden; }
+.label { width: 78mm; height: 42mm; border: 1.6px solid #0f172a; border-radius: 5px; padding: 4.5mm 5mm; display: flex; flex-direction: column; overflow: hidden; }
 .kicker { font-size: 7.5pt; letter-spacing: .12em; text-transform: uppercase; color: #64748b; font-weight: 800; }
-.name { margin-top: 3mm; font-size: 20pt; line-height: 1.05; font-weight: 850; }`,
+.name { margin-top: 2.4mm; font-size: 17pt; line-height: 1.05; font-weight: 850; }
+.code { margin-top: auto; width: 100%; height: 13mm; object-fit: contain; object-position: left bottom; }`,
     html: `<section class="label">
+  {% assign first = rows[0] %}
+  {% assign codeColumn = columns[0] %}
+  {% assign codeValue = first[codeColumn.key] | default: table.name %}
   <div class="kicker">{{ table.name }}</div>
   <div class="name">${primaryValue}</div>
+  <img class="code" src="{{ codeValue | barcode_data_url: "code128", true }}" alt="">
+</section>`,
+  },
+  {
+    id: "qr-label",
+    name: "QR label",
+    description: "90mm x 54mm label with a large QR code for links, assets, or compact record data.",
+    icon: "ti ti-qrcode",
+    source: recordSource,
+    pageCss: `@page { size: 90mm 54mm; margin: 0; }
+* { box-sizing: border-box; }
+html, body { width: 90mm; height: 54mm; margin: 0; }
+body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
+.label { width: 78mm; height: 42mm; border: 1.6px solid #0f172a; border-radius: 5px; padding: 4.5mm; display: grid; grid-template-columns: 29mm 1fr; gap: 5mm; align-items: center; overflow: hidden; }
+.qr { width: 28mm; height: 28mm; object-fit: contain; }
+.kicker { font-size: 7.5pt; letter-spacing: .12em; text-transform: uppercase; color: #64748b; font-weight: 800; }
+.name { margin-top: 2.4mm; font-size: 15pt; line-height: 1.08; font-weight: 850; }
+.hint { margin-top: 2.2mm; color: #475569; font-size: 7.5pt; line-height: 1.25; }`,
+    html: `<section class="label">
+  {% assign first = rows[0] %}
+  {% assign codeColumn = columns[0] %}
+  {% assign codeValue = first[codeColumn.key] | default: table.name %}
+  <img class="qr" src="{{ codeValue | barcode_data_url: "qrcode" }}" alt="">
+  <div>
+    <div class="kicker">{{ table.name }}</div>
+    <div class="name">${primaryValue}</div>
+    <div class="hint">Scan for the selected record value.</div>
+  </div>
 </section>`,
   },
   {

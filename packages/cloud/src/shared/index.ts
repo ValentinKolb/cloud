@@ -14,6 +14,7 @@ export { createProgressValue, evaluateFormula, formatValue, isFormula, isTotalRo
 export type { MockCover, MockCoverIcon, MockCoverOptions, MockCoverTheme } from "./mock-cover";
 export { createMockCover, createMockCoverSvg, parseDataUrl } from "./mock-cover";
 export * from "./redirect";
+export type { LiquidTemplateFilter, LiquidTemplateOptions } from "./template-rendering";
 export { escapeTemplateOutput, migrateLegacyMustacheTemplate, renderLiquidTemplate, validateLiquidTemplate } from "./template-rendering";
 export * from "./theme";
 export * from "./time";

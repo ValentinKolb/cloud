@@ -3,6 +3,12 @@ import { Liquid } from "liquidjs";
 const TEMPLATE_MAX_BYTES = 200_000;
 const RENDER_MAX_BYTES = 300_000;
 
+type LiquidEngine = Liquid;
+export type LiquidTemplateFilter = Parameters<LiquidEngine["registerFilter"]>[1];
+export type LiquidTemplateOptions = {
+  filters?: Record<string, LiquidTemplateFilter>;
+};
+
 const ALLOWED_TAGS = new Set([
   "if",
   "elsif",
@@ -54,44 +60,59 @@ export const escapeTemplateOutput = (value: unknown): string =>
     }
   });
 
-const engine = new Liquid({
-  strictVariables: true,
-  strictFilters: true,
-  ownPropertyOnly: true,
-  outputEscape: escapeTemplateOutput,
-  parseLimit: TEMPLATE_MAX_BYTES,
-  renderLimit: RENDER_MAX_BYTES,
-  memoryLimit: 2_000_000,
-  cache: false,
-  dynamicPartials: false,
-  root: [],
-  layouts: [],
-  partials: [],
-});
+const createEngine = (options: LiquidTemplateOptions = {}) => {
+  const engine = new Liquid({
+    strictVariables: true,
+    strictFilters: true,
+    ownPropertyOnly: true,
+    outputEscape: escapeTemplateOutput,
+    parseLimit: TEMPLATE_MAX_BYTES,
+    renderLimit: RENDER_MAX_BYTES,
+    memoryLimit: 2_000_000,
+    cache: false,
+    dynamicPartials: false,
+    root: [],
+    layouts: [],
+    partials: [],
+  });
+
+  for (const [name, filter] of Object.entries(options.filters ?? {})) engine.registerFilter(name, filter);
+  return engine;
+};
+
+const defaultEngine = createEngine();
+const engineFor = (options: LiquidTemplateOptions = {}) => (options.filters ? createEngine(options) : defaultEngine);
 
 export const migrateLegacyMustacheTemplate = (template: string): string =>
   template
     .replace(/{{#\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}([\s\S]*?){{\/\s*\1\s*}}/g, "{% if $1 != blank %}$2{% endif %}")
     .replace(/{{\^\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}([\s\S]*?){{\/\s*\1\s*}}/g, "{% if $1 == blank %}$2{% endif %}");
 
-export const validateLiquidTemplate = (template: string): { ok: true } | { ok: false; error: string } => {
+export const validateLiquidTemplate = (
+  template: string,
+  options: LiquidTemplateOptions = {},
+): { ok: true } | { ok: false; error: string } => {
   if (byteLength(template) > TEMPLATE_MAX_BYTES) return { ok: false, error: "Template is too large" };
   for (const match of template.matchAll(TEMPLATE_TAG_RE)) {
     const tag = match[1]!;
     if (!ALLOWED_TAGS.has(tag)) return { ok: false, error: `Liquid tag "${tag}" is not allowed` };
   }
   try {
-    engine.parse(template);
+    engineFor(options).parse(template);
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "Invalid Liquid template" };
   }
 };
 
-export const renderLiquidTemplate = (template: string, data: Record<string, unknown>): string => {
-  const valid = validateLiquidTemplate(template);
+export const renderLiquidTemplate = (
+  template: string,
+  data: Record<string, unknown>,
+  options: LiquidTemplateOptions = {},
+): string => {
+  const valid = validateLiquidTemplate(template, options);
   if (!valid.ok) throw new Error(valid.error);
-  const rendered = engine.parseAndRenderSync(template, data);
+  const rendered = engineFor(options).parseAndRenderSync(template, data);
   if (byteLength(rendered) > RENDER_MAX_BYTES) throw new Error("Rendered template is too large");
   return rendered;
 };

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { mkdir, readdir, unlink } from "node:fs/promises";
-import { type GotenbergConfig, getGotenbergConfig, renderTemplatePdfPreview } from "@valentinkolb/cloud/services";
+import { type GotenbergConfig, getGotenbergConfig } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { DocumentTemplate } from "../src/contracts";
 import { DOCUMENT_TEMPLATE_STARTERS, type DocumentTemplateStarter, documentTemplateStarterById } from "../src/document-template-starters";
@@ -158,17 +158,7 @@ const renderTarget = async (params: {
     await loadRenderData({ template: params.target, tableId: params.target.tableId, recordId: params.recordId }),
     params.repeatRows,
   );
-  const result = await renderTemplatePdfPreview(
-    {
-      htmlTemplate: params.target.html,
-      headerHtmlTemplate: params.target.headerHtml,
-      footerHtmlTemplate: params.target.footerHtml,
-      pageCssTemplate: params.target.pageCss,
-      data,
-      filename: `${slug(params.target.name)}.html`,
-    },
-    { config: params.config },
-  );
+  const result = await gridsService.document.renderPdfPreview(params.target, data, `${slug(params.target.name)}.html`, params.config);
   if (!result.ok) throw new Error(`${params.target.name}: ${result.error.phase}: ${result.error.message}`);
 
   const name = slug(params.target.name);

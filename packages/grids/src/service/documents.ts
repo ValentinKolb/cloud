@@ -1,7 +1,17 @@
-import { type RenderHtmlToPdfResult, renderHtmlToPdf } from "@valentinkolb/cloud/services";
+import {
+  type GotenbergConfig,
+  type RenderHtmlToPdfResult,
+  renderTemplatePdfPreview,
+  type TemplatePdfPreviewResult,
+} from "@valentinkolb/cloud/services";
+import {
+  type LiquidTemplateFilter,
+  renderLiquidTemplate,
+  validateLiquidTemplate as validateSharedLiquidTemplate,
+} from "@valentinkolb/cloud/shared";
 import { type DateContext, err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { Liquid } from "liquidjs";
+import { barcodeDataUrl, BarcodeRenderError, type BarcodeFormat } from "../barcode-rendering";
 import type { CreateDocumentTemplateInput, DocumentRun, DocumentTemplate, RecordSnapshot, UpdateDocumentTemplateInput } from "../contracts";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { previewDslQuery } from "../query-dsl/preview";
@@ -20,65 +30,37 @@ type DbRow = Record<string, unknown>;
 const DEFAULT_SOURCE = (tableId: string) => `from table {${tableId}}\nwhere record.id = '{{ record.id }}'\nlimit 1`;
 const TEMPLATE_MAX_BYTES = 200_000;
 const SOURCE_MAX_BYTES = 20_000;
+const TEMPLATE_PART_MAX_BYTES = 50_000;
 const RENDER_MAX_BYTES = 300_000;
 const SNAPSHOT_MAX_DEPTH = 4;
 const SNAPSHOT_MAX_RECORDS = 500;
 const DOCUMENT_QUERY_MAX_ROWS = 10_000;
 
-const ALLOWED_TAGS = new Set([
-  "if",
-  "elsif",
-  "else",
-  "endif",
-  "unless",
-  "endunless",
-  "for",
-  "break",
-  "continue",
-  "endfor",
-  "case",
-  "when",
-  "endcase",
-  "assign",
-  "capture",
-  "endcapture",
-  "comment",
-  "endcomment",
-  "raw",
-  "endraw",
-]);
-
-const TEMPLATE_TAG_RE = /{%-?\s*([A-Za-z_][A-Za-z0-9_]*)\b/g;
-
-const engine = new Liquid({
-  strictVariables: true,
-  strictFilters: true,
-  ownPropertyOnly: true,
-  outputEscape: "escape",
-  parseLimit: TEMPLATE_MAX_BYTES,
-  renderLimit: RENDER_MAX_BYTES,
-  memoryLimit: 2_000_000,
-  cache: false,
-  dynamicPartials: false,
-  root: [],
-  layouts: [],
-  partials: [],
-});
-
 const byteLength = (value: string): number => new TextEncoder().encode(value).byteLength;
+
+const barcodeDataUrlFilter: LiquidTemplateFilter = (value, bcid = "code128", showText = false) => {
+  if (typeof bcid !== "string") throw new Error("barcode_data_url requires a barcode type");
+  if (showText !== true && showText !== false && showText !== undefined && showText !== null) {
+    throw new Error("barcode_data_url show text flag must be a boolean");
+  }
+
+  const format: BarcodeFormat = { kind: "barcode", bcid, showText: showText === true };
+  try {
+    return barcodeDataUrl(value, format);
+  } catch (error) {
+    if (error instanceof BarcodeRenderError) throw new Error(error.message);
+    throw error;
+  }
+};
+
+const documentLiquidFilters: Record<string, LiquidTemplateFilter> = {
+  barcode_data_url: barcodeDataUrlFilter,
+};
 
 export const validateLiquidTemplate = (source: string): Result<void> => {
   if (byteLength(source) > TEMPLATE_MAX_BYTES) return fail(err.badInput("template is too large"));
-  for (const match of source.matchAll(TEMPLATE_TAG_RE)) {
-    const tag = match[1]!;
-    if (!ALLOWED_TAGS.has(tag)) return fail(err.badInput(`Liquid tag "${tag}" is not allowed`));
-  }
-  try {
-    engine.parse(source);
-    return ok();
-  } catch (error) {
-    return fail(err.badInput(error instanceof Error ? error.message : "invalid Liquid template"));
-  }
+  const valid = validateSharedLiquidTemplate(source, { filters: documentLiquidFilters });
+  return valid.ok ? ok() : fail(err.badInput(valid.error));
 };
 
 export const renderLiquidText = async (
@@ -89,7 +71,7 @@ export const renderLiquidText = async (
   const valid = validateLiquidTemplate(template);
   if (!valid.ok) return valid;
   try {
-    const rendered = await engine.parseAndRender(template, data);
+    const rendered = renderLiquidTemplate(template, data, { filters: documentLiquidFilters });
     if (byteLength(rendered) > maxBytes) return fail(err.badInput("rendered template is too large"));
     return ok(rendered);
   } catch (error) {
@@ -111,6 +93,9 @@ const mapTemplate = (row: DbRow): DocumentTemplate => ({
   description: (row.description as string | null) ?? null,
   source: row.source as string,
   html: row.html as string,
+  headerHtml: (row.header_html as string | null) ?? null,
+  footerHtml: (row.footer_html as string | null) ?? null,
+  pageCss: (row.page_css as string | null) ?? null,
   enabled: row.enabled as boolean,
   position: row.position as number,
   createdBy: (row.created_by as string | null) ?? null,
@@ -196,7 +181,6 @@ const executeDocumentGqlSource = async (params: {
   const preview = await previewDslQuery(resolved.plan, {
     fieldsByTableId,
     timeZone: params.dateConfig?.timeZone,
-    limit: DOCUMENT_QUERY_MAX_ROWS,
     maxRows: DOCUMENT_QUERY_MAX_ROWS,
     viewer: { userId: null, userGroups: [], isAdmin: true },
   });
@@ -238,10 +222,26 @@ export const getTemplate = async (templateId: string): Promise<DocumentTemplate 
   return row ? mapTemplate(row) : null;
 };
 
-const validateTemplateWrite = (input: { source?: string; html?: string }): Result<void> => {
+const validateTemplateWrite = (input: {
+  source?: string;
+  html?: string;
+  headerHtml?: string | null;
+  footerHtml?: string | null;
+  pageCss?: string | null;
+}): Result<void> => {
   if (input.source !== undefined && byteLength(input.source) > SOURCE_MAX_BYTES) return fail(err.badInput("GQL source is too large"));
   if (input.html !== undefined) {
     const valid = validateLiquidTemplate(input.html);
+    if (!valid.ok) return valid;
+  }
+  for (const [label, value] of [
+    ["header HTML", input.headerHtml],
+    ["footer HTML", input.footerHtml],
+    ["page CSS", input.pageCss],
+  ] as const) {
+    if (value === undefined || value === null || value === "") continue;
+    if (byteLength(value) > TEMPLATE_PART_MAX_BYTES) return fail(err.badInput(`${label} is too large`));
+    const valid = validateLiquidTemplate(value);
     if (!valid.ok) return valid;
   }
   if (input.source !== undefined) {
@@ -265,10 +265,16 @@ export const createTemplate = async (
   if (!name) return fail(err.badInput("name required"));
   const source = input.source.trim() || DEFAULT_SOURCE(tableId);
   const html = input.html.trim();
+  const headerHtml = input.headerHtml?.trim() || null;
+  const footerHtml = input.footerHtml?.trim() || null;
+  const pageCss = input.pageCss?.trim() || null;
 
   const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [inserted] = await sql<DbRow[]>`
-      INSERT INTO grids.document_templates (short_id, table_id, name, description, source, html, enabled, position, created_by, updated_by)
+      INSERT INTO grids.document_templates (
+        short_id, table_id, name, description, source, html, header_html, footer_html, page_css,
+        enabled, position, created_by, updated_by
+      )
       VALUES (
         ${shortId},
         ${tableId}::uuid,
@@ -276,6 +282,9 @@ export const createTemplate = async (
         ${input.description ?? null},
         ${source},
         ${html},
+        ${headerHtml},
+        ${footerHtml},
+        ${pageCss},
         ${input.enabled ?? true},
         COALESCE((SELECT MAX(position) + 1 FROM grids.document_templates WHERE table_id = ${tableId}::uuid), 0),
         ${actorId}::uuid,
@@ -306,6 +315,9 @@ export const updateTemplate = async (
       description = ${input.description === undefined ? sql`description` : input.description},
       source = COALESCE(${input.source?.trim() || null}, source),
       html = COALESCE(${input.html?.trim() || null}, html),
+      header_html = ${input.headerHtml === undefined ? sql`header_html` : input.headerHtml?.trim() || null},
+      footer_html = ${input.footerHtml === undefined ? sql`footer_html` : input.footerHtml?.trim() || null},
+      page_css = ${input.pageCss === undefined ? sql`page_css` : input.pageCss?.trim() || null},
       enabled = COALESCE(${input.enabled ?? null}, enabled),
       position = COALESCE(${input.position ?? null}, position),
       updated_by = ${actorId}::uuid,
@@ -459,6 +471,8 @@ export const buildRenderData = (params: {
   },
   rows: params.rows,
   columns: params.columns,
+  images: [],
+  primaryImage: null,
   document: {
     number: params.documentNumber ?? null,
     generatedAt: params.generatedAt ?? null,
@@ -490,6 +504,14 @@ export const buildLiveRenderData = async (params: {
     rows: executed.data.rows,
   });
   return ok({ source: source.data, columns: executed.data.columns, rows: executed.data.rows, data });
+};
+
+const injectPageCss = (html: string, pageCss: string | null): string => {
+  if (!pageCss?.trim()) return html;
+  const style = `<style>\n${pageCss}\n</style>`;
+  return /<\/head>/i.test(html)
+    ? html.replace(/<\/head>/i, `${style}\n</head>`)
+    : `<!doctype html><html><head>${style}</head><body>${html}</body></html>`;
 };
 
 export const createRunForRecord = async (params: {
@@ -526,14 +548,39 @@ export const createRunForRecord = async (params: {
 };
 
 export const renderDocumentHtml = async (
-  template: Pick<DocumentTemplate, "html">,
+  template: Pick<DocumentTemplate, "html"> & Partial<Pick<DocumentTemplate, "pageCss">>,
   data: Record<string, unknown>,
-): Promise<Result<string>> => renderLiquidText(template.html, data, RENDER_MAX_BYTES);
+): Promise<Result<string>> => {
+  const html = await renderLiquidText(template.html, data, RENDER_MAX_BYTES);
+  if (!html.ok) return html;
+  const pageCss = await renderLiquidText(template.pageCss ?? "", data, TEMPLATE_PART_MAX_BYTES);
+  if (!pageCss.ok) return pageCss;
+  return ok(injectPageCss(html.data, pageCss.data));
+};
 
 export const renderDocumentSource = async (
   template: Pick<DocumentTemplate, "source">,
   data: Record<string, unknown>,
 ): Promise<Result<string>> => renderLiquidText(template.source, data, SOURCE_MAX_BYTES);
+
+export const renderDocumentPdfPreview = async (
+  template: Pick<DocumentTemplate, "html"> & Partial<Pick<DocumentTemplate, "headerHtml" | "footerHtml" | "pageCss">>,
+  data: Record<string, unknown>,
+  filename?: string,
+  config?: GotenbergConfig,
+): Promise<TemplatePdfPreviewResult> =>
+  renderTemplatePdfPreview(
+    {
+      htmlTemplate: template.html,
+      headerHtmlTemplate: template.headerHtml,
+      footerHtmlTemplate: template.footerHtml,
+      pageCssTemplate: template.pageCss,
+      data,
+      filters: documentLiquidFilters,
+      filename,
+    },
+    config ? { config } : {},
+  );
 
 export const createRun = async (params: {
   template: DocumentTemplate;
@@ -551,6 +598,9 @@ export const createRun = async (params: {
     description: params.template.description,
     source: params.template.source,
     html: params.template.html,
+    headerHtml: params.template.headerHtml,
+    footerHtml: params.template.footerHtml,
+    pageCss: params.template.pageCss,
   };
   const documentNumber = documentNumberFor({ runId, recordId: params.snapshot.recordId, generatedAt });
   const renderData = {
@@ -606,11 +656,16 @@ export const getRun = async (runId: string): Promise<DocumentRun | null> => {
 };
 
 export const renderRunPdf = async (run: DocumentRun): Promise<Result<RenderHtmlToPdfResult>> => {
-  const html = await renderLiquidText(String(run.templateSnapshot.html ?? ""), run.renderData, RENDER_MAX_BYTES);
-  if (!html.ok) return html;
-  try {
-    return ok(await renderHtmlToPdf({ html: html.data, filename: `${run.documentNumber}.html` }));
-  } catch (error) {
-    return fail(err.internal(error instanceof Error ? error.message : "PDF rendering failed"));
-  }
+  const rendered = await renderTemplatePdfPreview({
+    htmlTemplate: String(run.templateSnapshot.html ?? ""),
+    headerHtmlTemplate: typeof run.templateSnapshot.headerHtml === "string" ? run.templateSnapshot.headerHtml : null,
+    footerHtmlTemplate: typeof run.templateSnapshot.footerHtml === "string" ? run.templateSnapshot.footerHtml : null,
+    pageCssTemplate: typeof run.templateSnapshot.pageCss === "string" ? run.templateSnapshot.pageCss : null,
+    data: run.renderData,
+    filters: documentLiquidFilters,
+    filename: `${run.documentNumber}.html`,
+  });
+  if (rendered.ok) return ok(rendered.pdf);
+  const message = `${rendered.error.phase}: ${rendered.error.message}`;
+  return fail(rendered.error.status === 400 ? err.badInput(message) : err.internal(message));
 };

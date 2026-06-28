@@ -46,6 +46,15 @@ describe("Liquid template rendering", () => {
     );
   });
 
+  test("supports per-render custom filters without registering them globally", () => {
+    const template = `<p>{{ LABEL | suffix: "!" }}</p>`;
+    const filters = { suffix: (value: unknown, suffix: unknown) => `${value}${suffix}` };
+
+    expect(validateLiquidTemplate(template, { filters })).toEqual({ ok: true });
+    expect(renderLiquidTemplate(template, { LABEL: "Ada" }, { filters })).toBe("<p>Ada!</p>");
+    expect(() => renderLiquidTemplate(template, { LABEL: "Ada" })).toThrow();
+  });
+
   test("normalizes legacy template settings on validation", () => {
     const def = SETTINGS.find((setting) => setting.key === "mail.password_reset");
     expect(def).toBeDefined();

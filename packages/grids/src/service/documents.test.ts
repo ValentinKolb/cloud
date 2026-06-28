@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { DOCUMENT_TEMPLATE_STARTERS } from "../document-template-starters";
 import {
   documentNumberFor,
   renderDocumentHtml,
@@ -13,7 +14,7 @@ describe("document rendering", () => {
     const result = await renderDocumentHtml({ html: "<p>{{ record.data.name }}</p>" }, { record: { data: { name: "<b>Ada</b>" } } });
 
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.data).toBe("<p>&lt;b&gt;Ada&lt;/b&gt;</p>");
+    if (result.ok) expect(result.data).toBe("<p>&lt;b&gt;Ada&lt;&#x2F;b&gt;</p>");
   });
 
   test("allows explicit raw output for trusted template authors", async () => {
@@ -23,10 +24,42 @@ describe("document rendering", () => {
     if (result.ok) expect(result.data).toBe("<strong>OK</strong>");
   });
 
+  test("renders barcode data URLs through the document Liquid filter", async () => {
+    const result = await renderLiquidText(`<img src="{{ value | barcode_data_url: "code128", true }}">`, { value: "ITEM-0001" });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data).toContain("data:image&#x2F;svg+xml;base64,");
+  });
+
+  test("reports invalid barcode filters as template errors", async () => {
+    const result = await renderLiquidText(`{{ value | barcode_data_url: "Code 128" }}`, { value: "ITEM-0001" });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('invalid barcode type "Code 128"');
+  });
+
   test("rejects partial-style tags that could load external template content", () => {
     const result = validateLiquidTemplate("{% include 'other' %}");
 
     expect(result.ok).toBe(false);
+  });
+
+  test("all document template starters use valid Liquid", () => {
+    for (const starter of DOCUMENT_TEMPLATE_STARTERS) {
+      const parts = [
+        ["source", starter.source("11111111-1111-4111-8111-111111111111")],
+        ["html", starter.html],
+        ["headerHtml", starter.headerHtml],
+        ["footerHtml", starter.footerHtml],
+        ["pageCss", starter.pageCss],
+      ] as const;
+
+      for (const [part, value] of parts) {
+        if (!value) continue;
+        const result = validateLiquidTemplate(value);
+        expect(result.ok, `${starter.id} ${part}: ${result.ok ? "" : result.error.message}`).toBe(true);
+      }
+    }
   });
 
   test("renders GQL source templates with the same constrained Liquid context", async () => {
