@@ -24,9 +24,18 @@ const TAB_ALIASES = {
   "data-types": "datatypes",
   "available-data": "tables",
   "query-language": "gql",
+  "document-templates": "templates",
 } as const;
 
-export type GqlReferenceTab = "basics" | "datatypes" | "tables" | "formulas" | "gql" | "examples" | "how-it-works";
+export type GqlReferenceTab =
+  | "basics"
+  | "datatypes"
+  | "tables"
+  | "formulas"
+  | "gql"
+  | "templates"
+  | "examples"
+  | "how-it-works";
 export type QueryReferenceTab = GqlReferenceTab;
 
 export const QUERY_REFERENCE_TABS: readonly GqlReferenceTab[] = [
@@ -35,6 +44,7 @@ export const QUERY_REFERENCE_TABS: readonly GqlReferenceTab[] = [
   "tables",
   "formulas",
   "gql",
+  "templates",
   "examples",
   "how-it-works",
 ];
@@ -115,6 +125,7 @@ const REFERENCE_TABS: Array<{ value: GqlReferenceTab; label: string; icon: strin
   { value: "tables", label: "Tables & views", icon: "ti-database", description: "Available data in this base" },
   { value: "formulas", label: "Formulas", icon: "ti-function", description: "Fields, computed columns, predicates" },
   { value: "gql", label: "GQL", icon: "ti-code", description: "Grids Query Language" },
+  { value: "templates", label: "Templates", icon: "ti-file-type-pdf", description: "PDF documents and snapshots" },
   { value: "examples", label: "Examples", icon: "ti-copy", description: "Copyable patterns" },
   { value: "how-it-works", label: "How it works", icon: "ti-shield-check", description: "Resolution, permissions, limits" },
 ];
@@ -182,6 +193,17 @@ const formulaHighlight = highlight.compile(
   { classPrefix: "doc-token-" },
 );
 
+const templateHighlight = highlight.compile(
+  [
+    { kind: "comment", match: /\{#[\s\S]*?#\}/ },
+    { kind: "keyword", match: /\{%-?\s*(?:if|elsif|else|endif|unless|endunless|for|endfor|assign|capture|endcapture|case|when|endcase)\b[\s\S]*?-?%\}/ },
+    { kind: "placeholder", match: /\{\{[\s\S]*?\}\}/ },
+    { kind: "field", match: /<\/?[A-Za-z][^>]*>/ },
+    { kind: "string", match: /"(?:\\"|[^"])*"|'(?:\\'|[^'])*'/ },
+  ],
+  { classPrefix: "doc-token-" },
+);
+
 const functionCategory = (name: string, returnType: string): string => {
   if (["SUM", "AVG", "MEAN", "COUNT", "MIN", "MAX", "MEDIAN"].includes(name)) return "Aggregate";
   if (["ABS", "ROUND", "FLOOR", "CEIL", "SQRT", "POW", "MOD", "PERCENT"].includes(name)) return "Number";
@@ -243,6 +265,10 @@ const FormulaSnippet = (props: { code: string; title?: string }) => (
 
 const QuerySnippet = (props: { code: string; title?: string }) => (
   <DocCode title={props.title} code={props.code} highlight={queryHighlight} copy />
+);
+
+const TemplateSnippet = (props: { code: string; title?: string }) => (
+  <DocCode title={props.title} code={props.code} highlight={templateHighlight} copy />
 );
 
 const functionColumns: DataTableColumn<FunctionRow>[] = [
@@ -1424,6 +1450,292 @@ offset 25`}
   );
 }
 
+function TemplatesTab() {
+  return (
+    <Doc>
+      <DocLead>
+        Document templates turn records into repeatable PDFs. Use them for invoices, contracts, labels, checklists, certificates, delivery
+        notes, quotes, packing lists, and record summaries that should be generated from saved table data instead of rewritten by hand.
+      </DocLead>
+
+      <DocSection title="Mental model">
+        <DocConceptGrid
+          items={[
+            {
+              title: "Template",
+              icon: "ti-file-type-pdf",
+              text: "A saved document design for one table. It defines which data to load, how to render it, and which PDF layout to use.",
+            },
+            {
+              title: "GQL source",
+              icon: "ti-code",
+              text: "The server-side query that loads the current record and any related rows needed by the document.",
+            },
+            {
+              title: "Liquid HTML",
+              icon: "ti-template",
+              text: "The document body, header, footer, and page CSS. Liquid variables and loops place record data inside HTML.",
+            },
+            {
+              title: "Run",
+              icon: "ti-download",
+              text: "One generated document event. Runs keep the template version, render data, document number, timestamp, and redownload path.",
+            },
+            {
+              title: "Snapshot",
+              icon: "ti-camera",
+              text: "A captured state of the record and its related graph. Generating a document creates one automatically.",
+            },
+            {
+              title: "Preview",
+              icon: "ti-eye",
+              text: "A draft render through the same PDF pipeline, using a selected preview record before the template is saved or used.",
+            },
+          ]}
+        />
+      </DocSection>
+
+      <DocSection title="How to create a template">
+        <DocRows
+          items={[
+            {
+              title: "Open table setup",
+              icon: "ti-settings",
+              text: "Open the table in edit mode and choose Templates. Templates belong to the table they generate documents for.",
+            },
+            {
+              title: "Start from a starter",
+              icon: "ti-layout",
+              text: "Pick a starter such as Invoice, Loan agreement, Label, QR label, Overview, Record detail, Quote, Packing list, or Checklist.",
+            },
+            {
+              title: "Choose a preview record",
+              icon: "ti-database-search",
+              text: "The preview record supplies the current record context. The Data tab then shows the exact variables available to Liquid.",
+            },
+            {
+              title: "Adjust the GQL source",
+              icon: "ti-code",
+              text: "Keep the default source for single-record PDFs. Add joins, selects, or grouped rows when the document needs related data.",
+            },
+            {
+              title: "Edit the HTML parts",
+              icon: "ti-file-code",
+              text: "Body, header, footer, and page CSS are edited separately so multipage business documents can keep stable letterheads and page numbers.",
+            },
+            {
+              title: "Render before saving",
+              icon: "ti-file-type-pdf",
+              text: "Use the PDF preview and open-in-new-tab action for layout checks. Save when the output works for realistic records.",
+            },
+          ]}
+        />
+      </DocSection>
+
+      <DocSection title="Default source">
+        <p class="mb-3 text-dimmed">
+          New record templates start scoped to the current record. The Liquid expression is rendered first, then the resulting GQL runs on
+          the server.
+        </p>
+        <QuerySnippet
+          title="Current record only"
+          code={`from table {table-id}
+where record.id = '{{ record.id }}'
+limit 1`}
+        />
+      </DocSection>
+
+      <DocSection title="Data available in Liquid">
+        <DocRows
+          items={[
+            {
+              title: "record",
+              icon: "ti-record-mail",
+              text: (
+                <>
+                  The current record chosen for preview or generation. Use the editor's Data tab for exact paths such as{" "}
+                  <DocInlineCode>{"{{ record.id }}"}</DocInlineCode>.
+                </>
+              ),
+            },
+            {
+              title: "table",
+              icon: "ti-table",
+              text: (
+                <>
+                  The table the template belongs to, including values such as <DocInlineCode>{"{{ table.name }}"}</DocInlineCode>.
+                </>
+              ),
+            },
+            {
+              title: "rows",
+              icon: "ti-list-details",
+              text: "The rows returned by the GQL source. They are the main input for item tables, summaries, labels, and joined data.",
+            },
+            {
+              title: "columns",
+              icon: "ti-columns",
+              text: "Metadata for the GQL result columns. Use it when a generic table should render every selected column.",
+            },
+            {
+              title: "document",
+              icon: "ti-file-description",
+              text: (
+                <>
+                  Generated document metadata such as <DocInlineCode>{"{{ document.number }}"}</DocInlineCode> and{" "}
+                  <DocInlineCode>{"{{ document.generatedAt }}"}</DocInlineCode>. Draft previews may not have final values yet.
+                </>
+              ),
+            },
+            {
+              title: "snapshot",
+              icon: "ti-camera",
+              text: "The captured record graph for generated runs. It is null during live previews until a run has been created.",
+            },
+            {
+              title: "images",
+              icon: "ti-photo",
+              text: "Image slots for document templates that use file fields. Use preview data to verify which image variables are present.",
+            },
+            {
+              title: "barcode_data_url",
+              icon: "ti-barcode",
+              text: "A Liquid filter for labels and badges. It returns an SVG data URL for Code 128 barcodes or QR codes.",
+            },
+          ]}
+        />
+      </DocSection>
+
+      <DocSection title="Liquid patterns">
+        <div class="grid gap-3 xl:grid-cols-2">
+          <TemplateSnippet
+            title="Loop over query rows"
+            code={`<table>
+  <tbody>
+    {% for row in rows %}
+      <tr>
+        <td>{{ row.Name }}</td>
+        <td>{{ row.Status | default: "-" }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>`}
+          />
+          <TemplateSnippet
+            title="Generic column table"
+            code={`<table>
+  <thead>
+    <tr>
+      {% for column in columns %}
+        <th>{{ column.label }}</th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+      <tr>
+        {% for column in columns %}
+          <td>{{ row[column.key] | default: "-" }}</td>
+        {% endfor %}
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>`}
+          />
+          <TemplateSnippet
+            title="Code 128 barcode"
+            code={`<img
+  alt="Asset barcode"
+  src='{{ record.id | barcode_data_url: "code128", true }}'
+>`}
+          />
+          <TemplateSnippet
+            title="QR code"
+            code={`<img
+  alt="Record QR code"
+  src='{{ document.number | default: record.id | barcode_data_url: "qrcode" }}'
+>`}
+          />
+        </div>
+      </DocSection>
+
+      <DocSection title="Snapshots and redownloads">
+        <DocRows
+          items={[
+            {
+              title: "Every generation captures data",
+              icon: "ti-camera-plus",
+              text: "When a user generates a PDF from a record, Grids first captures a snapshot of the record and related records reached through relations.",
+            },
+            {
+              title: "The PDF is generated on demand",
+              icon: "ti-refresh",
+              text: "Grids stores the run, template snapshot, render data, and document number. The PDF bytes can be rendered again for redownload.",
+            },
+            {
+              title: "Document numbers stay stable",
+              icon: "ti-hash",
+              text: "Each run receives a generated document number. Use it in invoices, contracts, and footer references instead of exposing internal IDs.",
+            },
+            {
+              title: "Template edits are forward-only",
+              icon: "ti-history",
+              text: "Changing a template affects future generations. Existing runs redownload from the template and data captured for that run.",
+            },
+            {
+              title: "Manual snapshots are separate",
+              icon: "ti-camera",
+              text: "The record detail panel also has a Snapshot button for capturing a record state without generating a PDF.",
+            },
+            {
+              title: "Deletion does not erase runs",
+              icon: "ti-file-time",
+              text: "Deleting a template removes it from the active list, but existing generated documents remain available through their runs.",
+            },
+          ]}
+        />
+      </DocSection>
+
+      <DocSection title="Multipage PDFs">
+        <DocRows
+          items={[
+            {
+              title: "Use header and footer",
+              icon: "ti-layout-navbar",
+              text: "Put repeating business information, page numbers, and legal footer text in header and footer snippets instead of duplicating it in the body.",
+            },
+            {
+              title: "Use page CSS",
+              icon: "ti-file-type-css",
+              text: "Define @page size and margins, table header repetition, and page-break rules in Page CSS.",
+            },
+            {
+              title: "Keep rows printable",
+              icon: "ti-table-row",
+              text: "Use normal HTML tables for item lists. Table headers can repeat across pages and rows can avoid breaking when the CSS says so.",
+            },
+            {
+              title: "Preview with enough data",
+              icon: "ti-list-numbers",
+              text: "Test invoices, contracts, and packing lists with many rows before using the template operationally.",
+            },
+          ]}
+        />
+      </DocSection>
+
+      <DocNote title="Use GQL for data, Liquid for layout" variant="tip">
+        Keep filtering, sorting, joins, and grouping in GQL so the database does the work. Keep Liquid focused on presentation: loops,
+        conditionals, text, tables, images, barcodes, headers, footers, and CSS.
+      </DocNote>
+
+      <DocNote title="Security and correctness" variant="warning">
+        Templates are executable document definitions for trusted template editors. Preview with realistic records, avoid printing internal
+        UUIDs unless the document needs them, and use the generated document number for business-facing references.
+      </DocNote>
+    </Doc>
+  );
+}
+
 function HowItWorksTab() {
   return (
     <Doc>
@@ -1735,6 +2047,8 @@ export default function QueryReferenceWindow(props: Props) {
         return <FormulasTab functionRows={functionRows()} />;
       case "gql":
         return <QueryLanguageTab baseId={props.baseId} />;
+      case "templates":
+        return <TemplatesTab />;
       case "examples":
         return <ExamplesTab catalogExample={catalogExample()} />;
       case "how-it-works":
