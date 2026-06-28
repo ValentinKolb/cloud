@@ -147,7 +147,8 @@ export const GridsTemplatesPage = (props: { mode?: "guide" | "reference" } = {})
           <DocSection title="Editable parts">
             <p class="mb-3 text-dimmed">
               A template has one data part and up to four layout parts. The GQL source is rendered with Liquid first, so it can use the
-              selected <DocInlineCode>record</DocInlineCode> before the query is parsed.
+              selected <DocInlineCode>record</DocInlineCode> and public <DocInlineCode>app</DocInlineCode> values before the query is
+              parsed.
             </p>
             <div class="paper overflow-auto">
               <table class="min-w-[900px] w-full table-fixed text-sm">
@@ -216,8 +217,8 @@ export const GridsTemplatesPage = (props: { mode?: "guide" | "reference" } = {})
         <p class="mt-3 text-dimmed">
           Think of the data in three layers: <DocInlineCode>record</DocInlineCode> is the selected record,{" "}
           <DocInlineCode>rows</DocInlineCode> and <DocInlineCode>columns</DocInlineCode> are the GQL result, and{" "}
-          <DocInlineCode>document</DocInlineCode> describes a saved run. Rows also expose GQL output labels, so readable aliases make
-          templates easier to maintain.
+          <DocInlineCode>document</DocInlineCode> describes a saved run. <DocInlineCode>app</DocInlineCode> contains public platform
+          branding and contact values. Rows also expose GQL output labels, so readable aliases make templates easier to maintain.
         </p>
         <DocRows
           items={[
@@ -236,6 +237,17 @@ export const GridsTemplatesPage = (props: { mode?: "guide" | "reference" } = {})
               title: "rows and columns",
               icon: "ti-list-details",
               text: "The rows and columns returned by the GQL source. Use column.key for row access and column.label for human-readable headers.",
+            },
+            {
+              title: "app",
+              icon: "ti-building",
+              text: (
+                <>
+                  Public platform values for document branding: <DocInlineCode>{"{{ app.name }}"}</DocInlineCode>,{" "}
+                  <DocInlineCode>{"{{ app.contactEmail }}"}</DocInlineCode>, <DocInlineCode>{"{{ app.url }}"}</DocInlineCode>,{" "}
+                  <DocInlineCode>{"{{ app.logoDataUri }}"}</DocInlineCode>, and <DocInlineCode>{"{{ app.timezone }}"}</DocInlineCode>.
+                </>
+              ),
             },
             {
               title: "document",

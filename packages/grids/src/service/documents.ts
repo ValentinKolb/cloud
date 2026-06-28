@@ -1,10 +1,12 @@
 import {
+  coreSettings,
   type GotenbergConfig,
   type RenderHtmlToPdfResult,
   renderTemplatePdfPreview,
   type TemplatePdfPreviewResult,
 } from "@valentinkolb/cloud/services";
 import {
+  CLOUD_LOGO_SVG,
   type LiquidTemplateFilter,
   renderLiquidTemplate,
   validateLiquidTemplate as validateSharedLiquidTemplate,
@@ -44,6 +46,76 @@ const SNAPSHOT_MAX_RECORDS = 500;
 const DOCUMENT_QUERY_MAX_ROWS = 10_000;
 
 const byteLength = (value: string): number => new TextEncoder().encode(value).byteLength;
+
+export type DocumentTemplateAppData = {
+  name: string;
+  url: string;
+  contactEmail: string | null;
+  copyright: string | null;
+  timezone: string;
+  logoDataUri: string;
+};
+
+type DocumentTemplateRecordContext = Pick<GridRecord, "id" | "tableId" | "version" | "data" | "createdAt" | "updatedAt">;
+type DocumentTemplateTableContext = Pick<Table, "id" | "shortId" | "name">;
+
+const defaultLogoDataUri = () => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(CLOUD_LOGO_SVG)}`;
+
+const stringValue = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+const nullableStringValue = (value: unknown): string | null => stringValue(value) || null;
+const publicUrlValue = (value: unknown): string => {
+  const url = stringValue(value);
+  if (!url) return "";
+  return /^https?:\/\//i.test(url) ? url : `https://${url}`;
+};
+
+const appDataFromValues = (values: {
+  name?: unknown;
+  url?: unknown;
+  contactEmail?: unknown;
+  copyright?: unknown;
+  timezone?: unknown;
+  logo?: unknown;
+}): DocumentTemplateAppData => ({
+  name: stringValue(values.name) || "Cloud",
+  url: publicUrlValue(values.url),
+  contactEmail: nullableStringValue(values.contactEmail),
+  copyright: nullableStringValue(values.copyright),
+  timezone: stringValue(values.timezone) || "UTC",
+  logoDataUri: stringValue(values.logo) || defaultLogoDataUri(),
+});
+
+const appDataFromSettingsSnapshot = (settings?: unknown): DocumentTemplateAppData | null => {
+  if (!settings || typeof settings !== "object") return null;
+  const app = (settings as { app?: unknown }).app;
+  if (!app || typeof app !== "object") return null;
+  const appSettings = app as Record<string, unknown>;
+  return appDataFromValues({
+    name: appSettings.name,
+    url: appSettings.url,
+    contactEmail: appSettings.contact_email,
+    copyright: appSettings.copyright,
+    timezone: appSettings.timezone,
+    logo: appSettings.logo,
+  });
+};
+
+export const defaultTemplateAppData = (): DocumentTemplateAppData => appDataFromValues({});
+
+export const buildTemplateAppData = async (settings?: unknown): Promise<DocumentTemplateAppData> => {
+  const snapshotData = appDataFromSettingsSnapshot(settings);
+  if (snapshotData) return snapshotData;
+
+  const [name, url, contactEmail, copyright, timezone, logo] = await Promise.all([
+    coreSettings.get<string>("app.name"),
+    coreSettings.get<string>("app.url"),
+    coreSettings.get<string>("app.contact_email"),
+    coreSettings.get<string>("app.copyright"),
+    coreSettings.get<string>("app.timezone"),
+    coreSettings.get<string>("app.logo"),
+  ]);
+  return appDataFromValues({ name, url, contactEmail, copyright, timezone, logo });
+};
 
 const barcodeDataUrlFilter: LiquidTemplateFilter = (value, bcid = "code128", showText = false) => {
   if (typeof bcid !== "string") throw new Error("barcode_data_url requires a barcode type");
@@ -503,7 +575,11 @@ export const listSnapshotsForRecord = async (tableId: string, recordId: string):
   return rows.map(mapSnapshotSummary);
 };
 
-export const buildTemplateInputContext = (record: GridRecord, table: Table): Record<string, unknown> => ({
+export const buildTemplateInputContext = (
+  record: DocumentTemplateRecordContext,
+  table: DocumentTemplateTableContext,
+  appData: DocumentTemplateAppData = defaultTemplateAppData(),
+): Record<string, unknown> => ({
   record: {
     id: record.id,
     tableId: record.tableId,
@@ -517,13 +593,15 @@ export const buildTemplateInputContext = (record: GridRecord, table: Table): Rec
     shortId: table.shortId,
     name: table.name,
   },
+  app: appData,
 });
 
 export const buildRenderData = (params: {
-  record: GridRecord | SnapshotRecord;
-  table: Table | Pick<Table, "id" | "shortId" | "name">;
+  record: DocumentTemplateRecordContext | SnapshotRecord;
+  table: DocumentTemplateTableContext;
   columns: unknown[];
   rows: unknown[];
+  app?: DocumentTemplateAppData;
   documentNumber?: string;
   generatedAt?: string;
   snapshot?: RecordSnapshot;
@@ -538,6 +616,7 @@ export const buildRenderData = (params: {
   columns: params.columns,
   images: [],
   primaryImage: null,
+  app: params.app ?? defaultTemplateAppData(),
   document: {
     number: params.documentNumber ?? null,
     generatedAt: params.generatedAt ?? null,
@@ -549,9 +628,11 @@ export const buildLiveRenderData = async (params: {
   template: DocumentTemplate;
   table: Table;
   record: GridRecord;
+  app?: DocumentTemplateAppData;
   dateConfig?: DateContext;
 }): Promise<Result<{ source: string; columns: unknown[]; rows: Array<Record<string, unknown>>; data: Record<string, unknown> }>> => {
-  const source = await renderDocumentSource(params.template, buildTemplateInputContext(params.record, params.table));
+  const appData = params.app ?? (await buildTemplateAppData());
+  const source = await renderDocumentSource(params.template, buildTemplateInputContext(params.record, params.table, appData));
   if (!source.ok) return source;
 
   const executed = await executeDocumentGqlSource({
@@ -567,6 +648,7 @@ export const buildLiveRenderData = async (params: {
     table: params.table,
     columns: executed.data.columns,
     rows: executed.data.rows,
+    app: appData,
   });
   return ok({ source: source.data, columns: executed.data.columns, rows: executed.data.rows, data });
 };

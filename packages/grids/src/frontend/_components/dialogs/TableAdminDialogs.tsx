@@ -11,6 +11,7 @@ import {
   type PanesValue,
   PdfPreview,
   panelDialogOptions,
+  panelDialogWorkspaceOptions,
   prompts,
   TemplateEditor,
   type TemplateVariable,
@@ -42,15 +43,8 @@ const DOCUMENT_TEMPLATE_VARIABLES: TemplateVariable[] = [
   { name: "query", kind: "object" },
   { name: "document", kind: "object" },
   { name: "snapshot", kind: "object" },
+  { name: "app", kind: "object" },
 ];
-
-const documentTemplateDialogOptions = {
-  ...panelDialogOptions,
-  panelClassName: panelDialogOptions.panelClassName
-    .replace("w-[min(96vw,48rem)]", "w-[min(98vw,96rem)]")
-    .replace("max-h-[86vh]", "h-[min(92vh,calc(100vh-2rem))] max-h-[92vh]"),
-  contentClassName: "flex h-full min-h-0 p-0",
-};
 
 const createDocumentTemplatePanesValue = (): PanesValue => ({
   root: {
@@ -163,7 +157,7 @@ const addDataTreeRows = (rows: DocumentDataTreeRow[], value: unknown, path: stri
 const dataTreeRows = (data: Record<string, unknown> | null | undefined): DocumentDataTreeRow[] => {
   if (!data) return [];
   const rows: DocumentDataTreeRow[] = [];
-  for (const key of ["record", "rows", "columns", "query", "table", "document", "snapshot"]) {
+  for (const key of ["record", "rows", "columns", "query", "table", "app", "document", "snapshot"]) {
     if (key in data) addDataTreeRows(rows, data[key], key, key, 0);
   }
   return rows;
@@ -799,7 +793,7 @@ function openDocumentTemplateEditorDialog(args: {
   starter?: DocumentTemplateStarter;
   onSaved?: (template: DocumentTemplate) => void;
 }) {
-  return dialogCore.open<void>((close) => <DocumentTemplateEditorDialog args={args} close={close} />, documentTemplateDialogOptions);
+  return dialogCore.open<void>((close) => <DocumentTemplateEditorDialog args={args} close={close} />, panelDialogWorkspaceOptions);
 }
 
 function DocumentTemplateEditorDialog(props: {
@@ -1039,7 +1033,7 @@ function DocumentTemplateEditorDialog(props: {
         close={closeIfClean}
       />
       <PanelDialog.Body>
-        <div class="flex min-h-[44rem] flex-col gap-2">
+        <div class="flex h-full min-h-0 flex-col gap-2">
           <div class="grid shrink-0 gap-2 lg:grid-cols-2">
             <TextInput label="Name" value={name} onInput={setName} icon="ti ti-typography" required />
             <TextInput label="Description" value={description} onInput={setDescription} icon="ti ti-align-left" placeholder="Optional" />
@@ -1089,7 +1083,7 @@ function DocumentTemplateEditorDialog(props: {
           <Panes.Root
             value={templatePanes()}
             onChange={setTemplatePanes}
-            class="h-[32rem] min-h-[32rem] w-full shrink-0"
+            class="min-h-[24rem] w-full flex-1"
             allowResize
             allowMove={false}
             allowReorder={false}

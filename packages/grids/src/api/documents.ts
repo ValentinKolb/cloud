@@ -61,7 +61,8 @@ const liveRenderData = async (
   const record = await gridsService.record.get(params.tableId, params.recordId, { dateConfig: await getDateConfig(c) });
   if (!record) return { ok: false as const, status: 404, phase: "data" as const, message: "Record not found" };
 
-  const inputContext = gridsService.document.buildTemplateInputContext(record, table);
+  const appData = await gridsService.document.buildTemplateAppData();
+  const inputContext = gridsService.document.buildTemplateInputContext(record, table, appData);
   const source = await gridsService.document.renderSource(params.template, inputContext);
   if (!source.ok) return { ok: false as const, status: source.error.status, phase: "source" as const, message: source.error.message };
 
@@ -93,6 +94,7 @@ const liveRenderData = async (
     table,
     columns: executed.response.columns,
     rows,
+    app: appData,
   });
   return { ok: true as const, table, record, source: source.data, columns: executed.response.columns, rows, data };
 };

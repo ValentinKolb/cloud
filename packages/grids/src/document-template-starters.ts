@@ -1,5 +1,3 @@
-import { CLOUD_LOGO_SVG } from "@valentinkolb/cloud/shared";
-
 export type DocumentTemplateStarter = {
   id: string;
   name: string;
@@ -30,16 +28,16 @@ const businessHeader = `<style>
 </style>
 <div class="header">
   <div class="brand-lockup">
-    ${CLOUD_LOGO_SVG}
+    <img class="cloud-logo" src="{{ app.logoDataUri }}" alt="">
     <div>
-      <div class="brand">ACME Operations GmbH</div>
+      <div class="brand">{{ app.name }}</div>
       <div class="line">Friedrichstrasse 120 | 10117 Berlin | Germany</div>
     </div>
   </div>
   <div class="meta">
     <strong>Finance &amp; Operations</strong><br>
-    finance@example.com<br>
-    +49 30 000000-0
+    {% if app.contactEmail %}{{ app.contactEmail }}{% else %}finance@example.com{% endif %}<br>
+    {% if app.url %}{{ app.url }}{% else %}+49 30 000000-0{% endif %}
   </div>
 </div>`;
 
@@ -51,7 +49,7 @@ const businessFooter = `<style>
   .right { text-align: right; }
 </style>
 <div class="footer">
-  <span>ACME Operations GmbH | Managing Director Jane Miller | VAT DE000000000</span>
+  <span>{{ app.copyright | default: app.name }} | Managing Director Jane Miller | VAT DE000000000</span>
   <span class="center">IBAN DE00 0000 0000 0000 0000 00 | BIC EXAMPLEXXX</span>
   <span class="right">Page <span class="pageNumber"></span> / <span class="totalPages"></span></span>
 </div>`;

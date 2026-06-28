@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { DOCUMENT_TEMPLATE_STARTERS } from "../document-template-starters";
 import {
+  buildRenderData,
+  buildTemplateAppData,
+  buildTemplateInputContext,
   documentNumberFor,
   renderDocumentHtml,
   renderDocumentSource,
@@ -10,6 +13,41 @@ import {
 } from "./documents";
 
 describe("document rendering", () => {
+  test("exposes stable public app data to document templates", async () => {
+    const app = await buildTemplateAppData({
+      app: {
+        name: "Operations Cloud",
+        url: "cloud.example.test",
+        contact_email: "support@example.test",
+        copyright: "Example GmbH",
+        timezone: "Europe/Berlin",
+        logo: "data:image/png;base64,abc",
+      },
+    });
+
+    expect(app).toMatchObject({
+      name: "Operations Cloud",
+      url: "https://cloud.example.test",
+      contactEmail: "support@example.test",
+      copyright: "Example GmbH",
+      timezone: "Europe/Berlin",
+      logoDataUri: "data:image/png;base64,abc",
+    });
+
+    const table = { id: "table-1", shortId: "tbl1", name: "Items" };
+    const record = {
+      id: "record-1",
+      tableId: "table-1",
+      version: 1,
+      data: { name: "Camera" },
+      createdAt: "2026-06-28T00:00:00.000Z",
+      updatedAt: "2026-06-28T00:00:00.000Z",
+    };
+
+    expect(buildTemplateInputContext(record, table, app).app).toEqual(app);
+    expect(buildRenderData({ record, table, columns: [], rows: [], app }).app).toEqual(app);
+  });
+
   test("renders Liquid templates with escaped output by default", async () => {
     const result = await renderDocumentHtml({ html: "<p>{{ record.data.name }}</p>" }, { record: { data: { name: "<b>Ada</b>" } } });
 
@@ -59,6 +97,29 @@ describe("document rendering", () => {
         const result = validateLiquidTemplate(value);
         expect(result.ok, `${starter.id} ${part}: ${result.ok ? "" : result.error.message}`).toBe(true);
       }
+    }
+  });
+
+  test("document template starters can render app branding", async () => {
+    const app = await buildTemplateAppData({
+      app: {
+        name: "Operations Cloud",
+        url: "https://cloud.example.test",
+        contact_email: "support@example.test",
+        logo: "data:image/png;base64,abc",
+      },
+    });
+    const invoice = DOCUMENT_TEMPLATE_STARTERS.find((starter) => starter.id === "invoice");
+    expect(invoice?.headerHtml).toBeTruthy();
+    if (!invoice?.headerHtml) throw new Error("invoice starter header is missing");
+
+    const result = await renderLiquidText(invoice.headerHtml, { app });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toContain("Operations Cloud");
+      expect(result.data).toContain("support@example.test");
+      expect(result.data).toContain("data:image&#x2F;png;base64,abc");
     }
   });
 

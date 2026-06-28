@@ -75,7 +75,14 @@ export type {
   PanelDialogTabOption,
   PanelDialogTabsProps,
 } from "./PanelDialog";
-export { confirmDiscardIfDirty, default as PanelDialog, panelDialogOptions, panelDialogPanelClass } from "./PanelDialog";
+export {
+  confirmDiscardIfDirty,
+  default as PanelDialog,
+  panelDialogOptions,
+  panelDialogPanelClass,
+  panelDialogWorkspaceOptions,
+  panelDialogWorkspacePanelClass,
+} from "./PanelDialog";
 export type {
   PanesElementProps,
   PanesLeafNode,

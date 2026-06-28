@@ -59,12 +59,21 @@ const PanelDialogSurfaceContext = createContext<PanelDialogSurface>("contained")
 
 const usePanelDialogSurface = () => useContext(PanelDialogSurfaceContext);
 
-export const panelDialogPanelClass =
-  "fixed left-1/2 top-1/2 m-0 max-h-[86vh] w-[min(96vw,48rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-none backdrop:bg-black/45 backdrop:backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:backdrop:bg-black/35";
+const panelDialogBasePanelClass =
+  "fixed left-1/2 top-1/2 m-0 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-none backdrop:bg-black/45 backdrop:backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:backdrop:bg-black/35";
+
+export const panelDialogPanelClass = `${panelDialogBasePanelClass} max-h-[86vh] w-[min(96vw,48rem)]`;
 
 export const panelDialogOptions = {
   panelClassName: panelDialogPanelClass,
   contentClassName: "min-h-0 p-0",
+} satisfies OpenDialogOptions;
+
+export const panelDialogWorkspacePanelClass = `${panelDialogBasePanelClass} h-[80vh] max-h-[80vh] w-[80vw] max-w-[80vw]`;
+
+export const panelDialogWorkspaceOptions = {
+  panelClassName: panelDialogWorkspacePanelClass,
+  contentClassName: "flex h-full min-h-0 p-0",
 } satisfies OpenDialogOptions;
 
 export const confirmDiscardIfDirty = async (dirty: boolean | (() => boolean)) => {
