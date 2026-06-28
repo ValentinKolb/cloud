@@ -14,6 +14,7 @@ import type {
   CloudCliTableColumn,
 } from "@valentinkolb/cloud/cli";
 import accountCliModule from "@valentinkolb/cloud/cli/account";
+import adminCliModule from "@valentinkolb/cloud/cli/admin";
 import contactsCliModule from "@valentinkolb/cloud-app-contacts/cli";
 import notebooksCliModule from "@valentinkolb/cloud-app-notebooks/cli";
 import spacesCliModule from "@valentinkolb/cloud-app-spaces/cli";
@@ -85,7 +86,14 @@ const PROFILE_LOCK_TIMEOUT_MS = 15_000;
 const PROFILE_LOCK_STALE_MS = 60_000;
 const BOOLEAN_FLAGS = new Set(["json"]);
 
-const modules: CloudCliModule[] = [accountCliModule, contactsCliModule, notebooksCliModule, spacesCliModule, toolsCliModule];
+const modules: CloudCliModule[] = [
+  accountCliModule,
+  adminCliModule,
+  contactsCliModule,
+  notebooksCliModule,
+  spacesCliModule,
+  toolsCliModule,
+];
 
 const moduleByName = new Map(modules.map((module) => [module.name, module]));
 

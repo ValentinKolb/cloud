@@ -1,5 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { type CloudCliContext, type CloudCliFlags, defineCloudCliModule } from "@valentinkolb/cloud/cli";
+import { arg, type CloudCliContext, type CloudCliFlags, command, defineCliCommands, flag } from "@valentinkolb/cloud/cli";
 import type {
   Contact,
   ContactBook,
@@ -50,53 +50,6 @@ type ContactTree = {
 
 const CONTACTS_BOOK_DEFAULT_KEY = "contacts.book";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const help = () => `cld contacts
-
-Usage:
-  cld contacts books [--q <query>] [--page <n>] [--per-page <n>]
-  cld contacts use <book>
-  cld contacts current
-  cld contacts book [<book>] [--book <book>]
-  cld contacts create-book <name> [--description <text>] [--use]
-  cld contacts update-book [<book>] [--book <book>] [--name <name>] [--description <text>]
-  cld contacts delete-book [<book>] [--book <book>]
-
-  cld contacts list [<book>] [--book <book>] [--q <query>] [--tag <tag-or-id>] [--page <n>] [--per-page <n>]
-  cld contacts get [<book>] <contact> [--book <book>] [--contact <contact>]
-  cld contacts search <query> [--include-system] [--page <n>] [--per-page <n>]
-  cld contacts create [<book>] [--book <book>] [--json-input <path>|--stdin] [field flags]
-  cld contacts update [<book>] <contact> [--book <book>] [--contact <contact>] [--json-input <path>|--stdin] [field flags]
-  cld contacts delete [<book>] <contact> [--book <book>] [--contact <contact>]
-  cld contacts move [<book>] <contact> --target-book <book> [--book <book>] [--contact <contact>]
-  cld contacts tree [<book>] <contact> [--book <book>] [--contact <contact>]
-
-  cld contacts notes [<book>] <contact> [--book <book>] [--contact <contact>]
-  cld contacts note [<book>] <contact> [--book <book>] [--contact <contact>] --content <text>|--file <path>|--stdin
-  cld contacts update-note [<book>] <contact> <note> [--book <book>] [--contact <contact>] --content <text>|--file <path>|--stdin
-  cld contacts delete-note [<book>] <contact> <note> [--book <book>] [--contact <contact>]
-
-  cld contacts tags [<book>] [--book <book>]
-  cld contacts create-tag [<book>] <name> --color <#RRGGBB> [--book <book>]
-  cld contacts update-tag [<book>] <tag> [--name <name>] [--color <#RRGGBB>] [--book <book>]
-  cld contacts delete-tag [<book>] <tag> [--book <book>]
-
-  cld contacts export [<book>] --format vcf|csv [--out <path>] [--book <book>]
-  cld contacts import-preview [<book>] --file <path>|--stdin [--book <book>]
-
-Contact field flags:
-  --label <text> --first-name <text> --last-name <text> --company-name <text>
-  --department <text> --job-title <text> --vat-id <text> --birthday <YYYY-MM-DD>
-  --salutation <text> --pronouns <text> --preferred-language <tag> --source <text>
-  --email <email|label=email>        Repeatable. Replaces emails when used on update.
-  --phone <phone|label=phone>        Repeatable. Replaces phones when used on update.
-  --tag <tag-or-id>                  Repeatable. Replaces tags when used on update.
-  --parent <contact-or-id>           Use "none" to clear on update.
-
-Reference notes:
-  Quote multi-word book, contact, and tag names. Prefer --book and --contact for unambiguous agent calls.
-  JSON input accepts the API CreateContactInput/UpdateContactInput shape and can be combined with scalar flags.
-`;
 
 const stringFlag = (flags: CloudCliFlags, ...names: string[]): string | undefined => {
   for (const name of names) {
@@ -405,327 +358,567 @@ const formatContactTree = (tree: ContactTree): string => {
   return lines.join("\n");
 };
 
-export default defineCloudCliModule({
+const runContactsCommand = async (ctx: CloudCliContext, command: string, args: string[]) => {
+  if (command === "books") {
+    const payload = await listBooks(ctx, stringFlag(ctx.flags, "q", "query"));
+    printJsonOrTable(ctx, payload, bookRows(payload.data), [
+      { key: "name", label: "NAME" },
+      { key: "system", label: "SYSTEM" },
+      { key: "updatedAt", label: "UPDATED" },
+      { key: "id", label: "ID" },
+    ]);
+    return 0;
+  }
+
+  if (command === "use") {
+    const book = await resolveBookRef(ctx, requireArg(args, 0, "book"));
+    await ctx.setDefault(CONTACTS_BOOK_DEFAULT_KEY, book.id);
+    if (ctx.options.output === "json") ctx.json({ book, defaultBook: book.id });
+    else ctx.print(`Using contact book ${book.name} (${book.id}).`);
+    return 0;
+  }
+
+  if (command === "current") {
+    const bookRef = await ctx.getDefault(CONTACTS_BOOK_DEFAULT_KEY);
+    if (!bookRef) throw new Error("No default contact book configured. Run `cld contacts use <book>`.");
+    const book = await resolveBookRef(ctx, bookRef);
+    if (ctx.options.output === "json") ctx.json({ book, defaultBook: book.id });
+    else ctx.print(`${book.name} (${book.id})`);
+    return 0;
+  }
+
+  if (command === "book") {
+    const { bookRef } = await resolveBookArg(ctx, args, 0);
+    const book = await resolveBookRef(ctx, bookRef);
+    if (ctx.options.output === "json") ctx.json(book);
+    else {
+      ctx.print(`${book.name} (${book.id})`);
+      if (book.description) ctx.print(book.description);
+      ctx.print(`system: ${book.isSystem ? "yes" : "no"}`);
+    }
+    return 0;
+  }
+
+  if (command === "create-book") {
+    const data: CreateBookInput = {
+      name: requireArg(args, 0, "book name"),
+      ...(stringFlag(ctx.flags, "description") ? { description: stringFlag(ctx.flags, "description") } : {}),
+    };
+    const book = await readApi<ContactBook>(ctx, "/books", jsonRequest("POST", data));
+    if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(CONTACTS_BOOK_DEFAULT_KEY, book.id);
+    if (ctx.options.output === "json") ctx.json(book);
+    else ctx.print(`Created ${book.name} (${book.id}).${booleanFlag(ctx.flags, "use") ? " Using it as default." : ""}`);
+    return 0;
+  }
+
+  if (command === "update-book") {
+    const { bookRef } = await resolveBookArg(ctx, args, 0);
+    const book = await resolveBookRef(ctx, bookRef);
+    const data: UpdateBookInput = {};
+    const name = stringFlag(ctx.flags, "name");
+    const description = stringFlag(ctx.flags, "description");
+    if (name !== undefined) data.name = name;
+    if (description !== undefined) data.description = description;
+    if (Object.keys(data).length === 0) throw new Error("No book fields to update.");
+    const updated = await readApi<ContactBook>(ctx, `/books/${book.id}`, jsonRequest("PATCH", data));
+    if (ctx.options.output === "json") ctx.json(updated);
+    else ctx.print(`Updated ${updated.name} (${updated.id}).`);
+    return 0;
+  }
+
+  if (command === "delete-book") {
+    const { bookRef } = await resolveBookArg(ctx, args, 0);
+    const book = await resolveBookRef(ctx, bookRef);
+    const payload = await readApi<unknown>(ctx, `/books/${book.id}`, { method: "DELETE" });
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(`Deleted ${book.name} (${book.id}).`);
+    return 0;
+  }
+
+  if (command === "list") {
+    const { bookRef } = await resolveBookArg(ctx, args, 0);
+    const book = await resolveBookRef(ctx, bookRef);
+    const tagRefs = stringFlags(ctx.flags, "tag");
+    const tagIds = await resolveTagIds(ctx, book.id, tagRefs);
+    const query = new URLSearchParams({
+      ...paginationQuery(ctx),
+      ...(stringFlag(ctx.flags, "q", "query") ? { q: stringFlag(ctx.flags, "q", "query")! } : {}),
+    });
+    for (const tagId of tagIds) query.append("tag_id", tagId);
+    const payload = await readApi<Page<Contact>>(ctx, `/books/${book.id}/contacts?${query.toString()}`);
+    printJsonOrTable(ctx, payload, contactRows(payload.data), [
+      { key: "name", label: "NAME" },
+      { key: "email", label: "EMAIL" },
+      { key: "phone", label: "PHONE" },
+      { key: "company", label: "COMPANY" },
+      { key: "updatedAt", label: "UPDATED" },
+      { key: "id", label: "ID" },
+    ]);
+    return 0;
+  }
+
+  if (command === "get") {
+    const { contact } = await resolveContactCommandArgs(ctx, args);
+    if (ctx.options.output === "json") ctx.json(contact);
+    else {
+      ctx.print(`${resolveContactName(contact)} (${contact.id})`);
+      if (contact.jobTitle || contact.companyName) ctx.print([contact.jobTitle, contact.companyName].filter(Boolean).join(", "));
+      if (contact.emails.length > 0) ctx.print(`email: ${contact.emails.map((email) => email.email).join(", ")}`);
+      if (contact.phones.length > 0) ctx.print(`phone: ${contact.phones.map((phone) => phone.phone).join(", ")}`);
+      if (contact.tags.length > 0) ctx.print(`tags: ${contact.tags.map((tag) => tag.name).join(", ")}`);
+    }
+    return 0;
+  }
+
+  if (command === "search") {
+    const queryText = args.join(" ").trim() || stringFlag(ctx.flags, "q", "query");
+    if (!queryText) throw new Error("Missing search query.");
+    const payload = await readApi<Page<Contact>>(
+      ctx,
+      `/search?${new URLSearchParams({
+        ...paginationQuery(ctx),
+        q: queryText,
+        ...(booleanFlag(ctx.flags, "include-system") ? { includeSystem: "true" } : {}),
+      }).toString()}`,
+    );
+    printJsonOrTable(ctx, payload, contactRows(payload.data), [
+      { key: "name", label: "NAME" },
+      { key: "email", label: "EMAIL" },
+      { key: "phone", label: "PHONE" },
+      { key: "company", label: "COMPANY" },
+      { key: "id", label: "ID" },
+    ]);
+    return 0;
+  }
+
+  if (command === "create") {
+    const { bookRef } = await resolveBookArg(ctx, args, 0);
+    const book = await resolveBookRef(ctx, bookRef);
+    const data = await buildContactPayload<CreateContactInput>(ctx, book.id);
+    assertHasPayload(data as Record<string, unknown>, "create");
+    const contact = await readApi<Contact>(ctx, `/books/${book.id}/contacts`, jsonRequest("POST", data));
+    if (ctx.options.output === "json") ctx.json(contact);
+    else ctx.print(`Created ${resolveContactName(contact)} (${contact.id}).`);
+    return 0;
+  }
+
+  if (command === "update") {
+    const { book, contact } = await resolveContactCommandArgs(ctx, args);
+    const data = await buildContactPayload<UpdateContactInput>(ctx, book.id);
+    assertHasPayload(data as Record<string, unknown>, "update");
+    const updated = await readApi<Contact>(ctx, `/books/${book.id}/contacts/${contact.id}`, jsonRequest("PATCH", data));
+    if (ctx.options.output === "json") ctx.json(updated);
+    else ctx.print(`Updated ${resolveContactName(updated)} (${updated.id}).`);
+    return 0;
+  }
+
+  if (command === "delete") {
+    const { book, contact } = await resolveContactCommandArgs(ctx, args);
+    const payload = await readApi<unknown>(ctx, `/books/${book.id}/contacts/${contact.id}`, { method: "DELETE" });
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(`Deleted ${resolveContactName(contact)} (${contact.id}).`);
+    return 0;
+  }
+
+  if (command === "move") {
+    const { book, contact } = await resolveContactCommandArgs(ctx, args);
+    const targetBookRef = stringFlag(ctx.flags, "target-book", "targetBookId");
+    if (!targetBookRef) throw new Error("Missing target book. Pass --target-book <book>.");
+    const targetBook = await resolveBookRef(ctx, targetBookRef);
+    const moved = await readApi<Contact>(
+      ctx,
+      `/books/${book.id}/contacts/${contact.id}/move`,
+      jsonRequest("POST", { targetBookId: targetBook.id }),
+    );
+    if (ctx.options.output === "json") ctx.json(moved);
+    else ctx.print(`Moved ${resolveContactName(moved)} to ${targetBook.name}.`);
+    return 0;
+  }
+
+  if (command === "tree") {
+    const { book, contact } = await resolveContactCommandArgs(ctx, args);
+    const tree = await readApi<ContactTree>(ctx, `/books/${book.id}/contacts/${contact.id}/tree`);
+    if (ctx.options.output === "json") ctx.json(tree);
+    else ctx.print(formatContactTree(tree));
+    return 0;
+  }
+
+  if (command === "notes" || command === "note" || command === "update-note" || command === "delete-note") {
+    const { book, contact, rest } = await resolveContactCommandArgs(
+      ctx,
+      args,
+      command === "update-note" || command === "delete-note" ? 1 : 0,
+    );
+
+    if (command === "notes") {
+      const notes = await readApi<ContactNote[]>(ctx, `/books/${book.id}/contacts/${contact.id}/notes`);
+      printJsonOrTable(ctx, notes, noteRows(notes), [
+        { key: "createdAt", label: "CREATED" },
+        { key: "author", label: "AUTHOR" },
+        { key: "content", label: "CONTENT" },
+        { key: "id", label: "ID" },
+      ]);
+      return 0;
+    }
+
+    if (command === "note") {
+      const content = await readInputContent(ctx);
+      const data: CreateContactNoteInput = { content: content ?? "" };
+      const note = await readApi<ContactNote>(ctx, `/books/${book.id}/contacts/${contact.id}/notes`, jsonRequest("POST", data));
+      if (ctx.options.output === "json") ctx.json(note);
+      else ctx.print(`Created note ${note.id}.`);
+      return 0;
+    }
+
+    const noteId = requireArg(rest, 0, "note");
+    if (command === "update-note") {
+      const content = await readInputContent(ctx);
+      const data: UpdateContactNoteInput = { content: content ?? "" };
+      const note = await readApi<ContactNote>(ctx, `/books/${book.id}/contacts/${contact.id}/notes/${noteId}`, jsonRequest("PATCH", data));
+      if (ctx.options.output === "json") ctx.json(note);
+      else ctx.print(`Updated note ${note.id}.`);
+      return 0;
+    }
+
+    const payload = await readApi<unknown>(ctx, `/books/${book.id}/contacts/${contact.id}/notes/${noteId}`, { method: "DELETE" });
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(`Deleted note ${noteId}.`);
+    return 0;
+  }
+
+  if (command === "tags" || command === "create-tag" || command === "update-tag" || command === "delete-tag") {
+    const { bookRef, rest } = await resolveBookArg(
+      ctx,
+      args,
+      command === "create-tag" || command === "update-tag" || command === "delete-tag" ? 1 : 0,
+    );
+    const book = await resolveBookRef(ctx, bookRef);
+
+    if (command === "tags") {
+      const tags = await readApi<ContactTag[]>(ctx, `/books/${book.id}/tags`);
+      printJsonOrTable(ctx, tags, tagRows(tags), [
+        { key: "name", label: "NAME" },
+        { key: "color", label: "COLOR" },
+        { key: "id", label: "ID" },
+      ]);
+      return 0;
+    }
+
+    if (command === "create-tag") {
+      const color = stringFlag(ctx.flags, "color");
+      if (!color) throw new Error("Missing color. Pass --color <#RRGGBB>.");
+      const data: CreateContactTagInput = { name: requireArg(rest, 0, "tag name"), color };
+      const tag = await readApi<ContactTag>(ctx, `/books/${book.id}/tags`, jsonRequest("POST", data));
+      if (ctx.options.output === "json") ctx.json(tag);
+      else ctx.print(`Created tag ${tag.name} (${tag.id}).`);
+      return 0;
+    }
+
+    const tag = await resolveTagRef(ctx, book.id, requireArg(rest, 0, "tag"));
+    if (command === "update-tag") {
+      const data: UpdateContactTagInput = {};
+      const name = stringFlag(ctx.flags, "name");
+      const color = stringFlag(ctx.flags, "color");
+      if (name !== undefined) data.name = name;
+      if (color !== undefined) data.color = color;
+      if (Object.keys(data).length === 0) throw new Error("No tag fields to update.");
+      const updated = await readApi<ContactTag>(ctx, `/books/${book.id}/tags/${tag.id}`, jsonRequest("PATCH", data));
+      if (ctx.options.output === "json") ctx.json(updated);
+      else ctx.print(`Updated tag ${updated.name} (${updated.id}).`);
+      return 0;
+    }
+
+    const payload = await readApi<unknown>(ctx, `/books/${book.id}/tags/${tag.id}`, { method: "DELETE" });
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(`Deleted tag ${tag.name} (${tag.id}).`);
+    return 0;
+  }
+
+  if (command === "export") {
+    const { bookRef } = await resolveBookArg(ctx, args, 0);
+    const book = await resolveBookRef(ctx, bookRef);
+    const format = stringFlag(ctx.flags, "format") ?? "vcf";
+    if (format !== "vcf" && format !== "csv") throw new Error("--format must be vcf or csv.");
+    const body = await readTextResponse(await ctx.fetch(apiPath(`/books/${book.id}/export.${format}`)));
+    const out = stringFlag(ctx.flags, "out", "output");
+    if (out) {
+      await writeFile(out, body);
+      ctx.print(`Wrote ${out}.`);
+    } else {
+      ctx.print(body);
+    }
+    return 0;
+  }
+
+  if (command === "import-preview") {
+    const { bookRef } = await resolveBookArg(ctx, args, 0);
+    const book = await resolveBookRef(ctx, bookRef);
+    const content = await readInputContent(ctx);
+    const payload = await readApi<ImportPreviewResponse>(
+      ctx,
+      `/books/${book.id}/import/preview`,
+      jsonRequest("POST", { format: "vcard", content }),
+    );
+    ctx.json(payload);
+    return 0;
+  }
+
+  throw new Error(`Unknown contacts command "${command}". Run \`cld contacts help\`.`);
+};
+
+const bookArg = {
+  args: arg.rest({ valueLabel: "book-or-args", description: "Optional leading book followed by command arguments." }),
+};
+
+const paginationFlagSpecs = {
+  page: flag.int({ min: 1, description: "Page number" }),
+  perPage: flag.int({ name: "per-page", aliases: ["per_page"], min: 1, description: "Items per page" }),
+};
+
+const bookFlag = {
+  book: flag.string({ description: "Contact book id or exact name" }),
+};
+
+const contactFlag = {
+  contact: flag.string({ description: "Contact id or exact display name" }),
+};
+
+const contentFlagSpecs = {
+  content: flag.string({ description: "Content text" }),
+  file: flag.string({ aliases: ["f"], description: "Read content from file" }),
+  stdin: flag.boolean({ description: "Read content or JSON input from stdin" }),
+};
+
+const contactFieldFlags = {
+  label: flag.string({ description: "Contact label" }),
+  firstName: flag.string({ name: "first-name", aliases: ["firstName"], description: "First name" }),
+  lastName: flag.string({ name: "last-name", aliases: ["lastName"], description: "Last name" }),
+  companyName: flag.string({ name: "company-name", aliases: ["companyName"], description: "Company name" }),
+  department: flag.string({ description: "Department" }),
+  jobTitle: flag.string({ name: "job-title", aliases: ["jobTitle"], description: "Job title" }),
+  vatId: flag.string({ name: "vat-id", aliases: ["vatId"], description: "VAT id" }),
+  birthday: flag.string({ description: "Birthday as YYYY-MM-DD" }),
+  salutation: flag.string({ description: "Salutation" }),
+  pronouns: flag.string({ description: "Pronouns" }),
+  preferredLanguage: flag.string({ name: "preferred-language", aliases: ["preferredLanguage"], description: "Preferred language tag" }),
+  source: flag.string({ description: "Source" }),
+  email: flag.stringList({ description: "Email or label=email. Repeatable." }),
+  phone: flag.stringList({ description: "Phone or label=phone. Repeatable." }),
+  tag: flag.stringList({ description: "Tag id or exact name. Repeatable." }),
+  parent: flag.string({ aliases: ["parent-contact"], description: 'Parent contact id/name, or "none" to clear' }),
+  jsonInput: flag.string({ name: "json-input", description: "Read API payload JSON from file" }),
+  stdin: flag.boolean({ description: "Read API payload JSON from stdin" }),
+};
+
+const contactTargetArgs = {
+  args: arg.rest({ valueLabel: "book-contact-args", description: "Optional leading book, contact, and command-specific arguments." }),
+};
+
+export default defineCliCommands({
   name: "contacts",
   summary: "Manage contact books, contacts, notes, tags, and exports.",
-  booleanFlags: ["include-system", "stdin", "use"],
-  help,
-  async run(ctx) {
-    const [command, ...args] = ctx.args;
-
-    if (!command || command === "help") {
-      ctx.print(help());
-      return 0;
-    }
-
-    if (command === "books") {
-      const payload = await listBooks(ctx, stringFlag(ctx.flags, "q", "query"));
-      printJsonOrTable(ctx, payload, bookRows(payload.data), [
-        { key: "name", label: "NAME" },
-        { key: "system", label: "SYSTEM" },
-        { key: "updatedAt", label: "UPDATED" },
-        { key: "id", label: "ID" },
-      ]);
-      return 0;
-    }
-
-    if (command === "use") {
-      const book = await resolveBookRef(ctx, requireArg(args, 0, "book"));
-      await ctx.setDefault(CONTACTS_BOOK_DEFAULT_KEY, book.id);
-      if (ctx.options.output === "json") ctx.json({ book, defaultBook: book.id });
-      else ctx.print(`Using contact book ${book.name} (${book.id}).`);
-      return 0;
-    }
-
-    if (command === "current") {
-      const bookRef = await ctx.getDefault(CONTACTS_BOOK_DEFAULT_KEY);
-      if (!bookRef) throw new Error("No default contact book configured. Run `cld contacts use <book>`.");
-      const book = await resolveBookRef(ctx, bookRef);
-      if (ctx.options.output === "json") ctx.json({ book, defaultBook: book.id });
-      else ctx.print(`${book.name} (${book.id})`);
-      return 0;
-    }
-
-    if (command === "book") {
-      const { bookRef } = await resolveBookArg(ctx, args, 0);
-      const book = await resolveBookRef(ctx, bookRef);
-      if (ctx.options.output === "json") ctx.json(book);
-      else {
-        ctx.print(`${book.name} (${book.id})`);
-        if (book.description) ctx.print(book.description);
-        ctx.print(`system: ${book.isSystem ? "yes" : "no"}`);
-      }
-      return 0;
-    }
-
-    if (command === "create-book") {
-      const data: CreateBookInput = {
-        name: requireArg(args, 0, "book name"),
-        ...(stringFlag(ctx.flags, "description") ? { description: stringFlag(ctx.flags, "description") } : {}),
-      };
-      const book = await readApi<ContactBook>(ctx, "/books", jsonRequest("POST", data));
-      if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(CONTACTS_BOOK_DEFAULT_KEY, book.id);
-      if (ctx.options.output === "json") ctx.json(book);
-      else ctx.print(`Created ${book.name} (${book.id}).${booleanFlag(ctx.flags, "use") ? " Using it as default." : ""}`);
-      return 0;
-    }
-
-    if (command === "update-book") {
-      const { bookRef } = await resolveBookArg(ctx, args, 0);
-      const book = await resolveBookRef(ctx, bookRef);
-      const data: UpdateBookInput = {};
-      const name = stringFlag(ctx.flags, "name");
-      const description = stringFlag(ctx.flags, "description");
-      if (name !== undefined) data.name = name;
-      if (description !== undefined) data.description = description;
-      if (Object.keys(data).length === 0) throw new Error("No book fields to update.");
-      const updated = await readApi<ContactBook>(ctx, `/books/${book.id}`, jsonRequest("PATCH", data));
-      if (ctx.options.output === "json") ctx.json(updated);
-      else ctx.print(`Updated ${updated.name} (${updated.id}).`);
-      return 0;
-    }
-
-    if (command === "delete-book") {
-      const { bookRef } = await resolveBookArg(ctx, args, 0);
-      const book = await resolveBookRef(ctx, bookRef);
-      const payload = await readApi<unknown>(ctx, `/books/${book.id}`, { method: "DELETE" });
-      if (ctx.options.output === "json") ctx.json(payload);
-      else ctx.print(`Deleted ${book.name} (${book.id}).`);
-      return 0;
-    }
-
-    if (command === "list") {
-      const { bookRef } = await resolveBookArg(ctx, args, 0);
-      const book = await resolveBookRef(ctx, bookRef);
-      const tagRefs = stringFlags(ctx.flags, "tag");
-      const tagIds = await resolveTagIds(ctx, book.id, tagRefs);
-      const query = new URLSearchParams({
-        ...paginationQuery(ctx),
-        ...(stringFlag(ctx.flags, "q", "query") ? { q: stringFlag(ctx.flags, "q", "query")! } : {}),
-      });
-      for (const tagId of tagIds) query.append("tag_id", tagId);
-      const payload = await readApi<Page<Contact>>(ctx, `/books/${book.id}/contacts?${query.toString()}`);
-      printJsonOrTable(ctx, payload, contactRows(payload.data), [
-        { key: "name", label: "NAME" },
-        { key: "email", label: "EMAIL" },
-        { key: "phone", label: "PHONE" },
-        { key: "company", label: "COMPANY" },
-        { key: "updatedAt", label: "UPDATED" },
-        { key: "id", label: "ID" },
-      ]);
-      return 0;
-    }
-
-    if (command === "get") {
-      const { contact } = await resolveContactCommandArgs(ctx, args);
-      if (ctx.options.output === "json") ctx.json(contact);
-      else {
-        ctx.print(`${resolveContactName(contact)} (${contact.id})`);
-        if (contact.jobTitle || contact.companyName) ctx.print([contact.jobTitle, contact.companyName].filter(Boolean).join(", "));
-        if (contact.emails.length > 0) ctx.print(`email: ${contact.emails.map((email) => email.email).join(", ")}`);
-        if (contact.phones.length > 0) ctx.print(`phone: ${contact.phones.map((phone) => phone.phone).join(", ")}`);
-        if (contact.tags.length > 0) ctx.print(`tags: ${contact.tags.map((tag) => tag.name).join(", ")}`);
-      }
-      return 0;
-    }
-
-    if (command === "search") {
-      const queryText = args.join(" ").trim() || stringFlag(ctx.flags, "q", "query");
-      if (!queryText) throw new Error("Missing search query.");
-      const payload = await readApi<Page<Contact>>(
-        ctx,
-        `/search?${new URLSearchParams({
-          ...paginationQuery(ctx),
-          q: queryText,
-          ...(booleanFlag(ctx.flags, "include-system") ? { includeSystem: "true" } : {}),
-        }).toString()}`,
-      );
-      printJsonOrTable(ctx, payload, contactRows(payload.data), [
-        { key: "name", label: "NAME" },
-        { key: "email", label: "EMAIL" },
-        { key: "phone", label: "PHONE" },
-        { key: "company", label: "COMPANY" },
-        { key: "id", label: "ID" },
-      ]);
-      return 0;
-    }
-
-    if (command === "create") {
-      const { bookRef } = await resolveBookArg(ctx, args, 0);
-      const book = await resolveBookRef(ctx, bookRef);
-      const data = await buildContactPayload<CreateContactInput>(ctx, book.id);
-      assertHasPayload(data as Record<string, unknown>, "create");
-      const contact = await readApi<Contact>(ctx, `/books/${book.id}/contacts`, jsonRequest("POST", data));
-      if (ctx.options.output === "json") ctx.json(contact);
-      else ctx.print(`Created ${resolveContactName(contact)} (${contact.id}).`);
-      return 0;
-    }
-
-    if (command === "update") {
-      const { book, contact } = await resolveContactCommandArgs(ctx, args);
-      const data = await buildContactPayload<UpdateContactInput>(ctx, book.id);
-      assertHasPayload(data as Record<string, unknown>, "update");
-      const updated = await readApi<Contact>(ctx, `/books/${book.id}/contacts/${contact.id}`, jsonRequest("PATCH", data));
-      if (ctx.options.output === "json") ctx.json(updated);
-      else ctx.print(`Updated ${resolveContactName(updated)} (${updated.id}).`);
-      return 0;
-    }
-
-    if (command === "delete") {
-      const { book, contact } = await resolveContactCommandArgs(ctx, args);
-      const payload = await readApi<unknown>(ctx, `/books/${book.id}/contacts/${contact.id}`, { method: "DELETE" });
-      if (ctx.options.output === "json") ctx.json(payload);
-      else ctx.print(`Deleted ${resolveContactName(contact)} (${contact.id}).`);
-      return 0;
-    }
-
-    if (command === "move") {
-      const { book, contact } = await resolveContactCommandArgs(ctx, args);
-      const targetBookRef = stringFlag(ctx.flags, "target-book", "targetBookId");
-      if (!targetBookRef) throw new Error("Missing target book. Pass --target-book <book>.");
-      const targetBook = await resolveBookRef(ctx, targetBookRef);
-      const moved = await readApi<Contact>(
-        ctx,
-        `/books/${book.id}/contacts/${contact.id}/move`,
-        jsonRequest("POST", { targetBookId: targetBook.id }),
-      );
-      if (ctx.options.output === "json") ctx.json(moved);
-      else ctx.print(`Moved ${resolveContactName(moved)} to ${targetBook.name}.`);
-      return 0;
-    }
-
-    if (command === "tree") {
-      const { book, contact } = await resolveContactCommandArgs(ctx, args);
-      const tree = await readApi<ContactTree>(ctx, `/books/${book.id}/contacts/${contact.id}/tree`);
-      if (ctx.options.output === "json") ctx.json(tree);
-      else ctx.print(formatContactTree(tree));
-      return 0;
-    }
-
-    if (command === "notes" || command === "note" || command === "update-note" || command === "delete-note") {
-      const { book, contact, rest } = await resolveContactCommandArgs(
-        ctx,
-        args,
-        command === "update-note" || command === "delete-note" ? 1 : 0,
-      );
-
-      if (command === "notes") {
-        const notes = await readApi<ContactNote[]>(ctx, `/books/${book.id}/contacts/${contact.id}/notes`);
-        printJsonOrTable(ctx, notes, noteRows(notes), [
-          { key: "createdAt", label: "CREATED" },
-          { key: "author", label: "AUTHOR" },
-          { key: "content", label: "CONTENT" },
-          { key: "id", label: "ID" },
-        ]);
-        return 0;
-      }
-
-      if (command === "note") {
-        const content = await readInputContent(ctx);
-        const data: CreateContactNoteInput = { content: content ?? "" };
-        const note = await readApi<ContactNote>(ctx, `/books/${book.id}/contacts/${contact.id}/notes`, jsonRequest("POST", data));
-        if (ctx.options.output === "json") ctx.json(note);
-        else ctx.print(`Created note ${note.id}.`);
-        return 0;
-      }
-
-      const noteId = requireArg(rest, 0, "note");
-      if (command === "update-note") {
-        const content = await readInputContent(ctx);
-        const data: UpdateContactNoteInput = { content: content ?? "" };
-        const note = await readApi<ContactNote>(
-          ctx,
-          `/books/${book.id}/contacts/${contact.id}/notes/${noteId}`,
-          jsonRequest("PATCH", data),
-        );
-        if (ctx.options.output === "json") ctx.json(note);
-        else ctx.print(`Updated note ${note.id}.`);
-        return 0;
-      }
-
-      const payload = await readApi<unknown>(ctx, `/books/${book.id}/contacts/${contact.id}/notes/${noteId}`, { method: "DELETE" });
-      if (ctx.options.output === "json") ctx.json(payload);
-      else ctx.print(`Deleted note ${noteId}.`);
-      return 0;
-    }
-
-    if (command === "tags" || command === "create-tag" || command === "update-tag" || command === "delete-tag") {
-      const { bookRef, rest } = await resolveBookArg(
-        ctx,
-        args,
-        command === "create-tag" || command === "update-tag" || command === "delete-tag" ? 1 : 0,
-      );
-      const book = await resolveBookRef(ctx, bookRef);
-
-      if (command === "tags") {
-        const tags = await readApi<ContactTag[]>(ctx, `/books/${book.id}/tags`);
-        printJsonOrTable(ctx, tags, tagRows(tags), [
-          { key: "name", label: "NAME" },
-          { key: "color", label: "COLOR" },
-          { key: "id", label: "ID" },
-        ]);
-        return 0;
-      }
-
-      if (command === "create-tag") {
-        const color = stringFlag(ctx.flags, "color");
-        if (!color) throw new Error("Missing color. Pass --color <#RRGGBB>.");
-        const data: CreateContactTagInput = { name: requireArg(rest, 0, "tag name"), color };
-        const tag = await readApi<ContactTag>(ctx, `/books/${book.id}/tags`, jsonRequest("POST", data));
-        if (ctx.options.output === "json") ctx.json(tag);
-        else ctx.print(`Created tag ${tag.name} (${tag.id}).`);
-        return 0;
-      }
-
-      const tag = await resolveTagRef(ctx, book.id, requireArg(rest, 0, "tag"));
-      if (command === "update-tag") {
-        const data: UpdateContactTagInput = {};
-        const name = stringFlag(ctx.flags, "name");
-        const color = stringFlag(ctx.flags, "color");
-        if (name !== undefined) data.name = name;
-        if (color !== undefined) data.color = color;
-        if (Object.keys(data).length === 0) throw new Error("No tag fields to update.");
-        const updated = await readApi<ContactTag>(ctx, `/books/${book.id}/tags/${tag.id}`, jsonRequest("PATCH", data));
-        if (ctx.options.output === "json") ctx.json(updated);
-        else ctx.print(`Updated tag ${updated.name} (${updated.id}).`);
-        return 0;
-      }
-
-      const payload = await readApi<unknown>(ctx, `/books/${book.id}/tags/${tag.id}`, { method: "DELETE" });
-      if (ctx.options.output === "json") ctx.json(payload);
-      else ctx.print(`Deleted tag ${tag.name} (${tag.id}).`);
-      return 0;
-    }
-
-    if (command === "export") {
-      const { bookRef } = await resolveBookArg(ctx, args, 0);
-      const book = await resolveBookRef(ctx, bookRef);
-      const format = stringFlag(ctx.flags, "format") ?? "vcf";
-      if (format !== "vcf" && format !== "csv") throw new Error("--format must be vcf or csv.");
-      const body = await readTextResponse(await ctx.fetch(apiPath(`/books/${book.id}/export.${format}`)));
-      const out = stringFlag(ctx.flags, "out", "output");
-      if (out) {
-        await writeFile(out, body);
-        ctx.print(`Wrote ${out}.`);
-      } else {
-        ctx.print(body);
-      }
-      return 0;
-    }
-
-    if (command === "import-preview") {
-      const { bookRef } = await resolveBookArg(ctx, args, 0);
-      const book = await resolveBookRef(ctx, bookRef);
-      const content = await readInputContent(ctx);
-      const payload = await readApi<ImportPreviewResponse>(
-        ctx,
-        `/books/${book.id}/import/preview`,
-        jsonRequest("POST", { format: "vcard", content }),
-      );
-      ctx.json(payload);
-      return 0;
-    }
-
-    throw new Error(`Unknown contacts command "${command}". Run \`cld contacts help\`.`);
-  },
+  commands: [
+    command("books", {
+      summary: "List contact books",
+      flags: {
+        q: flag.string({ aliases: ["query"], description: "Search query" }),
+        ...paginationFlagSpecs,
+      },
+      run: ({ ctx }) => runContactsCommand(ctx, "books", []),
+    }),
+    command("use", {
+      summary: "Set the default contact book",
+      args: {
+        book: arg.required({ description: "Contact book id or exact name" }),
+      },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "use", [args.book]),
+    }),
+    command("current", {
+      summary: "Show the default contact book",
+      run: ({ ctx }) => runContactsCommand(ctx, "current", []),
+    }),
+    command("book", {
+      summary: "Show a contact book",
+      args: bookArg,
+      flags: bookFlag,
+      run: ({ ctx, args }) => runContactsCommand(ctx, "book", args.args),
+    }),
+    command("create-book", {
+      summary: "Create a contact book",
+      args: {
+        name: arg.required({ description: "Book name" }),
+      },
+      flags: {
+        description: flag.string({ description: "Book description" }),
+        use: flag.boolean({ description: "Use the new book as default" }),
+      },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "create-book", [args.name]),
+    }),
+    command("update-book", {
+      summary: "Update a contact book",
+      args: bookArg,
+      flags: {
+        ...bookFlag,
+        name: flag.string({ description: "Book name" }),
+        description: flag.string({ description: "Book description" }),
+      },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "update-book", args.args),
+    }),
+    command("delete-book", {
+      summary: "Delete a contact book",
+      args: bookArg,
+      flags: bookFlag,
+      run: ({ ctx, args }) => runContactsCommand(ctx, "delete-book", args.args),
+    }),
+    command("list", {
+      summary: "List contacts",
+      args: bookArg,
+      flags: {
+        ...bookFlag,
+        q: flag.string({ aliases: ["query"], description: "Search query" }),
+        tag: flag.stringList({ description: "Tag id or exact name. Repeatable." }),
+        ...paginationFlagSpecs,
+      },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "list", args.args),
+    }),
+    command("get", {
+      summary: "Show one contact",
+      args: contactTargetArgs,
+      flags: { ...bookFlag, ...contactFlag },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "get", args.args),
+    }),
+    command("search", {
+      summary: "Search contacts across books",
+      args: {
+        query: arg.rest({ valueLabel: "query", description: "Search query" }),
+      },
+      flags: {
+        q: flag.string({ aliases: ["query"], description: "Search query" }),
+        includeSystem: flag.boolean({ name: "include-system", description: "Include system contact books" }),
+        ...paginationFlagSpecs,
+      },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "search", args.query),
+    }),
+    command("create", {
+      summary: "Create a contact",
+      args: bookArg,
+      flags: {
+        ...bookFlag,
+        ...contactFieldFlags,
+      },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "create", args.args),
+    }),
+    command("update", {
+      summary: "Update a contact",
+      args: contactTargetArgs,
+      flags: {
+        ...bookFlag,
+        ...contactFlag,
+        ...contactFieldFlags,
+      },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "update", args.args),
+    }),
+    command("delete", {
+      summary: "Delete a contact",
+      args: contactTargetArgs,
+      flags: { ...bookFlag, ...contactFlag },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "delete", args.args),
+    }),
+    command("move", {
+      summary: "Move a contact to another book",
+      args: contactTargetArgs,
+      flags: {
+        ...bookFlag,
+        ...contactFlag,
+        targetBook: flag.string({
+          name: "target-book",
+          aliases: ["targetBookId"],
+          required: true,
+          description: "Target book id or exact name",
+        }),
+      },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "move", args.args),
+    }),
+    command("tree", {
+      summary: "Show a contact hierarchy tree",
+      args: contactTargetArgs,
+      flags: { ...bookFlag, ...contactFlag },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "tree", args.args),
+    }),
+    command("notes", {
+      summary: "List contact notes",
+      args: contactTargetArgs,
+      flags: { ...bookFlag, ...contactFlag },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "notes", args.args),
+    }),
+    command("note", {
+      summary: "Create a contact note",
+      args: contactTargetArgs,
+      flags: { ...bookFlag, ...contactFlag, ...contentFlagSpecs },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "note", args.args),
+    }),
+    command("update-note", {
+      summary: "Update a contact note",
+      args: contactTargetArgs,
+      flags: { ...bookFlag, ...contactFlag, ...contentFlagSpecs },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "update-note", args.args),
+    }),
+    command("delete-note", {
+      summary: "Delete a contact note",
+      args: contactTargetArgs,
+      flags: { ...bookFlag, ...contactFlag },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "delete-note", args.args),
+    }),
+    command("tags", {
+      summary: "List contact tags",
+      args: bookArg,
+      flags: bookFlag,
+      run: ({ ctx, args }) => runContactsCommand(ctx, "tags", args.args),
+    }),
+    command("create-tag", {
+      summary: "Create a contact tag",
+      args: bookArg,
+      flags: {
+        ...bookFlag,
+        color: flag.string({ required: true, description: "Tag color" }),
+      },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "create-tag", args.args),
+    }),
+    command("update-tag", {
+      summary: "Update a contact tag",
+      args: bookArg,
+      flags: {
+        ...bookFlag,
+        name: flag.string({ description: "Tag name" }),
+        color: flag.string({ description: "Tag color" }),
+      },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "update-tag", args.args),
+    }),
+    command("delete-tag", {
+      summary: "Delete a contact tag",
+      args: bookArg,
+      flags: bookFlag,
+      run: ({ ctx, args }) => runContactsCommand(ctx, "delete-tag", args.args),
+    }),
+    command("export", {
+      summary: "Export contacts",
+      args: bookArg,
+      flags: {
+        ...bookFlag,
+        format: flag.enum(["vcf", "csv"], { default: "vcf", description: "Export format" }),
+        out: flag.string({ aliases: ["output"], description: "Write export to file" }),
+      },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "export", args.args),
+    }),
+    command("import-preview", {
+      summary: "Preview contact import",
+      args: bookArg,
+      flags: {
+        ...bookFlag,
+        file: flag.string({ aliases: ["f"], description: "Read import content from file" }),
+        stdin: flag.boolean({ description: "Read import content from stdin" }),
+      },
+      run: ({ ctx, args }) => runContactsCommand(ctx, "import-preview", args.args),
+    }),
+  ],
 });

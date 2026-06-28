@@ -26,6 +26,7 @@
     "./browser": "./src/server/api-client.ts",
     "./cli": "./src/cli/index.ts",
     "./cli/account": "./src/cli/account.ts",
+    "./cli/admin": "./src/cli/admin.ts",
     "./shared": "./src/shared/index.ts",
     "./services": "./src/services/index.ts",
     "./services/ipa/service-account": null,

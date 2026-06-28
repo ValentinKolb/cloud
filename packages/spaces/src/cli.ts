@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { type CloudCliContext, type CloudCliFlags, defineCloudCliModule } from "@valentinkolb/cloud/cli";
+import { arg, type CloudCliContext, type CloudCliFlags, command, defineCliCommands, flag } from "@valentinkolb/cloud/cli";
 import type {
   CalendarItem,
   ItemListResult,
@@ -14,28 +14,6 @@ import type {
 } from "./contracts";
 
 const SPACE_DEFAULT_KEY = "spaces.space";
-
-const help = () => `cld spaces
-
-Usage:
-  cld spaces list [--q <query>]
-  cld spaces use <space>
-  cld spaces current
-  cld spaces get [<space>] [--space <space>]
-  cld spaces create <name> [--description <text>] [--color <hex>] [--use]
-  cld spaces items [<space>] [--space <space>] [--q <query>] [--status active|completed|all] [--type all|task|event] [--page <n>] [--page-size <n>]
-  cld spaces item [<space>] <item> [--space <space>]
-  cld spaces add-item [<space>] <title> [--space <space>] --column <column> [--description <markdown>] [--file <path>|--stdin] [--deadline <iso|date>] [--starts-at <iso|date>] [--ends-at <iso|date>] [--priority low|medium|high|urgent] [--tag <name-or-id>] [--assignee <user-id>]
-  cld spaces update-item [<space>] <item> [--space <space>] [--title <title>] [--description <markdown>] [--file <path>|--stdin] [--column <column>] [--deadline <iso|date>] [--starts-at <iso|date>] [--ends-at <iso|date>] [--priority low|medium|high|urgent] [--tag <name-or-id>] [--assignee <user-id>]
-  cld spaces done [<space>] <item> [--space <space>]
-  cld spaces reopen [<space>] <item> [--space <space>]
-  cld spaces comments [<space>] <item> [--space <space>]
-  cld spaces comment [<space>] <item> [--space <space>] --content <text>|--file <path>|--stdin
-  cld spaces calendar [--space <space>] --from <iso|date> --to <iso|date>
-  cld spaces overlap [--space <space>] --from <iso|date> --to <iso|date> [--exclude-item <id>]
-
-Date options accept full ISO datetimes or YYYY-MM-DD. Date-only starts use 00:00:00.000Z; date-only ends and deadlines use 23:59:59.999Z.
-`;
 
 const stringFlag = (flags: CloudCliFlags, ...names: string[]): string | undefined => {
   for (const name of names) {
@@ -280,193 +258,271 @@ const normalizeDateTime = (value: string | undefined, label: string, endOfDay = 
   return date.toISOString();
 };
 
-export default defineCloudCliModule({
+const optionalSpaceArgs = {
+  args: arg.rest({ valueLabel: "space-or-args", description: "Optional leading space followed by command arguments." }),
+};
+
+const spaceFlag = {
+  space: flag.string({ description: "Space id or exact name" }),
+};
+
+const contentFlags = {
+  content: flag.string({ description: "Content text" }),
+  file: flag.string({ aliases: ["f"], description: "Read content from file" }),
+  stdin: flag.boolean({ description: "Read content from stdin" }),
+};
+
+const itemMutationFlags = {
+  ...spaceFlag,
+  column: flag.string({ description: "Column id or exact name" }),
+  description: flag.string({ description: "Item description" }),
+  file: flag.string({ aliases: ["f"], description: "Read description from file" }),
+  stdin: flag.boolean({ description: "Read description from stdin" }),
+  deadline: flag.string({ description: "Deadline as ISO datetime or YYYY-MM-DD" }),
+  startsAt: flag.string({ name: "starts-at", aliases: ["startsAt"], description: "Start time as ISO datetime or YYYY-MM-DD" }),
+  endsAt: flag.string({ name: "ends-at", aliases: ["endsAt"], description: "End time as ISO datetime or YYYY-MM-DD" }),
+  priority: flag.enum(["low", "medium", "high", "urgent"], { description: "Priority" }),
+  tag: flag.stringList({ description: "Tag id or exact name. Repeatable." }),
+  assignee: flag.stringList({ description: "Assignee user id. Repeatable." }),
+};
+
+const dateRangeFlags = {
+  ...spaceFlag,
+  from: flag.string({ required: true, description: "Start as ISO datetime or YYYY-MM-DD" }),
+  to: flag.string({ required: true, description: "End as ISO datetime or YYYY-MM-DD" }),
+};
+
+export default defineCliCommands({
   name: "spaces",
   summary: "Inspect and update Spaces through the Spaces REST API.",
-  booleanFlags: ["stdin", "use"],
-  help,
-  async run(ctx) {
-    const [command, ...args] = ctx.args;
-
-    if (!command || command === "help") {
-      ctx.print(help());
-      return 0;
-    }
-
-    if (command === "list") {
-      const spaces = await listSpaces(ctx);
-      printJsonOrTable(ctx, spaces, spaceRows(spaces), [
-        { key: "name", label: "NAME" },
-        { key: "color", label: "COLOR" },
-        { key: "updatedAt", label: "UPDATED" },
-        { key: "id", label: "ID" },
-      ]);
-      return 0;
-    }
-
-    if (command === "use") {
-      const space = await resolveSpaceRef(ctx, requireArg(args, 0, "space"));
-      await ctx.setDefault(SPACE_DEFAULT_KEY, space.id);
-      if (ctx.options.output === "json") ctx.json({ space, defaultSpace: space.id });
-      else ctx.print(`Using space ${space.name} (${space.id}).`);
-      return 0;
-    }
-
-    if (command === "current") {
-      const spaceRef = await ctx.getDefault(SPACE_DEFAULT_KEY);
-      if (!spaceRef) throw new Error("No default space configured. Run `cld spaces use <space>`.");
-      const space = await resolveSpaceRef(ctx, spaceRef);
-      if (ctx.options.output === "json") ctx.json({ space, defaultSpace: space.id });
-      else ctx.print(`${space.name} (${space.id})`);
-      return 0;
-    }
-
-    if (command === "get") {
-      const { spaceRef } = await resolveSpaceArg(ctx, args, 0);
-      const space = await resolveSpaceRef(ctx, spaceRef);
-      if (ctx.options.output === "json") ctx.json(space);
-      else {
-        ctx.print(`${space.name} (${space.id})`);
-        if (space.description) ctx.print(space.description);
-        ctx.print(`columns: ${space.columns.map((column) => column.name).join(", ") || "none"}`);
-        ctx.print(`tags: ${space.tags.map((tag) => tag.name).join(", ") || "none"}`);
-      }
-      return 0;
-    }
-
-    if (command === "create") {
-      const space = await readApi<Space>(
-        ctx,
-        "/",
-        jsonRequest("POST", {
-          name: requireArg(args, 0, "space name"),
-          description: stringFlag(ctx.flags, "description"),
-          color: stringFlag(ctx.flags, "color") ?? "#3b82f6",
-        }),
-      );
-      if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(SPACE_DEFAULT_KEY, space.id);
-      if (ctx.options.output === "json") ctx.json(space);
-      else ctx.print(`Created ${space.name} (${space.id}).${booleanFlag(ctx.flags, "use") ? " Using it as default." : ""}`);
-      return 0;
-    }
-
-    if (command === "items") {
-      const { spaceRef } = await resolveSpaceArg(ctx, args, 0);
-      const space = await resolveSpaceRef(ctx, spaceRef);
-      const payload = await readApi<ItemListResult>(
-        ctx,
-        `/${space.id}/items/filter`,
-        jsonRequest("POST", {
-          type: itemType(stringFlag(ctx.flags, "type")),
-          status: itemStatus(stringFlag(ctx.flags, "status")),
-          search: stringFlag(ctx.flags, "q", "query"),
-          sort: "updated",
-          sortDesc: true,
-          groupBy: "none",
-          page: parsePositiveInt(stringFlag(ctx.flags, "page"), 1, "--page"),
-          pageSize: parsePositiveInt(stringFlag(ctx.flags, "page-size", "page_size"), 50, "--page-size"),
-        }),
-      );
-      printJsonOrTable(ctx, payload, itemRows(payload.items, space), [
-        { key: "title", label: "TITLE" },
-        { key: "column", label: "COLUMN" },
-        { key: "status", label: "STATUS" },
-        { key: "priority", label: "PRIORITY" },
-        { key: "deadline", label: "DEADLINE" },
-        { key: "id", label: "ID" },
-      ]);
-      return 0;
-    }
-
-    if (command === "item") {
-      const { spaceRef, rest } = await resolveSpaceArg(ctx, args, 1);
-      const space = await resolveSpaceRef(ctx, spaceRef);
-      const item = await resolveItemRef(ctx, space.id, requireArg(rest, 0, "item"));
-      if (ctx.options.output === "json") ctx.json(item);
-      else {
-        ctx.print(`${item.title} (${item.id})`);
-        if (item.description) ctx.print(item.description);
-        ctx.print(`column: ${space.columns.find((column) => column.id === item.columnId)?.name ?? item.columnId}`);
-        ctx.print(`status: ${item.completedAt ? "completed" : "active"}`);
-      }
-      return 0;
-    }
-
-    if (command === "add-item") {
-      const { spaceRef, rest } = await resolveSpaceArg(ctx, args, 1);
-      const space = await resolveSpaceRef(ctx, spaceRef);
-      const column = stringFlag(ctx.flags, "column");
-      if (!column) throw new Error("Missing column. Pass --column <column>.");
-      const columnId = resolveColumnId(space, column);
-      const item = await readApi<SpaceItem>(
-        ctx,
-        `/${space.id}/items`,
-        jsonRequest("POST", {
-          columnId,
-          title: requireArg(rest, 0, "item title"),
+  commands: [
+    command("list", {
+      summary: "List spaces",
+      flags: {
+        q: flag.string({ aliases: ["query"], description: "Filter by name or description" }),
+      },
+      run: async ({ ctx }) => {
+        const spaces = await listSpaces(ctx);
+        printJsonOrTable(ctx, spaces, spaceRows(spaces), [
+          { key: "name", label: "NAME" },
+          { key: "color", label: "COLOR" },
+          { key: "updatedAt", label: "UPDATED" },
+          { key: "id", label: "ID" },
+        ]);
+      },
+    }),
+    command("use", {
+      summary: "Set the default space",
+      args: {
+        space: arg.required({ description: "Space id or exact name" }),
+      },
+      run: async ({ ctx, args }) => {
+        const space = await resolveSpaceRef(ctx, args.space);
+        await ctx.setDefault(SPACE_DEFAULT_KEY, space.id);
+        if (ctx.options.output === "json") ctx.json({ space, defaultSpace: space.id });
+        else ctx.print(`Using space ${space.name} (${space.id}).`);
+      },
+    }),
+    command("current", {
+      summary: "Show the default space",
+      run: async ({ ctx }) => {
+        const spaceRef = await ctx.getDefault(SPACE_DEFAULT_KEY);
+        if (!spaceRef) throw new Error("No default space configured. Run `cld spaces use <space>`.");
+        const space = await resolveSpaceRef(ctx, spaceRef);
+        if (ctx.options.output === "json") ctx.json({ space, defaultSpace: space.id });
+        else ctx.print(`${space.name} (${space.id})`);
+      },
+    }),
+    command("get", {
+      summary: "Show a space",
+      args: {
+        spaceArg: arg.optional({ valueLabel: "space", description: "Space id or exact name" }),
+      },
+      flags: spaceFlag,
+      run: async ({ ctx, args }) => {
+        const { spaceRef } = await resolveSpaceArg(ctx, args.spaceArg ? [args.spaceArg] : [], 0);
+        const space = await resolveSpaceRef(ctx, spaceRef);
+        if (ctx.options.output === "json") ctx.json(space);
+        else {
+          ctx.print(`${space.name} (${space.id})`);
+          if (space.description) ctx.print(space.description);
+          ctx.print(`columns: ${space.columns.map((column) => column.name).join(", ") || "none"}`);
+          ctx.print(`tags: ${space.tags.map((tag) => tag.name).join(", ") || "none"}`);
+        }
+      },
+    }),
+    command("create", {
+      summary: "Create a space",
+      args: {
+        name: arg.required({ description: "Space name" }),
+      },
+      flags: {
+        description: flag.string({ description: "Space description" }),
+        color: flag.string({ description: "Space color" }),
+        use: flag.boolean({ description: "Use the new space as default" }),
+      },
+      run: async ({ ctx, args }) => {
+        const space = await readApi<Space>(
+          ctx,
+          "/",
+          jsonRequest("POST", {
+            name: args.name,
+            description: stringFlag(ctx.flags, "description"),
+            color: stringFlag(ctx.flags, "color") ?? "#3b82f6",
+          }),
+        );
+        if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(SPACE_DEFAULT_KEY, space.id);
+        if (ctx.options.output === "json") ctx.json(space);
+        else ctx.print(`Created ${space.name} (${space.id}).${booleanFlag(ctx.flags, "use") ? " Using it as default." : ""}`);
+      },
+    }),
+    command("items", {
+      summary: "List items in a space",
+      args: optionalSpaceArgs,
+      flags: {
+        ...spaceFlag,
+        q: flag.string({ aliases: ["query"], description: "Search query" }),
+        status: flag.enum(["active", "completed", "all"], { default: "active", description: "Item status" }),
+        type: flag.enum(["all", "task", "event"], { default: "all", description: "Item type" }),
+        page: flag.int({ min: 1, description: "Page number" }),
+        pageSize: flag.int({ name: "page-size", aliases: ["page_size"], min: 1, description: "Items per page" }),
+      },
+      run: async ({ ctx, args }) => {
+        const { spaceRef } = await resolveSpaceArg(ctx, args.args, 0);
+        const space = await resolveSpaceRef(ctx, spaceRef);
+        const payload = await readApi<ItemListResult>(
+          ctx,
+          `/${space.id}/items/filter`,
+          jsonRequest("POST", {
+            type: itemType(stringFlag(ctx.flags, "type")),
+            status: itemStatus(stringFlag(ctx.flags, "status")),
+            search: stringFlag(ctx.flags, "q", "query"),
+            sort: "updated",
+            sortDesc: true,
+            groupBy: "none",
+            page: parsePositiveInt(stringFlag(ctx.flags, "page"), 1, "--page"),
+            pageSize: parsePositiveInt(stringFlag(ctx.flags, "page-size", "page_size"), 50, "--page-size"),
+          }),
+        );
+        printJsonOrTable(ctx, payload, itemRows(payload.items, space), [
+          { key: "title", label: "TITLE" },
+          { key: "column", label: "COLUMN" },
+          { key: "status", label: "STATUS" },
+          { key: "priority", label: "PRIORITY" },
+          { key: "deadline", label: "DEADLINE" },
+          { key: "id", label: "ID" },
+        ]);
+      },
+    }),
+    command("item", {
+      summary: "Show one space item",
+      args: optionalSpaceArgs,
+      flags: spaceFlag,
+      run: async ({ ctx, args }) => {
+        const { spaceRef, rest } = await resolveSpaceArg(ctx, args.args, 1);
+        const space = await resolveSpaceRef(ctx, spaceRef);
+        const item = await resolveItemRef(ctx, space.id, requireArg(rest, 0, "item"));
+        if (ctx.options.output === "json") ctx.json(item);
+        else {
+          ctx.print(`${item.title} (${item.id})`);
+          if (item.description) ctx.print(item.description);
+          ctx.print(`column: ${space.columns.find((column) => column.id === item.columnId)?.name ?? item.columnId}`);
+          ctx.print(`status: ${item.completedAt ? "completed" : "active"}`);
+        }
+      },
+    }),
+    command("add-item", {
+      summary: "Create an item in a space",
+      args: optionalSpaceArgs,
+      flags: itemMutationFlags,
+      run: async ({ ctx, args }) => {
+        const { spaceRef, rest } = await resolveSpaceArg(ctx, args.args, 1);
+        const space = await resolveSpaceRef(ctx, spaceRef);
+        const column = stringFlag(ctx.flags, "column");
+        if (!column) throw new Error("Missing column. Pass --column <column>.");
+        const columnId = resolveColumnId(space, column);
+        const item = await readApi<SpaceItem>(
+          ctx,
+          `/${space.id}/items`,
+          jsonRequest("POST", {
+            columnId,
+            title: requireArg(rest, 0, "item title"),
+            description: await readInputContent(ctx, "description", false),
+            startsAt: normalizeDateTime(stringFlag(ctx.flags, "starts-at", "startsAt"), "--starts-at"),
+            endsAt: normalizeDateTime(stringFlag(ctx.flags, "ends-at", "endsAt"), "--ends-at", true),
+            deadline: normalizeDateTime(stringFlag(ctx.flags, "deadline"), "--deadline", true),
+            priority: priority(stringFlag(ctx.flags, "priority")),
+            assigneeIds: stringFlags(ctx.flags, "assignee"),
+            tagIds: resolveTagIds(space, stringFlags(ctx.flags, "tag")),
+          }),
+        );
+        if (ctx.options.output === "json") ctx.json(item);
+        else ctx.print(`Created ${item.title} (${item.id}).`);
+      },
+    }),
+    command("update-item", {
+      summary: "Update an item in a space",
+      args: optionalSpaceArgs,
+      flags: {
+        ...itemMutationFlags,
+        title: flag.string({ description: "Item title" }),
+      },
+      run: async ({ ctx, args }) => {
+        const { spaceRef, rest } = await resolveSpaceArg(ctx, args.args, 1);
+        const space = await resolveSpaceRef(ctx, spaceRef);
+        const item = await resolveItemRef(ctx, space.id, requireArg(rest, 0, "item"));
+        const nextPriority = priority(stringFlag(ctx.flags, "priority"));
+        const payload: Record<string, unknown> = {
+          title: stringFlag(ctx.flags, "title"),
           description: await readInputContent(ctx, "description", false),
           startsAt: normalizeDateTime(stringFlag(ctx.flags, "starts-at", "startsAt"), "--starts-at"),
           endsAt: normalizeDateTime(stringFlag(ctx.flags, "ends-at", "endsAt"), "--ends-at", true),
           deadline: normalizeDateTime(stringFlag(ctx.flags, "deadline"), "--deadline", true),
-          priority: priority(stringFlag(ctx.flags, "priority")),
-          assigneeIds: stringFlags(ctx.flags, "assignee"),
-          tagIds: resolveTagIds(space, stringFlags(ctx.flags, "tag")),
-        }),
-      );
-      if (ctx.options.output === "json") ctx.json(item);
-      else ctx.print(`Created ${item.title} (${item.id}).`);
-      return 0;
-    }
+          priority: nextPriority,
+        };
+        const column = stringFlag(ctx.flags, "column");
+        if (column) payload.columnId = resolveColumnId(space, column);
+        const assignees = stringFlags(ctx.flags, "assignee");
+        if (assignees.length > 0) payload.assigneeIds = assignees;
+        const tags = stringFlags(ctx.flags, "tag");
+        if (tags.length > 0) payload.tagIds = resolveTagIds(space, tags);
 
-    if (command === "update-item") {
-      const { spaceRef, rest } = await resolveSpaceArg(ctx, args, 1);
-      const space = await resolveSpaceRef(ctx, spaceRef);
-      const item = await resolveItemRef(ctx, space.id, requireArg(rest, 0, "item"));
-      const nextPriority = priority(stringFlag(ctx.flags, "priority"));
-      const payload: Record<string, unknown> = {
-        title: stringFlag(ctx.flags, "title"),
-        description: await readInputContent(ctx, "description", false),
-        startsAt: normalizeDateTime(stringFlag(ctx.flags, "starts-at", "startsAt"), "--starts-at"),
-        endsAt: normalizeDateTime(stringFlag(ctx.flags, "ends-at", "endsAt"), "--ends-at", true),
-        deadline: normalizeDateTime(stringFlag(ctx.flags, "deadline"), "--deadline", true),
-        priority: nextPriority,
-      };
-      const column = stringFlag(ctx.flags, "column");
-      if (column) payload.columnId = resolveColumnId(space, column);
-      const assignees = stringFlags(ctx.flags, "assignee");
-      if (assignees.length > 0) payload.assigneeIds = assignees;
-      const tags = stringFlags(ctx.flags, "tag");
-      if (tags.length > 0) payload.tagIds = resolveTagIds(space, tags);
+        const json = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
+        if (Object.keys(json).length === 0) throw new Error("No item fields to update.");
 
-      const json = Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
-      if (Object.keys(json).length === 0) throw new Error("No item fields to update.");
+        const updated = await readApi<SpaceItem>(ctx, `/${space.id}/items/${item.id}`, jsonRequest("PATCH", json));
+        if (ctx.options.output === "json") ctx.json(updated);
+        else ctx.print(`Updated ${updated.title} (${updated.id}).`);
+      },
+    }),
+    ...(["done", "reopen"] as const).map((action) =>
+      command(action, {
+        summary: action === "done" ? "Mark an item completed" : "Reopen a completed item",
+        args: optionalSpaceArgs,
+        flags: spaceFlag,
+        run: async ({ ctx, args }) => {
+          const { spaceRef, rest } = await resolveSpaceArg(ctx, args.args, 1);
+          const space = await resolveSpaceRef(ctx, spaceRef);
+          const item = await resolveItemRef(ctx, space.id, requireArg(rest, 0, "item"));
+          const updated = await readApi<SpaceItem>(
+            ctx,
+            `/${space.id}/items/${item.id}/completed`,
+            jsonRequest("POST", { completed: action === "done" }),
+          );
+          if (ctx.options.output === "json") ctx.json(updated);
+          else ctx.print(`${action === "done" ? "Completed" : "Reopened"} ${updated.title} (${updated.id}).`);
+        },
+      }),
+    ),
+    command("comments", {
+      summary: "List item comments",
+      args: optionalSpaceArgs,
+      flags: spaceFlag,
+      run: async ({ ctx, args }) => {
+        const { spaceRef, rest } = await resolveSpaceArg(ctx, args.args, 1);
+        const space = await resolveSpaceRef(ctx, spaceRef);
+        const item = await resolveItemRef(ctx, space.id, requireArg(rest, 0, "item"));
 
-      const updated = await readApi<SpaceItem>(ctx, `/${space.id}/items/${item.id}`, jsonRequest("PATCH", json));
-      if (ctx.options.output === "json") ctx.json(updated);
-      else ctx.print(`Updated ${updated.title} (${updated.id}).`);
-      return 0;
-    }
-
-    if (command === "done" || command === "reopen") {
-      const { spaceRef, rest } = await resolveSpaceArg(ctx, args, 1);
-      const space = await resolveSpaceRef(ctx, spaceRef);
-      const item = await resolveItemRef(ctx, space.id, requireArg(rest, 0, "item"));
-      const updated = await readApi<SpaceItem>(
-        ctx,
-        `/${space.id}/items/${item.id}/completed`,
-        jsonRequest("POST", { completed: command === "done" }),
-      );
-      if (ctx.options.output === "json") ctx.json(updated);
-      else ctx.print(`${command === "done" ? "Completed" : "Reopened"} ${updated.title} (${updated.id}).`);
-      return 0;
-    }
-
-    if (command === "comments" || command === "comment") {
-      const { spaceRef, rest } = await resolveSpaceArg(ctx, args, 1);
-      const space = await resolveSpaceRef(ctx, spaceRef);
-      const item = await resolveItemRef(ctx, space.id, requireArg(rest, 0, "item"));
-
-      if (command === "comments") {
         const comments = await readApi<SpaceComment[]>(ctx, `/${space.id}/items/${item.id}/comments`);
         printJsonOrTable(ctx, comments, commentRows(comments), [
           { key: "author", label: "AUTHOR" },
@@ -474,59 +530,74 @@ export default defineCloudCliModule({
           { key: "createdAt", label: "CREATED" },
           { key: "id", label: "ID" },
         ]);
-        return 0;
-      }
-
-      const content = await readInputContent(ctx);
-      const comment = await readApi<SpaceComment>(
-        ctx,
-        `/${space.id}/items/${item.id}/comments`,
-        jsonRequest("POST", { content: content ?? "" }),
-      );
-      if (ctx.options.output === "json") ctx.json(comment);
-      else ctx.print(`Created comment ${comment.id}.`);
-      return 0;
-    }
-
-    if (command === "calendar") {
-      const from = normalizeDateTime(stringFlag(ctx.flags, "from"), "--from");
-      const to = normalizeDateTime(stringFlag(ctx.flags, "to"), "--to", true);
-      if (!from || !to) throw new Error("Pass --from <iso|date> and --to <iso|date>.");
-      const spaceRef = stringFlag(ctx.flags, "space") ?? (await ctx.getDefault(SPACE_DEFAULT_KEY));
-      const space = spaceRef ? await resolveSpaceRef(ctx, spaceRef) : null;
-      const items = await readApi<CalendarItem[]>(ctx, `/calendar?${new URLSearchParams({ from, to }).toString()}`);
-      const filtered = space ? items.filter((item) => item.spaceId === space.id) : items;
-      printJsonOrTable(ctx, filtered, calendarRows(filtered), [
-        { key: "space", label: "SPACE" },
-        { key: "title", label: "TITLE" },
-        { key: "startsAt", label: "START" },
-        { key: "endsAt", label: "END" },
-        { key: "id", label: "ID" },
-      ]);
-      return 0;
-    }
-
-    if (command === "overlap") {
-      const from = normalizeDateTime(stringFlag(ctx.flags, "from"), "--from");
-      const to = normalizeDateTime(stringFlag(ctx.flags, "to"), "--to", true);
-      if (!from || !to) throw new Error("Pass --from <iso|date> and --to <iso|date>.");
-      const spaceRef = stringFlag(ctx.flags, "space") ?? (await ctx.getDefault(SPACE_DEFAULT_KEY));
-      const space = spaceRef ? await resolveSpaceRef(ctx, spaceRef) : null;
-      const query = new URLSearchParams({ from, to });
-      const excludeItemId = stringFlag(ctx.flags, "exclude-item", "excludeItemId");
-      if (excludeItemId) query.set("excludeItemId", excludeItemId);
-      const items = await readApi<OverlapItem[]>(ctx, `/calendar/overlap?${query.toString()}`);
-      const filtered = space ? items.filter((item) => item.spaceId === space.id) : items;
-      printJsonOrTable(ctx, filtered, overlapRows(filtered), [
-        { key: "space", label: "SPACE" },
-        { key: "title", label: "TITLE" },
-        { key: "startsAt", label: "START" },
-        { key: "endsAt", label: "END" },
-        { key: "id", label: "ID" },
-      ]);
-      return 0;
-    }
-
-    throw new Error(`Unknown spaces command "${command}". Run \`cld spaces help\`.`);
-  },
+      },
+    }),
+    command("comment", {
+      summary: "Create an item comment",
+      args: optionalSpaceArgs,
+      flags: {
+        ...spaceFlag,
+        ...contentFlags,
+      },
+      run: async ({ ctx, args }) => {
+        const { spaceRef, rest } = await resolveSpaceArg(ctx, args.args, 1);
+        const space = await resolveSpaceRef(ctx, spaceRef);
+        const item = await resolveItemRef(ctx, space.id, requireArg(rest, 0, "item"));
+        const content = await readInputContent(ctx);
+        const comment = await readApi<SpaceComment>(
+          ctx,
+          `/${space.id}/items/${item.id}/comments`,
+          jsonRequest("POST", { content: content ?? "" }),
+        );
+        if (ctx.options.output === "json") ctx.json(comment);
+        else ctx.print(`Created comment ${comment.id}.`);
+      },
+    }),
+    command("calendar", {
+      summary: "List calendar items",
+      flags: dateRangeFlags,
+      run: async ({ ctx }) => {
+        const from = normalizeDateTime(stringFlag(ctx.flags, "from"), "--from");
+        const to = normalizeDateTime(stringFlag(ctx.flags, "to"), "--to", true);
+        if (!from || !to) throw new Error("Pass --from <iso|date> and --to <iso|date>.");
+        const spaceRef = stringFlag(ctx.flags, "space") ?? (await ctx.getDefault(SPACE_DEFAULT_KEY));
+        const space = spaceRef ? await resolveSpaceRef(ctx, spaceRef) : null;
+        const items = await readApi<CalendarItem[]>(ctx, `/calendar?${new URLSearchParams({ from, to }).toString()}`);
+        const filtered = space ? items.filter((item) => item.spaceId === space.id) : items;
+        printJsonOrTable(ctx, filtered, calendarRows(filtered), [
+          { key: "space", label: "SPACE" },
+          { key: "title", label: "TITLE" },
+          { key: "startsAt", label: "START" },
+          { key: "endsAt", label: "END" },
+          { key: "id", label: "ID" },
+        ]);
+      },
+    }),
+    command("overlap", {
+      summary: "Find overlapping calendar items",
+      flags: {
+        ...dateRangeFlags,
+        excludeItem: flag.string({ name: "exclude-item", aliases: ["excludeItemId"], description: "Item id to exclude" }),
+      },
+      run: async ({ ctx }) => {
+        const from = normalizeDateTime(stringFlag(ctx.flags, "from"), "--from");
+        const to = normalizeDateTime(stringFlag(ctx.flags, "to"), "--to", true);
+        if (!from || !to) throw new Error("Pass --from <iso|date> and --to <iso|date>.");
+        const spaceRef = stringFlag(ctx.flags, "space") ?? (await ctx.getDefault(SPACE_DEFAULT_KEY));
+        const space = spaceRef ? await resolveSpaceRef(ctx, spaceRef) : null;
+        const query = new URLSearchParams({ from, to });
+        const excludeItemId = stringFlag(ctx.flags, "exclude-item", "excludeItemId");
+        if (excludeItemId) query.set("excludeItemId", excludeItemId);
+        const items = await readApi<OverlapItem[]>(ctx, `/calendar/overlap?${query.toString()}`);
+        const filtered = space ? items.filter((item) => item.spaceId === space.id) : items;
+        printJsonOrTable(ctx, filtered, overlapRows(filtered), [
+          { key: "space", label: "SPACE" },
+          { key: "title", label: "TITLE" },
+          { key: "startsAt", label: "START" },
+          { key: "endsAt", label: "END" },
+          { key: "id", label: "ID" },
+        ]);
+      },
+    }),
+  ],
 });

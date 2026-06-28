@@ -1,44 +1,9 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { type CloudCliContext, type CloudCliFlags, defineCloudCliModule } from "@valentinkolb/cloud/cli";
+import { arg, type CloudCliContext, type CloudCliFlags, command, defineCliCommands, flag } from "@valentinkolb/cloud/cli";
 import { encoding, password, crypto as stdCrypto } from "@valentinkolb/stdlib";
 import { qr } from "@valentinkolb/stdlib/qr";
 
-type EncodeFormat = "base64" | "hex" | "base32";
-type HashAlgorithm = "sha256" | "fnv1a";
 type CorrectionLevel = "L" | "M" | "Q" | "H";
-
-const help = () => `cld tools
-
-Usage:
-  cld tools password random [--length <n>] [--no-uppercase] [--no-numbers] [--symbols] [--count <n>]
-  cld tools password memorable [--words <n>] [--capitalize] [--short-words] [--number] [--symbol] [--separator <s>] [--count <n>]
-  cld tools password pin [--length <n>] [--count <n>]
-  cld tools password strength <password>|--stdin
-
-  cld tools uuid [--count <n>]
-  cld tools encode base64|hex|base32 <text>|--stdin
-  cld tools decode base64|hex|base32 <text>|--stdin
-  cld tools hash sha256|fnv1a <text>|--stdin
-  cld tools lorem --paragraphs|--sentences|--words <n>
-  cld tools color <hex|rgb|hsl>
-  cld tools mailto --to <email> [--cc <email>] [--bcc <email>] [--subject <text>] [--body <text>] [--format link|markdown|html|all]
-
-  cld tools qr text <value>|--stdin [--out <path>] [--correction L|M|Q|H]
-  cld tools qr wifi --ssid <name> [--password <secret>] [--encryption WPA|WEP|nopass] [--hidden] [--out <path>]
-
-  cld tools encrypt symmetric --key <key>|--key-file <path> <text>|--stdin [--fast]
-  cld tools decrypt symmetric --key <key>|--key-file <path> <ciphertext>|--stdin
-  cld tools encrypt keypair
-  cld tools encrypt asymmetric --public-key <key>|--public-key-file <path> <text>|--stdin
-  cld tools decrypt asymmetric --private-key <key>|--private-key-file <path> <ciphertext>|--stdin
-
-  cld tools speedtest [--server <url>] [--json]
-
-Notes:
-  Most tools run fully local and do not need a Cloud profile.
-  Speedtest uses the configured Cloud server or --server <url>.
-  Prefer --stdin and --key-file for secrets so they do not land in shell history.
-`;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -101,30 +66,20 @@ const readSecret = async (ctx: CloudCliContext, flag: string, fileFlag: string, 
   throw new Error(`Missing ${label}. Pass --${flag} or --${fileFlag}.`);
 };
 
-const parseEncodeFormat = (value: string): EncodeFormat => {
-  if (value === "base64" || value === "hex" || value === "base32") return value;
-  throw new Error("Format must be base64, hex, or base32.");
-};
-
-const encodeText = (format: EncodeFormat, input: string): string => {
+const encodeText = (format: "base64" | "hex" | "base32", input: string): string => {
   const bytes = encoder.encode(input);
   if (format === "base64") return encoding.toBase64(bytes);
   if (format === "hex") return encoding.toHex(bytes);
   return encoding.toBase32(bytes);
 };
 
-const decodeText = (format: EncodeFormat, input: string): string => {
+const decodeText = (format: "base64" | "hex" | "base32", input: string): string => {
   if (format === "base64") return decoder.decode(encoding.fromBase64Strict(input));
   if (format === "hex") return decoder.decode(encoding.fromHex(input));
   return decoder.decode(encoding.fromBase32(input));
 };
 
-const parseHashAlgorithm = (value: string): HashAlgorithm => {
-  if (value === "sha256" || value === "fnv1a") return value;
-  throw new Error("Hash algorithm must be sha256 or fnv1a.");
-};
-
-const hashText = async (algorithm: HashAlgorithm, input: string): Promise<string> =>
+const hashText = async (algorithm: "sha256" | "fnv1a", input: string): Promise<string> =>
   algorithm === "sha256" ? stdCrypto.common.hash(input) : stdCrypto.common.fnv1aHash(input);
 
 const LOREM_WORDS = [
@@ -510,82 +465,185 @@ const runEncryptionCommand = async (ctx: CloudCliContext, kind: "encrypt" | "dec
   throw new Error('Encryption mode must be "symmetric", "asymmetric", or "keypair".');
 };
 
-export default defineCloudCliModule({
+const textArgs = {
+  input: arg.rest({ valueLabel: "text", description: "Text input. Use --stdin to read from stdin." }),
+};
+
+const stdinFlag = {
+  stdin: flag.boolean({ description: "Read input from stdin" }),
+};
+
+const countFlag = {
+  count: flag.int({ min: 1, max: 10_000, description: "Number of values to generate" }),
+};
+
+const qrFlags = {
+  out: flag.string({ aliases: ["output"], description: "Write SVG output to this path" }),
+  correction: flag.enum(["L", "M", "Q", "H"], { default: "M", description: "QR correction level" }),
+};
+
+export default defineCliCommands({
   name: "tools",
   summary: "Run local utilities such as passwords, encoding, hashes, QR codes, encryption, and speedtests.",
   requiresCloud: false,
-  booleanFlags: ["capitalize", "fast", "hidden", "no-numbers", "no-uppercase", "number", "short-words", "stdin", "symbol", "symbols"],
-  help,
-  async run(ctx) {
-    const [command, ...args] = ctx.args;
-    if (!command || command === "help") {
-      ctx.print(help());
-      return 0;
-    }
-
-    if (command === "password") {
-      await runPasswordCommand(ctx, args);
-      return 0;
-    }
-
-    if (command === "uuid") {
-      const count = parsePositiveInt(stringFlag(ctx.flags, "count"), 1, "--count", 10_000);
-      const values = Array.from({ length: count }, () => stdCrypto.common.uuid());
-      outputValue(ctx, count === 1 ? values[0]! : values, { values });
-      return 0;
-    }
-
-    if (command === "encode" || command === "decode") {
-      const format = parseEncodeFormat(requireArg(args, 0, "format"));
-      const input = await readInput(ctx, args.slice(1));
-      const value = command === "encode" ? encodeText(format, input) : decodeText(format, input);
-      outputValue(ctx, value, { format, value });
-      return 0;
-    }
-
-    if (command === "hash") {
-      const algorithm = parseHashAlgorithm(requireArg(args, 0, "algorithm"));
-      const input = await readInput(ctx, args.slice(1));
-      const value = await hashText(algorithm, input);
-      outputValue(ctx, value, { algorithm, value });
-      return 0;
-    }
-
-    if (command === "lorem") {
-      const result = generateLorem(ctx);
-      outputValue(ctx, result.output, result);
-      return 0;
-    }
-
-    if (command === "color") {
-      const result = convertColor(requireArg(args, 0, "color"));
-      if (ctx.options.output === "json") ctx.json(result);
-      else ctx.print(`${result.hex}\n${result.rgb}\n${result.hsl}`);
-      return 0;
-    }
-
-    if (command === "mailto") {
-      const result = buildMailto(ctx);
-      const format = stringFlag(ctx.flags, "format") ?? "link";
-      if (ctx.options.output === "json" || format === "all") {
+  commands: [
+    command("password random", {
+      summary: "Generate random passwords",
+      flags: {
+        length: flag.int({ min: 1, max: 64, description: "Password length" }),
+        count: countFlag.count,
+        noUppercase: flag.boolean({ name: "no-uppercase", description: "Disable uppercase characters" }),
+        noNumbers: flag.boolean({ name: "no-numbers", description: "Disable numbers" }),
+        symbols: flag.boolean({ description: "Include symbols" }),
+      },
+      run: async ({ ctx }) => {
+        await runPasswordCommand(ctx, ["random"]);
+      },
+    }),
+    command("password memorable", {
+      summary: "Generate memorable passwords",
+      flags: {
+        words: flag.int({ min: 1, max: 10, description: "Number of words" }),
+        count: countFlag.count,
+        capitalize: flag.boolean({ description: "Capitalize words" }),
+        shortWords: flag.boolean({ name: "short-words", description: "Use short words" }),
+        number: flag.boolean({ description: "Append a number" }),
+        symbol: flag.boolean({ description: "Append a symbol" }),
+        separator: flag.string({ description: "Word separator" }),
+      },
+      run: async ({ ctx }) => {
+        await runPasswordCommand(ctx, ["memorable"]);
+      },
+    }),
+    command("password pin", {
+      summary: "Generate PIN codes",
+      flags: {
+        length: flag.int({ min: 1, max: 12, description: "PIN length" }),
+        count: countFlag.count,
+      },
+      run: async ({ ctx }) => {
+        await runPasswordCommand(ctx, ["pin"]);
+      },
+    }),
+    command("password strength", {
+      summary: "Estimate password strength",
+      args: textArgs,
+      flags: stdinFlag,
+      run: async ({ ctx, args }) => {
+        await runPasswordCommand(ctx, ["strength", ...args.input]);
+      },
+    }),
+    command("uuid", {
+      summary: "Generate UUIDs",
+      flags: countFlag,
+      run: ({ ctx }) => {
+        const count = parsePositiveInt(stringFlag(ctx.flags, "count"), 1, "--count", 10_000);
+        const values = Array.from({ length: count }, () => stdCrypto.common.uuid());
+        outputValue(ctx, count === 1 ? values[0]! : values, { values });
+      },
+    }),
+    ...(["base64", "hex", "base32"] as const).flatMap((format) => [
+      command(`encode ${format}`, {
+        summary: `Encode text as ${format}`,
+        args: textArgs,
+        flags: stdinFlag,
+        run: async ({ ctx, args }) => {
+          const input = await readInput(ctx, args.input);
+          const value = encodeText(format, input);
+          outputValue(ctx, value, { format, value });
+        },
+      }),
+      command(`decode ${format}`, {
+        summary: `Decode ${format} text`,
+        args: textArgs,
+        flags: stdinFlag,
+        run: async ({ ctx, args }) => {
+          const input = await readInput(ctx, args.input);
+          const value = decodeText(format, input);
+          outputValue(ctx, value, { format, value });
+        },
+      }),
+    ]),
+    ...(["sha256", "fnv1a"] as const).map((algorithm) =>
+      command(`hash ${algorithm}`, {
+        summary: `Hash text with ${algorithm}`,
+        args: textArgs,
+        flags: stdinFlag,
+        run: async ({ ctx, args }) => {
+          const input = await readInput(ctx, args.input);
+          const value = await hashText(algorithm, input);
+          outputValue(ctx, value, { algorithm, value });
+        },
+      }),
+    ),
+    command("lorem", {
+      summary: "Generate placeholder text",
+      flags: {
+        paragraphs: flag.int({ min: 1, max: 100, description: "Generate paragraphs" }),
+        sentences: flag.int({ min: 1, max: 500, description: "Generate sentences" }),
+        words: flag.int({ min: 1, max: 10_000, description: "Generate words" }),
+      },
+      run: ({ ctx }) => {
+        const result = generateLorem(ctx);
+        outputValue(ctx, result.output, result);
+      },
+    }),
+    command("color", {
+      summary: "Convert colors between hex, RGB, and HSL",
+      args: {
+        color: arg.required({ valueLabel: "hex|rgb|hsl", description: "Color value" }),
+      },
+      run: ({ ctx, args }) => {
+        const result = convertColor(args.color);
         if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`${result.link}\n${result.markdown}\n${result.html}`);
-        return 0;
-      }
-      if (format === "link" || format === "markdown" || format === "html") {
-        outputValue(ctx, result[format], result);
-        return 0;
-      }
-      throw new Error("--format must be link, markdown, html, or all.");
-    }
-
-    if (command === "qr") {
-      const mode = requireArg(args, 0, "QR mode");
-      if (mode === "text") {
-        await outputQr(ctx, await readInput(ctx, args.slice(1), "QR text"));
-        return 0;
-      }
-      if (mode === "wifi") {
+        else ctx.print(`${result.hex}\n${result.rgb}\n${result.hsl}`);
+      },
+    }),
+    command("mailto", {
+      summary: "Build mailto links",
+      flags: {
+        to: flag.string({ required: true, description: "Recipient email address" }),
+        cc: flag.stringList({ description: "CC recipient. Repeatable." }),
+        bcc: flag.stringList({ description: "BCC recipient. Repeatable." }),
+        subject: flag.string({ description: "Email subject" }),
+        body: flag.string({ description: "Email body" }),
+        format: flag.enum(["link", "markdown", "html", "all"], { default: "link", description: "Output format" }),
+      },
+      run: ({ ctx }) => {
+        const result = buildMailto(ctx);
+        const format = stringFlag(ctx.flags, "format") ?? "link";
+        if (ctx.options.output === "json" || format === "all") {
+          if (ctx.options.output === "json") ctx.json(result);
+          else ctx.print(`${result.link}\n${result.markdown}\n${result.html}`);
+          return 0;
+        }
+        if (format === "link" || format === "markdown" || format === "html") {
+          outputValue(ctx, result[format], result);
+          return 0;
+        }
+        throw new Error("--format must be link, markdown, html, or all.");
+      },
+    }),
+    command("qr text", {
+      summary: "Generate a QR code from text",
+      args: {
+        input: arg.rest({ valueLabel: "text", description: "QR payload. Use --stdin to read from stdin." }),
+      },
+      flags: { ...stdinFlag, ...qrFlags },
+      run: async ({ ctx, args }) => {
+        await outputQr(ctx, await readInput(ctx, args.input, "QR text"));
+      },
+    }),
+    command("qr wifi", {
+      summary: "Generate a WiFi QR code",
+      flags: {
+        ssid: flag.string({ required: true, description: "WiFi SSID" }),
+        password: flag.string({ description: "WiFi password" }),
+        encryption: flag.enum(["WPA", "WEP", "nopass"], { default: "WPA", description: "WiFi encryption mode" }),
+        hidden: flag.boolean({ description: "Mark network as hidden" }),
+        ...qrFlags,
+      },
+      run: async ({ ctx }) => {
         const ssid = stringFlag(ctx.flags, "ssid");
         if (!ssid) throw new Error("Missing WiFi SSID. Pass --ssid <name>.");
         const encryptionMode = stringFlag(ctx.flags, "encryption") ?? "WPA";
@@ -601,21 +659,71 @@ export default defineCloudCliModule({
             hidden: booleanFlag(ctx.flags, "hidden"),
           }),
         );
-        return 0;
-      }
-      throw new Error('QR mode must be "text" or "wifi".');
-    }
-
-    if (command === "encrypt" || command === "decrypt") {
-      await runEncryptionCommand(ctx, command, args);
-      return 0;
-    }
-
-    if (command === "speedtest") {
-      await runSpeedtest(ctx);
-      return 0;
-    }
-
-    throw new Error(`Unknown tools command "${command}". Run \`cld tools help\`.`);
-  },
+      },
+    }),
+    command("encrypt symmetric", {
+      summary: "Encrypt text with a symmetric key",
+      args: textArgs,
+      flags: {
+        ...stdinFlag,
+        key: flag.string({ description: "Symmetric key" }),
+        keyFile: flag.string({ name: "key-file", description: "Read symmetric key from file" }),
+        fast: flag.boolean({ description: "Skip slow key stretching" }),
+      },
+      run: async ({ ctx, args }) => {
+        await runEncryptionCommand(ctx, "encrypt", ["symmetric", ...args.input]);
+      },
+    }),
+    command("decrypt symmetric", {
+      summary: "Decrypt text with a symmetric key",
+      args: textArgs,
+      flags: {
+        ...stdinFlag,
+        key: flag.string({ description: "Symmetric key" }),
+        keyFile: flag.string({ name: "key-file", description: "Read symmetric key from file" }),
+      },
+      run: async ({ ctx, args }) => {
+        await runEncryptionCommand(ctx, "decrypt", ["symmetric", ...args.input]);
+      },
+    }),
+    command("encrypt keypair", {
+      summary: "Generate an asymmetric encryption keypair",
+      run: async ({ ctx }) => {
+        await runEncryptionCommand(ctx, "encrypt", ["keypair"]);
+      },
+    }),
+    command("encrypt asymmetric", {
+      summary: "Encrypt text with a public key",
+      args: textArgs,
+      flags: {
+        ...stdinFlag,
+        publicKey: flag.string({ name: "public-key", description: "Public key" }),
+        publicKeyFile: flag.string({ name: "public-key-file", description: "Read public key from file" }),
+      },
+      run: async ({ ctx, args }) => {
+        await runEncryptionCommand(ctx, "encrypt", ["asymmetric", ...args.input]);
+      },
+    }),
+    command("decrypt asymmetric", {
+      summary: "Decrypt text with a private key",
+      args: textArgs,
+      flags: {
+        ...stdinFlag,
+        privateKey: flag.string({ name: "private-key", description: "Private key" }),
+        privateKeyFile: flag.string({ name: "private-key-file", description: "Read private key from file" }),
+      },
+      run: async ({ ctx, args }) => {
+        await runEncryptionCommand(ctx, "decrypt", ["asymmetric", ...args.input]);
+      },
+    }),
+    command("speedtest", {
+      summary: "Run a Cloud speedtest",
+      flags: {
+        server: flag.string({ description: "Cloud server URL" }),
+      },
+      run: async ({ ctx }) => {
+        await runSpeedtest(ctx);
+      },
+    }),
+  ],
 });
