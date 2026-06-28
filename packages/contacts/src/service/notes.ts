@@ -8,6 +8,7 @@ type DbContactNote = {
   contact_id: string;
   author_user_id: string | null;
   author_display_name: string;
+  author_avatar_hash: string | null;
   content: string;
   created_at: Date;
   updated_at: Date;
@@ -18,6 +19,7 @@ const mapNote = (row: DbContactNote): ContactNote => ({
   contactId: row.contact_id,
   authorUserId: row.author_user_id,
   authorDisplayName: row.author_display_name,
+  authorAvatarHash: row.author_avatar_hash,
   content: row.content,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
@@ -43,10 +45,11 @@ export const list = async (config: { bookId: string; contactId: string }): Promi
   if (!(await verifyContactInBook(config))) return [];
 
   const rows = await sql<DbContactNote[]>`
-    SELECT id, contact_id, author_user_id, author_display_name, content, created_at, updated_at
-    FROM contacts.contact_notes
-    WHERE contact_id = ${config.contactId}::uuid
-    ORDER BY created_at DESC
+    SELECT n.id, n.contact_id, n.author_user_id, n.author_display_name, u.avatar_hash AS author_avatar_hash, n.content, n.created_at, n.updated_at
+    FROM contacts.contact_notes n
+    LEFT JOIN auth.users u ON u.id = n.author_user_id
+    WHERE n.contact_id = ${config.contactId}::uuid
+    ORDER BY n.created_at DESC
   `;
   return rows.map(mapNote);
 };
@@ -70,18 +73,23 @@ export const create = async (config: {
   if (!(await verifyContactInBook(config))) return fail(err.notFound("Contact"));
 
   const [row] = await sql<DbContactNote[]>`
-    INSERT INTO contacts.contact_notes (
-      contact_id,
-      author_user_id,
-      author_display_name,
-      content
-    ) VALUES (
-      ${config.contactId}::uuid,
-      ${config.authorUserId}::uuid,
-      ${config.authorDisplayName},
-      ${trimmed}
+    WITH inserted AS (
+      INSERT INTO contacts.contact_notes (
+        contact_id,
+        author_user_id,
+        author_display_name,
+        content
+      ) VALUES (
+        ${config.contactId}::uuid,
+        ${config.authorUserId}::uuid,
+        ${config.authorDisplayName},
+        ${trimmed}
+      )
+      RETURNING id, contact_id, author_user_id, author_display_name, content, created_at, updated_at
     )
-    RETURNING id, contact_id, author_user_id, author_display_name, content, created_at, updated_at
+    SELECT i.id, i.contact_id, i.author_user_id, i.author_display_name, u.avatar_hash AS author_avatar_hash, i.content, i.created_at, i.updated_at
+    FROM inserted i
+    LEFT JOIN auth.users u ON u.id = i.author_user_id
   `;
   if (!row) return fail(err.internal("Failed to create note"));
   return ok(mapNote(row));
@@ -117,10 +125,15 @@ export const update = async (config: {
   }
 
   const [row] = await sql<DbContactNote[]>`
-    UPDATE contacts.contact_notes
-    SET content = ${trimmed}, updated_at = now()
-    WHERE id = ${config.noteId}::uuid
-    RETURNING id, contact_id, author_user_id, author_display_name, content, created_at, updated_at
+    WITH updated AS (
+      UPDATE contacts.contact_notes
+      SET content = ${trimmed}, updated_at = now()
+      WHERE id = ${config.noteId}::uuid
+      RETURNING id, contact_id, author_user_id, author_display_name, content, created_at, updated_at
+    )
+    SELECT u2.id, u2.contact_id, u2.author_user_id, u2.author_display_name, au.avatar_hash AS author_avatar_hash, u2.content, u2.created_at, u2.updated_at
+    FROM updated u2
+    LEFT JOIN auth.users au ON au.id = u2.author_user_id
   `;
   if (!row) return fail(err.internal("Failed to update note"));
   return ok(mapNote(row));

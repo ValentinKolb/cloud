@@ -44,6 +44,9 @@ const DOCUMENT_TEMPLATE_VARIABLES: TemplateVariable[] = [
   { name: "document", kind: "object" },
   { name: "snapshot", kind: "object" },
   { name: "app", kind: "object" },
+  { name: "business", kind: "object" },
+  { name: "images", kind: "array" },
+  { name: "primaryImage", kind: "object" },
 ];
 
 const createDocumentTemplatePanesValue = (): PanesValue => ({
@@ -157,7 +160,7 @@ const addDataTreeRows = (rows: DocumentDataTreeRow[], value: unknown, path: stri
 const dataTreeRows = (data: Record<string, unknown> | null | undefined): DocumentDataTreeRow[] => {
   if (!data) return [];
   const rows: DocumentDataTreeRow[] = [];
-  for (const key of ["record", "rows", "columns", "query", "table", "app", "document", "snapshot"]) {
+  for (const key of ["record", "rows", "columns", "query", "table", "app", "business", "images", "primaryImage", "document", "snapshot"]) {
     if (key in data) addDataTreeRows(rows, data[key], key, key, 0);
   }
   return rows;
@@ -303,6 +306,10 @@ const defaultDocumentStarter = (): DocumentTemplateStarter => ({
   name: "Blank template",
   description: "Simple record detail template.",
   icon: "ti ti-file-type-pdf",
+  category: "Blank",
+  bestFor: "Starting from a minimal record detail layout.",
+  expectedData: "One selected record.",
+  page: "A4 portrait",
   source: (tableId) => defaultDocumentSource(tableId),
   html: defaultDocumentHtml,
   headerHtml: "",
@@ -623,6 +630,55 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
     await refetch();
   };
 
+  const patchTemplate = async (template: DocumentTemplate, patch: Partial<Pick<DocumentTemplate, "enabled" | "position">>) => {
+    const res = await apiClient.documents.templates[":templateId"].$patch({ param: { templateId: template.id }, json: patch });
+    if (!res.ok) {
+      prompts.error(await errorMessage(res, "Failed to update document template"));
+      return false;
+    }
+    await refetch();
+    return true;
+  };
+
+  const duplicateTemplate = async (template: DocumentTemplate) => {
+    const res = await apiClient.documents.templates["by-table"][":tableId"].$post({
+      param: { tableId: props.tableId },
+      json: {
+        name: `${template.name} copy`,
+        description: template.description,
+        source: template.source,
+        html: template.html,
+        headerHtml: template.headerHtml,
+        footerHtml: template.footerHtml,
+        pageCss: template.pageCss,
+        enabled: false,
+      },
+    });
+    if (!res.ok) {
+      prompts.error(await errorMessage(res, "Failed to duplicate document template"));
+      return;
+    }
+    await refetch();
+  };
+
+  const moveTemplate = async (template: DocumentTemplate, direction: -1 | 1) => {
+    const ordered = [...(templates() ?? [])].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
+    const index = ordered.findIndex((item) => item.id === template.id);
+    const swap = ordered[index + direction];
+    if (!swap) return;
+    await Promise.all([
+      apiClient.documents.templates[":templateId"].$patch({
+        param: { templateId: template.id },
+        json: { position: swap.position },
+      }),
+      apiClient.documents.templates[":templateId"].$patch({
+        param: { templateId: swap.id },
+        json: { position: template.position },
+      }),
+    ]);
+    await refetch();
+  };
+
   const openEditor = (template?: DocumentTemplate, starter?: DocumentTemplateStarter) => {
     openDocumentTemplateEditorDialog({
       baseId: props.baseId,
@@ -652,8 +708,8 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
         <div class="paper p-3 text-sm text-dimmed">No document templates yet.</div>
       </Show>
 
-      <For each={templates() ?? []}>
-        {(template) => (
+      <For each={[...(templates() ?? [])].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt))}>
+        {(template, index) => (
           <div class="paper flex items-start gap-3 p-3">
             <i class="ti ti-file-type-pdf mt-0.5 text-lg text-dimmed" />
             <div class="min-w-0 flex-1">
@@ -667,6 +723,35 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
                 <p class="mt-1 text-xs text-dimmed">{template.description}</p>
               </Show>
             </div>
+            <button
+              type="button"
+              class="btn-simple btn-sm"
+              title={template.enabled ? "Disable template" : "Enable template"}
+              onClick={() => void patchTemplate(template, { enabled: !template.enabled })}
+            >
+              <i class={`ti ${template.enabled ? "ti-toggle-right" : "ti-toggle-left"}`} />
+            </button>
+            <button
+              type="button"
+              class="btn-simple btn-sm"
+              title="Move up"
+              disabled={index() === 0}
+              onClick={() => void moveTemplate(template, -1)}
+            >
+              <i class="ti ti-arrow-up" />
+            </button>
+            <button
+              type="button"
+              class="btn-simple btn-sm"
+              title="Move down"
+              disabled={index() === (templates()?.length ?? 0) - 1}
+              onClick={() => void moveTemplate(template, 1)}
+            >
+              <i class="ti ti-arrow-down" />
+            </button>
+            <button type="button" class="btn-simple btn-sm" title="Duplicate template" onClick={() => void duplicateTemplate(template)}>
+              <i class="ti ti-copy" />
+            </button>
             <button type="button" class="btn-simple btn-sm" title="Edit template" onClick={() => openEditor(template)}>
               <i class="ti ti-pencil" />
             </button>
@@ -701,8 +786,27 @@ const chooseDocumentTemplateStarter = () =>
                       <i class={`${starter.icon} text-lg text-primary`} />
                     </span>
                     <div class="min-w-0">
-                      <div class="text-sm font-semibold text-primary">{starter.name}</div>
+                      <div class="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <div class="truncate text-sm font-semibold text-primary">{starter.name}</div>
+                        <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-dimmed dark:bg-zinc-800">
+                          {starter.category}
+                        </span>
+                      </div>
                       <p class="mt-1 text-xs leading-snug text-dimmed">{starter.description}</p>
+                      <div class="mt-2 grid gap-1 text-[11px] leading-snug text-dimmed">
+                        <div>
+                          <span class="font-medium text-secondary">Best for:</span> {starter.bestFor}
+                        </div>
+                        <div>
+                          <span class="font-medium text-secondary">Data:</span> {starter.expectedData}
+                        </div>
+                        <div class="flex flex-wrap items-center gap-1.5">
+                          <span class="rounded bg-zinc-100 px-1.5 py-0.5 dark:bg-zinc-800">{starter.page}</span>
+                          <For each={starter.uses ?? []}>
+                            {(use) => <span class="rounded bg-zinc-100 px-1.5 py-0.5 dark:bg-zinc-800">{use}</span>}
+                          </For>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </button>
@@ -785,7 +889,7 @@ function RenderedDocumentSource(props: { source: () => string | null; loading: (
   );
 }
 
-function openDocumentTemplateEditorDialog(args: {
+export function openDocumentTemplateEditorDialog(args: {
   baseId: string;
   tableId: string;
   tableName: string;
@@ -816,12 +920,14 @@ function DocumentTemplateEditorDialog(props: {
   const [headerHtml, setHeaderHtml] = createSignal(template?.headerHtml ?? initialStarter.headerHtml);
   const [footerHtml, setFooterHtml] = createSignal(template?.footerHtml ?? initialStarter.footerHtml);
   const [pageCss, setPageCss] = createSignal(template?.pageCss ?? initialStarter.pageCss);
+  const [enabled, setEnabled] = createSignal(template?.enabled ?? false);
   const [previewRecordId, setPreviewRecordId] = createSignal("");
   const [templatePanes, setTemplatePanes] = createSignal<PanesValue>(createDocumentTemplatePanesValue());
   const [previewData, setPreviewData] = createSignal<DocumentPreviewResponse | null>(null);
   const [previewDataLoading, setPreviewDataLoading] = createSignal(false);
   const [previewDataError, setPreviewDataError] = createSignal<string | null>(null);
   const [previewSourceError, setPreviewSourceError] = createSignal<string | null>(null);
+  const [lastSuccessfulPreviewSignature, setLastSuccessfulPreviewSignature] = createSignal<string | null>(null);
   const [gqlDiagnostics, setGqlDiagnostics] = createSignal<Array<{ message: string; line?: number; column?: number }>>([]);
   const [gqlDiagnosticError, setGqlDiagnosticError] = createSignal<string | null>(null);
   const gqlCompletions = createMemo(() =>
@@ -884,7 +990,19 @@ function DocumentTemplateEditorDialog(props: {
     html() !== (template?.html ?? initialStarter.html) ||
     headerHtml() !== (template?.headerHtml ?? initialStarter.headerHtml) ||
     footerHtml() !== (template?.footerHtml ?? initialStarter.footerHtml) ||
-    pageCss() !== (template?.pageCss ?? initialStarter.pageCss);
+    pageCss() !== (template?.pageCss ?? initialStarter.pageCss) ||
+    enabled() !== (template?.enabled ?? false);
+
+  const currentPreviewSignature = () =>
+    JSON.stringify({
+      source: source().trim(),
+      html: html().trim(),
+      headerHtml: headerHtml().trim() || null,
+      footerHtml: footerHtml().trim() || null,
+      pageCss: pageCss().trim() || null,
+      recordId: previewRecordId().trim(),
+    });
+  const hasCurrentSuccessfulPreview = () => lastSuccessfulPreviewSignature() === currentPreviewSignature();
 
   const closeIfClean = async () => {
     if (await confirmDiscardIfDirty(dirty)) props.close();
@@ -900,6 +1018,7 @@ function DocumentTemplateEditorDialog(props: {
         headerHtml: headerHtml().trim() || null,
         footerHtml: footerHtml().trim() || null,
         pageCss: pageCss().trim() || null,
+        enabled: enabled(),
       };
       if (!payload.name) throw new Error("Name is required");
       if (!payload.source) throw new Error("GQL source is required");
@@ -920,7 +1039,10 @@ function DocumentTemplateEditorDialog(props: {
   const previewPdf = async () => {
     const recordId = previewRecordId().trim();
     if (!recordId) throw new Error("Preview record ID is required");
-    return fetch(`/api/grids/documents/templates/by-table/${encodeURIComponent(props.args.tableId)}/preview-draft`, {
+    const path = template
+      ? `/api/grids/documents/templates/${encodeURIComponent(template.id)}/preview-draft`
+      : `/api/grids/documents/templates/by-table/${encodeURIComponent(props.args.tableId)}/preview-draft`;
+    const response = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -932,6 +1054,26 @@ function DocumentTemplateEditorDialog(props: {
         recordId,
       }),
     });
+    if (response.ok) setLastSuccessfulPreviewSignature(currentPreviewSignature());
+    return response;
+  };
+
+  const saveTemplate = async () => {
+    const warnings: string[] = [];
+    if (gqlDiagnosticError()) warnings.push(gqlDiagnosticError()!);
+    if (previewSourceError()) warnings.push(previewSourceError()!);
+    if (gqlDiagnostics().length > 0) warnings.push(...gqlDiagnostics().slice(0, 3).map(diagnosticText));
+    if (enabled() && !hasCurrentSuccessfulPreview()) {
+      warnings.push("This enabled template has not rendered a successful PDF preview for the current draft.");
+    }
+    if (warnings.length > 0) {
+      const confirmed = await prompts.confirm(`Save this template anyway?\n\n${warnings.map((warning) => `• ${warning}`).join("\n")}`, {
+        title: "Template has warnings",
+        confirmText: "Save anyway",
+      });
+      if (!confirmed) return;
+    }
+    saveMut.mutate(undefined);
   };
 
   let previewDataToken = 0;
@@ -994,17 +1136,23 @@ function DocumentTemplateEditorDialog(props: {
     setPreviewSourceError(null);
     const timeout = window.setTimeout(async () => {
       try {
-        const response = await apiClient.documents.templates["by-table"][":tableId"]["preview-data-draft"].$post({
-          param: { tableId: props.args.tableId },
-          json: {
-            source: sourceText,
-            html: htmlText,
-            headerHtml: headerHtmlText || null,
-            footerHtml: footerHtmlText || null,
-            pageCss: pageCssText || null,
-            recordId,
-          },
-        });
+        const payload = {
+          source: sourceText,
+          html: htmlText,
+          headerHtml: headerHtmlText || null,
+          footerHtml: footerHtmlText || null,
+          pageCss: pageCssText || null,
+          recordId,
+        };
+        const response = template
+          ? await apiClient.documents.templates[":templateId"]["preview-data-draft"].$post({
+              param: { templateId: template.id },
+              json: payload,
+            })
+          : await apiClient.documents.templates["by-table"][":tableId"]["preview-data-draft"].$post({
+              param: { tableId: props.args.tableId },
+              json: payload,
+            });
         if (token !== previewDataToken) return;
         if (!response.ok) {
           const details = await readDocumentPreviewError(response, "Could not load preview data");
@@ -1038,8 +1186,17 @@ function DocumentTemplateEditorDialog(props: {
             <TextInput label="Name" value={name} onInput={setName} icon="ti ti-typography" required />
             <TextInput label="Description" value={description} onInput={setDescription} icon="ti ti-align-left" placeholder="Optional" />
             <div class="lg:col-span-2">
+              <Checkbox
+                value={enabled}
+                onChange={setEnabled}
+                label="Enabled"
+                description="Enabled templates appear in document generation lists and the Documents sidebar."
+              />
+            </div>
+            <div class="lg:col-span-2">
               <RecordPicker
                 tableId={props.args.tableId}
+                templateId={template?.id}
                 label="Preview record"
                 value={previewRecordId}
                 onChange={setPreviewRecordId}
@@ -1142,7 +1299,7 @@ function DocumentTemplateEditorDialog(props: {
           <button type="button" class="btn-input btn-sm" onClick={closeIfClean}>
             Cancel
           </button>
-          <button type="button" class="btn-primary btn-sm" onClick={() => saveMut.mutate(undefined)} disabled={saveMut.loading()}>
+          <button type="button" class="btn-primary btn-sm" onClick={() => void saveTemplate()} disabled={saveMut.loading()}>
             {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save template"}
           </button>
         </div>

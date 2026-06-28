@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView, Placeholder, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { Avatar, MarkdownView, Placeholder, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
@@ -131,9 +131,12 @@ export default function CommentsSection(props: Props) {
                   }`}
                 >
                   <div class="flex items-start gap-2">
-                    <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs dark:bg-zinc-700">
-                      {(comment.userName ?? "?").charAt(0).toUpperCase()}
-                    </div>
+                    <Avatar
+                      username={comment.userName ?? "Unknown"}
+                      userId={comment.userId}
+                      avatarHash={comment.userAvatarHash}
+                      size="xs"
+                    />
                     <div class="min-w-0 flex-1">
                       <div class="flex items-center gap-2">
                         <span class="truncate text-xs font-medium text-primary">{comment.userName ?? "Unknown"}</span>

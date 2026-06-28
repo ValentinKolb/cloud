@@ -23,6 +23,7 @@ const effectivePermission = async (c: Context<AuthContext>, target: ResolveTarge
     tableId: "tableId" in target ? target.tableId : null,
     viewId: "viewId" in target ? target.viewId : null,
     formId: "formId" in target ? target.formId : null,
+    documentTemplateId: "documentTemplateId" in target ? target.documentTemplateId : null,
     dashboardId: "dashboardId" in target ? target.dashboardId : null,
   });
   return gridsService.permission.resolve(grants, target);
@@ -72,6 +73,7 @@ export const resolveWithGrants = async (
     tableId: "tableId" in target ? target.tableId : null,
     viewId: "viewId" in target ? target.viewId : null,
     formId: "formId" in target ? target.formId : null,
+    documentTemplateId: "documentTemplateId" in target ? target.documentTemplateId : null,
     dashboardId: "dashboardId" in target ? target.dashboardId : null,
   });
   const level = gridsService.permission.resolve(grants, target);

@@ -1,8 +1,9 @@
 import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
-import { dates, type DateContext } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 import type { JSX } from "solid-js";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import { shouldHandleDetailClick } from "../../../lib/detail";
+import AssigneeAvatars from "../shared/AssigneeAvatars";
 import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
 type Props = {
@@ -160,11 +161,16 @@ export default function ItemsTable(props: Props) {
             return (
               <CellLink
                 href={href}
-                class="block truncate text-secondary"
+                class="flex min-w-0 items-center"
                 title={item.assignees?.map((assignee) => assignee.displayName).join(", ") || "—"}
                 tabIndex={-1}
               >
-                {item.assignees && item.assignees.length > 0 ? item.assignees.map((assignee) => assignee.displayName).join(", ") : "—"}
+                <AssigneeAvatars
+                  assignees={item.assignees ?? []}
+                  showNames
+                  empty={<span class="text-dimmed">—</span>}
+                  class="w-full text-xs"
+                />
               </CellLink>
             );
           }

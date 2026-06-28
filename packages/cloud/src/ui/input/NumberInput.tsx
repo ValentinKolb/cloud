@@ -1,5 +1,5 @@
-import { createEffect, createSignal, Show, type JSX } from "solid-js";
-import { InputWrapper, createInputA11y } from "./util";
+import { createEffect, createSignal, type JSX, Show } from "solid-js";
+import { createInputA11y, InputWrapper } from "./util";
 
 type NumberInputProps = {
   name?: string;
@@ -156,6 +156,9 @@ const NumberInput = (props: NumberInputProps) => {
   // (clear button, step click, parent state change while unfocused).
   const [rawText, setRawText] = createSignal<string>(currentValue() === null ? "" : String(currentValue()));
   const [focused, setFocused] = createSignal(false);
+  const hasRawText = () => rawText().length > 0;
+  const valueTextClass = () => (hasRawText() ? "text-right font-mono font-semibold" : "text-left font-sans font-normal");
+  const placeholderTextClass = "placeholder-shown:text-left placeholder-shown:font-sans placeholder-shown:font-normal";
 
   // When the input is NOT being typed into, mirror the parent's value
   // into the buffer. Comparing parsed values (not strings) avoids
@@ -351,17 +354,11 @@ const NumberInput = (props: NumberInputProps) => {
             // zeroing the browser default padding, the input would
             // double-pad and the row would grow taller than other
             // inputs in the same form.
-            class={`flex-1 min-w-0 bg-transparent border-0 outline-none p-0 text-right font-mono font-semibold ${
-              disabled() ? "cursor-not-allowed" : ""
-            }`}
+            class={`flex-1 min-w-0 bg-transparent border-0 outline-none p-0 ${placeholderTextClass} ${valueTextClass()} ${disabled() ? "cursor-not-allowed" : ""}`}
             placeholder={props.placeholder}
             value={rawText()}
             onFocus={() => setFocused(true)}
             onBlur={(e) => {
-              // Always clear the focused flag — onChange only fires
-              // when the value changed, so leaving the input untouched
-              // wouldn't reset focused via the onChange handler alone.
-              setFocused(false);
               // Commit on blur: clamp + snap + emit, then sync the
               // buffer to the canonical string so the user sees the
               // normalised number (e.g. "12.30" → "12.3"). Safe to
@@ -369,8 +366,12 @@ const NumberInput = (props: NumberInputProps) => {
               // setRawText to the same value is a no-op.
               const v = parse(e.currentTarget.value, true);
               const final = v === null ? null : snapToStep(v);
-              props.onChange?.(final);
               setRawText(final === null ? "" : String(final));
+              commit(final);
+              // Clear focus only after the canonical value is emitted.
+              // Otherwise the parent-sync effect can briefly mirror the
+              // previous prop value back into rawText on blur.
+              setFocused(false);
             }}
             onInput={(e) => {
               // Filter the raw input to the allowed character set

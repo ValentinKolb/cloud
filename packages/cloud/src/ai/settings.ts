@@ -33,6 +33,14 @@ const normalizeDataBoundary = (boundary: (typeof DATA_BOUNDARY_INPUTS)[number] |
 
 const isModelCapability = (value: string): value is AiModelCapability => AI_MODEL_CAPABILITIES.some((capability) => capability === value);
 
+const DEFAULT_MAX_TOOL_RESULT_CHARS = 2_000;
+
+const normalizeMaxToolResultChars = (value: unknown): number => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return DEFAULT_MAX_TOOL_RESULT_CHARS;
+  return Math.floor(numeric);
+};
+
 const normalizeCapabilities = (values: string[] | undefined): AiModelCapability[] => {
   if (!values) return ["streaming"];
   const capabilities = values.filter(isModelCapability);
@@ -73,6 +81,7 @@ const profileToPublic = (profile: AiModelProfile): AiPublicModelProfile => ({
   model: profile.model,
   capabilities: profile.capabilities,
   dataBoundary: profile.dataBoundary,
+  contextWindow: profile.contextWindow,
 });
 
 const normalizeProfile = (raw: z.infer<typeof ModelProfileSchema>): AiModelProfile => {
@@ -138,15 +147,22 @@ export const resolveAiSettingsStateFromRaw = async (input: {
   defaultModelId: string;
   profilesJson: string;
   globalInstructions?: string;
+  compactionPrompt?: string;
+  maxToolResultChars?: unknown;
   readCredential?: (settingKey: string) => Promise<string | undefined>;
 }): Promise<AiSettingsState> => {
   const parsed = parseProfiles(input.profilesJson ?? "[]");
+  const baseState = {
+    enabled: Boolean(input.enabled),
+    defaultModelId: input.defaultModelId ?? "",
+    globalInstructions: input.globalInstructions ?? "",
+    compactionPrompt: input.compactionPrompt ?? "",
+    maxToolResultChars: normalizeMaxToolResultChars(input.maxToolResultChars),
+  };
   if (parsed.error) {
     return {
       ok: false,
-      enabled: Boolean(input.enabled),
-      defaultModelId: input.defaultModelId ?? "",
-      globalInstructions: input.globalInstructions ?? "",
+      ...baseState,
       profiles: parsed.profiles,
       error: parsed.error,
     };
@@ -155,9 +171,8 @@ export const resolveAiSettingsStateFromRaw = async (input: {
   if (!input.enabled) {
     return {
       ok: true,
+      ...baseState,
       enabled: false,
-      defaultModelId: input.defaultModelId ?? "",
-      globalInstructions: input.globalInstructions ?? "",
       profiles: parsed.profiles,
     };
   }
@@ -166,9 +181,8 @@ export const resolveAiSettingsStateFromRaw = async (input: {
   if (!input.defaultModelId || !defaultProfile) {
     return {
       ok: false,
+      ...baseState,
       enabled: true,
-      defaultModelId: input.defaultModelId ?? "",
-      globalInstructions: input.globalInstructions ?? "",
       profiles: parsed.profiles,
       error: {
         code: "missing_default_model",
@@ -181,9 +195,8 @@ export const resolveAiSettingsStateFromRaw = async (input: {
   if (!defaultProfile.enabled) {
     return {
       ok: false,
+      ...baseState,
       enabled: true,
-      defaultModelId: input.defaultModelId,
-      globalInstructions: input.globalInstructions ?? "",
       profiles: parsed.profiles,
       error: {
         code: "default_model_disabled",
@@ -200,9 +213,8 @@ export const resolveAiSettingsStateFromRaw = async (input: {
     if (!credential?.trim()) {
       return {
         ok: false,
+        ...baseState,
         enabled: true,
-        defaultModelId: input.defaultModelId,
-        globalInstructions: input.globalInstructions ?? "",
         profiles: parsed.profiles,
         error: {
           code: "missing_provider_credential",
@@ -215,19 +227,20 @@ export const resolveAiSettingsStateFromRaw = async (input: {
 
   return {
     ok: true,
+    ...baseState,
     enabled: true,
-    defaultModelId: input.defaultModelId,
-    globalInstructions: input.globalInstructions ?? "",
     profiles: parsed.profiles,
   };
 };
 
 export const readAiSettingsState = async (): Promise<AiSettingsState> => {
-  const [enabled, defaultModelId, profilesJson, globalInstructions] = await Promise.all([
+  const [enabled, defaultModelId, profilesJson, globalInstructions, compactionPrompt, maxToolResultChars] = await Promise.all([
     coreSettings.get<boolean>("ai.enabled"),
     coreSettings.get<string>("ai.default_model_id"),
     coreSettings.get<string>("ai.model_profiles_json"),
     coreSettings.get<string>("ai.global_instructions"),
+    coreSettings.get<string>("ai.compaction_prompt"),
+    coreSettings.get<number>("ai.max_tool_result_chars"),
   ]);
 
   return resolveAiSettingsStateFromRaw({
@@ -235,6 +248,8 @@ export const readAiSettingsState = async (): Promise<AiSettingsState> => {
     defaultModelId: defaultModelId ?? "",
     profilesJson: profilesJson ?? "[]",
     globalInstructions: globalInstructions ?? "",
+    compactionPrompt: compactionPrompt ?? "",
+    maxToolResultChars,
     readCredential: (settingKey) => coreSettings.get<string>(settingKey),
   });
 };

@@ -1,6 +1,6 @@
-import { sql } from "bun";
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
+import { sql } from "bun";
 
 const LEVEL_RANK: Record<PermissionLevel, number> = {
   none: 0,
@@ -11,7 +11,7 @@ const LEVEL_RANK: Record<PermissionLevel, number> = {
 
 const LEVEL_BY_RANK: PermissionLevel[] = ["none", "read", "write", "admin"];
 
-export type ResourceType = "base" | "table" | "view" | "form" | "dashboard";
+export type ResourceType = "base" | "table" | "view" | "form" | "documentTemplate" | "dashboard";
 
 /**
  * Principal tier — captures HOW the loaded grant matched the user.
@@ -35,6 +35,7 @@ export type ResolveTarget =
   | { baseId: string; tableId: string }
   | { baseId: string; tableId: string; viewId: string }
   | { baseId: string; tableId: string; formId: string }
+  | { baseId: string; tableId: string; documentTemplateId: string }
   | { baseId: string; dashboardId: string };
 
 const PRINCIPAL_TIERS: PrincipalTier[] = ["user", "group", "authenticated", "public"];
@@ -91,6 +92,10 @@ export const resolveEffectivePermission = (grants: Grant[], target: ResolveTarge
     const lvl = tryScope("dashboard", target.dashboardId);
     if (lvl !== null) return lvl;
   }
+  if ("documentTemplateId" in target) {
+    const lvl = tryScope("documentTemplate", target.documentTemplateId);
+    if (lvl !== null) return lvl;
+  }
   if ("formId" in target) {
     const lvl = tryScope("form", target.formId);
     if (lvl !== null) return lvl;
@@ -144,6 +149,7 @@ export const loadGrantsForUser = async (params: {
   tableId?: string | null;
   viewId?: string | null;
   formId?: string | null;
+  documentTemplateId?: string | null;
   dashboardId?: string | null;
 }): Promise<Grant[]> => {
   const userId = params.userId;
@@ -153,6 +159,7 @@ export const loadGrantsForUser = async (params: {
   const tableId = params.tableId ?? null;
   const viewId = params.viewId ?? null;
   const formId = params.formId ?? null;
+  const documentTemplateId = params.documentTemplateId ?? null;
   const dashboardId = params.dashboardId ?? null;
 
   // CASE expression that classifies each auth.access row into one of
@@ -199,6 +206,13 @@ export const loadGrantsForUser = async (params: {
     FROM grids.form_access fa
     JOIN auth.access a ON a.id = fa.access_id
     WHERE fa.form_id = ${formId}::uuid AND ${principalMatch}
+
+    UNION ALL
+
+    SELECT 'documentTemplate'::text, dta.template_id::text, a.permission, ${tierExpr}
+    FROM grids.document_template_access dta
+    JOIN auth.access a ON a.id = dta.access_id
+    WHERE dta.template_id = ${documentTemplateId}::uuid AND ${principalMatch}
 
     UNION ALL
 

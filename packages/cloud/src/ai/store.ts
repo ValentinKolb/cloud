@@ -146,7 +146,7 @@ const appendMessage = async (input: {
       ? [{ seq: input.seq }]
       : await sql<
           { seq: number }[]
-        >`SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM ai.messages WHERE conversation_id = ${input.conversationId}`;
+        >`SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM ai.messages WHERE conversation_id = ${input.conversationId} AND seq > 0`;
     const seq = seqRows[0]?.seq ?? 1;
 
     await sql`
@@ -255,9 +255,76 @@ export const aiConversationStore: AiConversationStore = {
       SELECT *
       FROM ai.messages
       WHERE conversation_id = ${input.conversationId}
+        AND compacted_at IS NULL
       ORDER BY seq ASC
     `;
     return rows.map(rowToMessage);
+  },
+
+  compactMessages: async (input) => {
+    const checkpointSeq = Math.floor(input.checkpointSeq);
+    if (!Number.isFinite(checkpointSeq) || checkpointSeq <= 0) return;
+
+    await sql.begin(async () => {
+      await sql`SELECT id FROM ai.conversations WHERE id = ${input.conversationId} FOR UPDATE`;
+      const rows = await sql<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count
+        FROM ai.messages
+        WHERE conversation_id = ${input.conversationId}
+          AND compacted_at IS NULL
+          AND seq <= ${checkpointSeq}
+      `;
+      if ((rows[0]?.count ?? 0) === 0) return;
+
+      await sql`
+        WITH seq_floor AS (
+          SELECT LEAST(COALESCE(MIN(seq), 0), 0) AS min_seq
+          FROM ai.messages
+          WHERE conversation_id = ${input.conversationId}
+        ),
+        candidates AS (
+          SELECT id, ROW_NUMBER() OVER (ORDER BY seq DESC) AS rn
+          FROM ai.messages
+          WHERE conversation_id = ${input.conversationId}
+            AND compacted_at IS NULL
+            AND seq <= ${checkpointSeq}
+        )
+        UPDATE ai.messages AS message
+        SET seq = seq_floor.min_seq - candidates.rn,
+            compacted_at = now()
+        FROM candidates, seq_floor
+        WHERE message.id = candidates.id
+      `;
+
+      const usage = input.summary.role === "assistant" ? (input.summary.usage ?? null) : null;
+      const providerModel = input.summary.role === "assistant" ? (input.summary.model ?? null) : null;
+      const stopReason = input.summary.role === "assistant" ? (input.summary.stopReason ?? null) : null;
+      await sql`
+        INSERT INTO ai.messages (
+          conversation_id,
+          seq,
+          kind,
+          role,
+          message,
+          model_profile_id,
+          provider_model,
+          usage,
+          stop_reason
+        )
+        VALUES (
+          ${input.conversationId},
+          ${checkpointSeq},
+          'summary',
+          ${input.summary.role},
+          ${JSON.stringify(input.summary)}::jsonb,
+          ${input.modelProfileId ?? null},
+          ${providerModel},
+          ${usage ? JSON.stringify(usage) : null}::jsonb,
+          ${stopReason}
+        )
+      `;
+      await sql`UPDATE ai.conversations SET updated_at = now() WHERE id = ${input.conversationId}`;
+    });
   },
 
   createTurn: async (input) => {

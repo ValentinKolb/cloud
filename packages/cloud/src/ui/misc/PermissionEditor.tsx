@@ -3,6 +3,7 @@ import { createSignal, For, Show } from "solid-js";
 import type { AccessEntry, PermissionLevel, Principal } from "../../contracts/shared";
 import Combobox, { type ComboboxOption } from "../input/Combobox";
 import { prompts } from "../prompts";
+import Avatar from "./Avatar";
 import Dropdown from "./Dropdown";
 import Placeholder from "./Placeholder";
 
@@ -403,10 +404,22 @@ function AccessEntryRow(props: {
 
   return (
     <div class="flex items-center gap-2 py-1.5">
-      {/* Principal icon */}
-      <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-        <i class={`ti ${getPrincipalIcon(props.entry.principal)} text-sm`} />
-      </div>
+      <Show
+        when={props.entry.principal.type === "user"}
+        fallback={
+          <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+            <i class={`ti ${getPrincipalIcon(props.entry.principal)} text-sm`} />
+          </div>
+        }
+      >
+        <Avatar
+          username={getEntryDisplayName(props.entry)}
+          userId={props.entry.principal.type === "user" ? props.entry.principal.userId : undefined}
+          avatarHash={props.entry.avatarHash}
+          size="xs"
+          class="h-7 w-7"
+        />
+      </Show>
 
       {/* Display name */}
       <div class="min-w-0 flex-1">

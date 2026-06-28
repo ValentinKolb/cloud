@@ -6,7 +6,7 @@ import {
   serviceAccountCredentials,
 } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
+import { Avatar, DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import type { JSX } from "solid-js/jsx-runtime";
 import type { BaseGroup } from "@/contracts";
@@ -263,27 +263,30 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           <div class="flex flex-wrap items-start justify-between gap-3" style="view-transition-name: accounts-user-title">
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2 flex-wrap">
-                <h1 class="text-base font-semibold text-primary">{displayTitle}</h1>
-                <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${primaryBadge.className}`}>{primaryBadge.label}</span>
-                <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${managementBadge.className}`}>{managementBadge.label}</span>
-                {supplementalRoles.map((role) => (
-                  <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${getSupplementalRoleColor(role)}`}>
-                    {getSupplementalRoleLabel(role)}
-                  </span>
-                ))}
-                {isExpired && (
-                  <span class="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/50 dark:text-red-300">
-                    Expired
-                  </span>
-                )}
+            <div class="flex min-w-0 flex-1 items-start gap-3">
+              <Avatar username={displayTitle} userId={user.id} avatarHash={user.avatarHash} size="md" />
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <h1 class="text-base font-semibold text-primary">{displayTitle}</h1>
+                  <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${primaryBadge.className}`}>{primaryBadge.label}</span>
+                  <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${managementBadge.className}`}>{managementBadge.label}</span>
+                  {supplementalRoles.map((role) => (
+                    <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${getSupplementalRoleColor(role)}`}>
+                      {getSupplementalRoleLabel(role)}
+                    </span>
+                  ))}
+                  {isExpired && (
+                    <span class="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/50 dark:text-red-300">
+                      Expired
+                    </span>
+                  )}
+                </div>
+                <p class="mt-1 truncate text-xs text-dimmed">
+                  {user.uid}
+                  {user.mail ? ` · ${user.mail}` : ""}
+                  {user.givenname || user.sn ? ` · ${[user.givenname, user.sn].filter(Boolean).join(" ")}` : ""}
+                </p>
               </div>
-              <p class="mt-1 truncate text-xs text-dimmed">
-                {user.uid}
-                {user.mail ? ` · ${user.mail}` : ""}
-                {user.givenname || user.sn ? ` · ${[user.givenname, user.sn].filter(Boolean).join(" ")}` : ""}
-              </p>
             </div>
             <div class="flex flex-wrap items-center justify-end gap-2">
               <UserActions user={user} listHref={buildUsersUrl(listState)} freeIpaEnabled={freeIpaEnabled} />

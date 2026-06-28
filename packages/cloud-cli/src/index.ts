@@ -16,9 +16,12 @@ import type {
 import accountCliModule from "@valentinkolb/cloud/cli/account";
 import adminCliModule from "@valentinkolb/cloud/cli/admin";
 import contactsCliModule from "@valentinkolb/cloud-app-contacts/cli";
+import ipaHostsCliModule from "@valentinkolb/cloud-app-ipa-hosts/cli";
 import notebooksCliModule from "@valentinkolb/cloud-app-notebooks/cli";
+import oauthCliModule from "@valentinkolb/cloud-app-oauth/cli";
 import spacesCliModule from "@valentinkolb/cloud-app-spaces/cli";
 import toolsCliModule from "@valentinkolb/cloud-app-tools/cli";
+import venueCliModule from "@valentinkolb/cloud-app-venue/cli";
 import type { Hono } from "hono";
 import { hc } from "hono/client";
 
@@ -90,9 +93,12 @@ const modules: CloudCliModule[] = [
   accountCliModule,
   adminCliModule,
   contactsCliModule,
+  ipaHostsCliModule,
   notebooksCliModule,
+  oauthCliModule,
   spacesCliModule,
   toolsCliModule,
+  venueCliModule,
 ];
 
 const moduleByName = new Map(modules.map((module) => [module.name, module]));

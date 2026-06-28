@@ -10,6 +10,7 @@ type DbComment = {
   item_id: string;
   user_id: string | null;
   user_name: string | null;
+  user_avatar_hash?: string | null;
   content: string;
   created_at: Date;
   updated_at: Date;
@@ -30,6 +31,7 @@ const mapToComment = (row: DbComment, viewerUserId?: string | null): SpaceCommen
   itemId: row.item_id,
   userId: row.user_id,
   userName: row.user_name,
+  userAvatarHash: row.user_avatar_hash ?? null,
   content: row.content,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
@@ -41,7 +43,7 @@ const mapToComment = (row: DbComment, viewerUserId?: string | null): SpaceCommen
  */
 export const list = async (params: { itemId: string; viewerUserId?: string | null }): Promise<SpaceComment[]> => {
   const rows = await sql<DbComment[]>`
-    SELECT c.id, c.item_id, c.user_id, u.display_name as user_name, c.content, c.created_at, c.updated_at
+    SELECT c.id, c.item_id, c.user_id, u.display_name AS user_name, u.avatar_hash AS user_avatar_hash, c.content, c.created_at, c.updated_at
     FROM spaces.comments c
     LEFT JOIN auth.users u ON c.user_id = u.id
     WHERE c.item_id = ${params.itemId}
@@ -55,7 +57,7 @@ export const list = async (params: { itemId: string; viewerUserId?: string | nul
  */
 export const get = async (params: { id: string; viewerUserId?: string | null }): Promise<SpaceComment | null> => {
   const [row] = await sql<DbComment[]>`
-    SELECT c.id, c.item_id, c.user_id, u.display_name as user_name, c.content, c.created_at, c.updated_at
+    SELECT c.id, c.item_id, c.user_id, u.display_name AS user_name, u.avatar_hash AS user_avatar_hash, c.content, c.created_at, c.updated_at
     FROM spaces.comments c
     LEFT JOIN auth.users u ON c.user_id = u.id
     WHERE c.id = ${params.id}
@@ -89,8 +91,8 @@ export const create = async (params: { itemId: string; userId: string; content: 
   }
 
   // Get user name
-  const [user] = await sql<{ display_name: string }[]>`
-    SELECT display_name FROM auth.users WHERE id = ${userId}
+  const [user] = await sql<{ display_name: string; avatar_hash: string | null }[]>`
+    SELECT display_name, avatar_hash FROM auth.users WHERE id = ${userId}
   `;
 
   return {
@@ -98,6 +100,7 @@ export const create = async (params: { itemId: string; userId: string; content: 
     data: {
       ...mapToComment(row),
       userName: user?.display_name ?? null,
+      userAvatarHash: user?.avatar_hash ?? null,
       canDelete: true,
     },
   };
@@ -135,6 +138,7 @@ export const update = async (params: { id: string; content: string; userId: stri
     data: {
       ...mapToComment(row),
       userName: existing.userName,
+      userAvatarHash: existing.userAvatarHash,
       canDelete: existing.canDelete,
     },
   };

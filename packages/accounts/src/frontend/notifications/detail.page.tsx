@@ -8,7 +8,7 @@ import {
   type NotificationBatchRecipientStatus,
 } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { DataTable, type DataTableColumn, MarkdownView, Pagination, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { Avatar, DataTable, type DataTableColumn, MarkdownView, Pagination, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
@@ -205,7 +205,13 @@ export default ssr<AuthContext>(async (c) => {
                       <>
                         {selectionUsers.map((user) => (
                           <span class="chip max-w-full" title={user.uid}>
-                            <i class="ti ti-user" />
+                            <Avatar
+                              username={user.displayName || user.uid}
+                              userId={user.id}
+                              avatarHash={user.avatarHash}
+                              size="xs"
+                              class="h-5 w-5"
+                            />
                             <span class="truncate">{user.displayName || user.uid}</span>
                           </span>
                         ))}
@@ -310,9 +316,17 @@ export default ssr<AuthContext>(async (c) => {
                   renderCell={({ row: entry, col }) => {
                     if (col.id === "user") {
                       return (
-                        <a href={`/app/accounts/users/${entry.userId}`} class="block min-w-0">
-                          <span class="block truncate font-medium text-primary hover:underline">{entry.displayName || entry.uid}</span>
-                          <span class="block truncate text-[11px] text-dimmed">{entry.uid}</span>
+                        <a href={`/app/accounts/users/${entry.userId}`} class="flex min-w-0 items-center gap-2 text-primary hover:underline">
+                          <Avatar
+                            username={entry.displayName || entry.uid}
+                            userId={entry.userId}
+                            avatarHash={entry.avatarHash}
+                            size="xs"
+                          />
+                          <span class="min-w-0 flex-1">
+                            <span class="block truncate font-medium">{entry.displayName || entry.uid}</span>
+                            <span class="block truncate text-[11px] text-dimmed">{entry.uid}</span>
+                          </span>
                         </a>
                       );
                     }

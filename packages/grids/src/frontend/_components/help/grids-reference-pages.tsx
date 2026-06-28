@@ -124,7 +124,7 @@ export const GridsTemplatesPage = (props: { mode?: "guide" | "reference" } = {})
             },
             {
               title: "Render before saving",
-              text: "Use the PDF preview and open-in-new-tab action for layout checks. Save when the output works for realistic records.",
+              text: "Use the PDF preview and open-in-new-tab action for layout checks. New templates start disabled, and enabling a draft without a successful preview asks for confirmation.",
             },
           ]}
         />
@@ -147,8 +147,8 @@ export const GridsTemplatesPage = (props: { mode?: "guide" | "reference" } = {})
           <DocSection title="Editable parts">
             <p class="mb-3 text-dimmed">
               A template has one data part and up to four layout parts. The GQL source is rendered with Liquid first, so it can use the
-              selected <DocInlineCode>record</DocInlineCode> and public <DocInlineCode>app</DocInlineCode> values before the query is
-              parsed.
+              selected <DocInlineCode>record</DocInlineCode>, public <DocInlineCode>app</DocInlineCode>, and base{" "}
+              <DocInlineCode>business</DocInlineCode> values before the query is parsed.
             </p>
             <div class="paper overflow-auto">
               <table class="min-w-[900px] w-full table-fixed text-sm">
@@ -215,10 +215,10 @@ export const GridsTemplatesPage = (props: { mode?: "guide" | "reference" } = {})
           has run. Copy paths from this tree instead of guessing object shapes.
         </p>
         <p class="mt-3 text-dimmed">
-          Think of the data in three layers: <DocInlineCode>record</DocInlineCode> is the selected record,{" "}
-          <DocInlineCode>rows</DocInlineCode> and <DocInlineCode>columns</DocInlineCode> are the GQL result, and{" "}
-          <DocInlineCode>document</DocInlineCode> describes a saved run. <DocInlineCode>app</DocInlineCode> contains public platform
-          branding and contact values. Rows also expose GQL output labels, so readable aliases make templates easier to maintain.
+          Think of the data in layers: <DocInlineCode>record</DocInlineCode> is the selected record, <DocInlineCode>rows</DocInlineCode> and{" "}
+          <DocInlineCode>columns</DocInlineCode> are the GQL result, and <DocInlineCode>document</DocInlineCode> describes a saved run.{" "}
+          <DocInlineCode>app</DocInlineCode> contains public platform branding. <DocInlineCode>business</DocInlineCode> contains the base's
+          document profile. Rows also expose GQL output labels, so readable aliases make templates easier to maintain.
         </p>
         <DocRows
           items={[
@@ -246,6 +246,29 @@ export const GridsTemplatesPage = (props: { mode?: "guide" | "reference" } = {})
                   Public platform values for document branding: <DocInlineCode>{"{{ app.name }}"}</DocInlineCode>,{" "}
                   <DocInlineCode>{"{{ app.contactEmail }}"}</DocInlineCode>, <DocInlineCode>{"{{ app.url }}"}</DocInlineCode>,{" "}
                   <DocInlineCode>{"{{ app.logoDataUri }}"}</DocInlineCode>, and <DocInlineCode>{"{{ app.timezone }}"}</DocInlineCode>.
+                </>
+              ),
+            },
+            {
+              title: "business",
+              icon: "ti-briefcase",
+              text: (
+                <>
+                  Base-level document profile values such as <DocInlineCode>{"{{ business.legalName }}"}</DocInlineCode>,{" "}
+                  <DocInlineCode>{"{{ business.senderLine }}"}</DocInlineCode>, <DocInlineCode>{"{{ business.address }}"}</DocInlineCode>,{" "}
+                  <DocInlineCode>{"{{ business.paymentTerms }}"}</DocInlineCode>, <DocInlineCode>{"{{ business.iban }}"}</DocInlineCode>,
+                  and footer/contact fields. Edit them in Base settings → Documents.
+                </>
+              ),
+            },
+            {
+              title: "images",
+              icon: "ti-photo",
+              text: (
+                <>
+                  Image files attached to file fields on the selected record. Use <DocInlineCode>{"{{ primaryImage.url }}"}</DocInlineCode>{" "}
+                  for the first supported image or loop over <DocInlineCode>images</DocInlineCode>. Oversized and unsupported files are
+                  omitted.
                 </>
               ),
             },

@@ -6,7 +6,7 @@ import {
 } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
+import { Avatar, DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
@@ -139,11 +139,19 @@ export default ssr<AuthContext>(async (c) => {
                   if (col.id === "owner") {
                     if (entry.owner.type === "user") {
                       return (
-                        <div class="flex min-w-0 flex-col gap-1">
-                          <a href={`/app/accounts/users/${entry.owner.userId}`} class="truncate font-medium text-primary hover:underline">
-                            {entry.owner.displayName || entry.owner.uid}
-                          </a>
-                          <span class="truncate text-[11px] text-dimmed">{entry.owner.mail ?? entry.owner.uid}</span>
+                        <div class="flex min-w-0 items-center gap-2">
+                          <Avatar
+                            username={entry.owner.displayName || entry.owner.uid}
+                            userId={entry.owner.userId}
+                            avatarHash={entry.owner.avatarHash}
+                            size="xs"
+                          />
+                          <div class="min-w-0 flex-1">
+                            <a href={`/app/accounts/users/${entry.owner.userId}`} class="block truncate font-medium text-primary hover:underline">
+                              {entry.owner.displayName || entry.owner.uid}
+                            </a>
+                            <span class="block truncate text-[11px] text-dimmed">{entry.owner.mail ?? entry.owner.uid}</span>
+                          </div>
                         </div>
                       );
                     }

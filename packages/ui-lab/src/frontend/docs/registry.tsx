@@ -1,5 +1,6 @@
 import type { DockWorkspaceState } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
+import { AiChatBlocksDemo, AiComposerDemo } from "../lab/ai";
 import {
   AiButtonMarkers,
   ButtonInputs,
@@ -163,6 +164,27 @@ const page = (
 ): UiLabDocPage => ({ section, slug, title, icon, summary, demoIds, render });
 
 export const uiLabDocs: UiLabDocSection[] = [
+  {
+    id: "ai",
+    title: "AI",
+    icon: "ti ti-sparkles",
+    pages: [
+      page(
+        "ai",
+        "chat-blocks",
+        "Chat Blocks",
+        "ti ti-sparkles",
+        "Reusable Cloud AI message blocks for Assistant and app-specific chats.",
+        ["ai-chat-blocks", "ai-composer"],
+        () => (
+          <DemoGrid columns="one">
+            <AiChatBlocksDemo />
+            <AiComposerDemo />
+          </DemoGrid>
+        ),
+      ),
+    ],
+  },
   {
     id: "input",
     title: "Inputs",

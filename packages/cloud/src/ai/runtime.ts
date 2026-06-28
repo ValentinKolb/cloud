@@ -1,5 +1,5 @@
-import type { InboundEvent, NessiLoop, OutboundEvent } from "@valentinkolb/nessi";
-import { nessi } from "@valentinkolb/nessi";
+import type { CompactFn, InboundEvent, Input, Message, NessiLoop, OutboundEvent, StoreEntry } from "@valentinkolb/nessi";
+import { nessi, truncateMiddle } from "@valentinkolb/nessi";
 import { z } from "zod";
 import type { RequestActor } from "../server";
 import {
@@ -30,6 +30,17 @@ const PLATFORM_SYSTEM_PROMPT = [
   "Be concise, precise, and use the user's language unless they ask otherwise.",
 ].join("\n");
 
+const DEFAULT_COMPACTION_PROMPT = [
+  "Summarize the chat context for a future assistant turn.",
+  "Preserve user goals, preferences, constraints, decisions, important facts, tool results, pending tasks, and unresolved questions.",
+  "Do not invent details. Keep the summary compact but complete enough that the next assistant can continue correctly.",
+].join("\n");
+
+const COMPACTION_FILL_RATIO = 0.72;
+const COMPACTION_KEEP_RECENT_ENTRIES = 6;
+const COMPACTION_MAX_SOURCE_CHARS = 24_000;
+const COMPACTION_MAX_TOOL_RESULT_CHARS = 1_200;
+
 export const isAiSettingsError = (error: unknown): error is Error & { aiError: AiSettingsError } =>
   error instanceof Error && typeof (error as Error & { aiError?: unknown }).aiError === "object";
 
@@ -42,9 +53,93 @@ const statusForDoneReason = (reason: string) => {
   return "failed" as const;
 };
 
+const textFromAssistant = (message: Extract<Message, { role: "assistant" }>): string =>
+  message.content
+    .map((block) => {
+      if (block.type === "text") return block.text;
+      if (block.type === "thinking") return `[thinking]\n${truncateMiddle(block.thinking, 1_000)}`;
+      return `[tool_call ${block.name} ${block.id}]\n${truncateMiddle(JSON.stringify(block.args), 1_000)}`;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+
+const messageToCompactionText = (entry: StoreEntry): string => {
+  const { message } = entry;
+  if (message.role === "user") {
+    const text = message.content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part.type === "text") return part.text;
+        return `[file ${part.mediaType}]`;
+      })
+      .join("\n");
+    return `#${entry.seq} user\n${truncateMiddle(text, 4_000)}`;
+  }
+  if (message.role === "assistant") return `#${entry.seq} assistant\n${truncateMiddle(textFromAssistant(message), 4_000)}`;
+  return `#${entry.seq} tool_result ${message.name}\n${truncateMiddle(JSON.stringify(message.result), COMPACTION_MAX_TOOL_RESULT_CHARS)}`;
+};
+
+const createCloudCompactFn = (input: {
+  conversationId: string;
+  modelProfileId: string;
+  prompt: string;
+  signal: AbortSignal;
+}): CompactFn => {
+  return (ctx) => {
+    if (!ctx.force && (typeof ctx.fillRatio !== "number" || ctx.fillRatio < COMPACTION_FILL_RATIO)) return null;
+    if (!ctx.force && ctx.entries.length <= COMPACTION_KEEP_RECENT_ENTRIES + 2) return null;
+
+    const checkpointIndex = Math.max(0, ctx.entries.length - COMPACTION_KEEP_RECENT_ENTRIES - 1);
+    const checkpoint = ctx.entries[checkpointIndex];
+    if (!checkpoint || checkpoint.seq <= 0) return null;
+
+    const sourceEntries = ctx.entries.slice(0, checkpointIndex + 1);
+    if (sourceEntries.length < 2) return null;
+
+    return (async () => {
+      const source = truncateMiddle(sourceEntries.map(messageToCompactionText).join("\n\n"), COMPACTION_MAX_SOURCE_CHARS);
+      const result = await ctx.provider.complete({
+        systemPrompt: (input.prompt.trim() || DEFAULT_COMPACTION_PROMPT).trim(),
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Summarize these chat entries for future context:\n\n${source}`,
+              },
+            ],
+          },
+        ],
+        tools: [],
+        signal: input.signal,
+        disableReasoning: true,
+      });
+      const summaryText = textFromAssistant(result.message).trim();
+      if (!summaryText) return;
+
+      await aiConversationStore.compactMessages({
+        conversationId: input.conversationId,
+        checkpointSeq: checkpoint.seq,
+        modelProfileId: input.modelProfileId,
+        summary: {
+          role: "assistant",
+          content: [{ type: "text", text: `Conversation summary:\n${summaryText}` }],
+          model: ctx.provider.model,
+          usage: result.usage,
+          stopReason: result.finishReason,
+        },
+      });
+    })().catch((error) => {
+      if (ctx.force) throw error;
+      console.warn("Skipped optional AI context compaction", error);
+    });
+  };
+};
+
 export type RunAiTurnInput = {
   conversationId: string;
-  input: string;
+  input: Input;
   actor?: RequestActor;
   modelPolicy?: AiModelPolicy;
   requestedModelId?: string;
@@ -91,6 +186,9 @@ type ActiveAiTurn = {
 };
 
 const activeAiTurns = new Map<string, ActiveAiTurn>();
+
+const inputIncludesFiles = (input: Input): boolean =>
+  Array.isArray(input) && input.some((part) => typeof part === "object" && part.type === "file");
 
 const pendingActionToEvent = (turnId: string, turn: ActiveAiTurn, pending: PendingAiAction): AiPendingTurnAction =>
   pending.kind === "client_tool"
@@ -270,10 +368,23 @@ export const createAiTurnResponse = async (input: RunAiTurnInput): Promise<Respo
   }
 
   const resolved = await resolveAiModel(input.modelPolicy ?? { kind: "platform-default" }, input.requestedModelId);
+  if (inputIncludesFiles(input.input) && !resolved.profile.capabilities.includes("vision")) {
+    throw Object.assign(new Error(`AI model "${resolved.profile.id}" does not support image input.`), {
+      aiError: {
+        code: "model_policy_mismatch",
+        message: `AI model "${resolved.profile.label}" does not support image input.`,
+        fields: { modelProfileId: "Choose a model with vision support." },
+      } satisfies AiSettingsError,
+    });
+  }
+
   const turn = await aiConversationStore.createTurn({ conversationId: input.conversationId, modelProfileId: resolved.profile.id });
   const store = aiConversationStore.createSessionStore({ conversationId: input.conversationId, modelProfileId: resolved.profile.id });
   const systemPrompt = buildSystemPrompt(settings.globalInstructions, input.systemPrompt, input.resourceContext);
-  const preparedTools = prepareAiTools({ tools: input.tools, actor: input.actor });
+  const preparedTools = prepareAiTools({
+    tools: resolved.profile.capabilities.includes("tools") ? input.tools : [],
+    actor: input.actor,
+  });
 
   const abortController = new AbortController();
   const loop = nessi({
@@ -284,6 +395,13 @@ export const createAiTurnResponse = async (input: RunAiTurnInput): Promise<Respo
     store,
     tools: preparedTools.tools,
     maxTurns: preparedTools.tools.length > 0 ? 8 : 1,
+    compact: createCloudCompactFn({
+      conversationId: input.conversationId,
+      modelProfileId: resolved.profile.id,
+      prompt: settings.compactionPrompt,
+      signal: abortController.signal,
+    }),
+    maxToolResultChars: settings.maxToolResultChars,
     signal: abortController.signal,
   });
   activeAiTurns.set(turn.id, {

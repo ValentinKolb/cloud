@@ -4,6 +4,7 @@ import { apiClient } from "../../../api/client";
 import AutomationsPage from "../automations/AutomationsPage";
 import DashboardLayout from "../dashboard/DashboardLayout";
 import DashboardWysiwygEditor from "../dashboard/DashboardWysiwygEditor";
+import DocumentTemplateWorkspace from "../documents/DocumentTemplateWorkspace";
 import GridsLayoutHelp from "../help/GridsLayoutHelp";
 import QueryWorkspace from "../query/QueryWorkspace";
 import { createGridsRecordEventsProvider } from "../records-view/grids-record-events-provider";
@@ -15,7 +16,13 @@ import FormSidebarEntry from "../sidebar/FormSidebarEntry";
 import RememberGridsPath from "../sidebar/RememberGridsPath";
 import { dashboardRecordTableIds } from "./dashboard-live-dependencies";
 import { createGridsMetadataEventsProvider } from "./grids-metadata-events-provider";
-import type { GridsWorkspaceState, WorkspaceDashboardRoute, WorkspaceQueryRoute, WorkspaceRecordsRoute } from "./workspace-state";
+import type {
+  GridsWorkspaceState,
+  WorkspaceDashboardRoute,
+  WorkspaceDocumentTemplateRoute,
+  WorkspaceQueryRoute,
+  WorkspaceRecordsRoute,
+} from "./workspace-state";
 
 type Props = {
   initialState: Extract<GridsWorkspaceState, { kind: "ok" }>;
@@ -40,6 +47,14 @@ const formOnlyEmptyText = (count: number) =>
   count === 1
     ? "You have access to 1 form. Click it in the sidebar to fill it out."
     : `You have access to ${count} forms. Click one in the sidebar to fill it out.`;
+
+const limitedAccessEmptyText = (formCount: number, documentCount: number) => {
+  const parts = [
+    formCount > 0 ? `${formCount} form${formCount === 1 ? "" : "s"}` : "",
+    documentCount > 0 ? `${documentCount} document template${documentCount === 1 ? "" : "s"}` : "",
+  ].filter(Boolean);
+  return `You have access to ${parts.join(" and ")}. Choose one in the sidebar.`;
+};
 
 const captureScrollPreserve = () =>
   new Map(
@@ -298,6 +313,7 @@ export default function GridsWorkspace(props: Props) {
     if (route.kind === "dashboard") return `dashboard:${route.dashboard.id}:${s.adminModeRequested}`;
     if (route.kind === "automations") return `automations:${s.base.id}`;
     if (route.kind === "query") return `query:${s.base.id}:${route.queryPath}`;
+    if (route.kind === "documentTemplate") return `document:${route.template.id}:${route.initialRecordId ?? ""}:${s.adminModeRequested}`;
     return `${route.kind}:${s.adminModeRequested}`;
   };
 
@@ -397,6 +413,16 @@ export default function GridsWorkspace(props: Props) {
       tables={state().catalog.tables}
       fieldsByTable={state().catalog.fieldsByTable}
       viewsByTable={state().catalog.viewsByTable}
+    />
+  );
+
+  const renderDocumentTemplateWorkspace = (route: WorkspaceDocumentTemplateRoute) => (
+    <DocumentTemplateWorkspace
+      baseId={state().base.id}
+      table={route.table}
+      template={route.template}
+      canManageTemplate={route.canManageTemplate}
+      initialRecordId={route.initialRecordId}
     />
   );
 
@@ -506,10 +532,37 @@ export default function GridsWorkspace(props: Props) {
                 </AppWorkspace.SidebarSection>
               </Show>
 
+              <Show when={state().catalog.sidebarDocumentTemplates.length > 0}>
+                <AppWorkspace.SidebarSection title="Documents">
+                  {state().catalog.sidebarDocumentTemplates.map(({ template, table }) => {
+                    const route = state().route;
+                    const active = route.kind === "documentTemplate" && route.template.id === template.id;
+                    return (
+                      <AppWorkspace.SidebarItem
+                        href={keepEdit(
+                          `/app/grids/${state().base.shortId}/document/${table.shortId}/${template.shortId}`,
+                          state().adminModeRequested,
+                        )}
+                        icon="ti ti-file-type-pdf"
+                        onNavigate={handleNavigate}
+                        active={active}
+                        activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
+                        class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
+                        meta={<span class="truncate text-[9px] uppercase tracking-wider">{table.name}</span>}
+                      >
+                        {template.name}
+                      </AppWorkspace.SidebarItem>
+                    );
+                  })}
+                </AppWorkspace.SidebarSection>
+              </Show>
+
               <AppWorkspace.SidebarSection title="Tables">
                 {state().catalog.tables.length === 0 ? (
                   <p class="text-xs text-dimmed px-2 py-1">
-                    {state().catalog.sidebarForms.length > 0 ? "No table access." : "No tables yet."}
+                    {state().catalog.sidebarForms.length > 0 || state().catalog.sidebarDocumentTemplates.length > 0
+                      ? "No table access."
+                      : "No tables yet."}
                   </p>
                 ) : (
                   state().catalog.tables.map((t) => {
@@ -637,10 +690,37 @@ export default function GridsWorkspace(props: Props) {
                 </AppWorkspace.SidebarSection>
               </Show>
 
+              <Show when={state().catalog.sidebarDocumentTemplates.length > 0}>
+                <AppWorkspace.SidebarSection title="Documents">
+                  {state().catalog.sidebarDocumentTemplates.map(({ template, table }) => {
+                    const route = state().route;
+                    const active = route.kind === "documentTemplate" && route.template.id === template.id;
+                    return (
+                      <AppWorkspace.SidebarItem
+                        href={keepEdit(
+                          `/app/grids/${state().base.shortId}/document/${table.shortId}/${template.shortId}`,
+                          state().adminModeRequested,
+                        )}
+                        icon="ti ti-file-type-pdf"
+                        onNavigate={handleNavigate}
+                        active={active}
+                        activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
+                        class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
+                        meta={<span class="truncate text-[9px] uppercase tracking-wider">{table.name}</span>}
+                      >
+                        {template.name}
+                      </AppWorkspace.SidebarItem>
+                    );
+                  })}
+                </AppWorkspace.SidebarSection>
+              </Show>
+
               <AppWorkspace.SidebarSection title="Tables">
                 {state().catalog.tables.length === 0 ? (
                   <p class="text-xs text-dimmed px-2 py-1">
-                    {state().catalog.sidebarForms.length > 0 ? "No table access." : "No tables yet."}
+                    {state().catalog.sidebarForms.length > 0 || state().catalog.sidebarDocumentTemplates.length > 0
+                      ? "No table access."
+                      : "No tables yet."}
                   </p>
                 ) : (
                   state().catalog.tables.map((t) => {
@@ -723,18 +803,23 @@ export default function GridsWorkspace(props: Props) {
                 <Match when={route.kind === "dashboard"}>{renderDashboard(route as WorkspaceDashboardRoute)}</Match>
                 <Match when={route.kind === "automations"}>{renderAutomations()}</Match>
                 <Match when={route.kind === "query"}>{renderQueryWorkspace(route as WorkspaceQueryRoute)}</Match>
+                <Match when={route.kind === "documentTemplate"}>
+                  {renderDocumentTemplateWorkspace(route as WorkspaceDocumentTemplateRoute)}
+                </Match>
                 <Match when={route.kind === "records"}>{renderRecords(route as WorkspaceRecordsRoute)}</Match>
                 <Match when={route.kind === "empty"}>
                   <Placeholder surface="paper">
                     <Show
-                      when={state().catalog.sidebarForms.length > 0}
+                      when={state().catalog.sidebarForms.length > 0 || state().catalog.sidebarDocumentTemplates.length > 0}
                       fallback={
                         state().canCreateTables
                           ? 'No tables yet. Click "New table" in the sidebar.'
                           : "No tables. You don't have write access to create one."
                       }
                     >
-                      {formOnlyEmptyText(state().catalog.sidebarForms.length)}
+                      {state().catalog.sidebarDocumentTemplates.length > 0
+                        ? limitedAccessEmptyText(state().catalog.sidebarForms.length, state().catalog.sidebarDocumentTemplates.length)
+                        : formOnlyEmptyText(state().catalog.sidebarForms.length)}
                     </Show>
                   </Placeholder>
                 </Match>

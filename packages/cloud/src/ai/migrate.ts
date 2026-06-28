@@ -39,6 +39,7 @@ export const migrateCloudAi = async (): Promise<void> => {
       provider_model TEXT,
       usage JSONB,
       stop_reason TEXT,
+      compacted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT ai_messages_kind_check CHECK (kind IN ('message', 'summary')),
       CONSTRAINT ai_messages_role_check CHECK (role IN ('user', 'assistant', 'tool_result')),
@@ -46,9 +47,17 @@ export const migrateCloudAi = async (): Promise<void> => {
     )
   `.simple();
 
+  await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS compacted_at TIMESTAMPTZ`.simple();
+
   await sql`
     CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation_seq
     ON ai.messages(conversation_id, seq ASC)
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_messages_active_conversation_seq
+    ON ai.messages(conversation_id, seq ASC)
+    WHERE compacted_at IS NULL
   `.simple();
 
   await sql`

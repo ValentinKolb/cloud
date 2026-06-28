@@ -140,6 +140,7 @@ export type ContactNote = {
   contactId: string;
   authorUserId: string | null;
   authorDisplayName: string;
+  authorAvatarHash: string | null;
   content: string;
   createdAt: string;
   updatedAt: string;

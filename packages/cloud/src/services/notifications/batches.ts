@@ -69,6 +69,7 @@ export type NotificationBatchRecipient = {
   recipient: string | null;
   uid: string;
   displayName: string;
+  avatarHash: string | null;
   provider: "local" | "ipa";
   profile: "user" | "guest";
   status: NotificationBatchRecipientStatus;
@@ -164,6 +165,7 @@ const mapRecipient = (row: BatchRow): NotificationBatchRecipient => ({
   recipient: row.recipient as string | null,
   uid: row.uid as string,
   displayName: row.display_name as string,
+  avatarHash: (row.avatar_hash as string | null | undefined) ?? null,
   provider: row.provider as "local" | "ipa",
   profile: row.profile as "user" | "guest",
   status: row.status as NotificationBatchRecipientStatus,
@@ -619,6 +621,7 @@ export const listRecipients = async (params: {
       r.recipient,
       r.uid,
       r.display_name,
+      u.avatar_hash,
       r.provider,
       r.profile,
       r.status,
@@ -630,6 +633,7 @@ export const listRecipients = async (params: {
       COUNT(*) OVER() AS total
     FROM notifications.batch_recipients r
     LEFT JOIN notifications.messages m ON m.id = r.notification_id
+    LEFT JOIN auth.users u ON u.id = r.user_id
     WHERE r.batch_id = ${params.batchId}::uuid
       AND (${params.status ?? null}::text IS NULL OR r.status = ${params.status ?? null})
     ORDER BY

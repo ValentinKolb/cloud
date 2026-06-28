@@ -9,27 +9,95 @@ const parseWorkspaceHref = (href: string) => {
   const parts = url.pathname.split("/").filter(Boolean);
   if (parts[0] !== "app" || parts[1] !== "grids" || !parts[2]) return null;
   const baseShortId = parts[2];
-  if (parts.length === 3) return { baseShortId, activeTableSlug: null, activeViewSlug: null, activeDashboardSlug: null };
+  if (parts.length === 3) {
+    return {
+      baseShortId,
+      activeTableSlug: null,
+      activeViewSlug: null,
+      activeDashboardSlug: null,
+      activeDocumentTableSlug: null,
+      activeDocumentTemplateSlug: null,
+    };
+  }
   if (parts.length === 4 && parts[3] === "query") {
-    return { baseShortId, activeTableSlug: null, activeViewSlug: null, activeDashboardSlug: null };
+    return {
+      baseShortId,
+      activeTableSlug: null,
+      activeViewSlug: null,
+      activeDashboardSlug: null,
+      activeDocumentTableSlug: null,
+      activeDocumentTemplateSlug: null,
+    };
   }
   if (parts.length === 6 && parts[3] === "table" && parts[5] === "query") {
-    return { baseShortId, activeTableSlug: parts[4], activeViewSlug: null, activeDashboardSlug: null };
+    return {
+      baseShortId,
+      activeTableSlug: parts[4],
+      activeViewSlug: null,
+      activeDashboardSlug: null,
+      activeDocumentTableSlug: null,
+      activeDocumentTemplateSlug: null,
+    };
   }
   if (parts.length === 8 && parts[3] === "table" && parts[5] === "view" && parts[7] === "query") {
-    return { baseShortId, activeTableSlug: parts[4], activeViewSlug: parts[6], activeDashboardSlug: null };
+    return {
+      baseShortId,
+      activeTableSlug: parts[4],
+      activeViewSlug: parts[6],
+      activeDashboardSlug: null,
+      activeDocumentTableSlug: null,
+      activeDocumentTemplateSlug: null,
+    };
   }
   if (parts.length === 4 && parts[3] === "automations") {
-    return { baseShortId, activeTableSlug: null, activeViewSlug: null, activeDashboardSlug: null };
+    return {
+      baseShortId,
+      activeTableSlug: null,
+      activeViewSlug: null,
+      activeDashboardSlug: null,
+      activeDocumentTableSlug: null,
+      activeDocumentTemplateSlug: null,
+    };
   }
   if (parts.length === 5 && parts[3] === "dashboard") {
-    return { baseShortId, activeTableSlug: null, activeViewSlug: null, activeDashboardSlug: parts[4] };
+    return {
+      baseShortId,
+      activeTableSlug: null,
+      activeViewSlug: null,
+      activeDashboardSlug: parts[4],
+      activeDocumentTableSlug: null,
+      activeDocumentTemplateSlug: null,
+    };
+  }
+  if (parts.length === 6 && parts[3] === "document") {
+    return {
+      baseShortId,
+      activeTableSlug: null,
+      activeViewSlug: null,
+      activeDashboardSlug: null,
+      activeDocumentTableSlug: parts[4],
+      activeDocumentTemplateSlug: parts[5],
+    };
   }
   if (parts.length === 5 && parts[3] === "table") {
-    return { baseShortId, activeTableSlug: parts[4], activeViewSlug: null, activeDashboardSlug: null };
+    return {
+      baseShortId,
+      activeTableSlug: parts[4],
+      activeViewSlug: null,
+      activeDashboardSlug: null,
+      activeDocumentTableSlug: null,
+      activeDocumentTemplateSlug: null,
+    };
   }
   if (parts.length === 7 && parts[3] === "table" && parts[5] === "view") {
-    return { baseShortId, activeTableSlug: parts[4], activeViewSlug: parts[6], activeDashboardSlug: null };
+    return {
+      baseShortId,
+      activeTableSlug: parts[4],
+      activeViewSlug: parts[6],
+      activeDashboardSlug: null,
+      activeDocumentTableSlug: null,
+      activeDocumentTemplateSlug: null,
+    };
   }
   return null;
 };

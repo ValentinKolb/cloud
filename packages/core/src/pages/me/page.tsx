@@ -1,9 +1,10 @@
-import { ssr } from "../../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { Layout } from "@valentinkolb/cloud/ssr";
-import { dates } from "@valentinkolb/stdlib";
-import { canManageAnyGroups, getAccountTypeLabel, getManagementLabel, getSupplementalRoleLabel } from "@valentinkolb/cloud/shared";
 import { accountsAppService, audit, coreSettings, serviceAccountCredentials, webauthn } from "@valentinkolb/cloud/services";
+import { canManageAnyGroups, getAccountTypeLabel, getManagementLabel, getSupplementalRoleLabel } from "@valentinkolb/cloud/shared";
+import { Layout } from "@valentinkolb/cloud/ssr";
+import { Avatar } from "@valentinkolb/cloud/ui";
+import { dates } from "@valentinkolb/stdlib";
+import { ssr } from "../../config";
 import AccountActivity from "./AccountActivity.island";
 import ApiKeysSettings from "./ApiKeysSettings.island";
 import PasskeysSettings from "./PasskeysSettings.island";
@@ -90,12 +91,14 @@ export default ssr<AuthContext>(async (c) => {
         <section class="paper overflow-hidden" style="view-transition-name: profile-card">
           <div class="grid gap-5 p-5 sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
             <div class="flex min-w-0 gap-4">
-              <div
-                class="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-xl font-semibold text-zinc-600 shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-800 dark:text-zinc-200"
+              <Avatar
+                username={sessionUser.displayName || sessionUser.uid}
+                userId={sessionUser.id}
+                avatarHash={sessionUser.avatarHash}
+                size="lg"
+                class="bg-zinc-100 shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-800"
                 style="view-transition-name: user-avatar"
-              >
-                {(sessionUser.displayName || sessionUser.uid).slice(0, 2).toUpperCase()}
-              </div>
+              />
               <div class="min-w-0 flex-1">
                 <div class="flex min-w-0 items-center gap-2">
                   <h1 class="text-xl font-semibold leading-tight text-primary">{sessionUser.displayName || sessionUser.uid}</h1>
@@ -105,12 +108,14 @@ export default ssr<AuthContext>(async (c) => {
             </div>
 
             <ProfileActions
+              userId={sessionUser.id}
               provider={sessionUser.provider}
               profile={sessionUser.profile}
               uid={sessionUser.uid}
               givenname={sessionUser.givenname}
               sn={sessionUser.sn}
               displayName={sessionUser.displayName}
+              avatarHash={sessionUser.avatarHash}
               ipa={sessionUser.ipa}
               appName={appName}
               freeIpaEnabled={freeIpaEnabled}

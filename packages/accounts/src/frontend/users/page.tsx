@@ -2,7 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
+import { Avatar, DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
 import AccountsWorkspace from "../AccountsWorkspace";
@@ -91,8 +91,14 @@ export default ssr<AuthContext>(async (c) => {
                   const href = buildUserDetailUrl(entry.id, listState);
                   if (col.id === "user") {
                     return (
-                      <a href={href} class="block truncate font-medium text-primary hover:underline">
-                        {(entry.displayName || entry.mail || entry.uid) + ` (${entry.uid})`}
+                      <a href={href} class="flex min-w-0 items-center gap-2 text-primary hover:underline">
+                        <Avatar
+                          username={entry.displayName || entry.mail || entry.uid}
+                          userId={entry.id}
+                          avatarHash={entry.avatarHash}
+                          size="xs"
+                        />
+                        <span class="block truncate font-medium">{(entry.displayName || entry.mail || entry.uid) + ` (${entry.uid})`}</span>
                       </a>
                     );
                   }

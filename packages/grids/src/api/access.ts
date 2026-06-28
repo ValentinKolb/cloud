@@ -266,6 +266,78 @@ const app = new Hono<AuthContext>()
     },
   )
 
+  // ── Document template ACL ───────────────────────────────────────────
+  // Document templates can be used from the workspace sidebar even when
+  // the caller cannot browse the backing table. read = use/generate,
+  // admin = edit/delete/share the template, none = explicit deny.
+  .get(
+    "/by-document-template/:templateId",
+    describeRoute({
+      tags: ["Grids:Access"],
+      summary: "List ACL entries for a document template",
+      responses: {
+        200: jsonResponse(AccessListSchema, "Entries"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Document template not found"),
+      },
+    }),
+    async (c) => {
+      const templateId = c.req.param("templateId")!;
+      const [templateRow] = await sql<{ table_id: string; base_id: string }[]>`
+        SELECT dt.table_id, t.base_id
+        FROM grids.document_templates dt
+        JOIN grids.tables t ON t.id = dt.table_id
+        WHERE dt.id = ${templateId}::uuid AND dt.deleted_at IS NULL
+      `;
+      if (!templateRow) return c.json({ message: "Document template not found" }, 404);
+      const gate = await gateAt(c, { baseId: templateRow.base_id }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const entries = await gridsService.access.listForDocumentTemplate(templateId);
+      return c.json(entries);
+    },
+  )
+  .post(
+    "/by-document-template/:templateId",
+    describeRoute({
+      tags: ["Grids:Access"],
+      summary: "Grant access on a document template (only 'read' / 'admin' / 'none' accepted)",
+      responses: {
+        201: jsonResponse(z.object({ accessId: z.string().uuid() }), "Created"),
+        400: jsonResponse(ErrorResponseSchema, "Document template only accepts level 'read', 'admin', or 'none'"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    v("json", GrantAccessSchema),
+    async (c) => {
+      const templateId = c.req.param("templateId")!;
+      const body = c.req.valid("json");
+      if (body.permission !== "read" && body.permission !== "admin" && body.permission !== "none") {
+        return c.json({ message: "Document template ACL only accepts 'read', 'admin', or 'none'" }, 400);
+      }
+      const [templateRow] = await sql<{ table_id: string; base_id: string }[]>`
+        SELECT dt.table_id, t.base_id
+        FROM grids.document_templates dt
+        JOIN grids.tables t ON t.id = dt.table_id
+        WHERE dt.id = ${templateId}::uuid AND dt.deleted_at IS NULL
+      `;
+      if (!templateRow) return c.json({ message: "Document template not found" }, 404);
+      const gate = await gateAt(c, { baseId: templateRow.base_id }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
+      return respond(
+        c,
+        () =>
+          gridsService.access.grant({
+            resourceType: "documentTemplate",
+            resourceId: templateId,
+            actorId: user.id,
+            ...body,
+          }),
+        201,
+      );
+    },
+  )
+
   // ── Dashboard ACL ───────────────────────────────────────────────────
   // Same shape as views: only `read` / `none` accepted. Caller must be
   // admin on the dashboard's parent base — without this gate, any user
@@ -374,6 +446,11 @@ const app = new Hono<AuthContext>()
       // Same enforcement for forms: write-or-none only.
       if (binding.resourceType === "form" && permission !== "write" && permission !== "none") {
         return c.json({ message: "Form grants only accept 'write' or 'none'" }, 400);
+      }
+      // Document templates expose read/admin/none. Generation is read
+      // access; template mutation remains admin.
+      if (binding.resourceType === "documentTemplate" && permission !== "read" && permission !== "admin" && permission !== "none") {
+        return c.json({ message: "Document template grants only accept 'read', 'admin', or 'none'" }, 400);
       }
       // Dashboards mirror views: read-or-none.
       if (binding.resourceType === "dashboard" && permission !== "read" && permission !== "none") {

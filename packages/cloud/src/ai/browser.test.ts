@@ -10,7 +10,7 @@ describe("AI browser streaming helpers", () => {
         start(controller) {
           controller.enqueue(
             encoder.encode(
-              'id: 1-0\nevent: text\ndata: {"type":"nessi","turnId":"turn-1","conversationId":"conversation-1","event":{"type":"text","agentId":"cloud","delta":"Hi"},"cursor":"1-0"}\n\n',
+              ': heartbeat\n\nid: 1-0\nevent: text\ndata: {"type":"nessi","turnId":"turn-1","conversationId":"conversation-1","event":{"type":"text","agentId":"cloud","delta":"Hi"},"cursor":"1-0"}\n\n: heartbeat\n\n',
             ),
           );
           controller.close();

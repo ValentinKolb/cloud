@@ -1,10 +1,15 @@
-import type { DoneReason, Message, OutboundEvent, Provider, SessionStore, Tool, ToolContext } from "@valentinkolb/nessi";
+import type { ContentPart, DoneReason, Message, OutboundEvent, Provider, SessionStore, Tool, ToolContext } from "@valentinkolb/nessi";
 import type { Usage } from "@valentinkolb/nessi/ai";
 import type { z } from "zod";
 import type { RequestActor } from "../server";
 
 export const AI_MODEL_CAPABILITIES = ["streaming", "tools", "vision"] as const;
 export type AiModelCapability = (typeof AI_MODEL_CAPABILITIES)[number];
+
+export const AI_IMAGE_MEDIA_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"] as const;
+export type AiImageMediaType = (typeof AI_IMAGE_MEDIA_TYPES)[number];
+export const isAiImageMediaType = (value: string): value is AiImageMediaType =>
+  AI_IMAGE_MEDIA_TYPES.some((mediaType) => mediaType === value);
 
 export type AiProviderId = "openai" | "openrouter" | "anthropic" | "mistral" | "gemini" | "ollama" | "vllm" | "openai-compatible";
 
@@ -32,7 +37,12 @@ export type AiModelProfile = {
   creditsPerOutputToken?: number;
 };
 
-export type AiPublicModelProfile = Pick<AiModelProfile, "id" | "label" | "provider" | "model" | "capabilities" | "dataBoundary">;
+export type AiPublicModelProfile = Pick<
+  AiModelProfile,
+  "id" | "label" | "provider" | "model" | "capabilities" | "dataBoundary" | "contextWindow"
+>;
+
+export type AiUserContentPart = ContentPart;
 
 export type AiSettingsErrorCode =
   | "ai_disabled"
@@ -54,6 +64,8 @@ export type AiSettingsState =
       enabled: boolean;
       defaultModelId: string;
       globalInstructions: string;
+      compactionPrompt: string;
+      maxToolResultChars: number;
       profiles: AiModelProfile[];
     }
   | {
@@ -61,6 +73,8 @@ export type AiSettingsState =
       enabled: boolean;
       defaultModelId: string;
       globalInstructions: string;
+      compactionPrompt: string;
+      maxToolResultChars: number;
       profiles: AiModelProfile[];
       error: AiSettingsError;
     };
@@ -158,6 +172,23 @@ export type AiSseEvent = AiStreamEvent & {
 
 export type AiPendingTurnAction = Extract<AiStreamEvent, { type: "approval_request" | "frontend_tool" }>;
 
+export type AiUiBlock =
+  | { id: string; type: "text"; text: string }
+  | { id: string; type: "thinking"; text: string }
+  | {
+      id: string;
+      type: "tool_call";
+      callId: string;
+      name: string;
+      args?: unknown;
+      result?: unknown;
+      status: "running" | "called" | "completed" | "failed";
+    }
+  | { id: string; type: "approval_request"; request: Extract<AiStreamEvent, { type: "approval_request" }>; status: "pending" | "approved" | "rejected" }
+  | { id: string; type: "frontend_tool"; request: Extract<AiStreamEvent, { type: "frontend_tool" }>; status: "pending" | "completed" | "failed"; result?: unknown }
+  | { id: string; type: "compaction"; status: "running" | "completed" }
+  | { id: string; type: "error"; message: string };
+
 export type AiConversationStore = {
   createConversation(input: {
     appId: string;
@@ -173,6 +204,7 @@ export type AiConversationStore = {
     resource?: AiConversationResource;
   }): Promise<AiConversation | null>;
   listMessages(input: { conversationId: string }): Promise<AiStoredMessage[]>;
+  compactMessages(input: { conversationId: string; checkpointSeq: number; summary: Message; modelProfileId?: string | null }): Promise<void>;
   createTurn(input: { conversationId: string; modelProfileId: string }): Promise<AiTurn>;
   getRunningTurn(input: { conversationId: string }): Promise<AiTurn | null>;
   completeTurn(input: { turnId: string; status: Exclude<AiTurnStatus, "running">; error?: string | null }): Promise<void>;

@@ -14,7 +14,10 @@ export type {
   AppWorkspaceSidebarSectionProps,
 } from "./AppWorkspace";
 export { default as AppWorkspace } from "./AppWorkspace";
+export type { AvatarProps, AvatarSize } from "./Avatar";
 export { default as Avatar } from "./Avatar";
+export { createAvatarDataUrlFromFile, pickAvatarDataUrl } from "./avatar-upload";
+export { type AvatarUploadDialogOptions, openAvatarUploadDialog } from "./avatar-upload-dialog";
 export type {
   CalendarAttendee,
   CalendarDayBadge,

@@ -7,6 +7,7 @@ import {
   AiCreateConversationInputSchema,
   AiReplayQuerySchema,
   AiTurnInputSchema,
+  aiTurnInputToContent,
   toAiActionFailureResponse,
   toAiErrorResponse,
 } from "./http";
@@ -316,7 +317,7 @@ const createAiResourceRoutes = <TPath extends string, TParamsSchema extends z.Zo
         ]);
         return await createAiTurnResponse({
           conversationId: conversation.id,
-          input: body.message,
+          input: aiTurnInputToContent(body),
           actor: ctx.actor,
           requestedModelId: body.modelProfileId,
           modelPolicy: normalizePolicy(modelPolicy),

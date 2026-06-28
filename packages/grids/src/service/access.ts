@@ -9,6 +9,7 @@ const TABLE_BY_RESOURCE = {
   table: "grids.table_access",
   view: "grids.view_access",
   form: "grids.form_access",
+  documentTemplate: "grids.document_template_access",
   dashboard: "grids.dashboard_access",
 } as const;
 
@@ -77,6 +78,7 @@ const resourceIdFromBinding = (binding: AccessBinding): string => {
   if (binding.resourceType === "table") return binding.tableId;
   if (binding.resourceType === "view") return binding.viewId;
   if (binding.resourceType === "form") return binding.formId;
+  if (binding.resourceType === "documentTemplate") return binding.documentTemplateId;
   return binding.dashboardId;
 };
 
@@ -178,6 +180,8 @@ const insertAccessBinding = async (
     await client`INSERT INTO grids.view_access (view_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
   } else if (resourceType === "form") {
     await client`INSERT INTO grids.form_access (form_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
+  } else if (resourceType === "documentTemplate") {
+    await client`INSERT INTO grids.document_template_access (template_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
   } else {
     await client`INSERT INTO grids.dashboard_access (dashboard_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
   }
@@ -298,6 +302,19 @@ const listAccess = async (resourceType: keyof typeof TABLE_BY_RESOURCE, resource
       WHERE fa.form_id = ${resourceId}::uuid
       ORDER BY a.created_at
     `;
+  } else if (resourceType === "documentTemplate") {
+    rows = await sql<DbAccessRow[]>`
+      SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
+             a.permission, a.created_at,
+             COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
+      FROM grids.document_template_access dta
+      JOIN auth.access a ON a.id = dta.access_id
+      LEFT JOIN auth.users u ON u.id = a.user_id
+      LEFT JOIN auth.groups g ON g.id = a.group_id
+      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
+      WHERE dta.template_id = ${resourceId}::uuid
+      ORDER BY a.created_at
+    `;
   } else {
     rows = await sql<DbAccessRow[]>`
       SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
@@ -319,6 +336,7 @@ export const listBaseAccess = (baseId: string) => listAccess("base", baseId);
 export const listTableAccess = (tableId: string) => listAccess("table", tableId);
 export const listViewAccess = (viewId: string) => listAccess("view", viewId);
 export const listFormAccess = (formId: string) => listAccess("form", formId);
+export const listDocumentTemplateAccess = (templateId: string) => listAccess("documentTemplate", templateId);
 export const listDashboardAccess = (dashboardId: string) => listAccess("dashboard", dashboardId);
 
 /**
@@ -396,6 +414,7 @@ export type AccessBinding =
   | { resourceType: "table"; baseId: string; tableId: string }
   | { resourceType: "view"; baseId: string; tableId: string; viewId: string }
   | { resourceType: "form"; baseId: string; tableId: string; formId: string }
+  | { resourceType: "documentTemplate"; baseId: string; tableId: string; documentTemplateId: string }
   | { resourceType: "dashboard"; baseId: string; dashboardId: string };
 
 export const resolveAccessBinding = async (accessId: string, client: SqlClient = sql): Promise<AccessBinding | null> => {
@@ -443,6 +462,22 @@ export const resolveAccessBinding = async (accessId: string, client: SqlClient =
       baseId: formRow.base_id,
       tableId: formRow.table_id,
       formId: formRow.form_id,
+    };
+  }
+
+  const [documentTemplateRow] = await client<{ template_id: string; table_id: string; base_id: string }[]>`
+    SELECT dta.template_id, dt.table_id, t.base_id
+    FROM grids.document_template_access dta
+    JOIN grids.document_templates dt ON dt.id = dta.template_id
+    JOIN grids.tables t ON t.id = dt.table_id
+    WHERE dta.access_id = ${accessId}::uuid
+  `;
+  if (documentTemplateRow) {
+    return {
+      resourceType: "documentTemplate",
+      baseId: documentTemplateRow.base_id,
+      tableId: documentTemplateRow.table_id,
+      documentTemplateId: documentTemplateRow.template_id,
     };
   }
 

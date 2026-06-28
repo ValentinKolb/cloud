@@ -4,6 +4,7 @@ import { hasRole, type User } from "../contracts/shared";
 import type { LayoutAnnouncementsState } from "../server/middleware/settings";
 import { dates } from "../shared";
 import { readThemeFromCookieHeader } from "../shared/theme";
+import Avatar from "../ui/misc/Avatar";
 import type { LayoutBreadcrumb } from "../ui/layout";
 import AppLaunchpad, { type AppLaunchpadApp } from "./AppLaunchpad.island";
 import Footer from "./Footer.island";
@@ -178,10 +179,12 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
   // authenticated page — defense-in-depth.
   const navMenuUser = user
     ? {
+        id: user.id,
         uid: user.uid,
         displayName: user.displayName,
         profile: user.profile,
         roles: user.roles,
+        avatarHash: user.avatarHash,
       }
     : undefined;
   // Aggregate legalLinks from every running app (last-wins on duplicate href).
@@ -267,10 +270,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
               {" "}
               <a href="/me" class="hidden md:flex items-center justify-center cursor-pointer" aria-label="Profile">
                 {" "}
-                <span class="inline-flex items-center justify-center w-6 h-6 text-[9px] font-semibold rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300">
-                  {" "}
-                  {(user.displayName || user.uid).slice(0, 2).toUpperCase()}{" "}
-                </span>{" "}
+                <Avatar username={user.displayName || user.uid} userId={user.id} avatarHash={user.avatarHash} size="xs" />{" "}
               </a>{" "}
               <div class="md:hidden">
                 {" "}

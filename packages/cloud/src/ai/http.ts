@@ -2,16 +2,48 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { type AuthContext, err, fail, respond } from "../server";
 import { isAiSettingsError } from "./runtime";
-import type { AiSettingsError } from "./types";
+import { isAiImageMediaType } from "./types";
+import type { AiSettingsError, AiUserContentPart } from "./types";
 
 export const AiCreateConversationInputSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
 });
 
+export const AiUserContentPartSchema = z.union([
+  z.string().trim().min(1).max(20000),
+  z.object({
+    type: z.literal("text"),
+    text: z.string().trim().min(1).max(20000),
+  }),
+  z.object({
+    type: z.literal("file"),
+    data: z.string().min(1).max(12_000_000),
+    mediaType: z.string().trim().refine(isAiImageMediaType, "Unsupported image media type."),
+  }),
+]);
+
 export const AiTurnInputSchema = z.object({
-  message: z.string().trim().min(1).max(20000),
+  message: z.string().trim().max(20000).optional(),
+  content: z.array(AiUserContentPartSchema).min(1).max(12).optional(),
   modelProfileId: z.string().trim().min(1).optional(),
+}).refine((input) => Boolean(input.message?.trim() || input.content?.length), {
+  message: "Message or content is required.",
+  path: ["message"],
 });
+
+export type AiTurnInput = z.infer<typeof AiTurnInputSchema>;
+
+export const aiTurnInputToContent = (input: AiTurnInput): string | AiUserContentPart[] => {
+  const message = input.message?.trim() ?? "";
+  if (!input.content?.length) return message;
+
+  const content = input.content as AiUserContentPart[];
+  const hasTextPart = content.some((part) => {
+    if (typeof part === "string") return part.trim().length > 0;
+    return part.type === "text" && part.text.trim().length > 0;
+  });
+  return message && !hasTextPart ? [{ type: "text", text: message }, ...content] : content;
+};
 
 export const AiReplayQuerySchema = z.object({
   after: z.string().trim().min(1).optional(),

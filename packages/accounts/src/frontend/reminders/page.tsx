@@ -2,7 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
+import { Avatar, DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
@@ -103,14 +103,18 @@ export default ssr<AuthContext>(async (c) => {
                 scrollPreserveKey="accounts-reminders-table"
                 renderCell={({ row: entry, col }) => {
                   if (col.id === "user") {
+                    const label = entry.displayName || entry.uid || "(deleted user)";
                     return (
-                      <div>
-                        <div class="truncate font-medium text-primary">{entry.displayName || entry.uid || "(deleted user)"}</div>
-                        {entry.lastError ? (
-                          <div class="truncate text-[11px] text-red-500" title={entry.lastError}>
-                            {entry.lastError}
-                          </div>
-                        ) : null}
+                      <div class="flex min-w-0 items-center gap-2">
+                        <Avatar username={label} userId={entry.userId} avatarHash={entry.avatarHash} size="xs" />
+                        <div class="min-w-0 flex-1">
+                          <div class="truncate font-medium text-primary">{label}</div>
+                          {entry.lastError ? (
+                            <div class="truncate text-[11px] text-red-500" title={entry.lastError}>
+                              {entry.lastError}
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                     );
                   }

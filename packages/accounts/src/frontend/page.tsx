@@ -2,7 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
 import { getDefaultGroupScope, isAdminUser } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { LinkCard, LogEntriesTable, ProgressBar, StatCell } from "@valentinkolb/cloud/ui";
+import { Avatar, LinkCard, LogEntriesTable, ProgressBar, StatCell } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../config";
@@ -61,15 +61,13 @@ export default ssr<AuthContext>(async (c) => {
           {/* Identity */}
           <section class="paper">
             <div class="flex items-center gap-4 p-5">
-              <div
-                class={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${
-                  user.provider === "ipa"
-                    ? "bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300"
-                    : "bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300"
-                }`}
-              >
-                <i class={user.provider === "ipa" ? "ti ti-building-fortress text-lg" : "ti ti-key text-lg"} />
-              </div>
+              <Avatar
+                username={user.displayName || user.uid}
+                userId={user.id}
+                avatarHash={user.avatarHash}
+                size="md"
+                class="h-11 w-11"
+              />
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-2 flex-wrap">
                   <h1 class="text-sm font-semibold text-primary">{user.displayName || user.uid}</h1>

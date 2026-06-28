@@ -3,14 +3,15 @@
  * account. Owned by core, mounted at /api/me/*. Auth flows live in /auth;
  * third-party management lives in the accounts admin app.
  */
+
+import { ok } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
+import { createMiddleware } from "hono/factory";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { auth, jsonResponse, rateLimit, requiresAuth, respond, v, type AuthContext } from "../server";
-import { ok } from "@valentinkolb/stdlib";
 import {
-  ChangePasswordSchema,
   AccountActivityListResponseSchema,
+  ChangePasswordSchema,
   CreateAccountRequestSchema,
   CreateUserApiKeyResponseSchema,
   CreateUserApiKeySchema,
@@ -19,10 +20,13 @@ import {
   ListWebAuthnPasskeysResponseSchema,
   MessageResponseSchema,
   ServiceAccountCredentialSchema,
+  UpdateAvatarResponseSchema,
+  UpdateAvatarSchema,
   UpdateProfileSchema,
   UserSchema,
   WebAuthnPasskeySchema,
 } from "../contracts";
+import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, v } from "../server";
 import { accountLifecycle, accountsAppService as accountsService, audit, serviceAccountCredentials, webauthn } from "../services";
 
 const toAccountsActor = (user: AuthContext["Variables"]["user"]) => ({
@@ -30,6 +34,14 @@ const toAccountsActor = (user: AuthContext["Variables"]["user"]) => ({
   uid: user.uid,
   roles: user.roles,
   provider: user.provider,
+});
+
+const requireUserBackedActor = createMiddleware<AuthContext>(async (c, next) => {
+  const user = c.get("user") as AuthContext["Variables"]["user"] | undefined;
+  if (!user) {
+    return c.json({ message: "Self-service endpoints require a user-backed actor", code: "FORBIDDEN" }, 403);
+  }
+  return next();
 });
 
 const ExtendAccountResponseSchema = z.object({
@@ -58,6 +70,7 @@ const AccountActivityQuerySchema = z.object({
 const app = new Hono<AuthContext>()
   .use(rateLimit())
   .use(auth.requireRole("authenticated"))
+  .use(requireUserBackedActor)
 
   .get(
     "/activity",
@@ -119,6 +132,56 @@ const app = new Hono<AuthContext>()
         const result = await accountsService.user.update({ actor: toAccountsActor(user), id: user.id, data });
         if (!result.ok) return result;
         return ok({ message: "Profile updated." });
+      }),
+  )
+
+  .put(
+    "/avatar",
+    describeRoute({
+      tags: ["Me"],
+      summary: "Update current user avatar",
+      description: "Store a small profile picture for the authenticated account. Avatars are visible to user-backed authenticated actors.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(UpdateAvatarResponseSchema, "Avatar updated"),
+        400: jsonResponse(ErrorResponseSchema, "Failed to update avatar"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+      },
+    }),
+    v("json", UpdateAvatarSchema),
+    async (c) =>
+      respond(c, async () => {
+        const user = c.get("user");
+        const data = c.req.valid("json");
+        const result = await accountsService.user.setAvatar({
+          actor: toAccountsActor(user),
+          id: user.id,
+          dataUrl: data.dataUrl,
+        });
+        if (!result.ok) return result;
+        return ok({ message: "Avatar updated.", avatarHash: result.data.avatarHash });
+      }),
+  )
+
+  .delete(
+    "/avatar",
+    describeRoute({
+      tags: ["Me"],
+      summary: "Delete current user avatar",
+      description: "Remove the authenticated account's profile picture.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Avatar deleted"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        404: jsonResponse(ErrorResponseSchema, "User not found"),
+      },
+    }),
+    async (c) =>
+      respond(c, async () => {
+        const user = c.get("user");
+        const result = await accountsService.user.clearAvatar({ actor: toAccountsActor(user), id: user.id });
+        if (!result.ok) return result;
+        return ok({ message: "Avatar deleted." });
       }),
   )
 

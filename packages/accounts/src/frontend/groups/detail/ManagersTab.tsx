@@ -1,4 +1,4 @@
-import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
+import { Avatar, DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import type { EntityListItem, PaginationResponse } from "@/contracts";
 import { getPrimaryAccountBadge, getProviderBadge } from "../../lib/account-badges";
 import AddMember from "./AddMember.island";
@@ -93,12 +93,18 @@ export default function ManagersTab(props: ManagersTabProps) {
                 if (col.id === "type") return <span class="text-dimmed">User</span>;
                 if (col.id === "name") {
                   const label = `${user.displayName || user.mail || user.uid} (${user.uid})`;
+                  const content = (
+                    <>
+                      <Avatar username={user.displayName || user.mail || user.uid} userId={user.id} avatarHash={user.avatarHash} size="xs" />
+                      <span class="truncate font-medium">{label}</span>
+                    </>
+                  );
                   return href ? (
-                    <a href={href} class="block truncate font-medium text-primary hover:underline">
-                      {label}
+                    <a href={href} class="flex min-w-0 items-center gap-2 text-primary hover:underline">
+                      {content}
                     </a>
                   ) : (
-                    <span class="truncate font-medium text-primary">{label}</span>
+                    <span class="flex min-w-0 items-center gap-2 text-primary">{content}</span>
                   );
                 }
                 if (col.id === "detail") {

@@ -531,12 +531,12 @@ export const GridsPermissionsPage = () => (
           {
             title: "Template setup",
             icon: "ti-file-type-pdf",
-            text: "Creating, editing, deleting, and draft-previewing templates require admin access for the base/table setup.",
+            text: "Creating a template starts from base/table admin access. Existing templates can also be managed by users with admin access on that document template.",
           },
           {
             title: "Generate and redownload",
             icon: "ti-download",
-            text: "Generating a document from a saved template and redownloading an existing run require read access to the relevant resource.",
+            text: "Generating from a saved template and redownloading its runs require read access to that template or inherited table/base access.",
           },
         ]}
       />

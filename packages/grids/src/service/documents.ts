@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import {
   coreSettings,
   type GotenbergConfig,
@@ -16,6 +17,7 @@ import { sql } from "bun";
 import { type BarcodeFormat, BarcodeRenderError, barcodeDataUrl } from "../barcode-rendering";
 import type {
   CreateDocumentTemplateInput,
+  DocumentProfile,
   DocumentRun,
   DocumentTemplate,
   RecordSnapshot,
@@ -26,7 +28,9 @@ import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { previewDslQuery } from "../query-dsl/preview";
 import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import { collectDslPlanExtraFieldTableIds } from "../query-dsl/source-plan";
+import { get as getBase } from "./bases";
 import { listByTable as listFields } from "./fields";
+import { getContent as getFileContent, listForRecordField } from "./files";
 import { buildBaseGqlResolverContext } from "./gql-resolver-context";
 import { parseJsonbRow } from "./jsonb";
 import { get as getRecord } from "./records";
@@ -44,6 +48,8 @@ const RENDER_MAX_BYTES = 300_000;
 const SNAPSHOT_MAX_DEPTH = 4;
 const SNAPSHOT_MAX_RECORDS = 500;
 const DOCUMENT_QUERY_MAX_ROWS = 10_000;
+const DOCUMENT_IMAGE_MAX_BYTES = 2_000_000;
+const DOCUMENT_IMAGE_MAX_COUNT = 12;
 
 const byteLength = (value: string): number => new TextEncoder().encode(value).byteLength;
 
@@ -56,8 +62,35 @@ export type DocumentTemplateAppData = {
   logoDataUri: string;
 };
 
+export type DocumentTemplateBusinessData = {
+  legalName: string;
+  senderLine: string;
+  address: string;
+  department: string | null;
+  contactEmail: string | null;
+  phone: string | null;
+  url: string | null;
+  taxId: string | null;
+  registration: string | null;
+  bankName: string | null;
+  iban: string | null;
+  bic: string | null;
+  paymentTerms: string | null;
+  footerText: string | null;
+};
+
 type DocumentTemplateRecordContext = Pick<GridRecord, "id" | "tableId" | "version" | "data" | "createdAt" | "updatedAt">;
 type DocumentTemplateTableContext = Pick<Table, "id" | "shortId" | "name">;
+
+type DocumentTemplateImage = {
+  fieldId: string;
+  fieldName: string;
+  fileId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  url: string;
+};
 
 const defaultLogoDataUri = () => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(CLOUD_LOGO_SVG)}`;
 
@@ -115,6 +148,34 @@ export const buildTemplateAppData = async (settings?: unknown): Promise<Document
     coreSettings.get<string>("app.logo"),
   ]);
   return appDataFromValues({ name, url, contactEmail, copyright, timezone, logo });
+};
+
+const documentProfileValue = (profile: DocumentProfile, key: keyof DocumentProfile): string => stringValue(profile[key]);
+
+export const buildTemplateBusinessData = async (
+  baseId: string,
+  appData: DocumentTemplateAppData = defaultTemplateAppData(),
+): Promise<DocumentTemplateBusinessData> => {
+  const profile = (await getBase(baseId))?.documentProfile ?? {};
+  const legalName = documentProfileValue(profile, "legalName") || appData.name;
+  const address = documentProfileValue(profile, "address");
+  const senderLine = documentProfileValue(profile, "senderLine") || [legalName, address.replace(/\n/g, " | ")].filter(Boolean).join(" | ");
+  return {
+    legalName,
+    senderLine,
+    address,
+    department: nullableStringValue(profile.department),
+    contactEmail: nullableStringValue(profile.contactEmail) ?? appData.contactEmail,
+    phone: nullableStringValue(profile.phone),
+    url: nullableStringValue(profile.url) ?? (appData.url || null),
+    taxId: nullableStringValue(profile.taxId),
+    registration: nullableStringValue(profile.registration),
+    bankName: nullableStringValue(profile.bankName),
+    iban: nullableStringValue(profile.iban),
+    bic: nullableStringValue(profile.bic),
+    paymentTerms: nullableStringValue(profile.paymentTerms),
+    footerText: nullableStringValue(profile.footerText),
+  };
 };
 
 const barcodeDataUrlFilter: LiquidTemplateFilter = (value, bcid = "code128", showText = false) => {
@@ -308,6 +369,27 @@ export const getTemplate = async (templateId: string): Promise<DocumentTemplate 
     WHERE dt.id = ${templateId}::uuid AND dt.deleted_at IS NULL
   `;
   return row ? mapTemplate(row) : null;
+};
+
+export const getTemplateByShortId = async (tableId: string, shortId: string): Promise<DocumentTemplate | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT dt.*
+    FROM grids.document_templates dt
+    JOIN grids.tables t ON t.id = dt.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE dt.table_id = ${tableId}::uuid
+      AND dt.short_id = ${shortId}
+      AND dt.deleted_at IS NULL
+  `;
+  return row ? mapTemplate(row) : null;
+};
+
+export const getTemplateByIdOrShortId = async (tableId: string, idOrSlug: string): Promise<DocumentTemplate | null> => {
+  if (idOrSlug.length === 36 && idOrSlug.includes("-")) {
+    const template = await getTemplate(idOrSlug);
+    return template && template.tableId === tableId ? template : null;
+  }
+  return getTemplateByShortId(tableId, idOrSlug);
 };
 
 const validateTemplateWrite = (input: {
@@ -579,6 +661,22 @@ export const buildTemplateInputContext = (
   record: DocumentTemplateRecordContext,
   table: DocumentTemplateTableContext,
   appData: DocumentTemplateAppData = defaultTemplateAppData(),
+  businessData: DocumentTemplateBusinessData = {
+    legalName: appData.name,
+    senderLine: appData.name,
+    address: "",
+    department: null,
+    contactEmail: appData.contactEmail,
+    phone: null,
+    url: appData.url || null,
+    taxId: null,
+    registration: null,
+    bankName: null,
+    iban: null,
+    bic: null,
+    paymentTerms: null,
+    footerText: null,
+  },
 ): Record<string, unknown> => ({
   record: {
     id: record.id,
@@ -594,6 +692,7 @@ export const buildTemplateInputContext = (
     name: table.name,
   },
   app: appData,
+  business: businessData,
 });
 
 export const buildRenderData = (params: {
@@ -601,7 +700,10 @@ export const buildRenderData = (params: {
   table: DocumentTemplateTableContext;
   columns: unknown[];
   rows: unknown[];
+  images?: DocumentTemplateImage[];
+  primaryImage?: DocumentTemplateImage | null;
   app?: DocumentTemplateAppData;
+  business?: DocumentTemplateBusinessData;
   documentNumber?: string;
   generatedAt?: string;
   snapshot?: RecordSnapshot;
@@ -614,9 +716,27 @@ export const buildRenderData = (params: {
   },
   rows: params.rows,
   columns: params.columns,
-  images: [],
-  primaryImage: null,
+  images: params.images ?? [],
+  primaryImage: params.primaryImage ?? params.images?.[0] ?? null,
   app: params.app ?? defaultTemplateAppData(),
+  business:
+    params.business ??
+    ({
+      legalName: (params.app ?? defaultTemplateAppData()).name,
+      senderLine: (params.app ?? defaultTemplateAppData()).name,
+      address: "",
+      department: null,
+      contactEmail: (params.app ?? defaultTemplateAppData()).contactEmail,
+      phone: null,
+      url: (params.app ?? defaultTemplateAppData()).url || null,
+      taxId: null,
+      registration: null,
+      bankName: null,
+      iban: null,
+      bic: null,
+      paymentTerms: null,
+      footerText: null,
+    } satisfies DocumentTemplateBusinessData),
   document: {
     number: params.documentNumber ?? null,
     generatedAt: params.generatedAt ?? null,
@@ -624,15 +744,42 @@ export const buildRenderData = (params: {
   snapshot: params.snapshot ?? null,
 });
 
+const buildTemplateImages = async (tableId: string, recordId: string, fields: Field[]): Promise<DocumentTemplateImage[]> => {
+  const fileFields = fields.filter((field) => field.type === "file" && !field.deletedAt);
+  const images: DocumentTemplateImage[] = [];
+  for (const field of fileFields) {
+    if (images.length >= DOCUMENT_IMAGE_MAX_COUNT) break;
+    const listed = await listForRecordField({ tableId, recordId, fieldId: field.id });
+    if (!listed.ok) continue;
+    for (const file of listed.data) {
+      if (images.length >= DOCUMENT_IMAGE_MAX_COUNT) break;
+      if (!file.mimeType.startsWith("image/") || file.sizeBytes > DOCUMENT_IMAGE_MAX_BYTES) continue;
+      const content = await getFileContent({ tableId, recordId, fieldId: field.id, fileId: file.id });
+      if (!content.ok) continue;
+      images.push({
+        fieldId: field.id,
+        fieldName: field.name,
+        fileId: file.id,
+        filename: file.filename,
+        mimeType: file.mimeType,
+        sizeBytes: file.sizeBytes,
+        url: `data:${file.mimeType};base64,${Buffer.from(content.data.bytes).toString("base64")}`,
+      });
+    }
+  }
+  return images;
+};
+
 export const buildLiveRenderData = async (params: {
-  template: DocumentTemplate;
+  template: Pick<DocumentTemplate, "source">;
   table: Table;
   record: GridRecord;
   app?: DocumentTemplateAppData;
   dateConfig?: DateContext;
 }): Promise<Result<{ source: string; columns: unknown[]; rows: Array<Record<string, unknown>>; data: Record<string, unknown> }>> => {
   const appData = params.app ?? (await buildTemplateAppData());
-  const source = await renderDocumentSource(params.template, buildTemplateInputContext(params.record, params.table, appData));
+  const businessData = await buildTemplateBusinessData(params.table.baseId, appData);
+  const source = await renderDocumentSource(params.template, buildTemplateInputContext(params.record, params.table, appData, businessData));
   if (!source.ok) return source;
 
   const executed = await executeDocumentGqlSource({
@@ -642,13 +789,17 @@ export const buildLiveRenderData = async (params: {
     dateConfig: params.dateConfig,
   });
   if (!executed.ok) return executed;
+  const fields = await listFields(params.table.id);
+  const images = await buildTemplateImages(params.table.id, params.record.id, fields);
 
   const data = buildRenderData({
     record: params.record,
     table: params.table,
     columns: executed.data.columns,
     rows: executed.data.rows,
+    images,
     app: appData,
+    business: businessData,
   });
   return ok({ source: source.data, columns: executed.data.columns, rows: executed.data.rows, data });
 };

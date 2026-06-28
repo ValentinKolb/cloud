@@ -1,9 +1,10 @@
-import { test, expect, describe } from "bun:test";
-import { resolveEffectivePermission, hasAtLeast, type Grant } from "./permission-resolver";
+import { describe, expect, test } from "bun:test";
+import { type Grant, hasAtLeast, resolveEffectivePermission } from "./permission-resolver";
 
 const baseId = "base-1";
 const tableId = "table-1";
 const viewId = "view-1";
+const documentTemplateId = "template-1";
 const dashboardId = "dash-1";
 
 // Most tests use the "user" tier (most-specific principal). Cross-tier
@@ -60,6 +61,19 @@ describe("resolveEffectivePermission — resource scope", () => {
   test("view with no grant inherits from table", () => {
     const grants: Grant[] = [u({ resourceType: "table", resourceId: tableId, level: "write" })];
     expect(resolveEffectivePermission(grants, { baseId, tableId, viewId })).toBe("write");
+  });
+
+  test("document-template grant shadows table grant for document target", () => {
+    const grants: Grant[] = [
+      u({ resourceType: "table", resourceId: tableId, level: "write" }),
+      u({ resourceType: "documentTemplate", resourceId: documentTemplateId, level: "read" }),
+    ];
+    expect(resolveEffectivePermission(grants, { baseId, tableId, documentTemplateId })).toBe("read");
+  });
+
+  test("document template inherits from table when no template grant exists", () => {
+    const grants: Grant[] = [u({ resourceType: "table", resourceId: tableId, level: "read" })];
+    expect(resolveEffectivePermission(grants, { baseId, tableId, documentTemplateId })).toBe("read");
   });
 
   test("grants for different bases ignored", () => {

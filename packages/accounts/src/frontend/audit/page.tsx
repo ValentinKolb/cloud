@@ -8,7 +8,7 @@ import {
 } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
+import { Avatar, DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { expectUserBackedActor } from "@/shared/actor";
 import { ssr } from "../../config";
@@ -84,8 +84,6 @@ const providerClass = (provider: string | null): string =>
   provider === "ipa"
     ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
     : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300";
-
-const initialOf = (value: string): string => value.trim().charAt(0).toUpperCase();
 
 export default ssr<AuthContext>(async (c) => {
   const user = expectUserBackedActor(c);
@@ -181,9 +179,7 @@ export default ssr<AuthContext>(async (c) => {
                   class="tag max-w-full bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
                   title={`Actor: ${state.actor}`}
                 >
-                  <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[9px] font-semibold text-blue-700 dark:bg-blue-800 dark:text-blue-200">
-                    {initialOf(actorFilterLabel)}
-                  </span>
+                  <Avatar username={actorFilterLabel} userId={state.actor} size="xs" class="h-4 w-4 text-[8px]" />
                   <span class="truncate">Actor: {actorFilterLabel}</span>
                   <i class="ti ti-x" />
                 </a>
@@ -194,9 +190,7 @@ export default ssr<AuthContext>(async (c) => {
                   class="tag max-w-full bg-violet-50 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
                   title={`Target: ${state.target}`}
                 >
-                  <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-violet-100 text-[9px] font-semibold text-violet-700 dark:bg-violet-800 dark:text-violet-200">
-                    {initialOf(targetFilterLabel)}
-                  </span>
+                  <Avatar username={targetFilterLabel} userId={state.target} size="xs" class="h-4 w-4 text-[8px]" />
                   <span class="truncate">Target: {targetFilterLabel}</span>
                   <i class="ti ti-x" />
                 </a>
@@ -234,22 +228,25 @@ export default ssr<AuthContext>(async (c) => {
                   if (col.id === "actor") {
                     const actorLabel = event.actor.uid ?? event.actor.userId ?? "System";
                     return (
-                      <div class="flex min-w-0 flex-col gap-1">
-                        {event.actor.userId ? (
-                          <a
-                            href={buildAuditUrl({ ...state, actor: event.actor.userId, page: 1 })}
-                            class="truncate font-medium text-primary hover:underline"
-                          >
-                            {actorLabel}
-                          </a>
-                        ) : (
-                          <span class="truncate font-medium text-primary">{actorLabel}</span>
-                        )}
-                        {event.actor.provider ? (
-                          <span class={`w-fit rounded px-1.5 py-0.5 text-[10px] font-medium ${providerClass(event.actor.provider)}`}>
-                            {event.actor.provider}
-                          </span>
-                        ) : null}
+                      <div class="flex min-w-0 items-center gap-2">
+                        <Avatar username={actorLabel} userId={event.actor.userId} size="xs" />
+                        <div class="min-w-0 flex-1">
+                          {event.actor.userId ? (
+                            <a
+                              href={buildAuditUrl({ ...state, actor: event.actor.userId, page: 1 })}
+                              class="block truncate font-medium text-primary hover:underline"
+                            >
+                              {actorLabel}
+                            </a>
+                          ) : (
+                            <span class="block truncate font-medium text-primary">{actorLabel}</span>
+                          )}
+                          {event.actor.provider ? (
+                            <span class={`w-fit rounded px-1.5 py-0.5 text-[10px] font-medium ${providerClass(event.actor.provider)}`}>
+                              {event.actor.provider}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     );
                   }
@@ -269,15 +266,24 @@ export default ssr<AuthContext>(async (c) => {
                           ? `/app/accounts/groups/${event.target.id}`
                           : null;
                     return (
-                      <div class="flex min-w-0 flex-col gap-1">
-                        {href ? (
-                          <a href={href} class="truncate font-medium text-primary hover:underline">
-                            {targetLabel}
-                          </a>
+                      <div class="flex min-w-0 items-center gap-2">
+                        {event.target.type === "user" ? (
+                          <Avatar username={targetLabel} userId={event.target.id} size="xs" />
                         ) : (
-                          <span class="truncate font-medium text-primary">{targetLabel}</span>
+                          <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                            <i class={`ti ${event.target.type === "group" ? "ti-users-group" : "ti-target"} text-xs`} />
+                          </span>
                         )}
-                        <span class="truncate text-[11px] text-dimmed">{event.target.type ?? "target"}</span>
+                        <div class="min-w-0 flex-1">
+                          {href ? (
+                            <a href={href} class="block truncate font-medium text-primary hover:underline">
+                              {targetLabel}
+                            </a>
+                          ) : (
+                            <span class="block truncate font-medium text-primary">{targetLabel}</span>
+                          )}
+                          <span class="block truncate text-[11px] text-dimmed">{event.target.type ?? "target"}</span>
+                        </div>
                       </div>
                     );
                   }

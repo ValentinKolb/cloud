@@ -4,6 +4,7 @@ import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { DocumentProfile } from "../../../contracts";
 import type { Base, Dashboard, Field, Form, Table } from "../../../service";
 import { createDraft } from "../editor-draft";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
@@ -22,6 +23,7 @@ type Props = {
     shortId: string;
     name: string;
     description: string | null;
+    documentProfile: DocumentProfile;
     defaultDashboardId: string | null;
   };
   accessEntries: AccessEntry[];
@@ -52,6 +54,15 @@ export default function BaseSettingsPanel(props: Props) {
           description="Base name and description shown on the grids overview."
         >
           <GeneralForm base={props.base} />
+        </SettingsModal.Tab>
+
+        <SettingsModal.Tab
+          id="documents"
+          title="Documents"
+          icon="ti ti-file-type-pdf"
+          description="Business identity used by document templates."
+        >
+          <DocumentProfileForm base={props.base} />
         </SettingsModal.Tab>
 
         <SettingsModal.Tab
@@ -104,6 +115,122 @@ export default function BaseSettingsPanel(props: Props) {
         </SettingsModal.Tab>
       </SettingsModal>
     </div>
+  );
+}
+
+type DocumentProfileDraft = Required<Record<keyof DocumentProfile, string>>;
+
+const normalizeDocumentProfile = (profile: DocumentProfile = {}): DocumentProfileDraft => ({
+  legalName: profile.legalName ?? "",
+  senderLine: profile.senderLine ?? "",
+  address: profile.address ?? "",
+  department: profile.department ?? "",
+  contactEmail: profile.contactEmail ?? "",
+  phone: profile.phone ?? "",
+  url: profile.url ?? "",
+  taxId: profile.taxId ?? "",
+  registration: profile.registration ?? "",
+  bankName: profile.bankName ?? "",
+  iban: profile.iban ?? "",
+  bic: profile.bic ?? "",
+  paymentTerms: profile.paymentTerms ?? "",
+  footerText: profile.footerText ?? "",
+});
+
+const cleanDocumentProfile = (draft: DocumentProfileDraft): DocumentProfile => {
+  const entries = Object.entries(draft)
+    .map(([key, value]) => [key, value.trim()] as const)
+    .filter(([, value]) => value.length > 0);
+  return Object.fromEntries(entries) as DocumentProfile;
+};
+
+function DocumentProfileForm(props: { base: { id: string; documentProfile: DocumentProfile } }) {
+  const draft = createDraft(normalizeDocumentProfile(props.base.documentProfile));
+  const patch = (partial: Partial<DocumentProfileDraft>) => draft.patch(partial);
+  const value =
+    <K extends keyof DocumentProfileDraft>(key: K) =>
+    () =>
+      draft.draft()[key];
+
+  const mutation = mutations.create<Base, void>({
+    mutation: async () => {
+      const res = await apiClient.bases[":baseId"].$patch({
+        param: { baseId: props.base.id },
+        json: { documentProfile: cleanDocumentProfile(draft.draft()) },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to save document profile"));
+      return res.json();
+    },
+    onSuccess: (next) => {
+      draft.markSaved(normalizeDocumentProfile(next.documentProfile));
+      refreshCurrentPath();
+    },
+    onError: (e) => prompts.error(e.message),
+  });
+
+  return (
+    <form
+      class="grid grid-cols-1 gap-3 lg:grid-cols-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        mutation.mutate(undefined);
+      }}
+    >
+      <TextInput label="Legal name" icon="ti ti-building" value={value("legalName")} onInput={(v) => patch({ legalName: v })} />
+      <TextInput label="Department" icon="ti ti-users" value={value("department")} onInput={(v) => patch({ department: v })} />
+      <div class="lg:col-span-2">
+        <TextInput
+          label="Sender line"
+          description="Shown above recipient address blocks."
+          icon="ti ti-mail-forward"
+          value={value("senderLine")}
+          onInput={(v) => patch({ senderLine: v })}
+        />
+      </div>
+      <div class="lg:col-span-2">
+        <TextInput
+          label="Address"
+          icon="ti ti-map-pin"
+          value={value("address")}
+          onInput={(v) => patch({ address: v })}
+          multiline
+          lines={3}
+        />
+      </div>
+      <TextInput label="Contact email" icon="ti ti-mail" value={value("contactEmail")} onInput={(v) => patch({ contactEmail: v })} />
+      <TextInput label="Phone" icon="ti ti-phone" value={value("phone")} onInput={(v) => patch({ phone: v })} />
+      <TextInput label="Website" icon="ti ti-link" value={value("url")} onInput={(v) => patch({ url: v })} />
+      <TextInput label="Tax ID / VAT" icon="ti ti-receipt-tax" value={value("taxId")} onInput={(v) => patch({ taxId: v })} />
+      <TextInput label="Registration" icon="ti ti-certificate" value={value("registration")} onInput={(v) => patch({ registration: v })} />
+      <TextInput label="Bank" icon="ti ti-building-bank" value={value("bankName")} onInput={(v) => patch({ bankName: v })} />
+      <TextInput label="IBAN" icon="ti ti-credit-card" value={value("iban")} onInput={(v) => patch({ iban: v })} />
+      <TextInput label="BIC" icon="ti ti-credit-card" value={value("bic")} onInput={(v) => patch({ bic: v })} />
+      <div class="lg:col-span-2">
+        <TextInput
+          label="Payment terms"
+          icon="ti ti-calendar-dollar"
+          value={value("paymentTerms")}
+          onInput={(v) => patch({ paymentTerms: v })}
+          multiline
+          lines={2}
+        />
+      </div>
+      <div class="lg:col-span-2">
+        <TextInput
+          label="Footer text"
+          icon="ti ti-text-caption"
+          value={value("footerText")}
+          onInput={(v) => patch({ footerText: v })}
+          multiline
+          lines={2}
+        />
+      </div>
+      <Show when={draft.dirty()}>
+        <button type="submit" disabled={mutation.loading()} class="btn-primary btn-sm self-start lg:col-span-2">
+          {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save document profile"}
+        </button>
+      </Show>
+    </form>
   );
 }
 

@@ -1,29 +1,30 @@
-import { sql, type SQL } from "bun";
+import { type SQL, sql } from "bun";
+import type { BaseUser, MutationResult, PaginationResponse, Role, User, UserProfile, UserProvider } from "../../contracts/shared";
+import { freeipa } from "../../server/services";
+import { createAuthLoginUrl } from "../../shared/redirect";
+import { getFreeIpaConfig } from "../freeipa-config";
+import { getServiceIpaSession } from "../ipa/service-account";
 import { notifications } from "../notifications";
+import { toPgTextArray, toPgUuidArray } from "../postgres";
+import { providers } from "../providers";
+import { session } from "../session";
 import * as settings from "../settings";
 import { renderTemplate } from "../settings/templates";
-import { session } from "../session";
-import { freeipa } from "../../server/services";
-import { providers } from "../providers";
-import { getServiceIpaSession } from "../ipa/service-account";
-import { transitionIpaUserToLocal } from "./switching";
+import { buildRoles } from "./authz";
+import { buildBaseUser, resolveProviderProfile } from "./base-user";
+import { managedGroupIdsSubquery, managedGroupsNamesSubquery, recursiveGroupIdsSubquery, recursiveGroupNamesSubquery } from "./group-sql";
+import { buildIpaUserData, emptyIpaUserData, userIpaDataColumns, userIpaDataJoin } from "./ipa-data";
 import {
   canPersistStoredAdmin,
   getDefaultAccountExpiry,
   parseManualAccountExpiry,
-  resolveEffectiveAdminState,
   resolveAccountExpires,
-  resolveStoredAdminState,
+  resolveEffectiveAdminState,
   resolveTargetAccountExpiry,
 } from "./model";
-import { buildRoles } from "./authz";
-import { toPgTextArray, toPgUuidArray } from "../postgres";
-import { buildBaseUser, resolveProviderProfile } from "./base-user";
-import { managedGroupIdsSubquery, managedGroupsNamesSubquery, recursiveGroupIdsSubquery, recursiveGroupNamesSubquery } from "./group-sql";
-import { getFreeIpaConfig } from "../freeipa-config";
-import { createAuthLoginUrl } from "../../shared/redirect";
-import type { BaseUser, MutationResult, PaginationResponse, Role, User, UserProfile, UserProvider } from "../../contracts/shared";
-import { buildIpaUserData, emptyIpaUserData, userIpaDataColumns, userIpaDataJoin } from "./ipa-data";
+import { transitionIpaUserToLocal } from "./switching";
+
+export { clearAvatar, getAvatar, parseAvatarDataUrl, setAvatar } from "./avatar";
 
 type DbRow = Record<string, unknown>;
 type UserMutationTarget = BaseUser & { accountExpires: string | null; storedAdmin: boolean };
@@ -56,15 +57,6 @@ type UpdateUserData = {
     };
     sshPublicKeys?: string[];
   };
-};
-
-const getUserRow = async (id: string): Promise<DbRow | null> => {
-  const rows = await sql<DbRow[]>`
-    SELECT *
-    FROM auth.users
-    WHERE id = ${id}::uuid
-  `;
-  return rows[0] ?? null;
 };
 
 const sendMagicLinkEmail = async (email: string): Promise<void> => {
@@ -127,6 +119,7 @@ const buildUser = (row: DbRow, groupsAdmin: string[]): User => {
     sn: (row.sn as string) ?? "",
     displayName: displayName || (profile === "guest" && mail ? mail : ""),
     mail,
+    avatarHash: (row.avatar_hash as string | null | undefined) ?? null,
     accountExpires: resolveAccountExpires(row)?.toISOString() ?? null,
     lastLoginLocal: row.last_login_local ? (row.last_login_local as Date).toISOString() : null,
     memberofGroup,
@@ -197,7 +190,7 @@ export const get = async (params: { id: string } | { uid: string }): Promise<Use
 export const getMinimal = async (params: { id: string } | { uid: string }): Promise<UserMutationTarget | null> => {
   const whereClause = "id" in params ? sql`id = ${params.id}` : sql`uid = ${params.uid}`;
   const rows = await sql<DbRow[]>`
-    SELECT id, uid, provider, profile, admin, given_name, sn, display_name, mail, account_expires
+    SELECT id, uid, provider, profile, admin, given_name, sn, display_name, mail, avatar_hash, account_expires
     FROM auth.users
     WHERE ${whereClause}
   `;

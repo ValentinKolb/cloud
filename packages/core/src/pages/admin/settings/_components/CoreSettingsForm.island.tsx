@@ -115,12 +115,16 @@ const AI_PROFILE_SETTING_KEY = "ai.model_profiles_json";
 const AI_DEFAULT_MODEL_SETTING_KEY = "ai.default_model_id";
 const AI_ENABLED_SETTING_KEY = "ai.enabled";
 const AI_GLOBAL_INSTRUCTIONS_SETTING_KEY = "ai.global_instructions";
+const AI_COMPACTION_PROMPT_SETTING_KEY = "ai.compaction_prompt";
+const AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY = "ai.max_tool_result_chars";
 
 const AI_SETTINGS_HANDLED_BY_PANEL = new Set<string>([
   AI_ENABLED_SETTING_KEY,
   AI_DEFAULT_MODEL_SETTING_KEY,
   AI_PROFILE_SETTING_KEY,
   AI_GLOBAL_INSTRUCTIONS_SETTING_KEY,
+  AI_COMPACTION_PROMPT_SETTING_KEY,
+  AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY,
 ]);
 
 const AI_PROVIDER_OPTIONS: ReadonlyArray<{
@@ -758,6 +762,10 @@ function AiSettingsPanel(props: {
   const profilesState = createMemo(() => parseAiProfiles(props.valueOf(AI_PROFILE_SETTING_KEY)));
   const profiles = () => profilesState().profiles;
   const defaultModelId = () => asString(props.valueOf(AI_DEFAULT_MODEL_SETTING_KEY));
+  const maxToolResultChars = () => {
+    const value = Number(props.valueOf(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY));
+    return Number.isFinite(value) && value > 0 ? value : 2000;
+  };
 
   const setProfiles = (next: AiModelProfileDraft[]) => props.onChange(AI_PROFILE_SETTING_KEY, serializeAiProfiles(next));
 
@@ -894,6 +902,38 @@ function AiSettingsPanel(props: {
           onInput={(value) => props.onChange(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY, value)}
           placeholder={entry(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY)?.placeholder ?? "Keep answers concise and follow the workspace language."}
           error={() => props.errorFor(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY)}
+        />
+      </PanelDialog.Section>
+
+      <PanelDialog.Section
+        title="Context"
+        subtitle="Compaction behavior for long conversations and large tool outputs."
+        icon="ti ti-package"
+      >
+        <TextInput
+          variant="ai"
+          multiline
+          lines={4}
+          label="Compaction prompt"
+          description="Optional prompt used when old chat context is summarized before continuing long conversations."
+          value={() => asString(props.valueOf(AI_COMPACTION_PROMPT_SETTING_KEY))}
+          onInput={(value) => props.onChange(AI_COMPACTION_PROMPT_SETTING_KEY, value)}
+          placeholder={
+            entry(AI_COMPACTION_PROMPT_SETTING_KEY)?.placeholder ??
+            "Summarize the conversation so far. Keep decisions, user preferences, tool results, and unresolved tasks."
+          }
+          error={() => props.errorFor(AI_COMPACTION_PROMPT_SETTING_KEY)}
+        />
+
+        <NumberInput
+          label="Max tool result chars"
+          description="Tool results above this size are truncated before they are sent back into the model context."
+          value={maxToolResultChars}
+          onChange={(value) => props.onChange(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY, value ?? 2000)}
+          min={200}
+          max={50000}
+          showSteppers={false}
+          error={() => props.errorFor(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY)}
         />
       </PanelDialog.Section>
 

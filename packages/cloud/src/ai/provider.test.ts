@@ -34,4 +34,45 @@ describe("AI provider factory", () => {
       ),
     ).toThrow('AI model profile "custom" requires baseURL');
   });
+
+  test("surfaces vLLM reasoning deltas as Nessi thinking events", async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: unknown[] = [];
+
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      requests.push(init?.body ? JSON.parse(String(init.body)) : null);
+      return new Response(
+        [
+          'data: {"choices":[{"delta":{"reasoning":"plan first"},"finish_reason":null}]}',
+          'data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}',
+          "data: [DONE]",
+          "",
+        ].join("\n\n"),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const provider = createAiProvider(
+        profile({
+          provider: "vllm",
+          model: "qwen3.6",
+          baseURL: "http://vllm.example.test/v1",
+        }),
+      );
+      const events = [];
+      for await (const event of provider.stream({
+        messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      })) {
+        events.push(event);
+      }
+
+      expect(provider.capabilities.thinking).toBe(true);
+      expect(requests[0]).toMatchObject({ model: "qwen3.6", stream: true });
+      expect(events).toContainEqual({ type: "thinking", delta: "plan first" });
+      expect(events).toContainEqual({ type: "text", delta: "answer" });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

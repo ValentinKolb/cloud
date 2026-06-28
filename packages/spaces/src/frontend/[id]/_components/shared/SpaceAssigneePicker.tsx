@@ -1,4 +1,4 @@
-import { Combobox, type ComboboxOption } from "@valentinkolb/cloud/ui";
+import { Avatar, Combobox, type ComboboxOption } from "@valentinkolb/cloud/ui";
 import { For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceItemAssignee } from "@/contracts";
@@ -16,11 +16,13 @@ const selectedIds = (assignees: SpaceItemAssignee[]) => assignees.map((assignee)
 
 const removeAssignee = (assignees: SpaceItemAssignee[], id: string) => assignees.filter((assignee) => assignee.id !== id);
 
+type AssigneeOption = ComboboxOption & { avatarHash: string | null };
+
 export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
   const variant = () => props.variant ?? "chips";
   const current = () => props.value();
 
-  const fetchAssignableUsers = async (query: string, signal: AbortSignal): Promise<ComboboxOption[]> => {
+  const fetchAssignableUsers = async (query: string, signal: AbortSignal): Promise<AssigneeOption[]> => {
     const res = await apiClient[":id"]["assignable-users"].$get(
       {
         param: { id: props.spaceId },
@@ -36,6 +38,7 @@ export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
     return users.map((user) => ({
       id: user.id,
       label: user.displayName,
+      avatarHash: user.avatarHash,
       description: user.description,
       icon: "ti-user",
     }));
@@ -43,7 +46,7 @@ export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
 
   const addAssignee = (option: ComboboxOption) => {
     if (current().some((assignee) => assignee.id === option.id)) return;
-    props.onChange([...current(), { id: option.id, displayName: option.label }]);
+    props.onChange([...current(), { id: option.id, displayName: option.label, avatarHash: (option as AssigneeOption).avatarHash ?? null }]);
   };
 
   const remove = (id: string) => props.onChange(removeAssignee(current(), id));
@@ -58,9 +61,7 @@ export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
               <For each={current()}>
                 {(assignee) => (
                   <span class="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800">
-                    <span class="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-200 text-[10px] dark:bg-zinc-700">
-                      {assignee.displayName.charAt(0).toUpperCase()}
-                    </span>
+                    <Avatar username={assignee.displayName} userId={assignee.id} avatarHash={assignee.avatarHash} size="xs" />
                     <span>{assignee.displayName}</span>
                     <button
                       type="button"
@@ -81,9 +82,7 @@ export default function SpaceAssigneePicker(props: SpaceAssigneePickerProps) {
             <For each={current()}>
               {(assignee) => (
                 <div class="group flex items-center gap-2">
-                  <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs dark:bg-zinc-700">
-                    {assignee.displayName.charAt(0).toUpperCase()}
-                  </div>
+                  <Avatar username={assignee.displayName} userId={assignee.id} avatarHash={assignee.avatarHash} size="xs" />
                   <div class="min-w-0 flex-1">
                     <span class="block truncate text-sm">{assignee.displayName}</span>
                   </div>

@@ -11,6 +11,7 @@ import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid
 import { apiClient } from "@/api/client";
 import type { ItemFilter, ItemListResult, SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import { getDetailItemFromUrl, shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
+import AssigneeAvatars from "../shared/AssigneeAvatars";
 import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import type { KanbanBucketInitial } from "./types";
 
@@ -631,10 +632,7 @@ export default function KanbanBoard(props: Props) {
                                     </span>
                                   </Show>
                                   <Show when={item.assignees && item.assignees.length > 0}>
-                                    <span class="inline-flex items-center gap-1 text-[11px] text-dimmed">
-                                      <i class="ti ti-user text-[10px]" />
-                                      {item.assignees!.length}
-                                    </span>
+                                    <AssigneeAvatars assignees={item.assignees!} max={3} />
                                   </Show>
                                 </div>
                               </a>

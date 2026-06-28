@@ -1,4 +1,4 @@
-import type { FieldColumnSpec, FilterTree, RecordDisplayConfig } from "../contracts";
+import type { DocumentProfile, FieldColumnSpec, FilterTree, RecordDisplayConfig } from "../contracts";
 
 export type Base = {
   id: string;
@@ -7,6 +7,7 @@ export type Base = {
   shortId: string;
   name: string;
   description: string | null;
+  documentProfile: DocumentProfile;
   createdBy: string | null;
   /** When set, opening `/grids/<base>` with no ?table or ?dashboard
    *  query param redirects to this dashboard. Service treats stale
@@ -260,6 +261,7 @@ export type CreateBaseInput = { name: string; description?: string | null };
 export type UpdateBaseInput = {
   name?: string;
   description?: string | null;
+  documentProfile?: DocumentProfile;
   defaultDashboardId?: string | null;
 };
 

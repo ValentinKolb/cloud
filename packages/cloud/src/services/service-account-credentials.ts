@@ -38,6 +38,7 @@ export type ServiceAccountCredentialOwner =
       uid: string;
       displayName: string;
       mail: string | null;
+      avatarHash: string | null;
     }
   | {
       type: "resource";
@@ -90,6 +91,7 @@ type DbCredentialOverviewRow = DbCredentialRow &
     delegated_uid: string | null;
     delegated_display_name: string | null;
     delegated_mail: string | null;
+    delegated_avatar_hash: string | null;
   };
 
 const TOKEN_PREFIX = "cld";
@@ -146,6 +148,7 @@ const mapCredentialOverview = (row: DbCredentialOverviewRow): ServiceAccountCred
             uid: row.delegated_uid ?? serviceAccount.delegatedUserId,
             displayName: row.delegated_display_name ?? "",
             mail: row.delegated_mail,
+            avatarHash: row.delegated_avatar_hash,
           }
         : {
             type: "resource",
@@ -504,7 +507,8 @@ export const listOverview = async (config?: {
       sa.created_at AS service_account_created_at,
       du.uid AS delegated_uid,
       du.display_name AS delegated_display_name,
-      du.mail AS delegated_mail
+      du.mail AS delegated_mail,
+      du.avatar_hash AS delegated_avatar_hash
     FROM auth.service_account_credentials c
     JOIN auth.service_accounts sa ON sa.id = c.service_account_id
     LEFT JOIN auth.users du ON du.id = sa.delegated_user_id

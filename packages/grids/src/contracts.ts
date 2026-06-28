@@ -18,6 +18,26 @@ export {
 export const ShortIdSchema = z.string().regex(/^[A-Za-z0-9]{5}$/);
 const IconNameSchema = z.string().max(200).nullable().optional();
 
+export const DocumentProfileSchema = z
+  .object({
+    legalName: z.string().max(200).optional(),
+    senderLine: z.string().max(500).optional(),
+    address: z.string().max(1_000).optional(),
+    department: z.string().max(200).optional(),
+    contactEmail: z.string().max(320).optional(),
+    phone: z.string().max(100).optional(),
+    url: z.string().max(500).optional(),
+    taxId: z.string().max(100).optional(),
+    registration: z.string().max(300).optional(),
+    bankName: z.string().max(200).optional(),
+    iban: z.string().max(100).optional(),
+    bic: z.string().max(100).optional(),
+    paymentTerms: z.string().max(500).optional(),
+    footerText: z.string().max(1_000).optional(),
+  })
+  .default({});
+export type DocumentProfile = z.infer<typeof DocumentProfileSchema>;
+
 // ── Record display ────────────────────────────────────────────────────────
 //
 // Presentation-only settings for records surfaces. Kept deliberately
@@ -51,6 +71,7 @@ export const BaseSchema = z.object({
   shortId: ShortIdSchema,
   name: z.string(),
   description: z.string().nullable(),
+  documentProfile: DocumentProfileSchema,
   createdBy: z.string().uuid().nullable(),
   /** When set, opening `/grids/<base>` with no ?table or ?dashboard query
    *  param renders this dashboard. Service layer treats stale ids
@@ -73,6 +94,7 @@ export type CreateBaseInput = z.infer<typeof CreateBaseSchema>;
 export const UpdateBaseSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(1000).nullable().optional(),
+  documentProfile: DocumentProfileSchema.optional(),
   /** Set/unset the default dashboard for this base. Pass null to clear.
    *  Caller must hold base-admin (gate enforced in api/bases.ts). */
   defaultDashboardId: z.string().uuid().nullable().optional(),
@@ -920,7 +942,10 @@ export const DocumentRunSchema = z.object({
 });
 export type DocumentRun = z.infer<typeof DocumentRunSchema>;
 
-export const DocumentRunListSchema = z.array(DocumentRunSchema);
+export const DocumentRunListSchema = z.object({
+  items: z.array(DocumentRunSchema),
+});
+export type DocumentRunList = z.infer<typeof DocumentRunListSchema>;
 
 export const DocumentRecordBodySchema = z.object({
   recordId: z.string().uuid(),

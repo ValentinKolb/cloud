@@ -1,9 +1,9 @@
 import { sql } from "bun";
-import type { BaseUser, BaseGroup, UserProvider, UserProfile } from "../../contracts/shared";
-import { buildRoles } from "../account-model";
+import type { BaseGroup, BaseUser, UserProfile, UserProvider } from "../../contracts/shared";
 import { freeipa } from "../../server/services";
-import { toPgTextArray, toPgUuidArray } from "../postgres";
+import { buildRoles } from "../account-model";
 import { getFreeIpaConfig } from "../freeipa-config";
+import { toPgTextArray, toPgUuidArray } from "../postgres";
 
 // ==========================
 // Search Options
@@ -60,7 +60,7 @@ export const search = async (query: string, options: SearchOptions): Promise<{ u
         : sql``;
 
     const rows = await sql`
-      SELECT u.id, u.uid, u.provider, u.profile, u.given_name, u.sn, u.display_name, u.mail,
+      SELECT u.id, u.uid, u.provider, u.profile, u.given_name, u.sn, u.display_name, u.mail, u.avatar_hash,
         EXISTS(
           SELECT 1
           FROM auth.ipa_user_effective_groups eg
@@ -89,6 +89,7 @@ export const search = async (query: string, options: SearchOptions): Promise<{ u
       sn: string | null;
       display_name: string | null;
       mail: string | null;
+      avatar_hash: string | null;
     };
     users = (rows as UserRow[]).map((row) => ({
       id: row.id,
@@ -106,6 +107,7 @@ export const search = async (query: string, options: SearchOptions): Promise<{ u
       sn: row.sn ?? "",
       displayName: row.display_name ?? "",
       mail: row.mail ?? null,
+      avatarHash: row.avatar_hash,
     }));
   }
 

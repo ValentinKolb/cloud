@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createAiEventReplayResponse, encodeSseEvent, publishAiEvent } from "./stream";
+import { createAiEventReplayResponse, encodeSseEvent, encodeSseHeartbeat, publishAiEvent } from "./stream";
 import type { AiSseEvent } from "./types";
 
 const decode = (event: AiSseEvent) => new TextDecoder().decode(encodeSseEvent(event));
@@ -31,6 +31,26 @@ describe("AI SSE stream encoding", () => {
 
     expect(encoded).toContain("event: text\n");
     expect(encoded).toContain('"delta":"Hello"');
+  });
+
+  test("encodes heartbeats as SSE comments", () => {
+    expect(new TextDecoder().decode(encodeSseHeartbeat())).toBe(": heartbeat\n\n");
+  });
+
+  test("cancels heartbeat-only replay streams without a final event", async () => {
+    const response = createAiEventReplayResponse({
+      conversationId: `stream-test-${crypto.randomUUID()}`,
+      turnId: crypto.randomUUID(),
+      after: "0-0",
+      heartbeatMs: 1,
+    });
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    if (!reader) return;
+
+    const first = await reader.read();
+    expect(new TextDecoder().decode(first.value)).toBe(": heartbeat\n\n");
+    await expect(reader.cancel()).resolves.toBeUndefined();
   });
 
   test("replays published events from the sync topic cursor", async () => {

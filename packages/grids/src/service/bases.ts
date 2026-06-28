@@ -1,21 +1,29 @@
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import { DocumentProfileSchema } from "../contracts";
 import { grantAccess } from "./access";
 import { logAudit } from "./audit";
+import { parseJsonbRow } from "./jsonb";
 import { emitMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
 import type { Base, CreateBaseInput, UpdateBaseInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 
-const COLS = sql`id, short_id, name, description, created_by, default_dashboard_id, deleted_at, created_at, updated_at`;
+const COLS = sql`id, short_id, name, description, document_profile, created_by, default_dashboard_id, deleted_at, created_at, updated_at`;
+
+const mapDocumentProfile = (value: unknown): Base["documentProfile"] => {
+  const parsed = DocumentProfileSchema.safeParse(parseJsonbRow(value, {}));
+  return parsed.success ? parsed.data : {};
+};
 
 const mapRow = (row: DbRow): Base => ({
   id: row.id as string,
   shortId: row.short_id as string,
   name: row.name as string,
   description: (row.description as string | null) ?? null,
+  documentProfile: mapDocumentProfile(row.document_profile),
   createdBy: (row.created_by as string | null) ?? null,
   defaultDashboardId: (row.default_dashboard_id as string | null) ?? null,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
@@ -251,6 +259,7 @@ export const update = async (id: string, input: UpdateBaseInput, actorId: string
   const next = {
     name: name ?? existing.name,
     description: input.description !== undefined ? input.description : existing.description,
+    documentProfile: input.documentProfile !== undefined ? input.documentProfile : existing.documentProfile,
     defaultDashboardId: input.defaultDashboardId !== undefined ? input.defaultDashboardId : existing.defaultDashboardId,
   };
 
@@ -258,6 +267,7 @@ export const update = async (id: string, input: UpdateBaseInput, actorId: string
     UPDATE grids.bases
     SET name = ${next.name},
         description = ${next.description},
+        document_profile = ${next.documentProfile}::jsonb,
         default_dashboard_id = ${next.defaultDashboardId}::uuid,
         updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
@@ -270,6 +280,9 @@ export const update = async (id: string, input: UpdateBaseInput, actorId: string
   if (next.name !== existing.name) diff.name = { old: existing.name, new: next.name };
   if (next.description !== existing.description) {
     diff.description = { old: existing.description, new: next.description };
+  }
+  if (JSON.stringify(next.documentProfile) !== JSON.stringify(existing.documentProfile)) {
+    diff.documentProfile = { old: existing.documentProfile, new: next.documentProfile };
   }
   if (next.defaultDashboardId !== existing.defaultDashboardId) {
     diff.defaultDashboardId = {

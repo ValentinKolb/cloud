@@ -1,4 +1,12 @@
-import { Placeholder, prompts, StructuredDataPreview } from "@valentinkolb/cloud/ui";
+import {
+  dialogCore,
+  PanelDialog,
+  PdfPreview,
+  Placeholder,
+  panelDialogOptions,
+  prompts,
+  StructuredDataPreview,
+} from "@valentinkolb/cloud/ui";
 import { type DateContext, text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -139,6 +147,19 @@ const snapshotRelationLabels = (snapshot: RecordSnapshot): Record<string, string
     if (label) labels[node.id] = label;
   }
   return labels;
+};
+
+const downloadPdfResponse = async (res: Response, fallbackName: string) => {
+  if (!res.ok) throw new Error(await errorMessage(res, "Failed to render PDF"));
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fallbackName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 };
 
 /**
@@ -307,6 +328,91 @@ export default function RecordDetailPanel(props: Props) {
   );
 }
 
+const openDocumentGenerationReviewDialog = (args: { tableId: string; recordId: string; template: DocumentTemplate }) =>
+  dialogCore.open<boolean>((close) => <DocumentGenerationReviewDialog args={args} close={close} />, panelDialogOptions);
+
+function DocumentGenerationReviewDialog(props: {
+  args: { tableId: string; recordId: string; template: DocumentTemplate };
+  close: (generated: boolean) => void;
+}) {
+  const generateMut = mutations.create<void, void>({
+    mutation: async () => {
+      const res = await fetch(`/api/grids/documents/templates/${props.args.template.id}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordId: props.args.recordId }),
+      });
+      const number = res.headers.get("X-Grids-Document-Number") ?? props.args.template.name;
+      await downloadPdfResponse(res, `${number}.pdf`);
+    },
+    onSuccess: () => props.close(true),
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const previewPdf = async () =>
+    fetch(`/api/grids/documents/templates/${props.args.template.id}/preview-pdf`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recordId: props.args.recordId }),
+    });
+
+  return (
+    <PanelDialog>
+      <PanelDialog.Header title={`Generate — ${props.args.template.name}`} icon="ti ti-file-type-pdf" close={() => props.close(false)} />
+      <PanelDialog.Body>
+        <div class="grid min-h-[30rem] gap-3 lg:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]">
+          <section class="paper flex min-h-0 flex-col gap-3 p-4">
+            <div>
+              <div class="mb-1 flex items-center gap-2 text-xs font-medium text-secondary">
+                <i class="ti ti-file-type-pdf" />
+                Document template
+              </div>
+              <h3 class="text-base font-semibold text-primary">{props.args.template.name}</h3>
+              <Show when={props.args.template.description}>
+                {(description) => <p class="mt-1 text-sm leading-relaxed text-dimmed">{description()}</p>}
+              </Show>
+            </div>
+
+            <div class="rounded-md border border-blue-500/20 bg-blue-500/10 p-3 text-xs leading-relaxed text-secondary">
+              Generating creates a recursive record snapshot and stores a document run. The PDF can be redownloaded later from the generated
+              document history.
+            </div>
+
+            <StructuredDataPreview
+              title="Selected record"
+              data={{
+                tableId: props.args.tableId,
+                recordId: props.args.recordId,
+              }}
+              maxRows={4}
+            />
+          </section>
+
+          <PdfPreview
+            title="PDF preview"
+            class="min-h-[30rem]"
+            buttonLabel="Render preview"
+            emptyText="Render a preview before generating the final document."
+            request={previewPdf}
+          />
+        </div>
+      </PanelDialog.Body>
+      <PanelDialog.Footer>
+        <span />
+        <div class="flex items-center justify-end gap-2">
+          <button type="button" class="btn-input btn-sm" onClick={() => props.close(false)} disabled={generateMut.loading()}>
+            Cancel
+          </button>
+          <button type="button" class="btn-primary btn-sm" onClick={() => generateMut.mutate(undefined)} disabled={generateMut.loading()}>
+            {generateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
+            Generate PDF
+          </button>
+        </div>
+      </PanelDialog.Footer>
+    </PanelDialog>
+  );
+}
+
 function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
   const [templates] = createResource(
     () => props.tableId,
@@ -341,35 +447,15 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
   const iconActionClass =
     "inline-flex h-7 w-7 shrink-0 items-center justify-center text-dimmed transition-colors hover:text-secondary disabled:cursor-not-allowed disabled:opacity-50";
 
-  const downloadPdfResponse = async (res: Response, fallbackName: string) => {
-    if (!res.ok) throw new Error(await errorMessage(res, "Failed to render PDF"));
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fallbackName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
-
   const generate = async (template: DocumentTemplate) => {
-    setBusy(template.id);
-    try {
-      const res = await fetch(`/api/grids/documents/templates/${template.id}/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recordId: props.recordId }),
-      });
-      const number = res.headers.get("X-Grids-Document-Number") ?? template.name;
-      await downloadPdfResponse(res, `${number}.pdf`);
+    const generated = await openDocumentGenerationReviewDialog({
+      template,
+      tableId: props.tableId,
+      recordId: props.recordId,
+    });
+    if (generated) {
       await refetchRuns();
       await refetchSnapshots();
-    } catch (error) {
-      prompts.error(error instanceof Error ? error.message : "Failed to generate document");
-    } finally {
-      setBusy(null);
     }
   };
 
@@ -541,8 +627,7 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
                   type="button"
                   class="flex w-full min-w-0 items-center gap-2 rounded-md bg-zinc-50 px-2.5 py-2 text-left text-sm transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-900 dark:hover:bg-zinc-800"
                   onClick={() => void generate(template)}
-                  disabled={busy() === template.id}
-                  aria-label={`Generate ${template.name}`}
+                  aria-label={`Review ${template.name}`}
                 >
                   <i class="ti ti-file-type-pdf shrink-0 text-dimmed" />
                   <span class="min-w-0 flex-1">
@@ -552,7 +637,7 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
                     </Show>
                   </span>
                   <span class="shrink-0 text-dimmed">
-                    {busy() === template.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
+                    <i class="ti ti-chevron-right" />
                   </span>
                 </button>
               )}

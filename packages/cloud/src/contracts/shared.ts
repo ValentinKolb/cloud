@@ -36,6 +36,7 @@ export const BaseUserSchema = z.object({
   sn: z.string(),
   displayName: z.string(),
   mail: z.string().nullable(),
+  avatarHash: z.string().nullable(),
 });
 export type BaseUser = z.infer<typeof BaseUserSchema>;
 
@@ -302,6 +303,7 @@ export const AccessEntrySchema = z.object({
   permission: PermissionLevelSchema,
   createdAt: z.string(),
   displayName: z.string().optional(),
+  avatarHash: z.string().nullable().optional(),
 });
 export type AccessEntry = z.infer<typeof AccessEntrySchema>;
 

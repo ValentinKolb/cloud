@@ -5,10 +5,12 @@ import {
   AiReplayQuerySchema,
   AiTurnActionSchema,
   AiTurnInputSchema,
+  aiTurnInputToContent,
   abortAiTurn,
   aiConversationStore,
   createAiEventReplayResponse,
   createAiTurnResponse,
+  createDefaultCloudAiTools,
   listAiModels,
   listPendingAiTurnActions,
   submitAiTurnAction,
@@ -70,6 +72,7 @@ const ModelSchema = z.object({
   model: z.string(),
   capabilities: z.array(z.string()),
   dataBoundary: z.enum(["hosted", "private"]),
+  contextWindow: z.number().optional(),
 });
 
 const StatusSchema = z.object({
@@ -243,11 +246,12 @@ const app = new Hono<AuthContext>()
       try {
         return await createAiTurnResponse({
           conversationId: conversation.id,
-          input: body.message,
+          input: aiTurnInputToContent(body),
           actor: c.get("actor"),
           requestedModelId: body.modelProfileId,
           modelPolicy: { kind: "selectable", requiredCapabilities: ["streaming"] },
           systemPrompt: "You are the general-purpose Assistant app. Help with writing, rewriting, summarizing, explaining, and planning.",
+          tools: createDefaultCloudAiTools(),
           toolApprovalContext: {
             actorUserId: userId(c),
             appId: ASSISTANT_APP_ID,

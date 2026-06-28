@@ -1,9 +1,9 @@
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import { FieldColumnSpecSchema, RecordDisplayConfigSchema, type View, ViewUiSettingsSchema } from "../contracts";
+import { type DocumentTemplate, FieldColumnSpecSchema, RecordDisplayConfigSchema, type View, ViewUiSettingsSchema } from "../contracts";
 import { listForBase as listDashboardsForBase } from "./dashboards";
-import { normalizeFormConfig, toRenderableForm, type Form } from "./forms";
+import { type Form, normalizeFormConfig, toRenderableForm } from "./forms";
 import { parseJsonbRow } from "./jsonb";
 import { withLookupTargetMetadata } from "./lookup-display";
 import type { Field, Table } from "./types";
@@ -22,6 +22,10 @@ type BaseCatalog = {
   formLevels: Record<string, PermissionLevel>;
   formTables: Table[];
   sidebarForms: Array<{ form: Form; tableId: string }>;
+  documentTemplatesByTable: Record<string, DocumentTemplate[]>;
+  documentTemplateLevels: Record<string, PermissionLevel>;
+  documentTemplateTables: Table[];
+  sidebarDocumentTemplates: Array<{ template: DocumentTemplate; tableId: string }>;
 };
 
 const LEVEL_BY_RANK: PermissionLevel[] = ["none", "read", "write", "admin"];
@@ -110,6 +114,26 @@ const mapForm = (row: DbRow): Form => ({
   ownerUserId: (row.owner_user_id as string | null) ?? null,
   position: row.position as number,
   isDefault: false,
+  deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
+  createdAt: (row.created_at as Date).toISOString(),
+  updatedAt: (row.updated_at as Date).toISOString(),
+});
+
+const mapDocumentTemplate = (row: DbRow): DocumentTemplate => ({
+  id: row.id as string,
+  shortId: row.short_id as string,
+  tableId: row.table_id as string,
+  name: row.name as string,
+  description: (row.description as string | null) ?? null,
+  source: row.source as string,
+  html: row.html as string,
+  headerHtml: (row.header_html as string | null) ?? null,
+  footerHtml: (row.footer_html as string | null) ?? null,
+  pageCss: (row.page_css as string | null) ?? null,
+  enabled: row.enabled as boolean,
+  position: row.position as number,
+  createdBy: (row.created_by as string | null) ?? null,
+  updatedBy: (row.updated_by as string | null) ?? null,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
   createdAt: (row.created_at as Date).toISOString(),
   updatedAt: (row.updated_at as Date).toISOString(),
@@ -206,38 +230,61 @@ export const listForBase = async (params: {
     ? sql`3`
     : sql`COALESCE(${formRanks[0]}, ${formRanks[1]}, ${formRanks[2]}, ${formRanks[3]}, ${formTableRanks[0]}, ${formTableRanks[1]}, ${formTableRanks[2]}, ${formTableRanks[3]}, ${formBaseRanks[0]}, ${formBaseRanks[1]}, ${formBaseRanks[2]}, ${formBaseRanks[3]}, 0)`;
 
+  const templateRanks = resourceRanks("grids.document_template_access", "dta", "template_id", sql`dt.id`, params.userId, groups);
+  const templateTableRanks = resourceRanks("grids.table_access", "dtta", "table_id", sql`dt.table_id`, params.userId, groups);
+  const templateBaseRanks = resourceRanks("grids.base_access", "dtba", "base_id", sql`t.base_id`, params.userId, groups);
+  const templateLevelExpr = params.isAdmin
+    ? sql`3`
+    : sql`COALESCE(${templateRanks[0]}, ${templateRanks[1]}, ${templateRanks[2]}, ${templateRanks[3]}, ${templateTableRanks[0]}, ${templateTableRanks[1]}, ${templateTableRanks[2]}, ${templateTableRanks[3]}, ${templateBaseRanks[0]}, ${templateBaseRanks[1]}, ${templateBaseRanks[2]}, ${templateBaseRanks[3]}, 0)`;
+
   const viewRanks = resourceRanks("grids.view_access", "va", "view_id", sql`v.id`, params.userId, groups);
   const viewWinning = sql`COALESCE(${viewRanks[0]}, ${viewRanks[1]}, ${viewRanks[2]}, ${viewRanks[3]})`;
 
-  const formRows = await sql<(DbRow & { level_rank: number; sidebar_visible: boolean })[]>`
-    WITH ranked AS (
-      SELECT f.*, ${formLevelExpr} AS level_rank
-      FROM grids.forms f
-      JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
-      JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-      WHERE t.base_id = ${params.baseId}::uuid AND f.deleted_at IS NULL
-    )
-    SELECT *, (is_active = TRUE AND level_rank >= 2) AS sidebar_visible
-    FROM ranked
-    WHERE level_rank >= 2
-    ORDER BY table_id, position, created_at
-  `;
+  const [formRows, documentTemplateRows] = await Promise.all([
+    sql<(DbRow & { level_rank: number; sidebar_visible: boolean })[]>`
+      WITH ranked AS (
+        SELECT f.*, ${formLevelExpr} AS level_rank
+        FROM grids.forms f
+        JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE t.base_id = ${params.baseId}::uuid AND f.deleted_at IS NULL
+      )
+      SELECT *, (is_active = TRUE AND level_rank >= 2) AS sidebar_visible
+      FROM ranked
+      WHERE level_rank >= 2
+      ORDER BY table_id, position, created_at
+    `,
+    sql<(DbRow & { level_rank: number; sidebar_visible: boolean })[]>`
+      WITH ranked AS (
+        SELECT dt.*, ${templateLevelExpr} AS level_rank
+        FROM grids.document_templates dt
+        JOIN grids.tables t ON t.id = dt.table_id AND t.deleted_at IS NULL
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE t.base_id = ${params.baseId}::uuid AND dt.deleted_at IS NULL
+      )
+      SELECT *, (enabled = TRUE AND level_rank >= 1) AS sidebar_visible
+      FROM ranked
+      WHERE level_rank >= 1
+      ORDER BY table_id, position, created_at
+    `,
+  ]);
 
   const readableTableIds = tables.map((table) => table.id);
   const formTableIds = [...new Set(formRows.map((row) => row.table_id as string))];
+  const documentTemplateTableIds = [...new Set(documentTemplateRows.map((row) => row.table_id as string))];
   const fieldTableIds = [...new Set([...readableTableIds, ...formTableIds])];
   const readableTableIdArray = () => sql.array(readableTableIds, "UUID");
   const fieldTableIdArray = () => sql.array(fieldTableIds, "UUID");
 
   const [formOnlyTableRows, fieldRows, viewRows] = await Promise.all([
-    formTableIds.filter((id) => !tableLevels[id]).length === 0
+    [...new Set([...formTableIds, ...documentTemplateTableIds])].filter((id) => !tableLevels[id]).length === 0
       ? Promise.resolve([] as DbRow[])
       : sql<DbRow[]>`
           SELECT t.*
           FROM grids.tables t
           JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
           WHERE t.id = ANY(${sql.array(
-            formTableIds.filter((id) => !tableLevels[id]),
+            [...new Set([...formTableIds, ...documentTemplateTableIds])].filter((id) => !tableLevels[id]),
             "UUID",
           )}) AND t.deleted_at IS NULL
           ORDER BY position, created_at
@@ -270,8 +317,10 @@ export const listForBase = async (params: {
         `,
   ]);
 
-  const formOnlyTables = formOnlyTableRows.map((row) => ({ ...mapTable(row), level: "none" as const }));
-  const tablesById = new Map([...tables, ...formOnlyTables].map((table) => [table.id, table]));
+  const auxiliaryTables = formOnlyTableRows.map((row) => ({ ...mapTable(row), level: "none" as const }));
+  const formOnlyTables = auxiliaryTables.filter((table) => formTableIds.includes(table.id));
+  const documentTemplateOnlyTables = auxiliaryTables.filter((table) => documentTemplateTableIds.includes(table.id));
+  const tablesById = new Map([...tables, ...auxiliaryTables].map((table) => [table.id, table]));
   const fieldsByTable = byTable(await withLookupTargetMetadata(fieldRows.map(mapField)));
   const viewsByTable = byTable(viewRows.map(mapView));
   const forms = formRows.map((row) => {
@@ -289,6 +338,18 @@ export const listForBase = async (params: {
       if (form && tablesById.has(form.tableId)) sidebarForms.push({ form, tableId: form.tableId });
     }
   }
+  const documentTemplates = documentTemplateRows.map(mapDocumentTemplate);
+  const documentTemplatesByTable = byTable(documentTemplates);
+  const documentTemplateLevels: Record<string, PermissionLevel> = {};
+  const documentTemplatesById = new Map(documentTemplates.map((template) => [template.id, template]));
+  const sidebarDocumentTemplates: Array<{ template: DocumentTemplate; tableId: string }> = [];
+  for (const row of documentTemplateRows) {
+    documentTemplateLevels[row.id as string] = levelFromRank(row.level_rank);
+    if (row.sidebar_visible) {
+      const template = documentTemplatesById.get(row.id as string);
+      if (template && tablesById.has(template.tableId)) sidebarDocumentTemplates.push({ template, tableId: template.tableId });
+    }
+  }
 
   return {
     dashboards,
@@ -300,5 +361,9 @@ export const listForBase = async (params: {
     formLevels,
     formTables: formOnlyTables,
     sidebarForms,
+    documentTemplatesByTable,
+    documentTemplateLevels,
+    documentTemplateTables: documentTemplateOnlyTables,
+    sidebarDocumentTemplates,
   };
 };

@@ -14,6 +14,8 @@ export default ssr<AuthContext>(async (c) => {
     activeTableSlug: c.req.param("tableId") ?? null,
     activeViewSlug: c.req.param("viewId") ?? null,
     activeDashboardSlug: c.req.param("dashboardId") ?? null,
+    activeDocumentTableSlug: c.req.param("documentTableId") ?? null,
+    activeDocumentTemplateSlug: c.req.param("documentTemplateId") ?? null,
     dateConfig: await getDateConfig(c),
   });
 

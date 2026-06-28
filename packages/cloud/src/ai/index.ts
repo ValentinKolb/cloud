@@ -8,12 +8,28 @@ export {
   rememberAiToolApproval,
 } from "./approvals";
 export {
+  CloudAiCardInputSchema,
+  CloudAiCardOutputSchema,
+  CloudAiSurveyInputSchema,
+  CloudAiSurveyOutputSchema,
+  createCloudAiCardTool,
+  createCloudAiSurveyTool,
+  createDefaultCloudAiTools,
+  type CloudAiCardInput,
+  type CloudAiCardOutput,
+  type CloudAiSurveyInput,
+  type CloudAiSurveyOutput,
+} from "./default-tools";
+export {
   AiApiErrorSchema,
   AiCreateConversationInputSchema,
   AiReplayQuerySchema,
   AiTurnInputSchema,
+  AiUserContentPartSchema,
+  aiTurnInputToContent,
   toAiActionFailureResponse,
   toAiErrorResponse,
+  type AiTurnInput,
 } from "./http";
 export { migrateCloudAi } from "./migrate";
 export { createAiProvider } from "./provider";
@@ -69,4 +85,6 @@ export type {
   AiToolRuntime,
   AiTurn,
   AiTurnStatus,
+  AiUiBlock,
+  AiUserContentPart,
 } from "./types";

@@ -1,4 +1,4 @@
-import { CopyButton, DatePicker, prompts } from "@valentinkolb/cloud/ui";
+import { CopyButton, DatePicker, openAvatarUploadDialog, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal } from "solid-js";
@@ -67,6 +67,29 @@ export function createUserActions(props: UserActionsProps) {
     onSuccess: () => refreshCurrentPath(),
     onError: (err) => prompts.error(err.message),
   });
+
+  const saveAvatar = async (dataUrl: string) => {
+    const res = await apiClient.users[":id"].avatar.$put({
+      param: { id: props.user.id },
+      json: { dataUrl },
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.message ?? "Failed to update avatar.");
+    }
+    refreshCurrentPath();
+  };
+
+  const removeAvatar = async () => {
+    const res = await apiClient.users[":id"].avatar.$delete({
+      param: { id: props.user.id },
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message ?? "Failed to remove avatar.");
+    }
+    refreshCurrentPath();
+  };
 
   const resetPasswordMutation = mutations.create<{ message: string; password: string }, void>({
     mutation: async () => {
@@ -329,6 +352,18 @@ export function createUserActions(props: UserActionsProps) {
         ...(props.user.provider === "ipa" ? { ipa: { phone: result.phone || undefined } } : {}),
       });
     }
+  };
+
+  const handleChangeAvatar = async () => {
+    await openAvatarUploadDialog({
+      username: props.user.displayName || props.user.uid,
+      userId: props.user.id,
+      avatarHash: props.user.avatarHash,
+      subtitle: `Update ${props.user.uid}'s profile picture.`,
+      visibilityText: "This profile picture is visible to all account holders.",
+      onSave: saveAvatar,
+      onRemove: props.user.avatarHash ? removeAvatar : undefined,
+    });
   };
 
   const handleSetExpiry = async () => {
@@ -599,6 +634,7 @@ export function createUserActions(props: UserActionsProps) {
     canSetExpiry,
     handleCreateIpa,
     handleCreateLoginToken,
+    handleChangeAvatar,
     handleDestroy,
     handleEdit,
     handleMakeLocal,

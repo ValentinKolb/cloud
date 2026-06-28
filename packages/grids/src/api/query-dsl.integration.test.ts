@@ -52,6 +52,7 @@ const testUser = (overrides: { id?: string; uid?: string; roles?: User["roles"] 
     sn: "API",
     displayName: "GQL API",
     mail: `gql-api-${id}@example.test`,
+    avatarHash: null,
     accountExpires: null,
     lastLoginLocal: null,
     memberofGroup: [],

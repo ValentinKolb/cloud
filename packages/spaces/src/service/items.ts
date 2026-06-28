@@ -86,6 +86,7 @@ type DbItemAssignee = {
   item_id: string;
   id: string;
   display_name: string;
+  avatar_hash: string | null;
 };
 
 type DbItemTag = {
@@ -170,6 +171,7 @@ export const listAssignableUsers = async (params: {
   return users.map((user) => ({
     id: user.id,
     displayName: user.displayName,
+    avatarHash: user.avatarHash,
     description: assignableUserDescription(user),
   }));
 };
@@ -281,14 +283,14 @@ const mapToItem = (row: DbItem): SpaceItem => ({
  * Get assignees for an item
  */
 const getAssignees = async (itemId: string): Promise<SpaceItemAssignee[]> => {
-  const rows = await sql<{ id: string; display_name: string }[]>`
-    SELECT u.id, u.display_name
+  const rows = await sql<{ id: string; display_name: string; avatar_hash: string | null }[]>`
+    SELECT u.id, u.display_name, u.avatar_hash
     FROM spaces.item_assignees ia
     JOIN auth.users u ON ia.user_id = u.id
     WHERE ia.item_id = ${itemId}
     ORDER BY u.display_name
   `;
-  return rows.map((r) => ({ id: r.id, displayName: r.display_name }));
+  return rows.map((r) => ({ id: r.id, displayName: r.display_name, avatarHash: r.avatar_hash }));
 };
 
 /**
@@ -313,7 +315,7 @@ const getTags = async (itemId: string): Promise<SpaceTag[]> => {
 const getAssigneesByItemIds = async (itemIds: string[]): Promise<Map<string, SpaceItemAssignee[]>> => {
   if (itemIds.length === 0) return new Map();
   const rows = await sql<DbItemAssignee[]>`
-    SELECT ia.item_id, u.id, u.display_name
+    SELECT ia.item_id, u.id, u.display_name, u.avatar_hash
     FROM spaces.item_assignees ia
     JOIN auth.users u ON ia.user_id = u.id
     WHERE ia.item_id = ANY(${toPgUuidArray(itemIds)}::uuid[])
@@ -321,7 +323,10 @@ const getAssigneesByItemIds = async (itemIds: string[]): Promise<Map<string, Spa
   `;
   const grouped = new Map<string, SpaceItemAssignee[]>();
   for (const row of rows) {
-    grouped.set(row.item_id, [...(grouped.get(row.item_id) ?? []), { id: row.id, displayName: row.display_name }]);
+    grouped.set(row.item_id, [
+      ...(grouped.get(row.item_id) ?? []),
+      { id: row.id, displayName: row.display_name, avatarHash: row.avatar_hash },
+    ]);
   }
   return grouped;
 };

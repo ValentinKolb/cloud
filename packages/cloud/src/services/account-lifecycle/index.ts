@@ -994,7 +994,8 @@ export const accountLifecycle = {
              r.created_at,
              u.uid AS live_uid,
              u.mail AS live_mail,
-             u.display_name AS live_display_name
+             u.display_name AS live_display_name,
+             u.avatar_hash AS live_avatar_hash
       FROM auth.account_lifecycle_reminders r
       LEFT JOIN auth.users u ON u.id = r.user_id
       WHERE (${status}::text IS NULL OR r.status = ${status})
@@ -1017,6 +1018,7 @@ export const accountLifecycle = {
         uid: (row.reminder_uid as string) ?? (row.live_uid as string) ?? null,
         mail: (row.reminder_mail as string) ?? (row.live_mail as string) ?? null,
         displayName: (row.reminder_display_name as string) ?? (row.live_display_name as string) ?? null,
+        avatarHash: (row.live_avatar_hash as string | null | undefined) ?? null,
         kind: row.kind as string,
         thresholdDays: Number(row.threshold_days),
         targetExpiryAt: (row.target_expiry_at as Date).toISOString(),

@@ -1,5 +1,5 @@
 import type { Provider } from "@valentinkolb/nessi/ai";
-import { anthropic, gemini, mistral, ollama, openAICompatible, openai, openrouter, vllm } from "@valentinkolb/nessi/ai";
+import { anthropic, gemini, mistral, ollama, openAICompatible, openai, openrouter } from "@valentinkolb/nessi/ai";
 import type { AiModelProfile } from "./types";
 
 const commonOptions = (profile: AiModelProfile, apiKey?: string) => ({
@@ -32,7 +32,22 @@ export const createAiProvider = (profile: AiModelProfile, apiKey?: string): Prov
         creditsPerOutputToken: profile.creditsPerOutputToken,
       });
     case "vllm":
-      return vllm(profile.model, commonOptions(profile, apiKey));
+      return openAICompatible({
+        name: "vllm",
+        model: profile.model,
+        baseURL: profile.baseURL ?? "http://localhost:8000/v1",
+        apiKey,
+        contextWindow: profile.contextWindow,
+        temperature: profile.temperature,
+        creditsPerInputToken: profile.creditsPerInputToken,
+        creditsPerOutputToken: profile.creditsPerOutputToken,
+        compat: {
+          toolCallIdPolicy: "passthrough",
+          supportsUsageInStreaming: true,
+          thinkingFormat: "text",
+          maxTokensField: "max_tokens",
+        },
+      });
     case "openai-compatible":
       if (!profile.baseURL) throw new Error(`AI model profile "${profile.id}" requires baseURL for openai-compatible provider.`);
       return openAICompatible({

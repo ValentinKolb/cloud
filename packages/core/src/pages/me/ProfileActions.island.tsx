@@ -1,17 +1,18 @@
-import { createSignal, For, Show } from "solid-js";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { Dropdown, prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
-import { TextInput } from "@valentinkolb/cloud/ui";
+import { Dropdown, openAvatarUploadDialog, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal, For, Show } from "solid-js";
 
 type Props = {
+  userId: string;
   provider: UserProvider;
   profile: UserProfile;
   uid: string;
   givenname: string;
   sn: string;
   displayName: string;
+  avatarHash: string | null;
   ipa: {
     phone: string | null;
     address: {
@@ -33,6 +34,35 @@ export default function ProfileActions(props: Props) {
   const isIpa = props.provider === "ipa" && props.freeIpaEnabled;
   const canMutateAccount = props.provider !== "ipa" || props.freeIpaEnabled;
   const holders = props.appName ? `${props.appName} account holders` : "all account holders";
+
+  const saveAvatar = async (dataUrl: string) => {
+    const res = await apiClient.me.avatar.$put({ json: { dataUrl } });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.message ?? "Failed to update avatar.");
+    }
+    window.location.reload();
+  };
+
+  const removeAvatar = async () => {
+    const res = await apiClient.me.avatar.$delete();
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message ?? "Failed to remove avatar.");
+    }
+    window.location.reload();
+  };
+
+  const handleChangeAvatar = async () => {
+    await openAvatarUploadDialog({
+      username: props.displayName || props.uid,
+      userId: props.userId,
+      avatarHash: props.avatarHash,
+      visibilityText: "Your profile picture is visible to all account holders.",
+      onSave: saveAvatar,
+      onRemove: props.avatarHash ? removeAvatar : undefined,
+    });
+  };
 
   // ── Edit Profile (name fields) ──
 
@@ -315,6 +345,11 @@ export default function ProfileActions(props: Props) {
   });
 
   const actions = [
+    {
+      icon: "ti ti-camera",
+      label: "Change Avatar",
+      action: () => void handleChangeAvatar(),
+    },
     ...(canMutateAccount ? [{ icon: "ti ti-pencil", label: "Edit Profile", action: () => void handleEditProfile() }] : []),
     ...(isIpa ? [{ icon: "ti ti-address-book", label: "Contact & Details", action: () => void handleEditDetails() }] : []),
     ...(canMutateAccount

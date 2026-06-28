@@ -1,6 +1,7 @@
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import dashboardRenderPage from "./[baseId]/dashboard/[dashboardId]/page";
+import documentTemplatePage from "./[baseId]/document/[documentTableId]/[documentTemplateId]/page";
 import baseDetailPage from "./[baseId]/page";
 import queryWorkspacePage from "./[baseId]/query/page";
 import queryReferencePage from "./[baseId]/query-reference/page";
@@ -25,12 +26,13 @@ export const publicRoutes = new Hono<AuthContext>().get("/forms/:token", auth.re
  *
  *   /:base/table/:table/view/:view       →  records page scoped to view
  *   /:base/table/:table                  →  records page
+ *   /:base/document/:table/:template     →  document template page
  *   /:base/dashboard/:dashboard          →  dashboard render
  *   /:base                               →  base home (redirects)
  *
- * The records / view / dashboard render routes all share the SAME
+ * The records / view / dashboard / document render routes all share the SAME
  * default-export handler from [baseId]/page.tsx via re-export — the
- * handler reads `tableId` / `viewId` / `dashboardId` from c.req.param
+ * handler reads route params from c.req.param
  * and branches inside.
  */
 export default new Hono<AuthContext>()
@@ -52,6 +54,8 @@ export default new Hono<AuthContext>()
   // Table paths.
   .get("/:baseId/table/:tableId/query", auth.requireRole("user", auth.redirectToLogin), ...baseDetailPage)
   .get("/:baseId/table/:tableId", auth.requireRole("user", auth.redirectToLogin), ...tableRecordsPage)
+  // Document template paths.
+  .get("/:baseId/document/:documentTableId/:documentTemplateId", auth.requireRole("user", auth.redirectToLogin), ...documentTemplatePage)
   // Dashboard paths.
   .get("/:baseId/dashboard/:dashboardId", auth.requireRole("user", auth.redirectToLogin), ...dashboardRenderPage)
   .get("/:baseId/reference/tables/:sourceId", auth.requireRole("user", auth.redirectToLogin), ...queryReferencePage)

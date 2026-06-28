@@ -14,13 +14,29 @@ export const migrate = async (): Promise<void> => {
       sn TEXT NOT NULL DEFAULT '',
       display_name TEXT NOT NULL DEFAULT '',
       mail TEXT,
+      avatar_data_url TEXT,
+      avatar_hash TEXT,
       account_expires TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       last_login_local TIMESTAMPTZ,
       admin BOOLEAN NOT NULL DEFAULT false,
       CONSTRAINT users_provider_check CHECK (provider IN ('local', 'ipa')),
       CONSTRAINT users_profile_check CHECK (profile IN ('user', 'guest')),
-      CONSTRAINT users_admin_check CHECK (admin = false OR (provider = 'local' AND profile = 'user'))
+      CONSTRAINT users_admin_check CHECK (admin = false OR (provider = 'local' AND profile = 'user')),
+      CONSTRAINT users_avatar_data_url_check CHECK (
+        avatar_data_url IS NULL OR (
+          length(avatar_data_url) <= 65536
+          AND avatar_data_url ~ '^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$'
+        )
+      ),
+      CONSTRAINT users_avatar_hash_check CHECK (
+        (avatar_data_url IS NULL AND avatar_hash IS NULL)
+        OR (
+          avatar_data_url IS NOT NULL
+          AND avatar_hash IS NOT NULL
+          AND avatar_hash ~ '^[a-f0-9]{64}$'
+        )
+      )
     )
   `.simple();
   await sql`
@@ -587,6 +603,69 @@ export const migrate = async (): Promise<void> => {
     CREATE UNIQUE INDEX IF NOT EXISTS uq_account_requests_one_pending_per_user
     ON auth.account_requests(user_id)
     WHERE status = 'pending'
+  `.simple();
+
+  await sql`
+    ALTER TABLE auth.users
+    ADD COLUMN IF NOT EXISTS avatar_data_url TEXT,
+    ADD COLUMN IF NOT EXISTS avatar_hash TEXT
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'users_avatar_data_url_check'
+          AND conrelid = 'auth.users'::regclass
+      ) THEN
+        ALTER TABLE auth.users
+          ADD CONSTRAINT users_avatar_data_url_check
+          CHECK (
+            avatar_data_url IS NULL OR (
+              length(avatar_data_url) <= 65536
+              AND avatar_data_url ~ '^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$'
+            )
+          ) NOT VALID;
+      END IF;
+    END $$;
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'users_avatar_hash_check'
+          AND conrelid = 'auth.users'::regclass
+      ) THEN
+        ALTER TABLE auth.users
+          ADD CONSTRAINT users_avatar_hash_check
+          CHECK (
+            (avatar_data_url IS NULL AND avatar_hash IS NULL)
+            OR (
+              avatar_data_url IS NOT NULL
+              AND avatar_hash IS NOT NULL
+              AND avatar_hash ~ '^[a-f0-9]{64}$'
+            )
+          ) NOT VALID;
+      END IF;
+    END $$;
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      BEGIN
+        ALTER TABLE auth.users
+          VALIDATE CONSTRAINT users_avatar_data_url_check;
+      EXCEPTION WHEN check_violation THEN
+        RAISE NOTICE 'Skipping VALIDATE for users_avatar_data_url_check: %', SQLERRM;
+      END;
+      BEGIN
+        ALTER TABLE auth.users
+          VALIDATE CONSTRAINT users_avatar_hash_check;
+      EXCEPTION WHEN check_violation THEN
+        RAISE NOTICE 'Skipping VALIDATE for users_avatar_hash_check: %', SQLERRM;
+      END;
+    END $$;
   `.simple();
 
   // account_lifecycle_reminders: the API expects a strict set of values. Add

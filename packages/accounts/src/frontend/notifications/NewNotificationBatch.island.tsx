@@ -3,6 +3,7 @@ import {
   dialogCore,
   EntitySearch,
   type EntitySearchPrincipal,
+  Avatar,
   MultiSelectInput,
   type MultiSelectOption,
   PanelDialog,
@@ -22,6 +23,7 @@ type SelectedUser = {
   label: string;
   mail: string | null;
   provider: "local" | "ipa";
+  avatarHash: string | null;
 };
 
 type SelectedGroup = {
@@ -150,6 +152,7 @@ function BatchDialog(props: { close: () => void }) {
               label: principal.displayName || principal.uid,
               mail: principal.mail,
               provider: principal.provider,
+              avatarHash: principal.avatarHash,
             },
           ],
     );
@@ -453,7 +456,7 @@ function BatchDialog(props: { close: () => void }) {
                           class="btn-input btn-input-sm justify-start"
                           onClick={() => remove<SelectedUser>(user.id, setUsers)}
                         >
-                          <i class="ti ti-user" />
+                          <Avatar username={user.label} userId={user.id} avatarHash={user.avatarHash} size="xs" />
                           <span class="min-w-0 flex-1 truncate text-left">{user.label}</span>
                           <span class="text-[10px] uppercase text-dimmed">{user.provider}</span>
                           <i class="ti ti-x text-dimmed" />

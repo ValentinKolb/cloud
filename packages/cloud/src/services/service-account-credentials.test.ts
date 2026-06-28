@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { Hono } from "hono";
-import { auth, type AuthContext } from "../server/middleware/auth";
+import meApp from "../api/me";
+import { type AuthContext, auth } from "../server/middleware/auth";
 import { accounts } from "./accounts";
 import { serviceAccountCredentials } from "./service-account-credentials";
 import { serviceAccounts } from "./service-accounts";
@@ -83,6 +84,12 @@ describe("serviceAccountCredentials", () => {
         userId: user.id,
         accessSubject: { type: "user", userId: user.id },
       });
+
+      const meResponse = await meApp.request("/", {
+        headers: { Authorization: `Bearer ${created.data.token}` },
+      });
+      expect(meResponse.status).toBe(200);
+      expect((await meResponse.json()).id).toBe(user.id);
 
       const listed = await serviceAccountCredentials.listForDelegatedUser({ userId: user.id });
       expect(listed.map((key) => key.id)).toContain(created.data.credential.id);
@@ -179,6 +186,15 @@ describe("serviceAccountCredentials", () => {
         appId: "notebooks",
         resourceType: "notebook",
         resourceId,
+      });
+
+      const meResponse = await meApp.request("/", {
+        headers: { Authorization: `Bearer ${created.data.token}` },
+      });
+      expect(meResponse.status).toBe(403);
+      expect(await meResponse.json()).toEqual({
+        message: "Self-service endpoints require a user-backed actor",
+        code: "FORBIDDEN",
       });
 
       const overview = await serviceAccountCredentials.listOverview({

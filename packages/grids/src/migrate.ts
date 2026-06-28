@@ -75,6 +75,7 @@ export const migrate = async (): Promise<void> => {
       short_id TEXT NOT NULL,
       name TEXT NOT NULL,
       description TEXT,
+      document_profile JSONB NOT NULL DEFAULT '{}'::jsonb,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       default_dashboard_id UUID,
       deleted_at TIMESTAMPTZ,
@@ -83,6 +84,7 @@ export const migrate = async (): Promise<void> => {
       CONSTRAINT bases_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
     )
   `.simple();
+  await sql`ALTER TABLE grids.bases ADD COLUMN IF NOT EXISTS document_profile JSONB NOT NULL DEFAULT '{}'::jsonb`.simple();
   console.log("  ✓ grids.bases");
 
   await sql`
@@ -353,6 +355,16 @@ export const migrate = async (): Promise<void> => {
     ON grids.document_templates(table_id, short_id) WHERE deleted_at IS NULL
   `.simple();
   console.log("  ✓ grids.document_templates");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.document_template_access (
+      template_id UUID NOT NULL REFERENCES grids.document_templates(id) ON DELETE CASCADE,
+      access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
+      PRIMARY KEY (template_id, access_id)
+    )
+  `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_grids_document_template_access_access ON grids.document_template_access(access_id)`.simple();
+  console.log("  ✓ grids.document_template_access");
 
   await sql`
     CREATE TABLE IF NOT EXISTS grids.record_snapshots (

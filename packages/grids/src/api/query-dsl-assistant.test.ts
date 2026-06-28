@@ -13,6 +13,7 @@ const user: User = {
   sn: "User",
   displayName: "Assistant User",
   mail: null,
+  avatarHash: null,
   ipa: null,
   accountExpires: null,
   lastLoginLocal: null,

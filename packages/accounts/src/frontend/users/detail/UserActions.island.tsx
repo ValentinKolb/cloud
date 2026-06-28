@@ -39,6 +39,11 @@ export default function UserActions(props: UserActionsProps) {
         },
         {
           items: [
+            {
+              icon: "ti ti-camera",
+              label: "Change Avatar",
+              action: actions.handleChangeAvatar,
+            },
             ...(actions.canMutateUser
               ? [
                   {

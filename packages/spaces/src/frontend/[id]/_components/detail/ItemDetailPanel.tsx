@@ -69,6 +69,7 @@ const isSpaceComment = (value: unknown): value is SpaceComment => {
     typeof value["content"] === "string" &&
     isNullableString(value["userId"]) &&
     isNullableString(value["userName"]) &&
+    isNullableString(value["userAvatarHash"]) &&
     typeof value["createdAt"] === "string" &&
     typeof value["updatedAt"] === "string" &&
     typeof value["canDelete"] === "boolean"

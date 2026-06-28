@@ -41,5 +41,6 @@ export const buildBaseUser = (row: DbRow): BaseUser => {
     sn: (row.sn as string) ?? "",
     displayName: resolveBaseUserDisplayName(row),
     mail: (row.mail as string) ?? null,
+    avatarHash: (row.avatar_hash as string | null | undefined) ?? null,
   };
 };

@@ -45,6 +45,7 @@ export type Recurrence = z.infer<typeof RecurrenceSchema>;
 export const SpaceItemAssigneeSchema = z.object({
   id: SpaceUuidSchema.describe("User UUID"),
   displayName: z.string().describe("User display name"),
+  avatarHash: z.string().nullable().describe("User avatar hash"),
 });
 export type SpaceItemAssignee = z.infer<typeof SpaceItemAssigneeSchema>;
 
@@ -85,6 +86,7 @@ export const SpaceCommentSchema = z.object({
   itemId: SpaceUuidSchema.describe("Parent item UUID"),
   userId: SpaceUuidSchema.nullable().describe("Author user UUID"),
   userName: z.string().nullable().describe("Author display name"),
+  userAvatarHash: z.string().nullable().describe("Author avatar hash"),
   content: z.string().describe("Comment content"),
   createdAt: z.string().describe("Creation timestamp (ISO)"),
   updatedAt: z.string().describe("Last update timestamp (ISO)"),

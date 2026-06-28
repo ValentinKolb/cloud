@@ -241,6 +241,7 @@ const ContactNoteSchema = z.object({
   contactId: z.string(),
   authorUserId: z.string().nullable(),
   authorDisplayName: z.string(),
+  authorAvatarHash: z.string().nullable(),
   content: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),

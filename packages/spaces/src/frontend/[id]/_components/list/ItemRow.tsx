@@ -1,10 +1,11 @@
-import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
-import { apiClient } from "@/api/client";
 import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
-import { dates, type DateContext } from "@valentinkolb/stdlib";
 import { shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
+import AssigneeAvatars from "../shared/AssigneeAvatars";
 import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
 type ItemRowProps = {
@@ -161,23 +162,7 @@ export default function ItemRow(props: ItemRowProps) {
 
           {/* Assignees */}
           <Show when={props.item.assignees?.length}>
-            <div class="flex items-center -space-x-1">
-              <For each={props.item.assignees!.slice(0, 3)}>
-                {(assignee) => (
-                  <div
-                    class="w-6 h-6 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-xs border-2 border-white dark:border-zinc-900"
-                    title={assignee.displayName}
-                  >
-                    {assignee.displayName.charAt(0).toUpperCase()}
-                  </div>
-                )}
-              </For>
-              <Show when={(props.item.assignees?.length ?? 0) > 3}>
-                <div class="w-6 h-6 rounded-full bg-zinc-300 dark:bg-zinc-600 flex items-center justify-center text-xs border-2 border-white dark:border-zinc-900">
-                  +{props.item.assignees!.length - 3}
-                </div>
-              </Show>
-            </div>
+            <AssigneeAvatars assignees={props.item.assignees!} />
           </Show>
         </div>
 

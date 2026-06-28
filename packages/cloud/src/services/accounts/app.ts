@@ -348,6 +348,49 @@ export const accountsAppService = {
     },
     get: async (config: { id: string } | { uid: string }): Promise<User | null> => users.get(config),
     getMinimal: async (config: { id: string } | { uid: string }) => users.getMinimal(config),
+    getAvatar: async (config: { id: string }) => users.getAvatar(config),
+    setAvatar: async (config: { actor: AccountsActor; id: string; dataUrl: string }) => {
+      const target = await users.getMinimal({ id: config.id });
+      const targetInfo = userTarget(target);
+      const selfService = config.actor.userId === config.id;
+      if (!selfService) {
+        const adminError = await requireAdminActor<{ avatarHash: string }>({
+          actor: config.actor,
+          action: "accounts.user.avatar.update",
+          target: targetInfo,
+        });
+        if (adminError) return adminError;
+      }
+      const result = fromMutationResult(await users.setAvatar({ id: config.id, dataUrl: config.dataUrl }));
+      return recordCompletedMutation({
+        action: "accounts.user.avatar.update",
+        actor: auditActor(config.actor),
+        target: targetInfo,
+        metadata: { selfService, avatarHash: result.ok ? result.data.avatarHash : null },
+        result,
+      });
+    },
+    clearAvatar: async (config: { actor: AccountsActor; id: string }) => {
+      const target = await users.getMinimal({ id: config.id });
+      const targetInfo = userTarget(target);
+      const selfService = config.actor.userId === config.id;
+      if (!selfService) {
+        const adminError = await requireAdminActor<void>({
+          actor: config.actor,
+          action: "accounts.user.avatar.clear",
+          target: targetInfo,
+        });
+        if (adminError) return adminError;
+      }
+      const result = fromMutationResult(await users.clearAvatar({ id: config.id }));
+      return recordCompletedMutation({
+        action: "accounts.user.avatar.clear",
+        actor: auditActor(config.actor),
+        target: targetInfo,
+        metadata: { selfService },
+        result,
+      });
+    },
     group: {
       list: async (config: {
         userId: string;

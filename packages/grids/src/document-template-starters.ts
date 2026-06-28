@@ -3,6 +3,11 @@ export type DocumentTemplateStarter = {
   name: string;
   description: string;
   icon: string;
+  category: string;
+  bestFor: string;
+  expectedData: string;
+  page: string;
+  uses?: string[];
   source: (tableId: string) => string;
   html: string;
   headerHtml?: string;
@@ -22,7 +27,7 @@ const businessHeader = `<style>
   .brand-lockup { display: flex; align-items: center; gap: 3.2mm; min-width: 0; }
   .cloud-logo { width: 12mm; height: 12mm; flex: 0 0 auto; display: block; }
   .brand { color: #0f172a; font-weight: 850; font-size: 10.5pt; letter-spacing: .08em; text-transform: uppercase; }
-  .line { margin-top: .8mm; color: #64748b; }
+  .line { margin-top: .8mm; color: #64748b; white-space: pre-line; }
   .meta { text-align: right; white-space: nowrap; line-height: 1.35; }
   .meta strong { color: #0f172a; }
 </style>
@@ -30,14 +35,14 @@ const businessHeader = `<style>
   <div class="brand-lockup">
     <img class="cloud-logo" src="{{ app.logoDataUri }}" alt="">
     <div>
-      <div class="brand">{{ app.name }}</div>
-      <div class="line">Friedrichstrasse 120 | 10117 Berlin | Germany</div>
+      <div class="brand">{{ business.legalName | default: app.name }}</div>
+      <div class="line">{{ business.address | default: business.senderLine | default: app.url }}</div>
     </div>
   </div>
   <div class="meta">
-    <strong>Finance &amp; Operations</strong><br>
-    {% if app.contactEmail %}{{ app.contactEmail }}{% else %}finance@example.com{% endif %}<br>
-    {% if app.url %}{{ app.url }}{% else %}+49 30 000000-0{% endif %}
+    <strong>{{ business.department | default: "Document Services" }}</strong><br>
+    {% if business.contactEmail %}{{ business.contactEmail }}{% elsif app.contactEmail %}{{ app.contactEmail }}{% endif %}<br>
+    {% if business.phone %}{{ business.phone }}{% elsif business.url %}{{ business.url }}{% elsif app.url %}{{ app.url }}{% endif %}
   </div>
 </div>`;
 
@@ -49,8 +54,8 @@ const businessFooter = `<style>
   .right { text-align: right; }
 </style>
 <div class="footer">
-  <span>{{ app.copyright | default: app.name }} | Managing Director Jane Miller | VAT DE000000000</span>
-  <span class="center">IBAN DE00 0000 0000 0000 0000 00 | BIC EXAMPLEXXX</span>
+  <span>{% if business.footerText %}{{ business.footerText }}{% else %}{{ business.legalName | default: app.name }}{% if business.registration %} | {{ business.registration }}{% endif %}{% if business.taxId %} | {{ business.taxId }}{% endif %}{% endif %}</span>
+  <span class="center">{% if business.iban %}IBAN {{ business.iban }}{% endif %}{% if business.bic %} | BIC {{ business.bic }}{% endif %}</span>
   <span class="right">Page <span class="pageNumber"></span> / <span class="totalPages"></span></span>
 </div>`;
 
@@ -97,7 +102,8 @@ th { color: #475569; font-size: 8pt; font-weight: 800; text-transform: uppercase
 .compact-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5mm; }
 .stamp-box { border: 1px solid #0f172a; padding: 4mm; text-align: center; font-size: 8.5pt; letter-spacing: .08em; text-transform: uppercase; color: #334155; }
 .fine-print { color: #64748b; font-size: 8pt; }
-.form-line { display: inline-block; min-width: 28mm; height: 1em; border-bottom: 1px solid #94a3b8; vertical-align: baseline; }`;
+.form-line { display: inline-block; min-width: 28mm; height: 1em; border-bottom: 1px solid #94a3b8; vertical-align: baseline; }
+.preline { white-space: pre-line; }`;
 
 const rowsTable = `<table>
   <thead>
@@ -137,6 +143,10 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
     name: "Invoice",
     description: "Professional invoice starter with sender, recipient, item table, payment terms, and totals block.",
     icon: "ti ti-receipt",
+    category: "Commercial",
+    bestFor: "Customer invoices and billing records.",
+    expectedData: "One invoice record plus selected line-item fields from GQL.",
+    page: "A4 portrait",
     source: recordSource,
     headerHtml: businessHeader,
     footerHtml: businessFooter,
@@ -148,16 +158,16 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
     html: `<main>
   <section class="letter-layout avoid-break">
     <div>
-      <div class="letter-sender">ACME Operations GmbH | Friedrichstrasse 120 | 10117 Berlin | Germany</div>
+      <div class="letter-sender">{{ business.senderLine | default: business.legalName | default: app.name }}</div>
       <div class="recipient-window">
         <p class="strong">Customer Company</p>
         <p>Accounts Payable<br>Customer Street 8<br>20095 Hamburg<br>Germany</p>
       </div>
     </div>
     <aside class="letter-contact">
-      <p class="strong">ACME Operations GmbH</p>
-      <p>Friedrichstrasse 120<br>10117 Berlin<br>Germany</p>
-      <p class="small muted">finance@example.com<br>+49 30 000000-0<br>www.example.com</p>
+      <p class="strong">{{ business.legalName | default: app.name }}</p>
+      <p class="preline">{{ business.address | default: "" }}</p>
+      <p class="small muted">{% if business.contactEmail %}{{ business.contactEmail }}<br>{% endif %}{% if business.phone %}{{ business.phone }}<br>{% endif %}{% if business.url %}{{ business.url }}{% endif %}</p>
     </aside>
   </section>
 
@@ -180,7 +190,7 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
     </div>
     <div class="soft-box">
       <div class="document-kicker">Payment terms</div>
-      <p class="strong">14 days net</p>
+      <p class="strong">{{ business.paymentTerms | default: "Due on receipt" }}</p>
     </div>
     <div class="soft-box">
       <div class="document-kicker">Currency</div>
@@ -199,7 +209,7 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
   <section class="grid-2 payment-note avoid-break">
     <div>
       <div class="section-title">Payment instructions</div>
-      <p>Please transfer the total amount to the bank account stated in the footer and include the invoice number as payment reference.</p>
+      <p>Please transfer the total amount{% if business.iban %} to the bank account stated in the footer{% endif %} and include the invoice number as payment reference.</p>
     </div>
     <div>
       <div class="section-title">Notes</div>
@@ -213,6 +223,10 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
     name: "Loan agreement",
     description: "Business-ready loan agreement with parties, item list, terms, and signature blocks.",
     icon: "ti ti-file-certificate",
+    category: "Contract",
+    bestFor: "Equipment loans, borrower handovers, and signed internal agreements.",
+    expectedData: "One selected loan or asset record; extend GQL for related items.",
+    page: "A4 portrait",
     source: recordSource,
     headerHtml: businessHeader,
     footerHtml: businessFooter,
@@ -225,7 +239,7 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
     html: `<main>
   <section class="letter-layout avoid-break">
     <div>
-      <div class="letter-sender">ACME Operations GmbH | Friedrichstrasse 120 | 10117 Berlin | Germany</div>
+      <div class="letter-sender">{{ business.senderLine | default: business.legalName | default: app.name }}</div>
       <div class="recipient-window">
         <p class="strong">Borrower name / organization</p>
         <p>Borrower address<br>Contact person<br>City, country</p>
@@ -248,8 +262,8 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
   <section class="grid-2 agreement-intro avoid-break">
     <div class="box">
       <div class="document-kicker">Lender</div>
-      <p class="strong">ACME Operations GmbH</p>
-      <p>Friedrichstrasse 120<br>10117 Berlin<br>Germany</p>
+      <p class="strong">{{ business.legalName | default: app.name }}</p>
+      <p class="preline">{{ business.address | default: "" }}</p>
       <p class="small muted">Represented by authorized staff.</p>
     </div>
     <div class="box">
@@ -306,6 +320,11 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
     name: "Label",
     description: "90mm x 54mm operational label with a print-ready Code 128 barcode.",
     icon: "ti ti-barcode",
+    category: "Label",
+    bestFor: "Asset labels, shelf labels, and compact operational identifiers.",
+    expectedData: "One selected record; the first selected column becomes the barcode value.",
+    page: "90mm x 54mm",
+    uses: ["Code 128 barcode"],
     source: recordSource,
     pageCss: `@page { size: 90mm 54mm; margin: 0; }
 * { box-sizing: border-box; }
@@ -329,6 +348,11 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
     name: "QR label",
     description: "90mm x 54mm label with a large QR code for links, assets, or compact record data.",
     icon: "ti ti-qrcode",
+    category: "Label",
+    bestFor: "Asset tags, links, compact identifiers, and scan workflows.",
+    expectedData: "One selected record; the first selected column becomes the QR value.",
+    page: "90mm x 54mm",
+    uses: ["QR code"],
     source: recordSource,
     pageCss: `@page { size: 90mm 54mm; margin: 0; }
 * { box-sizing: border-box; }
@@ -356,6 +380,10 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
     name: "Overview report",
     description: "Multipage business report over many records.",
     icon: "ti ti-table",
+    category: "Report",
+    bestFor: "Printable lists, exports, and internal status reports.",
+    expectedData: "Up to 100 rows from the source table by default.",
+    page: "A4 portrait",
     source: overviewSource,
     headerHtml: businessHeader,
     footerHtml: businessFooter,
@@ -379,6 +407,11 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
     name: "Record detail",
     description: "One-record business detail sheet with optional image header and full-width detail table.",
     icon: "ti ti-id",
+    category: "Record",
+    bestFor: "Record dossiers, asset sheets, and customer/account detail pages.",
+    expectedData: "One selected record; image file fields appear as primaryImage/images.",
+    page: "A4 portrait",
+    uses: ["record images"],
     source: recordSource,
     headerHtml: businessHeader,
     footerHtml: businessFooter,
@@ -408,6 +441,10 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
     name: "Delivery note",
     description: "Delivery note with sender, recipient, delivery metadata, and item table.",
     icon: "ti ti-truck-delivery",
+    category: "Logistics",
+    bestFor: "Shipments, handovers, and delivery confirmations.",
+    expectedData: "One delivery record plus selected delivery/item fields.",
+    page: "A4 portrait",
     source: recordSource,
     headerHtml: businessHeader,
     footerHtml: businessFooter,
@@ -424,7 +461,7 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
     </div>
   </section>
   <section class="grid-2 avoid-break">
-    <div class="address box"><div class="document-kicker">Ship from</div><p class="strong">ACME Operations GmbH</p><p>Friedrichstrasse 120<br>10117 Berlin<br>Loading dock</p></div>
+    <div class="address box"><div class="document-kicker">Ship from</div><p class="strong">{{ business.legalName | default: app.name }}</p><p class="preline">{{ business.address | default: "" }}</p></div>
     <div class="address box"><div class="document-kicker">Ship to</div><p class="strong">Recipient</p><p>Delivery address<br>Contact person</p></div>
   </section>
   <h2>Delivered items</h2>
@@ -440,6 +477,10 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
     name: "Quote",
     description: "Offer starter with customer block, line items, validity, and commercial terms.",
     icon: "ti ti-file-dollar",
+    category: "Commercial",
+    bestFor: "Offers, cost estimates, and commercial proposals.",
+    expectedData: "One quote record plus selected position fields.",
+    page: "A4 portrait",
     source: recordSource,
     headerHtml: businessHeader,
     footerHtml: businessFooter,
@@ -456,7 +497,7 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
     </div>
   </section>
   <section class="grid-2 avoid-break">
-    <div class="address box"><div class="document-kicker">Supplier</div><p class="strong">ACME Operations GmbH</p><p>Friedrichstrasse 120<br>10117 Berlin</p></div>
+    <div class="address box"><div class="document-kicker">Supplier</div><p class="strong">{{ business.legalName | default: app.name }}</p><p class="preline">{{ business.address | default: "" }}</p></div>
     <div class="address box"><div class="document-kicker">Customer</div><p class="strong">Customer Company</p><p>Customer address<br>Procurement contact</p></div>
   </section>
   <h2>Offer positions</h2>
@@ -472,6 +513,11 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
     name: "Packing list",
     description: "Operational packing list with real printed checkbox boxes and multipage-safe rows.",
     icon: "ti ti-package",
+    category: "Operations",
+    bestFor: "Picking, packing, preparation, and physical checklists.",
+    expectedData: "Multiple rows from the source table.",
+    page: "A4 portrait",
+    uses: ["printed checkboxes"],
     source: overviewSource,
     headerHtml: businessHeader,
     footerHtml: businessFooter,
@@ -504,6 +550,10 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
     name: "Certificate",
     description: "Formal certificate or confirmation for one selected record.",
     icon: "ti ti-certificate",
+    category: "Formal",
+    bestFor: "Confirmations, certificates, and signed proof documents.",
+    expectedData: "One selected record.",
+    page: "A4 portrait",
     source: recordSource,
     headerHtml: businessHeader,
     footerHtml: businessFooter,
@@ -528,6 +578,11 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
     name: "Checklist",
     description: "Printable checklist with real checkbox boxes and detail lines.",
     icon: "ti ti-list-check",
+    category: "Operations",
+    bestFor: "Manual review, setup, inspection, and recurring operational tasks.",
+    expectedData: "Multiple rows from the source table.",
+    page: "A4 portrait",
+    uses: ["printed checkboxes"],
     source: overviewSource,
     headerHtml: businessHeader,
     footerHtml: businessFooter,
@@ -565,6 +620,10 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
     name: "Badge / name tag",
     description: "Simple professional badge without internal identifiers.",
     icon: "ti ti-badge",
+    category: "Badge",
+    bestFor: "Name tags, event badges, and simple identity cards.",
+    expectedData: "One selected record.",
+    page: "85mm x 55mm",
     source: recordSource,
     pageCss: `@page { size: 85mm 55mm; margin: 0; }
 * { box-sizing: border-box; }

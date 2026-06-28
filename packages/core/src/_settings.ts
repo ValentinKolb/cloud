@@ -129,6 +129,21 @@ export const CORE_SETTINGS = {
     description: "Optional instructions applied to every Cloud AI conversation after platform guardrails.",
     placeholder: "Keep answers concise and follow the workspace language.",
   },
+  "ai.compaction_prompt": {
+    kind: "text",
+    label: "Compaction Prompt",
+    default: "",
+    description: "Optional custom prompt used when Cloud AI summarizes old chat context before continuing a long conversation.",
+    placeholder: "Summarize the conversation so far. Keep decisions, user preferences, tool results, and unresolved tasks.",
+  },
+  "ai.max_tool_result_chars": {
+    kind: "number",
+    label: "Max Tool Result Chars",
+    default: 2000,
+    min: 200,
+    max: 50000,
+    description: "Maximum characters from one tool result kept in AI context before Nessi truncates it.",
+  },
   // ── PDF rendering ─────────────────────────────────────────────────────
   "gotenberg.url": {
     kind: "url",

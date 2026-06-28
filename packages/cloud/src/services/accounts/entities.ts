@@ -486,6 +486,7 @@ export const list = async (
           u.sn,
           u.display_name,
           u.mail,
+          u.avatar_hash,
           NULL::text AS name,
           NULL::text AS description,
           NULL::int AS gid_number,
@@ -522,6 +523,7 @@ export const list = async (
           NULL::text AS sn,
           NULL::text AS display_name,
           NULL::text AS mail,
+          NULL::text AS avatar_hash,
           g.name,
           g.description,
           g.gid_number,
@@ -550,6 +552,7 @@ export const list = async (
           NULL::text AS sn,
           NULL::text AS display_name,
           NULL::text AS mail,
+          NULL::text AS avatar_hash,
           sa.name,
           CASE
             WHEN sa.kind = 'user_delegated' THEN 'Personal automation keys'

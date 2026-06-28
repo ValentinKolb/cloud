@@ -94,6 +94,7 @@ export const gridsService = {
     listForTable: access.listTableAccess,
     listForView: access.listViewAccess,
     listForForm: access.listFormAccess,
+    listForDocumentTemplate: access.listDocumentTemplateAccess,
     listForDashboard: access.listDashboardAccess,
     updateLevel: access.updateAccessLevel,
     revoke: access.revokeAccess,
@@ -124,6 +125,8 @@ export const gridsService = {
   document: {
     listTemplatesForTable: documents.listTemplatesForTable,
     getTemplate: documents.getTemplate,
+    getTemplateByShortId: documents.getTemplateByShortId,
+    getTemplateByIdOrShortId: documents.getTemplateByIdOrShortId,
     createTemplate: documents.createTemplate,
     updateTemplate: documents.updateTemplate,
     removeTemplate: documents.removeTemplate,

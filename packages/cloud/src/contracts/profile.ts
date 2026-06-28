@@ -36,6 +36,25 @@ export const UpdateProfileSchema = z
     message: "At least one profile field must be provided",
   });
 
+export const MAX_AVATAR_DATA_URL_LENGTH = 65_536;
+export const MAX_AVATAR_BYTES = 48 * 1024;
+
+export const AvatarDataUrlSchema = z
+  .string()
+  .max(MAX_AVATAR_DATA_URL_LENGTH)
+  .regex(/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/, "Avatar must be a PNG, JPEG, or WebP data URL");
+
+export const UpdateAvatarSchema = z.object({
+  dataUrl: AvatarDataUrlSchema,
+});
+export type UpdateAvatar = z.infer<typeof UpdateAvatarSchema>;
+
+export const UpdateAvatarResponseSchema = z.object({
+  message: z.string(),
+  avatarHash: z.string(),
+});
+export type UpdateAvatarResponse = z.infer<typeof UpdateAvatarResponseSchema>;
+
 export const ChangePasswordSchema = z
   .object({
     currentPassword: z.string().min(1),

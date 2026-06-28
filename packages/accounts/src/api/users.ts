@@ -1,4 +1,4 @@
-import { IpaProfileFieldsSchema, UserSchema } from "@valentinkolb/cloud/contracts";
+import { IpaProfileFieldsSchema, UpdateAvatarResponseSchema, UpdateAvatarSchema, UserSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, requiresAdmin, respond, v } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService, logger, notifications } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
@@ -17,7 +17,7 @@ import {
   parsePagination,
   SearchQuerySchema,
 } from "@/contracts";
-import { expectUserBackedActor, toAccountsActor } from "@/shared/actor";
+import { expectUserBackedActor, getUserBackedActor, toAccountsActor } from "@/shared/actor";
 
 const log = logger("accounts:admin:users");
 const UserIdParamSchema = z.object({ id: z.uuid() });
@@ -77,6 +77,14 @@ const NotifyUserSchema = z.object({
   rawHtml: z.string().min(1).max(100_000).describe("HTML content of the notification"),
 });
 
+const avatarHeaders = (avatarHash: string, contentType: string, byteLength: number) => ({
+  "Cache-Control": "private, max-age=31536000, immutable",
+  "Content-Length": String(byteLength),
+  "Content-Type": contentType,
+  ETag: `"${avatarHash}"`,
+  Vary: "Cookie, Authorization",
+});
+
 const logLocalAdminMutation = (params: {
   actor: { id: string; uid: string };
   target: { id: string; uid: string; provider: string; profile: string; storedAdmin: boolean };
@@ -99,6 +107,39 @@ const logLocalAdminMutation = (params: {
 // Admin-only user management routes. Self-service (/me) lives in core at
 // /api/me/*; this file is strictly third-party administration.
 const app = new Hono<AuthContext>()
+  .get(
+    "/:id/avatar",
+    auth.requireRole("authenticated"),
+    describeRoute({
+      tags: ["Users"],
+      summary: "Get user avatar",
+      description: "Return a stored profile picture. Profile pictures are visible to user-backed authenticated actors.",
+      responses: {
+        200: { description: "Avatar image" },
+        304: { description: "Avatar image not modified" },
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "User-backed actor required"),
+        404: jsonResponse(ErrorResponseSchema, "Avatar not found"),
+      },
+    }),
+    v("param", UserIdParamSchema),
+    async (c) => {
+      if (!getUserBackedActor(c)) {
+        return c.json({ message: "Avatar access requires a user-backed actor", code: "FORBIDDEN" }, 403);
+      }
+      const { id } = c.req.valid("param");
+      const avatar = await accountsService.user.getAvatar({ id });
+      if (!avatar) return c.json({ message: "Avatar not found" }, 404);
+
+      const etag = `"${avatar.hash}"`;
+      const headers = avatarHeaders(avatar.hash, avatar.contentType, avatar.bytes.length);
+      if (c.req.header("if-none-match") === etag) {
+        return new Response(null, { status: 304, headers });
+      }
+      const body = new Uint8Array(avatar.bytes);
+      return new Response(body.buffer, { status: 200, headers });
+    },
+  )
   .use(auth.requireRole("admin"))
   .get(
     "/",
@@ -240,6 +281,61 @@ const app = new Hono<AuthContext>()
         const result = await accountsService.user.update({ actor: toAccountsActor(expectUserBackedActor(c)), id, data });
         if (!result.ok) return result;
         return ok({ message: "User updated." });
+      });
+    },
+  )
+  .put(
+    "/:id/avatar",
+    describeRoute({
+      tags: ["Users"],
+      summary: "Update user avatar",
+      description: "Store a small profile picture for an account (admin only). Avatars are visible to user-backed authenticated actors.",
+      ...requiresAdmin,
+      responses: {
+        200: jsonResponse(UpdateAvatarResponseSchema, "Avatar updated"),
+        400: jsonResponse(ErrorResponseSchema, "Failed to update avatar"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
+        404: jsonResponse(ErrorResponseSchema, "User not found"),
+      },
+    }),
+    v("param", UserIdParamSchema),
+    v("json", UpdateAvatarSchema),
+    async (c) => {
+      const { id } = c.req.valid("param");
+      const data = c.req.valid("json");
+      return respond(c, async () => {
+        const result = await accountsService.user.setAvatar({
+          actor: toAccountsActor(expectUserBackedActor(c)),
+          id,
+          dataUrl: data.dataUrl,
+        });
+        if (!result.ok) return result;
+        return ok({ message: "Avatar updated.", avatarHash: result.data.avatarHash });
+      });
+    },
+  )
+  .delete(
+    "/:id/avatar",
+    describeRoute({
+      tags: ["Users"],
+      summary: "Delete user avatar",
+      description: "Remove an account profile picture (admin only).",
+      ...requiresAdmin,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Avatar deleted"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
+        404: jsonResponse(ErrorResponseSchema, "User not found"),
+      },
+    }),
+    v("param", UserIdParamSchema),
+    async (c) => {
+      const { id } = c.req.valid("param");
+      return respond(c, async () => {
+        const result = await accountsService.user.clearAvatar({ actor: toAccountsActor(expectUserBackedActor(c)), id });
+        if (!result.ok) return result;
+        return ok({ message: "Avatar deleted." });
       });
     },
   )

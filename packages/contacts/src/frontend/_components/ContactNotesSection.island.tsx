@@ -1,5 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView, Placeholder, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { Avatar, MarkdownView, Placeholder, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
@@ -191,9 +191,7 @@ export default function ContactNotesSection(props: Props) {
               return (
                 <li class="group flex flex-col gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/50">
                   <div class="flex items-center gap-2">
-                    <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-[11px] dark:bg-zinc-700">
-                      {(note.authorDisplayName || "?").charAt(0).toUpperCase()}
-                    </div>
+                    <Avatar username={note.authorDisplayName} userId={note.authorUserId} avatarHash={note.authorAvatarHash} size="xs" />
                     <span class="truncate text-xs font-medium text-primary">{note.authorDisplayName}</span>
                     <span class="text-[11px] text-dimmed" title={dates.formatDateTime(note.createdAt)}>
                       {dates.formatDateTimeRelative(note.createdAt)}

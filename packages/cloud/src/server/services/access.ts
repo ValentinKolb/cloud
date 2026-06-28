@@ -43,6 +43,7 @@ export type AccessEntry = {
   createdAt: string;
   // Resolved display info (populated by service)
   displayName?: string;
+  avatarHash?: string | null;
 };
 
 export type AccessUserSource =
@@ -58,6 +59,7 @@ export type AccessUser = {
   id: string;
   uid: string;
   displayName: string;
+  avatarHash: string | null;
   permission: Exclude<PermissionLevel, "none">;
   source: AccessUserSource;
 };
@@ -76,6 +78,7 @@ type DbAccessUser = {
   id: string;
   uid: string;
   display_name: string;
+  avatar_hash: string | null;
   permission: Exclude<PermissionLevel, "none">;
   direct: boolean;
   source_group_id: string | null;
@@ -366,6 +369,7 @@ export const listUsersWithAccess = async (params: {
           u.id,
           u.uid,
           COALESCE(NULLIF(u.display_name, ''), u.uid, u.id::text) AS display_name,
+          u.avatar_hash,
           TRUE AS direct,
           NULL::uuid AS source_group_id,
           NULL::text AS source_group_name,
@@ -393,6 +397,7 @@ export const listUsersWithAccess = async (params: {
           u.id,
           u.uid,
           COALESCE(NULLIF(u.display_name, ''), u.uid, u.id::text) AS display_name,
+          u.avatar_hash,
           FALSE AS direct,
           rg.root_group_id AS source_group_id,
           rg.root_group_name AS source_group_name,
@@ -407,6 +412,7 @@ export const listUsersWithAccess = async (params: {
           id,
           uid,
           display_name,
+          avatar_hash,
           CASE MAX(permission_rank)
             WHEN 4 THEN 'admin'
             WHEN 3 THEN 'write'
@@ -427,9 +433,9 @@ export const listUsersWithAccess = async (params: {
             ''
           ) AS group_names
         FROM candidate_users
-        GROUP BY id, uid, display_name
+        GROUP BY id, uid, display_name, avatar_hash
       )
-    SELECT id, uid, display_name, permission, direct, source_group_id, source_group_name
+    SELECT id, uid, display_name, avatar_hash, permission, direct, source_group_id, source_group_name
     FROM access_users
     WHERE id <> ALL(${toPgUuidArray(excludeUserIds)}::uuid[])
       AND (direct OR (source_group_id IS NOT NULL AND source_group_name IS NOT NULL))
@@ -448,6 +454,7 @@ export const listUsersWithAccess = async (params: {
     id: row.id,
     uid: row.uid,
     displayName: row.display_name,
+    avatarHash: row.avatar_hash,
     permission: row.permission,
     source: row.direct
       ? { type: "direct" }
@@ -475,15 +482,15 @@ export const resolveDisplayNames = async (entries: AccessEntry[]): Promise<Acces
     .map((e) => (e.principal as { type: "service_account"; serviceAccountId: string }).serviceAccountId);
 
   // Fetch user display names
-  const userNames = new Map<string, string>();
+  const userNames = new Map<string, { displayName: string; avatarHash: string | null }>();
   if (userIds.length > 0) {
-    const users = await sql<{ id: string; display_name: string; uid: string }[]>`
-      SELECT id, display_name, uid
+    const users = await sql<{ id: string; display_name: string; uid: string; avatar_hash: string | null }[]>`
+      SELECT id, display_name, uid, avatar_hash
       FROM auth.users
       WHERE id = ANY(${toPgUuidArray(userIds)}::uuid[])
     `;
     for (const u of users) {
-      userNames.set(u.id, u.display_name || u.uid);
+      userNames.set(u.id, { displayName: u.display_name || u.uid, avatarHash: u.avatar_hash });
     }
   }
 
@@ -513,10 +520,14 @@ export const resolveDisplayNames = async (entries: AccessEntry[]): Promise<Acces
 
   return entries.map((entry) => {
     let displayName: string;
+    let avatarHash: string | null | undefined;
     switch (entry.principal.type) {
-      case "user":
-        displayName = userNames.get(entry.principal.userId) ?? "Unknown User";
+      case "user": {
+        const user = userNames.get(entry.principal.userId);
+        displayName = user?.displayName ?? "Unknown User";
+        avatarHash = user?.avatarHash ?? null;
         break;
+      }
       case "group":
         displayName = groupNames.get(entry.principal.groupId) ?? "Unknown Group";
         break;
@@ -530,6 +541,6 @@ export const resolveDisplayNames = async (entries: AccessEntry[]): Promise<Acces
         displayName = "Public";
         break;
     }
-    return { ...entry, displayName };
+    return { ...entry, displayName, avatarHash };
   });
 };

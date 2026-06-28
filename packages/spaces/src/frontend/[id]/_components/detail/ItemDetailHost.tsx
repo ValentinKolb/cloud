@@ -1,11 +1,11 @@
-import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
-import { apiClient } from "@/api/client";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { DateContext } from "@valentinkolb/stdlib";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceComment, SpaceItem, SpaceTag } from "@/contracts";
-import ItemDetailPanel from "./ItemDetailPanel";
 import { subscribeToDetailSelection } from "../../../lib/detail";
+import ItemDetailPanel from "./ItemDetailPanel";
 
 type Props = {
   spaceId: string;
@@ -29,6 +29,7 @@ const isSpaceComment = (value: unknown): value is SpaceComment =>
   typeof value["content"] === "string" &&
   isNullableString(value["userId"]) &&
   isNullableString(value["userName"]) &&
+  isNullableString(value["userAvatarHash"]) &&
   typeof value["createdAt"] === "string" &&
   typeof value["updatedAt"] === "string" &&
   typeof value["canDelete"] === "boolean";

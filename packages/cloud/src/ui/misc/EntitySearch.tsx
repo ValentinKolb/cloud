@@ -1,6 +1,8 @@
 import { timed } from "@valentinkolb/stdlib/solid";
+import type { JSX } from "solid-js";
 import { createSignal, For, Show } from "solid-js";
 import TextInput from "../input/TextInput";
+import Avatar from "./Avatar";
 
 /**
  * Discriminated principal returned to `onSelect`. Field names match the
@@ -15,6 +17,7 @@ export type EntitySearchPrincipal =
       userId: string;
       uid: string;
       displayName: string;
+      avatarHash: string | null;
       mail: string | null;
       provider: "ipa" | "local";
     }
@@ -85,6 +88,7 @@ type ApiUser = {
   id: string;
   uid: string;
   displayName: string;
+  avatarHash: string | null;
   mail: string | null;
   provider: "ipa" | "local";
 };
@@ -246,6 +250,7 @@ const EntitySearch = (props: EntitySearchProps) => {
                   icon="ti-user"
                   title={user.displayName}
                   subtitle={user.mail ? `${user.uid} · ${user.mail}` : user.uid}
+                  avatar={<Avatar username={user.displayName || user.uid} userId={user.id} avatarHash={user.avatarHash} size="sm" />}
                   disabled={props.disabled}
                   onSelect={() =>
                     props.onSelect({
@@ -253,6 +258,7 @@ const EntitySearch = (props: EntitySearchProps) => {
                       userId: user.id,
                       uid: user.uid,
                       displayName: user.displayName,
+                      avatarHash: user.avatarHash,
                       mail: user.mail,
                       provider: user.provider,
                     })
@@ -325,16 +331,23 @@ const EntitySearch = (props: EntitySearchProps) => {
   );
 };
 
-const ResultRow = (props: { icon: string; title: string; subtitle?: string; disabled?: boolean; onSelect: () => void }) => (
+const ResultRow = (props: { icon: string; title: string; subtitle?: string; avatar?: JSX.Element; disabled?: boolean; onSelect: () => void }) => (
   <button
     type="button"
     onClick={props.onSelect}
     disabled={props.disabled}
     class="flex items-center gap-3 rounded p-2 text-left hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800"
   >
-    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-      <i class={`ti ${props.icon} text-sm`} />
-    </div>
+    <Show
+      when={props.avatar}
+      fallback={
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+          <i class={`ti ${props.icon} text-sm`} />
+        </div>
+      }
+    >
+      {props.avatar}
+    </Show>
     <div class="min-w-0 flex-1">
       <div class="truncate text-sm font-medium">{props.title}</div>
       <Show when={props.subtitle}>

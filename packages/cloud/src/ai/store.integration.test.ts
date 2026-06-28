@@ -127,6 +127,26 @@ describe("AI conversation store integration", () => {
       });
       expect((await aiConversationStore.getConversation({ conversationId: direct.id }))?.title).toBe("Rewrite this text for me please");
 
+      const summaryMessage: Message = {
+        role: "assistant",
+        content: [{ type: "text", text: "Conversation summary: user asked for a rewrite." }],
+        model: "provider/model",
+        stopReason: "stop",
+      };
+      await aiConversationStore.compactMessages({
+        conversationId: direct.id,
+        checkpointSeq: 1,
+        summary: summaryMessage,
+        modelProfileId: "model-a",
+      });
+      await store.append({ role: "user", content: [{ type: "text", text: "Continue please" }] });
+
+      expect((await store.load()).map((entry) => ({ seq: entry.seq, kind: entry.kind, message: entry.message }))).toEqual([
+        { seq: 1, kind: "summary", message: summaryMessage },
+        { seq: 2, kind: "message", message: assistantMessage },
+        { seq: 3, kind: "message", message: { role: "user", content: [{ type: "text", text: "Continue please" }] } },
+      ]);
+
       const turn = await aiConversationStore.createTurn({ conversationId: direct.id, modelProfileId: "model-a" });
       expect((await aiConversationStore.getRunningTurn({ conversationId: direct.id }))?.id).toBe(turn.id);
       await expect(aiConversationStore.createTurn({ conversationId: direct.id, modelProfileId: "model-a" })).rejects.toThrow();

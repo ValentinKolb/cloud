@@ -1,7 +1,14 @@
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
-import type { ComputedColumnSpec, DslQueryPreviewResponse, GroupSortSpec, RecordDisplayConfig, RecordQuery } from "../../../contracts";
+import type {
+  ComputedColumnSpec,
+  DocumentTemplate,
+  DslQueryPreviewResponse,
+  GroupSortSpec,
+  RecordDisplayConfig,
+  RecordQuery,
+} from "../../../contracts";
 import { parseGridsQueryDsl } from "../../../query-dsl/parser";
 import {
   type DslResolverContext,
@@ -53,8 +60,12 @@ export type WorkspaceCatalog = {
   viewsByTable: Record<string, View[]>;
   formsByTable: Record<string, Form[]>;
   formAccessEntriesByTable: Record<string, Record<string, AccessEntry[]>>;
+  documentTemplatesByTable: Record<string, DocumentTemplate[]>;
+  documentTemplateLevels: Record<string, "none" | "read" | "write" | "admin">;
+  documentTemplateAccessEntriesByTable: Record<string, Record<string, AccessEntry[]>>;
   tableShortIds: Record<string, string>;
   sidebarForms: Array<{ form: Form; table: Table }>;
+  sidebarDocumentTemplates: Array<{ template: DocumentTemplate; table: Table }>;
 };
 
 type RuntimeView = View & {
@@ -125,11 +136,21 @@ export type WorkspaceQueryRoute = {
     | { kind: "view"; viewId: string; label: string; ref: string };
 };
 
+export type WorkspaceDocumentTemplateRoute = {
+  kind: "documentTemplate";
+  table: Table;
+  template: DocumentTemplate;
+  canManageTemplate: boolean;
+  activeTemplateAccessEntries: AccessEntry[];
+  initialRecordId: string | null;
+};
+
 export type GridsWorkspaceRoute =
   | WorkspaceRecordsRoute
   | WorkspaceDashboardRoute
   | WorkspaceAutomationsRoute
   | WorkspaceQueryRoute
+  | WorkspaceDocumentTemplateRoute
   | WorkspaceEmptyRoute;
 
 export type GridsWorkspaceState =
@@ -199,6 +220,27 @@ const loadFormAccessEntriesByTable = async (
   return formAccessEntriesByTable;
 };
 
+const loadDocumentTemplateAccessEntriesByTable = async (
+  templatesByTable: Record<string, DocumentTemplate[]>,
+  templateLevels: Record<string, "none" | "read" | "write" | "admin">,
+) => {
+  const entriesByTable: Record<string, Record<string, AccessEntry[]>> = {};
+  await Promise.all(
+    Object.entries(templatesByTable).map(async ([tableId, templates]) => {
+      const entries: Record<string, AccessEntry[]> = {};
+      await Promise.all(
+        templates
+          .filter((template) => gridsService.permission.hasAtLeast(templateLevels[template.id] ?? "none", "admin"))
+          .map(async (template) => {
+            entries[template.id] = await gridsService.access.listForDocumentTemplate(template.id);
+          }),
+      );
+      entriesByTable[tableId] = entries;
+    }),
+  );
+  return entriesByTable;
+};
+
 type LoadWorkspaceParams = {
   user: AuthUser;
   baseShortId: string;
@@ -206,6 +248,8 @@ type LoadWorkspaceParams = {
   activeTableSlug?: string | null;
   activeViewSlug?: string | null;
   activeDashboardSlug?: string | null;
+  activeDocumentTableSlug?: string | null;
+  activeDocumentTemplateSlug?: string | null;
   dateConfig?: DateContext;
 };
 
@@ -269,15 +313,26 @@ const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCat
   });
   const tables = catalogRaw.tables;
   const formTables = catalogRaw.formTables ?? [];
-  const tableById = Object.fromEntries([...tables, ...formTables].map((t) => [t.id, t]));
+  const documentTemplateTables = catalogRaw.documentTemplateTables ?? [];
+  const tableById = Object.fromEntries([...tables, ...formTables, ...documentTemplateTables].map((t) => [t.id, t]));
   const sidebarForms: Array<{ form: Form; table: Table }> = [];
   for (const { form, tableId } of catalogRaw.sidebarForms) {
     const table = tableById[tableId];
     if (table) sidebarForms.push({ form, table });
   }
   sidebarForms.sort((a, b) => a.form.name.localeCompare(b.form.name, undefined, { sensitivity: "base" }));
+  const sidebarDocumentTemplates: Array<{ template: DocumentTemplate; table: Table }> = [];
+  for (const { template, tableId } of catalogRaw.sidebarDocumentTemplates ?? []) {
+    const table = tableById[tableId];
+    if (table) sidebarDocumentTemplates.push({ template, table });
+  }
+  sidebarDocumentTemplates.sort((a, b) => a.template.name.localeCompare(b.template.name, undefined, { sensitivity: "base" }));
 
   const formAccessEntriesByTable = await loadFormAccessEntriesByTable(tables, catalogRaw.tableLevels, catalogRaw.formsByTable);
+  const documentTemplateAccessEntriesByTable = await loadDocumentTemplateAccessEntriesByTable(
+    catalogRaw.documentTemplatesByTable ?? {},
+    catalogRaw.documentTemplateLevels ?? {},
+  );
   return {
     dashboards: catalogRaw.dashboards,
     tables,
@@ -286,14 +341,19 @@ const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCat
     viewsByTable: catalogRaw.viewsByTable,
     formsByTable: catalogRaw.formsByTable,
     formAccessEntriesByTable,
-    tableShortIds: Object.fromEntries([...tables, ...formTables].map((t) => [t.id, t.shortId])),
+    documentTemplatesByTable: catalogRaw.documentTemplatesByTable ?? {},
+    documentTemplateLevels: catalogRaw.documentTemplateLevels ?? {},
+    documentTemplateAccessEntriesByTable,
+    tableShortIds: Object.fromEntries([...tables, ...formTables, ...documentTemplateTables].map((t) => [t.id, t.shortId])),
     sidebarForms,
+    sidebarDocumentTemplates,
   };
 };
 
 const canUseEditModeForCatalog = (catalog: WorkspaceCatalog, user: AuthUser, canManageBase: boolean, canCreateTables: boolean) =>
   canCreateTables ||
   catalog.tables.some((t) => gridsService.permission.hasAtLeast(catalog.tableLevels[t.id] ?? "none", "admin")) ||
+  Object.values(catalog.documentTemplateLevels).some((level) => gridsService.permission.hasAtLeast(level, "admin")) ||
   catalog.dashboards.some((d) => d.ownerUserId === user.id || (d.ownerUserId === null && canManageBase));
 
 const okState = (common: WorkspaceCommon, route: GridsWorkspaceRoute, title = common.chrome.titleBase): OkWorkspaceState => ({
@@ -426,6 +486,18 @@ const viewLevelForUser = async (user: AuthUser, baseId: string, tableId: string,
     viewId,
   });
   return gridsService.permission.resolve(grants, { baseId, tableId, viewId });
+};
+
+const documentTemplateLevelForUser = async (user: AuthUser, baseId: string, tableId: string, templateId: string) => {
+  if (hasRole(user, "admin")) return "admin" as const;
+  const grants = await gridsService.permission.loadGrants({
+    userId: user.id,
+    userGroups: user.memberofGroupIds,
+    baseId,
+    tableId,
+    documentTemplateId: templateId,
+  });
+  return gridsService.permission.resolve(grants, { baseId, tableId, documentTemplateId: templateId });
 };
 
 type InitialRecordsArgs = {
@@ -714,6 +786,30 @@ const loadRecordsState = async (
   );
 };
 
+const loadDocumentTemplateState = async (
+  common: WorkspaceCommon,
+  table: Table,
+  template: DocumentTemplate,
+): Promise<OkWorkspaceState | Extract<GridsWorkspaceState, { kind: "accessDenied" }>> => {
+  const level = await documentTemplateLevelForUser(common.params.user, common.base.id, table.id, template.id);
+  if (!gridsService.permission.hasAtLeast(level, "read")) {
+    return { kind: "accessDenied", title: "Access denied", message: "No access to this document template" };
+  }
+  const canManageTemplate = gridsService.permission.hasAtLeast(level, "admin");
+  return okState(
+    common,
+    {
+      kind: "documentTemplate",
+      table,
+      template,
+      canManageTemplate,
+      activeTemplateAccessEntries: canManageTemplate ? await gridsService.access.listForDocumentTemplate(template.id) : [],
+      initialRecordId: common.chrome.url.searchParams.get("record"),
+    },
+    [...common.chrome.titleBase, { title: "Documents" }, { title: template.name }],
+  );
+};
+
 export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Promise<GridsWorkspaceState> => {
   const base = await gridsService.base.getByIdOrShortId(params.baseShortId);
   if (!base) return { kind: "notFound", title: "Not found", message: "Base not found" };
@@ -723,6 +819,21 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
   const catalog = await loadCatalog(baseId, params.user);
   const hasBaseRead = gridsService.permission.hasAtLeast(level, "read");
   const hasFormOnlyAccess = catalog.sidebarForms.length > 0;
+  const hasDocumentTemplateOnlyAccess = catalog.sidebarDocumentTemplates.length > 0;
+  const requestedDocumentTable =
+    params.activeDocumentTableSlug && params.activeDocumentTemplateSlug
+      ? await gridsService.table.getByIdOrShortId(baseId, params.activeDocumentTableSlug)
+      : null;
+  const requestedDocumentTemplate =
+    requestedDocumentTable && params.activeDocumentTemplateSlug
+      ? await gridsService.document.getTemplateByIdOrShortId(requestedDocumentTable.id, params.activeDocumentTemplateSlug)
+      : null;
+  const hasDocumentTemplateRouteAccess = requestedDocumentTemplate
+    ? gridsService.permission.hasAtLeast(
+        await documentTemplateLevelForUser(params.user, baseId, requestedDocumentTemplate.tableId, requestedDocumentTemplate.id),
+        "read",
+      )
+    : false;
   const requestedViewTable =
     params.activeTableSlug && params.activeViewSlug ? await gridsService.table.getByIdOrShortId(baseId, params.activeTableSlug) : null;
   const requestedView =
@@ -732,7 +843,7 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
   const hasViewRouteAccess = requestedView
     ? gridsService.permission.hasAtLeast(await viewLevelForUser(params.user, baseId, requestedView.tableId, requestedView.id), "read")
     : false;
-  if (!hasBaseRead && !hasFormOnlyAccess && !hasViewRouteAccess) {
+  if (!hasBaseRead && !hasFormOnlyAccess && !hasViewRouteAccess && !hasDocumentTemplateOnlyAccess && !hasDocumentTemplateRouteAccess) {
     return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
   }
 
@@ -799,6 +910,13 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
   if (chrome.url.pathname.endsWith("/automations")) {
     if (!canManageBase) return { kind: "accessDenied", title: "Access denied", message: "Only base admins can manage automations" };
     return okState(common, { kind: "automations" }, [...chrome.titleBase, { title: "Automations" }]);
+  }
+
+  if (params.activeDocumentTableSlug && params.activeDocumentTemplateSlug) {
+    if (!requestedDocumentTable || !requestedDocumentTemplate) {
+      return { kind: "notFound", title: "Not found", message: "Document template not found" };
+    }
+    return loadDocumentTemplateState(common, requestedDocumentTable, requestedDocumentTemplate);
   }
 
   const activeTableId = activeTableFromSlug?.id ?? null;
