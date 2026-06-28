@@ -1,6 +1,6 @@
-type BarcodeOption = { id: string; label: string; description: string; icon: string };
+export type BarcodeOption = { id: string; label: string; description: string; icon: string };
 
-const curated: BarcodeOption[] = [
+export const CURATED_BARCODE_OPTIONS: BarcodeOption[] = [
   { id: "code128", label: "Code 128", description: "General-purpose linear barcode.", icon: "ti ti-barcode" },
   { id: "qrcode", label: "QR Code", description: "Compact 2D code for phones.", icon: "ti ti-qrcode" },
   { id: "datamatrix", label: "Data Matrix", description: "Small 2D code for labels.", icon: "ti ti-grid-dots" },
@@ -25,7 +25,7 @@ const curated: BarcodeOption[] = [
   { id: "dotcode", label: "DotCode", description: "Dot-based production code.", icon: "ti ti-grid-dots" },
 ];
 
-const allSymbolIds: string[] = [
+export const BARCODE_SYMBOL_IDS: string[] = [
   "auspost",
   "azteccode",
   "azteccodecompact",
@@ -135,7 +135,7 @@ const allSymbolIds: string[] = [
 
 export const DEFAULT_BARCODE_BCID = "code128";
 
-const curatedById = new Map(curated.map((option) => [option.id, option]));
+const curatedById = new Map(CURATED_BARCODE_OPTIONS.map((option) => [option.id, option]));
 
 const advancedLabel = (id: string) => id.replace(/([a-z])(\d)/g, "$1 $2").replace(/(\d)([a-z])/g, "$1 $2");
 
@@ -146,9 +146,8 @@ export const barcodeSelectedLabel = (id: string | undefined): string | undefined
 
 export const searchBarcodeOptions = (query: string) => {
   const q = query.trim().toLowerCase();
-  if (!q) return curated;
-  return allSymbolIds
-    .filter((id) => id.includes(q) || (curatedById.get(id)?.label.toLowerCase() ?? "").includes(q))
+  if (!q) return CURATED_BARCODE_OPTIONS;
+  return BARCODE_SYMBOL_IDS.filter((id) => id.includes(q) || (curatedById.get(id)?.label.toLowerCase() ?? "").includes(q))
     .map((id): BarcodeOption => {
       const known = curatedById.get(id);
       return known ?? { id, label: advancedLabel(id), description: `Advanced BWIP symbol: ${id}`, icon: "ti ti-barcode" };
