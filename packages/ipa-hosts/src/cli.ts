@@ -74,17 +74,22 @@ const groupRows = (hostgroups: IpaHostgroup[]) =>
   }));
 
 const resolveHost = async (ctx: CloudCliContext, fqdn: string): Promise<IpaHost> => {
-  const response = await apiGet<HostsResponse>(
-    ctx,
-    queryString({
-      search: fqdn,
-      page: 1,
-      per_page: 10,
-    }),
-  );
-  const host = response.hosts.find((item) => item.fqdn === fqdn);
-  if (!host) throw new Error(`Host "${fqdn}" was not found.`);
-  return host;
+  let page = 1;
+  for (;;) {
+    const response = await apiGet<HostsResponse>(
+      ctx,
+      queryString({
+        search: fqdn,
+        page,
+        per_page: 100,
+      }),
+    );
+    const host = response.hosts.find((item) => item.fqdn === fqdn);
+    if (host) return host;
+    if (!response.pagination.has_next) break;
+    page += 1;
+  }
+  throw new Error(`Host "${fqdn}" was not found.`);
 };
 
 const printMessage = (ctx: CloudCliContext, result: MessageResponse) => {
@@ -145,6 +150,7 @@ export default defineCliCommands({
           locality: flags.locality,
           macAddress: flags.macAddress.length > 0 ? flags.macAddress : undefined,
         });
+        if (Object.keys(input).length === 0) throw new Error("Pass at least one host field to update.");
         const result = await apiJson<MessageResponse>(ctx, "PATCH", `/${encodeURIComponent(args.fqdn)}`, input);
         printMessage(ctx, result);
       },
@@ -178,10 +184,14 @@ export default defineCliCommands({
         fqdn: arg.required({ valueLabel: "fqdn" }),
         hostgroup: arg.required({ valueLabel: "hostgroup" }),
       },
-      async run({ ctx, args }) {
-        const result = await apiJson<MessageResponse>(ctx, "DELETE", `/${encodeURIComponent(args.fqdn)}/hostgroups`, {
-          hostgroup: args.hostgroup,
-        });
+      flags: { yes: confirmFlag("Remove the host from the hostgroup") },
+      async run({ ctx, args, flags }) {
+        if (!flags.yes) throw new Error("Refusing to remove a hostgroup membership without --yes.");
+        const result = await apiJson<MessageResponse>(
+          ctx,
+          "DELETE",
+          `/${encodeURIComponent(args.fqdn)}/hostgroups/${encodeURIComponent(args.hostgroup)}`,
+        );
         printMessage(ctx, result);
       },
     }),

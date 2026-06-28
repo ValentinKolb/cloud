@@ -10,6 +10,7 @@ import {
   FqdnParamSchema,
   HostgroupCnParamSchema,
   HostgroupMemberSchema,
+  HostgroupNameSchema,
   HostgroupSearchQuerySchema,
   IpaHostgroupSchema,
   IpaHostSchema,
@@ -66,6 +67,8 @@ const respondMessage = async (
   );
 };
 
+const hasUpdateFields = (value: Record<string, unknown>): boolean => Object.values(value).some((item) => item !== undefined);
+
 const HostsListResponseSchema = z.object({
   hosts: z.array(IpaHostSchema),
   pagination: PaginationResponseSchema,
@@ -73,6 +76,9 @@ const HostsListResponseSchema = z.object({
 const HostgroupsListResponseSchema = z.object({
   hostgroups: z.array(IpaHostgroupSchema),
   pagination: PaginationResponseSchema,
+});
+const HostgroupMemberParamSchema = FqdnParamSchema.extend({
+  hostgroup: HostgroupNameSchema,
 });
 
 // Mounted at `/api/ipa-hosts`. Sub-routes:
@@ -123,6 +129,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const { fqdn } = c.req.valid("param");
       const data = c.req.valid("json");
+      if (!hasUpdateFields(data)) return respond(c, fail(err.badInput("Pass at least one host field to update")));
       const actor = requireUserBackedApiActor(c);
       if (!actor.ok) return respond(c, actor);
       return respondMessage(c, ipaHostsService.host.update({ actor: actor.data, fqdn, data }), "Host updated");
@@ -190,6 +197,27 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const { fqdn } = c.req.valid("param");
       const { hostgroup } = c.req.valid("json");
+      const actor = requireUserBackedApiActor(c);
+      if (!actor.ok) return respond(c, actor);
+      return respondMessage(c, ipaHostsService.host.removeFromGroup({ actor: actor.data, fqdn, hostgroup }), "Host removed from group");
+    },
+  )
+  .delete(
+    "/:fqdn/hostgroups/:hostgroup",
+    describeRoute({
+      tags: ["IPA Hosts"],
+      summary: "Remove host from hostgroup",
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Host removed from group"),
+        400: jsonResponse(ErrorResponseSchema, "Failed"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
+        500: jsonResponse(ErrorResponseSchema, "FreeIPA service account unavailable"),
+      },
+    }),
+    v("param", HostgroupMemberParamSchema),
+    async (c) => {
+      const { fqdn, hostgroup } = c.req.valid("param");
       const actor = requireUserBackedApiActor(c);
       if (!actor.ok) return respond(c, actor);
       return respondMessage(c, ipaHostsService.host.removeFromGroup({ actor: actor.data, fqdn, hostgroup }), "Host removed from group");
@@ -276,6 +304,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const { cn } = c.req.valid("param");
       const data = c.req.valid("json");
+      if (!hasUpdateFields(data)) return respond(c, fail(err.badInput("Pass at least one hostgroup field to update")));
       const actor = requireUserBackedApiActor(c);
       if (!actor.ok) return respond(c, actor);
       return respondMessage(c, ipaHostsService.hostgroup.update({ actor: actor.data, cn, data }), "Hostgroup updated");

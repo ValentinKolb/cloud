@@ -998,7 +998,8 @@ const createSection = async (venueId: string, input: PublicSectionInput): Promis
 const updateSection = async (venueId: string, id: string, input: PublicSectionInput): Promise<Result<PublicSection>> => {
   const [row] = await sql<DbPublicSection[]>`
     UPDATE venue.public_sections
-    SET title = ${input.title.trim()},
+    SET kind = ${input.kind},
+        title = ${input.title.trim()},
         content = ${JSON.stringify(input.content)}::jsonb,
         enabled = ${input.enabled},
         position = ${input.position},

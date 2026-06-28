@@ -176,6 +176,9 @@ const buildVenueInput = (
     accentColor?: string;
   },
 ): VenueInput => {
+  if (flags.public && flags.private) throw new Error("Pass only one of --public or --private.");
+  if (flags.feedback && flags.noFeedback) throw new Error("Pass only one of --feedback or --no-feedback.");
+
   const name = flags.name ?? base?.name;
   if (!name) throw new Error("Missing venue name. Pass --name <name>.");
 
@@ -363,6 +366,8 @@ export default defineCliCommands({
         if (ctx.options.output === "json") ctx.json(response);
         else {
           ctx.print(`Created ${response.credential.name}`);
+          ctx.print("Store this token now. It cannot be shown again.");
+          ctx.print(`Prefix: ${response.credential.tokenPrefix}`);
           ctx.print(`Token: ${response.token}`);
         }
       },

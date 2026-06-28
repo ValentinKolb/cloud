@@ -109,9 +109,12 @@
       "dependencies": {
         "@valentinkolb/cloud": "workspace:*",
         "@valentinkolb/cloud-app-contacts": "workspace:*",
+        "@valentinkolb/cloud-app-ipa-hosts": "workspace:*",
         "@valentinkolb/cloud-app-notebooks": "workspace:*",
+        "@valentinkolb/cloud-app-oauth": "workspace:*",
         "@valentinkolb/cloud-app-spaces": "workspace:*",
         "@valentinkolb/cloud-app-tools": "workspace:*",
+        "@valentinkolb/cloud-app-venue": "workspace:*",
         "hono": "^4.11.1",
       },
       "devDependencies": {

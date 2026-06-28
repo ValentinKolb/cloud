@@ -46,12 +46,11 @@ const clientRows = (clients: OAuthClient[]) =>
   }));
 
 const resolveClient = async (ctx: CloudCliContext, ref: string): Promise<OAuthClient> => {
-  if (UUID_PATTERN.test(ref)) return apiGet<OAuthClient>(ctx, `/${encodeURIComponent(ref)}`);
-
   const clients = await apiGet<OAuthClient[]>(ctx, "");
-  const matches = clients.filter((client) => client.clientId === ref || client.name === ref);
+  const matches = clients.filter((client) => client.id === ref || client.clientId === ref || client.name === ref);
   if (matches.length === 1) return matches[0]!;
   if (matches.length > 1) throw new Error(`OAuth client "${ref}" is ambiguous. Use one of: ${matches.map((item) => item.id).join(", ")}`);
+  if (UUID_PATTERN.test(ref)) return apiGet<OAuthClient>(ctx, `/${encodeURIComponent(ref)}`);
   throw new Error(`OAuth client "${ref}" was not found by id, client id, or exact name.`);
 };
 
@@ -90,29 +89,33 @@ const updateInput = (flags: {
   description?: string;
   clearDescription: boolean;
   redirectUri: string[];
+  clearRedirectUris: boolean;
   logoutUri?: string;
   clearLogoutUri: boolean;
   scope: OAuthScope[];
   audience: string[];
+  clearAudiences: boolean;
   serviceAccountId?: string;
   clearServiceAccount: boolean;
   profile: OAuthAllowedProfile[];
   accessMode?: OAuthAccessMode;
   allowedUserId: string[];
+  clearAllowedUsers: boolean;
   allowedGroupId: string[];
+  clearAllowedGroups: boolean;
 }): UpdateOAuthClient =>
   compact({
     name: flags.name,
     description: flags.clearDescription ? null : flags.description,
-    redirectUris: flags.redirectUri.length > 0 ? flags.redirectUri : undefined,
+    redirectUris: flags.clearRedirectUris ? [] : flags.redirectUri.length > 0 ? flags.redirectUri : undefined,
     logoutUri: flags.clearLogoutUri ? null : flags.logoutUri,
     scopes: flags.scope.length > 0 ? flags.scope : undefined,
-    audiences: flags.audience.length > 0 ? flags.audience : undefined,
+    audiences: flags.clearAudiences ? [] : flags.audience.length > 0 ? flags.audience : undefined,
     serviceAccountId: flags.clearServiceAccount ? null : flags.serviceAccountId,
     allowedProfiles: flags.profile.length > 0 ? flags.profile : undefined,
     accessMode: flags.accessMode,
-    allowedUserIds: flags.allowedUserId.length > 0 ? flags.allowedUserId : undefined,
-    allowedGroupIds: flags.allowedGroupId.length > 0 ? flags.allowedGroupId : undefined,
+    allowedUserIds: flags.clearAllowedUsers ? [] : flags.allowedUserId.length > 0 ? flags.allowedUserId : undefined,
+    allowedGroupIds: flags.clearAllowedGroups ? [] : flags.allowedGroupId.length > 0 ? flags.allowedGroupId : undefined,
   });
 
 export default defineCliCommands({
@@ -189,16 +192,20 @@ export default defineCliCommands({
         description: flag.string(),
         clearDescription: flag.boolean({ name: "clear-description" }),
         redirectUri: flag.stringList({ name: "redirect-uri" }),
+        clearRedirectUris: flag.boolean({ name: "clear-redirect-uris" }),
         logoutUri: flag.string({ name: "logout-uri" }),
         clearLogoutUri: flag.boolean({ name: "clear-logout-uri" }),
         scope: flag.stringList(),
         audience: flag.stringList(),
+        clearAudiences: flag.boolean({ name: "clear-audiences" }),
         serviceAccountId: flag.string({ name: "service-account-id" }),
         clearServiceAccount: flag.boolean({ name: "clear-service-account" }),
         profile: flag.stringList(),
         accessMode: flag.enum(ACCESS_MODES, { name: "access-mode" }),
         allowedUserId: flag.stringList({ name: "allowed-user-id" }),
+        clearAllowedUsers: flag.boolean({ name: "clear-allowed-users" }),
         allowedGroupId: flag.stringList({ name: "allowed-group-id" }),
+        clearAllowedGroups: flag.boolean({ name: "clear-allowed-groups" }),
       },
       async run({ ctx, args, flags }) {
         const client = await resolveClient(ctx, args.client);
@@ -211,7 +218,7 @@ export default defineCliCommands({
         if (flags.profile.length !== input.allowedProfiles?.length && flags.profile.length > 0)
           throw new Error(`--profile must be one of: ${PROFILES.join(", ")}.`);
         await apiJson(ctx, "PUT", `/${encodeURIComponent(client.id)}`, input);
-        ctx.print(`Updated ${client.name}`);
+        ctx.print(`Updated ${flags.name ?? client.name}`);
       },
     }),
     command("clients delete", {
