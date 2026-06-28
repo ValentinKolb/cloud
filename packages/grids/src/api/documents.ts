@@ -11,6 +11,8 @@ import {
   DocumentTemplateDraftPreviewSchema,
   DocumentTemplateListSchema,
   DocumentTemplateSchema,
+  RecordSnapshotListResponseSchema,
+  RecordSnapshotSchema,
   UpdateDocumentTemplateSchema,
 } from "../contracts";
 import { gridsService } from "../service";
@@ -373,6 +375,26 @@ const app = new Hono<AuthContext>()
     },
   )
 
+  .get(
+    "/snapshots/by-record/:tableId/:recordId",
+    describeRoute({
+      tags: ["Grids:Document"],
+      summary: "List standalone record snapshots for a record",
+      responses: {
+        200: jsonResponse(RecordSnapshotListResponseSchema, "Record snapshots"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    async (c) => {
+      const tableId = c.req.param("tableId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      return c.json({ items: await gridsService.document.listSnapshotsForRecord(tableId, c.req.param("recordId")!) });
+    },
+  )
+
   .post(
     "/snapshots/by-record/:tableId/:recordId",
     describeRoute({
@@ -398,6 +420,25 @@ const app = new Hono<AuthContext>()
       });
       if (!snapshot.ok) return c.json({ message: snapshot.error.message }, snapshot.error.status);
       return c.json({ snapshot: snapshot.data });
+    },
+  )
+
+  .get(
+    "/snapshots/:snapshotId",
+    describeRoute({
+      tags: ["Grids:Document"],
+      summary: "Get a record snapshot",
+      responses: {
+        200: jsonResponse(RecordSnapshotSchema, "Record snapshot"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    async (c) => {
+      const snapshot = await gridsService.document.getSnapshot(c.req.param("snapshotId")!);
+      if (!snapshot) return c.json({ message: "Record snapshot not found" }, 404);
+      const gate = await gateAt(c, { baseId: snapshot.baseId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      return c.json(snapshot);
     },
   );
 

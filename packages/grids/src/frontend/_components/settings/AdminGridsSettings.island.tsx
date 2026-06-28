@@ -1,4 +1,4 @@
-import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
@@ -90,42 +90,50 @@ const SettingsBody = (props: { close: () => void }) => {
   });
 
   return (
-    <div class="flex w-[min(24rem,calc(100vw-3rem))] max-w-full flex-col gap-4">
-      <Show when={!entries.loading} fallback={<p class="text-xs text-dimmed">Loading settings…</p>}>
-        <Show
-          when={(entries() ?? []).length > 0}
-          fallback={
-            <Placeholder align="left" class="px-0 py-2">
-              No Grids settings registered.
-            </Placeholder>
-          }
-        >
-          <div class="flex flex-col gap-3">
-            <For each={entries() ?? []}>{(entry) => <SettingRow entry={entry} onChange={(value) => pending.set(entry.key, value)} />}</For>
-          </div>
-        </Show>
-      </Show>
-
-      <div class="flex items-center justify-end gap-2 pt-2">
-        <button type="button" class="btn-input btn-input-sm" onClick={props.close} disabled={saveMutation.loading()}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          class="btn-input btn-input-sm"
-          onClick={() => saveMutation.mutate(undefined)}
-          disabled={saveMutation.loading()}
-        >
-          <i class={`ti ${saveMutation.loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
-          Save
-        </button>
-      </div>
-    </div>
+    <PanelDialog>
+      <PanelDialog.Header title="Grids Settings" subtitle="App-level defaults used by Grids." icon="ti ti-settings" close={props.close} />
+      <PanelDialog.Body>
+        <PanelDialog.Section title="Settings" subtitle="Registered Grids settings and their current values." icon="ti ti-adjustments">
+          <Show when={!entries.loading} fallback={<p class="text-xs text-dimmed">Loading settings...</p>}>
+            <Show
+              when={(entries() ?? []).length > 0}
+              fallback={
+                <Placeholder align="left" class="px-0 py-2">
+                  No Grids settings registered.
+                </Placeholder>
+              }
+            >
+              <div class="flex flex-col gap-3">
+                <For each={entries() ?? []}>
+                  {(entry) => <SettingRow entry={entry} onChange={(value) => pending.set(entry.key, value)} />}
+                </For>
+              </div>
+            </Show>
+          </Show>
+        </PanelDialog.Section>
+      </PanelDialog.Body>
+      <PanelDialog.Footer>
+        <div />
+        <div class="flex items-center gap-2">
+          <button type="button" class="btn-input btn-input-sm" onClick={props.close} disabled={saveMutation.loading()}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn-input btn-input-sm"
+            onClick={() => saveMutation.mutate(undefined)}
+            disabled={saveMutation.loading()}
+          >
+            <i class={`ti ${saveMutation.loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
+            Save
+          </button>
+        </div>
+      </PanelDialog.Footer>
+    </PanelDialog>
   );
 };
 
-const openSettingsDialog = () =>
-  prompts.dialog<void>((close) => <SettingsBody close={close} />, { title: "Grids Settings", icon: "ti ti-settings" });
+const openSettingsDialog = () => dialogCore.open<void>((close) => <SettingsBody close={() => close()} />, panelDialogOptions);
 
 export default function AdminGridsSettings() {
   return (

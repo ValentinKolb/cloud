@@ -129,6 +129,7 @@ export const gridsService = {
     removeTemplate: documents.removeTemplate,
     createRecordSnapshot: documents.createRecordSnapshot,
     getSnapshot: documents.getSnapshot,
+    listSnapshotsForRecord: documents.listSnapshotsForRecord,
     buildTemplateInputContext: documents.buildTemplateInputContext,
     buildRenderData: documents.buildRenderData,
     buildLiveRenderData: documents.buildLiveRenderData,

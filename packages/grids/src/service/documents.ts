@@ -11,8 +11,15 @@ import {
 } from "@valentinkolb/cloud/shared";
 import { type DateContext, err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { barcodeDataUrl, BarcodeRenderError, type BarcodeFormat } from "../barcode-rendering";
-import type { CreateDocumentTemplateInput, DocumentRun, DocumentTemplate, RecordSnapshot, UpdateDocumentTemplateInput } from "../contracts";
+import { type BarcodeFormat, BarcodeRenderError, barcodeDataUrl } from "../barcode-rendering";
+import type {
+  CreateDocumentTemplateInput,
+  DocumentRun,
+  DocumentTemplate,
+  RecordSnapshot,
+  RecordSnapshotSummary,
+  UpdateDocumentTemplateInput,
+} from "../contracts";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { previewDslQuery } from "../query-dsl/preview";
 import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
@@ -112,6 +119,15 @@ const mapSnapshot = (row: DbRow): RecordSnapshot => ({
   recordId: row.record_id as string,
   root: parseJsonbRow<Record<string, unknown>>(row.root, {}),
   graph: parseJsonbRow<Record<string, unknown>>(row.graph, {}),
+  createdBy: (row.created_by as string | null) ?? null,
+  createdAt: (row.created_at as Date).toISOString(),
+});
+
+const mapSnapshotSummary = (row: DbRow): RecordSnapshotSummary => ({
+  id: row.id as string,
+  baseId: row.base_id as string,
+  tableId: row.table_id as string,
+  recordId: row.record_id as string,
   createdBy: (row.created_by as string | null) ?? null,
   createdAt: (row.created_at as Date).toISOString(),
 });
@@ -341,7 +357,28 @@ export const removeTemplate = async (templateId: string, actorId: string | null)
 type SnapshotRecord = {
   id: string;
   table: Pick<Table, "id" | "shortId" | "name">;
-  fields: Array<Pick<Field, "id" | "shortId" | "name" | "type" | "config">>;
+  fields: Array<
+    Pick<
+      Field,
+      | "id"
+      | "shortId"
+      | "name"
+      | "description"
+      | "icon"
+      | "type"
+      | "config"
+      | "position"
+      | "required"
+      | "presentable"
+      | "hideInTable"
+      | "defaultValue"
+      | "indexed"
+      | "uniqueConstraint"
+      | "deletedAt"
+      | "createdAt"
+      | "updatedAt"
+    >
+  >;
   data: Record<string, unknown>;
   version: number;
   createdAt: string;
@@ -361,8 +398,20 @@ const snapshotRecord = (table: Table, fields: Field[], record: GridRecord): Snap
     id: field.id,
     shortId: field.shortId,
     name: field.name,
+    description: field.description,
+    icon: field.icon,
     type: field.type,
     config: field.config,
+    position: field.position,
+    required: field.required,
+    presentable: field.presentable,
+    hideInTable: field.hideInTable,
+    defaultValue: field.defaultValue,
+    indexed: field.indexed,
+    uniqueConstraint: field.uniqueConstraint,
+    deletedAt: field.deletedAt,
+    createdAt: field.createdAt,
+    updatedAt: field.updatedAt,
   })),
   data: record.data,
   version: record.version,
@@ -436,6 +485,22 @@ export const createRecordSnapshot = async (params: {
 export const getSnapshot = async (snapshotId: string): Promise<RecordSnapshot | null> => {
   const [row] = await sql<DbRow[]>`SELECT * FROM grids.record_snapshots WHERE id = ${snapshotId}::uuid`;
   return row ? mapSnapshot(row) : null;
+};
+
+export const listSnapshotsForRecord = async (tableId: string, recordId: string): Promise<RecordSnapshotSummary[]> => {
+  const rows = await sql<DbRow[]>`
+    SELECT snapshot.id, snapshot.base_id, snapshot.table_id, snapshot.record_id, snapshot.created_by, snapshot.created_at
+    FROM grids.record_snapshots snapshot
+    WHERE snapshot.table_id = ${tableId}::uuid
+      AND snapshot.record_id = ${recordId}::uuid
+      AND NOT EXISTS (
+        SELECT 1
+        FROM grids.document_runs run
+        WHERE run.snapshot_id = snapshot.id
+      )
+    ORDER BY snapshot.created_at DESC
+  `;
+  return rows.map(mapSnapshotSummary);
 };
 
 export const buildTemplateInputContext = (record: GridRecord, table: Table): Record<string, unknown> => ({

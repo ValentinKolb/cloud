@@ -1,15 +1,13 @@
-import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
+import { Placeholder, prompts, StructuredDataPreview } from "@valentinkolb/cloud/ui";
 import { type DateContext, text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createResource, createSignal, For, type JSX, Show } from "solid-js";
+import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { ColumnSpec, DocumentRun, DocumentTemplate, FormatSpec } from "../../../contracts";
-import { effectiveDisplayField } from "../../../lookup-display";
+import type { ColumnSpec, DocumentRun, DocumentTemplate, RecordSnapshot, RecordSnapshotSummary } from "../../../contracts";
 import type { AuditEntry, Field, GridFile, GridRecord } from "../../../service";
 import { isUserEditable } from "../fields/field-prompt-schema";
-import { barcodeValueText, canRenderBarcode } from "../table/BarcodeCell";
-import { FieldValue, fieldDisplayFormat, formatFieldValueText } from "../table/FieldValue";
 import { errorMessage } from "../utils/api-helpers";
+import RecordReadView, { recordDisplayTitle } from "./RecordReadView";
 import { openRecordUpsertDialog } from "./RecordUpsertDialog";
 
 type Props = {
@@ -45,6 +43,104 @@ type Props = {
   onRemoved: () => void;
 };
 
+type SnapshotField = Partial<Field> & {
+  id?: unknown;
+  shortId?: unknown;
+  name?: unknown;
+  type?: unknown;
+  config?: unknown;
+};
+
+type SnapshotRecordNode = {
+  id?: unknown;
+  table?: unknown;
+  fields?: unknown;
+  data?: unknown;
+  version?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  deletedAt?: unknown;
+};
+
+const snapshotObject = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+
+const snapshotTableName = (snapshot: RecordSnapshot): string => {
+  const table = snapshotObject(snapshotObject(snapshot.root).table);
+  return typeof table.name === "string" && table.name.trim() ? table.name : "Snapshot record";
+};
+
+const normalizeSnapshotField = (field: SnapshotField, tableId: string, index: number): Field | null => {
+  if (typeof field.id !== "string" || typeof field.name !== "string" || typeof field.type !== "string") return null;
+  return {
+    id: field.id,
+    shortId: typeof field.shortId === "string" ? field.shortId : field.id.slice(0, 5),
+    tableId,
+    name: field.name,
+    description: typeof field.description === "string" ? field.description : null,
+    icon: typeof field.icon === "string" ? field.icon : null,
+    type: field.type,
+    config: snapshotObject(field.config),
+    position: typeof field.position === "number" ? field.position : index,
+    required: field.required === true,
+    presentable: field.presentable === true,
+    hideInTable: field.hideInTable === true,
+    defaultValue: field.defaultValue,
+    indexed: field.indexed === true,
+    uniqueConstraint: field.uniqueConstraint === true,
+    deletedAt: typeof field.deletedAt === "string" ? field.deletedAt : null,
+    createdAt: typeof field.createdAt === "string" ? field.createdAt : "",
+    updatedAt: typeof field.updatedAt === "string" ? field.updatedAt : "",
+  };
+};
+
+const snapshotFields = (node: SnapshotRecordNode, tableId: string): Field[] =>
+  (Array.isArray(node.fields) ? node.fields : [])
+    .map((field, index) => normalizeSnapshotField(field as SnapshotField, tableId, index))
+    .filter((field): field is Field => Boolean(field));
+
+const snapshotGridRecord = (snapshot: RecordSnapshot): GridRecord => {
+  const root = snapshot.root as SnapshotRecordNode;
+  return {
+    id: typeof root.id === "string" ? root.id : snapshot.recordId,
+    tableId: snapshot.tableId,
+    data: snapshotObject(root.data),
+    version: typeof root.version === "number" ? root.version : 0,
+    deletedAt: typeof root.deletedAt === "string" || root.deletedAt === null ? root.deletedAt : null,
+    createdBy: null,
+    updatedBy: null,
+    createdAt: typeof root.createdAt === "string" ? root.createdAt : snapshot.createdAt,
+    updatedAt: typeof root.updatedAt === "string" ? root.updatedAt : snapshot.createdAt,
+  };
+};
+
+const snapshotNodeLabel = (node: SnapshotRecordNode): string | null => {
+  const table = snapshotObject(node.table);
+  const fields = snapshotFields(node, typeof table.id === "string" ? table.id : "");
+  const data = snapshotObject(node.data);
+  const field =
+    fields.find((item) => item.presentable && item.id in data) ?? fields.find((item) => item.type === "text" && item.id in data);
+  if (field) {
+    const value = data[field.id];
+    if (typeof value === "string" && value.trim()) return value;
+    if (value !== null && value !== undefined && typeof value !== "object") return String(value);
+  }
+  return typeof node.id === "string" ? node.id.slice(0, 8) : null;
+};
+
+const snapshotRelationLabels = (snapshot: RecordSnapshot): Record<string, string> => {
+  const graph = snapshotObject(snapshot.graph);
+  const records = snapshotObject(graph.records);
+  const labels: Record<string, string> = {};
+  for (const value of Object.values(records)) {
+    const node = value as SnapshotRecordNode;
+    if (typeof node.id !== "string") continue;
+    const label = snapshotNodeLabel(node);
+    if (label) labels[node.id] = label;
+  }
+  return labels;
+};
+
 /**
  * Detail panel for a single record. Pure controlled component:
  * RecordsView passes the record to display + close/update/remove
@@ -56,44 +152,6 @@ export default function RecordDetailPanel(props: Props) {
   const mode = () => props.mode();
 
   const visibleFields = () => props.fields.filter((f) => !f.deletedAt);
-  const titleField = () => {
-    const fields = visibleFields();
-    return (
-      fields.find((f) => f.presentable && !["longtext", "json", "file", "relation"].includes(f.type)) ??
-      fields.find((f) => f.type === "text")
-    );
-  };
-  const bodyFields = () => {
-    const titleId = titleField()?.id;
-    return visibleFields().filter((f) => f.id !== titleId);
-  };
-  const fieldFormat = (field: Field): FormatSpec | undefined => {
-    const column = props.viewColumns?.find((item) => !("kind" in item) && item.fieldId === field.id);
-    return fieldDisplayFormat(field, column?.format);
-  };
-  const fieldBarcodeFormat = (field: Field): Extract<FormatSpec, { kind: "barcode" }> | undefined => {
-    const format = fieldFormat(field);
-    return format?.kind === "barcode" ? format : undefined;
-  };
-  const isBarcodeDisplayField = (field: Field, rec: GridRecord) => {
-    const format = fieldBarcodeFormat(field);
-    if (!format) return false;
-    if (!canRenderBarcode(effectiveDisplayField(field, props.fieldsByTable).type)) return false;
-    return barcodeValueText(rec.data[field.id]).trim().length > 0;
-  };
-  const barcodeFields = (rec: GridRecord) => bodyFields().filter((field) => isBarcodeDisplayField(field, rec));
-  const barcodeFieldIds = (rec: GridRecord) => new Set(barcodeFields(rec).map((field) => field.id));
-  const detailsFields = (rec: GridRecord) =>
-    bodyFields().filter((f) => !barcodeFieldIds(rec).has(f.id) && !["longtext", "json", "file", "relation"].includes(f.type));
-  const relationFields = () => bodyFields().filter((f) => f.type === "relation");
-  const textBlockFields = () => bodyFields().filter((f) => ["longtext", "json"].includes(f.type));
-  const fileFields = () => bodyFields().filter((f) => f.type === "file");
-  const hasBodyFields = (rec: GridRecord) =>
-    barcodeFields(rec).length > 0 ||
-    detailsFields(rec).length > 0 ||
-    relationFields().length > 0 ||
-    textBlockFields().length > 0 ||
-    fileFields().length > 0;
 
   // ---- Mutations ---------------------------------------------------------
   const updateMut = mutations.create<GridRecord, { rec: GridRecord; payload: Record<string, unknown> }>({
@@ -158,7 +216,14 @@ export default function RecordDetailPanel(props: Props) {
 
   const handleDelete = async (rec: GridRecord) => {
     const confirmed = await prompts.confirm(
-      `${recordTitle(rec)}\n${props.tableName}\n\nThis record is moved to trash and can be restored.`,
+      `${recordDisplayTitle({
+        fields: props.fields,
+        record: rec,
+        fieldsByTable: props.fieldsByTable,
+        relationLabels: props.relationLabels,
+        dateConfig: props.dateConfig,
+        viewColumns: props.viewColumns,
+      })}\n${props.tableName}\n\nThis record is moved to trash and can be restored.`,
       { title: "Delete record?", variant: "danger", confirmText: "Delete" },
     );
     if (!confirmed) return;
@@ -167,158 +232,27 @@ export default function RecordDetailPanel(props: Props) {
 
   const handleRestore = (rec: GridRecord) => restoreMut.mutate(rec);
 
-  /** Type-aware field renderer. Returns JSX for relation/lookup cells
-   *  (with cross-record links) and a string for everything else. The
-   *  detail panel is read-first: relation edits happen through the
-   *  explicit Edit action / RecordUpsertDialog, not inline dropdowns. */
-  const renderField = (field: Field, rec: GridRecord) => {
-    if (field.type === "file") {
-      return <FileFieldCell tableId={props.tableId} recordId={rec.id} field={field} canWrite={props.canWrite && mode() === "live"} />;
-    }
-    return (
-      <FieldValue
-        field={field}
-        value={rec.data[field.id]}
-        record={rec}
-        allFields={props.fields}
-        baseId={props.baseShortId ?? props.baseId}
-        tableShortIds={props.tableShortIds}
-        fieldsByTable={props.fieldsByTable}
-        relationLabels={props.relationLabels}
-        dateConfig={props.dateConfig}
-        format={fieldFormat(field)}
-        mode="detail"
-        empty="—"
-        linkLookup
-        showBarcodeOpenAction
-      />
-    );
-  };
-
-  // ---- Pick the "title" of the record for the panel header --------------
-  const recordTitle = (rec: GridRecord) => {
-    const tf = titleField();
-    if (tf) {
-      const v = rec.data[tf.id];
-      if (typeof v === "string" && v.length > 0) return v;
-      const formatted = formatFieldValueText({
-        field: tf,
-        value: v,
-        record: rec,
-        fieldsByTable: props.fieldsByTable,
-        relationLabels: props.relationLabels,
-        dateConfig: props.dateConfig,
-        format: fieldFormat(tf),
-      });
-      if (formatted) return formatted;
-    }
-    return "Untitled record";
-  };
-  const renderFieldValue = (field: Field, rec: GridRecord, variant: "compact" | "full") => {
-    const description = field.description;
-    return (
-      <div class="min-w-0">
-        <p class="text-[11px] font-semibold uppercase tracking-wide text-dimmed">{field.name}</p>
-        <Show when={description}>
-          <p class="mt-0.5 text-[11px] text-dimmed leading-snug">{description}</p>
-        </Show>
-        <div
-          class={
-            variant === "compact"
-              ? "mt-1 min-w-0 break-words text-sm font-medium text-secondary"
-              : "mt-1 min-w-0 break-words text-sm text-secondary"
-          }
-        >
-          {renderField(field, rec)}
-        </div>
-      </div>
-    );
-  };
-  const detailIcon = (field: Field) => {
-    if (field.icon) return field.icon;
-    if (isComputedField(field)) return "ti ti-math-function";
-    const name = field.name.toLowerCase();
-    if (name.includes("price")) return "ti ti-currency-euro";
-    if (name.includes("discount")) return "ti ti-percentage";
-    if (name.includes("published") || field.type === "date" || field.type === "datetime") return "ti ti-calendar";
-    if (name.includes("stock") || field.type === "boolean") return "ti ti-check";
-    if (name.includes("tag") || field.type.includes("select")) return "ti ti-tags";
-    if (name.includes("sku")) return "ti ti-barcode";
-    if (field.type === "number" || field.type === "percent") return "ti ti-hash";
-    return "ti ti-info-circle";
-  };
-  const isComputedField = (field: Field) => ["formula", "lookup", "rollup"].includes(field.type);
-  const renderDetailsPaperTile = (field: Field, rec: GridRecord) => (
-    <div class="paper min-w-0 p-3">
-      <div
-        class={`flex min-w-0 items-center gap-1.5 truncate text-[11px] font-medium uppercase tracking-wide ${
-          isComputedField(field) ? "text-blue-500" : "text-dimmed"
-        }`}
-      >
-        <i class={`${detailIcon(field)} shrink-0`} />
-        {field.name}
-      </div>
-      <div class="mt-1 min-w-0 break-words text-sm font-semibold leading-5 text-primary">{renderField(field, rec)}</div>
-    </div>
-  );
-  const Section = (sectionProps: { title: string; children: JSX.Element }) => (
-    <section class="paper p-4 flex flex-col gap-3">
-      <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">{sectionProps.title}</h3>
-      {sectionProps.children}
-    </section>
-  );
-  const renderBarcodePaper = (field: Field, rec: GridRecord) => {
-    const format = fieldBarcodeFormat(field);
-    if (!format) return null;
-    return (
-      <section class="paper p-4 flex flex-col gap-3">
-        <div class="flex min-w-0 items-center gap-1.5 truncate text-[11px] font-medium uppercase tracking-wide text-dimmed">
-          <i class={`${detailIcon(field)} shrink-0`} />
-          {field.name}
-        </div>
-        <FieldValue
-          field={field}
-          value={rec.data[field.id]}
-          record={rec}
-          allFields={props.fields}
-          baseId={props.baseShortId ?? props.baseId}
-          tableShortIds={props.tableShortIds}
-          fieldsByTable={props.fieldsByTable}
-          relationLabels={props.relationLabels}
-          dateConfig={props.dateConfig}
-          format={format}
-          mode="detail"
-          empty="—"
-          linkLookup
-          showBarcodeOpenAction
-        />
-      </section>
-    );
-  };
-
   return (
     <Show when={record()} fallback={null} keyed>
       {(rec) => (
         <div class="flex h-full min-h-0 flex-col gap-2 overflow-y-auto">
-          <section class="paper p-4">
-            <div class="flex items-start justify-between gap-2">
-              <div class="min-w-0 flex-1">
-                <h2 class="truncate text-lg font-semibold leading-tight text-primary">{recordTitle(rec)}</h2>
-                <div class="mt-1 flex items-center gap-1.5 text-[11px] text-dimmed">
-                  <Show when={mode() === "trash"}>
-                    <span class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                      <i class="ti ti-trash" /> deleted
-                    </span>
-                    <span>·</span>
-                  </Show>
-                  <span class="truncate">{props.tableName}</span>
-                  <span>·</span>
-                  <span>v{rec.version}</span>
-                  <span>·</span>
-                  <span class="font-mono">{rec.id.slice(0, 8)}</span>
-                </div>
-              </div>
-              <div class="flex shrink-0 items-center gap-0.5">
+          <RecordReadView
+            baseId={props.baseShortId ?? props.baseId}
+            tableId={props.tableId}
+            tableName={props.tableName}
+            fields={props.fields}
+            record={rec}
+            mode={mode()}
+            relationLabels={props.relationLabels}
+            tableShortIds={props.tableShortIds}
+            fieldsByTable={props.fieldsByTable}
+            viewColumns={props.viewColumns}
+            dateConfig={props.dateConfig}
+            renderFileField={(field, record) => (
+              <FileFieldCell tableId={props.tableId} recordId={record.id} field={field} canWrite={props.canWrite && mode() === "live"} />
+            )}
+            headerActions={
+              <>
                 <Show when={props.canWrite && mode() === "live"}>
                   <button
                     type="button"
@@ -361,50 +295,9 @@ export default function RecordDetailPanel(props: Props) {
                 >
                   <i class="ti ti-x" />
                 </button>
-              </div>
-            </div>
-          </section>
-
-          <Show
-            when={hasBodyFields(rec)}
-            fallback={
-              <Placeholder surface="paper" align="left">
-                No fields to show.
-              </Placeholder>
+              </>
             }
-          >
-            <For each={barcodeFields(rec)}>{(field) => renderBarcodePaper(field, rec)}</For>
-
-            <Show when={detailsFields(rec).length > 0}>
-              <div class="grid grid-cols-2 gap-2">
-                <For each={detailsFields(rec)}>{(field) => renderDetailsPaperTile(field, rec)}</For>
-              </div>
-            </Show>
-
-            <Show when={relationFields().length > 0}>
-              <Section title="Relations">
-                <div class="flex flex-col gap-3">
-                  <For each={relationFields()}>{(field) => renderFieldValue(field, rec, "full")}</For>
-                </div>
-              </Section>
-            </Show>
-
-            <For each={textBlockFields()}>
-              {(field) => (
-                <Section title={field.name}>
-                  <div class="text-sm text-secondary break-words">{renderField(field, rec)}</div>
-                </Section>
-              )}
-            </For>
-
-            <Show when={fileFields().length > 0}>
-              <Section title="Files">
-                <div class="flex flex-col gap-3">
-                  <For each={fileFields()}>{(field) => renderFieldValue(field, rec, "full")}</For>
-                </div>
-              </Section>
-            </Show>
-          </Show>
+          />
 
           <RecordDocumentsSection tableId={props.tableId} recordId={rec.id} />
           <RecordHistorySection tableId={props.tableId} recordId={rec.id} />
@@ -433,7 +326,20 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
       return res.json();
     },
   );
+  const [snapshots, { refetch: refetchSnapshots }] = createResource(
+    () => `${props.tableId}:${props.recordId}`,
+    async () => {
+      const res = await apiClient.documents.snapshots["by-record"][":tableId"][":recordId"].$get({
+        param: { tableId: props.tableId, recordId: props.recordId },
+      });
+      if (!res.ok) return { items: [] as RecordSnapshotSummary[] };
+      return res.json();
+    },
+  );
   const [busy, setBusy] = createSignal<string | null>(null);
+
+  const iconActionClass =
+    "inline-flex h-7 w-7 shrink-0 items-center justify-center text-dimmed transition-colors hover:text-secondary disabled:cursor-not-allowed disabled:opacity-50";
 
   const downloadPdfResponse = async (res: Response, fallbackName: string) => {
     if (!res.ok) throw new Error(await errorMessage(res, "Failed to render PDF"));
@@ -459,6 +365,7 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
       const number = res.headers.get("X-Grids-Document-Number") ?? template.name;
       await downloadPdfResponse(res, `${number}.pdf`);
       await refetchRuns();
+      await refetchSnapshots();
     } catch (error) {
       prompts.error(error instanceof Error ? error.message : "Failed to generate document");
     } finally {
@@ -485,9 +392,80 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
         param: { tableId: props.tableId, recordId: props.recordId },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create snapshot"));
+      await refetchSnapshots();
       prompts.success("Snapshot created.");
     } catch (error) {
       prompts.error(error instanceof Error ? error.message : "Failed to create snapshot");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const inspectSnapshot = async (summary: RecordSnapshotSummary) => {
+    setBusy(summary.id);
+    try {
+      const res = await apiClient.documents.snapshots[":snapshotId"].$get({ param: { snapshotId: summary.id } });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to load snapshot"));
+      const snapshot = (await res.json()) as RecordSnapshot;
+      const root = snapshot.root as SnapshotRecordNode;
+      const fields = snapshotFields(root, snapshot.tableId);
+      const snapshotRecord = snapshotGridRecord(snapshot);
+      const relationLabels = snapshotRelationLabels(snapshot);
+      await prompts.dialog<void>(
+        () => (
+          <div class="flex max-h-[70vh] flex-col gap-3 overflow-auto p-4">
+            <div class="flex flex-col gap-2">
+              <RecordReadView
+                baseId={snapshot.baseId}
+                tableId={snapshot.tableId}
+                tableName={snapshotTableName(snapshot)}
+                fields={fields}
+                record={snapshotRecord}
+                mode="snapshot"
+                relationLabels={relationLabels}
+                headerMeta={
+                  <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-dimmed">
+                    <span class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                      <i class="ti ti-camera" /> snapshot
+                    </span>
+                    <span>·</span>
+                    <span class="truncate">{snapshotTableName(snapshot)}</span>
+                    <span>·</span>
+                    <span>{formatRelativeTime(snapshot.createdAt)}</span>
+                    <span>·</span>
+                    <span class="font-mono">{snapshotRecord.id.slice(0, 8)}</span>
+                  </div>
+                }
+              />
+            </div>
+            <StructuredDataPreview
+              title="Metadata"
+              data={{
+                id: snapshot.id,
+                tableId: snapshot.tableId,
+                recordId: snapshot.recordId,
+                createdAt: snapshot.createdAt,
+                createdBy: snapshot.createdBy,
+              }}
+              maxRows={8}
+            />
+            <details class="paper p-0">
+              <summary class="flex cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs font-medium text-secondary">
+                <i class="ti ti-code text-sm" />
+                Raw snapshot data
+                <i class="ti ti-chevron-down ml-auto text-xs text-dimmed" />
+              </summary>
+              <div class="flex flex-col gap-3 px-3 pb-3">
+                <StructuredDataPreview title="Root record" data={snapshot.root} defaultMode="raw" />
+                <StructuredDataPreview title="Record graph" data={snapshot.graph} defaultMode="raw" />
+              </div>
+            </details>
+          </div>
+        ),
+        { title: "Record snapshot", icon: "ti ti-camera", size: "large" },
+      );
+    } catch (error) {
+      prompts.error(error instanceof Error ? error.message : "Failed to load snapshot");
     } finally {
       setBusy(null);
     }
@@ -498,51 +476,118 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
     const value = runs();
     return Array.isArray(value) ? value : (value?.items ?? []);
   };
-  const hasContent = () => templates.loading || runs.loading || availableTemplates().length > 0 || generatedRuns().length > 0;
+  const manualSnapshots = () => snapshots()?.items ?? [];
 
   return (
-    <Show when={hasContent()}>
+    <>
       <section class="paper p-4 flex flex-col gap-3">
         <div class="flex items-center justify-between gap-2">
-          <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">Documents</h3>
+          <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">Snapshots</h3>
           <button type="button" class="btn-input btn-sm" onClick={() => void createSnapshot()} disabled={busy() === "snapshot"}>
             {busy() === "snapshot" ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
             Snapshot
           </button>
         </div>
 
-        <Show when={availableTemplates().length > 0}>
+        <Show when={snapshots.loading}>
+          <p class="text-xs text-dimmed">Loading snapshots…</p>
+        </Show>
+        <Show when={!snapshots.loading && manualSnapshots().length === 0}>
+          <Placeholder align="left" class="px-0 py-2">
+            No manual snapshots yet.
+          </Placeholder>
+        </Show>
+        <Show when={manualSnapshots().length > 0}>
           <div class="flex flex-col gap-2">
-            <For each={availableTemplates()}>
-              {(template) => (
-                <div class="flex items-center gap-2 rounded-md bg-zinc-50 px-2.5 py-2 text-sm dark:bg-zinc-900">
-                  <i class="ti ti-file-type-pdf text-dimmed" />
-                  <span class="min-w-0 flex-1 truncate font-medium text-primary">{template.name}</span>
+            <For each={manualSnapshots()}>
+              {(snapshot) => (
+                <div class="flex min-w-0 items-center gap-2 text-xs">
+                  <i class="ti ti-camera text-dimmed" />
+                  <span class="min-w-0 flex-1 truncate font-mono text-secondary">SNAP-{snapshot.id.slice(0, 8).toUpperCase()}</span>
+                  <span class="shrink-0 text-dimmed">{formatRelativeTime(snapshot.createdAt)}</span>
                   <button
                     type="button"
-                    class="btn-primary btn-sm"
-                    onClick={() => void generate(template)}
-                    disabled={busy() === template.id}
+                    class={iconActionClass}
+                    title="Inspect snapshot"
+                    aria-label="Inspect snapshot"
+                    onClick={() => void inspectSnapshot(snapshot)}
+                    disabled={busy() === snapshot.id}
                   >
-                    {busy() === template.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
-                    Generate
+                    {busy() === snapshot.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-eye" />}
                   </button>
                 </div>
               )}
             </For>
           </div>
         </Show>
+      </section>
 
+      <section class="paper p-4 flex flex-col gap-3">
+        <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">Generate document</h3>
+
+        <Show when={templates.loading}>
+          <p class="text-xs text-dimmed">Loading templates…</p>
+        </Show>
+        <Show when={!templates.loading && availableTemplates().length === 0}>
+          <Placeholder align="left" class="px-0 py-2">
+            No enabled document templates.
+          </Placeholder>
+        </Show>
+        <Show when={availableTemplates().length > 0}>
+          <div class="flex flex-col gap-2">
+            <For each={availableTemplates()}>
+              {(template) => (
+                <button
+                  type="button"
+                  class="flex w-full min-w-0 items-center gap-2 rounded-md bg-zinc-50 px-2.5 py-2 text-left text-sm transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                  onClick={() => void generate(template)}
+                  disabled={busy() === template.id}
+                  aria-label={`Generate ${template.name}`}
+                >
+                  <i class="ti ti-file-type-pdf shrink-0 text-dimmed" />
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate font-medium text-primary">{template.name}</span>
+                    <Show when={template.description}>
+                      {(description) => <span class="mt-0.5 block truncate text-xs text-dimmed">{description()}</span>}
+                    </Show>
+                  </span>
+                  <span class="shrink-0 text-dimmed">
+                    {busy() === template.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
+                  </span>
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
+      </section>
+
+      <section class="paper p-4 flex flex-col gap-3">
+        <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">Generated documents</h3>
+
+        <Show when={runs.loading}>
+          <p class="text-xs text-dimmed">Loading generated documents…</p>
+        </Show>
+        <Show when={!runs.loading && generatedRuns().length === 0}>
+          <Placeholder align="left" class="px-0 py-2">
+            No generated documents yet.
+          </Placeholder>
+        </Show>
         <Show when={generatedRuns().length > 0}>
           <div class="flex flex-col gap-2">
-            <p class="text-[11px] font-medium uppercase tracking-wide text-dimmed">Generated</p>
             <For each={generatedRuns()}>
               {(run) => (
                 <div class="flex items-center gap-2 text-xs">
                   <i class="ti ti-file-description text-dimmed" />
                   <span class="min-w-0 flex-1 truncate font-mono text-secondary">{run.documentNumber}</span>
                   <span class="shrink-0 text-dimmed">{formatRelativeTime(run.generatedAt)}</span>
-                  <button type="button" class="btn-input btn-sm" onClick={() => void redownload(run)} disabled={busy() === run.id}>
+                  <button
+                    type="button"
+                    class={iconActionClass}
+                    title="Download document"
+                    aria-label="Download document"
+                    onClick={() => void redownload(run)}
+                    disabled={busy() === run.id}
+                  >
                     {busy() === run.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
                   </button>
                 </div>
@@ -551,7 +596,7 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
           </div>
         </Show>
       </section>
-    </Show>
+    </>
   );
 }
 

@@ -889,6 +889,21 @@ export const RecordSnapshotSchema = z.object({
 });
 export type RecordSnapshot = z.infer<typeof RecordSnapshotSchema>;
 
+export const RecordSnapshotSummarySchema = RecordSnapshotSchema.pick({
+  id: true,
+  baseId: true,
+  tableId: true,
+  recordId: true,
+  createdBy: true,
+  createdAt: true,
+});
+export type RecordSnapshotSummary = z.infer<typeof RecordSnapshotSummarySchema>;
+
+export const RecordSnapshotListResponseSchema = z.object({
+  items: z.array(RecordSnapshotSummarySchema),
+});
+export type RecordSnapshotListResponse = z.infer<typeof RecordSnapshotListResponseSchema>;
+
 export const DocumentRunSchema = z.object({
   id: z.string().uuid(),
   shortId: ShortIdSchema,
