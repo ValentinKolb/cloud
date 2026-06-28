@@ -1,4 +1,4 @@
-import { Show, type JSX } from "solid-js";
+import { type JSX, Show } from "solid-js";
 
 /**
  * Shared building blocks for admin "Settings" forms — extracted from
@@ -124,5 +124,45 @@ export function SettingsSaveBar(props: SettingsSaveBarProps) {
         </div>
       </div>
     </Show>
+  );
+}
+
+export type SettingsPanelFooterProps = SettingsSaveBarProps & {
+  saveClass?: "btn-primary" | "btn-ai";
+};
+
+export function SettingsPanelFooter(props: SettingsPanelFooterProps) {
+  const hasChanges = () => props.changeCount() > 0;
+
+  return (
+    <>
+      <p class="text-xs text-dimmed">
+        <Show when={hasChanges()} fallback="No unsaved changes">
+          <span class="font-medium text-primary">{props.changeCount()}</span> unsaved change{props.changeCount() > 1 ? "s" : ""}
+        </Show>
+      </p>
+      <div class="flex items-center gap-2">
+        <button type="button" class="btn-secondary btn-sm" onClick={props.onDiscard} disabled={!hasChanges() || props.loading()}>
+          Discard
+        </button>
+        <button
+          type="button"
+          class={`${props.saveClass ?? "btn-primary"} btn-sm`}
+          onClick={props.onSave}
+          disabled={!hasChanges() || props.loading()}
+        >
+          <Show
+            when={props.loading()}
+            fallback={
+              <>
+                <i class="ti ti-device-floppy text-xs" /> Save all
+              </>
+            }
+          >
+            <i class="ti ti-loader-2 animate-spin text-xs" /> Saving...
+          </Show>
+        </button>
+      </div>
+    </>
   );
 }

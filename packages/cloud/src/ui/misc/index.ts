@@ -71,6 +71,7 @@ export type {
   PanelDialogHeaderProps,
   PanelDialogProps,
   PanelDialogSectionProps,
+  PanelDialogSurface,
   PanelDialogTabOption,
   PanelDialogTabsProps,
 } from "./PanelDialog";

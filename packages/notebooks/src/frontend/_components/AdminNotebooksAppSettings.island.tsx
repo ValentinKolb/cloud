@@ -9,9 +9,9 @@
  * Extensible by design: future settings just need a `defaults.ts`
  * entry — they auto-appear in this modal without any frontend change.
  */
-import { Placeholder, prompts } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
-import { For, Show, createResource, createSignal } from "solid-js";
+import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 
 type SettingEntry = {
@@ -119,7 +119,7 @@ const SettingRow = (props: { entry: SettingEntry; onChange: (value: unknown) => 
 };
 
 const SettingsBody = (props: { close: () => void }) => {
-  const [entries, { refetch }] = createResource(fetchSettings);
+  const [entries] = createResource(fetchSettings);
   const pending = new Map<string, unknown>();
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
@@ -165,27 +165,36 @@ const SettingsBody = (props: { close: () => void }) => {
   };
 
   return (
-    <div class="w-full max-w-full flex flex-col gap-4 min-w-[28rem]">
-      <Show when={!entries.loading} fallback={<p class="text-xs text-dimmed">Loading settings…</p>}>
-        <Show
-          when={(entries() ?? []).length > 0}
-          fallback={
-            <Placeholder align="left" class="px-0 py-2">
-              No notebooks-app settings registered.
-            </Placeholder>
-          }
-        >
-          <div class="flex flex-col gap-3">
-            <For each={entries() ?? []}>{(entry) => <SettingRow entry={entry} onChange={(v) => onChange(entry.key, v)} />}</For>
-          </div>
-        </Show>
-      </Show>
+    <PanelDialog>
+      <PanelDialog.Header
+        title="Notebook Settings"
+        subtitle="App-level defaults and maintenance actions for Notebooks."
+        icon="ti ti-settings"
+        close={props.close}
+      />
+      <PanelDialog.Body>
+        <PanelDialog.Section title="Settings" subtitle="Registered Notebooks settings and their current values." icon="ti ti-adjustments">
+          <Show when={!entries.loading} fallback={<p class="text-xs text-dimmed">Loading settings...</p>}>
+            <Show
+              when={(entries() ?? []).length > 0}
+              fallback={
+                <Placeholder align="left" class="px-0 py-2">
+                  No notebooks-app settings registered.
+                </Placeholder>
+              }
+            >
+              <div class="flex flex-col gap-3">
+                <For each={entries() ?? []}>{(entry) => <SettingRow entry={entry} onChange={(v) => onChange(entry.key, v)} />}</For>
+              </div>
+            </Show>
+          </Show>
 
-      <Show when={error()}>
-        <p class="text-xs text-red-600 dark:text-red-400">{error()}</p>
-      </Show>
-
-      <div class="flex items-center gap-2 pt-2">
+          <Show when={error()}>
+            <p class="text-xs text-red-600 dark:text-red-400">{error()}</p>
+          </Show>
+        </PanelDialog.Section>
+      </PanelDialog.Body>
+      <PanelDialog.Footer>
         <button
           type="button"
           class="btn-input btn-input-sm"
@@ -196,21 +205,21 @@ const SettingsBody = (props: { close: () => void }) => {
           <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : "ti-refresh"} text-sm`} />
           Reindex now
         </button>
-        <div class="flex-1" />
-        <button type="button" class="btn-input btn-input-sm" onClick={props.close} disabled={busy()}>
-          Cancel
-        </button>
-        <button type="button" class="btn-input btn-input-sm" onClick={() => void onSave()} disabled={busy()}>
-          <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
-          Save
-        </button>
-      </div>
-    </div>
+        <div class="flex items-center gap-2">
+          <button type="button" class="btn-input btn-input-sm" onClick={props.close} disabled={busy()}>
+            Cancel
+          </button>
+          <button type="button" class="btn-input btn-input-sm" onClick={() => void onSave()} disabled={busy()}>
+            <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
+            Save
+          </button>
+        </div>
+      </PanelDialog.Footer>
+    </PanelDialog>
   );
 };
 
-const openSettingsDialog = () =>
-  prompts.dialog<void>((close) => <SettingsBody close={close} />, { title: "Notebook Settings", icon: "ti ti-settings" });
+const openSettingsDialog = () => dialogCore.open<void>((close) => <SettingsBody close={() => close()} />, panelDialogOptions);
 
 export default function AdminNotebooksAppSettings() {
   return (

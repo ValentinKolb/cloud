@@ -1003,6 +1003,8 @@ Layout-only shell for complex editor dialogs. Source: `packages/cloud/src/ui/mis
 
 Use `PanelDialog` when the modal body is a real editor with multiple groups, a fixed header/footer, and a scrollable body. Do **not** use it for small one-field prompts (`prompts.form` is better), simple picker dialogs (`prompts.dialog` is enough), or tabbed app settings (`SettingsModal` is the right shell).
 
+`PanelDialog` has two surfaces. The default contained surface is for classic modals: one outer panel contains header, body, footer, and sections. Use `surface="floating"` for settings-style full-height pages: header and footer are their own `paper` surfaces, the body is transparent on the page background, and each section is the visible `paper` card with no extra body-side padding.
+
 ```tsx
 import { dialogCore, PanelDialog, panelDialogOptions } from "@valentinkolb/cloud/ui";
 
@@ -1035,11 +1037,11 @@ const result = await dialogCore.open<ItemFormData | null>(
 );
 ```
 
-`PanelDialog` props: `children`.
+`PanelDialog` props: `children`, `surface?: "contained" | "floating"`.
 
 `PanelDialog.Header` props: `title`, `subtitle?`, `icon`, `close`.
 
-`PanelDialog.Body` / `Footer` props: `children`.
+`PanelDialog.Body` props: `children`, `scrollPreserveKey?`. `PanelDialog.Footer` props: `children`.
 
 `PanelDialog.Section` props: `title`, `subtitle?`, `icon`, `children`.
 

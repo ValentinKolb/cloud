@@ -1,9 +1,12 @@
-import { For, type JSX } from "solid-js";
+import { createContext, For, type JSX, useContext } from "solid-js";
 import type { OpenDialogOptions } from "../dialog-core";
 import { prompts } from "../prompts";
 
+export type PanelDialogSurface = "contained" | "floating";
+
 export type PanelDialogProps = {
   children: JSX.Element;
+  surface?: PanelDialogSurface;
 };
 
 export type PanelDialogHeaderProps = {
@@ -16,6 +19,7 @@ export type PanelDialogHeaderProps = {
 
 export type PanelDialogBodyProps = {
   children: JSX.Element;
+  scrollPreserveKey?: string;
 };
 
 export type PanelDialogFooterProps = {
@@ -51,6 +55,10 @@ type PanelDialogComponent = ((props: PanelDialogProps) => JSX.Element) & {
   Tabs: <T extends string>(props: PanelDialogTabsProps<T>) => JSX.Element;
 };
 
+const PanelDialogSurfaceContext = createContext<PanelDialogSurface>("contained");
+
+const usePanelDialogSurface = () => useContext(PanelDialogSurfaceContext);
+
 export const panelDialogPanelClass =
   "fixed left-1/2 top-1/2 m-0 max-h-[86vh] w-[min(96vw,48rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-none backdrop:bg-black/45 backdrop:backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:backdrop:bg-black/35";
 
@@ -70,8 +78,15 @@ export const confirmDiscardIfDirty = async (dirty: boolean | (() => boolean)) =>
 };
 
 function PanelDialogHeader(props: PanelDialogHeaderProps) {
+  const surface = usePanelDialogSurface();
   return (
-    <header class="flex min-h-16 shrink-0 items-center gap-4 border-b border-zinc-200 px-5 dark:border-zinc-800">
+    <header
+      class={
+        surface === "floating"
+          ? "paper flex min-h-16 shrink-0 items-center gap-4 px-5"
+          : "flex min-h-16 shrink-0 items-center gap-4 border-b border-zinc-200 px-5 dark:border-zinc-800"
+      }
+    >
       <i class={`${props.icon} shrink-0`} />
       <div class="min-w-0 flex-1">
         <p class="truncate font-semibold">{props.title}</p>
@@ -88,20 +103,42 @@ function PanelDialogHeader(props: PanelDialogHeaderProps) {
 }
 
 function PanelDialogBody(props: PanelDialogBodyProps) {
-  return <main class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">{props.children}</main>;
+  const surface = usePanelDialogSurface();
+  return (
+    <main
+      data-scroll-preserve={props.scrollPreserveKey}
+      class={
+        surface === "floating"
+          ? "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-0"
+          : "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4"
+      }
+    >
+      {props.children}
+    </main>
+  );
 }
 
 function PanelDialogFooter(props: PanelDialogFooterProps) {
+  const surface = usePanelDialogSurface();
   return (
-    <footer class="flex shrink-0 items-center justify-between gap-2 border-t border-zinc-200 bg-white/95 p-4 dark:border-zinc-800 dark:bg-zinc-950/95">
+    <footer
+      class={
+        surface === "floating"
+          ? "paper flex shrink-0 items-center justify-between gap-2 p-4"
+          : "flex shrink-0 items-center justify-between gap-2 border-t border-zinc-200 p-4 dark:border-zinc-800"
+      }
+    >
       {props.children}
     </footer>
   );
 }
 
 function PanelDialogSection(props: PanelDialogSectionProps) {
+  const surface = usePanelDialogSurface();
   return (
-    <section class="paper border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/70">
+    <section
+      class={surface === "floating" ? "paper p-4" : "paper border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/70"}
+    >
       <header class="mb-2 flex items-start gap-2">
         <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
           <i class={`${props.icon} text-sm`} />
@@ -112,17 +149,22 @@ function PanelDialogSection(props: PanelDialogSectionProps) {
         </div>
         {props.actions && <div class="flex shrink-0 items-center gap-2">{props.actions}</div>}
       </header>
-      <div class="flex flex-col gap-3">{props.children}</div>
+      <div class={surface === "floating" ? "flex flex-col gap-2" : "flex flex-col gap-3"}>{props.children}</div>
     </section>
   );
 }
 
 function PanelDialogTabs<T extends string>(props: PanelDialogTabsProps<T>) {
+  const surface = usePanelDialogSurface();
   return (
     <div
       role="tablist"
       aria-label={props.ariaLabel ?? "Dialog tabs"}
-      class="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
+      class={
+        surface === "floating"
+          ? "paper flex shrink-0 items-center gap-1 overflow-x-auto p-1.5"
+          : "flex shrink-0 items-center gap-1 overflow-x-auto border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
+      }
     >
       <For each={props.options}>
         {(option) => {
@@ -149,9 +191,22 @@ function PanelDialogTabs<T extends string>(props: PanelDialogTabsProps<T>) {
   );
 }
 
-const PanelDialog = ((props: PanelDialogProps) => (
-  <div class="flex h-full w-full max-h-[inherit] min-h-0 flex-col overflow-hidden">{props.children}</div>
-)) as PanelDialogComponent;
+const PanelDialog = ((props: PanelDialogProps) => {
+  const surface = props.surface ?? "contained";
+  return (
+    <PanelDialogSurfaceContext.Provider value={surface}>
+      <div
+        class={
+          surface === "floating"
+            ? "flex h-full w-full max-h-[inherit] min-h-0 flex-col gap-2 overflow-hidden"
+            : "flex h-full w-full max-h-[inherit] min-h-0 flex-col overflow-hidden"
+        }
+      >
+        {props.children}
+      </div>
+    </PanelDialogSurfaceContext.Provider>
+  );
+}) as PanelDialogComponent;
 
 PanelDialog.Header = PanelDialogHeader;
 PanelDialog.Body = PanelDialogBody;

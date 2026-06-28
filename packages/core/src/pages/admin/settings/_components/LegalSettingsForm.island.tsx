@@ -10,7 +10,15 @@
 
 import { coreClient } from "@valentinkolb/cloud/clients/core";
 import type { SettingValueSource } from "@valentinkolb/cloud/contracts";
-import { PanelDialog, prompts, readSettingsError, SelectInput, sameSettingValue, TextInput } from "@valentinkolb/cloud/ui";
+import {
+  PanelDialog,
+  prompts,
+  readSettingsError,
+  SelectInput,
+  SettingsPanelFooter,
+  sameSettingValue,
+  TextInput,
+} from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import type { SettingFieldDef } from "./CoreSettingsForm.island";
@@ -163,8 +171,8 @@ export default function LegalSettingsForm(props: Props) {
   };
 
   return (
-    <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
-      <PanelDialog>
+    <div class="flex h-full min-h-0 flex-col overflow-hidden">
+      <PanelDialog surface="floating">
         <PanelDialog.Header title={props.title} subtitle={props.subtitle} icon={props.icon} />
         <PanelDialog.Body>
           {KINDS.map((kind) => {
@@ -184,66 +192,64 @@ export default function LegalSettingsForm(props: Props) {
                   </a>
                 }
               >
-                <div class="divide-y divide-zinc-100 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950">
+                <LegalField
+                  label="Source"
+                  description="Choose between editing markdown directly or redirecting to an external URL."
+                  entry={entryMap()[modeKey]}
+                  error={() => fieldErrors()[modeKey]}
+                  changed={() => isChanged(modeKey)}
+                  resetPending={() => isResetPending(modeKey)}
+                  canUseDefault={() => canUseDefault(modeKey)}
+                  onUseDefault={() => stageDefault(modeKey)}
+                >
+                  <SelectInput value={() => currentMode()} onChange={(v) => update(modeKey, v as LegalMode)} options={MODE_OPTIONS} />
+                </LegalField>
+
+                <Show when={currentMode() === "local"}>
                   <LegalField
-                    label="Source"
-                    description="Choose between editing markdown directly or redirecting to an external URL."
-                    entry={entryMap()[modeKey]}
-                    error={() => fieldErrors()[modeKey]}
-                    changed={() => isChanged(modeKey)}
-                    resetPending={() => isResetPending(modeKey)}
-                    canUseDefault={() => canUseDefault(modeKey)}
-                    onUseDefault={() => stageDefault(modeKey)}
+                    label="Content"
+                    description="Markdown. Supports headings, lists, links, and code blocks."
+                    entry={entryMap()[contentKey]}
+                    error={() => fieldErrors()[contentKey]}
+                    changed={() => isChanged(contentKey)}
+                    resetPending={() => isResetPending(contentKey)}
+                    canUseDefault={() => canUseDefault(contentKey)}
+                    onUseDefault={() => stageDefault(contentKey)}
                   >
-                    <SelectInput value={() => currentMode()} onChange={(v) => update(modeKey, v as LegalMode)} options={MODE_OPTIONS} />
+                    <TextInput
+                      multiline
+                      value={() => draft()[contentKey]}
+                      onChange={(v) => update(contentKey, v)}
+                      placeholder={`# ${kind.label}\n\n...`}
+                    />
                   </LegalField>
+                </Show>
 
-                  <Show when={currentMode() === "local"}>
-                    <LegalField
-                      label="Content"
-                      description="Markdown. Supports headings, lists, links, and code blocks."
-                      entry={entryMap()[contentKey]}
-                      error={() => fieldErrors()[contentKey]}
-                      changed={() => isChanged(contentKey)}
-                      resetPending={() => isResetPending(contentKey)}
-                      canUseDefault={() => canUseDefault(contentKey)}
-                      onUseDefault={() => stageDefault(contentKey)}
-                    >
-                      <TextInput
-                        multiline
-                        value={() => draft()[contentKey]}
-                        onChange={(v) => update(contentKey, v)}
-                        placeholder={`# ${kind.label}\n\n...`}
-                      />
-                    </LegalField>
-                  </Show>
-
-                  <Show when={currentMode() === "external"}>
-                    <LegalField
-                      label="URL"
-                      description="The /legal/* request will 302-redirect here."
-                      entry={entryMap()[urlKey]}
-                      error={() => fieldErrors()[urlKey]}
-                      changed={() => isChanged(urlKey)}
-                      resetPending={() => isResetPending(urlKey)}
-                      canUseDefault={() => canUseDefault(urlKey)}
-                      onUseDefault={() => stageDefault(urlKey)}
-                    >
-                      <TextInput
-                        type="url"
-                        value={() => draft()[urlKey]}
-                        onChange={(v) => update(urlKey, v)}
-                        placeholder="https://example.org/..."
-                      />
-                    </LegalField>
-                  </Show>
-                </div>
+                <Show when={currentMode() === "external"}>
+                  <LegalField
+                    label="URL"
+                    description="The /legal/* request will 302-redirect here."
+                    entry={entryMap()[urlKey]}
+                    error={() => fieldErrors()[urlKey]}
+                    changed={() => isChanged(urlKey)}
+                    resetPending={() => isResetPending(urlKey)}
+                    canUseDefault={() => canUseDefault(urlKey)}
+                    onUseDefault={() => stageDefault(urlKey)}
+                  >
+                    <TextInput
+                      type="url"
+                      value={() => draft()[urlKey]}
+                      onChange={(v) => update(urlKey, v)}
+                      placeholder="https://example.org/..."
+                    />
+                  </LegalField>
+                </Show>
               </PanelDialog.Section>
             );
           })}
         </PanelDialog.Body>
         <PanelDialog.Footer>
-          <LegalSettingsFooter
+          <SettingsPanelFooter
             changeCount={() => changedKeys().length}
             loading={() => save.loading()}
             onDiscard={discardAll}
@@ -280,7 +286,7 @@ function LegalField(props: {
   children: JSX.Element;
 }) {
   return (
-    <div class="flex flex-col gap-2 px-3 py-3" classList={{ "bg-amber-50/50 dark:bg-amber-950/20": props.changed() }}>
+    <div class="flex flex-col gap-2 rounded-lg px-3 py-2" classList={{ "bg-amber-50/50 dark:bg-amber-950/20": props.changed() }}>
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-2">
@@ -334,36 +340,5 @@ function LegalField(props: {
         </p>
       </Show>
     </div>
-  );
-}
-
-function LegalSettingsFooter(props: { changeCount: () => number; loading: () => boolean; onDiscard: () => void; onSave: () => void }) {
-  const hasChanges = () => props.changeCount() > 0;
-
-  return (
-    <>
-      <p class="text-xs text-dimmed">
-        <Show when={hasChanges()} fallback="No unsaved changes">
-          <span class="font-medium text-primary">{props.changeCount()}</span> unsaved change{props.changeCount() > 1 ? "s" : ""}
-        </Show>
-      </p>
-      <div class="flex items-center gap-2">
-        <button type="button" class="btn-secondary btn-sm" onClick={props.onDiscard} disabled={!hasChanges() || props.loading()}>
-          Discard
-        </button>
-        <button type="button" class="btn-primary btn-sm" onClick={props.onSave} disabled={!hasChanges() || props.loading()}>
-          <Show
-            when={props.loading()}
-            fallback={
-              <>
-                <i class="ti ti-device-floppy text-xs" /> Save all
-              </>
-            }
-          >
-            <i class="ti ti-loader-2 animate-spin text-xs" /> Saving...
-          </Show>
-        </button>
-      </div>
-    </>
   );
 }

@@ -24,6 +24,7 @@ import {
   prompts,
   readSettingsError,
   SelectInput,
+  SettingsPanelFooter,
   Switch,
   sameSettingValue,
   TagsInput,
@@ -366,15 +367,13 @@ export default function CoreSettingsForm(props: Props) {
   const renderFieldSections = (entries: SettingFieldDef[]) =>
     groupSettingEntries(entries).map((section) => (
       <PanelDialog.Section title={section.title} subtitle={section.subtitle} icon={section.icon}>
-        <div class="divide-y divide-zinc-100 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950">
-          {renderFieldRows(section.entries)}
-        </div>
+        {renderFieldRows(section.entries)}
       </PanelDialog.Section>
     ));
 
   return (
-    <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
-      <PanelDialog>
+    <div class="flex h-full min-h-0 flex-col overflow-hidden">
+      <PanelDialog surface="floating">
         <PanelDialog.Header
           title={props.title}
           subtitle={props.subtitle}
@@ -570,43 +569,6 @@ const formatSettingPreview = (entry: SettingFieldDef, value: unknown): string =>
   if (!text) return "Empty";
   return text.length > 96 ? `${text.slice(0, 93)}...` : text;
 };
-
-function SettingsPanelFooter(props: {
-  changeCount: () => number;
-  loading: () => boolean;
-  onDiscard: () => void;
-  onSave: () => void;
-  saveClass: "btn-primary" | "btn-ai";
-}) {
-  const hasChanges = () => props.changeCount() > 0;
-
-  return (
-    <>
-      <p class="text-xs text-dimmed">
-        <Show when={hasChanges()} fallback="No unsaved changes">
-          <span class="font-medium text-primary">{props.changeCount()}</span> unsaved change{props.changeCount() > 1 ? "s" : ""}
-        </Show>
-      </p>
-      <div class="flex items-center gap-2">
-        <button type="button" class="btn-secondary btn-sm" onClick={props.onDiscard} disabled={!hasChanges() || props.loading()}>
-          Discard
-        </button>
-        <button type="button" class={`${props.saveClass} btn-sm`} onClick={props.onSave} disabled={!hasChanges() || props.loading()}>
-          <Show
-            when={props.loading()}
-            fallback={
-              <>
-                <i class="ti ti-device-floppy text-xs" /> Save all
-              </>
-            }
-          >
-            <i class="ti ti-loader-2 animate-spin text-xs" /> Saving...
-          </Show>
-        </button>
-      </div>
-    </>
-  );
-}
 
 function TestEmailDialog(props: { close: () => void }) {
   const [recipient, setRecipient] = createSignal("");
@@ -892,7 +854,7 @@ function AiSettingsPanel(props: {
   };
 
   return (
-    <div class="flex flex-col gap-3">
+    <div class="flex flex-col gap-2">
       <PanelDialog.Section title="Cloud AI" subtitle="Global switch, default model, and workspace-wide instructions." icon="ti ti-sparkles">
         <div class="flex flex-col gap-2">
           <Switch
@@ -1341,7 +1303,7 @@ function FieldRow(props: {
   const e = () => props.entry;
 
   return (
-    <div class="flex flex-col gap-2 px-3 py-3" classList={{ "bg-amber-50/50 dark:bg-amber-950/20": props.changed() }}>
+    <div class="flex flex-col gap-2 rounded-lg px-3 py-2" classList={{ "bg-amber-50/50 dark:bg-amber-950/20": props.changed() }}>
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-2">

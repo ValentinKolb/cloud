@@ -1,10 +1,10 @@
-export type { SettingsFieldProps, SettingsSaveBarProps } from "./admin-settings";
-export { readSettingsError, SettingsField, SettingsSaveBar, sameSettingValue } from "./admin-settings";
+export type { SettingsFieldProps, SettingsPanelFooterProps, SettingsSaveBarProps } from "./admin-settings";
+export { readSettingsError, SettingsField, SettingsPanelFooter, SettingsSaveBar, sameSettingValue } from "./admin-settings";
 export type { DialogClose, DialogCore, DialogRender, OpenDialogOptions } from "./dialog-core";
 export { createDialogCore, dialogCore } from "./dialog-core";
 export * from "./filter";
 export * from "./input";
-export { layout, LAYOUT_UPDATE_EVENT, type LayoutBreadcrumb, type LayoutUpdate } from "./layout";
+export { LAYOUT_UPDATE_EVENT, type LayoutBreadcrumb, type LayoutUpdate, layout } from "./layout";
 export * from "./misc";
 export type { PromptSearchInput, PromptSearchItem, PromptSearchOptions } from "./prompts";
 export { createFormState, DialogHeader, prompts } from "./prompts";

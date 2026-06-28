@@ -502,7 +502,7 @@ export const uiLabDocs: UiLabDocSection[] = [
         "panel-dialog",
         "PanelDialog",
         "ti ti-pencil",
-        "Layout-only dialog shell for complex editors with fixed header/footer and sectioned body.",
+        "Layout-only dialog shell for complex editors with contained and floating settings surfaces.",
         ["paneldialog"],
         () => (
           <DemoGrid columns="one">

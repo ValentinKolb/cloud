@@ -964,7 +964,7 @@ export const PanelDialogDemo = () => {
     <DemoCard
       id="paneldialog"
       chip={{ kind: "component", name: "PanelDialog", from: FROM_UI }}
-      description="Layout-only modal chrome for complex editors: fixed panel, non-scrolling header/footer, scrollable body, and section cards. State, validation, and mutations stay in the app."
+      description="Layout-only chrome for complex editors. Use the default contained surface for classic modals and surface='floating' for settings pages where header/footer and sections are the paper surfaces."
       code={`dialogCore.open<void>(
   (close) => (
     <PanelDialog>
@@ -983,35 +983,67 @@ export const PanelDialogDemo = () => {
 );`}
     >
       <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
-        <div class="mx-auto flex h-[26rem] max-w-3xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
-          <PanelDialog.Header title="Edit item" subtitle="Inline preview of the dialog layout" icon="ti ti-pencil" close={() => {}} />
-          <PanelDialog.Body>
-            <PanelDialog.Section title="Basics" subtitle="Name and notes shown across app surfaces." icon="ti ti-id">
-              <TextInput label="Title" value={() => "Launch checklist"} onInput={() => {}} icon="ti ti-text-caption" />
-              <TextInput label="Description" value={() => "Coordinate final release tasks."} onInput={() => {}} markdown />
-            </PanelDialog.Section>
-            <PanelDialog.Section title="Classify" subtitle="Use regular app controls inside sections." icon="ti ti-tags">
-              <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-                <button type="button" class="btn-input justify-start">
-                  <i class="ti ti-progress" />
-                  In progress
+        <div class="grid gap-2 xl:grid-cols-2">
+          <div class="flex h-[26rem] min-w-0 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
+            <PanelDialog>
+              <PanelDialog.Header title="Edit item" subtitle="Contained modal surface" icon="ti ti-pencil" close={() => {}} />
+              <PanelDialog.Body>
+                <PanelDialog.Section title="Basics" subtitle="Name and notes shown across app surfaces." icon="ti ti-id">
+                  <TextInput label="Title" value={() => "Launch checklist"} onInput={() => {}} icon="ti ti-text-caption" />
+                  <TextInput label="Description" value={() => "Coordinate final release tasks."} onInput={() => {}} markdown />
+                </PanelDialog.Section>
+                <PanelDialog.Section title="Classify" subtitle="Use regular app controls inside sections." icon="ti ti-tags">
+                  <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    <button type="button" class="btn-input justify-start">
+                      <i class="ti ti-progress" />
+                      In progress
+                    </button>
+                    <button type="button" class="btn-input justify-start">
+                      <i class="ti ti-flag" />
+                      High priority
+                    </button>
+                  </div>
+                </PanelDialog.Section>
+              </PanelDialog.Body>
+              <PanelDialog.Footer>
+                <button type="button" class="btn-simple btn-sm text-red-500">
+                  <i class="ti ti-trash" />
+                  Delete
                 </button>
-                <button type="button" class="btn-input justify-start">
-                  <i class="ti ti-flag" />
-                  High priority
+                <button type="button" class="btn-primary btn-sm" onClick={() => openDemo()}>
+                  Open modal
                 </button>
-              </div>
-            </PanelDialog.Section>
-          </PanelDialog.Body>
-          <PanelDialog.Footer>
-            <button type="button" class="btn-simple btn-sm text-red-500">
-              <i class="ti ti-trash" />
-              Delete
-            </button>
-            <button type="button" class="btn-primary btn-sm" onClick={openDemo}>
-              Open modal
-            </button>
-          </PanelDialog.Footer>
+              </PanelDialog.Footer>
+            </PanelDialog>
+          </div>
+
+          <div class="h-[26rem] min-w-0">
+            <PanelDialog surface="floating">
+              <PanelDialog.Header title="Settings" subtitle="Floating surface preview" icon="ti ti-settings" close={() => {}} />
+              <PanelDialog.Body>
+                <PanelDialog.Section title="Identity" subtitle="Settings fields live directly in the section paper." icon="ti ti-id">
+                  <TextInput label="Name" value={() => "Cloud"} onInput={() => {}} icon="ti ti-text-caption" />
+                  <TextInput label="Contact email" value={() => "support@example.org"} onInput={() => {}} type="email" />
+                </PanelDialog.Section>
+                <PanelDialog.Section title="Policy" subtitle="The body has no frame or side padding." icon="ti ti-shield-lock">
+                  <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    <button type="button" class="btn-input justify-start">
+                      <i class="ti ti-lock" />
+                      Admin only
+                    </button>
+                    <button type="button" class="btn-input justify-start">
+                      <i class="ti ti-history" />
+                      Audit changes
+                    </button>
+                  </div>
+                </PanelDialog.Section>
+              </PanelDialog.Body>
+              <PanelDialog.Footer>
+                <span class="text-xs text-dimmed">No unsaved changes</span>
+                <span class="text-xs text-dimmed">Use on settings pages</span>
+              </PanelDialog.Footer>
+            </PanelDialog>
+          </div>
         </div>
       </div>
     </DemoCard>
