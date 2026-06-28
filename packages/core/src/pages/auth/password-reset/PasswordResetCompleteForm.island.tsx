@@ -8,9 +8,7 @@ type PasswordResetCompleteFormProps = {
   redirectTo?: string;
 };
 
-export default function PasswordResetCompleteForm(
-  props: PasswordResetCompleteFormProps
-) {
+export default function PasswordResetCompleteForm(props: PasswordResetCompleteFormProps) {
   const [newPassword, setNewPassword] = createSignal("");
   const [confirmPassword, setConfirmPassword] = createSignal("");
 
@@ -57,12 +55,7 @@ export default function PasswordResetCompleteForm(
         </div>
       )}
 
-      <button
-        type="submit"
-        class="btn-primary w-full justify-center py-2"
-        disabled={mutation.loading()}
-        style={{ "min-height": "32px" }}
-      >
+      <button type="submit" class="btn-primary w-full justify-center py-2" disabled={mutation.loading()} style={{ "min-height": "32px" }}>
         {mutation.loading() ? (
           <i class="ti ti-loader-2 animate-spin" />
         ) : (

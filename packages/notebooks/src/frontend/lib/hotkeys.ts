@@ -12,4 +12,3 @@ export const onNotebookSearchRequest = (handler: () => void): (() => void) => {
   window.addEventListener(OPEN_NOTEBOOK_SEARCH_EVENT, listener);
   return () => window.removeEventListener(OPEN_NOTEBOOK_SEARCH_EVENT, listener);
 };
-

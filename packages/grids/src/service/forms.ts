@@ -10,9 +10,8 @@ import { insertWithShortId } from "./short-id";
 import type { Field } from "./types";
 
 type DbRow = Record<string, unknown>;
-type InlineCreateFieldEntry = NonNullable<Extract<FormFieldEntry, { kind: "user_input" }>["inlineCreate"]>["fields"] extends Array<infer T>
-  ? T
-  : never;
+type InlineCreateFieldEntry =
+  NonNullable<Extract<FormFieldEntry, { kind: "user_input" }>["inlineCreate"]>["fields"] extends Array<infer T> ? T : never;
 
 /**
  * A grids form. Stored forms live in grids.forms; the per-table "default
@@ -154,9 +153,10 @@ const normalizeFieldEntry = (raw: unknown): FormFieldEntry | null => {
     inlineCreate:
       obj.inlineCreate && typeof obj.inlineCreate === "object"
         ? {
-            enabled: typeof (obj.inlineCreate as Record<string, unknown>).enabled === "boolean"
-              ? ((obj.inlineCreate as Record<string, unknown>).enabled as boolean)
-              : undefined,
+            enabled:
+              typeof (obj.inlineCreate as Record<string, unknown>).enabled === "boolean"
+                ? ((obj.inlineCreate as Record<string, unknown>).enabled as boolean)
+                : undefined,
             fields: Array.isArray((obj.inlineCreate as Record<string, unknown>).fields)
               ? ((obj.inlineCreate as Record<string, unknown>).fields as unknown[])
                   .map((raw) => {

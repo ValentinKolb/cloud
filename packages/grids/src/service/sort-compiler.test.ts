@@ -3,17 +3,26 @@ import { compileSort, decodeCursor } from "./sort-compiler";
 import type { Field } from "./types";
 
 const mkField = (id: string, type: string): Field => ({
-  id, shortId: id, tableId: "t1", name: id, description: null, type, config: {}, presentable: false, hideInTable: false,
-  position: 0, required: false, defaultValue: null,
-  indexed: false, uniqueConstraint: false, deletedAt: null,
-  createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+  id,
+  shortId: id,
+  tableId: "t1",
+  name: id,
+  description: null,
+  type,
+  config: {},
+  presentable: false,
+  hideInTable: false,
+  position: 0,
+  required: false,
+  defaultValue: null,
+  indexed: false,
+  uniqueConstraint: false,
+  deletedAt: null,
+  createdAt: "2026-01-01T00:00:00Z",
+  updatedAt: "2026-01-01T00:00:00Z",
 });
 
-const fields: Field[] = [
-  mkField("fld_a", "text"),
-  mkField("fld_b", "number"),
-  mkField("fld_c", "date"),
-];
+const fields: Field[] = [mkField("fld_a", "text"), mkField("fld_b", "number"), mkField("fld_c", "date")];
 
 describe("compileSort — validation", () => {
   test("rejects unknown field", () => {
@@ -81,11 +90,7 @@ describe("compileSort — validation", () => {
   });
 
   test("succeeds with single asc sort + cursor", () => {
-    const r = compileSort(
-      [{ fieldId: "fld_b", direction: "asc" }],
-      fields,
-      { values: [42], id: "00000000-0000-0000-0000-000000000001" },
-    );
+    const r = compileSort([{ fieldId: "fld_b", direction: "asc" }], fields, { values: [42], id: "00000000-0000-0000-0000-000000000001" });
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.result.fieldIds).toEqual(["fld_b"]);
@@ -116,11 +121,7 @@ describe("compileSort — validation", () => {
   test("handles null in cursor sort values (was P2 — would skip rows)", () => {
     // Codex chunk-1B regression: null in cursor sort value caused tuple
     // comparison to evaluate to UNKNOWN and skip rows.
-    const r = compileSort(
-      [{ fieldId: "fld_b", direction: "asc" }],
-      fields,
-      { values: [null], id: "00000000-0000-0000-0000-000000000001" },
-    );
+    const r = compileSort([{ fieldId: "fld_b", direction: "asc" }], fields, { values: [null], id: "00000000-0000-0000-0000-000000000001" });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.result.cursorWhere).not.toBeNull();
   });
@@ -128,11 +129,10 @@ describe("compileSort — validation", () => {
   test("DESC NULLS FIRST with null cursor still emits a cursor predicate", () => {
     // Codex follow-up: this case used to return FALSE for orderGt and stop
     // pagination at the null tier instead of advancing into non-null rows.
-    const r = compileSort(
-      [{ fieldId: "fld_b", direction: "desc", nullsFirst: true }],
-      fields,
-      { values: [null], id: "00000000-0000-0000-0000-000000000001" },
-    );
+    const r = compileSort([{ fieldId: "fld_b", direction: "desc", nullsFirst: true }], fields, {
+      values: [null],
+      id: "00000000-0000-0000-0000-000000000001",
+    });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.result.cursorWhere).not.toBeNull();
   });

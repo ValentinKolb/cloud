@@ -78,7 +78,11 @@ const toLike = (value?: string): string | null => {
   return normalized ? `%${freeipa.util.escapeLike(normalized)}%` : null;
 };
 
-export const hostList = async (params: { search?: string; page?: number; perPage?: number }): Promise<{ hosts: IpaHostRecord[]; total: number }> => {
+export const hostList = async (params: {
+  search?: string;
+  page?: number;
+  perPage?: number;
+}): Promise<{ hosts: IpaHostRecord[]; total: number }> => {
   const page = params.page ?? 1;
   const perPage = params.perPage ?? 100;
   const offset = (page - 1) * perPage;
@@ -122,9 +126,11 @@ export const hostList = async (params: { search?: string; page?: number; perPage
   };
 };
 
-export const hostListUngrouped = async (
-  params: { search?: string; page?: number; perPage?: number },
-): Promise<{ hosts: IpaHostRecord[]; total: number }> => {
+export const hostListUngrouped = async (params: {
+  search?: string;
+  page?: number;
+  perPage?: number;
+}): Promise<{ hosts: IpaHostRecord[]; total: number }> => {
   const page = params.page ?? 1;
   const perPage = params.perPage ?? 100;
   const offset = (page - 1) * perPage;
@@ -184,12 +190,14 @@ export const hostStats = async (): Promise<{
   hostsUngrouped: number;
   hostgroupsTotal: number;
 }> => {
-  const [row] = await sql<{
-    hosts_total: number;
-    hosts_in_groups: number;
-    hosts_ungrouped: number;
-    hostgroups_total: number;
-  }[]>`
+  const [row] = await sql<
+    {
+      hosts_total: number;
+      hosts_in_groups: number;
+      hosts_ungrouped: number;
+      hostgroups_total: number;
+    }[]
+  >`
     SELECT
       (SELECT COUNT(*)::int FROM ipa_hosts.hosts)                                                  AS hosts_total,
       (SELECT COUNT(DISTINCT host_fqdn)::int FROM ipa_hosts.host_hostgroups)                       AS hosts_in_groups,
@@ -258,7 +266,13 @@ export const hostDel = async (ipaSession: string, fqdn: string): Promise<IpaHost
 export const hostAddToGroup = async (ipaSession: string, fqdn: string, hostgroupCn: string): Promise<IpaHostsMutationResult> => {
   const url = await getIpaUrl();
   if (!url) return disabledResult();
-  const response = await freeipa.client.call({ url, ipaSession, method: "hostgroup_add_member", args: [hostgroupCn], options: { host: fqdn } });
+  const response = await freeipa.client.call({
+    url,
+    ipaSession,
+    method: "hostgroup_add_member",
+    args: [hostgroupCn],
+    options: { host: fqdn },
+  });
   if (response.error) {
     return { ok: false, error: response.error.message, status: freeipa.util.mapIpaErrorCode(response.error.code) };
   }
@@ -289,7 +303,11 @@ export const hostRemoveFromGroup = async (ipaSession: string, fqdn: string, host
   return { ok: true };
 };
 
-export const hostgroupList = async (params: { search?: string; page?: number; perPage?: number }): Promise<{ hostgroups: IpaHostgroupRecord[]; total: number }> => {
+export const hostgroupList = async (params: {
+  search?: string;
+  page?: number;
+  perPage?: number;
+}): Promise<{ hostgroups: IpaHostgroupRecord[]; total: number }> => {
   const page = params.page ?? 1;
   const perPage = params.perPage ?? 100;
   const offset = (page - 1) * perPage;
@@ -331,9 +349,11 @@ export const hostgroupList = async (params: { search?: string; page?: number; pe
   };
 };
 
-export const hostgroupListWithHosts = async (
-  params: { search?: string; page?: number; perPage?: number },
-): Promise<{ hostgroups: IpaHostgroupWithHostsRecord[]; total: number }> => {
+export const hostgroupListWithHosts = async (params: {
+  search?: string;
+  page?: number;
+  perPage?: number;
+}): Promise<{ hostgroups: IpaHostgroupWithHostsRecord[]; total: number }> => {
   const page = params.page ?? 1;
   const perPage = params.perPage ?? 100;
   const offset = (page - 1) * perPage;
@@ -423,11 +443,7 @@ export const hostgroupListWithHosts = async (
   };
 };
 
-export const hostgroupSearch = async (params: {
-  query: string;
-  exclude?: string[];
-  limit?: number;
-}): Promise<IpaHostgroupRecord[]> => {
+export const hostgroupSearch = async (params: { query: string; exclude?: string[]; limit?: number }): Promise<IpaHostgroupRecord[]> => {
   const search = toLike(params.query);
   if (!search) return [];
 

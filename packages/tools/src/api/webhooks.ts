@@ -123,37 +123,46 @@ const app = new Hono<AuthContext>()
     if (!userResult.ok) return userResult.response;
     const user = userResult.user;
     const filters = LogFilterSchema.omit({ endpointId: true }).parse(c.req.query());
-    return respond(c, ok({
-      items: await webhookTesterService.listEndpointLogs(user.id, c.req.param("endpointId")!, {
-        method: filters.method,
-        query: filters.q,
+    return respond(
+      c,
+      ok({
+        items: await webhookTesterService.listEndpointLogs(user.id, c.req.param("endpointId")!, {
+          method: filters.method,
+          query: filters.q,
+        }),
       }),
-    }));
+    );
   })
   .get("/incoming-logs", v("query", LogFilterSchema), async (c) => {
     const userResult = requireUserBackedActor(c);
     if (!userResult.ok) return userResult.response;
     const user = userResult.user;
     const filters = c.req.valid("query");
-    return respond(c, ok({
-      items: await webhookTesterService.listIncomingLogs(user.id, {
-        endpointId: filters.endpointId,
-        method: filters.method,
-        query: filters.q,
+    return respond(
+      c,
+      ok({
+        items: await webhookTesterService.listIncomingLogs(user.id, {
+          endpointId: filters.endpointId,
+          method: filters.method,
+          query: filters.q,
+        }),
       }),
-    }));
+    );
   })
   .get("/outgoing-logs", v("query", LogFilterSchema.omit({ endpointId: true })), async (c) => {
     const userResult = requireUserBackedActor(c);
     if (!userResult.ok) return userResult.response;
     const user = userResult.user;
     const filters = c.req.valid("query");
-    return respond(c, ok({
-      items: await webhookTesterService.listOutgoingLogs(user.id, {
-        method: filters.method,
-        query: filters.q,
+    return respond(
+      c,
+      ok({
+        items: await webhookTesterService.listOutgoingLogs(user.id, {
+          method: filters.method,
+          query: filters.q,
+        }),
       }),
-    }));
+    );
   })
   .post("/send", v("json", SendWebhookSchema), async (c) => {
     const userResult = requireUserBackedActor(c);

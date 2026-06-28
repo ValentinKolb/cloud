@@ -5,13 +5,7 @@ import { z } from "zod";
 import { ok } from "@valentinkolb/stdlib";
 import { loggingService } from "./service";
 import { get, set } from "@valentinkolb/cloud/services";
-import {
-  LogEntrySchema,
-  LogLevelSchema,
-  ErrorResponseSchema,
-  PaginationQuerySchema,
-  PaginationResponseSchema,
-} from "./contracts";
+import { LogEntrySchema, LogLevelSchema, ErrorResponseSchema, PaginationQuerySchema, PaginationResponseSchema } from "./contracts";
 import { parsePagination, createPagination } from "./contracts";
 
 const LogListResponseSchema = z.object({

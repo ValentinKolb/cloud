@@ -45,9 +45,7 @@ export default function StructuredDataPreview(props: StructuredDataPreviewProps)
 
   return (
     <div class={["flex flex-col gap-2", props.class].filter(Boolean).join(" ")}>
-      <Show when={props.title}>
-        {(title) => <h3 class="text-xs font-semibold uppercase tracking-wider text-secondary">{title()}</h3>}
-      </Show>
+      <Show when={props.title}>{(title) => <h3 class="text-xs font-semibold uppercase tracking-wider text-secondary">{title()}</h3>}</Show>
 
       <Show
         when={!showRaw()}
@@ -63,10 +61,7 @@ export default function StructuredDataPreview(props: StructuredDataPreviewProps)
         }
       >
         <div class="rounded-lg bg-zinc-100 px-3 py-2 dark:bg-zinc-900/80">
-          <Show
-            when={hasData()}
-            fallback={<p class="text-xs text-dimmed">{props.empty ?? "No data."}</p>}
-          >
+          <Show when={hasData()} fallback={<p class="text-xs text-dimmed">{props.empty ?? "No data."}</p>}>
             <div class="grid grid-cols-[minmax(7rem,auto)_1fr] gap-x-4 gap-y-1.5 text-xs">
               <For each={visibleRows()}>
                 {(row) => {
@@ -85,7 +80,9 @@ export default function StructuredDataPreview(props: StructuredDataPreviewProps)
               </For>
             </div>
             <Show when={hiddenCount() > 0}>
-              <p class="mt-2 text-[11px] text-dimmed">{hiddenCount()} more row{hiddenCount() === 1 ? "" : "s"} hidden.</p>
+              <p class="mt-2 text-[11px] text-dimmed">
+                {hiddenCount()} more row{hiddenCount() === 1 ? "" : "s"} hidden.
+              </p>
             </Show>
           </Show>
         </div>

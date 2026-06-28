@@ -270,7 +270,11 @@ const EditHostDialog = (props: {
         <div class="flex flex-col gap-2">
           <Show
             when={macAddresses().length > 0}
-            fallback={<Placeholder align="left" class="rounded-xl border border-dashed border-subtle p-3">No MAC addresses configured.</Placeholder>}
+            fallback={
+              <Placeholder align="left" class="rounded-xl border border-dashed border-subtle p-3">
+                No MAC addresses configured.
+              </Placeholder>
+            }
           >
             <Index each={macAddresses()}>
               {(macAddress, index) => (

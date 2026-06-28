@@ -175,7 +175,14 @@ export default function BookTagsManager(props: Props) {
 
   return (
     <div class="flex flex-col border-l-2 border-zinc-200 dark:border-zinc-700">
-      <For each={tags()} fallback={<Placeholder align="left" class="py-2 pl-3">No tags yet — add one below.</Placeholder>}>
+      <For
+        each={tags()}
+        fallback={
+          <Placeholder align="left" class="py-2 pl-3">
+            No tags yet — add one below.
+          </Placeholder>
+        }
+      >
         {(tag) => (
           <Show
             when={editingId() === tag.id}

@@ -53,7 +53,8 @@ const normalizeValue = (value: unknown, column?: { sqlType?: string }): unknown 
   return value;
 };
 
-const rowValue = (row: Record<string, unknown>, column: { key: string; sqlType?: string }): unknown => normalizeValue(row[column.key], column);
+const rowValue = (row: Record<string, unknown>, column: { key: string; sqlType?: string }): unknown =>
+  normalizeValue(row[column.key], column);
 
 const rowColumns = (columns: DslSqlOutputColumn[]): DslQueryPreviewColumn[] =>
   columns.map((column) => ({

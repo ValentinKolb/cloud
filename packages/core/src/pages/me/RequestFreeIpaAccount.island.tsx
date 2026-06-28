@@ -13,7 +13,7 @@ type RequestFreeIpaAccountProps = {
 };
 
 export default function RequestFreeIpaAccount(props: RequestFreeIpaAccountProps) {
-const mutation = mutations.create<
+  const mutation = mutations.create<
     { id: string; message?: string },
     {
       firstName: string;

@@ -323,12 +323,9 @@ const compileFunction = (fn: string, args: Expr[], ctx: CompileContext): Formula
   if (upper === "CONTAINS") return ok(sql`POSITION(${textArg(1)} IN ${textArg(0)}) > 0`, "boolean");
   if (upper === "STARTSWITH") return ok(sql`POSITION(${textArg(1)} IN ${textArg(0)}) = 1`, "boolean");
   if (upper === "ENDSWITH") return ok(sql`RIGHT(${textArg(0)}, CHAR_LENGTH(${textArg(1)})) = ${textArg(1)}`, "boolean");
-  if (upper === "ICONTAINS")
-    return ok(sql`POSITION(LOWER(${textArg(1)}) IN LOWER(${textArg(0)})) > 0`, "boolean");
-  if (upper === "ISTARTSWITH")
-    return ok(sql`POSITION(LOWER(${textArg(1)}) IN LOWER(${textArg(0)})) = 1`, "boolean");
-  if (upper === "IENDSWITH")
-    return ok(sql`RIGHT(LOWER(${textArg(0)}), CHAR_LENGTH(${textArg(1)})) = LOWER(${textArg(1)})`, "boolean");
+  if (upper === "ICONTAINS") return ok(sql`POSITION(LOWER(${textArg(1)}) IN LOWER(${textArg(0)})) > 0`, "boolean");
+  if (upper === "ISTARTSWITH") return ok(sql`POSITION(LOWER(${textArg(1)}) IN LOWER(${textArg(0)})) = 1`, "boolean");
+  if (upper === "IENDSWITH") return ok(sql`RIGHT(LOWER(${textArg(0)}), CHAR_LENGTH(${textArg(1)})) = LOWER(${textArg(1)})`, "boolean");
 
   if (upper === "TODAY") {
     const timeZone = normalizeTimeZone(ctx.dateConfig?.timeZone, "UTC");

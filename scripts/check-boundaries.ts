@@ -48,9 +48,11 @@ const lineFromIndex = (source: string, index: number): number => source.slice(0,
 
 // Allowed @valentinkolb/cloud subpath imports from apps
 const allowedCloudSubpath = (specifier: string): boolean =>
-  /^@valentinkolb\/cloud(?:$|\/(ui|desktop|server|browser|shared|services|ssr|config|contracts|api|clients)(?:\/|$))/.test(specifier);
+  /^@valentinkolb\/cloud(?:$|\/(ui|desktop|server|browser|cli|shared|services|ai|ssr|config|contracts|api|clients)(?:\/|$))/.test(
+    specifier,
+  );
 
-const allowedSubpathList = "/ui, /desktop, /server, /browser, /shared, /services, /ssr, /config, /contracts, /api, /clients";
+const allowedSubpathList = "/ui, /desktop, /server, /browser, /cli, /shared, /services, /ai, /ssr, /config, /contracts, /api, /clients";
 
 const APP_PACKAGE_NAMES = readdirSync(join(workspaceRoot, "packages")).filter(
   (name) => name !== "cloud" && existsSync(join(workspaceRoot, "packages", name, "src")),
@@ -105,6 +107,9 @@ const checkAppsBoundaries = (): Violation[] => {
         // Each app is its own container — share via cloud-lib services, not direct imports.
         const otherAppMatch = specifier.match(/^@valentinkolb\/cloud-app-([a-z0-9-]+)/);
         if (otherAppMatch && otherAppMatch[1] !== appName) {
+          if (appName === "cloud-cli" && /^@valentinkolb\/cloud-app-[a-z0-9-]+\/cli$/.test(specifier)) {
+            continue;
+          }
           violations.push({
             file,
             line,

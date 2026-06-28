@@ -187,8 +187,7 @@ export const blockWidgetLineNavigationExtension = <T>(
         ? 0
         : targetLineNumber > view.state.doc.lines
           ? view.state.doc.length
-          : view.state.doc.line(targetLineNumber).from +
-            Math.min(caretCol, view.state.doc.line(targetLineNumber).length);
+          : view.state.doc.line(targetLineNumber).from + Math.min(caretCol, view.state.doc.line(targetLineNumber).length);
 
     view.dispatch({
       selection: extend ? { anchor: sel.anchor, head: target } : { anchor: target },
@@ -222,12 +221,7 @@ const cursorKey = (state: EditorState, ranges: CursorZoneRange[]): string | null
 };
 
 const intersectsAnyRange = (ranges: CursorZoneRange[], from: number, to: number): boolean =>
-  ranges.some(
-    (r) =>
-      (from >= r.from && from < r.to) ||
-      (to > r.from && to <= r.to) ||
-      (from <= r.from && to >= r.to),
-  );
+  ranges.some((r) => (from >= r.from && from < r.to) || (to > r.from && to <= r.to) || (from <= r.from && to >= r.to));
 
 /** True if any of the transaction's changed regions intersects (or
  *  touches the boundary of) one of `ranges`. Pre-change positions
@@ -237,9 +231,7 @@ const changesIntersectRanges = (tr: Transaction, ranges: CursorZoneRange[]): boo
   let intersects = false;
   tr.changes.iterChangedRanges((fromA, toA) => {
     if (intersects) return;
-    intersects =
-      intersectsAnyRange(ranges, fromA, toA) ||
-      ranges.some((r) => fromA === r.from || fromA === r.to);
+    intersects = intersectsAnyRange(ranges, fromA, toA) || ranges.some((r) => fromA === r.from || fromA === r.to);
   });
   return intersects;
 };
@@ -278,11 +270,7 @@ export const cursorZoneStateField = (
           // Have syntax, change misses the ranges AND introduces
           // no new markers → keep current decorations, just remap
           // range positions through the change.
-          if (
-            value.hasSyntax &&
-            !changesIntersectRanges(tr, value.ranges) &&
-            !mightAffect
-          ) {
+          if (value.hasSyntax && !changesIntersectRanges(tr, value.ranges) && !mightAffect) {
             return {
               decorations,
               atomicDecorations,

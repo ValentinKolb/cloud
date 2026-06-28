@@ -103,7 +103,12 @@ export default function ProfileActions(props: Props) {
 
   // ── Contact & Details (phone + address + SSH keys in one dialog) ──
 
-  const detailsMutation = mutations.create<void, { ipa?: { phone?: string; address?: { street?: string; postalCode?: string; city?: string; state?: string }; sshPublicKeys?: string[] } }>({
+  const detailsMutation = mutations.create<
+    void,
+    {
+      ipa?: { phone?: string; address?: { street?: string; postalCode?: string; city?: string; state?: string }; sshPublicKeys?: string[] };
+    }
+  >({
     mutation: async (vars) => {
       const res = await apiClient.me.$patch({ json: vars });
       if (!res.ok) {
@@ -132,8 +137,14 @@ export default function ProfileActions(props: Props) {
         const addKey = () => {
           const key = newKey().trim();
           if (!key) return;
-          if (!SSH_KEY_PATTERN.test(key)) { setKeyError("Invalid SSH public key format. Paste the content of your .pub file."); return; }
-          if (keys().includes(key)) { setKeyError("This key is already added."); return; }
+          if (!SSH_KEY_PATTERN.test(key)) {
+            setKeyError("Invalid SSH public key format. Paste the content of your .pub file.");
+            return;
+          }
+          if (keys().includes(key)) {
+            setKeyError("This key is already added.");
+            return;
+          }
           setKeys([...keys(), key]);
           setNewKey("");
           setKeyError(null);
@@ -162,7 +173,13 @@ export default function ProfileActions(props: Props) {
                 <span class="text-[11px] uppercase tracking-[0.14em] text-dimmed">Address</span>
                 <div class="grid gap-3 sm:grid-cols-2">
                   <div class="sm:col-span-2">
-                    <TextInput label="Street" placeholder="Street and house number..." icon="ti ti-road" value={street} onInput={setStreet} />
+                    <TextInput
+                      label="Street"
+                      placeholder="Street and house number..."
+                      icon="ti ti-road"
+                      value={street}
+                      onInput={setStreet}
+                    />
                   </div>
                   <TextInput label="Postal Code" placeholder="e.g. 89081" icon="ti ti-hash" value={postalCode} onInput={setPostalCode} />
                   <TextInput label="City" placeholder="e.g. Ulm" icon="ti ti-building-community" value={city} onInput={setCity} />
@@ -175,8 +192,13 @@ export default function ProfileActions(props: Props) {
               <div class="flex flex-col gap-3">
                 <span class="text-[11px] uppercase tracking-[0.14em] text-dimmed">SSH Keys</span>
                 <div class="info-block-info text-xs flex flex-col gap-1">
-                  <p>Connect via <code class="bg-zinc-200 dark:bg-zinc-700 px-1 rounded text-[11px]">ssh {props.uid}@host-ip</code></p>
-                  <p>Generate: <code class="bg-zinc-200 dark:bg-zinc-700 px-1 rounded text-[11px]">ssh-keygen -t ed25519</code>, then paste <code class="bg-zinc-200 dark:bg-zinc-700 px-1 rounded text-[11px]">~/.ssh/id_ed25519.pub</code></p>
+                  <p>
+                    Connect via <code class="bg-zinc-200 dark:bg-zinc-700 px-1 rounded text-[11px]">ssh {props.uid}@host-ip</code>
+                  </p>
+                  <p>
+                    Generate: <code class="bg-zinc-200 dark:bg-zinc-700 px-1 rounded text-[11px]">ssh-keygen -t ed25519</code>, then paste{" "}
+                    <code class="bg-zinc-200 dark:bg-zinc-700 px-1 rounded text-[11px]">~/.ssh/id_ed25519.pub</code>
+                  </p>
                 </div>
                 <Show when={keys().length > 0}>
                   <div class="flex flex-col gap-1.5">
@@ -187,9 +209,16 @@ export default function ProfileActions(props: Props) {
                           <div class="flex items-center gap-2 bg-zinc-100 dark:bg-zinc-800 px-2.5 py-2 rounded">
                             <div class="flex-1 min-w-0">
                               <span class="text-xs font-medium text-primary block truncate">{info.comment || info.type}</span>
-                              <span class="text-[10px] font-mono text-dimmed block truncate">{info.type} {info.suffix}</span>
+                              <span class="text-[10px] font-mono text-dimmed block truncate">
+                                {info.type} {info.suffix}
+                              </span>
                             </div>
-                            <button type="button" onClick={() => setKeys(keys().filter((_, idx) => idx !== i()))} class="text-red-500 hover:text-red-700 dark:hover:text-red-400 shrink-0" title="Remove key">
+                            <button
+                              type="button"
+                              onClick={() => setKeys(keys().filter((_, idx) => idx !== i()))}
+                              class="text-red-500 hover:text-red-700 dark:hover:text-red-400 shrink-0"
+                              title="Remove key"
+                            >
                               <i class="ti ti-trash text-sm" />
                             </button>
                           </div>
@@ -199,8 +228,19 @@ export default function ProfileActions(props: Props) {
                   </div>
                 </Show>
                 <div class="flex flex-col gap-2">
-                  <TextInput placeholder="ssh-ed25519 AAAA... your-comment" icon="ti ti-key" value={newKey} onInput={(v) => { setNewKey(v); setKeyError(null); }} multiline />
-                  <Show when={keyError()}><p class="text-xs text-red-500">{keyError()}</p></Show>
+                  <TextInput
+                    placeholder="ssh-ed25519 AAAA... your-comment"
+                    icon="ti ti-key"
+                    value={newKey}
+                    onInput={(v) => {
+                      setNewKey(v);
+                      setKeyError(null);
+                    }}
+                    multiline
+                  />
+                  <Show when={keyError()}>
+                    <p class="text-xs text-red-500">{keyError()}</p>
+                  </Show>
                   <button type="button" onClick={addKey} class="btn-secondary btn-sm self-end">
                     <i class="ti ti-plus text-sm" />
                     Add Key
@@ -210,8 +250,18 @@ export default function ProfileActions(props: Props) {
             </Show>
 
             <div class="flex justify-end gap-3 pt-1">
-              <button type="button" onClick={() => close(undefined)} class="btn-secondary btn-sm">Cancel</button>
-              <button type="button" class="btn-primary btn-sm" onClick={() => close({ phone: phone(), street: street(), postalCode: postalCode(), city: city(), state: state(), sshKeys: keys() })}>Save</button>
+              <button type="button" onClick={() => close(undefined)} class="btn-secondary btn-sm">
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="btn-primary btn-sm"
+                onClick={() =>
+                  close({ phone: phone(), street: street(), postalCode: postalCode(), city: city(), state: state(), sshKeys: keys() })
+                }
+              >
+                Save
+              </button>
             </div>
           </div>
         );
@@ -268,7 +318,13 @@ export default function ProfileActions(props: Props) {
     ...(canMutateAccount ? [{ icon: "ti ti-pencil", label: "Edit Profile", action: () => void handleEditProfile() }] : []),
     ...(isIpa ? [{ icon: "ti ti-address-book", label: "Contact & Details", action: () => void handleEditDetails() }] : []),
     ...(canMutateAccount
-      ? [{ icon: "ti ti-calendar-plus", label: extendMutation.loading() ? "Extending..." : "Extend Account", action: () => void extendMutation.mutate() }]
+      ? [
+          {
+            icon: "ti ti-calendar-plus",
+            label: extendMutation.loading() ? "Extending..." : "Extend Account",
+            action: () => void extendMutation.mutate(),
+          },
+        ]
       : []),
   ];
 

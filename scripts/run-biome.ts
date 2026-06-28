@@ -71,4 +71,3 @@ for (let i = 0; i < targets.length; i += chunkSize) {
   const exitCode = await proc.exited;
   if (exitCode !== 0) process.exit(exitCode);
 }
-

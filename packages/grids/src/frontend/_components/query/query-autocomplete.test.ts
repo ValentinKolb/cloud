@@ -52,6 +52,7 @@ describe("backend GQL autocomplete adapter", () => {
     if (!request) throw new Error("expected autocomplete request");
     expect(request.query).toBe("select ");
     expect(request.caret).toBe(7);
+    expect(request.currentTableId).toBe(source.tableId);
     expect(request.currentSource).toEqual(source);
     expect(suggestions).toEqual([
       {

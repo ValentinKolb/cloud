@@ -173,7 +173,7 @@ FREEIPA_SVC_USER=svc-cloud               # default: svc-cloud
 FREEIPA_SVC_PASSWORD=change-me
 GROUPS_ADMIN=admins                      # default: admins
 GROUPS_BASE_SYNC=users                   # default: users
-GROUPS_BASE_IPA_REALM=cloud              # default: cloud
+GROUPS_BASE_IPA_REALM=users              # default: users
 GROUPS_EXCLUDED=editors,trust admins,admins
 ```
 

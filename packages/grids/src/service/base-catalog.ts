@@ -236,7 +236,10 @@ export const listForBase = async (params: {
           SELECT t.*
           FROM grids.tables t
           JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-          WHERE t.id = ANY(${sql.array(formTableIds.filter((id) => !tableLevels[id]), "UUID")}) AND t.deleted_at IS NULL
+          WHERE t.id = ANY(${sql.array(
+            formTableIds.filter((id) => !tableLevels[id]),
+            "UUID",
+          )}) AND t.deleted_at IS NULL
           ORDER BY position, created_at
         `,
     fieldTableIds.length === 0
@@ -287,5 +290,15 @@ export const listForBase = async (params: {
     }
   }
 
-  return { dashboards, tables, tableLevels, fieldsByTable, viewsByTable, formsByTable, formLevels, formTables: formOnlyTables, sidebarForms };
+  return {
+    dashboards,
+    tables,
+    tableLevels,
+    fieldsByTable,
+    viewsByTable,
+    formsByTable,
+    formLevels,
+    formTables: formOnlyTables,
+    sidebarForms,
+  };
 };

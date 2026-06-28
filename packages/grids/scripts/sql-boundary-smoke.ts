@@ -8,9 +8,7 @@ import { gridsService } from "../src/service";
 import { validateRelationTargets } from "../src/service/relations";
 
 type ServiceResult<T> = { ok: true; data: T } | { ok: false; error: { message?: string } };
-type SmokePrincipal =
-  | { type: "user"; userId: string }
-  | { type: "group"; groupId: string };
+type SmokePrincipal = { type: "user"; userId: string } | { type: "group"; groupId: string };
 
 const KEEP = process.env.KEEP === "1";
 const runId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -71,19 +69,17 @@ const grant = async (
   principal: SmokePrincipal,
   permission: "none" | "read" | "write" | "admin",
 ): Promise<void> => {
-  must(await gridsService.access.grant({
-    resourceType,
-    resourceId,
-    principal,
-    permission,
-  }));
+  must(
+    await gridsService.access.grant({
+      resourceType,
+      resourceId,
+      principal,
+      permission,
+    }),
+  );
 };
 
-const insertRecord = async (
-  tableId: string,
-  data: Record<string, unknown>,
-  createdAt?: string,
-): Promise<string> => {
+const insertRecord = async (tableId: string, data: Record<string, unknown>, createdAt?: string): Promise<string> => {
   const id = Bun.randomUUIDv7();
   if (createdAt) {
     await sql`
@@ -164,41 +160,71 @@ const main = async (): Promise<void> => {
   const targetTable = must(await gridsService.table.create({ baseId: base.id, name: "Lookup Targets" }, null));
   await grant("table", hiddenTable.id, { type: "user", userId: userA }, "none");
 
-  const title = must(await gridsService.field.create({
-    tableId: recordsTable.id,
-    name: "Title",
-    type: "text",
-    presentable: true,
-  }, null));
-  const day = must(await gridsService.field.create({
-    tableId: recordsTable.id,
-    name: "Day",
-    type: "date",
-  }, null));
-  const amount = must(await gridsService.field.create({
-    tableId: recordsTable.id,
-    name: "Amount",
-    type: "number",
-  }, null));
-  const targetLabel = must(await gridsService.field.create({
-    tableId: targetTable.id,
-    name: "Label",
-    type: "text",
-    presentable: true,
-  }, null));
-  const defaultDay = must(await gridsService.field.create({
-    tableId: defaultsTable.id,
-    name: "Default Day",
-    type: "date",
-    defaultValue: { kind: "now" },
-  }, null));
-  const defaultTime = must(await gridsService.field.create({
-    tableId: defaultsTable.id,
-    name: "Default Time",
-    type: "date",
-    config: { includeTime: true },
-    defaultValue: { kind: "now" },
-  }, null));
+  const title = must(
+    await gridsService.field.create(
+      {
+        tableId: recordsTable.id,
+        name: "Title",
+        type: "text",
+        presentable: true,
+      },
+      null,
+    ),
+  );
+  const day = must(
+    await gridsService.field.create(
+      {
+        tableId: recordsTable.id,
+        name: "Day",
+        type: "date",
+      },
+      null,
+    ),
+  );
+  const amount = must(
+    await gridsService.field.create(
+      {
+        tableId: recordsTable.id,
+        name: "Amount",
+        type: "number",
+      },
+      null,
+    ),
+  );
+  const targetLabel = must(
+    await gridsService.field.create(
+      {
+        tableId: targetTable.id,
+        name: "Label",
+        type: "text",
+        presentable: true,
+      },
+      null,
+    ),
+  );
+  const defaultDay = must(
+    await gridsService.field.create(
+      {
+        tableId: defaultsTable.id,
+        name: "Default Day",
+        type: "date",
+        defaultValue: { kind: "now" },
+      },
+      null,
+    ),
+  );
+  const defaultTime = must(
+    await gridsService.field.create(
+      {
+        tableId: defaultsTable.id,
+        name: "Default Time",
+        type: "date",
+        config: { includeTime: true },
+        defaultValue: { kind: "now" },
+      },
+      null,
+    ),
+  );
 
   const defaultDateConfig = { timeZone: "Europe/Berlin" };
   const beforeDefaultCreate = Date.now();
@@ -222,74 +248,134 @@ const main = async (): Promise<void> => {
   );
 
   const sharedView = must(await gridsService.view.create({ tableId: recordsTable.id, name: "Shared View" }, null));
-  const privateView = must(await gridsService.view.create({
-    tableId: recordsTable.id,
-    name: "Private View",
-    ownerUserId: userB,
-  }, null));
-  const grantedView = must(await gridsService.view.create({
-    tableId: recordsTable.id,
-    name: "Granted View",
-    ownerUserId: userB,
-  }, null));
+  const privateView = must(
+    await gridsService.view.create(
+      {
+        tableId: recordsTable.id,
+        name: "Private View",
+        ownerUserId: userB,
+      },
+      null,
+    ),
+  );
+  const grantedView = must(
+    await gridsService.view.create(
+      {
+        tableId: recordsTable.id,
+        name: "Granted View",
+        ownerUserId: userB,
+      },
+      null,
+    ),
+  );
   const deniedView = must(await gridsService.view.create({ tableId: recordsTable.id, name: "Denied Shared View" }, null));
-  const groupView = must(await gridsService.view.create({
-    tableId: recordsTable.id,
-    name: "Group View",
-    ownerUserId: userB,
-  }, null));
+  const groupView = must(
+    await gridsService.view.create(
+      {
+        tableId: recordsTable.id,
+        name: "Group View",
+        ownerUserId: userB,
+      },
+      null,
+    ),
+  );
   await grant("view", grantedView.id, { type: "user", userId: userA }, "read");
   await grant("view", deniedView.id, { type: "user", userId: userA }, "none");
   await grant("view", groupView.id, { type: "group", groupId: groupA }, "read");
 
-  const publicForm = must(await gridsService.form.create({
-    tableId: recordsTable.id,
-    name: "Public Form",
-    config: { fields: [{ kind: "user_input", fieldId: title.id }] },
-    isPublic: true,
-  }, null));
-  const privateForm = must(await gridsService.form.create({
-    tableId: recordsTable.id,
-    name: "Private Form",
-    config: { fields: [{ kind: "user_input", fieldId: title.id }] },
-  }, null));
-  const writeForm = must(await gridsService.form.create({
-    tableId: recordsTable.id,
-    name: "Write Form",
-    config: { fields: [{ kind: "user_input", fieldId: title.id }] },
-  }, null));
-  const inactivePublicForm = must(await gridsService.form.create({
-    tableId: recordsTable.id,
-    name: "Inactive Public Form",
-    config: { fields: [{ kind: "user_input", fieldId: title.id }] },
-    isPublic: true,
-  }, null));
+  const publicForm = must(
+    await gridsService.form.create(
+      {
+        tableId: recordsTable.id,
+        name: "Public Form",
+        config: { fields: [{ kind: "user_input", fieldId: title.id }] },
+        isPublic: true,
+      },
+      null,
+    ),
+  );
+  const privateForm = must(
+    await gridsService.form.create(
+      {
+        tableId: recordsTable.id,
+        name: "Private Form",
+        config: { fields: [{ kind: "user_input", fieldId: title.id }] },
+      },
+      null,
+    ),
+  );
+  const writeForm = must(
+    await gridsService.form.create(
+      {
+        tableId: recordsTable.id,
+        name: "Write Form",
+        config: { fields: [{ kind: "user_input", fieldId: title.id }] },
+      },
+      null,
+    ),
+  );
+  const inactivePublicForm = must(
+    await gridsService.form.create(
+      {
+        tableId: recordsTable.id,
+        name: "Inactive Public Form",
+        config: { fields: [{ kind: "user_input", fieldId: title.id }] },
+        isPublic: true,
+      },
+      null,
+    ),
+  );
   must(await gridsService.form.update(inactivePublicForm.id, { isActive: false }, null));
   await grant("form", writeForm.id, { type: "user", userId: userA }, "write");
 
-  const sharedDashboard = must(await gridsService.dashboard.create({
-    baseId: base.id,
-    name: "Shared Dashboard",
-  }, null));
-  const privateDashboard = must(await gridsService.dashboard.create({
-    baseId: base.id,
-    name: "Private Dashboard",
-    ownerUserId: userB,
-  }, null));
-  const grantedDashboard = must(await gridsService.dashboard.create({
-    baseId: base.id,
-    name: "Granted Dashboard",
-    ownerUserId: userB,
-  }, null));
-  const deniedDashboard = must(await gridsService.dashboard.create({
-    baseId: base.id,
-    name: "Denied Shared Dashboard",
-  }, null));
-  const groupDashboard = must(await gridsService.dashboard.create({
-    baseId: base.id,
-    name: "Group Dashboard",
-    ownerUserId: userB,
-  }, null));
+  const sharedDashboard = must(
+    await gridsService.dashboard.create(
+      {
+        baseId: base.id,
+        name: "Shared Dashboard",
+      },
+      null,
+    ),
+  );
+  const privateDashboard = must(
+    await gridsService.dashboard.create(
+      {
+        baseId: base.id,
+        name: "Private Dashboard",
+        ownerUserId: userB,
+      },
+      null,
+    ),
+  );
+  const grantedDashboard = must(
+    await gridsService.dashboard.create(
+      {
+        baseId: base.id,
+        name: "Granted Dashboard",
+        ownerUserId: userB,
+      },
+      null,
+    ),
+  );
+  const deniedDashboard = must(
+    await gridsService.dashboard.create(
+      {
+        baseId: base.id,
+        name: "Denied Shared Dashboard",
+      },
+      null,
+    ),
+  );
+  const groupDashboard = must(
+    await gridsService.dashboard.create(
+      {
+        baseId: base.id,
+        name: "Group Dashboard",
+        ownerUserId: userB,
+      },
+      null,
+    ),
+  );
   await grant("dashboard", grantedDashboard.id, { type: "user", userId: userA }, "read");
   await grant("dashboard", deniedDashboard.id, { type: "user", userId: userA }, "none");
   await grant("dashboard", groupDashboard.id, { type: "group", groupId: groupA }, "read");
@@ -304,7 +390,10 @@ const main = async (): Promise<void> => {
   assertHas(catalogTables, targetTable.name, "base.catalog tables");
   assertMissing(catalogTables, hiddenTable.name, "base.catalog tables");
   assert(catalog.tableLevels[recordsTable.id] === "read", "base.catalog table level should inherit base read");
-  assert(catalog.fieldsByTable[recordsTable.id]?.some((field) => field.id === day.id), "base.catalog should include visible table fields");
+  assert(
+    catalog.fieldsByTable[recordsTable.id]?.some((field) => field.id === day.id),
+    "base.catalog should include visible table fields",
+  );
 
   const catalogViews = (catalog.viewsByTable[recordsTable.id] ?? []).map((view) => view.name);
   assertHas(catalogViews, sharedView.name, "base.catalog views");
@@ -344,42 +433,50 @@ const main = async (): Promise<void> => {
     "base.catalog group dashboards",
   );
 
-  const listedViews = (await gridsService.view.listForTable({
-    tableId: recordsTable.id,
-    userId: userA,
-    userGroups: [],
-  })).map((view) => view.name);
+  const listedViews = (
+    await gridsService.view.listForTable({
+      tableId: recordsTable.id,
+      userId: userA,
+      userGroups: [],
+    })
+  ).map((view) => view.name);
   assertHas(listedViews, sharedView.name, "views.listForTable");
   assertHas(listedViews, grantedView.name, "views.listForTable");
   assertMissing(listedViews, privateView.name, "views.listForTable");
   assertMissing(listedViews, deniedView.name, "views.listForTable");
   assertMissing(listedViews, groupView.name, "views.listForTable without userGroups");
   assertHas(
-    (await gridsService.view.listForTable({
-      tableId: recordsTable.id,
-      userId: userA,
-      userGroups: [groupA],
-    })).map((view) => view.name),
+    (
+      await gridsService.view.listForTable({
+        tableId: recordsTable.id,
+        userId: userA,
+        userGroups: [groupA],
+      })
+    ).map((view) => view.name),
     groupView.name,
     "views.listForTable group ACL",
   );
 
-  const listedDashboards = (await gridsService.dashboard.listForBase({
-    baseId: base.id,
-    userId: userA,
-    userGroups: [],
-  })).map((dashboard) => dashboard.name);
+  const listedDashboards = (
+    await gridsService.dashboard.listForBase({
+      baseId: base.id,
+      userId: userA,
+      userGroups: [],
+    })
+  ).map((dashboard) => dashboard.name);
   assertHas(listedDashboards, sharedDashboard.name, "dashboards.listForBase");
   assertHas(listedDashboards, grantedDashboard.name, "dashboards.listForBase");
   assertMissing(listedDashboards, privateDashboard.name, "dashboards.listForBase");
   assertMissing(listedDashboards, deniedDashboard.name, "dashboards.listForBase");
   assertMissing(listedDashboards, groupDashboard.name, "dashboards.listForBase without userGroups");
   assertHas(
-    (await gridsService.dashboard.listForBase({
-      baseId: base.id,
-      userId: userA,
-      userGroups: [groupA],
-    })).map((dashboard) => dashboard.name),
+    (
+      await gridsService.dashboard.listForBase({
+        baseId: base.id,
+        userId: userA,
+        userGroups: [groupA],
+      })
+    ).map((dashboard) => dashboard.name),
     groupDashboard.name,
     "dashboards.listForBase group ACL",
   );
@@ -414,65 +511,99 @@ const main = async (): Promise<void> => {
     );
   }
 
-  const listResult = must(await gridsService.record.list({
-    tableId: recordsTable.id,
-    filter: { fieldId: amount.id, op: ">=", value: 30 },
-    search: { q: "Month", fieldIds: [title.id] },
-    sort: [{ fieldId: amount.id, direction: "desc" }],
-    limit: 10,
-    includeAggregates: true,
-  }));
+  const listResult = must(
+    await gridsService.record.list({
+      tableId: recordsTable.id,
+      filter: { fieldId: amount.id, op: ">=", value: 30 },
+      search: { q: "Month", fieldIds: [title.id] },
+      sort: [{ fieldId: amount.id, direction: "desc" }],
+      limit: 10,
+      includeAggregates: true,
+    }),
+  );
   assert(listResult.items.length === 3, `record.list expected 3 rows, got ${listResult.items.length}`);
   assert(listResult.items[0]?.data[amount.id] === 50, "record.list sort should put amount=50 first");
   assert(listResult.items[2]?.data[amount.id] === 30, "record.list sort should put amount=30 last");
-  assert(listResult.aggregates?.["*__count"] === 3, `record.list aggregate count should be 3, got ${String(listResult.aggregates?.["*__count"])}`);
-  assert(listResult.aggregates?.[`${amount.id}__sum`] === 120, `record.list amount sum should be 120, got ${String(listResult.aggregates?.[`${amount.id}__sum`])}`);
+  assert(
+    listResult.aggregates?.["*__count"] === 3,
+    `record.list aggregate count should be 3, got ${String(listResult.aggregates?.["*__count"])}`,
+  );
+  assert(
+    listResult.aggregates?.[`${amount.id}__sum`] === 120,
+    `record.list amount sum should be 120, got ${String(listResult.aggregates?.[`${amount.id}__sum`])}`,
+  );
 
-  const chartView = must(await gridsService.view.create({
-    tableId: recordsTable.id,
-    name: "Monthly Chart View",
-    source: `from table {${recordsTable.id}}\ngroup by {${day.id}} by month\naggregate count(*) as rows\nsort {${day.id}} asc`,
-  }, null));
-  const chartData = await resolveWidgetData({
-    id: "smoke-chart",
-    kind: "chart",
-    chartType: "bar",
-    viewId: chartView.id,
-    limit: 3,
-  }, { userId: userA, userGroups: [] });
+  const chartView = must(
+    await gridsService.view.create(
+      {
+        tableId: recordsTable.id,
+        name: "Monthly Chart View",
+        source: `from table {${recordsTable.id}}\ngroup by {${day.id}} by month\naggregate count(*) as rows\nsort {${day.id}} asc`,
+      },
+      null,
+    ),
+  );
+  const chartData = await resolveWidgetData(
+    {
+      id: "smoke-chart",
+      kind: "chart",
+      chartType: "bar",
+      viewId: chartView.id,
+      limit: 3,
+    },
+    { userId: userA, userGroups: [] },
+  );
   assert(chartData.kind === "chart", `chart widget expected chart data, got ${chartData.kind}`);
   const chartKeys = chartData.buckets.map((bucket) => String(bucket.keys[0]));
   assert(chartKeys.length === 3, `chart widget expected 3 buckets, got ${chartKeys.length}`);
   assert(chartKeys[0]?.startsWith("2026-03"), `chart widget first key should be March, got ${chartKeys[0]}`);
   assert(chartKeys[2]?.startsWith("2026-05"), `chart widget third key should be May, got ${chartKeys[2]}`);
 
-  const statView = must(await gridsService.view.create({
-    tableId: recordsTable.id,
-    name: "Amount Sum Stat View",
-    source: `from table {${recordsTable.id}}\naggregate sum({${amount.id}}) as total`,
-  }, null));
-  const trendView = must(await gridsService.view.create({
-    tableId: recordsTable.id,
-    name: "Amount Monthly Trend View",
-    source: `from table {${recordsTable.id}}\ngroup by {${day.id}} by month\naggregate sum({${amount.id}}) as total\nsort {${day.id}} asc`,
-  }, null));
-  const statData = await resolveWidgetData({
-    id: "smoke-stat",
-    kind: "stat",
-    viewId: statView.id,
-    trend: { viewId: trendView.id, windowSize: 3 },
-  }, { userId: userA, userGroups: [] });
+  const statView = must(
+    await gridsService.view.create(
+      {
+        tableId: recordsTable.id,
+        name: "Amount Sum Stat View",
+        source: `from table {${recordsTable.id}}\naggregate sum({${amount.id}}) as total`,
+      },
+      null,
+    ),
+  );
+  const trendView = must(
+    await gridsService.view.create(
+      {
+        tableId: recordsTable.id,
+        name: "Amount Monthly Trend View",
+        source: `from table {${recordsTable.id}}\ngroup by {${day.id}} by month\naggregate sum({${amount.id}}) as total\nsort {${day.id}} asc`,
+      },
+      null,
+    ),
+  );
+  const statData = await resolveWidgetData(
+    {
+      id: "smoke-stat",
+      kind: "stat",
+      viewId: statView.id,
+      trend: { viewId: trendView.id, windowSize: 3 },
+    },
+    { userId: userA, userGroups: [] },
+  );
   assert(statData.kind === "stat", `stat widget expected stat data, got ${statData.kind}`);
   assert(statData.value === 150, `stat widget total should be 150, got ${String(statData.value)}`);
-  assert(JSON.stringify(statData.trend) === JSON.stringify([30, 40, 50]), `stat widget trend should be [30,40,50], got ${JSON.stringify(statData.trend)}`);
+  assert(
+    JSON.stringify(statData.trend) === JSON.stringify([30, 40, 50]),
+    `stat widget trend should be [30,40,50], got ${JSON.stringify(statData.trend)}`,
+  );
 
-  const grouped = must(await gridsService.record.group({
-    tableId: recordsTable.id,
-    groupBy: [{ fieldId: day.id, granularity: "month", direction: "asc" }],
-    aggregations: [{ fieldId: "*", agg: "count" }],
-    limit: 3,
-    fromEnd: true,
-  }));
+  const grouped = must(
+    await gridsService.record.group({
+      tableId: recordsTable.id,
+      groupBy: [{ fieldId: day.id, granularity: "month", direction: "asc" }],
+      aggregations: [{ fieldId: "*", agg: "count" }],
+      limit: 3,
+      fromEnd: true,
+    }),
+  );
   assert(grouped.buckets.length === 3, `group fromEnd expected 3 buckets, got ${grouped.buckets.length}`);
   const groupKeys = grouped.buckets.map((bucket) => String(bucket.keys[0]));
   assert(groupKeys[0]?.startsWith("2026-03"), `group fromEnd first key should be March, got ${groupKeys[0]}`);
@@ -483,7 +614,9 @@ const main = async (): Promise<void> => {
   }
   assert(grouped.nextCursor === null, "group fromEnd should not emit a cursor");
 
-  console.log("PASS: base.listVisible, base.catalog, group ACLs, inactive forms, record.list SQL paths, widget resolver tails, relation UUID arrays, grouped fromEnd tail-window");
+  console.log(
+    "PASS: base.listVisible, base.catalog, group ACLs, inactive forms, record.list SQL paths, widget resolver tails, relation UUID arrays, grouped fromEnd tail-window",
+  );
 };
 
 try {

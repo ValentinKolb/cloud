@@ -1,9 +1,8 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { coreSettings, settingsService } from "@valentinkolb/cloud/services";
+import { settingsService } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
 import CoreSettingsForm, { type SettingFieldDef } from "./_components/CoreSettingsForm.island";
-import LegacySettingsPanel from "./_components/LegacySettingsPanel.island";
 import LegalSettingsForm, { type LegalInitial } from "./_components/LegalSettingsForm.island";
 
 // Flat tab list. Each tab maps either to a core-settings group (`group` prop)
@@ -13,35 +12,59 @@ const TABS = [
     id: "general",
     title: "General Settings",
     description: "Branding, public links, schedules, and global defaults.",
+    icon: "ti ti-settings",
     group: "app" as const,
   },
   {
     id: "user",
     title: "User Management Settings",
     description: "Login, expiry, reminder, and self-service behavior.",
+    icon: "ti ti-users",
     group: "user" as const,
   },
   {
     id: "freeipa",
     title: "FreeIPA Settings",
     description: "FreeIPA connectivity, sync rules, and group mapping.",
+    icon: "ti ti-building-fortress",
     group: "freeipa" as const,
   },
-  { id: "mail", title: "Mail Settings", description: "SMTP delivery and sender credentials.", group: "mail" as const },
+  {
+    id: "ai",
+    title: "AI Settings",
+    description: "Model profiles, provider credentials, and global AI behavior.",
+    icon: "ti ti-sparkles",
+    group: "ai" as const,
+  },
+  { id: "mail", title: "Mail Settings", description: "SMTP delivery and sender credentials.", icon: "ti ti-mail", group: "mail" as const },
   {
     id: "pdf-rendering",
     title: "PDF Rendering Settings",
     description: "Gotenberg connection, credentials, and render limits.",
+    icon: "ti ti-file-type-pdf",
     group: "gotenberg" as const,
   },
   {
     id: "email-templates",
     title: "Email Template Settings",
     description: "Transactional email bodies and available template variables.",
+    icon: "ti ti-template",
     group: "mail" as const,
   },
-  { id: "security", title: "Security Settings", description: "Rate limits and access protection defaults.", group: "security" as const },
-  { id: "legal", title: "Legal Settings", description: "Terms of Service, Privacy Policy, and Imprint.", group: null },
+  {
+    id: "security",
+    title: "Security Settings",
+    description: "Rate limits and access protection defaults.",
+    icon: "ti ti-shield-lock",
+    group: "security" as const,
+  },
+  {
+    id: "legal",
+    title: "Legal Settings",
+    description: "Terms of Service, Privacy Policy, and Imprint.",
+    icon: "ti ti-file-certificate",
+    group: null,
+  },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -60,6 +83,12 @@ const buildEntries = async (group: string): Promise<SettingFieldDef[]> => {
     description: item.description,
     kind: item.kind as SettingFieldDef["kind"],
     value: item.value,
+    default: item.default,
+    resetValue: item.resetValue,
+    valueSource: item.valueSource,
+    resetValueSource: item.resetValueSource,
+    isCustom: item.isCustom,
+    group: item.group,
     options: item.options,
     min: item.min,
     max: item.max,
@@ -68,31 +97,24 @@ const buildEntries = async (group: string): Promise<SettingFieldDef[]> => {
   }));
 };
 
-/** Read all 9 legal.* settings into the LegalSettingsForm initial shape. */
-const buildLegalInitial = async (): Promise<LegalInitial> => {
-  const [termsMode, termsContent, termsUrl, privacyMode, privacyContent, privacyUrl, imprintMode, imprintContent, imprintUrl] =
-    await Promise.all([
-      coreSettings.get<string>("legal.terms.mode"),
-      coreSettings.get<string>("legal.terms.content"),
-      coreSettings.get<string>("legal.terms.url"),
-      coreSettings.get<string>("legal.privacy.mode"),
-      coreSettings.get<string>("legal.privacy.content"),
-      coreSettings.get<string>("legal.privacy.url"),
-      coreSettings.get<string>("legal.imprint.mode"),
-      coreSettings.get<string>("legal.imprint.content"),
-      coreSettings.get<string>("legal.imprint.url"),
-    ]);
-  const asMode = (v: string | undefined): "local" | "external" => (v === "external" ? "external" : "local");
+/** Read all 9 legal.* entries into the LegalSettingsForm initial shape. */
+const buildLegalInitial = (entries: SettingFieldDef[]): LegalInitial => {
+  const value = (key: keyof LegalInitial) => entries.find((entry) => entry.key === key)?.value;
+  const stringValue = (key: keyof LegalInitial) => {
+    const current = value(key);
+    return typeof current === "string" ? current : "";
+  };
+  const asMode = (key: keyof LegalInitial): "local" | "external" => (stringValue(key) === "external" ? "external" : "local");
   return {
-    "legal.terms.mode": asMode(termsMode),
-    "legal.terms.content": termsContent ?? "",
-    "legal.terms.url": termsUrl ?? "",
-    "legal.privacy.mode": asMode(privacyMode),
-    "legal.privacy.content": privacyContent ?? "",
-    "legal.privacy.url": privacyUrl ?? "",
-    "legal.imprint.mode": asMode(imprintMode),
-    "legal.imprint.content": imprintContent ?? "",
-    "legal.imprint.url": imprintUrl ?? "",
+    "legal.terms.mode": asMode("legal.terms.mode"),
+    "legal.terms.content": stringValue("legal.terms.content"),
+    "legal.terms.url": stringValue("legal.terms.url"),
+    "legal.privacy.mode": asMode("legal.privacy.mode"),
+    "legal.privacy.content": stringValue("legal.privacy.content"),
+    "legal.privacy.url": stringValue("legal.privacy.url"),
+    "legal.imprint.mode": asMode("legal.imprint.mode"),
+    "legal.imprint.content": stringValue("legal.imprint.content"),
+    "legal.imprint.url": stringValue("legal.imprint.url"),
   };
 };
 
@@ -109,27 +131,29 @@ export default ssr<AuthContext>(async (c) => {
     if (tab.id === "mail") entries = entries.filter((entry) => entry.kind !== "template");
     if (tab.id === "email-templates") entries = entries.filter((entry) => entry.kind === "template");
   } else if (tab.id === "legal") {
-    legalInitial = await buildLegalInitial();
+    entries = await buildEntries("legal");
+    legalInitial = buildLegalInitial(entries);
   }
 
   return () => (
     <AdminLayout c={c} title={tab.title} stretch>
-      <div class="flex-1 min-h-0 overflow-y-auto">
-        <div class="flex flex-col gap-2">
-          <div class="min-w-0" style="view-transition-name: admin-settings-title">
-            <h1 class="text-base font-semibold text-primary">{tab.title}</h1>
-            <p class="mt-1 text-xs text-dimmed">{tab.description}</p>
-          </div>
-
+      <div class="flex-1 min-h-0 overflow-hidden">
+        <div class="flex h-full min-h-0 flex-col" style="view-transition-name: admin-settings-content">
           {tab.group ? (
-            <section class="paper overflow-hidden" style="view-transition-name: admin-settings-content">
-              <CoreSettingsForm entries={entries} showTestEmailAction={tab.id === "mail"} showTestPdfAction={tab.id === "pdf-rendering"} />
-            </section>
+            <CoreSettingsForm
+              title={tab.title}
+              subtitle={tab.description}
+              icon={tab.icon}
+              entries={entries}
+              showTestEmailAction={tab.id === "mail"}
+              showTestPdfAction={tab.id === "pdf-rendering"}
+              showLegacySettings={tab.id === "general"}
+            />
           ) : null}
 
-          {tab.id === "general" ? <LegacySettingsPanel /> : null}
-
-          {tab.id === "legal" && legalInitial ? <LegalSettingsForm initial={legalInitial} /> : null}
+          {tab.id === "legal" && legalInitial ? (
+            <LegalSettingsForm title={tab.title} subtitle={tab.description} icon={tab.icon} initial={legalInitial} entries={entries} />
+          ) : null}
         </div>
       </div>
     </AdminLayout>

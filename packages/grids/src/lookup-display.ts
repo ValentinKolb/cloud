@@ -45,7 +45,7 @@ export const lookupTargetMeta = (field: FieldLike, fieldsByTable?: FieldsByTable
   if (typeof meta.fieldId !== "string" || typeof meta.type !== "string") return localLookupTargetMeta(field, fieldsByTable);
   return {
     fieldId: meta.fieldId,
-    name: typeof meta.name === "string" ? meta.name : field.name ?? "Lookup target",
+    name: typeof meta.name === "string" ? meta.name : (field.name ?? "Lookup target"),
     type: meta.type,
     config: meta.config && typeof meta.config === "object" ? (meta.config as Record<string, unknown>) : {},
     icon: typeof meta.icon === "string" || meta.icon === null ? meta.icon : undefined,

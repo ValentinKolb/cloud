@@ -173,8 +173,7 @@ export const createGridsMetadataEventsProvider = (opts: GridsMetadataEventsProvi
       }
 
       const delay =
-        Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * 2 ** reconnectAttempt) +
-        Math.floor(Math.random() * RECONNECT_JITTER_MS);
+        Math.min(RECONNECT_MAX_DELAY_MS, RECONNECT_BASE_DELAY_MS * 2 ** reconnectAttempt) + Math.floor(Math.random() * RECONNECT_JITTER_MS);
       reconnectAttempt = Math.min(reconnectAttempt + 1, 5);
       reconnectTimer = setTimeout(connect, delay);
     };

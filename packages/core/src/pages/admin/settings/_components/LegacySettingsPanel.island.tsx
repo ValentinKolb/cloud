@@ -1,7 +1,7 @@
-import { DataTable, prompts, toast, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { coreClient } from "@valentinkolb/cloud/clients/core";
+import { DataTable, type DataTableColumn, PanelDialog, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createResource, Show } from "solid-js";
-import { coreClient } from "@valentinkolb/cloud/clients/core";
 
 type LegacySetting = {
   key: string;
@@ -40,10 +40,16 @@ const columns: DataTableColumn<LegacySetting>[] = [
     headerClass: "w-px text-center whitespace-nowrap",
     cellClass: "w-px text-center whitespace-nowrap",
   },
-  { id: "updated", header: "Updated", value: (row) => row.updatedAt, headerClass: "w-px text-right", cellClass: "w-px text-right whitespace-nowrap" },
+  {
+    id: "updated",
+    header: "Updated",
+    value: (row) => row.updatedAt,
+    headerClass: "w-px text-right",
+    cellClass: "w-px text-right whitespace-nowrap",
+  },
 ];
 
-export default function LegacySettingsPanel() {
+export function LegacySettingsSection() {
   const [legacySettings, { refetch }] = createResource(loadLegacySettings);
 
   const cleanup = mutation.create<{ deleted: string[] }, void>({
@@ -66,21 +72,19 @@ export default function LegacySettingsPanel() {
       return response.json();
     },
     onSuccess: (result) => {
-      if (result.deleted.length > 0) toast.success(`Deleted ${result.deleted.length} legacy setting${result.deleted.length === 1 ? "" : "s"}`);
+      if (result.deleted.length > 0)
+        toast.success(`Deleted ${result.deleted.length} legacy setting${result.deleted.length === 1 ? "" : "s"}`);
       void refetch();
     },
     onError: (error) => prompts.error(error.message),
   });
 
   return (
-    <section class="paper overflow-hidden" style="view-transition-name: admin-settings-legacy">
-      <div class="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-100 p-3 dark:border-zinc-800">
-        <div class="min-w-0">
-          <h2 class="text-sm font-semibold text-primary">Legacy Settings</h2>
-          <p class="mt-1 text-xs text-dimmed">
-            Persisted settings that are no longer registered by the running Cloud version. Cleanup never deletes active registered keys.
-          </p>
-        </div>
+    <PanelDialog.Section
+      title="Legacy Settings"
+      subtitle="Persisted settings that are no longer registered by the running Cloud version. Cleanup never deletes active registered keys."
+      icon="ti ti-database-off"
+      actions={
         <button
           type="button"
           class="btn-input btn-input-sm shrink-0"
@@ -88,10 +92,10 @@ export default function LegacySettingsPanel() {
           disabled={cleanup.loading() || legacySettings.loading || (legacySettings()?.length ?? 0) === 0}
         >
           <i class={`ti ${cleanup.loading() ? "ti-loader-2 animate-spin" : "ti-trash"} text-sm`} />
-          Clean up Legacy Settings
+          Clean up
         </button>
-      </div>
-
+      }
+    >
       <Show when={!legacySettings.loading} fallback={<div class="p-3 text-xs text-dimmed">Loading legacy settings...</div>}>
         <DataTable
           rows={legacySettings() ?? []}
@@ -111,9 +115,7 @@ export default function LegacySettingsPanel() {
                   unregistered
                 </span>
               ) : (
-                <span class="mx-auto inline-flex rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-500">
-                  unreadable
-                </span>
+                <span class="mx-auto inline-flex rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-500">unreadable</span>
               );
             }
             if (col.id === "updated") return <span class="text-[10px] tabular-nums text-dimmed">{formatDate(row.updatedAt)}</span>;
@@ -121,6 +123,10 @@ export default function LegacySettingsPanel() {
           }}
         />
       </Show>
-    </section>
+    </PanelDialog.Section>
   );
+}
+
+export default function LegacySettingsPanel() {
+  return <LegacySettingsSection />;
 }

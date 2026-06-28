@@ -41,24 +41,20 @@ const Row = (props: { item: WidgetListItem }): JSX.Element => {
   const inner = (
     <>
       {props.item.icon ? (
-        <i
-          class={`${props.item.icon} ${
-            props.item.iconTone ? ICON_TONE[props.item.iconTone] : "text-dimmed"
-          } text-sm shrink-0`}
-        />
+        <i class={`${props.item.icon} ${props.item.iconTone ? ICON_TONE[props.item.iconTone] : "text-dimmed"} text-sm shrink-0`} />
       ) : null}
       <div class="flex-1 min-w-0 flex flex-col">
         <span class="text-xs font-medium text-primary truncate">{props.item.label}</span>
         {props.item.sub ? <span class="text-[10px] text-dimmed truncate">{props.item.sub}</span> : null}
       </div>
-      {props.item.meta ? (
-        <span class="text-[10px] text-dimmed shrink-0 tabular-nums">{props.item.meta}</span>
-      ) : null}
+      {props.item.meta ? <span class="text-[10px] text-dimmed shrink-0 tabular-nums">{props.item.meta}</span> : null}
       {props.item.href ? <i class="ti ti-chevron-right text-dimmed text-[10px] shrink-0" /> : null}
     </>
   );
   return props.item.href ? (
-    <a href={props.item.href} class={rowClass}>{inner}</a>
+    <a href={props.item.href} class={rowClass}>
+      {inner}
+    </a>
   ) : (
     <div class={rowClass}>{inner}</div>
   );

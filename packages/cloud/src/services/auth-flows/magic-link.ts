@@ -32,13 +32,7 @@ const hasIpaAccountForEmail = async (email: string): Promise<boolean> => {
 };
 
 const claimIpaHintCooldown = async (email: string): Promise<boolean> => {
-  const result = await redis.send("SET", [
-    ipaHintCooldownKey(email),
-    "1",
-    "EX",
-    String(IPA_HINT_COOLDOWN_SECONDS),
-    "NX",
-  ]);
+  const result = await redis.send("SET", [ipaHintCooldownKey(email), "1", "EX", String(IPA_HINT_COOLDOWN_SECONDS), "NX"]);
   return result === "OK";
 };
 
@@ -67,10 +61,10 @@ const sendIpaEmailLoginHint = async (params: { email: string; redirectTo?: strin
   });
 };
 
-export const request = async (params: { email: string; redirectTo?: string }): Promise<
-  | { ok: true }
-  | { ok: false; status: 400; message: string }
-> => {
+export const request = async (params: {
+  email: string;
+  redirectTo?: string;
+}): Promise<{ ok: true } | { ok: false; status: 400; message: string }> => {
   const email = normalizeEmail(params.email);
   const hasIpaUser = await hasIpaAccountForEmail(email);
   const userRows = hasIpaUser ? [] : await sql`SELECT uid, provider FROM auth.users WHERE lower(btrim(mail)) = ${email}`;
@@ -114,7 +108,9 @@ export const request = async (params: { email: string; redirectTo?: string }): P
   return { ok: true };
 };
 
-export const verify = async (params: { token: string }): Promise<
+export const verify = async (params: {
+  token: string;
+}): Promise<
   | { ok: true; userId: string; user: User; email: string; createdGuest: boolean }
   | { ok: false; status: 401; message: string }
   | { ok: false; status: number; message: string }

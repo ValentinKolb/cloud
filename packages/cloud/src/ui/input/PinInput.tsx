@@ -138,29 +138,29 @@ const PinInput = ({
       errorId={a11y.errorId}
     >
       <div class="flex gap-1 md:gap-2" role="group" aria-labelledby={a11y.inputId} aria-describedby={a11y.ariaDescribedBy()}>
-          <For each={new Array(length).fill(0)}>
-            {(_, index) => (
-              <input
-                ref={(el) => (inputRefs[index()] = el)}
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]"
-                maxLength={1}
-                class={`input ${stretch ? "w-full" : "w-10"} text-center font-mono font-semibold transition-all ${
-                  (value?.() || "")[index()] ? "bg-zinc-50 dark:bg-zinc-800 " : ""
-                } ${disabled ? "cursor-not-allowed opacity-50" : ""} ${error?.() ? "!border-red-500" : ""}`}
-                value={(value?.() || "")[index()] || ""}
-                onInput={(e) => handleChange(index(), e.currentTarget.value)}
-                onKeyDown={(e) => handleKeyDown(index(), e)}
-                onFocus={(e) => e.currentTarget.select()}
-                disabled={disabled}
-                aria-label={`PIN digit ${index() + 1} of ${length}`}
-                aria-invalid={!!error?.()}
-                aria-required={index() === 0 ? required : undefined}
-                autocomplete="off"
-              />
-            )}
-          </For>
+        <For each={new Array(length).fill(0)}>
+          {(_, index) => (
+            <input
+              ref={(el) => (inputRefs[index()] = el)}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]"
+              maxLength={1}
+              class={`input ${stretch ? "w-full" : "w-10"} text-center font-mono font-semibold transition-all ${
+                (value?.() || "")[index()] ? "bg-zinc-50 dark:bg-zinc-800 " : ""
+              } ${disabled ? "cursor-not-allowed opacity-50" : ""} ${error?.() ? "!border-red-500" : ""}`}
+              value={(value?.() || "")[index()] || ""}
+              onInput={(e) => handleChange(index(), e.currentTarget.value)}
+              onKeyDown={(e) => handleKeyDown(index(), e)}
+              onFocus={(e) => e.currentTarget.select()}
+              disabled={disabled}
+              aria-label={`PIN digit ${index() + 1} of ${length}`}
+              aria-invalid={!!error?.()}
+              aria-required={index() === 0 ? required : undefined}
+              autocomplete="off"
+            />
+          )}
+        </For>
       </div>
     </InputWrapper>
   );

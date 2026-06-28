@@ -347,7 +347,13 @@ export const add = async (params: {
   const options: Record<string, unknown> = { nonposix: params.posix ? false : true };
   if (params.description) options.description = params.description;
 
-  const response = await freeipa.client.call({ url: await getIpaUrl(), ipaSession: params.ipaSession, method: "group_add", args: [params.cn], options });
+  const response = await freeipa.client.call({
+    url: await getIpaUrl(),
+    ipaSession: params.ipaSession,
+    method: "group_add",
+    args: [params.cn],
+    options,
+  });
   if (response.error) return ipaMutationError(response);
 
   const gidnumber = freeipa.util.num((response.result?.result as Record<string, unknown> | undefined)?.gidnumber);
@@ -400,7 +406,13 @@ export const del = async (params: { ipaSession: string; id: string }): Promise<M
   const group = await getIpaGroupById(params.id);
   if (!group) return { ok: false, error: "IPA group not found", status: 404 };
 
-  const response = await freeipa.client.call({ url: await getIpaUrl(), ipaSession: params.ipaSession, method: "group_del", args: [group.cn], options: {} });
+  const response = await freeipa.client.call({
+    url: await getIpaUrl(),
+    ipaSession: params.ipaSession,
+    method: "group_del",
+    args: [group.cn],
+    options: {},
+  });
   if (response.error) return ipaMutationError(response);
 
   await sql`DELETE FROM auth.groups WHERE id = ${group.id}`;
@@ -413,7 +425,13 @@ export const makePosix = async (params: { ipaSession: string; id: string }): Pro
   const group = await getIpaGroupById(params.id);
   if (!group) return { ok: false, error: "IPA group not found", status: 404 };
 
-  const response = await freeipa.client.call({ url: await getIpaUrl(), ipaSession: params.ipaSession, method: "group_mod", args: [group.cn], options: { posix: true } });
+  const response = await freeipa.client.call({
+    url: await getIpaUrl(),
+    ipaSession: params.ipaSession,
+    method: "group_mod",
+    args: [group.cn],
+    options: { posix: true },
+  });
   if (response.error) return ipaMutationError(response);
 
   const gidnumber = freeipa.util.num((response.result?.result as Record<string, unknown> | undefined)?.gidnumber);
@@ -421,7 +439,12 @@ export const makePosix = async (params: { ipaSession: string; id: string }): Pro
   return { ok: true, data: { gidnumber } };
 };
 
-export const addMember = async (params: { ipaSession: string; id: string; user?: string; group?: string }): Promise<MutationResult<void>> => {
+export const addMember = async (params: {
+  ipaSession: string;
+  id: string;
+  user?: string;
+  group?: string;
+}): Promise<MutationResult<void>> => {
   const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const group = await getIpaGroupById(params.id);
@@ -490,7 +513,12 @@ export const addMember = async (params: { ipaSession: string; id: string; user?:
   return { ok: true, data: undefined };
 };
 
-export const removeMember = async (params: { ipaSession: string; id: string; user?: string; group?: string }): Promise<MutationResult<void>> => {
+export const removeMember = async (params: {
+  ipaSession: string;
+  id: string;
+  user?: string;
+  group?: string;
+}): Promise<MutationResult<void>> => {
   const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const group = await getIpaGroupById(params.id);
@@ -558,7 +586,12 @@ export const removeMember = async (params: { ipaSession: string; id: string; use
   return { ok: true, data: undefined };
 };
 
-export const addManager = async (params: { ipaSession: string; id: string; user?: string; group?: string }): Promise<MutationResult<void>> => {
+export const addManager = async (params: {
+  ipaSession: string;
+  id: string;
+  user?: string;
+  group?: string;
+}): Promise<MutationResult<void>> => {
   const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const group = await getIpaGroupById(params.id);
@@ -625,7 +658,12 @@ export const addManager = async (params: { ipaSession: string; id: string; user?
   return { ok: true, data: undefined };
 };
 
-export const removeManager = async (params: { ipaSession: string; id: string; user?: string; group?: string }): Promise<MutationResult<void>> => {
+export const removeManager = async (params: {
+  ipaSession: string;
+  id: string;
+  user?: string;
+  group?: string;
+}): Promise<MutationResult<void>> => {
   const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const group = await getIpaGroupById(params.id);

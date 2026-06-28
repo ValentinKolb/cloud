@@ -193,9 +193,7 @@ export function FormulaExpressionEditor(props: {
           Search fields by name, then insert a readable reference. Use double quotes for names with spaces, for example{" "}
           <code>"Unit price"</code>.
         </span>
-        <span class="text-dimmed">
-          Field renames update saved formulas best effort. Check formulas after renaming important columns.
-        </span>
+        <span class="text-dimmed">Field renames update saved formulas best effort. Check formulas after renaming important columns.</span>
         <span class="text-dimmed">Strings use single quotes. Decimal arithmetic stays exact when exact values are involved.</span>
       </div>
 

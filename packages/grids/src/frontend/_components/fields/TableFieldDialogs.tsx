@@ -319,7 +319,11 @@ function FieldEditor(props: {
             <Show when={supportsUnique()}>
               <CheckboxCard
                 label="Unique values"
-                description={forceUnique() ? "Generated IDs are always unique." : "No two records can share the same value. Existing duplicates block saving."}
+                description={
+                  forceUnique()
+                    ? "Generated IDs are always unique."
+                    : "No two records can share the same value. Existing duplicates block saving."
+                }
                 icon="ti ti-fingerprint"
                 value={() => (forceUnique() ? true : uniqueConstraint())}
                 onChange={forceUnique() ? undefined : wrap(setUniqueConstraint)}
@@ -360,14 +364,17 @@ function FieldEditor(props: {
               clearable
             />
             <ColumnFormatControls
-              field={effectiveDisplayField({
-                id: props.field.id,
-                tableId: props.field.tableId,
-                name: props.field.name,
-                icon: props.field.icon,
-                type: props.field.type,
-                config: config() as Record<string, unknown>,
-              }, props.fieldsByTable)}
+              field={effectiveDisplayField(
+                {
+                  id: props.field.id,
+                  tableId: props.field.tableId,
+                  name: props.field.name,
+                  icon: props.field.icon,
+                  type: props.field.type,
+                  config: config() as Record<string, unknown>,
+                },
+                props.fieldsByTable,
+              )}
               currentFormat={initialColumn()?.format}
               expose={(handle) => {
                 formatControls = handle;
@@ -423,7 +430,9 @@ function FieldEditor(props: {
                   { id: "fixed", label: "Fixed date" },
                   {
                     id: "now",
-                    label: (config() as { includeTime?: boolean }).includeTime ? "Current date and time when created" : "Current date when created",
+                    label: (config() as { includeTime?: boolean }).includeTime
+                      ? "Current date and time when created"
+                      : "Current date when created",
                   },
                 ]}
               />

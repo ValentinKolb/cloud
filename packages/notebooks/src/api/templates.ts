@@ -66,11 +66,7 @@ const app = new Hono<AuthContext>()
       const user = getUserBackedActor(c);
       if (!user) return c.json({ message: "This endpoint requires a user-backed actor", code: "FORBIDDEN" }, 403);
       const body = c.req.valid("json");
-      return respond(
-        c,
-        () => notebooksService.template.instantiate(c.req.param("templateId")!, { name: body.name }, user.id),
-        201,
-      );
+      return respond(c, () => notebooksService.template.instantiate(c.req.param("templateId")!, { name: body.name }, user.id), 201);
     },
   );
 

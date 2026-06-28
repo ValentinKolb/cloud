@@ -71,6 +71,27 @@ export const TextInputWithIcon = () => {
   );
 };
 
+export const TextInputAi = () => {
+  const [v, setV] = createSignal("Rewrite this paragraph in a calmer tone.");
+  return (
+    <DemoCard
+      id="textinput-ai"
+      chip={{ kind: "component", name: "TextInput", from: FROM_UI }}
+      variant='variant="ai"'
+      description="AI TextInput keeps the normal field ergonomics, but switches to the sparkles icon and the teal/blue AI marker surface."
+      code={`<TextInput
+  variant="ai"
+  label="AI prompt"
+  placeholder="Ask AI..."
+  value={v}
+  onInput={setV}
+/>`}
+    >
+      <TextInput variant="ai" label="AI prompt" placeholder="Ask AI..." value={v} onInput={setV} />
+    </DemoCard>
+  );
+};
+
 export const TextInputClearable = () => {
   const [v, setV] = createSignal("Click the X");
   return (
@@ -1359,6 +1380,7 @@ export const InputsTab = () => (
   <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
     <TextInputBasic />
     <TextInputWithIcon />
+    <TextInputAi />
     <TextInputClearable />
     <TextInputError />
     <TextInputPassword />

@@ -18,8 +18,7 @@ const TAG_REGEX = /(?:^|\s)#([a-zA-Z][\w-]*(?:\/[\w-]+)*)/g;
 
 /** Strip fenced + inline code so we don't extract tags from documentation
  *  about the tag syntax or from `#define` C macros etc. inside code blocks. */
-const stripCodeBlocks = (md: string): string =>
-  md.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]+`/g, "");
+const stripCodeBlocks = (md: string): string => md.replace(/```[\s\S]*?```/g, "").replace(/`[^`\n]+`/g, "");
 
 /** Extract every unique tag (lowercased) referenced from a markdown body. */
 export const extractTags = (md: string | null): string[] => {
@@ -181,8 +180,7 @@ export const count = async (params: { notebookId: string }): Promise<number> => 
 // edit and read modes look identical.
 // =============================================================================
 
-const escapeHtml = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 const TAG_HTML_REGEX = /(^|\s|>)#([a-zA-Z][\w-]*(?:\/[\w-]+)*)/g;
 
@@ -196,9 +194,7 @@ const renderPill = (notebookId: string, tag: string): string => {
  *  Walks the HTML segment-by-segment, leaving code blocks untouched. */
 export const transformTags = (html: string, params: { notebookId: string }): string => {
   const transformText = (text: string): string =>
-    text.replace(TAG_HTML_REGEX, (_match, prefix: string, tag: string) =>
-      `${prefix}${renderPill(params.notebookId, tag.toLowerCase())}`,
-    );
+    text.replace(TAG_HTML_REGEX, (_match, prefix: string, tag: string) => `${prefix}${renderPill(params.notebookId, tag.toLowerCase())}`);
 
   // Split on opening `<pre>` / `<code>` tags so we can walk the HTML
   // without parsing — content inside these blocks is copied verbatim.

@@ -1,8 +1,7 @@
 import { cp, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-const tablerFontFacePattern =
-  /@font-face\{font-family:"tabler-icons";font-style:normal;font-weight:400;src:[^}]+}/;
+const tablerFontFacePattern = /@font-face\{font-family:"tabler-icons";font-style:normal;font-weight:400;src:[^}]+}/;
 
 export async function buildTablerIconAssets(root: string, publicDir: string): Promise<void> {
   const sourceCss = await readFile(resolve(root, "node_modules/@tabler/icons-webfont/dist/tabler-icons.min.css"), "utf8");

@@ -160,13 +160,17 @@ const app = new Hono<AuthContext>()
       if (!(await canReadDashboardForRequest(c, dashboard))) return c.json({ message: "Dashboard not found" }, 404);
       const isAdmin = hasRole(user, "admin");
 
-      const data = await resolveWidgetData(c.req.valid("json"), {
-        userId: user.id,
-        userGroups: user.memberofGroupIds,
-        isAdmin,
-      }, { 
-        dateConfig: await getDateConfig(c),
-      });
+      const data = await resolveWidgetData(
+        c.req.valid("json"),
+        {
+          userId: user.id,
+          userGroups: user.memberofGroupIds,
+          isAdmin,
+        },
+        {
+          dateConfig: await getDateConfig(c),
+        },
+      );
       return c.json(data);
     },
   )
@@ -240,9 +244,7 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: dashboard.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-      return respond(c, () =>
-        gridsService.dashboard.update(dashboardId, c.req.valid("json"), user.id),
-      );
+      return respond(c, () => gridsService.dashboard.update(dashboardId, c.req.valid("json"), user.id));
     },
   )
 

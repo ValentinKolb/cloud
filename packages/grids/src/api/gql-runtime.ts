@@ -157,8 +157,7 @@ export const canonicalGqlSource = async (
   baseId: string,
   body: { query: string; currentTableId?: string; currentSource?: DslCurrentSource },
 ): Promise<
-  | { ok: true; source: string; tableId: string; plan: DslResolvedSqlQueryPlan }
-  | { ok: false; diagnostics: DslQueryPreviewDiagnostic[] }
+  { ok: true; source: string; tableId: string; plan: DslResolvedSqlQueryPlan } | { ok: false; diagnostics: DslQueryPreviewDiagnostic[] }
 > => {
   const parsed = parseGridsQueryDsl(body.query);
   if (!parsed.ok) return { ok: false, diagnostics: parsed.diagnostics };

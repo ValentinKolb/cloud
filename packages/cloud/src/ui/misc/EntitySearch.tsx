@@ -172,8 +172,12 @@ const EntitySearch = (props: EntitySearchProps) => {
       const res = await fetch(url.toString(), { credentials: "same-origin" });
       if (res.ok) {
         const data = await res.json();
-        const items: { kind: "user" | "group" | "service_account"; user?: ApiUser; group?: ApiGroup; serviceAccount?: ApiServiceAccount }[] =
-          data.items ?? [];
+        const items: {
+          kind: "user" | "group" | "service_account";
+          user?: ApiUser;
+          group?: ApiGroup;
+          serviceAccount?: ApiServiceAccount;
+        }[] = data.items ?? [];
         setUsers(items.filter((item) => item.kind === "user" && item.user).map((item) => item.user!));
         setGroups(items.filter((item) => item.kind === "group" && item.group).map((item) => item.group!));
         setServiceAccounts(

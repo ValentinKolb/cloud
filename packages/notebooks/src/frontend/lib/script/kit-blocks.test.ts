@@ -144,7 +144,9 @@ tags:
 
     expect(createWritableNoteBlocks(ctx).data("recipe")?.value).toEqual({ flour: 40, tags: ["bread"] });
 
-    await createWritableNoteBlocks(ctx).data("recipe")?.set({ flour: 50, tags: ["sourdough", "weekend"] });
+    await createWritableNoteBlocks(ctx)
+      .data("recipe")
+      ?.set({ flour: 50, tags: ["sourdough", "weekend"] });
 
     expect(ytext.toString()).toContain("flour: 50");
     expect(ytext.toString()).toContain("  - sourdough");

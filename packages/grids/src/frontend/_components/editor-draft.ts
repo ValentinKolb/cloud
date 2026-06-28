@@ -9,10 +9,7 @@ export type Draft<T extends object> = {
   markSaved: (snapshot: T) => void;
 };
 
-export const createDraft = <T extends object>(
-  initial: T,
-  options: { equals?: (a: T, b: T) => boolean } = {},
-): Draft<T> => {
+export const createDraft = <T extends object>(initial: T, options: { equals?: (a: T, b: T) => boolean } = {}): Draft<T> => {
   const equals = options.equals ?? ((a: T, b: T) => JSON.stringify(a) === JSON.stringify(b));
   const [snapshot, setSnapshot] = createSignal<T>(initial);
   const [draft, setDraft] = createSignal<T>(initial);

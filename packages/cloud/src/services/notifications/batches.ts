@@ -12,14 +12,7 @@ const CHUNK_SIZE = 100;
 const MAX_PAGE = 10_000;
 const MAX_PER_PAGE = 100;
 
-export type NotificationBatchStatus =
-  | "draft"
-  | "ready"
-  | "running"
-  | "completed"
-  | "completed_with_errors"
-  | "failed"
-  | "cancelled";
+export type NotificationBatchStatus = "draft" | "ready" | "running" | "completed" | "completed_with_errors" | "failed" | "cancelled";
 export type NotificationBatchRecipientStatus = "pending" | "sending" | "sent" | "skipped" | "error";
 export type NotificationBatchSelectionMode = "specific" | "rules";
 export type NotificationBatchRule = "account_manager" | "local" | "ipa" | "guest" | "user";
@@ -100,8 +93,9 @@ type BatchRow = Record<string, unknown>;
 
 const normalizeIds = (values: string[] | null | undefined): string[] => [...new Set((values ?? []).filter(Boolean))].sort();
 const normalizeRules = (values: NotificationBatchRule[] | null | undefined): NotificationBatchRule[] =>
-  normalizeIds(values).filter((value): value is NotificationBatchRule =>
-    value === "account_manager" || value === "local" || value === "ipa" || value === "guest" || value === "user",
+  normalizeIds(values).filter(
+    (value): value is NotificationBatchRule =>
+      value === "account_manager" || value === "local" || value === "ipa" || value === "guest" || value === "user",
   );
 
 const normalizeSelection = (selection: NotificationBatchSelection): NotificationBatchSelection => {
@@ -126,11 +120,20 @@ const normalizeSelection = (selection: NotificationBatchSelection): Notification
 };
 
 const selectionHash = (selection: NotificationBatchSelection): string =>
-  createHash("sha256").update(JSON.stringify(normalizeSelection(selection))).digest("hex");
+  createHash("sha256")
+    .update(JSON.stringify(normalizeSelection(selection)))
+    .digest("hex");
 
 const recipientHash = (candidates: RecipientCandidate[]): string =>
   createHash("sha256")
-    .update(JSON.stringify(candidates.filter((candidate) => candidate.mail).map((candidate) => candidate.id).sort()))
+    .update(
+      JSON.stringify(
+        candidates
+          .filter((candidate) => candidate.mail)
+          .map((candidate) => candidate.id)
+          .sort(),
+      ),
+    )
     .digest("hex");
 
 const mapBatch = (row: BatchRow): NotificationBatch => ({
@@ -662,7 +665,8 @@ export const finalize = async (params: {
     const batchRow = rows[0];
     if (!batchRow) return fail(err.notFound("Notification batch not found"));
     if (batchRow.status !== "draft") return fail(err.conflict("Notification batch has already been finalized"));
-    if (batchRow.selection_hash !== params.expectedSelectionHash) return fail(err.conflict("Notification selection changed. Refresh the preview."));
+    if (batchRow.selection_hash !== params.expectedSelectionHash)
+      return fail(err.conflict("Notification selection changed. Refresh the preview."));
     if (deliverableCount !== params.expectedDeliverableCount) {
       return fail(err.conflict("Recipient count changed. Refresh the preview before sending."));
     }
@@ -744,7 +748,10 @@ export const retryFailed = async (params: { id: string }): Promise<Result<{ batc
   return ok({ batch: refreshed ?? batch, jobId });
 };
 
-export const retryRecipient = async (params: { id: string; userId: string }): Promise<Result<{ batch: NotificationBatch; jobId: string }>> => {
+export const retryRecipient = async (params: {
+  id: string;
+  userId: string;
+}): Promise<Result<{ batch: NotificationBatch; jobId: string }>> => {
   const batch = await get(params.id);
   if (!batch) return fail(err.notFound("Notification batch not found"));
   if (batch.status === "draft" || batch.status === "cancelled") {

@@ -385,9 +385,7 @@ const ViewsTab = () => (
         />
         <QuerySnippet
           title="Formula predicate"
-          code={
-            "from table products\nselect name, formula(price - cost) as margin\nwhere price <= cost * 1.10\nsort margin desc"
-          }
+          code={"from table products\nselect name, formula(price - cost) as margin\nwhere price <= cost * 1.10\nsort margin desc"}
         />
         <QuerySnippet
           title="Monthly chart source"
@@ -406,8 +404,8 @@ const ViewsTab = () => (
 
     <DocNote title="Saving GQL queries">
       Simple row queries and regular grouped queries can be saved as normal views. Advanced features such as joins, formula predicates,
-      computed alias sorts, <DocInlineCode>having</DocInlineCode>, and non-zero <DocInlineCode>skip</DocInlineCode> are available in
-      preview first.
+      computed alias sorts, <DocInlineCode>having</DocInlineCode>, and non-zero <DocInlineCode>skip</DocInlineCode> are available in preview
+      first.
     </DocNote>
 
     <DocNote title="Chart-ready views">

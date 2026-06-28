@@ -1,6 +1,15 @@
 // Cloud-specific server services
 
-export type { AccessEntry, AccessSubject, AccessUser, AccessUserSource, PermissionLevel, Principal, PrincipalType, ResourceAccessAdapter } from "./access";
+export type {
+  AccessEntry,
+  AccessSubject,
+  AccessUser,
+  AccessUserSource,
+  PermissionLevel,
+  Principal,
+  PrincipalType,
+  ResourceAccessAdapter,
+} from "./access";
 export {
   createAccess,
   deleteAccess,

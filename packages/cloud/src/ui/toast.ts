@@ -208,17 +208,10 @@ const setClasses = (el: HTMLElement, cls: string): void => {
  *
  *  Returns the icon element so the caller can override the icon-class
  *  later via `update({ iconClass: ... })`. */
-const renderLead = (
-  leadEl: HTMLElement,
-  variant: ToastVariant,
-  iconClassOverride?: string,
-): HTMLElement => {
+const renderLead = (leadEl: HTMLElement, variant: ToastVariant, iconClassOverride?: string): HTMLElement => {
   const style = VARIANT_STYLES[variant];
   leadEl.replaceChildren();
-  setClasses(
-    leadEl,
-    "shrink-0 self-start w-9 h-9 rounded-full flex items-center justify-center",
-  );
+  setClasses(leadEl, "shrink-0 self-start w-9 h-9 rounded-full flex items-center justify-center");
   for (const cls of splitClasses(style.circleBgClass)) leadEl.classList.add(cls);
   const iconEl = document.createElement("i");
   iconEl.className = `ti ${iconClassOverride ?? style.iconClass} ${style.iconColorClass} text-base`;

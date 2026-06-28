@@ -31,9 +31,7 @@ import Chip from "./Chip";
  *   - The `id` doubles as the URL anchor so a deep-link lands on the
  *     right scroll position.
  */
-export type ChipSpec =
-  | { kind: "component"; name: string; from: string }
-  | { kind: "utility"; name: string };
+export type ChipSpec = { kind: "component"; name: string; from: string } | { kind: "utility"; name: string };
 
 type DemoCardProps = {
   id: string;

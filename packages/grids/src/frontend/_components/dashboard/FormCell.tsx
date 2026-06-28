@@ -49,7 +49,9 @@ export default function FormCell(props: Props) {
           if (!d.canSubmit) {
             return <NoAccessPlaceholder widget={props.widget} formName={d.form.name} />;
           }
-          return <FormBody widget={props.widget} form={d.form} fields={d.fields} onSubmitted={props.onSubmitted} dateConfig={props.dateConfig} />;
+          return (
+            <FormBody widget={props.widget} form={d.form} fields={d.fields} onSubmitted={props.onSubmitted} dateConfig={props.dateConfig} />
+          );
         })()}
       </Show>
     </div>
@@ -168,12 +170,12 @@ function FormBody(props: {
             </div>
           </Show>
           <div class="flex justify-end">
-          <button type="submit" class="btn-primary btn-sm" disabled={submitting()}>
-            <Show when={submitting()} fallback={<i class="ti ti-send" />}>
-              <i class="ti ti-loader-2 animate-spin" />
-            </Show>
-            {props.form.config.submitLabel ?? "Submit"}
-          </button>
+            <button type="submit" class="btn-primary btn-sm" disabled={submitting()}>
+              <Show when={submitting()} fallback={<i class="ti ti-send" />}>
+                <i class="ti ti-loader-2 animate-spin" />
+              </Show>
+              {props.form.config.submitLabel ?? "Submit"}
+            </button>
           </div>
         </div>
       </form>

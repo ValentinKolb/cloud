@@ -4,15 +4,7 @@ import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/
 import { ErrorResponseSchema, hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
 import { z } from "zod";
-import {
-  BaseSchema,
-  BaseListSchema,
-  CreateBaseSchema,
-  UpdateBaseSchema,
-  TableSchema,
-  FieldSchema,
-  DashboardSchema,
-} from "../contracts";
+import { BaseSchema, BaseListSchema, CreateBaseSchema, UpdateBaseSchema, TableSchema, FieldSchema, DashboardSchema } from "../contracts";
 import { gateAt } from "./permissions";
 
 const TrashResponseSchema = z.object({
@@ -76,11 +68,7 @@ const app = new Hono<AuthContext>()
       // the auto-grant in the service (added in Phase 1C ACL UI). For now,
       // creator owns the base implicitly via created_by.
       const body = c.req.valid("json");
-      return respond(
-        c,
-        () => gridsService.base.create({ name: body.name, description: body.description ?? null }, user.id),
-        201,
-      );
+      return respond(c, () => gridsService.base.create({ name: body.name, description: body.description ?? null }, user.id), 201);
     },
   )
 

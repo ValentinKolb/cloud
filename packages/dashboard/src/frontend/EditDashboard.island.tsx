@@ -4,7 +4,14 @@ import { gradients } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../api/client";
-import { normalizeDashboardShortcutHref, type DashboardAppSummary, type DashboardLegalLink, type DashboardSettings, type DashboardShortcut, type DashboardWidgetSummary } from "../shared";
+import {
+  normalizeDashboardShortcutHref,
+  type DashboardAppSummary,
+  type DashboardLegalLink,
+  type DashboardSettings,
+  type DashboardShortcut,
+  type DashboardWidgetSummary,
+} from "../shared";
 
 type Props = {
   apps: DashboardAppSummary[];
@@ -158,7 +165,13 @@ const ShortcutForm = (params: { apps: DashboardAppSummary[]; settings: Dashboard
       const shortcut: DashboardShortcut =
         kind() === "app"
           ? { id: crypto.randomUUID(), kind: "app", appId: appId() }
-          : { id: crypto.randomUUID(), kind: "link", title: title().trim(), href: normalizeDashboardShortcutHref(href()), icon: icon() || "ti ti-link" };
+          : {
+              id: crypto.randomUUID(),
+              kind: "link",
+              title: title().trim(),
+              href: normalizeDashboardShortcutHref(href()),
+              icon: icon() || "ti ti-link",
+            };
       await saveSettings({ ...settings, shortcuts: [...settings.shortcuts, shortcut] });
     },
     onSuccess: () => {
@@ -285,7 +298,14 @@ const EditForm = (params: { props: Props; close: (r?: void) => void; onAddShortc
             Add
           </button>
         </div>
-        <Show when={shortcuts().length > 0} fallback={<Placeholder align="left" class="px-0 py-2">No custom shortcuts yet.</Placeholder>}>
+        <Show
+          when={shortcuts().length > 0}
+          fallback={
+            <Placeholder align="left" class="px-0 py-2">
+              No custom shortcuts yet.
+            </Placeholder>
+          }
+        >
           <ul class="flex flex-col gap-2">
             <For each={shortcuts()}>
               {(shortcut) => {

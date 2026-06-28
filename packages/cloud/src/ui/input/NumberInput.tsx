@@ -154,9 +154,7 @@ const NumberInput = (props: NumberInputProps) => {
   // buffer, the input stays in sync with what the user typed and
   // re-syncs to the parsed value only on blur or external resets
   // (clear button, step click, parent state change while unfocused).
-  const [rawText, setRawText] = createSignal<string>(
-    currentValue() === null ? "" : String(currentValue()),
-  );
+  const [rawText, setRawText] = createSignal<string>(currentValue() === null ? "" : String(currentValue()));
   const [focused, setFocused] = createSignal(false);
 
   // When the input is NOT being typed into, mirror the parent's value
@@ -173,8 +171,7 @@ const NumberInput = (props: NumberInputProps) => {
     }
   });
 
-  const canClear = () =>
-    (props.clearable ?? false) && !disabled() && hasValue();
+  const canClear = () => (props.clearable ?? false) && !disabled() && hasValue();
 
   /**
    * Filter a raw keystroke / paste string to the allowed character set
@@ -306,23 +303,14 @@ const NumberInput = (props: NumberInputProps) => {
       descriptionId={a11y.descriptionId}
       errorId={a11y.errorId}
     >
-      <div
-        class={`flex flex-row flex-nowrap gap-3 text-nowrap ${
-          disabled() ? "opacity-50" : ""
-        }`}
-      >
+      <div class={`flex flex-row flex-nowrap gap-3 text-nowrap ${disabled() ? "opacity-50" : ""}`}>
         <Show when={showSteppers()}>
           <button
             type="button"
-            class={`input ti ti-minus px-3 cursor-pointer hover:text-primary ${
-              hasValue() && currentValue()! <= min() ? "opacity-40" : ""
-            }`}
+            class={`input ti ti-minus px-3 cursor-pointer hover:text-primary ${hasValue() && currentValue()! <= min() ? "opacity-40" : ""}`}
             aria-label="Decrease value"
             onClick={() => stepBy(-1)}
-            disabled={
-              steppersDisabled() ||
-              (hasValue() && currentValue()! <= min())
-            }
+            disabled={steppersDisabled() || (hasValue() && currentValue()! <= min())}
           />
         </Show>
 
@@ -335,28 +323,20 @@ const NumberInput = (props: NumberInputProps) => {
             own column; the native input takes flex-1 and is the only
             thing that shrinks. No overlap possible regardless of
             suffix length. */}
-        <div
-          class={`input flex flex-1 items-center gap-2 ${
-            disabled() ? "cursor-not-allowed" : ""
-          }`}
-        >
+        <div class={`input flex flex-1 items-center gap-2 ${disabled() ? "cursor-not-allowed" : ""}`}>
           {/* Left icon, mirrors TextInput's pattern. Active icon swaps
               on focus-within. */}
           <Show when={icon()}>
             <span class="shrink-0 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
               <i class={`${icon()} group-focus-within:hidden`} />
-              <i
-                class={`${activeIcon()} hidden text-blue-500 group-focus-within:block`}
-              />
+              <i class={`${activeIcon()} hidden text-blue-500 group-focus-within:block`} />
             </span>
           </Show>
 
           {/* Prefix label — short inline text like "€" / "$". Sits
               flush before the typed value. */}
           <Show when={props.prefix}>
-            <span class="shrink-0 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400">
-              {props.prefix}
-            </span>
+            <span class="shrink-0 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400">{props.prefix}</span>
           </Show>
 
           <input
@@ -426,9 +406,7 @@ const NumberInput = (props: NumberInputProps) => {
               ghost-and-real. The same reactive `hasValue()` that
               gates the clear button also gates the suffix. */}
           <Show when={props.suffix && hasValue()}>
-            <span class="shrink-0 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400">
-              {props.suffix}
-            </span>
+            <span class="shrink-0 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400">{props.suffix}</span>
           </Show>
 
           {/* Clear button — same shape as TextInput's ✕ button.
@@ -450,15 +428,10 @@ const NumberInput = (props: NumberInputProps) => {
         <Show when={showSteppers()}>
           <button
             type="button"
-            class={`input ti ti-plus px-3 cursor-pointer hover:text-primary ${
-              hasValue() && currentValue()! >= max() ? "opacity-40" : ""
-            }`}
+            class={`input ti ti-plus px-3 cursor-pointer hover:text-primary ${hasValue() && currentValue()! >= max() ? "opacity-40" : ""}`}
             aria-label="Increase value"
             onClick={() => stepBy(1)}
-            disabled={
-              steppersDisabled() ||
-              (hasValue() && currentValue()! >= max())
-            }
+            disabled={steppersDisabled() || (hasValue() && currentValue()! >= max())}
           />
         </Show>
       </div>

@@ -6,12 +6,7 @@ import { emitMetadataEvent } from "./metadata-events";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
 import { tableBelongsToBase } from "./query-validation";
-import {
-  DashboardConfigSchema,
-  type Dashboard,
-  type DashboardConfig,
-  type Widget,
-} from "../contracts";
+import { DashboardConfigSchema, type Dashboard, type DashboardConfig, type Widget } from "../contracts";
 
 type DbRow = Record<string, unknown>;
 
@@ -57,20 +52,12 @@ const mapRow = (row: DbRow): Dashboard => {
   };
 };
 
-const ensureTableInBase = async (
-  tableId: string,
-  baseId: string,
-  label: string,
-): Promise<Result<void>> => {
+const ensureTableInBase = async (tableId: string, baseId: string, label: string): Promise<Result<void>> => {
   if (await tableBelongsToBase(tableId, baseId)) return ok();
   return fail(err.badInput(`${label} must reference an alive table in this base`));
 };
 
-const ensureViewInBase = async (
-  viewId: string,
-  baseId: string,
-  label: string,
-): Promise<Result<{ tableId: string }>> => {
+const ensureViewInBase = async (viewId: string, baseId: string, label: string): Promise<Result<{ tableId: string }>> => {
   const [row] = await sql<{ table_id: string }[]>`
     SELECT v.table_id::text AS table_id
     FROM grids.views v
@@ -84,11 +71,7 @@ const ensureViewInBase = async (
   return ok({ tableId: row.table_id });
 };
 
-const ensureFormInBase = async (
-  formId: string,
-  baseId: string,
-  label: string,
-): Promise<Result<void>> => {
+const ensureFormInBase = async (formId: string, baseId: string, label: string): Promise<Result<void>> => {
   const [row] = await sql<{ exists: boolean }[]>`
     SELECT EXISTS(
       SELECT 1
@@ -103,11 +86,7 @@ const ensureFormInBase = async (
   return row?.exists ? ok() : fail(err.badInput(`${label} must reference an alive form in this base`));
 };
 
-const ensureDashboardInBase = async (
-  dashboardId: string,
-  baseId: string,
-  label: string,
-): Promise<Result<void>> => {
+const ensureDashboardInBase = async (dashboardId: string, baseId: string, label: string): Promise<Result<void>> => {
   const [row] = await sql<{ exists: boolean }[]>`
     SELECT EXISTS(
       SELECT 1
@@ -121,11 +100,7 @@ const ensureDashboardInBase = async (
   return row?.exists ? ok() : fail(err.badInput(`${label} must reference an alive dashboard in this base`));
 };
 
-const ensureAutomationInBase = async (
-  automationId: string,
-  baseId: string,
-  label: string,
-): Promise<Result<void>> => {
+const ensureAutomationInBase = async (automationId: string, baseId: string, label: string): Promise<Result<void>> => {
   const [row] = await sql<{ exists: boolean }[]>`
     SELECT EXISTS(
       SELECT 1
@@ -139,8 +114,7 @@ const ensureAutomationInBase = async (
   return row?.exists ? ok() : fail(err.badInput(`${label} must reference an alive automation in this base`));
 };
 
-const widgetsOf = (config: DashboardConfig): Widget[] =>
-  config.rows.flatMap((row) => row.cells);
+const widgetsOf = (config: DashboardConfig): Widget[] => config.rows.flatMap((row) => row.cells);
 
 export const sourceTableIds = async (dashboard: Dashboard): Promise<string[]> => {
   const tableIds = new Set<string>();
@@ -202,10 +176,7 @@ export const sourceTableIds = async (dashboard: Dashboard): Promise<string[]> =>
   return [...tableIds].sort();
 };
 
-const validateWidgetRefs = async (
-  widget: Widget,
-  baseId: string,
-): Promise<Result<void>> => {
+const validateWidgetRefs = async (widget: Widget, baseId: string): Promise<Result<void>> => {
   switch (widget.kind) {
     case "stat": {
       const view = await ensureViewInBase(widget.viewId, baseId, "stat source");
@@ -224,11 +195,10 @@ const validateWidgetRefs = async (
       const view = await ensureViewInBase(widget.viewId, baseId, "view-stats source");
       return view.ok ? ok() : view;
     }
-    case "view":
-      {
-        const view = await ensureViewInBase(widget.viewId, baseId, "view widget source");
-        return view.ok ? ok() : view;
-      }
+    case "view": {
+      const view = await ensureViewInBase(widget.viewId, baseId, "view widget source");
+      return view.ok ? ok() : view;
+    }
     case "form":
       return ensureFormInBase(widget.formId, baseId, "form widget source");
     case "markdown":
@@ -247,10 +217,7 @@ const validateWidgetRefs = async (
   }
 };
 
-const validateDashboardConfig = async (
-  baseId: string,
-  config: DashboardConfig,
-): Promise<Result<void>> => {
+const validateDashboardConfig = async (baseId: string, config: DashboardConfig): Promise<Result<void>> => {
   for (const widget of widgetsOf(config)) {
     const valid = await validateWidgetRefs(widget, baseId);
     if (!valid.ok) return valid;
@@ -278,10 +245,7 @@ export const getByShortId = async (baseId: string, shortId: string): Promise<Das
  * heuristic the other Grids services use. UUIDs in URLs are rare (only
  * deep-links from cell-link components), but free to support.
  */
-export const getByIdOrShortId = async (
-  baseId: string,
-  idOrSlug: string,
-): Promise<Dashboard | null> => {
+export const getByIdOrShortId = async (baseId: string, idOrSlug: string): Promise<Dashboard | null> => {
   if (idOrSlug.length === 36 && idOrSlug.includes("-")) {
     const d = await get(idOrSlug);
     return d && d.baseId === baseId ? d : null;
@@ -289,10 +253,7 @@ export const getByIdOrShortId = async (
   return getByShortId(baseId, idOrSlug);
 };
 
-export const get = async (
-  id: string,
-  opts: { includeDeleted?: boolean } = {},
-): Promise<Dashboard | null> => {
+export const get = async (id: string, opts: { includeDeleted?: boolean } = {}): Promise<Dashboard | null> => {
   // Live-parent invariant: dashboards under a trashed base never resolve
   // outside the top-down restore flow.
   const [row] = opts.includeDeleted
@@ -326,11 +287,7 @@ export const get = async (
  * grant API inserts a fresh auth.access row per POST so duplicate
  * principal rows are possible.
  */
-export const listForBase = async (params: {
-  baseId: string;
-  userId: string | null;
-  userGroups?: string[];
-}): Promise<Dashboard[]> => {
+export const listForBase = async (params: { baseId: string; userId: string | null; userGroups?: string[] }): Promise<Dashboard[]> => {
   const groups = toPgUuidArray(params.userGroups);
 
   const rows = await sql<DbRow[]>`
@@ -416,10 +373,7 @@ export type CreateDashboardServiceInput = {
   ownerUserId?: string | null;
 };
 
-export const create = async (
-  input: CreateDashboardServiceInput,
-  actorId: string | null,
-): Promise<Result<Dashboard>> => {
+export const create = async (input: CreateDashboardServiceInput, actorId: string | null): Promise<Result<Dashboard>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
 
@@ -480,11 +434,7 @@ export type UpdateDashboardServiceInput = {
   shared?: boolean;
 };
 
-export const update = async (
-  id: string,
-  input: UpdateDashboardServiceInput,
-  actorId: string | null,
-): Promise<Result<Dashboard>> => {
+export const update = async (id: string, input: UpdateDashboardServiceInput, actorId: string | null): Promise<Result<Dashboard>> => {
   const existing = await get(id);
   if (!existing) return fail(err.notFound("Dashboard"));
 
@@ -493,12 +443,7 @@ export const update = async (
     return fail(err.badInput("name cannot be empty"));
   }
 
-  const ownerUserId =
-    input.shared === undefined
-      ? existing.ownerUserId
-      : input.shared
-      ? null
-      : actorId;
+  const ownerUserId = input.shared === undefined ? existing.ownerUserId : input.shared ? null : actorId;
 
   let nextConfig: DashboardConfig = existing.config;
   if (input.config !== undefined) {
@@ -513,10 +458,7 @@ export const update = async (
 
   const next = {
     name: name ?? existing.name,
-    description:
-      input.description !== undefined
-        ? input.description?.trim() || null
-        : existing.description,
+    description: input.description !== undefined ? input.description?.trim() || null : existing.description,
     icon: input.icon !== undefined ? input.icon : existing.icon,
     config: nextConfig,
     position: input.position ?? existing.position,
@@ -579,10 +521,7 @@ export const remove = async (id: string, actorId: string | null): Promise<Result
   return ok();
 };
 
-export const restore = async (
-  id: string,
-  actorId: string | null,
-): Promise<Result<Dashboard>> => {
+export const restore = async (id: string, actorId: string | null): Promise<Result<Dashboard>> => {
   const existing = await get(id, { includeDeleted: true });
   if (!existing) return fail(err.notFound("Dashboard"));
   if (existing.deletedAt === null) return ok(existing);

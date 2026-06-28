@@ -4,23 +4,16 @@
  * Edits the 9 `legal.<kind>.{mode,content,url}` settings (3 kinds: terms,
  * privacy, imprint) in one bulk-PUT to `/api/admin/core/settings`.
  *
- * Layout: one `paper` section per kind with a clear header. The Content
- * textarea and URL input show/hide based on the mode toggle to keep the
- * form scannable. Reuses `SettingsField` / `SettingsSaveBar` primitives.
+ * Layout: one PanelDialog section per legal page. The Content textarea and URL
+ * input show/hide based on the mode toggle to keep the form scannable.
  */
 
-import { createMemo, createSignal, Show } from "solid-js";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import {
-  TextInput,
-  SelectInput,
-  prompts,
-  SettingsField,
-  SettingsSaveBar,
-  sameSettingValue,
-  readSettingsError,
-} from "@valentinkolb/cloud/ui";
 import { coreClient } from "@valentinkolb/cloud/clients/core";
+import type { SettingValueSource } from "@valentinkolb/cloud/contracts";
+import { PanelDialog, prompts, readSettingsError, SelectInput, sameSettingValue, TextInput } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createMemo, createSignal, type JSX, Show } from "solid-js";
+import type { SettingFieldDef } from "./CoreSettingsForm.island";
 
 type LegalKind = "terms" | "privacy" | "imprint";
 type LegalMode = "local" | "external";
@@ -66,12 +59,26 @@ export type LegalInitial = {
   "legal.imprint.url": string;
 };
 
-export default function LegalSettingsForm(props: { initial: LegalInitial }) {
+type Props = {
+  title: string;
+  subtitle: string;
+  icon: string;
+  initial: LegalInitial;
+  entries: SettingFieldDef[];
+};
+
+export default function LegalSettingsForm(props: Props) {
   const [draft, setDraft] = createSignal<LegalInitial>({ ...props.initial });
+  const [resetKeys, setResetKeys] = createSignal<Record<string, true>>({});
   const [fieldErrors, setFieldErrors] = createSignal<Record<string, string>>({});
 
-  const update = <K extends keyof LegalInitial>(key: K, value: LegalInitial[K]) => {
-    setDraft((prev) => ({ ...prev, [key]: value }));
+  const entryMap = createMemo(() => {
+    const entries: Partial<Record<keyof LegalInitial, SettingFieldDef>> = {};
+    for (const entry of props.entries) entries[entry.key as keyof LegalInitial] = entry;
+    return entries;
+  });
+
+  const clearFieldError = (key: keyof LegalInitial) => {
     setFieldErrors((prev) => {
       if (!(key in prev)) return prev;
       const { [key]: _, ...rest } = prev;
@@ -79,11 +86,48 @@ export default function LegalSettingsForm(props: { initial: LegalInitial }) {
     });
   };
 
+  const update = <K extends keyof LegalInitial>(key: K, value: LegalInitial[K]) => {
+    setDraft((prev) => ({ ...prev, [key]: value }));
+    setResetKeys((prev) => {
+      if (!(key in prev)) return prev;
+      const { [key]: _, ...rest } = prev;
+      return rest;
+    });
+    clearFieldError(key);
+  };
+
+  const resetValueFor = <K extends keyof LegalInitial>(key: K): LegalInitial[K] => {
+    const value = entryMap()[key]?.resetValue;
+    if (key.endsWith(".mode")) return (value === "external" ? "external" : "local") as LegalInitial[K];
+    return (typeof value === "string" ? value : "") as LegalInitial[K];
+  };
+
+  const stageDefault = <K extends keyof LegalInitial>(key: K) => {
+    setDraft((prev) => ({ ...prev, [key]: resetValueFor(key) }));
+    setResetKeys((prev) => ({ ...prev, [key]: true }));
+    clearFieldError(key);
+  };
+
+  const resetKeyList = createMemo(() => Object.keys(resetKeys()) as Array<keyof LegalInitial>);
+  const isResetPending = (key: keyof LegalInitial) => key in resetKeys();
+
+  const isChanged = (key: keyof LegalInitial) => isResetPending(key) || !sameSettingValue(draft()[key], props.initial[key]);
+
+  const canUseDefault = (key: keyof LegalInitial) => {
+    const entry = entryMap()[key];
+    if (!entry || isResetPending(key)) return false;
+    return (
+      entry.isCustom || !sameSettingValue(draft()[key], resetValueFor(key)) || !sameSettingValue(props.initial[key], resetValueFor(key))
+    );
+  };
+
   const changedKeys = createMemo<Array<keyof LegalInitial>>(() => {
     const d = draft();
-    return (Object.keys(props.initial) as Array<keyof LegalInitial>).filter(
-      (k) => !sameSettingValue(d[k], props.initial[k]),
-    );
+    const keys = new Set<keyof LegalInitial>(resetKeyList());
+    for (const k of Object.keys(props.initial) as Array<keyof LegalInitial>) {
+      if (!sameSettingValue(d[k], props.initial[k])) keys.add(k);
+    }
+    return [...keys];
   });
   const hasChanges = () => changedKeys().length > 0;
 
@@ -93,9 +137,12 @@ export default function LegalSettingsForm(props: { initial: LegalInitial }) {
 
   const save = mutations.create<void, void>({
     mutation: async () => {
+      const resets = resetKeyList().filter((key) => changedKeys().includes(key));
       const updates: Record<string, unknown> = {};
-      for (const k of changedKeys()) updates[k] = draft()[k];
-      const response = await coreClient.admin.core.settings.$put({ json: updates });
+      for (const k of changedKeys()) {
+        if (!resets.includes(k)) updates[k] = draft()[k];
+      }
+      const response = await coreClient.admin.core.settings.$put({ json: resets.length > 0 ? { updates, resets } : updates });
       if (!response.ok) {
         const { message, fields } = await readSettingsError(response, `Save failed (HTTP ${response.status})`);
         setFieldErrors(fields);
@@ -111,92 +158,212 @@ export default function LegalSettingsForm(props: { initial: LegalInitial }) {
 
   const discardAll = () => {
     setDraft({ ...props.initial });
+    setResetKeys({});
     setFieldErrors({});
   };
 
-  const isChanged = (key: keyof LegalInitial) => !sameSettingValue(draft()[key], props.initial[key]);
+  return (
+    <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
+      <PanelDialog>
+        <PanelDialog.Header title={props.title} subtitle={props.subtitle} icon={props.icon} />
+        <PanelDialog.Body>
+          {KINDS.map((kind) => {
+            const modeKey = `legal.${kind.id}.mode` as const;
+            const contentKey = `legal.${kind.id}.content` as const;
+            const urlKey = `legal.${kind.id}.url` as const;
+            const currentMode = () => draft()[modeKey];
+
+            return (
+              <PanelDialog.Section
+                title={kind.label}
+                subtitle={kind.description}
+                icon={kind.icon}
+                actions={
+                  <a href={kind.path} target="_blank" class="btn-input btn-input-sm" rel="noreferrer">
+                    <i class="ti ti-external-link" /> Open
+                  </a>
+                }
+              >
+                <div class="divide-y divide-zinc-100 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950">
+                  <LegalField
+                    label="Source"
+                    description="Choose between editing markdown directly or redirecting to an external URL."
+                    entry={entryMap()[modeKey]}
+                    error={() => fieldErrors()[modeKey]}
+                    changed={() => isChanged(modeKey)}
+                    resetPending={() => isResetPending(modeKey)}
+                    canUseDefault={() => canUseDefault(modeKey)}
+                    onUseDefault={() => stageDefault(modeKey)}
+                  >
+                    <SelectInput value={() => currentMode()} onChange={(v) => update(modeKey, v as LegalMode)} options={MODE_OPTIONS} />
+                  </LegalField>
+
+                  <Show when={currentMode() === "local"}>
+                    <LegalField
+                      label="Content"
+                      description="Markdown. Supports headings, lists, links, and code blocks."
+                      entry={entryMap()[contentKey]}
+                      error={() => fieldErrors()[contentKey]}
+                      changed={() => isChanged(contentKey)}
+                      resetPending={() => isResetPending(contentKey)}
+                      canUseDefault={() => canUseDefault(contentKey)}
+                      onUseDefault={() => stageDefault(contentKey)}
+                    >
+                      <TextInput
+                        multiline
+                        value={() => draft()[contentKey]}
+                        onChange={(v) => update(contentKey, v)}
+                        placeholder={`# ${kind.label}\n\n...`}
+                      />
+                    </LegalField>
+                  </Show>
+
+                  <Show when={currentMode() === "external"}>
+                    <LegalField
+                      label="URL"
+                      description="The /legal/* request will 302-redirect here."
+                      entry={entryMap()[urlKey]}
+                      error={() => fieldErrors()[urlKey]}
+                      changed={() => isChanged(urlKey)}
+                      resetPending={() => isResetPending(urlKey)}
+                      canUseDefault={() => canUseDefault(urlKey)}
+                      onUseDefault={() => stageDefault(urlKey)}
+                    >
+                      <TextInput
+                        type="url"
+                        value={() => draft()[urlKey]}
+                        onChange={(v) => update(urlKey, v)}
+                        placeholder="https://example.org/..."
+                      />
+                    </LegalField>
+                  </Show>
+                </div>
+              </PanelDialog.Section>
+            );
+          })}
+        </PanelDialog.Body>
+        <PanelDialog.Footer>
+          <LegalSettingsFooter
+            changeCount={() => changedKeys().length}
+            loading={() => save.loading()}
+            onDiscard={discardAll}
+            onSave={() => save.mutate()}
+          />
+        </PanelDialog.Footer>
+      </PanelDialog>
+    </div>
+  );
+}
+
+const legalSourceLabel = (source: SettingValueSource) => {
+  if (source === "custom") return "Custom override";
+  if (source === "env") return "Environment fallback";
+  return "Code default";
+};
+
+const legalResetPreview = (entry: SettingFieldDef | undefined) => {
+  const value = entry?.resetValue;
+  if (value === "" || value === null || value === undefined) return "Empty";
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return text.length > 96 ? `${text.slice(0, 93)}...` : text;
+};
+
+function LegalField(props: {
+  label: string;
+  description: string;
+  entry: SettingFieldDef | undefined;
+  error: () => string | undefined;
+  changed: () => boolean;
+  resetPending: () => boolean;
+  canUseDefault: () => boolean;
+  onUseDefault: () => void;
+  children: JSX.Element;
+}) {
+  return (
+    <div class="flex flex-col gap-2 px-3 py-3" classList={{ "bg-amber-50/50 dark:bg-amber-950/20": props.changed() }}>
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <h3 class="text-sm font-medium text-primary">{props.label}</h3>
+            <Show when={props.entry}>
+              {(entry) => (
+                <>
+                  <code class="text-[10px] text-dimmed">{entry().key}</code>
+                  <span
+                    class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                      entry().valueSource === "custom"
+                        ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300"
+                        : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                    }`}
+                  >
+                    {legalSourceLabel(entry().valueSource)}
+                  </span>
+                </>
+              )}
+            </Show>
+            <Show when={props.resetPending()}>
+              <span class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                Default staged
+              </span>
+            </Show>
+          </div>
+          <p class="mt-1 text-xs text-dimmed">{props.description}</p>
+          <Show when={props.entry}>
+            {(entry) => (
+              <p class="mt-1 text-[11px] text-dimmed">
+                Use default will apply on Save: <span class="font-medium text-secondary">{legalResetPreview(entry())}</span>
+                <span class="text-dimmed"> ({legalSourceLabel(entry().resetValueSource).toLowerCase()})</span>
+              </p>
+            )}
+          </Show>
+        </div>
+        <button
+          type="button"
+          class="btn-input btn-input-sm shrink-0"
+          onClick={props.onUseDefault}
+          disabled={!props.canUseDefault()}
+          title="Stage the default value. Save applies it; Discard cancels it."
+        >
+          <i class="ti ti-arrow-back-up" /> Use default
+        </button>
+      </div>
+      {props.children}
+      <Show when={props.error()}>
+        <p class="flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
+          <i class="ti ti-alert-circle text-xs" /> {props.error()}
+        </p>
+      </Show>
+    </div>
+  );
+}
+
+function LegalSettingsFooter(props: { changeCount: () => number; loading: () => boolean; onDiscard: () => void; onSave: () => void }) {
+  const hasChanges = () => props.changeCount() > 0;
 
   return (
-    <div>
-      <div class="flex flex-col gap-2">
-        {KINDS.map((kind) => {
-          const modeKey = `legal.${kind.id}.mode` as const;
-          const contentKey = `legal.${kind.id}.content` as const;
-          const urlKey = `legal.${kind.id}.url` as const;
-          const currentMode = () => draft()[modeKey];
-
-          return (
-            <section class="paper overflow-hidden">
-              <header class="flex items-start gap-3 px-3 py-3 border-b border-zinc-100 dark:border-zinc-800">
-                <i class={`${kind.icon} text-base text-dimmed mt-0.5`} />
-                <div class="min-w-0 flex-1">
-                  <h2 class="text-sm font-semibold text-primary">{kind.label}</h2>
-                  <p class="mt-0.5 text-xs text-dimmed">
-                    {kind.description}{" "}
-                    <a href={kind.path} target="_blank" class="hover:text-primary inline-flex items-center gap-0.5">
-                      <i class="ti ti-external-link text-[10px]" /> open
-                    </a>
-                  </p>
-                </div>
-              </header>
-
-              <div class="divide-y divide-zinc-100 dark:divide-zinc-800">
-                <SettingsField
-                  label="Source"
-                  description="Choose between editing markdown directly or redirecting to an external URL."
-                  error={() => fieldErrors()[modeKey]}
-                  changed={() => isChanged(modeKey)}
-                >
-                  <SelectInput
-                    value={() => currentMode()}
-                    onChange={(v) => update(modeKey, v as LegalMode)}
-                    options={MODE_OPTIONS}
-                  />
-                </SettingsField>
-
-                <Show when={currentMode() === "local"}>
-                  <SettingsField
-                    label="Content"
-                    description="Markdown — supports headings, lists, links, code blocks."
-                    error={() => fieldErrors()[contentKey]}
-                    changed={() => isChanged(contentKey)}
-                  >
-                    <TextInput
-                      multiline
-                      value={() => draft()[contentKey]}
-                      onChange={(v) => update(contentKey, v)}
-                      placeholder={`# ${kind.label}\n\n…`}
-                    />
-                  </SettingsField>
-                </Show>
-
-                <Show when={currentMode() === "external"}>
-                  <SettingsField
-                    label="URL"
-                    description="The /legal/* request will 302-redirect here."
-                    error={() => fieldErrors()[urlKey]}
-                    changed={() => isChanged(urlKey)}
-                  >
-                    <TextInput
-                      type="url"
-                      value={() => draft()[urlKey]}
-                      onChange={(v) => update(urlKey, v)}
-                      placeholder="https://example.org/…"
-                    />
-                  </SettingsField>
-                </Show>
-              </div>
-            </section>
-          );
-        })}
+    <>
+      <p class="text-xs text-dimmed">
+        <Show when={hasChanges()} fallback="No unsaved changes">
+          <span class="font-medium text-primary">{props.changeCount()}</span> unsaved change{props.changeCount() > 1 ? "s" : ""}
+        </Show>
+      </p>
+      <div class="flex items-center gap-2">
+        <button type="button" class="btn-secondary btn-sm" onClick={props.onDiscard} disabled={!hasChanges() || props.loading()}>
+          Discard
+        </button>
+        <button type="button" class="btn-primary btn-sm" onClick={props.onSave} disabled={!hasChanges() || props.loading()}>
+          <Show
+            when={props.loading()}
+            fallback={
+              <>
+                <i class="ti ti-device-floppy text-xs" /> Save all
+              </>
+            }
+          >
+            <i class="ti ti-loader-2 animate-spin text-xs" /> Saving...
+          </Show>
+        </button>
       </div>
-
-      <SettingsSaveBar
-        changeCount={() => changedKeys().length}
-        loading={() => save.loading()}
-        onDiscard={discardAll}
-        onSave={() => save.mutate()}
-      />
-    </div>
+    </>
   );
 }

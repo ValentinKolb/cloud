@@ -132,5 +132,4 @@ export const session = {
     if ((data.gen ?? 0) < currentGen) return null;
     return data;
   },
-
 };

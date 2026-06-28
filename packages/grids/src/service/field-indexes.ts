@@ -60,12 +60,7 @@ const fieldIndexWhere = (_fieldId: string, tableId: string): string => `WHERE ta
  * caller must invoke this OUTSIDE any in-flight tx (which is the case in
  * field.update / field.create where the tx is already committed).
  */
-export const ensureFieldIndex = async (
-  fieldId: string,
-  type: string,
-  tableId: string,
-  config?: Record<string, unknown>,
-): Promise<void> => {
+export const ensureFieldIndex = async (fieldId: string, type: string, tableId: string, config?: Record<string, unknown>): Promise<void> => {
   // Field IDs are UUIDs (constrained set [a-f0-9-]) so embedding them in
   // SQL identifiers is safe — no other path produces a `fieldId` value.
   if (!isSafeFieldId(fieldId) || !isSafeFieldId(tableId)) {

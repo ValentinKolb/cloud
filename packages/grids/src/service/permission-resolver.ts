@@ -108,8 +108,7 @@ export const resolveEffectivePermission = (grants: Grant[], target: ResolveTarge
 };
 
 /** Compares two levels via the rank order. */
-export const hasAtLeast = (level: PermissionLevel, required: PermissionLevel): boolean =>
-  LEVEL_RANK[level] >= LEVEL_RANK[required];
+export const hasAtLeast = (level: PermissionLevel, required: PermissionLevel): boolean => LEVEL_RANK[level] >= LEVEL_RANK[required];
 
 /**
  * Returns true when `grants` has any entry for the (resourceType,
@@ -119,11 +118,7 @@ export const hasAtLeast = (level: PermissionLevel, required: PermissionLevel): b
  * non-owner only via an explicit view-level grant; inherited table
  * access is not enough).
  */
-export const hasGrantsForResource = (
-  grants: Grant[],
-  resourceType: ResourceType,
-  resourceId: string,
-): boolean =>
+export const hasGrantsForResource = (grants: Grant[], resourceType: ResourceType, resourceId: string): boolean =>
   grants.some((g) => g.resourceType === resourceType && g.resourceId === resourceId);
 
 // ──────────────────────────────────────────────────────────────────

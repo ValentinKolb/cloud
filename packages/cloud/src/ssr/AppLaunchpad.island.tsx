@@ -94,7 +94,10 @@ const AppLaunchpadPanel = (props: AppLaunchpadContext) => (
       <div class="mt-7 flex flex-wrap justify-center text-[11px] text-dimmed dark:text-white/56">
         <For each={props.legalLinks}>
           {(link) => (
-            <a href={link.href} class="inline-flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:text-primary dark:hover:text-white">
+            <a
+              href={link.href}
+              class="inline-flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:text-primary dark:hover:text-white"
+            >
               <i class={link.icon ?? "ti ti-file-text"} />
               {link.label}
             </a>

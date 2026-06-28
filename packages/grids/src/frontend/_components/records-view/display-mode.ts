@@ -5,8 +5,10 @@ import type { RecordsState } from "./query-url";
 
 export type GridsCalendarView = RecordsState["calendar"]["view"];
 
-export const activeDisplayConfig = (tableDisplayConfig: RecordDisplayConfig, viewDisplayConfig?: RecordDisplayConfig | null): RecordDisplayConfig =>
-  viewDisplayConfig ?? tableDisplayConfig ?? { mode: "table" };
+export const activeDisplayConfig = (
+  tableDisplayConfig: RecordDisplayConfig,
+  viewDisplayConfig?: RecordDisplayConfig | null,
+): RecordDisplayConfig => viewDisplayConfig ?? tableDisplayConfig ?? { mode: "table" };
 
 export const cardImageFieldIds = (displayConfig: RecordDisplayConfig): string[] => {
   const fieldId = displayConfig.mode === "cards" ? displayConfig.cards?.imageFieldId : null;
@@ -49,7 +51,9 @@ export const calendarQueryFilter = (args: {
 }): FilterTree | undefined => {
   if (args.displayConfig.mode !== "calendar") return args.baseFilter;
   const dateFieldId = args.displayConfig.calendar?.dateFieldId;
-  const dateField = dateFieldId ? args.fields.find((field) => field.id === dateFieldId && field.type === "date" && !field.deletedAt) : undefined;
+  const dateField = dateFieldId
+    ? args.fields.find((field) => field.id === dateFieldId && field.type === "date" && !field.deletedAt)
+    : undefined;
   if (!dateField) return args.baseFilter;
 
   const { from, to } = calendarRange(args.calendar, args.dateConfig);
@@ -85,7 +89,8 @@ export const removeCalendarQueryFilter = (args: {
 
 export const displayRecordTitle = (record: GridRecord, fields: Field[]): string => {
   const candidates = fields.filter((field) => field.presentable && !field.deletedAt);
-  const fallback = candidates.length > 0 ? candidates : fields.filter((field) => !field.deletedAt && ["text", "id", "select"].includes(field.type));
+  const fallback =
+    candidates.length > 0 ? candidates : fields.filter((field) => !field.deletedAt && ["text", "id", "select"].includes(field.type));
   for (const field of fallback) {
     const value = record.data[field.id];
     if (typeof value === "string" && value.trim()) return value.trim();
@@ -104,5 +109,8 @@ export const visibleCardFields = (fields: Field[], displayConfig: RecordDisplayC
       return field ? [field] : [];
     });
   }
-  return live.filter((field) => !field.hideInTable && field.type !== "file").sort((a, b) => a.position - b.position).slice(0, 4);
+  return live
+    .filter((field) => !field.hideInTable && field.type !== "file")
+    .sort((a, b) => a.position - b.position)
+    .slice(0, 4);
 };

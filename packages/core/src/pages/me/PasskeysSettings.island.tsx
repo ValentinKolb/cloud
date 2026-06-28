@@ -46,7 +46,9 @@ function PasskeyCreateDialog(props: { close: (value: { name: string } | null) =>
         required
       />
       <div class="flex justify-end gap-2">
-        <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(null)}>Cancel</button>
+        <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(null)}>
+          Cancel
+        </button>
         <button type="submit" class="btn-primary btn-sm">
           <i class="ti ti-fingerprint" />
           Add passkey
@@ -97,10 +99,11 @@ export default function PasskeysSettings(props: Props) {
   });
 
   const openCreate = async () => {
-    const result = await prompts.dialog<{ name: string } | null>(
-      (close) => <PasskeyCreateDialog close={close} />,
-      { title: "Add passkey", icon: "ti ti-fingerprint", size: "medium" },
-    );
+    const result = await prompts.dialog<{ name: string } | null>((close) => <PasskeyCreateDialog close={close} />, {
+      title: "Add passkey",
+      icon: "ti ti-fingerprint",
+      size: "medium",
+    });
     if (result) await createMutation.mutate(result);
   };
 
@@ -145,7 +148,9 @@ export default function PasskeysSettings(props: Props) {
                 <div class="min-w-0 flex-1">
                   <div class="flex min-w-0 items-center gap-2">
                     <span class="truncate text-sm font-medium text-primary">{passkey.name}</span>
-                    {passkey.backedUp && <span class="tag bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">synced</span>}
+                    {passkey.backedUp && (
+                      <span class="tag bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">synced</span>
+                    )}
                   </div>
                   <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-dimmed">
                     <span>Created {dates.formatDate(passkey.createdAt)}</span>

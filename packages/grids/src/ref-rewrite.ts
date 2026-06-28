@@ -41,16 +41,13 @@ const nextNonWhitespace = (input: string, start: number): string | null => {
   return null;
 };
 
-export const rewriteIdentifierRefs = (
-  input: string,
-  rename: { oldName: string; newName: string },
-): { text: string; changed: boolean } => {
+export const rewriteIdentifierRefs = (input: string, rename: { oldName: string; newName: string }): { text: string; changed: boolean } => {
   const oldKey = normalizeRefKey(rename.oldName);
   const replacement = formatIdentifierRef(rename.newName);
   let out = "";
   let changed = false;
 
-  for (let i = 0; i < input.length;) {
+  for (let i = 0; i < input.length; ) {
     const c = input[i]!;
 
     if (c === "'") {

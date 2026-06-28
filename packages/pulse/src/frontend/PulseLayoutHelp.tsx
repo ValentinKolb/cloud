@@ -125,8 +125,8 @@ const StartTab = () => (
             "Create a base for one system or one reporting area.",
             "Add one source and wait until it publishes data.",
             "Open Sources to verify scrape or ingest health.",
-            "Open Metrics, pick one metric, then jump to the explorer.",
-            "Run the query, then paste the stable shape into a dashboard DSL widget.",
+            "Create a dashboard and open its DSL editor.",
+            "Use the editor inventory to insert metrics, states, events, sources, resources, or saved queries as DSL snippets.",
           ]}
         >
           {(step, index) => (

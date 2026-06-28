@@ -67,25 +67,26 @@ export default ssr<AuthContext>(async (c) => {
               sub={search ? "filtered" : "mirrored from IPA"}
               accent={{ tone: "blue", icon: "ti ti-server" }}
             />
-            <StatCell
-              label="Hosts in groups"
-              value={hostsInGroups}
-              sub={`of ${hostStats.hostsTotal} total`}
-            />
+            <StatCell label="Hosts in groups" value={hostsInGroups} sub={`of ${hostStats.hostsTotal} total`} />
             <StatCell
               label="Ungrouped"
               value={ungroupedHostsPage.total}
               sub={ungroupedHostsPage.total > 0 ? "needs assignment" : "all assigned"}
               valueClass={ungroupedHostsPage.total > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
-              accent={ungroupedHostsPage.total > 0
-                ? { tone: "amber", icon: "ti ti-alert-triangle" }
-                : { tone: "emerald", icon: "ti ti-check" }}
+              accent={
+                ungroupedHostsPage.total > 0 ? { tone: "amber", icon: "ti ti-alert-triangle" } : { tone: "emerald", icon: "ti ti-check" }
+              }
             />
           </StatGrid>
 
           <div class="flex flex-wrap items-center gap-2">
             <div class="min-w-0 flex-1">
-              <SearchBar action="/admin/ipa-hosts" value={search} placeholder="Search hostgroups and hosts..." ariaLabel="Search hostgroups and hosts" />
+              <SearchBar
+                action="/admin/ipa-hosts"
+                value={search}
+                placeholder="Search hostgroups and hosts..."
+                ariaLabel="Search hostgroups and hosts"
+              />
             </div>
             <SyncHosts />
             <HostSettings />
@@ -111,7 +112,11 @@ export default ssr<AuthContext>(async (c) => {
               />
               {ungroupedPagination.total_pages > 1 ? (
                 <div class="border-t border-zinc-200 px-3 py-3 dark:border-zinc-700">
-                  <Pagination currentPage={ungroupedPagination.page} totalPages={ungroupedPagination.total_pages} baseUrl={buildBaseUrl("ungrouped_page")} />
+                  <Pagination
+                    currentPage={ungroupedPagination.page}
+                    totalPages={ungroupedPagination.total_pages}
+                    baseUrl={buildBaseUrl("ungrouped_page")}
+                  />
                 </div>
               ) : null}
             </section>

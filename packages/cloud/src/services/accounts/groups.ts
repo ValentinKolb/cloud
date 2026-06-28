@@ -6,10 +6,7 @@ import { getServiceIpaSession } from "../ipa/service-account";
 import { freeipa } from "../../server/services";
 import { toPgUuidArray } from "../postgres";
 import { buildBaseGroup } from "./base-group";
-import {
-  buildManagedGroupScopeCondition,
-  buildMemberGroupScopeCondition,
-} from "./group-sql";
+import { buildManagedGroupScopeCondition, buildMemberGroupScopeCondition } from "./group-sql";
 
 type DbRow = Record<string, unknown>;
 
@@ -110,14 +107,24 @@ export const get = async (params: { id: string }): Promise<BaseGroup | null> => 
   return getGroup(params.id);
 };
 
-export const getMembers = async (params: { id: string; provider?: UserProvider; type?: "user" | "group"; recursive?: boolean }): Promise<GroupMember[]> => {
+export const getMembers = async (params: {
+  id: string;
+  provider?: UserProvider;
+  type?: "user" | "group";
+  recursive?: boolean;
+}): Promise<GroupMember[]> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return localGroups.getMembers(params);
   if (!provider) return [];
   return providers.ipa.groups.getMembers(params);
 };
 
-export const getManagers = async (params: { id: string; provider?: UserProvider; type?: "user" | "group"; recursive?: boolean }): Promise<GroupMember[]> => {
+export const getManagers = async (params: {
+  id: string;
+  provider?: UserProvider;
+  type?: "user" | "group";
+  recursive?: boolean;
+}): Promise<GroupMember[]> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return localGroups.getManagers(params);
   if (!provider) return [];
@@ -158,11 +165,7 @@ export const create = async (params: {
   });
 };
 
-export const update = async (params: {
-  id: string;
-  provider?: UserProvider;
-  description: string;
-}): Promise<MutationResult<void>> => {
+export const update = async (params: { id: string; provider?: UserProvider; description: string }): Promise<MutationResult<void>> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return localGroups.update({ id: params.id, description: params.description });
   const serviceSession = await getServiceIpaSession();
@@ -185,10 +188,7 @@ export const remove = async (params: { id: string; provider?: UserProvider }): P
   });
 };
 
-export const makePosix = async (params: {
-  id: string;
-  provider?: UserProvider;
-}): Promise<MutationResult<{ gidnumber: number | null }>> => {
+export const makePosix = async (params: { id: string; provider?: UserProvider }): Promise<MutationResult<{ gidnumber: number | null }>> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return { ok: false, error: "Local groups do not support POSIX mode", status: 400 };
   const serviceSession = await getServiceIpaSession();
@@ -199,7 +199,12 @@ export const makePosix = async (params: {
   });
 };
 
-export const addMember = async (params: { id: string; provider?: UserProvider; user?: string; group?: string }): Promise<MutationResult<void>> => {
+export const addMember = async (params: {
+  id: string;
+  provider?: UserProvider;
+  user?: string;
+  group?: string;
+}): Promise<MutationResult<void>> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return localGroups.addMember({ id: params.id, user: params.user, group: params.group });
   const serviceSession = await getServiceIpaSession();
@@ -212,7 +217,12 @@ export const addMember = async (params: { id: string; provider?: UserProvider; u
   });
 };
 
-export const removeMember = async (params: { id: string; provider?: UserProvider; user?: string; group?: string }): Promise<MutationResult<void>> => {
+export const removeMember = async (params: {
+  id: string;
+  provider?: UserProvider;
+  user?: string;
+  group?: string;
+}): Promise<MutationResult<void>> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return localGroups.removeMember({ id: params.id, user: params.user, group: params.group });
   const serviceSession = await getServiceIpaSession();
@@ -225,7 +235,12 @@ export const removeMember = async (params: { id: string; provider?: UserProvider
   });
 };
 
-export const addManager = async (params: { id: string; provider?: UserProvider; user?: string; group?: string }): Promise<MutationResult<void>> => {
+export const addManager = async (params: {
+  id: string;
+  provider?: UserProvider;
+  user?: string;
+  group?: string;
+}): Promise<MutationResult<void>> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return localGroups.addManager({ id: params.id, user: params.user, group: params.group });
   const serviceSession = await getServiceIpaSession();
@@ -238,7 +253,12 @@ export const addManager = async (params: { id: string; provider?: UserProvider; 
   });
 };
 
-export const removeManager = async (params: { id: string; provider?: UserProvider; user?: string; group?: string }): Promise<MutationResult<void>> => {
+export const removeManager = async (params: {
+  id: string;
+  provider?: UserProvider;
+  user?: string;
+  group?: string;
+}): Promise<MutationResult<void>> => {
   const provider = params.provider ?? (await getGroup(params.id))?.provider;
   if (provider === "local") return localGroups.removeManager({ id: params.id, user: params.user, group: params.group });
   const serviceSession = await getServiceIpaSession();

@@ -10,8 +10,5 @@ declare module "*.md" {
 declare module "@babel/core" {
   export const types: typeof import("@babel/types");
 
-  export function transformAsync(
-    source: string,
-    options: Record<string, unknown>,
-  ): Promise<{ code?: string } | null>;
+  export function transformAsync(source: string, options: Record<string, unknown>): Promise<{ code?: string } | null>;
 }

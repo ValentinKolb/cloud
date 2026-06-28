@@ -10,12 +10,7 @@
  */
 import { files } from "@valentinkolb/stdlib/browser";
 import { apiClient } from "@/api/client";
-import {
-  assertActive,
-  type KitAttachment,
-  type KitAttachmentsAPI,
-  type KitContext,
-} from "./kit-types";
+import { assertActive, type KitAttachment, type KitAttachmentsAPI, type KitContext } from "./kit-types";
 
 // =============================================================================
 // Wire shape (matches AttachmentSchema in api/index.ts)
@@ -117,9 +112,7 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
     return toKitAttachment(att);
   };
 
-  const uploadFromPicker = async (
-    opts?: { accept?: string; multiple?: boolean },
-  ): Promise<KitAttachment[]> => {
+  const uploadFromPicker = async (opts?: { accept?: string; multiple?: boolean }): Promise<KitAttachment[]> => {
     if (opts?.multiple) {
       const picked = await files.showFileDialog({ accept: opts.accept, multiple: true });
       assertActive(ctx);
@@ -142,10 +135,7 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
     const att = await get(shortId);
     assertActive(ctx);
     if (!att) throw new Error(`nb.attachments.insertIntoContent: attachment ${shortId} not found`);
-    const md =
-      att.kind === "image"
-        ? `![${att.filename}](attach://${att.id})`
-        : `[${att.filename}](attach://${att.id})`;
+    const md = att.kind === "image" ? `![${att.filename}](attach://${att.id})` : `[${att.filename}](attach://${att.id})`;
     const ytext = ctx.ytext;
     const current = ytext.toString();
     const sep = current.length === 0 ? "" : current.endsWith("\n") ? "" : "\n\n";

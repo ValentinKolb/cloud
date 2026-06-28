@@ -131,9 +131,7 @@ describe("lookupHandler / rollupHandler — computed config only", () => {
   test("lookup configSchema accepts empty / partial config (UI lets users wire later)", () => {
     expect(lookupHandler.kind).toBe("computed");
     expect(lookupHandler.configSchema.safeParse({}).success).toBe(true);
-    expect(
-      lookupHandler.configSchema.safeParse({ relationFieldId: UUID_A }).success,
-    ).toBe(true);
+    expect(lookupHandler.configSchema.safeParse({ relationFieldId: UUID_A }).success).toBe(true);
   });
 
   test("lookup configSchema preserves display format", () => {
@@ -150,9 +148,7 @@ describe("lookupHandler / rollupHandler — computed config only", () => {
   test("rollup configSchema accepts empty / partial config", () => {
     expect(rollupHandler.kind).toBe("computed");
     expect(rollupHandler.configSchema.safeParse({}).success).toBe(true);
-    expect(
-      rollupHandler.configSchema.safeParse({ agg: "sum" }).success,
-    ).toBe(true);
+    expect(rollupHandler.configSchema.safeParse({ agg: "sum" }).success).toBe(true);
   });
 
   test("rollup configSchema preserves display format", () => {
@@ -168,8 +164,6 @@ describe("lookupHandler / rollupHandler — computed config only", () => {
   });
 
   test("rollup rejects unknown agg kind", () => {
-    expect(
-      rollupHandler.configSchema.safeParse({ agg: "median" }).success,
-    ).toBe(false);
+    expect(rollupHandler.configSchema.safeParse({ agg: "median" }).success).toBe(false);
   });
 });

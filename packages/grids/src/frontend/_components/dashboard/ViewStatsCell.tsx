@@ -28,9 +28,7 @@ type Props = {
  * stable across users with different data availability.
  */
 export default function ViewStatsCell(props: Props) {
-  const isViewStats = (
-    d: WidgetData,
-  ): d is Extract<WidgetData, { kind: "view-stats" }> => d.kind === "view-stats";
+  const isViewStats = (d: WidgetData): d is Extract<WidgetData, { kind: "view-stats" }> => d.kind === "view-stats";
 
   const fullViewHref = (): string | null => {
     if (!isViewStats(props.data) || !props.data.fullViewLink) return null;
@@ -38,19 +36,14 @@ export default function ViewStatsCell(props: Props) {
     return `/app/grids/${props.baseShortId}?table=${tableShortId}&view=${viewShortId}`;
   };
 
-  const titleOf = () =>
-    props.widget.title ??
-    (isViewStats(props.data) ? props.data.title : "View stats");
+  const titleOf = () => props.widget.title ?? (isViewStats(props.data) ? props.data.title : "View stats");
 
   return (
     <div class="paper flex-1 w-full flex flex-col min-h-0 min-w-0 overflow-hidden">
       <header class="px-3 py-2 flex items-center justify-between gap-2">
         <span class="text-xs font-semibold text-primary truncate">{titleOf()}</span>
         <Show when={fullViewHref()}>
-          <a
-            href={fullViewHref()!}
-            class="text-[11px] text-dimmed hover:text-primary inline-flex items-center gap-1 shrink-0"
-          >
+          <a href={fullViewHref()!} class="text-[11px] text-dimmed hover:text-primary inline-flex items-center gap-1 shrink-0">
             <span>Open full view</span>
             <i class="ti ti-arrow-up-right text-[10px]" />
           </a>
@@ -62,9 +55,7 @@ export default function ViewStatsCell(props: Props) {
         fallback={
           <div class="flex-1 flex items-center justify-center text-xs text-dimmed">
             <Show when={props.data.kind === "error"} fallback="Loading…">
-              <span class="text-red-600 dark:text-red-400">
-                {(props.data as { kind: "error"; reason: string }).reason}
-              </span>
+              <span class="text-red-600 dark:text-red-400">{(props.data as { kind: "error"; reason: string }).reason}</span>
             </Show>
           </div>
         }
@@ -76,9 +67,7 @@ export default function ViewStatsCell(props: Props) {
           // look broken).
           if (d.cells.length === 0) {
             return (
-              <div class="flex-1 flex items-center justify-center text-xs text-dimmed px-3 py-2 text-center">
-                {d.notice ?? "No data"}
-              </div>
+              <div class="flex-1 flex items-center justify-center text-xs text-dimmed px-3 py-2 text-center">{d.notice ?? "No data"}</div>
             );
           }
           return (
@@ -87,9 +76,7 @@ export default function ViewStatsCell(props: Props) {
                 <For each={d.cells}>
                   {(cell) => {
                     const formatted = formatWidgetValue(cell.value, cell.format);
-                    return (
-                      <StatCell label={cell.label} value={formatted} title={formatted} />
-                    );
+                    return <StatCell label={cell.label} value={formatted} title={formatted} />;
                   }}
                 </For>
               </StatGrid>

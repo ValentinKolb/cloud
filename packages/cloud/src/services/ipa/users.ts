@@ -6,10 +6,7 @@ import { getIpaUrl, ensureFreeIpaMutationAvailable } from "./guard";
 import { logger } from "../logging";
 import { session } from "../session";
 import * as settings from "../settings";
-import type {
-  MutationResult,
-  UserProfile,
-} from "../../contracts/shared";
+import type { MutationResult, UserProfile } from "../../contracts/shared";
 import { freeipa } from "../../server/services";
 
 type CreateUser = {
@@ -189,8 +186,7 @@ export const generateUniqueAbbreviation = async (length: number, maxAttempts = 1
  * small (~4 × (3/4)^20 ≈ 0.4%) — acceptable for a temporary admin-generated
  * password; operators can retry if FreeIPA rejects on policy.
  */
-const generateFreeIpaPassword = (): string =>
-  password.random({ length: 20, uppercase: true, numbers: true, symbols: true });
+const generateFreeIpaPassword = (): string => password.random({ length: 20, uppercase: true, numbers: true, symbols: true });
 
 /** Calculate account expiration date based on config */
 const calculateAccountExpiration = async (): Promise<Date | null> => {
@@ -405,8 +401,7 @@ export const updateProfile = async (params: {
       };
     }
 
-    const ipaOptions: Record<string, unknown> = {
-    };
+    const ipaOptions: Record<string, unknown> = {};
     if (data.givenname !== undefined) ipaOptions.givenname = data.givenname;
     if (data.sn !== undefined) ipaOptions.sn = data.sn;
     if (data.displayName !== undefined) ipaOptions.displayname = data.displayName;
@@ -420,7 +415,13 @@ export const updateProfile = async (params: {
       ipaOptions.ipasshpubkey = data.ipa.sshPublicKeys.length > 0 ? data.ipa.sshPublicKeys : "";
     }
 
-    const response = await freeipa.client.call({ url: await getIpaUrl(), ipaSession, method: "user_mod", args: [uid], options: ipaOptions });
+    const response = await freeipa.client.call({
+      url: await getIpaUrl(),
+      ipaSession,
+      method: "user_mod",
+      args: [uid],
+      options: ipaOptions,
+    });
     if (response.error) {
       return {
         ok: false,
@@ -440,17 +441,9 @@ export const updateProfile = async (params: {
       city: data.ipa?.address?.city,
       state: data.ipa?.address?.state,
       sshPublicKeys:
-        data.ipa?.sshPublicKeys !== undefined
-          ? Array.isArray(result?.ipasshpubkey)
-            ? (result?.ipasshpubkey as string[])
-            : []
-          : undefined,
+        data.ipa?.sshPublicKeys !== undefined ? (Array.isArray(result?.ipasshpubkey) ? (result?.ipasshpubkey as string[]) : []) : undefined,
       sshFingerprints:
-        data.ipa?.sshPublicKeys !== undefined
-          ? Array.isArray(result?.sshpubkeyfp)
-            ? (result?.sshpubkeyfp as string[])
-            : []
-          : undefined,
+        data.ipa?.sshPublicKeys !== undefined ? (Array.isArray(result?.sshpubkeyfp) ? (result?.sshpubkeyfp as string[]) : []) : undefined,
       syncedAt: new Date(),
     });
   }

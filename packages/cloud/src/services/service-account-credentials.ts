@@ -85,11 +85,12 @@ type DbCredentialServiceAccountFields = {
 };
 
 type SqlRunner = typeof sql;
-type DbCredentialOverviewRow = DbCredentialRow & DbCredentialServiceAccountFields & {
-  delegated_uid: string | null;
-  delegated_display_name: string | null;
-  delegated_mail: string | null;
-};
+type DbCredentialOverviewRow = DbCredentialRow &
+  DbCredentialServiceAccountFields & {
+    delegated_uid: string | null;
+    delegated_display_name: string | null;
+    delegated_mail: string | null;
+  };
 
 const TOKEN_PREFIX = "cld";
 const TOKEN_PATTERN = /^cld_([0-9a-f]{24})_([0-9a-f]{64})$/i;
@@ -195,18 +196,20 @@ export const getOrCreateUserDelegatedServiceAccount = async (params: {
   userId: string;
   createdBy?: string | null;
 }): Promise<Result<ServiceAccount>> => {
-  const [existing] = await sql<{
-    id: string;
-    name: string;
-    kind: ServiceAccount["kind"];
-    status: ServiceAccount["status"];
-    delegated_user_id: string | null;
-    app_id: string | null;
-    resource_type: string | null;
-    resource_id: string | null;
-    created_by: string | null;
-    created_at: Date;
-  }[]>`
+  const [existing] = await sql<
+    {
+      id: string;
+      name: string;
+      kind: ServiceAccount["kind"];
+      status: ServiceAccount["status"];
+      delegated_user_id: string | null;
+      app_id: string | null;
+      resource_type: string | null;
+      resource_id: string | null;
+      created_by: string | null;
+      created_at: Date;
+    }[]
+  >`
     SELECT id, name, kind, status, delegated_user_id, app_id, resource_type, resource_id, created_by, created_at
     FROM auth.service_accounts
     WHERE kind = 'user_delegated'
@@ -237,18 +240,20 @@ export const getOrCreateUserDelegatedServiceAccount = async (params: {
     });
   } catch (error) {
     if (!isUniqueViolation(error, USER_DELEGATED_UNIQUE_CONSTRAINT)) throw error;
-    const [row] = await sql<{
-      id: string;
-      name: string;
-      kind: ServiceAccount["kind"];
-      status: ServiceAccount["status"];
-      delegated_user_id: string | null;
-      app_id: string | null;
-      resource_type: string | null;
-      resource_id: string | null;
-      created_by: string | null;
-      created_at: Date;
-    }[]>`
+    const [row] = await sql<
+      {
+        id: string;
+        name: string;
+        kind: ServiceAccount["kind"];
+        status: ServiceAccount["status"];
+        delegated_user_id: string | null;
+        app_id: string | null;
+        resource_type: string | null;
+        resource_id: string | null;
+        created_by: string | null;
+        created_at: Date;
+      }[]
+    >`
       SELECT id, name, kind, status, delegated_user_id, app_id, resource_type, resource_id, created_by, created_at
       FROM auth.service_accounts
       WHERE kind = 'user_delegated'
@@ -271,13 +276,16 @@ export const getOrCreateUserDelegatedServiceAccount = async (params: {
   }
 };
 
-const insertApiToken = async (db: SqlRunner, params: {
-  serviceAccountId: string;
-  name: string;
-  createdBy?: string | null;
-  expiresAt?: string | null;
-  scopes?: string[];
-}): Promise<Result<{ credential: ServiceAccountCredential; token: string }>> => {
+const insertApiToken = async (
+  db: SqlRunner,
+  params: {
+    serviceAccountId: string;
+    name: string;
+    createdBy?: string | null;
+    expiresAt?: string | null;
+    scopes?: string[];
+  },
+): Promise<Result<{ credential: ServiceAccountCredential; token: string }>> => {
   if (!UUID_PATTERN.test(params.serviceAccountId)) return fail(err.notFound("Service account"));
   const name = normalizeName(params.name);
   if (!name) return fail(err.badInput("API key name is required"));
@@ -534,10 +542,7 @@ export const listOverview = async (config?: {
   };
 };
 
-export const revokeForDelegatedUser = async (params: {
-  credentialId: string;
-  user: User;
-}): Promise<Result<void>> => {
+export const revokeForDelegatedUser = async (params: { credentialId: string; user: User }): Promise<Result<void>> => {
   if (!UUID_PATTERN.test(params.credentialId)) return fail(err.notFound("API key"));
 
   return sql.begin(async (tx) => {
@@ -568,10 +573,7 @@ export const revokeForDelegatedUser = async (params: {
   });
 };
 
-export const revoke = async (params: {
-  credentialId: string;
-  actor: User;
-}): Promise<Result<void>> => {
+export const revoke = async (params: { credentialId: string; actor: User }): Promise<Result<void>> => {
   if (!UUID_PATTERN.test(params.credentialId)) return fail(err.notFound("API key"));
 
   return sql.begin(async (tx) => {
@@ -682,16 +684,19 @@ export const authenticateApiToken = async (token: string): Promise<Authenticated
       WHERE id = ${row.id}::uuid
     `;
 
-    await audit.record({
-      action: "service_account_credential.authenticate",
-      outcome: "allowed",
-      actor: delegatedUser ? actorForUser(delegatedUser) : null,
-      target: { type: "service_account_credential", id: row.id, label: row.name },
-      metadata: {
-        serviceAccountId: row.service_account_id,
-        serviceAccountKind: serviceAccount.kind,
+    await audit.record(
+      {
+        action: "service_account_credential.authenticate",
+        outcome: "allowed",
+        actor: delegatedUser ? actorForUser(delegatedUser) : null,
+        target: { type: "service_account_credential", id: row.id, label: row.name },
+        metadata: {
+          serviceAccountId: row.service_account_id,
+          serviceAccountKind: serviceAccount.kind,
+        },
       },
-    }, tx);
+      tx,
+    );
   });
 
   return {

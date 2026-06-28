@@ -24,10 +24,7 @@ const resolveForecastLocation = async (config?: ForecastLocationConfig): Promise
 
   if (!lat || !lon) {
     log.error("Weather default coordinates are not configured", {
-      missing: [
-        !lat ? "weather.default_lat" : null,
-        !lon ? "weather.default_lon" : null,
-      ].filter(Boolean),
+      missing: [!lat ? "weather.default_lat" : null, !lon ? "weather.default_lon" : null].filter(Boolean),
     });
     return null;
   }

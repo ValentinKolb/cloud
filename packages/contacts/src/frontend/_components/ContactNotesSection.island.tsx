@@ -175,7 +175,14 @@ export default function ContactNotesSection(props: Props) {
         </form>
       </Show>
 
-      <Show when={notes().length > 0} fallback={<Placeholder align="left" class="px-0 py-2">No notes yet.</Placeholder>}>
+      <Show
+        when={notes().length > 0}
+        fallback={
+          <Placeholder align="left" class="px-0 py-2">
+            No notes yet.
+          </Placeholder>
+        }
+      >
         <ol class="flex flex-col gap-3">
           <For each={notes()}>
             {(note) => {

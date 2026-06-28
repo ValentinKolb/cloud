@@ -73,9 +73,7 @@ export const buildBaseGqlResolverContext = async (params: {
           tables: dslTables,
           views: viewsCatalog,
         });
-  const fieldGroups = await Promise.all(
-    fieldTableIds.map(async (tableId) => ({ tableId, fields: await fields.listByTable(tableId) })),
-  );
+  const fieldGroups = await Promise.all(fieldTableIds.map(async (tableId) => ({ tableId, fields: await fields.listByTable(tableId) })));
   const fieldsByTableId = Object.fromEntries(fieldGroups.map((group) => [group.tableId, group.fields])) as Record<string, Field[]>;
   const views = hydrateDslViewQueries({ tables: dslTables, views: viewsCatalog, fieldsByTableId });
 

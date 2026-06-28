@@ -7,8 +7,10 @@ COPY package.json bun.lock ./
 COPY packages/cloud/package.json packages/cloud/
 COPY packages/accounts/package.json packages/accounts/
 COPY packages/api-docs/package.json packages/api-docs/
+COPY packages/assistant/package.json packages/assistant/
 COPY packages/contacts/package.json packages/contacts/
 COPY packages/core/package.json packages/core/
+COPY packages/cloud-cli/package.json packages/cloud-cli/
 COPY packages/dashboard/package.json packages/dashboard/
 COPY packages/faq/package.json packages/faq/
 COPY packages/files/package.json packages/files/

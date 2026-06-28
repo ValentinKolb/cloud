@@ -8,13 +8,15 @@ import { serviceAccounts } from "./service-accounts";
 
 const canUseDatabase = async () => {
   try {
-    const [row] = await sql<{
-      users: string | null;
-      service_accounts: string | null;
-      credentials: string | null;
-      audit_events: string | null;
-      ipa_effective_groups: string | null;
-    }[]>`
+    const [row] = await sql<
+      {
+        users: string | null;
+        service_accounts: string | null;
+        credentials: string | null;
+        audit_events: string | null;
+        ipa_effective_groups: string | null;
+      }[]
+    >`
       SELECT
         to_regclass('auth.users')::text AS users,
         to_regclass('auth.service_accounts')::text AS service_accounts,
@@ -65,13 +67,13 @@ describe("serviceAccountCredentials", () => {
       expect(authenticated?.delegatedUser?.id).toBe(user.id);
       expect(authenticated?.serviceAccount.kind).toBe("user_delegated");
 
-      const app = new Hono<AuthContext>()
-        .use(auth.requireRole("authenticated"))
-        .get("/me", (c) => c.json({
+      const app = new Hono<AuthContext>().use(auth.requireRole("authenticated")).get("/me", (c) =>
+        c.json({
           actorKind: c.get("actor").kind,
           userId: c.get("user").id,
           accessSubject: c.get("accessSubject"),
-        }));
+        }),
+      );
       const response = await app.request("/me", {
         headers: { Authorization: `Bearer ${created.data.token}` },
       });

@@ -1,14 +1,5 @@
 import { oauth } from "./oauth";
-import {
-  err,
-  fail,
-  ok,
-  paginate,
-  type PageParams,
-  type Paginated,
-  type Result,
-  type ServiceError,
-} from "@valentinkolb/cloud/server";
+import { err, fail, ok, paginate, type PageParams, type Paginated, type Result, type ServiceError } from "@valentinkolb/cloud/server";
 import type { MutationResult } from "@/contracts";
 
 type OAuthClient = Awaited<ReturnType<typeof oauth.clients.list>>[number];

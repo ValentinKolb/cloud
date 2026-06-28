@@ -42,20 +42,11 @@ export const SERVER_GENERATED_FIELD_TYPES: Record<string, ServerGeneratedFieldKi
 };
 
 export const COMPUTED_FIELD_TYPES: Record<string, ComputedFieldKind> = Object.fromEntries(
-  [
-    formulaHandler,
-    lookupHandler,
-    rollupHandler,
-  ].map((fieldType) => [fieldType.type, fieldType]),
+  [formulaHandler, lookupHandler, rollupHandler].map((fieldType) => [fieldType.type, fieldType]),
 );
 
 export const SYSTEM_FIELD_TYPES: Record<string, SystemFieldKind> = Object.fromEntries(
-  [
-    createdAtHandler,
-    createdByHandler,
-    updatedAtHandler,
-    updatedByHandler,
-  ].map((fieldType) => [fieldType.type, fieldType]),
+  [createdAtHandler, createdByHandler, updatedAtHandler, updatedByHandler].map((fieldType) => [fieldType.type, fieldType]),
 );
 
 export const EXTERNAL_FIELD_TYPES: Record<string, ExternalFieldKind> = {

@@ -2,17 +2,12 @@ import type { UserProfile, UserProvider } from "../../contracts/shared";
 import * as settings from "../settings";
 
 export type IpaMatchMode = "ignore" | "migrate";
-export type IpaAccountTransitionPolicy =
-  | "delete"
-  | "demote_to_local"
-  | "demote_to_local_guest"
-  | "demote_to_local_user";
+export type IpaAccountTransitionPolicy = "delete" | "demote_to_local" | "demote_to_local_guest" | "demote_to_local_user";
 
 export const isGuestProfile = (profile: UserProfile): boolean => profile === "guest";
 export const isIpaProvider = (provider: UserProvider): boolean => provider === "ipa";
 export const isLocalProvider = (provider: UserProvider): boolean => provider === "local";
-export const canPersistStoredAdmin = (provider: UserProvider, profile: UserProfile): boolean =>
-  provider === "local" && profile === "user";
+export const canPersistStoredAdmin = (provider: UserProvider, profile: UserProfile): boolean => provider === "local" && profile === "user";
 
 export const parseIpaMatchMode = (value: string | null | undefined): IpaMatchMode => (value === "migrate" ? "migrate" : "ignore");
 
@@ -27,16 +22,11 @@ export const parseIpaAccountTransitionPolicy = (value: string | null | undefined
  * transformation; the caller already needs `getFreeIpaConfig()` for other
  * fields, so reading both lists at once is a single roundtrip.
  */
-export const calculateIpaProfileFromGroupNames = (
-  groupNames: string[],
-  groupsBaseIpaRealm: string[],
-): UserProfile =>
+export const calculateIpaProfileFromGroupNames = (groupNames: string[], groupsBaseIpaRealm: string[]): UserProfile =>
   groupsBaseIpaRealm.some((group) => groupNames.includes(group)) ? "user" : "guest";
 
-export const deriveIpaAdminFromGroupNames = (
-  groupNames: string[],
-  groupsAdmin: string[],
-): boolean => groupsAdmin.some((group) => groupNames.includes(group));
+export const deriveIpaAdminFromGroupNames = (groupNames: string[], groupsAdmin: string[]): boolean =>
+  groupsAdmin.some((group) => groupNames.includes(group));
 
 export const resolveStoredAdminState = (params: {
   provider: UserProvider;
@@ -75,9 +65,7 @@ export const resolveAccountExpires = (row: Record<string, unknown>): Date | null
  * error — callers must surface that as a 400 rather than silently wiping the
  * expiry.
  */
-export type ParsedExpiry =
-  | { ok: true; date: Date | null }
-  | { ok: false; error: string };
+export type ParsedExpiry = { ok: true; date: Date | null } | { ok: false; error: string };
 
 export const parseManualAccountExpiry = (value: string | null | undefined): ParsedExpiry => {
   if (value === null || value === undefined || value === "") {

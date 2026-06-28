@@ -97,12 +97,7 @@ export type WidgetHeroBlock = {
 };
 
 /** Discriminated union of every block type the dashboard can render. */
-export type WidgetBlock =
-  | WidgetStatBlock
-  | WidgetListBlock
-  | WidgetStatusBlock
-  | WidgetPillsBlock
-  | WidgetHeroBlock;
+export type WidgetBlock = WidgetStatBlock | WidgetListBlock | WidgetStatusBlock | WidgetPillsBlock | WidgetHeroBlock;
 
 /**
  * Top-level shape returned by a widget endpoint. The dashboard renders the

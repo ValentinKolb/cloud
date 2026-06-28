@@ -25,12 +25,7 @@
  * is already inside an existing `FencedCode` block — typing ` ``` `
  * to CLOSE a fence shouldn't surface the language picker.
  */
-import {
-  type Completion,
-  type CompletionContext,
-  type CompletionResult,
-  snippetCompletion,
-} from "@codemirror/autocomplete";
+import { type Completion, type CompletionContext, type CompletionResult, snippetCompletion } from "@codemirror/autocomplete";
 import { isInsideFencedCodeBody } from "./editor-scope";
 import { withIcon } from "./kit-autocomplete";
 
@@ -104,9 +99,7 @@ const LANGUAGES: FenceLang[] = [
 const escapeSnippetPlaceholder = (value: string): string => value.replace(/[\\${}]/g, "\\$&");
 
 const buildSnippet = (lang: FenceLang): string => {
-  const body = lang.bodyPlaceholder
-    ? `\${0:${escapeSnippetPlaceholder(lang.bodyPlaceholder)}}`
-    : "${0}";
+  const body = lang.bodyPlaceholder ? `\${0:${escapeSnippetPlaceholder(lang.bodyPlaceholder)}}` : "${0}";
   return `${lang.name}\n${body}\n\`\`\``;
 };
 
@@ -150,9 +143,7 @@ const COMPLETIONS: Completion[] = LANGUAGES.map((lang) => {
 /**
  * Completion source. Wire into `autocompletion({override: […]})`.
  */
-export const codeFenceCompletionSource = (
-  context: CompletionContext,
-): CompletionResult | null => {
+export const codeFenceCompletionSource = (context: CompletionContext): CompletionResult | null => {
   // matchBefore is anchored to the cursor: it returns a match only
   // if the regex matches text ending at the cursor. We want the
   // whole line text up to cursor to look like ` ```<partial> ` —

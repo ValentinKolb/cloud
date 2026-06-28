@@ -24,12 +24,7 @@
  * the kit source uses is shared (declared in `kit-autocomplete.ts`)
  * so we don't pay the syntax-tree walk twice per keystroke.
  */
-import {
-  type Completion,
-  type CompletionContext,
-  type CompletionResult,
-  snippetCompletion,
-} from "@codemirror/autocomplete";
+import { type Completion, type CompletionContext, type CompletionResult, snippetCompletion } from "@codemirror/autocomplete";
 import { isInsideScriptLikeFence } from "./kit-autocomplete";
 
 // =============================================================================
@@ -283,11 +278,7 @@ const SNIPPETS: Completion[] = [
  *  CM would show two entries for `if` (snippet variant + bare
  *  keyword variant) which reads as a bug. */
 const SNIPPET_LABELS = new Set(SNIPPETS.map((s) => s.label));
-const IDENTIFIERS_DEDUPED: Completion[] = [
-  ...SNIPPETS,
-  ...KEYWORDS.filter((k) => !SNIPPET_LABELS.has(k.label)),
-  ...GLOBALS,
-];
+const IDENTIFIERS_DEDUPED: Completion[] = [...SNIPPETS, ...KEYWORDS.filter((k) => !SNIPPET_LABELS.has(k.label)), ...GLOBALS];
 
 /**
  * Source 1 — bare identifier autocomplete.

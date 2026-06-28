@@ -135,11 +135,7 @@ export default function ContactTagsPicker(props: Props) {
       </Show>
       <div class="flex flex-wrap items-center gap-1.5">
         <Dropdown trigger={trigger} elements={dropdownItems()} position="bottom-right" width="w-64" onClose={handleClose} />
-        <For each={selected()}>
-          {(tag) => (
-            <ContactTagChip name={tag.name} color={tag.color} size="sm" />
-          )}
-        </For>
+        <For each={selected()}>{(tag) => <ContactTagChip name={tag.name} color={tag.color} size="sm" />}</For>
       </div>
     </div>
   );

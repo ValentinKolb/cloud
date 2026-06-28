@@ -152,7 +152,10 @@ function SnapshotLogsSection(props: { show: boolean; entries: LogTableEntry[]; l
             </div>
           }
         >
-          <LogEntriesTable entries={props.entries} emptyMessage={props.loading ? "Loading snapshot logs..." : "No snapshot runs logged yet."} />
+          <LogEntriesTable
+            entries={props.entries}
+            emptyMessage={props.loading ? "Loading snapshot logs..." : "No snapshot runs logged yet."}
+          />
         </Show>
       </div>
     </Show>

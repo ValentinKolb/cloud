@@ -22,25 +22,16 @@ function GeneratedPasswordDialog(props: { password: string; close: () => void })
   return (
     <div class="flex flex-col gap-4">
       <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
-        <p class="text-xs font-medium uppercase tracking-wide text-dimmed">
-          Generated password
-        </p>
-        <p class="mt-2 break-all font-mono text-sm text-primary">
-          {props.password}
-        </p>
+        <p class="text-xs font-medium uppercase tracking-wide text-dimmed">Generated password</p>
+        <p class="mt-2 break-all font-mono text-sm text-primary">{props.password}</p>
       </div>
 
       <p class="text-sm text-dimmed">
-        The generated password was filled into both password fields. Copy it now
-        if you want to store it in a password manager.
+        The generated password was filled into both password fields. Copy it now if you want to store it in a password manager.
       </p>
 
       <div class="flex justify-end gap-2">
-        <button
-          type="button"
-          class="btn-secondary btn-sm"
-          onClick={() => void copyPassword()}
-        >
+        <button type="button" class="btn-secondary btn-sm" onClick={() => void copyPassword()}>
           <i class={wasCopied() ? "ti ti-clipboard-check" : "ti ti-copy"} />
           {wasCopied() ? "Copied" : "Copy password"}
         </button>
@@ -59,8 +50,7 @@ export function PasswordSetupFields(props: PasswordSetupFieldsProps) {
   const [generatedPassword, setGeneratedPassword] = createSignal(false);
 
   const strength = createMemo(() => password.strength(props.newPassword()));
-  const strengthPercent = () =>
-    props.newPassword().length === 0 ? 0 : ((strength().score + 1) / 5) * 100;
+  const strengthPercent = () => (props.newPassword().length === 0 ? 0 : ((strength().score + 1) / 5) * 100);
   const strengthColor = () => {
     const score = strength().score;
     if (score <= 1) return "bg-red-500";
@@ -85,14 +75,11 @@ export function PasswordSetupFields(props: PasswordSetupFieldsProps) {
     props.onNewPasswordChange(next);
     props.onConfirmPasswordChange(next);
     setGeneratedPassword(true);
-    await prompts.dialog<void>(
-      (close) => <GeneratedPasswordDialog password={next} close={close} />,
-      {
-        title: "Password generated",
-        icon: "ti ti-sparkles",
-        size: "small",
-      },
-    );
+    await prompts.dialog<void>((close) => <GeneratedPasswordDialog password={next} close={close} />, {
+      title: "Password generated",
+      icon: "ti ti-sparkles",
+      size: "small",
+    });
   };
 
   const updateNewPassword = (value: string) => {
@@ -105,15 +92,9 @@ export function PasswordSetupFields(props: PasswordSetupFieldsProps) {
       <div class="flex items-start justify-between gap-3">
         <div>
           <p class="text-sm font-medium text-primary">New password</p>
-          <p class="text-xs text-dimmed">
-            Choose a strong password or generate one automatically.
-          </p>
+          <p class="text-xs text-dimmed">Choose a strong password or generate one automatically.</p>
         </div>
-        <button
-          type="button"
-          class="btn-secondary btn-sm shrink-0"
-          onClick={() => void generatePassword()}
-        >
+        <button type="button" class="btn-secondary btn-sm shrink-0" onClick={() => void generatePassword()}>
           <i class="ti ti-sparkles" />
           Generate
         </button>
@@ -131,46 +112,28 @@ export function PasswordSetupFields(props: PasswordSetupFieldsProps) {
       />
 
       <div class="flex flex-col gap-1.5">
-        <div
-          class="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
-          aria-hidden="true"
-        >
+        <div class="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800" aria-hidden="true">
           <div
             class={`h-full rounded-full transition-[width,background-color] ${strengthColor()}`}
             style={{ width: `${strengthPercent()}%` }}
           />
         </div>
         <div class="flex items-start justify-between gap-3 text-xs">
-          <p
-            class={`font-medium capitalize ${
-              props.newPassword().length === 0
-                ? "text-dimmed"
-                : strengthTextColor()
-            }`}
-          >
-            {props.newPassword().length === 0
-              ? "No password yet"
-              : strength().label}
+          <p class={`font-medium capitalize ${props.newPassword().length === 0 ? "text-dimmed" : strengthTextColor()}`}>
+            {props.newPassword().length === 0 ? "No password yet" : strength().label}
           </p>
           <p class="text-right text-dimmed">
-            {props.newPassword().length === 0
-              ? "Use at least 12 characters."
-              : `Estimated crack time: ${strength().crackTime}`}
+            {props.newPassword().length === 0 ? "Use at least 12 characters." : `Estimated crack time: ${strength().crackTime}`}
           </p>
         </div>
         {generatedPassword() && (
           <p class="text-xs text-dimmed">
-            Generated password filled into both password fields. Use the eye
-            icon to review it before saving.
+            Generated password filled into both password fields. Use the eye icon to review it before saving.
           </p>
         )}
-        {!generatedPassword() &&
-          props.newPassword().length > 0 &&
-          strength().feedback.length > 0 && (
-            <p class="text-xs text-dimmed">
-              {strength().feedback.slice(0, 2).join(". ")}.
-            </p>
-          )}
+        {!generatedPassword() && props.newPassword().length > 0 && strength().feedback.length > 0 && (
+          <p class="text-xs text-dimmed">{strength().feedback.slice(0, 2).join(". ")}.</p>
+        )}
       </div>
 
       <TextInput

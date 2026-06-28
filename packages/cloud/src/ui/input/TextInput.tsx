@@ -1,6 +1,6 @@
-import { createSignal, Show, type JSX } from "solid-js";
-import { InputWrapper, createInputA11y } from "./util";
+import { createSignal, type JSX, Show } from "solid-js";
 import MarkdownEditor, { type Completion } from "./markdown/MarkdownEditor";
+import { createInputA11y, InputWrapper } from "./util";
 
 type TextInputProps = {
   name?: string;
@@ -9,6 +9,7 @@ type TextInputProps = {
   placeholder?: string;
   ariaLabel?: string;
   type?: "text" | "search" | "email" | "url" | "tel";
+  variant?: "default" | "ai";
   icon?: string;
   activeIcon?: string;
   value?: () => string | undefined | null;
@@ -110,11 +111,15 @@ type TextInputProps = {
  */
 const TextInput = (props: TextInputProps) => {
   const markdown = () => props.markdown ?? false;
-  const icon = () => props.icon ?? (markdown() ? "ti ti-markdown" : "ti ti-cursor-text");
-  const activeIcon = () => props.activeIcon ?? "ti ti-pencil";
+  const ai = () => props.variant === "ai";
+  const icon = () => props.icon ?? (ai() ? "ti ti-sparkles" : markdown() ? "ti ti-markdown" : "ti ti-cursor-text");
+  const activeIcon = () => props.activeIcon ?? (ai() ? "ti ti-sparkles" : "ti ti-pencil");
   const multiline = () => props.multiline ?? markdown(); // markdown implies multiline
   const disabled = () => props.disabled ?? false;
   const monospaceClass = () => (props.monospace ? "font-mono text-sm leading-6" : "");
+  const inputClass = () => (ai() ? "input-ai" : "input");
+  const iconClass = () => (ai() ? "text-cyan-600 dark:text-cyan-300" : "text-zinc-400 dark:text-zinc-500");
+  const activeIconClass = () => (ai() ? "text-blue-500 dark:text-blue-300" : "text-blue-500");
   const canClear = () => props.clearable && !multiline() && !props.password && !disabled();
   const currentValue = () => props.value?.() ?? "";
   const hasValue = () => currentValue().length > 0;
@@ -177,13 +182,9 @@ const TextInput = (props: TextInputProps) => {
       errorId={a11y.errorId}
     >
       <div class="group relative flex">
-        <div
-          class={`absolute left-3 z-10 flex pointer-events-none text-zinc-400 dark:text-zinc-500 ${
-            multiline() ? "top-2.5" : "inset-y-0 items-center"
-          }`}
-        >
+        <div class={`absolute left-3 z-10 flex pointer-events-none ${iconClass()} ${multiline() ? "top-2.5" : "inset-y-0 items-center"}`}>
           <i class={`${icon()} group-focus-within:hidden`} />
-          <i class={`${activeIcon()} hidden text-blue-500 group-focus-within:block`} />
+          <i class={`${activeIcon()} hidden ${activeIconClass()} group-focus-within:block`} />
         </div>
         {/* Prefix slot — rendered after the icon, before the input.
             Adds left padding via the input's pl-12 (icon+prefix) or
@@ -191,9 +192,7 @@ const TextInput = (props: TextInputProps) => {
             the right edge, sliding left when a clear / password
             button takes the right-3 anchor. */}
         <Show when={props.prefix}>
-          <span
-            class="absolute z-10 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400 inset-y-0 left-9"
-          >
+          <span class="absolute z-10 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400 inset-y-0 left-9">
             {props.prefix}
           </span>
         </Show>
@@ -201,8 +200,12 @@ const TextInput = (props: TextInputProps) => {
           <textarea
             id={a11y.inputId}
             name={props.name}
-            class={`input w-full pl-9 ${monospaceClass()} ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
-            style={props.lines ? `min-height: ${props.lines * 1.5}em; max-height: ${Math.max(props.lines * 1.5, 20)}em` : "min-height: 3.75rem; height: 5rem; max-height: 12.5rem"}
+            class={`${inputClass()} w-full pl-9 ${monospaceClass()} ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
+            style={
+              props.lines
+                ? `min-height: ${props.lines * 1.5}em; max-height: ${Math.max(props.lines * 1.5, 20)}em`
+                : "min-height: 3.75rem; height: 5rem; max-height: 12.5rem"
+            }
             placeholder={props.placeholder}
             value={props.value?.() ?? ""}
             onChange={(e) => props.onChange?.(e.target.value)}
@@ -229,7 +232,7 @@ const TextInput = (props: TextInputProps) => {
             id={a11y.inputId}
             name={props.name}
             type={props.password && !showPassword() ? "password" : (props.type ?? "text")}
-            class={`input w-full ${props.prefix ? "pl-12" : "pl-9"} ${props.password || canClear() || props.suffix ? "pr-9" : ""} ${monospaceClass()} ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
+            class={`${inputClass()} w-full ${props.prefix ? "pl-12" : "pl-9"} ${props.password || canClear() || props.suffix ? "pr-9" : ""} ${monospaceClass()} ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
             placeholder={props.placeholder}
             value={currentValue()}
             onChange={(e) => props.onChange?.(e.target.value)}

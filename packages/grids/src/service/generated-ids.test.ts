@@ -53,9 +53,9 @@ describe("generated ID field config", () => {
 
 describe("generateIdValue", () => {
   test("generates padded sequence IDs with prefix", async () => {
-    await expect(generateIdValue(field({ strategy: "sequence", prefix: "INV-", padding: 5 }), { client: fakeSequenceClient(42) })).resolves.toBe(
-      "INV-00042",
-    );
+    await expect(
+      generateIdValue(field({ strategy: "sequence", prefix: "INV-", padding: 5 }), { client: fakeSequenceClient(42) }),
+    ).resolves.toBe("INV-00042");
   });
 
   test("generates date sequence IDs scoped to the configured period", async () => {

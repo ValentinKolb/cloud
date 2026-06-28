@@ -77,10 +77,7 @@ export const get = async (params: { id: string }): Promise<BaseGroup | null> => 
   return row ? toBaseGroup(row) : null;
 };
 
-export const create = async (params: {
-  name: string;
-  description?: string;
-}): Promise<MutationResult<BaseGroup>> => {
+export const create = async (params: { name: string; description?: string }): Promise<MutationResult<BaseGroup>> => {
   const storedCn = `local:${params.name}`;
   try {
     const rows = await sql<DbRow[]>`
@@ -131,13 +128,15 @@ export const list = async (params: { page?: number; perPage?: number; search?: s
   `;
 
   return {
-    groups: rows.map((row) => toBaseGroup({
-      id: row.id as string,
-      provider: row.provider as "local",
-      name: row.name as string,
-      description: row.description as string | null,
-      gidNumber: row.gid_number as number | null,
-    })),
+    groups: rows.map((row) =>
+      toBaseGroup({
+        id: row.id as string,
+        provider: row.provider as "local",
+        name: row.name as string,
+        description: row.description as string | null,
+        gidNumber: row.gid_number as number | null,
+      }),
+    ),
     total,
     pagination: {
       page,

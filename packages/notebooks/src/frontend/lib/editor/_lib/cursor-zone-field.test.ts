@@ -19,12 +19,8 @@ describe("isPointerSelectionTransaction", () => {
   test("matches pointer-only selection transactions", () => {
     const state = EditorState.create({ doc: "hello" });
 
-    expect(
-      isPointerSelectionTransaction(state.update({ selection: { anchor: 1, head: 4 }, userEvent: "select.pointer" })),
-    ).toBe(true);
-    expect(isPointerSelectionTransaction(state.update({ selection: { anchor: 1, head: 4 }, userEvent: "select" }))).toBe(
-      false,
-    );
+    expect(isPointerSelectionTransaction(state.update({ selection: { anchor: 1, head: 4 }, userEvent: "select.pointer" }))).toBe(true);
+    expect(isPointerSelectionTransaction(state.update({ selection: { anchor: 1, head: 4 }, userEvent: "select" }))).toBe(false);
     expect(
       isPointerSelectionTransaction(
         state.update({ changes: { from: 1, insert: "!" }, selection: { anchor: 2 }, userEvent: "select.pointer" }),

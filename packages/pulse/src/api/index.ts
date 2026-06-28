@@ -126,8 +126,9 @@ const UpdateSourceSchema = z.object({
   scrapeIntervalSeconds: z.number().int().min(10).max(86_400).nullable().optional(),
 });
 
-const DashboardPanelSchema = z.object({
+const DashboardMetricWidgetSchema = z.object({
   id: z.string().trim().min(1).max(80),
+  kind: z.literal("metric"),
   title: z.string().trim().min(1).max(160),
   metric: z.string().trim().min(1).max(240),
   visual: z.enum(PANEL_VISUALS),
@@ -138,10 +139,6 @@ const DashboardPanelSchema = z.object({
   entityId: z.string().nullable().optional(),
   entityType: z.string().nullable().optional(),
   dimensions: DimensionsSchema,
-});
-
-const DashboardMetricWidgetSchema = DashboardPanelSchema.extend({
-  kind: z.literal("metric"),
   queryText: z.string().trim().max(8_000).optional(),
   query: z
     .object({
@@ -310,7 +307,6 @@ const DashboardLayoutSchema = z.object({
 const DashboardConfigSchema = z.object({
   dsl: z.string().trim().max(40_000),
   layout: DashboardLayoutSchema.nullable().optional(),
-  panels: z.array(DashboardPanelSchema).max(24).optional(),
   refreshIntervalSeconds: z
     .union([z.literal(1), z.literal(5), z.literal(10), z.literal(60)])
     .nullable()

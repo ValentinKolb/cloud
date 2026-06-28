@@ -44,12 +44,7 @@ function NotebookSettingsBody(props: NotebookSettingsProps & { bare?: boolean; c
           {props.isAdmin && (
             <>
               <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Permission changes save immediately.">
-                <AccessSection
-                  notebook={notebook()}
-                  accessEntries={props.accessEntries}
-                  apiKeys={props.apiKeys}
-                  isAdmin={props.isAdmin}
-                />
+                <AccessSection notebook={notebook()} accessEntries={props.accessEntries} apiKeys={props.apiKeys} isAdmin={props.isAdmin} />
               </SettingsModal.Tab>
               <SettingsModal.Tab
                 id="danger"

@@ -97,8 +97,7 @@ const Combobox = (props: ComboboxProps) => {
   // enough to register as a "processing" cue, short enough that fast
   // requests still feel snappy.
   const fetchMut = mutation.create<ComboboxOption[], string>({
-    mutation: async (q, { abortSignal }) =>
-      withMinLoadTime(() => props.fetchData(q, abortSignal), 200),
+    mutation: async (q, { abortSignal }) => withMinLoadTime(() => props.fetchData(q, abortSignal), 200),
   });
 
   const triggerFetch = (q: string) => {
@@ -225,11 +224,7 @@ const Combobox = (props: ComboboxProps) => {
   return (
     <div class="relative">
       <div class="group relative">
-        <div
-          class={`pointer-events-none absolute inset-y-0 left-2 z-10 flex items-center ${
-            isOpen() ? "text-blue-500" : "text-zinc-500"
-          }`}
-        >
+        <div class={`pointer-events-none absolute inset-y-0 left-2 z-10 flex items-center ${isOpen() ? "text-blue-500" : "text-zinc-500"}`}>
           <i class="ti ti-search" />
         </div>
 
@@ -262,11 +257,7 @@ const Combobox = (props: ComboboxProps) => {
               the user doesn't see a flicker between old and new. */}
           <Show
             when={fetchMut.loading()}
-            fallback={
-              <i
-                class={`ti ti-chevron-down transition-transform ${isOpen() ? "rotate-180" : ""}`}
-              />
-            }
+            fallback={<i class={`ti ti-chevron-down transition-transform ${isOpen() ? "rotate-180" : ""}`} />}
           >
             <i class="ti ti-loader-2 animate-spin" />
           </Show>
@@ -294,15 +285,10 @@ const Combobox = (props: ComboboxProps) => {
             previous options stay rendered (the loader sits in the input
             chevron slot, see above). Errors replace the option list with
             an inline retry. */}
-        <Show
-          when={fetchMut.error() && !fetchMut.loading()}
-          fallback={null}
-        >
+        <Show when={fetchMut.error() && !fetchMut.loading()} fallback={null}>
           <div class="flex items-center gap-2 px-3 py-1.5 text-xs text-red-500">
             <i class="ti ti-alert-triangle shrink-0" />
-            <span class="flex-1 truncate">
-              {fetchMut.error()?.message ?? "Failed to load"}
-            </span>
+            <span class="flex-1 truncate">{fetchMut.error()?.message ?? "Failed to load"}</span>
             <button
               type="button"
               class="text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
@@ -321,9 +307,7 @@ const Combobox = (props: ComboboxProps) => {
             each={options()}
             fallback={
               <div class="px-3 py-2 text-xs text-zinc-400 dark:text-zinc-500">
-                {query().length >= 2
-                  ? "No results found"
-                  : "Type to search..."}
+                {query().length >= 2 ? "No results found" : "Type to search..."}
               </div>
             }
           >
@@ -353,13 +337,9 @@ const Combobox = (props: ComboboxProps) => {
                     </div>
                   </Show>
                   <div class="min-w-0 flex-1">
-                    <div class="truncate text-zinc-700 dark:text-zinc-300">
-                      {option.label}
-                    </div>
+                    <div class="truncate text-zinc-700 dark:text-zinc-300">{option.label}</div>
                     <Show when={option.description}>
-                      <div class="truncate text-xs text-zinc-500 dark:text-zinc-400">
-                        {option.description}
-                      </div>
+                      <div class="truncate text-xs text-zinc-500 dark:text-zinc-400">{option.description}</div>
                     </Show>
                   </div>
                 </div>

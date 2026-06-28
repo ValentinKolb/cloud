@@ -11,12 +11,7 @@ import { compose, helpFor, resolveApps } from "./dev-cli";
 const inputs = process.argv.slice(2);
 
 if (inputs.length === 0) {
-  helpFor("bun run dev:logs <app>", [
-    "Follow the logs of one app. Ctrl-C exits.",
-    "",
-    "Example:",
-    "  bun run dev:logs notebooks",
-  ]);
+  helpFor("bun run dev:logs <app>", ["Follow the logs of one app. Ctrl-C exits.", "", "Example:", "  bun run dev:logs notebooks"]);
   process.exit(0);
 }
 

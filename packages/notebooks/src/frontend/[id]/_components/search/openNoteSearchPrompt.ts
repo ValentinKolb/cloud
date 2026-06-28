@@ -49,10 +49,7 @@ type PromptDressing = {
   placeholder: string;
 };
 
-const runNotePrompt = async (
-  notebookId: string,
-  dressing: PromptDressing,
-): Promise<PickedNote | undefined> => {
+const runNotePrompt = async (notebookId: string, dressing: PromptDressing): Promise<PickedNote | undefined> => {
   const selected = await prompts.search<PickedNote>(
     async ({ query, abortSignal }) => {
       const trimmed = query.trim();

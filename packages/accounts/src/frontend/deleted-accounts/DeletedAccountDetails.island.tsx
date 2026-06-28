@@ -86,10 +86,16 @@ function MetadataDetail(props: { metadata: Record<string, unknown> | null }) {
                 );
               })}
             </div>
-          ) : <div class="text-xs text-secondary">No metadata</div>}
+          ) : (
+            <div class="text-xs text-secondary">No metadata</div>
+          )}
         </div>
       </Show>
-      <button type="button" class="self-start text-[10px] text-dimmed transition-colors hover:text-secondary" onClick={() => setShowRaw(!showRaw())}>
+      <button
+        type="button"
+        class="self-start text-[10px] text-dimmed transition-colors hover:text-secondary"
+        onClick={() => setShowRaw(!showRaw())}
+      >
         {showRaw() ? "View formatted" : "View raw"}
       </button>
     </div>

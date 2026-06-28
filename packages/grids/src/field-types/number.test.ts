@@ -60,12 +60,14 @@ test("number: zero is valid for fully-fractional precision", () => {
 });
 
 test("number: accepts display-only unit config", () => {
-  expect(numberHandler.configSchema.safeParse({
-    precision: 16,
-    decimalPlaces: 2,
-    unit: "EUR",
-    unitPosition: "suffix",
-  }).success).toBe(true);
+  expect(
+    numberHandler.configSchema.safeParse({
+      precision: 16,
+      decimalPlaces: 2,
+      unit: "EUR",
+      unitPosition: "suffix",
+    }).success,
+  ).toBe(true);
 });
 
 test("number: preserves precision as decimal strings", () => {

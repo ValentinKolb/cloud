@@ -11,7 +11,17 @@ const SYSTEM_OR_COMPUTED_FIELD_TYPES = new Set([
   "updated_by",
 ]);
 
-export const USER_EDITABLE_FIELD_TYPES = new Set(["text", "longtext", "number", "boolean", "date", "select", "percent", "duration", "json"]);
+export const USER_EDITABLE_FIELD_TYPES = new Set([
+  "text",
+  "longtext",
+  "number",
+  "boolean",
+  "date",
+  "select",
+  "percent",
+  "duration",
+  "json",
+]);
 export const RECORD_INPUT_FIELD_TYPES = new Set([...USER_EDITABLE_FIELD_TYPES, "relation"]);
 
 export const isSystemOrComputedField = (type: string): boolean => SYSTEM_OR_COMPUTED_FIELD_TYPES.has(type);

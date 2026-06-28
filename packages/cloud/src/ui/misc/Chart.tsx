@@ -134,11 +134,7 @@ const Chart = (props: ChartProps): JSX.Element => {
     <Show
       when={!isEmpty(props)}
       fallback={
-        <div
-          ref={containerRef}
-          class={`flex items-center justify-center text-xs text-dimmed ${props.class ?? ""}`}
-          style={props.style}
-        >
+        <div ref={containerRef} class={`flex items-center justify-center text-xs text-dimmed ${props.class ?? ""}`} style={props.style}>
           No data
         </div>
       }

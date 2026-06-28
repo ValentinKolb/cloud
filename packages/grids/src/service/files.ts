@@ -39,14 +39,9 @@ const normalizeFilename = (name: string): string => {
   return trimmed.length > 0 ? trimmed.slice(0, 255) : "untitled";
 };
 
-const sha256Hex = (bytes: Uint8Array): string =>
-  createHash("sha256").update(bytes).digest("hex");
+const sha256Hex = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
-const verifyTarget = async (
-  tableId: string,
-  recordId: string,
-  fieldId: string,
-): Promise<Result<{ config: FileFieldConfig }>> => {
+const verifyTarget = async (tableId: string, recordId: string, fieldId: string): Promise<Result<{ config: FileFieldConfig }>> => {
   const [row] = await sql<{ record_ok: boolean; field_ok: boolean; config: unknown }[]>`
     SELECT
       EXISTS (
@@ -93,11 +88,7 @@ const matchesAccept = (filename: string, mimeType: string, accept: string[] | un
   });
 };
 
-export const listForRecordField = async (params: {
-  tableId: string;
-  recordId: string;
-  fieldId: string;
-}): Promise<Result<GridFile[]>> => {
+export const listForRecordField = async (params: { tableId: string; recordId: string; fieldId: string }): Promise<Result<GridFile[]>> => {
   const target = await verifyTarget(params.tableId, params.recordId, params.fieldId);
   if (!target.ok) return target;
   const rows = await sql<DbRow[]>`
@@ -242,12 +233,7 @@ export const getContent = async (params: {
   return ok({ ...mapRow(row), bytes: row.bytes });
 };
 
-export const remove = async (params: {
-  tableId: string;
-  recordId: string;
-  fieldId: string;
-  fileId: string;
-}): Promise<Result<void>> => {
+export const remove = async (params: { tableId: string; recordId: string; fieldId: string; fileId: string }): Promise<Result<void>> => {
   const target = await verifyTarget(params.tableId, params.recordId, params.fieldId);
   if (!target.ok) return target;
   const rows = await sql<{ id: string }[]>`

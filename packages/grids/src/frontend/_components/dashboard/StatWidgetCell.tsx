@@ -60,8 +60,7 @@ export default function StatWidgetCell(props: Props) {
 
   // `sub` precedence: explicit widget.sub → error reason → undefined
   // (cell omits the sub row entirely, see StatCell docs).
-  const subText = (): string | undefined =>
-    props.widget.sub ?? errorReason() ?? undefined;
+  const subText = (): string | undefined => props.widget.sub ?? errorReason() ?? undefined;
 
   const trend = (): number[] | undefined => {
     const d = data();
@@ -78,11 +77,7 @@ export default function StatWidgetCell(props: Props) {
       sub={subText()}
       trend={trend()}
       valueClass={isError() ? "text-red-600 dark:text-red-400" : VALUE_TONE_CLASSES[tone()]}
-      accent={
-        props.widget.icon && !errorReason()
-          ? { tone: ACCENT_TONE[tone()], icon: props.widget.icon }
-          : undefined
-      }
+      accent={props.widget.icon && !errorReason() ? { tone: ACCENT_TONE[tone()], icon: props.widget.icon } : undefined}
     />
   );
 }

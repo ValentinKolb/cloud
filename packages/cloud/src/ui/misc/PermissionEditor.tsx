@@ -143,7 +143,17 @@ const getPermissionColor = (level: PermissionLevel): string => {
 type ApiEntity =
   | { kind: "user"; user: { id: string; uid: string; displayName: string; mail: string | null } }
   | { kind: "group"; group: { id: string; name: string; description: string | null } }
-  | { kind: "service_account"; serviceAccount: { id: string; name: string; kind: "user_delegated" | "resource_bound"; appId: string | null; resourceType: string | null; resourceId: string | null } };
+  | {
+      kind: "service_account";
+      serviceAccount: {
+        id: string;
+        name: string;
+        kind: "user_delegated" | "resource_bound";
+        appId: string | null;
+        resourceType: string | null;
+        resourceId: string | null;
+      };
+    };
 
 // ─────────────────────────────────────────────────────────────────────────
 // PermissionEditor
@@ -295,7 +305,9 @@ export default function PermissionEditor(props: PermissionEditorProps) {
               description:
                 item.serviceAccount.kind === "user_delegated"
                   ? "User-bound service account"
-                  : [item.serviceAccount.appId, item.serviceAccount.resourceType, item.serviceAccount.resourceId].filter(Boolean).join(" · "),
+                  : [item.serviceAccount.appId, item.serviceAccount.resourceType, item.serviceAccount.resourceId]
+                      .filter(Boolean)
+                      .join(" · "),
               icon: "ti-key",
             });
           }

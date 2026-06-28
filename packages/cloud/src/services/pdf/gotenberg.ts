@@ -30,6 +30,8 @@ export type GotenbergConfig = {
 
 export type RenderHtmlToPdfInput = {
   html: string;
+  headerHtml?: string | null;
+  footerHtml?: string | null;
   filename?: string;
 };
 
@@ -101,6 +103,10 @@ export const renderHtmlToPdfWithConfig = async (
   const baseUrl = normalizeBaseUrl(config.url);
   const form = new FormData();
   form.append("files", new Blob([input.html], { type: "text/html" }), "index.html");
+  if (input.headerHtml?.trim()) form.append("files", new Blob([input.headerHtml], { type: "text/html" }), "header.html");
+  if (input.footerHtml?.trim()) form.append("files", new Blob([input.footerHtml], { type: "text/html" }), "footer.html");
+  form.append("preferCssPageSize", "true");
+  form.append("printBackground", "true");
 
   const headers = new Headers();
   const authHeader = basicAuthHeader(config);

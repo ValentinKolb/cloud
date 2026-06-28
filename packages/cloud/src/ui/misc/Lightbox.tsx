@@ -111,7 +111,10 @@ export default function Lightbox(props: LightboxProps) {
       <div class="absolute inset-x-0 top-0 z-10 flex items-start justify-between p-4 sm:p-6">
         <div class="flex min-w-0 flex-col gap-2">
           <Show when={isMultiple()}>
-            <span class="inline-flex w-fit items-center rounded-full border border-white/12 bg-white/8 px-3 py-1 text-xs text-white/80 backdrop-blur" aria-live="polite">
+            <span
+              class="inline-flex w-fit items-center rounded-full border border-white/12 bg-white/8 px-3 py-1 text-xs text-white/80 backdrop-blur"
+              aria-live="polite"
+            >
               {index() + 1} / {props.images.length}
             </span>
           </Show>
@@ -170,7 +173,11 @@ export default function Lightbox(props: LightboxProps) {
       </Show>
 
       <Show when={isMultiple() && props.images.length <= 10}>
-        <div class="absolute bottom-5 left-1/2 flex -translate-x-1/2 gap-2 rounded-full border border-white/10 bg-black/30 px-3 py-2 backdrop-blur" role="tablist" aria-label="Image navigation">
+        <div
+          class="absolute bottom-5 left-1/2 flex -translate-x-1/2 gap-2 rounded-full border border-white/10 bg-black/30 px-3 py-2 backdrop-blur"
+          role="tablist"
+          aria-label="Image navigation"
+        >
           <For each={props.images}>
             {(_, i) => (
               <button

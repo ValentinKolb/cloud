@@ -26,18 +26,7 @@ type Props = {
  * sync. Lookup / rollup deferred (would require correlated-subquery
  * GROUP BY); select uses explode semantics for one bucket per selected option.
  */
-const GROUPABLE_TYPES = new Set([
-  "text",
-  "longtext",
-  "id",
-  "number",
-  "percent",
-  "duration",
-  "boolean",
-  "date",
-  "select",
-  "relation",
-]);
+const GROUPABLE_TYPES = new Set(["text", "longtext", "id", "number", "percent", "duration", "boolean", "date", "select", "relation"]);
 
 const groupableFields = (fields: Field[]): Field[] => fields.filter((f) => !f.deletedAt && GROUPABLE_TYPES.has(f.type));
 

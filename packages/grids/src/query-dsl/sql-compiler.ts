@@ -229,7 +229,8 @@ const isFormulaGroupAggregation = (aggregation: GroupAggregationSpec): aggregati
 const aggregateKey = (aggregation: GroupAggregationSpec): string => aggregateOutputKeyFor(aggregation);
 const isGroupAggKind = (agg: string): agg is GroupAggKind => isAggregateKind(agg);
 
-const isComputedColumn = (column: RecordQueryColumn): column is RecordQueryComputedColumn => (column as { kind?: unknown }).kind === "computed";
+const isComputedColumn = (column: RecordQueryColumn): column is RecordQueryComputedColumn =>
+  (column as { kind?: unknown }).kind === "computed";
 
 const outputColumnsForPlan = (plan: DslResolvedSqlQueryPlan, baseFields: Field[]): DslOutputColumn[] => {
   if (plan.outputColumns && plan.outputColumns.length > 0) return plan.outputColumns;
@@ -800,7 +801,12 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
   if (!sort.ok) return fail(`sort: ${sort.error}`);
   const orderBy = "result" in sort ? sort.result.orderBy : sort.orderBy;
 
-  const conditions: unknown[] = [sql`r.table_id = ${plan.tableId}::uuid`, recordDeletedCondition(plan), renderClause(filter.clause)];
+  const conditions: unknown[] = [
+    sql`r.table_id = ${plan.tableId}::uuid`,
+    recordDeletedCondition(plan),
+    renderClause(filter.clause),
+    compileRecordMetaFilter(plan.query.recordMeta ?? null),
+  ];
   const viewScope = compileViewSourceRecordScope(plan, baseFields, options);
   if (!viewScope.ok) return fail(viewScope.error);
   if (viewScope.condition) conditions.push(viewScope.condition);
@@ -1503,7 +1509,11 @@ const derivedColumnByRef = (columns: DslDerivedViewColumn[], ref: string): DslDe
 const createDerivedSqlFieldResolver =
   (
     columns: DslDerivedViewColumn[],
-    options?: { joinAliases?: Map<string, string>; derived?: NonNullable<DslResolvedSqlQueryPlan["derivedViewSource"]>; compileOptions?: DslSqlCompileOptions },
+    options?: {
+      joinAliases?: Map<string, string>;
+      derived?: NonNullable<DslResolvedSqlQueryPlan["derivedViewSource"]>;
+      compileOptions?: DslSqlCompileOptions;
+    },
   ): FormulaSqlFieldResolver =>
   (ref) => {
     if (options?.joinAliases && options.derived && options.compileOptions) {
@@ -1964,7 +1974,9 @@ export const compileDslDerivedViewSourcePlanToSql = (
     return compileDslDerivedGroupedViewSourcePlanToSql(plan, sourceSql, options, { joinAliases, joinSql });
   }
 
-  const selectFragments: unknown[] = derived.outputColumns.map((column) => sql`${derivedColumnReference(column)} AS ${quotedIdentifier(column.key)}`);
+  const selectFragments: unknown[] = derived.outputColumns.map(
+    (column) => sql`${derivedColumnReference(column)} AS ${quotedIdentifier(column.key)}`,
+  );
   const columns = derived.outputColumns.map(derivedOutputColumn);
   for (const joinedColumn of derived.joinedColumns ?? []) {
     const recordAlias = joinAliases.get(joinedColumn.joinAlias);
@@ -2005,7 +2017,8 @@ export const compileDslDerivedViewSourcePlanToSql = (
   });
   const joinedOrder = compileDerivedJoinedSort(derived.joinedSort ?? [], options, joinAliases, plan.readableTableIds);
   if (!joinedOrder.ok) return failGroup(joinedOrder.error);
-  const orderParts = explicitOrder.length > 0 || joinedOrder.parts.length > 0 ? [...explicitOrder, ...joinedOrder.parts] : derivedDefaultOrder(derived);
+  const orderParts =
+    explicitOrder.length > 0 || joinedOrder.parts.length > 0 ? [...explicitOrder, ...joinedOrder.parts] : derivedDefaultOrder(derived);
   const orderBy = orderParts.length > 0 ? sql`ORDER BY ${joinFragments(orderParts, sql`, `)}` : sql``;
   const limit = Math.min(Math.max(options.limit ?? plan.query.limit ?? 100, 1), 1000);
   const offset = Math.min(Math.max(plan.offset ?? 0, 0), 10_000);

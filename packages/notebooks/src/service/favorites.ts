@@ -53,4 +53,3 @@ export const setFavorite = async (params: {
   await noteFavoriteChanged(params);
   return { ok: true, data: { favorite: params.favorite } };
 };
-

@@ -10,8 +10,7 @@ import { prompts } from "@valentinkolb/cloud/ui";
 const ATTACHMENT_URL_RE = /^attach:\/\/([0-9a-zA-Z]{6})$/;
 const ATTACHMENT_REF_RE_GLOBAL = /attach:\/\/([0-9a-zA-Z]{6})/g;
 
-export const extractAttachmentId = (url: string): string | null =>
-  url.match(ATTACHMENT_URL_RE)?.[1] ?? null;
+export const extractAttachmentId = (url: string): string | null => url.match(ATTACHMENT_URL_RE)?.[1] ?? null;
 
 /** Extract all unique attachment short-ids referenced in a markdown body.
  *  Browser-safe twin of `service/attachments.ts:extractIds`. */

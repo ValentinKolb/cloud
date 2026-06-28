@@ -74,10 +74,8 @@ const stripCodeBlocks = (md: string): string => {
 
 const WHITESPACE_REGEX = /\s/;
 const isWhitespace = (char: string): boolean => WHITESPACE_REGEX.test(char);
-const isAsciiLetter = (char: string): boolean =>
-  (char >= "A" && char <= "Z") || (char >= "a" && char <= "z");
-const isTagPart = (char: string): boolean =>
-  isAsciiLetter(char) || (char >= "0" && char <= "9") || char === "_" || char === "-";
+const isAsciiLetter = (char: string): boolean => (char >= "A" && char <= "Z") || (char >= "a" && char <= "z");
+const isTagPart = (char: string): boolean => isAsciiLetter(char) || (char >= "0" && char <= "9") || char === "_" || char === "-";
 
 const readTag = (text: string, hashIndex: number): { tag: string; end: number } | null => {
   const first = text[hashIndex + 1];

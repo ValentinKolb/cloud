@@ -99,9 +99,7 @@ const COMPLETIONS: Completion[] = BLOCKS.map((b) => {
 /**
  * Completion source. Wire into `autocompletion({override: […]})`.
  */
-export const infoBlockCompletionSource = (
-  context: CompletionContext,
-): CompletionResult | null => {
+export const infoBlockCompletionSource = (context: CompletionContext): CompletionResult | null => {
   const word = context.matchBefore(/^:::\w*/);
   if (!word) return null;
   const line = context.state.doc.lineAt(context.pos);

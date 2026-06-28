@@ -18,8 +18,7 @@ import { Show, type JSX } from "solid-js";
  * Order-sensitive for arrays/object keys; that's intentional for settings
  * where order matters (string_list, number_list).
  */
-export const sameSettingValue = (a: unknown, b: unknown): boolean =>
-  JSON.stringify(a) === JSON.stringify(b);
+export const sameSettingValue = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 /**
  * Parses a settings-API error response into a user-message + per-field error
@@ -29,9 +28,7 @@ export const readSettingsError = async (
   response: Response,
   fallback: string,
 ): Promise<{ message: string; fields: Record<string, string> }> => {
-  const data = (await response.json().catch(() => null)) as
-    | { message?: string; errors?: Record<string, string> }
-    | null;
+  const data = (await response.json().catch(() => null)) as { message?: string; errors?: Record<string, string> } | null;
   return {
     message: data?.message ?? fallback,
     fields: data?.errors ?? {},
@@ -63,18 +60,12 @@ export type SettingsFieldProps = {
  */
 export function SettingsField(props: SettingsFieldProps) {
   return (
-    <div
-      class="flex flex-col gap-1.5 px-3 py-3"
-      classList={{ "bg-amber-50/50 dark:bg-amber-950/20": props.changed?.() ?? false }}
-    >
+    <div class="flex flex-col gap-1.5 px-3 py-3" classList={{ "bg-amber-50/50 dark:bg-amber-950/20": props.changed?.() ?? false }}>
       <div class="flex flex-col gap-0.5">
         <div class="flex items-center gap-2">
           <div class="text-sm font-medium text-primary">{props.label}</div>
           <Show when={props.changed?.()}>
-            <span
-              class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500"
-              title="Unsaved change"
-            />
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" title="Unsaved change" />
           </Show>
         </div>
         <p class="text-xs text-dimmed">{props.description}</p>
@@ -112,24 +103,13 @@ export function SettingsSaveBar(props: SettingsSaveBarProps) {
     <Show when={props.changeCount() > 0}>
       <div class="sticky bottom-0 z-10 border-t border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 flex items-center justify-between gap-3">
         <p class="text-xs text-dimmed">
-          <span class="font-medium text-primary">{props.changeCount()}</span>
-          {" "}unsaved change{props.changeCount() > 1 ? "s" : ""}
+          <span class="font-medium text-primary">{props.changeCount()}</span> unsaved change{props.changeCount() > 1 ? "s" : ""}
         </p>
         <div class="flex items-center gap-2">
-          <button
-            type="button"
-            class="btn-secondary btn-sm"
-            onClick={props.onDiscard}
-            disabled={props.loading()}
-          >
+          <button type="button" class="btn-secondary btn-sm" onClick={props.onDiscard} disabled={props.loading()}>
             Discard
           </button>
-          <button
-            type="button"
-            class="btn-primary btn-sm"
-            onClick={props.onSave}
-            disabled={props.loading()}
-          >
+          <button type="button" class="btn-primary btn-sm" onClick={props.onSave} disabled={props.loading()}>
             <Show
               when={props.loading()}
               fallback={

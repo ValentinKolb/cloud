@@ -72,10 +72,7 @@ export const createKitLocalStateAPI = (ctx: KitContext): KitLocalStateAPI => {
     return all.map((k) => k.slice(prefix.length)).sort();
   };
 
-  const observe = <T = unknown>(
-    key: string,
-    cb: (newValue: T | undefined) => void,
-  ): (() => void) => {
+  const observe = <T = unknown>(key: string, cb: (newValue: T | undefined) => void): (() => void) => {
     // `kvStore.watch` accepts a prefix and fires on any matching
     // key change. We pass the FULLY-NAMESPACED key as the prefix
     // and then filter by exact match in the callback so we only

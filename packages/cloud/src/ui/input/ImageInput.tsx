@@ -77,44 +77,44 @@ const ImageInput = (props: ImageInputProps) => {
         errorId={a11y.errorId}
       >
         <div class="flex h-9 items-center gap-1" role="group" aria-labelledby={a11y.inputId} aria-describedby={a11y.ariaDescribedBy()}>
-            <button
-              type="button"
-              class={`btn-secondary btn-sm h-9 w-9 shrink-0 overflow-hidden !p-0 ${props.round ? "rounded-full" : "rounded-lg"}`}
-              disabled
-              aria-hidden="true"
-              tabIndex={-1}
+          <button
+            type="button"
+            class={`btn-secondary btn-sm h-9 w-9 shrink-0 overflow-hidden !p-0 ${props.round ? "rounded-full" : "rounded-lg"}`}
+            disabled
+            aria-hidden="true"
+            tabIndex={-1}
+          >
+            <Show
+              when={value()}
+              fallback={
+                <div class="flex h-full w-full items-center justify-center">
+                  <i class="ti ti-photo-off opacity-65" aria-hidden="true" />
+                </div>
+              }
             >
-              <Show
-                when={value()}
-                fallback={
-                  <div class="flex h-full w-full items-center justify-center">
-                    <i class="ti ti-photo-off opacity-65" aria-hidden="true" />
-                  </div>
-                }
-              >
-                <img src={value()!} alt={props.label || "Selected image"} class="h-full w-full object-cover" />
-              </Show>
-            </button>
+              <img src={value()!} alt={props.label || "Selected image"} class="h-full w-full object-cover" />
+            </Show>
+          </button>
+          <button
+            type="button"
+            class="btn-secondary btn-sm flex h-9 w-9 items-center justify-center"
+            onClick={selectImage}
+            aria-label={value() ? "Change image" : "Add image"}
+            disabled={disabled()}
+          >
+            <i class={value() ? "ti ti-edit" : "ti ti-photo-plus"} aria-hidden="true" />
+          </button>
+          <Show when={value()}>
             <button
               type="button"
               class="btn-secondary btn-sm flex h-9 w-9 items-center justify-center"
-              onClick={selectImage}
-              aria-label={value() ? "Change image" : "Add image"}
+              onClick={() => props.onChange?.(null)}
+              aria-label="Remove image"
               disabled={disabled()}
             >
-              <i class={value() ? "ti ti-edit" : "ti ti-photo-plus"} aria-hidden="true" />
+              <i class="ti ti-trash" aria-hidden="true" />
             </button>
-            <Show when={value()}>
-              <button
-                type="button"
-                class="btn-secondary btn-sm flex h-9 w-9 items-center justify-center"
-                onClick={() => props.onChange?.(null)}
-                aria-label="Remove image"
-                disabled={disabled()}
-              >
-                <i class="ti ti-trash" aria-hidden="true" />
-              </button>
-            </Show>
+          </Show>
         </div>
       </InputWrapper>
     );
@@ -132,53 +132,53 @@ const ImageInput = (props: ImageInputProps) => {
       errorId={a11y.errorId}
     >
       <div class="flex flex-col items-center gap-1" role="group" aria-labelledby={a11y.inputId} aria-describedby={a11y.ariaDescribedBy()}>
-          <div
-            class={`h-30 w-30 self-center overflow-hidden border-2 border-zinc-200 md:h-50 md:w-50 dark:border-zinc-700 ${
-              props.round ? "rounded-full" : "rounded-2xl"
-            }`}
+        <div
+          class={`h-30 w-30 self-center overflow-hidden border-2 border-zinc-200 md:h-50 md:w-50 dark:border-zinc-700 ${
+            props.round ? "rounded-full" : "rounded-2xl"
+          }`}
+        >
+          <Show
+            when={value()}
+            fallback={
+              <div class="flex h-full w-full items-center justify-center bg-zinc-100 dark:bg-zinc-800">
+                <i class="ti ti-photo-off text-2xl text-zinc-400 dark:text-zinc-600" aria-hidden="true" />
+              </div>
+            }
           >
-            <Show
-              when={value()}
-              fallback={
-                <div class="flex h-full w-full items-center justify-center bg-zinc-100 dark:bg-zinc-800">
-                  <i class="ti ti-photo-off text-2xl text-zinc-400 dark:text-zinc-600" aria-hidden="true" />
-                </div>
-              }
-            >
-              <img
-                src={value()!}
-                alt={props.label || "Selected image"}
-                class="h-full w-full object-cover"
-                aria-label={props.ariaLabel || props.label || "Selected image"}
-              />
-            </Show>
-          </div>
+            <img
+              src={value()!}
+              alt={props.label || "Selected image"}
+              class="h-full w-full object-cover"
+              aria-label={props.ariaLabel || props.label || "Selected image"}
+            />
+          </Show>
+        </div>
 
-          <div class="mb-4 flex flex-row items-center gap-2 self-center">
-            <Show when={value()}>
-              <button
-                type="button"
-                class="btn-simple btn-sm"
-                onClick={() => props.onChange?.(null)}
-                aria-label="Remove image"
-                disabled={disabled()}
-              >
-                <i class="ti ti-trash" aria-hidden="true" />
-                Remove
-              </button>
-            </Show>
-
+        <div class="mb-4 flex flex-row items-center gap-2 self-center">
+          <Show when={value()}>
             <button
               type="button"
               class="btn-simple btn-sm"
-              onClick={selectImage}
-              aria-label={value() ? "Change image" : "Add image"}
+              onClick={() => props.onChange?.(null)}
+              aria-label="Remove image"
               disabled={disabled()}
             >
-              <i class="ti ti-photo-plus" aria-hidden="true" />
-              {value() ? "Change" : "Add"}
+              <i class="ti ti-trash" aria-hidden="true" />
+              Remove
             </button>
-          </div>
+          </Show>
+
+          <button
+            type="button"
+            class="btn-simple btn-sm"
+            onClick={selectImage}
+            aria-label={value() ? "Change image" : "Add image"}
+            disabled={disabled()}
+          >
+            <i class="ti ti-photo-plus" aria-hidden="true" />
+            {value() ? "Change" : "Add"}
+          </button>
+        </div>
       </div>
     </InputWrapper>
   );

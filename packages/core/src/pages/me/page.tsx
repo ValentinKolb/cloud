@@ -53,7 +53,9 @@ export default ssr<AuthContext>(async (c) => {
   const supplementalRoles = sessionUser.roles.filter((role) => role === "admin" || role === "group-manager");
   const isExpiredAccount = sessionUser.accountExpires ? new Date(sessionUser.accountExpires) < new Date() : false;
   const [pendingRequest, apiKeys, passkeys, activityPage] = await Promise.all([
-    sessionUser.provider === "local" ? accountsAppService.accountRequest.getPendingForUser({ userId: sessionUser.id }) : Promise.resolve(null),
+    sessionUser.provider === "local"
+      ? accountsAppService.accountRequest.getPendingForUser({ userId: sessionUser.id })
+      : Promise.resolve(null),
     serviceAccountCredentials.listForDelegatedUser({ userId: sessionUser.id }),
     webauthn.listForUser({ userId: sessionUser.id }),
     audit.listSelfServiceActivity({ userId: sessionUser.id, days: activityDays, pagination: { page: 1, perPage: 50 } }),
@@ -67,12 +69,14 @@ export default ssr<AuthContext>(async (c) => {
     displayGroups = directGroups;
   }
 
-  const profileBadgeClass = sessionUser.profile === "guest"
-    ? "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300"
-    : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300";
-  const providerBadgeClass = sessionUser.provider === "ipa"
-    ? "bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300"
-    : "bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-300";
+  const profileBadgeClass =
+    sessionUser.profile === "guest"
+      ? "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300"
+      : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300";
+  const providerBadgeClass =
+    sessionUser.provider === "ipa"
+      ? "bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300"
+      : "bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-300";
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Profile" }]}>
@@ -118,7 +122,9 @@ export default ssr<AuthContext>(async (c) => {
               <span class={`tag ${profileBadgeClass}`}>{getAccountTypeLabel(sessionUser)}</span>
               <span class={`tag ${providerBadgeClass}`}>{getManagementLabel(sessionUser)}</span>
               {supplementalRoles.map((role) => (
-                <span class={`tag ${role === "admin" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"}`}>
+                <span
+                  class={`tag ${role === "admin" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"}`}
+                >
                   {getSupplementalRoleLabel(role)}
                 </span>
               ))}
@@ -256,7 +262,9 @@ export default ssr<AuthContext>(async (c) => {
                     <div class="rounded-lg border border-dashed border-zinc-200 px-4 py-6 text-center dark:border-zinc-800">
                       <i class="ti ti-users-group text-2xl text-dimmed" />
                       <p class="mt-2 text-xs text-dimmed">Not a member of any groups yet.</p>
-                      <a href="/app/accounts/groups" class="mt-1 inline-flex text-xs text-primary hover:underline">Browse groups</a>
+                      <a href="/app/accounts/groups" class="mt-1 inline-flex text-xs text-primary hover:underline">
+                        Browse groups
+                      </a>
                     </div>
                   )}
                   {showAllGroups && displayGroups.length > directGroups.length && (
@@ -287,7 +295,9 @@ export default ssr<AuthContext>(async (c) => {
                     <div class="rounded-lg border border-dashed border-zinc-200 px-4 py-6 text-center dark:border-zinc-800">
                       <i class="ti ti-shield text-2xl text-dimmed" />
                       <p class="mt-2 text-xs text-dimmed">You don't manage any groups.</p>
-                      <a href="/app/accounts/groups" class="mt-1 inline-flex text-xs text-primary hover:underline">Browse groups</a>
+                      <a href="/app/accounts/groups" class="mt-1 inline-flex text-xs text-primary hover:underline">
+                        Browse groups
+                      </a>
                     </div>
                   )}
                 </div>
@@ -305,7 +315,9 @@ export default ssr<AuthContext>(async (c) => {
                 <p class="mt-1 text-xs text-dimmed">Request a centrally managed account if you need broader group-based access.</p>
                 {pendingRequest ? (
                   <div class="mt-4 flex flex-col gap-3">
-                    <div class="info-block-info text-xs">Request pending since {dates.formatDate(pendingRequest.createdAt.toISOString())}.</div>
+                    <div class="info-block-info text-xs">
+                      Request pending since {dates.formatDate(pendingRequest.createdAt.toISOString())}.
+                    </div>
                     <div class="flex justify-end">
                       <WithdrawAccountRequest />
                     </div>

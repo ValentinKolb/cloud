@@ -189,20 +189,6 @@ export type PulseCapabilitySnapshot = {
   continuousAggregatesAvailable: boolean;
 };
 
-export type PulseDashboardPanel = {
-  id: string;
-  title: string;
-  metric: string;
-  visual: PanelVisual;
-  aggregation: Aggregation;
-  bucket: string;
-  since: string;
-  sourceId?: string | null;
-  entityId?: string | null;
-  entityType?: string | null;
-  dimensions?: Record<string, string | number | boolean | null>;
-};
-
 export type PulseDashboardConditionOperator = ">" | ">=" | "<" | "<=" | "=" | "!=";
 export type PulseDashboardConditionLevel = "warn" | "critical";
 
@@ -259,8 +245,19 @@ export type PulseDashboardStateQuery = {
 
 export type PulseDashboardWidgetQuery = PulseDashboardMetricQuery | PulseDashboardEventQuery | PulseDashboardStateQuery;
 
-export type PulseDashboardMetricWidget = PulseDashboardPanel & {
+export type PulseDashboardMetricWidget = {
+  id: string;
   kind: "metric";
+  title: string;
+  metric: string;
+  visual: PanelVisual;
+  aggregation: Aggregation;
+  bucket: string;
+  since: string;
+  sourceId?: string | null;
+  entityId?: string | null;
+  entityType?: string | null;
+  dimensions?: Record<string, string | number | boolean | null>;
   queryText?: string;
   query?: PulseDashboardMetricQuery;
   description?: string | null;
@@ -343,7 +340,6 @@ export type PulseDashboardLayout = {
 export type PulseDashboardConfig = {
   dsl: string;
   layout: PulseDashboardLayout | null;
-  panels?: PulseDashboardPanel[];
   refreshIntervalSeconds?: DashboardRefreshInterval | null;
 };
 

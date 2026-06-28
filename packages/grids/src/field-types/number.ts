@@ -74,7 +74,8 @@ const numberConfigIssues = (config: NumberConfigInput): ConfigIssue[] =>
 
 const decimalText = (raw: unknown): string | null => (typeof raw === "number" || typeof raw === "string" ? String(raw) : null);
 
-const amountValue = (raw: unknown): unknown => (typeof raw === "object" && raw !== null && "amount" in raw ? (raw as { amount?: unknown }).amount : raw);
+const amountValue = (raw: unknown): unknown =>
+  typeof raw === "object" && raw !== null && "amount" in raw ? (raw as { amount?: unknown }).amount : raw;
 
 const parseDecimal = (raw: unknown): Decimal | null => {
   const text = decimalText(amountValue(raw));

@@ -70,9 +70,7 @@ describe("script type intelligence", () => {
     expect(uiLabels).toContain("chart");
     expect(uiLabels).toContain("live");
 
-    const chartOptionLabels = service
-      .complete(`ui.chart("bar", { `, `ui.chart("bar", { `.length)
-      ?.map((option) => option.label) ?? [];
+    const chartOptionLabels = service.complete(`ui.chart("bar", { `, `ui.chart("bar", { `.length)?.map((option) => option.label) ?? [];
     expect(chartOptionLabels).toContain("data");
     expect(chartOptionLabels).toContain("height");
     expect(chartOptionLabels).toContain("showValues");
@@ -96,17 +94,20 @@ describe("script type intelligence", () => {
     expect(stdLabels).toContain("formatDate");
 
     const tableLabels =
-      service.complete("const t = current.table('ideas');\nt?.", "const t = current.table('ideas');\nt?.".length)?.map((option) => option.label) ?? [];
+      service
+        .complete("const t = current.table('ideas');\nt?.", "const t = current.table('ideas');\nt?.".length)
+        ?.map((option) => option.label) ?? [];
     expect(tableLabels).toContain("rows");
     expect(tableLabels).toContain("add");
 
     const todoLabels =
-      service.complete("const t = current.todo('today');\nt?.", "const t = current.todo('today');\nt?.".length)?.map((option) => option.label) ?? [];
+      service
+        .complete("const t = current.todo('today');\nt?.", "const t = current.todo('today');\nt?.".length)
+        ?.map((option) => option.label) ?? [];
     expect(todoLabels).toContain("items");
     expect(todoLabels).toContain("add");
 
-    const liveLabels =
-      service.complete("ui.live(() => ui.", "ui.live(() => ui.".length)?.map((option) => option.label) ?? [];
+    const liveLabels = service.complete("ui.live(() => ui.", "ui.live(() => ui.".length)?.map((option) => option.label) ?? [];
     expect(liveLabels).toContain("table");
   });
 });

@@ -42,9 +42,9 @@ export const QUERY_REFERENCE_TABS: readonly GqlReferenceTab[] = [
   "basics",
   "datatypes",
   "tables",
+  "templates",
   "formulas",
   "gql",
-  "templates",
   "examples",
   "how-it-works",
 ];
@@ -123,11 +123,11 @@ const REFERENCE_TABS: Array<{ value: GqlReferenceTab; label: string; icon: strin
   { value: "basics", label: "Grids basics", icon: "ti-layout-grid", description: "Mental model and workflow" },
   { value: "datatypes", label: "Data & datatypes", icon: "ti-table", description: "Tables, fields, views, forms" },
   { value: "tables", label: "Tables & views", icon: "ti-database", description: "Available data in this base" },
+  { value: "templates", label: "Templates", icon: "ti-file-type-pdf", description: "PDF documents and snapshots" },
   { value: "formulas", label: "Formulas", icon: "ti-function", description: "Fields, computed columns, predicates" },
   { value: "gql", label: "GQL", icon: "ti-code", description: "Grids Query Language" },
-  { value: "templates", label: "Templates", icon: "ti-file-type-pdf", description: "PDF documents and snapshots" },
-  { value: "examples", label: "Examples", icon: "ti-copy", description: "Copyable patterns" },
-  { value: "how-it-works", label: "How it works", icon: "ti-shield-check", description: "Resolution, permissions, limits" },
+  { value: "examples", label: "GQL examples", icon: "ti-copy", description: "Copyable query patterns" },
+  { value: "how-it-works", label: "How GQL works", icon: "ti-shield-check", description: "Resolution, permissions, limits" },
 ];
 
 const QUERY_EXAMPLES: Example[] = [
@@ -1454,8 +1454,8 @@ function TemplatesTab() {
   return (
     <Doc>
       <DocLead>
-        Document templates turn records into repeatable PDFs. Use them for invoices, contracts, labels, checklists, certificates, delivery
-        notes, quotes, packing lists, and record summaries that should be generated from saved table data instead of rewritten by hand.
+        Document templates turn table records into repeatable PDFs. Use them when a record should produce a business document such as an
+        invoice, contract, label, checklist, certificate, delivery note, quote, packing list, or record summary.
       </DocLead>
 
       <DocSection title="Mental model">
@@ -1469,12 +1469,12 @@ function TemplatesTab() {
             {
               title: "GQL source",
               icon: "ti-code",
-              text: "The server-side query that loads the current record and any related rows needed by the document.",
+              text: "A Liquid-rendered GQL query that loads the current record and any related rows needed by the document.",
             },
             {
               title: "Liquid HTML",
               icon: "ti-template",
-              text: "The document body, header, footer, and page CSS. Liquid variables and loops place record data inside HTML.",
+              text: "HTML, header, footer, and page CSS with Liquid variables, loops, filters, and conditions.",
             },
             {
               title: "Run",
@@ -1492,6 +1492,48 @@ function TemplatesTab() {
               text: "A draft render through the same PDF pipeline, using a selected preview record before the template is saved or used.",
             },
           ]}
+        />
+      </DocSection>
+
+      <DocSection title="End-to-end flow">
+        <DocRows
+          items={[
+            {
+              title: "Create the template",
+              icon: "ti-settings",
+              text: "Open a table in edit mode, choose Templates, pick a starter, then edit the source, HTML parts, and page CSS.",
+            },
+            {
+              title: "Preview with a record",
+              icon: "ti-database-search",
+              text: "Choose a preview record. Grids renders the GQL source with that record, runs the query, and shows the resulting data tree.",
+            },
+            {
+              title: "Render through Gotenberg",
+              icon: "ti-file-type-pdf",
+              text: "The body, header, footer, and CSS are rendered with the preview data, then sent to Gotenberg as HTML-to-PDF input.",
+            },
+            {
+              title: "Generate from detail panel",
+              icon: "ti-download",
+              text: "A user opens a record, chooses an enabled template, and generates a PDF from the current saved data.",
+            },
+            {
+              title: "Snapshot and run are stored",
+              icon: "ti-camera",
+              text: "Generation creates a snapshot and a run. The run keeps the template snapshot, render data, document number, and redownload metadata.",
+            },
+          ]}
+        />
+        <DocCode
+          title="Generation pipeline"
+          code={`record
+  -> render Liquid in GQL source
+  -> run GQL in SQL
+  -> render body/header/footer/page CSS with Liquid
+  -> Gotenberg HTML-to-PDF
+  -> store snapshot + run metadata`}
+          copy
         />
       </DocSection>
 
@@ -1532,6 +1574,64 @@ function TemplatesTab() {
         />
       </DocSection>
 
+      <DocSection title="Template parts reference">
+        <div class="paper overflow-auto">
+          <table class="min-w-[900px] w-full table-fixed text-sm">
+            <colgroup>
+              <col class="w-[16%]" />
+              <col class="w-[18%]" />
+              <col class="w-[34%]" />
+              <col class="w-[32%]" />
+            </colgroup>
+            <thead class="bg-zinc-50 text-xs font-medium uppercase tracking-wide text-dimmed dark:bg-zinc-950">
+              <tr class="border-b border-zinc-100 dark:border-zinc-800">
+                <th class="px-4 py-2 text-left font-medium">Part</th>
+                <th class="px-4 py-2 text-left font-medium">Language</th>
+                <th class="px-4 py-2 text-left font-medium">Purpose</th>
+                <th class="px-4 py-2 text-left font-medium">Common use</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
+              <tr>
+                <td class="px-4 py-3 align-top font-semibold text-primary">GQL source</td>
+                <td class="px-4 py-3 align-top text-dimmed">Liquid + GQL</td>
+                <td class="px-4 py-3 align-top text-dimmed">
+                  Selects the rows and columns available to the document. Liquid is rendered before GQL is parsed.
+                </td>
+                <td class="px-4 py-3 align-top text-dimmed">Current record, joined rows, item lists, grouped summaries.</td>
+              </tr>
+              <tr>
+                <td class="px-4 py-3 align-top font-semibold text-primary">Body</td>
+                <td class="px-4 py-3 align-top text-dimmed">Liquid + HTML</td>
+                <td class="px-4 py-3 align-top text-dimmed">The main printable document content. This part is required.</td>
+                <td class="px-4 py-3 align-top text-dimmed">Invoice body, contract clauses, label layout, record detail tables.</td>
+              </tr>
+              <tr>
+                <td class="px-4 py-3 align-top font-semibold text-primary">Header</td>
+                <td class="px-4 py-3 align-top text-dimmed">Liquid + HTML</td>
+                <td class="px-4 py-3 align-top text-dimmed">Optional Gotenberg header rendered on each page.</td>
+                <td class="px-4 py-3 align-top text-dimmed">Letterhead, sender identity, document class, contact block.</td>
+              </tr>
+              <tr>
+                <td class="px-4 py-3 align-top font-semibold text-primary">Footer</td>
+                <td class="px-4 py-3 align-top text-dimmed">Liquid + HTML</td>
+                <td class="px-4 py-3 align-top text-dimmed">Optional Gotenberg footer rendered on each page.</td>
+                <td class="px-4 py-3 align-top text-dimmed">
+                  Legal footer, bank data, page numbers with <DocInlineCode>pageNumber</DocInlineCode> and{" "}
+                  <DocInlineCode>totalPages</DocInlineCode>.
+                </td>
+              </tr>
+              <tr>
+                <td class="px-4 py-3 align-top font-semibold text-primary">Page CSS</td>
+                <td class="px-4 py-3 align-top text-dimmed">Liquid + CSS</td>
+                <td class="px-4 py-3 align-top text-dimmed">Optional CSS injected into the PDF body document.</td>
+                <td class="px-4 py-3 align-top text-dimmed">@page size/margins, table headers, page breaks, print typography.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </DocSection>
+
       <DocSection title="Default source">
         <p class="mb-3 text-dimmed">
           New record templates start scoped to the current record. The Liquid expression is rendered first, then the resulting GQL runs on
@@ -1545,6 +1645,45 @@ limit 1`}
         />
       </DocSection>
 
+      <DocSection title="GQL source patterns">
+        <DocRows
+          items={[
+            {
+              title: "Use the current record",
+              icon: "ti-record-mail",
+              text: (
+                <>
+                  The source can use <DocInlineCode>{"{{ record.id }}"}</DocInlineCode> because Liquid runs before GQL parsing.
+                </>
+              ),
+            },
+            {
+              title: "Select stable names",
+              icon: "ti-tag",
+              text: "Use aliases for calculated or joined values. Liquid templates are easier to maintain when row keys are readable and stable.",
+            },
+            {
+              title: "Load related data in SQL",
+              icon: "ti-arrows-join",
+              text: "Use joins, filters, grouping, sorting, and limits in GQL. Do not load too much data and filter it in Liquid.",
+            },
+            {
+              title: "Keep per-record PDFs scoped",
+              icon: "ti-target",
+              text: "Most templates should keep a record.id filter. Overview and batch templates are the cases where broader sources are useful.",
+            },
+          ]}
+        />
+        <QuerySnippet
+          title="Current record with related item names"
+          code={`from table Loans
+left join table Items as item on Items = item.id
+select "Loan number", Borrower, item.Name as item_name, item.Condition as item_condition
+where record.id = '{{ record.id }}'
+sort item.Name asc`}
+        />
+      </DocSection>
+
       <DocSection title="Data available in Liquid">
         <DocRows
           items={[
@@ -1553,8 +1692,9 @@ limit 1`}
               icon: "ti-record-mail",
               text: (
                 <>
-                  The current record chosen for preview or generation. Use the editor's Data tab for exact paths such as{" "}
-                  <DocInlineCode>{"{{ record.id }}"}</DocInlineCode>.
+                  The current record: <DocInlineCode>{"record.id"}</DocInlineCode>, <DocInlineCode>{"record.tableId"}</DocInlineCode>,{" "}
+                  <DocInlineCode>{"record.version"}</DocInlineCode>, <DocInlineCode>{"record.data"}</DocInlineCode>, created and updated
+                  timestamps.
                 </>
               ),
             },
@@ -1563,19 +1703,25 @@ limit 1`}
               icon: "ti-table",
               text: (
                 <>
-                  The table the template belongs to, including values such as <DocInlineCode>{"{{ table.name }}"}</DocInlineCode>.
+                  The table the template belongs to: <DocInlineCode>{"table.id"}</DocInlineCode>,{" "}
+                  <DocInlineCode>{"table.shortId"}</DocInlineCode>, and <DocInlineCode>{"table.name"}</DocInlineCode>.
                 </>
               ),
             },
             {
               title: "rows",
               icon: "ti-list-details",
-              text: "The rows returned by the GQL source. They are the main input for item tables, summaries, labels, and joined data.",
+              text: "The rows returned by the GQL source. Each row includes record metadata and selected values. Field labels are also exposed for ergonomic access.",
             },
             {
               title: "columns",
               icon: "ti-columns",
-              text: "Metadata for the GQL result columns. Use it when a generic table should render every selected column.",
+              text: "The GQL result columns. Use column.key for row access and column.label for human-readable table headers.",
+            },
+            {
+              title: "query",
+              icon: "ti-database",
+              text: "A grouped object with query.rows and query.columns. It mirrors rows and columns for templates that prefer one namespace.",
             },
             {
               title: "document",
@@ -1590,12 +1736,12 @@ limit 1`}
             {
               title: "snapshot",
               icon: "ti-camera",
-              text: "The captured record graph for generated runs. It is null during live previews until a run has been created.",
+              text: "The captured record graph for generated runs. It is null in live draft previews before a run exists.",
             },
             {
               title: "images",
               icon: "ti-photo",
-              text: "Image slots for document templates that use file fields. Use preview data to verify which image variables are present.",
+              text: "Reserved image slots: images and primaryImage. Use the Data tab as the source of truth before relying on image paths.",
             },
             {
               title: "barcode_data_url",
@@ -1604,6 +1750,125 @@ limit 1`}
             },
           ]}
         />
+      </DocSection>
+
+      <DocSection title="LiquidJS quick reference">
+        <DocRows
+          items={[
+            {
+              title: "Output",
+              icon: "ti-braces",
+              text: (
+                <>
+                  Use <DocInlineCode>{"{{ value }}"}</DocInlineCode> to print a value. Output is HTML-escaped by default.
+                </>
+              ),
+            },
+            {
+              title: "Filters",
+              icon: "ti-filter",
+              text: (
+                <>
+                  Pipe values through filters: <DocInlineCode>{"{{ row.Name | default: '-' }}"}</DocInlineCode>. Unknown filters fail
+                  instead of rendering silently.
+                </>
+              ),
+            },
+            {
+              title: "Conditions",
+              icon: "ti-binary-tree",
+              text: (
+                <>
+                  Use <DocInlineCode>{"{% if row.Status == 'Open' %}"}</DocInlineCode>,{" "}
+                  <DocInlineCode>{"{% elsif ... %}"}</DocInlineCode>, <DocInlineCode>{"{% else %}"}</DocInlineCode>, and{" "}
+                  <DocInlineCode>{"{% endif %}"}</DocInlineCode>. <DocInlineCode>unless</DocInlineCode> is also allowed.
+                </>
+              ),
+            },
+            {
+              title: "Loops",
+              icon: "ti-repeat",
+              text: (
+                <>
+                  Use <DocInlineCode>{"{% for row in rows %}"}</DocInlineCode> and <DocInlineCode>{"{% endfor %}"}</DocInlineCode>.{" "}
+                  <DocInlineCode>break</DocInlineCode> and <DocInlineCode>continue</DocInlineCode> are allowed.
+                </>
+              ),
+            },
+            {
+              title: "Temporary values",
+              icon: "ti-variable",
+              text: (
+                <>
+                  Use <DocInlineCode>assign</DocInlineCode> for short values and <DocInlineCode>capture</DocInlineCode> for longer rendered
+                  fragments.
+                </>
+              ),
+            },
+            {
+              title: "Case branches",
+              icon: "ti-list-tree",
+              text: (
+                <>
+                  Use <DocInlineCode>case</DocInlineCode>, <DocInlineCode>when</DocInlineCode>, and{" "}
+                  <DocInlineCode>endcase</DocInlineCode> when one value maps to several output variants.
+                </>
+              ),
+            },
+            {
+              title: "Comments and raw blocks",
+              icon: "ti-message-off",
+              text: (
+                <>
+                  Use <DocInlineCode>comment</DocInlineCode> for template notes and <DocInlineCode>raw</DocInlineCode> when Liquid syntax
+                  should be printed literally.
+                </>
+              ),
+            },
+            {
+              title: "No external partials",
+              icon: "ti-shield-lock",
+              text: "Include, render, layout, and external partial tags are not allowed. A template must be self-contained.",
+            },
+          ]}
+        />
+      </DocSection>
+
+      <DocSection title="Allowed Liquid tags">
+        <div class="paper p-4">
+          <div class="flex flex-wrap gap-2">
+            <For
+              each={[
+                "if",
+                "elsif",
+                "else",
+                "endif",
+                "unless",
+                "endunless",
+                "for",
+                "break",
+                "continue",
+                "endfor",
+                "case",
+                "when",
+                "endcase",
+                "assign",
+                "capture",
+                "endcapture",
+                "comment",
+                "endcomment",
+                "raw",
+                "endraw",
+              ]}
+            >
+              {(tag) => <DocInlineCode>{tag}</DocInlineCode>}
+            </For>
+          </div>
+          <p class="mt-3 text-sm leading-relaxed text-dimmed">
+            Template rendering uses strict variables, strict filters, no dynamic partials, no layouts, and bounded memory/render sizes. Missing
+            variables or unsupported filters should be fixed in the template instead of ignored.
+          </p>
+        </div>
       </DocSection>
 
       <DocSection title="Liquid patterns">
@@ -1659,13 +1924,35 @@ limit 1`}
         </div>
       </DocSection>
 
+      <DocSection title="Preview tabs">
+        <DocRows
+          items={[
+            {
+              title: "Preview",
+              icon: "ti-file-type-pdf",
+              text: "Renders the current unsaved draft as a PDF. Use Open preview for full-screen inspection.",
+            },
+            {
+              title: "Data",
+              icon: "ti-list-tree",
+              text: "Shows the exact Liquid paths for the selected preview record. Copy paths from here instead of guessing object shapes.",
+            },
+            {
+              title: "Source",
+              icon: "ti-code",
+              text: "Shows the rendered GQL source after Liquid variables have been substituted. Use it to debug current-record filters.",
+            },
+          ]}
+        />
+      </DocSection>
+
       <DocSection title="Snapshots and redownloads">
         <DocRows
           items={[
             {
               title: "Every generation captures data",
               icon: "ti-camera-plus",
-              text: "When a user generates a PDF from a record, Grids first captures a snapshot of the record and related records reached through relations.",
+              text: "When a user generates a PDF from a record, Grids captures the root record and related records reached through relation fields.",
             },
             {
               title: "The PDF is generated on demand",
@@ -1688,9 +1975,41 @@ limit 1`}
               text: "The record detail panel also has a Snapshot button for capturing a record state without generating a PDF.",
             },
             {
+              title: "Snapshots are bounded",
+              icon: "ti-shield",
+              text: "Snapshot traversal is intentionally bounded so a dense relation graph cannot create an unbounded document run.",
+            },
+            {
               title: "Deletion does not erase runs",
               icon: "ti-file-time",
               text: "Deleting a template removes it from the active list, but existing generated documents remain available through their runs.",
+            },
+          ]}
+        />
+      </DocSection>
+
+      <DocSection title="When to use which pattern">
+        <DocRows
+          items={[
+            {
+              title: "Invoice or quote",
+              icon: "ti-receipt",
+              text: "Use a per-record source, line-item joins, header and footer snippets, document.number, and page CSS for table breaks.",
+            },
+            {
+              title: "Contract",
+              icon: "ti-file-certificate",
+              text: "Use a per-record source, stable party fields, terms in body HTML, and signature blocks that avoid page breaks.",
+            },
+            {
+              title: "Label or badge",
+              icon: "ti-barcode",
+              text: "Use compact page CSS, one selected record, and barcode_data_url for Code 128 or QR output.",
+            },
+            {
+              title: "Overview or checklist",
+              icon: "ti-list-check",
+              text: "Use a broader source with limit and sort, then loop over rows. Preview with enough rows to verify page breaks.",
             },
           ]}
         />

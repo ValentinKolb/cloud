@@ -133,10 +133,7 @@ const buildCompletions = (attachments: AttRef[], triggerStart: number): Completi
     });
 };
 
-const buildResult = (
-  word: { from: number; to: number },
-  attachments: AttRef[],
-): CompletionResult | null => {
+const buildResult = (word: { from: number; to: number }, attachments: AttRef[]): CompletionResult | null => {
   if (attachments.length === 0) return null;
   return {
     // `from` = right after the `![[` so CM's prefix filter matches

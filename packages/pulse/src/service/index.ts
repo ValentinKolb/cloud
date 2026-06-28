@@ -33,7 +33,6 @@ import type {
   PulseDashboardMarkdownWidget,
   PulseDashboardMetricQuery,
   PulseDashboardMetricWidget,
-  PulseDashboardPanel,
   PulsePublicDashboardCardWidget,
   PulseDashboardRow,
   PulseDashboardSection,
@@ -328,15 +327,13 @@ const searchPattern = (value: string | null | undefined): string | null => {
   return trimmed ? `%${escapeLikePattern(trimmed)}%` : null;
 };
 
-const normalizeDashboardPanel = (panel: unknown): PulseDashboardPanel | null => {
-  if (typeof panel !== "object" || panel === null) return null;
-  const value = panel as Record<string, unknown>;
+const normalizeDashboardMetricWidgetBase = (value: Record<string, unknown>) => {
   const metric = typeof value.metric === "string" ? value.metric.trim() : "";
   if (!metric) return null;
   const id = typeof value.id === "string" && value.id.trim() ? value.id.trim().slice(0, 80) : randomUUID();
   const title = typeof value.title === "string" && value.title.trim() ? value.title.trim().slice(0, 160) : metric;
   const visual = PANEL_VISUALS.includes(value.visual as (typeof PANEL_VISUALS)[number])
-    ? (value.visual as PulseDashboardPanel["visual"])
+    ? (value.visual as PulseDashboardMetricWidget["visual"])
     : "line";
   const aggregation = AGGREGATIONS.includes(value.aggregation as Aggregation) ? (value.aggregation as Aggregation) : "avg";
   const bucket = typeof value.bucket === "string" && /^\d+[mhd]$/.test(value.bucket) ? value.bucket : "5m";
@@ -443,11 +440,11 @@ const normalizeDashboardWidget = (widget: unknown): PulseDashboardWidget | null 
     return result;
   }
   if (value.kind === "metric") {
-    const panel = normalizeDashboardPanel(value);
-    if (!panel) return null;
+    const base = normalizeDashboardMetricWidgetBase(value);
+    if (!base) return null;
     const query = typeof value.query === "object" && value.query !== null ? (value.query as Partial<PulseDashboardMetricQuery>) : null;
     const result: PulseDashboardMetricWidget = {
-      ...panel,
+      ...base,
       kind: "metric",
       span: normalizeDashboardSpan(value.span),
       queryText: typeof value.queryText === "string" ? value.queryText.trim().slice(0, 8_000) : undefined,
@@ -456,9 +453,9 @@ const normalizeDashboardWidget = (widget: unknown): PulseDashboardWidget | null 
           ? {
               kind: "metric",
               metric: query.metric,
-              aggregation: AGGREGATIONS.includes(query.aggregation as Aggregation) ? (query.aggregation as Aggregation) : panel.aggregation,
-              bucket: typeof query.bucket === "string" && /^\d+[mhd]$/.test(query.bucket) ? query.bucket : panel.bucket,
-              since: typeof query.since === "string" && /^\d+[mhd]$/.test(query.since) ? query.since : panel.since,
+              aggregation: AGGREGATIONS.includes(query.aggregation as Aggregation) ? (query.aggregation as Aggregation) : base.aggregation,
+              bucket: typeof query.bucket === "string" && /^\d+[mhd]$/.test(query.bucket) ? query.bucket : base.bucket,
+              since: typeof query.since === "string" && /^\d+[mhd]$/.test(query.since) ? query.since : base.since,
               sourceId: typeof query.sourceId === "string" && query.sourceId.trim() ? query.sourceId : null,
               entityId: typeof query.entityId === "string" && query.entityId.trim() ? query.entityId : null,
               entityType: typeof query.entityType === "string" && query.entityType.trim() ? query.entityType : null,
@@ -620,51 +617,27 @@ const normalizeDashboardLayout = (layout: unknown): PulseDashboardLayout | null 
 
 const quoteDashboardDslString = (value: string): string => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 
-const quoteDashboardQueryPart = (value: string): string => (/[\s,=]/.test(value) ? quoteDashboardDslString(value) : value);
-
-const dashboardPanelToDsl = (panel: PulseDashboardPanel): string => {
-  const source = panel.sourceId ? ` source ${panel.sourceId}` : "";
-  const entity = panel.entityId ? ` entity ${quoteDashboardQueryPart(panel.entityId)}` : "";
-  const entityType = panel.entityType ? ` entity_type ${quoteDashboardQueryPart(panel.entityType)}` : "";
-  const dimensions = Object.entries(panel.dimensions ?? {});
-  const where = dimensions.length ? ` where ${dimensions.map(([key, value]) => `${key}=${quoteDashboardQueryPart(String(value))}`).join(", ")}` : "";
-  return `    ${panel.visual === "line" ? "chart" : panel.visual} ${quoteDashboardDslString(panel.title)} {
-      query metric ${panel.metric} ${panel.aggregation} every ${panel.bucket} since ${panel.since}${source}${entity}${entityType}${where}
-    }`;
-};
-
-const defaultDashboardDsl = (name: string, panels: PulseDashboardPanel[]): string => {
-  const panelBlocks = panels.length
-    ? panels.map(dashboardPanelToDsl).join("\n\n")
-    : `    markdown "Start here" {
-      """
-      Add cards, charts, tables, and notes with the Pulse dashboard DSL.
-      """
-    }`;
-  return `dashboard ${quoteDashboardDslString(name)} {
+const defaultDashboardDsl = (name: string): string => `dashboard ${quoteDashboardDslString(name)} {
   description "Live Pulse dashboard."
 
   section "Overview" {
-${panelBlocks}
+    markdown "Start here" {
+      """
+      Add cards, charts, tables, and notes with the Pulse dashboard DSL.
+      """
+    }
   }
 }`;
-};
 
 const normalizeDashboardConfig = (config: unknown, dashboardName = "Dashboard"): PulseDashboardConfig => {
   const parsed = parseJson(config);
   const raw =
     typeof parsed === "object" && parsed !== null
-      ? (parsed as { layout?: unknown; panels?: unknown; dsl?: unknown; refreshIntervalSeconds?: unknown })
+      ? (parsed as { layout?: unknown; dsl?: unknown; refreshIntervalSeconds?: unknown })
       : {};
-  const panels = Array.isArray(raw.panels) ? raw.panels : [];
-  const normalizedPanels = panels
-    .map(normalizeDashboardPanel)
-    .filter((panel): panel is PulseDashboardPanel => panel !== null)
-    .slice(0, 24);
   const result: PulseDashboardConfig = {
-    dsl: typeof raw.dsl === "string" && raw.dsl.trim() ? raw.dsl.trim().slice(0, 40_000) : defaultDashboardDsl(dashboardName, normalizedPanels),
+    dsl: typeof raw.dsl === "string" && raw.dsl.trim() ? raw.dsl.trim().slice(0, 40_000) : defaultDashboardDsl(dashboardName),
     layout: null,
-    panels: normalizedPanels,
   };
   const refreshIntervalSeconds = normalizeRefreshInterval(raw.refreshIntervalSeconds);
   if (refreshIntervalSeconds !== undefined) result.refreshIntervalSeconds = refreshIntervalSeconds;
@@ -686,7 +659,6 @@ const compileDashboardConfigForSave = (baseId: string, name: string, config: unk
   return ok({
     ...normalizeDashboardConfig(compiled.data, name),
     refreshIntervalSeconds: normalized.refreshIntervalSeconds,
-    panels: normalized.panels,
   });
 };
 
@@ -725,7 +697,6 @@ const dashboardLayoutWidgets = (config: PulseDashboardConfig): PulseDashboardWid
 
 const dashboardMetricWidgets = (config: PulseDashboardConfig): PulseDashboardMetricWidget[] => [
   ...dashboardLayoutWidgets(config).filter((widget): widget is PulseDashboardMetricWidget => widget.kind === "metric"),
-  ...(!config.layout ? config.panels?.map((panel) => ({ ...panel, kind: "metric" as const })) ?? [] : []),
 ];
 
 const dashboardEventsWidgets = (config: PulseDashboardConfig): PulseDashboardEventsWidget[] =>
@@ -1716,7 +1687,7 @@ const createDashboard = async (params: {
   if (!active.ok) return fail(active.error);
   const name = params.name.trim();
   if (!name) return fail(err.badInput("Dashboard name is required"));
-  const configResult = compileDashboardConfigForSave(params.baseId, name, params.config ?? { panels: [] });
+  const configResult = compileDashboardConfigForSave(params.baseId, name, params.config ?? {});
   if (!configResult.ok) return fail(configResult.error);
   const config = configResult.data;
   const [row] = await sql<DashboardRow[]>`

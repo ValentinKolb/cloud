@@ -270,10 +270,10 @@ const linkDescription = (widget: LinkWidget, fallback: string | null | undefined
   widget.description?.trim() || fallback || null;
 
 const linkBase = (widget: LinkWidget): LinkDataBase => ({
-    kind: "link" as const,
-    title: widget.title?.trim() || "Open",
-    description: widget.description?.trim() || null,
-    icon: widget.icon || iconForLinkTarget(widget.target.kind),
+  kind: "link" as const,
+  title: widget.title?.trim() || "Open",
+  description: widget.description?.trim() || null,
+  icon: widget.icon || iconForLinkTarget(widget.target.kind),
 });
 
 const resolveUrlLink = (widget: LinkWidget, base: LinkDataBase): WidgetData => ({
@@ -396,11 +396,7 @@ const canReadTableTarget = async (table: SavedTable, viewer: ViewerContext): Pro
   return hasAtLeast(resolveEffectivePermission(grants, { baseId: table.baseId, tableId: table.id }), "read");
 };
 
-const canReadViewTarget = async (
-  view: SavedView,
-  baseId: string,
-  viewer: ViewerContext,
-): Promise<boolean> => {
+const canReadViewTarget = async (view: SavedView, baseId: string, viewer: ViewerContext): Promise<boolean> => {
   if (viewer.isAdmin) return true;
   const grants = await loadGrantsForUser({
     userId: viewer.userId,
@@ -526,7 +522,9 @@ const inferAggKind = (key: string): AggregationSpec["agg"] => {
     : "count";
 };
 
-const previewChartShape = (preview: PreviewSuccess): { groupBy: GroupBySpec[]; aggregations: AggregationSpec[]; buckets: Array<{ keys: unknown[]; values: Record<string, unknown> }> } => {
+const previewChartShape = (
+  preview: PreviewSuccess,
+): { groupBy: GroupBySpec[]; aggregations: AggregationSpec[]; buckets: Array<{ keys: unknown[]; values: Record<string, unknown> }> } => {
   const groupColumns = preview.columns.filter((column) => column.type !== "aggregate");
   const aggregateColumns = preview.columns.filter((column) => column.type === "aggregate");
   const aggregations = aggregateColumns.map((column) => ({
@@ -554,7 +552,11 @@ const previewChartShape = (preview: PreviewSuccess): { groupBy: GroupBySpec[]; a
   };
 };
 
-const resolveChart = async (widget: Extract<Widget, { kind: "chart" }>, viewer: ViewerContext, options: ResolveOptions): Promise<WidgetData> => {
+const resolveChart = async (
+  widget: Extract<Widget, { kind: "chart" }>,
+  viewer: ViewerContext,
+  options: ResolveOptions,
+): Promise<WidgetData> => {
   const saved = await views.get(widget.viewId);
   if (!saved) return { kind: "error", reason: "source view not found" };
   const result = await previewSavedView(saved, viewer, options, widget.limit);
@@ -580,7 +582,11 @@ const resolveChart = async (widget: Extract<Widget, { kind: "chart" }>, viewer: 
 // view — embedded read-only table of a saved view
 // =============================================================================
 
-const resolveView = async (widget: Extract<Widget, { kind: "view" }>, viewer: ViewerContext, options: ResolveOptions): Promise<WidgetData> => {
+const resolveView = async (
+  widget: Extract<Widget, { kind: "view" }>,
+  viewer: ViewerContext,
+  options: ResolveOptions,
+): Promise<WidgetData> => {
   return resolveSavedView(widget.viewId, widget.title, viewer, options);
 };
 
@@ -694,7 +700,9 @@ const resolveUngroupedViewStats = async (
             return { id: column.id, name: column.label, format: column.format ?? null } as const;
           }
           const field = fieldsById.get(column.fieldId);
-          return field && !field.deletedAt ? ({ id: field.id, name: column.label?.trim() || field.name, format: inferFormatFromField(field) } as const) : null;
+          return field && !field.deletedAt
+            ? ({ id: field.id, name: column.label?.trim() || field.name, format: inferFormatFromField(field) } as const)
+            : null;
         })
         .filter((entry): entry is { id: string; name: string; format: ViewStatsCell["format"] } => Boolean(entry))
     : fieldsList

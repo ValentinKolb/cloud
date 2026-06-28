@@ -143,9 +143,7 @@ const removeTagFromInput = (raw: string, tag: string): string => {
 };
 
 const metadataRows = (metadata?: SearchMetadata[]) =>
-  (metadata ?? [])
-    .filter((entry) => entry.label.trim().length > 0 && entry.value.trim().length > 0)
-    .slice(0, 5);
+  (metadata ?? []).filter((entry) => entry.label.trim().length > 0 && entry.value.trim().length > 0).slice(0, 5);
 
 export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
   const [rawInput, setRawInput] = createSignal("");
@@ -162,9 +160,7 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
   const rowRefs = new Map<string, HTMLButtonElement>();
 
   const parsedInput = createMemo(() => parseInput(rawInput()));
-  const canSearch = createMemo(
-    () => parsedInput().tags.length > 0 || parsedInput().query.length >= MIN_QUERY_LENGTH,
-  );
+  const canSearch = createMemo(() => parsedInput().tags.length > 0 || parsedInput().query.length >= MIN_QUERY_LENGTH);
 
   // Tag suggestions for the empty state — flat list of every tag declared by
   // any app, deduped on tag name (first declaration wins) so we don't render
@@ -285,7 +281,7 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
 
       const payload = (await response.json()) as SearchResponse | { message?: string };
       if (!response.ok) {
-        throw new Error("message" in payload ? payload.message ?? "Search failed." : "Search failed.");
+        throw new Error("message" in payload ? (payload.message ?? "Search failed.") : "Search failed.");
       }
 
       return payload as SearchResponse;
@@ -596,8 +592,7 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
                 </Show>
                 <Show when={bodyMode() === "ready"}>
                   <span>
-                    {resultItems().length} result{resultItems().length === 1 ? "" : "s"}{" "}
-                    <span aria-hidden="true">•</span>{" "}
+                    {resultItems().length} result{resultItems().length === 1 ? "" : "s"} <span aria-hidden="true">•</span>{" "}
                     <button type="button" class="text-blue-500 hover:underline dark:text-blue-400" onClick={openHelp}>
                       tag help
                     </button>
@@ -613,11 +608,11 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
             {/* Suggestions: empty input, show available tags as clickable chips. */}
             <Show when={bodyMode() === "suggestions"}>
               <div class="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-1">
-                <p class="text-xs text-dimmed">Type to search, or use a <code class="rounded bg-zinc-100 px-1 py-0.5 text-[10px] dark:bg-zinc-900">#tag</code> to focus on one app.</p>
-                <Show
-                  when={tagSuggestions().length > 0}
-                  fallback={<p class="text-xs text-dimmed">No tags available.</p>}
-                >
+                <p class="text-xs text-dimmed">
+                  Type to search, or use a <code class="rounded bg-zinc-100 px-1 py-0.5 text-[10px] dark:bg-zinc-900">#tag</code> to focus
+                  on one app.
+                </p>
+                <Show when={tagSuggestions().length > 0} fallback={<p class="text-xs text-dimmed">No tags available.</p>}>
                   <div class="flex flex-wrap gap-1.5">
                     <For each={tagSuggestions()}>
                       {(suggestion) => (
@@ -634,11 +629,7 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
                     </For>
                   </div>
                 </Show>
-                <button
-                  type="button"
-                  class="self-start text-[11px] text-blue-500 hover:underline dark:text-blue-400"
-                  onClick={openHelp}
-                >
+                <button type="button" class="self-start text-[11px] text-blue-500 hover:underline dark:text-blue-400" onClick={openHelp}>
                   See all tag descriptions
                 </button>
               </div>
@@ -654,8 +645,10 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
                     <For each={unsupportedTags()}>
                       {(tag, index) => (
                         <>
-                          <code class="rounded bg-amber-200/60 px-1 py-0.5 text-[10px] text-amber-900 dark:bg-amber-900/35 dark:text-amber-200">#{tag}</code>
-                          <Show when={index() < unsupportedTags().length - 1}>{" "}</Show>
+                          <code class="rounded bg-amber-200/60 px-1 py-0.5 text-[10px] text-amber-900 dark:bg-amber-900/35 dark:text-amber-200">
+                            #{tag}
+                          </code>
+                          <Show when={index() < unsupportedTags().length - 1}> </Show>
                         </>
                       )}
                     </For>
@@ -685,7 +678,14 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
               <div class="flex h-full min-h-0 flex-col items-center justify-center gap-2 text-center">
                 <i class="ti ti-mood-empty text-2xl text-dimmed" />
                 <p class="text-xs text-dimmed">
-                  No matches{parsedInput().query.length > 0 ? <> for <span class="text-zinc-700 dark:text-zinc-200">"{parsedInput().query}"</span></> : null}.
+                  No matches
+                  {parsedInput().query.length > 0 ? (
+                    <>
+                      {" "}
+                      for <span class="text-zinc-700 dark:text-zinc-200">"{parsedInput().query}"</span>
+                    </>
+                  ) : null}
+                  .
                 </p>
               </div>
             </Show>
@@ -781,14 +781,14 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
                         <Show when={metadataRows(item().metadata).length > 0}>
                           <div class="rounded-lg bg-zinc-100/65 p-2 dark:bg-zinc-900/65">
                             <div class="divide-y divide-zinc-200/80 dark:divide-zinc-800/80">
-                            <For each={metadataRows(item().metadata)}>
-                              {(entry) => (
-                                <div class="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-2 py-1.5 text-xs first:pt-0 last:pb-0">
-                                  <span class="truncate text-dimmed">{entry.label}</span>
-                                  <span class="truncate">{entry.value}</span>
-                                </div>
-                              )}
-                            </For>
+                              <For each={metadataRows(item().metadata)}>
+                                {(entry) => (
+                                  <div class="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-2 py-1.5 text-xs first:pt-0 last:pb-0">
+                                    <span class="truncate text-dimmed">{entry.label}</span>
+                                    <span class="truncate">{entry.value}</span>
+                                  </div>
+                                )}
+                              </For>
                             </div>
                           </div>
                         </Show>

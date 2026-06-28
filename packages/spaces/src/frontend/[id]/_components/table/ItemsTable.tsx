@@ -32,13 +32,7 @@ const PRIORITY_CLASS: Record<string, string> = {
 
 const buildItemHref = (baseUrl: string, itemId: string) => `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}item=${itemId}`;
 
-function CellLink(props: {
-  href: string;
-  class?: string;
-  title?: string;
-  tabIndex?: number;
-  children: JSX.Element;
-}) {
+function CellLink(props: { href: string; class?: string; title?: string; tabIndex?: number; children: JSX.Element }) {
   return (
     <a
       href={props.href}
@@ -157,12 +151,7 @@ export default function ItemsTable(props: Props) {
           }
           if (col.id === "schedule") {
             return (
-              <CellLink
-                href={href}
-                class="block truncate text-secondary"
-                title={formatSchedule(item)}
-                tabIndex={-1}
-              >
+              <CellLink href={href} class="block truncate text-secondary" title={formatSchedule(item)} tabIndex={-1}>
                 {formatSchedule(item)}
               </CellLink>
             );

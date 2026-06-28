@@ -106,9 +106,7 @@ const findTags = (state: EditorState, notebookId: string): CursorZoneState => {
     // the literal `#tag` text without the pill swallowing clicks.
     if (selectionIntersectsRange(cursor, from, to)) continue;
 
-    decorations.push(
-      Decoration.replace({ widget: new TagWidget(notebookId, m[2]!.toLowerCase()) }).range(from, to),
-    );
+    decorations.push(Decoration.replace({ widget: new TagWidget(notebookId, m[2]!.toLowerCase()) }).range(from, to));
   }
   return {
     decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
@@ -137,10 +135,7 @@ const changesMightAffectTags = (tr: Transaction): boolean => {
 };
 
 export const tagPillExtension = (notebookId: string): Extension => {
-  const stateField = cursorZoneStateField(
-    (state) => findTags(state, notebookId),
-    { changesMightAffectSyntax: changesMightAffectTags },
-  );
+  const stateField = cursorZoneStateField((state) => findTags(state, notebookId), { changesMightAffectSyntax: changesMightAffectTags });
 
   const theme = EditorView.theme({
     ".cm-tag-pill": {

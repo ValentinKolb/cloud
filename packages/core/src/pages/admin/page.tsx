@@ -15,12 +15,7 @@ export default ssr<AuthContext>(async (c) => {
         {/* Stat cards — see skills/cloud-app/references/frontend.md § Stats */}
         <div class="mb-2">
           <StatGrid columns={3}>
-            <StatCell
-              label="Apps"
-              value={allApps.length}
-              sub="registered"
-              accent={{ tone: "blue", icon: "ti ti-stack-3" }}
-            />
+            <StatCell label="Apps" value={allApps.length} sub="registered" accent={{ tone: "blue", icon: "ti ti-stack-3" }} />
             <StatCell
               label="Admin panels"
               value={adminApps.length}
@@ -32,24 +27,13 @@ export default ssr<AuthContext>(async (c) => {
                 href: "/admin/gateway",
               }}
             />
-            <StatCell
-              label="Navigation"
-              value={appsWithNav.length}
-              sub="visible to users"
-              accent={{ tone: "blue", icon: "ti ti-eye" }}
-            />
+            <StatCell label="Navigation" value={appsWithNav.length} sub="visible to users" accent={{ tone: "blue", icon: "ti ti-eye" }} />
           </StatGrid>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {adminApps.map((app) => (
-            <LinkCard
-              href={app.adminHref!}
-              title={app.name}
-              description={app.description}
-              icon={app.icon}
-              color="zinc"
-            />
+            <LinkCard href={app.adminHref!} title={app.name} description={app.description} icon={app.icon} color="zinc" />
           ))}
         </div>
       </div>

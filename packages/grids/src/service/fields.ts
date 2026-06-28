@@ -250,11 +250,7 @@ const validateLinkOrComputedConfig = async (
   return ok();
 };
 
-const ensureUniqueFieldName = async (
-  tableId: string,
-  name: string,
-  exceptFieldId: string | null = null,
-): Promise<Result<void>> => {
+const ensureUniqueFieldName = async (tableId: string, name: string, exceptFieldId: string | null = null): Promise<Result<void>> => {
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM grids.fields
@@ -296,7 +292,7 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   // jsonb. JSON.stringify on the wrapper produces a valid JSONB literal
   // for primitives (`true`, `42`, `"hello"`) and keeps objects working.
   const defaultValueJsonb = defaultValue === undefined || defaultValue === null ? null : JSON.stringify(defaultValue);
-  const uniqueConstraint = input.type === "id" ? true : input.uniqueConstraint ?? false;
+  const uniqueConstraint = input.type === "id" ? true : (input.uniqueConstraint ?? false);
 
   const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
@@ -394,7 +390,7 @@ const validateFieldUpdate = async (existing: Field, input: UpdateFieldInput): Pr
     hideInTable: input.hideInTable ?? existing.hideInTable,
     defaultValue: defaultValid.data,
     indexed: input.indexed ?? existing.indexed,
-    uniqueConstraint: existing.type === "id" ? true : input.uniqueConstraint ?? existing.uniqueConstraint,
+    uniqueConstraint: existing.type === "id" ? true : (input.uniqueConstraint ?? existing.uniqueConstraint),
   });
 };
 
@@ -417,11 +413,7 @@ const ensureUniqueToggleAllowed = async (fieldId: string, existing: Field, input
   return ok();
 };
 
-const persistFieldUpdate = async (
-  id: string,
-  next: FieldUpdateState,
-  client: SqlClient = sql,
-): Promise<Result<Field>> => {
+const persistFieldUpdate = async (id: string, next: FieldUpdateState, client: SqlClient = sql): Promise<Result<Field>> => {
   // Same primitive-to-JSONB stringify dance as create.
   const nextDefaultValueJsonb = next.defaultValue === undefined || next.defaultValue === null ? null : JSON.stringify(next.defaultValue);
   const [row] = await client<DbRow[]>`
@@ -505,10 +497,7 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
       await logFieldUpdateDiff(existing, nextResult.data, actorId, tx);
 
       if (existing.name !== field.name) {
-        await rewriteFieldNameReferences(
-          { tableId: existing.tableId, oldName: existing.name, newName: field.name },
-          tx,
-        );
+        await rewriteFieldNameReferences({ tableId: existing.tableId, oldName: existing.name, newName: field.name }, tx);
       }
 
       return ok(field);

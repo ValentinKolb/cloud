@@ -81,12 +81,15 @@ describe("named refs Postgres integration", () => {
       expect(price.ok && quantity.ok && notes.ok).toBe(true);
       if (!price.ok || !quantity.ok || !notes.ok) throw new Error("field setup failed");
 
-      const total = await fields.create({
-        tableId: table.data.id,
-        name: "Total",
-        type: "formula",
-        config: { expression: "ROUND(Price * Quantity, 2)" },
-      }, null);
+      const total = await fields.create(
+        {
+          tableId: table.data.id,
+          name: "Total",
+          type: "formula",
+          config: { expression: "ROUND(Price * Quantity, 2)" },
+        },
+        null,
+      );
       expect(total.ok).toBe(true);
       if (!total.ok) throw new Error(total.error.message);
 
@@ -99,7 +102,6 @@ describe("named refs Postgres integration", () => {
       `;
       const formulaConfig = readJsonb<{ expression: string }>(formulaRow?.config);
       expect(formulaConfig.expression).toBe('ROUND("Unit price" * Quantity, 2)');
-
     } finally {
       await cleanupBase(baseId);
     }
@@ -116,12 +118,15 @@ describe("named refs Postgres integration", () => {
       expect(price.ok).toBe(true);
       if (!price.ok) throw new Error(price.error.message);
 
-      const view = await views.create({
-        tableId: table.data.id,
-        name: "Current orders",
-        source: `from table {${table.data.id}}\nselect {${price.data.id}}`,
-        ui: { columns: [{ fieldId: price.data.id }] },
-      }, null);
+      const view = await views.create(
+        {
+          tableId: table.data.id,
+          name: "Current orders",
+          source: `from table {${table.data.id}}\nselect {${price.data.id}}`,
+          ui: { columns: [{ fieldId: price.data.id }] },
+        },
+        null,
+      );
       expect(view.ok).toBe(true);
       if (!view.ok) throw new Error(view.error.message);
 
@@ -146,7 +151,9 @@ describe("named refs Postgres integration", () => {
       const tableFields = await fields.listByTable(table.data.id);
       const resolved = resolveDslQueryToQueryPlan(query.ast, {
         tables: [{ kind: "table", id: table.data.id, shortId: table.data.shortId, name: "Invoices" }],
-        views: [{ kind: "view", id: view.data.id, shortId: view.data.shortId, tableId: table.data.id, name: "Current invoices", query: {} }],
+        views: [
+          { kind: "view", id: view.data.id, shortId: view.data.shortId, tableId: table.data.id, name: "Current invoices", query: {} },
+        ],
         fieldsByTableId: { [table.data.id]: tableFields },
       });
       expect(resolved.ok).toBe(true);

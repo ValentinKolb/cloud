@@ -12,10 +12,7 @@ export type DashboardIncludedViewer = {
  * dashboard read access. Navigating to the source table/view/form, following
  * link widgets, or writing records still uses the origin resource's own ACL.
  */
-export const canReadDashboardIncludedData = async (
-  dashboard: Dashboard,
-  viewer: DashboardIncludedViewer,
-): Promise<boolean> => {
+export const canReadDashboardIncludedData = async (dashboard: Dashboard, viewer: DashboardIncludedViewer): Promise<boolean> => {
   if (viewer.isAdmin) return true;
   const grants = await loadGrantsForUser({
     userId: viewer.userId,

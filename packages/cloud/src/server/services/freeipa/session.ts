@@ -39,11 +39,7 @@ let svcSession: string | null = null;
 let svcSessionPromise: Promise<string> | null = null;
 let svcSessionKey: string | null = null;
 
-export const getServiceSession = async (config: {
-  url: string;
-  serviceUser: string;
-  servicePassword: string;
-}): Promise<string> => {
+export const getServiceSession = async (config: { url: string; serviceUser: string; servicePassword: string }): Promise<string> => {
   // Include TLS fingerprint so toggling allow_insecure or rotating ca_cert
   // forces a re-login (otherwise the cached session keeps using the old TLS
   // trust anchor for fetches that wouldn't have succeeded under it).

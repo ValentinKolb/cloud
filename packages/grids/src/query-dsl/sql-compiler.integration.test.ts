@@ -1615,5 +1615,4 @@ describe("Query DSL Postgres smoke", () => {
       await cleanupFixture(fixture.baseId);
     }
   });
-
 });

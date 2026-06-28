@@ -114,7 +114,14 @@ export default function CommentsSection(props: Props) {
       </div>
 
       <div class="flex flex-col gap-3">
-        <Show when={sortedComments().length > 0} fallback={<Placeholder align="left" class="px-0 py-2">No comments yet.</Placeholder>}>
+        <Show
+          when={sortedComments().length > 0}
+          fallback={
+            <Placeholder align="left" class="px-0 py-2">
+              No comments yet.
+            </Placeholder>
+          }
+        >
           <For each={sortedComments()}>
             {(comment) => (
               <div class={`flex ${comment.userId === props.currentUserId ? "justify-end" : "justify-start"}`}>

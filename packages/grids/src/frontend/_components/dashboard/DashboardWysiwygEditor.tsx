@@ -228,7 +228,10 @@ export default function DashboardWysiwygEditor(props: Props) {
         if (!res.ok) {
           const reason = await errorMessage(res, "Failed to refresh widget");
           if (token !== saveToken) return;
-          withDashboardScrollPreserved(() => setWidgetData((current) => ({ ...current, [widget.id]: { kind: "error", reason } })), scrollTop);
+          withDashboardScrollPreserved(
+            () => setWidgetData((current) => ({ ...current, [widget.id]: { kind: "error", reason } })),
+            scrollTop,
+          );
           return;
         }
         const data = await res.json();

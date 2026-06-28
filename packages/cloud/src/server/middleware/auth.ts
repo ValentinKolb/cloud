@@ -73,7 +73,9 @@ const handleReject = (c: Context, options: RoleOptions, reason: "unauthenticated
   return c.json({ message: "Insufficient permissions" } as MessageResponse, 403);
 };
 
-const loadAuthenticatedActor = async (c: Context<AuthContext>): Promise<{
+const loadAuthenticatedActor = async (
+  c: Context<AuthContext>,
+): Promise<{
   token: string | null;
   user: User | null;
   actor: RequestActor | null;

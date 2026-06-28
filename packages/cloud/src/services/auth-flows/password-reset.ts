@@ -15,8 +15,7 @@ const log = logger("auth:password-reset");
 
 const REQUEST_TTL_SECONDS = 900;
 const REQUEST_COOLDOWN_SECONDS = 60;
-const GENERIC_MESSAGE =
-  "If this account can reset a password, a reset link has been sent.";
+const GENERIC_MESSAGE = "If this account can reset a password, a reset link has been sent.";
 
 type ResetTarget = {
   userId: string;
@@ -88,10 +87,7 @@ const resolveResetTarget = async (email: string): Promise<ResetTarget | null> =>
   return buildTarget(rows[0]!);
 };
 
-const resolveResetTargetForToken = async (params: {
-  userId: string;
-  email: string;
-}): Promise<ResetTarget | null> => {
+const resolveResetTargetForToken = async (params: { userId: string; email: string }): Promise<ResetTarget | null> => {
   const rows = await sql<{ id: string; uid: string; mail: string }[]>`
     SELECT id, uid, btrim(mail) AS mail
     FROM auth.users
@@ -106,9 +102,7 @@ const resolveResetTargetForToken = async (params: {
   return rows.length === 1 ? buildTarget(rows[0]!) : null;
 };
 
-const sendResetEmail = async (
-  params: ResetTarget & { redirectTo?: string }
-): Promise<void> => {
+const sendResetEmail = async (params: ResetTarget & { redirectTo?: string }): Promise<void> => {
   const token = await providers.local.auth.createPasswordResetToken({
     userId: params.userId,
     uid: params.uid,
@@ -116,9 +110,7 @@ const sendResetEmail = async (
     ttlSeconds: REQUEST_TTL_SECONDS,
   });
   const rawAppUrl = await settings.get<string>("app.url");
-  const appUrl = rawAppUrl.startsWith("http")
-    ? rawAppUrl
-    : `https://${rawAppUrl}`;
+  const appUrl = rawAppUrl.startsWith("http") ? rawAppUrl : `https://${rawAppUrl}`;
   const resetLink = createAuthPasswordResetUrl(appUrl, {
     token,
     redirectTo: params.redirectTo,
@@ -181,10 +173,7 @@ const changeTemporaryPassword = async (params: {
   };
 };
 
-export const request = async (params: {
-  email: string;
-  redirectTo?: string;
-}): Promise<{ ok: true; message: string }> => {
+export const request = async (params: { email: string; redirectTo?: string }): Promise<{ ok: true; message: string }> => {
   const email = normalizeEmail(params.email);
   if (await isInCooldown(email)) {
     log.info("Password reset request ignored during cooldown");
@@ -208,10 +197,7 @@ export const request = async (params: {
   return { ok: true, message: GENERIC_MESSAGE };
 };
 
-export const complete = async (params: {
-  token?: string;
-  newPassword: string;
-}): Promise<ResetAttemptSuccess | ResetAttemptFailure> => {
+export const complete = async (params: { token?: string; newPassword: string }): Promise<ResetAttemptSuccess | ResetAttemptFailure> => {
   if (!params.token) {
     return {
       ok: false,
@@ -221,16 +207,13 @@ export const complete = async (params: {
     };
   }
 
-  const payload = await providers.local.auth.consumePasswordResetToken(
-    params.token
-  );
+  const payload = await providers.local.auth.consumePasswordResetToken(params.token);
   if (!payload) {
     return {
       ok: false,
       status: 401,
       reason: "invalid_or_expired",
-      message:
-        "This password reset link has expired. Request a new reset link.",
+      message: "This password reset link has expired. Request a new reset link.",
     };
   }
 
@@ -243,8 +226,7 @@ export const complete = async (params: {
       ok: false,
       status: 401,
       reason: "invalid_or_expired",
-      message:
-        "This password reset link has expired. Request a new reset link.",
+      message: "This password reset link has expired. Request a new reset link.",
     };
   }
 

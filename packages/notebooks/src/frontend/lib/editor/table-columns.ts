@@ -126,9 +126,7 @@ const buildColumnApply = (col: string, userTypedBacktick: boolean): string => {
  * Completion source. Wire after `tableFormulaCompletionSource` in
  * the `autocompletion({override: …})` array.
  */
-export const tableColumnCompletionSource = (
-  context: CompletionContext,
-): CompletionResult | null => {
+export const tableColumnCompletionSource = (context: CompletionContext): CompletionResult | null => {
   // Stage 1 — cheap: must be on a line that LOOKS like a table row.
   const line = context.state.doc.lineAt(context.pos);
   if (!isTableRow(line.text)) return null;
@@ -165,8 +163,7 @@ export const tableColumnCompletionSource = (
   // backtick — that signals the user is already typing inside a
   // quoted-ident, so our apply should NOT add another opening
   // backtick (would produce ``…` which doesn't parse).
-  const charBefore =
-    partialFrom > 0 ? context.state.sliceDoc(partialFrom - 1, partialFrom) : "";
+  const charBefore = partialFrom > 0 ? context.state.sliceDoc(partialFrom - 1, partialFrom) : "";
   const userTypedBacktick = charBefore === "`";
 
   const options: Completion[] = columns.map((col) => {

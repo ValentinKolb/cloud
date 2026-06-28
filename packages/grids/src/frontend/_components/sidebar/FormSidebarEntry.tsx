@@ -23,18 +23,10 @@ const chooseEditModeAction = (formName: string) =>
       <div class="flex flex-col gap-4">
         <p class="text-sm text-dimmed">You are in edit mode. What do you want to do with "{formName}"?</p>
         <div class="flex justify-end gap-2">
-          <button
-            type="button"
-            class="btn-input btn-sm"
-            onClick={() => close("use")}
-          >
+          <button type="button" class="btn-input btn-sm" onClick={() => close("use")}>
             <i class="ti ti-send" /> Use form
           </button>
-          <button
-            type="button"
-            class="btn-primary btn-sm"
-            onClick={() => close("edit")}
-          >
+          <button type="button" class="btn-primary btn-sm" onClick={() => close("edit")}>
             <i class="ti ti-pencil" /> Edit form
           </button>
         </div>

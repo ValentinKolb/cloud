@@ -167,7 +167,12 @@ function GeneralSection(props: {
   );
 }
 
-function QuerySourceSection(props: { viewId: string; initial: View; onSaved?: (view: View) => void; onDirtyChange?: (dirty: boolean) => void }) {
+function QuerySourceSection(props: {
+  viewId: string;
+  initial: View;
+  onSaved?: (view: View) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const draft = createDraft({
     source: props.initial.source,
   });

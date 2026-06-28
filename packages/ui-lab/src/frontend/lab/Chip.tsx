@@ -14,9 +14,7 @@ import { toast } from "@valentinkolb/cloud/ui";
  * colour differ. `text-xs` for both the name and the secondary path /
  * "CSS utility" hint so the baseline lines up cleanly.
  */
-type ChipProps =
-  | { kind: "component"; name: string; from: string }
-  | { kind: "utility"; name: string };
+type ChipProps = { kind: "component"; name: string; from: string } | { kind: "utility"; name: string };
 
 export default function Chip(props: ChipProps) {
   const copy = async (): Promise<void> => {
@@ -37,8 +35,7 @@ export default function Chip(props: ChipProps) {
       classList={{
         "bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-900/40":
           props.kind === "component",
-        "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700":
-          props.kind === "utility",
+        "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700": props.kind === "utility",
       }}
       title={props.kind === "component" ? `Copy import from ${props.from}` : `Copy class .${props.name}`}
     >
@@ -51,9 +48,7 @@ export default function Chip(props: ChipProps) {
       />
       <span>{props.name}</span>
       <span class="text-dimmed font-sans">·</span>
-      <span class="text-dimmed font-sans">
-        {props.kind === "component" ? props.from : "CSS utility"}
-      </span>
+      <span class="text-dimmed font-sans">{props.kind === "component" ? props.from : "CSS utility"}</span>
     </button>
   );
 }

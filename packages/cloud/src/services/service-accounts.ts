@@ -161,11 +161,7 @@ export const delete_ = async (params: { id: string }): Promise<Result<void>> => 
   return ok();
 };
 
-export const deleteForResource = async (params: {
-  appId: string;
-  resourceType: string;
-  resourceId: string;
-}): Promise<number> => {
+export const deleteForResource = async (params: { appId: string; resourceType: string; resourceId: string }): Promise<number> => {
   const result = await sql`
     DELETE FROM auth.service_accounts
     WHERE kind = 'resource_bound'

@@ -17,15 +17,20 @@ const pdfResponse = (body = "%PDF-test", init?: ResponseInit) =>
 describe("Gotenberg PDF renderer", () => {
   test("posts HTML to the chromium HTML endpoint", async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
-    let filename = "";
-    const result = await renderHtmlToPdfWithConfig({ html: "<h1>Hello</h1>", filename: "ignored.html" }, baseConfig, {
-      fetch: async (url, init) => {
-        calls.push({ url: String(url), init: init ?? {} });
-        const file = (init?.body as FormData).get("files");
-        filename = file instanceof File ? file.name : "";
-        return pdfResponse();
+    const files: string[] = [];
+    const result = await renderHtmlToPdfWithConfig(
+      { html: "<h1>Hello</h1>", headerHtml: "<p>Head</p>", footerHtml: "<p>Foot</p>", filename: "ignored.html" },
+      baseConfig,
+      {
+        fetch: async (url, init) => {
+          calls.push({ url: String(url), init: init ?? {} });
+          for (const file of (init?.body as FormData).getAll("files")) {
+            if (file instanceof File) files.push(file.name);
+          }
+          return pdfResponse();
+        },
       },
-    });
+    );
 
     expect(result.contentType).toBe("application/pdf");
     expect(result.pdf.byteLength).toBeGreaterThan(0);
@@ -33,7 +38,9 @@ describe("Gotenberg PDF renderer", () => {
     expect(calls[0]?.url).toBe("http://gotenberg:3000/forms/chromium/convert/html");
     expect(calls[0]?.init.method).toBe("POST");
     expect(calls[0]?.init.body).toBeInstanceOf(FormData);
-    expect(filename).toBe("index.html");
+    expect(files).toEqual(["index.html", "header.html", "footer.html"]);
+    expect((calls[0]?.init.body as FormData).get("preferCssPageSize")).toBe("true");
+    expect((calls[0]?.init.body as FormData).get("printBackground")).toBe("true");
   });
 
   test("adds basic auth only when credentials are configured", async () => {

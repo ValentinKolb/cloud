@@ -14,16 +14,7 @@
  * them without updating those.
  */
 import { $ } from "bun";
-import {
-  color,
-  compose,
-  formatRelative,
-  formatUptimeFromStatus,
-  helpFor,
-  listDevServices,
-  resolveApps,
-  shortName,
-} from "./dev-cli";
+import { color, compose, formatRelative, formatUptimeFromStatus, helpFor, listDevServices, resolveApps, shortName } from "./dev-cli";
 
 type ComposeRow = {
   Name: string;
@@ -40,9 +31,7 @@ type ComposeRow = {
  *  (`cloud-gateway`) is included alongside `cloud-app-*`. Missing image
  *  (never built) → undefined → renders as "—". */
 const fetchImageAges = async (): Promise<Map<string, Date>> => {
-  const raw = await $`docker images --filter ${"reference=cloud-*"} --format ${"{{.Repository}}\t{{.CreatedAt}}"}`
-    .text()
-    .catch(() => "");
+  const raw = await $`docker images --filter ${"reference=cloud-*"} --format ${"{{.Repository}}\t{{.CreatedAt}}"}`.text().catch(() => "");
   const out = new Map<string, Date>();
   for (const line of raw.trim().split("\n").filter(Boolean)) {
     const [repo, ...rest] = line.split("\t");
@@ -130,11 +119,7 @@ const printTable = (rows: AppStatus[]) => {
     Math.max(headers[4]!.length, ...rows.map((r) => r.imageAge.length)),
   ];
   // Header row
-  console.log(
-    color.bold +
-      headers.map((h, i) => padRight(h, widths[i]!)).join("") +
-      color.reset,
-  );
+  console.log(color.bold + headers.map((h, i) => padRight(h, widths[i]!)).join("") + color.reset);
   // Data rows — only state cell gets a color; rest stays plain so the
   // overall output reads cleanly when capture-piped.
   for (const r of rows) {
@@ -142,13 +127,7 @@ const printTable = (rows: AppStatus[]) => {
     const stateCell = `${c}${r.state}${color.reset}`;
     const stateVisibleLen = r.state.length;
     const statePadded = stateCell + " ".repeat(Math.max(0, widths[1]! - stateVisibleLen));
-    console.log(
-      padRight(r.short, widths[0]!) +
-        statePadded +
-        padRight(r.uptime, widths[2]!) +
-        padRight(r.health, widths[3]!) +
-        r.imageAge,
-    );
+    console.log(padRight(r.short, widths[0]!) + statePadded + padRight(r.uptime, widths[2]!) + padRight(r.health, widths[3]!) + r.imageAge);
   }
 };
 

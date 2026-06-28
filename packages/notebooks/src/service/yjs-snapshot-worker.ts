@@ -2,14 +2,7 @@ import * as Y from "yjs";
 import { mutex, queue, type QueueReceived } from "@valentinkolb/sync";
 import { logger } from "@valentinkolb/cloud/services";
 import * as notes from "./notes";
-import {
-  NODE_ID,
-  TOPIC_RETENTION_MS,
-  compareStreamCursor,
-  createYjsTopic,
-  fromBase64,
-  parseStreamCursor,
-} from "./yjs-sync";
+import { NODE_ID, TOPIC_RETENTION_MS, compareStreamCursor, createYjsTopic, fromBase64, parseStreamCursor } from "./yjs-sync";
 
 /**
  * Snapshot worker responsibilities:
@@ -94,11 +87,7 @@ const applyReplayEvent = (doc: Y.Doc, event: ReplayEvent, noteId: string) => {
   }
 };
 
-const queueSnapshotSave = async (config: {
-  noteId: string;
-  targetCursor: string;
-  reason: SnapshotReason;
-}): Promise<void> => {
+const queueSnapshotSave = async (config: { noteId: string; targetCursor: string; reason: SnapshotReason }): Promise<void> => {
   if (!parseStreamCursor(config.targetCursor)) {
     throw new Error(`Invalid snapshot cursor "${config.targetCursor}"`);
   }
@@ -133,10 +122,7 @@ const waitUntilTargetCursor = async (config: {
   onProgress: () => Promise<void>;
 }): Promise<void> => {
   const replayAbort = new AbortController();
-  const timeout = setTimeout(
-    () => replayAbort.abort("replay-timeout"),
-    computeReplayTimeoutMs(config.after, config.targetCursor),
-  );
+  const timeout = setTimeout(() => replayAbort.abort("replay-timeout"), computeReplayTimeoutMs(config.after, config.targetCursor));
   const onAbort = () => replayAbort.abort("worker-stopped");
   config.signal.addEventListener("abort", onAbort, { once: true });
 
@@ -313,11 +299,7 @@ const processMessage = async (message: QueueReceived<SnapshotSaveJob>, signal: A
       reason: message.data.reason,
     });
   } catch (error) {
-    await safeNack(
-      message,
-      "persist-failed",
-      toErrorMessage(error),
-    );
+    await safeNack(message, "persist-failed", toErrorMessage(error));
     if (!signal.aborted) {
       log.error("Snapshot job failed", {
         noteId: message.data.noteId,

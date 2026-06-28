@@ -1,10 +1,5 @@
 import { sql } from "bun";
-import type {
-  EntityKind,
-  EntityListItem,
-  UserProfile,
-  UserProvider,
-} from "../../contracts/shared";
+import type { EntityKind, EntityListItem, UserProfile, UserProvider } from "../../contracts/shared";
 import { getFreeIpaConfig } from "../freeipa-config";
 import { escapeLikePattern, toPgTextArray, toPgUuidArray } from "../postgres";
 import { buildBaseGroup } from "./base-group";
@@ -348,19 +343,12 @@ const buildManagedByUserSpec = (userId: string, recursive: boolean): EntityQuery
     userWhere: sql`FALSE`,
     groupFrom: sql`FROM auth.groups g`,
     groupDirectExpr: sql`NULL::boolean`,
-    groupWhere: recursive
-      ? buildManagedGroupScopeCondition({ userId, groupProvider: sql`g.provider` })
-      : directCondition,
+    groupWhere: recursive ? buildManagedGroupScopeCondition({ userId, groupProvider: sql`g.provider` }) : directCondition,
   };
 };
 
 const buildQuerySpec = (params: EntityListParams): EntityQuerySpec => {
-  const relationFilters = [
-    params.memberOfGroupId,
-    params.managerOfGroupId,
-    params.parentGroupId,
-    params.managedByUserId,
-  ].filter(Boolean);
+  const relationFilters = [params.memberOfGroupId, params.managerOfGroupId, params.parentGroupId, params.managedByUserId].filter(Boolean);
 
   if (relationFilters.length > 1) {
     throw new Error("Only one relation filter can be used at a time.");
@@ -410,7 +398,9 @@ const mapEntityRow = (row: DbRow): EntityListItem => {
   };
 };
 
-export const list = async (params: EntityListParams): Promise<{
+export const list = async (
+  params: EntityListParams,
+): Promise<{
   items: EntityListItem[];
   total: number;
   pagination: { page: number; perPage: number; totalPages: number; hasNext: boolean };
@@ -422,8 +412,7 @@ export const list = async (params: EntityListParams): Promise<{
   const groupsAdmin = (await getFreeIpaConfig()).groupsAdmin;
   const groupsAdminLiteral = toPgTextArray(groupsAdmin);
   const spec = buildQuerySpec(params);
-  const kindsCondition =
-    (params.kinds?.length ?? 0) === 0 ? sql`TRUE` : sql`kind = ANY(${toPgTextArray(params.kinds ?? [])}::text[])`;
+  const kindsCondition = (params.kinds?.length ?? 0) === 0 ? sql`TRUE` : sql`kind = ANY(${toPgTextArray(params.kinds ?? [])}::text[])`;
   const excludeUserCondition =
     (params.excludeUserIds?.length ?? 0) === 0
       ? sql`TRUE`

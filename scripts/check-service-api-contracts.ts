@@ -59,7 +59,7 @@ const importsNamed = (source: string, specifier: string, name: string): boolean 
 };
 
 // Apps with special lifecycle patterns that don't follow standard conventions
-const specialApps = new Set(["gateway", "core"]);
+const specialApps = new Set(["gateway", "core", "cloud-cli"]);
 
 for (const appDir of appDirs) {
   // appDir is now packages/<app>/src — the app name is the parent folder.

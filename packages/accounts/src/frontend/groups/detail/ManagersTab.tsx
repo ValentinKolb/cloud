@@ -26,7 +26,11 @@ export default function ManagersTab(props: ManagersTabProps) {
       id: "name",
       header: "Name",
       value: (item) =>
-        item.kind === "user" ? item.user.displayName || item.user.mail || item.user.uid : item.kind === "group" ? item.group.name : item.serviceAccount.name,
+        item.kind === "user"
+          ? item.user.displayName || item.user.mail || item.user.uid
+          : item.kind === "group"
+            ? item.group.name
+            : item.serviceAccount.name,
     },
     {
       id: "detail",
@@ -43,7 +47,11 @@ export default function ManagersTab(props: ManagersTabProps) {
     },
   ];
   const rowId = (item: EntityListItem) =>
-    item.kind === "user" ? `user:${item.user.id}` : item.kind === "group" ? `group:${item.group.id}` : `service_account:${item.serviceAccount.id}`;
+    item.kind === "user"
+      ? `user:${item.user.id}`
+      : item.kind === "group"
+        ? `group:${item.group.id}`
+        : `service_account:${item.serviceAccount.id}`;
 
   return (
     <div class="flex flex-col gap-2" style="view-transition-name: accounts-group-managers">

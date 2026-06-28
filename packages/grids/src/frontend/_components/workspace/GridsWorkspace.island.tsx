@@ -489,7 +489,6 @@ export default function GridsWorkspace(props: Props) {
                 </AppWorkspace.SidebarSection>
               </Show>
 
-
               <Show when={state().catalog.sidebarForms.length > 0}>
                 <AppWorkspace.SidebarSection title="Forms">
                   {state().catalog.sidebarForms.map(({ form, table }) => {
@@ -620,7 +619,6 @@ export default function GridsWorkspace(props: Props) {
                   {state().canCreateTables && <CreateDashboardButton baseId={state().base.id} baseShortId={state().base.shortId} />}
                 </AppWorkspace.SidebarSection>
               </Show>
-
 
               <Show when={state().catalog.sidebarForms.length > 0}>
                 <AppWorkspace.SidebarSection title="Forms">

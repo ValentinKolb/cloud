@@ -71,11 +71,7 @@ export type SlashCommand = {
    * the typed text included a suffix; `undefined` for the bare-name
    * invocation.
    */
-  run: (
-    view: EditorView,
-    ctx: SlashCommandContext,
-    params?: RegExpMatchArray,
-  ) => void | Promise<void>;
+  run: (view: EditorView, ctx: SlashCommandContext, params?: RegExpMatchArray) => void | Promise<void>;
 };
 
 export type SlashCommandSection = "Formatting" | "Lists" | "Insert" | "Callouts" | "Navigation";

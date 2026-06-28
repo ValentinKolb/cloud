@@ -40,7 +40,10 @@ const trackRoute = (stats: ProxyStats, prefix: string, isError: boolean) => {
       let oldestKey = "";
       let oldestTime = Infinity;
       for (const [k, v] of stats.byRoute) {
-        if (v.lastSeen < oldestTime) { oldestTime = v.lastSeen; oldestKey = k; }
+        if (v.lastSeen < oldestTime) {
+          oldestTime = v.lastSeen;
+          oldestKey = k;
+        }
       }
       if (oldestKey) stats.byRoute.delete(oldestKey);
     }

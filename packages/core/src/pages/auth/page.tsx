@@ -5,20 +5,11 @@ import AdminLoginForm from "./AdminLoginForm.island";
 import PasskeyLoginButton from "./PasskeyLoginButton.island";
 import { coreSettings } from "@valentinkolb/cloud/services";
 import { listLegalLinks } from "@valentinkolb/cloud";
-import {
-  normalizeRedirectTo,
-  readThemeFromCookieHeader,
-} from "@valentinkolb/cloud/shared";
+import { normalizeRedirectTo, readThemeFromCookieHeader } from "@valentinkolb/cloud/shared";
 
 /** Login page. */
 export default ssr(async (c) => {
-  const [
-    rawAppName,
-    freeIpaEnabledRaw,
-    allowSelfRegistrationRaw,
-    contactEmailRaw,
-    legalLinks,
-  ] = await Promise.all([
+  const [rawAppName, freeIpaEnabledRaw, allowSelfRegistrationRaw, contactEmailRaw, legalLinks] = await Promise.all([
     coreSettings.get<string>("app.name"),
     coreSettings.get<boolean>("freeipa.enable"),
     coreSettings.get<boolean>("user.allow_self_registration"),
@@ -50,12 +41,12 @@ export default ssr(async (c) => {
   const activeMethod = !freeIpaEnabled
     ? "email"
     : token
-    ? "email"
-    : isGuestHidden
-    ? "ipa"
-    : method === "ipa" || method === "email"
-    ? method
-    : "email";
+      ? "email"
+      : isGuestHidden
+        ? "ipa"
+        : method === "ipa" || method === "email"
+          ? method
+          : "email";
 
   const isEmailLogin = activeMethod === "email";
 
@@ -63,30 +54,22 @@ export default ssr(async (c) => {
     const methodParams = new URLSearchParams();
     methodParams.set("method", nextMethod);
     if (redirectTo) methodParams.set("redirectTo", redirectTo);
-    if (hide && freeIpaEnabled && nextMethod !== "email")
-      methodParams.set("hide", hide);
-    if (hasBanner && nextMethod === "ipa")
-      methodParams.set("banner", hasBanner);
+    if (hide && freeIpaEnabled && nextMethod !== "email") methodParams.set("hide", hide);
+    if (hasBanner && nextMethod === "ipa") methodParams.set("banner", hasBanner);
     if (ipaUid && nextMethod === "ipa") methodParams.set("ipa-uid", ipaUid);
     return `/auth/login?${methodParams.toString()}`;
   };
   const emailHref = buildMethodUrl("email");
   const ipaHref = buildMethodUrl("ipa");
   const adminHref = buildMethodUrl("admin");
-  const supportHref = contactEmail
-    ? `mailto:${contactEmail}`
-    : "/legal/imprint";
+  const supportHref = contactEmail ? `mailto:${contactEmail}` : "/legal/imprint";
   const showPasskey = !isAdminLogin && !token;
-  const formTitle = isAdminLogin
-    ? "Admin token"
-    : token
-    ? "Complete email sign-in"
-    : "Sign in";
+  const formTitle = isAdminLogin ? "Admin token" : token ? "Complete email sign-in" : "Sign in";
   const formSubtitle = isAdminLogin
     ? "Use the emergency admin token for this instance."
     : token
-    ? "We are verifying the login link from your email."
-    : "Use a passkey or continue with a login link.";
+      ? "We are verifying the login link from your email."
+      : "Use a passkey or continue with a login link.";
 
   return () => (
     <div class="min-h-screen bg-zinc-50 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50">
@@ -110,33 +93,22 @@ export default ssr(async (c) => {
             </div>
 
             <div class="max-w-md">
-              <p class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600 dark:text-blue-400">
-                Secure access
-              </p>
-              <h1
-                class="mt-3 text-3xl font-semibold tracking-tight text-primary"
-                style={{ "view-transition-name": "page-title" }}
-              >
+              <p class="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600 dark:text-blue-400">Secure access</p>
+              <h1 class="mt-3 text-3xl font-semibold tracking-tight text-primary" style={{ "view-transition-name": "page-title" }}>
                 Welcome back
               </h1>
               <p class="mt-4 text-sm leading-6 text-dimmed">
-                Sign in with a passkey, email login link, or your organization
-                account. Redirects continue automatically after sign-in.
+                Sign in with a passkey, email login link, or your organization account. Redirects continue automatically after sign-in.
               </p>
             </div>
           </aside>
 
           <main class="flex items-center justify-center p-6 sm:p-10">
-            <div
-              class="w-full max-w-md"
-              style={{ "view-transition-name": "login-card" }}
-            >
+            <div class="w-full max-w-md" style={{ "view-transition-name": "login-card" }}>
               <div class="flex items-start justify-between gap-4">
                 <div>
                   <h1 class="sr-only">Sign in</h1>
-                  <h2 class="text-3xl font-semibold tracking-tight text-primary">
-                    {formTitle}
-                  </h2>
+                  <h2 class="text-3xl font-semibold tracking-tight text-primary">{formTitle}</h2>
                   <p class="mt-1 text-sm text-dimmed">{formSubtitle}</p>
                 </div>
                 <span class="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 shadow-sm dark:bg-emerald-950/45 dark:text-emerald-300">
@@ -198,18 +170,9 @@ export default ssr(async (c) => {
                 {isAdminLogin ? (
                   <AdminLoginForm redirectTo={redirectTo} />
                 ) : isEmailLogin ? (
-                  <GuestLoginForm
-                    redirectTo={redirectTo}
-                    token={token}
-                    allowSelfRegistration={allowSelfRegistration}
-                  />
+                  <GuestLoginForm redirectTo={redirectTo} token={token} allowSelfRegistration={allowSelfRegistration} />
                 ) : (
-                  <LoginForm
-                    redirectTo={redirectTo}
-                    showBanner={hasBanner === "true"}
-                    defaultUsername={ipaUid}
-                    appName={appName}
-                  />
+                  <LoginForm redirectTo={redirectTo} showBanner={hasBanner === "true"} defaultUsername={ipaUid} appName={appName} />
                 )}
               </div>
 

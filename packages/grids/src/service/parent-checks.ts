@@ -27,9 +27,7 @@ export const requireTableAlive = async (tableId: string): Promise<Result<void>> 
       WHERE t.id = ${tableId}::uuid AND t.deleted_at IS NULL
     ) AS exists
   `;
-  return row?.exists
-    ? ok()
-    : fail(err.conflict("parent table or base is trashed; restore the parent first"));
+  return row?.exists ? ok() : fail(err.conflict("parent table or base is trashed; restore the parent first"));
 };
 
 /**
@@ -37,7 +35,8 @@ export const requireTableAlive = async (tableId: string): Promise<Result<void>> 
  * invariant as records.list/get. Aliases are internal constants at call sites;
  * keep this helper private to service SQL assembly, never pass user input.
  */
-export const liveRecordParentJoinSql = (recordAlias: string, tableAlias: string, baseAlias: string) => sql.unsafe(`
+export const liveRecordParentJoinSql = (recordAlias: string, tableAlias: string, baseAlias: string) =>
+  sql.unsafe(`
   JOIN grids.tables ${tableAlias} ON ${tableAlias}.id = ${recordAlias}.table_id AND ${tableAlias}.deleted_at IS NULL
   JOIN grids.bases ${baseAlias} ON ${baseAlias}.id = ${tableAlias}.base_id AND ${baseAlias}.deleted_at IS NULL
 `);

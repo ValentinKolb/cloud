@@ -126,7 +126,9 @@ const asString = (value: string | null | undefined): string | null => {
   return trimmed ? trimmed : null;
 };
 
-const asRoleArray = (roles: readonly string[] | null | undefined): string[] => [...new Set((roles ?? []).map((role) => role.trim()).filter(Boolean))];
+const asRoleArray = (roles: readonly string[] | null | undefined): string[] => [
+  ...new Set((roles ?? []).map((role) => role.trim()).filter(Boolean)),
+];
 
 export const sanitizeAuditMetadata = (value: unknown, depth = 0): unknown => {
   if (value == null) return null;
@@ -245,7 +247,7 @@ const record = async (params: AuditRecordParams, db: AuditDb = sql): Promise<voi
   }
 };
 
-const recordResult = async <T,>(params: {
+const recordResult = async <T>(params: {
   action: string;
   actor?: AuditActor | null;
   target?: AuditTarget | null;
@@ -253,15 +255,18 @@ const recordResult = async <T,>(params: {
   result: Result<T>;
   db?: AuditDb;
 }): Promise<Result<T>> => {
-  await record({
-    action: params.action,
-    actor: params.actor,
-    target: params.target,
-    metadata: params.metadata,
-    outcome: params.result.ok ? "allowed" : outcomeForError(params.result.error),
-    reason: params.result.ok ? null : params.result.error.message,
-    error: params.result.ok ? null : params.result.error,
-  }, params.db);
+  await record(
+    {
+      action: params.action,
+      actor: params.actor,
+      target: params.target,
+      metadata: params.metadata,
+      outcome: params.result.ok ? "allowed" : outcomeForError(params.result.error),
+      reason: params.result.ok ? null : params.result.error.message,
+      error: params.result.ok ? null : params.result.error,
+    },
+    params.db,
+  );
   return params.result;
 };
 
@@ -270,7 +275,7 @@ const recordResult = async <T,>(params: {
  * checks and pre-mutation validation must keep using `record`/`recordResult`
  * so missing audit storage can still fail closed before anything changes.
  */
-const recordResultAfterSideEffect = async <T,>(params: {
+const recordResultAfterSideEffect = async <T>(params: {
   action: string;
   actor?: AuditActor | null;
   target?: AuditTarget | null;
@@ -289,7 +294,7 @@ const recordResultAfterSideEffect = async <T,>(params: {
   return params.result;
 };
 
-const deny = async <T,>(params: {
+const deny = async <T>(params: {
   action: string;
   actor?: AuditActor | null;
   target?: AuditTarget | null;
@@ -361,10 +366,7 @@ const buildWhere = (filter: AuditListFilter = {}) => {
   return conditions.reduce((acc, condition) => sql`${acc} AND ${condition}`);
 };
 
-const list = async (config: {
-  pagination?: PageParams;
-  filter?: AuditListFilter;
-}): Promise<Paginated<AuditEvent>> => {
+const list = async (config: { pagination?: PageParams; filter?: AuditListFilter }): Promise<Paginated<AuditEvent>> => {
   const { page, perPage, offset } = paginate(config.pagination);
   const where = buildWhere(config.filter);
   const [countRows, rows] = await Promise.all([

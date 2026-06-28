@@ -21,6 +21,7 @@ type EventKindRow = { kind: string; count: number; lastSeenAt: string; search: s
 type StateKeyRow = { key: string; count: number; lastSeenAt: string; search: string };
 type SyntaxRow = { clause: string; appliesTo: string; meaning: string; example: string };
 type AggregationRow = { name: string; meaning: string; bestFor: string; example: string };
+type DashboardStatementRow = { statement: string; scope: string; meaning: string; example: string };
 type ScopeChip = { id: string; label: string; hint: string; count: number; icon: string };
 type ReferenceTab = "overview" | "query" | "dashboard" | "inventory";
 
@@ -182,6 +183,27 @@ const aggregationColumns: DataTableColumn<AggregationRow>[] = [
   { id: "name", header: "Aggregation", value: "name", cellClass: "w-32 whitespace-nowrap" },
   { id: "meaning", header: "Meaning", value: "meaning" },
   { id: "bestFor", header: "Best for", value: "bestFor" },
+  { id: "copy", header: "", value: (row) => row.example, headerClass: "w-12", cellClass: "w-12" },
+];
+
+const dashboardStatementRows: DashboardStatementRow[] = [
+  { statement: 'dashboard "Name" { ... }', scope: "root", meaning: "Defines one dashboard document. This is the canonical editable source.", example: 'dashboard "Ops" { section "Main" {} }' },
+  { statement: 'description "Text"', scope: "dashboard, section, card, widget", meaning: "Adds reader-facing context without changing data queries.", example: 'description "Live operational view."' },
+  { statement: "controls { ... }", scope: "dashboard", meaning: "Declares reusable variables rendered above the dashboard.", example: 'controls { range "Range" variable range default 24h options 1h, 24h }' },
+  { statement: 'range/source/entity/entity_type/label/text "Label"', scope: "controls", meaning: "Creates a control. Use variable, default, options, and type where useful.", example: 'entity "Container" variable entity_id type container default container:app-core' },
+  { statement: 'section "Name" { ... }', scope: "dashboard, section", meaning: "Groups related rows and nested sections.", example: 'section "Today" { chart "Orders" { query metric orders.created increase since 24h } }' },
+  { statement: "row height sm|md|lg { ... }", scope: "section, card", meaning: "Places multiple widgets in one row. grid is an alias.", example: 'grid height lg { chart "CPU" { query metric system.cpu.usage avg since 6h } }' },
+  { statement: 'card "Name" [span n] { ... }', scope: "section, row, card", meaning: "Frames related child widgets and optional markdown.", example: 'card "Battery" span 6 { gauge "Charge" { query metric battery.charge latest since 10m } }' },
+  { statement: 'markdown "Name" [span n] { """ ... """ }', scope: "section, row, card", meaning: "Adds Markdown notes, explanations, runbooks, or links.", example: 'markdown "Notes" { """## Notes\\n- Check importer health.""" }' },
+  { statement: 'chart/line/bar/stat/gauge/barGauge/histogram/heatmap/table "Name"', scope: "section, row, card", meaning: "Adds a query-backed widget. table is also used for events and states.", example: 'gauge "Charge" { query metric battery.charge latest since 10m }' },
+  { statement: "query <Query DSL>", scope: "widget", meaning: "Embeds metric, events, or states Query DSL. Dashboard controls may be referenced as $variables.", example: "query metric orders.created increase every 1h since $range where region=$region" },
+  { statement: "warn|critical when value <op> <value>", scope: "metric/state widget", meaning: "Applies visual state only. It does not send alerts or call webhooks.", example: 'critical when value > 95 message "Capacity almost full"' },
+];
+
+const dashboardStatementColumns: DataTableColumn<DashboardStatementRow>[] = [
+  { id: "statement", header: "Statement", value: "statement", cellClass: "min-w-72" },
+  { id: "scope", header: "Scope", value: "scope", cellClass: "w-40 whitespace-nowrap" },
+  { id: "meaning", header: "Meaning", value: "meaning" },
   { id: "copy", header: "", value: (row) => row.example, headerClass: "w-12", cellClass: "w-12" },
 ];
 
@@ -496,6 +518,21 @@ export default function PulseQueryReferenceWindow(props: Props) {
           <DocCode title="Shape" code={dashboardSyntax} copy />
           <DocCode title="Example" code={dashboardExample} copy />
         </div>
+        <div class="mt-4">
+          <h3 class="mb-2 text-sm font-semibold text-secondary">Statement reference</h3>
+          <DataTable
+            rows={dashboardStatementRows}
+            columns={dashboardStatementColumns}
+            getRowId={(row) => row.statement}
+            class="paper max-h-[520px] overflow-auto"
+            density="compact"
+            renderCell={({ row, col, value }) => {
+              if (col.id === "statement") return <code class="font-mono text-secondary">{row.statement}</code>;
+              if (col.id === "copy") return copyCell(String(value));
+              return <span class="text-dimmed">{String(value ?? "-")}</span>;
+            }}
+          />
+        </div>
         <div class="mt-3 grid gap-3 text-sm lg:grid-cols-2">
           <DocNote title="Dashboards compose query output" variant="info">
             Dashboard DSL describes sections, cards, markdown, and visual widgets. The widget <DocInlineCode>query</DocInlineCode> line
@@ -508,6 +545,9 @@ export default function PulseQueryReferenceWindow(props: Props) {
           <DocNote title="Controls define variables" variant="info">
             Declare controls once with <DocInlineCode>controls</DocInlineCode>, then use variables such as <DocInlineCode>$range</DocInlineCode>{" "}
             or <DocInlineCode>$entity_id</DocInlineCode> inside widget queries. Pulse renders controls above the dashboard.
+          </DocNote>
+          <DocNote title="Public displays use defaults" variant="info">
+            Public dashboard links render with each control's default value. Keep public dashboards deterministic by choosing useful defaults.
           </DocNote>
           <DocNote title="Conditions are visual" variant="warning">
             Use <DocInlineCode>warn when value &gt; 80</DocInlineCode> or <DocInlineCode>critical when value = false</DocInlineCode> to

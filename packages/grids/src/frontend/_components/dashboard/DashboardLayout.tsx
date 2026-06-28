@@ -158,10 +158,7 @@ export default function DashboardLayout(props: Props) {
         </div>
       </header>
 
-      <Show
-        when={props.dashboard.config.rows.length > 0}
-        fallback={<EmptyDashboardState edit={props.edit} />}
-      >
+      <Show when={props.dashboard.config.rows.length > 0} fallback={<EmptyDashboardState edit={props.edit} />}>
         <Show when={props.edit}>
           {(edit) => <AddRowRail label="Add row" insertionIdx={0} rowDnd={rowDnd} onAdd={() => edit().onAddRowAt(0)} />}
         </Show>
@@ -298,11 +295,7 @@ function DashboardRowGrid(props: {
                 }`}
                 style={cellFlexStyle(widgetSpan(cell, props.row.cells.length), ROW_MIN_HEIGHT_PX[props.row.height])}
               >
-                <EditCellControls
-                  rowIdx={props.rowIdx}
-                  cellIdx={cellIdx()}
-                  edit={props.edit}
-                />
+                <EditCellControls rowIdx={props.rowIdx} cellIdx={cellIdx()} edit={props.edit} />
                 <CellRenderer
                   widget={cell}
                   data={props.widgetData[cell.id]}
@@ -371,9 +364,7 @@ function AddRowRail(props: {
       <button
         type="button"
         class={`btn-input-success btn-input-sm flex min-h-9 w-full items-center justify-center ${
-          active() || props.active
-            ? "bg-emerald-50 dark:bg-emerald-950"
-            : ""
+          active() || props.active ? "bg-emerald-50 dark:bg-emerald-950" : ""
         }`}
         onClick={props.onAdd}
       >
@@ -498,10 +489,7 @@ function EmptyDashboardState(props: { edit?: Props["edit"] }) {
     <div class="flex min-h-40 flex-col items-center justify-center gap-2 px-6 py-10 text-center">
       <i class="ti ti-layout-dashboard text-2xl text-dimmed" />
       <p class="text-sm text-dimmed">This dashboard has no rows yet.</p>
-      <Show
-        when={props.edit}
-        fallback={<p class="text-xs text-dimmed">Open the editor to add rows and widgets.</p>}
-      >
+      <Show when={props.edit} fallback={<p class="text-xs text-dimmed">Open the editor to add rows and widgets.</p>}>
         {(edit) => (
           <button type="button" class="btn-input-success btn-input-sm mt-1" onClick={() => edit().onAddRowAt(0)}>
             <i class="ti ti-plus" /> Add row

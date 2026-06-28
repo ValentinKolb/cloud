@@ -32,9 +32,7 @@ type ToolbarProps = {
   disabled?: boolean;
 };
 
-type Tool =
-  | { kind: "btn"; id: string; icon: string; title: string; run: (ta: HTMLTextAreaElement) => void }
-  | { kind: "sep" };
+type Tool = { kind: "btn"; id: string; icon: string; title: string; run: (ta: HTMLTextAreaElement) => void } | { kind: "sep" };
 
 const TOOLS: Tool[] = [
   { kind: "btn", id: "bold", icon: "ti ti-bold", title: "Bold (Ctrl/Cmd+B)", run: toggleBold },

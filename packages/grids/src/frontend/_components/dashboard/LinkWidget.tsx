@@ -95,7 +95,8 @@ export default function LinkWidget(props: Props) {
                       class="btn-primary btn-sm"
                       disabled={!target.canSubmit}
                       onClick={() => {
-                        if (target.canSubmit) openFormModal(target.form, target.fields, { onSubmitted: props.onSubmitted, dateConfig: props.dateConfig });
+                        if (target.canSubmit)
+                          openFormModal(target.form, target.fields, { onSubmitted: props.onSubmitted, dateConfig: props.dateConfig });
                       }}
                     >
                       <i class={target.canSubmit ? "ti ti-forms" : "ti ti-lock"} />

@@ -167,7 +167,11 @@ function TrashSection(props: { baseId: string }) {
           trash() &&
           (trash()!.tables.length > 0 || trash()!.fields.length > 0 || trash()!.dashboards.length > 0 || trash()!.forms.length > 0)
         }
-        fallback={<Placeholder align="left" class="px-0 py-1">Trash is empty.</Placeholder>}
+        fallback={
+          <Placeholder align="left" class="px-0 py-1">
+            Trash is empty.
+          </Placeholder>
+        }
       >
         <div class="flex flex-col gap-4">
           <Show when={trash()!.tables.length > 0}>
@@ -333,7 +337,11 @@ function DefaultDashboardSelect(props: { baseId: string; initial: string | null;
   };
 
   if (props.dashboards.length === 0) {
-    return <Placeholder align="left" class="px-0 py-1">No dashboards on this base yet. Create one from the records sidebar to enable this setting.</Placeholder>;
+    return (
+      <Placeholder align="left" class="px-0 py-1">
+        No dashboards on this base yet. Create one from the records sidebar to enable this setting.
+      </Placeholder>
+    );
   }
 
   return (

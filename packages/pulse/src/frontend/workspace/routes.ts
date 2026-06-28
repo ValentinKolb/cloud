@@ -32,6 +32,8 @@ export type ResourceQueryState = {
   type: string;
 };
 
+export type DashboardControlQueryState = Record<string, string>;
+
 export type WorkspaceHrefState = {
   view: WorkspaceView;
   dashboardId?: string;
@@ -49,6 +51,20 @@ export type WorkspaceHrefOptions = {
 
 export const emptyActivityQueryState = (): ActivityQueryState => ({ q: "", type: "" });
 export const emptyResourceQueryState = (): ResourceQueryState => ({ q: "", sourceId: "", type: "" });
+
+const DASHBOARD_CONTROL_PREFIX = "c_";
+const dashboardControlVariable = (param: string): string | null =>
+  param.startsWith(DASHBOARD_CONTROL_PREFIX) ? param.slice(DASHBOARD_CONTROL_PREFIX.length) : null;
+
+export const readDashboardControlQueryState = (search: string): DashboardControlQueryState => {
+  const params = new URLSearchParams(search);
+  const values: DashboardControlQueryState = {};
+  for (const [param, value] of params.entries()) {
+    const variable = dashboardControlVariable(param);
+    if (variable) values[variable] = value;
+  }
+  return values;
+};
 
 export const readActivityQueryState = (search: string): ActivityQueryState => {
   const params = new URLSearchParams(search);

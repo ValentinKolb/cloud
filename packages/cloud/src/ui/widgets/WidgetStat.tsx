@@ -37,14 +37,11 @@ type WidgetStatProps = {
 
 const WidgetStat = (props: WidgetStatProps): JSX.Element => {
   const valueClass = () => props.valueClass ?? "text-primary";
-  const containerClass = () =>
-    props.grow ? "px-4 py-4 flex flex-col gap-1 flex-1 justify-center" : "px-4 py-4 flex flex-col gap-1";
+  const containerClass = () => (props.grow ? "px-4 py-4 flex flex-col gap-1 flex-1 justify-center" : "px-4 py-4 flex flex-col gap-1");
   return (
     <div class={containerClass()}>
       <span class="text-[10px] uppercase tracking-wider text-dimmed">{props.label}</span>
-      <span class={`text-3xl font-bold tabular-nums leading-none ${valueClass()}`}>
-        {props.value}
-      </span>
+      <span class={`text-3xl font-bold tabular-nums leading-none ${valueClass()}`}>{props.value}</span>
       {props.sub || props.accent ? (
         <div class="flex items-center gap-1.5">
           {props.sub ? <span class="text-[11px] text-dimmed">{props.sub}</span> : null}

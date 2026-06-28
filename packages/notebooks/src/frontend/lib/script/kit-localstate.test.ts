@@ -6,7 +6,7 @@ const watchers = new Set<(event: { key: string }) => void>();
 
 mock.module("@valentinkolb/stdlib/browser", () => ({
   kvStore: {
-    get: async <T,>(key: string): Promise<T | undefined> => store.get(key) as T | undefined,
+    get: async <T>(key: string): Promise<T | undefined> => store.get(key) as T | undefined,
     set: async (key: string, value: unknown): Promise<void> => {
       store.set(key, value);
       for (const cb of watchers) cb({ key });

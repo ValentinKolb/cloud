@@ -297,6 +297,9 @@ export const migrate = async (): Promise<void> => {
       description TEXT,
       source TEXT NOT NULL,
       html TEXT NOT NULL,
+      header_html TEXT,
+      footer_html TEXT,
+      page_css TEXT,
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
       position INT NOT NULL DEFAULT 0,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
@@ -306,8 +309,40 @@ export const migrate = async (): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT document_templates_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
       CONSTRAINT document_templates_source_length_chk CHECK (length(source) BETWEEN 1 AND 20000),
-      CONSTRAINT document_templates_html_length_chk CHECK (length(html) BETWEEN 1 AND 200000)
+      CONSTRAINT document_templates_html_length_chk CHECK (length(html) BETWEEN 1 AND 200000),
+      CONSTRAINT document_templates_header_html_length_chk CHECK (header_html IS NULL OR length(header_html) <= 50000),
+      CONSTRAINT document_templates_footer_html_length_chk CHECK (footer_html IS NULL OR length(footer_html) <= 50000),
+      CONSTRAINT document_templates_page_css_length_chk CHECK (page_css IS NULL OR length(page_css) <= 50000)
     )
+  `.simple();
+  await sql`ALTER TABLE grids.document_templates ADD COLUMN IF NOT EXISTS header_html TEXT`.simple();
+  await sql`ALTER TABLE grids.document_templates ADD COLUMN IF NOT EXISTS footer_html TEXT`.simple();
+  await sql`ALTER TABLE grids.document_templates ADD COLUMN IF NOT EXISTS page_css TEXT`.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'document_templates_header_html_length_chk' AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.document_templates
+        ADD CONSTRAINT document_templates_header_html_length_chk CHECK (header_html IS NULL OR length(header_html) <= 50000);
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'document_templates_footer_html_length_chk' AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.document_templates
+        ADD CONSTRAINT document_templates_footer_html_length_chk CHECK (footer_html IS NULL OR length(footer_html) <= 50000);
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'document_templates_page_css_length_chk' AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.document_templates
+        ADD CONSTRAINT document_templates_page_css_length_chk CHECK (page_css IS NULL OR length(page_css) <= 50000);
+      END IF;
+    END $$;
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_document_templates_table_live

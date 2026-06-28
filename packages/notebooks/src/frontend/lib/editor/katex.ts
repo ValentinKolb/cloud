@@ -190,7 +190,11 @@ const buildKatexDecorations = (state: EditorState): CursorZoneState => {
 
         const text = state.sliceDoc(node.from, node.to);
         const lines = text.split("\n");
-        const language = lines[0]?.replace(/^(```|~~~)/, "").trim().toLowerCase() || "";
+        const language =
+          lines[0]
+            ?.replace(/^(```|~~~)/, "")
+            .trim()
+            .toLowerCase() || "";
 
         if (language === "math") {
           hasSyntax = true;
@@ -252,7 +256,9 @@ const buildKatexDecorations = (state: EditorState): CursorZoneState => {
       const skip = intersectsAnyRange(codeRanges, from, to) || cursorInside;
       match = re.exec(doc);
       if (skip) continue;
-      const decoration = Decoration.replace(blockWidget ? { widget: makeWidget(latex, from), block: true } : { widget: makeWidget(latex, from) }).range(from, to);
+      const decoration = Decoration.replace(
+        blockWidget ? { widget: makeWidget(latex, from), block: true } : { widget: makeWidget(latex, from) },
+      ).range(from, to);
       decorations.push(decoration);
       if (blockWidget) atomicDecorations.push(decoration);
     }

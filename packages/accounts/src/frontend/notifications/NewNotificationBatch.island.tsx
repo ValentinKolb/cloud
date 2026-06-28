@@ -134,7 +134,9 @@ function BatchDialog(props: { close: () => void }) {
   const hasAudience = () => audienceMode() === "rules" || users().length > 0;
   const canCreate = () => subject().trim().length > 0 && body().trim().length > 0 && hasAudience();
 
-  const selectedRuleOptions = createMemo(() => RULE_OPTIONS.filter((option) => typeof option !== "string" && rules().includes(option.id as RuleId)));
+  const selectedRuleOptions = createMemo(() =>
+    RULE_OPTIONS.filter((option) => typeof option !== "string" && rules().includes(option.id as RuleId)),
+  );
 
   const addUser = (principal: EntitySearchPrincipal) => {
     if (principal.type !== "user") return;
@@ -235,7 +237,12 @@ function BatchDialog(props: { close: () => void }) {
     void dialogCore.open<void>(
       (close) => (
         <PanelDialog>
-          <PanelDialog.Header title="Add user" subtitle="Search one account and add it to this batch." icon="ti ti-user-plus" close={close} />
+          <PanelDialog.Header
+            title="Add user"
+            subtitle="Search one account and add it to this batch."
+            icon="ti ti-user-plus"
+            close={close}
+          />
           <PanelDialog.Body>
             <EntitySearch
               includeUsers
@@ -300,11 +307,7 @@ function BatchDialog(props: { close: () => void }) {
       />
       <PanelDialog.Body>
         <div class="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]">
-          <PanelDialog.Section
-            title="Message"
-            subtitle="Rendered through the standard system email template."
-            icon="ti ti-message-2"
-          >
+          <PanelDialog.Section title="Message" subtitle="Rendered through the standard system email template." icon="ti ti-message-2">
             <TextInput
               label="Subject"
               description="Email subject shown to every resolved recipient."
@@ -361,7 +364,11 @@ function BatchDialog(props: { close: () => void }) {
               when={audienceMode() === "specific"}
               fallback={
                 <>
-                  <PanelDialog.Section title="Required user properties" subtitle="Categories are combined; values inside a category are alternatives." icon="ti ti-checklist">
+                  <PanelDialog.Section
+                    title="Required user properties"
+                    subtitle="Categories are combined; values inside a category are alternatives."
+                    icon="ti ti-checklist"
+                  >
                     <MultiSelectInput
                       label="Properties"
                       description="Leave empty to include all accounts in the selected scope."
@@ -399,7 +406,9 @@ function BatchDialog(props: { close: () => void }) {
                       fallback={
                         <div class={(rules().length === 0 ? "info-block-warning" : "info-block-info") + " flex items-start gap-2 text-xs"}>
                           <i class={(rules().length === 0 ? "ti ti-alert-triangle" : "ti ti-info-circle") + " mt-0.5 shrink-0"} />
-                          <span>No groups selected. The rules above are evaluated against all users. Group members are resolved recursively.</span>
+                          <span>
+                            No groups selected. The rules above are evaluated against all users. Group members are resolved recursively.
+                          </span>
                         </div>
                       }
                     >
@@ -439,7 +448,11 @@ function BatchDialog(props: { close: () => void }) {
                   <div class="flex flex-col gap-2">
                     <For each={users()}>
                       {(user) => (
-                        <button type="button" class="btn-input btn-input-sm justify-start" onClick={() => remove<SelectedUser>(user.id, setUsers)}>
+                        <button
+                          type="button"
+                          class="btn-input btn-input-sm justify-start"
+                          onClick={() => remove<SelectedUser>(user.id, setUsers)}
+                        >
                           <i class="ti ti-user" />
                           <span class="min-w-0 flex-1 truncate text-left">{user.label}</span>
                           <span class="text-[10px] uppercase text-dimmed">{user.provider}</span>
@@ -452,8 +465,16 @@ function BatchDialog(props: { close: () => void }) {
               </PanelDialog.Section>
             </Show>
 
-            <PanelDialog.Section title="Live preview" subtitle="Updated automatically from the current audience selection." icon="ti ti-eye">
-              <div class={previewLoading() ? "info-block-info flex items-start gap-2 text-xs" : "info-block-note flex items-start gap-2 text-xs"}>
+            <PanelDialog.Section
+              title="Live preview"
+              subtitle="Updated automatically from the current audience selection."
+              icon="ti ti-eye"
+            >
+              <div
+                class={
+                  previewLoading() ? "info-block-info flex items-start gap-2 text-xs" : "info-block-note flex items-start gap-2 text-xs"
+                }
+              >
                 <i class={previewLoading() ? "ti ti-loader-2 mt-0.5 shrink-0 animate-spin" : "ti ti-users mt-0.5 shrink-0"} />
                 <span>{previewLabel()}</span>
               </div>
@@ -468,7 +489,12 @@ function BatchDialog(props: { close: () => void }) {
           <button type="button" class="btn-input btn-input-sm" onClick={props.close} disabled={loading()}>
             Cancel
           </button>
-          <button type="button" class="btn-input btn-input-sm" onClick={() => void runPreview()} disabled={previewLoading() || loading() || !hasAudience()}>
+          <button
+            type="button"
+            class="btn-input btn-input-sm"
+            onClick={() => void runPreview()}
+            disabled={previewLoading() || loading() || !hasAudience()}
+          >
             <i class={previewLoading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} />
             <span>{previewLoading() ? "Previewing..." : "Refresh preview"}</span>
           </button>

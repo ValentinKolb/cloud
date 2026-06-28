@@ -4,15 +4,7 @@ import { navigateToNotebookNote } from "../../../../lib/soft-navigation";
 import { buildNoteUrl } from "../../../../params";
 import { openNoteSwitchPrompt } from "../../search/openNoteSearchPrompt";
 import { openAttachmentPicker } from "../AttachmentPicker";
-import {
-  insertAtCursor,
-  insertCallout,
-  insertCodeBlock,
-  insertDataBlock,
-  insertLink,
-  insertTable,
-  setHeading,
-} from "../editor-actions";
+import { insertAtCursor, insertCallout, insertCodeBlock, insertDataBlock, insertLink, insertTable, setHeading } from "../editor-actions";
 import type { SlashCommand } from "./types";
 
 // =============================================================================
@@ -56,8 +48,7 @@ const pad = (n: number): string => n.toString().padStart(2, "0");
 
 /** `YYYY-MM-DD` in the user's local timezone — same format as the
  *  rest of the app's plain-text date displays, ISO-friendly. */
-const formatDate = (d: Date): string =>
-  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const formatDate = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
 /** `HH:MM` in the user's local timezone — 24-hour. */
 const formatTime = (d: Date): string => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -332,7 +323,7 @@ export const slashCommands: SlashCommand[] = [
     label: "Data block",
     icon: "ti-database",
     section: "Insert",
-    description: "@ref + :::data block for kit.data(\"ref\")",
+    description: '@ref + :::data block for kit.data("ref")',
     aliases: ["dataset", "properties", "kv", "attrs"],
     run: (view) => insertDataBlock(view),
   },

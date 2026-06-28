@@ -175,6 +175,42 @@ export const SETTINGS: SettingDef[] = [
     group: "app",
   },
   {
+    key: "ai.enabled",
+    label: "Enable AI",
+    kind: "boolean",
+    default: false,
+    description: "Enable Cloud AI features including the Assistant app and app-provided AI resources.",
+    group: "ai",
+  },
+  {
+    key: "ai.default_model_id",
+    label: "Default Model ID",
+    kind: "string",
+    default: "",
+    description: "Model profile id used when an app asks for the platform default AI model.",
+    placeholder: "e.g. openrouter-fast",
+    group: "ai",
+  },
+  {
+    key: "ai.model_profiles_json",
+    label: "Model Profiles",
+    kind: "text",
+    default: "[]",
+    description: "JSON array of model profiles. Provider API keys are stored on the profile they belong to.",
+    placeholder:
+      '[{"id":"openrouter-fast","label":"OpenRouter Fast","provider":"openrouter","model":"openai/gpt-4.1-mini","enabled":true,"dataBoundary":"hosted","capabilities":["streaming"],"apiKey":"sk-or-..."}]',
+    group: "ai",
+  },
+  {
+    key: "ai.global_instructions",
+    label: "Global Instructions",
+    kind: "text",
+    default: "",
+    description: "Optional instructions applied to every Cloud AI conversation after platform guardrails.",
+    placeholder: "Keep answers concise and follow the workspace language.",
+    group: "ai",
+  },
+  {
     key: "gotenberg.url",
     label: "Gotenberg URL",
     kind: "url",
@@ -327,9 +363,9 @@ export const SETTINGS: SettingDef[] = [
     key: "freeipa.groups.base_ipa_realm",
     label: "Base Realm Groups",
     kind: "string_list",
-    default: ["cloud"],
+    default: ["users"],
     description: "FreeIPA groups that imply canonical full-user profile.",
-    placeholder: "cloud,staff",
+    placeholder: "users,staff",
     group: "freeipa",
     envFallback: () => envCsv("GROUPS_BASE_IPA_REALM"),
     envBootstrap: () => envCsv("GROUPS_BASE_IPA_REALM"),
@@ -934,7 +970,12 @@ export const GROUP_LABELS: Record<string, string> = {
 /** Register additional settings (used by apps to add their own defaults). */
 export function registerSettings(defs: SettingDef[]): void {
   for (const def of defs) {
-    SETTINGS.push(def);
+    const existingIndex = SETTINGS.findIndex((setting) => setting.key === def.key);
+    if (existingIndex >= 0) {
+      SETTINGS[existingIndex] = def;
+    } else {
+      SETTINGS.push(def);
+    }
     SETTINGS_MAP.set(def.key, def);
     ensureGroup(def.group);
   }

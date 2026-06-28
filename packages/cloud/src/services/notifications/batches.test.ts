@@ -4,13 +4,15 @@ import { __notificationBatchTest } from "./batches";
 
 const canUseDatabase = async () => {
   try {
-    const [row] = await sql<{
-      users: string | null;
-      groups: string | null;
-      user_groups: string | null;
-      group_manager_users: string | null;
-      group_manager_groups: string | null;
-    }[]>`
+    const [row] = await sql<
+      {
+        users: string | null;
+        groups: string | null;
+        user_groups: string | null;
+        group_manager_users: string | null;
+        group_manager_groups: string | null;
+      }[]
+    >`
       SELECT
         to_regclass('auth.users')::text AS users,
         to_regclass('auth.groups')::text AS groups,
@@ -127,7 +129,15 @@ describe("notification batch selections", () => {
       { id: "user-c", uid: "c", display_name: "C", mail: null, provider: "local", profile: "user", source_hits: 1 },
     ]);
     const right = __notificationBatchTest.recipientHash([
-      { id: "user-a", uid: "changed", display_name: "Changed", mail: "changed@example.test", provider: "ipa", profile: "guest", source_hits: 3 },
+      {
+        id: "user-a",
+        uid: "changed",
+        display_name: "Changed",
+        mail: "changed@example.test",
+        provider: "ipa",
+        profile: "guest",
+        source_hits: 3,
+      },
       { id: "user-b", uid: "b", display_name: "B", mail: "b@example.test", provider: "local", profile: "user", source_hits: 1 },
     ]);
 

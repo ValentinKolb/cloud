@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  consumePasswordResetToken,
-  createPasswordResetToken,
-} from "./auth";
+import { consumePasswordResetToken, createPasswordResetToken } from "./auth";
 
 describe("local auth password reset tokens", () => {
   test("consumes password reset tokens only once", async () => {

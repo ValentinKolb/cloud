@@ -39,7 +39,10 @@ const fakeNote = (title: string, shortId: string, parentId: string | null): Note
 
 describe("built-in notebook templates", () => {
   test("template ids are unique", () => {
-    assertUnique(templates.map((template) => template.id), "template ids");
+    assertUnique(
+      templates.map((template) => template.id),
+      "template ids",
+    );
   });
 
   test("materialized notes have unique keys and resolvable content links", () => {
@@ -47,7 +50,10 @@ describe("built-in notebook templates", () => {
 
     for (const template of templates) {
       const materialized = materializeTemplate(template, now);
-      assertUnique(materialized.notes.map((note) => note.key), `${template.id} note keys`);
+      assertUnique(
+        materialized.notes.map((note) => note.key),
+        `${template.id} note keys`,
+      );
       expect(materialized.notes.length, `${template.id} must create real starter notes`).toBeGreaterThanOrEqual(2);
       expect(materialized.notes.length, `${template.id} should stay small enough to scan`).toBeLessThanOrEqual(6);
 
@@ -93,9 +99,7 @@ describe("built-in notebook templates", () => {
         );
         expect(resolvedContent, `${template.id}:${note.key} should use nb.tags, not top-level tags`).not.toMatch(/(^|[^\w.])tags\./);
         expect(resolvedContent, `${template.id}:${note.key} should use current.kv, not top-level state`).not.toContain("state.");
-        expect(resolvedContent, `${template.id}:${note.key} should use nb.localKV, not top-level localState`).not.toContain(
-          "localState",
-        );
+        expect(resolvedContent, `${template.id}:${note.key} should use nb.localKV, not top-level localState`).not.toContain("localState");
         expect(resolvedContent, `${template.id}:${note.key} should use block selectors, not note.tasks`).not.toContain("note.tasks");
       }
     }

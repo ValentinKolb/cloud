@@ -387,7 +387,11 @@ export default function NotebookNavigator(props: Props) {
         <div class="min-h-0 flex-1 overflow-y-auto pr-1" data-scroll-preserve={`notebooks-navigator-list-${props.notebook.shortId}`}>
           <Show
             when={visibleNotes().length > 0 || pinnedNote()}
-            fallback={<Placeholder surface="paper" align="left">No notes here yet.</Placeholder>}
+            fallback={
+              <Placeholder surface="paper" align="left">
+                No notes here yet.
+              </Placeholder>
+            }
           >
             <div class="flex flex-col gap-1.5">
               <Show when={pinnedNote()}>

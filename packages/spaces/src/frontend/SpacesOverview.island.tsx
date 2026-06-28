@@ -230,7 +230,10 @@ export default function SpacesOverview(props: Props) {
                       <i class="ti ti-layout-kanban text-lg" />
                     </div>
                     <div class="min-w-0 flex-1">
-                      <span class="block truncate text-sm font-semibold text-primary" style={`view-transition-name: space-name-${space.id}`}>
+                      <span
+                        class="block truncate text-sm font-semibold text-primary"
+                        style={`view-transition-name: space-name-${space.id}`}
+                      >
                         {space.name}
                       </span>
                       <p class="truncate text-xs text-dimmed">{space.description || "No description"}</p>

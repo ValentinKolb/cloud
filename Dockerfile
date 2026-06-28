@@ -14,6 +14,7 @@ WORKDIR /app
 COPY package.json bun.lock ./
 COPY packages/accounts/package.json      packages/accounts/
 COPY packages/api-docs/package.json      packages/api-docs/
+COPY packages/assistant/package.json     packages/assistant/
 COPY packages/cloud/package.json         packages/cloud/
 COPY packages/contacts/package.json      packages/contacts/
 COPY packages/core/package.json          packages/core/

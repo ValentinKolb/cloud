@@ -58,14 +58,7 @@ const TagsModal = (props: { notebookId: string; close: () => void }) => {
 
   return (
     <div class="w-full max-w-full flex flex-col gap-3 min-w-[24rem]">
-      <input
-        type="text"
-        class="input"
-        placeholder="Search tags..."
-        autofocus
-        value={query()}
-        onInput={onInput}
-      />
+      <input type="text" class="input" placeholder="Search tags..." autofocus value={query()} onInput={onInput} />
 
       <Show when={!tags.loading} fallback={<p class="text-xs text-dimmed">Loading tags…</p>}>
         <Show
@@ -102,10 +95,10 @@ const TagsModal = (props: { notebookId: string; close: () => void }) => {
 };
 
 const openTagsModal = (notebookId: string) =>
-  prompts.dialog<void>(
-    (close) => <TagsModal notebookId={notebookId} close={() => close(undefined)} />,
-    { title: "Tags", icon: "ti ti-hash" },
-  );
+  prompts.dialog<void>((close) => <TagsModal notebookId={notebookId} close={() => close(undefined)} />, {
+    title: "Tags",
+    icon: "ti ti-hash",
+  });
 
 export default function TagsButton(props: Props) {
   if (props.variant === "icon") {

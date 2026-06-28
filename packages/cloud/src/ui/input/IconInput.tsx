@@ -62,8 +62,7 @@ export default function IconInput(props: IconInputProps) {
   // Pre-compute the searchable string per option once per render of
   // the catalogue. Since the catalogue is a constant in the common
   // case, this memoizes effectively across edit sessions.
-  const searchKey = (entry: IconOption) =>
-    [entry.label, ...entry.keywords].join(" ").toLowerCase();
+  const searchKey = (entry: IconOption) => [entry.label, ...entry.keywords].join(" ").toLowerCase();
 
   const fetcher = (query: string): Promise<IconOption[]> => {
     const trimmed = query.trim();
@@ -72,9 +71,7 @@ export default function IconInput(props: IconInputProps) {
       // happily render hundreds of dropdown rows at this size; if it
       // ever becomes a perf concern we'd switch to virtualisation
       // rather than truncating the list.
-      const all = [...options()].sort((a, b) =>
-        a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
-      );
+      const all = [...options()].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
       return Promise.resolve(all);
     }
     const matches = fuzzy.filter(trimmed.toLowerCase(), options(), {

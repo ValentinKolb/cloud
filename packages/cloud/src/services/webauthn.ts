@@ -58,7 +58,8 @@ export const resolveWebAuthnRp = (config: { appUrl: string; appName: string }): 
   const hasProtocol = /^https?:\/\//i.test(rawAppUrl);
   const parseUrl = (value: string) => new URL(value);
   const hostname = hasProtocol ? parseUrl(rawAppUrl).hostname : parseUrl(`https://${rawAppUrl}`).hostname;
-  const isBareLocalhost = !hasProtocol && (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]");
+  const isBareLocalhost =
+    !hasProtocol && (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]");
   const withProtocol = hasProtocol ? rawAppUrl : `${isBareLocalhost ? "http" : "https"}://${rawAppUrl}`;
   const url = new URL(withProtocol);
   const isLocalhost = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1" || url.hostname === "[::1]";

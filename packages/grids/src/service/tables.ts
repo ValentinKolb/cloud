@@ -41,10 +41,7 @@ const mapRow = (row: DbRow): Table => ({
  * Lists active tables of a base. Pass `includeDeleted` to include
  * trashed tables (used by the trash UI).
  */
-export const listByBase = async (
-  baseId: string,
-  opts: { includeDeleted?: boolean } = {},
-): Promise<Table[]> => {
+export const listByBase = async (baseId: string, opts: { includeDeleted?: boolean } = {}): Promise<Table[]> => {
   // Live-parent invariant: tables of a trashed base never list (the trash
   // flow operates top-down — restore the base first to access its tables).
   // SELECT t.* (not the bare COLS list) — both `tables.id` and `bases.id`
@@ -95,10 +92,7 @@ export const listTrashedByBase = async (baseId: string): Promise<Table[]> => {
  * trashed *table* rows (used by the trash listing's restore path); the
  * parent base must still be alive — restore is top-down only.
  */
-export const get = async (
-  id: string,
-  opts: { includeDeleted?: boolean } = {},
-): Promise<Table | null> => {
+export const get = async (id: string, opts: { includeDeleted?: boolean } = {}): Promise<Table | null> => {
   // SELECT t.* — see listByBase. Bare COLS would be ambiguous after
   // the JOIN to grids.bases (both carry `id`).
   const [row] = opts.includeDeleted
@@ -146,11 +140,7 @@ export const getByIdOrShortId = async (baseId: string, idOrSlug: string): Promis
   return getByShortId(baseId, idOrSlug);
 };
 
-const ensureUniqueTableName = async (
-  baseId: string,
-  name: string,
-  exceptTableId: string | null = null,
-): Promise<Result<void>> => {
+const ensureUniqueTableName = async (baseId: string, name: string, exceptTableId: string | null = null): Promise<Result<void>> => {
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM grids.tables
@@ -216,8 +206,7 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
     icon: input.icon !== undefined ? input.icon : existing.icon,
     columns: input.columns !== undefined ? input.columns : existing.columns,
     displayConfig: input.displayConfig !== undefined ? input.displayConfig : existing.displayConfig,
-    disableDirectInsert:
-      input.disableDirectInsert !== undefined ? input.disableDirectInsert : existing.disableDirectInsert,
+    disableDirectInsert: input.disableDirectInsert !== undefined ? input.disableDirectInsert : existing.disableDirectInsert,
   };
   const columnsParsed = FieldColumnSpecSchema.array().safeParse(next.columns);
   if (!columnsParsed.success) return fail(err.badInput("invalid table columns"));

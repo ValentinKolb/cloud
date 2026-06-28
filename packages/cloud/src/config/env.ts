@@ -11,7 +11,6 @@ const int = (key: string, fallback: number): number => {
   return isNaN(parsed) ? fallback : parsed;
 };
 
-
 export const env = {
   // Application (infrastructure — not changeable at runtime)
   APP_SECRET: str("APP_SECRET"),

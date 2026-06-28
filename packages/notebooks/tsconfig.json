@@ -1,69 +1,29 @@
 {
   "compilerOptions": {
-    "lib": [
-      "ESNext",
-      "DOM",
-      "DOM.AsyncIterable"
-    ],
+    "lib": ["ESNext", "DOM", "DOM.AsyncIterable"],
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./src/*"
-      ],
-      "@valentinkolb/cloud": [
-        "../cloud/src/index.ts"
-      ],
-      "@valentinkolb/cloud/ui": [
-        "../cloud/src/ui/index.ts"
-      ],
-      "@valentinkolb/cloud/server": [
-        "../cloud/src/server/index.ts"
-      ],
-      "@valentinkolb/cloud/server/*": [
-        "../cloud/src/server/*"
-      ],
-      "@valentinkolb/cloud/browser": [
-        "../cloud/src/server/api-client.ts"
-      ],
-      "@valentinkolb/cloud/cli": [
-        "../cloud/src/cli/index.ts"
-      ],
-      "@valentinkolb/cloud/shared": [
-        "../cloud/src/shared/index.ts"
-      ],
-      "@valentinkolb/cloud/services": [
-        "../cloud/src/services/index.ts"
-      ],
-      "@valentinkolb/cloud/services/*": [
-        "../cloud/src/services/*"
-      ],
-      "@valentinkolb/cloud/ssr": [
-        "../cloud/src/ssr/index.ts"
-      ],
-      "@valentinkolb/cloud/ssr/*": [
-        "../cloud/src/ssr/*"
-      ],
-      "@valentinkolb/cloud/config": [
-        "../cloud/src/config/index.ts"
-      ],
-      "@valentinkolb/cloud/config/*": [
-        "../cloud/src/config/*"
-      ],
-      "@valentinkolb/cloud/contracts": [
-        "../cloud/src/contracts/index.ts"
-      ],
-      "@valentinkolb/cloud/contracts/*": [
-        "../cloud/src/contracts/*"
-      ],
-      "@valentinkolb/cloud/api": [
-        "../cloud/src/api/index.ts"
-      ],
-      "@valentinkolb/cloud/clients/core": [
-        "../cloud/src/clients/core.ts"
-      ]
+      "@/*": ["./src/*"],
+      "@valentinkolb/cloud": ["../cloud/src/index.ts"],
+      "@valentinkolb/cloud/ui": ["../cloud/src/ui/index.ts"],
+      "@valentinkolb/cloud/server": ["../cloud/src/server/index.ts"],
+      "@valentinkolb/cloud/server/*": ["../cloud/src/server/*"],
+      "@valentinkolb/cloud/browser": ["../cloud/src/server/api-client.ts"],
+      "@valentinkolb/cloud/cli": ["../cloud/src/cli/index.ts"],
+      "@valentinkolb/cloud/shared": ["../cloud/src/shared/index.ts"],
+      "@valentinkolb/cloud/services": ["../cloud/src/services/index.ts"],
+      "@valentinkolb/cloud/services/*": ["../cloud/src/services/*"],
+      "@valentinkolb/cloud/ssr": ["../cloud/src/ssr/index.ts"],
+      "@valentinkolb/cloud/ssr/*": ["../cloud/src/ssr/*"],
+      "@valentinkolb/cloud/config": ["../cloud/src/config/index.ts"],
+      "@valentinkolb/cloud/config/*": ["../cloud/src/config/*"],
+      "@valentinkolb/cloud/contracts": ["../cloud/src/contracts/index.ts"],
+      "@valentinkolb/cloud/contracts/*": ["../cloud/src/contracts/*"],
+      "@valentinkolb/cloud/api": ["../cloud/src/api/index.ts"],
+      "@valentinkolb/cloud/clients/core": ["../cloud/src/clients/core.ts"]
     },
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
@@ -80,13 +40,6 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   },
-  "include": [
-    "./src/**/*.ts",
-    "./src/**/*.tsx",
-    "../cloud/src/types/**/*.d.ts"
-  ],
-  "exclude": [
-    "./dist",
-    "./node_modules"
-  ]
+  "include": ["./src/**/*.ts", "./src/**/*.tsx", "../cloud/src/types/**/*.d.ts"],
+  "exclude": ["./dist", "./node_modules"]
 }

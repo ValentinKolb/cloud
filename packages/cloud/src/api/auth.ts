@@ -114,7 +114,8 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Auth"],
       summary: "Logout",
-      description: "Idempotent: clears the session cookie and deletes the session key if present. No authentication required — logout must always succeed.",
+      description:
+        "Idempotent: clears the session cookie and deletes the session key if present. No authentication required — logout must always succeed.",
       responses: {
         200: jsonResponse(MessageResponseSchema, "Session invalidated"),
       },
@@ -130,7 +131,8 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Auth"],
       summary: "Change expired password",
-      description: "Change an expired or temporary password using FreeIPA's change_password endpoint. No active session required. For regular password changes of a logged-in user, use POST /api/me/password instead.",
+      description:
+        "Change an expired or temporary password using FreeIPA's change_password endpoint. No active session required. For regular password changes of a logged-in user, use POST /api/me/password instead.",
       responses: {
         200: jsonResponse(AuthResponseSchema, "Password changed and logged in"),
         400: jsonResponse(ErrorResponseSchema, "Failed to change password"),
@@ -234,7 +236,8 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Auth"],
       summary: "Request password reset",
-      description: "Request a one-time password reset email for an IPA-backed account. The response is always generic to avoid account enumeration.",
+      description:
+        "Request a one-time password reset email for an IPA-backed account. The response is always generic to avoid account enumeration.",
       responses: {
         200: jsonResponse(MessageResponseSchema, "Request accepted"),
       },
@@ -255,7 +258,8 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Auth"],
       summary: "Complete password reset",
-      description: "Set a new password using a one-time reset token. Creates a normal Cloud session only after the password was changed successfully.",
+      description:
+        "Set a new password using a one-time reset token. Creates a normal Cloud session only after the password was changed successfully.",
       responses: {
         200: jsonResponse(AuthResponseSchema, "Password reset completed and session created"),
         400: jsonResponse(ErrorResponseSchema, "Password reset failed"),

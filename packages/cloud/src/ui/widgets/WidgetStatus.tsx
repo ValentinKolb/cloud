@@ -45,9 +45,7 @@ type WidgetStatusProps = {
 const WidgetStatus = (props: WidgetStatusProps): JSX.Element => {
   const styles = () => TONE_STYLES[props.tone];
   const containerClass = () =>
-    props.grow
-      ? `px-4 py-3 flex items-center gap-3 ${styles().bg} flex-1`
-      : `px-4 py-3 flex items-start gap-3 ${styles().bg}`;
+    props.grow ? `px-4 py-3 flex items-center gap-3 ${styles().bg} flex-1` : `px-4 py-3 flex items-start gap-3 ${styles().bg}`;
   return (
     <div class={containerClass()}>
       <i class={`${props.icon ?? styles().defaultIcon} ${styles().icon} text-base ${props.grow ? "" : "mt-0.5"} shrink-0`} />

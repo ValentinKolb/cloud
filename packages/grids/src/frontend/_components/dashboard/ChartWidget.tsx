@@ -29,15 +29,12 @@ type Props = {
  */
 export default function ChartWidget(props: Props) {
   const isChartData = () => props.data.kind === "chart";
-  const errorReason = () =>
-    props.data.kind === "error" ? props.data.reason : null;
+  const errorReason = () => (props.data.kind === "error" ? props.data.reason : null);
 
   return (
     <div class="paper flex-1 w-full flex flex-col min-h-0 min-w-0 overflow-hidden">
       <header class="px-3 py-2 flex flex-col">
-        <span class="text-xs font-semibold text-primary truncate">
-          {props.widget.title ?? `${props.widget.chartType} chart`}
-        </span>
+        <span class="text-xs font-semibold text-primary truncate">{props.widget.title ?? `${props.widget.chartType} chart`}</span>
         <Show when={props.widget.subtitle}>
           <span class="text-[10px] text-dimmed truncate">{props.widget.subtitle}</span>
         </Show>
@@ -54,10 +51,7 @@ export default function ChartWidget(props: Props) {
             </div>
           }
         >
-          <ChartBody
-            widget={props.widget}
-            data={props.data as Extract<WidgetData, { kind: "chart" }>}
-          />
+          <ChartBody widget={props.widget} data={props.data as Extract<WidgetData, { kind: "chart" }>} />
         </Show>
       </div>
     </div>
@@ -69,10 +63,7 @@ export default function ChartWidget(props: Props) {
  * narrowing cleanly. Picks the chartType-specific options bundle
  * from `buildChartRenderData` and passes it through to `<Chart>`.
  */
-function ChartBody(props: {
-  widget: Extract<Widget, { kind: "chart" }>;
-  data: Extract<WidgetData, { kind: "chart" }>;
-}) {
+function ChartBody(props: { widget: Extract<Widget, { kind: "chart" }>; data: Extract<WidgetData, { kind: "chart" }> }) {
   const fieldsById = () => new Map<string, Field>(props.data.fields.map((f) => [f.id, f]));
   const renderData = () =>
     buildChartRenderData({
@@ -87,22 +78,11 @@ function ChartBody(props: {
   const yFormat = () => (v: number) => formatWidgetValue(v, props.widget.format);
 
   return (
-    <Show
-      when={renderData()}
-      keyed
-      fallback={<div class="flex-1 flex items-center justify-center text-xs">No data</div>}
-    >
+    <Show when={renderData()} keyed fallback={<div class="flex-1 flex items-center justify-center text-xs">No data</div>}>
       {(rd) => {
         switch (rd.kind) {
           case "donut":
-            return (
-              <Chart
-                kind="donut"
-                class="h-full max-h-full min-h-0 flex-1"
-                data={rd.data}
-                legend
-              />
-            );
+            return <Chart kind="donut" class="h-full max-h-full min-h-0 flex-1" data={rd.data} legend />;
           case "bar":
             return (
               <Chart

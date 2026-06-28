@@ -1,12 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import {
-  CheckboxCard,
-  EntitySearch,
-  type EntitySearchPrincipal,
-  PanelDialog,
-  SelectInput,
-  TextInput,
-} from "@valentinkolb/cloud/ui";
+import { CheckboxCard, EntitySearch, type EntitySearchPrincipal, PanelDialog, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import type { CreateOAuthClient, OAuthClient, UpdateOAuthClient } from "@/contracts";
 
 type AccessChoice = "user" | "everybody" | "specific";
@@ -160,7 +153,9 @@ export default function OAuthClientDialog(props: OAuthClientDialogProps) {
 
   const submit = async () => {
     if (!canSubmit()) return;
-    const cleanRedirectUri = redirectUri().trim().replace(/^["']|["']$/g, "");
+    const cleanRedirectUri = redirectUri()
+      .trim()
+      .replace(/^["']|["']$/g, "");
     const cleanLogoutUri = logoutUri().trim();
     const common = {
       description: description().trim() || undefined,
@@ -350,10 +345,17 @@ function SelectedAccessList(props: {
 }) {
   return (
     <div class="flex flex-col gap-2">
-      <Show when={props.users.length > 0 || props.groups.length > 0} fallback={<p class="text-xs text-dimmed">No users or groups selected yet.</p>}>
+      <Show
+        when={props.users.length > 0 || props.groups.length > 0}
+        fallback={<p class="text-xs text-dimmed">No users or groups selected yet.</p>}
+      >
         <For each={props.users}>
           {(user) => (
-            <button type="button" class="btn-input btn-input-sm justify-start" onClick={() => props.setUsers((current) => removeById(user.id, current))}>
+            <button
+              type="button"
+              class="btn-input btn-input-sm justify-start"
+              onClick={() => props.setUsers((current) => removeById(user.id, current))}
+            >
               <i class="ti ti-user" />
               <span class="min-w-0 flex-1 truncate text-left">{user.label}</span>
               <span class="text-[10px] uppercase text-dimmed">{user.provider}</span>
@@ -363,7 +365,11 @@ function SelectedAccessList(props: {
         </For>
         <For each={props.groups}>
           {(group) => (
-            <button type="button" class="btn-input btn-input-sm justify-start" onClick={() => props.setGroups((current) => removeById(group.id, current))}>
+            <button
+              type="button"
+              class="btn-input btn-input-sm justify-start"
+              onClick={() => props.setGroups((current) => removeById(group.id, current))}
+            >
               <i class="ti ti-users-group" />
               <span class="min-w-0 flex-1 truncate text-left">{group.label}</span>
               <span class="text-[10px] uppercase text-dimmed">{group.provider}</span>

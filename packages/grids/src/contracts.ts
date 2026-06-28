@@ -827,6 +827,9 @@ export const DocumentTemplateSchema = z.object({
   description: z.string().nullable(),
   source: z.string().trim().min(1).max(20_000),
   html: z.string().trim().min(1).max(200_000),
+  headerHtml: z.string().trim().max(50_000).nullable(),
+  footerHtml: z.string().trim().max(50_000).nullable(),
+  pageCss: z.string().trim().max(50_000).nullable(),
   enabled: z.boolean(),
   position: z.number().int(),
   createdBy: z.string().uuid().nullable(),
@@ -844,6 +847,9 @@ export const CreateDocumentTemplateSchema = z.object({
   description: z.string().max(2_000).nullable().optional(),
   source: z.string().trim().min(1).max(20_000),
   html: z.string().trim().min(1).max(200_000),
+  headerHtml: z.string().trim().max(50_000).nullable().optional(),
+  footerHtml: z.string().trim().max(50_000).nullable().optional(),
+  pageCss: z.string().trim().max(50_000).nullable().optional(),
   enabled: z.boolean().optional(),
 });
 export type CreateDocumentTemplateInput = z.infer<typeof CreateDocumentTemplateSchema>;
@@ -853,10 +859,23 @@ export const UpdateDocumentTemplateSchema = z.object({
   description: z.string().max(2_000).nullable().optional(),
   source: z.string().trim().min(1).max(20_000).optional(),
   html: z.string().trim().min(1).max(200_000).optional(),
+  headerHtml: z.string().trim().max(50_000).nullable().optional(),
+  footerHtml: z.string().trim().max(50_000).nullable().optional(),
+  pageCss: z.string().trim().max(50_000).nullable().optional(),
   enabled: z.boolean().optional(),
   position: z.number().int().optional(),
 });
 export type UpdateDocumentTemplateInput = z.infer<typeof UpdateDocumentTemplateSchema>;
+
+export const DocumentTemplateDraftPreviewSchema = z.object({
+  source: z.string().trim().min(1).max(20_000),
+  html: z.string().trim().min(1).max(200_000),
+  headerHtml: z.string().trim().max(50_000).nullable().optional(),
+  footerHtml: z.string().trim().max(50_000).nullable().optional(),
+  pageCss: z.string().trim().max(50_000).nullable().optional(),
+  recordId: z.string().uuid(),
+});
+export type DocumentTemplateDraftPreviewInput = z.infer<typeof DocumentTemplateDraftPreviewSchema>;
 
 export const RecordSnapshotSchema = z.object({
   id: z.string().uuid(),

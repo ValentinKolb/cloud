@@ -150,9 +150,7 @@ export default function ItemDetailHost(props: Props) {
               Loading item details
             </p>
           ) : props.showEmpty ? (
-            <Placeholder icon="ti ti-click">
-              {props.emptyText ?? "Select an item to view details"}
-            </Placeholder>
+            <Placeholder icon="ti ti-click">{props.emptyText ?? "Select an item to view details"}</Placeholder>
           ) : null
         }
       >

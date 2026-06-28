@@ -1,13 +1,7 @@
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
-import type {
-  ComputedColumnSpec,
-  DslQueryPreviewResponse,
-  GroupSortSpec,
-  RecordDisplayConfig,
-  RecordQuery,
-} from "../../../contracts";
+import type { ComputedColumnSpec, DslQueryPreviewResponse, GroupSortSpec, RecordDisplayConfig, RecordQuery } from "../../../contracts";
 import { parseGridsQueryDsl } from "../../../query-dsl/parser";
 import {
   type DslResolverContext,
@@ -602,18 +596,20 @@ const loadRecordsState = async (
   const viewsForTable = common.catalog.viewsByTable[activeTable.id] ?? [];
   const candidateView = activeViewSlug ? await gridsService.view.getByIdOrShortId(activeTable.id, activeViewSlug) : null;
   const catalogView = candidateView ? (viewsForTable.find((v) => v.id === candidateView.id) ?? null) : null;
-  const candidateViewLevel = candidateView ? await viewLevelForUser(common.params.user, common.base.id, activeTable.id, candidateView.id) : "none";
+  const candidateViewLevel = candidateView
+    ? await viewLevelForUser(common.params.user, common.base.id, activeTable.id, candidateView.id)
+    : "none";
   const activeView =
-    catalogView ??
-    (candidateView && gridsService.permission.hasAtLeast(candidateViewLevel, "read") ? candidateView : null);
+    catalogView ?? (candidateView && gridsService.permission.hasAtLeast(candidateViewLevel, "read") ? candidateView : null);
   const allFields =
-    common.catalog.fieldsByTable[activeTable.id] ??
-    (activeView ? await gridsService.field.listByTable(activeTable.id) : []);
+    common.catalog.fieldsByTable[activeTable.id] ?? (activeView ? await gridsService.field.listByTable(activeTable.id) : []);
   const viewCompilerCatalog: WorkspaceCatalog =
     activeView && !catalogView
       ? {
           ...common.catalog,
-          tables: common.catalog.tables.some((table) => table.id === activeTable.id) ? common.catalog.tables : [...common.catalog.tables, activeTable],
+          tables: common.catalog.tables.some((table) => table.id === activeTable.id)
+            ? common.catalog.tables
+            : [...common.catalog.tables, activeTable],
           tableLevels: { ...common.catalog.tableLevels, [activeTable.id]: activeTableLevel },
           fieldsByTable: { ...common.catalog.fieldsByTable, [activeTable.id]: allFields },
           viewsByTable: { ...common.catalog.viewsByTable, [activeTable.id]: [activeView] },
@@ -655,8 +651,7 @@ const loadRecordsState = async (
     : (initial.records.items.find((r) => r.id === selectedRecordId) ??
       (await gridsService.record.get(activeTable.id, selectedRecordId, { dateConfig: common.params.dateConfig })));
   const canEditActiveView =
-    !!activeView &&
-    (activeView.ownerUserId === common.params.user.id || gridsService.permission.hasAtLeast(candidateViewLevel, "admin"));
+    !!activeView && (activeView.ownerUserId === common.params.user.id || gridsService.permission.hasAtLeast(candidateViewLevel, "admin"));
 
   return okState(
     common,
@@ -665,7 +660,9 @@ const loadRecordsState = async (
       activeTable,
       activeView: activeViewForQuery,
       fields,
-      formsForTable: gridsService.permission.hasAtLeast(activeTableLevel, "read") ? (common.catalog.formsByTable[activeTable.id] ?? []) : [],
+      formsForTable: gridsService.permission.hasAtLeast(activeTableLevel, "read")
+        ? (common.catalog.formsByTable[activeTable.id] ?? [])
+        : [],
       canWriteRecords: gridsService.permission.hasAtLeast(activeTableLevel, "write"),
       canManageActiveTable: gridsService.permission.hasAtLeast(activeTableLevel, "admin"),
       activeTableAccessEntries: gridsService.permission.hasAtLeast(activeTableLevel, "admin")
@@ -729,7 +726,9 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
   const requestedViewTable =
     params.activeTableSlug && params.activeViewSlug ? await gridsService.table.getByIdOrShortId(baseId, params.activeTableSlug) : null;
   const requestedView =
-    requestedViewTable && params.activeViewSlug ? await gridsService.view.getByIdOrShortId(requestedViewTable.id, params.activeViewSlug) : null;
+    requestedViewTable && params.activeViewSlug
+      ? await gridsService.view.getByIdOrShortId(requestedViewTable.id, params.activeViewSlug)
+      : null;
   const hasViewRouteAccess = requestedView
     ? gridsService.permission.hasAtLeast(await viewLevelForUser(params.user, baseId, requestedView.tableId, requestedView.id), "read")
     : false;
@@ -754,7 +753,8 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
   const queryWorkspaceRequested = chrome.url.pathname.endsWith("/query");
   const activeDashboard = queryWorkspaceRequested ? null : await resolveActiveDashboard(params, base, catalog.dashboards);
   const renderDashboard = activeDashboard ? (catalog.dashboards.find((d) => d.id === activeDashboard.id) ?? null) : null;
-  const activeTableFromSlug = requestedViewTable ?? (params.activeTableSlug ? await gridsService.table.getByIdOrShortId(baseId, params.activeTableSlug) : null);
+  const activeTableFromSlug =
+    requestedViewTable ?? (params.activeTableSlug ? await gridsService.table.getByIdOrShortId(baseId, params.activeTableSlug) : null);
   if (queryWorkspaceRequested) {
     if (!hasBaseRead) return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
     const queryTable = activeTableFromSlug ? (catalog.tables.find((t) => t.id === activeTableFromSlug.id) ?? null) : null;

@@ -34,8 +34,7 @@ export const COMPOSE_FILE = "compose.dev.yml";
 /** Always include `--profile extra` so all app services are visible even
  *  before they're explicitly started. The base profile alone would
  *  hide the optional apps and break validation for any extra service. */
-export const compose = (args: string[]) =>
-  $`docker compose -f ${COMPOSE_FILE} --profile extra ${args}`;
+export const compose = (args: string[]) => $`docker compose -f ${COMPOSE_FILE} --profile extra ${args}`;
 
 // =============================================================================
 // Service discovery / validation
@@ -64,8 +63,7 @@ export const listDevServices = async (): Promise<string[]> => {
 
 /** Strip the `app-` prefix to get the short name humans type. Non-app
  *  services (e.g. `gateway`) pass through unchanged. */
-export const shortName = (service: string): string =>
-  service.startsWith("app-") ? service.slice(4) : service;
+export const shortName = (service: string): string => (service.startsWith("app-") ? service.slice(4) : service);
 
 /** Normalize + validate caller-supplied names. Each input is tried first
  *  as an exact match (covers `gateway`, `app-notebooks`), then with an

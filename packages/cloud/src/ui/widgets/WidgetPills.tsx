@@ -31,10 +31,7 @@ type WidgetPillsProps = {
 const Pill = (props: { pill: WidgetPill }): JSX.Element => {
   const tone = () => props.pill.tone ?? "zinc";
   const baseClass = () => `inline-flex items-baseline gap-1.5 rounded-md px-2 py-0.5 ${PILL_TONE[tone()]}`;
-  const labelTone = () =>
-    tone() === "zinc"
-      ? "uppercase tracking-wider text-[10px] text-dimmed"
-      : "uppercase tracking-wider text-[10px]";
+  const labelTone = () => (tone() === "zinc" ? "uppercase tracking-wider text-[10px] text-dimmed" : "uppercase tracking-wider text-[10px]");
   const valueTone = () => "text-xs font-bold tabular-nums";
 
   if (props.pill.href) {
@@ -54,11 +51,7 @@ const Pill = (props: { pill: WidgetPill }): JSX.Element => {
 };
 
 const WidgetPills = (props: WidgetPillsProps): JSX.Element => (
-  <div
-    class={`px-4 py-3 flex flex-wrap gap-1.5 ${
-      props.grow ? "flex-1 content-center" : ""
-    }`}
-  >
+  <div class={`px-4 py-3 flex flex-wrap gap-1.5 ${props.grow ? "flex-1 content-center" : ""}`}>
     {props.pills.map((pill) => (
       <Pill pill={pill} />
     ))}

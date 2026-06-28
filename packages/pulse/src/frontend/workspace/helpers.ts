@@ -3,7 +3,6 @@ import type { DataTableColumn, FilterChipSection } from "@valentinkolb/cloud/ui"
 import type {
   MetricQueryPoint,
   MetricType,
-  PanelVisual,
   PulseCurrentState,
   PulseDashboard,
   PulseDashboardConfig,
@@ -11,7 +10,6 @@ import type {
   PulseDashboardEventsWidget,
   PulseDashboardMetricQuery,
   PulseDashboardMetricWidget,
-  PulseDashboardPanel,
   PulseDashboardSection,
   PulseDashboardStateQuery,
   PulseDashboardStatesWidget,
@@ -122,19 +120,6 @@ export const stateRowId = (state: PulseCurrentState): string =>
 export const eventGroupId = (event: PulseRecordedEvent): string => [event.kind, signalSubject(event)].join(":");
 
 export const stateGroupId = (state: PulseCurrentState): string => [state.key, state.sourceId ?? ""].join(":");
-
-export const panelQuery = (baseId: string, panel: PulseDashboardPanel) => ({
-  kind: "metric" as const,
-  baseId,
-  metric: (panel as PulseDashboardMetricWidget).query?.metric ?? panel.metric,
-  aggregation: (panel as PulseDashboardMetricWidget).query?.aggregation ?? panel.aggregation,
-  bucket: (panel as PulseDashboardMetricWidget).query?.bucket ?? panel.bucket,
-  since: (panel as PulseDashboardMetricWidget).query?.since ?? panel.since,
-  sourceId: (panel as PulseDashboardMetricWidget).query?.sourceId ?? panel.sourceId ?? null,
-  entityId: (panel as PulseDashboardMetricWidget).query?.entityId ?? panel.entityId ?? null,
-  entityType: (panel as PulseDashboardMetricWidget).query?.entityType ?? panel.entityType ?? null,
-  dimensions: (panel as PulseDashboardMetricWidget).query?.dimensions ?? panel.dimensions ?? undefined,
-});
 
 const queryFiltersToText = (query: PulseDashboardMetricQuery | PulseDashboardEventQuery | PulseDashboardStateQuery): string => {
   const source = query.sourceId ? ` source ${query.sourceId}` : "";
@@ -280,10 +265,8 @@ export const dashboardSectionWidgets = (section: PulseDashboardSection): PulseDa
 export const dashboardLayoutWidgets = (config: PulseDashboardConfig): PulseDashboardWidget[] =>
   config.layout?.sections.flatMap(dashboardSectionWidgets) ?? [];
 
-export const dashboardMetricPanels = (config: PulseDashboardConfig): PulseDashboardPanel[] => [
-  ...dashboardLayoutWidgets(config).filter((widget): widget is PulseDashboardMetricWidget => widget.kind === "metric"),
-  ...(!config.layout ? (config.panels ?? []) : []),
-];
+export const dashboardMetricWidgets = (config: PulseDashboardConfig): PulseDashboardMetricWidget[] =>
+  dashboardLayoutWidgets(config).filter((widget): widget is PulseDashboardMetricWidget => widget.kind === "metric");
 
 export const dashboardEventsWidgets = (config: PulseDashboardConfig) =>
   dashboardLayoutWidgets(config).filter((widget) => widget.kind === "events");
@@ -293,34 +276,25 @@ export const dashboardStatesWidgets = (config: PulseDashboardConfig) =>
 
 export const quoteDashboardDslString = (value: string): string => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 
-export const visualStatement = (visual: PanelVisual): string => (visual === "line" ? "chart" : visual);
+export const starterDashboardDsl = (name: string, description?: string | null): string => {
+  const dashboardDescription = description?.trim() || "Describe what this dashboard should answer.";
+  return `dashboard ${quoteDashboardDslString(name)} {
+  description ${quoteDashboardDslString(dashboardDescription)}
 
-export const panelToDashboardDsl = (panel: PulseDashboardPanel): string => {
-  const source = panel.sourceId ? ` source ${panel.sourceId}` : "";
-  const dimensions = Object.entries(panel.dimensions ?? {});
-  const where = dimensions.length ? ` where ${dimensions.map(([key, value]) => `${key}=${quoteQueryPart(String(value))}`).join(", ")}` : "";
-  return `    ${visualStatement(panel.visual)} ${quoteDashboardDslString(panel.title)} {
-      query metric ${panel.metric} ${panel.aggregation} every ${panel.bucket} since ${panel.since}${source}${where}
-    }`;
+  section "Overview" {
+    markdown "Start here" {
+      """
+      Add cards, charts, tables, and notes with the Pulse dashboard DSL.
+      Use the inventory pane to insert metrics, states, events, sources, and resources.
+      """
+    }
+  }
+}`;
 };
 
 export const dashboardToDsl = (dashboard: PulseDashboard): string => {
   if (dashboard.config.dsl?.trim()) return dashboard.config.dsl;
-  const legacyPanels = dashboard.config.panels ?? [];
-  const panelBlocks = legacyPanels.length
-    ? legacyPanels.map(panelToDashboardDsl).join("\n\n")
-    : `    markdown "Start here" {
-      """
-      Add cards, charts, tables, and notes with the Pulse dashboard DSL.
-      """
-    }`;
-  return `dashboard ${quoteDashboardDslString(dashboard.name)} {
-  description "Live Pulse dashboard."
-
-  section "Overview" {
-${panelBlocks}
-  }
-}`;
+  return starterDashboardDsl(dashboard.name, "Live Pulse dashboard.");
 };
 
 const queryHistoryKey = (baseId: string): string => `pulse.queryHistory.${baseId}`;

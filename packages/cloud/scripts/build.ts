@@ -42,9 +42,7 @@ const frameworkDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 // App dir — APP_DIR override for standalone consumers, defaults to monorepo
 // convention. Resolved against cwd if relative.
-const appDir = process.env.APP_DIR
-  ? resolve(root, process.env.APP_DIR)
-  : resolve(root, "packages", appId);
+const appDir = process.env.APP_DIR ? resolve(root, process.env.APP_DIR) : resolve(root, "packages", appId);
 if (!existsSync(appDir)) throw new Error(`Unknown app dir: ${appDir} (set APP_DIR or check APP_ID)`);
 
 const dist = resolve(root, "dist");

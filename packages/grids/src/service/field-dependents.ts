@@ -28,9 +28,7 @@ export const findFieldRefsInValue = (value: unknown, fieldId: string): boolean =
   if (typeof value === "string") return value === fieldId;
   if (Array.isArray(value)) return value.some((v) => findFieldRefsInValue(v, fieldId));
   if (typeof value === "object") {
-    return Object.values(value as Record<string, unknown>).some((v) =>
-      findFieldRefsInValue(v, fieldId),
-    );
+    return Object.values(value as Record<string, unknown>).some((v) => findFieldRefsInValue(v, fieldId));
   }
   return false;
 };
@@ -38,7 +36,18 @@ export const findFieldRefsInValue = (value: unknown, fieldId: string): boolean =
 export const findFieldRefContexts = (config: Record<string, unknown>, fieldId: string): string[] => {
   const contexts: string[] = [];
   // Common keys in view configs that may reference fields.
-  const keys = ["filter", "sort", "visibleFields", "fieldOrder", "fieldWidths", "groupBy", "groupSort", "aggregations", "columns", "search"];
+  const keys = [
+    "filter",
+    "sort",
+    "visibleFields",
+    "fieldOrder",
+    "fieldWidths",
+    "groupBy",
+    "groupSort",
+    "aggregations",
+    "columns",
+    "search",
+  ];
   for (const key of keys) {
     const part = config[key];
     if (part !== undefined && findFieldRefsInValue(part, fieldId)) {
@@ -196,10 +205,7 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
     if (refs.includes(fieldId)) {
       const type = row.type as string;
       dependents.push({
-        type:
-          type === "formula" ? "formula" :
-          type === "lookup" ? "lookup" :
-          type === "rollup" ? "rollup" : "relation_display",
+        type: type === "formula" ? "formula" : type === "lookup" ? "lookup" : type === "rollup" ? "rollup" : "relation_display",
         resourceId: row.id as string,
         resourceName: row.name as string,
         context: "field-config",
@@ -212,5 +218,4 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
 };
 
 /** True if any dependent is blocking — i.e. user must remove deps before mutating. */
-export const hasBlockingDependents = (deps: FieldDependent[]): boolean =>
-  deps.some((d) => d.blocking);
+export const hasBlockingDependents = (deps: FieldDependent[]): boolean => deps.some((d) => d.blocking);

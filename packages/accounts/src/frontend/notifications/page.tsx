@@ -84,7 +84,12 @@ export default ssr<AuthContext>(async (c) => {
       fullWidth
       title={[{ title: "Start", href: "/" }, { title: "Accounts", href: "/app/accounts" }, { title: "Notifications" }]}
     >
-      <AccountsWorkspace active="notifications" isAdmin pendingRequests={pendingRequestsPage.total} scrollPreserveKey="accounts-notifications">
+      <AccountsWorkspace
+        active="notifications"
+        isAdmin
+        pendingRequests={pendingRequestsPage.total}
+        scrollPreserveKey="accounts-notifications"
+      >
         <div class="flex flex-col gap-2">
           <div class="flex flex-wrap items-start gap-3" style="view-transition-name: accounts-notifications-title">
             <div class="min-w-0 flex-1">
@@ -101,7 +106,9 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {batchesPage.items.length === 0 ? (
-            <Placeholder surface="paper">{status ? `No ${statusLabel(status).toLowerCase()} notification batches found.` : "No notification batches found."}</Placeholder>
+            <Placeholder surface="paper">
+              {status ? `No ${statusLabel(status).toLowerCase()} notification batches found.` : "No notification batches found."}
+            </Placeholder>
           ) : (
             <div class="paper overflow-hidden" style="view-transition-name: accounts-notifications-table">
               <DataTable
@@ -122,7 +129,11 @@ export default ssr<AuthContext>(async (c) => {
                     );
                   }
                   if (col.id === "status") {
-                    return <span class={`w-fit rounded px-1.5 py-0.5 text-[10px] font-medium ${statusClass(entry.status)}`}>{statusLabel(entry.status)}</span>;
+                    return (
+                      <span class={`w-fit rounded px-1.5 py-0.5 text-[10px] font-medium ${statusClass(entry.status)}`}>
+                        {statusLabel(entry.status)}
+                      </span>
+                    );
                   }
                   if (col.id === "targets")
                     return (
@@ -131,7 +142,10 @@ export default ssr<AuthContext>(async (c) => {
                       </span>
                     );
                   if (col.id === "sent") return <span class="text-dimmed">{formatCount.format(entry.sentCount)}</span>;
-                  if (col.id === "errors") return <span class={entry.errorCount > 0 ? "text-red-600" : "text-dimmed"}>{formatCount.format(entry.errorCount)}</span>;
+                  if (col.id === "errors")
+                    return (
+                      <span class={entry.errorCount > 0 ? "text-red-600" : "text-dimmed"}>{formatCount.format(entry.errorCount)}</span>
+                    );
                   if (col.id === "created") return <span class="text-dimmed">{dates.formatDateTime(entry.createdAt)}</span>;
                   return "";
                 }}

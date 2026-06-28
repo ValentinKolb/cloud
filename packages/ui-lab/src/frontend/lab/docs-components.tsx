@@ -1,13 +1,4 @@
-import {
-  DocCode,
-  DocConceptGrid,
-  DocInlineCode,
-  DocLead,
-  DocNote,
-  DocPage,
-  DocRows,
-  DocSection,
-} from "@valentinkolb/cloud/ui";
+import { DocCode, DocConceptGrid, DocInlineCode, DocLead, DocNote, DocPage, DocRows, DocSection } from "@valentinkolb/cloud/ui";
 import { highlight } from "@valentinkolb/stdlib";
 import DemoCard from "./DemoCard";
 
@@ -27,10 +18,7 @@ const pulseHighlighter = highlight.compile(
   { classPrefix: "doc-token-" },
 );
 
-const formatPulseQuery = (query: string): string =>
-  query
-    .replace(/\s+(every|since|source|where)\b/gi, "\n$1")
-    .replace(/,\s*/g, ",\n  ");
+const formatPulseQuery = (query: string): string => query.replace(/\s+(every|since|source|where)\b/gi, "\n$1").replace(/,\s*/g, ",\n  ");
 
 export const DocComponentsDemo = () => (
   <DemoCard

@@ -33,4 +33,3 @@ export const rank = {
     return prev + gap / 2n;
   },
 };
-

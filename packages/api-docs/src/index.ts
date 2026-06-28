@@ -12,10 +12,7 @@ import pageRoutes from "./frontend";
  * Compose middleware ourselves so this app stays consistent with the
  * platform pattern even though it's a single read-only page.
  */
-const router = new Hono<AuthContext>()
-  .use("*", middleware.runtime())
-  .use("*", middleware.settings())
-  .route("/app/api-docs", pageRoutes);
+const router = new Hono<AuthContext>().use("*", middleware.runtime()).use("*", middleware.settings()).route("/app/api-docs", pageRoutes);
 
 export default await app.start({
   fetch: router.fetch,

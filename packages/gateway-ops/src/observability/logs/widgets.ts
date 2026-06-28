@@ -17,46 +17,41 @@ import { loggingService } from "./service";
  * `requireRole("*")` loads the session without enforcing it — we need the user
  * to decide between 403 and 200 ourselves.
  */
-const app = new Hono<AuthContext>()
-  .use(auth.requireRole("*"))
-  .get("/errors", async (c) => {
-    const actor = c.get("actor") as AuthContext["Variables"]["actor"] | undefined;
-    const user = actor?.kind === "user" ? actor.user : actor?.delegatedUser;
-    if (!user || !hasRole(user, "admin")) return c.body(null, 403);
+const app = new Hono<AuthContext>().use(auth.requireRole("*")).get("/errors", async (c) => {
+  const actor = c.get("actor") as AuthContext["Variables"]["actor"] | undefined;
+  const user = actor?.kind === "user" ? actor.user : actor?.delegatedUser;
+  if (!user || !hasRole(user, "admin")) return c.body(null, 403);
 
-    const summary = await loggingService.stats.summary();
-    const blocks: WidgetBlock[] = [
-      {
-        kind: "stat",
-        // Stat grows to fill remaining vertical space; pills sit at the bottom.
-        grow: true,
-        value: summary.errors24h.toLocaleString(),
-        label: "Errors · last 24h",
-        sub: summary.errors24h > 0 ? "needs review" : "all quiet",
-        valueClass: summary.errors24h > 0 ? "text-red-500" : undefined,
-        accent:
-          summary.errors24h > 0
-            ? { tone: "red", icon: "ti ti-alert-circle" }
-            : { tone: "emerald", icon: "ti ti-check" },
-      },
-      {
-        kind: "pills",
-        pills: [
-          { label: "warn", value: summary.warnings24h, tone: summary.warnings24h > 0 ? "amber" : "zinc" },
-          { label: "vol", value: summary.total24h.toLocaleString() },
-          { label: "src", value: summary.sources, tone: "blue" },
-        ],
-      },
-    ];
+  const summary = await loggingService.stats.summary();
+  const blocks: WidgetBlock[] = [
+    {
+      kind: "stat",
+      // Stat grows to fill remaining vertical space; pills sit at the bottom.
+      grow: true,
+      value: summary.errors24h.toLocaleString(),
+      label: "Errors · last 24h",
+      sub: summary.errors24h > 0 ? "needs review" : "all quiet",
+      valueClass: summary.errors24h > 0 ? "text-red-500" : undefined,
+      accent: summary.errors24h > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : { tone: "emerald", icon: "ti ti-check" },
+    },
+    {
+      kind: "pills",
+      pills: [
+        { label: "warn", value: summary.warnings24h, tone: summary.warnings24h > 0 ? "amber" : "zinc" },
+        { label: "vol", value: summary.total24h.toLocaleString() },
+        { label: "src", value: summary.sources, tone: "blue" },
+      ],
+    },
+  ];
 
-    const body: WidgetResponse = {
-      title: "Logs",
-      icon: "ti ti-list-tree",
-      href: "/admin/observability/logs",
-      meta: "last 24h",
-      blocks,
-    };
-    return c.json(body);
-  });
+  const body: WidgetResponse = {
+    title: "Logs",
+    icon: "ti ti-list-tree",
+    href: "/admin/observability/logs",
+    meta: "last 24h",
+    blocks,
+  };
+  return c.json(body);
+});
 
 export default app;

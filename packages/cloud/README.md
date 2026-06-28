@@ -75,4 +75,14 @@ Full walkthroughs, the per-app anatomy, deployment templates, and a reference ap
 
 ## License
 
-MIT © Valentin Kolb
+GNU Affero General Public License v3.0 or later.
+
+Commercial use, hosting, modification, and redistribution are permitted under
+the AGPL. If you modify Cloud and let users interact with it over a network,
+you must provide those users access to the corresponding source code under the
+same license.
+
+Separate commercial licenses for proprietary, reseller, managed-service,
+white-label, or embedded product use are available by contacting the maintainer.
+
+See the repository `LICENSE` file.

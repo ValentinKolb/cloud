@@ -129,11 +129,7 @@ const createNotes = async (
   return created;
 };
 
-export const instantiate = async (
-  templateId: string,
-  input: InstantiateTemplateInput,
-  actorId: string,
-): Promise<Result<Notebook>> => {
+export const instantiate = async (templateId: string, input: InstantiateTemplateInput, actorId: string): Promise<Result<Notebook>> => {
   const template = getTemplate(templateId);
   if (!template) return fail(err.notFound("Template"));
 

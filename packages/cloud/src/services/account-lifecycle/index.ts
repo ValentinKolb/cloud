@@ -59,7 +59,10 @@ const getGuestExpiresDays = async (): Promise<number> => {
 const getDeletedAccountsRetentionDays = async (): Promise<number> => settingInt("user.account.deleted_accounts_retention_days", 365);
 const getReminderHistoryRetentionDays = async (): Promise<number> => settingInt("user.account.reminder_history_retention_days", 365);
 
-const readIpaList = (config: { response: Awaited<ReturnType<typeof freeipa.client.call>>; entity: string }): Result<Record<string, unknown>[]> => {
+const readIpaList = (config: {
+  response: Awaited<ReturnType<typeof freeipa.client.call>>;
+  entity: string;
+}): Result<Record<string, unknown>[]> => {
   if (config.response.error) {
     return fail(err.internal(`Could not verify FreeIPA ${config.entity} before extension.`));
   }
@@ -300,7 +303,7 @@ const listReminderCandidates = async (thresholdDays: number): Promise<ReminderCa
 
 export const accountLifecycle = {
   demoteExpiredIpaUsers: async (): Promise<LifecycleSummary> => {
-    const freeIpaConfig = (await getFreeIpaConfig());
+    const freeIpaConfig = await getFreeIpaConfig();
     if (!freeIpaConfig.enabled) {
       log.info("Expired IPA demotion skipped", { reason: "freeipa_disabled" });
       return { scanned: 0, changed: 0, skipped: 0, failed: 0 };
@@ -318,9 +321,7 @@ export const accountLifecycle = {
       ORDER BY account_expires ASC
     `;
 
-    const transitionPolicy = parseIpaAccountTransitionPolicy(
-      await getSetting<string | null>("freeipa.account_transition_policy"),
-    );
+    const transitionPolicy = parseIpaAccountTransitionPolicy(await getSetting<string | null>("freeipa.account_transition_policy"));
     const ipaSession = await freeipa.session.getServiceSession({
       url: freeIpaConfig.url,
       serviceUser: freeIpaConfig.serviceUser,
@@ -523,15 +524,15 @@ export const accountLifecycle = {
       scanned += candidates.length;
 
       for (const candidate of candidates) {
-      const attempt = await upsertReminderAttempt({
-        userId: candidate.userId,
-        uid: candidate.uid,
-        mail: candidate.mail,
-        displayName: candidate.displayName,
-        kind: candidate.kind,
-        thresholdDays,
-        targetExpiryAt: candidate.expiresAt,
-      });
+        const attempt = await upsertReminderAttempt({
+          userId: candidate.userId,
+          uid: candidate.uid,
+          mail: candidate.mail,
+          displayName: candidate.displayName,
+          kind: candidate.kind,
+          thresholdDays,
+          targetExpiryAt: candidate.expiresAt,
+        });
 
         if (attempt.status === "sent") {
           skipped += 1;
@@ -617,7 +618,7 @@ export const accountLifecycle = {
   },
 
   runIpaBackfill: async (): Promise<LifecycleSummary> => {
-    const freeIpaConfig = (await getFreeIpaConfig());
+    const freeIpaConfig = await getFreeIpaConfig();
     if (!freeIpaConfig.enabled) {
       log.info("IPA backfill skipped", { reason: "freeipa_disabled" });
       return { scanned: 0, changed: 0, skipped: 0, failed: 0 };
@@ -770,9 +771,7 @@ export const accountLifecycle = {
     };
   },
 
-  extendCurrentUserAccount: async (config: {
-    user: User;
-  }): Promise<Result<{ message: string; newExpiry?: string }>> => {
+  extendCurrentUserAccount: async (config: { user: User }): Promise<Result<{ message: string; newExpiry?: string }>> => {
     const auditParams = (result: Result<{ message: string; newExpiry?: string }>) => ({
       action: "accounts.user.extend_account",
       actor: {
@@ -784,8 +783,7 @@ export const accountLifecycle = {
       target: { type: "user", id: config.user.id, label: config.user.uid, provider: config.user.provider },
       result,
     });
-    const recordResult = (result: Result<{ message: string; newExpiry?: string }>) =>
-      audit.recordResult(auditParams(result));
+    const recordResult = (result: Result<{ message: string; newExpiry?: string }>) => audit.recordResult(auditParams(result));
     const recordCompletedMutation = (result: Result<{ message: string; newExpiry?: string }>) =>
       result.ok ? audit.recordResultAfterSideEffect(auditParams(result)) : audit.recordResult(auditParams(result));
 
@@ -794,7 +792,7 @@ export const accountLifecycle = {
     }
 
     if (config.user.provider === "ipa") {
-      const freeIpaConfig = (await getFreeIpaConfig());
+      const freeIpaConfig = await getFreeIpaConfig();
       if (!freeIpaConfig.enabled) {
         return recordResult(ok({ message: "FreeIPA is disabled." }));
       }
@@ -808,11 +806,13 @@ export const accountLifecycle = {
 
       const serviceSession = await getServiceIpaSession();
       if (!serviceSession.ok) {
-        return recordResult(fail({
-          code: serviceSession.status === 400 ? "BAD_INPUT" : "INTERNAL",
-          message: serviceSession.error,
-          status: serviceSession.status,
-        }));
+        return recordResult(
+          fail({
+            code: serviceSession.status === 400 ? "BAD_INPUT" : "INTERNAL",
+            message: serviceSession.error,
+            status: serviceSession.status,
+          }),
+        );
       }
 
       const expiresAt = new Date(Date.now() + configuredDays * DAY_MS);
@@ -841,10 +841,12 @@ export const accountLifecycle = {
         ON CONFLICT (user_id) DO UPDATE SET synced_at = EXCLUDED.synced_at
       `;
 
-      return recordCompletedMutation(ok({
-        message: `Account extended until ${dates.formatDate(expiresAt)}.`,
-        newExpiry: expiresAt.toISOString(),
-      }));
+      return recordCompletedMutation(
+        ok({
+          message: `Account extended until ${dates.formatDate(expiresAt)}.`,
+          newExpiry: expiresAt.toISOString(),
+        }),
+      );
     }
 
     if (config.user.provider === "local" && config.user.profile === "guest") {
@@ -865,10 +867,12 @@ export const accountLifecycle = {
         WHERE id = ${config.user.id}::uuid
       `;
 
-      return recordCompletedMutation(ok({
-        message: `Guest account extended until ${dates.formatDate(expiresAt)}.`,
-        newExpiry: expiresAt.toISOString(),
-      }));
+      return recordCompletedMutation(
+        ok({
+          message: `Guest account extended until ${dates.formatDate(expiresAt)}.`,
+          newExpiry: expiresAt.toISOString(),
+        }),
+      );
     }
 
     if (config.user.provider === "local" && config.user.profile === "user") {
@@ -889,10 +893,12 @@ export const accountLifecycle = {
         WHERE id = ${config.user.id}::uuid
       `;
 
-      return recordCompletedMutation(ok({
-        message: `Account extended until ${dates.formatDate(expiresAt)}.`,
-        newExpiry: expiresAt.toISOString(),
-      }));
+      return recordCompletedMutation(
+        ok({
+          message: `Account extended until ${dates.formatDate(expiresAt)}.`,
+          newExpiry: expiresAt.toISOString(),
+        }),
+      );
     }
 
     return recordResult(ok({ message: "Your account does not support extension." }));
@@ -1008,9 +1014,9 @@ export const accountLifecycle = {
       items: rows.map((row) => ({
         id: row.id as string,
         userId: (row.user_id as string) ?? null,
-        uid: ((row.reminder_uid as string) ?? (row.live_uid as string) ?? null),
-        mail: ((row.reminder_mail as string) ?? (row.live_mail as string) ?? null),
-        displayName: ((row.reminder_display_name as string) ?? (row.live_display_name as string) ?? null),
+        uid: (row.reminder_uid as string) ?? (row.live_uid as string) ?? null,
+        mail: (row.reminder_mail as string) ?? (row.live_mail as string) ?? null,
+        displayName: (row.reminder_display_name as string) ?? (row.live_display_name as string) ?? null,
         kind: row.kind as string,
         thresholdDays: Number(row.threshold_days),
         targetExpiryAt: (row.target_expiry_at as Date).toISOString(),

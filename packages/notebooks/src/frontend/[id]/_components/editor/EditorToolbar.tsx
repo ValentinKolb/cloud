@@ -6,15 +6,7 @@ import { createSignal, onCleanup, onMount } from "solid-js";
 import { requestNotebookSearch } from "../../../lib/hotkeys";
 import { DETAIL_PANEL_STATE_EVENT, DETAIL_PANEL_TOGGLE_EVENT } from "../detail/events";
 import { openAttachmentPicker } from "./AttachmentPicker";
-import {
-  cycleHeading,
-  insertCallout,
-  insertLink,
-  insertLinePrefix,
-  insertNoteLink,
-  insertTable,
-  wrapSelection,
-} from "./editor-actions";
+import { cycleHeading, insertCallout, insertLink, insertLinePrefix, insertNoteLink, insertTable, wrapSelection } from "./editor-actions";
 
 type Props = {
   connected: boolean;

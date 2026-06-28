@@ -16,11 +16,6 @@ export type {
   TemplateView,
 } from "./types";
 
-export const templates: GridTemplate[] = [
-  bookshopTemplate,
-  financeTemplate,
-  inventoryTemplate,
-];
+export const templates: GridTemplate[] = [bookshopTemplate, financeTemplate, inventoryTemplate];
 
-export const getTemplate = (id: string): GridTemplate | null =>
-  templates.find((template) => template.id === id) ?? null;
+export const getTemplate = (id: string): GridTemplate | null => templates.find((template) => template.id === id) ?? null;

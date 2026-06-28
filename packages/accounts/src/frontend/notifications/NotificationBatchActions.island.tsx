@@ -71,8 +71,8 @@ function FinalizeDialog(props: {
       <div class="info-block-warning flex min-w-0 items-start gap-2 text-sm">
         <i class="ti ti-alert-triangle mt-0.5 shrink-0" />
         <span class="min-w-0 break-words">
-          This will send the email to {formatCount.format(props.deliverableCount)} recipients. {formatCount.format(props.skippedNoEmailCount)} selected
-          accounts have no email address and will be skipped.
+          This will send the email to {formatCount.format(props.deliverableCount)} recipients.{" "}
+          {formatCount.format(props.skippedNoEmailCount)} selected accounts have no email address and will be skipped.
         </span>
       </div>
       <Checkbox
@@ -173,7 +173,12 @@ export default function NotificationBatchActions(props: Props) {
   return (
     <div class="flex flex-wrap justify-end gap-2">
       <Show when={props.status === "draft"}>
-        <button type="button" class="btn-input btn-input-sm text-red-600 hover:text-red-700 dark:text-red-300" onClick={deleteDraft} disabled={isLoading()}>
+        <button
+          type="button"
+          class="btn-input btn-input-sm text-red-600 hover:text-red-700 dark:text-red-300"
+          onClick={deleteDraft}
+          disabled={isLoading()}
+        >
           <i class={loadingAction() === "delete" ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
           <span>Delete draft</span>
         </button>

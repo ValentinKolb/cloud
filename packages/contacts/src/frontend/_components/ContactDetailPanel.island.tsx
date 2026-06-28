@@ -171,11 +171,7 @@ export default function ContactDetailPanel(props: Props) {
 
                     <Show when={c().tags.length > 0}>
                       <div class="mt-3 flex flex-wrap items-center gap-1.5">
-                        <For each={c().tags}>
-                          {(tag) => (
-                            <ContactTagChip name={tag.name} color={tag.color} size="sm" />
-                          )}
-                        </For>
+                        <For each={c().tags}>{(tag) => <ContactTagChip name={tag.name} color={tag.color} size="sm" />}</For>
                       </div>
                     </Show>
                   </section>

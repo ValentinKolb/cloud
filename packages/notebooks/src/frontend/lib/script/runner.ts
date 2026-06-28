@@ -61,12 +61,7 @@ const AsyncFunctionCtor = Object.getPrototypeOf(async function () {}).constructo
  * Returns a `RunResult` mostly for tests / future wiring; production
  * callers can ignore it.
  */
-export const runScript = async (
-  source: string,
-  runtime: Kit,
-  outputEl: HTMLElement,
-  options?: RunScriptOptions,
-): Promise<RunResult> => {
+export const runScript = async (source: string, runtime: Kit, outputEl: HTMLElement, options?: RunScriptOptions): Promise<RunResult> => {
   const isActive = options?.isActive ?? (() => true);
   const errorEl = options?.errorEl ?? outputEl;
   // Strip stale error class from the previous run.
@@ -284,15 +279,11 @@ const renderTable = (data: unknown): HTMLElement => {
         return key in obj ? formatArg(obj[key]) : "";
       });
     }
-    return buildTable(["(index)", "value"], data, (row, key, i) =>
-      key === "(index)" ? String(i) : formatArg(row),
-    );
+    return buildTable(["(index)", "value"], data, (row, key, i) => (key === "(index)" ? String(i) : formatArg(row)));
   }
   if (data !== null && typeof data === "object") {
     const entries = Object.entries(data as Record<string, unknown>);
-    return buildTable(["(key)", "value"], entries, ([k, v], col) =>
-      col === "(key)" ? String(k) : formatArg(v),
-    );
+    return buildTable(["(key)", "value"], entries, ([k, v], col) => (col === "(key)" ? String(k) : formatArg(v)));
   }
   // Primitives fall through to a single-line "info" log.
   const line = document.createElement("div");
@@ -358,9 +349,7 @@ const renderError = (outputEl: HTMLElement, value: unknown, kind: "parse error" 
   // `.md-script-errors` container already provides the red card.
   // Just typography + text color here so we don't render a box-in-
   // box.
-  wrap.className =
-    "md-script-error-block flex flex-col gap-1 text-xs " +
-    "text-red-700 dark:text-red-300";
+  wrap.className = "md-script-error-block flex flex-col gap-1 text-xs " + "text-red-700 dark:text-red-300";
 
   const heading = document.createElement("div");
   heading.className = "flex items-center gap-1 font-medium";

@@ -27,56 +27,47 @@ const isFilesKey = (key: string): boolean => FILES_KEYS.has(key);
 const BulkUpdateSchema = z.record(z.string(), z.unknown());
 
 export const filesSettingsRouter = new Hono<AuthContext>()
-  .put(
-    "/",
-    auth.requireRole("admin"),
-    v("json", BulkUpdateSchema),
-    async (c) => {
-      const updates = c.req.valid("json");
-      const keys = Object.keys(updates);
-      if (keys.length === 0) return c.body(null, 204);
+  .put("/", auth.requireRole("admin"), v("json", BulkUpdateSchema), async (c) => {
+    const updates = c.req.valid("json");
+    const keys = Object.keys(updates);
+    if (keys.length === 0) return c.body(null, 204);
 
-      const ownership: Record<string, string> = {};
-      for (const key of keys) {
-        if (!isFilesKey(key)) ownership[key] = `Setting "${key}" is not owned by app-files`;
-      }
-      if (Object.keys(ownership).length > 0) {
-        return c.json({ message: "Invalid keys", errors: ownership }, 400);
-      }
+    const ownership: Record<string, string> = {};
+    for (const key of keys) {
+      if (!isFilesKey(key)) ownership[key] = `Setting "${key}" is not owned by app-files`;
+    }
+    if (Object.keys(ownership).length > 0) {
+      return c.json({ message: "Invalid keys", errors: ownership }, 400);
+    }
 
-      const fieldErrors: Record<string, string> = {};
-      try {
-        await sql.begin(async () => {
-          for (const [key, value] of Object.entries(updates)) {
-            try {
-              await app.settings.set(key as never, value as never);
-            } catch (error) {
-              fieldErrors[key] = error instanceof Error ? error.message : `Failed to update ${key}`;
-              throw error;
-            }
+    const fieldErrors: Record<string, string> = {};
+    try {
+      await sql.begin(async () => {
+        for (const [key, value] of Object.entries(updates)) {
+          try {
+            await app.settings.set(key as never, value as never);
+          } catch (error) {
+            fieldErrors[key] = error instanceof Error ? error.message : `Failed to update ${key}`;
+            throw error;
           }
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Save failed";
-        return c.json({ message, errors: Object.keys(fieldErrors).length > 0 ? fieldErrors : { _form: message } }, 400);
-      }
+        }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Save failed";
+      return c.json({ message, errors: Object.keys(fieldErrors).length > 0 ? fieldErrors : { _form: message } }, 400);
+    }
 
+    return c.body(null, 204);
+  })
+  .delete("/:key{.+}", auth.requireRole("admin"), async (c) => {
+    const key = c.req.param("key");
+    if (!isFilesKey(key)) {
+      return c.json({ message: `Setting "${key}" is not owned by app-files` }, 400);
+    }
+    try {
+      await app.settings.remove(key as never);
       return c.body(null, 204);
-    },
-  )
-  .delete(
-    "/:key{.+}",
-    auth.requireRole("admin"),
-    async (c) => {
-      const key = c.req.param("key");
-      if (!isFilesKey(key)) {
-        return c.json({ message: `Setting "${key}" is not owned by app-files` }, 400);
-      }
-      try {
-        await app.settings.remove(key as never);
-        return c.body(null, 204);
-      } catch (error) {
-        return c.json({ message: error instanceof Error ? error.message : "Reset failed" }, 500);
-      }
-    },
-  );
+    } catch (error) {
+      return c.json({ message: error instanceof Error ? error.message : "Reset failed" }, 500);
+    }
+  });

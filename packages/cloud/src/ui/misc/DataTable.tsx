@@ -219,7 +219,9 @@ export default function DataTable<T>(props: DataTableProps<T>) {
                   return (
                     <tr
                       class={`border-b border-zinc-100 dark:border-zinc-800/60 last:border-0 ${
-                        shouldHoverRows() ? `${isInteractive() ? "cursor-pointer" : ""} hover:bg-blue-500/[0.08] dark:hover:bg-blue-400/[0.12]` : ""
+                        shouldHoverRows()
+                          ? `${isInteractive() ? "cursor-pointer" : ""} hover:bg-blue-500/[0.08] dark:hover:bg-blue-400/[0.12]`
+                          : ""
                       } ${isSelected() ? "bg-blue-50 dark:bg-blue-900/20" : ""} ${rowClass(row)}`}
                       tabIndex={isInteractive() ? 0 : undefined}
                       onClick={() => props.onRowClick?.(row)}

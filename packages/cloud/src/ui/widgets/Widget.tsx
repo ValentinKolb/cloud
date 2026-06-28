@@ -38,9 +38,7 @@ const Widget = (props: WidgetProps): JSX.Element => {
           <i class={`${props.icon} text-sm`} />
         </span>
       ) : null}
-      <span class="text-xs font-semibold uppercase tracking-wider text-secondary truncate">
-        {props.title}
-      </span>
+      <span class="text-xs font-semibold uppercase tracking-wider text-secondary truncate">{props.title}</span>
       {/* Right cluster: meta sits next to the chevron (both ml-auto'd
           independently used to center the meta between title and chevron). */}
       {props.meta || props.href ? (
@@ -54,15 +52,15 @@ const Widget = (props: WidgetProps): JSX.Element => {
   return (
     <div class="paper overflow-hidden flex flex-col h-[25rem]">
       {props.href ? (
-        <a href={props.href} class={headerClass}>{headerInner}</a>
+        <a href={props.href} class={headerClass}>
+          {headerInner}
+        </a>
       ) : (
         <div class={headerClass}>{headerInner}</div>
       )}
       {/* Blocks separate by their own padding + tinted blocks (e.g. WidgetStatus)
           carrying their own background — no hairline dividers. */}
-      <div class="flex-1 flex flex-col min-h-0">
-        {props.children}
-      </div>
+      <div class="flex-1 flex flex-col min-h-0">{props.children}</div>
     </div>
   );
 };

@@ -46,9 +46,24 @@
         "typescript": "^5.9.3",
       },
     },
+    "packages/assistant": {
+      "name": "@valentinkolb/cloud-app-assistant",
+      "version": "0.0.0",
+      "dependencies": {
+        "@valentinkolb/cloud": "workspace:*",
+        "hono": "^4.11.1",
+        "hono-openapi": "^1.1.2",
+        "solid-js": "^1.9.10",
+        "zod": "^4.3.4",
+      },
+      "devDependencies": {
+        "@types/bun": "1.3.9",
+        "typescript": "^5.9.3",
+      },
+    },
     "packages/cloud": {
       "name": "@valentinkolb/cloud",
-      "version": "0.4.0",
+      "version": "0.5.6",
       "dependencies": {
         "@fontsource/ibm-plex-mono": "^5.2.7",
         "@fontsource/ibm-plex-sans": "^5.2.8",
@@ -56,6 +71,7 @@
         "@simplewebauthn/server": "^13.3.1",
         "@tabler/icons-webfont": "^3.36.1",
         "@tailwindcss/typography": "^0.5.19",
+        "@valentinkolb/nessi": "0.0.2",
         "@valentinkolb/ssr": "0.10.0",
         "@valentinkolb/stdlib": "0.12.0",
         "@valentinkolb/sync": "^5.0.0",
@@ -225,7 +241,6 @@
         "hono": "^4.11.1",
         "hono-openapi": "^1.1.2",
         "lean-qr": "^2.4.0",
-        "liquidjs": "^10.27.1",
         "zod": "^4.3.4",
       },
       "devDependencies": {
@@ -1001,6 +1016,8 @@
 
     "@valentinkolb/cloud-app-api-docs": ["@valentinkolb/cloud-app-api-docs@workspace:packages/api-docs"],
 
+    "@valentinkolb/cloud-app-assistant": ["@valentinkolb/cloud-app-assistant@workspace:packages/assistant"],
+
     "@valentinkolb/cloud-app-contacts": ["@valentinkolb/cloud-app-contacts@workspace:packages/contacts"],
 
     "@valentinkolb/cloud-app-core": ["@valentinkolb/cloud-app-core@workspace:packages/core"],
@@ -1042,6 +1059,8 @@
     "@valentinkolb/cloud-cli": ["@valentinkolb/cloud-cli@workspace:packages/cloud-cli"],
 
     "@valentinkolb/filegate": ["@valentinkolb/filegate@2.4.0", "", { "dependencies": { "@henrygd/semaphore": "^0.1.0", "@hono/standard-validator": "^0.2.2", "@scalar/hono-api-reference": "^0.9.37", "@scalar/openapi-to-markdown": "^0.3.31", "hono": "^4.11.7", "hono-openapi": "^1.2.0", "sanitize-filename": "^1.6.3", "sharp": "^0.34.5", "zod": "^4.3.6" }, "peerDependencies": { "typescript": "^5" } }, "sha512-JUQy7ChYCxXszcLJaMwjOE4WZfCoEiaG0fZwH/pOfNBx37stOYHpBCDuaq8UxGB9hf1XmRzWdYqKV5GvtwS+ZQ=="],
+
+    "@valentinkolb/nessi": ["@valentinkolb/nessi@0.0.2", "", { "dependencies": { "zod": "^4.3.0" } }, "sha512-R++FJqKaYcvN8A1zG+VJymbsMdsBgpnVSoKf1/LGk7x14cNsRg100gfZJdfsnDUwYpQ0UjUS+nB1VlJLUNq/9Q=="],
 
     "@valentinkolb/ssr": ["@valentinkolb/ssr@0.10.0", "", { "dependencies": { "@babel/core": "^7.24.0", "@babel/preset-typescript": "^7.24.0", "@types/babel__core": "^7.20.5", "babel-preset-solid": "^1.8.0", "seroval": "^1.0.0" }, "peerDependencies": { "@elysiajs/static": "^1.0.0", "elysia": "^1.0.0", "hono": "^4.0.0", "solid-js": "^1.9.0" }, "optionalPeers": ["@elysiajs/static", "elysia", "hono"] }, "sha512-X+o39uWUmfoqwAT9NA1Gaag5yZ5EKSz9kzfxctWJY2frhOOGF2YVZN7Zauwua1TbpsYcpt9GwCsZqXmj6QpjMg=="],
 
@@ -2171,6 +2190,8 @@
 
     "@valentinkolb/cloud-app-api-docs/@types/bun": ["@types/bun@1.3.9", "", { "dependencies": { "bun-types": "1.3.9" } }, "sha512-KQ571yULOdWJiMH+RIWIOZ7B2RXQGpL1YQrBtLIV3FqDcCu6FsbFUBwhdKUlCKUpS3PJDsHlJ1QKlpxoVR+xtw=="],
 
+    "@valentinkolb/cloud-app-assistant/@types/bun": ["@types/bun@1.3.9", "", { "dependencies": { "bun-types": "1.3.9" } }, "sha512-KQ571yULOdWJiMH+RIWIOZ7B2RXQGpL1YQrBtLIV3FqDcCu6FsbFUBwhdKUlCKUpS3PJDsHlJ1QKlpxoVR+xtw=="],
+
     "@valentinkolb/cloud-app-contacts/@types/bun": ["@types/bun@1.3.9", "", { "dependencies": { "bun-types": "1.3.9" } }, "sha512-KQ571yULOdWJiMH+RIWIOZ7B2RXQGpL1YQrBtLIV3FqDcCu6FsbFUBwhdKUlCKUpS3PJDsHlJ1QKlpxoVR+xtw=="],
 
     "@valentinkolb/cloud-app-core/@types/bun": ["@types/bun@1.3.9", "", { "dependencies": { "bun-types": "1.3.9" } }, "sha512-KQ571yULOdWJiMH+RIWIOZ7B2RXQGpL1YQrBtLIV3FqDcCu6FsbFUBwhdKUlCKUpS3PJDsHlJ1QKlpxoVR+xtw=="],
@@ -2344,6 +2365,8 @@
     "@valentinkolb/cloud-app-accounts/@types/bun/bun-types": ["bun-types@1.3.9", "", { "dependencies": { "@types/node": "*" } }, "sha512-+UBWWOakIP4Tswh0Bt0QD0alpTY8cb5hvgiYeWCMet9YukHbzuruIEeXC2D7nMJPB12kbh8C7XJykSexEqGKJg=="],
 
     "@valentinkolb/cloud-app-api-docs/@types/bun/bun-types": ["bun-types@1.3.9", "", { "dependencies": { "@types/node": "*" } }, "sha512-+UBWWOakIP4Tswh0Bt0QD0alpTY8cb5hvgiYeWCMet9YukHbzuruIEeXC2D7nMJPB12kbh8C7XJykSexEqGKJg=="],
+
+    "@valentinkolb/cloud-app-assistant/@types/bun/bun-types": ["bun-types@1.3.9", "", { "dependencies": { "@types/node": "*" } }, "sha512-+UBWWOakIP4Tswh0Bt0QD0alpTY8cb5hvgiYeWCMet9YukHbzuruIEeXC2D7nMJPB12kbh8C7XJykSexEqGKJg=="],
 
     "@valentinkolb/cloud-app-contacts/@types/bun/bun-types": ["bun-types@1.3.9", "", { "dependencies": { "@types/node": "*" } }, "sha512-+UBWWOakIP4Tswh0Bt0QD0alpTY8cb5hvgiYeWCMet9YukHbzuruIEeXC2D7nMJPB12kbh8C7XJykSexEqGKJg=="],
 

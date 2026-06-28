@@ -1,9 +1,5 @@
 import { sql } from "bun";
-import {
-  dropGeneratedIdSequences,
-  dropFieldIndex,
-  dropFieldUniqueIndex,
-} from "./field-indexes";
+import { dropGeneratedIdSequences, dropFieldIndex, dropFieldUniqueIndex } from "./field-indexes";
 
 /**
  * Hygiene jobs for the grids schema. Designed to be idempotent and safe
@@ -59,10 +55,9 @@ export type PurgeReport = {
  *
  * Safe to run repeatedly. Counts only reflect this run's deletions.
  */
-export const purgeSoftDeleted = async (opts: {
-  gracePeriodDays?: number;
-  automationRunRetentionDays?: number;
-} = {}): Promise<PurgeReport> => {
+export const purgeSoftDeleted = async (
+  opts: { gracePeriodDays?: number; automationRunRetentionDays?: number } = {},
+): Promise<PurgeReport> => {
   const days = opts.gracePeriodDays ?? 30;
   const cutoff = sql`now() - (${days} || ' days')::interval`;
   const runRetentionDays = opts.automationRunRetentionDays ?? 90;

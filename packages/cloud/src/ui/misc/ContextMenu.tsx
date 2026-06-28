@@ -19,8 +19,7 @@ export type ContextMenuProps = ParentProps<{
   id?: string;
 }>;
 
-const ITEM_BASE_CLASSES =
-  "flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-white/10";
+const ITEM_BASE_CLASSES = "flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-white/10";
 
 const getVariantClasses = (variant?: "danger") =>
   variant === "danger" ? "text-red-600 dark:text-red-400" : "text-zinc-700 dark:text-zinc-300";
@@ -163,12 +162,7 @@ export default function ContextMenu(props: ContextMenuProps) {
 
   return (
     <>
-      <div
-        ref={hostRef}
-        role="group"
-        class={hostClass()}
-        onContextMenu={open}
-      >
+      <div ref={hostRef} role="group" class={hostClass()} onContextMenu={open}>
         {content()}
       </div>
 
@@ -191,7 +185,13 @@ export default function ContextMenu(props: ContextMenuProps) {
                   <Show when={item.sectionLabel}>
                     <div class="px-4 pt-3 pb-1 text-xs font-medium uppercase tracking-wider text-zinc-500">{item.sectionLabel}</div>
                   </Show>
-                  {item.items.map((sectionItem) => (isElement(sectionItem) ? (typeof sectionItem.element === "function" ? sectionItem.element(close) : sectionItem.element) : renderAction(sectionItem)))}
+                  {item.items.map((sectionItem) =>
+                    isElement(sectionItem)
+                      ? typeof sectionItem.element === "function"
+                        ? sectionItem.element(close)
+                        : sectionItem.element
+                      : renderAction(sectionItem),
+                  )}
                 </>
               ) : isElement(item) ? (
                 typeof item.element === "function" ? (

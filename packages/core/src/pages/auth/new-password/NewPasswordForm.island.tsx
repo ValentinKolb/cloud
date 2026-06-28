@@ -70,7 +70,12 @@ export default function NewPasswordForm(props: NewPasswordFormProps) {
         autocomplete="current-password"
       />
 
-      <PasswordSetupFields newPassword={newPassword} confirmPassword={confirmPassword} onNewPasswordChange={setNewPassword} onConfirmPasswordChange={setConfirmPassword} />
+      <PasswordSetupFields
+        newPassword={newPassword}
+        confirmPassword={confirmPassword}
+        onNewPasswordChange={setNewPassword}
+        onConfirmPasswordChange={setConfirmPassword}
+      />
 
       {mutation.error() && (
         <div class="info-block-danger">

@@ -1,14 +1,6 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type {
-  ComputedColumnSpec,
-  AggregationSpec,
-  FilterTree,
-  GroupBySpec,
-  GroupSortSpec,
-  SearchSpec,
-  RecordQuery,
-} from "../contracts";
+import type { ComputedColumnSpec, AggregationSpec, FilterTree, GroupBySpec, GroupSortSpec, SearchSpec, RecordQuery } from "../contracts";
 import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { normalizeRefKey } from "../ref-syntax";
 import { compileAggregates } from "./aggregate-compiler";
@@ -29,11 +21,9 @@ type QueryParts = {
   columns?: RecordQuery["columns"];
 };
 
-const unknownField = (): Result<void> =>
-  fail(err.badInput("query references a field that no longer exists"));
+const unknownField = (): Result<void> => fail(err.badInput("query references a field that no longer exists"));
 
-const fieldById = (fields: Field[]): Map<string, Field> =>
-  new Map(fields.filter((f) => !f.deletedAt).map((f) => [f.id, f]));
+const fieldById = (fields: Field[]): Map<string, Field> => new Map(fields.filter((f) => !f.deletedAt).map((f) => [f.id, f]));
 
 const fieldRefs = (fields: Field[]): Set<string> => {
   const refs = new Set<string>();
@@ -79,10 +69,7 @@ const validateSearch = (search: SearchSpec | undefined, fields: Field[]): Result
   return ok();
 };
 
-const validateScalarAggregations = (
-  aggregations: AggregationSpec[] | undefined,
-  fields: Field[],
-): Result<void> => {
+const validateScalarAggregations = (aggregations: AggregationSpec[] | undefined, fields: Field[]): Result<void> => {
   if (!aggregations || aggregations.length === 0) return ok();
   const compiled = compileAggregates(
     aggregations.map((a) => ({ fieldId: a.fieldId, agg: a.agg })),
@@ -122,7 +109,10 @@ const validatePartsForFields = (tableId: string, parts: QueryParts, fields: Fiel
 
   if (parts.columns) {
     const fieldColumns = parts.columns.filter((c): c is Extract<typeof c, { fieldId: string }> => "fieldId" in c);
-    const cols = validateFieldRefs(fieldColumns.map((c) => c.fieldId), fields);
+    const cols = validateFieldRefs(
+      fieldColumns.map((c) => c.fieldId),
+      fields,
+    );
     if (!cols.ok) return cols;
     const computed = validateComputedColumns(
       parts.columns.filter((c): c is ComputedColumnSpec => "kind" in c && c.kind === "computed"),
@@ -150,10 +140,7 @@ const validatePartsForFields = (tableId: string, parts: QueryParts, fields: Fiel
   });
 };
 
-export const validateRecordQueryForTable = async (
-  tableId: string,
-  query: RecordQuery,
-): Promise<Result<void>> => {
+export const validateRecordQueryForTable = async (tableId: string, query: RecordQuery): Promise<Result<void>> => {
   const fields = await listByTable(tableId);
   return validatePartsForFields(tableId, query, fields);
 };

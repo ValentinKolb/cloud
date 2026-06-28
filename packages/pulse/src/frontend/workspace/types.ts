@@ -92,8 +92,11 @@ export type PulseWorkspaceProps = {
   initialFocusedStates?: PulseCurrentState[];
   initialFocusedHasMore?: boolean;
   initialDashboards?: PulseDashboard[];
+  initialDashboardControlValues?: Record<string, string>;
   initialSavedQueries?: PulseSavedQuery[];
-  initialPanelPoints?: Record<string, MetricQueryPoint[]>;
+  initialMetricWidgetPoints?: Record<string, MetricQueryPoint[]>;
+  initialDashboardEvents?: Record<string, PulseRecordedEvent[]>;
+  initialDashboardStates?: Record<string, PulseCurrentState[]>;
   initialExplorerDockState?: DockWorkspaceState | null;
   initialDashboardEditorDockState?: DockWorkspaceState | null;
   initialDateConfig?: DateContext;

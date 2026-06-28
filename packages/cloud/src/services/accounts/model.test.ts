@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  calculateIpaProfileFromGroupNames,
-  deriveIpaAdminFromGroupNames,
-  parseIpaAccountTransitionPolicy,
-} from "./model";
+import { calculateIpaProfileFromGroupNames, deriveIpaAdminFromGroupNames, parseIpaAccountTransitionPolicy } from "./model";
 
 describe("IPA account model helpers", () => {
   test("classifies full IPA users from effective base realm groups", () => {

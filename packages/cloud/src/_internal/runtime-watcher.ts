@@ -35,9 +35,7 @@ export const ensureRuntimeWatcher = (): Promise<void> => {
     watcherTask = (async () => {
       try {
         const snap = await appRegistry.snapshot({ prefix: "apps/" });
-        for await (const _ev of appRegistry
-          .reader({ prefix: "apps/", after: snap.cursor })
-          .stream({ signal: abort!.signal })) {
+        for await (const _ev of appRegistry.reader({ prefix: "apps/", after: snap.cursor }).stream({ signal: abort!.signal })) {
           await refresh();
         }
       } catch (err) {
@@ -69,9 +67,7 @@ export const stopRuntimeWatcher = async (): Promise<void> => {
 
 export const getCurrentRuntime = (): CloudRuntime => {
   if (!current) {
-    throw new Error(
-      "Runtime not initialized — register middleware.runtime() in your router or call ensureRuntimeWatcher() during setup",
-    );
+    throw new Error("Runtime not initialized — register middleware.runtime() in your router or call ensureRuntimeWatcher() during setup");
   }
   return current;
 };

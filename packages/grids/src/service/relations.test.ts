@@ -267,14 +267,18 @@ describe("enrichRecordsWithComputedColumns", () => {
     const price = mkField({ id: "fld-price", shortId: "PRICE", type: "number" });
     const rec = mkRecord("rec-1", { "fld-price": "24.50" });
 
-    enrichRecordsWithComputedColumns([rec], [price], [
-      {
-        kind: "computed",
-        id: "computed_total",
-        label: "Total with VAT",
-        expression: "#PRICE * 1.19",
-      },
-    ]);
+    enrichRecordsWithComputedColumns(
+      [rec],
+      [price],
+      [
+        {
+          kind: "computed",
+          id: "computed_total",
+          label: "Total with VAT",
+          expression: "#PRICE * 1.19",
+        },
+      ],
+    );
 
     expect(rec.data.computed_total).toBe("29.155");
     expect(price.type).toBe("number");
@@ -286,14 +290,18 @@ describe("enrichRecordsWithComputedColumns", () => {
     const rec = mkRecord("rec-1", { "fld-net": "12.10" });
 
     enrichRecordsWithFormulas([rec], [net, subtotal]);
-    enrichRecordsWithComputedColumns([rec], [net, subtotal], [
-      {
-        kind: "computed",
-        id: "computed_gross",
-        label: "Gross",
-        expression: "#SUB01 + 1",
-      },
-    ]);
+    enrichRecordsWithComputedColumns(
+      [rec],
+      [net, subtotal],
+      [
+        {
+          kind: "computed",
+          id: "computed_gross",
+          label: "Gross",
+          expression: "#SUB01 + 1",
+        },
+      ],
+    );
 
     expect(rec.data["fld-sub"]).toBe("24.2");
     expect(rec.data.computed_gross).toBe("25.2");

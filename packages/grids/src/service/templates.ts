@@ -78,7 +78,7 @@ const isDateExpression = (value: unknown): value is TemplateDateExpression =>
   !!value && typeof value === "object" && (value as { $date?: unknown }).$date === "current_month";
 
 const formatTemplateDate = (expression: TemplateDateExpression, now = new Date()): string => {
-  const monthOffset = Number.isInteger(expression.monthOffset) ? expression.monthOffset ?? 0 : 0;
+  const monthOffset = Number.isInteger(expression.monthOffset) ? (expression.monthOffset ?? 0) : 0;
   const base = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
   const lastDay = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
   const day = Math.min(Math.max(1, Math.trunc(expression.day)), lastDay);
@@ -292,7 +292,10 @@ const createViews = async (template: GridTemplate, actorId: string | null, ctx: 
   for (const view of template.views ?? []) {
     const tableId = ctx.tables.get(view.table);
     if (!tableId) throw new TemplateError(err.badInput(`template table not found: ${view.table}`));
-    const source = view.source === undefined ? `from table ${resolveGqlRef({ $ref: "table", key: view.table }, ctx)}` : resolveGqlValue(view.source, ctx);
+    const source =
+      view.source === undefined
+        ? `from table ${resolveGqlRef({ $ref: "table", key: view.table }, ctx)}`
+        : resolveGqlValue(view.source, ctx);
     if (typeof source !== "string" || !source.trim()) {
       throw new TemplateError(err.badInput(`template view "${view.name}" must provide a GQL source`));
     }

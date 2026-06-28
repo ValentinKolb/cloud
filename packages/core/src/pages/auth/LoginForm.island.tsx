@@ -48,11 +48,30 @@ export default function LoginForm(props: { redirectTo?: string; showBanner?: boo
       }}
       class="flex flex-col gap-4"
     >
-      {props.showBanner && <div class="info-block-info">Use your FreeIPA username and password to sign in to {props.appName || "the app"}.</div>}
+      {props.showBanner && (
+        <div class="info-block-info">Use your FreeIPA username and password to sign in to {props.appName || "the app"}.</div>
+      )}
 
-      <TextInput label="Username or email" description="Use your FreeIPA short name or the email address on your account." placeholder="e.g. eva or eva@example.org" icon="ti ti-user" value={username} onChange={setUsername} autocomplete="username" />
+      <TextInput
+        label="Username or email"
+        description="Use your FreeIPA short name or the email address on your account."
+        placeholder="e.g. eva or eva@example.org"
+        icon="ti ti-user"
+        value={username}
+        onChange={setUsername}
+        autocomplete="username"
+      />
       <div class="flex flex-col gap-1">
-        <TextInput label="Password" description="Use the password for your organization account." placeholder="FreeIPA password" icon="ti ti-lock" password value={password} onChange={setPassword} autocomplete="current-password" />
+        <TextInput
+          label="Password"
+          description="Use the password for your organization account."
+          placeholder="FreeIPA password"
+          icon="ti ti-lock"
+          password
+          value={password}
+          onChange={setPassword}
+          autocomplete="current-password"
+        />
         <a href={resetPasswordHref()} class="self-start text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline">
           Reset password
         </a>

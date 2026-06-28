@@ -56,7 +56,5 @@ export default ssr<AuthContext>(async (c) => {
   const fields = await gridsService.field.listByTable(table.id);
   const currentFieldId = new URL(c.req.url).searchParams.get("field");
 
-  return () => (
-    <FormulaReferenceWindow tableName={table.name} fields={fields} currentFieldId={currentFieldId} />
-  );
+  return () => <FormulaReferenceWindow tableName={table.name} fields={fields} currentFieldId={currentFieldId} />;
 });

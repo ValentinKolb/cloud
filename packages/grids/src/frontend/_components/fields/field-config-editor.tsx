@@ -282,11 +282,7 @@ function TextConstraints(props: { config: () => FieldConfigState; onChange: (nex
         <div class="mt-2 flex flex-wrap gap-1.5">
           <For each={REGEX_PRESETS}>
             {(preset) => (
-              <button
-                type="button"
-                class="btn-input btn-input-sm"
-                onClick={() => update({ regex: preset.value })}
-              >
+              <button type="button" class="btn-input btn-input-sm" onClick={() => update({ regex: preset.value })}>
                 {preset.label}
               </button>
             )}
@@ -924,11 +920,7 @@ function FileConstraints(props: { config: () => FieldConfigState; onChange: (nex
       <div class="flex flex-wrap gap-1.5">
         <For each={FILE_ACCEPT_PRESETS}>
           {(preset) => (
-            <button
-              type="button"
-              class="btn-input btn-input-sm"
-              onClick={() => appendAccept(preset.values)}
-            >
+            <button type="button" class="btn-input btn-input-sm" onClick={() => appendAccept(preset.values)}>
               {preset.label}
             </button>
           )}
@@ -974,7 +966,14 @@ function FormulaConstraints(props: {
  * here so the constraint forms keep their existing per-field
  * validation logic without rewriting.
  */
-function NumberField(props: { label: string; description?: string; value: () => string; onInput: (v: string) => void; min?: number; max?: number }) {
+function NumberField(props: {
+  label: string;
+  description?: string;
+  value: () => string;
+  onInput: (v: string) => void;
+  min?: number;
+  max?: number;
+}) {
   const numericValue = () => {
     const raw = props.value();
     if (raw === "" || raw === undefined) return undefined;

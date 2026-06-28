@@ -45,10 +45,7 @@ export type LogAuditInput = {
  * `client` to participate; otherwise falls back to the pool (logging
  * outside any transaction).
  */
-export const logAudit = async (
-  input: LogAuditInput,
-  client: SqlClient = sql,
-): Promise<void> => {
+export const logAudit = async (input: LogAuditInput, client: SqlClient = sql): Promise<void> => {
   await client`
     INSERT INTO grids.audit_log (base_id, table_id, record_id, user_id, action, diff, ip, user_agent)
     VALUES (
@@ -80,11 +77,7 @@ export type AuditEntryWithUser = AuditEntry & {
  * on table A could request /records/<tableA>/<recordFromTableB>/audit
  * and read table B's audit history (chunk 7 critical leak).
  */
-export const listByRecord = async (
-  tableId: string,
-  recordId: string,
-  limit = 50,
-): Promise<AuditEntryWithUser[]> => {
+export const listByRecord = async (tableId: string, recordId: string, limit = 50): Promise<AuditEntryWithUser[]> => {
   const cap = Math.min(Math.max(limit, 1), 200);
   const rows = await sql<(DbRow & { user_display_name: string | null })[]>`
     SELECT al.id, al.base_id, al.table_id, al.record_id, al.user_id, al.action,

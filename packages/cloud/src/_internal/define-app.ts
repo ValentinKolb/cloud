@@ -350,9 +350,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     //                            and startOpts.openapi are set
     const ssrMountPath = config.basePath ? `${config.basePath}/_ssr` : "/_ssr";
 
-    const server = new Hono()
-      .route(ssrMountPath, routes(config))
-      .all("/public/*", servePublicAsset(isDevelopment));
+    const server = new Hono().route(ssrMountPath, routes(config)).all("/public/*", servePublicAsset(isDevelopment));
 
     if (startOpts.capabilities?.search) {
       const searchRun = startOpts.capabilities.search.run;

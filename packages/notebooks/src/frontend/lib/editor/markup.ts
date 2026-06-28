@@ -106,9 +106,7 @@ const isInsideCode = (codeRanges: { from: number; to: number }[], from: number, 
  * range-based decorations), nothing's changed and we keep the
  * existing decoration set.
  */
-const collectMarkupTrackedRanges = (
-  state: EditorState,
-): { lines: Set<number>; ranges: Array<{ from: number; to: number }> } => {
+const collectMarkupTrackedRanges = (state: EditorState): { lines: Set<number>; ranges: Array<{ from: number; to: number }> } => {
   const lines = new Set<number>();
   const ranges: Array<{ from: number; to: number }> = [];
   syntaxTree(state).iterate({
@@ -289,16 +287,12 @@ type MarkupState = {
   cursorRangeKey: string;
 };
 
-const cursorLineNumber = (state: EditorState): number =>
-  state.doc.lineAt(state.selection.main.head).number;
+const cursorLineNumber = (state: EditorState): number => state.doc.lineAt(state.selection.main.head).number;
 
 /** Compact "set of ranges the cursor is inside" identifier. We use
  *  a sorted comma-separated index string so equality is a cheap
  *  string compare. */
-const computeCursorRangeKey = (
-  state: EditorState,
-  ranges: Array<{ from: number; to: number }>,
-): string => {
+const computeCursorRangeKey = (state: EditorState, ranges: Array<{ from: number; to: number }>): string => {
   const cursor = state.selection.main;
   const hits: number[] = [];
   for (let i = 0; i < ranges.length; i++) {
@@ -344,8 +338,7 @@ export const markupExtension = (): Extension => {
       //      (entered or left). Rebuild.
       const newLine = cursorLineNumber(tr.state);
       const lineChangedAndMatters =
-        newLine !== value.cursorLine &&
-        (value.cursorSensitiveLines.has(value.cursorLine) || value.cursorSensitiveLines.has(newLine));
+        newLine !== value.cursorLine && (value.cursorSensitiveLines.has(value.cursorLine) || value.cursorSensitiveLines.has(newLine));
       const newRangeKey = computeCursorRangeKey(tr.state, value.cursorSensitiveRanges);
       const rangesChanged = newRangeKey !== value.cursorRangeKey;
       if (!lineChangedAndMatters && !rangesChanged) {

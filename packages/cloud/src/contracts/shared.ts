@@ -348,6 +348,8 @@ export type SettingOption = {
   label: string;
 };
 
+export type SettingValueSource = "custom" | "env" | "default";
+
 export type SettingEntry = {
   key: string;
   label: string;
@@ -357,6 +359,9 @@ export type SettingEntry = {
   group: string;
   value: unknown;
   default: unknown;
+  resetValue: unknown;
+  valueSource: SettingValueSource;
+  resetValueSource: Exclude<SettingValueSource, "custom">;
   isCustom: boolean;
   templateVars?: string[];
   options?: SettingOption[];

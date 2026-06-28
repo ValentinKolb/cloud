@@ -12,10 +12,7 @@ describe("OAuth contracts", () => {
       audiences: [" cloud ", "cloud", "api"],
       allowedProfiles: ["user", "user", "guest"],
       accessMode: "specific",
-      allowedUserIds: [
-        "11111111-1111-4111-8111-111111111111",
-        "11111111-1111-4111-8111-111111111111",
-      ],
+      allowedUserIds: ["11111111-1111-4111-8111-111111111111", "11111111-1111-4111-8111-111111111111"],
       allowedGroupIds: ["22222222-2222-4222-8222-222222222222"],
       isPublic: true,
     });
@@ -55,7 +52,9 @@ describe("OAuth contracts", () => {
     expect(CreateOAuthClientSchema.safeParse({ name: "   " }).success).toBe(false);
     expect(CreateOAuthClientSchema.safeParse({ name: "x".repeat(121) }).success).toBe(false);
     expect(CreateOAuthClientSchema.safeParse({ name: "Demo", redirectUris: ["not-a-url"] }).success).toBe(false);
-    expect(CreateOAuthClientSchema.safeParse({ name: "Demo", redirectUris: Array(51).fill("https://client.example.test/callback") }).success).toBe(false);
+    expect(
+      CreateOAuthClientSchema.safeParse({ name: "Demo", redirectUris: Array(51).fill("https://client.example.test/callback") }).success,
+    ).toBe(false);
   });
 
   test("normalizes update payload arrays and nullable fields", () => {
@@ -68,10 +67,7 @@ describe("OAuth contracts", () => {
       audiences: [" api ", "api"],
       allowedProfiles: ["guest", "guest"],
       accessMode: "specific",
-      allowedUserIds: [
-        "11111111-1111-4111-8111-111111111111",
-        "11111111-1111-4111-8111-111111111111",
-      ],
+      allowedUserIds: ["11111111-1111-4111-8111-111111111111", "11111111-1111-4111-8111-111111111111"],
       allowedGroupIds: ["22222222-2222-4222-8222-222222222222"],
     });
 

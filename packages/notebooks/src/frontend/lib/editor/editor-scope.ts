@@ -77,8 +77,7 @@ const getEntry = (context: CompletionContext): CacheEntry => {
  * Used by info-block + tag sources — they're literal-text inside a
  * code fence and shouldn't surface suggestions there.
  */
-export const isInsideFencedCode = (context: CompletionContext): boolean =>
-  getEntry(context).insideFence;
+export const isInsideFencedCode = (context: CompletionContext): boolean => getEntry(context).insideFence;
 
 /**
  * True when the cursor is inside the BODY (not the opener line) of
@@ -90,5 +89,4 @@ export const isInsideFencedCode = (context: CompletionContext): boolean =>
  * Returns false when the cursor is not inside any fence (i.e. plain
  * markdown context).
  */
-export const isInsideFencedCodeBody = (context: CompletionContext): boolean =>
-  getEntry(context).insideFenceBody;
+export const isInsideFencedCodeBody = (context: CompletionContext): boolean => getEntry(context).insideFenceBody;

@@ -1,27 +1,201 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import {
+  AutocompleteEditor,
   Checkbox,
+  CopyButton,
   confirmDiscardIfDirty,
   dialogCore,
   IconInput,
   PanelDialog,
+  Panes,
+  type PanesValue,
+  PdfPreview,
   panelDialogOptions,
   prompts,
+  TemplateEditor,
+  type TemplateVariable,
   TextInput,
 } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
+import { highlight } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { DocumentTemplate } from "../../../contracts";
+import type { DocumentPreviewResponse, DocumentTemplate } from "../../../contracts";
+import { DOCUMENT_TEMPLATE_STARTERS, type DocumentTemplateStarter } from "../../../document-template-starters";
 import type { Field, Form, Table } from "../../../service";
 import { createDraft } from "../editor-draft";
 import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field-config-editor";
 import { FIELD_TYPE_ICONS } from "../fields/field-type-meta";
 import { type TableHeader, TablePermissions } from "../fields/TableFieldDialogs";
 import FormsManager from "../forms/FormsManager";
+import { buildBackendGqlCompletions } from "../query/query-autocomplete";
+import RecordPicker from "../records/RecordPicker";
 import { errorMessage } from "../utils/api-helpers";
 import { RecordDisplayConfigEditor } from "./RecordDisplayConfigEditor";
+
+const DOCUMENT_TEMPLATE_VARIABLES: TemplateVariable[] = [
+  { name: "record", kind: "object" },
+  { name: "table", kind: "object" },
+  { name: "rows", kind: "array" },
+  { name: "columns", kind: "array" },
+  { name: "query", kind: "object" },
+  { name: "document", kind: "object" },
+  { name: "snapshot", kind: "object" },
+];
+
+const documentTemplateDialogOptions = {
+  ...panelDialogOptions,
+  panelClassName: panelDialogOptions.panelClassName
+    .replace("w-[min(96vw,48rem)]", "w-[min(98vw,96rem)]")
+    .replace("max-h-[86vh]", "h-[min(92vh,calc(100vh-2rem))] max-h-[92vh]"),
+  contentClassName: "flex h-full min-h-0 p-0",
+};
+
+const createDocumentTemplatePanesValue = (): PanesValue => ({
+  root: {
+    type: "split",
+    id: "document-template-split",
+    direction: "horizontal",
+    sizes: [58, 42],
+    children: [
+      {
+        type: "leaf",
+        id: "document-template-html",
+        elementIds: ["html", "header", "footer", "css"],
+        activeElementId: "html",
+        presentation: "tabs",
+      },
+      {
+        type: "leaf",
+        id: "document-template-preview",
+        elementIds: ["preview", "data", "source"],
+        activeElementId: "preview",
+        presentation: "tabs",
+      },
+    ],
+  },
+});
+
+const documentGqlHighlight = highlight.compile(
+  [
+    { kind: "field", match: /"(?:""|[^"])*"/ },
+    { kind: "string", match: /'(?:\\[\s\S]|[^'\\])*'/ },
+    {
+      kind: "keyword",
+      match:
+        /\b(?:from|table|view|select|join|left|as|on|where|formula|group|by|aggregate|having|sort|search|include|deleted|only|nulls|first|last|limit|offset|asc|desc|and|or|not)\b/i,
+    },
+    { kind: "function", match: /\b(?:count|countEmpty|countUnique|sum|avg|min|max|median|earliest|latest)\b/i },
+    { kind: "placeholder", match: /\{[A-Za-z0-9_-]{1,200}\}/i },
+    { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
+    { kind: "operator", match: /<=|>=|!=|=|<|>|\+|-|\*|\/|%|,|\(|\)/ },
+  ],
+  { classPrefix: "doc-token-" },
+);
+
+type DocumentDataTreeRow = {
+  id: string;
+  label: string;
+  path: string;
+  depth: number;
+  value: unknown;
+  copyText: string;
+  loopText?: string;
+};
+
+const liquidPathKey = (key: string) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`);
+const liquidPath = (parent: string, key: string) => `${parent}${liquidPathKey(key)}`;
+const liquidValue = (path: string) => `{{ ${path} }}`;
+
+const valueKind = (value: unknown): TemplateVariable["kind"] => {
+  if (Array.isArray(value)) return "array";
+  if (typeof value === "number") return "number";
+  if (typeof value === "boolean") return "boolean";
+  if (value && typeof value === "object") return "object";
+  return "string";
+};
+
+const inlineValue = (value: unknown): string => {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "string") return value || '""';
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? "" : "s"}`;
+  if (value && typeof value === "object") return `${Object.keys(value as Record<string, unknown>).length} keys`;
+  return String(value);
+};
+
+const loopSnippet = (path: string, value: unknown): string | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const first = value[0];
+  const itemName = path === "rows" ? "row" : "item";
+  if (first && typeof first === "object" && !Array.isArray(first)) {
+    const firstKey = Object.keys(first as Record<string, unknown>)[0];
+    const body = firstKey ? `  {{ ${itemName}${liquidPathKey(firstKey)} }}` : `  {{ ${itemName} }}`;
+    return `{% for ${itemName} in ${path} %}\n${body}\n{% endfor %}`;
+  }
+  return `{% for ${itemName} in ${path} %}\n  {{ ${itemName} }}\n{% endfor %}`;
+};
+
+const addDataTreeRows = (rows: DocumentDataTreeRow[], value: unknown, path: string, label: string, depth: number) => {
+  rows.push({
+    id: `${path}:${depth}`,
+    label,
+    path,
+    depth,
+    value,
+    copyText: liquidValue(path),
+    loopText: loopSnippet(path, value),
+  });
+
+  if (depth >= 4 || value === null || value === undefined || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    if (value.length > 0) addDataTreeRows(rows, value[0], `${path}[0]`, "[0]", depth + 1);
+    return;
+  }
+
+  for (const [key, child] of Object.entries(value as Record<string, unknown>).slice(0, 30)) {
+    addDataTreeRows(rows, child, liquidPath(path, key), key, depth + 1);
+  }
+};
+
+const dataTreeRows = (data: Record<string, unknown> | null | undefined): DocumentDataTreeRow[] => {
+  if (!data) return [];
+  const rows: DocumentDataTreeRow[] = [];
+  for (const key of ["record", "rows", "columns", "query", "table", "document", "snapshot"]) {
+    if (key in data) addDataTreeRows(rows, data[key], key, key, 0);
+  }
+  return rows;
+};
+
+const templateVariablesFromData = (data: Record<string, unknown> | null | undefined): TemplateVariable[] =>
+  dataTreeRows(data)
+    .filter((row) => !row.path.includes("[0]"))
+    .slice(0, 120)
+    .map((row) => ({ name: row.path, kind: valueKind(row.value) }));
+
+const diagnosticText = (diagnostic: { message: string; line?: number; column?: number }) =>
+  diagnostic.line && diagnostic.column ? `Line ${diagnostic.line}, col ${diagnostic.column}: ${diagnostic.message}` : diagnostic.message;
+
+const hasLiquidTags = (value: string) => /{{|{%/.test(value);
+
+const readDocumentPreviewError = async (response: Response, fallback: string): Promise<{ message: string; phase: string | null }> => {
+  try {
+    const data = (await response.json()) as unknown;
+    if (data && typeof data === "object") {
+      const message = Object.getOwnPropertyDescriptor(data, "message")?.value;
+      const phase = Object.getOwnPropertyDescriptor(data, "phase")?.value;
+      return {
+        message: typeof message === "string" && message.length > 0 ? message : fallback,
+        phase: typeof phase === "string" ? phase : null,
+      };
+    }
+  } catch {
+    // Fall back below.
+  }
+  return { message: fallback, phase: null };
+};
 
 export const openTableSettingsDialog = (args: {
   table: TableHeader;
@@ -130,6 +304,18 @@ const CREATE_TYPE_OPTIONS = TYPE_OPTIONS.filter((type) => type.value !== "json")
 
 const defaultDocumentSource = (tableId: string) => `from table {${tableId}}\nwhere record.id = '{{ record.id }}'\nlimit 1`;
 
+const defaultDocumentStarter = (): DocumentTemplateStarter => ({
+  id: "blank",
+  name: "Blank template",
+  description: "Simple record detail template.",
+  icon: "ti ti-file-type-pdf",
+  source: (tableId) => defaultDocumentSource(tableId),
+  html: defaultDocumentHtml,
+  headerHtml: "",
+  footerHtml: "",
+  pageCss: "",
+});
+
 const defaultDocumentHtml = `<html>
   <head>
     <style>
@@ -155,6 +341,25 @@ const defaultDocumentHtml = `<html>
     </table>
   </body>
 </html>`;
+
+const starterPayload = (starter: DocumentTemplateStarter, tableId: string) => ({
+  name: starter.id === "blank" ? "" : starter.name,
+  description: starter.id === "blank" ? "" : starter.description,
+  source: starter.source(tableId),
+  html: starter.html,
+  headerHtml: starter.headerHtml ?? "",
+  footerHtml: starter.footerHtml ?? "",
+  pageCss: starter.pageCss ?? "",
+});
+
+type DocumentTemplateSnippet = {
+  id: string;
+  title: string;
+  icon: string;
+  value: () => string;
+  onInput: (value: string) => void;
+  placeholder: string;
+};
 
 const chooseFieldType = () =>
   dialogCore.open<string | null>(
@@ -383,20 +588,20 @@ function TableSettingsBody(props: {
   );
 }
 
-export const openDocumentTemplatesDialog = (args: { tableId: string; tableName: string }) =>
+export const openDocumentTemplatesDialog = (args: { baseId: string; tableId: string; tableName: string }) =>
   dialogCore.open<void>(
     (close) => (
       <PanelDialog>
         <PanelDialog.Header title={`Templates — ${args.tableName}`} icon="ti ti-file-type-pdf" close={() => close()} />
         <PanelDialog.Body>
-          <DocumentTemplatesManager tableId={args.tableId} tableName={args.tableName} />
+          <DocumentTemplatesManager baseId={args.baseId} tableId={args.tableId} tableName={args.tableName} />
         </PanelDialog.Body>
       </PanelDialog>
     ),
     panelDialogOptions,
   );
 
-function DocumentTemplatesManager(props: { tableId: string; tableName: string }) {
+function DocumentTemplatesManager(props: { baseId: string; tableId: string; tableName: string }) {
   const [templates, { refetch }] = createResource(
     () => props.tableId,
     async (tableId) => {
@@ -424,20 +629,27 @@ function DocumentTemplatesManager(props: { tableId: string; tableName: string })
     await refetch();
   };
 
-  const openEditor = (template?: DocumentTemplate) => {
+  const openEditor = (template?: DocumentTemplate, starter?: DocumentTemplateStarter) => {
     openDocumentTemplateEditorDialog({
+      baseId: props.baseId,
       tableId: props.tableId,
       tableName: props.tableName,
       template,
+      starter,
       onSaved: () => void refetch(),
     });
+  };
+
+  const addTemplate = async () => {
+    const starter = await chooseDocumentTemplateStarter();
+    if (starter) openEditor(undefined, starter);
   };
 
   return (
     <div class="flex flex-col gap-3">
       <div class="flex items-center justify-between gap-2">
         <span class="text-xs text-dimmed">{templates.loading ? "Loading..." : `${templates()?.length ?? 0} templates`}</span>
-        <button type="button" class="btn-input btn-sm" onClick={() => openEditor()}>
+        <button type="button" class="btn-input btn-sm" onClick={() => void addTemplate()}>
           <i class="ti ti-plus" /> Add template
         </button>
       </div>
@@ -479,34 +691,206 @@ function DocumentTemplatesManager(props: { tableId: string; tableName: string })
   );
 }
 
+const chooseDocumentTemplateStarter = () =>
+  dialogCore.open<DocumentTemplateStarter | null>((close) => {
+    const blank = defaultDocumentStarter();
+    return (
+      <PanelDialog>
+        <PanelDialog.Header title="Choose template starter" icon="ti ti-file-type-pdf" close={() => close(null)} />
+        <PanelDialog.Body>
+          <div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+            <For each={[blank, ...DOCUMENT_TEMPLATE_STARTERS]}>
+              {(starter) => (
+                <button type="button" class="paper p-3 text-left transition hover:paper-highlighted" onClick={() => close(starter)}>
+                  <div class="flex items-start gap-3">
+                    <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
+                      <i class={`${starter.icon} text-lg text-primary`} />
+                    </span>
+                    <div class="min-w-0">
+                      <div class="text-sm font-semibold text-primary">{starter.name}</div>
+                      <p class="mt-1 text-xs leading-snug text-dimmed">{starter.description}</p>
+                    </div>
+                  </div>
+                </button>
+              )}
+            </For>
+          </div>
+        </PanelDialog.Body>
+      </PanelDialog>
+    );
+  }, panelDialogOptions);
+
+function DocumentDataTree(props: { data: () => Record<string, unknown> | null; loading: () => boolean; error: () => string | null }) {
+  const rows = createMemo(() => dataTreeRows(props.data()));
+  return (
+    <section class="paper min-h-0 flex-1 overflow-auto">
+      <Show when={!props.loading()} fallback={<div class="p-3 text-sm text-dimmed">Loading preview data...</div>}>
+        <Show
+          when={props.error()}
+          fallback={
+            <Show
+              when={rows().length > 0}
+              fallback={<div class="p-3 text-sm text-dimmed">Choose a preview record to inspect available template data.</div>}
+            >
+              <div class="divide-y divide-zinc-100 text-xs dark:divide-zinc-800">
+                <For each={rows()}>
+                  {(row) => (
+                    <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-1.5">
+                      <div class="min-w-0" style={{ "padding-left": `${row.depth * 0.8}rem` }}>
+                        <div class="flex min-w-0 items-center gap-2">
+                          <span class={row.depth === 0 ? "font-semibold text-primary" : "text-secondary"}>{row.label}</span>
+                          <code class="truncate text-[11px] text-dimmed">{row.path}</code>
+                        </div>
+                        <div class="truncate text-[11px] text-dimmed">{inlineValue(row.value)}</div>
+                      </div>
+                      <div class="flex items-center gap-1">
+                        <Show when={row.loopText}>
+                          {(snippet) => <CopyButton text={snippet()} label="Loop" class="btn-simple btn-sm" />}
+                        </Show>
+                        <CopyButton text={row.copyText} label="Copy" class="btn-simple btn-sm" />
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+          }
+        >
+          {(message) => <div class="m-3 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-500">{message()}</div>}
+        </Show>
+      </Show>
+    </section>
+  );
+}
+
+function RenderedDocumentSource(props: { source: () => string | null; loading: () => boolean; error: () => string | null }) {
+  const sourceText = () => props.source() ?? "";
+  return (
+    <section class="paper relative min-h-0 flex-1 overflow-hidden">
+      <Show when={!props.loading()} fallback={<div class="p-3 text-sm text-dimmed">Rendering source...</div>}>
+        <Show
+          when={props.error()}
+          fallback={
+            <Show
+              when={sourceText()}
+              fallback={<div class="p-3 text-sm text-dimmed">Choose a preview record to inspect rendered GQL.</div>}
+            >
+              <pre class="h-full overflow-auto whitespace-pre-wrap p-3 pr-20 font-mono text-xs leading-relaxed text-secondary">
+                {sourceText()}
+              </pre>
+              <div class="absolute right-2 top-2">
+                <CopyButton text={sourceText()} label="Copy" class="btn-input btn-sm" />
+              </div>
+            </Show>
+          }
+        >
+          {(message) => <div class="m-3 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-500">{message()}</div>}
+        </Show>
+      </Show>
+    </section>
+  );
+}
+
 function openDocumentTemplateEditorDialog(args: {
+  baseId: string;
   tableId: string;
   tableName: string;
   template?: DocumentTemplate;
+  starter?: DocumentTemplateStarter;
   onSaved?: (template: DocumentTemplate) => void;
 }) {
-  return dialogCore.open<void>((close) => <DocumentTemplateEditorDialog args={args} close={close} />, panelDialogOptions);
+  return dialogCore.open<void>((close) => <DocumentTemplateEditorDialog args={args} close={close} />, documentTemplateDialogOptions);
 }
 
 function DocumentTemplateEditorDialog(props: {
   args: {
+    baseId: string;
     tableId: string;
     tableName: string;
     template?: DocumentTemplate;
+    starter?: DocumentTemplateStarter;
     onSaved?: (template: DocumentTemplate) => void;
   };
   close: () => void;
 }) {
   const template = props.args.template;
-  const [name, setName] = createSignal(template?.name ?? "");
-  const [description, setDescription] = createSignal(template?.description ?? "");
-  const [source, setSource] = createSignal(template?.source ?? defaultDocumentSource(props.args.tableId));
-  const [html, setHtml] = createSignal(template?.html ?? defaultDocumentHtml);
+  const initialStarter = starterPayload(props.args.starter ?? defaultDocumentStarter(), props.args.tableId);
+  const [name, setName] = createSignal(template?.name ?? initialStarter.name);
+  const [description, setDescription] = createSignal(template?.description ?? initialStarter.description);
+  const [source, setSource] = createSignal(template?.source ?? initialStarter.source);
+  const [html, setHtml] = createSignal(template?.html ?? initialStarter.html);
+  const [headerHtml, setHeaderHtml] = createSignal(template?.headerHtml ?? initialStarter.headerHtml);
+  const [footerHtml, setFooterHtml] = createSignal(template?.footerHtml ?? initialStarter.footerHtml);
+  const [pageCss, setPageCss] = createSignal(template?.pageCss ?? initialStarter.pageCss);
+  const [previewRecordId, setPreviewRecordId] = createSignal("");
+  const [templatePanes, setTemplatePanes] = createSignal<PanesValue>(createDocumentTemplatePanesValue());
+  const [previewData, setPreviewData] = createSignal<DocumentPreviewResponse | null>(null);
+  const [previewDataLoading, setPreviewDataLoading] = createSignal(false);
+  const [previewDataError, setPreviewDataError] = createSignal<string | null>(null);
+  const [previewSourceError, setPreviewSourceError] = createSignal<string | null>(null);
+  const [gqlDiagnostics, setGqlDiagnostics] = createSignal<Array<{ message: string; line?: number; column?: number }>>([]);
+  const [gqlDiagnosticError, setGqlDiagnosticError] = createSignal<string | null>(null);
+  const gqlCompletions = createMemo(() =>
+    buildBackendGqlCompletions({
+      currentSource: { kind: "table", tableId: props.args.tableId },
+      fetchAutocomplete: async (request, signal) => {
+        const response = await apiClient.gql["by-base"][":baseId"].autocomplete.$post(
+          { param: { baseId: props.args.baseId }, json: request },
+          { init: { signal } },
+        );
+        if (!response.ok) throw new Error(await errorMessage(response, "Could not load query suggestions."));
+        return response.json();
+      },
+    }),
+  );
+  const templateVariables = createMemo<TemplateVariable[]>(() => {
+    const byName = new Map<string, TemplateVariable>();
+    for (const variable of [...DOCUMENT_TEMPLATE_VARIABLES, ...templateVariablesFromData(previewData()?.data)])
+      byName.set(variable.name, variable);
+    return [...byName.values()];
+  });
+  const templateSnippets = createMemo<DocumentTemplateSnippet[]>(() => [
+    {
+      id: "html",
+      title: "Body",
+      icon: "ti ti-code",
+      value: html,
+      onInput: setHtml,
+      placeholder: "Write the main document HTML...",
+    },
+    {
+      id: "header",
+      title: "Header",
+      icon: "ti ti-layout-navbar",
+      value: headerHtml,
+      onInput: setHeaderHtml,
+      placeholder: "Optional Gotenberg header HTML...",
+    },
+    {
+      id: "footer",
+      title: "Footer",
+      icon: "ti ti-layout-bottombar",
+      value: footerHtml,
+      onInput: setFooterHtml,
+      placeholder: "Optional Gotenberg footer HTML...",
+    },
+    {
+      id: "css",
+      title: "Page CSS",
+      icon: "ti ti-braces",
+      value: pageCss,
+      onInput: setPageCss,
+      placeholder: "@page { size: A4; margin: 28mm 14mm 22mm; }",
+    },
+  ]);
   const dirty = () =>
-    name() !== (template?.name ?? "") ||
-    description() !== (template?.description ?? "") ||
-    source() !== (template?.source ?? defaultDocumentSource(props.args.tableId)) ||
-    html() !== (template?.html ?? defaultDocumentHtml);
+    name() !== (template?.name ?? initialStarter.name) ||
+    description() !== (template?.description ?? initialStarter.description) ||
+    source() !== (template?.source ?? initialStarter.source) ||
+    html() !== (template?.html ?? initialStarter.html) ||
+    headerHtml() !== (template?.headerHtml ?? initialStarter.headerHtml) ||
+    footerHtml() !== (template?.footerHtml ?? initialStarter.footerHtml) ||
+    pageCss() !== (template?.pageCss ?? initialStarter.pageCss);
 
   const closeIfClean = async () => {
     if (await confirmDiscardIfDirty(dirty)) props.close();
@@ -519,6 +903,9 @@ function DocumentTemplateEditorDialog(props: {
         description: description().trim() || null,
         source: source().trim(),
         html: html().trim(),
+        headerHtml: headerHtml().trim() || null,
+        footerHtml: footerHtml().trim() || null,
+        pageCss: pageCss().trim() || null,
       };
       if (!payload.name) throw new Error("Name is required");
       if (!payload.source) throw new Error("GQL source is required");
@@ -536,6 +923,114 @@ function DocumentTemplateEditorDialog(props: {
     onError: (e) => prompts.error(e.message),
   });
 
+  const previewPdf = async () => {
+    const recordId = previewRecordId().trim();
+    if (!recordId) throw new Error("Preview record ID is required");
+    return fetch(`/api/grids/documents/templates/by-table/${encodeURIComponent(props.args.tableId)}/preview-draft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        source: source().trim(),
+        html: html().trim(),
+        headerHtml: headerHtml().trim() || null,
+        footerHtml: footerHtml().trim() || null,
+        pageCss: pageCss().trim() || null,
+        recordId,
+      }),
+    });
+  };
+
+  let previewDataToken = 0;
+  let gqlDiagnosticsToken = 0;
+  createEffect(() => {
+    const sourceText = source().trim();
+    if (!sourceText || hasLiquidTags(sourceText)) {
+      gqlDiagnosticsToken += 1;
+      setGqlDiagnostics([]);
+      setGqlDiagnosticError(null);
+      return;
+    }
+
+    const token = ++gqlDiagnosticsToken;
+    const timeout = window.setTimeout(async () => {
+      try {
+        const response = await apiClient.gql["by-base"][":baseId"].autocomplete.$post({
+          param: { baseId: props.args.baseId },
+          json: {
+            query: sourceText,
+            caret: sourceText.length,
+            currentTableId: props.args.tableId,
+            currentSource: { kind: "table", tableId: props.args.tableId },
+          },
+        });
+        if (token !== gqlDiagnosticsToken) return;
+        if (!response.ok) throw new Error(await errorMessage(response, "Could not validate GQL source"));
+        const data = await response.json();
+        setGqlDiagnostics(data.diagnostics ?? []);
+        setGqlDiagnosticError(null);
+      } catch (e) {
+        if (token === gqlDiagnosticsToken) {
+          setGqlDiagnostics([]);
+          setGqlDiagnosticError(e instanceof Error ? e.message : "Could not validate GQL source");
+        }
+      }
+    }, 300);
+    onCleanup(() => window.clearTimeout(timeout));
+  });
+
+  createEffect(() => {
+    const recordId = previewRecordId().trim();
+    const sourceText = source().trim();
+    const htmlText = html().trim();
+    const headerHtmlText = headerHtml().trim();
+    const footerHtmlText = footerHtml().trim();
+    const pageCssText = pageCss().trim();
+    if (!recordId || !sourceText || !htmlText) {
+      previewDataToken += 1;
+      setPreviewData(null);
+      setPreviewDataError(null);
+      setPreviewSourceError(null);
+      setPreviewDataLoading(false);
+      return;
+    }
+
+    const token = ++previewDataToken;
+    setPreviewDataLoading(true);
+    setPreviewDataError(null);
+    setPreviewSourceError(null);
+    const timeout = window.setTimeout(async () => {
+      try {
+        const response = await apiClient.documents.templates["by-table"][":tableId"]["preview-data-draft"].$post({
+          param: { tableId: props.args.tableId },
+          json: {
+            source: sourceText,
+            html: htmlText,
+            headerHtml: headerHtmlText || null,
+            footerHtml: footerHtmlText || null,
+            pageCss: pageCssText || null,
+            recordId,
+          },
+        });
+        if (token !== previewDataToken) return;
+        if (!response.ok) {
+          const details = await readDocumentPreviewError(response, "Could not load preview data");
+          setPreviewSourceError(details.phase === "source" ? details.message : null);
+          throw new Error(details.message);
+        }
+        setPreviewData(await response.json());
+        setPreviewSourceError(null);
+      } catch (e) {
+        if (token === previewDataToken) {
+          setPreviewData(null);
+          setPreviewDataError(e instanceof Error ? e.message : "Could not load preview data");
+        }
+      } finally {
+        if (token === previewDataToken) setPreviewDataLoading(false);
+      }
+    }, 350);
+    onCleanup(() => window.clearTimeout(timeout));
+  });
+
   return (
     <PanelDialog>
       <PanelDialog.Header
@@ -544,11 +1039,107 @@ function DocumentTemplateEditorDialog(props: {
         close={closeIfClean}
       />
       <PanelDialog.Body>
-        <div class="grid gap-3">
-          <TextInput label="Name" value={name} onInput={setName} icon="ti ti-typography" required />
-          <TextInput label="Description" value={description} onInput={setDescription} icon="ti ti-align-left" placeholder="Optional" />
-          <TextInput label="GQL source" value={source} onInput={setSource} icon="ti ti-code" multiline lines={4} monospace required />
-          <TextInput label="HTML template" value={html} onInput={setHtml} icon="ti ti-template" multiline lines={12} monospace required />
+        <div class="flex min-h-[44rem] flex-col gap-2">
+          <div class="grid shrink-0 gap-2 lg:grid-cols-2">
+            <TextInput label="Name" value={name} onInput={setName} icon="ti ti-typography" required />
+            <TextInput label="Description" value={description} onInput={setDescription} icon="ti ti-align-left" placeholder="Optional" />
+            <div class="lg:col-span-2">
+              <RecordPicker
+                tableId={props.args.tableId}
+                label="Preview record"
+                value={previewRecordId}
+                onChange={setPreviewRecordId}
+                placeholder="Search preview record..."
+              />
+            </div>
+            <div class="lg:col-span-2">
+              <div class="mb-1.5 flex items-center justify-between gap-2">
+                <div class="text-sm font-medium text-primary">
+                  GQL source <span class="text-red-500">*</span>
+                </div>
+                <span class="text-xs text-dimmed">Scoped to {props.args.tableName}</span>
+              </div>
+              <AutocompleteEditor
+                value={source}
+                onInput={setSource}
+                completions={gqlCompletions()}
+                highlight={documentGqlHighlight}
+                lines={4}
+                placeholder={`from table ${props.args.tableName}\nwhere record.id = "{{ record.id }}"\nlimit 1`}
+                spellcheck={false}
+                ariaLabel="GQL source"
+              />
+              <Show when={gqlDiagnosticError() || previewSourceError() || gqlDiagnostics().length > 0}>
+                <div class="mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-300">
+                  <Show
+                    when={gqlDiagnosticError() || previewSourceError()}
+                    fallback={
+                      <ul class="grid gap-1">
+                        <For each={gqlDiagnostics().slice(0, 4)}>{(diagnostic) => <li>{diagnosticText(diagnostic)}</li>}</For>
+                      </ul>
+                    }
+                  >
+                    {(message) => message()}
+                  </Show>
+                </div>
+              </Show>
+            </div>
+          </div>
+
+          <Panes.Root
+            value={templatePanes()}
+            onChange={setTemplatePanes}
+            class="h-[32rem] min-h-[32rem] w-full shrink-0"
+            allowResize
+            allowMove={false}
+            allowReorder={false}
+            allowHorizontalSplit={false}
+            allowVerticalSplit={false}
+            leafPresentation="single"
+          >
+            <For each={templateSnippets()}>
+              {(snippet) => (
+                <Panes.Element id={snippet.id} title={snippet.title} icon={snippet.icon}>
+                  <section class="flex h-full min-h-0 flex-col overflow-hidden">
+                    <TemplateEditor
+                      value={snippet.value}
+                      onInput={snippet.onInput}
+                      variables={templateVariables()}
+                      fill
+                      placeholder={snippet.placeholder}
+                    />
+                  </section>
+                </Panes.Element>
+              )}
+            </For>
+
+            <Panes.Element id="preview" title="Preview" icon="ti ti-file-type-pdf">
+              <section class="flex h-full min-h-0 flex-col overflow-hidden">
+                <PdfPreview
+                  title="Gotenberg PDF preview"
+                  class="min-h-0 flex-1"
+                  buttonLabel="Render preview"
+                  emptyText="Choose a record and render a PDF preview from the unsaved draft."
+                  disabled={() => !source().trim() || !html().trim() || !previewRecordId().trim()}
+                  request={previewPdf}
+                />
+              </section>
+            </Panes.Element>
+            <Panes.Element id="data" title="Data" icon="ti ti-list-tree">
+              <section class="flex h-full min-h-0 flex-col overflow-hidden">
+                <DocumentDataTree data={() => previewData()?.data ?? null} loading={previewDataLoading} error={previewDataError} />
+              </section>
+            </Panes.Element>
+            <Panes.Element id="source" title="Source" icon="ti ti-code">
+              <section class="flex h-full min-h-0 flex-col overflow-hidden">
+                <RenderedDocumentSource
+                  source={() => previewData()?.source ?? null}
+                  loading={previewDataLoading}
+                  error={previewDataError}
+                />
+              </section>
+            </Panes.Element>
+          </Panes.Root>
         </div>
       </PanelDialog.Body>
       <PanelDialog.Footer>

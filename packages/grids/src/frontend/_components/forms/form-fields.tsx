@@ -454,9 +454,7 @@ function InlineRelationCreate(props: {
   });
 
   const setDraftField = (index: number, fieldId: string, value: unknown) => {
-    const next = props.drafts().map((draft, i) =>
-      i === index ? { ...draft, data: { ...draft.data, [fieldId]: value } } : draft,
-    );
+    const next = props.drafts().map((draft, i) => (i === index ? { ...draft, data: { ...draft.data, [fieldId]: value } } : draft));
     props.onDraftsChange?.(props.multi ? next : next.slice(0, 1));
   };
 
@@ -499,10 +497,7 @@ function InlineRelationCreate(props: {
             </Show>
           </div>
         </div>
-        <Show
-          when={inlineFields().length > 0}
-          fallback={<p class="text-[11px] text-dimmed">No inline fields configured.</p>}
-        >
+        <Show when={inlineFields().length > 0} fallback={<p class="text-[11px] text-dimmed">No inline fields configured.</p>}>
           <Index each={props.drafts()}>
             {(draft, index) => (
               <div class="flex flex-col gap-2">

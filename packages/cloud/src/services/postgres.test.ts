@@ -11,7 +11,9 @@ describe("Postgres array helpers", () => {
   });
 
   test("serializes text arrays with escaping and treats non-arrays as empty arrays", () => {
-    expect(toPgTextArray(["alpha", "has space", 'has "quote"', "has\\slash"])).toBe('{"alpha","has space","has \\"quote\\"","has\\\\slash"}');
+    expect(toPgTextArray(["alpha", "has space", 'has "quote"', "has\\slash"])).toBe(
+      '{"alpha","has space","has \\"quote\\"","has\\\\slash"}',
+    );
     expect(toPgTextArray([])).toBe("{}");
     expect(toPgTextArray("{}" as unknown as string[])).toBe("{}");
   });

@@ -28,7 +28,10 @@ export const resolveBase = async (base: FileBase): Promise<string> => {
  * that doesn't start with `..` (and isn't an absolute path) to be considered
  * contained.
  */
-export const resolvePath = async (base: FileBase, relativePath: string): Promise<MutationResult<{ fullPath: string; relativePath: string }>> => {
+export const resolvePath = async (
+  base: FileBase,
+  relativePath: string,
+): Promise<MutationResult<{ fullPath: string; relativePath: string }>> => {
   const basePath = path.resolve(await resolveBase(base));
 
   // Normalize the path and remove leading slashes

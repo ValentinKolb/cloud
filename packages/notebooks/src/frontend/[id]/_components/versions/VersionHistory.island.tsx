@@ -325,9 +325,7 @@ export default function VersionHistory(props: Props) {
       {/* Empty */}
       <Show when={!loading() && versions().length === 0}>
         <div class="flex-1 flex items-center justify-center">
-          <Placeholder icon="ti ti-history">
-            No versions yet
-          </Placeholder>
+          <Placeholder icon="ti ti-history">No versions yet</Placeholder>
         </div>
       </Show>
 

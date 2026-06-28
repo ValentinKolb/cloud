@@ -14,12 +14,6 @@ export type {
 } from "./types";
 export { materializeTemplate, noteLink } from "./types";
 
-export const templates: NotebookTemplate[] = [
-  dailyNotesTemplate,
-  gardenPlannerTemplate,
-  recipeCollectorTemplate,
-  readingListTemplate,
-];
+export const templates: NotebookTemplate[] = [dailyNotesTemplate, gardenPlannerTemplate, recipeCollectorTemplate, readingListTemplate];
 
-export const getTemplate = (id: string): NotebookTemplate | null =>
-  templates.find((template) => template.id === id) ?? null;
+export const getTemplate = (id: string): NotebookTemplate | null => templates.find((template) => template.id === id) ?? null;

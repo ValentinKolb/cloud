@@ -63,7 +63,7 @@ the service account to broad human-admin roles such as `User Administrator`,
 Set local shell variables first:
 
 ```bash
-SA="cloud_service"
+SA="svc-cloud"
 ROLE="Cloud Service Account"
 ```
 
@@ -191,6 +191,21 @@ Expected minimum output includes the Cloud role plus indirect membership in:
 After creating the service account, configure Cloud with the account's FreeIPA
 username and password through `freeipa.service_user` and
 `freeipa.service_password`.
+
+For the Kolb Antik FreeIPA realm, the active production setup is:
+
+```text
+freeipa.service_user=svc-cloud
+freeipa.service_password=<fd0: FREEIPA_SVC_CLOUD_PASSWORD>
+freeipa.groups.base_sync=["users"]
+freeipa.groups.base_ipa_realm=["users"]
+freeipa.groups.admin=["admins"]
+freeipa.groups.excluded=["editors","trust admins","admins","service_accounts"]
+```
+
+The old `service_read_write` account was removed. Do not recreate a generic
+read/write service account; use the dedicated Cloud role above. The temporary
+`cloud` IPA group was also removed, so do not use it as a base realm group.
 
 When the Cloud UI returns `Insufficient access: Insufficient 'write'
 privilege to ...`, map the mentioned LDAP attribute or operation back to the

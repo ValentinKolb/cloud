@@ -19,23 +19,10 @@ import {
 import { buildRoles } from "./authz";
 import { toPgTextArray, toPgUuidArray } from "../postgres";
 import { buildBaseUser, resolveProviderProfile } from "./base-user";
-import {
-  managedGroupIdsSubquery,
-  managedGroupsNamesSubquery,
-  recursiveGroupIdsSubquery,
-  recursiveGroupNamesSubquery,
-} from "./group-sql";
+import { managedGroupIdsSubquery, managedGroupsNamesSubquery, recursiveGroupIdsSubquery, recursiveGroupNamesSubquery } from "./group-sql";
 import { getFreeIpaConfig } from "../freeipa-config";
 import { createAuthLoginUrl } from "../../shared/redirect";
-import type {
-  BaseUser,
-  MutationResult,
-  PaginationResponse,
-  Role,
-  User,
-  UserProfile,
-  UserProvider,
-} from "../../contracts/shared";
+import type { BaseUser, MutationResult, PaginationResponse, Role, User, UserProfile, UserProvider } from "../../contracts/shared";
 import { buildIpaUserData, emptyIpaUserData, userIpaDataColumns, userIpaDataJoin } from "./ipa-data";
 
 type DbRow = Record<string, unknown>;
@@ -402,10 +389,7 @@ export const getManagedGroupIds = async (params: { id: string; recursive?: boole
   return rows.map((row) => row.id as string);
 };
 
-export const demoteToGuest = async (params: {
-  id: string;
-  actor: { userId: string; uid: string };
-}): Promise<MutationResult<void>> => {
+export const demoteToGuest = async (params: { id: string; actor: { userId: string; uid: string } }): Promise<MutationResult<void>> => {
   const user = await getMinimal({ id: params.id });
   if (!user) return { ok: false, error: "User not found", status: 404 };
   if (user.provider !== "ipa") {
@@ -421,9 +405,7 @@ export const demoteToGuest = async (params: {
   });
 };
 
-export const create = async (params: {
-  data: CreateUserData;
-}): Promise<MutationResult<{ user: User; temporaryPassword?: string }>> => {
+export const create = async (params: { data: CreateUserData }): Promise<MutationResult<{ user: User; temporaryPassword?: string }>> => {
   if (params.data.provider === "local" && params.data.admin && !canPersistStoredAdmin("local", params.data.profile)) {
     return { ok: false, error: "Only local full accounts can be created as admins", status: 400 };
   }
@@ -480,10 +462,7 @@ export const create = async (params: {
   };
 };
 
-export const update = async (params: {
-  id: string;
-  data: UpdateUserData;
-}): Promise<MutationResult<void>> => {
+export const update = async (params: { id: string; data: UpdateUserData }): Promise<MutationResult<void>> => {
   const user = await getMinimal({ id: params.id });
   if (!user) return { ok: false, error: "User not found", status: 404 };
 
@@ -507,10 +486,7 @@ export const update = async (params: {
   });
 };
 
-export const setProfile = async (params: {
-  id: string;
-  profile: UserProfile;
-}): Promise<MutationResult<void>> => {
+export const setProfile = async (params: { id: string; profile: UserProfile }): Promise<MutationResult<void>> => {
   const user = await getMinimal({ id: params.id });
   if (!user) return { ok: false, error: "User not found", status: 404 };
   if (user.provider !== "local") {
@@ -525,16 +501,16 @@ export const setProfile = async (params: {
   });
 };
 
-export const setAdmin = async (params: {
-  id: string;
-  admin: boolean;
-}): Promise<MutationResult<void>> => {
+export const setAdmin = async (params: { id: string; admin: boolean }): Promise<MutationResult<void>> => {
   const user = await getMinimal({ id: params.id });
   if (!user) return { ok: false, error: "User not found", status: 404 };
   if (!canPersistStoredAdmin(user.provider, user.profile)) {
     return {
       ok: false,
-      error: user.provider === "ipa" ? "FreeIPA admin access is managed through FreeIPA groups" : "Guest accounts cannot be granted admin access",
+      error:
+        user.provider === "ipa"
+          ? "FreeIPA admin access is managed through FreeIPA groups"
+          : "Guest accounts cannot be granted admin access",
       status: 400,
     };
   }
@@ -621,9 +597,7 @@ export const createLoginToken = async (params: {
   };
 };
 
-export const resetPassword = async (params: {
-  id: string;
-}): Promise<MutationResult<{ password: string }>> => {
+export const resetPassword = async (params: { id: string }): Promise<MutationResult<{ password: string }>> => {
   const user = await getMinimal({ id: params.id });
   if (!user) return { ok: false, error: "User not found", status: 404 };
   if (user.provider !== "ipa") {
@@ -638,10 +612,7 @@ export const resetPassword = async (params: {
   });
 };
 
-export const switchProvider = async (params: {
-  id: string;
-  provider: UserProvider;
-}): Promise<MutationResult<void>> => {
+export const switchProvider = async (params: { id: string; provider: UserProvider }): Promise<MutationResult<void>> => {
   const user = await getMinimal({ id: params.id });
   if (!user) return { ok: false, error: "User not found", status: 404 };
   const freeIpaConfig = await getFreeIpaConfig();
@@ -713,10 +684,7 @@ export const switchProvider = async (params: {
   return { ok: true, data: undefined };
 };
 
-export const remove = async (params: {
-  id: string;
-  actor: { userId: string; uid: string };
-}): Promise<MutationResult<void>> => {
+export const remove = async (params: { id: string; actor: { userId: string; uid: string } }): Promise<MutationResult<void>> => {
   const user = await getMinimal({ id: params.id });
   if (!user) return { ok: false, error: "User not found", status: 404 };
 

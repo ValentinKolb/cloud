@@ -32,10 +32,9 @@ export const UpdateProfileSchema = z
     displayName: z.string().min(1).optional(),
     ipa: IpaProfileFieldsSchema.optional(),
   })
-  .refine(
-    (data) => data.givenname !== undefined || data.sn !== undefined || data.displayName !== undefined || data.ipa !== undefined,
-    { message: "At least one profile field must be provided" },
-  );
+  .refine((data) => data.givenname !== undefined || data.sn !== undefined || data.displayName !== undefined || data.ipa !== undefined, {
+    message: "At least one profile field must be provided",
+  });
 
 export const ChangePasswordSchema = z
   .object({

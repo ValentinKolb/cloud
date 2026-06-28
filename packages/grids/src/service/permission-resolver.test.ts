@@ -129,16 +129,12 @@ describe("resolveEffectivePermission — principal tier", () => {
   });
 
   test("authenticated tier visible only when no user/group grants", () => {
-    const grants: Grant[] = [
-      { resourceType: "table", resourceId: tableId, level: "read", principalTier: "authenticated" },
-    ];
+    const grants: Grant[] = [{ resourceType: "table", resourceId: tableId, level: "read", principalTier: "authenticated" }];
     expect(resolveEffectivePermission(grants, { baseId, tableId })).toBe("read");
   });
 
   test("public tier is the last fallback within a resource scope", () => {
-    const grants: Grant[] = [
-      { resourceType: "table", resourceId: tableId, level: "read", principalTier: "public" },
-    ];
+    const grants: Grant[] = [{ resourceType: "table", resourceId: tableId, level: "read", principalTier: "public" }];
     expect(resolveEffectivePermission(grants, { baseId, tableId })).toBe("read");
   });
 });

@@ -71,6 +71,8 @@ export type {
   PanelDialogHeaderProps,
   PanelDialogProps,
   PanelDialogSectionProps,
+  PanelDialogTabOption,
+  PanelDialogTabsProps,
 } from "./PanelDialog";
 export { confirmDiscardIfDirty, default as PanelDialog, panelDialogOptions, panelDialogPanelClass } from "./PanelDialog";
 export type {
@@ -83,6 +85,8 @@ export type {
   PanesValue,
 } from "./Panes";
 export { createPanesValue, default as Panes, normalizePanesValue } from "./Panes";
+export type { PdfPreviewProps, PdfPreviewRequest } from "./PdfPreview";
+export { default as PdfPreview } from "./PdfPreview";
 export { default as PermissionEditor } from "./PermissionEditor";
 export type { PlaceholderAlign, PlaceholderProps, PlaceholderSurface } from "./Placeholder";
 export { default as Placeholder } from "./Placeholder";

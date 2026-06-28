@@ -154,7 +154,9 @@ const list = async (
   const searchPattern = search ? `%${escapeLikePattern(search)}%` : null;
   const filterSource = source && source !== "all" ? source : null;
   const filterSources =
-    !filterSource && Array.isArray(sources) && sources.length > 0 ? [...new Set(sources.map((value) => value.trim()).filter(Boolean))] : null;
+    !filterSource && Array.isArray(sources) && sources.length > 0
+      ? [...new Set(sources.map((value) => value.trim()).filter(Boolean))]
+      : null;
   const filterSourcesLiteral = filterSources ? toPgTextArray(filterSources) : null;
   const filterLevel = level && level !== "all" ? level : null;
   const hasSourceList = !!filterSources && filterSources.length > 0;
@@ -259,14 +261,16 @@ export type LogSummary = {
  * `LogSummary.lastErrorAt: string | null` contract expects an ISO-ish string.
  */
 const summary = async (): Promise<LogSummary> => {
-  const [row] = await sql<{
-    total: number;
-    total_24h: number;
-    errors_24h: number;
-    warnings_24h: number;
-    sources: number;
-    last_error_at: string | null;
-  }[]>`
+  const [row] = await sql<
+    {
+      total: number;
+      total_24h: number;
+      errors_24h: number;
+      warnings_24h: number;
+      sources: number;
+      last_error_at: string | null;
+    }[]
+  >`
     SELECT
       (SELECT COUNT(*)::int FROM logging.entries)                                                                AS total,
       (SELECT COUNT(*)::int FROM logging.entries WHERE created_at > now() - interval '24 hours')                 AS total_24h,

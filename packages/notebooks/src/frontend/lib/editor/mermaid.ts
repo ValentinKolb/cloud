@@ -235,7 +235,11 @@ export const mermaidExtension = (): Extension => {
         if (type.name === "FencedCode") {
           const text = state.doc.sliceString(from, to);
           const lines = text.split("\n");
-          const language = lines[0]?.replace(/^(```|~~~)/, "").trim().toLowerCase() || "";
+          const language =
+            lines[0]
+              ?.replace(/^(```|~~~)/, "")
+              .trim()
+              .toLowerCase() || "";
 
           if (language === "mermaid") {
             ranges.push({ from, to });

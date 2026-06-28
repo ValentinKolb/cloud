@@ -13,9 +13,7 @@ export const app = defineApp({
     href: "/faq",
     section: "hidden",
   },
-  legalLinks: [
-    { label: "FAQ", href: "/faq", icon: "ti ti-help-circle" },
-  ],
+  legalLinks: [{ label: "FAQ", href: "/faq", icon: "ti ti-help-circle" }],
   openapi: "/api/faq/openapi.json",
   // Top-level `/faq` for the public help page (linked from login footer).
   routes: ["/faq", "/api/faq", "/admin/faq", "/public/faq"],

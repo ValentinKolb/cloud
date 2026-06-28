@@ -151,11 +151,7 @@ const truncationHint: Completion = {
   },
 };
 
-const buildCompletions = (
-  notes: NoteRef[],
-  triggerStart: number,
-  truncated: boolean,
-): Completion[] => {
+const buildCompletions = (notes: NoteRef[], triggerStart: number, truncated: boolean): Completion[] => {
   const out = notes
     .slice()
     .sort((a, b) => a.title.localeCompare(b.title))
@@ -207,10 +203,7 @@ const buildCompletions = (
 
 /** Build a result for a given trigger match. Shared by sync + async
  *  paths so the cache-hit case can return without a Promise wrap. */
-const buildResult = (
-  word: { from: number; to: number },
-  data: CachedNotes,
-): CompletionResult | null => {
+const buildResult = (word: { from: number; to: number }, data: CachedNotes): CompletionResult | null => {
   if (data.notes.length === 0) return null;
   return {
     // `from` = right after the `[[` so CM's prefix filter matches

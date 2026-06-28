@@ -113,7 +113,7 @@ export function ColumnFormatControls(props: {
             ? "progress"
             : props.currentFormat?.kind === "barcode"
               ? "barcode"
-            : "default",
+              : "default",
   );
   const [textFormat, setTextFormat] = createSignal<TextFormatChoice>(props.currentFormat?.kind === "barcode" ? "barcode" : "default");
   const [barcodeBcid, setBarcodeBcid] = createSignal(
@@ -216,7 +216,12 @@ export function ColumnFormatControls(props: {
           ]}
         />
         <Show when={textFormat() === "barcode"}>
-          <BarcodeFormatControls bcid={barcodeBcid} setBcid={touch(setBarcodeBcid)} showText={barcodeShowText} setShowText={touch(setBarcodeShowText)} />
+          <BarcodeFormatControls
+            bcid={barcodeBcid}
+            setBcid={touch(setBarcodeBcid)}
+            showText={barcodeShowText}
+            setShowText={touch(setBarcodeShowText)}
+          />
         </Show>
       </Show>
       <Show when={fieldType() === "formula"}>
@@ -281,7 +286,12 @@ export function ColumnFormatControls(props: {
         <Checkbox label="Include time" value={includeTime} onChange={touch(setIncludeTime)} />
       </Show>
       <Show when={fieldType() === "formula" && formulaFormat() === "barcode"}>
-        <BarcodeFormatControls bcid={barcodeBcid} setBcid={touch(setBarcodeBcid)} showText={barcodeShowText} setShowText={touch(setBarcodeShowText)} />
+        <BarcodeFormatControls
+          bcid={barcodeBcid}
+          setBcid={touch(setBarcodeBcid)}
+          showText={barcodeShowText}
+          setShowText={touch(setBarcodeShowText)}
+        />
       </Show>
       <Show when={fieldType() === "percent" && !progress()}>
         <Checkbox label="Custom percent format" value={customPercent} onChange={touch(setCustomPercent)} />
@@ -314,7 +324,12 @@ function BarcodeFormatControls(props: {
         selectedLabel={() => barcodeSelectedLabel(props.bcid())}
         fetchData={async (query) => searchBarcodeOptions(query)}
       />
-      <Checkbox label="Show encoded text" description="Print the value below the code when the symbol supports it." value={props.showText} onChange={props.setShowText} />
+      <Checkbox
+        label="Show encoded text"
+        description="Print the value below the code when the symbol supports it."
+        value={props.showText}
+        onChange={props.setShowText}
+      />
     </div>
   );
 }

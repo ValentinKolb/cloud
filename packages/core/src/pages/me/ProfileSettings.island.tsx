@@ -57,7 +57,9 @@ function ActionRow(props: { icon: string; label: string; description: string; on
         <span class={`text-sm block ${props.variant === "danger" ? "text-red-600 dark:text-red-400" : "text-primary"}`}>{props.label}</span>
         <span class="text-xs text-dimmed block">{props.description}</span>
       </div>
-      <i class={`ti ti-chevron-right shrink-0 text-xs text-dimmed transition-transform group-hover:translate-x-0.5 ${props.variant === "danger" ? "group-hover:text-red-500" : "group-hover:text-blue-600 dark:group-hover:text-blue-400"}`} />
+      <i
+        class={`ti ti-chevron-right shrink-0 text-xs text-dimmed transition-transform group-hover:translate-x-0.5 ${props.variant === "danger" ? "group-hover:text-red-500" : "group-hover:text-blue-600 dark:group-hover:text-blue-400"}`}
+      />
     </button>
   );
 }
@@ -171,10 +173,11 @@ export default function ProfileSettings(props: Props) {
   });
 
   const handleChangePassword = async () => {
-    const result = await prompts.dialog<ChangePasswordPayload | null>(
-      (close) => <ChangePasswordDialog close={close} />,
-      { title: "Change Password", icon: "ti ti-lock", size: "medium" },
-    );
+    const result = await prompts.dialog<ChangePasswordPayload | null>((close) => <ChangePasswordDialog close={close} />, {
+      title: "Change Password",
+      icon: "ti ti-lock",
+      size: "medium",
+    });
     if (result) {
       await passwordMutation.mutate({
         currentPassword: result.currentPassword,

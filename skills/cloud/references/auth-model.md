@@ -156,7 +156,7 @@ Roles are computed by `buildRoles()` in `packages/cloud/src/services/accounts/au
 - `"anonymous"` — special middleware role meaning "only non-logged-in users"
 
 **Profile derivation:**
-- **IPA users**: Profile is **automatically derived** by full sync from `auth.ipa_user_effective_groups`. If the user is effectively in any `freeipa.groups.base_ipa_realm` group (default: `"cloud"`), they get profile `"user"`; if they are in `freeipa.groups.base_sync` but not in the base realm, they get `"guest"`.
+- **IPA users**: Profile is **automatically derived** by full sync from `auth.ipa_user_effective_groups`. If the user is effectively in any `freeipa.groups.base_ipa_realm` group (default: `"users"`), they get profile `"user"`; if they are in `freeipa.groups.base_sync` but not in the base realm, they get `"guest"`.
 - **Local users**: Profile is **manually set** by admins and stored permanently in the database. Attempting to change an IPA user's profile directly returns an error.
 
 Single-user sync/login does not destructively change scope or profile from

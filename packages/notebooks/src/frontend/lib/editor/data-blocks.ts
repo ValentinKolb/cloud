@@ -163,12 +163,7 @@ const isLineInBlockWidget = (state: DataBlocksState, from: number, to: number): 
   return null;
 };
 
-const navigateLine = (
-  view: EditorView,
-  stateField: StateField<DataBlocksState>,
-  dir: -1 | 1,
-  extend: boolean,
-): boolean => {
+const navigateLine = (view: EditorView, stateField: StateField<DataBlocksState>, dir: -1 | 1, extend: boolean): boolean => {
   const dataState = view.state.field(stateField, false);
   if (!dataState || dataState.ranges.length === 0) return false;
 

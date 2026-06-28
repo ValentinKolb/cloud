@@ -33,14 +33,22 @@ export default function GlobalSearchHelpDialog(props: GlobalSearchHelpDialogProp
     <div class="flex max-h-[min(80vh,42rem)] min-h-0 flex-col gap-4 text-zinc-900 dark:text-zinc-100">
       <div class="flex items-start justify-between gap-3">
         <div>
-          <p class="text-sm text-dimmed">Use <code>#tag</code> to narrow your search. You can combine text + multiple tags.</p>
+          <p class="text-sm text-dimmed">
+            Use <code>#tag</code> to narrow your search. You can combine text + multiple tags.
+          </p>
         </div>
       </div>
 
       <section class="text-sm rounded-lg ring-1 ring-inset ring-zinc-200 dark:ring-zinc-800 p-3 bg-zinc-50/50 dark:bg-zinc-900/35">
         <p class="mb-2 text-dimmed">Examples</p>
         <ul class="space-y-1 text-xs text-dimmed">
-          <For each={examples}>{(entry) => <li><code>{entry}</code></li>}</For>
+          <For each={examples}>
+            {(entry) => (
+              <li>
+                <code>{entry}</code>
+              </li>
+            )}
+          </For>
         </ul>
       </section>
 

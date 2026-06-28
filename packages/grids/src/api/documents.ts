@@ -8,6 +8,7 @@ import {
   DocumentPreviewResponseSchema,
   DocumentRecordBodySchema,
   DocumentRunListSchema,
+  DocumentTemplateDraftPreviewSchema,
   DocumentTemplateListSchema,
   DocumentTemplateSchema,
   UpdateDocumentTemplateSchema,
@@ -16,11 +17,16 @@ import { gridsService } from "../service";
 import { executeGqlSource } from "./gql-runtime";
 import { gateAt } from "./permissions";
 
-const pdfResponse = (pdf: Uint8Array, filename: string, headers: Record<string, string> = {}) =>
+const pdfResponse = (
+  pdf: Uint8Array,
+  filename: string,
+  headers: Record<string, string> = {},
+  disposition: "attachment" | "inline" = "attachment",
+) =>
   new Response(new Blob([pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer], { type: "application/pdf" }), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}"`,
+      "Content-Disposition": `${disposition}; filename="${encodeURIComponent(filename)}"`,
       "Cache-Control": "no-store",
       ...headers,
     },
@@ -42,16 +48,20 @@ const loadTemplateAndTable = async (templateId: string) => {
 
 const liveRenderData = async (
   c: Context<AuthContext>,
-  params: { template: NonNullable<Awaited<ReturnType<typeof gridsService.document.getTemplate>>>; tableId: string; recordId: string },
+  params: {
+    template: Pick<NonNullable<Awaited<ReturnType<typeof gridsService.document.getTemplate>>>, "source">;
+    tableId: string;
+    recordId: string;
+  },
 ) => {
   const table = await gridsService.table.get(params.tableId);
-  if (!table) return { ok: false as const, status: 404, message: "Table not found" };
+  if (!table) return { ok: false as const, status: 404, phase: "data" as const, message: "Table not found" };
   const record = await gridsService.record.get(params.tableId, params.recordId, { dateConfig: await getDateConfig(c) });
-  if (!record) return { ok: false as const, status: 404, message: "Record not found" };
+  if (!record) return { ok: false as const, status: 404, phase: "data" as const, message: "Record not found" };
 
   const inputContext = gridsService.document.buildTemplateInputContext(record, table);
   const source = await gridsService.document.renderSource(params.template, inputContext);
-  if (!source.ok) return { ok: false as const, status: source.error.status, message: source.error.message };
+  if (!source.ok) return { ok: false as const, status: source.error.status, phase: "source" as const, message: source.error.message };
 
   const executed = await executeGqlSource(
     c,
@@ -64,7 +74,9 @@ const liveRenderData = async (
     },
     { maxRows: 10_000 },
   );
-  if (!executed.response.ok) return { ok: false as const, status: 400, message: diagnosticsMessage(executed.response.diagnostics) };
+  if (!executed.response.ok) {
+    return { ok: false as const, status: 400, phase: "source" as const, message: diagnosticsMessage(executed.response.diagnostics) };
+  }
 
   const rows = gridsService.document.rowsWithColumnLabels(
     executed.response.columns,
@@ -124,6 +136,81 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(c, () => gridsService.document.createTemplate(tableId, c.req.valid("json"), c.get("user").id), 201);
+    },
+  )
+
+  .post(
+    "/templates/by-table/:tableId/preview-draft",
+    describeRoute({
+      tags: ["Grids:Document"],
+      summary: "Render a draft document template PDF preview",
+      responses: {
+        200: { description: "Draft PDF preview" },
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    v("json", DocumentTemplateDraftPreviewSchema),
+    async (c) => {
+      const tableId = c.req.param("tableId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found", phase: "data" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+
+      const body = c.req.valid("json");
+      const template = {
+        source: body.source,
+        html: body.html,
+        headerHtml: body.headerHtml ?? null,
+        footerHtml: body.footerHtml ?? null,
+        pageCss: body.pageCss ?? null,
+      };
+      const rendered = await liveRenderData(c, { template, tableId, recordId: body.recordId });
+      if (!rendered.ok) return c.json({ message: rendered.message, phase: rendered.phase }, rendered.status === 400 ? 400 : 404);
+
+      const pdf = await gridsService.document.renderPdfPreview(template, rendered.data, "preview.html");
+      if (!pdf.ok) {
+        return c.json(
+          { message: pdf.error.message, phase: pdf.error.phase, code: pdf.error.code },
+          pdf.error.status === 400 ? 400 : pdf.error.status === 502 ? 502 : 500,
+        );
+      }
+      return pdfResponse(pdf.pdf.pdf, "preview.pdf", {}, "inline");
+    },
+  )
+
+  .post(
+    "/templates/by-table/:tableId/preview-data-draft",
+    describeRoute({
+      tags: ["Grids:Document"],
+      summary: "Render draft document template data for one preview record",
+      responses: {
+        200: jsonResponse(DocumentPreviewResponseSchema, "Draft document preview data"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    v("json", DocumentTemplateDraftPreviewSchema),
+    async (c) => {
+      const tableId = c.req.param("tableId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found", phase: "data" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+
+      const body = c.req.valid("json");
+      const template = {
+        source: body.source,
+        html: body.html,
+        headerHtml: body.headerHtml ?? null,
+        footerHtml: body.footerHtml ?? null,
+        pageCss: body.pageCss ?? null,
+      };
+      const rendered = await liveRenderData(c, { template, tableId, recordId: body.recordId });
+      if (!rendered.ok) return c.json({ message: rendered.message, phase: rendered.phase }, rendered.status === 400 ? 400 : 404);
+      const html = await gridsService.document.renderHtml(template, rendered.data);
+      if (!html.ok) return c.json({ message: html.error.message, phase: "html" }, html.error.status);
+
+      return c.json({ html: html.data, source: rendered.source, data: rendered.data });
     },
   )
 

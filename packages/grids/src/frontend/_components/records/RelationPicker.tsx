@@ -1,6 +1,6 @@
-import { MultiSelectInput, type MultiSelectOption, SelectInput } from "@valentinkolb/cloud/ui";
-import { apiClient } from "@/api/client";
-import type { RelationLookupItem } from "../../../contracts";
+import { MultiSelectInput, type MultiSelectOption } from "@valentinkolb/cloud/ui";
+import RecordPicker from "./RecordPicker";
+import { fetchRecordLookup, type RecordLookupItem } from "./record-lookup";
 
 /**
  * Relation picker — search-driven dropdown over a target table.
@@ -18,7 +18,7 @@ import type { RelationLookupItem } from "../../../contracts";
  *   mode, so relation pickers use the same searchable dropdown pattern
  *   as the rest of cloud-ui.
  */
-type LookupItem = RelationLookupItem;
+type LookupItem = RecordLookupItem;
 
 type Props = {
   /** Target table to search records of. */
@@ -41,33 +41,6 @@ type Props = {
   excludeIds?: () => string[];
 };
 
-/**
- * Shared lookup fetcher — abortable, throws on HTTP error so consumers
- * can surface it as an error state. The exclude param is parametric so
- * single- and multi-mode can both use it.
- */
-const fetchLookup = async (targetTableId: string, q: string, excludeIds: string[], signal: AbortSignal): Promise<LookupItem[]> => {
-  const res = await apiClient.tables[":tableId"].lookup.$get(
-    {
-      param: { tableId: targetTableId },
-      query: {
-        q,
-        excludeIds: excludeIds.join(","),
-        limit: "10",
-      },
-    },
-    { init: { signal } },
-  );
-  if (!res.ok) {
-    if (res.status === 403) {
-      throw new Error("You do not have permission to choose records from this table.");
-    }
-    throw new Error("Could not load linked records.");
-  }
-  const data = await res.json();
-  return data.items;
-};
-
 export default function RelationPicker(props: Props) {
   const excludedIds = () => [...new Set([...props.value(), ...(props.excludeIds?.() ?? [])])];
   const labelFor = (id: string): string => {
@@ -85,23 +58,18 @@ export default function RelationPicker(props: Props) {
   // the value, and a label resolver for the selected-display fallback.
   if (!props.multi) {
     return (
-      <SelectInput
+      <RecordPicker
+        tableId={props.targetTableId}
         placeholder="Pick a linked record..."
         clearable
-        disabled={props.saving?.() ?? false}
+        disabled={() => props.saving?.() ?? false}
         value={() => props.value()[0] ?? ""}
         onChange={(id) => props.onChange(id ? [id] : [])}
         selectedLabel={() => {
           const id = props.value()[0];
           return id ? labelFor(id) : undefined;
         }}
-        fetchData={async (q, signal) => {
-          // Exclude the current pick so the dropdown shows alternatives —
-          // the trigger already displays the selection, so listing it
-          // again would just be noise.
-          const items = await fetchLookup(props.targetTableId, q, excludedIds(), signal);
-          return items.map((i) => ({ id: i.id, label: i.label, icon: "ti ti-link" }));
-        }}
+        excludeIds={excludedIds}
       />
     );
   }
@@ -118,7 +86,7 @@ export default function RelationPicker(props: Props) {
       onChange={props.onChange}
       selectedOptions={() => props.value().map((id) => ({ id, label: labelFor(id), icon: "ti ti-link" }))}
       fetchData={async (q, signal) => {
-        const items = await fetchLookup(props.targetTableId, q, excludedIds(), signal);
+        const items = await fetchRecordLookup({ tableId: props.targetTableId, query: q, excludeIds: excludedIds(), signal });
         return items.map(toOption);
       }}
     />

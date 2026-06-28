@@ -47,8 +47,7 @@ const NODE_MAX_RADIUS = 10;
 const LINK_DISTANCE = 90;
 const CHARGE_STRENGTH = -260;
 
-const radiusFor = (inDegree: number): number =>
-  Math.min(NODE_MAX_RADIUS, NODE_BASE_RADIUS + inDegree * NODE_RADIUS_PER_LINK);
+const radiusFor = (inDegree: number): number => Math.min(NODE_MAX_RADIUS, NODE_BASE_RADIUS + inDegree * NODE_RADIUS_PER_LINK);
 
 export default function NotebookGraph(props: Props) {
   const [hoveredId, setHoveredId] = createSignal<string | null>(null);
@@ -305,7 +304,9 @@ const EmptyState = () => (
     <div class="text-center text-xs text-dimmed flex flex-col items-center gap-2 max-w-sm">
       <i class="ti ti-vector text-2xl" />
       <p class="font-medium">No graph yet</p>
-      <p>Use <span class="font-mono">/note</span> in the editor or paste note URLs to start building this notebook's knowledge graph.</p>
+      <p>
+        Use <span class="font-mono">/note</span> in the editor or paste note URLs to start building this notebook's knowledge graph.
+      </p>
     </div>
   </div>
 );

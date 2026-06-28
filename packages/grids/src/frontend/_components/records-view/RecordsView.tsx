@@ -1128,6 +1128,7 @@ export default function RecordsView(props: Props) {
 
   const openTemplates = () => {
     openDocumentTemplatesDialog({
+      baseId: props.baseId,
       tableId: props.tableId,
       tableName: tableName(),
     });

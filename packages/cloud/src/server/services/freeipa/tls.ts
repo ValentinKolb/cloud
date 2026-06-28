@@ -18,9 +18,7 @@ type FreeIpaTls = Bun.TLSOptions;
 
 let resolver: (() => Promise<FreeIpaTls | undefined>) | null = null;
 
-export const setFreeIpaTlsResolver = (
-  fn: (() => Promise<FreeIpaTls | undefined>) | null,
-): void => {
+export const setFreeIpaTlsResolver = (fn: (() => Promise<FreeIpaTls | undefined>) | null): void => {
   resolver = fn;
 };
 

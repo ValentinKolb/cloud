@@ -135,6 +135,7 @@ export const gridsService = {
     rowsWithColumnLabels: documents.rowsWithColumnLabels,
     renderSource: documents.renderDocumentSource,
     renderHtml: documents.renderDocumentHtml,
+    renderPdfPreview: documents.renderDocumentPdfPreview,
     createRun: documents.createRun,
     createRunForRecord: documents.createRunForRecord,
     listRunsForRecord: documents.listRunsForRecord,

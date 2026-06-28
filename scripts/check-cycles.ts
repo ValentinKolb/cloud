@@ -13,9 +13,7 @@ const workspaceRoot = join(import.meta.dir, "..");
 const includeApps = process.env.CHECK_APPS_CYCLES === "1" || process.env.CHECK_APPS_CYCLES === "true";
 
 const packagesRoot = join(workspaceRoot, "packages");
-const allDirs = readdirSync(packagesRoot).filter((name) =>
-  statSync(join(packagesRoot, name)).isDirectory(),
-);
+const allDirs = readdirSync(packagesRoot).filter((name) => statSync(join(packagesRoot, name)).isDirectory());
 
 // cloud-lib has its own intra-package alias; each app uses @/ only inside
 // itself, so each app is its own boundary unit for cycle detection.
@@ -197,8 +195,4 @@ for (const pkg of packages) {
 
 if (foundCycle) process.exit(1);
 
-console.log(
-  includeApps
-    ? "Cycle check passed for cloud and cloud-apps."
-    : "Cycle check passed for cloud.",
-);
+console.log(includeApps ? "Cycle check passed for cloud and cloud-apps." : "Cycle check passed for cloud.");

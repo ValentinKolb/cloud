@@ -168,7 +168,10 @@ const highlightMarkdownLine = (line: string): string => {
 
 const highlightMarkdownInline = (escaped: string): string =>
   escaped
-    .replace(/(`)([^`\n]+?)(`)/g, '<span class="cd-md-syntax">$1</span><span class="cd-md-code">$2</span><span class="cd-md-syntax">$3</span>')
+    .replace(
+      /(`)([^`\n]+?)(`)/g,
+      '<span class="cd-md-syntax">$1</span><span class="cd-md-code">$2</span><span class="cd-md-syntax">$3</span>',
+    )
     .replace(/(\*\*)([^*\n]+?)(\*\*)/g, '<span class="cd-md-syntax">$1</span>$2<span class="cd-md-syntax">$3</span>')
     .replace(/(\[[^\]\n]+?\])(\([^)]+\))/g, '<span class="cd-md-link">$1</span><span class="cd-md-syntax">$2</span>')
     .replace(/(^|\s)(@[A-Za-z][\w-]*)/g, '$1<span class="cd-md-ref">$2</span>')

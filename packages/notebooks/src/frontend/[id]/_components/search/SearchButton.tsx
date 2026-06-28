@@ -67,12 +67,7 @@ export default function SearchButton(props: Props) {
 
   if (props.variant === "sidebar-mobile") {
     return (
-      <button
-        type="button"
-        onClick={handleSearch}
-        class="sidebar-item-mobile w-full"
-        title="Search notes (Mod+Shift+K)"
-      >
+      <button type="button" onClick={handleSearch} class="sidebar-item-mobile w-full" title="Search notes (Mod+Shift+K)">
         <i class="ti ti-search" />
         <span>Search</span>
       </button>

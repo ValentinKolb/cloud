@@ -19,7 +19,10 @@ const NotificationPaginationQuerySchema = z.object({
 
 const SelectionSchema = z.object({
   mode: z.enum(["specific", "rules"]).optional(),
-  rules: z.array(z.enum(["account_manager", "local", "ipa", "guest", "user"])).max(5).optional(),
+  rules: z
+    .array(z.enum(["account_manager", "local", "ipa", "guest", "user"]))
+    .max(5)
+    .optional(),
   all: z.boolean().optional(),
   userIds: z.array(z.uuid()).max(5000).optional(),
   groupIds: z.array(z.uuid()).max(500).optional(),
@@ -31,8 +34,14 @@ const SelectionSchema = z.object({
       recursive: z.boolean().optional(),
     })
     .optional(),
-  providers: z.array(z.enum(["local", "ipa"])).max(2).optional(),
-  profiles: z.array(z.enum(["user", "guest"])).max(2).optional(),
+  providers: z
+    .array(z.enum(["local", "ipa"]))
+    .max(2)
+    .optional(),
+  profiles: z
+    .array(z.enum(["user", "guest"]))
+    .max(2)
+    .optional(),
 });
 
 const BatchSchema = z.object({

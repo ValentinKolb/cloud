@@ -307,7 +307,10 @@ const WebhookEditor = (props: { webhook?: HealthWebhook; apps: HealthApp[]; clos
 };
 
 const openWebhookEditor = (webhook: HealthWebhook | undefined, apps: HealthApp[], onSaved: () => void) =>
-  dialogCore.open<void>((close) => <WebhookEditor webhook={webhook} apps={apps} close={() => close()} onSaved={onSaved} />, panelDialogOptions);
+  dialogCore.open<void>(
+    (close) => <WebhookEditor webhook={webhook} apps={apps} close={() => close()} onSaved={onSaved} />,
+    panelDialogOptions,
+  );
 
 const ScheduleEditor = (props: { schedule: SettingEntry | undefined; close: () => void; onSaved: () => void }) => {
   const initial = String(props.schedule?.value ?? props.schedule?.default ?? "*/5 * * * *");
@@ -407,7 +410,12 @@ export default function HealthWebhooksPanel() {
     { id: "minimum", header: "Minimum", value: (webhook) => webhook.minStatus },
     { id: "repeat", header: "Repeat", value: (webhook) => webhook.repeatIntervalMs, headerClass: "text-right", cellClass: "text-right" },
     { id: "lastSent", header: "Last sent", value: (webhook) => webhook.lastSentAt, headerClass: "text-right", cellClass: "text-right" },
-    { id: "actions", header: <span class="sr-only">Actions</span>, headerClass: "text-right", cellClass: "text-right whitespace-nowrap max-w-none" },
+    {
+      id: "actions",
+      header: <span class="sr-only">Actions</span>,
+      headerClass: "text-right",
+      cellClass: "text-right whitespace-nowrap max-w-none",
+    },
   ];
 
   return (
@@ -421,11 +429,7 @@ export default function HealthWebhooksPanel() {
           </p>
         </div>
         <div class="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            class="btn-input btn-input-sm"
-            onClick={() => openScheduleEditor(schedule(), () => void refetchSettings())}
-          >
+          <button type="button" class="btn-input btn-input-sm" onClick={() => openScheduleEditor(schedule(), () => void refetchSettings())}>
             <i class="ti ti-calendar-time text-sm" />
             Schedule
           </button>

@@ -5,6 +5,10 @@
    components — and is served to every container via the gateway. Apps must
    NOT be scanned here; per-app classes come from each app's own app.css. */
 @source "../**/*.{ts,tsx}";
+@source inline("btn-ai");
+@source inline("btn-input-ai");
+@source inline("icon-btn-ai");
+@source inline("input-ai");
 
 @custom-variant dark (&:where(.dark, .dark *));
 @custom-variant light (html:not(.dark) &);

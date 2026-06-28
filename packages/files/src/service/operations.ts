@@ -15,10 +15,7 @@ import * as paths from "./paths";
 import * as permissions from "./permissions";
 
 const getFilegate = async (): Promise<Filegate> => {
-  const [url, token] = await Promise.all([
-    get<string>("files.filegate_url"),
-    get<string>("files.filegate_token"),
-  ]);
+  const [url, token] = await Promise.all([get<string>("files.filegate_url"), get<string>("files.filegate_token")]);
   return new Filegate({ url, token });
 };
 
@@ -50,10 +47,7 @@ const getOwnershipInfo = async (base: FileBase, isDirectory: boolean): Promise<O
     if (base.uidNumber === undefined || base.gidNumber === undefined) {
       return null;
     }
-    const [dirMode, fileMode] = await Promise.all([
-      get<string>("files.home_dir_mode"),
-      get<string>("files.home_file_mode"),
-    ]);
+    const [dirMode, fileMode] = await Promise.all([get<string>("files.home_dir_mode"), get<string>("files.home_file_mode")]);
     return {
       uid: base.uidNumber,
       gid: base.gidNumber,
@@ -66,10 +60,7 @@ const getOwnershipInfo = async (base: FileBase, isDirectory: boolean): Promise<O
     if (base.gidNumber === undefined) {
       return null;
     }
-    const [dirMode, fileMode] = await Promise.all([
-      get<string>("files.group_dir_mode"),
-      get<string>("files.group_file_mode"),
-    ]);
+    const [dirMode, fileMode] = await Promise.all([get<string>("files.group_dir_mode"), get<string>("files.group_file_mode")]);
     return {
       uid: 0,
       gid: base.gidNumber,

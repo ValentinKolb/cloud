@@ -10,21 +10,13 @@ import type { WidgetFormat } from "../../../service";
  * distinct from a zero. Errors from the data layer surface with a
  * distinct caller-supplied label, not through this function.
  */
-export const formatWidgetValue = (
-  value: unknown,
-  format: WidgetFormat | undefined,
-): string => {
+export const formatWidgetValue = (value: unknown, format: WidgetFormat | undefined): string => {
   if (value === null || value === undefined) return "—";
 
   // Coerce string-numerics (decimal-safe number cells store as strings to dodge
   // float drift) to JS numbers for Intl formatting. Genuine non-numeric
   // strings just pass through.
-  const asNumber =
-    typeof value === "number"
-      ? value
-      : typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value)
-      ? Number(value)
-      : null;
+  const asNumber = typeof value === "number" ? value : typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value) ? Number(value) : null;
 
   if (asNumber === null) {
     // Non-numeric value — show as-is. This happens when the user puts

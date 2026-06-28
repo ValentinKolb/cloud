@@ -22,9 +22,7 @@ const toInstant = (value: string | null): string | null => {
 function TokenDialog(props: { token: string }) {
   return (
     <div class="flex flex-col gap-4">
-      <div class="info-block-warning text-xs">
-        Copy this API key now. It is shown once and cannot be recovered later.
-      </div>
+      <div class="info-block-warning text-xs">Copy this API key now. It is shown once and cannot be recovered later.</div>
       <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
         <code class="block break-all font-mono text-xs text-primary">{props.token}</code>
       </div>
@@ -84,7 +82,9 @@ function ApiKeyCreateDialog(props: { close: (value: { name: string; expiresAt: s
         ]}
       />
       <div class="flex justify-end gap-2">
-        <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(null)}>Cancel</button>
+        <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(null)}>
+          Cancel
+        </button>
         <button type="submit" class="btn-primary btn-sm">
           <i class="ti ti-plus" />
           Create key
@@ -98,7 +98,10 @@ export default function ApiKeysSettings(props: Props) {
   const [keys, setKeys] = createSignal<ServiceAccountCredential[]>(props.initialKeys);
   const rootClass = () => (props.surface === "section" ? "min-w-0" : "paper p-5");
 
-  const createMutation = mutations.create<{ credential: ServiceAccountCredential; token: string }, { name: string; expiresAt: string | null }>({
+  const createMutation = mutations.create<
+    { credential: ServiceAccountCredential; token: string },
+    { name: string; expiresAt: string | null }
+  >({
     mutation: async (vars) => {
       const res = await apiClient.me["api-keys"].$post({ json: vars });
       const data = await res.json();

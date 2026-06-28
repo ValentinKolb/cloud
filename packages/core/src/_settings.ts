@@ -47,7 +47,8 @@ export const CORE_SETTINGS = {
     kind: "string",
     label: "URL",
     default: "localhost:3000",
-    description: "Public-facing application URL used for links in emails, OAuth redirects, and WebSocket connections (with or without scheme)",
+    description:
+      "Public-facing application URL used for links in emails, OAuth redirects, and WebSocket connections (with or without scheme)",
     placeholder: "e.g. https://cloud.example.org",
     envFallback: () => envString("APP_URL"),
     envBootstrap: () => envString("APP_URL"),
@@ -99,6 +100,35 @@ export const CORE_SETTINGS = {
     description: "Five-field cron schedule used by all automatic cleanup jobs in app.timezone",
   },
 
+  // ── AI ──────────────────────────────────────────────────────────────────
+  "ai.enabled": {
+    kind: "boolean",
+    label: "Enable AI",
+    default: false,
+    description: "Enable Cloud AI features including the Assistant app and app-provided AI resources.",
+  },
+  "ai.default_model_id": {
+    kind: "string",
+    label: "Default Model ID",
+    default: "",
+    description: "Model profile id used when an app asks for the platform default AI model.",
+    placeholder: "e.g. openrouter-fast",
+  },
+  "ai.model_profiles_json": {
+    kind: "text",
+    label: "Model Profiles",
+    default: "[]",
+    description: "JSON array of model profiles. Provider API keys are stored on the profile they belong to.",
+    placeholder:
+      '[{"id":"openrouter-fast","label":"OpenRouter Fast","provider":"openrouter","model":"openai/gpt-4.1-mini","enabled":true,"dataBoundary":"hosted","capabilities":["streaming"],"apiKey":"sk-or-..."}]',
+  },
+  "ai.global_instructions": {
+    kind: "text",
+    label: "Global Instructions",
+    default: "",
+    description: "Optional instructions applied to every Cloud AI conversation after platform guardrails.",
+    placeholder: "Keep answers concise and follow the workspace language.",
+  },
   // ── PDF rendering ─────────────────────────────────────────────────────
   "gotenberg.url": {
     kind: "url",
@@ -168,14 +198,16 @@ export const CORE_SETTINGS = {
     kind: "text",
     label: "CA Certificate (PEM)",
     default: "",
-    description: "Paste the FreeIPA root CA in PEM format to trust self-signed/private-CA servers without disabling validation. Preferred over allow_insecure.",
+    description:
+      "Paste the FreeIPA root CA in PEM format to trust self-signed/private-CA servers without disabling validation. Preferred over allow_insecure.",
     placeholder: "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
   },
   "freeipa.allow_insecure": {
     kind: "boolean",
     label: "Allow Insecure TLS",
     default: false,
-    description: "Skip TLS certificate validation entirely. Use only for local dev — disables MITM protection. Ignored when ca_cert is set.",
+    description:
+      "Skip TLS certificate validation entirely. Use only for local dev — disables MITM protection. Ignored when ca_cert is set.",
   },
   "freeipa.service_user": {
     kind: "string",
@@ -215,9 +247,9 @@ export const CORE_SETTINGS = {
   "freeipa.groups.base_ipa_realm": {
     kind: "string_list",
     label: "Base Realm Groups",
-    default: ["cloud"] as readonly string[],
+    default: ["users"] as readonly string[],
     description: "FreeIPA groups that imply canonical full-user profile.",
-    placeholder: "cloud,staff",
+    placeholder: "users,staff",
     envFallback: () => envCsv("GROUPS_BASE_IPA_REALM"),
     envBootstrap: () => envCsv("GROUPS_BASE_IPA_REALM"),
   },

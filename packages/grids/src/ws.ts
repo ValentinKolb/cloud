@@ -40,9 +40,7 @@ const SubscribeMetadataMessageSchema = z.object({
 const ClientMessageSchema = z.discriminatedUnion("type", [SubscribeMessageSchema, SubscribeMetadataMessageSchema]);
 type ClientMessage = z.infer<typeof ClientMessageSchema>;
 type WsPhase = "open" | "subscribed" | "closing";
-type Subscription =
-  | { kind: "records"; baseId: string; tableId: string; dashboardId?: string }
-  | { kind: "metadata"; baseId: string };
+type Subscription = { kind: "records"; baseId: string; tableId: string; dashboardId?: string } | { kind: "metadata"; baseId: string };
 
 type WsContext = {
   socket: ServerWebSocket<unknown>;
@@ -76,8 +74,7 @@ const send = (socket: ServerWebSocket<unknown>, type: string, payload?: unknown)
   }
 };
 
-const errorTypeFor = (ctx: WsContext): string =>
-  ctx.subscription?.kind === "metadata" ? WS_TYPE.metadataError : WS_TYPE.recordsError;
+const errorTypeFor = (ctx: WsContext): string => (ctx.subscription?.kind === "metadata" ? WS_TYPE.metadataError : WS_TYPE.recordsError);
 
 const stopStream = (ctx: WsContext) => {
   if (ctx.streamAbort) ctx.streamAbort.abort();
@@ -133,11 +130,7 @@ const evaluateTableAccess = async (tableId: string, sessionToken: string | null)
   return { ok: true, user, baseId: table.baseId, tableId: table.id };
 };
 
-const evaluateDashboardRecordAccess = async (
-  dashboardId: string,
-  tableId: string,
-  sessionToken: string | null,
-): Promise<AccessResult> => {
+const evaluateDashboardRecordAccess = async (dashboardId: string, tableId: string, sessionToken: string | null): Promise<AccessResult> => {
   const user = await resolveSessionUser(sessionToken);
   if (!user) return { ok: false, code: "login_required", message: "Login required", tableId };
 
@@ -277,7 +270,12 @@ const startAccessRefresh = (ctx: WsContext) => {
         subscription: ctx.subscription,
         error: error instanceof Error ? error.message : String(error),
       });
-      closeWithError(ctx, "internal_error", "Access refresh failed", ctx.subscription?.kind === "records" ? ctx.subscription.tableId : undefined);
+      closeWithError(
+        ctx,
+        "internal_error",
+        "Access refresh failed",
+        ctx.subscription?.kind === "records" ? ctx.subscription.tableId : undefined,
+      );
     }
   }, ACCESS_REFRESH_INTERVAL_MS);
 };
@@ -302,10 +300,7 @@ const handleSubscribe = async (ctx: WsContext, payload: z.infer<typeof Subscribe
   startAccessRefresh(ctx);
 };
 
-const handleMetadataSubscribe = async (
-  ctx: WsContext,
-  payload: z.infer<typeof SubscribeMetadataMessageSchema.shape.payload>,
-) => {
+const handleMetadataSubscribe = async (ctx: WsContext, payload: z.infer<typeof SubscribeMetadataMessageSchema.shape.payload>) => {
   const sessionToken = payload.sessionToken ?? ctx.sessionToken;
   const access = await evaluateBaseAccess(payload.baseId, sessionToken);
   if (!access.ok) {

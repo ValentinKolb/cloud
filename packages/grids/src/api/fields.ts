@@ -40,8 +40,7 @@ const app = new Hono<AuthContext>()
       tags: ["Grids:Field"],
       summary: "Reorder fields of a table",
       description:
-        "Sets each field's `position` to its index in the supplied id list. " +
-        "Ids that don't belong to the table are silently skipped.",
+        "Sets each field's `position` to its index in the supplied id list. " + "Ids that don't belong to the table are silently skipped.",
       responses: { 204: { description: "Reordered" } },
     }),
     v("json", ReorderFieldsSchema),

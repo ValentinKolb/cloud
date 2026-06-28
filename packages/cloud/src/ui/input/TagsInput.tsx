@@ -25,12 +25,7 @@ const TagsInput = (props: TagsInputProps) => {
   const normalizeTag = (value: string) => value.replace(/\s+/g, " ").trim();
 
   const escapeHtml = (value: string) =>
-    value
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
+    value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 
   const renderTags = (tags: string[]) => {
     if (tags.length === 0) return `<span class="text-zinc-400 dark:text-zinc-500">${placeholder()}</span>`;

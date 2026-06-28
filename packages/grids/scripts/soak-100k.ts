@@ -80,56 +80,91 @@ const main = async () => {
   console.log(`base=${base.id} table=${table.id}`);
 
   try {
-    const title = must(await gridsService.field.create({
-      tableId: table.id,
-      name: "title",
-      type: "text",
-      presentable: true,
-    }, null));
-    const amount = must(await gridsService.field.create({
-      tableId: table.id,
-      name: "amount",
-      type: "number",
-    }, null));
-    const category = must(await gridsService.field.create({
-      tableId: table.id,
-      name: "category",
-      type: "single-select",
-      config: {
-        options: [
-          { id: "new", label: "New" },
-          { id: "active", label: "Active" },
-          { id: "done", label: "Done" },
-        ],
-      },
-    }, null));
-    const day = must(await gridsService.field.create({
-      tableId: table.id,
-      name: "day",
-      type: "date",
-    }, null));
-    const active = must(await gridsService.field.create({
-      tableId: table.id,
-      name: "active",
-      type: "boolean",
-    }, null));
-    const note = must(await gridsService.field.create({
-      tableId: table.id,
-      name: "note",
-      type: "longtext",
-    }, null));
-    const tags = must(await gridsService.field.create({
-      tableId: table.id,
-      name: "tags",
-      type: "multi-select",
-      config: {
-        options: [
-          { id: "even", label: "Even" },
-          { id: "five", label: "Every five" },
-          { id: "ten", label: "Every ten" },
-        ],
-      },
-    }, null));
+    const title = must(
+      await gridsService.field.create(
+        {
+          tableId: table.id,
+          name: "title",
+          type: "text",
+          presentable: true,
+        },
+        null,
+      ),
+    );
+    const amount = must(
+      await gridsService.field.create(
+        {
+          tableId: table.id,
+          name: "amount",
+          type: "number",
+        },
+        null,
+      ),
+    );
+    const category = must(
+      await gridsService.field.create(
+        {
+          tableId: table.id,
+          name: "category",
+          type: "single-select",
+          config: {
+            options: [
+              { id: "new", label: "New" },
+              { id: "active", label: "Active" },
+              { id: "done", label: "Done" },
+            ],
+          },
+        },
+        null,
+      ),
+    );
+    const day = must(
+      await gridsService.field.create(
+        {
+          tableId: table.id,
+          name: "day",
+          type: "date",
+        },
+        null,
+      ),
+    );
+    const active = must(
+      await gridsService.field.create(
+        {
+          tableId: table.id,
+          name: "active",
+          type: "boolean",
+        },
+        null,
+      ),
+    );
+    const note = must(
+      await gridsService.field.create(
+        {
+          tableId: table.id,
+          name: "note",
+          type: "longtext",
+        },
+        null,
+      ),
+    );
+    const tags = must(
+      await gridsService.field.create(
+        {
+          tableId: table.id,
+          name: "tags",
+          type: "multi-select",
+          config: {
+            options: [
+              { id: "even", label: "Even" },
+              { id: "five", label: "Every five" },
+              { id: "ten", label: "Every ten" },
+            ],
+          },
+        },
+        null,
+      ),
+    );
 
     await time("ensure indexes", async () => {
       for (const field of [title, amount, category, day, active]) {
@@ -153,11 +188,7 @@ const main = async () => {
             [day.id]: new Date(startDate + (i % 730) * 86_400_000).toISOString().slice(0, 10),
             [active.id]: i % 2 === 0,
             [note.id]: `Batch ${Math.floor(i / BATCH)}`,
-            [tags.id]: [
-              ...(i % 2 === 0 ? ["even"] : []),
-              ...(i % 5 === 0 ? ["five"] : []),
-              ...(i % 10 === 0 ? ["ten"] : []),
-            ],
+            [tags.id]: [...(i % 2 === 0 ? ["even"] : []), ...(i % 5 === 0 ? ["five"] : []), ...(i % 10 === 0 ? ["ten"] : [])],
           };
           return sql`(${Bun.randomUUIDv7()}::uuid, ${table.id}::uuid, ${data}::jsonb, 1)`;
         });
@@ -182,13 +213,15 @@ const main = async () => {
       let previousAmount = Number.POSITIVE_INFINITY;
 
       do {
-        const result = must(await gridsService.record.list({
-          tableId: table.id,
-          cursor,
-          limit: 500,
-          filter: { fieldId: amount.id, op: ">=", value: 900 },
-          sort: [{ fieldId: amount.id, direction: "desc" }],
-        }));
+        const result = must(
+          await gridsService.record.list({
+            tableId: table.id,
+            cursor,
+            limit: 500,
+            filter: { fieldId: amount.id, op: ">=", value: 900 },
+            sort: [{ fieldId: amount.id, direction: "desc" }],
+          }),
+        );
         for (const record of result.items) {
           const value = asNumber(record.data[amount.id], "amount");
           if (value < 900) throw new Error(`filter returned amount ${value} < 900`);
@@ -209,13 +242,15 @@ const main = async () => {
       let count = 0;
 
       do {
-        const result = must(await gridsService.record.list({
-          tableId: table.id,
-          cursor,
-          limit: 500,
-          search: { q: "needle", fieldIds: [title.id] },
-          sort: [{ fieldId: title.id, direction: "asc" }],
-        }));
+        const result = must(
+          await gridsService.record.list({
+            tableId: table.id,
+            cursor,
+            limit: 500,
+            search: { q: "needle", fieldIds: [title.id] },
+            sort: [{ fieldId: title.id, direction: "asc" }],
+          }),
+        );
         for (const record of result.items) {
           const value = String(record.data[title.id] ?? "");
           if (!value.includes("needle")) throw new Error(`search returned non-matching title "${value}"`);
@@ -228,49 +263,47 @@ const main = async () => {
     });
 
     await time("aggregate sum amount where category=active", async () => {
-      const result = must(await gridsService.record.aggregate({
-        tableId: table.id,
-        filter: { fieldId: category.id, op: "is", value: "active" },
-        requests: [{ fieldId: amount.id, agg: "sum" }],
-      }));
-      assertNear(
-        asNumber(result[`${amount.id}__sum`], "active amount sum"),
-        expected.activeSum,
-        "active amount sum",
+      const result = must(
+        await gridsService.record.aggregate({
+          tableId: table.id,
+          filter: { fieldId: category.id, op: "is", value: "active" },
+          requests: [{ fieldId: amount.id, agg: "sum" }],
+        }),
       );
+      assertNear(asNumber(result[`${amount.id}__sum`], "active amount sum"), expected.activeSum, "active amount sum");
     });
 
     await time("group category count+avg", async () => {
-      const result = must(await gridsService.record.group({
-        tableId: table.id,
-        groupBy: [{ fieldId: category.id }],
-        aggregations: [
-          { fieldId: "*", agg: "count" },
-          { fieldId: amount.id, agg: "avg" },
-        ],
-      }));
+      const result = must(
+        await gridsService.record.group({
+          tableId: table.id,
+          groupBy: [{ fieldId: category.id }],
+          aggregations: [
+            { fieldId: "*", agg: "count" },
+            { fieldId: amount.id, agg: "avg" },
+          ],
+        }),
+      );
       assertEqual(result.buckets.length, categories.length, "category bucket count");
       for (const bucket of result.buckets) {
         const key = String(bucket.keys[0]);
         const group = expected.groups.get(key);
         if (!group) throw new Error(`unexpected category bucket "${key}"`);
         assertEqual(asNumber(bucket.values["*__count"], `${key} count`), group.count, `${key} count`);
-        assertNear(
-          asNumber(bucket.values[`${amount.id}__avg`], `${key} avg`),
-          group.sum / group.count,
-          `${key} avg`,
-        );
+        assertNear(asNumber(bucket.values[`${amount.id}__avg`], `${key} avg`), group.sum / group.count, `${key} avg`);
       }
     });
 
     await time("group multi-select tags top by count", async () => {
-      const result = must(await gridsService.record.group({
-        tableId: table.id,
-        groupBy: [{ fieldId: tags.id }],
-        aggregations: [{ fieldId: "*", agg: "count" }],
-        groupSort: [{ fieldId: "*", agg: "count", direction: "desc" }],
-        limit: 10,
-      }));
+      const result = must(
+        await gridsService.record.group({
+          tableId: table.id,
+          groupBy: [{ fieldId: tags.id }],
+          aggregations: [{ fieldId: "*", agg: "count" }],
+          groupSort: [{ fieldId: "*", agg: "count", direction: "desc" }],
+          limit: 10,
+        }),
+      );
       assertEqual(result.buckets.length, expected.tagCounts.size, "tag bucket count");
       const ordered = [...expected.tagCounts.entries()].sort((a, b) => b[1] - a[1]);
       result.buckets.forEach((bucket, index) => {
@@ -282,15 +315,17 @@ const main = async () => {
       assertEqual(result.explode, true, "multi-select group explode flag");
     });
 
-    const activeStatView = must(await gridsService.view.create(
-      {
-        tableId: table.id,
-        name: "Active count stat",
-        source: `from table {${table.id}}\nwhere {${category.id}} = 'active'\naggregate count(*) as active`,
-        ownerUserId: null,
-      },
-      null,
-    ));
+    const activeStatView = must(
+      await gridsService.view.create(
+        {
+          tableId: table.id,
+          name: "Active count stat",
+          source: `from table {${table.id}}\nwhere {${category.id}} = 'active'\naggregate count(*) as active`,
+          ownerUserId: null,
+        },
+        null,
+      ),
+    );
 
     await time("dashboard stat from GQL aggregate view", async () => {
       const data = await resolveWidgetData(
@@ -307,17 +342,19 @@ const main = async () => {
     });
 
     await time("export first 1000 csv", async () => {
-      const result = must(await gridsService.exporter.exportRecords({
-        tableId: table.id,
-        format: "csv",
-        query: { limit: 1_000, sort: [{ fieldId: title.id, direction: "asc" }] },
-        csv: { delimiter: ";" },
-        fields: [
-          { fieldId: title.id, label: "Title" },
-          { fieldId: amount.id, label: "Amount" },
-          { fieldId: category.id, label: "Category" },
-        ],
-      }));
+      const result = must(
+        await gridsService.exporter.exportRecords({
+          tableId: table.id,
+          format: "csv",
+          query: { limit: 1_000, sort: [{ fieldId: title.id, direction: "asc" }] },
+          csv: { delimiter: ";" },
+          fields: [
+            { fieldId: title.id, label: "Title" },
+            { fieldId: amount.id, label: "Amount" },
+            { fieldId: category.id, label: "Category" },
+          ],
+        }),
+      );
       if (!result.body.startsWith("id;Title;Amount;Category")) throw new Error("export header mismatch");
       assertEqual(result.truncated, false, "export truncated");
       assertEqual(result.body.trimEnd().split(/\r?\n/).length, 1_001, "export CSV line count");

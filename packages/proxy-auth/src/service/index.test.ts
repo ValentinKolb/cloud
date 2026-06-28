@@ -5,10 +5,12 @@ import { proxyAuthService } from "./index";
 
 const canUseDatabase = async () => {
   try {
-    const [row] = await sql<{
-      users: string | null;
-      groups: string | null;
-    }[]>`
+    const [row] = await sql<
+      {
+        users: string | null;
+        groups: string | null;
+      }[]
+    >`
       SELECT
         to_regclass('auth.users')::text AS users,
         to_regclass('auth.groups')::text AS groups

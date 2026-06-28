@@ -107,7 +107,7 @@ const extractLocalTags = (context: CompletionContext, activeWord: { from: number
 
   for (const match of text.matchAll(LOCAL_TAG_REGEX)) {
     const matchStart = match.index!;
-    const leadingLen = match[0]!.length - (`#${match[1]!}`).length;
+    const leadingLen = match[0]!.length - `#${match[1]!}`.length;
     const from = matchStart + leadingLen;
     const to = from + 1 + match[1]!.length;
 
@@ -148,11 +148,7 @@ const isLineStartHash = (context: CompletionContext, word: { from: number }): bo
 /** Result-builder shared by sync + async branches. Pulls `from`
  *  one past the `#` so CM filters by tag body, not by the literal
  *  `#`-prefixed string. */
-const buildResult = (
-  word: { from: number; to: number },
-  context: CompletionContext,
-  serverTags: TagSummary[],
-): CompletionResult | null => {
+const buildResult = (word: { from: number; to: number }, context: CompletionContext, serverTags: TagSummary[]): CompletionResult | null => {
   const completions = buildCompletions(mergeTags(serverTags, extractLocalTags(context, word)));
   if (completions.length === 0) return null;
   return {

@@ -1,6 +1,7 @@
 import type { DockWorkspaceState } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
 import {
+  AiButtonMarkers,
   ButtonInputs,
   ButtonSizes,
   ButtonsWithIcons,
@@ -86,6 +87,7 @@ import {
   SliderDemo,
   SwitchDemo,
   TagsInputDemo,
+  TextInputAi,
   TextInputBasic,
   TextInputClearable,
   TextInputError,
@@ -175,6 +177,7 @@ export const uiLabDocs: UiLabDocSection[] = [
         [
           "textinput-basic",
           "textinput-icon",
+          "textinput-ai",
           "textinput-clearable",
           "textinput-error",
           "textinput-password",
@@ -185,6 +188,7 @@ export const uiLabDocs: UiLabDocSection[] = [
           <DemoGrid>
             <TextInputBasic />
             <TextInputWithIcon />
+            <TextInputAi />
             <TextInputClearable />
             <TextInputError />
             <TextInputPassword />
@@ -382,11 +386,12 @@ export const uiLabDocs: UiLabDocSection[] = [
         "Button Utilities",
         "ti ti-square-rounded",
         "Button sizes, tones, input-style buttons, icon buttons, and icon composition.",
-        ["btn-sizes", "btn-variants", "btn-input", "icon-btn", "icon-btn-active", "btn-icons"],
+        ["btn-sizes", "btn-variants", "ai-buttons", "btn-input", "icon-btn", "icon-btn-active", "btn-icons"],
         () => (
           <DemoGrid>
             <ButtonSizes />
             <ButtonVariants />
+            <AiButtonMarkers />
             <ButtonInputs />
             <IconButtons />
             <IconButtonsActive />

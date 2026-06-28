@@ -16,11 +16,14 @@ const rewriteExpression = (expression: unknown, rename: { oldName: string; newNa
   return rewritten.text;
 };
 
-export const rewriteFieldNameReferences = async (params: {
-  tableId: string;
-  oldName: string;
-  newName: string;
-}, client: SqlClient = sql): Promise<void> => {
+export const rewriteFieldNameReferences = async (
+  params: {
+    tableId: string;
+    oldName: string;
+    newName: string;
+  },
+  client: SqlClient = sql,
+): Promise<void> => {
   const formulaRows = await client<DbRow[]>`
     SELECT id::text AS id, config
     FROM grids.fields
@@ -40,5 +43,4 @@ export const rewriteFieldNameReferences = async (params: {
       WHERE id = ${row.id}::uuid
     `;
   }
-
 };

@@ -1,5 +1,5 @@
 import { createSignal, Show, onMount } from "solid-js";
-import {CheckboxInput,TextInput } from "@valentinkolb/cloud/ui";
+import { CheckboxInput, TextInput } from "@valentinkolb/cloud/ui";
 import { cookies } from "@valentinkolb/stdlib/browser";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
@@ -81,8 +81,8 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
                 I accept the{" "}
                 <a href="/legal/terms" target="_blank" class="text-primary hover:underline">
                   Terms of Service
-                </a>
-                {" "}and the{" "}
+                </a>{" "}
+                and the{" "}
                 <a href="/legal/privacy" target="_blank" class="text-primary hover:underline">
                   Privacy Policy
                 </a>
@@ -132,8 +132,8 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
               I accept the{" "}
               <a href="/legal/terms" target="_blank" class="text-primary hover:underline">
                 Terms of Service
-              </a>
-              {" "}and the{" "}
+              </a>{" "}
+              and the{" "}
               <a href="/legal/privacy" target="_blank" class="text-primary hover:underline">
                 Privacy Policy
               </a>

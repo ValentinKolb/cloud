@@ -75,6 +75,48 @@ export const ButtonVariants = () => (
   </DemoCard>
 );
 
+export const AiButtonMarkers = () => (
+  <DemoCard
+    id="ai-buttons"
+    chip={[
+      { kind: "utility", name: "btn-ai" },
+      { kind: "utility", name: "btn-input-ai" },
+      { kind: "utility", name: "icon-btn-ai" },
+    ]}
+    description="AI markers use the sparkles brand icon and the teal/blue script-action tint. Use them only where a control opens, runs, or configures an AI feature."
+    code={`<button class="btn-ai btn-sm">
+  <i class="ti ti-sparkles" />
+  Ask AI
+</button>
+
+<button class="btn-input-ai btn-input-sm">
+  <i class="ti ti-sparkles" />
+  Improve text
+</button>
+
+<button class="icon-btn-ai" aria-label="Ask AI">
+  <i class="ti ti-sparkles" />
+</button>`}
+  >
+    <div class="flex flex-wrap items-center gap-2">
+      <button type="button" class="btn-ai btn-sm">
+        <i class="ti ti-sparkles" />
+        Ask AI
+      </button>
+      <button type="button" class="btn-input-ai btn-input-sm">
+        <i class="ti ti-sparkles" />
+        Improve text
+      </button>
+      <button type="button" class="icon-btn-ai" aria-label="Ask AI">
+        <i class="ti ti-sparkles" />
+      </button>
+      <button type="button" class="icon-btn-ai" aria-label="AI is enabled" aria-pressed="true">
+        <i class="ti ti-sparkles" />
+      </button>
+    </div>
+  </DemoCard>
+);
+
 export const ButtonInputs = () => (
   <DemoCard
     id="btn-input"
@@ -355,6 +397,7 @@ export const ButtonsTab = () => (
   <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
     <ButtonSizes />
     <ButtonVariants />
+    <AiButtonMarkers />
     <ButtonInputs />
     <IconButtons />
     <IconButtonsActive />

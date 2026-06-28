@@ -29,9 +29,12 @@ export async function buildFontAssets(root: string, publicDir: string): Promise<
     const sourceCss = await readFile(sourceCssPath, "utf8");
 
     const css = sourceCss
-      .replace(/url\(\.\/files\/([^)"']+\.woff2)\) format\(['"]woff2['"]\),?\s*url\(\.\/files\/([^)"']+\.woff)\) format\(['"]woff['"]\)/g, (_match, woff2: string) => {
-        return `url("/public/fonts/${woff2}") format("woff2")`;
-      })
+      .replace(
+        /url\(\.\/files\/([^)"']+\.woff2)\) format\(['"]woff2['"]\),?\s*url\(\.\/files\/([^)"']+\.woff)\) format\(['"]woff['"]\)/g,
+        (_match, woff2: string) => {
+          return `url("/public/fonts/${woff2}") format("woff2")`;
+        },
+      )
       .replace(/url\(\.\/files\/([^)"']+\.woff2)\) format\(['"]woff2['"]\)/g, (_match, woff2: string) => {
         return `url("/public/fonts/${woff2}") format("woff2")`;
       });

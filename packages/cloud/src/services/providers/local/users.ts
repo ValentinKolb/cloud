@@ -184,10 +184,7 @@ export const setExpiry = async (params: {
   return { ok: true, data: undefined };
 };
 
-export const setAdmin = async (params: {
-  id: string;
-  admin: boolean;
-}): Promise<MutationResult<void>> => {
+export const setAdmin = async (params: { id: string; admin: boolean }): Promise<MutationResult<void>> => {
   const rows = await sql<DbRow[]>`
     SELECT provider, profile, admin
     FROM auth.users
@@ -215,10 +212,7 @@ export const setAdmin = async (params: {
   return { ok: true, data: undefined };
 };
 
-export const remove = async (params: {
-  id: string;
-  actor: { userId: string; uid: string };
-}): Promise<MutationResult<void>> => {
+export const remove = async (params: { id: string; actor: { userId: string; uid: string } }): Promise<MutationResult<void>> => {
   const rows = await sql<DbRow[]>`
     SELECT uid, profile, mail, display_name
     FROM auth.users

@@ -2,14 +2,7 @@ import { Dropdown, prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  on,
-  Show,
-  untrack,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, on, Show, untrack } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ColumnSpec, RecordQuery } from "../../../contracts";
 import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
@@ -21,18 +14,10 @@ import { openRecordUpsertDialog } from "../records/RecordUpsertDialog";
 import { errorMessage } from "../utils/api-helpers";
 import { type AggregationRow, isAggregationRowComplete } from "./AggregationsPanel";
 import { CardSizeDropdown } from "./CardSizeDropdown";
-import FilterPanel, {
-  blankLeaf,
-  type FilterLeaf,
-  isFilterLeafComplete,
-} from "./FilterPanel";
+import FilterPanel, { blankLeaf, type FilterLeaf, isFilterLeafComplete } from "./FilterPanel";
 import { filterableFields } from "./filter-ops";
 import { type GroupByRow, isGroupByRowComplete } from "./GroupByPanel";
-import SortPanel, {
-  blankSortRow,
-  isSortRowComplete,
-  type SortRow,
-} from "./SortPanel";
+import SortPanel, { blankSortRow, isSortRowComplete, type SortRow } from "./SortPanel";
 
 type Props = {
   baseId: string;
@@ -91,38 +76,23 @@ type Props = {
  * row — no separate "Add filter" click needed.
  */
 export default function GridToolbar(props: Props) {
-  const [filterRows, setFilterRows] = createSignal<FilterLeaf[]>(
-    props.initialFilter
-  );
+  const [filterRows, setFilterRows] = createSignal<FilterLeaf[]>(props.initialFilter);
   const [sortRows, setSortRows] = createSignal<SortRow[]>(props.initialSort);
-  const [groupByRows, setGroupByRows] = createSignal<GroupByRow[]>(
-    props.initialGroupBy
-  );
-  const [aggRows, setAggRows] = createSignal<AggregationRow[]>(
-    props.initialAggregations
-  );
+  const [groupByRows, setGroupByRows] = createSignal<GroupByRow[]>(props.initialGroupBy);
+  const [aggRows, setAggRows] = createSignal<AggregationRow[]>(props.initialAggregations);
   let skipNextFilterDraftCommit = false;
 
   const hasFilter = () => filterRows().length > 0;
   const hasSort = () => sortRows().length > 0;
   const hasGroupBy = () => groupByRows().length > 0;
   const hasAgg = () => aggRows().length > 0;
-  const hasCustomColumns = () =>
-    (props.columns ?? []).some(
-      (column) => "kind" in column && column.kind === "computed"
-    );
+  const hasCustomColumns = () => (props.columns ?? []).some((column) => "kind" in column && column.kind === "computed");
   const hasFilterableFields = () => filterableFields(props.fields).length > 0;
-  const hasToolbarQuery = () =>
-    hasFilter() || hasSort() || hasGroupBy() || hasAgg() || hasCustomColumns();
-  const hasSaveableQuery = () =>
-    hasToolbarQuery() || props.currentSearch.q.trim().length > 0;
-  const activeForms = createMemo(() =>
-    (props.forms ?? []).filter((f) => f.isActive)
-  );
-  const sameJson = (a: unknown, b: unknown) =>
-    JSON.stringify(a) === JSON.stringify(b);
-  const completeFilterRows = (rows: FilterLeaf[]) =>
-    rows.filter((l) => isFilterLeafComplete(l, props.fields));
+  const hasToolbarQuery = () => hasFilter() || hasSort() || hasGroupBy() || hasAgg() || hasCustomColumns();
+  const hasSaveableQuery = () => hasToolbarQuery() || props.currentSearch.q.trim().length > 0;
+  const activeForms = createMemo(() => (props.forms ?? []).filter((f) => f.isActive));
+  const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const completeFilterRows = (rows: FilterLeaf[]) => rows.filter((l) => isFilterLeafComplete(l, props.fields));
 
   createEffect(() => {
     const nextFilter = props.initialFilter;
@@ -132,15 +102,11 @@ export default function GridToolbar(props: Props) {
     const currentFilter = untrack(filterRows);
     const currentCompleteFilter = completeFilterRows(currentFilter);
     const hasFilterDraft = currentFilter.length > currentCompleteFilter.length;
-    if (
-      !sameJson(currentFilter, nextFilter) &&
-      !(hasFilterDraft && sameJson(currentCompleteFilter, nextFilter))
-    ) {
+    if (!sameJson(currentFilter, nextFilter) && !(hasFilterDraft && sameJson(currentCompleteFilter, nextFilter))) {
       setFilterRows(nextFilter);
     }
     if (!sameJson(untrack(sortRows), nextSort)) setSortRows(nextSort);
-    if (!sameJson(untrack(groupByRows), nextGroupBy))
-      setGroupByRows(nextGroupBy);
+    if (!sameJson(untrack(groupByRows), nextGroupBy)) setGroupByRows(nextGroupBy);
     if (!sameJson(untrack(aggRows), nextAgg)) setAggRows(nextAgg);
   });
 
@@ -148,10 +114,8 @@ export default function GridToolbar(props: Props) {
   // contract as before, just propagated through onCommit instead of
   // navigateTo.
   const validFilter = () => completeFilterRows(filterRows());
-  const validSort = () =>
-    sortRows().filter((r) => isSortRowComplete(r, props.fields));
-  const validGroupBy = () =>
-    groupByRows().filter((r) => isGroupByRowComplete(r, props.fields));
+  const validSort = () => sortRows().filter((r) => isSortRowComplete(r, props.fields));
+  const validGroupBy = () => groupByRows().filter((r) => isGroupByRowComplete(r, props.fields));
   const validAgg = () => aggRows().filter(isAggregationRowComplete);
 
   // Auto-emit: every panel-signal change reports the toolbar's current
@@ -178,8 +142,8 @@ export default function GridToolbar(props: Props) {
           aggregations: a.length > 0 ? a : undefined,
         });
       },
-      { defer: true }
-    )
+      { defer: true },
+    ),
   );
 
   // ---- Direct insert -----------------------------------------------------
@@ -193,8 +157,7 @@ export default function GridToolbar(props: Props) {
         param: { tableId: props.tableId },
         json: payload,
       });
-      if (!res.ok)
-        throw new Error(await errorMessage(res, "Failed to create record"));
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to create record"));
       return res.json();
     },
     onSuccess: (created) => {
@@ -213,9 +176,7 @@ export default function GridToolbar(props: Props) {
     // Quick guard: if the user has nothing they can fill out (all
     // computed / system fields), bail with a useful message rather
     // than open an empty dialog.
-    const fillable = liveFields.filter(
-      (f) => isUserEditable(f.type) || f.type === "relation"
-    );
+    const fillable = liveFields.filter((f) => isUserEditable(f.type) || f.type === "relation");
     if (fillable.length === 0) {
       prompts.error("This table has no editable fields. Add one first.");
       return;
@@ -260,41 +221,38 @@ export default function GridToolbar(props: Props) {
   // captured too ("save what you see"). Once saved, the view is FROZEN:
   // the view settings modal only allows rename / share / delete. To change the
   // query, the user clears + re-saves from the toolbar.
-  const saveViewMut = mutations.create<View, { name: string; shared: boolean }>(
-    {
-      mutation: async (input) => {
-        const f = validFilter();
-        const s = validSort();
-        const g = validGroupBy();
-        const a = validAgg();
-        const query = {
-          filter: f.length > 0 ? { op: "AND" as const, filters: f } : undefined,
-          search: props.currentSearch.q.trim()
-            ? {
-                q: props.currentSearch.q.trim(),
-                fieldIds: props.currentSearch.fieldIds,
-              }
-            : undefined,
-          recordMeta: props.recordMeta,
-          sort: s.length > 0 ? s : undefined,
-          groupBy: g.length > 0 ? g : undefined,
-          aggregations: a.length > 0 ? a : undefined,
-          columns: hasCustomColumns() ? props.columns : undefined,
-        } satisfies RecordQuery;
-        const source = simpleQueryToGqlSource({ tableId: props.tableId, query });
-        if (!source.ok) throw new Error(source.reason);
-        const res = await apiClient.views["by-table"][":tableId"].$post({
-          param: { tableId: props.tableId },
-          json: { name: input.name, source: source.source, ui: { columns: query.columns }, shared: input.shared },
-        });
-        if (!res.ok)
-          throw new Error(await errorMessage(res, "Failed to save view"));
-        return res.json();
-      },
-      onSuccess: () => refreshCurrentPath(),
-      onError: (e) => prompts.error(e.message),
-    }
-  );
+  const saveViewMut = mutations.create<View, { name: string; shared: boolean }>({
+    mutation: async (input) => {
+      const f = validFilter();
+      const s = validSort();
+      const g = validGroupBy();
+      const a = validAgg();
+      const query = {
+        filter: f.length > 0 ? { op: "AND" as const, filters: f } : undefined,
+        search: props.currentSearch.q.trim()
+          ? {
+              q: props.currentSearch.q.trim(),
+              fieldIds: props.currentSearch.fieldIds,
+            }
+          : undefined,
+        recordMeta: props.recordMeta,
+        sort: s.length > 0 ? s : undefined,
+        groupBy: g.length > 0 ? g : undefined,
+        aggregations: a.length > 0 ? a : undefined,
+        columns: hasCustomColumns() ? props.columns : undefined,
+      } satisfies RecordQuery;
+      const source = simpleQueryToGqlSource({ tableId: props.tableId, query });
+      if (!source.ok) throw new Error(source.reason);
+      const res = await apiClient.views["by-table"][":tableId"].$post({
+        param: { tableId: props.tableId },
+        json: { name: input.name, source: source.source, ui: { columns: query.columns }, shared: input.shared },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to save view"));
+      return res.json();
+    },
+    onSuccess: () => refreshCurrentPath(),
+    onError: (e) => prompts.error(e.message),
+  });
 
   const handleSaveView = async () => {
     const result = await prompts.form({
@@ -309,9 +267,7 @@ export default function GridToolbar(props: Props) {
         },
         shared: {
           type: "boolean",
-          label: props.canWrite
-            ? "Share with everyone who can read this table"
-            : "Share (requires table-write)",
+          label: props.canWrite ? "Share with everyone who can read this table" : "Share (requires table-write)",
           default: false,
         },
       },
@@ -341,9 +297,7 @@ export default function GridToolbar(props: Props) {
     if (hasCustomColumns()) parts.push("columns");
     if (parts.length === 0) return "Clear";
     if (parts.length === 1) return `Clear ${parts[0]}`;
-    return `Clear ${parts.slice(0, -1).join(", ")} & ${
-      parts[parts.length - 1]
-    }`;
+    return `Clear ${parts.slice(0, -1).join(", ")} & ${parts[parts.length - 1]}`;
   };
   const clearAll = () => {
     // Each setter triggers the auto-emit createEffect above, which calls
@@ -370,16 +324,8 @@ export default function GridToolbar(props: Props) {
             when={activeForms().length > 0}
             fallback={
               <Show when={!props.disableDirectInsert}>
-                <button
-                  type="button"
-                  class="btn-input-primary btn-input-sm"
-                  onClick={handleAddRow}
-                  disabled={addMut.loading()}
-                >
-                  <Show
-                    when={addMut.loading()}
-                    fallback={<i class="ti ti-plus" />}
-                  >
+                <button type="button" class="btn-input-primary btn-input-sm" onClick={handleAddRow} disabled={addMut.loading()}>
+                  <Show when={addMut.loading()} fallback={<i class="ti ti-plus" />}>
                     <i class="ti ti-loader-2 animate-spin" />
                   </Show>
                   Add record
@@ -408,27 +354,15 @@ export default function GridToolbar(props: Props) {
               }
             >
               {(form) => (
-                <button
-                  type="button"
-                  class="btn-input-primary btn-input-sm"
-                  onClick={() => void submitForm(form())}
-                >
+                <button type="button" class="btn-input-primary btn-input-sm" onClick={() => void submitForm(form())}>
                   <i class="ti ti-forms" />
                   Add with form
                 </button>
               )}
             </Show>
             <Show when={!props.disableDirectInsert}>
-              <button
-                type="button"
-                class="btn-input-primary btn-input-sm"
-                onClick={handleAddRow}
-                disabled={addMut.loading()}
-              >
-                <Show
-                  when={addMut.loading()}
-                  fallback={<i class="ti ti-plus" />}
-                >
+              <button type="button" class="btn-input-primary btn-input-sm" onClick={handleAddRow} disabled={addMut.loading()}>
+                <Show when={addMut.loading()} fallback={<i class="ti ti-plus" />}>
                   <i class="ti ti-loader-2 animate-spin" />
                 </Show>
                 Add record
@@ -470,9 +404,7 @@ export default function GridToolbar(props: Props) {
         {/* Filter — clicking adds a blank row; the panel below renders iff rows > 0. */}
         <button
           type="button"
-          class={`btn-input btn-input-sm ${
-            hasFilter() ? "btn-input-active" : ""
-          }`}
+          class={`btn-input btn-input-sm ${hasFilter() ? "btn-input-active" : ""}`}
           onClick={onFilterClick}
           disabled={!hasFilterableFields()}
           title={hasFilterableFields() ? "Add filter" : "No filterable fields"}
@@ -482,13 +414,7 @@ export default function GridToolbar(props: Props) {
         </button>
 
         {/* Sort */}
-        <button
-          type="button"
-          class={`btn-input btn-input-sm ${
-            hasSort() ? "btn-input-active" : ""
-          }`}
-          onClick={onSortClick}
-        >
+        <button type="button" class={`btn-input btn-input-sm ${hasSort() ? "btn-input-active" : ""}`} onClick={onSortClick}>
           <i class="ti ti-arrows-sort" />
           Sort
         </button>
@@ -496,9 +422,7 @@ export default function GridToolbar(props: Props) {
         <Show when={props.onAddComputedColumn}>
           <button
             type="button"
-            class={`btn-input btn-input-sm ${
-              hasCustomColumns() ? "btn-input-active" : ""
-            }`}
+            class={`btn-input btn-input-sm ${hasCustomColumns() ? "btn-input-active" : ""}`}
             onClick={props.onAddComputedColumn}
           >
             <i class="ti ti-calculator" />
@@ -513,12 +437,7 @@ export default function GridToolbar(props: Props) {
         {/* Smart Clear — appears when any query dimension is active.
             Label names exactly what goes away. */}
         <Show when={hasToolbarQuery()}>
-          <button
-            type="button"
-            class="btn-input btn-input-sm text-red-500"
-            onClick={clearAll}
-            title={clearLabel()}
-          >
+          <button type="button" class="btn-input btn-input-sm text-red-500" onClick={clearAll} title={clearLabel()}>
             <i class="ti ti-filter-off" />
             {clearLabel()}
           </button>
@@ -544,23 +463,14 @@ export default function GridToolbar(props: Props) {
       {/* Filter panel — render iff there's at least one filter row */}
       <Show when={hasFilter()}>
         <div class="paper p-2.5">
-          <FilterPanel
-            fields={props.fields}
-            rows={filterRows}
-            onRowsChange={setFilterRows}
-            dateConfig={props.dateConfig}
-          />
+          <FilterPanel fields={props.fields} rows={filterRows} onRowsChange={setFilterRows} dateConfig={props.dateConfig} />
         </div>
       </Show>
 
       {/* Sort panel */}
       <Show when={hasSort()}>
         <div class="paper p-2.5">
-          <SortPanel
-            fields={props.fields}
-            rows={sortRows}
-            onRowsChange={setSortRows}
-          />
+          <SortPanel fields={props.fields} rows={sortRows} onRowsChange={setSortRows} />
         </div>
       </Show>
 

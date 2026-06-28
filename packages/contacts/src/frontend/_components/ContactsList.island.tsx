@@ -61,12 +61,7 @@ export default function ContactsList(props: Props) {
 
   return (
     <div class="paper overflow-hidden">
-      <Show
-        when={props.contacts.length > 0}
-        fallback={
-          <Placeholder icon="ti ti-address-book">No contacts found</Placeholder>
-        }
-      >
+      <Show when={props.contacts.length > 0} fallback={<Placeholder icon="ti ti-address-book">No contacts found</Placeholder>}>
         <DataTable
           rows={props.contacts}
           columns={columns}
@@ -92,11 +87,7 @@ export default function ContactsList(props: Props) {
                         </span>
                       )}
                     </Show>
-                    <For each={contact.tags}>
-                      {(tag) => (
-                        <ContactTagChip name={tag.name} color={tag.color} />
-                      )}
-                    </For>
+                    <For each={contact.tags}>{(tag) => <ContactTagChip name={tag.name} color={tag.color} />}</For>
                   </div>
                 </div>
               );

@@ -6,6 +6,7 @@ type CurrentSource = { kind: "table"; tableId: string } | { kind: "view"; viewId
 export type GqlAutocompleteRequest = {
   query: string;
   caret: number;
+  currentTableId?: string;
   currentSource?: CurrentSource;
 };
 
@@ -34,6 +35,7 @@ export const buildBackendGqlCompletions = (config: {
         {
           query: ctx.fullText,
           caret: ctx.caret,
+          ...(config.currentSource?.kind === "table" ? { currentTableId: config.currentSource.tableId } : {}),
           ...(config.currentSource ? { currentSource: config.currentSource } : {}),
         },
         signal,

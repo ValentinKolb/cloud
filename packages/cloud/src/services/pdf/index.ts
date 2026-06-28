@@ -12,3 +12,11 @@ export {
   renderHtmlToPdfWithConfig,
   testGotenberg,
 } from "./gotenberg";
+export type {
+  RenderTemplatePdfPreviewInput,
+  RenderTemplatePdfPreviewOptions,
+  TemplatePdfPreviewError,
+  TemplatePdfPreviewPhase,
+  TemplatePdfPreviewResult,
+} from "./template-preview";
+export { renderTemplatePdfPreview } from "./template-preview";

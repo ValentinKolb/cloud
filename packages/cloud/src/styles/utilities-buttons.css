@@ -43,9 +43,33 @@
   @apply dark:bg-blue-500 dark:text-white dark:border-blue-600;
   @apply dark:hover:bg-blue-600 dark:hover:border-blue-700;
   @apply dark:active:bg-blue-700;
-  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.26), inset 0 -1px 1px 0 rgb(0 0 0 / 0.16);
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.26),
+    inset 0 -1px 1px 0 rgb(0 0 0 / 0.16);
   &:active {
     box-shadow: var(--theme-press);
+  }
+}
+
+@utility btn-ai {
+  @apply btn-base text-white border-cyan-600 dark:border-cyan-500;
+  background-image:
+    linear-gradient(180deg, rgb(255 255 255 / 0.24), rgb(255 255 255 / 0) 44%), linear-gradient(135deg, rgb(20 184 166), rgb(59 130 246));
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.3),
+    inset 0 -1px 1px 0 rgb(0 0 0 / 0.18);
+  &:hover {
+    border-color: color-mix(in oklab, rgb(14 165 233) 78%, white 12%);
+    background-image:
+      linear-gradient(180deg, rgb(255 255 255 / 0.3), rgb(255 255 255 / 0) 46%), linear-gradient(135deg, rgb(13 148 136), rgb(37 99 235));
+    color: white;
+    filter: saturate(1.08);
+  }
+  &:active {
+    box-shadow: var(--theme-press);
+  }
+  &:disabled {
+    filter: none;
   }
 }
 
@@ -71,7 +95,9 @@
   @apply dark:bg-emerald-500 dark:text-white dark:border-emerald-600;
   @apply dark:hover:bg-emerald-600 dark:hover:border-emerald-700;
   @apply dark:active:bg-emerald-700;
-  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.26), inset 0 -1px 1px 0 rgb(0 0 0 / 0.16);
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.26),
+    inset 0 -1px 1px 0 rgb(0 0 0 / 0.16);
   &:active {
     box-shadow: var(--theme-press);
   }
@@ -85,7 +111,9 @@
   @apply dark:bg-red-500 dark:text-white dark:border-red-600;
   @apply dark:hover:bg-red-600 dark:hover:border-red-700;
   @apply dark:active:bg-red-700;
-  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.26), inset 0 -1px 1px 0 rgb(0 0 0 / 0.16);
+  box-shadow:
+    inset 0 1px 0 0 rgb(255 255 255 / 0.26),
+    inset 0 -1px 1px 0 rgb(0 0 0 / 0.16);
   &:active {
     box-shadow: var(--theme-press);
   }
@@ -173,6 +201,45 @@
   @apply dark:focus-visible:bg-zinc-900 dark:focus-visible:border-blue-400;
 }
 
+@utility btn-input-ai {
+  @apply btn-input text-cyan-700 border-cyan-200;
+  background-image:
+    linear-gradient(180deg, rgb(255 255 255 / 0.74), rgb(255 255 255 / 0.18) 46%),
+    linear-gradient(135deg, rgb(240 253 250), rgb(239 246 255));
+  box-shadow:
+    var(--theme-bevel-top),
+    var(--theme-bevel-bottom),
+    0 0 0 1px rgb(59 130 246 / 0.04);
+  &:hover {
+    @apply text-blue-700 border-cyan-300;
+    background-image:
+      linear-gradient(180deg, rgb(255 255 255 / 0.8), rgb(255 255 255 / 0.24) 46%),
+      linear-gradient(135deg, rgb(204 251 241), rgb(219 234 254));
+  }
+  &:active {
+    box-shadow: var(--theme-press);
+  }
+  &:disabled {
+    box-shadow: none;
+  }
+}
+
+.dark .btn-input-ai {
+  border-color: rgb(14 116 144 / 0.72);
+  background-image:
+    linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0) 46%),
+    linear-gradient(135deg, rgb(19 78 74 / 0.72), rgb(30 58 138 / 0.62));
+  color: rgb(165 243 252);
+}
+
+.dark .btn-input-ai:hover {
+  border-color: rgb(34 211 238 / 0.7);
+  background-image:
+    linear-gradient(180deg, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0) 46%),
+    linear-gradient(135deg, rgb(17 94 89 / 0.82), rgb(30 64 175 / 0.72));
+  color: rgb(207 250 254);
+}
+
 @utility btn-input-success {
   @apply btn-input bg-white text-emerald-600 border-emerald-400;
   @apply hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-500;
@@ -204,6 +271,43 @@
   }
 }
 
+@utility input-ai {
+  @apply input text-zinc-900 border-cyan-200 dark:text-zinc-100;
+  background-image: linear-gradient(135deg, rgb(240 253 250 / 0.9), rgb(239 246 255 / 0.9));
+  box-shadow:
+    var(--theme-recess),
+    0 0 0 1px rgb(59 130 246 / 0.06);
+  &:hover {
+    border-color: rgb(125 211 252);
+    background-image: linear-gradient(135deg, rgb(204 251 241 / 0.9), rgb(219 234 254 / 0.9));
+  }
+  &:focus,
+  &:focus-within {
+    border-color: rgb(14 165 233) !important;
+    background-image: linear-gradient(135deg, rgb(255 255 255), rgb(239 246 255)) !important;
+  }
+  &:disabled {
+    background-image: none;
+    box-shadow: none;
+  }
+}
+
+.dark .input-ai {
+  border-color: rgb(14 116 144 / 0.72);
+  background-image: linear-gradient(135deg, rgb(19 78 74 / 0.62), rgb(30 58 138 / 0.5));
+}
+
+.dark .input-ai:hover {
+  border-color: rgb(34 211 238 / 0.58);
+  background-image: linear-gradient(135deg, rgb(17 94 89 / 0.72), rgb(30 64 175 / 0.58));
+}
+
+.dark .input-ai:focus,
+.dark .input-ai:focus-within {
+  border-color: rgb(56 189 248) !important;
+  background-image: linear-gradient(135deg, rgb(15 23 42), rgb(23 37 84 / 0.82)) !important;
+}
+
 @utility icon-btn {
   @apply inline-flex h-8 w-8 items-center justify-center p-1 rounded-md;
   @apply text-zinc-400 dark:text-zinc-500;
@@ -214,6 +318,41 @@
   @apply focus-ui;
   @apply active:bg-zinc-200 dark:active:bg-zinc-700;
   @apply disabled:cursor-not-allowed disabled:opacity-40 disabled:transition-none;
+}
+
+@utility icon-btn-ai {
+  @apply icon-btn text-cyan-600 border border-cyan-200 dark:text-cyan-300;
+  background-image:
+    linear-gradient(180deg, rgb(255 255 255 / 0.72), rgb(255 255 255 / 0.14) 48%),
+    linear-gradient(135deg, rgb(240 253 250), rgb(239 246 255));
+  box-shadow: var(--theme-bevel-top), var(--theme-bevel-bottom);
+  @apply transition-[color,background-color,border-color,box-shadow] duration-150;
+  &:hover {
+    @apply text-blue-700 border-cyan-300 dark:text-cyan-100;
+    background-image:
+      linear-gradient(180deg, rgb(255 255 255 / 0.78), rgb(255 255 255 / 0.2) 48%),
+      linear-gradient(135deg, rgb(204 251 241), rgb(219 234 254));
+  }
+  &:active {
+    box-shadow: var(--theme-press);
+  }
+  &:disabled {
+    box-shadow: none;
+  }
+}
+
+.dark .icon-btn-ai {
+  border-color: rgb(14 116 144 / 0.72);
+  background-image:
+    linear-gradient(180deg, rgb(255 255 255 / 0.1), rgb(255 255 255 / 0) 48%),
+    linear-gradient(135deg, rgb(19 78 74 / 0.72), rgb(30 58 138 / 0.62));
+}
+
+.dark .icon-btn-ai:hover {
+  border-color: rgb(34 211 238 / 0.7);
+  background-image:
+    linear-gradient(180deg, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0) 48%),
+    linear-gradient(135deg, rgb(17 94 89 / 0.82), rgb(30 64 175 / 0.72));
 }
 
 /* Active / pressed state — set `aria-pressed="true"` on an `icon-btn`
@@ -228,4 +367,18 @@
 .icon-btn[aria-pressed="true"]:hover {
   @apply bg-blue-100 text-blue-700;
   @apply dark:bg-blue-900/40 dark:text-blue-300;
+}
+
+.icon-btn-ai[aria-pressed="true"] {
+  @apply text-blue-700 border-cyan-300 dark:text-cyan-100;
+  background-image:
+    linear-gradient(180deg, rgb(255 255 255 / 0.8), rgb(255 255 255 / 0.18) 48%),
+    linear-gradient(135deg, rgb(153 246 228), rgb(191 219 254));
+}
+
+.dark .icon-btn-ai[aria-pressed="true"] {
+  border-color: rgb(34 211 238 / 0.76);
+  background-image:
+    linear-gradient(180deg, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0) 48%),
+    linear-gradient(135deg, rgb(13 148 136 / 0.9), rgb(37 99 235 / 0.78));
 }

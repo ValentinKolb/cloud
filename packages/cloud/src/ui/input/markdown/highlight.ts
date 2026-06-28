@@ -71,10 +71,7 @@ const extractSanctuaries = (input: string): { text: string; sanctuaries: Sanctua
   // selecting text by clicking would navigate away mid-edit.
   text = text.replace(/\[([^\]\n]+?)\]\(([^)\n]+?)\)/g, (_match, label: string, url: string) => {
     const ph = issue();
-    sanctuaries.set(
-      ph,
-      `<span class="md-link"><span class="md-syntax">[</span>${label}<span class="md-syntax">](${url})</span></span>`,
-    );
+    sanctuaries.set(ph, `<span class="md-link"><span class="md-syntax">[</span>${label}<span class="md-syntax">](${url})</span></span>`);
     return ph;
   });
 
@@ -167,19 +164,13 @@ const processInline = (text: string, matchRegex: RegExp | null = null): string =
     // are highlighted too.
     const innerProcessed = processItalicAndMatches(inner, matchRegex);
     const ph = issue();
-    sanctuaries.set(
-      ph,
-      `<span class="md-bold"><span class="md-syntax">**</span>${innerProcessed}<span class="md-syntax">**</span></span>`,
-    );
+    sanctuaries.set(ph, `<span class="md-bold"><span class="md-syntax">**</span>${innerProcessed}<span class="md-syntax">**</span></span>`);
     return ph;
   });
   text = text.replace(/__((?:[^_\n]|_[^_\n]+?_)+?)__/g, (_match, inner: string) => {
     const innerProcessed = processItalicAndMatches(inner, matchRegex);
     const ph = issue();
-    sanctuaries.set(
-      ph,
-      `<span class="md-bold"><span class="md-syntax">__</span>${innerProcessed}<span class="md-syntax">__</span></span>`,
-    );
+    sanctuaries.set(ph, `<span class="md-bold"><span class="md-syntax">__</span>${innerProcessed}<span class="md-syntax">__</span></span>`);
     return ph;
   });
 

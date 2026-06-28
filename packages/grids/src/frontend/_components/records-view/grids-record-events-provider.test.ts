@@ -160,7 +160,9 @@ describe("createGridsRecordEventsProvider", () => {
     FakeWebSocket.instances[0]!.close(1006);
     FakeWebSocket.instances[1]!.open();
 
-    const payload = JSON.parse(FakeWebSocket.instances[1]!.sent.at(-1) ?? "{}") as { payload?: { tableId?: unknown; fromCursor?: unknown } };
+    const payload = JSON.parse(FakeWebSocket.instances[1]!.sent.at(-1) ?? "{}") as {
+      payload?: { tableId?: unknown; fromCursor?: unknown };
+    };
     expect(payload.payload?.tableId).toBe(TABLE_ID);
     expect(payload.payload?.fromCursor).toBe(null);
 
@@ -174,7 +176,9 @@ describe("createGridsRecordEventsProvider", () => {
     provider.connect();
     FakeWebSocket.instances[0]!.open();
 
-    const payload = JSON.parse(FakeWebSocket.instances[0]!.sent.at(-1) ?? "{}") as { payload?: { tableId?: unknown; dashboardId?: unknown } };
+    const payload = JSON.parse(FakeWebSocket.instances[0]!.sent.at(-1) ?? "{}") as {
+      payload?: { tableId?: unknown; dashboardId?: unknown };
+    };
     expect(payload.payload?.tableId).toBe(TABLE_ID);
     expect(payload.payload?.dashboardId).toBe(DASHBOARD_ID);
 

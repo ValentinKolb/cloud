@@ -172,7 +172,11 @@ export default function AuditFilters(props: AuditFiltersProps) {
         <i class="ti ti-user-search" />
         <span>Actor</span>
       </button>
-      <button type="button" class={`btn-input btn-input-sm ${props.target ? "btn-input-active" : ""}`} onClick={() => selectEntity("target")}>
+      <button
+        type="button"
+        class={`btn-input btn-input-sm ${props.target ? "btn-input-active" : ""}`}
+        onClick={() => selectEntity("target")}
+      >
         <i class="ti ti-target" />
         <span>Target</span>
       </button>

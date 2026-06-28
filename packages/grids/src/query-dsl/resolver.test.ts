@@ -2063,6 +2063,27 @@ sort missing desc`),
     expect(groupedCompiled).toEqual({ ok: false, error: "grouped DSL query execution is not compiled by the row-query compiler yet" });
   });
 
+  test("SQL compiler includes record metadata filters in row queries", () => {
+    const recordId = "33333333-3333-4333-8333-333333333333";
+    const resolved = resolveDslQueryToQueryPlan(
+      parseOk(`
+        select amount
+        where record.id = '${recordId}'
+      `),
+      ctx(),
+    );
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+
+    const compiled = compileDslQueryPlanToSql(resolved.plan, { fieldsByTableId: ctx().fieldsByTableId });
+
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const { text, values } = normalizedSqlParts(compiled.query.sql);
+    expect(text).toContain("r.id = ANY");
+    expect(values.some((value) => String(value).includes(recordId))).toBe(true);
+  });
+
   test("aggregate-only SQL compiler emits one aggregate result row", () => {
     const resolved = resolveDslQueryToQueryPlan(
       parseOk(`

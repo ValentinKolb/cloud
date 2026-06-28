@@ -9,12 +9,10 @@ import { join } from "node:path";
 const workspaceRoot = join(import.meta.dir, "..");
 const rootPackage = JSON.parse(readFileSync(join(workspaceRoot, "package.json"), "utf8")) as { workspaces: string[] };
 
-const packages = rootPackage.workspaces
-  .toSorted()
-  .map((workspace) => {
-    const pkg = JSON.parse(readFileSync(join(workspaceRoot, workspace, "package.json"), "utf8"));
-    return pkg.name as string;
-  });
+const packages = rootPackage.workspaces.toSorted().map((workspace) => {
+  const pkg = JSON.parse(readFileSync(join(workspaceRoot, workspace, "package.json"), "utf8"));
+  return pkg.name as string;
+});
 
 for (const pkg of packages) {
   const proc = Bun.spawn(["bun", "run", "--filter", pkg, "typecheck"], {

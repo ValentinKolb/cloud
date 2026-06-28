@@ -87,7 +87,8 @@ export default function AccountActivity(props: Props) {
             if (col.id === "time") return <span class="text-dimmed">{dates.formatDateTime(entry.createdAt)}</span>;
             if (col.id === "activity") return <span class="font-medium text-primary">{entry.label}</span>;
             if (col.id === "status") return <span class={`tag ${outcomeClass(entry.outcome)}`}>{entry.outcome}</span>;
-            if (col.id === "context") return entry.context ? <span class="text-secondary">{entry.context}</span> : <span class="text-dimmed">-</span>;
+            if (col.id === "context")
+              return entry.context ? <span class="text-secondary">{entry.context}</span> : <span class="text-dimmed">-</span>;
             return render(entry);
           }}
         />

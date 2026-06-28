@@ -180,19 +180,28 @@ export async function getAll(): Promise<SettingEntry[]> {
   const allKeys = SETTINGS.map((def) => def.key);
   const values = await bulkRead(allKeys);
 
-  return SETTINGS.map((def) => ({
-    key: def.key,
-    label: getSettingLabel(def),
-    kind: def.kind,
-    description: def.description,
-    placeholder: def.placeholder,
-    group: def.group,
-    value: values.get(def.key),
-    default: def.default,
-    isCustom: customKeys.has(def.key),
-    templateVars: "templateVars" in def ? def.templateVars : undefined,
-    options: "options" in def ? def.options : undefined,
-    min: "min" in def ? def.min : undefined,
-    max: "max" in def ? def.max : undefined,
-  }));
+  return SETTINGS.map((def) => {
+    const isCustom = customKeys.has(def.key);
+    const envFallback = resolveEnvValue(def, "fallback");
+    const resetValue = envFallback ?? def.default;
+
+    return {
+      key: def.key,
+      label: getSettingLabel(def),
+      kind: def.kind,
+      description: def.description,
+      placeholder: def.placeholder,
+      group: def.group,
+      value: values.get(def.key),
+      default: def.default,
+      resetValue: def.kind === "secret" ? "" : resetValue,
+      valueSource: isCustom ? "custom" : envFallback === undefined ? "default" : "env",
+      resetValueSource: envFallback === undefined ? "default" : "env",
+      isCustom,
+      templateVars: "templateVars" in def ? def.templateVars : undefined,
+      options: "options" in def ? def.options : undefined,
+      min: "min" in def ? def.min : undefined,
+      max: "max" in def ? def.max : undefined,
+    };
+  });
 }

@@ -68,8 +68,18 @@ const getTimezoneSetting = async (): Promise<string> => {
  * up to `maxAttempts - 1` times with exponential backoff from `baseMs`. Beyond
  * that we go terminal and the next cron slot picks up the work.
  */
-const retryOnError = (cfg: { maxAttempts: number; baseMs: number; maxMs?: number }) =>
-  ({ ctx }: { ctx: { error?: Error; failureCount: number; reschedule: (cfg: { delayMs: number }) => void; expBackoff: (cfg: { baseMs: number; maxMs?: number }) => number } }) => {
+const retryOnError =
+  (cfg: { maxAttempts: number; baseMs: number; maxMs?: number }) =>
+  ({
+    ctx,
+  }: {
+    ctx: {
+      error?: Error;
+      failureCount: number;
+      reschedule: (cfg: { delayMs: number }) => void;
+      expBackoff: (cfg: { baseMs: number; maxMs?: number }) => number;
+    };
+  }) => {
     if (!ctx.error) return;
     if (ctx.failureCount >= cfg.maxAttempts - 1) return;
     ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: cfg.baseMs, maxMs: cfg.maxMs }) });
@@ -94,7 +104,10 @@ const ipaSyncJob = job<void, JobSummary>({
       ipaSyncLog.info("Expired IPA demotion complete", toDemotionLog(summary));
       return summary;
     } catch (error) {
-      ipaSyncLog.error("Expired IPA demotion step failed", { step: "demote-expired", error: error instanceof Error ? error.message : String(error) });
+      ipaSyncLog.error("Expired IPA demotion step failed", {
+        step: "demote-expired",
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   },

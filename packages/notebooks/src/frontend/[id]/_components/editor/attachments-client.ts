@@ -48,9 +48,7 @@ export const maybeShrinkOversizeImage = async (file: File): Promise<File | null>
   try {
     const data = await images.create(file);
     const longerIsWidth = data.width >= data.height;
-    const transform = longerIsWidth
-      ? images.resize(MAX_IMAGE_DIMENSION_PX)
-      : images.resize(undefined, MAX_IMAGE_DIMENSION_PX);
+    const transform = longerIsWidth ? images.resize(MAX_IMAGE_DIMENSION_PX) : images.resize(undefined, MAX_IMAGE_DIMENSION_PX);
     const isPng = /png/i.test(file.type);
     const fmt: "png" | "webp" = isPng ? "png" : "webp";
     const baseName = file.name.replace(/\.[^.]+$/, "");
@@ -66,7 +64,12 @@ export const maybeShrinkOversizeImage = async (file: File): Promise<File | null>
 // Re-exports — single import surface for components that want both upload
 // flow and the click-to-download confirm. Underlying helpers live in
 // `lib/editor/attachment-url.ts` (browser-safe, no editor deps).
-export { buildAttachmentContentUrl, confirmAndDownload, extractAttachmentId, extractAttachmentIds } from "../../../lib/editor/attachment-url";
+export {
+  buildAttachmentContentUrl,
+  confirmAndDownload,
+  extractAttachmentId,
+  extractAttachmentIds,
+} from "../../../lib/editor/attachment-url";
 
 export type AttachmentRef = {
   id: string;
@@ -89,7 +92,10 @@ export const uploadFile = async (notebookId: string, file: File): Promise<Attach
   fd.append("file", file);
   const res = await apiClient[":id"].attachments.$post({ param: { id: notebookId } }, { init: { body: fd } });
   if (!res.ok) {
-    const msg = await res.json().then((d: { message?: string }) => d?.message).catch(() => null);
+    const msg = await res
+      .json()
+      .then((d: { message?: string }) => d?.message)
+      .catch(() => null);
     throw new Error(msg ?? `Upload failed (${res.status})`);
   }
   return await res.json();

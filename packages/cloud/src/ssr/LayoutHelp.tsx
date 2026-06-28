@@ -123,7 +123,11 @@ const ShortcutsHelp = (props: { openSearchHelp: () => void }) => {
                   <p class="truncate text-sm font-medium text-primary">{entry.label}</p>
                   <p class="mt-0.5 text-xs text-dimmed">{entry.desc || "No description provided."}</p>
                 </div>
-                <div class="flex shrink-0 items-center gap-1.5" role="group" aria-label={entry.keysPretty.map((part) => part.ariaLabel).join(" + ")}>
+                <div
+                  class="flex shrink-0 items-center gap-1.5"
+                  role="group"
+                  aria-label={entry.keysPretty.map((part) => part.ariaLabel).join(" + ")}
+                >
                   <For each={entry.keysPretty}>
                     {(part) => (
                       <kbd class="inline-flex min-w-6 justify-center rounded-md bg-white px-1.5 py-1 text-[11px] font-medium leading-none text-primary ring-1 ring-inset ring-zinc-300 dark:bg-zinc-950 dark:ring-zinc-700">

@@ -77,10 +77,7 @@ export const createKitStateAPI = (ctx: KitContext): KitStateAPI => {
 
   const keys = (): string[] => Array.from(ymap.keys()).sort();
 
-  const observe = <T = unknown>(
-    key: string,
-    cb: (newValue: T | undefined) => void,
-  ): (() => void) => {
+  const observe = <T = unknown>(key: string, cb: (newValue: T | undefined) => void): (() => void) => {
     assertActive(ctx);
     const handler = (event: Y.YMapEvent<string>) => {
       // `event.keysChanged` is a Set of keys that changed in this

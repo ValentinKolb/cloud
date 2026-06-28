@@ -90,11 +90,7 @@ export const createDialogCore = (): DialogCore => {
    * mid-gesture — e.g. a popover hiding from inside its own option's
    * onMouseDown) is rejected as not a real backdrop click.
    */
-  const applyCancelBehavior = (
-    dialog: HTMLDialogElement,
-    close: () => void,
-    behavior: OpenDialogOptions["cancelBehavior"],
-  ) => {
+  const applyCancelBehavior = (dialog: HTMLDialogElement, close: () => void, behavior: OpenDialogOptions["cancelBehavior"]) => {
     dialog.oncancel = (event) => {
       if (behavior === "ignore") {
         event.preventDefault();

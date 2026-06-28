@@ -357,7 +357,11 @@ function StatCellBody(props: {
   );
 }
 
-function StatTrendSection(props: { widget: StatWidget; views: Array<{ view: View; tableName: string }>; onUpdate: (w: StatWidget) => void }) {
+function StatTrendSection(props: {
+  widget: StatWidget;
+  views: Array<{ view: View; tableName: string }>;
+  onUpdate: (w: StatWidget) => void;
+}) {
   const trend = () => props.widget.trend;
 
   const enable = () => {
@@ -1091,7 +1095,12 @@ function aggregateItemsFromSource(source: string): string[] {
 }
 
 function sourceClause(source: string, keywordPattern: string): string {
-  const match = source.match(new RegExp(`(?:^|\\n)\\s*${keywordPattern}\\b([\\s\\S]*?)(?=\\n\\s*(?:from|join|select|where|group\\s+by|aggregate|sort|limit|search|include\\s+deleted|deleted\\s+only)\\b|$)`, "i"));
+  const match = source.match(
+    new RegExp(
+      `(?:^|\\n)\\s*${keywordPattern}\\b([\\s\\S]*?)(?=\\n\\s*(?:from|join|select|where|group\\s+by|aggregate|sort|limit|search|include\\s+deleted|deleted\\s+only)\\b|$)`,
+      "i",
+    ),
+  );
   return match?.[1]?.trim() ?? "";
 }
 
@@ -1133,6 +1142,9 @@ function aliasFromSourceItem(item: string): string | null {
 function readableSourceName(input: string): string {
   const trimmed = input.trim();
   const withoutAlias = trimmed.replace(/\bas\s+("[^"]+"|'[^']+'|[^\s,]+)\s*$/i, "").trim();
-  const token = withoutAlias.match(/"([^"]+)"|'([^']+)'|\{([^}]+)\}|([A-Za-z0-9_ -]+)$/)?.slice(1).find(Boolean);
+  const token = withoutAlias
+    .match(/"([^"]+)"|'([^']+)'|\{([^}]+)\}|([A-Za-z0-9_ -]+)$/)
+    ?.slice(1)
+    .find(Boolean);
   return (token ?? withoutAlias).replace(/[_-]+/g, " ").trim();
 }

@@ -91,9 +91,7 @@ export const createKitCurrentNote = (ctx: KitContext): KitCurrentNote => {
   // Wrapping in a function (not a stored value) so getters always
   // hit the latest Y.Text state.
   const liveContent = (): string => {
-    const raw = ctx.ytext
-      ? readYTextPrefix(ctx.ytext, LIVE_CONTENT_HARD_CAP_CHARS)
-      : ctx.note.content;
+    const raw = ctx.ytext ? readYTextPrefix(ctx.ytext, LIVE_CONTENT_HARD_CAP_CHARS) : ctx.note.content;
     if (!raw) return raw ?? "";
     if (raw.length > LIVE_CONTENT_HARD_CAP_CHARS) {
       return raw.slice(0, LIVE_CONTENT_HARD_CAP_CHARS);

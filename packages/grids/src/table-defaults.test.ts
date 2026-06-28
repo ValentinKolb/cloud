@@ -24,15 +24,17 @@ const field = (id: string, type: string): Field => ({
 
 describe("defaultTableAggregations", () => {
   test("keeps the default footer useful but quiet", () => {
-    expect(defaultTableAggregations([
-      field("n", "number"),
-      field("d", "number"),
-      field("p", "percent"),
-      field("date", "date"),
-      field("identifier", "id"),
-      field("text", "text"),
-      field("formula", "formula"),
-    ])).toEqual([
+    expect(
+      defaultTableAggregations([
+        field("n", "number"),
+        field("d", "number"),
+        field("p", "percent"),
+        field("date", "date"),
+        field("identifier", "id"),
+        field("text", "text"),
+        field("formula", "formula"),
+      ]),
+    ).toEqual([
       { fieldId: "*", agg: "count", label: "records" },
       { fieldId: "n", agg: "sum" },
       { fieldId: "d", agg: "sum" },

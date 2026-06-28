@@ -33,7 +33,13 @@ export const openFormModal = (form: Form, fields: Field[], options: { onSubmitte
     panelDialogOptions,
   );
 
-function FormSubmitBody(props: { form: Form; fields: Field[]; onSubmitted?: () => void; dateConfig?: DateContext; close: (result?: void) => void }) {
+function FormSubmitBody(props: {
+  form: Form;
+  fields: Field[];
+  onSubmitted?: () => void;
+  dateConfig?: DateContext;
+  close: (result?: void) => void;
+}) {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
   const entries = userInputEntriesOf(props.form.config.fields);
 

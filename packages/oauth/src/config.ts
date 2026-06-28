@@ -12,14 +12,7 @@ export const app = defineApp({
   // OAuth needs RFC-mandated top-level paths (/oauth/authorize, /oauth/token,
   // /.well-known/openid-configuration, /.well-known/jwks.json) plus the
   // platform-standard admin UI + admin API.
-  routes: [
-    "/oauth",
-    "/.well-known/openid-configuration",
-    "/.well-known/jwks.json",
-    "/api/oauth",
-    "/admin/oauth",
-    "/public/oauth",
-  ],
+  routes: ["/oauth", "/.well-known/openid-configuration", "/.well-known/jwks.json", "/api/oauth", "/admin/oauth", "/public/oauth"],
 });
 
 export const { ssr, plugin } = app;

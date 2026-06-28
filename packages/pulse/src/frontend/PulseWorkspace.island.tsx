@@ -42,7 +42,6 @@ import type {
   PulseDashboardEventsWidget,
   PulseDashboardMarkdownWidget,
   PulseDashboardMetricWidget,
-  PulseDashboardPanel,
   PulseDashboardRow,
   PulseDashboardSection,
   PulseDashboardStatesWidget,
@@ -83,7 +82,7 @@ import {
   dashboardLayoutWidgets,
   dashboardEventsWidgets,
   dashboardMetricQueryText,
-  dashboardMetricPanels,
+  dashboardMetricWidgets,
   dashboardStateQueryText,
   dashboardStatesWidgets,
   dashboardToDsl,
@@ -97,7 +96,6 @@ import {
   jsonFetch,
   normalizeEndpointInput,
   openQueryReferenceWindow,
-  panelQuery,
   parseScrapeInterval,
   plural,
   pointsToBars,
@@ -115,6 +113,7 @@ import {
   signalSubject,
   sourceKindIcon,
   sourceStatus,
+  starterDashboardDsl,
   stateGroupId,
   stateRowId,
   suggestionTagClass,
@@ -249,10 +248,14 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const [explorerEvents, setExplorerEvents] = createSignal<PulseRecordedEvent[]>([]);
   const [explorerStates, setExplorerStates] = createSignal<PulseCurrentState[]>([]);
   const [queryRunning, setQueryRunning] = createSignal(false);
-  const [panelPoints, setPanelPoints] = createSignal<Record<string, MetricQueryPoint[]>>(props.initialPanelPoints ?? {});
-  const [dashboardEvents, setDashboardEvents] = createSignal<Record<string, PulseRecordedEvent[]>>({});
-  const [dashboardStates, setDashboardStates] = createSignal<Record<string, PulseCurrentState[]>>({});
-  const [dashboardControlValues, setDashboardControlValues] = createSignal<Record<string, Record<string, string>>>({});
+  const [metricWidgetPoints, setMetricWidgetPoints] = createSignal<Record<string, MetricQueryPoint[]>>(props.initialMetricWidgetPoints ?? {});
+  const [dashboardEvents, setDashboardEvents] = createSignal<Record<string, PulseRecordedEvent[]>>(props.initialDashboardEvents ?? {});
+  const [dashboardStates, setDashboardStates] = createSignal<Record<string, PulseCurrentState[]>>(props.initialDashboardStates ?? {});
+  const [dashboardControlValues, setDashboardControlValues] = createSignal<Record<string, Record<string, string>>>(
+    initialDashboardId && Object.keys(props.initialDashboardControlValues ?? {}).length
+      ? { [initialDashboardId]: props.initialDashboardControlValues ?? {} }
+      : {},
+  );
   const [dashboardDslText, setDashboardDslText] = createSignal("");
   const [dashboardDslDiagnostics, setDashboardDslDiagnostics] = createSignal<PulseDashboardDslCompileResult | null>(null);
   const [dashboardDslDiagnosticsText, setDashboardDslDiagnosticsText] = createSignal("");
@@ -903,29 +906,28 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     );
   };
 
-  const loadPanel = async (
-    panel: PulseDashboardPanel,
+  const loadMetricWidget = async (
+    widget: PulseDashboardMetricWidget,
     baseId = selectedBaseId(),
     signal?: AbortSignal,
     dashboard = selectedDashboard(),
     config = dashboard?.config,
   ) => {
     if (!baseId) return;
-    const widget = panel as PulseDashboardMetricWidget;
     const query =
       widget.queryText && widget.query
         ? resolveDashboardQueryText(widget.queryText, dashboard, config)
         : dashboardMetricQueryText(
             widget.query ?? {
               kind: "metric",
-              metric: panel.metric,
-              aggregation: panel.aggregation,
-              bucket: panel.bucket,
-              since: panel.since,
-              sourceId: panel.sourceId ?? null,
-              entityId: panel.entityId ?? null,
-              entityType: panel.entityType ?? null,
-              dimensions: panel.dimensions,
+              metric: widget.metric,
+              aggregation: widget.aggregation,
+              bucket: widget.bucket,
+              since: widget.since,
+              sourceId: widget.sourceId ?? null,
+              entityId: widget.entityId ?? null,
+              entityType: widget.entityType ?? null,
+              dimensions: widget.dimensions,
             },
           );
     const data = await jsonFetch<{ points: MetricQueryPoint[] }>("/api/pulse/query/metric-text", {
@@ -933,7 +935,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       signal,
       body: JSON.stringify({ baseId, query }),
     });
-    setPanelPoints((current) => ({ ...current, [panel.id]: data.points ?? [] }));
+    setMetricWidgetPoints((current) => ({ ...current, [widget.id]: data.points ?? [] }));
   };
 
   const loadDashboardEventsWidget = async (
@@ -971,7 +973,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const refreshDashboardConfig = async (config: PulseDashboardConfig, dashboard = selectedDashboard(), baseId = selectedBaseId(), signal?: AbortSignal) => {
     if (!dashboard || !baseId) return;
     await Promise.all([
-      ...dashboardMetricPanels(config).map((panel) => loadPanel(panel, baseId, signal, dashboard, config).catch(() => undefined)),
+      ...dashboardMetricWidgets(config).map((widget) => loadMetricWidget(widget, baseId, signal, dashboard, config).catch(() => undefined)),
       ...dashboardEventsWidgets(config).map((widget) => loadDashboardEventsWidget(widget, baseId, signal, dashboard, config).catch(() => undefined)),
       ...dashboardStatesWidgets(config).map((widget) => loadDashboardStatesWidget(widget, baseId, signal, dashboard, config).catch(() => undefined)),
     ]);
@@ -1035,20 +1037,30 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       icon: "ti ti-layout-dashboard",
       fields: {
         name: { type: "text", label: "Name", required: true, placeholder: "Operations" },
+        description: { type: "text", label: "Description", multiline: true, placeholder: "What should this dashboard answer?" },
       },
       confirmText: "Create",
     });
     const name = result ? String(result.name ?? "").trim() : "";
     if (!name) return null;
+    const description = String(result?.description ?? "").trim();
+    const dsl = starterDashboardDsl(name, description);
     setLoading(true);
     try {
       const dashboard = await jsonFetch<PulseDashboard>(`/api/pulse/bases/${baseId}/dashboards`, {
         method: "POST",
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, config: { dsl, layout: null } }),
       });
+      const dashboardDsl = dashboardToDsl(dashboard);
       setDashboards((current) => [dashboard, ...current]);
-      navigateWorkspace({ view: "dashboard", dashboardId: dashboard.id });
-      toast.success("Dashboard created");
+      setDashboardDslText(dashboardDsl);
+      setDashboardPreviewConfig(dashboard.config);
+      setDashboardDslDiagnostics({ ok: true, diagnostics: [], config: dashboard.config });
+      setDashboardDslDiagnosticsText(dashboardDsl);
+      setDashboardDslSeededFor(dashboard.id);
+      setSelectedDashboardId(dashboard.id);
+      navigateWorkspace({ view: "dashboard-edit", dashboardId: dashboard.id });
+      toast.success("Dashboard created. Edit the DSL to add content.");
       return dashboard;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not create dashboard");
@@ -1057,8 +1069,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       setLoading(false);
     }
   };
-
-  const ensureDashboard = async () => selectedDashboard() ?? createDashboard();
 
   const updateBaseSettings = async (base: PulseBase, input: { name: string; description: string; retentionDays: number }) => {
     const name = input.name.trim();
@@ -1851,101 +1861,14 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
   const insertDashboardSnippet = (dsl: string, snippet: string): string => {
     const trimmed = dsl.trimEnd();
-    const sectionStart = trimmed.lastIndexOf("\n  section ");
-    if (sectionStart >= 0) {
-      const openIndex = trimmed.indexOf("{", sectionStart);
-      if (openIndex >= 0) {
-        let depth = 0;
-        for (let index = openIndex; index < trimmed.length; index += 1) {
-          const char = trimmed[index];
-          if (char === "{") depth += 1;
-          if (char === "}") depth -= 1;
-          if (depth === 0) {
-            return `${trimmed.slice(0, index).trimEnd()}\n\n${snippet}\n${trimmed.slice(index)}`;
-          }
-        }
-      }
-    }
+    const indentedSnippet = snippet
+      .trim()
+      .split("\n")
+      .map((line) => (line.trim() ? `    ${line}` : line))
+      .join("\n");
     const index = trimmed.lastIndexOf("}");
-    if (index >= 0) return `${trimmed.slice(0, index).trimEnd()}\n\n  section "Added" {\n${snippet}\n  }\n${trimmed.slice(index)}`;
-    return `${trimmed}\n\n  section "Added" {\n${snippet}\n  }\n}`;
-  };
-
-  const appendExplorerQueryToDashboardDsl = async () => {
-    const baseId = selectedBaseId();
-    const query = currentExplorerQuery();
-    if (!baseId || !query) return;
-    const compiled =
-      compiledQuery() ??
-      (await jsonFetch<MetricTextQueryResult>("/api/pulse/query/metric-text", {
-        method: "POST",
-        body: JSON.stringify({ baseId, query }),
-      })
-        .then((result) => {
-          setQueryDiagnostics({ ok: true, diagnostics: [{ severity: "info", message: "Query is valid." }], compiled: result.compiled });
-          setPoints(result.points);
-          setExplorerEvents(result.events);
-          setExplorerStates(result.states);
-          return result.compiled;
-        })
-        .catch((error) => {
-          toast.error(error instanceof Error ? error.message : "Query failed");
-          return null;
-        }));
-    if (!compiled) return;
-    const dashboard = await ensureDashboard();
-    if (!dashboard) return;
-    const titleDefault =
-      compiled.kind === "metric"
-        ? compiled.metric
-        : compiled.kind === "events"
-          ? compiled.event || "Events"
-          : compiled.state || "States";
-    const result = await prompts.form({
-      title: "Add to dashboard DSL",
-      icon: "ti ti-layout-grid-add",
-      fields: {
-        title: { type: "text", label: "Widget title", placeholder: titleDefault },
-      },
-      confirmText: "Insert",
-    });
-    if (!result) return;
-    const title = String(result.title ?? "").trim() || titleDefault;
-    const visual = compiled.kind === "metric" ? (explorerResultView() === "table" ? "table" : selectedVisual()) : "table";
-    const widgetQueryText =
-      compiled.kind === "metric"
-        ? dashboardMetricQueryText(compiled)
-        : compiled.kind === "events"
-          ? dashboardEventQueryText(compiled)
-          : dashboardStateQueryText(compiled);
-    const snippet = `    ${visual === "line" ? "chart" : visual} ${quoteDashboardDslString(title)} {
-      query ${widgetQueryText}
-    }`;
-    const nextDsl = insertDashboardSnippet(dashboardToDsl(dashboard), snippet);
-    setDashboardDslText(nextDsl);
-    setDashboardPreviewConfig(null);
-    setDashboardDslDiagnostics(null);
-    setDashboardDslDiagnosticsText("");
-    setDashboardDslSeededFor(dashboard.id);
-    setSelectedDashboardId(dashboard.id);
-    navigateWorkspace({ view: "dashboard-edit", dashboardId: dashboard.id });
-    toast.success("Widget snippet inserted");
-  };
-
-  const removePanel = async (panelId: string) => {
-    const dashboard = selectedDashboard();
-    if (!dashboard) return;
-    const updated = await jsonFetch<PulseDashboard>(`/api/pulse/dashboards/${dashboard.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ config: { ...dashboard.config, panels: (dashboard.config.panels ?? []).filter((panel) => panel.id !== panelId) } }),
-    });
-    setDashboards((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-    setPanelPoints((current) => {
-      const next = { ...current };
-      delete next[panelId];
-      return next;
-    });
-    toast.success("Panel removed");
+    if (index >= 0) return `${trimmed.slice(0, index).trimEnd()}\n\n  section "Added" {\n${indentedSnippet}\n  }\n${trimmed.slice(index)}`;
+    return `${trimmed}\n\n  section "Added" {\n${indentedSnippet}\n  }\n}`;
   };
 
   const compileDashboardDslPreview = async (dashboard: PulseDashboard, text: string) => {
@@ -2222,24 +2145,24 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     }
   };
 
-  const renderPanel = (panel: PulseDashboardPanel) => {
-    const data = panelPoints()[panel.id] ?? [];
+  const renderMetricWidgetChart = (widget: PulseDashboardMetricWidget) => {
+    const data = metricWidgetPoints()[widget.id] ?? [];
     const last = data.at(-1)?.value ?? null;
-    const summary = metricByName().get(panel.metric);
+    const summary = metricByName().get(widget.metric);
     const unit = summary?.unit ?? null;
-    if (panel.visual === "stat") {
+    if (widget.visual === "stat") {
       return (
         <Chart
           kind="stat"
           class="h-36 text-primary"
-          label={panel.title}
+          label={widget.title}
           value={formatValue(last)}
           unit={unit ?? undefined}
           sparkline={data.map((point) => point.value ?? 0)}
         />
       );
     }
-    if (panel.visual === "gauge") {
+    if (widget.visual === "gauge") {
       const value = last ?? 0;
       return (
         <Chart
@@ -2248,31 +2171,31 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           value={value}
           min={0}
           max={gaugeMax(unit, value)}
-          label={panel.title}
+          label={widget.title}
           unit={unit ?? undefined}
         />
       );
     }
-    if (panel.visual === "barGauge") {
+    if (widget.visual === "barGauge") {
       const value = last ?? 0;
       return (
         <Chart
           kind="barGauge"
           class="h-36 text-primary"
-          data={[{ label: panel.title, value, min: 0, max: gaugeMax(unit, value), unit: unit ?? undefined }]}
+          data={[{ label: widget.title, value, min: 0, max: gaugeMax(unit, value), unit: unit ?? undefined }]}
           min={0}
           max={gaugeMax(unit, value)}
           unit={unit ?? undefined}
         />
       );
     }
-    if (panel.visual === "bar") {
+    if (widget.visual === "bar") {
       return <Chart kind="bar" class="h-48 text-dimmed" data={pointsToBars(data, pulseDateContext())} showValues={data.length <= 16} />;
     }
-    if (panel.visual === "histogram") {
+    if (widget.visual === "histogram") {
       return <Chart kind="histogram" class="h-48 text-dimmed" data={pointsToHistogram(data)} bins={12} yAxis={{ label: "Count" }} />;
     }
-    if (panel.visual === "heatmap") {
+    if (widget.visual === "heatmap") {
       return (
         <Chart
           kind="heatmap"
@@ -2283,7 +2206,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         />
       );
     }
-    if (panel.visual === "table") {
+    if (widget.visual === "table") {
       return (
         <DataTable
           rows={data}
@@ -2299,7 +2222,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       <Chart
         kind="line"
         class="h-48 text-dimmed"
-        series={[{ label: panel.title, data: data.map((point) => ({ x: Date.parse(point.bucket), y: point.value ?? 0 })) }]}
+        series={[{ label: widget.title, data: data.map((point) => ({ x: Date.parse(point.bucket), y: point.value ?? 0 })) }]}
         xAxis={{ format: (value) => compactDate(new Date(value).toISOString(), pulseDateContext()) }}
         yAxis={{ format: (value) => formatValue(value) }}
         smooth
@@ -2308,8 +2231,8 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     );
   };
 
-  const dashboardMatchedCondition = (panel: PulseDashboardPanel, value: number | null): PulseDashboardCondition | null => {
-    const conditions = (panel as PulseDashboardMetricWidget).conditions ?? [];
+  const dashboardMatchedCondition = (widget: PulseDashboardMetricWidget, value: number | null): PulseDashboardCondition | null => {
+    const conditions = widget.conditions ?? [];
     if (value === null || !conditions.length) return null;
     let match: PulseDashboardCondition | null = null;
     for (const condition of conditions) {
@@ -2338,8 +2261,8 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const dashboardConditionText = (condition: PulseDashboardCondition): string =>
     condition.message?.trim() || `${condition.level === "critical" ? "Critical" : "Warning"} when value ${condition.operator} ${String(condition.value)}`;
 
-  const renderPanelCard = (panel: PulseDashboardPanel, options: { description?: string | null; removable?: boolean } = {}) => {
-    const condition = dashboardMatchedCondition(panel, panelPoints()[panel.id]?.at(-1)?.value ?? null);
+  const renderMetricWidgetCard = (widget: PulseDashboardMetricWidget, options: { description?: string | null } = {}) => {
+    const condition = dashboardMatchedCondition(widget, metricWidgetPoints()[widget.id]?.at(-1)?.value ?? null);
     const level = condition?.level ?? null;
     return (
     <article
@@ -2351,10 +2274,10 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     >
       <div class="mb-3 flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <p class="truncate text-sm font-semibold text-primary">{panel.title}</p>
+          <p class="truncate text-sm font-semibold text-primary">{widget.title}</p>
           <p class="mt-1 truncate text-xs text-dimmed">
-            {panel.metric} · {panel.aggregation} / {panel.bucket}
-            {panel.sourceId ? ` · ${sourceNameById().get(panel.sourceId) ?? "source"}` : ""}
+            {widget.metric} · {widget.aggregation} / {widget.bucket}
+            {widget.sourceId ? ` · ${sourceNameById().get(widget.sourceId) ?? "source"}` : ""}
           </p>
           <Show when={condition}>
             {(matched) => (
@@ -2372,13 +2295,8 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           </Show>
           <Show when={options.description}>{(description) => <p class="mt-2 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
         </div>
-        <Show when={options.removable}>
-          <button type="button" class="btn-icon" title="Remove panel" onClick={() => void removePanel(panel.id)}>
-            <i class="ti ti-x" />
-          </button>
-        </Show>
       </div>
-      {renderPanel(panel)}
+      {renderMetricWidgetChart(widget)}
     </article>
     );
   };
@@ -2472,7 +2390,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     return (
       <div class={`col-span-1 ${dashboardSpanClasses[span] ?? dashboardSpanClasses[12]}`}>
         {widget.kind === "metric"
-          ? renderPanelCard(widget, { description: widget.description })
+          ? renderMetricWidgetCard(widget, { description: widget.description })
           : widget.kind === "markdown"
             ? renderMarkdownWidget(widget)
             : widget.kind === "events"
@@ -2513,13 +2431,28 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const dashboardControlValue = (dashboard: PulseDashboard, control: PulseDashboardControl) =>
     dashboardControlValues()[dashboard.id]?.[control.variable] ?? control.defaultValue;
 
-  const updateDashboardControl = (dashboard: PulseDashboard, control: PulseDashboardControl, value: string) => {
+  const replaceDashboardControlUrl = (dashboard: PulseDashboard, values: Record<string, string>, config = dashboard.config) => {
+    if (typeof window === "undefined" || (activeView() !== "dashboard" && activeView() !== "dashboard-edit")) return;
+    const url = new URL(window.location.href);
+    for (const key of [...url.searchParams.keys()]) {
+      if (key.startsWith("c_")) url.searchParams.delete(key);
+    }
+    for (const control of config.layout?.controls ?? []) {
+      const value = values[control.variable] ?? control.defaultValue;
+      if (value !== control.defaultValue) url.searchParams.set(`c_${control.variable}`, value);
+    }
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}`);
+  };
+
+  const updateDashboardControl = (dashboard: PulseDashboard, control: PulseDashboardControl, value: string, config = dashboard.config) => {
+    const nextValues = {
+      ...(dashboardControlValues()[dashboard.id] ?? {}),
+      [control.variable]: value,
+    };
+    replaceDashboardControlUrl(dashboard, nextValues, config);
     setDashboardControlValues((current) => ({
       ...current,
-      [dashboard.id]: {
-        ...(current[dashboard.id] ?? {}),
-        [control.variable]: value,
-      },
+      [dashboard.id]: nextValues,
     }));
     queueMicrotask(() => {
       const preview = activeView() === "dashboard-edit" && dashboard.id === selectedDashboard()?.id ? dashboardPreviewConfig() : null;
@@ -2543,7 +2476,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
                       <TextInput
                         icon={control.kind === "entity" ? "ti ti-cube" : control.kind === "text" ? "ti ti-search" : "ti ti-filter"}
                         value={() => dashboardControlValue(dashboard, control)}
-                        onInput={(value) => updateDashboardControl(dashboard, control, value)}
+                        onInput={(value) => updateDashboardControl(dashboard, control, value, config)}
                         placeholder={control.variable}
                       />
                     }
@@ -2559,7 +2492,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
                               : "ti ti-filter"
                       }
                       value={() => dashboardControlValue(dashboard, control)}
-                      onChange={(value) => updateDashboardControl(dashboard, control, value)}
+                      onChange={(value) => updateDashboardControl(dashboard, control, value, config)}
                       options={options}
                     />
                   </Show>
@@ -2914,10 +2847,10 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     replaceResourceUrl();
   };
 
-  const renderDashboardConfigContent = (config: () => PulseDashboardConfig | null, options: { removable?: boolean } = {}) => {
+  const renderDashboardConfigContent = (config: () => PulseDashboardConfig | null) => {
     const currentConfig = createMemo(() => {
       const value = config();
-      return value && ((value.panels?.length ?? 0) || dashboardLayoutWidgets(value).length) ? value : null;
+      return value && dashboardLayoutWidgets(value).length ? value : null;
     });
     return (
       <Show
@@ -2941,11 +2874,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
                 </>
               )}
             </Show>
-            <Show when={(currentConfig().panels?.length ?? 0) && !currentConfig().layout}>
-              <div class="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-                <For each={currentConfig().panels ?? []}>{(panel) => renderPanelCard(panel, { removable: options.removable })}</For>
-              </div>
-            </Show>
           </div>
         )}
       </Show>
@@ -2954,7 +2882,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
   const renderDashboardView = () => (
     <section class="flex min-h-0 flex-1 flex-col">
-      {renderDashboardConfigContent(() => selectedDashboard()?.config ?? null, { removable: true })}
+      {renderDashboardConfigContent(() => selectedDashboard()?.config ?? null)}
     </section>
   );
 
@@ -3017,6 +2945,25 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     })),
   );
 
+  const dashboardReferenceResources = createMemo(() =>
+    inventory().resources.map((resource) => {
+      const metric = inventory().metrics.find((item) => item.resourceKey === resource.key);
+      const sourceId = metric?.sourceId ?? resource.sourceIds[0] ?? null;
+      const source = sourceId ? ` source ${sourceId}` : "";
+      const dimensions = Object.entries(resource.dimensions ?? {});
+      const scope = dimensions.length
+        ? ` where ${dimensions.map(([key, value]) => `${key}=${quoteQueryPart(String(value))}`).join(", ")}`
+        : ` entity ${quoteQueryPart(resource.id)}${resource.type ? ` entity_type ${quoteQueryPart(resource.type)}` : ""}`;
+      return {
+        label: resource.label,
+        meta: `${resource.type ?? "resource"} · ${resource.metricCount} metrics`,
+        snippet: metric
+          ? `chart ${quoteDashboardDslString(metric.metric)} {\n  query metric ${quoteQueryPart(metric.metric)} ${metric.type === "counter" ? "rate" : "avg"} every 5m since 24h${source}${scope}\n}`
+          : undefined,
+      };
+    }),
+  );
+
   const dashboardReferenceMetrics = createMemo(() =>
     metrics().map((metric) => ({
       label: metric.name,
@@ -3026,7 +2973,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   );
 
   const dashboardReferenceEvents = createMemo(() => {
-    const names = [...new Set(recentEvents().map((event) => event.kind))].sort();
+    const names = [...new Set(inventory().events.map((event) => event.kind))].sort();
     return names.map((name) => ({
       label: name,
       meta: "event",
@@ -3035,7 +2982,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   });
 
   const dashboardReferenceStates = createMemo(() => {
-    const names = [...new Set(currentStates().map((state) => state.key))].sort();
+    const names = [...new Set(inventory().states.map((state) => state.key))].sort();
     return names.map((name) => ({
       label: name,
       meta: "state",
@@ -3051,9 +2998,9 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         labels.get(key)!.add(value);
       }
     };
-    for (const item of series()) addDimensions(item.dimensions);
-    for (const item of recentEvents()) addDimensions(item.dimensions);
-    for (const item of currentStates()) addDimensions(item.dimensions);
+    for (const item of inventory().metrics) addDimensions(item.dimensions);
+    for (const item of inventory().events) addDimensions(item.dimensions);
+    for (const item of inventory().states) addDimensions(item.dimensions);
     return [...labels.entries()]
       .map(([label, values]) => ({ label, meta: `${values.size} values` }))
       .sort((left, right) => left.label.localeCompare(right.label));
@@ -3066,13 +3013,28 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       const current = entities.get(entityId);
       entities.set(entityId, { type: current?.type ?? entityType, count: (current?.count ?? 0) + 1 });
     };
-    for (const item of series()) addEntity(item.entityId, item.entityType);
-    for (const item of recentEvents()) addEntity(item.entityId, item.entityType);
-    for (const item of currentStates()) addEntity(item.entityId, item.entityType);
+    for (const item of inventory().metrics) addEntity(item.resourceId, item.resourceType);
+    for (const item of inventory().events) addEntity(item.entityId, item.entityType);
+    for (const item of inventory().states) addEntity(item.entityId, item.entityType);
     return [...entities.entries()]
       .map(([label, value]) => ({ label, meta: value.type ? `${value.type} · ${value.count}` : `${value.count}` }))
       .sort((left, right) => left.label.localeCompare(right.label));
   });
+
+  const savedQueryDashboardSnippet = (query: PulseSavedQuery): string => {
+    const text = query.query.trim().replace(/\s+/g, " ");
+    const title = quoteDashboardDslString(query.name);
+    const statement = text.startsWith("metric ") ? "chart" : "table";
+    return `${statement} ${title} {\n  query ${text}\n}`;
+  };
+
+  const dashboardReferenceSavedQueries = createMemo(() =>
+    savedQueries().map((query) => ({
+      label: query.name,
+      meta: query.query.split(/\s+/)[0] ?? "query",
+      snippet: savedQueryDashboardSnippet(query),
+    })),
+  );
 
   const renderDashboardEditorPane = () => (
     <div class="paper h-full overflow-hidden p-0">
@@ -3099,6 +3061,12 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         empty: "No sources yet.",
       })}
       {renderReferenceList({
+        title: "Resources",
+        icon: "ti ti-cube",
+        items: dashboardReferenceResources(),
+        empty: "No resources yet.",
+      })}
+      {renderReferenceList({
         title: "Metrics",
         icon: "ti ti-chart-dots",
         items: dashboardReferenceMetrics(),
@@ -3117,6 +3085,12 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         icon: "ti ti-cube",
         items: dashboardReferenceEntities(),
         empty: "No entities yet.",
+      })}
+      {renderReferenceList({
+        title: "Saved queries",
+        icon: "ti ti-device-floppy",
+        items: dashboardReferenceSavedQueries(),
+        empty: "No saved queries yet.",
       })}
     </div>
   );
@@ -3936,7 +3910,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       return (
         <Chart
           kind="stat"
-          class="h-full min-h-72 text-primary"
+          class="h-full min-h-0 text-primary"
           label={title}
           value={formatValue(last)}
           unit={unit ?? undefined}
@@ -3949,7 +3923,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       return (
         <Chart
           kind="gauge"
-          class="h-full min-h-72 text-primary"
+          class="h-full min-h-0 text-primary"
           value={value}
           min={0}
           max={gaugeMax(unit, value)}
@@ -3963,7 +3937,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       return (
         <Chart
           kind="barGauge"
-          class="h-full min-h-72 text-primary"
+          class="h-full min-h-0 text-primary"
           data={[{ label: title, value, min: 0, max: gaugeMax(unit, value), unit: unit ?? undefined }]}
           min={0}
           max={gaugeMax(unit, value)}
@@ -3972,16 +3946,16 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       );
     }
     if (selectedVisual() === "bar")
-      return <Chart kind="bar" class="h-full min-h-72 text-dimmed" data={pointsToBars(data, pulseDateContext())} showValues={data.length <= 16} />;
+      return <Chart kind="bar" class="h-full min-h-0 text-dimmed" data={pointsToBars(data, pulseDateContext())} showValues={data.length <= 16} />;
     if (selectedVisual() === "histogram")
       return (
-        <Chart kind="histogram" class="h-full min-h-72 text-dimmed" data={pointsToHistogram(data)} bins={12} yAxis={{ label: "Count" }} />
+        <Chart kind="histogram" class="h-full min-h-0 text-dimmed" data={pointsToHistogram(data)} bins={12} yAxis={{ label: "Count" }} />
       );
     if (selectedVisual() === "heatmap")
       return (
         <Chart
           kind="heatmap"
-          class="h-full min-h-72 text-dimmed"
+          class="h-full min-h-0 text-dimmed"
           data={pointsToHeatmap(data, pulseDateContext())}
           format={(value) => formatValue(value)}
           showValues={data.length <= 48}
@@ -3990,7 +3964,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     return (
       <Chart
         kind="line"
-        class="h-full min-h-72 text-dimmed"
+        class="h-full min-h-0 text-dimmed"
         series={previewSeries()}
         xAxis={{ format: (value) => compactDate(new Date(value).toISOString(), pulseDateContext()) }}
         yAxis={{ format: (value) => formatValue(value) }}
@@ -4014,7 +3988,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           getRowId={(event) => event.id}
           selectedRowId={null}
           density="compact"
-          class="h-full overflow-auto"
+          class="h-full min-h-0 overflow-auto"
           empty="Run an events query to see events."
           renderCell={({ row: event, col, render }) => renderEventCell(event, col, render)}
         />
@@ -4028,7 +4002,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           getRowId={stateRowId}
           selectedRowId={null}
           density="compact"
-          class="h-full overflow-auto"
+          class="h-full min-h-0 overflow-auto"
           empty="Run a states query to see current states."
           renderCell={({ row: state, col, render }) => renderStateCell(state, col, render)}
         />
@@ -4041,7 +4015,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           columns={queryPointColumns}
           getRowId={(point) => point.bucket}
           density="compact"
-          class="h-full overflow-auto"
+          class="h-full min-h-0 overflow-auto"
           empty={
             queryWasRun
               ? "No points matched this metric query. Try a wider since range or check whether the source is still ingesting."
@@ -4052,12 +4026,12 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     }
     if (compiled && compiled.kind !== "metric") {
       return (
-        <div class="flex h-full min-h-72 items-center justify-center text-sm text-dimmed">Use Table or Compiled for this query type.</div>
+        <div class="flex h-full min-h-0 items-center justify-center text-sm text-dimmed">Use Table or Compiled for this query type.</div>
       );
     }
     if (points().length > 0) return renderExplorerChart();
     return (
-      <div class="flex h-full min-h-72 items-center justify-center px-6 text-center text-sm text-dimmed">
+      <div class="flex h-full min-h-0 items-center justify-center px-6 text-center text-sm text-dimmed">
         {queryWasRun
           ? "No points matched this metric query. Try a wider since range or check whether the source is still ingesting."
           : "Run a metric query to preview data."}
@@ -4217,7 +4191,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         </Show>
       </div>
 
-      <div class="flex shrink-0 flex-wrap items-center gap-2 px-3 pb-3">
+      <div class="flex shrink-0 flex-wrap items-center gap-2 bg-surface px-3 py-3">
         <button
           type="button"
           class="btn-input btn-input-sm"
@@ -4261,11 +4235,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
             />
           </div>
         </Show>
-        <Show when={explorerResultView() !== "compiled" && compiledQuery()}>
-          <button type="button" class="btn-input btn-input-sm" disabled={!compiledQuery() || loading()} onClick={appendExplorerQueryToDashboardDsl}>
-            <i class="ti ti-layout-grid-add" /> Insert widget
-          </button>
-        </Show>
         <span class="ml-auto text-xs text-dimmed">
           {compiledQuery()?.kind === "events"
             ? `${explorerEvents().length} events`
@@ -4274,7 +4243,9 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
               : `${points().length} points`}
         </span>
       </div>
-      <div class={explorerResultView() === "table" ? "min-h-0 flex-1" : "min-h-0 flex-1 p-3"}>{renderExplorerResult()}</div>
+      <div class={explorerResultView() === "table" ? "min-h-0 flex-1 overflow-hidden" : "min-h-0 flex-1 overflow-hidden p-3"}>
+        {renderExplorerResult()}
+      </div>
     </div>
   );
 
@@ -4529,7 +4500,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   );
 
   const renderQueryHistoryPane = () => (
-    <div class="paper h-full overflow-auto p-2">
+    <div class="paper h-full min-h-0 overflow-auto p-2">
       <Show when={queryHistory().length > 0} fallback={<p class="px-1 py-2 text-xs text-dimmed">No runs yet.</p>}>
         <For each={queryHistory()}>
           {(item) => (
@@ -4548,8 +4519,8 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   );
 
   const renderMetricExplorerView = () => (
-    <section class="min-h-[42rem] flex-1 overflow-hidden pb-2">
-      <DockWorkspace storageKey="pulse.query-explorer" initialState={props.initialExplorerDockState}>
+    <section class="flex min-h-0 flex-1 overflow-hidden pb-2">
+      <DockWorkspace storageKey="pulse.query-explorer" initialState={props.initialExplorerDockState} defaultResultSize={42} class="h-full min-h-0">
         <DockWorkspace.Result title="Result" icon="ti ti-chart-line">
           {renderExplorerResultPane()}
         </DockWorkspace.Result>
@@ -4622,7 +4593,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   };
 
   const renderSignalCatalogView = (kind: SignalCatalogKind) => (
-    <section class="flex min-h-0 flex-1 flex-col gap-3">
+    <section class="flex min-h-0 flex-1 flex-col gap-2">
       <div class="flex flex-wrap items-center justify-between gap-2">
         {renderSignalCatalogTabs(kind)}
         {renderActivityToolbar(kind)}
@@ -4637,7 +4608,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   };
 
   return (
-    <AppWorkspace class="min-h-[760px]">
+    <AppWorkspace class={activeView() === "explorer" ? "min-h-0" : "min-h-[760px]"}>
       <PulseLayoutHelp />
       <PulseSidebar
         title={selectedBase()?.name ?? "Pulse"}
@@ -4663,7 +4634,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         openActivityMetrics={openActivityMetrics}
       />
 
-      <AppWorkspace.Main class="gap-3 overflow-y-auto">
+      <AppWorkspace.Main class={activeView() === "explorer" ? "gap-3 overflow-hidden" : "gap-3 overflow-y-auto"}>
         {activeView() === "dashboard"
           ? renderDashboardView()
           : activeView() === "dashboard-edit"

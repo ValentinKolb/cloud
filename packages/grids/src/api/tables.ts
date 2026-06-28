@@ -22,7 +22,9 @@ import { validateRecordQueryForTable } from "../service/query-validation";
 import { compileGqlToRecordQuery } from "./gql-runtime";
 import { gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
 
-const viewUiPresentation = (view: { ui?: { columns?: RecordQuery["columns"]; groupedColumnOrder?: string[]; hiddenGroupedColumns?: string[] } }): RecordQuery => ({
+const viewUiPresentation = (view: {
+  ui?: { columns?: RecordQuery["columns"]; groupedColumnOrder?: string[]; hiddenGroupedColumns?: string[] };
+}): RecordQuery => ({
   ...(view.ui?.columns ? { columns: view.ui.columns } : {}),
   ...(view.ui?.groupedColumnOrder ? { groupedColumnOrder: view.ui.groupedColumnOrder } : {}),
   ...(view.ui?.hiddenGroupedColumns ? { hiddenGroupedColumns: view.ui.hiddenGroupedColumns } : {}),
@@ -219,7 +221,11 @@ const app = new Hono<AuthContext>()
               baseId: table.baseId,
               tableId,
               source: trustedView ? trustedView.source : (body.source ?? view?.source ?? `from table {${tableId}}`),
-              ...(trustedView ? { presentation: viewUiPresentation(trustedView), trustedAllSources: true } : body.query ? { presentation: body.query } : {}),
+              ...(trustedView
+                ? { presentation: viewUiPresentation(trustedView), trustedAllSources: true }
+                : body.query
+                  ? { presentation: body.query }
+                  : {}),
             })
           : null;
       if (compiled && !compiled.ok) {

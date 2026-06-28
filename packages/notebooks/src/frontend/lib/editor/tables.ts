@@ -111,7 +111,7 @@ const parseTable = (text: string): TableData | null => {
 
 const renderTable = (data: TableData, notebookId: string): string => renderPrettyTableHtml(data, { notebookId });
 
-const sameArray = <T,>(left: T[], right: T[]): boolean =>
+const sameArray = <T>(left: T[], right: T[]): boolean =>
   left.length === right.length && left.every((value, index) => value === right[index]);
 
 const sameRows = (left: string[][], right: string[][]): boolean =>

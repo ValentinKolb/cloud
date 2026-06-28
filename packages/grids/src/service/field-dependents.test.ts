@@ -1,10 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import {
-  findFieldRefContexts,
-  findFieldRefsInValue,
-  hasBlockingDependents,
-  type FieldDependent,
-} from "./field-dependents";
+import { findFieldRefContexts, findFieldRefsInValue, hasBlockingDependents, type FieldDependent } from "./field-dependents";
 
 describe("findFieldRefsInValue", () => {
   const fid = "fld_abc";

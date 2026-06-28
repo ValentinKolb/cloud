@@ -7,9 +7,7 @@ type PasswordResetRequestFormProps = {
   redirectTo?: string;
 };
 
-export default function PasswordResetRequestForm(
-  props: PasswordResetRequestFormProps
-) {
+export default function PasswordResetRequestForm(props: PasswordResetRequestFormProps) {
   const [email, setEmail] = createSignal("");
   const [sent, setSent] = createSignal(false);
 
@@ -42,8 +40,7 @@ export default function PasswordResetRequestForm(
     >
       {sent() && (
         <div class="info-block-success">
-          If this account can reset a password, a reset link has been sent. The
-          link expires after 15 minutes.
+          If this account can reset a password, a reset link has been sent. The link expires after 15 minutes.
         </div>
       )}
 
@@ -65,16 +62,8 @@ export default function PasswordResetRequestForm(
         </div>
       )}
 
-      <button
-        type="submit"
-        class="btn-primary w-full justify-center py-2"
-        disabled={mutation.loading()}
-      >
-        {mutation.loading() ? (
-          <i class="ti ti-loader-2 animate-spin" />
-        ) : (
-          <i class="ti ti-send" />
-        )}
+      <button type="submit" class="btn-primary w-full justify-center py-2" disabled={mutation.loading()}>
+        {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-send" />}
         Send reset link
       </button>
     </form>

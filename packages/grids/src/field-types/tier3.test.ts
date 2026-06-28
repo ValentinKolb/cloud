@@ -1,8 +1,5 @@
 import { test, expect } from "bun:test";
-import {
-  fileHandler,
-  jsonHandler,
-} from "./tier3";
+import { fileHandler, jsonHandler } from "./tier3";
 
 // ── json ──────────────────────────────────────────────────────────
 test("json: parses valid JSON string", () => {
@@ -17,10 +14,12 @@ test("json: rejects malformed string", () => {
 
 // ── file ──────────────────────────────────────────────────────────
 test("file: config accepts maxFiles and accept list", () => {
-  expect(fileHandler.configSchema.safeParse({
-    maxFiles: 3,
-    accept: ["image/*", "application/pdf", ".txt"],
-  }).success).toBe(true);
+  expect(
+    fileHandler.configSchema.safeParse({
+      maxFiles: 3,
+      accept: ["image/*", "application/pdf", ".txt"],
+    }).success,
+  ).toBe(true);
 });
 
 test("file: is managed by the external file API", () => {

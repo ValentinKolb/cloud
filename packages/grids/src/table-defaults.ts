@@ -14,4 +14,3 @@ export const defaultTableAggregations = (fields: Field[]): AggregationSpec[] => 
       return [];
     }),
 ];
-

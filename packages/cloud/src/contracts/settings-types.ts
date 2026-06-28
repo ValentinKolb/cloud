@@ -41,12 +41,15 @@ export type AppSettingsMap = Record<string, AppSettingDef>;
 // ── Type-level transforms ───────────────────────────────────────────────────
 
 /** Map a setting `kind` literal to the runtime value type returned by reads. */
-export type KindToType<K extends string> =
-  K extends "boolean" ? boolean :
-  K extends "number" ? number :
-  K extends "string_list" ? string[] :
-  K extends "number_list" ? number[] :
-  string;
+export type KindToType<K extends string> = K extends "boolean"
+  ? boolean
+  : K extends "number"
+    ? number
+    : K extends "string_list"
+      ? string[]
+      : K extends "number_list"
+        ? number[]
+        : string;
 
 /**
  * Derive a flat `{ key: value }` map from a SettingsMap.
@@ -67,10 +70,9 @@ export type SettingsFlat<S extends Record<string, { kind: string }>> = {
  *   = { readonly files: { readonly filegate_url: string; readonly base_homes: string }, readonly app: { readonly name: string } }
  */
 export type Unflatten<T extends Record<string, unknown>> = {
-  readonly [K in Extract<keyof T, string> as K extends `${infer Head}.${string}` ? Head : K]:
-    K extends `${infer Head}.${string}`
-      ? Unflatten<{ [P in Extract<keyof T, `${Head}.${string}`> as P extends `${Head}.${infer R}` ? R : never]: T[P] }>
-      : T[K];
+  readonly [K in Extract<keyof T, string> as K extends `${infer Head}.${string}` ? Head : K]: K extends `${infer Head}.${string}`
+    ? Unflatten<{ [P in Extract<keyof T, `${Head}.${string}`> as P extends `${Head}.${infer R}` ? R : never]: T[P] }>
+    : T[K];
 };
 
 /**
@@ -78,7 +80,6 @@ export type Unflatten<T extends Record<string, unknown>> = {
  *
  * Used by `AppContext<App>` to type `c.get("settings")` correctly per-app.
  */
-export type AppSettings<App> =
-  App extends { readonly _settings: infer S extends Record<string, { kind: string }> }
-    ? Unflatten<SettingsFlat<S>>
-    : never;
+export type AppSettings<App> = App extends { readonly _settings: infer S extends Record<string, { kind: string }> }
+  ? Unflatten<SettingsFlat<S>>
+  : never;

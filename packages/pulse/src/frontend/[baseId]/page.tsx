@@ -7,9 +7,12 @@ import type {
   MetricQuery,
   MetricQueryPoint,
   PulseDashboard,
+  PulseDashboardConfig,
+  PulseDashboardControl,
+  PulseDashboardEventsWidget,
   PulseDashboardMetricWidget,
-  PulseDashboardPanel,
   PulseDashboardSection,
+  PulseDashboardStatesWidget,
   PulseDashboardWidget,
   PulseInventory,
   PulseMetricSeries,
@@ -17,9 +20,11 @@ import type {
   PulseCurrentState,
 } from "../../contracts";
 import { ssr } from "../../config";
+import { compilePulseQueryText } from "../../query-dsl";
 import { pulseService } from "../../service";
 import PulseWorkspace from "../PulseWorkspace.island";
-import { readActivityQueryState, readWorkspacePathState } from "../workspace/routes";
+import { quoteQueryPart } from "../workspace/helpers";
+import { readActivityQueryState, readDashboardControlQueryState, readWorkspacePathState } from "../workspace/routes";
 
 const dashboardWidgetDescendants = (widget: PulseDashboardWidget): PulseDashboardWidget[] =>
   widget.kind === "card" ? [widget, ...widget.rows.flatMap((row) => row.cells.flatMap(dashboardWidgetDescendants))] : [widget];
@@ -29,25 +34,46 @@ const dashboardSectionWidgets = (section: PulseDashboardSection): PulseDashboard
   ...(section.sections ?? []).flatMap(dashboardSectionWidgets),
 ];
 
-const dashboardMetricPanels = (dashboard: PulseDashboard): PulseDashboardPanel[] => [
-  ...(dashboard.config.layout?.sections
-    .flatMap(dashboardSectionWidgets)
-    .filter((widget): widget is PulseDashboardMetricWidget => widget.kind === "metric") ?? []),
-  ...(!dashboard.config.layout ? (dashboard.config.panels ?? []) : []),
-];
+const dashboardMetricWidgets = (dashboard: PulseDashboard): PulseDashboardMetricWidget[] =>
+  dashboard.config.layout?.sections.flatMap(dashboardSectionWidgets).filter((widget): widget is PulseDashboardMetricWidget => widget.kind === "metric") ?? [];
 
-const panelQuery = (baseId: string, panel: PulseDashboardPanel): MetricQuery => ({
-  kind: "metric",
-  baseId,
-  metric: panel.metric,
-  aggregation: panel.aggregation,
-  bucket: panel.bucket,
-  since: panel.since,
-  sourceId: panel.sourceId ?? null,
-  entityId: panel.entityId ?? null,
-  entityType: panel.entityType ?? null,
-  dimensions: panel.dimensions ?? undefined,
-});
+const dashboardEventsWidgets = (dashboard: PulseDashboard): PulseDashboardEventsWidget[] =>
+  dashboard.config.layout?.sections.flatMap(dashboardSectionWidgets).filter((widget): widget is PulseDashboardEventsWidget => widget.kind === "events") ?? [];
+
+const dashboardStatesWidgets = (dashboard: PulseDashboard): PulseDashboardStatesWidget[] =>
+  dashboard.config.layout?.sections.flatMap(dashboardSectionWidgets).filter((widget): widget is PulseDashboardStatesWidget => widget.kind === "states") ?? [];
+
+const dashboardControlValues = (config: PulseDashboardConfig, values: Record<string, string>): Record<string, string> =>
+  Object.fromEntries((config.layout?.controls ?? []).map((control: PulseDashboardControl) => [control.variable, values[control.variable] ?? control.defaultValue]));
+
+const resolveDashboardQueryText = (text: string, config: PulseDashboardConfig, values: Record<string, string>): string => {
+  const controls = dashboardControlValues(config, values);
+  return text.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, variable: string) =>
+    typeof controls[variable] === "string" ? quoteQueryPart(controls[variable]) : match,
+  );
+};
+
+const metricWidgetQuery = (baseId: string, dashboard: PulseDashboard, widget: PulseDashboardMetricWidget, controlValues: Record<string, string>): MetricQuery => {
+  if (widget.queryText) {
+    const compiled = compilePulseQueryText(baseId, resolveDashboardQueryText(widget.queryText, dashboard.config, controlValues));
+    if (compiled.ok && compiled.data.kind === "metric") return compiled.data;
+  }
+  return {
+    kind: "metric",
+    baseId,
+    metric: widget.metric,
+    aggregation: widget.aggregation,
+    bucket: widget.bucket,
+    since: widget.since,
+    sourceId: widget.sourceId ?? null,
+    entityId: widget.entityId ?? null,
+    entityType: widget.entityType ?? null,
+    dimensions: widget.dimensions ?? undefined,
+  };
+};
+
+const widgetQueryText = (widget: PulseDashboardEventsWidget | PulseDashboardStatesWidget, dashboard: PulseDashboard, controlValues: Record<string, string>): string =>
+  resolveDashboardQueryText(widget.queryText, dashboard.config, controlValues);
 
 const FOCUSED_PAGE_SIZE = 100;
 
@@ -99,6 +125,7 @@ export default ssr<AuthContext>(async (c) => {
 
   const routeState = readWorkspacePathState(url.pathname, baseResult.data.id);
   const initialActivityQuery = readActivityQueryState(url.search);
+  const initialDashboardControlValues = readDashboardControlQueryState(url.search);
   const explorerDockState = readDockWorkspaceStateCookie(c.req.header("Cookie"), "pulse.query-explorer");
   const dashboardEditorDockState = readDockWorkspaceStateCookie(c.req.header("Cookie"), "pulse.dashboard-editor");
   const activityQuery = {
@@ -171,12 +198,38 @@ export default ssr<AuthContext>(async (c) => {
     selectedSourceScrapesResult?.ok && selectedSource ? { [selectedSource.id]: selectedSourceScrapesResult.data } : {};
   const initialSourceApiKeys: Record<string, ResourceApiKey[]> =
     selectedSourceApiKeysResult?.ok && selectedSource ? { [selectedSource.id]: selectedSourceApiKeysResult.data } : {};
-  const panelPointsEntries =
+  const metricWidgetPointEntries =
     selectedDashboard && (routeState.view === "dashboard" || routeState.view === "dashboard-edit")
       ? await Promise.all(
-          dashboardMetricPanels(selectedDashboard).map(async (panel): Promise<[string, MetricQueryPoint[]]> => {
-            const result = await pulseService.query.metric(panelQuery(baseResult.data.id, panel), user);
-            return [panel.id, result.ok ? result.data : []];
+          dashboardMetricWidgets(selectedDashboard).map(async (widget): Promise<[string, MetricQueryPoint[]]> => {
+            const result = await pulseService.query.metric(metricWidgetQuery(baseResult.data.id, selectedDashboard, widget, initialDashboardControlValues), user);
+            return [widget.id, result.ok ? result.data : []];
+          }),
+        )
+      : [];
+  const dashboardEventEntries =
+    selectedDashboard && (routeState.view === "dashboard" || routeState.view === "dashboard-edit")
+      ? await Promise.all(
+          dashboardEventsWidgets(selectedDashboard).map(async (widget): Promise<[string, PulseRecordedEvent[]]> => {
+            const result = await pulseService.query.metricText({
+              baseId: baseResult.data.id,
+              query: widgetQueryText(widget, selectedDashboard, initialDashboardControlValues),
+              user,
+            });
+            return [widget.id, result.ok ? result.data.events : []];
+          }),
+        )
+      : [];
+  const dashboardStateEntries =
+    selectedDashboard && (routeState.view === "dashboard" || routeState.view === "dashboard-edit")
+      ? await Promise.all(
+          dashboardStatesWidgets(selectedDashboard).map(async (widget): Promise<[string, PulseCurrentState[]]> => {
+            const result = await pulseService.query.metricText({
+              baseId: baseResult.data.id,
+              query: widgetQueryText(widget, selectedDashboard, initialDashboardControlValues),
+              user,
+            });
+            return [widget.id, result.ok ? result.data.states : []];
           }),
         )
       : [];
@@ -208,8 +261,11 @@ export default ssr<AuthContext>(async (c) => {
         initialFocusedStates={focusedStates}
         initialFocusedHasMore={focusedHasMore}
         initialDashboards={dashboards}
+        initialDashboardControlValues={initialDashboardControlValues}
         initialSavedQueries={savedQueriesResult.ok ? savedQueriesResult.data : []}
-        initialPanelPoints={Object.fromEntries(panelPointsEntries)}
+        initialMetricWidgetPoints={Object.fromEntries(metricWidgetPointEntries)}
+        initialDashboardEvents={Object.fromEntries(dashboardEventEntries)}
+        initialDashboardStates={Object.fromEntries(dashboardStateEntries)}
         initialExplorerDockState={explorerDockState}
         initialDashboardEditorDockState={dashboardEditorDockState}
         initialDateConfig={dateConfig}

@@ -56,16 +56,13 @@ const parseInfoBlock = (text: string): InfoBlockData | null => {
   return { type, content: content.trim() };
 };
 
-const escapeHtml = (value: string): string =>
-  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const escapeHtml = (value: string): string => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const renderContent = (content: string): string => {
   const codeSpans: string[] = [];
   return escapeHtml(content)
     .replace(/`([^`]+)`/g, (_match, body: string) => {
-      const index = codeSpans.push(
-        `<code class="bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded text-sm">${body}</code>`,
-      ) - 1;
+      const index = codeSpans.push(`<code class="bg-black/10 dark:bg-white/10 px-1 py-0.5 rounded text-sm">${body}</code>`) - 1;
       return `\u0000CODE${index}\u0000`;
     })
     .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")

@@ -1,10 +1,6 @@
 import { sql } from "bun";
 import { applyIpaAccountTransitionPolicy } from "../accounts/switching";
-import {
-  calculateIpaProfileFromGroupNames,
-  parseIpaAccountTransitionPolicy,
-  parseIpaMatchMode,
-} from "../account-model";
+import { calculateIpaProfileFromGroupNames, parseIpaAccountTransitionPolicy, parseIpaMatchMode } from "../account-model";
 import { writeDeletedAccountAudit } from "../account-lifecycle/audit";
 import { logger } from "../logging";
 import * as settings from "../settings";
@@ -129,7 +125,10 @@ const transformSyncUser = (raw: Record<string, unknown>): SyncUser => {
     uidNumber: freeipa.util.num(raw.uidnumber),
     givenname: freeipa.util.str(raw.givenname),
     sn: freeipa.util.str(raw.sn),
-    displayName: freeipa.util.str(raw.displayname) || [freeipa.util.str(raw.givenname), freeipa.util.str(raw.sn)].filter(Boolean).join(" ") || freeipa.util.str(raw.uid),
+    displayName:
+      freeipa.util.str(raw.displayname) ||
+      [freeipa.util.str(raw.givenname), freeipa.util.str(raw.sn)].filter(Boolean).join(" ") ||
+      freeipa.util.str(raw.uid),
     mail: freeipa.util.str(raw.mail) || null,
     phone: freeipa.util.str(raw.telephonenumber) || null,
     ipaAccountExpires: freeipa.util.parseGeneralizedTime(raw.krbprincipalexpiration),
@@ -246,9 +245,7 @@ export const syncFromIpa = async (): Promise<void> => {
   const remoteGroupCns = new Set(allRawGroups.map((raw) => freeipa.util.str(raw.cn)).filter(Boolean));
   const groupCns = new Set(groups.map((g) => g.cn));
   const matchMode = parseIpaMatchMode(await settings.get<string | null>("freeipa.user_match_mode"));
-  const transitionPolicy = parseIpaAccountTransitionPolicy(
-    await settings.get<string | null>("freeipa.account_transition_policy"),
-  );
+  const transitionPolicy = parseIpaAccountTransitionPolicy(await settings.get<string | null>("freeipa.account_transition_policy"));
 
   let matchedExistingUsersByMail = 0;
   let migratedLocalUsers = 0;
@@ -281,9 +278,7 @@ export const syncFromIpa = async (): Promise<void> => {
     WHERE provider = 'ipa'
     ORDER BY uid
   `;
-  const currentProfileByUid = new Map(
-    localIpaRows.map((row) => [row.uid as string, row.profile as "user" | "guest"]),
-  );
+  const currentProfileByUid = new Map(localIpaRows.map((row) => [row.uid as string, row.profile as "user" | "guest"]));
   let profileDriftCount = 0;
   const profileDriftSamples: string[] = [];
   let profilesPromoted = 0;
@@ -313,14 +308,10 @@ export const syncFromIpa = async (): Promise<void> => {
   });
   const staleLimit = Math.max(10, Math.ceil(Math.max(localIpaUsers, 1) * 0.2));
   if (staleLocalUsers.length > staleLimit) {
-    throw new Error(
-      `Refusing IPA sync: ${staleLocalUsers.length} local IPA users disappeared from sync scope (limit ${staleLimit})`,
-    );
+    throw new Error(`Refusing IPA sync: ${staleLocalUsers.length} local IPA users disappeared from sync scope (limit ${staleLimit})`);
   }
   if (profilesDemoted > staleLimit) {
-    throw new Error(
-      `Refusing IPA sync: ${profilesDemoted} IPA users would be downgraded from user to guest (limit ${staleLimit})`,
-    );
+    throw new Error(`Refusing IPA sync: ${profilesDemoted} IPA users would be downgraded from user to guest (limit ${staleLimit})`);
   }
   if (profilesDemoted > 0) {
     log.warn("IPA sync will downgrade user profiles", { profilesDemoted, limit: staleLimit });
@@ -411,9 +402,7 @@ export const syncFromIpa = async (): Promise<void> => {
       // Third: insert new or update existing by uid
       const upserted = await tx<DbRow[]>`
         INSERT INTO auth.users (uid, provider, profile, admin, given_name, sn, display_name, mail, account_expires)
-        VALUES (${u.uid}, ${provider}, ${profile}, false, ${u.givenname}, ${u.sn}, ${
-          u.displayName
-        }, ${u.mail}, ${u.ipaAccountExpires})
+        VALUES (${u.uid}, ${provider}, ${profile}, false, ${u.givenname}, ${u.sn}, ${u.displayName}, ${u.mail}, ${u.ipaAccountExpires})
         ON CONFLICT (uid) DO UPDATE SET
           provider = ${provider},
           profile = ${profile},
@@ -587,7 +576,6 @@ export const syncFromIpa = async (): Promise<void> => {
     if (managerGroupRows.length > 0) {
       await tx`INSERT INTO auth.group_manager_groups_v2 ${sql(managerGroupRows, "group_id", "manager_group_id")} ON CONFLICT DO NOTHING`;
     }
-
   });
 
   for (const staleUser of staleDemotedUsers) {
@@ -648,9 +636,7 @@ const reconcileOutOfScopeUser = async (params: {
   reason: "ipa_expired_demoted" | "ipa_expired_deleted" | "sync_out_of_scope_demoted" | "sync_out_of_scope_deleted";
   meta?: Record<string, unknown>;
 }): Promise<void> => {
-  const transitionPolicy = parseIpaAccountTransitionPolicy(
-    await settings.get<string | null>("freeipa.account_transition_policy"),
-  );
+  const transitionPolicy = parseIpaAccountTransitionPolicy(await settings.get<string | null>("freeipa.account_transition_policy"));
 
   await sql.begin(async (tx) => {
     if (transitionPolicy === "delete") {

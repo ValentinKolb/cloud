@@ -16,7 +16,15 @@ import { GotenbergRenderError, testGotenberg } from "../services/pdf";
 import * as settings from "../services/settings";
 import { SETTINGS_MAP } from "../services/settings/defaults";
 
-const BulkUpdateSchema = z.record(z.string(), z.unknown());
+const BulkSaveSchema = z.union([
+  z
+    .object({
+      updates: z.record(z.string(), z.unknown()).optional().default({}),
+      resets: z.array(z.string()).optional().default([]),
+    })
+    .strict(),
+  z.record(z.string(), z.unknown()).transform((updates) => ({ updates, resets: [] as string[] })),
+]);
 const TestEmailSchema = z.object({
   recipient: z.email(),
 });
@@ -62,9 +70,10 @@ const app = new Hono<AuthContext>()
       return c.json({ message: "Failed to test Gotenberg PDF rendering" }, 500);
     }
   })
-  .put("/", auth.requireRole("admin"), v("json", BulkUpdateSchema), async (c) => {
-    const updates = c.req.valid("json");
-    const keys = Object.keys(updates);
+  .put("/", auth.requireRole("admin"), v("json", BulkSaveSchema), async (c) => {
+    const { updates, resets } = c.req.valid("json");
+    const updateKeys = Object.keys(updates);
+    const keys = [...updateKeys, ...resets];
 
     if (keys.length === 0) {
       return c.body(null, 204);
@@ -74,6 +83,11 @@ const app = new Hono<AuthContext>()
     for (const key of keys) {
       if (!isKnownSetting(key)) {
         ownership[key] = `Unknown setting "${key}"`;
+      }
+    }
+    for (const key of resets) {
+      if (key in updates) {
+        ownership[key] = `Setting "${key}" cannot be updated and reset in the same save`;
       }
     }
     if (Object.keys(ownership).length > 0) {
@@ -88,6 +102,14 @@ const app = new Hono<AuthContext>()
             await settings.set(key, value);
           } catch (error) {
             fieldErrors[key] = error instanceof Error ? error.message : `Failed to update ${key}`;
+            throw error;
+          }
+        }
+        for (const key of resets) {
+          try {
+            await settings.remove(key);
+          } catch (error) {
+            fieldErrors[key] = error instanceof Error ? error.message : `Failed to reset ${key}`;
             throw error;
           }
         }

@@ -90,11 +90,7 @@ export const getByIdOrShortId = async (tableId: string, idOrSlug: string): Promi
  *   matching grant is `none`, the view is hidden even if it would
  *   otherwise be a default-shared view.
  */
-export const listForTable = async (params: {
-  tableId: string;
-  userId: string | null;
-  userGroups?: string[];
-}): Promise<View[]> => {
+export const listForTable = async (params: { tableId: string; userId: string | null; userGroups?: string[] }): Promise<View[]> => {
   // Defensive encoding: bun.sql may surface an empty uuid[] column as the
   // string "{}" instead of [], and admin users with no group memberships
   // hit exactly that path. toPgUuidArray normalizes both shapes.
@@ -185,20 +181,13 @@ export type TierRanks = {
  * hides it. If no tier matched, falls back to default visibility (shared
  * view or own personal view). Pure logic — no DB.
  */
-export const isVisibleByAclTiers = (
-  ranks: TierRanks,
-  defaults: { ownerUserId: string | null; viewerUserId: string | null },
-): boolean => {
-  const winning =
-    ranks.userRank ?? ranks.groupRank ?? ranks.authRank ?? ranks.publicRank;
+export const isVisibleByAclTiers = (ranks: TierRanks, defaults: { ownerUserId: string | null; viewerUserId: string | null }): boolean => {
+  const winning = ranks.userRank ?? ranks.groupRank ?? ranks.authRank ?? ranks.publicRank;
   if (winning !== null && winning !== undefined) return winning >= 1;
   return defaults.ownerUserId === null || defaults.ownerUserId === defaults.viewerUserId;
 };
 
-export const get = async (
-  id: string,
-  opts: { includeDeleted?: boolean } = {},
-): Promise<View | null> => {
+export const get = async (id: string, opts: { includeDeleted?: boolean } = {}): Promise<View | null> => {
   // SELECT v.* — slug must be in the projection or mapRow throws (see
   // Wave 1.1's slug invariant). Live-parent invariant: parent table +
   // base must be alive; trashed views require explicit `includeDeleted`.
@@ -220,11 +209,7 @@ export const get = async (
   return row ? mapRow(row) : null;
 };
 
-const ensureUniqueViewName = async (
-  tableId: string,
-  name: string,
-  exceptViewId: string | null = null,
-): Promise<Result<void>> => {
+const ensureUniqueViewName = async (tableId: string, name: string, exceptViewId: string | null = null): Promise<Result<void>> => {
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM grids.views v
@@ -250,10 +235,7 @@ export type CreateViewServiceInput = {
   ownerUserId?: string | null;
 };
 
-export const create = async (
-  input: CreateViewServiceInput,
-  actorId: string | null,
-): Promise<Result<View>> => {
+export const create = async (input: CreateViewServiceInput, actorId: string | null): Promise<Result<View>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
   const uniqueName = await ensureUniqueViewName(input.tableId, name);
@@ -285,7 +267,12 @@ export const create = async (
     return r;
   }, "idx_grids_views_short_id");
   const view = mapRow(row);
-  await logAudit({ tableId: input.tableId, userId: actorId, action: "created", diff: { view: { old: null, new: { id: view.id, name: view.name } } } });
+  await logAudit({
+    tableId: input.tableId,
+    userId: actorId,
+    action: "created",
+    diff: { view: { old: null, new: { id: view.id, name: view.name } } },
+  });
   await emitTableMetadataEvent(input.tableId, {
     type: "view.created",
     resource: { kind: "view", id: view.id, tableId: input.tableId },
@@ -306,11 +293,7 @@ export type UpdateViewServiceInput = {
   shared?: boolean;
 };
 
-export const update = async (
-  id: string,
-  input: UpdateViewServiceInput,
-  actorId: string | null,
-): Promise<Result<View>> => {
+export const update = async (id: string, input: UpdateViewServiceInput, actorId: string | null): Promise<Result<View>> => {
   const existing = await get(id);
   if (!existing) return fail(err.notFound("View"));
 
@@ -319,12 +302,7 @@ export const update = async (
   const uniqueName = await ensureUniqueViewName(existing.tableId, name ?? existing.name, existing.id);
   if (!uniqueName.ok) return uniqueName;
 
-  const ownerUserId =
-    input.shared === undefined
-      ? existing.ownerUserId
-      : input.shared
-      ? null
-      : actorId;
+  const ownerUserId = input.shared === undefined ? existing.ownerUserId : input.shared ? null : actorId;
 
   const uiParsed = ViewUiSettingsSchema.safeParse(input.ui ?? existing.ui);
   if (!uiParsed.success) return fail(err.badInput("invalid view UI settings"));

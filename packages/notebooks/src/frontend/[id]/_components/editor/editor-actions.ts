@@ -138,7 +138,6 @@ export const insertAtCursor = (view: EditorView, text: string): void => {
 // Block insertion
 // ==========================
 
-
 /**
  * Insert a fenced code block at the current line and place the cursor on
  * the empty line between the fences, ready for typing.
@@ -225,10 +224,7 @@ export const insertDataBlock = (view: EditorView): void => {
 const buildTable = (rows: number, cols: number): string => {
   const header = `| ${Array.from({ length: cols }, (_, i) => `Header ${i + 1}`).join(" | ")} |`;
   const sep = `| ${Array.from({ length: cols }, () => "---").join(" | ")} |`;
-  const body = Array.from(
-    { length: rows },
-    () => `| ${Array.from({ length: cols }, () => "   ").join(" | ")} |`,
-  ).join("\n");
+  const body = Array.from({ length: rows }, () => `| ${Array.from({ length: cols }, () => "   ").join(" | ")} |`).join("\n");
   return `${header}\n${sep}\n${body}`;
 };
 
@@ -249,10 +245,7 @@ const buildTable = (rows: number, cols: number): string => {
  * header cell's placeholder text (`Header 1`) so the user can start
  * typing immediately to replace it.
  */
-export const insertTable = async (
-  view: EditorView,
-  dimensions?: { rows: number; cols: number },
-): Promise<void> => {
+export const insertTable = async (view: EditorView, dimensions?: { rows: number; cols: number }): Promise<void> => {
   let rows: number;
   let cols: number;
   if (dimensions) {

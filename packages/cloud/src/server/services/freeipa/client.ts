@@ -18,15 +18,13 @@ export const baseUrl = (url: string): string => `https://${url}`;
 const isNoModificationError = (error: IpaRpcResponse["error"]): boolean =>
   error?.code === 4202 && (error.message ?? "").toLowerCase().includes("no modifications to be performed");
 
-export const call = async (
-  config: {
-    url: string;
-    ipaSession: string;
-    method: string;
-    args?: unknown[];
-    options?: Record<string, unknown>;
-  },
-): Promise<IpaRpcResponse> => {
+export const call = async (config: {
+  url: string;
+  ipaSession: string;
+  method: string;
+  args?: unknown[];
+  options?: Record<string, unknown>;
+}): Promise<IpaRpcResponse> => {
   const tls = await getFreeIpaTls();
   const res = await fetch(`${baseUrl(config.url)}/ipa/session/json`, {
     method: "POST",

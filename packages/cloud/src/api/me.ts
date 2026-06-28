@@ -23,13 +23,7 @@ import {
   UserSchema,
   WebAuthnPasskeySchema,
 } from "../contracts";
-import {
-  accountLifecycle,
-  accountsAppService as accountsService,
-  audit,
-  serviceAccountCredentials,
-  webauthn,
-} from "../services";
+import { accountLifecycle, accountsAppService as accountsService, audit, serviceAccountCredentials, webauthn } from "../services";
 
 const toAccountsActor = (user: AuthContext["Variables"]["user"]) => ({
   userId: user.id,
@@ -53,7 +47,12 @@ const ListApiKeysResponseSchema = z.object({
 });
 
 const AccountActivityQuerySchema = z.object({
-  days: z.coerce.number().int().pipe(z.union([z.literal(7), z.literal(30), z.literal(90)])).optional().default(30),
+  days: z.coerce
+    .number()
+    .int()
+    .pipe(z.union([z.literal(7), z.literal(30), z.literal(90)]))
+    .optional()
+    .default(30),
 });
 
 const app = new Hono<AuthContext>()
@@ -172,14 +171,18 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateWebAuthnPasskeySchema),
     async (c) =>
-      respond(c, () => {
-        const data = c.req.valid("json");
-        return webauthn.finishRegistration({
-          user: c.get("user"),
-          name: data.name,
-          response: data.response as never,
-        });
-      }, 201),
+      respond(
+        c,
+        () => {
+          const data = c.req.valid("json");
+          return webauthn.finishRegistration({
+            user: c.get("user"),
+            name: data.name,
+            response: data.response as never,
+          });
+        },
+        201,
+      ),
   )
 
   .delete(
@@ -218,15 +221,19 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateUserApiKeySchema),
     async (c) =>
-      respond(c, async () => {
-        const user = c.get("user");
-        const data = c.req.valid("json");
-        return serviceAccountCredentials.createUserApiToken({
-          user,
-          name: data.name,
-          expiresAt: data.expiresAt ?? null,
-        });
-      }, 201),
+      respond(
+        c,
+        async () => {
+          const user = c.get("user");
+          const data = c.req.valid("json");
+          return serviceAccountCredentials.createUserApiToken({
+            user,
+            name: data.name,
+            expiresAt: data.expiresAt ?? null,
+          });
+        },
+        201,
+      ),
   )
 
   .get(
@@ -362,8 +369,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     v("json", CreateAccountRequestSchema),
-    async (c) =>
-      respond(c, accountsService.accountRequest.create({ user: c.get("user"), data: c.req.valid("json") }), 201),
+    async (c) => respond(c, accountsService.accountRequest.create({ user: c.get("user"), data: c.req.valid("json") }), 201),
   )
 
   .delete(

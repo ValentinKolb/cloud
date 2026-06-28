@@ -113,7 +113,7 @@ test("IFEMPTY and IFERROR", () => {
 });
 test("ISBLANK", () => {
   expect(run("ISBLANK({x})", { x: null })).toBe(true);
-  expect(run("ISBLANK({x})", { x: '' })).toBe(true);
+  expect(run("ISBLANK({x})", { x: "" })).toBe(true);
   expect(run("ISBLANK({x})", { x: "set" })).toBe(false);
 });
 

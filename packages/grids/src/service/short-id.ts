@@ -38,10 +38,7 @@ export const SHORT_ID_REGEX = /^[A-Za-z0-9]{5}$/;
  *                guards short_id uniqueness for this resource (e.g.
  *                `idx_grids_bases_short_id`).
  */
-export const insertWithShortId = async <T>(
-  insert: (shortId: string) => Promise<T>,
-  uniqueIndexName: string,
-): Promise<T> => {
+export const insertWithShortId = async <T>(insert: (shortId: string) => Promise<T>, uniqueIndexName: string): Promise<T> => {
   for (let attempt = 0; attempt < 10; attempt++) {
     const shortId = crypto.common.readableId(5);
     try {
@@ -51,7 +48,5 @@ export const insertWithShortId = async <T>(
       throw e;
     }
   }
-  throw new Error(
-    `short_id generation: 10 collisions in a row on ${uniqueIndexName} — scope is saturated or RNG is broken`,
-  );
+  throw new Error(`short_id generation: 10 collisions in a row on ${uniqueIndexName} — scope is saturated or RNG is broken`);
 };

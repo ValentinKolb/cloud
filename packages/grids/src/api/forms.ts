@@ -62,7 +62,8 @@ class SubmitFailure extends Error {
 }
 
 const parseSubmission = (submitted: Record<string, unknown>): ParsedSubmit | SubmitFailure => {
-  const envelopeLike = Object.prototype.hasOwnProperty.call(submitted, "data") || Object.prototype.hasOwnProperty.call(submitted, "inlineCreates");
+  const envelopeLike =
+    Object.prototype.hasOwnProperty.call(submitted, "data") || Object.prototype.hasOwnProperty.call(submitted, "inlineCreates");
   if (!envelopeLike) return { data: submitted, inlineCreates: {} };
   const parsed = SubmitEnvelopeSchema.safeParse(submitted);
   if (!parsed.success) return new SubmitFailure("Invalid form submission");
@@ -184,9 +185,11 @@ const submitFormResponse = async (
         const targetFieldsById = new Map(targetFields.map((field) => [field.id, field]));
 
         for (const draft of drafts) {
-          if (!draft.tempId.startsWith("tmp_")) throw new SubmitFailure(`Field "${fieldName(relationFieldId)}" has an invalid inline draft id`);
+          if (!draft.tempId.startsWith("tmp_"))
+            throw new SubmitFailure(`Field "${fieldName(relationFieldId)}" has an invalid inline draft id`);
           for (const key of Object.keys(draft.data)) {
-            if (!allowedInlineIds.has(key)) throw new SubmitFailure(`Field "${fieldName(relationFieldId)}" contains a field that cannot be created inline`);
+            if (!allowedInlineIds.has(key))
+              throw new SubmitFailure(`Field "${fieldName(relationFieldId)}" contains a field that cannot be created inline`);
           }
         }
 
@@ -219,7 +222,9 @@ const submitFormResponse = async (
             }
             if (
               (inlineEntry.required || targetField.required) &&
-              (draftPayload[inlineEntry.fieldId] === undefined || draftPayload[inlineEntry.fieldId] === null || draftPayload[inlineEntry.fieldId] === "")
+              (draftPayload[inlineEntry.fieldId] === undefined ||
+                draftPayload[inlineEntry.fieldId] === null ||
+                draftPayload[inlineEntry.fieldId] === "")
             ) {
               throw new SubmitFailure(`Field "${inlineEntry.label?.trim() || targetField.name}" is required`);
             }

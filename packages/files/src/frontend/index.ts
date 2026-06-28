@@ -13,4 +13,8 @@ export default new Hono<AuthContext>()
   .get("/search", auth.requireAccount({ provider: "ipa", profile: "user", onReject: auth.redirectToLogin.onReject }), ...filesSearchPage)
   .get("/home", auth.requireAccount({ provider: "ipa", profile: "user", onReject: auth.redirectToLogin.onReject }), ...filesHomePage)
   .get("/home/*", auth.requireAccount({ provider: "ipa", profile: "user", onReject: auth.redirectToLogin.onReject }), ...filesHomePage)
-  .get("/:baseType/:baseId", auth.requireAccount({ provider: "ipa", profile: "user", onReject: auth.redirectToLogin.onReject }), ...filesDetailPage);
+  .get(
+    "/:baseType/:baseId",
+    auth.requireAccount({ provider: "ipa", profile: "user", onReject: auth.redirectToLogin.onReject }),
+    ...filesDetailPage,
+  );

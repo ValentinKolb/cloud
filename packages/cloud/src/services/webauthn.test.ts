@@ -29,8 +29,6 @@ describe("resolveWebAuthnRp", () => {
   });
 
   test("rejects non-local insecure origins", () => {
-    expect(() => resolveWebAuthnRp({ appUrl: "http://cloud.example", appName: "Cloud" })).toThrow(
-      "WebAuthn requires an HTTPS app.url",
-    );
+    expect(() => resolveWebAuthnRp({ appUrl: "http://cloud.example", appName: "Cloud" })).toThrow("WebAuthn requires an HTTPS app.url");
   });
 });

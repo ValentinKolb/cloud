@@ -23,7 +23,12 @@ const showError = (error: string | null) => {
   void dialogCore.open<void>(
     (close) => (
       <PanelDialog>
-        <PanelDialog.Header title="Delivery error" subtitle="The latest failed delivery attempt returned this error." icon="ti ti-alert-triangle" close={close} />
+        <PanelDialog.Header
+          title="Delivery error"
+          subtitle="The latest failed delivery attempt returned this error."
+          icon="ti ti-alert-triangle"
+          close={close}
+        />
         <PanelDialog.Body>
           <pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/30 p-3 text-xs leading-relaxed text-primary">
             {error || "No error details were stored for this recipient."}

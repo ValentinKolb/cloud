@@ -56,7 +56,14 @@ const CreateNoteButton = (props: Props) => {
 
   if (props.variant === "icon") {
     return (
-      <button type="button" onClick={handleCreate} disabled={mutation.loading()} class="sidebar-icon-action sidebar-icon-action-success" title="New Note" aria-label="New Note">
+      <button
+        type="button"
+        onClick={handleCreate}
+        disabled={mutation.loading()}
+        class="sidebar-icon-action sidebar-icon-action-success"
+        title="New Note"
+        aria-label="New Note"
+      >
         <i class={`ti ${mutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-base`} />
       </button>
     );

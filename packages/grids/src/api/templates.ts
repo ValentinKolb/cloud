@@ -51,11 +51,7 @@ const app = new Hono<AuthContext>()
       return respond(
         c,
         () =>
-          gridsService.template.instantiate(
-            c.req.param("templateId")!,
-            { name: body.name, withSampleData: body.withSampleData },
-            user.id,
-          ),
+          gridsService.template.instantiate(c.req.param("templateId")!, { name: body.name, withSampleData: body.withSampleData }, user.id),
         201,
       );
     },

@@ -55,11 +55,7 @@ export type RenderOptions = {
  * it through untouched — it ends up in the output verbatim, then
  * gets substituted here.
  */
-export const renderWithOverlay = (
-  text: string,
-  highlight: (text: string) => string,
-  options: RenderOptions = {},
-): string => {
+export const renderWithOverlay = (text: string, highlight: (text: string) => string, options: RenderOptions = {}): string => {
   const { ghost, anchor } = options;
 
   // Ghost wins over anchor: when both are conceptually present, the
