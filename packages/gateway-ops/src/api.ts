@@ -16,6 +16,8 @@ import {
 } from "./health-webhooks";
 import { updateHealthSchedule } from "./lifecycle";
 import { metricsApiRoutes } from "./observability/metrics/api";
+import { getDataDiagnostics, getPostgresDiagnostics, getRedisDiagnostics } from "./observability/data/service";
+import { getTelemetrySummary, listTelemetryApps, listTelemetryEvents } from "./telemetry";
 import { removeOfflineRegisteredApp } from "./registered-apps";
 
 const GATEWAY_SETTING_GROUP = "gateway";
@@ -23,6 +25,27 @@ const GATEWAY_SETTING_PREFIX = "gateway.";
 
 const UpdateSettingSchema = z.object({ value: z.unknown() });
 const HealthWebhookIdParamSchema = z.object({ id: z.uuid() });
+const QueryBooleanSchema = z
+  .string()
+  .optional()
+  .transform((value) => value === "1" || value === "true");
+const TelemetryEventsQuerySchema = z.object({
+  search: z.string().optional(),
+  app: z.string().optional(),
+  route: z.string().optional(),
+  slow: QueryBooleanSchema,
+  errors: QueryBooleanSchema,
+  page: z.coerce.number().int().min(1).optional(),
+  per_page: z.coerce.number().int().min(1).max(200).optional(),
+});
+const TelemetrySummaryQuerySchema = z.object({
+  hours: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 31)
+    .optional(),
+});
 const HealthWebhookInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   url: z.string().trim().min(1).max(2_000),
@@ -64,6 +87,34 @@ export const apiRoutes = new Hono<AuthContext>()
     return respond(c, ok({ message: "Setting updated" }));
   })
   .get("/health", async (c) => respond(c, ok(await buildGatewayHealth())))
+  .get("/data", async (c) => respond(c, ok(await getDataDiagnostics())))
+  .get("/data/postgres", async (c) => respond(c, ok(await getPostgresDiagnostics())))
+  .get("/data/redis", async (c) => respond(c, ok(await getRedisDiagnostics())))
+  .get("/telemetry/summary", v("query", TelemetrySummaryQuerySchema), async (c) => {
+    const { hours } = c.req.valid("query");
+    return respond(c, ok(await getTelemetrySummary(hours)));
+  })
+  .get("/telemetry/apps", v("query", TelemetrySummaryQuerySchema), async (c) => {
+    const { hours } = c.req.valid("query");
+    return respond(c, ok({ items: await listTelemetryApps(hours) }));
+  })
+  .get("/telemetry/events", v("query", TelemetryEventsQuerySchema), async (c) => {
+    const query = c.req.valid("query");
+    return respond(
+      c,
+      ok(
+        await listTelemetryEvents({
+          search: query.search,
+          appId: query.app,
+          routePrefix: query.route,
+          slowOnly: query.slow,
+          errorsOnly: query.errors,
+          page: query.page,
+          perPage: query.per_page,
+        }),
+      ),
+    );
+  })
   .get("/health/webhooks", async (c) => respond(c, ok(await listHealthWebhooks())))
   .post("/health/webhooks", v("json", HealthWebhookInputSchema), async (c) => {
     try {

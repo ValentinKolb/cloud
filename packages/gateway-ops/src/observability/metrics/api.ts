@@ -2,7 +2,7 @@ import { type AuthContext, respond, v } from "@valentinkolb/cloud/server";
 import { ok } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
 import { z } from "zod";
-import { createMetricsToken, listMetricsTokens, revokeMetricsToken } from "./service";
+import { createMetricsToken, getMetricsSnapshot, listMetricsTokens, revokeMetricsToken } from "./service";
 
 const CreateMetricsTokenSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -10,6 +10,17 @@ const CreateMetricsTokenSchema = z.object({
 });
 
 export const metricsApiRoutes = new Hono<AuthContext>()
+  .get("/snapshot", async (c) => {
+    const snapshot = await getMetricsSnapshot();
+    return respond(
+      c,
+      ok({
+        generatedAt: snapshot.generatedAt,
+        series: snapshot.series,
+        collectors: snapshot.collectors,
+      }),
+    );
+  })
   .get("/tokens", async (c) => respond(c, ok({ items: await listMetricsTokens() })))
   .post("/tokens", v("json", CreateMetricsTokenSchema), async (c) =>
     respond(c, createMetricsToken(c.req.valid("json"), c.get("user")), 201),
