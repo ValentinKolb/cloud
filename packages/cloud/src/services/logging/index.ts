@@ -1,7 +1,7 @@
 import { sql } from "bun";
 import type { PaginationParams } from "../../contracts/shared";
-import { registerSettings, registerGroupLabel } from "../settings/defaults";
 import { escapeLikePattern, parsePgJsonRecord, toPgTextArray } from "../postgres";
+import { registerGroupLabel, registerSettings } from "../settings/defaults";
 
 // ── Settings Registration ──────────────────────────────────────────────
 
@@ -37,7 +37,7 @@ type Logger = {
 };
 
 export type LogEntry = {
-  id: number;
+  id: string;
   level: LogLevel;
   source: string;
   message: string;
@@ -46,7 +46,7 @@ export type LogEntry = {
 };
 
 type DbLogRow = {
-  id: number;
+  id: string | number;
   level: string;
   source: string;
   message: string;
@@ -62,7 +62,7 @@ type DbLogRow = {
  * Maps one logging row to the public log entry shape.
  */
 const mapRow = (row: DbLogRow): LogEntry => ({
-  id: row.id,
+  id: String(row.id),
   level: row.level as LogLevel,
   source: row.source,
   message: row.message,
@@ -146,10 +146,11 @@ const list = async (
     sources?: string[];
     level?: string;
     search?: string;
+    sinceHours?: number;
   },
 ): Promise<{ entries: LogEntry[]; total: number }> => {
   const { offset, perPage } = pagination;
-  const { source, sources, level, search } = options ?? {};
+  const { source, sources, level, search, sinceHours } = options ?? {};
 
   const searchPattern = search ? `%${escapeLikePattern(search)}%` : null;
   const filterSource = source && source !== "all" ? source : null;
@@ -160,6 +161,7 @@ const list = async (
   const filterSourcesLiteral = filterSources ? toPgTextArray(filterSources) : null;
   const filterLevel = level && level !== "all" ? level : null;
   const hasSourceList = !!filterSources && filterSources.length > 0;
+  const filterSinceHours = Number.isFinite(sinceHours) && sinceHours && sinceHours > 0 ? Math.trunc(sinceHours) : null;
 
   let countRows: Array<{ count: number }> = [];
   let dataRows: DbLogRow[] = [];
@@ -170,6 +172,7 @@ const list = async (
       FROM logging.entries
       WHERE source = ${filterSource}
         AND (${filterLevel}::text IS NULL OR level = ${filterLevel})
+        AND (${filterSinceHours}::int IS NULL OR created_at >= now() - (${filterSinceHours}::int * INTERVAL '1 hour'))
         AND (${searchPattern}::text IS NULL OR message ILIKE ${searchPattern} ESCAPE '\' OR metadata::text ILIKE ${searchPattern} ESCAPE '\')
     `;
 
@@ -178,6 +181,7 @@ const list = async (
       FROM logging.entries
       WHERE source = ${filterSource}
         AND (${filterLevel}::text IS NULL OR level = ${filterLevel})
+        AND (${filterSinceHours}::int IS NULL OR created_at >= now() - (${filterSinceHours}::int * INTERVAL '1 hour'))
         AND (${searchPattern}::text IS NULL OR message ILIKE ${searchPattern} ESCAPE '\' OR metadata::text ILIKE ${searchPattern} ESCAPE '\')
       ORDER BY created_at DESC
       LIMIT ${perPage} OFFSET ${offset}
@@ -188,6 +192,7 @@ const list = async (
       FROM logging.entries
       WHERE source = ANY(${filterSourcesLiteral}::text[])
         AND (${filterLevel}::text IS NULL OR level = ${filterLevel})
+        AND (${filterSinceHours}::int IS NULL OR created_at >= now() - (${filterSinceHours}::int * INTERVAL '1 hour'))
         AND (${searchPattern}::text IS NULL OR message ILIKE ${searchPattern} ESCAPE '\' OR metadata::text ILIKE ${searchPattern} ESCAPE '\')
     `;
 
@@ -196,6 +201,7 @@ const list = async (
       FROM logging.entries
       WHERE source = ANY(${filterSourcesLiteral}::text[])
         AND (${filterLevel}::text IS NULL OR level = ${filterLevel})
+        AND (${filterSinceHours}::int IS NULL OR created_at >= now() - (${filterSinceHours}::int * INTERVAL '1 hour'))
         AND (${searchPattern}::text IS NULL OR message ILIKE ${searchPattern} ESCAPE '\' OR metadata::text ILIKE ${searchPattern} ESCAPE '\')
       ORDER BY created_at DESC
       LIMIT ${perPage} OFFSET ${offset}
@@ -205,6 +211,7 @@ const list = async (
       SELECT COUNT(*)::int as count
       FROM logging.entries
       WHERE (${filterLevel}::text IS NULL OR level = ${filterLevel})
+        AND (${filterSinceHours}::int IS NULL OR created_at >= now() - (${filterSinceHours}::int * INTERVAL '1 hour'))
         AND (${searchPattern}::text IS NULL OR message ILIKE ${searchPattern} ESCAPE '\' OR metadata::text ILIKE ${searchPattern} ESCAPE '\')
     `;
 
@@ -212,6 +219,7 @@ const list = async (
       SELECT id, level, source, message, metadata, created_at
       FROM logging.entries
       WHERE (${filterLevel}::text IS NULL OR level = ${filterLevel})
+        AND (${filterSinceHours}::int IS NULL OR created_at >= now() - (${filterSinceHours}::int * INTERVAL '1 hour'))
         AND (${searchPattern}::text IS NULL OR message ILIKE ${searchPattern} ESCAPE '\' OR metadata::text ILIKE ${searchPattern} ESCAPE '\')
       ORDER BY created_at DESC
       LIMIT ${perPage} OFFSET ${offset}
@@ -230,6 +238,16 @@ const getSources = async (): Promise<string[]> => {
     SELECT DISTINCT source FROM logging.entries ORDER BY source
   `;
   return rows.map((row: { source: string }) => row.source);
+};
+
+/** Get a single log entry by id. */
+const getById = async (id: string): Promise<LogEntry | null> => {
+  const rows = await sql<DbLogRow[]>`
+    SELECT id, level, source, message, metadata, created_at
+    FROM logging.entries
+    WHERE id = ${id}::bigint
+  `;
+  return rows[0] ? mapRow(rows[0]) : null;
 };
 
 /** Delete log entries older than the given number of days. */
@@ -292,6 +310,7 @@ const summary = async (): Promise<LogSummary> => {
 /** Admin service object for querying/managing logs. */
 export const logging = {
   list,
+  getById,
   getSources,
   cleanup,
   summary,

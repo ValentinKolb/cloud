@@ -15,10 +15,10 @@ import {
   updateHealthWebhook,
 } from "./health-webhooks";
 import { updateHealthSchedule } from "./lifecycle";
-import { metricsApiRoutes } from "./observability/metrics/api";
 import { getDataDiagnostics, getPostgresDiagnostics, getRedisDiagnostics } from "./observability/data/service";
-import { getTelemetrySummary, listTelemetryApps, listTelemetryEvents } from "./telemetry";
+import { metricsApiRoutes } from "./observability/metrics/api";
 import { removeOfflineRegisteredApp } from "./registered-apps";
+import { getTelemetrySummary, listTelemetryApps, listTelemetryEvents } from "./telemetry";
 
 const GATEWAY_SETTING_GROUP = "gateway";
 const GATEWAY_SETTING_PREFIX = "gateway.";
@@ -35,6 +35,12 @@ const TelemetryEventsQuerySchema = z.object({
   route: z.string().optional(),
   slow: QueryBooleanSchema,
   errors: QueryBooleanSchema,
+  hours: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(24 * 31)
+    .optional(),
   page: z.coerce.number().int().min(1).optional(),
   per_page: z.coerce.number().int().min(1).max(200).optional(),
 });
@@ -109,6 +115,7 @@ export const apiRoutes = new Hono<AuthContext>()
           routePrefix: query.route,
           slowOnly: query.slow,
           errorsOnly: query.errors,
+          hours: query.hours,
           page: query.page,
           perPage: query.per_page,
         }),

@@ -32,6 +32,7 @@ export type TelemetryEventFilter = {
   routePrefix?: string;
   slowOnly?: boolean;
   errorsOnly?: boolean;
+  hours?: number;
   page?: number;
   perPage?: number;
 };
@@ -238,6 +239,7 @@ export const listTelemetryEvents = async (filter: TelemetryEventFilter = {}): Pr
   const routePrefix = filter.routePrefix?.trim() || null;
   const slowOnly = filter.slowOnly === true;
   const errorsOnly = filter.errorsOnly === true;
+  const hours = Number.isFinite(filter.hours) && filter.hours && filter.hours > 0 ? Math.min(Math.trunc(filter.hours), 24 * 31) : null;
 
   const [countRow] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
@@ -245,6 +247,7 @@ export const listTelemetryEvents = async (filter: TelemetryEventFilter = {}): Pr
     WHERE (${searchPattern}::text IS NULL OR app_id ILIKE ${searchPattern} ESCAPE '\' OR route_prefix ILIKE ${searchPattern} ESCAPE '\' OR method ILIKE ${searchPattern} ESCAPE '\' OR error_kind ILIKE ${searchPattern} ESCAPE '\')
       AND (${appId}::text IS NULL OR app_id = ${appId})
       AND (${routePrefix}::text IS NULL OR route_prefix = ${routePrefix})
+      AND (${hours}::int IS NULL OR occurred_at >= now() - (${hours}::int * INTERVAL '1 hour'))
       AND (${slowOnly}::boolean IS FALSE OR duration_ms >= ${SLOW_REQUEST_MS})
       AND (${errorsOnly}::boolean IS FALSE OR status_code >= 500 OR error_kind IS NOT NULL)
   `;
@@ -266,6 +269,7 @@ export const listTelemetryEvents = async (filter: TelemetryEventFilter = {}): Pr
     WHERE (${searchPattern}::text IS NULL OR app_id ILIKE ${searchPattern} ESCAPE '\' OR route_prefix ILIKE ${searchPattern} ESCAPE '\' OR method ILIKE ${searchPattern} ESCAPE '\' OR error_kind ILIKE ${searchPattern} ESCAPE '\')
       AND (${appId}::text IS NULL OR app_id = ${appId})
       AND (${routePrefix}::text IS NULL OR route_prefix = ${routePrefix})
+      AND (${hours}::int IS NULL OR occurred_at >= now() - (${hours}::int * INTERVAL '1 hour'))
       AND (${slowOnly}::boolean IS FALSE OR duration_ms >= ${SLOW_REQUEST_MS})
       AND (${errorsOnly}::boolean IS FALSE OR status_code >= 500 OR error_kind IS NOT NULL)
     ORDER BY gateway.telemetry_events.occurred_at DESC

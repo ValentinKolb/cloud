@@ -1,16 +1,31 @@
+import { type AuthContext, auth, jsonResponse, rateLimit, requiresAdmin, respond, v } from "@valentinkolb/cloud/server";
+import { get, set } from "@valentinkolb/cloud/services";
+import { err, fail, ok } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
-import { rateLimit, v, jsonResponse, requiresAdmin, auth, type AuthContext, respond } from "@valentinkolb/cloud/server";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { ok } from "@valentinkolb/stdlib";
+import {
+  createPagination,
+  ErrorResponseSchema,
+  LogEntrySchema,
+  LogLevelSchema,
+  PaginationQuerySchema,
+  PaginationResponseSchema,
+  parsePagination,
+} from "./contracts";
 import { loggingService } from "./service";
-import { get, set } from "@valentinkolb/cloud/services";
-import { LogEntrySchema, LogLevelSchema, ErrorResponseSchema, PaginationQuerySchema, PaginationResponseSchema } from "./contracts";
-import { parsePagination, createPagination } from "./contracts";
 
 const LogListResponseSchema = z.object({
   entries: z.array(LogEntrySchema),
   pagination: PaginationResponseSchema,
+});
+const LogSummaryResponseSchema = z.object({
+  total: z.number(),
+  errors24h: z.number(),
+  warnings24h: z.number(),
+  total24h: z.number(),
+  sources: z.number(),
+  lastErrorAt: z.string().nullable(),
 });
 
 // Mounted at `/api/logging`. Sub-routes:
@@ -40,6 +55,12 @@ const app = new Hono<AuthContext>()
         source: z.string().optional(),
         level: LogLevelSchema.optional(),
         search: z.string().optional(),
+        since_hours: z.coerce
+          .number()
+          .int()
+          .positive()
+          .max(24 * 31)
+          .optional(),
       }),
     ),
     async (c) => {
@@ -52,6 +73,7 @@ const app = new Hono<AuthContext>()
           source: query.source,
           level: query.level,
           search: query.search,
+          sinceHours: query.since_hours,
         },
       });
 
@@ -63,6 +85,20 @@ const app = new Hono<AuthContext>()
         }),
       );
     },
+  )
+
+  // Get log volume and error summary
+  .get(
+    "/summary",
+    describeRoute({
+      tags: ["Logs"],
+      summary: "Get log summary",
+      ...requiresAdmin,
+      responses: {
+        200: jsonResponse(LogSummaryResponseSchema, "Log summary"),
+      },
+    }),
+    async (c) => respond(c, ok(await loggingService.stats.summary())),
   )
 
   // Get all unique source names
@@ -79,6 +115,25 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const sources = await loggingService.source.list();
       return respond(c, ok({ sources }));
+    },
+  )
+
+  // Get one log entry with full metadata
+  .get(
+    "/:id",
+    describeRoute({
+      tags: ["Logs"],
+      summary: "Get log entry",
+      ...requiresAdmin,
+      responses: {
+        200: jsonResponse(LogEntrySchema, "Log entry"),
+        404: jsonResponse(ErrorResponseSchema, "Log entry not found"),
+      },
+    }),
+    v("param", z.object({ id: z.string().regex(/^\d+$/) })),
+    async (c) => {
+      const entry = await loggingService.entry.get({ id: c.req.valid("param").id });
+      return respond(c, entry ? ok(entry) : fail(err.notFound("Log entry not found")));
     },
   )
 

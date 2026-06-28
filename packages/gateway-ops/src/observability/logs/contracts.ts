@@ -3,7 +3,7 @@ import { z } from "zod";
 export const LogLevelSchema = z.enum(["debug", "info", "warn", "error"]);
 
 export const LogEntrySchema = z.object({
-  id: z.number(),
+  id: z.string(),
   level: LogLevelSchema,
   source: z.string(),
   message: z.string(),
@@ -13,9 +13,9 @@ export const LogEntrySchema = z.object({
 export type LogEntry = z.infer<typeof LogEntrySchema>;
 
 export {
+  createPagination,
   ErrorResponseSchema,
   PaginationQuerySchema,
   PaginationResponseSchema,
-  createPagination,
   parsePagination,
 } from "@valentinkolb/cloud/contracts";
