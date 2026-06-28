@@ -858,6 +858,7 @@ Keep it KISS: `Result` is singular; `Pane` instances are grouped by their `secti
 | `Pagination` | Page navigation with URL params |
 | `FilterChip` | Multi-option filter dropdown |
 | `DataTable` | Shared table/dataview component for tabular rows |
+| `Avatar` | Cached user profile picture with stable initials fallback |
 | `EntitySearch` | User/group search autocomplete |
 | `PermissionEditor` | Access control UI (grant/revoke via ResourceAccessAdapter) |
 | `AppOverview` | Shared app overview/start-page shell |

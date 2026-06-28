@@ -247,6 +247,18 @@ All components are imported from `@valentinkolb/cloud/ui`. There is no separate 
 
 Use the UI Lab as the live frontend reference while building: `/app/ui-lab` redirects to `/app/ui-lab/input/text`, and every documented component pattern has a routed page such as `/app/ui-lab/layout/workspace`, `/app/ui-lab/layout/overview`, `/app/ui-lab/layout/settings-modal`, `/app/ui-lab/layout/permissions`, `/app/ui-lab/surfaces/stats`, and `/app/ui-lab/surfaces/widgets`. The source of truth is the component implementation in `packages/cloud/src/ui/`; UI Lab is the visual/reference harness.
 
+### Avatar
+
+Use `Avatar` for user identity pictures and initials fallbacks. Source: `packages/cloud/src/ui/misc/Avatar.tsx`; live reference: `/app/ui-lab/surfaces/cards`.
+
+```tsx
+import { Avatar } from "@valentinkolb/cloud/ui";
+
+<Avatar username={user.displayName || user.uid} userId={user.id} avatarHash={user.avatarHash} size="md" />
+```
+
+Pass `userId` and `avatarHash` when account data includes them; the component renders the cached `/api/accounts/users/:id/avatar?rev=:hash` image and falls back to stable initials when no profile picture exists. Keep avatars circular and do not override `rounded-full` with app-local border-radius classes. For profile-picture write flows, use `openAvatarUploadDialog`; do not use generic `ImageInput` or hand-written file pickers for account avatars.
+
 ### Prompts System
 
 The prompts system is the primary way to show dialogs, collect input, and display errors.
