@@ -18,7 +18,7 @@ export type DocumentTemplateStarter = {
 const recordSource = (tableId: string) => `from table {${tableId}}\nwhere record.id = '{{ record.id }}'\nlimit 1`;
 const overviewSource = (tableId: string) => `from table {${tableId}}\nlimit 100`;
 
-const primaryValue = `{% assign first = rows[0] %}{% if columns.size > 0 %}{% assign firstColumn = columns[0] %}{{ first[firstColumn.key] | default: table.name }}{% else %}{{ table.name }}{% endif %}`;
+const primaryValue = `{% if rows.size > 0 and columns.size > 0 %}{% assign first = rows[0] %}{% assign firstColumn = columns[0] %}{{ first[firstColumn.key] | default: table.name }}{% else %}{{ table.name }}{% endif %}`;
 
 const businessHeader = `<style>
   html, body { margin: 0; }
@@ -335,9 +335,13 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
 .name { margin-top: 2.4mm; font-size: 17pt; line-height: 1.05; font-weight: 850; }
 .code { margin-top: auto; width: 100%; height: 13mm; object-fit: contain; object-position: left bottom; }`,
     html: `<section class="label">
-  {% assign first = rows[0] %}
-  {% assign codeColumn = columns[0] %}
-  {% assign codeValue = first[codeColumn.key] | default: table.name %}
+  {% if rows.size > 0 and columns.size > 0 %}
+    {% assign first = rows[0] %}
+    {% assign codeColumn = columns[0] %}
+    {% assign codeValue = first[codeColumn.key] | default: table.name %}
+  {% else %}
+    {% assign codeValue = table.name %}
+  {% endif %}
   <div class="kicker">{{ table.name }}</div>
   <div class="name">${primaryValue}</div>
   <img class="code" src="{{ codeValue | barcode_data_url: "code128", true }}" alt="">
@@ -364,9 +368,13 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
 .name { margin-top: 2.4mm; font-size: 15pt; line-height: 1.08; font-weight: 850; }
 .hint { margin-top: 2.2mm; color: #475569; font-size: 7.5pt; line-height: 1.25; }`,
     html: `<section class="label">
-  {% assign first = rows[0] %}
-  {% assign codeColumn = columns[0] %}
-  {% assign codeValue = first[codeColumn.key] | default: table.name %}
+  {% if rows.size > 0 and columns.size > 0 %}
+    {% assign first = rows[0] %}
+    {% assign codeColumn = columns[0] %}
+    {% assign codeValue = first[codeColumn.key] | default: table.name %}
+  {% else %}
+    {% assign codeValue = table.name %}
+  {% endif %}
   <img class="qr" src="{{ codeValue | barcode_data_url: "qrcode" }}" alt="">
   <div>
     <div class="kicker">{{ table.name }}</div>
@@ -428,7 +436,7 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
       <p class="fine-print" style="margin-top: 3mm;">Source: {{ table.name }}</p>
     </div>
     {% if primaryImage %}
-      <img class="record-image" src="{{ primaryImage.url }}" alt="{{ primaryImage.label | default: 'Record image' }}">
+      <img class="record-image" src="{{ primaryImage.url }}" alt="{{ primaryImage.filename | default: primaryImage.fieldName | default: 'Record image' }}">
     {% endif %}
   </section>
   <section class="record-details">
@@ -604,10 +612,10 @@ body { font-family: Inter, Arial, sans-serif; color: #0f172a; padding: 6mm; }
     <thead><tr><th class="task-col">Done</th><th>Task</th><th>Details</th></tr></thead>
     <tbody>
       {% for row in rows %}
-        {% assign firstColumn = columns[0] %}
+        {% if columns.size > 0 %}{% assign firstColumn = columns[0] %}{% endif %}
         <tr>
           <td class="task-col"><span class="checkbox"></span></td>
-          <td class="strong">{{ row[firstColumn.key] | default: "Item" }}</td>
+          <td class="strong">{% if firstColumn %}{{ row[firstColumn.key] | default: "Item" }}{% else %}Item{% endif %}</td>
           <td class="details">{% for column in columns %}<strong>{{ column.label }}:</strong> {{ row[column.key] | default: "-" }}<br>{% endfor %}</td>
         </tr>
       {% endfor %}

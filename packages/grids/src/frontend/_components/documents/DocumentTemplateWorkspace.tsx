@@ -1,6 +1,6 @@
 import { PdfPreview, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { createResource, createSignal, For, Show } from "solid-js";
-import type { DocumentRun, DocumentTemplate } from "../../../contracts";
+import type { DocumentRunSummary, DocumentTemplate, DocumentTemplateSummary } from "../../../contracts";
 import type { Table } from "../../../service";
 import { openDocumentTemplateEditorDialog } from "../dialogs/TableAdminDialogs";
 import RecordPicker from "../records/RecordPicker";
@@ -9,7 +9,8 @@ import { errorMessage } from "../utils/api-helpers";
 type Props = {
   baseId: string;
   table: Table;
-  template: DocumentTemplate;
+  template: DocumentTemplateSummary;
+  editableTemplate: DocumentTemplate | null;
   canManageTemplate: boolean;
   initialRecordId: string | null;
 };
@@ -42,19 +43,21 @@ const formatRelativeTime = (iso: string): string => {
 
 export default function DocumentTemplateWorkspace(props: Props) {
   const [recordId, setRecordId] = createSignal(props.initialRecordId ?? "");
+  const [previewedRecordId, setPreviewedRecordId] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal<string | null>(null);
   const [runs, { refetch: refetchRuns }] = createResource(recordId, async (selectedRecordId) => {
-    if (!selectedRecordId) return { items: [] as DocumentRun[] };
+    if (!selectedRecordId) return { items: [] as DocumentRunSummary[] };
     const res = await fetch(
       `/api/grids/documents/runs/by-template/${encodeURIComponent(props.template.id)}/${encodeURIComponent(selectedRecordId)}`,
     );
-    if (!res.ok) return { items: [] as DocumentRun[] };
+    if (!res.ok) return { items: [] as DocumentRunSummary[] };
     const data = await res.json();
-    return Array.isArray(data) ? { items: data as DocumentRun[] } : (data as { items: DocumentRun[] });
+    return data as { items: DocumentRunSummary[] };
   });
 
   const setSelectedRecord = (nextRecordId: string) => {
     setRecordId(nextRecordId);
+    setPreviewedRecordId(null);
     const url = new URL(window.location.href);
     if (nextRecordId) url.searchParams.set("record", nextRecordId);
     else url.searchParams.delete("record");
@@ -64,17 +67,29 @@ export default function DocumentTemplateWorkspace(props: Props) {
   const previewPdf = async () => {
     const selectedRecordId = recordId().trim();
     if (!selectedRecordId) throw new Error("Choose a record first.");
-    return fetch(`/api/grids/documents/templates/${encodeURIComponent(props.template.id)}/preview-pdf`, {
+    setPreviewedRecordId(null);
+    const res = await fetch(`/api/grids/documents/templates/${encodeURIComponent(props.template.id)}/preview-pdf`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ recordId: selectedRecordId }),
     });
+    if (res.ok && (res.headers.get("content-type") ?? "").includes("application/pdf")) setPreviewedRecordId(selectedRecordId);
+    return res;
+  };
+
+  const hasCurrentPreview = () => {
+    const selectedRecordId = recordId().trim();
+    return selectedRecordId.length > 0 && previewedRecordId() === selectedRecordId;
   };
 
   const generate = async () => {
     const selectedRecordId = recordId().trim();
     if (!selectedRecordId) {
       prompts.error("Choose a record first.");
+      return;
+    }
+    if (!hasCurrentPreview()) {
+      prompts.error("Render a PDF preview before generating this document.");
       return;
     }
     setBusy("generate");
@@ -94,7 +109,7 @@ export default function DocumentTemplateWorkspace(props: Props) {
     }
   };
 
-  const redownload = async (run: DocumentRun) => {
+  const redownload = async (run: DocumentRunSummary) => {
     setBusy(run.id);
     try {
       const res = await fetch(`/api/grids/documents/runs/${encodeURIComponent(run.id)}/download`);
@@ -122,23 +137,25 @@ export default function DocumentTemplateWorkspace(props: Props) {
               {(description) => <p class="mt-1 max-w-3xl text-sm text-dimmed">{description()}</p>}
             </Show>
           </div>
-          <Show when={props.canManageTemplate}>
-            <button
-              type="button"
-              class="btn-input btn-sm"
-              onClick={() =>
-                openDocumentTemplateEditorDialog({
-                  baseId: props.baseId,
-                  tableId: props.table.id,
-                  tableName: props.table.name,
-                  template: props.template,
-                  onSaved: () => window.location.reload(),
-                })
-              }
-            >
-              <i class="ti ti-settings" />
-              Manage
-            </button>
+          <Show when={props.canManageTemplate ? props.editableTemplate : null}>
+            {(editableTemplate) => (
+              <button
+                type="button"
+                class="btn-input btn-sm"
+                onClick={() =>
+                  openDocumentTemplateEditorDialog({
+                    baseId: props.baseId,
+                    tableId: props.table.id,
+                    tableName: props.table.name,
+                    template: editableTemplate(),
+                    onSaved: () => window.location.reload(),
+                  })
+                }
+              >
+                <i class="ti ti-settings" />
+                Manage
+              </button>
+            )}
           </Show>
         </div>
       </section>
@@ -158,11 +175,14 @@ export default function DocumentTemplateWorkspace(props: Props) {
               type="button"
               class="btn-primary mt-3 w-full"
               onClick={() => void generate()}
-              disabled={!recordId().trim() || busy() === "generate"}
+              disabled={!hasCurrentPreview() || busy() === "generate"}
             >
               {busy() === "generate" ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
               Generate PDF
             </button>
+            <Show when={recordId().trim() && !hasCurrentPreview()}>
+              <p class="mt-2 text-xs text-dimmed">Render a PDF preview before generating the final document.</p>
+            </Show>
           </section>
 
           <section class="paper flex min-h-0 flex-col gap-3 p-4">
@@ -201,14 +221,29 @@ export default function DocumentTemplateWorkspace(props: Props) {
           </section>
         </div>
 
-        <PdfPreview
-          title="PDF preview"
-          class="min-h-[28rem]"
-          buttonLabel="Render preview"
-          emptyText="Choose a record, then render a PDF preview before generating the document."
-          disabled={() => !recordId().trim()}
-          request={previewPdf}
-        />
+        <For
+          each={recordId().trim() ? [recordId().trim()] : []}
+          fallback={
+            <PdfPreview
+              title="PDF preview"
+              class="min-h-[28rem]"
+              buttonLabel="Render preview"
+              emptyText="Choose a record, then render a PDF preview before generating the document."
+              disabled={() => true}
+              request={previewPdf}
+            />
+          }
+        >
+          {() => (
+            <PdfPreview
+              title="PDF preview"
+              class="min-h-[28rem]"
+              buttonLabel="Render preview"
+              emptyText="Render a PDF preview before generating the final document."
+              request={previewPdf}
+            />
+          )}
+        </For>
       </section>
     </div>
   );

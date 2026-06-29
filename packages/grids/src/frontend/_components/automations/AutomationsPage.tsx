@@ -14,7 +14,7 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { DocumentTemplate, FilterTree } from "../../../contracts";
+import type { DocumentTemplateSummary, FilterTree } from "../../../contracts";
 import type { Automation, AutomationRun, Field, Table } from "../../../service";
 import FilterPanel, { blankLeaf, type FilterLeaf, isFilterLeafComplete } from "../toolbar/FilterPanel";
 import { errorMessage } from "../utils/api-helpers";
@@ -232,9 +232,9 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
   const [templates] = createResource(
     () => (isDocumentAction() && tableId() ? tableId() : ""),
     async (selectedTableId) => {
-      if (!selectedTableId) return [] as DocumentTemplate[];
+      if (!selectedTableId) return [] as DocumentTemplateSummary[];
       const res = await apiClient.documents.templates["by-table"][":tableId"].$get({ param: { tableId: selectedTableId } });
-      if (!res.ok) return [] as DocumentTemplate[];
+      if (!res.ok) return [] as DocumentTemplateSummary[];
       return res.json();
     },
   );

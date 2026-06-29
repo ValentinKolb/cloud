@@ -8,10 +8,11 @@ import {
   CreateRecordSnapshotResponseSchema,
   DocumentPreviewResponseSchema,
   DocumentRecordBodySchema,
-  DocumentRunListSchema,
+  DocumentRunSummaryListSchema,
   DocumentTemplateDraftPreviewSchema,
   DocumentTemplateListSchema,
   DocumentTemplateSchema,
+  DocumentTemplateSummaryListSchema,
   RecordSnapshotListResponseSchema,
   RecordSnapshotSchema,
   RelationLookupResponseSchema,
@@ -54,7 +55,17 @@ const RecordLookupQuerySchema = z.object({
     .pipe(z.array(z.string().uuid())),
 });
 
+const UuidStringSchema = z.string().uuid();
+
+const isUuid = (value: string) => UuidStringSchema.safeParse(value).success;
+
+const uuidParam = (c: Context<AuthContext>, name: string): string | null => {
+  const value = c.req.param(name);
+  return value && isUuid(value) ? value : null;
+};
+
 const loadTemplateAndTable = async (templateId: string) => {
+  if (!isUuid(templateId)) return null;
   const template = await gridsService.document.getTemplate(templateId);
   if (!template) return null;
   const table = await gridsService.table.get(template.tableId);
@@ -67,6 +78,18 @@ const gateTemplate = async (
   loaded: NonNullable<Awaited<ReturnType<typeof loadTemplateAndTable>>>,
   required: "read" | "admin",
 ) => gateAt(c, { baseId: loaded.table.baseId, tableId: loaded.table.id, documentTemplateId: loaded.template.id }, required);
+
+const gateBaseAdminForTemplate = async (c: Context<AuthContext>, loaded: NonNullable<Awaited<ReturnType<typeof loadTemplateAndTable>>>) =>
+  gateAt(c, { baseId: loaded.table.baseId }, "admin");
+
+const gateEnabledTemplateRead = async (c: Context<AuthContext>, loaded: NonNullable<Awaited<ReturnType<typeof loadTemplateAndTable>>>) => {
+  const gate = await gateTemplate(c, loaded, "read");
+  if (!gate.ok) return gate;
+  if (!loaded.template.enabled && !gridsService.permission.hasAtLeast(gate.data, "admin")) {
+    return gateAt(c, { baseId: loaded.table.baseId }, "admin");
+  }
+  return gate;
+};
 
 const liveRenderData = async (
   c: Context<AuthContext>,
@@ -153,15 +176,44 @@ const app = new Hono<AuthContext>()
       tags: ["Grids:Document"],
       summary: "List document templates for a table",
       responses: {
+        200: jsonResponse(DocumentTemplateSummaryListSchema, "Document templates"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    async (c) => {
+      const tableId = uuidParam(c, "tableId");
+      if (!tableId) return c.json({ message: "Table not found" }, 404);
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const templates = await gridsService.document.listTemplatesForTable(tableId);
+      const visible = [];
+      for (const template of templates) {
+        if (!template.enabled) continue;
+        const templateGate = await gateTemplate(c, { template, table }, "read");
+        if (templateGate.ok) visible.push(gridsService.document.summarizeTemplate(template));
+      }
+      return c.json(visible);
+    },
+  )
+
+  .get(
+    "/templates/by-table/:tableId/full",
+    describeRoute({
+      tags: ["Grids:Document"],
+      summary: "List full document templates for table admins",
+      responses: {
         200: jsonResponse(DocumentTemplateListSchema, "Document templates"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = uuidParam(c, "tableId");
+      if (!tableId) return c.json({ message: "Table not found" }, 404);
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return c.json(await gridsService.document.listTemplatesForTable(tableId));
     },
@@ -179,7 +231,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateDocumentTemplateSchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = uuidParam(c, "tableId");
+      if (!tableId) return c.json({ message: "Table not found" }, 404);
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
@@ -200,7 +253,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", DocumentTemplateDraftPreviewSchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = uuidParam(c, "tableId");
+      if (!tableId) return c.json({ message: "Table not found", phase: "data" }, 404);
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found", phase: "data" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
@@ -223,7 +277,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", DocumentTemplateDraftPreviewSchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = uuidParam(c, "tableId");
+      if (!tableId) return c.json({ message: "Table not found", phase: "data" }, 404);
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found", phase: "data" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
@@ -248,7 +303,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
       if (!loaded) return c.json({ message: "Document template not found", phase: "data" }, 404);
-      const gate = await gateTemplate(c, loaded, "admin");
+      const gate = await gateBaseAdminForTemplate(c, loaded);
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
       const body = c.req.valid("json");
@@ -270,7 +325,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
       if (!loaded) return c.json({ message: "Document template not found", phase: "data" }, 404);
-      const gate = await gateTemplate(c, loaded, "admin");
+      const gate = await gateBaseAdminForTemplate(c, loaded);
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
       const body = c.req.valid("json");
@@ -292,7 +347,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
       if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateTemplate(c, loaded, "admin");
+      const gate = await gateBaseAdminForTemplate(c, loaded);
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(c, () => gridsService.document.updateTemplate(loaded.template.id, c.req.valid("json"), c.get("user").id));
     },
@@ -311,7 +366,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
       if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateTemplate(c, loaded, "admin");
+      const gate = await gateBaseAdminForTemplate(c, loaded);
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const result = await gridsService.document.removeTemplate(loaded.template.id, c.get("user").id);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
@@ -333,7 +388,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
       if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateTemplate(c, loaded, "read");
+      const gate = await gateEnabledTemplateRead(c, loaded);
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const { q, limit, excludeIds } = c.req.valid("query");
       return c.json(await gridsService.relations.lookup({ targetTableId: loaded.table.id, q, limit, excludeIds }));
@@ -354,7 +409,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
       if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateTemplate(c, loaded, "read");
+      const gate = await gateBaseAdminForTemplate(c, loaded);
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
       const rendered = await liveRenderData(c, {
@@ -383,7 +438,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
       if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateTemplate(c, loaded, "read");
+      const gate = await gateEnabledTemplateRead(c, loaded);
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const rendered = await liveRenderData(c, {
         template: loaded.template,
@@ -453,17 +508,19 @@ const app = new Hono<AuthContext>()
       tags: ["Grids:Document"],
       summary: "List generated document runs for a template and record",
       responses: {
-        200: jsonResponse(DocumentRunListSchema, "Document runs"),
+        200: jsonResponse(DocumentRunSummaryListSchema, "Document runs"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
       },
     }),
     async (c) => {
       const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
       if (!loaded) return c.json({ message: "Document template not found" }, 404);
+      const recordId = uuidParam(c, "recordId");
+      if (!recordId) return c.json({ message: "Record not found" }, 404);
       const gate = await gateTemplate(c, loaded, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const runs = await gridsService.document.listRunsForRecord(loaded.table.id, c.req.param("recordId")!);
-      return c.json({ items: runs.filter((run) => run.templateId === loaded.template.id) });
+      const runs = await gridsService.document.listRunsForRecord(loaded.table.id, recordId);
+      return c.json({ items: runs.filter((run) => run.templateId === loaded.template.id).map(gridsService.document.summarizeRun) });
     },
   )
 
@@ -473,17 +530,21 @@ const app = new Hono<AuthContext>()
       tags: ["Grids:Document"],
       summary: "List generated document runs for a record",
       responses: {
-        200: jsonResponse(DocumentRunListSchema, "Document runs"),
+        200: jsonResponse(DocumentRunSummaryListSchema, "Document runs"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = uuidParam(c, "tableId");
+      const recordId = uuidParam(c, "recordId");
+      if (!tableId || !recordId) return c.json({ message: "Record not found" }, 404);
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json({ items: await gridsService.document.listRunsForRecord(tableId, c.req.param("recordId")!) });
+      return c.json({
+        items: (await gridsService.document.listRunsForRecord(tableId, recordId)).map(gridsService.document.summarizeRun),
+      });
     },
   )
 
@@ -498,10 +559,14 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const run = await gridsService.document.getRun(c.req.param("runId")!);
+      const runId = uuidParam(c, "runId");
+      if (!runId) return c.json({ message: "Document run not found" }, 404);
+      const run = await gridsService.document.getRun(runId);
       if (!run) return c.json({ message: "Document run not found" }, 404);
       const template = run.templateId ? await loadTemplateAndTable(run.templateId) : null;
-      const gate = template ? await gateTemplate(c, template, "read") : await gateAt(c, { baseId: run.baseId }, "read");
+      const gate = template
+        ? await gateTemplate(c, template, "read")
+        : await gateAt(c, { baseId: run.baseId, tableId: run.tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const pdf = await gridsService.document.renderRunPdf(run);
       if (!pdf.ok) return c.json({ message: pdf.error.message }, pdf.error.status);
@@ -523,12 +588,14 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = uuidParam(c, "tableId");
+      const recordId = uuidParam(c, "recordId");
+      if (!tableId || !recordId) return c.json({ message: "Record not found" }, 404);
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json({ items: await gridsService.document.listSnapshotsForRecord(tableId, c.req.param("recordId")!) });
+      return c.json({ items: await gridsService.document.listSnapshotsForRecord(tableId, recordId) });
     },
   )
 
@@ -543,7 +610,9 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = uuidParam(c, "tableId");
+      const recordId = uuidParam(c, "recordId");
+      if (!tableId || !recordId) return c.json({ message: "Record not found" }, 404);
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
@@ -551,7 +620,7 @@ const app = new Hono<AuthContext>()
       const snapshot = await gridsService.document.createRecordSnapshot({
         baseId: table.baseId,
         tableId,
-        recordId: c.req.param("recordId")!,
+        recordId,
         actorId: c.get("user").id,
         dateConfig: await getDateConfig(c),
       });
@@ -571,9 +640,11 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const snapshot = await gridsService.document.getSnapshot(c.req.param("snapshotId")!);
+      const snapshotId = uuidParam(c, "snapshotId");
+      if (!snapshotId) return c.json({ message: "Record snapshot not found" }, 404);
+      const snapshot = await gridsService.document.getSnapshot(snapshotId);
       if (!snapshot) return c.json({ message: "Record snapshot not found" }, 404);
-      const gate = await gateAt(c, { baseId: snapshot.baseId }, "read");
+      const gate = await gateAt(c, { baseId: snapshot.baseId, tableId: snapshot.tableId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return c.json(snapshot);
     },

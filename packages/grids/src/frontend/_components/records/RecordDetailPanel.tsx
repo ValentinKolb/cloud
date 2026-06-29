@@ -11,7 +11,7 @@ import { type DateContext, text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { ColumnSpec, DocumentRun, DocumentTemplate, RecordSnapshot, RecordSnapshotSummary } from "../../../contracts";
+import type { ColumnSpec, DocumentRunSummary, DocumentTemplateSummary, RecordSnapshot, RecordSnapshotSummary } from "../../../contracts";
 import type { AuditEntry, Field, GridFile, GridRecord } from "../../../service";
 import { isUserEditable } from "../fields/field-prompt-schema";
 import { errorMessage } from "../utils/api-helpers";
@@ -320,7 +320,7 @@ export default function RecordDetailPanel(props: Props) {
             }
           />
 
-          <RecordDocumentsSection tableId={props.tableId} recordId={rec.id} />
+          <RecordDocumentsSection tableId={props.tableId} recordId={rec.id} live={mode() === "live"} />
           <RecordHistorySection tableId={props.tableId} recordId={rec.id} />
         </div>
       )}
@@ -328,13 +328,14 @@ export default function RecordDetailPanel(props: Props) {
   );
 }
 
-const openDocumentGenerationReviewDialog = (args: { tableId: string; recordId: string; template: DocumentTemplate }) =>
+const openDocumentGenerationReviewDialog = (args: { tableId: string; recordId: string; template: DocumentTemplateSummary }) =>
   dialogCore.open<boolean>((close) => <DocumentGenerationReviewDialog args={args} close={close} />, panelDialogOptions);
 
 function DocumentGenerationReviewDialog(props: {
-  args: { tableId: string; recordId: string; template: DocumentTemplate };
+  args: { tableId: string; recordId: string; template: DocumentTemplateSummary };
   close: (generated: boolean) => void;
 }) {
+  const [previewed, setPreviewed] = createSignal(false);
   const generateMut = mutations.create<void, void>({
     mutation: async () => {
       const res = await fetch(`/api/grids/documents/templates/${props.args.template.id}/generate`, {
@@ -349,12 +350,16 @@ function DocumentGenerationReviewDialog(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const previewPdf = async () =>
-    fetch(`/api/grids/documents/templates/${props.args.template.id}/preview-pdf`, {
+  const previewPdf = async () => {
+    setPreviewed(false);
+    const response = await fetch(`/api/grids/documents/templates/${props.args.template.id}/preview-pdf`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ recordId: props.args.recordId }),
     });
+    if (response.ok && (response.headers.get("content-type") ?? "").includes("application/pdf")) setPreviewed(true);
+    return response;
+  };
 
   return (
     <PanelDialog>
@@ -403,7 +408,12 @@ function DocumentGenerationReviewDialog(props: {
           <button type="button" class="btn-input btn-sm" onClick={() => props.close(false)} disabled={generateMut.loading()}>
             Cancel
           </button>
-          <button type="button" class="btn-primary btn-sm" onClick={() => generateMut.mutate(undefined)} disabled={generateMut.loading()}>
+          <button
+            type="button"
+            class="btn-primary btn-sm"
+            onClick={() => generateMut.mutate(undefined)}
+            disabled={generateMut.loading() || !previewed()}
+          >
             {generateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
             Generate PDF
           </button>
@@ -413,12 +423,12 @@ function DocumentGenerationReviewDialog(props: {
   );
 }
 
-function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
+function RecordDocumentsSection(props: { tableId: string; recordId: string; live: boolean }) {
   const [templates] = createResource(
     () => props.tableId,
     async (tableId) => {
       const res = await apiClient.documents.templates["by-table"][":tableId"].$get({ param: { tableId } });
-      if (!res.ok) return [] as DocumentTemplate[];
+      if (!res.ok) return [] as DocumentTemplateSummary[];
       return res.json();
     },
   );
@@ -428,7 +438,7 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
       const res = await apiClient.documents.runs["by-record"][":tableId"][":recordId"].$get({
         param: { tableId: props.tableId, recordId: props.recordId },
       });
-      if (!res.ok) return [] as DocumentRun[];
+      if (!res.ok) return { items: [] as DocumentRunSummary[] };
       return res.json();
     },
   );
@@ -447,7 +457,7 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
   const iconActionClass =
     "inline-flex h-7 w-7 shrink-0 items-center justify-center text-dimmed transition-colors hover:text-secondary disabled:cursor-not-allowed disabled:opacity-50";
 
-  const generate = async (template: DocumentTemplate) => {
+  const generate = async (template: DocumentTemplateSummary) => {
     const generated = await openDocumentGenerationReviewDialog({
       template,
       tableId: props.tableId,
@@ -459,7 +469,7 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
     }
   };
 
-  const redownload = async (run: DocumentRun) => {
+  const redownload = async (run: DocumentRunSummary) => {
     setBusy(run.id);
     try {
       const res = await fetch(`/api/grids/documents/runs/${run.id}/download`);
@@ -569,10 +579,12 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
       <section class="paper p-4 flex flex-col gap-3">
         <div class="flex items-center justify-between gap-2">
           <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">Snapshots</h3>
-          <button type="button" class="btn-input btn-sm" onClick={() => void createSnapshot()} disabled={busy() === "snapshot"}>
-            {busy() === "snapshot" ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
-            Snapshot
-          </button>
+          <Show when={props.live}>
+            <button type="button" class="btn-input btn-sm" onClick={() => void createSnapshot()} disabled={busy() === "snapshot"}>
+              {busy() === "snapshot" ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
+              Snapshot
+            </button>
+          </Show>
         </div>
 
         <Show when={snapshots.loading}>
@@ -608,43 +620,45 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string }) {
         </Show>
       </section>
 
-      <section class="paper p-4 flex flex-col gap-3">
-        <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">Generate document</h3>
+      <Show when={props.live}>
+        <section class="paper p-4 flex flex-col gap-3">
+          <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">Generate document</h3>
 
-        <Show when={templates.loading}>
-          <p class="text-xs text-dimmed">Loading templates…</p>
-        </Show>
-        <Show when={!templates.loading && availableTemplates().length === 0}>
-          <Placeholder align="left" class="px-0 py-2">
-            No enabled document templates.
-          </Placeholder>
-        </Show>
-        <Show when={availableTemplates().length > 0}>
-          <div class="flex flex-col gap-2">
-            <For each={availableTemplates()}>
-              {(template) => (
-                <button
-                  type="button"
-                  class="flex w-full min-w-0 items-center gap-2 rounded-md bg-zinc-50 px-2.5 py-2 text-left text-sm transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-900 dark:hover:bg-zinc-800"
-                  onClick={() => void generate(template)}
-                  aria-label={`Review ${template.name}`}
-                >
-                  <i class="ti ti-file-type-pdf shrink-0 text-dimmed" />
-                  <span class="min-w-0 flex-1">
-                    <span class="block truncate font-medium text-primary">{template.name}</span>
-                    <Show when={template.description}>
-                      {(description) => <span class="mt-0.5 block truncate text-xs text-dimmed">{description()}</span>}
-                    </Show>
-                  </span>
-                  <span class="shrink-0 text-dimmed">
-                    <i class="ti ti-chevron-right" />
-                  </span>
-                </button>
-              )}
-            </For>
-          </div>
-        </Show>
-      </section>
+          <Show when={templates.loading}>
+            <p class="text-xs text-dimmed">Loading templates…</p>
+          </Show>
+          <Show when={!templates.loading && availableTemplates().length === 0}>
+            <Placeholder align="left" class="px-0 py-2">
+              No enabled document templates.
+            </Placeholder>
+          </Show>
+          <Show when={availableTemplates().length > 0}>
+            <div class="flex flex-col gap-2">
+              <For each={availableTemplates()}>
+                {(template) => (
+                  <button
+                    type="button"
+                    class="flex w-full min-w-0 items-center gap-2 rounded-md bg-zinc-50 px-2.5 py-2 text-left text-sm transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                    onClick={() => void generate(template)}
+                    aria-label={`Review ${template.name}`}
+                  >
+                    <i class="ti ti-file-type-pdf shrink-0 text-dimmed" />
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate font-medium text-primary">{template.name}</span>
+                      <Show when={template.description}>
+                        {(description) => <span class="mt-0.5 block truncate text-xs text-dimmed">{description()}</span>}
+                      </Show>
+                    </span>
+                    <span class="shrink-0 text-dimmed">
+                      <i class="ti ti-chevron-right" />
+                    </span>
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
+        </section>
+      </Show>
 
       <section class="paper p-4 flex flex-col gap-3">
         <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">Generated documents</h3>

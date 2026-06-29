@@ -48,6 +48,18 @@ const template = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
+const templateSummary = {
+  id: template.id,
+  shortId: template.shortId,
+  tableId: template.tableId,
+  name: template.name,
+  description: template.description,
+  enabled: template.enabled,
+  position: template.position,
+  createdAt: template.createdAt,
+  updatedAt: template.updatedAt,
+};
+
 mock.module("../../../service", () => ({
   gridsService: {
     base: {
@@ -87,6 +99,7 @@ mock.module("../../../service", () => ({
     document: {
       getTemplateByIdOrShortId: async (_tableId: string, idOrSlug: string) =>
         template.id === idOrSlug || template.shortId === idOrSlug ? template : null,
+      summarizeTemplate: () => templateSummary,
     },
     view: {
       getByIdOrShortId: async () => null,
@@ -122,10 +135,15 @@ describe("loadGridsWorkspaceState — document-template-only access", () => {
     expect(state.route.kind).toBe("documentTemplate");
     if (state.route.kind !== "documentTemplate") return;
     expect(state.route.template.id).toBe(template.id);
+    expect("source" in state.route.template).toBe(false);
+    expect("html" in state.route.template).toBe(false);
+    expect(state.route.editableTemplate).toBeNull();
     expect(state.route.table.id).toBe(documentTable.id);
     expect(state.route.initialRecordId).toBe("55555555-5555-4555-8555-555555555555");
     expect(state.catalog.tables).toEqual([]);
-    expect(state.catalog.sidebarDocumentTemplates).toEqual([{ template, table: documentTable }]);
+    expect(state.catalog.sidebarDocumentTemplates).toEqual([{ template: templateSummary, table: documentTable }]);
+    expect("source" in state.catalog.sidebarDocumentTemplates[0]!.template).toBe(false);
+    expect("html" in state.catalog.sidebarDocumentTemplates[0]!.template).toBe(false);
     expect(state.canUseQueryWorkspace).toBe(false);
   });
 });

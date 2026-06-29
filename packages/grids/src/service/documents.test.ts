@@ -165,6 +165,75 @@ describe("document rendering", () => {
     }
   });
 
+  test("all document template starters render with present and empty query rows", async () => {
+    const table = { id: "11111111-1111-4111-8111-111111111111", shortId: "tbl11", name: "Assets" };
+    const record = {
+      id: "22222222-2222-4222-8222-222222222222",
+      tableId: table.id,
+      version: 1,
+      data: { Name: "Camera kit" },
+      createdAt: "2026-06-28T00:00:00.000Z",
+      updatedAt: "2026-06-28T00:00:00.000Z",
+    };
+    const columns = [
+      { key: "name", label: "Name" },
+      { key: "status", label: "Status" },
+    ];
+    const rows = [{ recordId: record.id, tableId: table.id, name: "Camera kit", Name: "Camera kit", status: "Ready", Status: "Ready" }];
+    const image = {
+      fieldId: "33333333-3333-4333-8333-333333333333",
+      fieldName: "Photo",
+      fileId: "file-1",
+      filename: "camera.png",
+      mimeType: "image/png",
+      sizeBytes: 42,
+      url: "data:image/png;base64,abc",
+    };
+    const business = {
+      legalName: "Operations GmbH",
+      senderLine: "Operations GmbH | Berlin",
+      address: "Main Street 1\n10117 Berlin",
+      department: "Operations",
+      contactEmail: "ops@example.test",
+      phone: "+49 30 123",
+      url: "https://operations.example.test",
+      taxId: "VAT DE123",
+      registration: "HRB 123",
+      bankName: "Example Bank",
+      iban: "DE00 0000 0000 0000 0000 00",
+      bic: "EXAMPLEXXX",
+      paymentTerms: "14 days net",
+      footerText: "Operations GmbH",
+    };
+    const filledData = buildRenderData({
+      record,
+      table,
+      columns,
+      rows,
+      images: [image],
+      business,
+      documentNumber: "GRID-20260628-22222222-AAAAAAAAAAAA",
+      generatedAt: "2026-06-28T12:00:00.000Z",
+    });
+    const emptyData = buildRenderData({ record, table, columns: [], rows: [], business });
+
+    for (const starter of DOCUMENT_TEMPLATE_STARTERS) {
+      for (const data of [filledData, emptyData]) {
+        const html = await renderDocumentHtml({ html: starter.html, pageCss: starter.pageCss ?? null }, data);
+        expect(html.ok, `${starter.id} html: ${html.ok ? "" : html.error.message}`).toBe(true);
+
+        if (starter.headerHtml) {
+          const header = await renderLiquidText(starter.headerHtml, data);
+          expect(header.ok, `${starter.id} header: ${header.ok ? "" : header.error.message}`).toBe(true);
+        }
+        if (starter.footerHtml) {
+          const footer = await renderLiquidText(starter.footerHtml, data);
+          expect(footer.ok, `${starter.id} footer: ${footer.ok ? "" : footer.error.message}`).toBe(true);
+        }
+      }
+    }
+  });
+
   test("document template starters render business profile branding", async () => {
     const app = await buildTemplateAppData({
       app: {

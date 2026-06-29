@@ -19,7 +19,9 @@ import type {
   CreateDocumentTemplateInput,
   DocumentProfile,
   DocumentRun,
+  DocumentRunSummary,
   DocumentTemplate,
+  DocumentTemplateSummary,
   RecordSnapshot,
   RecordSnapshotSummary,
   UpdateDocumentTemplateInput,
@@ -278,6 +280,31 @@ const mapRun = (row: DbRow): DocumentRun => ({
   renderData: parseJsonbRow<Record<string, unknown>>(row.render_data, {}),
   generatedBy: (row.generated_by as string | null) ?? null,
   generatedAt: (row.generated_at as Date).toISOString(),
+});
+
+export const summarizeTemplate = (template: DocumentTemplate): DocumentTemplateSummary => ({
+  id: template.id,
+  shortId: template.shortId,
+  tableId: template.tableId,
+  name: template.name,
+  description: template.description,
+  enabled: template.enabled,
+  position: template.position,
+  createdAt: template.createdAt,
+  updatedAt: template.updatedAt,
+});
+
+export const summarizeRun = (run: DocumentRun): DocumentRunSummary => ({
+  id: run.id,
+  shortId: run.shortId,
+  templateId: run.templateId,
+  snapshotId: run.snapshotId,
+  baseId: run.baseId,
+  tableId: run.tableId,
+  recordId: run.recordId,
+  documentNumber: run.documentNumber,
+  generatedBy: run.generatedBy,
+  generatedAt: run.generatedAt,
 });
 
 const diagnosticsMessage = (diagnostics: Array<{ message: string }>): string =>

@@ -410,9 +410,14 @@ limit 100`}
             <div class="mt-3 grid gap-3 xl:grid-cols-2">
               <TemplateSnippet
                 title="Code 128 with text"
-                code={`{% assign first = rows[0] %}
-{% assign codeColumn = columns[0] %}
-<img src='{{ first[codeColumn.key] | barcode_data_url: "code128", true }}' alt="Asset barcode">`}
+                code={`{% if rows.size > 0 and columns.size > 0 %}
+  {% assign first = rows[0] %}
+  {% assign codeColumn = columns[0] %}
+  {% assign codeValue = first[codeColumn.key] | default: table.name %}
+{% else %}
+  {% assign codeValue = table.name %}
+{% endif %}
+<img src='{{ codeValue | barcode_data_url: "code128", true }}' alt="Asset barcode">`}
               />
               <TemplateSnippet
                 title="QR code"
@@ -494,9 +499,14 @@ limit 100`}
               />
               <TemplateSnippet
                 title="Code 128 barcode"
-                code={`{% assign first = rows[0] %}
-{% assign codeColumn = columns[0] %}
-<img alt="Asset barcode" src='{{ first[codeColumn.key] | barcode_data_url: "code128", true }}'>`}
+                code={`{% if rows.size > 0 and columns.size > 0 %}
+  {% assign first = rows[0] %}
+  {% assign codeColumn = columns[0] %}
+  {% assign codeValue = first[codeColumn.key] | default: table.name %}
+{% else %}
+  {% assign codeValue = table.name %}
+{% endif %}
+<img alt="Asset barcode" src='{{ codeValue | barcode_data_url: "code128", true }}'>`}
               />
               <TemplateSnippet
                 title="QR code"

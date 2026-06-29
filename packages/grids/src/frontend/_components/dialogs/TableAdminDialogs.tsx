@@ -30,6 +30,7 @@ import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field
 import { FIELD_TYPE_ICONS } from "../fields/field-type-meta";
 import { type TableHeader, TablePermissions } from "../fields/TableFieldDialogs";
 import FormsManager from "../forms/FormsManager";
+import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { buildBackendGqlCompletions } from "../query/query-autocomplete";
 import RecordPicker from "../records/RecordPicker";
 import { errorMessage } from "../utils/api-helpers";
@@ -66,7 +67,7 @@ const createDocumentTemplatePanesValue = (): PanesValue => ({
       {
         type: "leaf",
         id: "document-template-preview",
-        elementIds: ["preview", "data", "source"],
+        elementIds: ["preview", "data", "source", "permissions"],
         activeElementId: "preview",
         presentation: "tabs",
       },
@@ -606,7 +607,7 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
   const [templates, { refetch }] = createResource(
     () => props.tableId,
     async (tableId) => {
-      const res = await apiClient.documents.templates["by-table"][":tableId"].$get({ param: { tableId } });
+      const res = await apiClient.documents.templates["by-table"][":tableId"].full.$get({ param: { tableId } });
       if (!res.ok) {
         prompts.error(await errorMessage(res, "Failed to load document templates"));
         return [] as DocumentTemplate[];
@@ -930,6 +931,15 @@ function DocumentTemplateEditorDialog(props: {
   const [lastSuccessfulPreviewSignature, setLastSuccessfulPreviewSignature] = createSignal<string | null>(null);
   const [gqlDiagnostics, setGqlDiagnostics] = createSignal<Array<{ message: string; line?: number; column?: number }>>([]);
   const [gqlDiagnosticError, setGqlDiagnosticError] = createSignal<string | null>(null);
+  const [templateAccessEntries] = createResource(
+    () => template?.id ?? "",
+    async (templateId) => {
+      if (!templateId) return [] as AccessEntry[];
+      const res = await apiClient.access["by-document-template"][":templateId"].$get({ param: { templateId } });
+      if (!res.ok) return [] as AccessEntry[];
+      return res.json();
+    },
+  );
   const gqlCompletions = createMemo(() =>
     buildBackendGqlCompletions({
       currentSource: { kind: "table", tableId: props.args.tableId },
@@ -1039,22 +1049,24 @@ function DocumentTemplateEditorDialog(props: {
   const previewPdf = async () => {
     const recordId = previewRecordId().trim();
     if (!recordId) throw new Error("Preview record ID is required");
+    const payload = {
+      source: source().trim(),
+      html: html().trim(),
+      headerHtml: headerHtml().trim() || null,
+      footerHtml: footerHtml().trim() || null,
+      pageCss: pageCss().trim() || null,
+      recordId,
+    };
+    const signature = currentPreviewSignature();
     const path = template
       ? `/api/grids/documents/templates/${encodeURIComponent(template.id)}/preview-draft`
       : `/api/grids/documents/templates/by-table/${encodeURIComponent(props.args.tableId)}/preview-draft`;
     const response = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        source: source().trim(),
-        html: html().trim(),
-        headerHtml: headerHtml().trim() || null,
-        footerHtml: footerHtml().trim() || null,
-        pageCss: pageCss().trim() || null,
-        recordId,
-      }),
+      body: JSON.stringify(payload),
     });
-    if (response.ok) setLastSuccessfulPreviewSignature(currentPreviewSignature());
+    if (response.ok) setLastSuccessfulPreviewSignature(signature);
     return response;
   };
 
@@ -1288,6 +1300,27 @@ function DocumentTemplateEditorDialog(props: {
                   loading={previewDataLoading}
                   error={previewDataError}
                 />
+              </section>
+            </Panes.Element>
+            <Panes.Element id="permissions" title="Access" icon="ti ti-lock">
+              <section class="flex h-full min-h-0 flex-col overflow-y-auto p-3">
+                <Show
+                  when={template}
+                  fallback={<div class="p-3 text-sm text-dimmed">Save the template before configuring document access.</div>}
+                >
+                  {(savedTemplate) => (
+                    <Show when={!templateAccessEntries.loading} fallback={<div class="p-3 text-sm text-dimmed">Loading access…</div>}>
+                      <ScopedPermissionEditor
+                        scope={{ type: "documentTemplate", id: savedTemplate().id }}
+                        initialEntries={templateAccessEntries() ?? []}
+                        allowedLevels={[
+                          { level: "read", label: "Read", icon: "ti ti-eye" },
+                          { level: "admin", label: "Admin", icon: "ti ti-shield" },
+                        ]}
+                      />
+                    </Show>
+                  )}
+                </Show>
               </section>
             </Panes.Element>
           </Panes.Root>

@@ -864,6 +864,21 @@ export type DocumentTemplate = z.infer<typeof DocumentTemplateSchema>;
 
 export const DocumentTemplateListSchema = z.array(DocumentTemplateSchema);
 
+export const DocumentTemplateSummarySchema = DocumentTemplateSchema.pick({
+  id: true,
+  shortId: true,
+  tableId: true,
+  name: true,
+  description: true,
+  enabled: true,
+  position: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type DocumentTemplateSummary = z.infer<typeof DocumentTemplateSummarySchema>;
+
+export const DocumentTemplateSummaryListSchema = z.array(DocumentTemplateSummarySchema);
+
 export const CreateDocumentTemplateSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(2_000).nullable().optional(),
@@ -946,6 +961,25 @@ export const DocumentRunListSchema = z.object({
   items: z.array(DocumentRunSchema),
 });
 export type DocumentRunList = z.infer<typeof DocumentRunListSchema>;
+
+export const DocumentRunSummarySchema = DocumentRunSchema.pick({
+  id: true,
+  shortId: true,
+  templateId: true,
+  snapshotId: true,
+  baseId: true,
+  tableId: true,
+  recordId: true,
+  documentNumber: true,
+  generatedBy: true,
+  generatedAt: true,
+});
+export type DocumentRunSummary = z.infer<typeof DocumentRunSummarySchema>;
+
+export const DocumentRunSummaryListSchema = z.object({
+  items: z.array(DocumentRunSummarySchema),
+});
+export type DocumentRunSummaryList = z.infer<typeof DocumentRunSummaryListSchema>;
 
 export const DocumentRecordBodySchema = z.object({
   recordId: z.string().uuid(),

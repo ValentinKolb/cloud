@@ -421,6 +421,7 @@ export default function GridsWorkspace(props: Props) {
       baseId={state().base.id}
       table={route.table}
       template={route.template}
+      editableTemplate={route.editableTemplate}
       canManageTemplate={route.canManageTemplate}
       initialRecordId={route.initialRecordId}
     />

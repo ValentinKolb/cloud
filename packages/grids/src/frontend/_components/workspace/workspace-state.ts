@@ -4,6 +4,7 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import type {
   ComputedColumnSpec,
   DocumentTemplate,
+  DocumentTemplateSummary,
   DslQueryPreviewResponse,
   GroupSortSpec,
   RecordDisplayConfig,
@@ -60,12 +61,12 @@ export type WorkspaceCatalog = {
   viewsByTable: Record<string, View[]>;
   formsByTable: Record<string, Form[]>;
   formAccessEntriesByTable: Record<string, Record<string, AccessEntry[]>>;
-  documentTemplatesByTable: Record<string, DocumentTemplate[]>;
+  documentTemplatesByTable: Record<string, DocumentTemplateSummary[]>;
   documentTemplateLevels: Record<string, "none" | "read" | "write" | "admin">;
   documentTemplateAccessEntriesByTable: Record<string, Record<string, AccessEntry[]>>;
   tableShortIds: Record<string, string>;
   sidebarForms: Array<{ form: Form; table: Table }>;
-  sidebarDocumentTemplates: Array<{ template: DocumentTemplate; table: Table }>;
+  sidebarDocumentTemplates: Array<{ template: DocumentTemplateSummary; table: Table }>;
 };
 
 type RuntimeView = View & {
@@ -139,7 +140,8 @@ export type WorkspaceQueryRoute = {
 export type WorkspaceDocumentTemplateRoute = {
   kind: "documentTemplate";
   table: Table;
-  template: DocumentTemplate;
+  template: DocumentTemplateSummary;
+  editableTemplate: DocumentTemplate | null;
   canManageTemplate: boolean;
   activeTemplateAccessEntries: AccessEntry[];
   initialRecordId: string | null;
@@ -221,7 +223,7 @@ const loadFormAccessEntriesByTable = async (
 };
 
 const loadDocumentTemplateAccessEntriesByTable = async (
-  templatesByTable: Record<string, DocumentTemplate[]>,
+  templatesByTable: Record<string, Array<Pick<DocumentTemplateSummary, "id">>>,
   templateLevels: Record<string, "none" | "read" | "write" | "admin">,
 ) => {
   const entriesByTable: Record<string, Record<string, AccessEntry[]>> = {};
@@ -321,16 +323,22 @@ const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCat
     if (table) sidebarForms.push({ form, table });
   }
   sidebarForms.sort((a, b) => a.form.name.localeCompare(b.form.name, undefined, { sensitivity: "base" }));
-  const sidebarDocumentTemplates: Array<{ template: DocumentTemplate; table: Table }> = [];
+  const documentTemplatesByTable = Object.fromEntries(
+    Object.entries(catalogRaw.documentTemplatesByTable ?? {}).map(([tableId, templates]) => [
+      tableId,
+      templates.map(gridsService.document.summarizeTemplate),
+    ]),
+  );
+  const sidebarDocumentTemplates: Array<{ template: DocumentTemplateSummary; table: Table }> = [];
   for (const { template, tableId } of catalogRaw.sidebarDocumentTemplates ?? []) {
     const table = tableById[tableId];
-    if (table) sidebarDocumentTemplates.push({ template, table });
+    if (table) sidebarDocumentTemplates.push({ template: gridsService.document.summarizeTemplate(template), table });
   }
   sidebarDocumentTemplates.sort((a, b) => a.template.name.localeCompare(b.template.name, undefined, { sensitivity: "base" }));
 
   const formAccessEntriesByTable = await loadFormAccessEntriesByTable(tables, catalogRaw.tableLevels, catalogRaw.formsByTable);
   const documentTemplateAccessEntriesByTable = await loadDocumentTemplateAccessEntriesByTable(
-    catalogRaw.documentTemplatesByTable ?? {},
+    documentTemplatesByTable,
     catalogRaw.documentTemplateLevels ?? {},
   );
   return {
@@ -341,7 +349,7 @@ const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCat
     viewsByTable: catalogRaw.viewsByTable,
     formsByTable: catalogRaw.formsByTable,
     formAccessEntriesByTable,
-    documentTemplatesByTable: catalogRaw.documentTemplatesByTable ?? {},
+    documentTemplatesByTable,
     documentTemplateLevels: catalogRaw.documentTemplateLevels ?? {},
     documentTemplateAccessEntriesByTable,
     tableShortIds: Object.fromEntries([...tables, ...formTables, ...documentTemplateTables].map((t) => [t.id, t.shortId])),
@@ -801,7 +809,8 @@ const loadDocumentTemplateState = async (
     {
       kind: "documentTemplate",
       table,
-      template,
+      template: gridsService.document.summarizeTemplate(template),
+      editableTemplate: canManageTemplate ? template : null,
       canManageTemplate,
       activeTemplateAccessEntries: canManageTemplate ? await gridsService.access.listForDocumentTemplate(template.id) : [],
       initialRecordId: common.chrome.url.searchParams.get("record"),
