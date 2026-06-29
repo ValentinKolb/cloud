@@ -330,20 +330,16 @@ const flagNames = (key: string, spec: CliFlagSpec): string[] => {
 };
 
 const collectBooleanFlags = (commands: readonly CliCommandDefinition[]): readonly string[] => {
-  const booleanNames = new Set<string>(["help", "h"]);
-  const valueNames = new Set<string>();
+  const names = new Set<string>(["help", "h"]);
   for (const item of commands) {
     for (const [key, spec] of Object.entries(item.flags ?? {})) {
       if (spec.kind === "boolean") {
-        for (const name of flagNames(key, spec)) booleanNames.add(name);
-      } else {
-        for (const name of flagNames(key, spec)) valueNames.add(name);
+        for (const name of flagNames(key, spec)) names.add(name);
       }
-      if (spec.kind === "input" && spec.stdinName !== false) booleanNames.add(spec.stdinName ?? "stdin");
+      if (spec.kind === "input" && spec.stdinName !== false) names.add(spec.stdinName ?? "stdin");
     }
   }
-  for (const name of valueNames) booleanNames.delete(name);
-  return [...booleanNames].sort();
+  return [...names].sort();
 };
 
 const getRawFlagValues = (raw: Record<string, CloudCliFlagValue>, names: readonly string[]): CloudCliFlagValue[] => {
@@ -485,8 +481,8 @@ const renderSubtreeHelp = (config: CliCommandsConfig, path: readonly string[], n
   const commands = [...node.children.values()]
     .sort((a, b) => a.segment.localeCompare(b.segment))
     .map((child) => {
-      const summary = child.command ? child.command.summary : "Commands";
-      return `  ${child.segment.padEnd(14)} ${summary}`.trimEnd();
+      const command = firstCommand(child);
+      return `  ${child.segment.padEnd(14)} ${command?.summary ?? ""}`.trimEnd();
     })
     .join("\n");
 

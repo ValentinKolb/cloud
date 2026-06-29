@@ -91,38 +91,6 @@ describe("CLI command builder", () => {
     expect(captured).toEqual({ sendOn: ["error", "recovery", "warn"], yes: true });
   });
 
-  test("does not collect colliding value flags as module-level booleans", async () => {
-    let captured: unknown;
-    const mod = defineCliCommands({
-      name: "notes",
-      summary: "Note commands",
-      commands: [
-        command("read", {
-          summary: "Read note",
-          flags: { content: flag.boolean({ description: "Include content" }) },
-          run: ({ flags }) => {
-            captured = flags;
-          },
-        }),
-        command("edit", {
-          summary: "Edit note",
-          flags: { content: flag.string({ description: "Markdown content" }) },
-          run: ({ flags }) => {
-            captured = flags;
-          },
-        }),
-      ],
-    });
-
-    expect(mod.booleanFlags).not.toContain("content");
-
-    await mod.run(createContext(["edit"], { content: "hello" }).ctx);
-    expect(captured).toEqual({ content: "hello" });
-
-    await mod.run(createContext(["read"], { content: true }).ctx);
-    expect(captured).toEqual({ content: true });
-  });
-
   test("renders root, subtree, command, and flag help", async () => {
     const mod = defineCliCommands({
       name: "admin",
