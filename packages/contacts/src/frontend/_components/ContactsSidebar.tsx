@@ -2,6 +2,7 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import type { ContactBook } from "../../service";
 import CreateBookButton from "./CreateBookButton.island";
 import CreateContactButton from "./CreateContactButton.island";
+import ContactsSpotlightButton from "./ContactsSpotlightButton.island";
 
 type ContactBookOption = {
   id: string;
@@ -49,6 +50,7 @@ export default function ContactsSidebar(props: Props) {
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>
+          <ContactsSpotlightButton variant="sidebar-mobile" />
           <CreateContactButton
             writableBooks={props.writableBooks}
             defaultBookId={props.defaultCreateBookId ?? null}
@@ -95,6 +97,7 @@ export default function ContactsSidebar(props: Props) {
 
         <AppWorkspace.SidebarBody scrollPreserveKey="contacts-sidebar">
           <AppWorkspace.SidebarSection title="Contacts">
+            <ContactsSpotlightButton variant="sidebar" registerShortcut />
             <AppWorkspace.SidebarItem
               href="/app/contacts"
               navigation="document"
