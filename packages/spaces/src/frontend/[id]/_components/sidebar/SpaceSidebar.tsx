@@ -1,8 +1,9 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
-import { type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
+import type { LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import SidebarSettings from "../settings/SidebarSettings";
 import type { ViewType } from "../settings/SpaceSettingsStore";
+import SearchButton from "../search/SearchButton";
 import CopyICalButton from "./CopyICalButton";
 import CreateItemButton from "./CreateItemButton";
 import type { SpaceContext } from "./types";
@@ -85,6 +86,15 @@ export default function SpaceSidebar(props: Props) {
               variant="chip"
             />
           </div>
+          <div style={`view-transition-name:${vt("search-mobile")}`}>
+            <SearchButton
+              spaceId={props.ctx.space.id}
+              spaceName={props.ctx.space.name}
+              columns={props.ctx.columns}
+              query={props.ctx.query}
+              variant="sidebar-mobile"
+            />
+          </div>
           <AppWorkspace.SidebarItem
             href="/app/spaces"
             navigation="document"
@@ -125,6 +135,16 @@ export default function SpaceSidebar(props: Props) {
                   tags={props.ctx.tags}
                   dateConfig={props.dateConfig}
                   variant="icon"
+                />
+              </div>
+              <div style={`view-transition-name:${vt("search-desktop")}`}>
+                <SearchButton
+                  spaceId={props.ctx.space.id}
+                  spaceName={props.ctx.space.name}
+                  columns={props.ctx.columns}
+                  query={props.ctx.query}
+                  variant="icon"
+                  registerShortcut
                 />
               </div>
               <AppWorkspace.SidebarIconAction
