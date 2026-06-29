@@ -33,6 +33,22 @@ type GatewayHealth = {
   }[];
 };
 
+type GatewayRoute = {
+  prefix: string;
+  appId: string;
+  count: number;
+  errors: number;
+  lastSeen: string | null;
+};
+
+type GatewayRoutesResponse = {
+  generatedAt: string | null;
+  instanceId: string | null;
+  total: number;
+  routeCount: number;
+  items: GatewayRoute[];
+};
+
 type LogEntry = {
   id: string;
   level: "debug" | "info" | "warn" | "error";
@@ -755,6 +771,40 @@ export default defineCliCommands({
         const result = await apiJson<{ id: string }>(ctx, "DELETE", `/api/gateway/apps/${encodeURIComponent(args.id)}`);
         if (ctx.options.output === "json") ctx.json(result);
         else ctx.print(`Removed ${result.id}.`);
+      },
+    }),
+    command("routes list", {
+      summary: "List active gateway routes",
+      flags: {
+        search: flag.string({ aliases: ["q"], description: "Search route prefix or app id" }),
+        app: flag.string({ description: "Filter by app id" }),
+        errors: flag.boolean({ description: "Only routes with errors" }),
+        sort: flag.enum(["count", "prefix", "errors"], { default: "count", description: "Sort by count, prefix, or errors" }),
+      },
+      run: async ({ ctx, flags }) => {
+        const result = await apiGet<GatewayRoutesResponse>(
+          ctx,
+          `/api/gateway/routes${queryString({
+            search: flags.search,
+            app: flags.app,
+            errors: flags.errors,
+            sort: flags.sort,
+          })}`,
+        );
+        const rows = result.items.map((route) => ({
+          prefix: route.prefix,
+          app: route.appId,
+          requests: route.count,
+          errors: route.errors,
+          lastSeen: route.lastSeen ?? "",
+        }));
+        printJsonOrTable(ctx, result, rows, [
+          { key: "prefix" },
+          { key: "app" },
+          { key: "requests" },
+          { key: "errors" },
+          { key: "lastSeen" },
+        ]);
       },
     }),
     command("logs list", {
@@ -1765,6 +1815,17 @@ export default defineCliCommands({
         ]);
       },
     }),
+    command("metrics read", {
+      summary: "Read raw Prometheus metrics",
+      run: async ({ ctx }) => {
+        const response = await ctx.fetch("/metrics");
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          throw new Error(`${response.status} ${text.trim() || response.statusText}`);
+        }
+        ctx.print((await response.text()).trimEnd());
+      },
+    }),
     command("metrics catalogue", {
       summary: "List exposed metric names by collector",
       flags: {
@@ -1820,11 +1881,11 @@ export default defineCliCommands({
     command("metrics tokens create", {
       summary: "Create a metrics bearer token",
       args: { name: arg.required({ valueLabel: "name" }) },
-      flags: { expiresAt: flag.string({ name: "expires-at", description: "ISO expiry timestamp" }) },
+      flags: { expiresAt: flag.string({ name: "expires-at", description: "ISO expiry timestamp, never, or null" }) },
       run: async ({ ctx, args, flags }) => {
         const result = await apiJson<{ token: string; credential: MetricsToken }>(ctx, "POST", "/api/gateway/metrics/tokens", {
           name: args.name,
-          expiresAt: flags.expiresAt ?? null,
+          expiresAt: parseExpiresAt(flags.expiresAt) ?? null,
         });
         if (ctx.options.output === "json") ctx.json(result);
         else ctx.print(`Token: ${result.token}\nPrefix: ${result.credential.tokenPrefix}\nStore this token now. It cannot be shown again.`);
