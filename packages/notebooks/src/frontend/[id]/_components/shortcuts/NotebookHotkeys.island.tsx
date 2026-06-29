@@ -1,7 +1,7 @@
 import { onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
 import { hotkeys, mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, SPOTLIGHT_SHORTCUT } from "@valentinkolb/cloud/ui";
 import { buildNoteUrl } from "../../../params";
 import { onNotebookSearchRequest } from "../../../lib/hotkeys";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
@@ -69,7 +69,7 @@ export default function NotebookHotkeys(props: Props) {
   });
 
   hotkeys.create(() => ({
-    "mod+shift+k": {
+    [SPOTLIGHT_SHORTCUT]: {
       label: "Search Notes",
       desc: "Open notebook note search.",
       run: openSearch,

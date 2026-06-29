@@ -1,8 +1,22 @@
 import type { Message, Usage } from "@valentinkolb/nessi";
 import { fileIcons } from "@valentinkolb/stdlib";
+import { clipboard } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { markdown } from "../shared";
-import { Dropdown, type DropdownItem, MarkdownView, Placeholder, toast } from "../ui";
+import {
+  DialogHeader,
+  Dropdown,
+  type DropdownItem,
+  dialogCore,
+  MarkdownView,
+  PanelDialog,
+  Placeholder,
+  ProgressBar,
+  panelDialogOptions,
+  TextInput,
+  toast,
+} from "../ui";
+import type { AiMessageRetryMode } from "./http";
 import type { AiPublicModelProfile, AiStoredMessage, AiUiBlock, AiUserContentPart } from "./types";
 import { AI_IMAGE_MEDIA_TYPES, isAiImageMediaType } from "./types";
 
@@ -23,6 +37,11 @@ export type AiSlashCommand = {
 
 export type AiComposerSendInput = {
   message?: string;
+  content?: AiUserContentPart[];
+};
+
+export type AiRetryMessageInput = {
+  mode?: AiMessageRetryMode;
   content?: AiUserContentPart[];
 };
 
@@ -128,6 +147,21 @@ const userVisibleTextFromMessage = (message: Message): string => {
     .trim();
 };
 
+const isAttachmentContextPart = (part: AiUserContentPart): boolean => {
+  if (typeof part === "string") return part.startsWith(ATTACHMENT_CONTEXT_PREFIX);
+  return part.type === "text" && part.text.startsWith(ATTACHMENT_CONTEXT_PREFIX);
+};
+
+const userContentWithEditedVisibleText = (message: Message, text: string): AiUserContentPart[] => {
+  if (message.role !== "user") return text.trim() ? [{ type: "text", text: text.trim() }] : [];
+  const preserved = message.content.filter((part) => {
+    if (typeof part === "string") return isAttachmentContextPart(part);
+    return part.type === "file" || isAttachmentContextPart(part);
+  });
+  const visible = text.trim();
+  return visible ? [{ type: "text", text: visible }, ...preserved] : preserved;
+};
+
 const assistantBlocks = (message: Message): AssistantMessage["content"] => (message.role === "assistant" ? message.content : []);
 
 const assistantVisibleBlocks = (message: Message) => {
@@ -205,6 +239,16 @@ const textAttachmentSummariesFromMessage = (message: Message) => {
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === "object" && !Array.isArray(value));
 
+const isCardToolName = (name: string) => name === "card" || name === "cloud_card";
+
+const isSurveyToolName = (name: string) => name === "survey" || name === "cloud_survey";
+
+const displayToolName = (name: string) => {
+  if (isCardToolName(name)) return "card";
+  if (isSurveyToolName(name)) return "survey";
+  return name;
+};
+
 const jsonPreview = (value: unknown) => {
   try {
     return JSON.stringify(value, null, 2);
@@ -230,6 +274,151 @@ const latestUsage = (messages: AiStoredMessage[]): Usage | null => {
     if (usage) return usage;
   }
   return null;
+};
+
+const assistantVisibleTextFromMessage = (message: Message): string => {
+  if (message.role !== "assistant") return textFromMessage(message);
+  return message.content
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("")
+    .trim();
+};
+
+const copyTextFromMessage = (message: Message): string => {
+  if (message.role === "user") return userVisibleTextFromMessage(message);
+  if (message.role === "assistant") return assistantVisibleTextFromMessage(message);
+  return textFromMessage(message);
+};
+
+const usageValue = (usage: Usage | null | undefined, key: "input" | "output" | "total" | "creditsUsed") => {
+  const value = (usage as Partial<Record<"input" | "output" | "total" | "creditsUsed", unknown>> | null | undefined)?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+};
+
+const estimateTokens = (text: string): number => Math.max(0, Math.ceil(text.trim().length / 4));
+
+const wordCount = (text: string): number => text.trim().split(/\s+/).filter(Boolean).length;
+
+const formatDateTime = (value: string) =>
+  new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+
+const openAssistantMessageInfo = (entry: AiStoredMessage) => {
+  const text = assistantVisibleTextFromMessage(entry.message);
+  const blocks = assistantBlocks(entry.message);
+  const toolCalls = blocks.filter((block) => block.type === "tool_call");
+  const thinkingBlocks = blocks.filter((block) => block.type === "thinking");
+  const stats = [
+    { label: "Provider model", value: entry.providerModel ?? "Unknown" },
+    { label: "Model profile", value: entry.modelProfileId ?? "Unknown" },
+    { label: "Stop reason", value: entry.stopReason ?? "Unknown" },
+    { label: "Created", value: formatDateTime(entry.createdAt) },
+    { label: "Input tokens", value: usageValue(entry.usage, "input")?.toLocaleString() ?? "Not reported" },
+    { label: "Output tokens", value: usageValue(entry.usage, "output")?.toLocaleString() ?? "Not reported" },
+    { label: "Total tokens", value: usageValue(entry.usage, "total")?.toLocaleString() ?? "Not reported" },
+    {
+      label: "Credits",
+      value:
+        usageValue(entry.usage, "creditsUsed") !== null
+          ? usageValue(entry.usage, "creditsUsed")!.toLocaleString(undefined, { maximumFractionDigits: 6 })
+          : "Not reported",
+    },
+    { label: "Words", value: wordCount(text).toLocaleString() },
+    { label: "Characters", value: text.length.toLocaleString() },
+    { label: "Estimated tokens", value: estimateTokens(text).toLocaleString() },
+    { label: "Thinking blocks", value: thinkingBlocks.length.toLocaleString() },
+    { label: "Tool calls", value: toolCalls.length.toLocaleString() },
+  ];
+
+  void dialogCore.open<void>(
+    (close) => (
+      <PanelDialog>
+        <PanelDialog.Header title="Message info" subtitle="Assistant response metadata" icon="ti ti-info-circle" close={close} />
+        <PanelDialog.Body>
+          <PanelDialog.Section title="Stats" icon="ti ti-chart-dots" subtitle="Provider usage is shown when the model reported it.">
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <For each={stats}>
+                {(stat) => (
+                  <div class="rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+                    <p class="text-[11px] uppercase tracking-[0.08em] text-dimmed">{stat.label}</p>
+                    <p class="mt-0.5 truncate text-sm font-medium text-primary" title={stat.value}>
+                      {stat.value}
+                    </p>
+                  </div>
+                )}
+              </For>
+            </div>
+          </PanelDialog.Section>
+          <Show when={toolCalls.length > 0}>
+            <PanelDialog.Section title="Tools" icon="ti ti-tool" subtitle="Tools requested by this assistant response.">
+              <div class="flex flex-wrap gap-1.5">
+                <For each={toolCalls}>
+                  {(tool) => (
+                    <span class="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-1 text-xs text-secondary dark:bg-zinc-900">
+                      <i class="ti ti-tool text-sm" aria-hidden="true" />
+                      {displayToolName(tool.name)}
+                    </span>
+                  )}
+                </For>
+              </div>
+            </PanelDialog.Section>
+          </Show>
+        </PanelDialog.Body>
+      </PanelDialog>
+    ),
+    {
+      ...panelDialogOptions,
+      panelClassName: panelDialogOptions.panelClassName.replace("w-[min(96vw,48rem)]", "w-[min(94vw,36rem)]"),
+    },
+  );
+};
+
+const openModifyRetryDialog = (
+  entry: AiStoredMessage,
+  onRetryMessage: (entry: AiStoredMessage, input?: AiRetryMessageInput) => void | Promise<void>,
+) => {
+  void dialogCore.open<void>(
+    (close) => {
+      const [draft, setDraft] = createSignal(userVisibleTextFromMessage(entry.message));
+      const content = () => userContentWithEditedVisibleText(entry.message, draft());
+      const canRetry = () => content().length > 0;
+      const retry = () => {
+        const nextContent = content();
+        if (nextContent.length === 0) return;
+        close();
+        void onRetryMessage(entry, { content: nextContent });
+      };
+
+      return (
+        <div class="flex min-w-[min(92vw,34rem)] flex-col gap-4">
+          <DialogHeader title="Edit and try again" icon="ti ti-pencil" close={() => close()} />
+          <div class="px-4">
+            <TextInput
+              label="Prompt"
+              description="Attachments from the original message stay attached."
+              multiline
+              lines={8}
+              value={draft}
+              onInput={setDraft}
+              onSubmit={retry}
+            />
+          </div>
+          <div class="flex justify-end gap-2 px-4 pb-4">
+            <button type="button" class="btn-input btn-input-sm" onClick={() => close()}>
+              Cancel
+            </button>
+            <button type="button" class="btn-ai btn-sm" disabled={!canRetry()} onClick={retry}>
+              Try again
+            </button>
+          </div>
+        </div>
+      );
+    },
+    {
+      panelClassName:
+        "fixed left-1/2 top-1/2 m-0 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-none backdrop:bg-black/45 backdrop:backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:backdrop:bg-black/35",
+      contentClassName: "p-0",
+    },
+  );
 };
 
 const readImageFile = (file: File): Promise<PendingAiImage> => {
@@ -276,7 +465,7 @@ export function AiContextIndicator(props: { usage?: Usage | null; contextWindow?
   const percent = () => {
     const contextWindow = windowSize();
     if (!contextWindow || total() <= 0) return null;
-    return Math.round((total() / contextWindow) * 100);
+    return Math.min(100, Math.round((total() / contextWindow) * 100));
   };
   const label = () => {
     if (total() > 0) return formatTokens(total());
@@ -310,6 +499,11 @@ export function AiContextIndicator(props: { usage?: Usage | null; contextWindow?
         class="pointer-events-none invisible absolute bottom-full right-0 z-30 mb-2 w-64 rounded-lg border border-zinc-200 bg-white p-3 text-xs text-secondary opacity-0 shadow-[var(--theme-shadow-float)] transition-opacity group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100 dark:border-zinc-800 dark:bg-zinc-900"
       >
         <p class="font-medium text-primary">Context</p>
+        <Show when={percent() !== null}>
+          <div class="mt-2">
+            <ProgressBar value={percent()!} size="xs" tone={(percent() ?? 0) >= 85 ? "danger" : "primary"} />
+          </div>
+        </Show>
         <div class="mt-2 space-y-1">
           <p class="flex justify-between gap-3">
             <span>Used</span>
@@ -326,19 +520,58 @@ export function AiContextIndicator(props: { usage?: Usage | null; contextWindow?
             </p>
           </Show>
         </div>
-        <p class="mt-2 text-dimmed">Cloud AI can compact old chat context before the model hits the context limit.</p>
       </div>
     </div>
   );
 }
 
-function UserMessageBubble(props: { message: Message }) {
-  const text = () => userVisibleTextFromMessage(props.message);
-  const images = () => filePartsFromMessage(props.message).filter((part) => part.mediaType.startsWith("image/"));
-  const textAttachments = () => textAttachmentSummariesFromMessage(props.message);
+function UserMessageBubble(props: {
+  entry: AiStoredMessage;
+  onRetryMessage?: (entry: AiStoredMessage, input?: AiRetryMessageInput) => void | Promise<void>;
+}) {
+  const message = () => props.entry.message;
+  const text = () => userVisibleTextFromMessage(message());
+  const images = () => filePartsFromMessage(message()).filter((part) => part.mediaType.startsWith("image/"));
+  const textAttachments = () => textAttachmentSummariesFromMessage(message());
+  const copyText = () => copyTextFromMessage(message());
+  const { copy, wasCopied } = clipboard.create(1400);
+  const retryMenuItems = (
+    onRetryMessage: (entry: AiStoredMessage, input?: AiRetryMessageInput) => void | Promise<void>,
+  ): DropdownItem[] => [
+    {
+      sectionLabel: "Try again",
+      items: [
+        {
+          icon: "ti ti-refresh",
+          label: "Try again",
+          action: () => void onRetryMessage(props.entry, { mode: "retry" }),
+        },
+        {
+          icon: "ti ti-list-details",
+          label: "More detailed",
+          action: () => void onRetryMessage(props.entry, { mode: "details" }),
+        },
+        {
+          icon: "ti ti-align-left",
+          label: "More concise",
+          action: () => void onRetryMessage(props.entry, { mode: "concise" }),
+        },
+      ],
+    },
+    {
+      sectionLabel: "Edit",
+      items: [
+        {
+          icon: "ti ti-pencil",
+          label: "Edit prompt",
+          action: () => openModifyRetryDialog(props.entry, onRetryMessage),
+        },
+      ],
+    },
+  ];
 
   return (
-    <div class="flex justify-end px-3 py-2">
+    <div class="group flex justify-end px-3 py-2">
       <div class="flex max-w-[min(44rem,88%)] flex-col items-end gap-2">
         <Show when={images().length > 0 || textAttachments().length > 0}>
           <div class="flex flex-wrap justify-end gap-2">
@@ -371,6 +604,37 @@ function UserMessageBubble(props: { message: Message }) {
             <p class="whitespace-pre-wrap">{text()}</p>
           </div>
         </Show>
+        <div class="flex items-center gap-0.5 text-dimmed opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <Show when={copyText()}>
+            <button
+              type="button"
+              class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"
+              aria-label="Copy user message"
+              title="Copy"
+              onClick={() => void copy(copyText())}
+            >
+              <i class={`ti ${wasCopied() ? "ti-check" : "ti-copy"} text-sm`} aria-hidden="true" />
+            </button>
+          </Show>
+          <Show when={props.onRetryMessage}>
+            {(onRetryMessage) => (
+              <Dropdown
+                position="bottom-left"
+                width="w-56"
+                elements={retryMenuItems(onRetryMessage())}
+                trigger={
+                  <span
+                    class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"
+                    title="Message actions"
+                  >
+                    <i class="ti ti-dots text-sm" aria-hidden="true" />
+                    <span class="sr-only">Message actions</span>
+                  </span>
+                }
+              />
+            )}
+          </Show>
+        </div>
       </div>
     </div>
   );
@@ -638,13 +902,13 @@ function ToolCallBlockView(props: { block: ToolCallUiBlock | Extract<AssistantMe
   const args = () => props.block.args;
   return (
     <Show
-      when={name() === "cloud_card"}
+      when={isCardToolName(name())}
       fallback={
         <Show
-          when={name() === "cloud_survey"}
+          when={isSurveyToolName(name())}
           fallback={
             <GenericToolBlock
-              name={name()}
+              name={displayToolName(name())}
               args={args()}
               result={"result" in props.block ? props.block.result : undefined}
               status={"status" in props.block ? props.block.status : undefined}
@@ -714,12 +978,17 @@ function FrontendToolBlockView(props: {
   const pending = () => props.block.status === "pending";
   return (
     <Show
-      when={request().name === "cloud_card"}
+      when={isCardToolName(request().name)}
       fallback={
         <Show
-          when={request().name === "cloud_survey"}
+          when={isSurveyToolName(request().name)}
           fallback={
-            <GenericToolBlock name={request().name} args={request().args} result={props.block.result} status={props.block.status} />
+            <GenericToolBlock
+              name={displayToolName(request().name)}
+              args={request().args}
+              result={props.block.result}
+              status={props.block.status}
+            />
           }
         >
           <CloudSurveyBlock args={request().args} disabled={!pending()} onSubmit={(result) => props.onResult?.(request(), result)} />
@@ -765,7 +1034,50 @@ function ActiveAssistantBlock(props: {
   }
 }
 
-function AssistantMessageBlock(props: { message: Message; streaming?: boolean }) {
+function AssistantMessageActions(props: { entry: AiStoredMessage; onForkMessage?: (entry: AiStoredMessage) => void | Promise<void> }) {
+  const { copy, wasCopied } = clipboard.create(1400);
+  const text = () => copyTextFromMessage(props.entry.message);
+
+  return (
+    <div class="mt-1 flex items-center gap-0.5 text-dimmed">
+      <button
+        type="button"
+        class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"
+        aria-label="Message info"
+        title="Info"
+        onClick={() => openAssistantMessageInfo(props.entry)}
+      >
+        <i class="ti ti-info-circle text-sm" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 hover:text-primary disabled:opacity-40 dark:hover:bg-zinc-900"
+        aria-label="Copy assistant message"
+        title="Copy"
+        disabled={!text()}
+        onClick={() => void copy(text())}
+      >
+        <i class={`ti ${wasCopied() ? "ti-check" : "ti-copy"} text-sm`} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"
+        aria-label="Fork conversation"
+        title="Fork"
+        onClick={() => void props.onForkMessage?.(props.entry)}
+      >
+        <i class="ti ti-git-fork text-sm" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+function AssistantMessageBlock(props: {
+  message: Message;
+  entry?: AiStoredMessage;
+  streaming?: boolean;
+  onForkMessage?: (entry: AiStoredMessage) => void | Promise<void>;
+}) {
   const blocks = () => assistantVisibleBlocks(props.message);
 
   return (
@@ -802,12 +1114,58 @@ function AssistantMessageBlock(props: { message: Message; streaming?: boolean })
             )}
           </For>
         </Show>
+        <Show when={!props.streaming && props.entry ? props.entry : null}>
+          {(entry) => <AssistantMessageActions entry={entry()} onForkMessage={props.onForkMessage} />}
+        </Show>
       </div>
     </div>
   );
 }
 
+const isQuietToolResult = (result: unknown): boolean =>
+  isRecord(result) && (result.displayed === true || result.submitted === true || result.ok === true);
+
+function ToolResultMessageBlock(props: { entry: AiStoredMessage }) {
+  const message = () => {
+    const value = props.entry.message;
+    return value.role === "tool_result" ? value : null;
+  };
+  const result = () => message()?.result ?? null;
+  const isError = () => Boolean(message()?.isError);
+  const name = () => displayToolName(message()?.name ?? "tool");
+  const text = () => textFromMessage(props.entry.message);
+  const summary = () => {
+    const content = text();
+    const firstIssue = /Issues:\s*\n1\.\s*([^\n]+)/.exec(content)?.[1];
+    if (firstIssue) return firstIssue;
+    const firstLine = content.split("\n").find((line) => line.trim());
+    if (firstLine) return firstLine.trim().slice(0, 160);
+    return isError() ? "Tool failed" : "Tool result";
+  };
+
+  if (!isError() && isQuietToolResult(result())) return null;
+
+  return (
+    <div class="px-3 py-1">
+      <details class="max-w-[min(46rem,100%)] text-xs text-secondary">
+        <summary
+          class={`inline-flex cursor-pointer list-none items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-900 ${
+            isError() ? "text-red-600 dark:text-red-300" : "text-dimmed"
+          }`}
+        >
+          <i class={`ti ${isError() ? "ti-alert-circle" : "ti-tool"} text-sm`} aria-hidden="true" />
+          <span class="font-medium">{isError() ? "Tool error" : "Tool result"}</span>
+          <span class="text-dimmed">{name()}</span>
+          <span class="max-w-md truncate">{summary()}</span>
+        </summary>
+        <pre class="mt-1 max-h-52 overflow-auto rounded-md bg-zinc-100 p-2 text-[11px] text-primary dark:bg-zinc-950/70">{text()}</pre>
+      </details>
+    </div>
+  );
+}
+
 function SystemMessageBlock(props: { entry: AiStoredMessage }) {
+  if (props.entry.message.role === "tool_result") return <ToolResultMessageBlock entry={props.entry} />;
   const text = () => textFromMessage(props.entry.message);
   const title = () => (props.entry.kind === "summary" ? "Summary" : props.entry.message.role === "tool_result" ? "Tool result" : "System");
 
@@ -833,6 +1191,8 @@ export function AiMessageList(props: {
   assistantBlocks?: () => AiUiBlock[];
   onApproval?: (request: ApprovalUiBlock["request"], input: { approved: boolean; remember?: "always" }) => void | Promise<void>;
   onFrontendToolResult?: (request: FrontendToolUiBlock["request"], result: unknown) => void | Promise<void>;
+  onForkMessage?: (entry: AiStoredMessage) => void | Promise<void>;
+  onRetryMessage?: (entry: AiStoredMessage, input?: AiRetryMessageInput) => void | Promise<void>;
   streaming?: () => boolean;
   emptyTitle?: string;
 }) {
@@ -880,11 +1240,11 @@ export function AiMessageList(props: {
                     when={entry.kind === "message" && entry.message.role === "assistant"}
                     fallback={<SystemMessageBlock entry={entry} />}
                   >
-                    <AssistantMessageBlock message={entry.message} />
+                    <AssistantMessageBlock message={entry.message} entry={entry} onForkMessage={props.onForkMessage} />
                   </Show>
                 }
               >
-                <UserMessageBubble message={entry.message} />
+                <UserMessageBubble entry={entry} onRetryMessage={props.onRetryMessage} />
               </Show>
             )}
           </For>
@@ -929,8 +1289,10 @@ export function AiComposer(props: {
   const [pendingAttachments, setPendingAttachments] = createSignal<PendingAiAttachment[]>([]);
   const [selectedCommandIndex, setSelectedCommandIndex] = createSignal(0);
   const [dragActive, setDragActive] = createSignal(false);
+  let composerRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
+  let sawRunning = props.running();
 
   const selectedModel = createMemo(() => props.models().find((model) => model.id === props.selectedModelId()) ?? null);
   const supportsVision = () => Boolean(selectedModel()?.capabilities.includes("vision"));
@@ -969,6 +1331,26 @@ export function AiComposer(props: {
   });
 
   const focus = () => textareaRef?.focus();
+
+  const shouldRestoreComposerFocus = () => {
+    if (typeof document === "undefined") return false;
+    const active = document.activeElement as HTMLElement | null;
+    if (!active || active === document.body) return true;
+    if (composerRef?.contains(active)) return true;
+    if (active.closest("[role='dialog'],[popover]")) return false;
+    const tag = active.tagName.toLowerCase();
+    return tag !== "input" && tag !== "textarea" && tag !== "select" && !active.isContentEditable;
+  };
+
+  createEffect(() => {
+    const isRunning = props.running();
+    if (sawRunning && !isRunning && !props.disabled()) {
+      requestAnimationFrame(() => {
+        if (shouldRestoreComposerFocus()) focus();
+      });
+    }
+    sawRunning = isRunning;
+  });
 
   const modelDropdownItems = (): DropdownItem[] =>
     props.models().map((model) => ({
@@ -1152,7 +1534,7 @@ export function AiComposer(props: {
   };
 
   return (
-    <div class="pointer-events-auto mx-auto w-full max-w-4xl">
+    <div ref={composerRef} class="pointer-events-auto mx-auto w-full max-w-4xl">
       <Show when={slashMatches().length > 0}>
         <div class="mb-2 overflow-hidden rounded-lg border border-zinc-200 bg-white p-1 shadow-[var(--theme-shadow-float)] dark:border-zinc-800 dark:bg-zinc-900">
           <For each={slashMatches()}>

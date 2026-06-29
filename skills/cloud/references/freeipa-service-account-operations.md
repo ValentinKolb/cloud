@@ -137,8 +137,9 @@ ipa role-add-privilege "$ROLE" \
   --privileges="Cloud Group Management"
 ```
 
-Add IPA Hosts permissions. These are required for host metadata updates,
-hostgroup membership, and hostgroup create/edit/delete in the IPA Hosts app.
+Add IPA Hosts permissions. These are required for host metadata updates, host
+delete, hostgroup membership, and hostgroup create/edit/delete in the IPA Hosts
+app.
 
 ```bash
 ipa privilege-add "Cloud Host Management" \
@@ -146,6 +147,7 @@ ipa privilege-add "Cloud Host Management" \
 
 ipa privilege-add-permission "Cloud Host Management" \
   --permissions="System: Modify Hosts" \
+  --permissions="System: Remove Hosts" \
   --permissions="System: Modify Hostgroup Membership" \
   --permissions="System: Add Hostgroups" \
   --permissions="System: Modify Hostgroups" \
@@ -155,18 +157,15 @@ ipa role-add-privilege "$ROLE" \
   --privileges="Cloud Host Management"
 ```
 
+`System: Remove Hosts` is required for IPA host deletion. FreeIPA host delete
+removes the LDAP entry under `cn=computers,cn=accounts,...`, so the service
+account needs the LDAP `delete` right on that subtree, not only host modify
+rights.
+
 Add the service account to the role:
 
 ```bash
 ipa role-add-member "$ROLE" --users="$SA"
-```
-
-Add `System: Remove Hosts` only when Cloud should be allowed to delete IPA
-hosts:
-
-```bash
-ipa privilege-add-permission "Cloud Host Management" \
-  --permissions="System: Remove Hosts"
 ```
 
 Verify effective membership:
@@ -183,7 +182,7 @@ Expected minimum output includes the Cloud role plus indirect membership in:
   `System: Remove Users`, and `System: Read UPG Definition`;
 - `System: Add Groups`, `System: Modify Groups`, `System: Remove Groups`, and
   `System: Modify Group Membership`;
-- `System: Modify Hosts`;
+- `System: Modify Hosts` and `System: Remove Hosts`;
 - `System: Modify Hostgroup Membership`;
 - `System: Add Hostgroups`, `System: Modify Hostgroups`, and
   `System: Remove Hostgroups`.
@@ -214,7 +213,8 @@ missing FreeIPA permission. For example:
 - `krbPrincipalExpiration` → `Modify User Expiration`;
 - `Could not read UPG Definition originfilter` → `System: Read UPG Definition`;
 - `nsHostLocation`, `l`, `description`, or `macAddress` → `System: Modify Hosts`;
-- hostgroup membership changes → `System: Modify Hostgroup Membership`.
+- host delete on `cn=computers,cn=accounts,...` → `System: Remove Hosts`;
+- hostgroup membership changes → `System: Modify Hostgroup Membership`;
 - user create/update/delete/reset flows → the `Cloud User Management`
   permissions above;
 - group create/update/delete/member flows → the `Cloud Group Management`

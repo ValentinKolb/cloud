@@ -261,6 +261,60 @@ export const aiConversationStore: AiConversationStore = {
     return rows.map(rowToMessage);
   },
 
+  copyMessages: async (input) => {
+    const throughSeq = Math.floor(input.throughSeq);
+    if (!Number.isFinite(throughSeq) || throughSeq <= 0) return;
+
+    await sql.begin(async () => {
+      await sql`SELECT id FROM ai.conversations WHERE id = ${input.targetConversationId} FOR UPDATE`;
+      await sql`
+        INSERT INTO ai.messages (
+          conversation_id,
+          seq,
+          kind,
+          role,
+          message,
+          model_profile_id,
+          provider_model,
+          usage,
+          stop_reason
+        )
+        SELECT
+          ${input.targetConversationId},
+          seq,
+          kind,
+          role,
+          message,
+          model_profile_id,
+          provider_model,
+          usage,
+          stop_reason
+        FROM ai.messages
+        WHERE conversation_id = ${input.sourceConversationId}
+          AND compacted_at IS NULL
+          AND seq <= ${throughSeq}
+        ORDER BY seq ASC
+      `;
+      await sql`UPDATE ai.conversations SET updated_at = now() WHERE id = ${input.targetConversationId}`;
+    });
+  },
+
+  truncateMessagesFrom: async (input) => {
+    const fromSeq = Math.floor(input.fromSeq);
+    if (!Number.isFinite(fromSeq) || fromSeq <= 0) return;
+
+    await sql.begin(async () => {
+      await sql`SELECT id FROM ai.conversations WHERE id = ${input.conversationId} FOR UPDATE`;
+      await sql`
+        DELETE FROM ai.messages
+        WHERE conversation_id = ${input.conversationId}
+          AND compacted_at IS NULL
+          AND seq >= ${fromSeq}
+      `;
+      await sql`UPDATE ai.conversations SET updated_at = now() WHERE id = ${input.conversationId}`;
+    });
+  },
+
   compactMessages: async (input) => {
     const checkpointSeq = Math.floor(input.checkpointSeq);
     if (!Number.isFinite(checkpointSeq) || checkpointSeq <= 0) return;

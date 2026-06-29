@@ -31,17 +31,22 @@ import {
   ChartLine,
   ChartLive,
   ChartSparkline,
+  CodeDisplayDemo,
   DataTableAdminPatternDemo,
   DataTableFullDemo,
   DataTableMinimalDemo,
+  LightboxDemo,
+  LogEntriesTableDemo,
   MarkdownEditorFullDemo,
   MarkdownViewDemo,
+  PdfPreviewDemo,
   StructuredDataPreviewDemo,
 } from "../lab/content";
 import { DocCodeDemo, DocComponentsDemo } from "../lab/docs-components";
 import {
   BadgesDemo,
   ChipsDemo,
+  DialogHeaderDemo,
   InfoBlocks,
   PromptAlertDemo,
   PromptBareModalDemo,
@@ -52,6 +57,7 @@ import {
   PromptSearchDemo,
   PromptSizesDemo,
   PromptWorkflowFormDemo,
+  SpotlightSearchDemo,
   StatusDotsDemo,
   TagsDemo,
   ToastDemo,
@@ -101,6 +107,7 @@ import {
   AppOverviewDemo,
   AppWorkspaceDemo,
   DockWorkspaceDemo,
+  EntitySearchDemo,
   FilterChipDemo,
   NavigationEnhancementDemo,
   PaginationDemo,
@@ -108,10 +115,13 @@ import {
   PanesDemo,
   PanesProgrammaticTabsDemo,
   PermissionEditorDemo,
+  ResourceApiKeysDemo,
+  SettingsHelpersDemo,
   SettingsModalDemo,
 } from "../lab/navigation";
 import {
   AvatarDemo,
+  CoreUtilityPatternsDemo,
   LinkCardDemo,
   PaperUtility,
   PlaceholderDemo,
@@ -139,7 +149,23 @@ export type UiLabDocPage = {
   icon: string;
   summary: string;
   demoIds: string[];
+  kind?: "component" | "utility" | "pattern" | "foundation";
+  aliases?: string[];
+  tags?: string[];
+  exports?: string[];
+  source?: string;
   render: (props: UiLabDocRenderProps) => JSX.Element;
+};
+
+export type UiLabSearchEntry = {
+  id: string;
+  page: UiLabDocPage;
+  anchor?: string;
+  label: string;
+  description: string;
+  icon: string;
+  kind: "page" | "demo";
+  keywords: string;
 };
 
 export type UiLabDocSection = {
@@ -161,7 +187,8 @@ const page = (
   summary: string,
   demoIds: string[],
   render: (props: UiLabDocRenderProps) => JSX.Element,
-): UiLabDocPage => ({ section, slug, title, icon, summary, demoIds, render });
+  meta: Partial<Pick<UiLabDocPage, "kind" | "aliases" | "tags" | "exports" | "source">> = {},
+): UiLabDocPage => ({ section, slug, title, icon, summary, demoIds, render, ...meta });
 
 export const uiLabDocs: UiLabDocSection[] = [
   {
@@ -309,6 +336,7 @@ export const uiLabDocs: UiLabDocSection[] = [
             <MultiSelectInputDemo />
           </DemoGrid>
         ),
+        { aliases: ["SelectInput", "MultiSelect"] },
       ),
       page("input", "combobox", "Combobox", "ti ti-list-search", "Free-text choice with option suggestions.", ["combobox"], () => (
         <DemoGrid>
@@ -394,6 +422,7 @@ export const uiLabDocs: UiLabDocSection[] = [
             <CheckboxCardDemo />
           </DemoGrid>
         ),
+        { aliases: ["SwitchInput", "CheckboxInput", "CheckboxCardInput"] },
       ),
     ],
   },
@@ -483,9 +512,9 @@ export const uiLabDocs: UiLabDocSection[] = [
       page(
         "layout",
         "dock-workspace",
-        "DockWorkspace",
+        "DockWorkspace (deprecated)",
         "ti ti-layout-dashboard",
-        "IDE-style result plus docked pane layout for query editors, dashboard builders, and technical workspaces.",
+        "Deprecated legacy result plus docked pane shell. Use Panes for new resizable, tabbed workspaces.",
         ["dockworkspace"],
         (props) => (
           <DemoGrid columns="one">
@@ -509,13 +538,14 @@ export const uiLabDocs: UiLabDocSection[] = [
       page(
         "layout",
         "settings-modal",
-        "SettingsModal",
+        "Settings",
         "ti ti-settings",
-        "Tabbed settings shell for bare prompt dialogs and app settings flows.",
-        ["settingsmodal"],
+        "Tabbed settings shell and field/save helpers for app settings flows.",
+        ["settingsmodal", "settings-helpers"],
         () => (
           <DemoGrid columns="one">
             <SettingsModalDemo />
+            <SettingsHelpersDemo />
           </DemoGrid>
         ),
       ),
@@ -535,13 +565,15 @@ export const uiLabDocs: UiLabDocSection[] = [
       page(
         "layout",
         "permissions",
-        "PermissionEditor",
+        "Access Controls",
         "ti ti-users-group",
-        "Access editor for user, group, authenticated, and public grants.",
-        ["permissioneditor"],
+        "Access editor, principal search, and resource-bound API key management.",
+        ["permissioneditor", "entity-search", "resource-api-keys"],
         () => (
           <DemoGrid columns="one">
             <PermissionEditorDemo />
+            <EntitySearchDemo />
+            <ResourceApiKeysDemo />
           </DemoGrid>
         ),
       ),
@@ -583,13 +615,14 @@ export const uiLabDocs: UiLabDocSection[] = [
         "utilities",
         "Surface Utilities",
         "ti ti-border-all",
-        "Shared paper, thumbnail, and placeholder surfaces.",
-        ["paper", "thumbnail", "placeholder"],
+        "Shared paper, thumbnail, placeholder, detail, app layout, and popover utilities.",
+        ["paper", "thumbnail", "placeholder", "core-utility-patterns"],
         () => (
           <DemoGrid>
             <PaperUtility />
             <ThumbnailUtility />
             <PlaceholderDemo />
+            <CoreUtilityPatternsDemo />
           </DemoGrid>
         ),
       ),
@@ -701,24 +734,28 @@ export const uiLabDocs: UiLabDocSection[] = [
           "prompts-alert",
           "prompts-error",
           "prompts-confirm",
+          "spotlight-search",
           "prompts-search",
           "prompts-form",
           "prompts-workflow-form",
           "prompts-custom-dialog",
           "prompts-sizes",
           "prompts-bare",
+          "dialog-header",
         ],
         () => (
           <DemoGrid>
             <PromptAlertDemo />
             <PromptErrorDemo />
             <PromptConfirmDemo />
+            <SpotlightSearchDemo />
             <PromptSearchDemo />
             <PromptFormDemo />
             <PromptWorkflowFormDemo />
             <PromptCustomDialogDemo />
             <PromptSizesDemo />
             <PromptBareModalDemo />
+            <DialogHeaderDemo />
           </DemoGrid>
         ),
       ),
@@ -764,6 +801,20 @@ export const uiLabDocs: UiLabDocSection[] = [
       ),
       page(
         "content",
+        "code",
+        "Code & Logs",
+        "ti ti-code",
+        "Highlighted code blocks and compact log entry tables.",
+        ["code-display", "log-entries-table"],
+        () => (
+          <DemoGrid columns="one">
+            <CodeDisplayDemo />
+            <LogEntriesTableDemo />
+          </DemoGrid>
+        ),
+      ),
+      page(
+        "content",
         "structured-data",
         "StructuredDataPreview",
         "ti ti-braces",
@@ -772,6 +823,20 @@ export const uiLabDocs: UiLabDocSection[] = [
         () => (
           <DemoGrid columns="one">
             <StructuredDataPreviewDemo />
+          </DemoGrid>
+        ),
+      ),
+      page(
+        "content",
+        "media",
+        "Media Preview",
+        "ti ti-photo-scan",
+        "Lightbox and PDF preview surfaces for generated or uploaded content.",
+        ["lightbox", "pdf-preview"],
+        () => (
+          <DemoGrid columns="one">
+            <LightboxDemo />
+            <PdfPreviewDemo />
           </DemoGrid>
         ),
       ),
@@ -838,6 +903,7 @@ export const uiLabDocs: UiLabDocSection[] = [
             <WidgetServiceStatesDemo />
           </DemoGrid>
         ),
+        { aliases: ["WidgetCard"] },
       ),
     ],
   },
@@ -853,3 +919,64 @@ export const findDocPage = (section: string | undefined, slug: string | undefine
 export const docHref = (page: UiLabDocPage): string => `/app/ui-lab/${page.section}/${page.slug}`;
 
 export const allMappedDemoIds = (): string[] => allDocPages.flatMap((page) => page.demoIds);
+
+export const hiddenUiLabExports = [
+  { name: "LAYOUT_UPDATE_EVENT", reason: "Internal layout event constant used by the layout helper." },
+  { name: "confirmDiscardIfDirty", reason: "Small PanelDialog workflow helper documented through PanelDialog usage." },
+  { name: "createAvatarDataUrlFromFile", reason: "Low-level avatar upload helper; account avatar UX is intentionally app-owned." },
+  { name: "createDialogCore", reason: "Factory behind the shared dialogCore singleton; app code normally uses dialogCore directly." },
+  { name: "createFormState", reason: "Prompt implementation helper, not a standalone visual component." },
+  { name: "normalizeDockWorkspaceState", reason: "State normalization helper covered by DockWorkspace behavior." },
+  { name: "openAvatarUploadDialog", reason: "Niche account avatar flow; profile pages are the source for that UX." },
+  { name: "panelDialogPanelClass", reason: "Dialog option class constant covered by panelDialogOptions." },
+  { name: "panelDialogWorkspaceOptions", reason: "Specialized PanelDialog option bundle for workspace-sized dialogs." },
+  { name: "panelDialogWorkspacePanelClass", reason: "Class constant behind panelDialogWorkspaceOptions." },
+  { name: "pickAvatarDataUrl", reason: "Low-level file picker helper behind account avatar upload." },
+  { name: "readSettingsError", reason: "Settings API error parser, not a visual UI element." },
+  { name: "sameSettingValue", reason: "Settings dirty-state equality helper, demonstrated conceptually by Settings helpers." },
+] as const;
+
+const demoIdToLabel = (id: string): string =>
+  id
+    .split("-")
+    .map((part) => (part.length > 0 ? part[0]!.toUpperCase() + part.slice(1) : part))
+    .join(" ");
+
+export const uiLabSearchEntries: UiLabSearchEntry[] = allDocPages.flatMap((page) => {
+  const pageKeywords = [
+    page.section,
+    page.slug,
+    page.title,
+    page.summary,
+    page.kind,
+    page.source,
+    ...(page.aliases ?? []),
+    ...(page.tags ?? []),
+    ...(page.exports ?? []),
+    ...page.demoIds,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return [
+    {
+      id: `${page.section}/${page.slug}`,
+      page,
+      label: page.title,
+      description: page.summary,
+      icon: page.icon,
+      kind: "page" as const,
+      keywords: pageKeywords,
+    },
+    ...page.demoIds.map((demoId) => ({
+      id: `${page.section}/${page.slug}#${demoId}`,
+      page,
+      anchor: demoId,
+      label: demoIdToLabel(demoId),
+      description: `${page.title} demo`,
+      icon: page.icon,
+      kind: "demo" as const,
+      keywords: `${pageKeywords} ${demoId} ${demoIdToLabel(demoId)}`,
+    })),
+  ];
+});

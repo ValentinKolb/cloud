@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { openSpotlightSearch } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 
 type NoteResult = {
@@ -50,8 +50,13 @@ type PromptDressing = {
 };
 
 const runNotePrompt = async (notebookId: string, dressing: PromptDressing): Promise<PickedNote | undefined> => {
-  const selected = await prompts.search<PickedNote>(
-    async ({ query, abortSignal }) => {
+  const selected = await openSpotlightSearch<PickedNote>({
+    title: dressing.title,
+    icon: dressing.icon,
+    placeholder: dressing.placeholder,
+    minQueryLength: 1,
+    noResultsText: "No notes found.",
+    resolve: async ({ query, abortSignal }) => {
       const trimmed = query.trim();
       if (trimmed.length === 0) return [];
 
@@ -71,15 +76,7 @@ const runNotePrompt = async (notebookId: string, dressing: PromptDressing): Prom
         desc: getSnippet(note.contentMd, trimmed),
       }));
     },
-    {
-      title: dressing.title,
-      icon: dressing.icon,
-      placeholder: dressing.placeholder,
-      minQueryLength: 1,
-      noResultsText: "No notes found.",
-      size: "small",
-    },
-  );
+  });
 
   return selected?.value;
 };

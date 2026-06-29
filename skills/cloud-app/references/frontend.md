@@ -247,6 +247,8 @@ All components are imported from `@valentinkolb/cloud/ui`. There is no separate 
 
 Use the UI Lab as the live frontend reference while building: `/app/ui-lab` redirects to `/app/ui-lab/input/text`, and every documented component pattern has a routed page such as `/app/ui-lab/layout/workspace`, `/app/ui-lab/layout/overview`, `/app/ui-lab/layout/settings-modal`, `/app/ui-lab/layout/permissions`, `/app/ui-lab/surfaces/stats`, and `/app/ui-lab/surfaces/widgets`. The source of truth is the component implementation in `packages/cloud/src/ui/`; UI Lab is the visual/reference harness.
 
+When adding a new reusable public export under `packages/cloud/src/ui/`, add a UI Lab demo if it has reusable visual or interaction behavior. If the export is intentionally internal, a low-level helper, or a niche app-specific flow, add it to `hiddenUiLabExports` in `packages/ui-lab/src/frontend/docs/registry.tsx` with a clear reason in the surrounding code/review context. The root `check:ui-lab` script enforces that every runtime `@valentinkolb/cloud/ui` export is either discoverable in UI Lab source or explicitly hidden.
+
 ### Avatar
 
 Use `Avatar` for user identity pictures and initials fallbacks. Source: `packages/cloud/src/ui/misc/Avatar.tsx`; live reference: `/app/ui-lab/surfaces/cards`.
@@ -386,6 +388,43 @@ const selected = await prompts.search(
   { title: "Find User", placeholder: "Search by name..." }
 );
 ```
+
+#### Spotlight search
+
+Use `SpotlightButton` plus `openSpotlightSearch()` for app/workspace-local
+navigation search such as "search notes in this notebook" or "search UI Lab".
+The standard local shortcut is `Mod+Shift+K`; keep `Cmd/Ctrl+K` for the global
+Cloud search registered through `app.start({ capabilities.search })`.
+`prompts.search()` remains the lower-level primitive for generic pickers.
+
+```tsx
+import { SpotlightButton, openSpotlightSearch, isSpotlightShortcut } from "@valentinkolb/cloud/ui";
+
+const openSearch = async () => {
+  const selected = await openSpotlightSearch({
+    title: "Search workspace",
+    placeholder: "Search pages...",
+    resolve: async ({ query, abortSignal }) => {
+      const res = await apiClient.search.$get({ query: { q: query } }, { init: { signal: abortSignal } });
+      const data = await res.json();
+      return data.items.map((item) => ({
+        label: item.title,
+        desc: item.summary,
+        icon: item.icon,
+        value: item,
+      }));
+    },
+  });
+
+  if (selected?.value) navigate(selected.value.href);
+};
+
+<SpotlightButton variant="sidebar" onClick={openSearch} />;
+```
+
+When a page owns its own keydown listener, use `isSpotlightShortcut(event)`.
+When it uses the shared hotkey registry, use `SPOTLIGHT_SHORTCUT` as the binding
+key. UI Lab and Notebooks demonstrate both patterns.
 
 ### Input Components
 
@@ -816,50 +855,46 @@ manual scroll code:
 </AppWorkspace.SidebarBody>
 ```
 
-### DockWorkspace
+### Panes for editor workspaces
 
-IDE-style compound layout for technical workspaces with one result/preview area and docked bottom panes. Source: `packages/cloud/src/ui/misc/DockWorkspace.tsx`. UI Lab uses it at `/app/ui-lab/layout/dock-workspace`.
-
-Use it when the user works with an editor/query plus live output and contextual side panels, for example a query explorer, dashboard DSL editor, report builder, or import mapping tool. Do not use it for ordinary resource workspaces; use `AppWorkspace` there.
+Use `Panes` for new resizable, tabbed editor/query workspaces. It is the preferred primitive for IDE-like surfaces because the app owns the composition explicitly: result panes, editor tabs, context/reference tabs, persistence, and route state stay in the consuming app instead of a hidden shell.
 
 ```tsx
-import { DockWorkspace, readDockWorkspaceStateCookie } from "@valentinkolb/cloud/ui";
+import { createPanesValue, Panes, type PanesValue } from "@valentinkolb/cloud/ui";
 
-// SSR page:
-const initialState = readDockWorkspaceStateCookie(c.req.header("Cookie"), "pulse.query-explorer");
+const [paneValue, setPaneValue] = createSignal<PanesValue>(createPanesValue(["result", "editor", "reference"]));
 
-// Island:
-<DockWorkspace storageKey="pulse.query-explorer" initialState={initialState}>
-  <DockWorkspace.Result title="Result" icon="ti ti-chart-line">
+<Panes.Root
+  value={paneValue()}
+  onChange={setPaneValue}
+  allowResize
+  allowMove
+  allowReorder
+  allowHorizontalSplit
+  allowVerticalSplit
+>
+  <Panes.Element id="result" title="Result" icon="ti ti-chart-line">
     <QueryResult />
-  </DockWorkspace.Result>
-
-  <DockWorkspace.Pane id="editor" title="Query" icon="ti ti-code" section="editor">
+  </Panes.Element>
+  <Panes.Element id="editor" title="Query" icon="ti ti-code">
     <QueryEditor />
-  </DockWorkspace.Pane>
-
-  <DockWorkspace.Pane id="sources" title="Sources" icon="ti ti-database" section="context">
-    <SourceLookup />
-  </DockWorkspace.Pane>
-
-  <DockWorkspace.Pane id="saved" title="Saved" icon="ti ti-device-floppy" section="context">
-    <SavedQueries />
-  </DockWorkspace.Pane>
-
-  <DockWorkspace.Pane id="reference" title="Reference" icon="ti ti-book" section="help">
+  </Panes.Element>
+  <Panes.Element id="reference" title="Reference" icon="ti ti-book">
     <Reference />
-  </DockWorkspace.Pane>
-</DockWorkspace>
+  </Panes.Element>
+</Panes.Root>
 ```
 
 Rules:
 
-- Exactly one `DockWorkspace.Result`; it owns the top result/preview slot.
-- Add as many `DockWorkspace.Pane` children as needed. Panes with the same `section` start in one tab group; different `section` values start as separate bottom sections.
-- The component owns resize handles, bottom tab styling, drag/reorder, active tab state, and normalized pane sizes.
-- Pass a stable `storageKey` when user layout persistence matters. The component writes a cookie; SSR pages should read that cookie with `readDockWorkspaceStateCookie` and pass `initialState` to prevent a default-layout flash before hydration.
+- Prefer `Panes` inside `AppWorkspace.Main` for query explorers, dashboard editors, report builders, import mapping tools, and other technical workspaces.
 - Keep pane children edge-to-edge unless the pane content itself needs padding. Put padding inside `paper`, editor, table, or panel components, not around every pane.
-- Keep it KISS: no floating windows, nested dock workspaces, or app-specific layout wrappers until a real product need exists.
+- Persist `PanesValue` in the app only when the product actually needs saved layout state.
+- Keep it KISS: no floating windows, nested pane workspaces, or app-specific layout wrappers until a real product need exists.
+
+### DockWorkspace (deprecated)
+
+`DockWorkspace` is deprecated. It remains exported only for existing legacy Pulse screens. Do not introduce new usages; use `Panes` for new resizable tabbed workspaces.
 
 #### SSR list/detail workspace recipe
 

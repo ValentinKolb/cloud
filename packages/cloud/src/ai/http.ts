@@ -2,8 +2,8 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { type AuthContext, err, fail, respond } from "../server";
 import { isAiSettingsError } from "./runtime";
-import { isAiImageMediaType } from "./types";
 import type { AiSettingsError, AiUserContentPart } from "./types";
+import { isAiImageMediaType } from "./types";
 
 export const AiCreateConversationInputSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
@@ -22,16 +22,35 @@ export const AiUserContentPartSchema = z.union([
   }),
 ]);
 
-export const AiTurnInputSchema = z.object({
-  message: z.string().trim().max(20000).optional(),
-  content: z.array(AiUserContentPartSchema).min(1).max(12).optional(),
-  modelProfileId: z.string().trim().min(1).optional(),
-}).refine((input) => Boolean(input.message?.trim() || input.content?.length), {
-  message: "Message or content is required.",
-  path: ["message"],
-});
+export const AiTurnInputSchema = z
+  .object({
+    message: z.string().trim().max(20000).optional(),
+    content: z.array(AiUserContentPartSchema).min(1).max(12).optional(),
+    modelProfileId: z.string().trim().min(1).optional(),
+  })
+  .refine((input) => Boolean(input.message?.trim() || input.content?.length), {
+    message: "Message or content is required.",
+    path: ["message"],
+  });
 
 export type AiTurnInput = z.infer<typeof AiTurnInputSchema>;
+
+export const AiMessageRetryModeSchema = z.enum(["retry", "details", "concise"]);
+export type AiMessageRetryMode = z.infer<typeof AiMessageRetryModeSchema>;
+
+export const AiMessageRetryInputSchema = z.object({
+  mode: AiMessageRetryModeSchema.default("retry"),
+  content: z.array(AiUserContentPartSchema).min(1).max(12).optional(),
+  modelProfileId: z.string().trim().min(1).optional(),
+});
+
+export type AiMessageRetryInput = z.infer<typeof AiMessageRetryInputSchema>;
+
+export const AiMessageForkInputSchema = z.object({
+  title: z.string().trim().min(1).max(120).optional(),
+});
+
+export type AiMessageForkInput = z.infer<typeof AiMessageForkInputSchema>;
 
 export const aiTurnInputToContent = (input: AiTurnInput): string | AiUserContentPart[] => {
   const message = input.message?.trim() ?? "";

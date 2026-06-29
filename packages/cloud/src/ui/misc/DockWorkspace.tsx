@@ -1,4 +1,4 @@
-import { children, createEffect, createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js";
+import { children, createEffect, createMemo, createSignal, For, type JSX, onMount, Show } from "solid-js";
 
 const RESULT_SLOT = Symbol("DockWorkspace.Result");
 const PANE_SLOT = Symbol("DockWorkspace.Pane");
@@ -26,6 +26,9 @@ type PaneSlot = {
 
 type DockSlot = ResultSlot | PaneSlot;
 
+/**
+ * @deprecated Use `Panes` for new resizable/tabbed workspaces. DockWorkspace is kept for existing legacy Pulse screens.
+ */
 export type DockWorkspaceSectionState = {
   id: string;
   size: number;
@@ -33,16 +36,25 @@ export type DockWorkspaceSectionState = {
   activePaneId: string;
 };
 
+/**
+ * @deprecated Use `PanesValue` with `Panes` for new workspaces.
+ */
 export type DockWorkspaceState = {
   resultSize: number;
   sections: DockWorkspaceSectionState[];
 };
 
+/**
+ * @deprecated Use explicit `Panes.Element` ids for new workspaces.
+ */
 export type DockWorkspacePaneDescriptor = {
   id: string;
   section?: string | null;
 };
 
+/**
+ * @deprecated Use `Panes.Root` plus `Panes.Element` for new resizable/tabbed workspaces.
+ */
 export type DockWorkspaceProps = {
   storageKey?: string;
   initialState?: DockWorkspaceState | null;
@@ -51,12 +63,18 @@ export type DockWorkspaceProps = {
   children: JSX.Element;
 };
 
+/**
+ * @deprecated Use a `Panes.Element` for result panes in new workspaces.
+ */
 export type DockWorkspaceResultProps = {
   title?: string;
   icon?: string;
   children: JSX.Element;
 };
 
+/**
+ * @deprecated Use `Panes.Element` for new workspace panes.
+ */
 export type DockWorkspacePaneProps = {
   id: string;
   title: string;
@@ -105,6 +123,9 @@ const defaultState = (panes: DockWorkspacePaneDescriptor[], defaultResultSize: n
   };
 };
 
+/**
+ * @deprecated Use app-owned `PanesValue` normalization/persistence for new workspaces.
+ */
 export const normalizeDockWorkspaceState = (
   state: DockWorkspaceState | null | undefined,
   panes: DockWorkspacePaneDescriptor[],
@@ -151,6 +172,9 @@ export const normalizeDockWorkspaceState = (
 
 const dockCookieName = (storageKey: string) => `dock_${storageKey.replace(/[^A-Za-z0-9_-]/g, "_")}`;
 
+/**
+ * @deprecated DockWorkspace persistence is legacy. Prefer app-owned `PanesValue` persistence for new workspaces.
+ */
 export const readDockWorkspaceStateCookie = (cookieHeader: string | null | undefined, storageKey: string): DockWorkspaceState | null => {
   if (!cookieHeader) return null;
   const name = dockCookieName(storageKey);
@@ -418,6 +442,9 @@ const DockWorkspaceRoot = (props: DockWorkspaceProps) => {
   );
 };
 
+/**
+ * @deprecated Use `Panes` for new resizable/tabbed workspaces. DockWorkspace remains only for legacy Pulse screens.
+ */
 const DockWorkspace = DockWorkspaceRoot as DockWorkspaceComponent;
 DockWorkspace.Result = DockWorkspaceResult;
 DockWorkspace.Pane = DockWorkspacePane;

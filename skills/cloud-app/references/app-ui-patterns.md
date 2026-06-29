@@ -10,7 +10,7 @@ Pick the closest existing app shell before writing JSX. The default is to mirror
 | --- | --- | --- | --- |
 | App start page with top-level resource cards | `AppOverview` with `Main` and `Aside title="Create"` | `packages/notebooks/src/frontend/NotebooksOverview.island.tsx`, `packages/spaces/src/frontend/SpacesOverview.island.tsx`, `packages/grids/src/frontend/_components/overview/BasesOverview.island.tsx` | Custom landing page, centered hero, one-off create card |
 | Full resource workspace | `Layout fullWidth` + `AppWorkspace`; add `fullPage` only when the reference route needs footerless full-height behavior | `packages/spaces/src/frontend/[id]/page.tsx`, `packages/spaces/src/frontend/[id]/_components/workspace/SpacesWorkspace.island.tsx`, `packages/grids/src/frontend/_components/workspace/GridsWorkspace.island.tsx` | Hand-written sidebar/detail classes, generic `p-4` wrappers inside main |
-| IDE-like query/editor workspace | `DockWorkspace` inside the app's main work area: one `Result`, many `Pane`s grouped by `section` | UI Lab `/app/ui-lab/layout/dock-workspace`; planned Pulse query/dashboard editors | Hand-written resizable split panes, nested custom tab bars, localStorage-only layout state |
+| IDE-like query/editor workspace | `Panes` inside the app's main work area with explicit result/editor/context elements | UI Lab `/app/ui-lab/layout/panes`; existing Pulse screens still use deprecated `DockWorkspace` | Hand-written resizable split panes, nested custom tab bars, localStorage-only layout state |
 | List/detail app | `AppWorkspace.Detail` with URL-backed selection | `packages/contacts/src/frontend/page.tsx`, `packages/contacts/src/frontend/[bookId]/page.tsx` | Local-only selected id that breaks reload/share/back |
 | Resource settings | `SettingsModal` as the settings shell; open it in bare `prompts.dialog` for modal settings or render it in an existing route-backed settings page | `packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsPanel.tsx`, `packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsButton.tsx`, `packages/contacts/src/frontend/_components/BookSettingsForm.island.tsx`, `packages/grids/src/frontend/_components/settings/BaseSettingsPanel.tsx` | Bespoke settings layout, prompt header around `SettingsModal`, new settings route when the reference app uses a modal |
 | Complex editor modal | `PanelDialog` opened with `dialogCore.open(..., panelDialogOptions)` or equivalent prompt bare surface | `packages/spaces/src/frontend/[id]/_components/shared/ItemForm.tsx`, `packages/contacts/src/frontend/_components/ContactUpsertForm.island.tsx`, `packages/grids/src/frontend/_components/records/RecordUpsertDialog.tsx` | Nested papers inside the modal body, small prompts forced into `PanelDialog` |
@@ -64,6 +64,7 @@ Cloud-specific rules:
 - The blank/create-from-scratch button follows the template buttons in the same grid.
 - Resource cards use `paper ... hover:paper-highlighted` and include the domain icon/thumbnail, name, short description, and chevron.
 - Search belongs in `AppOverview.Main.toolbar`, usually as `TextInput type="search"` with URL or local query behavior matching the reference app.
+- For app/workspace-local spotlight navigation, use `SpotlightButton` and `openSpotlightSearch()` from `@valentinkolb/cloud/ui`. Reserve `Cmd/Ctrl+K` for global Cloud search; local spotlight uses `Mod+Shift+K`.
 
 ## Workspaces
 
@@ -79,7 +80,7 @@ Cloud-specific rules:
 - Detail panels use `AppWorkspace.Detail` and a `detail-stack` wrapper with separate `detail-section` cards. The stack owns inter-card spacing; sections own only their surface and inner padding.
 - Links that require fresh SSR data use `navigation="document"` unless the mounted workspace owns an enhanced route-state loader.
 
-Use `DockWorkspace` for the nested work surface inside an app main area when the screen behaves like an IDE: one output/result region plus docked editor/context/reference panes. It owns resizable result height, bottom section widths, pane tabs, drag/reorder, and cookie-backed layout persistence. When using a `storageKey`, the SSR page should read the same cookie with `readDockWorkspaceStateCookie` and pass `initialState` so the layout does not snap after hydration. Keep pane children edge-to-edge; put padding inside the actual `paper`, table, editor, or panel component.
+Use `Panes` for the nested work surface inside an app main area when the screen behaves like an IDE: output/result, editor, context, and reference panes. Keep pane children edge-to-edge; put padding inside the actual `paper`, table, editor, or panel component. `DockWorkspace` is deprecated and should not be used for new screens.
 
 ## Settings
 

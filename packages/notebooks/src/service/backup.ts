@@ -392,7 +392,7 @@ export const updateCron = async (cron: string): Promise<Result<{ cron: string }>
 };
 
 const mapSnapshotLogRow = (row: SnapshotLogRow): LogEntry => ({
-  id: row.id,
+  id: String(row.id),
   level: row.level as LogEntry["level"],
   source: row.source,
   message: row.message,

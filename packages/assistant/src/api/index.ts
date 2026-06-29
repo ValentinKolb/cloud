@@ -2,12 +2,15 @@ import {
   AiApiErrorSchema,
   type AiConversation,
   AiCreateConversationInputSchema,
+  AiMessageForkInputSchema,
+  AiMessageRetryInputSchema,
+  type AiModelPolicy,
   AiReplayQuerySchema,
   AiTurnActionSchema,
   AiTurnInputSchema,
-  aiTurnInputToContent,
   abortAiTurn,
   aiConversationStore,
+  aiTurnInputToContent,
   createAiEventReplayResponse,
   createAiTurnResponse,
   createDefaultCloudAiTools,
@@ -17,6 +20,7 @@ import {
   toAiActionFailureResponse,
   toAiErrorResponse,
   toPublicAiSettingsState,
+  validateAiTurnRequest,
 } from "@valentinkolb/cloud/ai";
 import { type AuthContext, auth, err, fail, jsonResponse, ok, rateLimit, respond, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
@@ -123,6 +127,14 @@ const notFound = (c: Context<AuthContext>) => respond(c, fail(err.notFound("Conv
 
 const ASSISTANT_APP_ID = "assistant";
 const ASSISTANT_OPENAPI_TAG = "Assistant";
+const ASSISTANT_SYSTEM_PROMPT =
+  "You are the general-purpose Assistant app. Help with writing, rewriting, summarizing, explaining, and planning.";
+
+const retryInstruction = (mode: "retry" | "details" | "concise") => {
+  if (mode === "details") return "Answer the user's request again with more detail and specificity.";
+  if (mode === "concise") return "Answer the user's request again more concisely.";
+  return null;
+};
 
 const loadAssistantConversation = async (
   c: Context<AuthContext>,
@@ -225,6 +237,118 @@ const app = new Hono<AuthContext>()
     },
   )
   .post(
+    "/conversations/:conversationId/messages/:messageId/fork",
+    describeRoute({
+      tags: [ASSISTANT_OPENAPI_TAG],
+      summary: "Fork an assistant conversation from a message",
+      responses: {
+        200: jsonResponse(ConversationDetailSchema, "Forked conversation with copied messages"),
+        400: jsonResponse(AiApiErrorSchema, "Invalid input"),
+        404: jsonResponse(AiApiErrorSchema, "Not found"),
+      },
+    }),
+    v("json", AiMessageForkInputSchema),
+    async (c) => {
+      const loaded = await loadAssistantConversation(c);
+      if (!loaded.ok) return loaded.response;
+      const messageId = c.req.param("messageId");
+      if (!messageId) return respond(c, fail(err.notFound("Message")));
+
+      const messages = await aiConversationStore.listMessages({ conversationId: loaded.conversation.id });
+      const target = messages.find((message) => message.id === messageId);
+      if (!target) return respond(c, fail(err.notFound("Message")));
+
+      const body = c.req.valid("json");
+      const conversation = await aiConversationStore.createConversation({
+        appId: ASSISTANT_APP_ID,
+        ownerUserId: userId(c),
+        title: body.title ?? loaded.conversation.title,
+        resource: loaded.conversation.resource,
+      });
+      await aiConversationStore.copyMessages({
+        sourceConversationId: loaded.conversation.id,
+        targetConversationId: conversation.id,
+        throughSeq: target.seq,
+      });
+      return respond(
+        c,
+        ok({
+          conversation,
+          messages: await aiConversationStore.listMessages({ conversationId: conversation.id }),
+          activeTurn: null,
+          pendingActions: [],
+        }),
+      );
+    },
+  )
+  .post(
+    "/conversations/:conversationId/messages/:messageId/retry",
+    describeRoute({
+      tags: [ASSISTANT_OPENAPI_TAG],
+      summary: "Retry a user message in-place as an SSE stream",
+      responses: {
+        200: { description: "SSE stream" },
+        400: jsonResponse(AiApiErrorSchema, "Invalid input"),
+        404: jsonResponse(AiApiErrorSchema, "Not found"),
+        409: jsonResponse(AiApiErrorSchema, "Running turn or AI not configured"),
+      },
+    }),
+    v("json", AiMessageRetryInputSchema),
+    async (c) => {
+      const loaded = await loadAssistantConversation(c);
+      if (!loaded.ok) return loaded.response;
+      const { conversation } = loaded;
+      const messageId = c.req.param("messageId");
+      if (!messageId) return respond(c, fail(err.notFound("Message")));
+
+      const runningTurn = await aiConversationStore.getRunningTurn({ conversationId: conversation.id });
+      if (runningTurn) return respond(c, fail(err.conflict("Running turn")));
+
+      const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
+      const target = messages.find((message) => message.id === messageId);
+      if (!target || target.kind !== "message" || target.message.role !== "user") {
+        return respond(c, fail(err.badInput("Retry requires a user message.")));
+      }
+
+      const body = c.req.valid("json");
+      const input = body.content?.length ? body.content : target.message.content;
+      const instruction = retryInstruction(body.mode);
+      const modelPolicy = { kind: "selectable", requiredCapabilities: ["streaming"] } satisfies AiModelPolicy;
+
+      try {
+        await validateAiTurnRequest({
+          input,
+          requestedModelId: body.modelProfileId,
+          modelPolicy,
+        });
+      } catch (error) {
+        return toAiErrorResponse(c, error);
+      }
+
+      await aiConversationStore.truncateMessagesFrom({ conversationId: conversation.id, fromSeq: target.seq });
+
+      try {
+        return await createAiTurnResponse({
+          conversationId: conversation.id,
+          input,
+          actor: c.get("actor"),
+          requestedModelId: body.modelProfileId,
+          modelPolicy,
+          systemPrompt: instruction ? [ASSISTANT_SYSTEM_PROMPT, instruction].join("\n\n") : ASSISTANT_SYSTEM_PROMPT,
+          tools: createDefaultCloudAiTools(),
+          toolApprovalContext: {
+            actorUserId: userId(c),
+            appId: ASSISTANT_APP_ID,
+            resource: { kind: "direct" },
+          },
+          signal: c.req.raw.signal,
+        });
+      } catch (error) {
+        return toAiErrorResponse(c, error);
+      }
+    },
+  )
+  .post(
     "/conversations/:conversationId/turns",
     describeRoute({
       tags: [ASSISTANT_OPENAPI_TAG],
@@ -250,7 +374,7 @@ const app = new Hono<AuthContext>()
           actor: c.get("actor"),
           requestedModelId: body.modelProfileId,
           modelPolicy: { kind: "selectable", requiredCapabilities: ["streaming"] },
-          systemPrompt: "You are the general-purpose Assistant app. Help with writing, rewriting, summarizing, explaining, and planning.",
+          systemPrompt: ASSISTANT_SYSTEM_PROMPT,
           tools: createDefaultCloudAiTools(),
           toolApprovalContext: {
             actorUserId: userId(c),

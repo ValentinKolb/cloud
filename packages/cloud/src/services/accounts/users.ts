@@ -86,14 +86,30 @@ const buildUserMutationTarget = (row: DbRow): UserMutationTarget => ({
   storedAdmin: Boolean(row.admin),
 });
 
+const pgArrayLiteralToStrings = (value: string): string[] => {
+  if (value === "{}") return [];
+  if (!value.startsWith("{") || !value.endsWith("}")) return [];
+  return value
+    .slice(1, -1)
+    .split(",")
+    .map((item) => item.replace(/^"|"$/g, "").replace(/\\"/g, '"').replace(/\\\\/g, "\\"))
+    .filter(Boolean);
+};
+
+const stringArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
+  if (typeof value === "string") return pgArrayLiteralToStrings(value);
+  return [];
+};
+
 const buildUser = (row: DbRow, groupsAdmin: string[]): User => {
   const { provider, profile } = resolveProviderProfile(row);
   const displayName = (row.display_name as string) ?? "";
   const mail = (row.mail as string) ?? null;
-  const memberofGroup = (row.member_groups as string[]) ?? [];
-  const memberofGroupIds = (row.member_group_ids as string[]) ?? [];
-  const manages = (row.manages as string[]) ?? [];
-  const managesGroupIds = (row.manages_group_ids as string[]) ?? [];
+  const memberofGroup = stringArray(row.member_groups);
+  const memberofGroupIds = stringArray(row.member_group_ids);
+  const manages = stringArray(row.manages);
+  const managesGroupIds = stringArray(row.manages_group_ids);
   const effectiveAdmin =
     row.effective_admin !== undefined
       ? Boolean(row.effective_admin)

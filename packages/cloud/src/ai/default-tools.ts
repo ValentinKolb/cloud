@@ -3,19 +3,32 @@ import { defineAiTool } from "./tools";
 
 const ToneSchema = z.enum(["neutral", "blue", "teal", "green", "amber", "red"]);
 
+const parseJsonObjectString = (value: unknown) => {
+  if (typeof value !== "string") return value;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : value;
+  } catch {
+    return value;
+  }
+};
+
+const TrendSchema = z.preprocess(
+  parseJsonObjectString,
+  z.object({
+    label: z.string().min(1),
+    value: z.string().min(1),
+    direction: z.enum(["up", "down", "flat"]).default("flat"),
+  }),
+);
+
 const StatCardSchema = z.object({
   kind: z.literal("stat_card"),
   title: z.string().min(1),
   value: z.string().min(1),
   caption: z.string().optional(),
   tone: ToneSchema.default("teal"),
-  trend: z
-    .object({
-      label: z.string().min(1),
-      value: z.string().min(1),
-      direction: z.enum(["up", "down", "flat"]).default("flat"),
-    })
-    .optional(),
+  trend: TrendSchema.optional(),
 });
 
 const ChartCardSchema = z.object({
@@ -24,7 +37,10 @@ const ChartCardSchema = z.object({
   chart: z.enum(["bar", "line", "donut"]).default("bar"),
   caption: z.string().optional(),
   tone: ToneSchema.default("blue"),
-  data: z.array(z.object({ label: z.string().min(1), value: z.number(), color: z.string().optional() })).min(1).max(12),
+  data: z
+    .array(z.object({ label: z.string().min(1), value: z.number(), color: z.string().optional() }))
+    .min(1)
+    .max(12),
 });
 
 const TableCardSchema = z.object({
@@ -45,14 +61,20 @@ const SurveyQuestionSchema = z.discriminatedUnion("type", [
     id: z.string().min(1),
     label: z.string().min(1),
     required: z.boolean().default(false),
-    options: z.array(z.object({ value: z.string().min(1), label: z.string().min(1) })).min(2).max(8),
+    options: z
+      .array(z.object({ value: z.string().min(1), label: z.string().min(1) }))
+      .min(2)
+      .max(8),
   }),
   z.object({
     type: z.literal("multiple"),
     id: z.string().min(1),
     label: z.string().min(1),
     required: z.boolean().default(false),
-    options: z.array(z.object({ value: z.string().min(1), label: z.string().min(1) })).min(2).max(8),
+    options: z
+      .array(z.object({ value: z.string().min(1), label: z.string().min(1) }))
+      .min(2)
+      .max(8),
   }),
   z.object({
     type: z.literal("text"),
@@ -84,9 +106,9 @@ export const CloudAiSurveyOutputSchema = z.object({
 
 export const createCloudAiCardTool = () =>
   defineAiTool({
-    name: "cloud_card",
+    name: "card",
     description:
-      "Render a safe visual block in the chat for small stat cards, compact charts, or small tables. Use this when a visual summary is clearer than plain text.",
+      "Render a safe visual block in the chat for small stat cards, compact charts, or small tables. Use this when a visual summary is clearer than plain text. Pass nested fields like trend as JSON objects, not escaped strings.",
     inputSchema: CloudAiCardInputSchema,
     outputSchema: CloudAiCardOutputSchema,
     approval: "never",
@@ -94,7 +116,7 @@ export const createCloudAiCardTool = () =>
 
 export const createCloudAiSurveyTool = () =>
   defineAiTool({
-    name: "cloud_survey",
+    name: "survey",
     description:
       "Ask the user for structured input inside the chat. Use only when the conversation needs explicit choices, ratings, or short form answers.",
     inputSchema: CloudAiSurveyInputSchema,

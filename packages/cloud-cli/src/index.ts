@@ -13,6 +13,7 @@ import type {
   CloudCliOptions,
   CloudCliTableColumn,
 } from "@valentinkolb/cloud/cli";
+import accountsCliModule from "@valentinkolb/cloud-app-accounts/cli";
 import accountCliModule from "@valentinkolb/cloud/cli/account";
 import adminCliModule from "@valentinkolb/cloud/cli/admin";
 import contactsCliModule from "@valentinkolb/cloud-app-contacts/cli";
@@ -91,6 +92,7 @@ const BOOLEAN_FLAGS = new Set(["json"]);
 
 const modules: CloudCliModule[] = [
   accountCliModule,
+  accountsCliModule,
   adminCliModule,
   contactsCliModule,
   ipaHostsCliModule,

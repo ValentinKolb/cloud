@@ -184,8 +184,19 @@ export type AiUiBlock =
       result?: unknown;
       status: "running" | "called" | "completed" | "failed";
     }
-  | { id: string; type: "approval_request"; request: Extract<AiStreamEvent, { type: "approval_request" }>; status: "pending" | "approved" | "rejected" }
-  | { id: string; type: "frontend_tool"; request: Extract<AiStreamEvent, { type: "frontend_tool" }>; status: "pending" | "completed" | "failed"; result?: unknown }
+  | {
+      id: string;
+      type: "approval_request";
+      request: Extract<AiStreamEvent, { type: "approval_request" }>;
+      status: "pending" | "approved" | "rejected";
+    }
+  | {
+      id: string;
+      type: "frontend_tool";
+      request: Extract<AiStreamEvent, { type: "frontend_tool" }>;
+      status: "pending" | "completed" | "failed";
+      result?: unknown;
+    }
   | { id: string; type: "compaction"; status: "running" | "completed" }
   | { id: string; type: "error"; message: string };
 
@@ -204,7 +215,14 @@ export type AiConversationStore = {
     resource?: AiConversationResource;
   }): Promise<AiConversation | null>;
   listMessages(input: { conversationId: string }): Promise<AiStoredMessage[]>;
-  compactMessages(input: { conversationId: string; checkpointSeq: number; summary: Message; modelProfileId?: string | null }): Promise<void>;
+  copyMessages(input: { sourceConversationId: string; targetConversationId: string; throughSeq: number }): Promise<void>;
+  truncateMessagesFrom(input: { conversationId: string; fromSeq: number }): Promise<void>;
+  compactMessages(input: {
+    conversationId: string;
+    checkpointSeq: number;
+    summary: Message;
+    modelProfileId?: string | null;
+  }): Promise<void>;
   createTurn(input: { conversationId: string; modelProfileId: string }): Promise<AiTurn>;
   getRunningTurn(input: { conversationId: string }): Promise<AiTurn | null>;
   completeTurn(input: { turnId: string; status: Exclude<AiTurnStatus, "running">; error?: string | null }): Promise<void>;

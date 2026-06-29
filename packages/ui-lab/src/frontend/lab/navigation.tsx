@@ -14,6 +14,7 @@ import {
   DockWorkspace,
   type DockWorkspaceState,
   dialogCore,
+  EntitySearch,
   FilterChip,
   type FilterChipSection,
   normalizePanesValue,
@@ -23,7 +24,12 @@ import {
   type PanesValue,
   PermissionEditor,
   panelDialogOptions,
+  type ResourceApiKey,
+  ResourceApiKeys,
+  SettingsField,
   SettingsModal,
+  SettingsPanelFooter,
+  SettingsSaveBar,
   TextInput,
 } from "@valentinkolb/cloud/ui";
 import { Link } from "@valentinkolb/ssr/nav";
@@ -313,8 +319,10 @@ export const DockWorkspaceDemo = (props: { initialState?: DockWorkspaceState | n
   <DemoCard
     id="dockworkspace"
     chip={{ kind: "component", name: "DockWorkspace", from: FROM_UI }}
-    description="IDE-style workspace shell with one result pane and sectioned bottom panes. Resize the result area and bottom sections; drag tabs between sections to rearrange context."
-    code={`<DockWorkspace storageKey="ui-lab.dockworkspace">
+    variant="deprecated"
+    description="Deprecated legacy workspace shell kept for existing Pulse screens. For new resizable tabbed workspaces, compose Panes inside AppWorkspace instead."
+    code={`// Deprecated: use Panes for new resizable tabbed workspaces.
+<DockWorkspace storageKey="ui-lab.dockworkspace">
   <DockWorkspace.Result title="Result" icon="ti ti-chart-line">
     <ResultView />
   </DockWorkspace.Result>
@@ -329,6 +337,9 @@ export const DockWorkspaceDemo = (props: { initialState?: DockWorkspaceState | n
   </DockWorkspace.Pane>
 </DockWorkspace>`}
   >
+    <div class="info-block-warning mb-3 text-xs">
+      DockWorkspace is deprecated. Keep existing usages working, but build new editor/query workspaces with Panes.
+    </div>
     <div class="h-[34rem] overflow-hidden">
       <DockWorkspace storageKey="ui-lab.dockworkspace.demo" initialState={props.initialState}>
         <DockWorkspace.Result title="Result" icon="ti ti-chart-line">
@@ -1050,6 +1061,174 @@ export const PanelDialogDemo = () => {
   );
 };
 
+const sampleResourceApiKeys: ResourceApiKey[] = [
+  {
+    id: "11111111-aaaa-4111-8111-111111111111",
+    serviceAccountId: "22222222-aaaa-4222-8222-222222222222",
+    name: "Website embed",
+    kind: "api_token",
+    status: "active",
+    tokenPrefix: "stuve_live_8f3a",
+    scopes: ["resource:read"],
+    permission: "read",
+    expiresAt: "2026-09-26T12:00:00.000Z",
+    lastUsedAt: "2026-06-28T10:30:00.000Z",
+    createdBy: null,
+    createdAt: "2026-05-26T20:00:00.000Z",
+    revokedAt: null,
+    revokedBy: null,
+  },
+  {
+    id: "33333333-aaaa-4333-8333-333333333333",
+    serviceAccountId: "22222222-aaaa-4222-8222-222222222222",
+    name: "Importer",
+    kind: "api_token",
+    status: "active",
+    tokenPrefix: "stuve_live_1c9d",
+    scopes: ["resource:write"],
+    permission: "write",
+    expiresAt: null,
+    lastUsedAt: null,
+    createdBy: null,
+    createdAt: "2026-06-02T12:00:00.000Z",
+    revokedAt: null,
+    revokedBy: null,
+  },
+];
+
+export const EntitySearchDemo = () => {
+  const [selected, setSelected] = createSignal("none");
+
+  return (
+    <DemoCard
+      id="entity-search"
+      chip={{ kind: "component", name: "EntitySearch", from: FROM_UI }}
+      description="Principal picker used by sharing and permission flows. Enable only the principal kinds the resource supports; the selected object can be passed directly to grant callbacks."
+      code={`<EntitySearch
+  includeAuthenticated
+  includePublic
+  placeholder="Search people, groups, or special principals"
+  onSelect={(principal) => grantAccess(principal, "read")}
+/>`}
+    >
+      <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_14rem]">
+        <EntitySearch
+          includeAuthenticated
+          includePublic
+          placeholder="Search people, groups, or special principals"
+          resultsHeightClass="h-36"
+          onSelect={(principal) => setSelected(principal.type)}
+        />
+        <div class="paper flex flex-col justify-center gap-2 p-3">
+          <p class="text-xs font-semibold uppercase tracking-wide text-dimmed">Selected principal</p>
+          <p class="font-mono text-sm text-primary">{selected()}</p>
+          <p class="text-xs text-dimmed">This demo avoids backend fetches by enabling only synthetic principals.</p>
+        </div>
+      </div>
+    </DemoCard>
+  );
+};
+
+export const ResourceApiKeysDemo = () => (
+  <DemoCard
+    id="resource-api-keys"
+    chip={{ kind: "component", name: "ResourceApiKeys", from: FROM_UI }}
+    description="Resource-bound API key manager. Apps provide create/revoke callbacks and close over the current resource id; the component owns the list, create dialog, one-time token display, and revoke confirmation."
+    code={`<ResourceApiKeys
+  title="Grid API keys"
+  initialKeys={keys}
+  createKey={(input) => api.createResourceKey(gridId, input)}
+  revokeKey={(credentialId) => api.revokeResourceKey(gridId, credentialId)}
+/>`}
+  >
+    <div class="paper-highlighted p-3">
+      <ResourceApiKeys
+        title="Grid API keys"
+        description="Keys shown here are bound to this resource, not to global settings."
+        initialKeys={sampleResourceApiKeys}
+        createKey={async (input) => ({
+          credential: {
+            id: crypto.randomUUID(),
+            serviceAccountId: "22222222-aaaa-4222-8222-222222222222",
+            name: input.name,
+            kind: "api_token",
+            status: "active",
+            tokenPrefix: "stuve_live_new",
+            scopes: [`resource:${input.permission}`],
+            permission: input.permission,
+            expiresAt: input.expiresAt,
+            lastUsedAt: null,
+            createdBy: null,
+            createdAt: new Date().toISOString(),
+            revokedAt: null,
+            revokedBy: null,
+          },
+          token: "stuve_live_new_example_token_shown_once",
+        })}
+        revokeKey={async () => {}}
+      />
+    </div>
+  </DemoCard>
+);
+
+export const SettingsHelpersDemo = () => {
+  const initialName = "Cloud";
+  const [name, setName] = createSignal(initialName);
+  const [loading, setLoading] = createSignal(false);
+  const changed = () => name() !== initialName;
+  const changeCount = () => (changed() ? 1 : 0);
+  const discard = () => setName(initialName);
+  const save = () => {
+    setLoading(true);
+    window.setTimeout(() => {
+      setLoading(false);
+      setName(initialName);
+    }, 700);
+  };
+
+  return (
+    <DemoCard
+      id="settings-helpers"
+      chip={[
+        { kind: "component", name: "SettingsField", from: FROM_UI },
+        { kind: "component", name: "SettingsSaveBar", from: FROM_UI },
+        { kind: "component", name: "SettingsPanelFooter", from: FROM_UI },
+      ]}
+      description="Small settings form primitives for consistent changed-state rows and save actions. Use SettingsSaveBar in page forms and SettingsPanelFooter inside PanelDialog.Footer."
+      code={`<SettingsField label="Name" description="Shown in navigation." error={() => errors().name} changed={() => name() !== initialName}>
+  <TextInput value={name} onInput={setName} />
+</SettingsField>
+
+<SettingsSaveBar changeCount={changeCount} loading={saving} onDiscard={discard} onSave={save} />
+
+<PanelDialog.Footer>
+  <SettingsPanelFooter changeCount={changeCount} loading={saving} onDiscard={discard} onSave={save} />
+</PanelDialog.Footer>`}
+    >
+      <div class="grid gap-3 xl:grid-cols-2">
+        <div class="paper overflow-hidden">
+          <SettingsField label="Name" description="User-visible label shown in navigation." error={() => undefined} changed={changed}>
+            <TextInput value={name} onInput={setName} icon="ti ti-text-caption" />
+          </SettingsField>
+          <SettingsSaveBar changeCount={changeCount} loading={loading} onDiscard={discard} onSave={save} />
+        </div>
+        <div class="flex h-40 min-w-0 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+          <PanelDialog>
+            <PanelDialog.Body>
+              <div class="flex flex-1 items-center justify-center text-xs text-dimmed">
+                Panel body owned by the consuming settings form.
+              </div>
+            </PanelDialog.Body>
+            <PanelDialog.Footer>
+              <SettingsPanelFooter changeCount={changeCount} loading={loading} onDiscard={discard} onSave={save} />
+            </PanelDialog.Footer>
+          </PanelDialog>
+        </div>
+      </div>
+    </DemoCard>
+  );
+};
+
 const permissionEntries: AccessEntry[] = [
   {
     id: "11111111-1111-4111-8111-111111111111",
@@ -1130,6 +1309,9 @@ export const NavigationTab = () => (
     <AppWorkspaceDemo />
     <AppOverviewDemo />
     <SettingsModalDemo />
+    <SettingsHelpersDemo />
     <PermissionEditorDemo />
+    <EntitySearchDemo />
+    <ResourceApiKeysDemo />
   </div>
 );

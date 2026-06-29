@@ -181,6 +181,12 @@ export default function AssistantWorkspace(props: Props) {
             onFrontendToolResult={(request, result) => {
               void chat.submitFrontendToolResult(request, result);
             }}
+            onForkMessage={(entry) => {
+              void chat.forkMessage(entry.id);
+            }}
+            onRetryMessage={(entry, input) => {
+              void chat.retryUserMessage(entry.id, { ...input, modelProfileId: selectedModelId() || undefined });
+            }}
             streaming={() => Boolean(chat.activeTurn())}
             emptyTitle={props.status.enabled ? "Start a conversation" : "AI is disabled"}
           />

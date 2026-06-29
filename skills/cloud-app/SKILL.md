@@ -26,7 +26,7 @@ When building or reshaping a built-in app, copy the nearest existing Cloud shell
    - Contacts for list/detail panels.
    - Logging, OAuth, Contacts admin, or Notebooks admin for table/stat admin surfaces.
    - Notebooks, Contacts, or Grids for settings/access modals.
-3. Mirror the reference shell and shared component first: `AppOverview`, `AppWorkspace`, `DockWorkspace`, `SettingsModal`, `PanelDialog`, `Calendar`, `DataTable`, `StatGrid`, `FileDropzone`.
+3. Mirror the reference shell and shared component first: `AppOverview`, `AppWorkspace`, `Panes`, `SettingsModal`, `PanelDialog`, `Calendar`, `DataTable`, `StatGrid`, `FileDropzone`.
 4. Build app domain logic inside the shell: service state, mutations, permissions, validation, API calls, and public modules stay in the app.
 5. Before reporting done, run `references/app-quality-checklist.md`.
 
@@ -776,30 +776,29 @@ Use `DataTable` for real tabular lists/dataviews before writing custom table mar
 
 Use `AppWorkspace` for full app shells with sidebar/main/detail. `app-cols` remains a low-level utility, but new app shells should prefer the component API so navigation enhancement, scroll preservation, mobile/sidebar styling, and detail-panel sizing stay consistent.
 
-#### DockWorkspace Result + Pane Layout
+#### Panes Result + Editor Layout
 
-Use `DockWorkspace` inside an `AppWorkspace.Main` area for IDE-like tools where one result/preview area is paired with docked editor/context/help panes.
+Use `Panes` inside an `AppWorkspace.Main` area for IDE-like tools where result, editor, context, and help panes need resizable/tabbed layout. `DockWorkspace` is deprecated and kept only for existing legacy Pulse screens.
 
 ```tsx
-import { DockWorkspace, readDockWorkspaceStateCookie } from "@valentinkolb/cloud/ui";
+import { createPanesValue, Panes, type PanesValue } from "@valentinkolb/cloud/ui";
 
-<DockWorkspace storageKey="my-app.query-workspace" initialState={initialDockState}>
-  <DockWorkspace.Result title="Result" icon="ti ti-chart-line">
+const [paneValue, setPaneValue] = createSignal<PanesValue>(createPanesValue(["result", "query", "reference"]));
+
+<Panes.Root value={paneValue()} onChange={setPaneValue} allowResize allowMove allowReorder allowHorizontalSplit allowVerticalSplit>
+  <Panes.Element id="result" title="Result" icon="ti ti-chart-line">
     <Preview />
-  </DockWorkspace.Result>
-  <DockWorkspace.Pane id="query" title="Query" icon="ti ti-code" section="editor">
+  </Panes.Element>
+  <Panes.Element id="query" title="Query" icon="ti ti-code">
     <QueryEditor />
-  </DockWorkspace.Pane>
-  <DockWorkspace.Pane id="sources" title="Sources" icon="ti ti-database" section="context">
-    <SourcesPanel />
-  </DockWorkspace.Pane>
-  <DockWorkspace.Pane id="reference" title="Reference" icon="ti ti-book" section="help">
+  </Panes.Element>
+  <Panes.Element id="reference" title="Reference" icon="ti ti-book">
     <ReferencePanel />
-  </DockWorkspace.Pane>
-</DockWorkspace>
+  </Panes.Element>
+</Panes.Root>
 ```
 
-Keep it KISS: `Result` is singular; `Pane` instances are grouped by their `section` prop. The component owns resizing, tab order, drag-between-sections, tab styling, and cookie persistence. If `storageKey` is used, read the matching cookie in the SSR page with `readDockWorkspaceStateCookie(cookieHeader, storageKey)` and pass it as `initialState` to avoid client-side layout snapping. Live reference: `/app/ui-lab/layout/dock-workspace`.
+Keep it KISS: keep pane ids stable, persist `PanesValue` only when the product needs saved layout state, and put padding inside actual pane content (`paper`, editor, table, or panel), not around every pane. Live reference: `/app/ui-lab/layout/panes`.
 
 #### Card Grid Layout (like Spaces)
 
@@ -855,6 +854,8 @@ Keep it KISS: `Result` is singular; `Pane` instances are grouped by their `secti
 | `prompts.dialog(render, opts)` | Custom dialog |
 | `prompts.error(message)` | Error dialog |
 | `prompts.search(resolver, opts?)` | Search dialog with async results |
+| `openSpotlightSearch({ resolve, ...opts })` | App/workspace-local spotlight search with standard defaults |
+| `SpotlightButton` | Standard local search trigger for sidebars, chips, and icon buttons |
 | `Pagination` | Page navigation with URL params |
 | `FilterChip` | Multi-option filter dropdown |
 | `DataTable` | Shared table/dataview component for tabular rows |
@@ -863,7 +864,7 @@ Keep it KISS: `Result` is singular; `Pane` instances are grouped by their `secti
 | `PermissionEditor` | Access control UI (grant/revoke via ResourceAccessAdapter) |
 | `AppOverview` | Shared app overview/start-page shell |
 | `AppWorkspace` | Shared sidebar + main + detail workspace shell |
-| `DockWorkspace` | IDE-style result + docked panes shell for query/dashboard editors |
+| `Panes` | Resizable/tabbed pane primitive for query/dashboard editors |
 | `DialogHeader` | Standard dialog header |
 | `CopyButton` | Clipboard copy with feedback |
 | `StructuredDataPreview` | Formatted key-value plus raw JSON preview for metadata/payload/dimensions |

@@ -3,7 +3,15 @@
  * toasts, and the prompts (dialog) API.
  */
 
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import {
+  DialogHeader,
+  openSpotlightSearch,
+  prompts,
+  SpotlightButton,
+  SPOTLIGHT_SHORTCUT,
+  SPOTLIGHT_SHORTCUT_LABEL,
+  toast,
+} from "@valentinkolb/cloud/ui";
 import { createSignal } from "solid-js";
 import DemoCard from "./DemoCard";
 
@@ -15,6 +23,47 @@ const promptPeople = [
   { id: "js", name: "Jonas Stein", email: "jonas@example.test", team: "Operations" },
   { id: "al", name: "Aylin Lee", email: "aylin@example.test", team: "Security" },
 ];
+
+const spotlightEntries = [
+  {
+    id: "text-input",
+    label: "TextInput",
+    desc: "Input component with icons, clear action, markdown, and AI variant.",
+    icon: "ti ti-forms",
+  },
+  { id: "panel-dialog", label: "PanelDialog", desc: "Complex editor dialog shell with fixed header and footer.", icon: "ti ti-pencil" },
+  {
+    id: "app-workspace",
+    label: "AppWorkspace",
+    desc: "App shell for sidebar, main content, and detail panels.",
+    icon: "ti ti-layout-sidebar",
+  },
+  { id: "avatar", label: "Avatar", desc: "Cached profile picture with stable initials fallback.", icon: "ti ti-user-circle" },
+];
+
+export const DialogHeaderDemo = () => (
+  <DemoCard
+    id="dialog-header"
+    chip={{ kind: "component", name: "DialogHeader", from: FROM_UI }}
+    description="Reusable header for custom `prompts.dialog` bodies that still use the standard title, icon, and close affordance."
+    code={`prompts.dialog<void>(
+  (close) => (
+    <>
+      <DialogHeader title="Custom flow" icon="ti ti-window" close={close} />
+      <div>Dialog body…</div>
+    </>
+  ),
+  { header: false },
+);`}
+  >
+    <div class="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+      <DialogHeader title="Custom flow" icon="ti ti-window" close={() => {}} />
+      <p class="text-sm text-secondary">
+        Use this when the prompt body needs custom layout, but should keep Cloud dialog header semantics.
+      </p>
+    </div>
+  </DemoCard>
+);
 
 export const InfoBlocks = () => (
   <DemoCard
@@ -300,6 +349,67 @@ export const PromptSearchDemo = () => {
   );
 };
 
+export const SpotlightSearchDemo = () => {
+  const [selected, setSelected] = createSignal<string | null>(null);
+  const openSearch = async () => {
+    const item = await openSpotlightSearch<{ id: string }>({
+      title: "Search UI Lab",
+      icon: "ti ti-palette",
+      placeholder: "Search components...",
+      noResultsText: "No matching component.",
+      resolve: ({ query }) => {
+        const needle = query.trim().toLowerCase();
+        return spotlightEntries
+          .filter((entry) => needle.length === 0 || `${entry.label} ${entry.desc}`.toLowerCase().includes(needle))
+          .map((entry) => ({
+            value: { id: entry.id },
+            label: entry.label,
+            desc: entry.desc,
+            icon: entry.icon,
+          }));
+      },
+    });
+    setSelected(item?.label ?? "cancelled");
+  };
+
+  return (
+    <DemoCard
+      id="spotlight-search"
+      chip={[
+        { kind: "component", name: "SpotlightButton", from: FROM_UI },
+        { kind: "utility", name: "openSpotlightSearch" },
+      ]}
+      variant={`workspace search — ${SPOTLIGHT_SHORTCUT}`}
+      description="Standard trigger and dialog defaults for app/workspace-local spotlight search. Use it for navigation-style search; keep `prompts.search` for generic pickers."
+      code={`const openSearch = async () => {
+  const selected = await openSpotlightSearch({
+    title: "Search workspace",
+    placeholder: "Search pages...",
+    resolve: ({ query }) => pages
+      .filter((page) => page.title.toLowerCase().includes(query.toLowerCase()))
+      .map((page) => ({ label: page.title, value: page, icon: page.icon })),
+  });
+
+  if (selected?.value) navigate(selected.value.href);
+};
+
+<SpotlightButton variant="sidebar" onClick={openSearch} />`}
+    >
+      <div class="flex flex-col gap-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <SpotlightButton variant="chip" onClick={openSearch} shortcutLabel={SPOTLIGHT_SHORTCUT_LABEL} />
+          <SpotlightButton variant="icon" onClick={openSearch} />
+          <SpotlightButton variant="compact" onClick={openSearch} />
+        </div>
+        <div class="w-64 rounded-lg border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-950">
+          <SpotlightButton variant="sidebar" onClick={openSearch} />
+        </div>
+        <span class="text-xs text-dimmed">{selected() ?? "—"}</span>
+      </div>
+    </DemoCard>
+  );
+};
+
 export const PromptFormDemo = () => {
   const [result, setResult] = createSignal<string | null>(null);
   return (
@@ -576,6 +686,7 @@ export const FeedbackTab = () => (
     <PromptAlertDemo />
     <PromptErrorDemo />
     <PromptConfirmDemo />
+    <SpotlightSearchDemo />
     <PromptSearchDemo />
     <PromptFormDemo />
     <PromptWorkflowFormDemo />

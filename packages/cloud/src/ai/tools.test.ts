@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import type { RequestActor } from "../server";
 import { aiToolAllowsAlways, aiToolApprovalScope, aiToolNeedsApproval } from "./approvals";
-import { createDefaultCloudAiTools } from "./default-tools";
+import { CloudAiCardInputSchema, createDefaultCloudAiTools } from "./default-tools";
 import { AiTurnActionSchema } from "./runtime";
 import { defineAiTool, prepareAiTools } from "./tools";
 
@@ -53,12 +53,25 @@ describe("AI tools", () => {
   test("ships default visual and survey tools as frontend tools", () => {
     const prepared = prepareAiTools({ tools: createDefaultCloudAiTools(), actor });
 
-    expect(prepared.tools.map((tool) => tool.def.name)).toEqual(["cloud_card", "cloud_survey"]);
+    expect(prepared.tools.map((tool) => tool.def.name)).toEqual(["card", "survey"]);
     expect(prepared.tools.every((tool) => tool.kind === "client")).toBe(true);
-    expect(prepared.frontendModes.get("cloud_card")).toBe("client_view");
-    expect(prepared.frontendModes.get("cloud_survey")).toBe("client_interaction");
-    expect(prepared.approvalPolicies.get("cloud_card")).toBe("never");
-    expect(prepared.approvalPolicies.get("cloud_survey")).toBe("never");
+    expect(prepared.frontendModes.get("card")).toBe("client_view");
+    expect(prepared.frontendModes.get("survey")).toBe("client_interaction");
+    expect(prepared.approvalPolicies.get("card")).toBe("never");
+    expect(prepared.approvalPolicies.get("survey")).toBe("never");
+  });
+
+  test("accepts stringified stat-card trend objects from model tool calls", () => {
+    const parsed = CloudAiCardInputSchema.parse({
+      kind: "stat_card",
+      title: "Latency",
+      value: "42 ms",
+      trend: JSON.stringify({ label: "vs last week", value: "-8%", direction: "down" }),
+    });
+
+    expect(parsed.kind).toBe("stat_card");
+    if (parsed.kind !== "stat_card") throw new Error("Expected stat card");
+    expect(parsed.trend).toEqual({ label: "vs last week", value: "-8%", direction: "down" });
   });
 
   test("evaluates approval policies for per-user always-allow preferences", () => {

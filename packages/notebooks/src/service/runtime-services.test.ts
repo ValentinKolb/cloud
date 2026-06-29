@@ -26,6 +26,7 @@ const actor: User = {
   sn: "Admin",
   displayName: "Admin",
   mail: "admin@example.org",
+  avatarHash: null,
   ipa: null,
   accountExpires: null,
   lastLoginLocal: null,

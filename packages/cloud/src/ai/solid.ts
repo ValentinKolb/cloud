@@ -1,6 +1,7 @@
 import type { Accessor } from "solid-js";
 import { createEffect, createSignal, onCleanup } from "solid-js";
 import { parseAiSse, readAiError } from "./browser";
+import type { AiMessageRetryMode } from "./http";
 import type { AiConversation, AiPendingTurnAction, AiSseEvent, AiStoredMessage, AiTurn, AiUiBlock, AiUserContentPart } from "./types";
 
 type ActiveTurn = {
@@ -40,6 +41,16 @@ type AiChatRouteBranch = {
     $post: (...args: any[]) => Promise<Response>;
     ":conversationId": {
       $get: (...args: any[]) => Promise<Response>;
+      messages: {
+        ":messageId": {
+          fork: {
+            $post: (...args: any[]) => Promise<Response>;
+          };
+          retry: {
+            $post: (...args: any[]) => Promise<Response>;
+          };
+        };
+      };
       turns: {
         $post: (...args: any[]) => Promise<Response>;
         ":turnId": {
@@ -120,7 +131,9 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
   const [messages, setMessages] = createSignal(options.initialMessages ?? []);
   const [assistantDraft, setAssistantDraft] = createSignal("");
   const [assistantThinkingDraft, setAssistantThinkingDraft] = createSignal("");
-  const [assistantBlocks, setAssistantBlocks] = createSignal<AiUiBlock[]>((options.initialPendingActions ?? []).map(pendingActionToUiBlock));
+  const [assistantBlocks, setAssistantBlocks] = createSignal<AiUiBlock[]>(
+    (options.initialPendingActions ?? []).map(pendingActionToUiBlock),
+  );
   const [running, setRunning] = createSignal(false);
   const [error, setError] = createSignal<string | null>(options.initialError ?? null);
   const [approvalRequests, setApprovalRequests] = createSignal<ApprovalRequest[]>(
@@ -476,7 +489,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
 
   async function runFrontendTool(request: FrontendToolRequest) {
     const handler = options.frontendTools?.[request.name];
-    const canAutoAcknowledgeView = request.mode === "client_view" && request.name === "cloud_card";
+    const canAutoAcknowledgeView = request.mode === "client_view" && (request.name === "card" || request.name === "cloud_card");
     if ((!handler && !canAutoAcknowledgeView) || handledFrontendToolCallIds.has(request.callId)) return;
     handledFrontendToolCallIds.add(request.callId);
 
@@ -667,6 +680,97 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     }
   };
 
+  const forkMessage = async (messageId: string, input: { title?: string } = {}) => {
+    const conversationId = activeConversationId();
+    if (!conversationId || running()) return null;
+
+    setError(null);
+    const response = await options.route.conversations[":conversationId"].messages[":messageId"].fork.$post(
+      inputWithParams({ param: { conversationId, messageId }, json: input }),
+    );
+    if (!response.ok) {
+      setError(await readAiError(response, "Failed to fork conversation"));
+      return null;
+    }
+
+    const detail = (await response.json()) as AiConversationDetail;
+    setConversations((prev) => [detail.conversation, ...prev.filter((conversation) => conversation.id !== detail.conversation.id)]);
+    setActiveConversationId(detail.conversation.id);
+    setMessages(detail.messages);
+    resumedTurnId = null;
+    setActiveTurn(detail.activeTurn ? { conversationId: detail.conversation.id, turnId: detail.activeTurn.id } : null);
+    applyPendingActions(detail.pendingActions);
+    await refreshConversations().catch(() => undefined);
+    return detail.conversation;
+  };
+
+  const retryUserMessage = async (
+    messageId: string,
+    input: { content?: AiUserContentPart[]; mode?: AiMessageRetryMode; modelProfileId?: string } = {},
+  ): Promise<boolean> => {
+    const conversationId = activeConversationId();
+    if (!conversationId || running() || activeTurn()) return false;
+
+    const currentMessages = messages();
+    const target = currentMessages.find((message) => message.id === messageId);
+    if (!target || target.kind !== "message" || target.message.role !== "user") {
+      setError("Could not find a user message to retry.");
+      return false;
+    }
+    const content = input.content?.length ? input.content : target.message.content;
+
+    const controller = new AbortController();
+    const thisRun = ++runId;
+    let completed = false;
+    setError(null);
+    setRunning(true);
+    clearAssistantOutput();
+    clearPendingActions();
+    setStreamController(controller);
+    setMessages([...currentMessages.filter((message) => message.seq < target.seq), tempUserMessage(conversationId, content)]);
+
+    try {
+      const response = await options.route.conversations[":conversationId"].messages[":messageId"].retry.$post(
+        inputWithParams({
+          param: { conversationId, messageId },
+          json: {
+            mode: input.mode ?? "retry",
+            content: input.content?.length ? content : undefined,
+            modelProfileId: input.modelProfileId || undefined,
+          },
+        }),
+        { init: { signal: controller.signal } },
+      );
+
+      if (!response.ok) throw new Error(await readAiError(response, "AI retry failed"));
+      completed = await consumeStream(response, conversationId, false);
+      if (thisRun !== runId) return false;
+      if (completed) await waitForAssistantOutputSettled();
+      await refreshConversationDetail(conversationId);
+      await refreshConversations();
+      return true;
+    } catch (retryError) {
+      if (thisRun === runId) {
+        setMessages(currentMessages);
+        setError(controller.signal.aborted ? "AI request stopped." : retryError instanceof Error ? retryError.message : "AI retry failed");
+      }
+      return false;
+    } finally {
+      if (activeAbortController === controller) setStreamController(null);
+      if (thisRun === runId) {
+        setRunning(false);
+        const turnAfterRefresh = activeTurn();
+        if (completed || !turnAfterRefresh) {
+          resetResumeRetry();
+          clearAssistantOutput();
+        } else {
+          flushAssistantOutput();
+          scheduleResumeRetry(turnAfterRefresh);
+        }
+      }
+    }
+  };
+
   const submitTurnAction = async (input: {
     conversationId: string;
     turnId: string;
@@ -747,6 +851,8 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     openConversation,
     createConversation,
     send,
+    forkMessage,
+    retryUserMessage,
     resume,
     resumeActiveTurn,
     submitTurnAction,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createRoot } from "solid-js";
 import { createAiChatController } from "./solid";
-import type { AiConversation } from "./types";
+import type { AiConversation, AiStoredMessage } from "./types";
 
 const encoder = new TextEncoder();
 
@@ -27,6 +27,19 @@ const conversation: AiConversation = {
   updatedAt: new Date().toISOString(),
 };
 
+const messageActions = {
+  messages: {
+    ":messageId": {
+      fork: {
+        $post: async () => Response.json({ conversation, messages: [], activeTurn: null, pendingActions: [] }),
+      },
+      retry: {
+        $post: async () => sse([]),
+      },
+    },
+  },
+};
+
 describe("AI Solid chat controller", () => {
   test("does not abort a detached server turn when the controller is disposed", () => {
     let abortCalls = 0;
@@ -35,6 +48,7 @@ describe("AI Solid chat controller", () => {
         $get: async () => Response.json([conversation]),
         $post: async () => Response.json(conversation),
         ":conversationId": {
+          ...messageActions,
           $get: async () => Response.json({ conversation, messages: [], activeTurn: null }),
           turns: {
             $post: async () => sse([]),
@@ -87,6 +101,7 @@ describe("AI Solid chat controller", () => {
         $get: async () => Response.json([conversation]),
         $post: async () => Response.json(conversation),
         ":conversationId": {
+          ...messageActions,
           $get: async () => Response.json({ conversation, messages: [], activeTurn: null, pendingActions: [] }),
           turns: {
             $post: async () => sse([]),
@@ -152,6 +167,7 @@ describe("AI Solid chat controller", () => {
         $get: async () => Response.json([conversation]),
         $post: async () => Response.json(conversation),
         ":conversationId": {
+          ...messageActions,
           $get: async () => Response.json({ conversation, messages: [], activeTurn: null, pendingActions: [] }),
           turns: {
             $post: async () => sse([]),
@@ -177,7 +193,7 @@ describe("AI Solid chat controller", () => {
     };
 
     await createRoot(async (dispose) => {
-      const chat = createAiChatController({
+      createAiChatController({
         route,
         initialConversations: [conversation],
         initialConversationId: conversation.id,
@@ -210,6 +226,216 @@ describe("AI Solid chat controller", () => {
     });
   });
 
+  test("forks a conversation from a selected message and opens the fork", async () => {
+    const forkedConversation = { ...conversation, id: "conversation-fork", title: "Fork" };
+    const forkedMessage: AiStoredMessage = {
+      id: "message-1",
+      conversationId: forkedConversation.id,
+      seq: 1,
+      kind: "message",
+      message: { role: "user", content: [{ type: "text", text: "hello" }] },
+      modelProfileId: null,
+      providerModel: null,
+      usage: null,
+      stopReason: null,
+      createdAt: new Date().toISOString(),
+    };
+    let postedFork: unknown = null;
+    const route = {
+      conversations: {
+        $get: async () => Response.json([forkedConversation, conversation]),
+        $post: async () => Response.json(conversation),
+        ":conversationId": {
+          messages: {
+            ":messageId": {
+              fork: {
+                $post: async (input: { param?: Record<string, string>; json?: unknown }) => {
+                  postedFork = input;
+                  return Response.json({
+                    conversation: forkedConversation,
+                    messages: [forkedMessage],
+                    activeTurn: null,
+                    pendingActions: [],
+                  });
+                },
+              },
+              retry: {
+                $post: async () => sse([]),
+              },
+            },
+          },
+          $get: async () => Response.json({ conversation, messages: [], activeTurn: null, pendingActions: [] }),
+          turns: {
+            $post: async () => sse([]),
+            ":turnId": {
+              abort: {
+                $post: async () => Response.json({ ok: true }),
+              },
+              actions: {
+                ":callId": {
+                  $post: async () => Response.json({ ok: true }),
+                },
+              },
+              events: {
+                $get: async () => sse([]),
+              },
+            },
+          },
+        },
+      },
+    };
+
+    await createRoot(async (dispose) => {
+      const chat = createAiChatController({
+        route,
+        initialConversations: [conversation],
+        initialConversationId: conversation.id,
+        autoResume: false,
+      });
+
+      const forked = await chat.forkMessage("message-2");
+      expect(forked?.id).toBe(forkedConversation.id);
+      expect(chat.activeConversationId()).toBe(forkedConversation.id);
+      expect(chat.messages()).toEqual([forkedMessage]);
+      expect(postedFork).toMatchObject({ param: { conversationId: conversation.id, messageId: "message-2" } });
+      dispose();
+    });
+  });
+
+  test("retries a user message in the current conversation", async () => {
+    const userMessage: AiStoredMessage = {
+      id: "message-user",
+      conversationId: conversation.id,
+      seq: 1,
+      kind: "message",
+      message: { role: "user", content: [{ type: "text", text: "write this again" }] },
+      modelProfileId: null,
+      providerModel: null,
+      usage: null,
+      stopReason: null,
+      createdAt: new Date().toISOString(),
+    };
+    const assistantMessage: AiStoredMessage = {
+      id: "message-assistant",
+      conversationId: conversation.id,
+      seq: 2,
+      kind: "message",
+      message: { role: "assistant", content: [{ type: "text", text: "old answer" }] },
+      modelProfileId: "model-1",
+      providerModel: "provider/model",
+      usage: null,
+      stopReason: "stop",
+      createdAt: new Date().toISOString(),
+    };
+    const retriedUserMessage: AiStoredMessage = {
+      ...userMessage,
+      id: "message-user-retry",
+      message: { role: "user", content: [{ type: "text", text: "write this better" }] },
+    };
+    const regeneratedMessage: AiStoredMessage = {
+      ...assistantMessage,
+      id: "message-regenerated",
+      message: { role: "assistant", content: [{ type: "text", text: "new answer" }] },
+    };
+    let postedRetry: unknown = null;
+    const route = {
+      conversations: {
+        $get: async () => Response.json([conversation]),
+        $post: async () => Response.json(conversation),
+        ":conversationId": {
+          messages: {
+            ":messageId": {
+              fork: {
+                $post: async () => Response.json({ conversation, messages: [], activeTurn: null, pendingActions: [] }),
+              },
+              retry: {
+                $post: async (input: { param?: Record<string, string>; json?: unknown }) => {
+                  postedRetry = input;
+                  return sse([
+                    {
+                      type: "turn_start",
+                      conversationId: conversation.id,
+                      turnId: "turn-regenerate",
+                      modelProfileId: "model-1",
+                      providerModel: "provider/model",
+                      cursor: "1-0",
+                    },
+                    {
+                      type: "nessi",
+                      conversationId: conversation.id,
+                      turnId: "turn-regenerate",
+                      event: { type: "text", agentId: "cloud", delta: "new answer" },
+                      cursor: "2-0",
+                    },
+                    {
+                      type: "nessi",
+                      conversationId: conversation.id,
+                      turnId: "turn-regenerate",
+                      event: {
+                        type: "turn_end",
+                        agentId: "cloud",
+                        message: regeneratedMessage.message,
+                      },
+                      cursor: "3-0",
+                    },
+                    { type: "done", conversationId: conversation.id, turnId: "turn-regenerate", reason: "stop", cursor: "4-0" },
+                  ]);
+                },
+              },
+            },
+          },
+          $get: async () =>
+            Response.json({
+              conversation,
+              messages: [retriedUserMessage, regeneratedMessage],
+              activeTurn: null,
+              pendingActions: [],
+            }),
+          turns: {
+            $post: async () => sse([]),
+            ":turnId": {
+              abort: {
+                $post: async () => Response.json({ ok: true }),
+              },
+              actions: {
+                ":callId": {
+                  $post: async () => Response.json({ ok: true }),
+                },
+              },
+              events: {
+                $get: async () => sse([]),
+              },
+            },
+          },
+        },
+      },
+    };
+
+    await createRoot(async (dispose) => {
+      const chat = createAiChatController({
+        route,
+        initialConversations: [conversation],
+        initialConversationId: conversation.id,
+        initialMessages: [userMessage, assistantMessage],
+        autoResume: false,
+      });
+
+      const retried = await chat.retryUserMessage("message-user", {
+        mode: "concise",
+        content: [{ type: "text", text: "write this better" }],
+        modelProfileId: "model-1",
+      });
+      expect(retried).toBe(true);
+      expect(chat.activeConversationId()).toBe(conversation.id);
+      expect(chat.messages()).toEqual([retriedUserMessage, regeneratedMessage]);
+      expect(postedRetry).toMatchObject({
+        param: { conversationId: conversation.id, messageId: "message-user" },
+        json: { mode: "concise", content: [{ type: "text", text: "write this better" }], modelProfileId: "model-1" },
+      });
+      dispose();
+    });
+  });
+
   test("keeps the partial assistant draft when a stream closes before a final event", async () => {
     const activeTurn = {
       id: "turn-1",
@@ -225,6 +451,7 @@ describe("AI Solid chat controller", () => {
         $get: async () => Response.json([conversation]),
         $post: async () => Response.json(conversation),
         ":conversationId": {
+          ...messageActions,
           $get: async () => Response.json({ conversation, messages: [], activeTurn, pendingActions: [] }),
           turns: {
             $post: async () =>
@@ -296,6 +523,7 @@ describe("AI Solid chat controller", () => {
         $get: async () => Response.json([conversation]),
         $post: async () => Response.json(conversation),
         ":conversationId": {
+          ...messageActions,
           $get: async () => Response.json({ conversation, messages: [assistantMessage], activeTurn: null, pendingActions: [] }),
           turns: {
             $post: async () =>
@@ -395,6 +623,7 @@ describe("AI Solid chat controller", () => {
         $get: async () => Response.json([conversation]),
         $post: async () => Response.json(conversation),
         ":conversationId": {
+          ...messageActions,
           $get: async () => refreshGate,
           turns: {
             $post: async () =>
@@ -513,6 +742,7 @@ describe("AI Solid chat controller", () => {
         $get: async () => Response.json([conversation]),
         $post: async () => Response.json(conversation),
         ":conversationId": {
+          ...messageActions,
           $get: async () => Response.json({ conversation, messages: [assistantMessage], activeTurn: null, pendingActions: [] }),
           turns: {
             $post: async () =>
@@ -586,6 +816,7 @@ describe("AI Solid chat controller", () => {
         $get: async () => Response.json([conversation]),
         $post: async () => Response.json(conversation),
         ":conversationId": {
+          ...messageActions,
           $get: async () =>
             Response.json({
               conversation,
@@ -699,6 +930,7 @@ describe("AI Solid chat controller", () => {
         $get: async () => Response.json([conversation]),
         $post: async () => Response.json(conversation),
         ":conversationId": {
+          ...messageActions,
           $get: async () => Response.json({ conversation, messages: [], activeTurn: null }),
           turns: {
             $post: async () =>

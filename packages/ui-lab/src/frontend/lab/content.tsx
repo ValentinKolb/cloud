@@ -9,16 +9,22 @@
 
 import {
   Chart,
+  CodeDisplay,
   DataTable,
   type DataTableColumn,
   FilterChip,
   type FilterChipSection,
+  Lightbox,
+  type LightboxImage,
+  LogEntriesTable,
+  type LogTableEntry,
   MarkdownEditor,
   MarkdownView,
+  PdfPreview,
   StructuredDataPreview,
   TextInput,
 } from "@valentinkolb/cloud/ui";
-import { createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import DemoCard from "./DemoCard";
 
 const FROM_UI = "@valentinkolb/cloud/ui";
@@ -31,6 +37,54 @@ const sampleMetadata = {
   source: "accounts.cleanup",
   labels: { environment: "dev", runner: "scheduler" },
 };
+
+const samplePdf = `%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 180] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 77 >>
+stream
+BT /F1 18 Tf 36 120 Td (UI Lab PDF preview) Tj /F1 10 Tf 0 -28 Td (Generated from a Blob in the demo.) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+0000000115 00000 n
+0000000238 00000 n
+0000000365 00000 n
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+435
+%%EOF`;
+
+const lightboxImages: LightboxImage[] = [
+  {
+    src: `data:image/svg+xml,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#0f766e"/><stop offset="1" stop-color="#2563eb"/></linearGradient></defs><rect width="960" height="540" rx="32" fill="url(#g)"/><circle cx="720" cy="150" r="92" fill="rgba(255,255,255,.2)"/><rect x="96" y="116" width="420" height="54" rx="14" fill="rgba(255,255,255,.84)"/><rect x="96" y="206" width="600" height="28" rx="8" fill="rgba(255,255,255,.52)"/><rect x="96" y="256" width="510" height="28" rx="8" fill="rgba(255,255,255,.36)"/></svg>`,
+    )}`,
+    alt: "Generated teal and blue preview",
+  },
+  {
+    src: `data:image/svg+xml,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540"><rect width="960" height="540" rx="32" fill="#18181b"/><path d="M120 385 340 168 498 315 610 220 840 385z" fill="#3b82f6"/><circle cx="718" cy="146" r="66" fill="#14b8a6"/><rect x="96" y="410" width="768" height="24" rx="12" fill="rgba(255,255,255,.22)"/></svg>`,
+    )}`,
+    alt: "Generated dark preview",
+  },
+];
 
 /* ── Chart variants ───────────────────────────────────────── */
 
@@ -208,6 +262,68 @@ export const ChartEmpty = () => (
       <Chart kind="bar" class="h-32" data={[]} />
       <Chart kind="donut" class="h-32" data={[]} />
     </div>
+  </DemoCard>
+);
+
+/* ── Code and logs ───────────────────────────────────────── */
+
+export const CodeDisplayDemo = () => (
+  <DemoCard
+    id="code-display"
+    chip={{ kind: "component", name: "CodeDisplay", from: FROM_UI }}
+    description="Low-level highlighted code block with optional line numbers and copy button. `DocCode` builds on the same visual language for documentation pages."
+    code={`<CodeDisplay
+  title="route.ts"
+  language="tsx"
+  code={\`export const route = app.get(\"/health\", (c) => c.json({ ok: true }));\`}\n/>`}
+  >
+    <CodeDisplay
+      title="route.ts"
+      language="tsx"
+      code={`import { Hono } from "hono";
+
+export const route = new Hono().get("/health", (c) => {
+  return c.json({ ok: true, service: "ui-lab" });
+});`}
+    />
+  </DemoCard>
+);
+
+const logRows: LogTableEntry[] = [
+  {
+    id: "log-1",
+    level: "info",
+    source: "accounts.sync",
+    message: "Synchronized 342 users from FreeIPA",
+    metadata: null,
+    createdAt: "2026-06-28T10:15:00Z",
+  },
+  {
+    id: "log-2",
+    level: "warn",
+    source: "mail.queue",
+    message: "Retry scheduled for 3 messages",
+    metadata: { queue: "transactional" },
+    createdAt: "2026-06-28T10:18:00Z",
+  },
+  {
+    id: "log-3",
+    level: "error",
+    source: "gateway.health",
+    message: "Assistant app missed heartbeat",
+    metadata: { appId: "assistant" },
+    createdAt: "2026-06-28T10:21:00Z",
+  },
+];
+
+export const LogEntriesTableDemo = () => (
+  <DemoCard
+    id="log-entries-table"
+    chip={{ kind: "component", name: "LogEntriesTable", from: FROM_UI }}
+    description="Shared log table for admin and diagnostics surfaces. It wraps DataTable with level icons, source, message, and formatted time columns."
+    code={`<LogEntriesTable entries={entries} emptyMessage="No matching events." />`}
+  >
+    <LogEntriesTable entries={logRows} emptyMessage="No matching events." />
   </DemoCard>
 );
 
@@ -456,6 +572,57 @@ export const StructuredDataPreviewDemo = () => (
   </DemoCard>
 );
 
+/* ── Media previews ──────────────────────────────────────── */
+
+export const LightboxDemo = () => {
+  const [open, setOpen] = createSignal(false);
+  return (
+    <DemoCard
+      id="lightbox"
+      chip={{ kind: "component", name: "Lightbox", from: FROM_UI }}
+      description="Full-viewport image preview with native dialog behavior, keyboard navigation, swipe gestures, captions, and download support."
+      code={`const [open, setOpen] = createSignal(false);
+
+<button class="btn-secondary btn-sm" onClick={() => setOpen(true)}>Open lightbox</button>
+<Show when={open()}>
+  <Lightbox images={images} onClose={() => setOpen(false)} />
+</Show>`}
+    >
+      <div class="flex items-center gap-3">
+        <button type="button" class="btn-secondary btn-sm" onClick={() => setOpen(true)}>
+          <i class="ti ti-photo-search" />
+          Open lightbox
+        </button>
+        <span class="text-xs text-dimmed">{lightboxImages.length} images</span>
+      </div>
+      <Show when={open()}>
+        <Lightbox images={lightboxImages} onClose={() => setOpen(false)} />
+      </Show>
+    </DemoCard>
+  );
+};
+
+export const PdfPreviewDemo = () => (
+  <DemoCard
+    id="pdf-preview"
+    chip={{ kind: "component", name: "PdfPreview", from: FROM_UI }}
+    description="Lazy PDF preview surface. The caller provides the request function, so apps can render server-generated PDFs or local Blob previews."
+    code={`<PdfPreview
+  title="Generated document"
+  request={async () => new Blob([pdfBytes], { type: "application/pdf" })}
+/>`}
+  >
+    <PdfPreview
+      title="Generated document"
+      buttonLabel="Render preview"
+      openButtonLabel="Open"
+      emptyText="Render the sample PDF to inspect the embedded iframe state."
+      request={async () => new Blob([samplePdf], { type: "application/pdf" })}
+      class="h-80"
+    />
+  </DemoCard>
+);
+
 /* ── Markdown rendering ───────────────────────────────────── */
 
 export const MarkdownViewDemo = (props: { html: string }) => (
@@ -505,7 +672,11 @@ export const ContentTab = (props: { markdownHtml: string }) => (
   <div class="grid grid-cols-1 gap-3">
     <DataTableFullDemo />
     <DataTableMinimalDemo />
+    <LogEntriesTableDemo />
+    <CodeDisplayDemo />
     <StructuredDataPreviewDemo />
+    <LightboxDemo />
+    <PdfPreviewDemo />
     <ChartLive />
     <ChartLine />
     <ChartBar />

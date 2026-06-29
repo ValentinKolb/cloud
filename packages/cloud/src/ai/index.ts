@@ -8,28 +8,34 @@ export {
   rememberAiToolApproval,
 } from "./approvals";
 export {
+  type CloudAiCardInput,
   CloudAiCardInputSchema,
+  type CloudAiCardOutput,
   CloudAiCardOutputSchema,
+  type CloudAiSurveyInput,
   CloudAiSurveyInputSchema,
+  type CloudAiSurveyOutput,
   CloudAiSurveyOutputSchema,
   createCloudAiCardTool,
   createCloudAiSurveyTool,
   createDefaultCloudAiTools,
-  type CloudAiCardInput,
-  type CloudAiCardOutput,
-  type CloudAiSurveyInput,
-  type CloudAiSurveyOutput,
 } from "./default-tools";
 export {
   AiApiErrorSchema,
   AiCreateConversationInputSchema,
+  type AiMessageForkInput,
+  AiMessageForkInputSchema,
+  type AiMessageRetryInput,
+  AiMessageRetryInputSchema,
+  type AiMessageRetryMode,
+  AiMessageRetryModeSchema,
   AiReplayQuerySchema,
+  type AiTurnInput,
   AiTurnInputSchema,
   AiUserContentPartSchema,
   aiTurnInputToContent,
   toAiActionFailureResponse,
   toAiErrorResponse,
-  type AiTurnInput,
 } from "./http";
 export { migrateCloudAi } from "./migrate";
 export { createAiProvider } from "./provider";
@@ -43,6 +49,8 @@ export {
   listPendingAiTurnActions,
   type RunAiTurnInput,
   submitAiTurnAction,
+  type ValidateAiTurnInput,
+  validateAiTurnRequest,
 } from "./runtime";
 export {
   listAiModels,

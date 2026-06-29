@@ -52,7 +52,7 @@ const demoMessages: AiStoredMessage[] = [
         {
           type: "tool_call",
           id: "card-1",
-          name: "cloud_card",
+          name: "card",
           args: {
             kind: "chart",
             title: "Activation by cohort",
@@ -105,7 +105,7 @@ export const AiChatBlocksDemo = () => {
               conversationId: "ui-lab",
               turnId: "turn-1",
               callId: "survey-1",
-              name: "cloud_survey",
+              name: "survey",
               mode: "client_interaction",
               args: {
                 title: "Prioritize next step",
@@ -145,6 +145,7 @@ export const AiChatBlocksDemo = () => {
           messages={() => demoMessages}
           assistantBlocks={blocks}
           streaming={() => !submitted()}
+          onRetryMessage={() => undefined}
           onFrontendToolResult={() => {
             setSubmitted(true);
           }}

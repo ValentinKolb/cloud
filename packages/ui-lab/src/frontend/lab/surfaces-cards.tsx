@@ -245,6 +245,75 @@ export const PlaceholderDemo = () => (
   </DemoCard>
 );
 
+export const CoreUtilityPatternsDemo = () => (
+  <DemoCard
+    id="core-utility-patterns"
+    chip={[
+      { kind: "utility", name: "text-label" },
+      { kind: "utility", name: "detail-row" },
+      { kind: "utility", name: "detail-facts" },
+      { kind: "utility", name: "app-cols / app-rows" },
+      { kind: "utility", name: "popup / dialog-panel" },
+      { kind: "utility", name: "btn-input-md / btn-input-active" },
+    ]}
+    description="Low-level CSS helpers that are useful when a shared component would be too heavy, but the app still needs Cloud spacing, detail-row, popover, or input-button styling."
+    code={`<p class="text-label">Metadata</p>
+
+<a class="detail-row" href="mailto:team@example.org">
+  <i class="ti ti-mail detail-row-icon" />
+  <span class="detail-row-label">team@example.org</span>
+</a>
+
+<dl class="detail-facts">…</dl>
+
+<div class="app-cols">
+  <aside>…</aside>
+  <main>…</main>
+</div>
+
+<button class="btn-input btn-input-md btn-input-active">Selected</button>`}
+  >
+    <div class="grid gap-3 lg:grid-cols-2">
+      <div class="paper flex flex-col gap-3 p-3">
+        <p class="text-label">Detail rows</p>
+        <a href="mailto:team@example.org" class="detail-row">
+          <i class="ti ti-mail detail-row-icon" />
+          <span class="detail-row-label">team@example.org</span>
+        </a>
+        <a href="tel:+49123456789" class="detail-row">
+          <i class="ti ti-phone detail-row-icon" />
+          <span class="detail-row-label">+49 123 456789</span>
+        </a>
+        <dl class="detail-facts">
+          <div>
+            <dt>Status</dt>
+            <dd>Active</dd>
+          </div>
+          <div>
+            <dt>Owner</dt>
+            <dd>Platform</dd>
+          </div>
+        </dl>
+      </div>
+      <div class="paper flex flex-col gap-3 p-3">
+        <p class="text-label">Layout and popover surfaces</p>
+        <div class="app-rows h-28 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+          <div class="flex items-center px-3 text-xs text-dimmed">Header row</div>
+          <div class="app-divider" />
+          <div class="grid place-items-center text-xs text-dimmed">Body row</div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" class="btn-input btn-input-md btn-input-active">
+            <i class="ti ti-check" />
+            Selected
+          </button>
+          <div class="popup static p-2 text-xs text-secondary">Popover surface</div>
+        </div>
+      </div>
+    </div>
+  </DemoCard>
+);
+
 /* ── LinkCard / ProgressBar ───────────────────────────── */
 
 export const LinkCardDemo = () => (

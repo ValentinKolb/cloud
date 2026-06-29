@@ -54,6 +54,9 @@ export type {
   DockWorkspaceSectionState,
   DockWorkspaceState,
 } from "./DockWorkspace";
+/**
+ * @deprecated Use `Panes` for new resizable/tabbed workspaces. DockWorkspace remains only for legacy Pulse screens.
+ */
 export { default as DockWorkspace, normalizeDockWorkspaceState, readDockWorkspaceStateCookie } from "./DockWorkspace";
 export type { DocCodeHighlighter, DocCodeProps, DocConcept, DocNoteVariant, DocRow } from "./Docs";
 export { DocCode, DocConceptGrid, DocInlineCode, DocLead, DocNote, DocPage, DocRows, DocSection } from "./Docs";
@@ -110,5 +113,14 @@ export { default as SettingsModal } from "./SettingsModal";
 export type { StatCellAccent, StatCellProps } from "./StatCell";
 export { default as StatCell } from "./StatCell";
 export { default as StatGrid } from "./StatGrid";
+export type { SpotlightButtonProps, SpotlightButtonVariant, SpotlightSearchOptions, SpotlightSearchResolver } from "./SpotlightSearch";
+export {
+  default as SpotlightButton,
+  isSpotlightShortcut,
+  openSpotlightSearch,
+  SPOTLIGHT_SHORTCUT,
+  SPOTLIGHT_SHORTCUT_LABEL,
+  SPOTLIGHT_SHORTCUT_TITLE,
+} from "./SpotlightSearch";
 export type { StructuredDataPreviewMode, StructuredDataPreviewProps } from "./StructuredDataPreview";
 export { default as StructuredDataPreview } from "./StructuredDataPreview";
