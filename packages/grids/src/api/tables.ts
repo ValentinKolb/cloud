@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { auth, v, respond, jsonResponse, getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
-import { ErrorResponseSchema, hasRole } from "@valentinkolb/cloud/contracts";
+import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
 import {
   TableSchema,
@@ -205,7 +205,7 @@ const app = new Hono<AuthContext>()
         }
         const user = c.get("user");
         const isOwner = view.ownerUserId === user.id;
-        const explicitGrant = hasExplicitGrant(grants, hasRole(user, "admin"), "view", view.id);
+        const explicitGrant = hasExplicitGrant(grants, "view", view.id);
         if (view.ownerUserId !== null && !isOwner && !explicitGrant) {
           return c.json({ message: "View not found" }, 404);
         }
@@ -249,7 +249,6 @@ const app = new Hono<AuthContext>()
       const viewer = {
         userId: user.id,
         userGroups: user.memberofGroupIds,
-        isAdmin: hasRole(user, "admin"),
       };
 
       // Group-mode dispatch. The contract's AggregateKind is wider than

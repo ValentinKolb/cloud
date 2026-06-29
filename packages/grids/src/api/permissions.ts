@@ -1,4 +1,3 @@
-import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import type { Context } from "hono";
@@ -12,10 +11,6 @@ import { gridsService } from "../service";
  */
 const effectivePermission = async (c: Context<AuthContext>, target: ResolveTarget): Promise<PermissionLevel> => {
   const user = c.get("user");
-  // Platform admins bypass per-resource ACLs — same convention as spaces /
-  // contacts. Without this, even ops staff couldn't troubleshoot or recover
-  // a base they don't own.
-  if (hasRole(user, "admin")) return "admin";
   const grants = await gridsService.permission.loadGrants({
     userId: user.id,
     userGroups: user.memberofGroupIds,
@@ -52,20 +47,12 @@ export const gateAt = async (
  * resource" from "inherited from parent" — e.g. a personal view is
  * visible to a non-owner only via an explicit view-level grant; the
  * level alone (which may be inherited from table) doesn't tell us.
- *
- * Platform admins still bypass per-resource ACLs. They get a synthetic
- * "all grants visible" view for the resource, so `hasGrantForResource`
- * always reports true for them — keeps the personal-resource logic
- * uniform.
  */
 export const resolveWithGrants = async (
   c: Context<AuthContext>,
   target: ResolveTarget,
 ): Promise<{ level: PermissionLevel; grants: Grant[] }> => {
   const user = c.get("user");
-  if (hasRole(user, "admin")) {
-    return { level: "admin", grants: [] };
-  }
   const grants = await gridsService.permission.loadGrants({
     userId: user.id,
     userGroups: user.memberofGroupIds,
@@ -82,8 +69,7 @@ export const resolveWithGrants = async (
 
 /**
  * True when `grants` carries any explicit ACL row for the given
- * resource. Platform admin path returns true unconditionally — admin
- * bypass means "treat as if everything is granted to me".
+ * resource.
  */
-export const hasExplicitGrant = (grants: Grant[], isAdmin: boolean, resourceType: ResourceType, resourceId: string): boolean =>
-  isAdmin || gridsService.permission.hasGrantsForResource(grants, resourceType, resourceId);
+export const hasExplicitGrant = (grants: Grant[], resourceType: ResourceType, resourceId: string): boolean =>
+  gridsService.permission.hasGrantsForResource(grants, resourceType, resourceId);

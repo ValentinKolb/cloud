@@ -1,4 +1,3 @@
-import { hasRole } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
 import type { DslQueryPreviewBody, DslQueryPreviewDiagnostic, RecordQuery } from "../contracts";
@@ -191,7 +190,7 @@ export const executeGqlSource = async (
     timeZone: dateConfig.timeZone,
     limit: body.limit,
     ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
-    viewer: { userId: user.id, userGroups: user.memberofGroupIds, isAdmin: hasRole(user, "admin") },
+    viewer: { userId: user.id, userGroups: user.memberofGroupIds },
   });
   if (!result.ok) {
     return {

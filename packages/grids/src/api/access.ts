@@ -10,6 +10,21 @@ import { gateAt } from "./permissions";
 const AccessListSchema = z.array(AccessEntrySchema);
 const UpdateLevelSchema = z.object({ permission: PermissionLevelSchema });
 
+export const validateAccessLevelForResource = (resourceType: string, permission: string): string | null => {
+  if (resourceType === "table" && permission === "admin") return "Table grants only accept 'read' / 'write' / 'none'";
+  if (resourceType === "view" && permission !== "read" && permission !== "admin" && permission !== "none") {
+    return "View grants only accept 'read', 'admin', or 'none'";
+  }
+  if (resourceType === "form" && permission !== "write" && permission !== "none") return "Form grants only accept 'write' or 'none'";
+  if (resourceType === "documentTemplate" && permission !== "read" && permission !== "admin" && permission !== "none") {
+    return "Document template grants only accept 'read', 'admin', or 'none'";
+  }
+  if (resourceType === "dashboard" && permission !== "read" && permission !== "none") {
+    return "Dashboard grants only accept 'read' or 'none'";
+  }
+  return null;
+};
+
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
 
@@ -433,29 +448,8 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
       const { permission } = c.req.valid("json");
-      // Tables only carry read/write/none — admin was removed in the
-      // permission simplification (structural ops moved to base-admin).
-      if (binding.resourceType === "table" && permission === "admin") {
-        return c.json({ message: "Table grants only accept 'read' / 'write' / 'none'" }, 400);
-      }
-      // View grants expose only read/admin/none. There is no view-write
-      // level: editing a view definition is an admin action.
-      if (binding.resourceType === "view" && permission !== "read" && permission !== "admin" && permission !== "none") {
-        return c.json({ message: "View grants only accept 'read', 'admin', or 'none'" }, 400);
-      }
-      // Same enforcement for forms: write-or-none only.
-      if (binding.resourceType === "form" && permission !== "write" && permission !== "none") {
-        return c.json({ message: "Form grants only accept 'write' or 'none'" }, 400);
-      }
-      // Document templates expose read/admin/none. Generation is read
-      // access; template mutation remains admin.
-      if (binding.resourceType === "documentTemplate" && permission !== "read" && permission !== "admin" && permission !== "none") {
-        return c.json({ message: "Document template grants only accept 'read', 'admin', or 'none'" }, 400);
-      }
-      // Dashboards mirror views: read-or-none.
-      if (binding.resourceType === "dashboard" && permission !== "read" && permission !== "none") {
-        return c.json({ message: "Dashboard grants only accept 'read' or 'none'" }, 400);
-      }
+      const validationError = validateAccessLevelForResource(binding.resourceType, permission);
+      if (validationError) return c.json({ message: validationError }, 400);
 
       const user = c.get("user");
       const result = await gridsService.access.updateLevel(accessId, permission, user.id);

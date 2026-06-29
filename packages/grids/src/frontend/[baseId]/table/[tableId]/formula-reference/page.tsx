@@ -1,16 +1,14 @@
-import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { ssr } from "../../../../../config";
 import { gridsService } from "../../../../../service";
 import FormulaReferenceWindow from "../../../../_components/fields/FormulaReferenceWindow.island";
 
-type AuthUser = Parameters<typeof hasRole>[0] & {
+type AuthUser = {
   id: string;
   memberofGroupIds: string[];
 };
 
 const canReadTable = async (user: AuthUser, baseId: string, tableId: string) => {
-  if (hasRole(user, "admin")) return true;
   const grants = await gridsService.permission.loadGrants({
     userId: user.id,
     userGroups: user.memberofGroupIds,

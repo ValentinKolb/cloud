@@ -1,4 +1,4 @@
-import { ErrorResponseSchema, hasRole } from "@valentinkolb/cloud/contracts";
+import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
@@ -122,9 +122,8 @@ const app = new Hono<AuthContext>()
       // Personal views: visible to the owner OR via an explicit view-
       // level grant. Inherited table-read alone does NOT make a personal
       // view visible to a non-owner.
-      const isAdmin = hasRole(user, "admin");
       const isOwner = view.ownerUserId === user.id;
-      const explicitGrant = hasExplicitGrant(grants, isAdmin, "view", view.id);
+      const explicitGrant = hasExplicitGrant(grants, "view", view.id);
       if (view.ownerUserId !== null && !isOwner && !explicitGrant) {
         return c.json({ message: "View not found" }, 404);
       }

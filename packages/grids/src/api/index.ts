@@ -2,6 +2,7 @@ import { rateLimit } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import wsRoutes from "../ws";
 import accessRoutes from "./access";
+import adminRoutes from "./admin";
 import adminSettingsRoutes from "./admin-settings";
 import automationsRoutes from "./automations";
 import basesRoutes from "./bases";
@@ -21,6 +22,7 @@ const app = new Hono()
   .use(rateLimit())
   .route("/ws", wsRoutes)
   .route("/admin/settings", adminSettingsRoutes)
+  .route("/admin", adminRoutes)
   .route("/templates", templatesRoutes)
   .route("/bases", basesRoutes)
   .route("/tables", tablesRoutes)

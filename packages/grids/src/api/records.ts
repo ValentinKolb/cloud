@@ -4,7 +4,6 @@ import { z } from "zod";
 import { auth, v, respond, jsonResponse, getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
 import * as settings from "@valentinkolb/cloud/services/settings";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
-import { hasRole } from "@valentinkolb/cloud/contracts";
 import { ok, fail, err } from "@valentinkolb/stdlib";
 import { gridsService } from "../service";
 import { GridRecordSchema, RecordPayloadSchema, ExportBodySchema } from "../contracts";
@@ -301,7 +300,7 @@ const app = new Hono<AuthContext>()
         csv: body.csv,
         markdown: body.markdown,
         dateConfig: await getDateConfig(c),
-        viewer: hasRole(user, "admin") ? undefined : { userId: user.id, userGroups: user.memberofGroupIds },
+        viewer: { userId: user.id, userGroups: user.memberofGroupIds },
       });
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
 

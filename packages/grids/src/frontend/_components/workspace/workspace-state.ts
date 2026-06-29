@@ -1,4 +1,3 @@
-import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
 import type {
@@ -28,7 +27,7 @@ import { activeDisplayConfig, calendarQueryFilter, cardImageFieldIds } from "../
 import { resolveEffectiveQuery } from "../records-view/effective-query";
 import { parseRecordsState, type RecordsState } from "../records-view/query-url";
 
-type AuthUser = Parameters<typeof hasRole>[0] & {
+type AuthUser = {
   id: string;
   memberofGroupIds: string[];
 };
@@ -177,7 +176,6 @@ export type GridsWorkspaceState =
     };
 
 const resolveBaseLevel = async (user: AuthUser, baseId: string) => {
-  if (hasRole(user, "admin")) return "admin" as const;
   const grants = await gridsService.permission.loadGrants({
     userId: user.id,
     userGroups: user.memberofGroupIds,
@@ -280,7 +278,6 @@ type OkWorkspaceState = Extract<GridsWorkspaceState, { kind: "ok" }>;
 const buildViewer = (user: AuthUser) => ({
   userId: user.id,
   userGroups: user.memberofGroupIds,
-  isAdmin: hasRole(user, "admin"),
 });
 
 const buildChrome = (href: string, base: Base): WorkspaceChrome => {
@@ -311,7 +308,6 @@ const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCat
     baseId,
     userId: user.id,
     userGroups: user.memberofGroupIds,
-    isAdmin: hasRole(user, "admin"),
   });
   const tables = catalogRaw.tables;
   const formTables = catalogRaw.formTables ?? [];
@@ -485,7 +481,6 @@ const outputFieldsForRecordQuery = (fields: Field[], query: RecordQuery): Field[
 };
 
 const viewLevelForUser = async (user: AuthUser, baseId: string, tableId: string, viewId: string) => {
-  if (hasRole(user, "admin")) return "admin" as const;
   const grants = await gridsService.permission.loadGrants({
     userId: user.id,
     userGroups: user.memberofGroupIds,
@@ -497,7 +492,6 @@ const viewLevelForUser = async (user: AuthUser, baseId: string, tableId: string,
 };
 
 const documentTemplateLevelForUser = async (user: AuthUser, baseId: string, tableId: string, templateId: string) => {
-  if (hasRole(user, "admin")) return "admin" as const;
   const grants = await gridsService.permission.loadGrants({
     userId: user.id,
     userGroups: user.memberofGroupIds,

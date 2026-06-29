@@ -1,5 +1,4 @@
 import type { User } from "@valentinkolb/cloud/contracts";
-import { hasRole } from "@valentinkolb/cloud/contracts";
 import { accounts, logger } from "@valentinkolb/cloud/services";
 import { auth } from "@valentinkolb/cloud/server";
 import type { ServerWebSocket } from "bun";
@@ -114,7 +113,6 @@ const evaluateTableAccess = async (tableId: string, sessionToken: string | null)
 
   const table = await gridsService.table.get(tableId);
   if (!table) return { ok: false, code: "not_found", message: "Table not found", tableId };
-  if (hasRole(user, "admin")) return { ok: true, user, baseId: table.baseId, tableId: table.id };
 
   const grants = await gridsService.permission.loadGrants({
     userId: user.id,
@@ -140,7 +138,6 @@ const evaluateDashboardRecordAccess = async (dashboardId: string, tableId: strin
   if (!sourceTableIds.includes(tableId)) {
     return { ok: false, code: "access_denied", message: "Table is not part of this dashboard", tableId };
   }
-  if (hasRole(user, "admin")) return { ok: true, user, baseId: dashboard.baseId, tableId };
 
   const canRead = await canReadDashboardIncludedData(dashboard, {
     userId: user.id,
@@ -157,7 +154,6 @@ const evaluateBaseAccess = async (baseId: string, sessionToken: string | null): 
 
   const base = await gridsService.base.get(baseId);
   if (!base) return { ok: false, code: "not_found", message: "Base not found" };
-  if (hasRole(user, "admin")) return { ok: true, user, baseId: base.id, tableId: "" };
 
   const grants = await gridsService.permission.loadGrants({
     userId: user.id,

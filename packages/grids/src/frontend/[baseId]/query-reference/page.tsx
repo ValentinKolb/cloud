@@ -1,11 +1,10 @@
-import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import { ssr } from "../../../config";
 import { gridsService } from "../../../service";
 import QueryReferenceWindow, { normalizeQueryReferenceTab } from "../../_components/query/QueryReferenceWindow";
 
-type AuthUser = Parameters<typeof hasRole>[0] & {
+type AuthUser = {
   id: string;
   memberofGroupIds: string[];
 };
@@ -32,22 +31,18 @@ export default ssr<AuthContext>(async (c) => {
   if (!base) return messagePage("Base not found");
 
   const user = c.get("user") as AuthUser;
-  const isAdmin = hasRole(user, "admin");
-  const grants = isAdmin
-    ? []
-    : await gridsService.permission.loadGrants({
-        userId: user.id,
-        userGroups: user.memberofGroupIds,
-        baseId: base.id,
-      });
-  const baseLevel = isAdmin ? "admin" : gridsService.permission.resolve(grants, { baseId: base.id });
+  const grants = await gridsService.permission.loadGrants({
+    userId: user.id,
+    userGroups: user.memberofGroupIds,
+    baseId: base.id,
+  });
+  const baseLevel = gridsService.permission.resolve(grants, { baseId: base.id });
   if (!gridsService.permission.hasAtLeast(baseLevel, "read")) return messagePage("No access to this base", "ti-lock");
 
   const catalog = await gridsService.base.catalog({
     baseId: base.id,
     userId: user.id,
     userGroups: user.memberofGroupIds,
-    isAdmin,
   });
   const tableIds = catalog.tables.map((table) => table.id);
   const countRows =

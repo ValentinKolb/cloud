@@ -91,6 +91,7 @@ export const gridsService = {
   access: {
     grant: access.grantAccess,
     listForBase: access.listBaseAccess,
+    listForBaseTree: access.listAccessForBaseTree,
     listForTable: access.listTableAccess,
     listForView: access.listViewAccess,
     listForForm: access.listFormAccess,

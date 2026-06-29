@@ -529,7 +529,7 @@ export const buildRelationLabelCacheForIds = async (
 export type ExpansionViewer = {
   userId: string | null;
   userGroups: string[];
-  /** Platform admins bypass per-resource ACLs, same as the API gates. */
+  /** Trusted internal renderers can bypass per-resource ACLs after their own gate. */
   isAdmin?: boolean;
 };
 
@@ -542,7 +542,7 @@ export type ExpansionViewer = {
  *
  * Cross-base relations work: each target's `baseId` is looked up
  * independently, and grants are resolved within that target's base.
- * Admins (`viewer.isAdmin`) bypass the check entirely.
+ * Trusted internal renderers (`viewer.isAdmin`) bypass the check entirely.
  */
 const filterTargetsByViewerPermission = async (
   idsByTargetTable: Map<string, Set<string>>,

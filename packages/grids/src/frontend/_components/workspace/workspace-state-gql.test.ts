@@ -206,4 +206,19 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(state.route.fields.map((field) => field.id)).toEqual([statusField.id]);
     expect(state.route.canWriteRecords).toBe(false);
   });
+
+  test("does not treat Cloud admin role as Grids base access", async () => {
+    baseLevel = "none";
+    const adminUser = { ...user, roles: ["admin", "user", "local", "local/user"] };
+
+    const state = await loadGridsWorkspaceState({
+      user: adminUser,
+      baseShortId: base.shortId,
+      href: `/app/grids/${base.shortId}`,
+    });
+
+    expect(state.kind).toBe("accessDenied");
+    if (state.kind !== "accessDenied") return;
+    expect(state.message).toBe("No access to this base");
+  });
 });

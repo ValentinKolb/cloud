@@ -393,12 +393,14 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
 
   if (command === "create") {
     const name = requireArg(args, 0, "notebook name");
-    const response = await api.index.$post({
-      json: {
+    const response = await ctx.fetch("/api/notebooks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         name,
         description: stringFlag(ctx.flags, "description"),
         icon: stringFlag(ctx.flags, "icon"),
-      },
+      }),
     });
     const payload = await ctx.readJson<Notebook>(response);
     if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, payload.shortId);
@@ -514,9 +516,10 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
       return 0;
     }
 
-    const response = await api[":id"].notes[":noteId"].content.$patch({
-      param: { id: notebook.shortId, noteId: note.shortId },
-      json: request,
+    const response = await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}/content`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
     });
     const payload = await ctx.readJson<NoteEditResponse>(response);
     if (ctx.options.output === "json") ctx.json(payload);
@@ -560,13 +563,14 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef, rest } = await resolveNotebookArg(ctx, args, 1);
     const title = requireArg(rest, 0, "note title");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const response = await api[":id"].notes.$post({
-      param: { id: notebook.shortId },
-      json: {
+    const response = await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         title,
         parentId: stringFlag(ctx.flags, "parent", "parent-id"),
         contentMd: stringFlag(ctx.flags, "content"),
-      },
+      }),
     });
     const payload = await ctx.readJson<Note>(response);
     if (ctx.options.output === "json") ctx.json(payload);

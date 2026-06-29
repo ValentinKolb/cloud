@@ -43,6 +43,14 @@ type AccessAuditSnapshot = {
   permission: PermissionLevel;
 };
 
+export type ScopedAccessEntry = AccessEntry & {
+  resourceType: AccessResourceType;
+  resourceId: string;
+  resourceName: string;
+  tableId: string | null;
+  tableName: string | null;
+};
+
 const emitAccessChanged = async (binding: AccessBinding | null, accessId: string, actorId: string | null = null): Promise<void> => {
   if (!binding) return;
   await emitMetadataEvent({
@@ -71,6 +79,23 @@ const mapAccessRow = (row: DbAccessRow): AccessEntry => ({
   permission: row.permission,
   createdAt: row.created_at.toISOString(),
   displayName: row.display_name ?? undefined,
+});
+
+const mapScopedAccessRow = (
+  row: DbAccessRow & {
+    resource_type: AccessResourceType;
+    resource_id: string;
+    resource_name: string;
+    table_id: string | null;
+    table_name: string | null;
+  },
+): ScopedAccessEntry => ({
+  ...mapAccessRow(row),
+  resourceType: row.resource_type,
+  resourceId: row.resource_id,
+  resourceName: row.resource_name,
+  tableId: row.table_id,
+  tableName: row.table_name,
 });
 
 const resourceIdFromBinding = (binding: AccessBinding): string => {
@@ -338,6 +363,178 @@ export const listViewAccess = (viewId: string) => listAccess("view", viewId);
 export const listFormAccess = (formId: string) => listAccess("form", formId);
 export const listDocumentTemplateAccess = (templateId: string) => listAccess("documentTemplate", templateId);
 export const listDashboardAccess = (dashboardId: string) => listAccess("dashboard", dashboardId);
+
+export const listAccessForBaseTree = async (baseId: string): Promise<ScopedAccessEntry[]> => {
+  const rows = await sql<
+    (DbAccessRow & {
+      resource_type: AccessResourceType;
+      resource_id: string;
+      resource_name: string;
+      table_id: string | null;
+      table_name: string | null;
+    })[]
+  >`
+    SELECT *
+    FROM (
+      SELECT
+        'base' AS resource_type,
+        b.id AS resource_id,
+        b.name AS resource_name,
+        NULL::uuid AS table_id,
+        NULL::text AS table_name,
+        a.id AS access_id,
+        a.user_id,
+        a.group_id,
+        a.service_account_id,
+        a.authenticated_only,
+        a.permission,
+        a.created_at,
+        COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
+      FROM grids.base_access ba
+      JOIN grids.bases b ON b.id = ba.base_id
+      JOIN auth.access a ON a.id = ba.access_id
+      LEFT JOIN auth.users u ON u.id = a.user_id
+      LEFT JOIN auth.groups g ON g.id = a.group_id
+      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
+      WHERE b.id = ${baseId}::uuid AND b.deleted_at IS NULL
+
+      UNION ALL
+
+      SELECT
+        'table' AS resource_type,
+        t.id AS resource_id,
+        t.name AS resource_name,
+        t.id AS table_id,
+        t.name AS table_name,
+        a.id AS access_id,
+        a.user_id,
+        a.group_id,
+        a.service_account_id,
+        a.authenticated_only,
+        a.permission,
+        a.created_at,
+        COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
+      FROM grids.table_access ta
+      JOIN grids.tables t ON t.id = ta.table_id
+      JOIN auth.access a ON a.id = ta.access_id
+      LEFT JOIN auth.users u ON u.id = a.user_id
+      LEFT JOIN auth.groups g ON g.id = a.group_id
+      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
+      WHERE t.base_id = ${baseId}::uuid AND t.deleted_at IS NULL
+
+      UNION ALL
+
+      SELECT
+        'view' AS resource_type,
+        v.id AS resource_id,
+        v.name AS resource_name,
+        t.id AS table_id,
+        t.name AS table_name,
+        a.id AS access_id,
+        a.user_id,
+        a.group_id,
+        a.service_account_id,
+        a.authenticated_only,
+        a.permission,
+        a.created_at,
+        COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
+      FROM grids.view_access va
+      JOIN grids.views v ON v.id = va.view_id
+      JOIN grids.tables t ON t.id = v.table_id
+      JOIN auth.access a ON a.id = va.access_id
+      LEFT JOIN auth.users u ON u.id = a.user_id
+      LEFT JOIN auth.groups g ON g.id = a.group_id
+      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
+      WHERE t.base_id = ${baseId}::uuid AND t.deleted_at IS NULL AND v.deleted_at IS NULL
+
+      UNION ALL
+
+      SELECT
+        'form' AS resource_type,
+        f.id AS resource_id,
+        f.name AS resource_name,
+        t.id AS table_id,
+        t.name AS table_name,
+        a.id AS access_id,
+        a.user_id,
+        a.group_id,
+        a.service_account_id,
+        a.authenticated_only,
+        a.permission,
+        a.created_at,
+        COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
+      FROM grids.form_access fa
+      JOIN grids.forms f ON f.id = fa.form_id
+      JOIN grids.tables t ON t.id = f.table_id
+      JOIN auth.access a ON a.id = fa.access_id
+      LEFT JOIN auth.users u ON u.id = a.user_id
+      LEFT JOIN auth.groups g ON g.id = a.group_id
+      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
+      WHERE t.base_id = ${baseId}::uuid AND t.deleted_at IS NULL AND f.deleted_at IS NULL
+
+      UNION ALL
+
+      SELECT
+        'documentTemplate' AS resource_type,
+        dt.id AS resource_id,
+        dt.name AS resource_name,
+        t.id AS table_id,
+        t.name AS table_name,
+        a.id AS access_id,
+        a.user_id,
+        a.group_id,
+        a.service_account_id,
+        a.authenticated_only,
+        a.permission,
+        a.created_at,
+        COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
+      FROM grids.document_template_access dta
+      JOIN grids.document_templates dt ON dt.id = dta.template_id
+      JOIN grids.tables t ON t.id = dt.table_id
+      JOIN auth.access a ON a.id = dta.access_id
+      LEFT JOIN auth.users u ON u.id = a.user_id
+      LEFT JOIN auth.groups g ON g.id = a.group_id
+      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
+      WHERE t.base_id = ${baseId}::uuid AND t.deleted_at IS NULL AND dt.deleted_at IS NULL
+
+      UNION ALL
+
+      SELECT
+        'dashboard' AS resource_type,
+        d.id AS resource_id,
+        d.name AS resource_name,
+        NULL::uuid AS table_id,
+        NULL::text AS table_name,
+        a.id AS access_id,
+        a.user_id,
+        a.group_id,
+        a.service_account_id,
+        a.authenticated_only,
+        a.permission,
+        a.created_at,
+        COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
+      FROM grids.dashboard_access da
+      JOIN grids.dashboards d ON d.id = da.dashboard_id
+      JOIN auth.access a ON a.id = da.access_id
+      LEFT JOIN auth.users u ON u.id = a.user_id
+      LEFT JOIN auth.groups g ON g.id = a.group_id
+      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
+      WHERE d.base_id = ${baseId}::uuid AND d.deleted_at IS NULL
+    ) entries
+    ORDER BY
+      CASE resource_type
+        WHEN 'base' THEN 0
+        WHEN 'table' THEN 1
+        WHEN 'view' THEN 2
+        WHEN 'form' THEN 3
+        WHEN 'documentTemplate' THEN 4
+        ELSE 5
+      END,
+      resource_name,
+      created_at
+  `;
+  return rows.map(mapScopedAccessRow);
+};
 
 /**
  * Updates an existing access entry's permission level and logs the ACL

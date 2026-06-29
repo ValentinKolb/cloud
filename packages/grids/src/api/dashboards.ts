@@ -12,7 +12,6 @@ import {
   type Automation,
   type Dashboard,
 } from "../contracts";
-import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
 import { resolveWidgetData } from "../service/dashboard-widget-data";
 import { gateAt, resolveWithGrants, hasExplicitGrant } from "./permissions";
@@ -38,9 +37,8 @@ const canReadDashboardForRequest = async (c: Context<AuthContext>, dashboard: Da
   });
   if (!gridsService.permission.hasAtLeast(level, "read")) return false;
 
-  const isAdmin = hasRole(user, "admin");
   const isOwner = dashboard.ownerUserId === user.id;
-  const explicitGrant = hasExplicitGrant(grants, isAdmin, "dashboard", dashboard.id);
+  const explicitGrant = hasExplicitGrant(grants, "dashboard", dashboard.id);
   if (dashboard.ownerUserId !== null && !isOwner && !explicitGrant) return false;
   return true;
 };
@@ -158,14 +156,12 @@ const app = new Hono<AuthContext>()
 
       const user = c.get("user");
       if (!(await canReadDashboardForRequest(c, dashboard))) return c.json({ message: "Dashboard not found" }, 404);
-      const isAdmin = hasRole(user, "admin");
 
       const data = await resolveWidgetData(
         c.req.valid("json"),
         {
           userId: user.id,
           userGroups: user.memberofGroupIds,
-          isAdmin,
         },
         {
           dateConfig: await getDateConfig(c),

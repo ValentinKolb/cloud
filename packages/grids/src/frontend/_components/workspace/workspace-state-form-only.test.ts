@@ -90,7 +90,6 @@ describe("loadGridsWorkspaceState — form-only access", () => {
     const state = await loadGridsWorkspaceState({
       user: {
         id: "44444444-4444-4444-8444-444444444444",
-        roles: [],
         memberofGroupIds: [],
       },
       baseShortId: base.shortId,
@@ -112,7 +111,6 @@ describe("loadGridsWorkspaceState — form-only access", () => {
     const state = await loadGridsWorkspaceState({
       user: {
         id: "44444444-4444-4444-8444-444444444444",
-        roles: [],
         memberofGroupIds: [],
       },
       baseShortId: base.shortId,

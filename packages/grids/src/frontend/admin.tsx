@@ -4,6 +4,7 @@ import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
 import { gridsService } from "../service";
+import AdminGridsActions from "./_components/AdminGridsActions.island";
 import AdminGridsSettings from "./_components/settings/AdminGridsSettings.island";
 
 const PER_PAGE = 100;
@@ -49,7 +50,7 @@ export default ssr<AuthContext>(async (c) => {
       headerClass: "text-right",
       cellClass: "text-right whitespace-nowrap",
     },
-    { id: "open", header: "Open", headerClass: "w-px text-right", cellClass: "text-right whitespace-nowrap" },
+    { id: "actions", header: "Settings", headerClass: "w-px text-right", cellClass: "text-right whitespace-nowrap" },
   ];
 
   return () => (
@@ -146,13 +147,7 @@ export default ssr<AuthContext>(async (c) => {
                     </span>
                   );
                 }
-                if (col.id === "open") {
-                  return (
-                    <a href={`/app/grids/${base.shortId}`} class="text-dimmed hover:text-primary" title="Open base">
-                      <i class="ti ti-arrow-right" />
-                    </a>
-                  );
-                }
+                if (col.id === "actions") return <AdminGridsActions baseId={base.id} baseName={base.name} />;
                 return "";
               }}
             />

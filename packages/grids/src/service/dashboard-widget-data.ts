@@ -143,13 +143,13 @@ const EMBEDDED_VIEW_PAGESIZE = 25;
 /**
  * Viewer context threaded into the widget resolvers — drives per-
  * widget permission gates (form submit, relation expansion). `isAdmin`
- * bypasses all gates so platform admins always see fully-rendered
- * dashboards, mirroring the API's `gateAt` convention.
+ * is reserved for trusted internal preview/repair flows after their own
+ * gate; platform-admin role alone must not set it for normal dashboards.
  */
 type ViewerContext = {
   userId: string | null;
   userGroups: string[];
-  /** True when the user has a platform-admin role. */
+  /** True only for trusted internal renderer contexts. */
   isAdmin?: boolean;
 };
 

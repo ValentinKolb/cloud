@@ -54,7 +54,6 @@ export const list = async (opts: { includeDeleted?: boolean } = {}): Promise<Bas
 export const listVisible = async (params: {
   userId: string;
   userGroups: string[];
-  isAdmin?: boolean;
   query?: string;
   limit?: number;
   offset?: number;
@@ -72,20 +71,6 @@ export const listVisible = async (params: {
     )`);
   }
   const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
-
-  if (params.isAdmin) {
-    const [countRow] = await sql<{ total: number }[]>`
-      SELECT COUNT(*)::int AS total FROM grids.bases b WHERE ${where}
-    `;
-    const rows = await sql<DbRow[]>`
-      SELECT ${COLS}
-      FROM grids.bases b
-      WHERE ${where}
-      ORDER BY b.created_at DESC, b.id DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-    return { items: rows.map(mapRow), total: countRow?.total ?? 0 };
-  }
 
   const groups = toPgUuidArray(params.userGroups);
   const permissionRank = sql`CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 ELSE 0 END`;
@@ -371,7 +356,7 @@ export const adminList = async (params: {
   const page = Math.floor(offset / perPage) + 1;
   const query = params.filter?.query?.trim().toLowerCase();
 
-  const conditions: any[] = [sql`TRUE`];
+  const conditions: any[] = [sql`b.deleted_at IS NULL`];
   if (query) {
     const pattern = `%${escapeLikePattern(query)}%`;
     conditions.push(sql`(LOWER(b.name) LIKE ${pattern} ESCAPE '\\' OR LOWER(COALESCE(b.description, '')) LIKE ${pattern} ESCAPE '\\')`);
@@ -385,8 +370,8 @@ export const adminList = async (params: {
   const rows = await sql<DbRow[]>`
     SELECT
       b.id, b.short_id, b.name, b.description, b.created_by, b.default_dashboard_id, b.deleted_at, b.created_at, b.updated_at,
-      (SELECT COUNT(*)::int FROM grids.tables WHERE base_id = b.id) AS table_count,
-      (SELECT COUNT(*)::int FROM grids.records r JOIN grids.tables t ON t.id = r.table_id WHERE t.base_id = b.id AND r.deleted_at IS NULL) AS record_count,
+      (SELECT COUNT(*)::int FROM grids.tables WHERE base_id = b.id AND deleted_at IS NULL) AS table_count,
+      (SELECT COUNT(*)::int FROM grids.records r JOIN grids.tables t ON t.id = r.table_id WHERE t.base_id = b.id AND t.deleted_at IS NULL AND r.deleted_at IS NULL) AS record_count,
       (SELECT COUNT(*)::int FROM grids.base_access WHERE base_id = b.id) AS access_count
     FROM grids.bases b
     WHERE ${where}
@@ -411,7 +396,7 @@ export const adminSummary = async (params: {
   filter?: { query?: string };
 }): Promise<{ totalBases: number; totalTables: number; totalRecords: number; orphanedBases: number }> => {
   const query = params.filter?.query?.trim().toLowerCase();
-  const conditions: any[] = [sql`TRUE`];
+  const conditions: any[] = [sql`b.deleted_at IS NULL`];
   if (query) {
     const pattern = `%${escapeLikePattern(query)}%`;
     conditions.push(sql`(LOWER(b.name) LIKE ${pattern} ESCAPE '\\' OR LOWER(COALESCE(b.description, '')) LIKE ${pattern} ESCAPE '\\')`);
@@ -421,8 +406,8 @@ export const adminSummary = async (params: {
   const [row] = await sql<DbRow[]>`
     SELECT
       (SELECT COUNT(*)::int FROM grids.bases b WHERE ${where}) AS total_bases,
-      (SELECT COUNT(*)::int FROM grids.tables t JOIN grids.bases b ON b.id = t.base_id WHERE ${where}) AS total_tables,
-      (SELECT COUNT(*)::int FROM grids.records r JOIN grids.tables t ON t.id = r.table_id JOIN grids.bases b ON b.id = t.base_id WHERE r.deleted_at IS NULL AND ${where}) AS total_records,
+      (SELECT COUNT(*)::int FROM grids.tables t JOIN grids.bases b ON b.id = t.base_id WHERE t.deleted_at IS NULL AND ${where}) AS total_tables,
+      (SELECT COUNT(*)::int FROM grids.records r JOIN grids.tables t ON t.id = r.table_id JOIN grids.bases b ON b.id = t.base_id WHERE r.deleted_at IS NULL AND t.deleted_at IS NULL AND ${where}) AS total_records,
       (SELECT COUNT(*)::int FROM grids.bases b WHERE NOT EXISTS (SELECT 1 FROM grids.base_access WHERE base_id = b.id) AND ${where}) AS orphaned_bases
   `;
   return {

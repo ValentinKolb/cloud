@@ -1,4 +1,3 @@
-import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
@@ -14,7 +13,6 @@ import { parseLastGridsPath } from "./_components/sidebar/GridsSettingsStore";
  */
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const isAdmin = hasRole(user, "admin");
   const url = new URL(c.req.url);
   const initialQuery = url.searchParams.get("q")?.trim() ?? "";
   const pageRaw = Number.parseInt(url.searchParams.get("page") ?? "1", 10);
@@ -25,7 +23,6 @@ export default ssr<AuthContext>(async (c) => {
   const visible = await gridsService.base.listVisible({
     userId: user.id,
     userGroups: user.memberofGroupIds,
-    isAdmin,
     query: initialQuery,
     limit,
     offset,

@@ -1,6 +1,6 @@
 import { listApps } from "@valentinkolb/cloud";
 import { type AuthContext, auth, rateLimit, respond, v } from "@valentinkolb/cloud/server";
-import { settingsDeleteLegacyKeys, settingsListLegacyKeys, settingsService } from "@valentinkolb/cloud/services";
+import { latestGatewayRouteSnapshot, settingsDeleteLegacyKeys, settingsListLegacyKeys, settingsService } from "@valentinkolb/cloud/services";
 import { err, fail, ok } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -52,6 +52,12 @@ const TelemetrySummaryQuerySchema = z.object({
     .max(24 * 31)
     .optional(),
 });
+const GatewayRoutesQuerySchema = z.object({
+  search: z.string().optional(),
+  app: z.string().optional(),
+  errors: QueryBooleanSchema,
+  sort: z.enum(["count", "prefix", "errors"]).optional(),
+});
 const HealthWebhookInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   url: z.string().trim().min(1).max(2_000),
@@ -93,6 +99,45 @@ export const apiRoutes = new Hono<AuthContext>()
     return respond(c, ok({ message: "Setting updated" }));
   })
   .get("/health", async (c) => respond(c, ok(await buildGatewayHealth())))
+  .get("/routes", v("query", GatewayRoutesQuerySchema), async (c) => {
+    const query = c.req.valid("query");
+    const snapshot = await latestGatewayRouteSnapshot();
+    if (!snapshot) return respond(c, ok({ generatedAt: null, instanceId: null, total: 0, routeCount: 0, items: [] }));
+
+    const statsByPrefix = new Map(snapshot.stats.byRoute.map((route) => [route.prefix, route]));
+    const search = query.search?.trim().toLowerCase();
+    const app = query.app?.trim().toLowerCase();
+    const allRows = snapshot.routes.map((route) => {
+      const stats = statsByPrefix.get(route.prefix);
+      return {
+        prefix: route.prefix,
+        appId: route.appId,
+        count: stats?.count ?? 0,
+        errors: stats?.errors ?? 0,
+        lastSeen: stats?.lastSeen ? new Date(stats.lastSeen).toISOString() : null,
+      };
+    });
+    const items = allRows
+      .filter((route) => !app || route.appId.toLowerCase() === app)
+      .filter((route) => !query.errors || route.errors > 0)
+      .filter((route) => !search || `${route.prefix} ${route.appId}`.toLowerCase().includes(search))
+      .sort((a, b) => {
+        if (query.sort === "prefix") return a.prefix.localeCompare(b.prefix);
+        if (query.sort === "errors") return b.errors - a.errors || b.count - a.count || a.prefix.localeCompare(b.prefix);
+        return b.count - a.count || b.errors - a.errors || a.prefix.localeCompare(b.prefix);
+      });
+
+    return respond(
+      c,
+      ok({
+        generatedAt: new Date(snapshot.updatedAt).toISOString(),
+        instanceId: snapshot.instanceId,
+        total: allRows.length,
+        routeCount: items.length,
+        items,
+      }),
+    );
+  })
   .get("/data", async (c) => respond(c, ok(await getDataDiagnostics())))
   .get("/data/postgres", async (c) => respond(c, ok(await getPostgresDiagnostics())))
   .get("/data/redis", async (c) => respond(c, ok(await getRedisDiagnostics())))
