@@ -40,7 +40,7 @@ type DragState = {
 };
 
 const HANDLE_CLASS =
-  "absolute h-4 w-4 rounded-full border-2 border-white bg-blue-500 shadow-[var(--theme-shadow-elevated)] transition-transform hover:scale-110 focus-ui";
+  "absolute h-4 w-4 appearance-none rounded-full border-2 border-white bg-blue-500 bg-none p-0 shadow-[var(--theme-shadow-elevated)] transition-transform hover:scale-110 focus-ui";
 
 const readPointerPosition = (event: PointerEvent, frame: HTMLDivElement | undefined) => {
   if (!frame) return { x: 0, y: 0 };
@@ -318,6 +318,7 @@ export default function ImageCropper(props: ImageCropperProps) {
   };
 
   const showResizeHandles = () => aspect() === "free" && previewShape() !== "circle";
+  const showZoomControls = () => aspect() !== "free";
 
   return (
     <div class="flex min-w-0 flex-col gap-3">
@@ -372,13 +373,15 @@ export default function ImageCropper(props: ImageCropperProps) {
         </Show>
       </div>
 
-      <div class="flex min-w-0 flex-col gap-1">
-        <div class="flex items-center justify-between text-xs">
-          <span class="text-secondary">Zoom</span>
-          <span class="text-dimmed tabular-nums">{zoom().toFixed(2)}x</span>
+      <Show when={showZoomControls()}>
+        <div class="flex min-w-0 flex-col gap-1">
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-secondary">Zoom</span>
+            <span class="text-dimmed tabular-nums">{zoom().toFixed(2)}x</span>
+          </div>
+          <Slider value={zoom} onChange={setZoom} min={1} max={5} step={0.05} disabled={disabled() || !crop()} showValue={false} />
         </div>
-        <Slider value={zoom} onChange={setZoom} min={1} max={5} step={0.05} disabled={disabled() || !crop()} showValue={false} />
-      </div>
+      </Show>
     </div>
   );
 }
