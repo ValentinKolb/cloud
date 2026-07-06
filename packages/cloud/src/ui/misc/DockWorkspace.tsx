@@ -12,6 +12,7 @@ type ResultSlot = {
   readonly kind: typeof RESULT_SLOT;
   title?: string;
   icon?: string;
+  hideHeader?: boolean;
   children: JSX.Element;
 };
 
@@ -69,6 +70,7 @@ export type DockWorkspaceProps = {
 export type DockWorkspaceResultProps = {
   title?: string;
   icon?: string;
+  hideHeader?: boolean;
   children: JSX.Element;
 };
 
@@ -210,6 +212,7 @@ function DockWorkspaceResult(props: DockWorkspaceResultProps): JSX.Element {
     kind: RESULT_SLOT,
     title: props.title,
     icon: props.icon,
+    hideHeader: props.hideHeader,
     children: props.children,
   } satisfies ResultSlot as unknown as JSX.Element;
 }
@@ -349,10 +352,12 @@ const DockWorkspaceRoot = (props: DockWorkspaceProps) => {
       >
         {(resultSlot) => (
           <section class="flex min-h-0 flex-col overflow-hidden bg-surface" style={{ height: `${state().resultSize}%` }}>
-            <header class="flex h-9 shrink-0 items-center gap-2 px-2 text-xs font-medium text-secondary">
-              <i class={`${iconClass(resultSlot().icon, "ti-layout-dashboard")} text-sm`} />
-              <span>{resultSlot().title ?? "Result"}</span>
-            </header>
+            <Show when={!resultSlot().hideHeader}>
+              <header class="flex h-9 shrink-0 items-center gap-2 px-2 text-xs font-medium text-secondary">
+                <i class={`${iconClass(resultSlot().icon, "ti-layout-dashboard")} text-sm`} />
+                <span>{resultSlot().title ?? "Result"}</span>
+              </header>
+            </Show>
             <div class="min-h-0 flex-1 overflow-auto">{resultSlot().children}</div>
           </section>
         )}
