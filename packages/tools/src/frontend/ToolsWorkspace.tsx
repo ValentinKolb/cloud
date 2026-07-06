@@ -1,5 +1,6 @@
 import type { JSX } from "solid-js";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import ToolSearchButton from "./ToolSearchButton.island";
 import { categoryOrder, categories, tools } from "./tools/registry";
 
 type ToolsWorkspaceProps = {
@@ -21,12 +22,13 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
     </AppWorkspace.SidebarItem>
   );
 
-  const sidebarContent = (
+  const sidebarContent = (options: { showSearch?: boolean; registerShortcut?: boolean } = {}) => (
     <>
       <AppWorkspace.SidebarSection title="Start">
         <AppWorkspace.SidebarItem href="/tools" navigation="document" icon="ti ti-layout-grid" active={!props.activeToolId}>
           Overview
         </AppWorkspace.SidebarItem>
+        {options.showSearch ? <ToolSearchButton variant="sidebar" registerShortcut={options.registerShortcut} /> : null}
       </AppWorkspace.SidebarSection>
       {categoryOrder.map((category) => {
         const items = tools.filter((tool) => tool.category === category);
@@ -50,12 +52,15 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
             <AppWorkspace.SidebarItem href="/tools" navigation="document" icon="ti ti-layout-grid" active={!props.activeToolId}>
               Overview
             </AppWorkspace.SidebarItem>
+            <ToolSearchButton variant="sidebar-mobile" />
             {tools.filter((tool) => tool.featured).map(renderItem)}
           </AppWorkspace.SidebarMobileItems>
-          <AppWorkspace.SidebarMobileBody scrollPreserveKey="tools-sidebar-mobile-body">{sidebarContent}</AppWorkspace.SidebarMobileBody>
+          <AppWorkspace.SidebarMobileBody scrollPreserveKey="tools-sidebar-mobile-body">{sidebarContent()}</AppWorkspace.SidebarMobileBody>
         </AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarDesktop>
-          <AppWorkspace.SidebarBody scrollPreserveKey="tools-sidebar">{sidebarContent}</AppWorkspace.SidebarBody>
+          <AppWorkspace.SidebarBody scrollPreserveKey="tools-sidebar">
+            {sidebarContent({ showSearch: true, registerShortcut: true })}
+          </AppWorkspace.SidebarBody>
         </AppWorkspace.SidebarDesktop>
       </AppWorkspace.Sidebar>
       <AppWorkspace.Main
