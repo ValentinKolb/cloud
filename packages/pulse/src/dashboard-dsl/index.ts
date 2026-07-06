@@ -93,20 +93,13 @@ type Position = {
   column: number;
 };
 
-const VISUALS = new Set(["chart", "line", "bar", "stat", "gauge", "barGauge", "bargauge", "histogram", "heatmap", "table"]);
-const CONTROL_KINDS = new Set(["range", "source", "entity", "entity_type", "entity-type", "entitytype", "label", "text"]);
+const VISUALS = new Set(["line", "bar", "stat", "gauge", "barGauge", "histogram", "heatmap", "table"]);
+const CONTROL_KINDS = new Set(["range", "source", "entity", "entity_type", "label", "text"]);
 const CONDITION_LEVELS = new Set(["warn", "critical"]);
 const CONDITION_OPERATORS = new Set([">", ">=", "<", "<=", "=", "!="]);
 
 const visualFromKeyword = (keyword: string): DashboardDslVisual["visual"] => {
-  if (keyword === "chart" || keyword === "line") return "line";
-  if (keyword === "bargauge") return "barGauge";
   return keyword as DashboardDslVisual["visual"];
-};
-
-const controlKindFromKeyword = (keyword: string): PulseDashboardControl["kind"] => {
-  if (keyword === "entity-type" || keyword === "entitytype") return "entity_type";
-  return keyword as PulseDashboardControl["kind"];
 };
 
 const titleId = (prefix: string, title: string): string =>
@@ -160,7 +153,7 @@ class Parser {
     const title = this.readString();
     if (title === null) this.error(this.position, "Dashboard title must be a quoted string");
     if (!this.readOpenBrace()) this.error(this.position, 'Expected "{" after dashboard title');
-    const body = this.readContainerBody(["description", "controls", "section", "card", "markdown", "row", "grid", ...VISUALS]);
+    const body = this.readContainerBody(["description", "controls", "section", "card", "markdown", "row", ...VISUALS]);
     const document: DashboardDslDocument = {
       kind: "dashboard",
       title: title ?? "Dashboard",
@@ -220,7 +213,7 @@ class Parser {
         if (block) blocks.push(block);
         continue;
       }
-      if (keyword === "row" || keyword === "grid") {
+      if (keyword === "row") {
         const block = this.readRow(statementStart);
         if (block) blocks.push(block);
         continue;
@@ -264,7 +257,7 @@ class Parser {
         this.recoverToNextStatement();
         continue;
       }
-      controls.push(this.readControlOptions(controlKindFromKeyword(keyword), label));
+      controls.push(this.readControlOptions(keyword as PulseDashboardControl["kind"], label));
     }
     return controls;
   }
@@ -323,7 +316,7 @@ class Parser {
       this.error(this.position, 'Expected "{" after section title');
       return null;
     }
-    const body = this.readContainerBody(["description", "section", "card", "markdown", "row", "grid", ...VISUALS]);
+    const body = this.readContainerBody(["description", "section", "card", "markdown", "row", ...VISUALS]);
     return { kind: "section", title, description: body.description, blocks: body.blocks };
   }
 
@@ -338,14 +331,14 @@ class Parser {
       this.error(this.position, 'Expected "{" after card title');
       return null;
     }
-    const body = this.readContainerBody(["description", "markdown", "row", "grid", ...VISUALS]);
+    const body = this.readContainerBody(["description", "markdown", "row", ...VISUALS]);
     return { kind: "card", title, description: body.description, span, blocks: body.blocks };
   }
 
   private readRow(start: Position): DashboardDslRow | null {
     const height = this.readOptionalHeight();
     if (!this.readOpenBrace()) {
-      this.error(start, 'Expected "{" after row/grid');
+      this.error(start, 'Expected "{" after row');
       return null;
     }
     const body = this.readContainerBody(["card", "markdown", ...VISUALS]);
@@ -418,7 +411,7 @@ class Parser {
       }
       if (statement === "visual") {
         const value = this.readIdentifier();
-        if (!value || !VISUALS.has(value)) this.error(statementStart, "Visual must be one of chart, line, bar, stat, gauge, barGauge, histogram, heatmap, or table");
+        if (!value || !VISUALS.has(value)) this.error(statementStart, "Visual must be one of line, bar, stat, gauge, barGauge, histogram, heatmap, or table");
         else visual = visualFromKeyword(value);
         continue;
       }

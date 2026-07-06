@@ -78,8 +78,11 @@ const PULSE_APP_ID = "pulse";
 const PULSE_SOURCE_RESOURCE_TYPE = "pulse_source";
 const PULSE_INGEST_SCOPE = "pulse:ingest";
 const BASE_DELETE_BATCH_SIZE = 50_000;
+const MAX_INGEST_BATCH_ITEMS = 50_000;
 const MAX_METRIC_BUCKETS = 2_000;
 const MAX_PUBLIC_EXECUTED_WIDGETS = 36;
+const MAX_SCRAPE_RESPONSE_BYTES = 10 * 1024 * 1024;
+const MAX_SCRAPE_SAMPLES = 50_000;
 
 type UserScope = {
   id: string;
@@ -615,39 +618,29 @@ const normalizeDashboardLayout = (layout: unknown): PulseDashboardLayout | null 
   return result;
 };
 
-const quoteDashboardDslString = (value: string): string => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-
-const defaultDashboardDsl = (name: string): string => `dashboard ${quoteDashboardDslString(name)} {
-  description "Live Pulse dashboard."
-
-  section "Overview" {
-    markdown "Start here" {
-      """
-      Add cards, charts, tables, and notes with the Pulse dashboard DSL.
-      """
-    }
-  }
-}`;
-
-const normalizeDashboardConfig = (config: unknown, dashboardName = "Dashboard"): PulseDashboardConfig => {
+const normalizeDashboardConfig = (config: unknown): PulseDashboardConfig => {
   const parsed = parseJson(config);
   const raw =
     typeof parsed === "object" && parsed !== null
       ? (parsed as { layout?: unknown; dsl?: unknown; refreshIntervalSeconds?: unknown })
       : {};
+  const dsl = typeof raw.dsl === "string" && raw.dsl.trim() ? raw.dsl.trim().slice(0, 40_000) : "";
   const result: PulseDashboardConfig = {
-    dsl: typeof raw.dsl === "string" && raw.dsl.trim() ? raw.dsl.trim().slice(0, 40_000) : defaultDashboardDsl(dashboardName),
+    dsl,
     layout: null,
   };
   const refreshIntervalSeconds = normalizeRefreshInterval(raw.refreshIntervalSeconds);
   if (refreshIntervalSeconds !== undefined) result.refreshIntervalSeconds = refreshIntervalSeconds;
-  const layout = normalizeDashboardLayout(raw.layout);
-  if (layout) result.layout = layout;
+  if (dsl) {
+    const layout = normalizeDashboardLayout(raw.layout);
+    if (layout) result.layout = layout;
+  }
   return result;
 };
 
 const compileDashboardConfigForSave = (baseId: string, name: string, config: unknown): Result<PulseDashboardConfig> => {
-  const normalized = normalizeDashboardConfig(config, name);
+  const normalized = normalizeDashboardConfig(config);
+  if (!normalized.dsl) return fail(err.badInput("Dashboard DSL is required"));
   const compiled = compileDashboardDsl(normalized.dsl, (query) => {
     const result = compilePulseQueryText(baseId, query);
     return result.ok ? { ok: true, data: result.data } : { ok: false, message: result.error.message };
@@ -657,7 +650,7 @@ const compileDashboardConfigForSave = (baseId: string, name: string, config: unk
     return fail(err.badInput(first ? first.message : "Dashboard DSL is invalid"));
   }
   return ok({
-    ...normalizeDashboardConfig(compiled.data, name),
+    ...normalizeDashboardConfig(compiled.data),
     refreshIntervalSeconds: normalized.refreshIntervalSeconds,
   });
 };
@@ -666,7 +659,7 @@ const mapDashboard = (row: DashboardRow): PulseDashboard => ({
   id: row.id,
   baseId: row.base_id,
   name: row.name,
-  config: normalizeDashboardConfig(row.config, row.name),
+  config: normalizeDashboardConfig(row.config),
   publicEnabled: row.public_enabled,
   createdAt: iso(row.created_at),
   updatedAt: iso(row.updated_at),
@@ -1326,6 +1319,7 @@ const upsertDimensionMetadata = async (params: {
   scope: "metric" | "event" | "state";
   dimensions: Record<string, string>;
 }): Promise<void> => {
+  if (!params.sourceId) return;
   for (const key of Object.keys(params.dimensions)) {
     await sql`
       INSERT INTO pulse.dimension_metadata (base_id, source_id, scope, key, observed_cardinality, last_seen_at)
@@ -2023,6 +2017,7 @@ const createSourceApiKey = async (params: {
   if (!source.ok) return fail(source.error);
   const name = params.name.trim();
   if (!name) return fail(err.badInput("API key name is required"));
+  if (params.permission !== "write") return fail(err.badInput("Source API keys can only use ingest permission"));
 
   const serviceAccount = await serviceAccounts.getOrCreateResourceBound({
     name: `${source.data.name} ingest API keys`,
@@ -2038,7 +2033,7 @@ const createSourceApiKey = async (params: {
     actor: params.user,
     name,
     expiresAt: params.expiresAt ?? null,
-    scopes: [PULSE_INGEST_SCOPE, params.permission],
+    scopes: [PULSE_INGEST_SCOPE, "write"],
   });
   if (!created.ok) return fail(created.error);
 
@@ -2110,19 +2105,6 @@ const resolveMetricSeries = async (params: {
 
   const hash = dimensionsHash(params.dimensions);
   const seriesKey = metricSeriesKey({ sourceId: params.sourceId, entityId: params.metric.entityId, dimensionsHash: hash });
-  const [existing] = await sql<{ id: string }[]>`
-    SELECT id
-    FROM pulse.metric_series
-    WHERE base_id = ${params.baseId}::uuid
-      AND metric_id = ${metricDef.id}::uuid
-      AND series_key = ${seriesKey}
-    LIMIT 1
-  `;
-  if (existing) {
-    await sql`UPDATE pulse.metric_series SET last_seen_at = now() WHERE id = ${existing.id}::uuid`;
-    return { metricId: metricDef.id, seriesId: existing.id };
-  }
-
   const [series] = await sql<{ id: string }[]>`
     INSERT INTO pulse.metric_series (base_id, metric_id, source_id, entity_id, entity_type, series_key, dimensions_hash, dimensions, last_seen_at)
     VALUES (
@@ -2136,9 +2118,16 @@ const resolveMetricSeries = async (params: {
       (${jsonbObject(params.dimensions)}::jsonb #>> '{}')::jsonb,
       now()
     )
+    ON CONFLICT (base_id, metric_id, series_key)
+    DO UPDATE SET
+      source_id = EXCLUDED.source_id,
+      entity_id = EXCLUDED.entity_id,
+      entity_type = EXCLUDED.entity_type,
+      dimensions = EXCLUDED.dimensions,
+      last_seen_at = now()
     RETURNING id
   `;
-  if (!series) throw new Error("Failed to create metric series");
+  if (!series) throw new Error("Failed to resolve metric series");
 
   for (const [key, value] of Object.entries(params.dimensions)) {
     await sql`
@@ -2254,6 +2243,7 @@ const ingestBatch = async (params: {
 }): Promise<Result<{ metrics: number; events: number; states: number }>> => {
   const requestedCount = (params.batch.metrics?.length ?? 0) + (params.batch.events?.length ?? 0) + (params.batch.states?.length ?? 0);
   if (requestedCount === 0) return fail(err.badInput("Ingest batch is empty"));
+  if (requestedCount > MAX_INGEST_BATCH_ITEMS) return fail(err.badInput(`Ingest batch exceeds ${MAX_INGEST_BATCH_ITEMS} items`));
   const active = await requireBaseActive(params.baseId);
   if (!active.ok) return fail(active.error);
 
@@ -2344,6 +2334,26 @@ const recordSourceScrape = async (params: {
     // Scrape history is diagnostic; never make the scrape itself fail because
     // the audit row could not be persisted.
   }
+};
+
+const readScrapeResponseText = async (response: Response): Promise<Result<string>> => {
+  if (!response.body) return ok(await response.text());
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let size = 0;
+  let text = "";
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    size += chunk.value.byteLength;
+    if (size > MAX_SCRAPE_RESPONSE_BYTES) {
+      await reader.cancel();
+      return fail(err.badInput(`Metrics endpoint response exceeds ${Math.round(MAX_SCRAPE_RESPONSE_BYTES / 1024 / 1024)} MB`));
+    }
+    text += decoder.decode(chunk.value, { stream: true });
+  }
+  text += decoder.decode();
+  return ok(text);
 };
 
 const programmaticPulse = {
@@ -2846,10 +2856,23 @@ export const scrapeMetricsSource = async (params: {
       await markSourceError({ baseId: params.baseId, sourceId: params.sourceId, message });
       return fail(err.internal(message));
     }
-    const text = await response.text();
+    const textResult = await readScrapeResponseText(response);
+    if (!textResult.ok) {
+      const message = textResult.error.message;
+      await recordSourceScrape({ baseId: params.baseId, sourceId: params.sourceId, startedAt, success: false, errorMessage: message });
+      await markSourceError({ baseId: params.baseId, sourceId: params.sourceId, message });
+      return fail(textResult.error);
+    }
+    const text = textResult.data;
     const metrics = parsePrometheusMetrics(text).map((metric) => ({ ...metric, sourceId: params.sourceId }));
     if (metrics.length === 0) {
       const message = "Metrics endpoint returned no parseable samples";
+      await recordSourceScrape({ baseId: params.baseId, sourceId: params.sourceId, startedAt, success: false, errorMessage: message });
+      await markSourceError({ baseId: params.baseId, sourceId: params.sourceId, message });
+      return fail(err.badInput(message));
+    }
+    if (metrics.length > MAX_SCRAPE_SAMPLES) {
+      const message = `Metrics endpoint returned ${metrics.length} samples, above the ${MAX_SCRAPE_SAMPLES} sample limit`;
       await recordSourceScrape({ baseId: params.baseId, sourceId: params.sourceId, startedAt, success: false, errorMessage: message });
       await markSourceError({ baseId: params.baseId, sourceId: params.sourceId, message });
       return fail(err.badInput(message));
@@ -2866,6 +2889,7 @@ export const scrapeMetricsSource = async (params: {
         success: false,
         errorMessage: result.error.message,
       });
+      await markSourceError({ baseId: params.baseId, sourceId: params.sourceId, message: result.error.message });
     }
     return result;
   } catch (scrapeError) {

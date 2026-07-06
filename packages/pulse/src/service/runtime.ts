@@ -139,10 +139,17 @@ const submitDueScrapes = async (slotTs: number): Promise<{ submitted: number }> 
         OR b.data_clear_failed_at IS NOT NULL
       )
       AND (
-        s.last_seen_at IS NULL
-        OR s.last_seen_at <= now() - (s.scrape_interval_seconds * interval '1 second')
+        GREATEST(
+          COALESCE(s.last_seen_at, '-infinity'::timestamptz),
+          COALESCE(s.last_error_at, '-infinity'::timestamptz)
+        ) <= now() - (s.scrape_interval_seconds * interval '1 second')
       )
-    ORDER BY s.last_seen_at NULLS FIRST, s.created_at ASC
+    ORDER BY
+      GREATEST(
+        COALESCE(s.last_seen_at, '-infinity'::timestamptz),
+        COALESCE(s.last_error_at, '-infinity'::timestamptz)
+      ) ASC,
+      s.created_at ASC
     LIMIT 200
   `;
 

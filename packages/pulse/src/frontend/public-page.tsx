@@ -6,6 +6,9 @@ import PublicPulseDashboard from "./PublicPulseDashboard.island";
 export default ssr<AuthContext>(async (c) => {
   c.header("Referrer-Policy", "no-referrer");
   const token = c.req.param("token") ?? "";
+  const theme = c.req.query("theme") === "dark" ? "dark" : "light";
+  const displayHeight = c.req.query("height") === "full" ? "full" : "scroll";
+  c.get("page").theme = theme;
   const snapshot = await pulseService.dashboard.publicSnapshot(token);
   if (!snapshot.ok) {
     return () => (
@@ -20,5 +23,12 @@ export default ssr<AuthContext>(async (c) => {
 
   const dateConfig = getDateConfig(c);
 
-  return () => <PublicPulseDashboard token={token} initialSnapshot={snapshot.data} initialDateConfig={dateConfig} />;
+  return () => (
+    <PublicPulseDashboard
+      token={token}
+      initialSnapshot={snapshot.data}
+      initialDateConfig={dateConfig}
+      displayHeight={displayHeight}
+    />
+  );
 });

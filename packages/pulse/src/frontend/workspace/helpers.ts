@@ -3,6 +3,7 @@ import type { DataTableColumn, FilterChipSection } from "@valentinkolb/cloud/ui"
 import type {
   MetricQueryPoint,
   MetricType,
+  PanelVisual,
   PulseCurrentState,
   PulseDashboard,
   PulseDashboardConfig,
@@ -14,6 +15,7 @@ import type {
   PulseDashboardStateQuery,
   PulseDashboardStatesWidget,
   PulseDashboardWidget,
+  PulseExplorerQuery,
   PulseMetricSeries,
   PulseRecordedEvent,
   PulseSource,
@@ -148,6 +150,14 @@ export const formatValue = (value: number | null | undefined): string => {
   return value.toFixed(2);
 };
 
+export const compactMetricUnit = (unit: string | null | undefined): string | undefined => {
+  const value = unit?.trim();
+  if (!value) return undefined;
+  const normalized = value.toLowerCase();
+  if (normalized === "percent" || normalized === "percentage") return "%";
+  return value;
+};
+
 export const formatSignalValue = (value: unknown): string => {
   if (value === null || value === undefined) return "null";
   if (typeof value === "string") return value;
@@ -157,11 +167,21 @@ export const formatSignalValue = (value: unknown): string => {
 };
 
 export const gaugeMax = (unit: string | null, value: number): number => {
-  if (unit === "%") return 100;
+  if (compactMetricUnit(unit) === "%") return 100;
   if (value <= 1) return 1;
   const magnitude = 10 ** Math.max(0, Math.floor(Math.log10(value)));
   return Math.ceil(value / magnitude) * magnitude;
 };
+
+export const dashboardAutoSpan = (cellCount: number): number => {
+  if (cellCount <= 1) return 12;
+  if (cellCount === 2) return 6;
+  if (cellCount === 3) return 4;
+  return 3;
+};
+
+export const dashboardCellSpan = (span: number | null | undefined, cellCount: number): number =>
+  Math.min(12, Math.max(1, span ?? dashboardAutoSpan(cellCount)));
 
 export const pointsToBars = (points: MetricQueryPoint[], context?: DateContext) =>
   points.slice(-48).map((point) => ({
@@ -276,6 +296,53 @@ export const dashboardStatesWidgets = (config: PulseDashboardConfig) =>
 
 export const quoteDashboardDslString = (value: string): string => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 
+export const dashboardVisualStatement = (visual: PanelVisual): string => visual;
+
+export const dashboardQueryLine = (query: string): string => {
+  let output = "";
+  let pendingSpace = false;
+  let quote: '"' | "'" | null = null;
+  for (let index = 0; index < query.length; index += 1) {
+    const char = query[index]!;
+    if (quote) {
+      output += char;
+      if (char === "\\" && index + 1 < query.length) {
+        index += 1;
+        output += query[index]!;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      if (pendingSpace && output) output += " ";
+      pendingSpace = false;
+      quote = char;
+      output += char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      pendingSpace = true;
+      continue;
+    }
+    if (pendingSpace && output) output += " ";
+    pendingSpace = false;
+    output += char;
+  }
+  return output.trim();
+};
+
+export const dashboardWidgetSnippetFromQuery = (query: string, compiled: PulseExplorerQuery, visual: PanelVisual): string => {
+  const normalizedQuery = dashboardQueryLine(query);
+  if (compiled.kind === "metric") {
+    return `${dashboardVisualStatement(visual)} ${quoteDashboardDslString(compiled.metric)} {\n  query ${normalizedQuery}\n}`;
+  }
+  if (compiled.kind === "events") {
+    return `table ${quoteDashboardDslString(compiled.event || "Events")} {\n  query ${normalizedQuery}\n}`;
+  }
+  return `table ${quoteDashboardDslString(compiled.state || "States")} {\n  query ${normalizedQuery}\n}`;
+};
+
 export const starterDashboardDsl = (name: string, description?: string | null): string => {
   const dashboardDescription = description?.trim() || "Describe what this dashboard should answer.";
   return `dashboard ${quoteDashboardDslString(name)} {
@@ -293,8 +360,7 @@ export const starterDashboardDsl = (name: string, description?: string | null): 
 };
 
 export const dashboardToDsl = (dashboard: PulseDashboard): string => {
-  if (dashboard.config.dsl?.trim()) return dashboard.config.dsl;
-  return starterDashboardDsl(dashboard.name, "Live Pulse dashboard.");
+  return dashboard.config.dsl?.trim() ? dashboard.config.dsl : "";
 };
 
 const queryHistoryKey = (baseId: string): string => `pulse.queryHistory.${baseId}`;

@@ -95,8 +95,8 @@ const dashboardSyntax = `dashboard "Name" {
   }
 
   section "Section" {
-    grid height md {
-      chart "Chart title" {
+    row height md {
+      line "Chart title" {
         query metric orders.created increase every 1h since $range source $source_id where region=$region
         warn when value > 100
       }
@@ -191,11 +191,11 @@ const dashboardStatementRows: DashboardStatementRow[] = [
   { statement: 'description "Text"', scope: "dashboard, section, card, widget", meaning: "Adds reader-facing context without changing data queries.", example: 'description "Live operational view."' },
   { statement: "controls { ... }", scope: "dashboard", meaning: "Declares reusable variables rendered above the dashboard.", example: 'controls { range "Range" variable range default 24h options 1h, 24h }' },
   { statement: 'range/source/entity/entity_type/label/text "Label"', scope: "controls", meaning: "Creates a control. Use variable, default, options, and type where useful.", example: 'entity "Container" variable entity_id type container default container:app-core' },
-  { statement: 'section "Name" { ... }', scope: "dashboard, section", meaning: "Groups related rows and nested sections.", example: 'section "Today" { chart "Orders" { query metric orders.created increase since 24h } }' },
-  { statement: "row height sm|md|lg { ... }", scope: "section, card", meaning: "Places multiple widgets in one row. grid is an alias.", example: 'grid height lg { chart "CPU" { query metric system.cpu.usage avg since 6h } }' },
+  { statement: 'section "Name" { ... }', scope: "dashboard, section", meaning: "Groups related rows and nested sections.", example: 'section "Today" { line "Orders" { query metric orders.created increase since 24h } }' },
+  { statement: "row height sm|md|lg { ... }", scope: "section, card", meaning: "Places multiple widgets in one row.", example: 'row height lg { line "CPU" { query metric system.cpu.usage avg since 6h } }' },
   { statement: 'card "Name" [span n] { ... }', scope: "section, row, card", meaning: "Frames related child widgets and optional markdown.", example: 'card "Battery" span 6 { gauge "Charge" { query metric battery.charge latest since 10m } }' },
   { statement: 'markdown "Name" [span n] { """ ... """ }', scope: "section, row, card", meaning: "Adds Markdown notes, explanations, runbooks, or links.", example: 'markdown "Notes" { """## Notes\\n- Check importer health.""" }' },
-  { statement: 'chart/line/bar/stat/gauge/barGauge/histogram/heatmap/table "Name"', scope: "section, row, card", meaning: "Adds a query-backed widget. table is also used for events and states.", example: 'gauge "Charge" { query metric battery.charge latest since 10m }' },
+  { statement: 'line/bar/stat/gauge/barGauge/histogram/heatmap/table "Name"', scope: "section, row, card", meaning: "Adds a query-backed widget. table is also used for events and states.", example: 'gauge "Charge" { query metric battery.charge latest since 10m }' },
   { statement: "query <Query DSL>", scope: "widget", meaning: "Embeds metric, events, or states Query DSL. Dashboard controls may be referenced as $variables.", example: "query metric orders.created increase every 1h since $range where region=$region" },
   { statement: "warn|critical when value <op> <value>", scope: "metric/state widget", meaning: "Applies visual state only. It does not send alerts or call webhooks.", example: 'critical when value > 95 message "Capacity almost full"' },
 ];

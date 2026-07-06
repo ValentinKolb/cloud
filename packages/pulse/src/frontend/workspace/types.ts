@@ -28,7 +28,7 @@ export type MetricTextQueryResult = {
   states: PulseCurrentState[];
 };
 
-export type SourceKind = "metrics" | "http_ingest";
+export type SourceCreateKind = "metrics" | "http_ingest";
 export type GrantableLevel = Exclude<PermissionLevel, "none">;
 export type ExplorerResultView = "chart" | "table" | "compiled";
 export type QueryHistoryEntry = { query: string; ranAt: string };
@@ -62,7 +62,7 @@ export type ActivityStateGroup = {
 };
 
 export type CreateSourceInput = {
-  kind: SourceKind;
+  kind: SourceCreateKind;
   name: string;
   endpointUrl?: string;
   bearerToken?: string;

@@ -115,7 +115,7 @@ const CreateSourceSchema = z.object({
 const CreateSourceApiKeySchema = z.object({
   name: z.string().trim().min(1).max(120),
   expiresAt: z.string().datetime().nullable().optional(),
-  permission: PermissionLevelSchema.exclude(["none"]),
+  permission: z.literal("write").default("write"),
 });
 
 const UpdateSourceSchema = z.object({
@@ -579,6 +579,16 @@ const QueryCompileResultSchema = z.object({
 const requireParam = (value: string | undefined, label: string) =>
   value ? { ok: true as const, value } : { ok: false as const, result: fail(err.badInput(`Missing ${label}`)) };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const requireUuidParam = (value: string | undefined, label: string) => {
+  const param = requireParam(value, label);
+  if (!param.ok) return param;
+  return UUID_RE.test(param.value)
+    ? param
+    : { ok: false as const, result: fail(err.badInput(`${label} must be a UUID`)) };
+};
+
 const requireUserBackedActor = (c: Context<AuthContext>): Result<User> => {
   const actor = c.get("actor");
   const user = actor.kind === "user" ? actor.user : actor.delegatedUser;
@@ -660,7 +670,7 @@ const app = new Hono<AuthContext>()
     async (c) => respond(c, pulseService.base.create({ ...c.req.valid("json"), user: c.get("user") }), 201),
   )
   .get("/bases/:baseId", async (c) => {
-    const baseId = requireParam(c.req.param("baseId"), "base ID");
+    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
     if (!baseId.ok) return respond(c, baseId.result);
     return respond(c, pulseService.base.get(baseId.value, c.get("user")));
   })
@@ -673,18 +683,18 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateBaseSchema),
     async (c) => {
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
       return respond(c, pulseService.base.update({ baseId: baseId.value, user: c.get("user"), ...c.req.valid("json") }));
     },
   )
   .delete("/bases/:baseId", async (c) => {
-    const baseId = requireParam(c.req.param("baseId"), "base ID");
+    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
     if (!baseId.ok) return respond(c, baseId.result);
     return respondMessage(c, pulseService.base.remove({ baseId: baseId.value, user: c.get("user") }), "Pulse base deletion started");
   })
   .post("/bases/:baseId/clear-data", async (c) => {
-    const baseId = requireParam(c.req.param("baseId"), "base ID");
+    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
     if (!baseId.ok) return respond(c, baseId.result);
     return respondMessage(c, pulseService.base.clearData({ baseId: baseId.value, user: c.get("user") }), "Pulse data clear started");
   })
@@ -696,7 +706,7 @@ const app = new Hono<AuthContext>()
       responses: { 200: jsonResponse(z.array(AccessEntrySchema), "Pulse base access entries") },
     }),
     async (c) => {
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
       return respond(c, pulseService.base.access.list(baseId.value, c.get("user")));
     },
@@ -710,7 +720,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GrantBaseAccessSchema),
     async (c) => {
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
       return respond(c, pulseService.base.access.grant({ baseId: baseId.value, user: c.get("user"), ...c.req.valid("json") }), 201);
     },
@@ -724,7 +734,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateBaseAccessSchema),
     async (c) => {
-      const accessId = requireParam(c.req.param("accessId"), "access ID");
+      const accessId = requireUuidParam(c.req.param("accessId"), "access ID");
       if (!accessId.ok) return respond(c, accessId.result);
       return respondMessage(
         c,
@@ -734,7 +744,7 @@ const app = new Hono<AuthContext>()
     },
   )
   .delete("/access/:accessId", async (c) => {
-    const accessId = requireParam(c.req.param("accessId"), "access ID");
+    const accessId = requireUuidParam(c.req.param("accessId"), "access ID");
     if (!accessId.ok) return respond(c, accessId.result);
     return respondMessage(c, pulseService.base.access.revoke({ accessId: accessId.value, user: c.get("user") }), "Access revoked");
   })
@@ -746,13 +756,13 @@ const app = new Hono<AuthContext>()
       responses: { 200: jsonResponse(z.array(SourceSchema), "Pulse sources") },
     }),
     async (c) => {
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
       return respond(c, pulseService.source.list(baseId.value, c.get("user")));
     },
   )
   .get("/bases/:baseId/metrics", v("query", MetricsQuerySchema), async (c) => {
-    const baseId = requireParam(c.req.param("baseId"), "base ID");
+    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
     if (!baseId.ok) return respond(c, baseId.result);
     return respond(c, pulseService.query.metrics(baseId.value, c.get("user"), c.req.valid("query")));
   })
@@ -764,7 +774,7 @@ const app = new Hono<AuthContext>()
       responses: { 200: jsonResponse(InventorySchema, "Pulse resource inventory") },
     }),
     async (c) => {
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
       return respond(c, pulseService.query.inventory(baseId.value, c.get("user")));
     },
@@ -778,7 +788,7 @@ const app = new Hono<AuthContext>()
     }),
     v("query", ActivitySearchQuerySchema),
     async (c) => {
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
       return respond(c, pulseService.query.recentEvents(baseId.value, c.get("user"), c.req.valid("query")));
     },
@@ -792,7 +802,7 @@ const app = new Hono<AuthContext>()
     }),
     v("query", ActivitySearchQuerySchema),
     async (c) => {
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
       return respond(c, pulseService.query.currentStates(baseId.value, c.get("user"), c.req.valid("query")));
     },
@@ -806,7 +816,7 @@ const app = new Hono<AuthContext>()
     }),
     v("query", MetricSeriesQuerySchema),
     async (c) => {
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
       return respond(c, pulseService.query.series(baseId.value, c.get("user"), c.req.valid("query")));
     },
@@ -819,7 +829,7 @@ const app = new Hono<AuthContext>()
       responses: { 200: jsonResponse(z.array(DashboardSchema), "Pulse dashboards") },
     }),
     async (c) => {
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
       return respond(c, pulseService.dashboard.list(baseId.value, c.get("user")));
     },
@@ -836,7 +846,7 @@ const app = new Hono<AuthContext>()
       respond(
         c,
         (() => {
-          const baseId = requireParam(c.req.param("baseId"), "base ID");
+          const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
           if (!baseId.ok) return baseId.result;
           return pulseService.dashboard.create({ baseId: baseId.value, user: c.get("user"), ...c.req.valid("json") });
         })(),
@@ -855,7 +865,7 @@ const app = new Hono<AuthContext>()
       respond(
         c,
         (() => {
-          const baseId = requireParam(c.req.param("baseId"), "base ID");
+          const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
           if (!baseId.ok) return baseId.result;
           return pulseService.source.create({
             baseId: baseId.value,
@@ -867,9 +877,9 @@ const app = new Hono<AuthContext>()
       ),
   )
   .post("/bases/:baseId/sources/:sourceId/scrape", async (c) => {
-    const baseId = requireParam(c.req.param("baseId"), "base ID");
+    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
     if (!baseId.ok) return respond(c, baseId.result);
-    const sourceId = requireParam(c.req.param("sourceId"), "source ID");
+    const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
     if (!sourceId.ok) return respond(c, sourceId.result);
     return respond(c, pulseService.source.scrape({ baseId: baseId.value, sourceId: sourceId.value, user: c.get("user") }));
   })
@@ -881,9 +891,9 @@ const app = new Hono<AuthContext>()
       responses: { 200: jsonResponse(z.array(SourceScrapeSchema), "Recent source scrape attempts") },
     }),
     async (c) => {
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      const sourceId = requireParam(c.req.param("sourceId"), "source ID");
+      const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
       if (!sourceId.ok) return respond(c, sourceId.result);
       return respond(c, pulseService.source.scrapes({ baseId: baseId.value, sourceId: sourceId.value, user: c.get("user") }));
     },
@@ -898,9 +908,9 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const user = requireUserBackedActor(c);
       if (!user.ok) return respond(c, user);
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      const sourceId = requireParam(c.req.param("sourceId"), "source ID");
+      const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
       if (!sourceId.ok) return respond(c, sourceId.result);
       return respond(c, pulseService.source.apiKeys.list({ baseId: baseId.value, sourceId: sourceId.value, user: user.data }));
     },
@@ -916,9 +926,9 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const user = requireUserBackedActor(c);
       if (!user.ok) return respond(c, user);
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      const sourceId = requireParam(c.req.param("sourceId"), "source ID");
+      const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
       if (!sourceId.ok) return respond(c, sourceId.result);
       return respond(
         c,
@@ -935,11 +945,11 @@ const app = new Hono<AuthContext>()
   .delete("/bases/:baseId/sources/:sourceId/api-keys/:credentialId", async (c) => {
     const user = requireUserBackedActor(c);
     if (!user.ok) return respond(c, user);
-    const baseId = requireParam(c.req.param("baseId"), "base ID");
+    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
     if (!baseId.ok) return respond(c, baseId.result);
-    const sourceId = requireParam(c.req.param("sourceId"), "source ID");
+    const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
     if (!sourceId.ok) return respond(c, sourceId.result);
-    const credentialId = requireParam(c.req.param("credentialId"), "API key ID");
+    const credentialId = requireUuidParam(c.req.param("credentialId"), "API key ID");
     if (!credentialId.ok) return respond(c, credentialId.result);
     return respond(
       c,
@@ -960,9 +970,9 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateSourceSchema),
     async (c) => {
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
-      const sourceId = requireParam(c.req.param("sourceId"), "source ID");
+      const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
       if (!sourceId.ok) return respond(c, sourceId.result);
       return respond(
         c,
@@ -978,7 +988,7 @@ const app = new Hono<AuthContext>()
       responses: { 200: jsonResponse(z.array(SavedQuerySchema), "Saved Pulse queries") },
     }),
     async (c) => {
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
       return respond(c, pulseService.savedQuery.list(baseId.value, c.get("user")));
     },
@@ -992,15 +1002,15 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateSavedQuerySchema),
     async (c) => {
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
       return respond(c, pulseService.savedQuery.create({ baseId: baseId.value, user: c.get("user"), ...c.req.valid("json") }));
     },
   )
   .delete("/bases/:baseId/sources/:sourceId", async (c) => {
-    const baseId = requireParam(c.req.param("baseId"), "base ID");
+    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
     if (!baseId.ok) return respond(c, baseId.result);
-    const sourceId = requireParam(c.req.param("sourceId"), "source ID");
+    const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
     if (!sourceId.ok) return respond(c, sourceId.result);
     return respond(c, pulseService.source.remove({ baseId: baseId.value, sourceId: sourceId.value, user: c.get("user") }));
   })
@@ -1013,7 +1023,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", IngestBatchSchema),
     async (c) => {
-      const baseId = requireParam(c.req.param("baseId"), "base ID");
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
       const gate = await pulseService.base.access.require(baseId.value, c.get("user"), "write");
       if (!gate.ok) return respond(c, gate);
@@ -1029,30 +1039,30 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateDashboardSchema),
     async (c) => {
-      const dashboardId = requireParam(c.req.param("dashboardId"), "dashboard ID");
+      const dashboardId = requireUuidParam(c.req.param("dashboardId"), "dashboard ID");
       if (!dashboardId.ok) return respond(c, dashboardId.result);
       return respond(c, pulseService.dashboard.update({ dashboardId: dashboardId.value, user: c.get("user"), ...c.req.valid("json") }));
     },
   )
   .delete("/dashboards/:dashboardId", async (c) => {
-    const dashboardId = requireParam(c.req.param("dashboardId"), "dashboard ID");
+    const dashboardId = requireUuidParam(c.req.param("dashboardId"), "dashboard ID");
     if (!dashboardId.ok) return respond(c, dashboardId.result);
     return respondMessage(c, pulseService.dashboard.remove({ dashboardId: dashboardId.value, user: c.get("user") }), "Dashboard removed");
   })
   .post("/dashboards/:dashboardId/public-token", async (c) => {
-    const dashboardId = requireParam(c.req.param("dashboardId"), "dashboard ID");
+    const dashboardId = requireUuidParam(c.req.param("dashboardId"), "dashboard ID");
     if (!dashboardId.ok) return respond(c, dashboardId.result);
     return respond(c, pulseService.dashboard.enablePublic({ dashboardId: dashboardId.value, user: c.get("user") }));
   })
   .delete("/dashboards/:dashboardId/public-token", async (c) => {
-    const dashboardId = requireParam(c.req.param("dashboardId"), "dashboard ID");
+    const dashboardId = requireUuidParam(c.req.param("dashboardId"), "dashboard ID");
     if (!dashboardId.ok) return respond(c, dashboardId.result);
     return respond(c, pulseService.dashboard.disablePublic({ dashboardId: dashboardId.value, user: c.get("user") }));
   })
   .delete("/bases/:baseId/saved-queries/:queryId", async (c) => {
-    const baseId = requireParam(c.req.param("baseId"), "base ID");
+    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
     if (!baseId.ok) return respond(c, baseId.result);
-    const queryId = requireParam(c.req.param("queryId"), "saved query ID");
+    const queryId = requireUuidParam(c.req.param("queryId"), "saved query ID");
     if (!queryId.ok) return respond(c, queryId.result);
     return respondMessage(
       c,

@@ -51,4 +51,15 @@ describe("Pulse query DSL", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain("compact durations");
   });
+
+  test("rejects pre-V1 entity type aliases", () => {
+    for (const query of [
+      "states service.online entity app-core entity-type service limit 10",
+      "states service.online entity app-core entitytype service limit 10",
+    ]) {
+      const result = compilePulseQueryText(baseId, query);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.message).toContain("Unexpected token");
+    }
+  });
 });

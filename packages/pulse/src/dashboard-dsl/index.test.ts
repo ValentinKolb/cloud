@@ -106,7 +106,7 @@ describe("Pulse dashboard DSL", () => {
     expect(widget.conditions?.[0]).toMatchObject({ level: "warn", operator: ">", value: 100 });
   });
 
-  test("supports grid rows and label/text controls", () => {
+  test("supports rows and label/text controls", () => {
     const result = compileDashboardDsl(
       `dashboard "Scoped" {
         controls {
@@ -115,8 +115,8 @@ describe("Pulse dashboard DSL", () => {
         }
 
         section "Main" {
-          grid height lg {
-            chart "Orders" {
+          row height lg {
+            line "Orders" {
               query metric sales.orders increase every 1h since 24h where region=$region, term=$search
             }
           }
@@ -146,7 +146,7 @@ describe("Pulse dashboard DSL", () => {
         }
 
         section "Main" {
-          chart "Orders" {
+          line "Orders" {
             query metric sales.orders avg every 5m since 24h where environment=$environment, env=$env
           }
         }
@@ -164,7 +164,7 @@ describe("Pulse dashboard DSL", () => {
     const result = compileDashboardDsl(
       `dashboard "Too broad" {
         section "Main" {
-          chart "Orders" {
+          line "Orders" {
             query metric sales.orders avg every 1h since 365d
           }
         }
@@ -217,6 +217,20 @@ describe("Pulse dashboard DSL", () => {
     const result = parseDashboardDsl('dashboard "Broken" { widget "Nope" {} }');
     expect(result.ok).toBe(false);
     expect(result.diagnostics[0]?.message).toContain("Unsupported dashboard statement");
+  });
+
+  test("rejects pre-V1 layout and visual aliases", () => {
+    const aliases = [
+      'dashboard "Broken" { section "Main" { grid height md { line "CPU" { query metric system.cpu avg since 1h } } } }',
+      'dashboard "Broken" { section "Main" { chart "CPU" { query metric system.cpu avg since 1h } } }',
+      'dashboard "Broken" { section "Main" { bargauge "CPU" { query metric system.cpu avg since 1h } } }',
+    ];
+
+    for (const source of aliases) {
+      const result = parseDashboardDsl(source);
+      expect(result.ok).toBe(false);
+      expect(result.diagnostics[0]?.message).toContain("Unsupported dashboard statement");
+    }
   });
 
   test("forwards embedded query diagnostics", () => {

@@ -121,7 +121,7 @@ const parseSharedQueryClauses = (
       index += 2;
       continue;
     }
-    if (token === "entity_type" || token === "entity-type" || token === "entitytype") {
+    if (token === "entity_type") {
       entityType = tokens[index + 1] ?? null;
       if (!entityType) return fail(err.badInput("Entity type is missing"));
       index += 2;

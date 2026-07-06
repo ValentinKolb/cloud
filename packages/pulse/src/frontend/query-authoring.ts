@@ -258,3 +258,85 @@ export const pulseQueryHighlight = (text: string): string => {
   }
   return out;
 };
+
+const DASHBOARD_DSL_KEYWORDS = new Set([
+  "dashboard",
+  "description",
+  "controls",
+  "range",
+  "text",
+  "source",
+  "entity",
+  "section",
+  "row",
+  "card",
+  "stat",
+  "gauge",
+  "line",
+  "bar",
+  "barGauge",
+  "table",
+  "markdown",
+  "query",
+  "warn",
+  "critical",
+  "when",
+  "message",
+]);
+
+const DASHBOARD_QUERY_KEYWORDS = new Set(["metric", "events", "states", "every", "since", "where", "limit", "entity_type"]);
+
+export const pulseDashboardDslHighlight = (text: string): string => {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text.startsWith('"""', i)) {
+      const end = text.indexOf('"""', i + 3);
+      const finish = end === -1 ? text.length : end + 3;
+      out += `<span class="text-amber-700 dark:text-amber-300">${escapeHtml(text.slice(i, finish))}</span>`;
+      i = finish;
+      continue;
+    }
+
+    const ch = text[i]!;
+    if (ch === '"') {
+      let end = i + 1;
+      let escaped = false;
+      while (end < text.length) {
+        const current = text[end]!;
+        if (escaped) escaped = false;
+        else if (current === "\\") escaped = true;
+        else if (current === '"') {
+          end += 1;
+          break;
+        }
+        end += 1;
+      }
+      out += `<span class="text-amber-700 dark:text-amber-300">${escapeHtml(text.slice(i, end))}</span>`;
+      i = end;
+      continue;
+    }
+
+    if (/[A-Za-z0-9_.$-]/.test(ch)) {
+      let end = i + 1;
+      while (end < text.length && /[A-Za-z0-9_.$-]/.test(text[end]!)) end += 1;
+      const token = text.slice(i, end);
+      const lower = token.toLowerCase();
+      if (DASHBOARD_DSL_KEYWORDS.has(token) || DASHBOARD_QUERY_KEYWORDS.has(lower)) {
+        out += `<span class="text-blue-600 dark:text-blue-300">${escapeHtml(token)}</span>`;
+      } else if (AGGREGATIONS.includes(lower as (typeof AGGREGATIONS)[number]) || lower === "latest" || lower === "increase") {
+        out += `<span class="text-emerald-700 dark:text-emerald-300">${escapeHtml(token)}</span>`;
+      } else if (/^\$?[0-9]+[mhd]?$/.test(lower) || lower.startsWith("$")) {
+        out += `<span class="text-purple-700 dark:text-purple-300">${escapeHtml(token)}</span>`;
+      } else {
+        out += escapeHtml(token);
+      }
+      i = end;
+      continue;
+    }
+
+    out += escapeHtml(ch);
+    i += 1;
+  }
+  return out;
+};

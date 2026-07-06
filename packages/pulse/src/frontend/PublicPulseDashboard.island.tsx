@@ -16,12 +16,13 @@ import type {
   PulsePublicDashboardWidget,
   PulsePublicRecordedEvent,
 } from "../contracts";
-import { compactDate, compactDateWithDelta, compactDay, defaultPulseDateContext, formatSignalValue } from "./workspace/helpers";
+import { compactDate, compactDateWithDelta, compactDay, dashboardCellSpan, defaultPulseDateContext, formatSignalValue } from "./workspace/helpers";
 
 type Props = {
   token: string;
   initialSnapshot: PulseDashboardSnapshot;
   initialDateConfig?: DateContext;
+  displayHeight?: "scroll" | "full";
 };
 
 const formatValue = (value: number | null | undefined): string => {
@@ -89,6 +90,10 @@ const sanitizePublicMarkdown = (input: string): string =>
 export default function PublicPulseDashboard(props: Props) {
   const [snapshot, setSnapshot] = createSignal(props.initialSnapshot);
   const dateContext = () => ({ ...defaultPulseDateContext, ...(props.initialDateConfig ?? {}) });
+  const refreshIntervalSeconds = () => {
+    const configured = snapshot().dashboard.config.refreshIntervalSeconds;
+    return configured === null ? null : (configured ?? 5);
+  };
 
   const reload = async (signal?: AbortSignal) => {
     const response = await fetch(`/api/pulse/public-dashboard/${props.token}`, { signal });
@@ -171,7 +176,7 @@ export default function PublicPulseDashboard(props: Props) {
   };
 
   const renderWidgetFrame = (widget: { title?: string | null; description?: string | null }, content: JSX.Element) => (
-    <article class="paper p-4">
+    <article class="paper h-full p-4">
       <Show when={widget.title || widget.description}>
         <div class="mb-3 min-w-0">
           <Show when={widget.title}>{(title) => <p class="truncate text-sm font-semibold text-primary">{title()}</p>}</Show>
@@ -217,7 +222,7 @@ export default function PublicPulseDashboard(props: Props) {
     const level = condition?.level ?? null;
     return (
       <article
-        class="paper p-4"
+        class="paper h-full p-4"
         classList={{
           "border-yellow-300 bg-yellow-50/70 dark:border-yellow-800 dark:bg-yellow-950/30": level === "warn",
           "border-red-300 bg-red-50/70 dark:border-red-800 dark:bg-red-950/30": level === "critical",
@@ -311,10 +316,10 @@ export default function PublicPulseDashboard(props: Props) {
       </div>,
     );
 
-  const renderDashboardWidget = (widget: PulsePublicDashboardWidget) => {
-    const span = Math.min(12, Math.max(1, widget.span ?? 12));
+  const renderDashboardWidget = (widget: PulsePublicDashboardWidget, cellCount: number) => {
+    const span = dashboardCellSpan(widget.span, cellCount);
     return (
-      <div class={`col-span-1 ${spanClasses[span] ?? spanClasses[12]}`}>
+      <div class={`col-span-1 h-full min-w-0 ${spanClasses[span] ?? spanClasses[12]}`}>
         {widget.kind === "metric"
           ? renderMetricWidgetFrame(widget)
           : widget.kind === "markdown"
@@ -329,8 +334,8 @@ export default function PublicPulseDashboard(props: Props) {
   };
 
   const renderDashboardRow = (row: PulsePublicDashboardRow) => (
-    <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
-      <For each={row.cells}>{(widget) => renderDashboardWidget(widget)}</For>
+    <div class="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
+      <For each={row.cells}>{(widget) => renderDashboardWidget(widget, row.cells.length)}</For>
     </div>
   );
 
@@ -345,6 +350,41 @@ export default function PublicPulseDashboard(props: Props) {
       <For each={section.rows}>{(row) => renderDashboardRow(row)}</For>
       <For each={section.sections}>{(child) => <div class="border-l border-border/70 pl-4">{renderDashboardSection(child)}</div>}</For>
     </section>
+  );
+
+  const renderRefreshProgress = () => (
+    <Show
+      when={refreshIntervalSeconds()}
+      fallback={
+        <span class="inline-flex h-8 w-8 items-center justify-center text-zinc-500 dark:text-zinc-400">
+          <i class="ti ti-player-pause text-sm" />
+          <span class="sr-only">Manual refresh</span>
+        </span>
+      }
+    >
+      {(seconds) => (
+        <span
+          class="inline-flex h-8 w-8 items-center justify-center text-blue-600 dark:text-blue-300"
+          title={`Refreshes every ${seconds()}s`}
+        >
+          <svg class="-rotate-90" width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+            <circle cx="11" cy="11" r="8" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="3" />
+            <circle
+              cx="11"
+              cy="11"
+              r="8"
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-width="3"
+              stroke-dasharray="50.265"
+              style={{ animation: `pulse-public-refresh-progress ${seconds()}s linear infinite` }}
+            />
+          </svg>
+          <span class="sr-only">Refreshes every {seconds()} seconds</span>
+        </span>
+      )}
+    </Show>
   );
 
   createEffect(() => {
@@ -398,22 +438,27 @@ export default function PublicPulseDashboard(props: Props) {
   });
 
   return (
-    <main class="min-h-screen bg-zinc-50 px-4 py-6 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50 sm:px-6 lg:px-8">
-      <div class="mx-auto flex max-w-7xl flex-col gap-5">
+    <main
+      class={`bg-zinc-50 px-4 py-6 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50 sm:px-6 lg:px-8 ${
+        props.displayHeight === "full" ? "h-screen overflow-hidden" : "min-h-screen overflow-auto"
+      }`}
+    >
+      <style>{`
+        @keyframes pulse-public-refresh-progress {
+          from { stroke-dashoffset: 50.265; }
+          to { stroke-dashoffset: 0; }
+        }
+      `}</style>
+      <div class={`flex w-full flex-col gap-5 ${props.displayHeight === "full" ? "h-full min-h-0" : ""}`}>
         <header class="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p class="text-xs font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">Pulse public dashboard</p>
-            <h1 class="mt-1 text-3xl font-semibold tracking-normal">{snapshot().dashboard.name}</h1>
+            <h1 class="text-3xl font-semibold tracking-normal">{snapshot().dashboard.name}</h1>
           </div>
-          <p class="text-sm text-zinc-500 dark:text-zinc-400">
-            {snapshot().dashboard.config.refreshIntervalSeconds === null
-              ? "Manual"
-              : `Refreshes every ${snapshot().dashboard.config.refreshIntervalSeconds ?? 5}s`}
-          </p>
+          {renderRefreshProgress()}
         </header>
 
         <Show when={snapshot().dashboard.config.layout?.sections.length} fallback={<p class="paper p-8 text-center text-sm text-dimmed">This dashboard has no widgets.</p>}>
-          <section class="space-y-6">
+          <section class={`space-y-6 ${props.displayHeight === "full" ? "min-h-0 flex-1 overflow-hidden" : ""}`}>
             <For each={snapshot().dashboard.config.layout?.sections ?? []}>{(section) => renderDashboardSection(section)}</For>
           </section>
         </Show>

@@ -13,6 +13,7 @@ import {
   panelDialogOptions,
   PermissionEditor,
   prompts,
+  SegmentedControl,
   SelectInput,
   SettingsModal,
   StructuredDataPreview,
@@ -61,7 +62,7 @@ import type {
   MetricQueryPoint,
 } from "../contracts";
 import PulseLayoutHelp from "./PulseLayoutHelp";
-import { buildPulseQuery, buildPulseQueryCompletions, defaultPulseQuery, pulseQueryHighlight } from "./query-authoring";
+import { buildPulseQuery, buildPulseQueryCompletions, defaultPulseQuery, pulseDashboardDslHighlight, pulseQueryHighlight } from "./query-authoring";
 import { FocusedEventDetail, FocusedMetricSeriesDetail, FocusedStateDetail } from "./workspace/FocusedSignalDetails";
 import PulseSidebar from "./workspace/PulseSidebar";
 import ResourceBrowserView from "./workspace/ResourceBrowserView";
@@ -78,6 +79,8 @@ import {
   VISUAL_OPTIONS,
   compactDate,
   compactDateWithDelta,
+  compactMetricUnit,
+  dashboardCellSpan,
   dashboardEventQueryText,
   dashboardLayoutWidgets,
   dashboardEventsWidgets,
@@ -86,6 +89,7 @@ import {
   dashboardStateQueryText,
   dashboardStatesWidgets,
   dashboardToDsl,
+  dashboardWidgetSnippetFromQuery,
   defaultPulseDateContext,
   dimensionsSummary,
   eventGroupId,
@@ -130,7 +134,7 @@ import type {
   PulseWorkspaceProps,
   QueryHistoryEntry,
   RefreshIntervalOption,
-  SourceKind,
+  SourceCreateKind,
   WorkspaceView,
 } from "./workspace/types";
 
@@ -160,6 +164,8 @@ const createPulseListDetailPanesValue = (): PanesValue => ({
 });
 
 type SignalCatalogKind = "events" | "states" | "metrics";
+type PublicDashboardDisplayTheme = "light" | "dark";
+type PublicDashboardDisplayHeight = "scroll" | "full";
 
 const signalCatalogKindForView = (view: WorkspaceView): SignalCatalogKind =>
   view === "activity-states" ? "states" : view === "activity-metrics" ? "metrics" : "events";
@@ -1415,7 +1421,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
   const addSource = () =>
     dialogCore.open<void>((close) => {
-      const [kind, setKind] = createSignal<SourceKind>("http_ingest");
+      const [kind, setKind] = createSignal<SourceCreateKind>("http_ingest");
       const [name, setName] = createSignal("");
       const [endpointUrl, setEndpointUrl] = createSignal("");
       const [bearerToken, setBearerToken] = createSignal("");
@@ -1465,7 +1471,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
                   description="Pick a scrape target or an ingest source that pushes data into Pulse."
                   icon="ti ti-plug-connected"
                   value={kind}
-                  onChange={(value) => setKind(value as SourceKind)}
+                  onChange={(value) => setKind(value as SourceCreateKind)}
                   options={SOURCE_TYPE_OPTIONS}
                   required
                 />
@@ -1845,6 +1851,18 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     }
   };
 
+  const copyDashboardWidgetSnippet = async () => {
+    const query = currentExplorerQuery();
+    const compiled = compiledQuery();
+    if (!query || !compiled) return;
+    try {
+      await clipboard.copy(dashboardWidgetSnippetFromQuery(query, compiled, selectedVisual()));
+      toast.success("Dashboard widget DSL copied");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not copy widget DSL");
+    }
+  };
+
   const removeSavedQuery = async (query: PulseSavedQuery) => {
     if (!(await prompts.confirm(`Remove saved query "${query.name}"?`, { title: "Remove query", variant: "danger" }))) return;
     setLoading(true);
@@ -1925,6 +1943,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       setDashboardDslSeededFor("");
       toast.success("Dashboard saved");
       await refreshDashboard(updated);
+      navigateWorkspace({ view: "dashboard", dashboardId: updated.id });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save dashboard");
     } finally {
@@ -1932,16 +1951,34 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     }
   };
 
+  const publicDashboardUrl = (
+    token: string,
+    options: { theme?: PublicDashboardDisplayTheme; height?: PublicDashboardDisplayHeight } = {},
+  ) => {
+    const base = origin() || (typeof window !== "undefined" ? window.location.origin : "");
+    const url = new URL(`/app/pulse/display/${token}`, base || "http://localhost");
+    if (options.theme) url.searchParams.set("theme", options.theme);
+    if (options.height === "full") url.searchParams.set("height", "full");
+    return base ? url.toString() : `${url.pathname}${url.search}`;
+  };
+
+  const ensurePublicDashboardLink = async (
+    dashboard: PulseDashboard,
+    options: { theme?: PublicDashboardDisplayTheme; height?: PublicDashboardDisplayHeight } = {},
+  ) => {
+    const result = await jsonFetch<{ dashboard: PulseDashboard; token: string }>(`/api/pulse/dashboards/${dashboard.id}/public-token`, {
+      method: "POST",
+      body: "{}",
+    });
+    setDashboards((current) => current.map((item) => (item.id === result.dashboard.id ? result.dashboard : item)));
+    return publicDashboardUrl(result.token, options);
+  };
+
   const enablePublicLink = async (dashboard = selectedDashboard(), options: { copy?: boolean } = {}) => {
     if (!dashboard) return;
     setLoading(true);
     try {
-      const result = await jsonFetch<{ dashboard: PulseDashboard; token: string }>(`/api/pulse/dashboards/${dashboard.id}/public-token`, {
-        method: "POST",
-        body: "{}",
-      });
-      setDashboards((current) => current.map((item) => (item.id === result.dashboard.id ? result.dashboard : item)));
-      const link = `${origin() || window.location.origin}/app/pulse/display/${result.token}`;
+      const link = await ensurePublicDashboardLink(dashboard);
       if (options.copy) await clipboard.copy(link);
       toast.success(options.copy ? "Public dashboard link copied" : "Public dashboard link enabled");
     } catch (error) {
@@ -1964,6 +2001,91 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       toast.error(error instanceof Error ? error.message : "Could not disable public link");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openPublicDashboardDisplayDialog = async (dashboard: PulseDashboard) => {
+    try {
+      await prompts.dialog<void>(
+        (close) => {
+          const [theme, setTheme] = createSignal<PublicDashboardDisplayTheme>("dark");
+          const [height, setHeight] = createSignal<PublicDashboardDisplayHeight>("scroll");
+          const [busy, setBusy] = createSignal<"copy" | "open" | null>(null);
+
+          const resolveLink = () => ensurePublicDashboardLink(dashboard, { theme: theme(), height: height() });
+
+          const copyLink = async () => {
+            setBusy("copy");
+            try {
+              await clipboard.copy(await resolveLink());
+              toast.success("Public display link copied");
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "Could not copy public display link");
+            } finally {
+              setBusy(null);
+            }
+          };
+
+          const openLink = async () => {
+            setBusy("open");
+            try {
+              window.open(await resolveLink(), "_blank", "noopener,noreferrer");
+              close();
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : "Could not open public display");
+            } finally {
+              setBusy(null);
+            }
+          };
+
+          return (
+            <div class="flex w-full min-w-0 max-w-xl flex-col gap-4 overflow-hidden">
+              <p class="max-w-full text-sm leading-relaxed text-dimmed">Choose a display URL for monitors, shared links, or embedded screens.</p>
+
+              <div class="flex min-w-0 flex-col gap-2">
+                <p class="text-sm font-medium text-primary">Theme</p>
+                <SegmentedControl<PublicDashboardDisplayTheme>
+                  value={theme}
+                  onChange={setTheme}
+                  options={[
+                    { value: "light", label: "Light", icon: "ti ti-sun" },
+                    { value: "dark", label: "Dark", icon: "ti ti-moon" },
+                  ]}
+                />
+              </div>
+
+              <div class="flex min-w-0 flex-col gap-2">
+                <p class="text-sm font-medium text-primary">Page height</p>
+                <SegmentedControl<PublicDashboardDisplayHeight>
+                  value={height}
+                  onChange={setHeight}
+                  options={[
+                    { value: "scroll", label: "Scrollable", icon: "ti ti-arrows-vertical" },
+                    { value: "full", label: "Full height", icon: "ti ti-device-tv" },
+                  ]}
+                />
+                <p class="text-xs leading-relaxed text-dimmed">
+                  Full height disables page scrolling for display monitors. Use it only when the dashboard fits the screen.
+                </p>
+              </div>
+
+              <div class="flex flex-wrap justify-end gap-2 pt-2">
+                <button type="button" class="btn-input btn-input-sm" disabled={busy() !== null} onClick={copyLink}>
+                  <i class={`ti ${busy() === "copy" ? "ti-loader-2 animate-spin" : "ti-copy"}`} />
+                  Copy link
+                </button>
+                <button type="button" class="btn-input btn-input-sm" disabled={busy() !== null} onClick={openLink}>
+                  <i class={`ti ${busy() === "open" ? "ti-loader-2 animate-spin" : "ti-external-link"}`} />
+                  Open display
+                </button>
+              </div>
+            </div>
+          );
+        },
+        { title: "Public display", icon: "ti ti-device-tv" },
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not open public display options");
     }
   };
 
@@ -2034,12 +2156,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
                 onClose={close}
                 closeLabel="Close"
               >
-                <SettingsModal.Tab
-                  id="general"
-                  title="General"
-                  icon="ti ti-settings"
-                  description="Name shown in the Pulse sidebar and header."
-                >
+                <SettingsModal.Tab id="general" title="General" icon="ti ti-settings" description="Name shown in the Pulse sidebar and header.">
                   <form
                     class="flex flex-col gap-3"
                     onSubmit={(event) => {
@@ -2066,16 +2183,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
                     <button type="submit" class="btn-primary btn-sm self-start" disabled={loading() || !name().trim()}>
                       <i class={`ti ${loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
                       Save
-                    </button>
-                    <button
-                      type="button"
-                      class="btn-input btn-input-sm self-start"
-                      onClick={() => {
-                        close();
-                        openDashboardEditor(currentDashboard().id);
-                      }}
-                    >
-                      <i class="ti ti-code" /> Edit DSL
                     </button>
                   </form>
                 </SettingsModal.Tab>
@@ -2149,7 +2256,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     const data = metricWidgetPoints()[widget.id] ?? [];
     const last = data.at(-1)?.value ?? null;
     const summary = metricByName().get(widget.metric);
-    const unit = summary?.unit ?? null;
+    const unit = compactMetricUnit(summary?.unit);
     if (widget.visual === "stat") {
       return (
         <Chart
@@ -2157,7 +2264,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           class="h-36 text-primary"
           label={widget.title}
           value={formatValue(last)}
-          unit={unit ?? undefined}
+          unit={unit}
           sparkline={data.map((point) => point.value ?? 0)}
         />
       );
@@ -2170,9 +2277,9 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           class="h-44 text-primary"
           value={value}
           min={0}
-          max={gaugeMax(unit, value)}
+          max={gaugeMax(unit ?? null, value)}
           label={widget.title}
-          unit={unit ?? undefined}
+          unit={unit}
         />
       );
     }
@@ -2182,10 +2289,10 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         <Chart
           kind="barGauge"
           class="h-36 text-primary"
-          data={[{ label: widget.title, value, min: 0, max: gaugeMax(unit, value), unit: unit ?? undefined }]}
+          data={[{ label: widget.title, value, min: 0, max: gaugeMax(unit ?? null, value), unit }]}
           min={0}
-          max={gaugeMax(unit, value)}
-          unit={unit ?? undefined}
+          max={gaugeMax(unit ?? null, value)}
+          unit={unit}
         />
       );
     }
@@ -2266,7 +2373,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     const level = condition?.level ?? null;
     return (
     <article
-      class="paper p-4"
+      class="paper h-full p-4"
       classList={{
         "border-yellow-300 bg-yellow-50/70 dark:border-yellow-800 dark:bg-yellow-950/30": level === "warn",
         "border-red-300 bg-red-50/70 dark:border-red-800 dark:bg-red-950/30": level === "critical",
@@ -2302,7 +2409,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   };
 
   const renderMarkdownWidget = (widget: PulseDashboardMarkdownWidget) => (
-    <article class="paper p-4">
+    <article class="paper h-full p-4">
       <Show when={widget.title || widget.description}>
         <div class="mb-3">
           <Show when={widget.title}>{(title) => <p class="text-sm font-semibold text-primary">{title()}</p>}</Show>
@@ -2314,7 +2421,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   );
 
   const renderCardWidget = (widget: PulseDashboardCardWidget) => (
-    <article class="paper p-4">
+    <article class="paper h-full p-4">
       <div class="mb-3">
         <p class="text-sm font-semibold text-primary">{widget.title}</p>
         <Show when={widget.description}>{(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
@@ -2326,7 +2433,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   );
 
   const renderEventsWidget = (widget: PulseDashboardEventsWidget) => (
-    <article class="paper p-4">
+    <article class="paper h-full p-4">
       <div class="mb-3">
         <p class="text-sm font-semibold text-primary">{widget.title}</p>
         <Show when={widget.description}>{(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
@@ -2350,7 +2457,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const renderStatesWidget = (widget: PulseDashboardStatesWidget) => {
     const rows = dashboardStates()[widget.id] ?? [];
     return (
-      <article class="paper p-4">
+      <article class="paper h-full p-4">
         <div class="mb-3">
           <p class="text-sm font-semibold text-primary">{widget.title}</p>
           <Show when={widget.description}>{(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
@@ -2385,10 +2492,10 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     );
   };
 
-  const renderDashboardWidget = (widget: PulseDashboardWidget) => {
-    const span = Math.min(12, Math.max(1, widget.span ?? 12));
+  const renderDashboardWidget = (widget: PulseDashboardWidget, cellCount: number) => {
+    const span = dashboardCellSpan(widget.span, cellCount);
     return (
-      <div class={`col-span-1 ${dashboardSpanClasses[span] ?? dashboardSpanClasses[12]}`}>
+      <div class={`col-span-1 h-full min-w-0 ${dashboardSpanClasses[span] ?? dashboardSpanClasses[12]}`}>
         {widget.kind === "metric"
           ? renderMetricWidgetCard(widget, { description: widget.description })
           : widget.kind === "markdown"
@@ -2403,8 +2510,8 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   };
 
   const renderDashboardRow = (row: PulseDashboardRow) => (
-    <div class="grid grid-cols-1 gap-3 lg:grid-cols-12">
-      <For each={row.cells}>{(widget) => renderDashboardWidget(widget)}</For>
+    <div class="grid grid-cols-1 items-stretch gap-3 lg:grid-cols-12">
+      <For each={row.cells}>{(widget) => renderDashboardWidget(widget, row.cells.length)}</For>
     </div>
   );
 
@@ -2463,12 +2570,12 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const renderDashboardControls = (dashboard: PulseDashboard, config: PulseDashboardConfig) => (
     <Show when={config.layout?.controls}>
       {(controls) => (
-        <div class="paper flex flex-wrap items-end gap-3 p-3">
+        <div class="flex flex-wrap items-end justify-end gap-2">
           <For each={controls()}>
             {(control) => {
               const options = dashboardControlOptions(control);
               return (
-                <label class="min-w-40 flex-1 text-xs font-semibold text-secondary sm:flex-none">
+                <label class="min-w-40 text-xs font-semibold text-secondary">
                   <span class="mb-1 block">{control.label}</span>
                   <Show
                     when={options.length}
@@ -2503,6 +2610,26 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         </div>
       )}
     </Show>
+  );
+
+  const renderDashboardHeader = (dashboard: PulseDashboard, config: PulseDashboardConfig) => (
+    <header class="mb-3 flex flex-wrap items-start justify-between gap-3">
+      <div class="min-w-0 flex-1">
+        <h1 class="truncate text-xl font-semibold text-primary">{dashboard.name}</h1>
+        <Show when={config.layout?.description}>
+          {(description) => <p class="mt-1 max-w-3xl text-sm leading-relaxed text-dimmed">{description()}</p>}
+        </Show>
+      </div>
+      <div class="flex flex-wrap items-end justify-end gap-2">
+        <Show when={dashboard.publicEnabled}>
+          <button type="button" class="btn-input btn-input-sm" onClick={() => void openPublicDashboardDisplayDialog(dashboard)}>
+            <i class="ti ti-device-tv" />
+            Public display
+          </button>
+        </Show>
+        {renderDashboardControls(dashboard, config)}
+      </div>
+    </header>
   );
 
   const refreshSourcesView = async (baseId: string, signal: AbortSignal) => {
@@ -2618,7 +2745,8 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
   createEffect(() => {
     const dashboard = selectedDashboard();
-    if (dashboard) void refreshDashboard(dashboard);
+    const view = activeView();
+    if (dashboard && (view === "dashboard" || view === "dashboard-edit")) void refreshDashboard(dashboard);
   });
 
   createEffect(() => {
@@ -2655,6 +2783,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       setQueryDiagnostics(null);
       return;
     }
+    setQueryDiagnostics(null);
     let canceled = false;
     const timeout = setTimeout(() => {
       void jsonFetch<PulseQueryCompileResult>("/api/pulse/query/compile-text", {
@@ -2768,14 +2897,14 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         <button
           type="button"
           class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-          aria-label={`Open settings for ${dashboard.name}`}
-          title="Dashboard settings"
+          aria-label={`Edit ${dashboard.name} dashboard DSL`}
+          title="Edit dashboard DSL"
           onClick={(event) => {
             event.stopPropagation();
-            void openDashboardSettingsDialog(dashboard);
+            openDashboardEditor(dashboard.id);
           }}
         >
-          <i class="ti ti-settings text-xs" />
+          <i class="ti ti-code text-xs" />
         </button>
       </div>
     );
@@ -2866,10 +2995,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
             <Show when={currentConfig().layout}>
               {(layout) => (
                 <>
-                  <Show when={selectedDashboard()}>{(dashboard) => renderDashboardControls(dashboard(), currentConfig())}</Show>
-                  <Show when={layout().description}>
-                    {(description) => <p class="max-w-3xl text-sm leading-relaxed text-dimmed">{description()}</p>}
-                  </Show>
                   <For each={layout().sections}>{(section) => renderDashboardSection(section)}</For>
                 </>
               )}
@@ -2882,6 +3007,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
   const renderDashboardView = () => (
     <section class="flex min-h-0 flex-1 flex-col">
+      <Show when={selectedDashboard()}>{(dashboard) => renderDashboardHeader(dashboard(), dashboard().config)}</Show>
       {renderDashboardConfigContent(() => selectedDashboard()?.config ?? null)}
     </section>
   );
@@ -2941,7 +3067,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     sources().map((source) => ({
       label: source.name,
       meta: source.kind,
-      snippet: `section ${quoteDashboardDslString(source.name)} {\n  chart "Metric" {\n    query metric metric.name avg every 5m since 24h source ${source.id}\n  }\n}`,
+      snippet: `section ${quoteDashboardDslString(source.name)} {\n  line "Metric" {\n    query metric metric.name avg every 5m since 24h source ${source.id}\n  }\n}`,
     })),
   );
 
@@ -2958,7 +3084,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         label: resource.label,
         meta: `${resource.type ?? "resource"} · ${resource.metricCount} metrics`,
         snippet: metric
-          ? `chart ${quoteDashboardDslString(metric.metric)} {\n  query metric ${quoteQueryPart(metric.metric)} ${metric.type === "counter" ? "rate" : "avg"} every 5m since 24h${source}${scope}\n}`
+          ? `line ${quoteDashboardDslString(metric.metric)} {\n  query metric ${quoteQueryPart(metric.metric)} ${metric.type === "counter" ? "rate" : "avg"} every 5m since 24h${source}${scope}\n}`
           : undefined,
       };
     }),
@@ -2968,7 +3094,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     metrics().map((metric) => ({
       label: metric.name,
       meta: metric.type,
-      snippet: `chart ${quoteDashboardDslString(metric.name)} {\n  query metric ${quoteQueryPart(metric.name)} ${metric.type === "counter" ? "rate" : "avg"} every 5m since 24h\n}`,
+      snippet: `line ${quoteDashboardDslString(metric.name)} {\n  query metric ${quoteQueryPart(metric.name)} ${metric.type === "counter" ? "rate" : "avg"} every 5m since 24h\n}`,
     })),
   );
 
@@ -3024,7 +3150,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const savedQueryDashboardSnippet = (query: PulseSavedQuery): string => {
     const text = query.query.trim().replace(/\s+/g, " ");
     const title = quoteDashboardDslString(query.name);
-    const statement = text.startsWith("metric ") ? "chart" : "table";
+    const statement = text.startsWith("metric ") ? "line" : "table";
     return `${statement} ${title} {\n  query ${text}\n}`;
   };
 
@@ -3041,6 +3167,8 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       <AutocompleteEditor
         value={dashboardDslText}
         onInput={setDashboardDslText}
+        highlight={pulseDashboardDslHighlight}
+        fill
         lines={18}
         spellcheck={false}
         ariaLabel="Pulse dashboard DSL"
@@ -3137,13 +3265,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       <section class="flex min-h-[42rem] flex-1 flex-col gap-3 overflow-hidden pb-2">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="min-w-0">
-            <button
-              type="button"
-              class="mb-1 inline-flex items-center gap-1 text-xs text-dimmed hover:text-primary"
-              onClick={() => selectedDashboard() && openDashboard(selectedDashboard()!.id)}
-            >
-              <i class="ti ti-arrow-left" /> Back to dashboard
-            </button>
             <h1 class="truncate text-base font-semibold text-primary">{selectedDashboard()?.name ?? "Dashboard"} DSL</h1>
             <p class="mt-0.5 text-xs text-dimmed">Author sections, cards, markdown, and query-backed widgets.</p>
           </div>
@@ -3167,6 +3288,17 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
               onClick={() => void saveDashboardDsl()}
             >
               <i class={`ti ${dashboardDslSaving() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} /> Save
+            </button>
+            <button
+              type="button"
+              class="btn-input btn-input-sm"
+              disabled={!selectedDashboard()}
+              onClick={() => {
+                const dashboard = selectedDashboard();
+                if (dashboard) void openDashboardSettingsDialog(dashboard);
+              }}
+            >
+              <i class="ti ti-settings" /> Settings
             </button>
             <button
               type="button"
@@ -3905,7 +4037,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     const data = points();
     const title = compiledMetricQuery()?.metric ?? (selectedMetric() || "Query");
     const last = data.at(-1)?.value ?? null;
-    const unit = previewUnit();
+    const unit = compactMetricUnit(previewUnit());
     if (selectedVisual() === "stat") {
       return (
         <Chart
@@ -3913,7 +4045,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           class="h-full min-h-0 text-primary"
           label={title}
           value={formatValue(last)}
-          unit={unit ?? undefined}
+          unit={unit}
           sparkline={data.map((point) => point.value ?? 0)}
         />
       );
@@ -3926,9 +4058,9 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           class="h-full min-h-0 text-primary"
           value={value}
           min={0}
-          max={gaugeMax(unit, value)}
+          max={gaugeMax(unit ?? null, value)}
           label={title}
-          unit={unit ?? undefined}
+          unit={unit}
         />
       );
     }
@@ -3938,10 +4070,10 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         <Chart
           kind="barGauge"
           class="h-full min-h-0 text-primary"
-          data={[{ label: title, value, min: 0, max: gaugeMax(unit, value), unit: unit ?? undefined }]}
+          data={[{ label: title, value, min: 0, max: gaugeMax(unit ?? null, value), unit }]}
           min={0}
-          max={gaugeMax(unit, value)}
-          unit={unit ?? undefined}
+          max={gaugeMax(unit ?? null, value)}
+          unit={unit}
         />
       );
     }
@@ -4235,6 +4367,15 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
             />
           </div>
         </Show>
+        <button
+          type="button"
+          class="btn-input btn-input-sm"
+          disabled={!compiledQuery()}
+          onClick={() => void copyDashboardWidgetSnippet()}
+          title="Copy a Dashboard DSL widget snippet for this query"
+        >
+          <i class="ti ti-copy" /> Copy widget
+        </button>
         <span class="ml-auto text-xs text-dimmed">
           {compiledQuery()?.kind === "events"
             ? `${explorerEvents().length} events`
