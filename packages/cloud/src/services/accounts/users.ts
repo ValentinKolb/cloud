@@ -89,11 +89,38 @@ const buildUserMutationTarget = (row: DbRow): UserMutationTarget => ({
 const pgArrayLiteralToStrings = (value: string): string[] => {
   if (value === "{}") return [];
   if (!value.startsWith("{") || !value.endsWith("}")) return [];
-  return value
-    .slice(1, -1)
-    .split(",")
-    .map((item) => item.replace(/^"|"$/g, "").replace(/\\"/g, '"').replace(/\\\\/g, "\\"))
-    .filter(Boolean);
+  const items: string[] = [];
+  let item = "";
+  let quoted = false;
+  let escaped = false;
+  let wasQuoted = false;
+
+  for (const char of value.slice(1, -1)) {
+    if (escaped) {
+      item += char;
+      escaped = false;
+      continue;
+    }
+    if (quoted && char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      quoted = !quoted;
+      wasQuoted = true;
+      continue;
+    }
+    if (!quoted && char === ",") {
+      if (wasQuoted || (item !== "" && item !== "NULL")) items.push(item);
+      item = "";
+      wasQuoted = false;
+      continue;
+    }
+    item += char;
+  }
+
+  if (wasQuoted || (item !== "" && item !== "NULL")) items.push(item);
+  return items;
 };
 
 const stringArray = (value: unknown): string[] => {
