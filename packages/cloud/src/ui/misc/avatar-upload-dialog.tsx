@@ -1,8 +1,10 @@
 import { createSignal, Show } from "solid-js";
 import { dialogCore } from "../dialog-core";
 import FileDropzone from "../input/FileDropzone";
+import ImageCropper from "../input/ImageCropper";
+import type { ImageCropState } from "../input/image-crop";
 import Avatar from "./Avatar";
-import { createAvatarDataUrlFromFile } from "./avatar-upload";
+import { createAvatarDataUrlFromFile, validateAvatarSourceFile } from "./avatar-upload";
 import PanelDialog, { panelDialogOptions } from "./PanelDialog";
 
 const avatarUploadDialogOptions = {
@@ -31,7 +33,8 @@ const avatarErrorMessage = (error: unknown): string => {
 };
 
 function AvatarUploadDialog(props: AvatarUploadDialogOptions & { close: (saved?: boolean) => void }) {
-  const [dataUrl, setDataUrl] = createSignal<string | null>(null);
+  const [sourceFile, setSourceFile] = createSignal<File | null>(null);
+  const [cropState, setCropState] = createSignal<ImageCropState | null>(null);
   const [processing, setProcessing] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
   const [removing, setRemoving] = createSignal(false);
@@ -44,9 +47,12 @@ function AvatarUploadDialog(props: AvatarUploadDialogOptions & { close: (saved?:
     setProcessing(true);
     setError(null);
     try {
-      setDataUrl(await createAvatarDataUrlFromFile(file));
+      validateAvatarSourceFile(file);
+      setSourceFile(file);
+      setCropState(null);
     } catch (err) {
-      setDataUrl(null);
+      setSourceFile(null);
+      setCropState(null);
       setError(avatarErrorMessage(err));
     } finally {
       setProcessing(false);
@@ -54,11 +60,13 @@ function AvatarUploadDialog(props: AvatarUploadDialogOptions & { close: (saved?:
   };
 
   const handleSave = async () => {
-    const nextAvatar = dataUrl();
-    if (!nextAvatar || busy()) return;
+    const file = sourceFile();
+    const crop = cropState();
+    if (!file || !crop || busy()) return;
     setSaving(true);
     setError(null);
     try {
+      const nextAvatar = await createAvatarDataUrlFromFile(file, crop);
       await props.onSave(nextAvatar);
       props.close(true);
     } catch (err) {
@@ -93,7 +101,7 @@ function AvatarUploadDialog(props: AvatarUploadDialogOptions & { close: (saved?:
       <PanelDialog.Body>
         <div class="flex flex-col items-center gap-4 px-5 py-6">
           <Show
-            when={dataUrl()}
+            when={sourceFile()}
             fallback={
               <Avatar
                 username={props.username}
@@ -104,11 +112,15 @@ function AvatarUploadDialog(props: AvatarUploadDialogOptions & { close: (saved?:
               />
             }
           >
-            <img
-              src={dataUrl()!}
-              alt={`${props.username} avatar preview`}
-              class="h-28 w-28 rounded-full object-cover shadow-[var(--theme-shadow-elevated)]"
-            />
+            <div class="w-full max-w-md">
+              <ImageCropper
+                source={sourceFile()!}
+                aspect={{ width: 1, height: 1 }}
+                previewShape="circle"
+                disabled={busy()}
+                onChange={setCropState}
+              />
+            </div>
           </Show>
           <p class="max-w-md text-center text-xs text-dimmed">
             {props.visibilityText ?? "Profile pictures are visible to all account holders."}
@@ -121,9 +133,9 @@ function AvatarUploadDialog(props: AvatarUploadDialogOptions & { close: (saved?:
               busy={processing}
               error={error}
               icon="ti-photo-plus"
-              title={dataUrl() ? "Drop another image or click to replace" : "Drop image or click to choose"}
+              title={sourceFile() ? "Drop another image or click to replace" : "Drop image or click to choose"}
               subtitle="PNG, JPEG, or WebP"
-              hint="Cropped square and compressed before saving."
+              hint="Adjust the crop, then save."
               onDrop={handleFiles}
             />
           </div>
@@ -142,7 +154,7 @@ function AvatarUploadDialog(props: AvatarUploadDialogOptions & { close: (saved?:
           <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(false)} disabled={saving() || removing()}>
             Cancel
           </button>
-          <button type="button" class="btn-primary btn-sm" onClick={handleSave} disabled={!dataUrl() || busy()}>
+          <button type="button" class="btn-primary btn-sm" onClick={handleSave} disabled={!sourceFile() || !cropState() || busy()}>
             {saving() ? "Saving..." : (props.saveLabel ?? "Save Avatar")}
           </button>
         </div>

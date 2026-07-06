@@ -81,6 +81,7 @@ import {
   FileDropzoneAcceptDemo,
   FileDropzoneDemo,
   IconInputDemo,
+  ImageCropperDemo,
   ImageInputDemo,
   MarkdownEditorStandalone,
   MultiSelectInputDemo,
@@ -363,6 +364,19 @@ export const uiLabDocs: UiLabDocSection[] = [
           <ImageInputDemo />
         </DemoGrid>
       )),
+      page(
+        "input",
+        "image-cropper",
+        "ImageCropper",
+        "ti ti-crop",
+        "Interactive image cropper with fixed and free aspect modes.",
+        ["imagecropper"],
+        () => (
+          <DemoGrid columns="one">
+            <ImageCropperDemo />
+          </DemoGrid>
+        ),
+      ),
       page(
         "input",
         "file-dropzone",
@@ -922,17 +936,24 @@ export const allMappedDemoIds = (): string[] => allDocPages.flatMap((page) => pa
 
 export const hiddenUiLabExports = [
   { name: "LAYOUT_UPDATE_EVENT", reason: "Internal layout event constant used by the layout helper." },
+  { name: "clampImageCropRect", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "confirmDiscardIfDirty", reason: "Small PanelDialog workflow helper documented through PanelDialog usage." },
   { name: "createAvatarDataUrlFromFile", reason: "Low-level avatar upload helper; account avatar UX is intentionally app-owned." },
+  { name: "createCroppedImageCanvas", reason: "Low-level ImageCropper export helper for app-specific upload pipelines." },
   { name: "createDialogCore", reason: "Factory behind the shared dialogCore singleton; app code normally uses dialogCore directly." },
   { name: "createFormState", reason: "Prompt implementation helper, not a standalone visual component." },
+  { name: "getInitialImageCropRect", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
+  { name: "imageCropRectToPixels", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "normalizeDockWorkspaceState", reason: "State normalization helper covered by DockWorkspace behavior." },
+  { name: "normalizeImageCropRotation", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "openAvatarUploadDialog", reason: "Niche account avatar flow; profile pages are the source for that UX." },
   { name: "panelDialogPanelClass", reason: "Dialog option class constant covered by panelDialogOptions." },
   { name: "panelDialogWorkspaceOptions", reason: "Specialized PanelDialog option bundle for workspace-sized dialogs." },
   { name: "panelDialogWorkspacePanelClass", reason: "Class constant behind panelDialogWorkspaceOptions." },
   { name: "pickAvatarDataUrl", reason: "Low-level file picker helper behind account avatar upload." },
   { name: "readSettingsError", reason: "Settings API error parser, not a visual UI element." },
+  { name: "resizeImageCropAroundCenter", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
+  { name: "rotateImageCropRight", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "sameSettingValue", reason: "Settings dirty-state equality helper, demonstrated conceptually by Settings helpers." },
 ] as const;
 

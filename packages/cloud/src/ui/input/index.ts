@@ -27,7 +27,25 @@ export {
 export { default as DateTimeInput } from "./DateTimeInput";
 export { default as FileDropzone, type FileDropzoneProps } from "./FileDropzone";
 export { default as IconInput } from "./IconInput";
+export { default as ImageCropper, type ImageCropperProps } from "./ImageCropper";
 export { default as ImageInput } from "./ImageInput";
+export {
+  clampImageCropRect,
+  createCroppedImageCanvas,
+  createCroppedImageDataUrl,
+  getInitialImageCropRect,
+  type ImageCropAspect,
+  type ImageCropOutput,
+  type ImageCropRect,
+  type ImageCropRotation,
+  type ImageCropSize,
+  type ImageCropSource,
+  type ImageCropState,
+  imageCropRectToPixels,
+  normalizeImageCropRotation,
+  resizeImageCropAroundCenter,
+  rotateImageCropRight,
+} from "./image-crop";
 export {
   default as MultiSelectInput,
   type MultiSelectFetchDataFn,

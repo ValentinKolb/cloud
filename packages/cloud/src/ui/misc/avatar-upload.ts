@@ -1,4 +1,5 @@
 import { MAX_AVATAR_BYTES, MAX_AVATAR_DATA_URL_LENGTH } from "../../contracts";
+import { createCroppedImageCanvas, type ImageCropState } from "../input/image-crop";
 
 const ACCEPTED_AVATAR_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_SOURCE_AVATAR_BYTES = 32 * 1024 * 1024;
@@ -44,12 +45,33 @@ const loadImage = async (file: File): Promise<HTMLImageElement> => {
   }
 };
 
-export const createAvatarDataUrlFromFile = async (file: File): Promise<string> => {
+export const validateAvatarSourceFile = (file: File): void => {
   if (!ACCEPTED_AVATAR_TYPES.has(file.type)) {
     throw new Error("Choose a PNG, JPEG, or WebP image.");
   }
   if (file.size > MAX_SOURCE_AVATAR_BYTES) {
     throw new Error("Choose an image smaller than 32 MB.");
+  }
+};
+
+export const createAvatarDataUrlFromFile = async (file: File, cropState?: ImageCropState): Promise<string> => {
+  validateAvatarSourceFile(file);
+
+  if (cropState) {
+    for (const size of AVATAR_CANVAS_SIZES) {
+      const canvas = await createCroppedImageCanvas(file, cropState, { width: size, height: size });
+
+      for (const attempt of AVATAR_OUTPUT_ATTEMPTS) {
+        for (const quality of attempt.qualities) {
+          const blob = await canvasToBlob(canvas, attempt.type, quality);
+          if (!blob || blob.type !== attempt.type) continue;
+          const dataUrl = await fitsAvatarLimits(blob);
+          if (dataUrl) return dataUrl;
+        }
+      }
+    }
+
+    throw new Error("Avatar image could not be compressed below 48 KB.");
   }
 
   const image = await loadImage(file);

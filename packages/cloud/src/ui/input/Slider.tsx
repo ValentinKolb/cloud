@@ -18,32 +18,26 @@ type SliderProps = {
 /**
  * Range slider input component.
  */
-const Slider = ({
-  label,
-  description,
-  value,
-  onChange,
-  min = 0,
-  max = 100,
-  step = 1,
-  disabled = false,
-  showValue = true,
-  formatValue = (v) => String(v),
-  center = false,
-  defaultValue,
-}: SliderProps) => {
-  const resetValue = defaultValue ?? (center ? (min + max) / 2 : min);
+const Slider = (props: SliderProps) => {
+  const min = () => props.min ?? 0;
+  const max = () => props.max ?? 100;
+  const step = () => props.step ?? 1;
+  const disabled = () => props.disabled ?? false;
+  const showValue = () => props.showValue ?? true;
+  const formatValue = () => props.formatValue ?? ((v) => String(v));
+  const center = () => props.center ?? false;
+  const resetValue = () => props.defaultValue ?? (center() ? (min() + max()) / 2 : min());
   const inputId = crypto.randomUUID();
-  const descId = description ? `${inputId}-desc` : undefined;
+  const descId = () => (props.description ? `${inputId}-desc` : undefined);
 
-  const percentage = () => ((value() - min) / (max - min)) * 100;
+  const percentage = () => ((props.value() - min()) / (max() - min())) * 100;
 
   const trackBackground = () => {
     const p = percentage();
     const fill = "var(--slider-fill)";
     const track = "var(--slider-track)";
 
-    if (center) {
+    if (center()) {
       const lo = Math.min(50, p);
       const hi = Math.max(50, p);
       return `linear-gradient(to right, ${track} 0%, ${track} ${lo}%, ${fill} ${lo}%, ${fill} ${hi}%, ${track} ${hi}%, ${track} 100%)`;
@@ -52,33 +46,33 @@ const Slider = ({
   };
 
   return (
-    <div class="flex flex-col gap-1 slider-track-colors" classList={{ "opacity-50": disabled }}>
-      {(label || showValue) && (
+    <div class="flex flex-col gap-1 slider-track-colors" classList={{ "opacity-50": disabled() }}>
+      {(props.label || showValue()) && (
         <div class="flex items-center justify-between text-xs">
-          {label && (
+          {props.label && (
             <label for={inputId} class="text-secondary">
-              {label}
+              {props.label}
             </label>
           )}
-          {showValue && <span class="text-dimmed tabular-nums">{formatValue(value())}</span>}
+          {showValue() && <span class="text-dimmed tabular-nums">{formatValue()(props.value())}</span>}
         </div>
       )}
-      {description && (
-        <p id={descId} class="text-xs text-dimmed -mt-0.5">
-          {description}
+      {props.description && (
+        <p id={descId()} class="text-xs text-dimmed -mt-0.5">
+          {props.description}
         </p>
       )}
       <input
         id={inputId}
         type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value()}
-        onInput={(e) => onChange(Number(e.currentTarget.value))}
-        onDblClick={() => onChange(resetValue)}
-        disabled={disabled}
-        aria-describedby={descId}
+        min={min()}
+        max={max()}
+        step={step()}
+        value={props.value()}
+        onInput={(e) => props.onChange(Number(e.currentTarget.value))}
+        onDblClick={() => props.onChange(resetValue())}
+        disabled={disabled()}
+        aria-describedby={descId()}
         class="w-full h-1.5 appearance-none cursor-pointer
  rounded-full [box-shadow:var(--theme-recess)]
  [&::-webkit-slider-thumb]:appearance-none

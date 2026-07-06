@@ -259,7 +259,7 @@ import { Avatar } from "@valentinkolb/cloud/ui";
 <Avatar username={user.displayName || user.uid} userId={user.id} avatarHash={user.avatarHash} size="md" />
 ```
 
-Pass `userId` and `avatarHash` when account data includes them; the component renders the cached `/api/accounts/users/:id/avatar?rev=:hash` image and falls back to stable initials when no profile picture exists. Keep avatars circular and do not override `rounded-full` with app-local border-radius classes. For profile-picture write flows, use `openAvatarUploadDialog`; do not use generic `ImageInput` or hand-written file pickers for account avatars.
+Pass `userId` and `avatarHash` when account data includes them; the component renders the cached `/api/accounts/users/:id/avatar?rev=:hash` image and falls back to stable initials when no profile picture exists. Keep avatars circular and do not override `rounded-full` with app-local border-radius classes. For profile-picture write flows, use `openAvatarUploadDialog`; it wraps the shared `ImageCropper` with square/circle avatar defaults and preserves the avatar size/compression limits. Do not use generic `ImageInput` or hand-written file pickers for account avatars.
 
 ### Prompts System
 
@@ -431,7 +431,7 @@ key. UI Lab and Notebooks demonstrate both patterns.
 All from `@valentinkolb/cloud/ui`. **Important:** Reactive props expect accessor functions, not direct values.
 
 ```jsx
-import { TextInput, NumberInput, Select, MultiSelectInput, Switch, Checkbox, TagsInput, FileDropzone } from "@valentinkolb/cloud/ui";
+import { TextInput, NumberInput, Select, MultiSelectInput, Switch, Checkbox, TagsInput, FileDropzone, ImageCropper } from "@valentinkolb/cloud/ui";
 
 <TextInput
   value={() => mySignal()}              // accessor function, NOT direct value
@@ -488,6 +488,33 @@ import { FileDropzone } from "@valentinkolb/cloud/ui";
 ```
 
 Key props: `onDrop(files)`, `accept?`, `multiple?`, `busy?`, `error?`, `title?`, `subtitle?`, `hint?`, `icon?`, `label?`, `description?`, `required?`, `disabled?`.
+
+#### ImageCropper
+
+Use `ImageCropper` when a user must choose the exact crop before an image is stored or uploaded. Source: `packages/cloud/src/ui/input/ImageCropper.tsx`; live reference: `/app/ui-lab/input/image-cropper`.
+
+The component handles the interactive UI: drag to move the crop, resize in free mode, zoom with the slider, and rotate right in 90 degree steps. Pixel processing is done by the exported helpers in `packages/cloud/src/ui/input/image-crop.ts`, which use `@valentinkolb/stdlib/browser` image transforms under the hood.
+
+```tsx
+import { createCroppedImageDataUrl, ImageCropper, type ImageCropState } from "@valentinkolb/cloud/ui";
+
+const [crop, setCrop] = createSignal<ImageCropState | null>(null);
+
+<ImageCropper
+  source={file}
+  aspect={{ width: 1, height: 1 }} // or "free", { width: 16, height: 9 }, ...
+  previewShape="circle"
+  onChange={setCrop}
+/>
+
+const dataUrl = await createCroppedImageDataUrl(file, crop()!, {
+  maxWidth: 480,
+  format: "webp",
+  quality: 0.86,
+});
+```
+
+Use fixed `aspect` values for avatars, logos, banners, and known media slots. Use `aspect="free"` only when the target truly accepts arbitrary dimensions. For account avatars, call `openAvatarUploadDialog` instead of wiring `ImageCropper` directly; the dialog adds account-specific copy, remove-avatar behavior, and strict avatar compression.
 
 #### DateTimeInput and Timezones
 
