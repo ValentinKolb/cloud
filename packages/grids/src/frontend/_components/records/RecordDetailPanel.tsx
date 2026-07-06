@@ -13,6 +13,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ColumnSpec, DocumentRunSummary, DocumentTemplateSummary, RecordSnapshot, RecordSnapshotSummary } from "../../../contracts";
 import type { AuditEntry, Field, GridFile, GridRecord } from "../../../service";
+import { downloadPdfResponse } from "../documents/document-download";
 import { isUserEditable } from "../fields/field-prompt-schema";
 import { errorMessage } from "../utils/api-helpers";
 import RecordReadView, { recordDisplayTitle } from "./RecordReadView";
@@ -147,19 +148,6 @@ const snapshotRelationLabels = (snapshot: RecordSnapshot): Record<string, string
     if (label) labels[node.id] = label;
   }
   return labels;
-};
-
-const downloadPdfResponse = async (res: Response, fallbackName: string) => {
-  if (!res.ok) throw new Error(await errorMessage(res, "Failed to render PDF"));
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fallbackName;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
 };
 
 /**
@@ -343,8 +331,7 @@ function DocumentGenerationReviewDialog(props: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ recordId: props.args.recordId }),
       });
-      const number = res.headers.get("X-Grids-Document-Number") ?? props.args.template.name;
-      await downloadPdfResponse(res, `${number}.pdf`);
+      await downloadPdfResponse(res, `${props.args.template.name}.pdf`);
     },
     onSuccess: () => props.close(true),
     onError: (error) => prompts.error(error.message),
@@ -473,7 +460,7 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string; live
     setBusy(run.id);
     try {
       const res = await fetch(`/api/grids/documents/runs/${run.id}/download`);
-      await downloadPdfResponse(res, `${run.documentNumber}.pdf`);
+      await downloadPdfResponse(res, run.filename);
     } catch (error) {
       prompts.error(error instanceof Error ? error.message : "Failed to download document");
     } finally {
@@ -677,7 +664,7 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string; live
               {(run) => (
                 <div class="flex items-center gap-2 text-xs">
                   <i class="ti ti-file-description text-dimmed" />
-                  <span class="min-w-0 flex-1 truncate font-mono text-secondary">{run.documentNumber}</span>
+                  <span class="min-w-0 flex-1 truncate text-secondary">{run.filename}</span>
                   <span class="shrink-0 text-dimmed">{formatRelativeTime(run.generatedAt)}</span>
                   <button
                     type="button"

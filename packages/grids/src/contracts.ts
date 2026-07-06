@@ -852,6 +852,7 @@ export const DocumentTemplateSchema = z.object({
   headerHtml: z.string().trim().max(50_000).nullable(),
   footerHtml: z.string().trim().max(50_000).nullable(),
   pageCss: z.string().trim().max(50_000).nullable(),
+  filenameTemplate: z.string().trim().min(1).max(5_000),
   enabled: z.boolean(),
   position: z.number().int(),
   createdBy: z.string().uuid().nullable(),
@@ -887,6 +888,7 @@ export const CreateDocumentTemplateSchema = z.object({
   headerHtml: z.string().trim().max(50_000).nullable().optional(),
   footerHtml: z.string().trim().max(50_000).nullable().optional(),
   pageCss: z.string().trim().max(50_000).nullable().optional(),
+  filenameTemplate: z.string().trim().min(1).max(5_000).optional(),
   enabled: z.boolean().optional(),
 });
 export type CreateDocumentTemplateInput = z.infer<typeof CreateDocumentTemplateSchema>;
@@ -899,6 +901,7 @@ export const UpdateDocumentTemplateSchema = z.object({
   headerHtml: z.string().trim().max(50_000).nullable().optional(),
   footerHtml: z.string().trim().max(50_000).nullable().optional(),
   pageCss: z.string().trim().max(50_000).nullable().optional(),
+  filenameTemplate: z.string().trim().min(1).max(5_000).optional(),
   enabled: z.boolean().optional(),
   position: z.number().int().optional(),
 });
@@ -950,6 +953,8 @@ export const DocumentRunSchema = z.object({
   tableId: z.string().uuid(),
   recordId: z.string().uuid(),
   documentNumber: z.string(),
+  filename: z.string(),
+  tags: z.array(z.string()),
   templateSnapshot: z.record(z.string(), z.unknown()),
   renderData: z.record(z.string(), z.unknown()),
   generatedBy: z.string().uuid().nullable(),
@@ -971,6 +976,8 @@ export const DocumentRunSummarySchema = DocumentRunSchema.pick({
   tableId: true,
   recordId: true,
   documentNumber: true,
+  filename: true,
+  tags: true,
   generatedBy: true,
   generatedAt: true,
 });
@@ -978,11 +985,18 @@ export type DocumentRunSummary = z.infer<typeof DocumentRunSummarySchema>;
 
 export const DocumentRunSummaryListSchema = z.object({
   items: z.array(DocumentRunSummarySchema),
+  total: z.number().int().nonnegative().optional(),
+  limit: z.number().int().positive().optional(),
+  offset: z.number().int().nonnegative().optional(),
+  hasMore: z.boolean().optional(),
+  nextOffset: z.number().int().nonnegative().nullable().optional(),
 });
 export type DocumentRunSummaryList = z.infer<typeof DocumentRunSummaryListSchema>;
 
 export const DocumentRecordBodySchema = z.object({
   recordId: z.string().uuid(),
+  filename: z.string().trim().min(1).max(255).optional(),
+  tags: z.array(z.string().trim().min(1).max(40)).max(20).optional().default([]),
 });
 export type DocumentRecordBody = z.infer<typeof DocumentRecordBodySchema>;
 

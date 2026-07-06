@@ -21,6 +21,26 @@ import {
 import { gridsService } from "../service";
 import { gateAt } from "./permissions";
 
+const encodeHeaderValue = (value: string): string =>
+  encodeURIComponent(value).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+
+const contentDispositionFilename = (disposition: "attachment" | "inline", filename: string): string => {
+  const safeFilename =
+    filename
+      .replace(/[\r\n]/g, " ")
+      .replace(/[/:*?"<>|\\]/g, "-")
+      .replace(/\s+/g, " ")
+      .trim() || "document.pdf";
+  const fallback =
+    safeFilename
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[\r\n"\\]/g, "_")
+      .replace(/[^\x20-\x7E]/g, "_")
+      .trim() || "document.pdf";
+  return `${disposition}; filename="${fallback}"; filename*=UTF-8''${encodeHeaderValue(safeFilename)}`;
+};
+
 const pdfResponse = (
   pdf: Uint8Array,
   filename: string,
@@ -30,7 +50,7 @@ const pdfResponse = (
   new Response(new Blob([pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer], { type: "application/pdf" }), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `${disposition}; filename="${encodeURIComponent(filename)}"`,
+      "Content-Disposition": contentDispositionFilename(disposition, filename),
       "Cache-Control": "no-store",
       ...headers,
     },
@@ -53,6 +73,22 @@ const RecordLookupQuerySchema = z.object({
         .filter(Boolean),
     )
     .pipe(z.array(z.string().uuid())),
+});
+
+const DocumentRunListQuerySchema = z.object({
+  q: z.string().optional().default(""),
+  limit: z.coerce.number().int().min(1).max(500).optional().default(200),
+  offset: z.coerce.number().int().min(0).optional().default(0),
+  tags: z
+    .string()
+    .optional()
+    .default("")
+    .transform((s) =>
+      s
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean),
+    ),
 });
 
 const UuidStringSchema = z.string().uuid();
@@ -491,13 +527,51 @@ const app = new Hono<AuthContext>()
         snapshot: snapshot.data,
         renderData: { ...rendered.data, snapshot: snapshot.data },
         actorId: c.get("user").id,
+        filename: body.filename,
+        tags: body.tags,
       });
       if (!run.ok) return c.json({ message: run.error.message }, run.error.status);
       const pdf = await gridsService.document.renderRunPdf(run.data);
       if (!pdf.ok) return c.json({ message: pdf.error.message }, pdf.error.status);
-      return pdfResponse(pdf.data.pdf, `${run.data.documentNumber}.pdf`, {
+      return pdfResponse(pdf.data.pdf, run.data.filename, {
         "X-Grids-Document-Run-Id": run.data.id,
         "X-Grids-Document-Number": run.data.documentNumber,
+        "X-Grids-Document-Filename": encodeHeaderValue(run.data.filename),
+      });
+    },
+  )
+
+  .get(
+    "/runs/by-template/:templateId",
+    describeRoute({
+      tags: ["Grids:Document"],
+      summary: "List generated document runs for a template",
+      responses: {
+        200: jsonResponse(DocumentRunSummaryListSchema, "Document runs"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    v("query", DocumentRunListQuerySchema),
+    async (c) => {
+      const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
+      if (!loaded) return c.json({ message: "Document template not found" }, 404);
+      const gate = await gateTemplate(c, loaded, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const query = c.req.valid("query");
+      const page = await gridsService.document.listRunsForTemplate({
+        templateId: loaded.template.id,
+        q: query.q,
+        tags: query.tags,
+        limit: query.limit,
+        offset: query.offset,
+      });
+      return c.json({
+        items: page.items.map(gridsService.document.summarizeRun),
+        total: page.total,
+        limit: page.limit,
+        offset: page.offset,
+        hasMore: page.hasMore,
+        nextOffset: page.nextOffset,
       });
     },
   )
@@ -570,9 +644,10 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const pdf = await gridsService.document.renderRunPdf(run);
       if (!pdf.ok) return c.json({ message: pdf.error.message }, pdf.error.status);
-      return pdfResponse(pdf.data.pdf, `${run.documentNumber}.pdf`, {
+      return pdfResponse(pdf.data.pdf, run.filename, {
         "X-Grids-Document-Run-Id": run.id,
         "X-Grids-Document-Number": run.documentNumber,
+        "X-Grids-Document-Filename": encodeHeaderValue(run.filename),
       });
     },
   )

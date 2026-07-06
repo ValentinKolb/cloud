@@ -146,6 +146,7 @@ export const gridsService = {
     createRun: documents.createRun,
     createRunForRecord: documents.createRunForRecord,
     listRunsForRecord: documents.listRunsForRecord,
+    listRunsForTemplate: documents.listRunsForTemplate,
     summarizeRun: documents.summarizeRun,
     getRun: documents.getRun,
     renderRunPdf: documents.renderRunPdf,

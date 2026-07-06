@@ -9,6 +9,7 @@ export type DocumentTemplateStarter = {
   page: string;
   uses?: string[];
   source: (tableId: string) => string;
+  filenameTemplate?: string;
   html: string;
   headerHtml?: string;
   footerHtml?: string;

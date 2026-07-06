@@ -302,6 +302,7 @@ export const migrate = async (): Promise<void> => {
       header_html TEXT,
       footer_html TEXT,
       page_css TEXT,
+      filename_template TEXT NOT NULL DEFAULT '{{ document.number }}.pdf',
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
       position INT NOT NULL DEFAULT 0,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
@@ -314,12 +315,21 @@ export const migrate = async (): Promise<void> => {
       CONSTRAINT document_templates_html_length_chk CHECK (length(html) BETWEEN 1 AND 200000),
       CONSTRAINT document_templates_header_html_length_chk CHECK (header_html IS NULL OR length(header_html) <= 50000),
       CONSTRAINT document_templates_footer_html_length_chk CHECK (footer_html IS NULL OR length(footer_html) <= 50000),
-      CONSTRAINT document_templates_page_css_length_chk CHECK (page_css IS NULL OR length(page_css) <= 50000)
+      CONSTRAINT document_templates_page_css_length_chk CHECK (page_css IS NULL OR length(page_css) <= 50000),
+      CONSTRAINT document_templates_filename_template_length_chk CHECK (length(filename_template) BETWEEN 1 AND 5000)
     )
   `.simple();
   await sql`ALTER TABLE grids.document_templates ADD COLUMN IF NOT EXISTS header_html TEXT`.simple();
   await sql`ALTER TABLE grids.document_templates ADD COLUMN IF NOT EXISTS footer_html TEXT`.simple();
   await sql`ALTER TABLE grids.document_templates ADD COLUMN IF NOT EXISTS page_css TEXT`.simple();
+  await sql`ALTER TABLE grids.document_templates ADD COLUMN IF NOT EXISTS filename_template TEXT`.simple();
+  await sql`
+    UPDATE grids.document_templates
+    SET filename_template = '{{ document.number }}.pdf'
+    WHERE filename_template IS NULL OR btrim(filename_template) = ''
+  `.simple();
+  await sql`ALTER TABLE grids.document_templates ALTER COLUMN filename_template SET DEFAULT '{{ document.number }}.pdf'`.simple();
+  await sql`ALTER TABLE grids.document_templates ALTER COLUMN filename_template SET NOT NULL`.simple();
   await sql`
     DO $$
     BEGIN
@@ -343,6 +353,13 @@ export const migrate = async (): Promise<void> => {
       ) THEN
         ALTER TABLE grids.document_templates
         ADD CONSTRAINT document_templates_page_css_length_chk CHECK (page_css IS NULL OR length(page_css) <= 50000);
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'document_templates_filename_template_length_chk' AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.document_templates
+        ADD CONSTRAINT document_templates_filename_template_length_chk CHECK (length(filename_template) BETWEEN 1 AND 5000);
       END IF;
     END $$;
   `.simple();
@@ -394,20 +411,62 @@ export const migrate = async (): Promise<void> => {
       table_id UUID NOT NULL,
       record_id UUID NOT NULL,
       document_number TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      tags TEXT[] NOT NULL DEFAULT '{}',
       template_snapshot JSONB NOT NULL,
       render_data JSONB NOT NULL,
       generated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT document_runs_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
+      CONSTRAINT document_runs_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
+      CONSTRAINT document_runs_filename_length_chk CHECK (length(filename) BETWEEN 1 AND 255),
+      CONSTRAINT document_runs_tags_count_chk CHECK (cardinality(tags) <= 20)
     )
+  `.simple();
+  await sql`ALTER TABLE grids.document_runs ADD COLUMN IF NOT EXISTS filename TEXT`.simple();
+  await sql`
+    UPDATE grids.document_runs
+    SET filename = document_number || '.pdf'
+    WHERE filename IS NULL OR btrim(filename) = ''
+  `.simple();
+  await sql`ALTER TABLE grids.document_runs ALTER COLUMN filename SET DEFAULT 'document.pdf'`.simple();
+  await sql`ALTER TABLE grids.document_runs ALTER COLUMN filename SET NOT NULL`.simple();
+  await sql`ALTER TABLE grids.document_runs ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`.simple();
+  await sql`UPDATE grids.document_runs SET tags = '{}' WHERE tags IS NULL`.simple();
+  await sql`ALTER TABLE grids.document_runs ALTER COLUMN tags SET NOT NULL`.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'document_runs_filename_length_chk' AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.document_runs
+        ADD CONSTRAINT document_runs_filename_length_chk CHECK (length(filename) BETWEEN 1 AND 255);
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'document_runs_tags_count_chk' AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.document_runs
+        ADD CONSTRAINT document_runs_tags_count_chk CHECK (cardinality(tags) <= 20);
+      END IF;
+    END $$;
   `.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_document_runs_number
     ON grids.document_runs(document_number)
   `.simple();
   await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_document_runs_template
+    ON grids.document_runs(template_id, generated_at DESC)
+  `.simple();
+  await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_document_runs_record
     ON grids.document_runs(table_id, record_id, generated_at DESC)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_document_runs_tags
+    ON grids.document_runs USING GIN(tags)
   `.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_document_runs_short_id

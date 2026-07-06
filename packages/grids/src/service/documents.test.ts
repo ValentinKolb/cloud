@@ -151,6 +151,7 @@ describe("document rendering", () => {
     for (const starter of DOCUMENT_TEMPLATE_STARTERS) {
       const parts = [
         ["source", starter.source("11111111-1111-4111-8111-111111111111")],
+        ["filenameTemplate", starter.filenameTemplate],
         ["html", starter.html],
         ["headerHtml", starter.headerHtml],
         ["footerHtml", starter.footerHtml],

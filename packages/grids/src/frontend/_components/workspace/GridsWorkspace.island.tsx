@@ -423,7 +423,9 @@ export default function GridsWorkspace(props: Props) {
       template={route.template}
       editableTemplate={route.editableTemplate}
       canManageTemplate={route.canManageTemplate}
+      editMode={state().adminModeRequested}
       initialRecordId={route.initialRecordId}
+      dateConfig={state().dateConfig}
     />
   );
 

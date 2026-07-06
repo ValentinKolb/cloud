@@ -130,6 +130,7 @@ const mapDocumentTemplate = (row: DbRow): DocumentTemplate => ({
   headerHtml: (row.header_html as string | null) ?? null,
   footerHtml: (row.footer_html as string | null) ?? null,
   pageCss: (row.page_css as string | null) ?? null,
+  filenameTemplate: (row.filename_template as string | null) ?? "{{ document.number }}.pdf",
   enabled: row.enabled as boolean,
   position: row.position as number,
   createdBy: (row.created_by as string | null) ?? null,
@@ -192,11 +193,7 @@ const byTable = <T extends { tableId: string }>(items: T[]): Record<string, T[]>
   return out;
 };
 
-export const listForBase = async (params: {
-  baseId: string;
-  userId: string;
-  userGroups: string[];
-}): Promise<BaseCatalog> => {
+export const listForBase = async (params: { baseId: string; userId: string; userGroups: string[] }): Promise<BaseCatalog> => {
   const groups = toPgUuidArray(params.userGroups);
   const tableRanks = resourceRanks("grids.table_access", "ta", "table_id", sql`t.id`, params.userId, groups);
   const baseRanks = resourceRanks("grids.base_access", "ba", "base_id", sql`t.base_id`, params.userId, groups);

@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import {
   coreSettings,
+  escapeLikePattern,
   type GotenbergConfig,
   type RenderHtmlToPdfResult,
   renderTemplatePdfPreview,
@@ -42,9 +43,21 @@ import type { Field, GridRecord, Table } from "./types";
 
 type DbRow = Record<string, unknown>;
 
+export type DocumentRunPage = {
+  items: DocumentRun[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+  nextOffset: number | null;
+};
+
 const DEFAULT_SOURCE = (tableId: string) => `from table {${tableId}}\nwhere record.id = '{{ record.id }}'\nlimit 1`;
+const DEFAULT_FILENAME_TEMPLATE = "{{ document.number }}.pdf";
 const TEMPLATE_MAX_BYTES = 200_000;
 const SOURCE_MAX_BYTES = 20_000;
+const FILENAME_TEMPLATE_MAX_BYTES = 5_000;
+const FILENAME_MAX_CHARS = 255;
 const TEMPLATE_PART_MAX_BYTES = 50_000;
 const RENDER_MAX_BYTES = 300_000;
 const SNAPSHOT_MAX_DEPTH = 4;
@@ -54,6 +67,23 @@ const DOCUMENT_IMAGE_MAX_BYTES = 2_000_000;
 const DOCUMENT_IMAGE_MAX_COUNT = 12;
 
 const byteLength = (value: string): number => new TextEncoder().encode(value).byteLength;
+
+const normalizeDocumentTags = (tags: readonly string[] | null | undefined): string[] =>
+  [...new Set((tags ?? []).map((tag) => tag.replace(/\s+/g, " ").trim()).filter(Boolean))].slice(0, 20);
+
+const safePdfFilename = (value: string, fallback: string): string => {
+  const cleaned = value
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/[/:*?"<>|\\]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^\.+/, "")
+    .replace(/\.+$/, "");
+  const withFallback = cleaned || fallback;
+  const withExtension = /\.pdf$/i.test(withFallback) ? withFallback : `${withFallback}.pdf`;
+  if (withExtension.length <= FILENAME_MAX_CHARS) return withExtension;
+  return `${withExtension.slice(0, FILENAME_MAX_CHARS - 4).replace(/\.+$/, "")}.pdf`;
+};
 
 export type DocumentTemplateAppData = {
   name: string;
@@ -238,6 +268,7 @@ const mapTemplate = (row: DbRow): DocumentTemplate => ({
   headerHtml: (row.header_html as string | null) ?? null,
   footerHtml: (row.footer_html as string | null) ?? null,
   pageCss: (row.page_css as string | null) ?? null,
+  filenameTemplate: (row.filename_template as string | null) ?? DEFAULT_FILENAME_TEMPLATE,
   enabled: row.enabled as boolean,
   position: row.position as number,
   createdBy: (row.created_by as string | null) ?? null,
@@ -276,6 +307,8 @@ const mapRun = (row: DbRow): DocumentRun => ({
   tableId: row.table_id as string,
   recordId: row.record_id as string,
   documentNumber: row.document_number as string,
+  filename: (row.filename as string | null) ?? `${row.document_number as string}.pdf`,
+  tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
   templateSnapshot: parseJsonbRow<Record<string, unknown>>(row.template_snapshot, {}),
   renderData: parseJsonbRow<Record<string, unknown>>(row.render_data, {}),
   generatedBy: (row.generated_by as string | null) ?? null,
@@ -303,6 +336,8 @@ export const summarizeRun = (run: DocumentRun): DocumentRunSummary => ({
   tableId: run.tableId,
   recordId: run.recordId,
   documentNumber: run.documentNumber,
+  filename: run.filename,
+  tags: run.tags,
   generatedBy: run.generatedBy,
   generatedAt: run.generatedAt,
 });
@@ -425,6 +460,7 @@ const validateTemplateWrite = (input: {
   headerHtml?: string | null;
   footerHtml?: string | null;
   pageCss?: string | null;
+  filenameTemplate?: string | null;
 }): Result<void> => {
   if (input.source !== undefined && byteLength(input.source) > SOURCE_MAX_BYTES) return fail(err.badInput("GQL source is too large"));
   if (input.html !== undefined) {
@@ -443,6 +479,11 @@ const validateTemplateWrite = (input: {
   }
   if (input.source !== undefined) {
     const valid = validateLiquidTemplate(input.source);
+    if (!valid.ok) return valid;
+  }
+  if (input.filenameTemplate !== undefined && input.filenameTemplate !== null) {
+    if (byteLength(input.filenameTemplate) > FILENAME_TEMPLATE_MAX_BYTES) return fail(err.badInput("filename template is too large"));
+    const valid = validateLiquidTemplate(input.filenameTemplate);
     if (!valid.ok) return valid;
   }
   return ok();
@@ -465,11 +506,12 @@ export const createTemplate = async (
   const headerHtml = input.headerHtml?.trim() || null;
   const footerHtml = input.footerHtml?.trim() || null;
   const pageCss = input.pageCss?.trim() || null;
+  const filenameTemplate = input.filenameTemplate?.trim() || DEFAULT_FILENAME_TEMPLATE;
 
   const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [inserted] = await sql<DbRow[]>`
       INSERT INTO grids.document_templates (
-        short_id, table_id, name, description, source, html, header_html, footer_html, page_css,
+        short_id, table_id, name, description, source, html, header_html, footer_html, page_css, filename_template,
         enabled, position, created_by, updated_by
       )
       VALUES (
@@ -482,6 +524,7 @@ export const createTemplate = async (
         ${headerHtml},
         ${footerHtml},
         ${pageCss},
+        ${filenameTemplate},
         ${input.enabled ?? true},
         COALESCE((SELECT MAX(position) + 1 FROM grids.document_templates WHERE table_id = ${tableId}::uuid), 0),
         ${actorId}::uuid,
@@ -515,6 +558,7 @@ export const updateTemplate = async (
       header_html = ${input.headerHtml === undefined ? sql`header_html` : input.headerHtml?.trim() || null},
       footer_html = ${input.footerHtml === undefined ? sql`footer_html` : input.footerHtml?.trim() || null},
       page_css = ${input.pageCss === undefined ? sql`page_css` : input.pageCss?.trim() || null},
+      filename_template = COALESCE(${input.filenameTemplate?.trim() || null}, filename_template),
       enabled = COALESCE(${input.enabled ?? null}, enabled),
       position = COALESCE(${input.position ?? null}, position),
       updated_by = ${actorId}::uuid,
@@ -845,6 +889,8 @@ export const createRunForRecord = async (params: {
   recordId: string;
   actorId: string | null;
   dateConfig?: DateContext;
+  filename?: string | null;
+  tags?: string[];
 }): Promise<Result<DocumentRun>> => {
   if (!params.template.enabled) return fail(err.badInput("Document template is disabled"));
   if (params.template.tableId !== params.table.id) return fail(err.badInput("Document template does not belong to the table"));
@@ -869,6 +915,8 @@ export const createRunForRecord = async (params: {
     snapshot: snapshot.data,
     renderData: { ...rendered.data.data, snapshot: snapshot.data },
     actorId: params.actorId,
+    filename: params.filename,
+    tags: params.tags,
   });
 };
 
@@ -913,6 +961,8 @@ export const createRun = async (params: {
   renderData: Record<string, unknown>;
   actorId: string | null;
   generatedAt?: Date;
+  filename?: string | null;
+  tags?: string[];
 }): Promise<Result<DocumentRun>> => {
   const runId = Bun.randomUUIDv7();
   const generatedAt = params.generatedAt ?? new Date();
@@ -926,9 +976,10 @@ export const createRun = async (params: {
     headerHtml: params.template.headerHtml,
     footerHtml: params.template.footerHtml,
     pageCss: params.template.pageCss,
+    filenameTemplate: params.template.filenameTemplate,
   };
   const documentNumber = documentNumberFor({ runId, recordId: params.snapshot.recordId, generatedAt });
-  const renderData = {
+  const renderDataBase = {
     ...params.renderData,
     document: {
       ...((typeof params.renderData.document === "object" && params.renderData.document !== null
@@ -938,11 +989,26 @@ export const createRun = async (params: {
       generatedAt: generatedAt.toISOString(),
     },
   };
+  const requestedFilename = params.filename?.trim() ?? "";
+  const renderedFilename = requestedFilename
+    ? ok(requestedFilename)
+    : await renderLiquidText(params.template.filenameTemplate || DEFAULT_FILENAME_TEMPLATE, renderDataBase, FILENAME_TEMPLATE_MAX_BYTES);
+  if (!renderedFilename.ok) return fail(renderedFilename.error);
+  const filename = safePdfFilename(renderedFilename.data, `${documentNumber}.pdf`);
+  const tags = normalizeDocumentTags(params.tags);
+  const renderData = {
+    ...renderDataBase,
+    document: {
+      ...(renderDataBase.document as Record<string, unknown>),
+      filename,
+      tags,
+    },
+  };
   const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [inserted] = await sql<DbRow[]>`
       INSERT INTO grids.document_runs (
         id, short_id, template_id, snapshot_id, base_id, table_id, record_id,
-        document_number, template_snapshot, render_data, generated_by, generated_at
+        document_number, filename, tags, template_snapshot, render_data, generated_by, generated_at
       )
       VALUES (
         ${runId}::uuid,
@@ -953,6 +1019,8 @@ export const createRun = async (params: {
         ${params.snapshot.tableId}::uuid,
         ${params.snapshot.recordId}::uuid,
         ${documentNumber},
+        ${filename},
+        ${sql.array(tags, "TEXT")},
         ${templateSnapshot}::jsonb,
         ${renderData}::jsonb,
         ${params.actorId}::uuid,
@@ -975,6 +1043,58 @@ export const listRunsForRecord = async (tableId: string, recordId: string): Prom
   return rows.map(mapRun);
 };
 
+export const listRunsForTemplate = async (params: {
+  templateId: string;
+  q?: string | null;
+  tags?: string[];
+  limit?: number;
+  offset?: number;
+}): Promise<DocumentRunPage> => {
+  const limit = Math.min(Math.max(params.limit ?? 200, 1), 500);
+  const offset = Math.max(params.offset ?? 0, 0);
+  const conditions: unknown[] = [sql`template_id = ${params.templateId}::uuid`];
+  const q = params.q?.trim();
+  if (q) {
+    const pattern = `%${escapeLikePattern(q)}%`;
+    const escape = "\\";
+    conditions.push(sql`(
+      filename ILIKE ${pattern} ESCAPE ${escape}
+      OR document_number ILIKE ${pattern} ESCAPE ${escape}
+      OR EXISTS (SELECT 1 FROM unnest(tags) tag WHERE tag ILIKE ${pattern} ESCAPE ${escape})
+    )`);
+  }
+  const tags = normalizeDocumentTags(params.tags);
+  if (tags.length > 0) {
+    conditions.push(sql`tags @> ${sql.array(tags, "TEXT")}`);
+  }
+  const where = conditions.reduce((acc, cur) => sql`${acc} AND ${cur}`);
+  const [countRow] = await sql<Array<{ total: number | string }>>`
+    SELECT COUNT(*)::int AS total
+    FROM grids.document_runs
+    WHERE ${where}
+  `;
+  const rows = await sql<DbRow[]>`
+    SELECT *
+    FROM grids.document_runs
+    WHERE ${where}
+    ORDER BY generated_at DESC
+    LIMIT ${limit}
+    OFFSET ${offset}
+  `;
+  const items = rows.map(mapRun);
+  const total = Number(countRow?.total ?? items.length);
+  const nextOffset = offset + items.length;
+  const hasMore = nextOffset < total;
+  return {
+    items,
+    total,
+    limit,
+    offset,
+    hasMore,
+    nextOffset: hasMore ? nextOffset : null,
+  };
+};
+
 export const getRun = async (runId: string): Promise<DocumentRun | null> => {
   const [row] = await sql<DbRow[]>`SELECT * FROM grids.document_runs WHERE id = ${runId}::uuid`;
   return row ? mapRun(row) : null;
@@ -988,7 +1108,7 @@ export const renderRunPdf = async (run: DocumentRun): Promise<Result<RenderHtmlT
     pageCssTemplate: typeof run.templateSnapshot.pageCss === "string" ? run.templateSnapshot.pageCss : null,
     data: run.renderData,
     filters: documentLiquidFilters,
-    filename: `${run.documentNumber}.html`,
+    filename: run.filename.replace(/\.pdf$/i, ".html"),
   });
   if (rendered.ok) return ok(rendered.pdf);
   const message = `${rendered.error.phase}: ${rendered.error.message}`;

@@ -312,6 +312,7 @@ const defaultDocumentStarter = (): DocumentTemplateStarter => ({
   expectedData: "One selected record.",
   page: "A4 portrait",
   source: (tableId) => defaultDocumentSource(tableId),
+  filenameTemplate: "{{ document.number }}.pdf",
   html: defaultDocumentHtml,
   headerHtml: "",
   footerHtml: "",
@@ -348,6 +349,7 @@ const starterPayload = (starter: DocumentTemplateStarter, tableId: string) => ({
   name: starter.id === "blank" ? "" : starter.name,
   description: starter.id === "blank" ? "" : starter.description,
   source: starter.source(tableId),
+  filenameTemplate: starter.filenameTemplate ?? "{{ document.number }}.pdf",
   html: starter.html,
   headerHtml: starter.headerHtml ?? "",
   footerHtml: starter.footerHtml ?? "",
@@ -648,6 +650,7 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
         name: `${template.name} copy`,
         description: template.description,
         source: template.source,
+        filenameTemplate: template.filenameTemplate,
         html: template.html,
         headerHtml: template.headerHtml,
         footerHtml: template.footerHtml,
@@ -916,6 +919,7 @@ function DocumentTemplateEditorDialog(props: {
   const initialStarter = starterPayload(props.args.starter ?? defaultDocumentStarter(), props.args.tableId);
   const [name, setName] = createSignal(template?.name ?? initialStarter.name);
   const [description, setDescription] = createSignal(template?.description ?? initialStarter.description);
+  const [filenameTemplate, setFilenameTemplate] = createSignal(template?.filenameTemplate ?? initialStarter.filenameTemplate);
   const [source, setSource] = createSignal(template?.source ?? initialStarter.source);
   const [html, setHtml] = createSignal(template?.html ?? initialStarter.html);
   const [headerHtml, setHeaderHtml] = createSignal(template?.headerHtml ?? initialStarter.headerHtml);
@@ -996,6 +1000,7 @@ function DocumentTemplateEditorDialog(props: {
   const dirty = () =>
     name() !== (template?.name ?? initialStarter.name) ||
     description() !== (template?.description ?? initialStarter.description) ||
+    filenameTemplate() !== (template?.filenameTemplate ?? initialStarter.filenameTemplate) ||
     source() !== (template?.source ?? initialStarter.source) ||
     html() !== (template?.html ?? initialStarter.html) ||
     headerHtml() !== (template?.headerHtml ?? initialStarter.headerHtml) ||
@@ -1023,6 +1028,7 @@ function DocumentTemplateEditorDialog(props: {
       const payload = {
         name: name().trim(),
         description: description().trim() || null,
+        filenameTemplate: filenameTemplate().trim(),
         source: source().trim(),
         html: html().trim(),
         headerHtml: headerHtml().trim() || null,
@@ -1031,6 +1037,7 @@ function DocumentTemplateEditorDialog(props: {
         enabled: enabled(),
       };
       if (!payload.name) throw new Error("Name is required");
+      if (!payload.filenameTemplate) throw new Error("Filename template is required");
       if (!payload.source) throw new Error("GQL source is required");
       if (!payload.html) throw new Error("HTML template is required");
       const res = template
@@ -1197,6 +1204,17 @@ function DocumentTemplateEditorDialog(props: {
           <div class="grid shrink-0 gap-2 lg:grid-cols-2">
             <TextInput label="Name" value={name} onInput={setName} icon="ti ti-typography" required />
             <TextInput label="Description" value={description} onInput={setDescription} icon="ti ti-align-left" placeholder="Optional" />
+            <div class="lg:col-span-2">
+              <TextInput
+                label="Filename"
+                description="Liquid pattern for generated PDF filenames. Users can edit the final filename before generating."
+                value={filenameTemplate}
+                onInput={setFilenameTemplate}
+                icon="ti ti-file-text"
+                placeholder="{{ document.number }}.pdf"
+                required
+              />
+            </div>
             <div class="lg:col-span-2">
               <Checkbox
                 value={enabled}
