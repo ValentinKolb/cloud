@@ -535,7 +535,7 @@ export const PulseDashboardDslHelpPage = () => (
     </DocLead>
 
     <DocSection title="Dashboard shape" eyebrow="Layout DSL">
-      <div class="grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+      <div class="space-y-3">
         <DocCode title="Shape" code={dashboardSyntax} highlight={pulseQueryHighlight} copy />
         <DocCode title="Example" code={dashboardExample} highlight={pulseQueryHighlight} copy />
       </div>

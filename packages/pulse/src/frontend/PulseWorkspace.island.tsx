@@ -4662,7 +4662,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   const renderMetricExplorerView = () => (
     <section class="flex min-h-0 flex-1 overflow-hidden pb-2">
       <DockWorkspace storageKey="pulse.query-explorer" initialState={props.initialExplorerDockState} defaultResultSize={42} class="h-full min-h-0">
-        <DockWorkspace.Result title="Result" icon="ti ti-chart-line">
+        <DockWorkspace.Result hideHeader>
           {renderExplorerResultPane()}
         </DockWorkspace.Result>
         <DockWorkspace.Pane id="editor" title="Query" icon="ti ti-code" section="editor">
