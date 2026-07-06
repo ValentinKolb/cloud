@@ -41,6 +41,25 @@ const createContext = (args: string[], flags: CloudCliFlags = {}, responses: Res
 };
 
 const pagination = { page: 1, per_page: 100, total: 1, total_pages: 1, has_next: false };
+const user = (overrides: Partial<Record<"id" | "uid" | "displayName" | "mail", string | null>>) => ({
+  id: overrides.id ?? "u1",
+  uid: overrides.uid ?? "alice",
+  roles: ["user"],
+  provider: "local",
+  profile: "user",
+  givenname: "Alice",
+  sn: "Example",
+  displayName: overrides.displayName ?? "Alice Example",
+  mail: overrides.mail ?? "alice@example.org",
+  avatarHash: null,
+});
+const group = (overrides: Partial<Record<"id" | "name", string>>) => ({
+  id: overrides.id ?? "g1",
+  provider: "local",
+  name: overrides.name ?? "team",
+  description: null,
+  gidnumber: null,
+});
 
 describe("accounts CLI", () => {
   test("lists users through the accounts API with filters", async () => {
@@ -167,6 +186,77 @@ describe("accounts CLI", () => {
     expect(calls.map((call) => call.path)).toEqual([
       "/api/accounts/users?page=1&per_page=100&search=alice",
       "/api/accounts/service-accounts?page=1&per_page=50&userId=u1",
+    ]);
+  });
+
+  test("detects exact user matches across all pages before resolving", async () => {
+    const { ctx, calls } = createContext(
+      ["service-accounts", "list"],
+      { user: "Sam Example" },
+      [
+        jsonResponse({
+          users: [user({ id: "u1", uid: "sam.one", displayName: "Sam Example", mail: "sam.one@example.org" })],
+          pagination: { page: 1, per_page: 100, total: 2, total_pages: 2, has_next: true },
+        }),
+        jsonResponse({
+          users: [user({ id: "u2", uid: "sam.two", displayName: "Sam Example", mail: "sam.two@example.org" })],
+          pagination: { page: 2, per_page: 100, total: 2, total_pages: 2, has_next: false },
+        }),
+      ],
+    );
+
+    await expect(accountsCli.run(ctx)).rejects.toThrow('User "Sam Example" is ambiguous');
+    expect(calls.map((call) => call.path)).toEqual([
+      "/api/accounts/users?page=1&per_page=100&search=Sam+Example",
+      "/api/accounts/users?page=2&per_page=100&search=Sam+Example",
+    ]);
+  });
+
+  test("detects exact user entity matches across all pages before group mutations", async () => {
+    const { ctx, calls } = createContext(
+      ["groups", "members", "add", "team"],
+      { user: "Sam Example", yes: true },
+      [
+        jsonResponse({ groups: [group({ id: "g1", name: "team" })], pagination }),
+        jsonResponse({
+          items: [{ kind: "user", user: user({ id: "u1", uid: "sam.one", displayName: "Sam Example", mail: "sam.one@example.org" }) }],
+          pagination: { page: 1, per_page: 100, total: 2, total_pages: 2, has_next: true },
+        }),
+        jsonResponse({
+          items: [{ kind: "user", user: user({ id: "u2", uid: "sam.two", displayName: "Sam Example", mail: "sam.two@example.org" }) }],
+          pagination: { page: 2, per_page: 100, total: 2, total_pages: 2, has_next: false },
+        }),
+      ],
+    );
+
+    await expect(accountsCli.run(ctx)).rejects.toThrow('User "Sam Example" is ambiguous');
+    expect(calls.map((call) => call.path)).toEqual([
+      "/api/accounts/groups?page=1&per_page=100&search=team&scope=all",
+      "/api/accounts/entities?page=1&per_page=100&search=Sam+Example&kinds=user",
+      "/api/accounts/entities?page=2&per_page=100&search=Sam+Example&kinds=user",
+    ]);
+  });
+
+  test("detects exact group matches across all pages before resolving", async () => {
+    const { ctx, calls } = createContext(
+      ["groups", "members", "list", "team"],
+      {},
+      [
+        jsonResponse({
+          groups: [group({ id: "g1", name: "team" })],
+          pagination: { page: 1, per_page: 100, total: 2, total_pages: 2, has_next: true },
+        }),
+        jsonResponse({
+          groups: [group({ id: "g2", name: "team" })],
+          pagination: { page: 2, per_page: 100, total: 2, total_pages: 2, has_next: false },
+        }),
+      ],
+    );
+
+    await expect(accountsCli.run(ctx)).rejects.toThrow('Group "team" is ambiguous');
+    expect(calls.map((call) => call.path)).toEqual([
+      "/api/accounts/groups?page=1&per_page=100&search=team&scope=all",
+      "/api/accounts/groups?page=2&per_page=100&search=team&scope=all",
     ]);
   });
 

@@ -433,15 +433,17 @@ const resolveUserRef = async (ctx: CloudCliContext, ref: string): Promise<BaseUs
 
   let page = 1;
   const seen: BaseUser[] = [];
+  const exactMatches: BaseUser[] = [];
   for (;;) {
     const response = await listUsers(ctx, { search: ref, page });
     seen.push(...response.users);
     const matches = response.users.filter((user) => user.uid === ref || user.mail === ref || user.displayName === ref);
-    if (matches.length === 1) return matches[0]!;
-    if (matches.length > 1) throw new Error(`User "${ref}" is ambiguous. Use one of: ${userCandidates(matches)}`);
+    exactMatches.push(...matches);
     if (!response.pagination.has_next) break;
     page += 1;
   }
+  if (exactMatches.length === 1) return exactMatches[0]!;
+  if (exactMatches.length > 1) throw new Error(`User "${ref}" is ambiguous. Use one of: ${userCandidates(exactMatches)}`);
 
   const candidates = userCandidates(seen);
   throw new Error(candidates ? `User "${ref}" was not found by id or exact uid/email/name. Similar matches: ${candidates}` : `User "${ref}" was not found.`);
@@ -452,16 +454,18 @@ const resolveUserIdForGroupRelation = async (ctx: CloudCliContext, ref: string):
 
   let page = 1;
   const seen: BaseUser[] = [];
+  const exactMatches: BaseUser[] = [];
   for (;;) {
     const response = await listEntities(ctx, { search: ref, kinds: "user", page });
     const users = response.items.flatMap((item) => (item.kind === "user" ? [item.user] : []));
     seen.push(...users);
     const matches = users.filter((user) => user.uid === ref || user.mail === ref || user.displayName === ref);
-    if (matches.length === 1) return matches[0]!.id;
-    if (matches.length > 1) throw new Error(`User "${ref}" is ambiguous. Use one of: ${userCandidates(matches)}`);
+    exactMatches.push(...matches);
     if (!response.pagination.has_next) break;
     page += 1;
   }
+  if (exactMatches.length === 1) return exactMatches[0]!.id;
+  if (exactMatches.length > 1) throw new Error(`User "${ref}" is ambiguous. Use one of: ${userCandidates(exactMatches)}`);
 
   const candidates = userCandidates(seen);
   throw new Error(candidates ? `User "${ref}" was not found by exact uid/email/name. Similar matches: ${candidates}` : `User "${ref}" was not found.`);
@@ -470,15 +474,18 @@ const resolveUserIdForGroupRelation = async (ctx: CloudCliContext, ref: string):
 const resolveGroupRef = async (ctx: CloudCliContext, ref: string): Promise<BaseGroup> => {
   let page = 1;
   const seen: BaseGroup[] = [];
+  const exactMatches: BaseGroup[] = [];
   for (;;) {
     const response = await listGroups(ctx, { search: isUuid(ref) ? undefined : ref, scope: "all", page });
     seen.push(...response.groups);
     const matches = response.groups.filter((group) => group.id === ref || group.name === ref);
-    if (matches.length === 1) return matches[0]!;
-    if (matches.length > 1) throw new Error(`Group "${ref}" is ambiguous. Use one of: ${groupCandidates(matches)}`);
+    exactMatches.push(...matches);
+    if (isUuid(ref) && exactMatches.length === 1) return exactMatches[0]!;
     if (!response.pagination.has_next) break;
     page += 1;
   }
+  if (exactMatches.length === 1) return exactMatches[0]!;
+  if (exactMatches.length > 1) throw new Error(`Group "${ref}" is ambiguous. Use one of: ${groupCandidates(exactMatches)}`);
 
   const candidates = groupCandidates(seen);
   throw new Error(candidates ? `Group "${ref}" was not found by id or exact name. Similar matches: ${candidates}` : `Group "${ref}" was not found.`);
