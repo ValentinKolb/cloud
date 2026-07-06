@@ -144,6 +144,13 @@ export const CORE_SETTINGS = {
     max: 50000,
     description: "Maximum characters from one tool result kept in AI context before Nessi truncates it.",
   },
+  "ai.firecrawl_api_key": {
+    kind: "secret",
+    label: "Firecrawl API Key",
+    default: "",
+    description: "Firecrawl API key used by Cloud AI web_search and web_extract tools.",
+    placeholder: "fc-...",
+  },
   // ── PDF rendering ─────────────────────────────────────────────────────
   "gotenberg.url": {
     kind: "url",

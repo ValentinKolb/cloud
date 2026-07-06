@@ -5,7 +5,7 @@ import type { OutboundEvent, StoreEntry } from "@valentinkolb/nessi";
 import type { Provider } from "@valentinkolb/nessi/ai";
 import type { RequestActor } from "../server";
 import { aiToolAllowsAlways, aiToolApprovalScope, aiToolNeedsApproval } from "./approvals";
-import { CloudAiCardInputSchema, createDefaultCloudAiTools } from "./default-tools";
+import { CloudAiCardInputSchema, createConfiguredDefaultCloudAiTools, createDefaultCloudAiTools } from "./default-tools";
 import { AiTurnActionSchema } from "./runtime";
 import { defineAiTool, prepareAiTools } from "./tools";
 
@@ -62,6 +62,20 @@ describe("AI tools", () => {
     expect(prepared.frontendModes.get("survey")).toBe("client_interaction");
     expect(prepared.approvalPolicies.get("card")).toBe("never");
     expect(prepared.approvalPolicies.get("survey")).toBe("never");
+  });
+
+  test("adds Firecrawl web tools only when configured", async () => {
+    const withoutWeb = await createConfiguredDefaultCloudAiTools({ firecrawlApiKey: "" });
+    const withWeb = await createConfiguredDefaultCloudAiTools({ firecrawlApiKey: "fc-secret" });
+
+    expect(withoutWeb.map((tool) => tool.def.name)).toEqual(["card", "survey"]);
+    expect(withWeb.map((tool) => tool.def.name)).toEqual(["card", "survey", "web_search", "web_extract"]);
+
+    const prepared = prepareAiTools({ tools: withWeb, actor });
+    expect(prepared.tools.find((tool) => tool.def.name === "web_search")?.kind).toBe("server");
+    expect(prepared.tools.find((tool) => tool.def.name === "web_extract")?.kind).toBe("server");
+    expect(prepared.approvalPolicies.get("web_search")).toBe("never");
+    expect(prepared.approvalPolicies.get("web_extract")).toBe("never");
   });
 
   test("accepts flat highlight-card trend fields from model tool calls", () => {

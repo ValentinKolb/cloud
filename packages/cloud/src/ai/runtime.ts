@@ -1,5 +1,15 @@
-import type { CompactFn, InboundEvent, Input, Message, NessiLoop, OutboundEvent, StoreEntry } from "@valentinkolb/nessi";
-import { nessi, truncateMiddle } from "@valentinkolb/nessi";
+import type {
+  CompactEvent,
+  CompactFn,
+  CompactLoop,
+  InboundEvent,
+  Input,
+  Message,
+  NessiLoop,
+  OutboundEvent,
+  StoreEntry,
+} from "@valentinkolb/nessi";
+import { compact, nessi, truncateMiddle } from "@valentinkolb/nessi";
 import { job } from "@valentinkolb/sync";
 import { z } from "zod";
 import type { RequestActor } from "../server";
@@ -10,7 +20,7 @@ import {
   hasRememberedAiToolApproval,
   rememberAiToolApproval,
 } from "./approvals";
-import { createDefaultCloudAiTools } from "./default-tools";
+import { createConfiguredDefaultCloudAiTools } from "./default-tools";
 import { resolveAiResourceRunContext } from "./resource-runner";
 import { logger } from "../services/logging";
 import { readAiSettingsState, resolveAiModel } from "./settings";
@@ -26,6 +36,7 @@ import type {
   AiSettingsError,
   AiSettingsState,
   AiStreamEvent,
+  AiChatTurnRunConfig,
   AiTurnRunConfig,
   AiToolApprovalPolicy,
   AiTurnToolSource,
@@ -43,8 +54,8 @@ const DEFAULT_COMPACTION_PROMPT = [
   "Do not invent details. Keep the summary compact but complete enough that the next assistant can continue correctly.",
 ].join("\n");
 
-const COMPACTION_FILL_RATIO = 0.72;
-const COMPACTION_KEEP_RECENT_ENTRIES = 6;
+const COMPACTION_FILL_RATIO = 0.75;
+const COMPACTION_KEEP_RECENT_LOOPS = 2;
 const COMPACTION_MAX_SOURCE_CHARS = 24_000;
 const COMPACTION_MAX_TOOL_RESULT_CHARS = 1_200;
 const AI_TURN_LEASE_MS = 45_000;
@@ -60,9 +71,7 @@ type PendingToolStart = {
 };
 
 class AiToolStreamStalledError extends Error {
-  constructor(
-    readonly pending: PendingToolStart,
-  ) {
+  constructor(readonly pending: PendingToolStart) {
     super(`The model started the "${pending.name}" tool but did not finish the tool call. Please try again.`);
     this.name = "AiToolStreamStalledError";
   }
@@ -171,6 +180,41 @@ const messageToCompactionText = (entry: StoreEntry): string => {
   return `#${entry.seq} tool_result ${message.name}\n${truncateMiddle(JSON.stringify(message.result), COMPACTION_MAX_TOOL_RESULT_CHARS)}`;
 };
 
+const countConversationLoops = (entries: StoreEntry[]): number =>
+  entries.reduce((count, entry) => count + (entry.kind === "message" && entry.message.role === "user" ? 1 : 0), 0);
+
+const keepLoopsForFillRatio = (fillRatio: number | undefined, totalLoops: number): number => {
+  if (typeof fillRatio !== "number") return COMPACTION_KEEP_RECENT_LOOPS;
+  const target = Math.round(totalLoops * Math.max(0.2, 1 - fillRatio));
+  return Math.max(COMPACTION_KEEP_RECENT_LOOPS, target);
+};
+
+const findLoopSplitIndex = (entries: StoreEntry[], keepLoops: number): number => {
+  let loopsSeen = 0;
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry?.kind === "message" && entry.message.role === "user") {
+      loopsSeen += 1;
+      if (loopsSeen === keepLoops) return index > 0 ? index : -1;
+    }
+  }
+  return -1;
+};
+
+const buildCompactionPrompt = (prompt: string, source: string) => {
+  const template = (prompt.trim() || DEFAULT_COMPACTION_PROMPT).trim();
+  if (template.includes("{{conversation}}")) {
+    return {
+      systemPrompt: template.replaceAll("{{conversation}}", source),
+      userText: "Please summarize the conversation above.",
+    };
+  }
+  return {
+    systemPrompt: template,
+    userText: `Summarize these chat entries for future context:\n\n${source}`,
+  };
+};
+
 const createCloudCompactFn = (input: {
   conversationId: string;
   modelProfileId: string;
@@ -180,26 +224,30 @@ const createCloudCompactFn = (input: {
 }): CompactFn => {
   return (ctx) => {
     if (!ctx.force && (typeof ctx.fillRatio !== "number" || ctx.fillRatio < COMPACTION_FILL_RATIO)) return null;
-    if (!ctx.force && ctx.entries.length <= COMPACTION_KEEP_RECENT_ENTRIES + 2) return null;
 
-    const checkpointIndex = Math.max(0, ctx.entries.length - COMPACTION_KEEP_RECENT_ENTRIES - 1);
-    const checkpoint = ctx.entries[checkpointIndex];
-    if (!checkpoint || checkpoint.seq <= 0) return null;
+    const totalLoops = countConversationLoops(ctx.entries);
+    if (totalLoops <= COMPACTION_KEEP_RECENT_LOOPS) return null;
 
-    const sourceEntries = ctx.entries.slice(0, checkpointIndex + 1);
+    const splitIndex = findLoopSplitIndex(ctx.entries, keepLoopsForFillRatio(ctx.fillRatio, totalLoops));
+    if (splitIndex < 1) return null;
+
+    const sourceEntries = ctx.entries.slice(0, splitIndex);
     if (sourceEntries.length < 2) return null;
+    const checkpoint = sourceEntries[sourceEntries.length - 1];
+    if (!checkpoint || checkpoint.seq <= 0) return null;
 
     return (async () => {
       const source = truncateMiddle(sourceEntries.map(messageToCompactionText).join("\n\n"), COMPACTION_MAX_SOURCE_CHARS);
+      const prompt = buildCompactionPrompt(input.prompt, source);
       const result = await ctx.provider.complete({
-        systemPrompt: (input.prompt.trim() || DEFAULT_COMPACTION_PROMPT).trim(),
+        systemPrompt: prompt.systemPrompt,
         messages: [
           {
             role: "user",
             content: [
               {
                 type: "text",
-                text: `Summarize these chat entries for future context:\n\n${source}`,
+                text: prompt.userText,
               },
             ],
           },
@@ -242,6 +290,14 @@ export type RunAiTurnInput = {
   tools?: AiRuntimeTool[];
   toolSource?: AiTurnToolSource;
   toolApprovalContext?: AiToolApprovalContext;
+  signal?: AbortSignal;
+};
+
+export type RunAiCompactionInput = {
+  conversationId: string;
+  actor?: RequestActor;
+  modelPolicy?: AiModelPolicy;
+  requestedModelId?: string;
   signal?: AbortSignal;
 };
 
@@ -301,7 +357,7 @@ type PendingAiAction = {
 
 type ActiveAiTurn = {
   conversationId: string;
-  loop: NessiLoop;
+  loop: NessiLoop | CompactLoop;
   abortController: AbortController;
   pendingActions: Map<string, PendingAiAction>;
   toolApprovalContext?: AiToolApprovalContext;
@@ -309,6 +365,7 @@ type ActiveAiTurn = {
 };
 
 const activeAiTurns = new Map<string, ActiveAiTurn>();
+const loopAcceptsInput = (loop: NessiLoop | CompactLoop): loop is NessiLoop => "push" in loop && typeof loop.push === "function";
 
 const inputIncludesFiles = (input: Input): boolean =>
   Array.isArray(input) && input.some((part) => typeof part === "object" && part.type === "file");
@@ -317,6 +374,10 @@ export const listPendingAiTurnActions = (input: { conversationId: string; turnId
   aiConversationStore.listPendingTurnActions(input);
 
 const releasePendingActionsForAbort = (turnId: string, turn: ActiveAiTurn) => {
+  if (!loopAcceptsInput(turn.loop)) {
+    turn.pendingActions.clear();
+    return;
+  }
   for (const pending of turn.pendingActions.values()) {
     if (pending.kind === "client_tool") {
       turn.loop.push({ type: "tool_result", callId: pending.callId, result: { error: "AI turn aborted." } });
@@ -354,7 +415,7 @@ const acknowledgeResolvedTurnAction = async (
   turn: ActiveAiTurn | undefined,
   event: InboundEvent,
 ): Promise<{ ok: true }> => {
-  if (turn?.conversationId === input.conversationId && turn.pendingActions.delete(input.callId)) {
+  if (turn?.conversationId === input.conversationId && loopAcceptsInput(turn.loop) && turn.pendingActions.delete(input.callId)) {
     turn.loop.push(event);
   }
   await publishAiTurnControl({ type: "action", conversationId: input.conversationId, turnId: input.turnId, callId: input.callId }).catch(
@@ -363,10 +424,7 @@ const acknowledgeResolvedTurnAction = async (
   return { ok: true };
 };
 
-export const abortAiTurn = async (input: {
-  conversationId: string;
-  turnId: string;
-}): Promise<{ ok: true }> => {
+export const abortAiTurn = async (input: { conversationId: string; turnId: string }): Promise<{ ok: true }> => {
   const startedAt = Date.now();
   const result = await aiConversationStore.requestTurnAbort({ ...input, reason: "user" });
   if (!result.found) {
@@ -503,7 +561,7 @@ const pendingActionFromNessiEvent = (
 
 const pushResolvedPendingAction = async (turnId: string, turn: ActiveAiTurn, callId: string): Promise<void> => {
   const pending = await aiConversationStore.getPendingTurnAction({ conversationId: turn.conversationId, turnId, callId });
-  if (!pending?.resolvedEvent || !turn.pendingActions.has(callId)) return;
+  if (!pending?.resolvedEvent || !turn.pendingActions.has(callId) || !loopAcceptsInput(turn.loop)) return;
   turn.pendingActions.delete(callId);
   turn.loop.push(pending.resolvedEvent);
 };
@@ -533,7 +591,11 @@ const autoResolveClientViewAction = async (input: {
   });
   if (!resolved) return;
 
-  if (input.turn?.conversationId === input.conversationId && input.turn.pendingActions.delete(input.pending.callId)) {
+  if (
+    input.turn?.conversationId === input.conversationId &&
+    loopAcceptsInput(input.turn.loop) &&
+    input.turn.pendingActions.delete(input.pending.callId)
+  ) {
     input.turn.loop.push(event);
   }
   await aiToolAudit
@@ -552,7 +614,9 @@ const startTurnControlWatcher = (turnId: string, turn: ActiveAiTurn): (() => voi
 
   const pollResolvedActions = async () => {
     if (stopped || turn.pendingActions.size === 0) return;
-    await Promise.all([...turn.pendingActions.keys()].map((callId) => pushResolvedPendingAction(turnId, turn, callId))).catch(() => undefined);
+    await Promise.all([...turn.pendingActions.keys()].map((callId) => pushResolvedPendingAction(turnId, turn, callId))).catch(
+      () => undefined,
+    );
   };
 
   const pollTimer = setInterval(() => {
@@ -655,7 +719,7 @@ const failPersistedTurn = async (input: AiTurnJobInput, error: unknown): Promise
   });
 };
 
-const materializeRunConfig = async (config: AiTurnRunConfig, signal: AbortSignal): Promise<MaterializedAiTurnRunInput> => {
+const materializeRunConfig = async (config: AiChatTurnRunConfig, signal: AbortSignal): Promise<MaterializedAiTurnRunInput> => {
   const source = config.toolSource ?? { kind: "none" };
   if (source.kind === "resource") {
     if (!config.actor) throw new Error("AI resource turn is missing an actor.");
@@ -683,9 +747,191 @@ const materializeRunConfig = async (config: AiTurnRunConfig, signal: AbortSignal
 
   return {
     ...config,
-    tools: source.kind === "default" ? createDefaultCloudAiTools() : [],
+    tools: source.kind === "default" ? await createConfiguredDefaultCloudAiTools() : [],
     signal,
   };
+};
+
+const validateAiCompactionRequest = async (
+  input: Pick<RunAiCompactionInput, "modelPolicy" | "requestedModelId">,
+): Promise<{ settings: Extract<AiSettingsState, { ok: true }>; resolved: Awaited<ReturnType<typeof resolveAiModel>> }> => {
+  const settings = await readAiSettingsState();
+  if (!settings.ok) throw Object.assign(new Error(settings.error.message), { aiError: settings.error });
+  if (!settings.enabled) {
+    throw Object.assign(new Error("AI is disabled."), {
+      aiError: { code: "ai_disabled", message: "AI is disabled." } satisfies AiSettingsError,
+    });
+  }
+  const resolved = await resolveAiModel(input.modelPolicy ?? { kind: "platform-default" }, input.requestedModelId);
+  return { settings, resolved };
+};
+
+const compactEventToNessiEvent = (event: CompactEvent, loopId: string): OutboundEvent | null => {
+  if (event.type === "compaction_start" || event.type === "compaction_end") return { type: event.type, agentId: event.agentId, loopId };
+  if (event.type === "error") {
+    return {
+      type: "error",
+      agentId: event.agentId,
+      loopId,
+      error: event.error,
+      retryable: event.retryable,
+    };
+  }
+  return null;
+};
+
+const runClaimedPersistedAiCompactionTurn = async (
+  input: AiTurnJobInput,
+  config: Extract<AiTurnRunConfig, { kind: "compact" }>,
+  signal: AbortSignal,
+): Promise<void> => {
+  const startedAt = Date.now();
+  const loopId = input.turnId;
+  let resolved: Awaited<ReturnType<typeof resolveAiModel>> | null = null;
+  let finalStatus: "completed" | "failed" | "aborted" = "failed";
+  let finalError: string | null = null;
+  let compactEventCount = 0;
+
+  try {
+    const validated = await validateAiCompactionRequest(config);
+    resolved = validated.resolved;
+    const store = aiConversationStore.createSessionStore({
+      conversationId: input.conversationId,
+      modelProfileId: resolved.profile.id,
+      turnId: input.turnId,
+    });
+
+    const abortController = new AbortController();
+    const abortFromJob = () => abortController.abort();
+    if (signal.aborted) abortController.abort();
+    else signal.addEventListener("abort", abortFromJob, { once: true });
+
+    const loop = compact({
+      agentId: "cloud",
+      store,
+      provider: resolved.provider,
+      force: true,
+      signal: abortController.signal,
+      compact: createCloudCompactFn({
+        conversationId: input.conversationId,
+        modelProfileId: resolved.profile.id,
+        prompt: validated.settings.compactionPrompt,
+        maxOutputTokens: resolved.profile.maxOutputTokens,
+        signal: abortController.signal,
+      }),
+    });
+
+    const activeTurn: ActiveAiTurn = {
+      conversationId: input.conversationId,
+      loop,
+      abortController,
+      pendingActions: new Map(),
+      stopControls: () => undefined,
+    };
+    const stopControls = startTurnControlWatcher(input.turnId, activeTurn);
+    const stopHeartbeat = startTurnLeaseHeartbeat(input.turnId, activeTurn);
+    activeTurn.stopControls = () => {
+      stopControls();
+      stopHeartbeat();
+    };
+    activeAiTurns.set(input.turnId, activeTurn);
+
+    const write = (event: AiStreamEvent) => publishAiEvent({ ...event, loopId });
+    const isLeaseOwner = () =>
+      aiConversationStore.isTurnLeaseOwner({
+        conversationId: input.conversationId,
+        turnId: input.turnId,
+        leaseOwner: AI_WORKER_ID,
+      });
+
+    try {
+      await write({
+        type: "turn_start",
+        turnId: input.turnId,
+        conversationId: input.conversationId,
+        modelProfileId: resolved.profile.id,
+        providerModel: resolved.provider.model,
+      });
+
+      for await (const compactEvent of loop) {
+        compactEventCount += 1;
+        if (!(await isLeaseOwner())) {
+          finalStatus = "aborted";
+          finalError = null;
+          abortController.abort();
+          loop.abort();
+          break;
+        }
+
+        const nessiEvent = compactEventToNessiEvent(compactEvent, loopId);
+        if (nessiEvent) {
+          await write({ type: "nessi", turnId: input.turnId, conversationId: input.conversationId, event: nessiEvent });
+        }
+
+        if (compactEvent.type === "done") {
+          finalStatus = statusForDoneReason(compactEvent.reason);
+          await write({
+            type: "compaction_result",
+            turnId: input.turnId,
+            conversationId: input.conversationId,
+            reason: compactEvent.reason,
+            result: compactEvent.result,
+          });
+          await write({
+            type: "done",
+            turnId: input.turnId,
+            conversationId: input.conversationId,
+            reason: compactEvent.reason,
+            aggregate: null,
+          });
+        } else if (compactEvent.type === "error") {
+          finalError = compactEvent.error;
+        }
+      }
+    } catch (error) {
+      const aborted = abortController.signal.aborted || !(await isLeaseOwner().catch(() => false));
+      finalStatus = aborted ? "aborted" : "failed";
+      finalError = aborted ? null : error instanceof Error ? error.message : "AI compaction failed";
+      if (!aborted) {
+        log.error("AI compaction turn failed", {
+          conversationId: input.conversationId,
+          turnId: input.turnId,
+          modelProfileId: resolved.profile.id,
+          providerModel: resolved.provider.model,
+          error: finalError ?? "AI compaction failed",
+        });
+        await write({
+          type: "error",
+          turnId: input.turnId,
+          conversationId: input.conversationId,
+          message: finalError ?? "AI compaction failed",
+          retryable: false,
+        }).catch(() => undefined);
+      }
+    } finally {
+      signal.removeEventListener("abort", abortFromJob);
+      activeAiTurns.get(input.turnId)?.stopControls();
+      activeAiTurns.delete(input.turnId);
+      if (abortController.signal.aborted) {
+        finalStatus = "aborted";
+        finalError = null;
+      }
+    }
+  } catch (error) {
+    await failPersistedTurn(input, error);
+    return;
+  }
+
+  log.info("AI compaction turn finished", {
+    conversationId: input.conversationId,
+    turnId: input.turnId,
+    modelProfileId: resolved.profile.id,
+    providerModel: resolved.provider.model,
+    status: finalStatus,
+    durationMs: Date.now() - startedAt,
+    compactEventCount,
+  });
+  await aiConversationStore.completeTurn({ turnId: input.turnId, status: finalStatus, error: finalError, leaseOwner: AI_WORKER_ID });
 };
 
 const runPersistedAiTurn = async (input: AiTurnJobInput, signal: AbortSignal): Promise<void> => {
@@ -711,6 +957,10 @@ const runPersistedAiTurn = async (input: AiTurnJobInput, signal: AbortSignal): P
   const config = await aiConversationStore.getTurnRunConfig(input);
   if (!config) {
     await failPersistedTurn(input, new Error("AI turn is missing its run configuration."));
+    return;
+  }
+  if (config.kind === "compact") {
+    await runClaimedPersistedAiCompactionTurn(input, config, signal);
     return;
   }
 
@@ -817,7 +1067,11 @@ const runPersistedAiTurn = async (input: AiTurnJobInput, signal: AbortSignal): P
       if (staleToolStartCancel) {
         await write({ type: "nessi", turnId: input.turnId, conversationId: input.conversationId, event: staleToolStartCancel });
       }
-      if (matchedToolStart || staleToolStartCancel || ((event.type === "tool_error" || event.type === "tool_cancel") && pendingToolStart?.callId === event.callId)) {
+      if (
+        matchedToolStart ||
+        staleToolStartCancel ||
+        ((event.type === "tool_error" || event.type === "tool_cancel") && pendingToolStart?.callId === event.callId)
+      ) {
         pendingToolStart = null;
       }
 
@@ -1138,6 +1392,7 @@ export const startAiRuntimeRecovery = (input: { intervalMs?: number; limit?: num
 export const createAiTurnResponse = async (input: RunAiTurnInput): Promise<Response> => {
   const { resolved } = await validateAiTurnRequest(input);
   const runConfig: AiTurnRunConfig = {
+    kind: "chat",
     input: input.input,
     actor: input.actor,
     modelPolicy: input.modelPolicy,
@@ -1180,7 +1435,51 @@ export const createAiTurnResponse = async (input: RunAiTurnInput): Promise<Respo
   });
 };
 
+export const createAiCompactionResponse = async (input: RunAiCompactionInput): Promise<Response> => {
+  const { resolved } = await validateAiCompactionRequest(input);
+  const runConfig: AiTurnRunConfig = {
+    kind: "compact",
+    actor: input.actor,
+    modelPolicy: input.modelPolicy,
+    requestedModelId: input.requestedModelId,
+  };
+
+  const turn = await aiConversationStore.createTurn({
+    conversationId: input.conversationId,
+    modelProfileId: resolved.profile.id,
+    leaseOwner: "queued",
+    leaseMs: 5 * 60_000,
+    runConfig,
+  });
+
+  try {
+    await submitAiTurnJob({ conversationId: input.conversationId, turnId: turn.id });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to enqueue AI compaction.";
+    await aiConversationStore.completeTurn({ turnId: turn.id, status: "failed", error: message });
+    await publishAiEvent({
+      type: "error",
+      turnId: turn.id,
+      conversationId: input.conversationId,
+      loopId: turn.id,
+      message,
+      retryable: true,
+    }).catch(() => undefined);
+    throw error;
+  }
+
+  return createAiEventReplayResponse({
+    conversationId: input.conversationId,
+    turnId: turn.id,
+    after: "0-0",
+    signal: input.signal,
+  });
+};
+
 export const __aiRuntimeTest = {
+  countConversationLoops,
+  findLoopSplitIndex,
   getStaleToolStartCancelEvent,
+  keepLoopsForFillRatio,
   withTurnLoopId,
 };

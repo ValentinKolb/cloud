@@ -1,5 +1,6 @@
 import {
   AiApiErrorSchema,
+  AiCompactionInputSchema,
   type AiConversation,
   AiCreateConversationInputSchema,
   AiMessageForkInputSchema,
@@ -12,6 +13,7 @@ import {
   aiConversationStore,
   aiTurnInputToContent,
   createAiEventReplayResponse,
+  createAiCompactionResponse,
   createAiTurnResponse,
   listAiModels,
   listPendingAiTurnActions,
@@ -99,6 +101,7 @@ const StatusSchema = z.object({
   enabled: z.boolean(),
   defaultModelId: z.string(),
   error: z.unknown().nullable(),
+  firecrawlConfigured: z.boolean(),
   models: z.array(ModelSchema),
 });
 
@@ -464,6 +467,40 @@ const app = new Hono<AuthContext>()
             appId: ASSISTANT_APP_ID,
             resource: { kind: "direct" },
           },
+          signal: c.req.raw.signal,
+        });
+      } catch (error) {
+        return toAiErrorResponse(c, error);
+      }
+    },
+  )
+  .post(
+    "/conversations/:conversationId/compact",
+    describeRoute({
+      tags: [ASSISTANT_OPENAPI_TAG],
+      summary: "Compact an assistant conversation as an SSE stream",
+      responses: {
+        200: { description: "SSE stream" },
+        400: jsonResponse(AiApiErrorSchema, "Invalid input"),
+        404: jsonResponse(AiApiErrorSchema, "Not found"),
+        409: jsonResponse(AiApiErrorSchema, "Running turn or AI not configured"),
+      },
+    }),
+    v("json", AiCompactionInputSchema),
+    async (c) => {
+      const loaded = await loadAssistantConversation(c);
+      if (!loaded.ok) return loaded.response;
+      const { conversation } = loaded;
+      const runningTurn = await aiConversationStore.getRunningTurn({ conversationId: conversation.id });
+      if (runningTurn) return respond(c, fail(err.conflict("Running turn")));
+
+      const body = c.req.valid("json");
+      try {
+        return await createAiCompactionResponse({
+          conversationId: conversation.id,
+          actor: c.get("actor"),
+          requestedModelId: body.modelProfileId,
+          modelPolicy: { kind: "selectable", requiredCapabilities: ["streaming"] },
           signal: c.req.raw.signal,
         });
       } catch (error) {

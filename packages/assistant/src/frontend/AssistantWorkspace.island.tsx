@@ -115,22 +115,16 @@ export default function AssistantWorkspace(props: Props) {
       },
     },
     {
-      name: "rewrite",
-      description: "Prepare a rewrite request",
-      icon: "ti ti-pencil-spark",
-      action: ({ setDraft }) => setDraft("Rewrite this text:\n"),
-    },
-    {
-      name: "summarize",
-      description: "Prepare a summary request",
-      icon: "ti ti-list-details",
-      action: ({ setDraft }) => setDraft("Summarize this:\n"),
-    },
-    {
-      name: "system",
-      description: "Draft a system-style instruction for this turn",
-      icon: "ti ti-settings-spark",
-      action: ({ setDraft }) => setDraft("Instruction for this answer: "),
+      name: "compact",
+      description: "Compact this chat's context",
+      icon: "ti ti-package",
+      action: () => {
+        if (!chat.activeConversationId()) {
+          chat.setError("Open a chat before compacting context.");
+          return;
+        }
+        void chat.compactConversation({ modelProfileId: selectedModelId() || undefined });
+      },
     },
   ];
 
@@ -178,8 +172,8 @@ export default function AssistantWorkspace(props: Props) {
             onFrontendToolResult={(request, result) => {
               void chat.submitFrontendToolResult(request, result);
             }}
-            onForkMessage={(entry) => {
-              void chat.forkMessage(entry.id);
+            onForkMessage={(entry, input) => {
+              void chat.forkMessage(entry.id, input);
             }}
             onRetryMessage={(entry, input) => {
               void chat.retryUserMessage(entry.id, { ...input, modelProfileId: selectedModelId() || undefined });

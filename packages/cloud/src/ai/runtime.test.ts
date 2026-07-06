@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { OutboundEvent } from "@valentinkolb/nessi";
+import type { OutboundEvent, StoreEntry } from "@valentinkolb/nessi";
 import { __aiRuntimeTest } from "./runtime";
 
 const eventBase = { agentId: "cloud", loopId: "loop-1" };
@@ -42,5 +42,39 @@ describe("AI runtime tool stream guard", () => {
       name: "card",
       reason: "stream_ended_before_tool_call",
     });
+  });
+});
+
+describe("AI runtime compaction split", () => {
+  const messageEntry = (seq: number, role: "user" | "assistant"): StoreEntry => ({
+    seq,
+    kind: "message",
+    message:
+      role === "user"
+        ? { role, content: [{ type: "text", text: `User ${seq}` }] }
+        : { role, content: [{ type: "text", text: `Assistant ${seq}` }] },
+  });
+
+  test("splits at user-message loop boundaries", () => {
+    const entries: StoreEntry[] = [
+      messageEntry(1, "user"),
+      messageEntry(2, "assistant"),
+      { seq: 3, kind: "message", message: { role: "tool_result", callId: "call-1", name: "tool", result: { ok: true } } },
+      messageEntry(4, "user"),
+      messageEntry(5, "assistant"),
+      messageEntry(6, "user"),
+      messageEntry(7, "assistant"),
+      messageEntry(8, "user"),
+    ];
+
+    expect(__aiRuntimeTest.countConversationLoops(entries)).toBe(4);
+    expect(__aiRuntimeTest.findLoopSplitIndex(entries, 2)).toBe(5);
+    expect(entries.slice(0, __aiRuntimeTest.findLoopSplitIndex(entries, 2)).map((entry) => entry.seq)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test("keeps more recent loops when context pressure is lower", () => {
+    expect(__aiRuntimeTest.keepLoopsForFillRatio(undefined, 10)).toBe(2);
+    expect(__aiRuntimeTest.keepLoopsForFillRatio(0.75, 10)).toBe(3);
+    expect(__aiRuntimeTest.keepLoopsForFillRatio(0.95, 10)).toBe(2);
   });
 });

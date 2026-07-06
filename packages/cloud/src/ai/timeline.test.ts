@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Message } from "@valentinkolb/nessi";
-import { assistantVisibleBlocks, buildAiMessageTimeline, copyTextFromAssistantEntries } from "./timeline";
+import { assistantDisplayBlocks, assistantVisibleBlocks, buildAiMessageTimeline, copyTextFromAssistantEntries } from "./timeline";
 import type { AiStoredMessage } from "./types";
 
 const stored = (input: {
@@ -88,5 +88,17 @@ describe("AI message timeline", () => {
     };
 
     expect(assistantVisibleBlocks(message).map((block) => block.type)).toEqual(["text", "thinking", "tool_call", "text"]);
+  });
+
+  test("displays reasoning before answer text for final assistant messages", () => {
+    const message: Message = {
+      role: "assistant",
+      content: [
+        { type: "text", text: "answer" },
+        { type: "thinking", thinking: "reasoning" },
+      ],
+    };
+
+    expect(assistantDisplayBlocks(message).map((block) => block.type)).toEqual(["thinking", "text"]);
   });
 });

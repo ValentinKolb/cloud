@@ -117,6 +117,7 @@ const AI_ENABLED_SETTING_KEY = "ai.enabled";
 const AI_GLOBAL_INSTRUCTIONS_SETTING_KEY = "ai.global_instructions";
 const AI_COMPACTION_PROMPT_SETTING_KEY = "ai.compaction_prompt";
 const AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY = "ai.max_tool_result_chars";
+const AI_FIRECRAWL_API_KEY_SETTING_KEY = "ai.firecrawl_api_key";
 
 const AI_SETTINGS_HANDLED_BY_PANEL = new Set<string>([
   AI_ENABLED_SETTING_KEY,
@@ -125,6 +126,7 @@ const AI_SETTINGS_HANDLED_BY_PANEL = new Set<string>([
   AI_GLOBAL_INSTRUCTIONS_SETTING_KEY,
   AI_COMPACTION_PROMPT_SETTING_KEY,
   AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY,
+  AI_FIRECRAWL_API_KEY_SETTING_KEY,
 ]);
 
 const AI_PROVIDER_OPTIONS: ReadonlyArray<{
@@ -934,6 +936,19 @@ function AiSettingsPanel(props: {
           max={50000}
           showSteppers={false}
           error={() => props.errorFor(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY)}
+        />
+      </PanelDialog.Section>
+
+      <PanelDialog.Section title="Web tools" subtitle="Firecrawl-backed search and page extraction for AI tools." icon="ti ti-world-search">
+        <TextInput
+          variant="ai"
+          label="Firecrawl API key"
+          description="Enables the default web_search and web_extract tools. The key is stored encrypted and never sent to the browser after save."
+          value={() => asString(props.valueOf(AI_FIRECRAWL_API_KEY_SETTING_KEY))}
+          onInput={(value) => props.onChange(AI_FIRECRAWL_API_KEY_SETTING_KEY, value)}
+          placeholder={entry(AI_FIRECRAWL_API_KEY_SETTING_KEY)?.placeholder ?? "fc-..."}
+          password
+          error={() => props.errorFor(AI_FIRECRAWL_API_KEY_SETTING_KEY)}
         />
       </PanelDialog.Section>
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { coreSettings } from "../services";
+import { AI_FIRECRAWL_API_KEY_SETTING_KEY } from "./firecrawl-tools";
 import { createAiProvider } from "./provider";
 import {
   AI_DATA_BOUNDARIES,
@@ -149,6 +150,7 @@ export const resolveAiSettingsStateFromRaw = async (input: {
   globalInstructions?: string;
   compactionPrompt?: string;
   maxToolResultChars?: unknown;
+  firecrawlApiKey?: string;
   readCredential?: (settingKey: string) => Promise<string | undefined>;
 }): Promise<AiSettingsState> => {
   const parsed = parseProfiles(input.profilesJson ?? "[]");
@@ -158,6 +160,7 @@ export const resolveAiSettingsStateFromRaw = async (input: {
     globalInstructions: input.globalInstructions ?? "",
     compactionPrompt: input.compactionPrompt ?? "",
     maxToolResultChars: normalizeMaxToolResultChars(input.maxToolResultChars),
+    firecrawlConfigured: Boolean(input.firecrawlApiKey?.trim()),
   };
   if (parsed.error) {
     return {
@@ -234,13 +237,14 @@ export const resolveAiSettingsStateFromRaw = async (input: {
 };
 
 export const readAiSettingsState = async (): Promise<AiSettingsState> => {
-  const [enabled, defaultModelId, profilesJson, globalInstructions, compactionPrompt, maxToolResultChars] = await Promise.all([
+  const [enabled, defaultModelId, profilesJson, globalInstructions, compactionPrompt, maxToolResultChars, firecrawlApiKey] = await Promise.all([
     coreSettings.get<boolean>("ai.enabled"),
     coreSettings.get<string>("ai.default_model_id"),
     coreSettings.get<string>("ai.model_profiles_json"),
     coreSettings.get<string>("ai.global_instructions"),
     coreSettings.get<string>("ai.compaction_prompt"),
     coreSettings.get<number>("ai.max_tool_result_chars"),
+    coreSettings.get<string>(AI_FIRECRAWL_API_KEY_SETTING_KEY),
   ]);
 
   return resolveAiSettingsStateFromRaw({
@@ -250,6 +254,7 @@ export const readAiSettingsState = async (): Promise<AiSettingsState> => {
     globalInstructions: globalInstructions ?? "",
     compactionPrompt: compactionPrompt ?? "",
     maxToolResultChars,
+    firecrawlApiKey: firecrawlApiKey ?? "",
     readCredential: (settingKey) => coreSettings.get<string>(settingKey),
   });
 };
@@ -330,6 +335,7 @@ export const toPublicAiSettingsState = async () => {
     enabled: state.enabled,
     defaultModelId: state.defaultModelId,
     error: state.ok ? null : state.error,
+    firecrawlConfigured: state.firecrawlConfigured,
     models: state.ok && state.enabled ? state.profiles.filter((profile) => profile.enabled).map(profileToPublic) : [],
   };
 };

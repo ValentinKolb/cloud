@@ -35,6 +35,12 @@ export const AiTurnInputSchema = z
 
 export type AiTurnInput = z.infer<typeof AiTurnInputSchema>;
 
+export const AiCompactionInputSchema = z.object({
+  modelProfileId: z.string().trim().min(1).optional(),
+});
+
+export type AiCompactionInput = z.infer<typeof AiCompactionInputSchema>;
+
 export const AiMessageRetryModeSchema = z.enum(["retry", "details", "concise"]);
 export type AiMessageRetryMode = z.infer<typeof AiMessageRetryModeSchema>;
 

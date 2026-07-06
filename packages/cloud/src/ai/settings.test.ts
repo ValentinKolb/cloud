@@ -18,11 +18,18 @@ const profilesJson = (overrides: Array<Record<string, unknown>> = []) =>
     ...overrides.slice(1),
   ]);
 
-const resolve = (input: { enabled?: boolean; defaultModelId?: string; profilesJson?: string; credentials?: Record<string, string> }) =>
+const resolve = (input: {
+  enabled?: boolean;
+  defaultModelId?: string;
+  profilesJson?: string;
+  credentials?: Record<string, string>;
+  firecrawlApiKey?: string;
+}) =>
   resolveAiSettingsStateFromRaw({
     enabled: input.enabled ?? true,
     defaultModelId: input.defaultModelId ?? "openrouter-fast",
     profilesJson: input.profilesJson ?? profilesJson(),
+    firecrawlApiKey: input.firecrawlApiKey,
     readCredential: async (key) => input.credentials?.[key],
   });
 
@@ -32,7 +39,16 @@ describe("AI settings model registry", () => {
 
     expect(state.ok).toBe(true);
     expect(state.enabled).toBe(true);
+    expect(state.firecrawlConfigured).toBe(false);
     if (state.ok) expect(state.profiles[0]?.id).toBe("openrouter-fast");
+  });
+
+  test("tracks Firecrawl configuration without exposing the key", async () => {
+    const state = await resolve({ firecrawlApiKey: "fc-secret" });
+
+    expect(state.ok).toBe(true);
+    expect(state.firecrawlConfigured).toBe(true);
+    expect(JSON.stringify(state)).not.toContain("fc-secret");
   });
 
   test("selects the configured platform default model", async () => {

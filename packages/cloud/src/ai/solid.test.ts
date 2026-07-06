@@ -165,6 +165,206 @@ describe("AI Solid chat controller", () => {
     });
   });
 
+  test("streams manual compaction turns through the active conversation session", async () => {
+    let compactBody: unknown;
+    const route = {
+      conversations: {
+        $get: async () => Response.json([conversation]),
+        $post: async () => Response.json(conversation),
+        ":conversationId": {
+          ...messageActions,
+          $get: async () => Response.json({ conversation, messages: [], activeTurn: null, pendingActions: [] }),
+          compact: {
+            $post: async (input: { json: unknown }) => {
+              compactBody = input.json;
+              return sse([
+                {
+                  type: "turn_start",
+                  conversationId: conversation.id,
+                  turnId: "turn-compact",
+                  modelProfileId: "model-1",
+                  providerModel: "provider/model",
+                  cursor: "1-0",
+                },
+                {
+                  type: "nessi",
+                  conversationId: conversation.id,
+                  turnId: "turn-compact",
+                  loopId: "turn-compact",
+                  event: { type: "compaction_start", agentId: "cloud", loopId: "turn-compact" },
+                  cursor: "2-0",
+                },
+                {
+                  type: "nessi",
+                  conversationId: conversation.id,
+                  turnId: "turn-compact",
+                  loopId: "turn-compact",
+                  event: { type: "compaction_end", agentId: "cloud", loopId: "turn-compact" },
+                  cursor: "3-0",
+                },
+                {
+                  type: "compaction_result",
+                  conversationId: conversation.id,
+                  turnId: "turn-compact",
+                  loopId: "turn-compact",
+                  reason: "stop",
+                  result: { applied: true, entriesBefore: 8, entriesAfter: 3, forced: true },
+                  cursor: "4-0",
+                },
+                {
+                  type: "done",
+                  conversationId: conversation.id,
+                  turnId: "turn-compact",
+                  loopId: "turn-compact",
+                  reason: "stop",
+                  aggregate: null,
+                  cursor: "5-0",
+                },
+              ]);
+            },
+          },
+          turns: {
+            $post: async () => sse([]),
+            ":turnId": {
+              abort: {
+                $post: async () => Response.json({ ok: true }),
+              },
+              actions: {
+                ":callId": {
+                  $post: async () => Response.json({ ok: true }),
+                },
+              },
+              events: {
+                $get: async () => sse([]),
+              },
+            },
+          },
+        },
+      },
+    };
+
+    await createRoot(async (dispose) => {
+      const chat = createAiChatController({
+        route,
+        initialConversations: [conversation],
+        initialConversationId: conversation.id,
+      });
+
+      await expect(chat.compactConversation({ modelProfileId: "model-1" })).resolves.toBe(true);
+      expect(compactBody).toEqual({ modelProfileId: "model-1" });
+      expect(chat.runStatus()).toBe("idle");
+      expect(chat.activeTurn()).toBeNull();
+      expect(chat.assistantBlocks()).toEqual([
+        {
+          id: "compaction-turn-compact",
+          type: "compaction",
+          status: "completed",
+          result: { applied: true, entriesBefore: 8, entriesAfter: 3, forced: true },
+        },
+      ]);
+      dispose();
+    });
+  });
+
+  test("keeps manual no-op compaction visible as a neutral assistant block", async () => {
+    let compactCalls = 0;
+    const route = {
+      conversations: {
+        $get: async () => Response.json([conversation]),
+        $post: async () => Response.json(conversation),
+        ":conversationId": {
+          ...messageActions,
+          $get: async () => Response.json({ conversation, messages: [], activeTurn: null, pendingActions: [] }),
+          compact: {
+            $post: async () => {
+              compactCalls += 1;
+              const turnId = compactCalls === 1 ? "turn-compact-1" : "turn-compact-2";
+              const applied = compactCalls === 1;
+              const cursorPrefix = compactCalls.toString();
+              return sse([
+                {
+                  type: "turn_start",
+                  conversationId: conversation.id,
+                  turnId,
+                  modelProfileId: "model-1",
+                  providerModel: "provider/model",
+                  cursor: `${cursorPrefix}-0`,
+                },
+                {
+                  type: "compaction_result",
+                  conversationId: conversation.id,
+                  turnId,
+                  loopId: turnId,
+                  reason: "stop",
+                  result: applied
+                    ? { applied: true, entriesBefore: 8, entriesAfter: 3, forced: true }
+                    : { applied: false, entriesBefore: 3, entriesAfter: 3, forced: true },
+                  cursor: `${cursorPrefix}-1`,
+                },
+                {
+                  type: "done",
+                  conversationId: conversation.id,
+                  turnId,
+                  loopId: turnId,
+                  reason: "stop",
+                  aggregate: null,
+                  cursor: `${cursorPrefix}-2`,
+                },
+              ]);
+            },
+          },
+          turns: {
+            $post: async () => sse([]),
+            ":turnId": {
+              abort: {
+                $post: async () => Response.json({ ok: true }),
+              },
+              actions: {
+                ":callId": {
+                  $post: async () => Response.json({ ok: true }),
+                },
+              },
+              events: {
+                $get: async () => sse([]),
+              },
+            },
+          },
+        },
+      },
+    };
+
+    await createRoot(async (dispose) => {
+      const chat = createAiChatController({
+        route,
+        initialConversations: [conversation],
+        initialConversationId: conversation.id,
+      });
+
+      await expect(chat.compactConversation({ modelProfileId: "model-1" })).resolves.toBe(true);
+      expect(chat.assistantBlocks()).toEqual([
+        {
+          id: "compaction-turn-compact-1",
+          type: "compaction",
+          status: "completed",
+          result: { applied: true, entriesBefore: 8, entriesAfter: 3, forced: true },
+        },
+      ]);
+
+      await expect(chat.compactConversation({ modelProfileId: "model-1" })).resolves.toBe(true);
+      expect(chat.runStatus()).toBe("idle");
+      expect(chat.activeTurn()).toBeNull();
+      expect(chat.assistantBlocks()).toEqual([
+        {
+          id: "compaction-turn-compact-2",
+          type: "compaction",
+          status: "skipped",
+          result: { applied: false, entriesBefore: 3, entriesAfter: 3, forced: true },
+        },
+      ]);
+      dispose();
+    });
+  });
+
   test("keeps initial pending approval requests available without replay", () => {
     const route = {
       conversations: {
@@ -287,7 +487,14 @@ describe("AI Solid chat controller", () => {
                       providerModel: "provider/model",
                       cursor: "1-0",
                     },
-                    { type: "done", conversationId: conversation.id, turnId: activeTurn.id, reason: "stop", aggregate: null, cursor: "2-0" },
+                    {
+                      type: "done",
+                      conversationId: conversation.id,
+                      turnId: activeTurn.id,
+                      reason: "stop",
+                      aggregate: null,
+                      cursor: "2-0",
+                    },
                   ]);
                 },
               },
@@ -450,11 +657,14 @@ describe("AI Solid chat controller", () => {
         autoResume: false,
       });
 
-      const forked = await chat.forkMessage("message-2");
+      const forked = await chat.forkMessage("message-2", { title: "Forked path" });
       expect(forked?.id).toBe(forkedConversation.id);
       expect(chat.activeConversationId()).toBe(forkedConversation.id);
       expect(chat.messages()).toEqual([forkedMessage]);
-      expect(postedFork).toMatchObject({ param: { conversationId: conversation.id, messageId: "message-2" } });
+      expect(postedFork).toMatchObject({
+        param: { conversationId: conversation.id, messageId: "message-2" },
+        json: { title: "Forked path" },
+      });
       dispose();
     });
   });
@@ -573,7 +783,12 @@ describe("AI Solid chat controller", () => {
           ...messageActions,
           $get: async (input: { param?: Record<string, string> }) =>
             input.param?.conversationId === secondConversation.id
-              ? Response.json({ conversation: secondConversation, messages: [secondAssistantMessage], activeTurn: null, pendingActions: [] })
+              ? Response.json({
+                  conversation: secondConversation,
+                  messages: [secondAssistantMessage],
+                  activeTurn: null,
+                  pendingActions: [],
+                })
               : Response.json({ conversation, messages: [], activeTurn: runningTurn, pendingActions: [] }),
           turns: {
             $post: async (input: { param?: Record<string, string> }) => {
@@ -601,7 +816,14 @@ describe("AI Solid chat controller", () => {
                   event: { type: "turn_end", agentId: "cloud", message: secondAssistantMessage.message },
                   cursor: "3-0",
                 },
-                { type: "done", conversationId: secondConversation.id, turnId: "turn-second", reason: "stop", aggregate: null, cursor: "4-0" },
+                {
+                  type: "done",
+                  conversationId: secondConversation.id,
+                  turnId: "turn-second",
+                  reason: "stop",
+                  aggregate: null,
+                  cursor: "4-0",
+                },
               ]);
             },
             ":turnId": {
@@ -715,7 +937,14 @@ describe("AI Solid chat controller", () => {
                   event: { type: "turn_end", agentId: "cloud", message: assistantMessage.message },
                   cursor: "3-0",
                 },
-                { type: "done", conversationId: createdConversation.id, turnId: "turn-created", reason: "stop", aggregate: null, cursor: "4-0" },
+                {
+                  type: "done",
+                  conversationId: createdConversation.id,
+                  turnId: "turn-created",
+                  reason: "stop",
+                  aggregate: null,
+                  cursor: "4-0",
+                },
               ]),
             ":turnId": {
               abort: {
@@ -830,7 +1059,14 @@ describe("AI Solid chat controller", () => {
                       },
                       cursor: "3-0",
                     },
-                    { type: "done", conversationId: conversation.id, turnId: "turn-regenerate", reason: "stop", aggregate: null, cursor: "4-0" },
+                    {
+                      type: "done",
+                      conversationId: conversation.id,
+                      turnId: "turn-regenerate",
+                      reason: "stop",
+                      aggregate: null,
+                      cursor: "4-0",
+                    },
                   ]);
                 },
               },
@@ -2147,7 +2383,8 @@ describe("AI Solid chat controller", () => {
                 },
               },
               events: {
-                $get: async () => sse([{ type: "done", conversationId: conversation.id, turnId: "turn-1", reason: "stop", aggregate: null }]),
+                $get: async () =>
+                  sse([{ type: "done", conversationId: conversation.id, turnId: "turn-1", reason: "stop", aggregate: null }]),
               },
             },
           },

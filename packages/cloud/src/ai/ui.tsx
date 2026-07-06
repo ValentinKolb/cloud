@@ -20,6 +20,7 @@ import type { AiMessageRetryMode } from "./http";
 import type { AiPublicModelProfile, AiStoredMessage, AiUiBlock, AiUserContentPart } from "./types";
 import { AI_IMAGE_MEDIA_TYPES, isAiImageMediaType } from "./types";
 import {
+  assistantDisplayBlocks,
   assistantBlocks,
   assistantVisibleBlocks,
   assistantVisibleTextFromMessage,
@@ -52,6 +53,10 @@ export type AiComposerSendInput = {
 export type AiRetryMessageInput = {
   mode?: AiMessageRetryMode;
   content?: AiUserContentPart[];
+};
+
+export type AiForkMessageInput = {
+  title?: string;
 };
 
 export type AiComposerAttachment =
@@ -228,6 +233,46 @@ const chatDisclosureToneClass = (tone: ChatDisclosureTone): string => {
   return "text-dimmed hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900";
 };
 
+const aiStatusRowClass = "inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-xs";
+
+function AiStatusContent(props: {
+  icon: string;
+  label: string;
+  description?: string;
+  tone?: ChatDisclosureTone;
+  chevron?: boolean;
+  children?: JSX.Element;
+}) {
+  const tone = () => props.tone ?? "neutral";
+  return (
+    <>
+      <i class={`${props.icon} text-sm ${tone() === "ai" ? "text-cyan-600 dark:text-cyan-300" : ""}`} aria-hidden="true" />
+      <span class="shrink-0 font-medium">{props.label}</span>
+      <Show when={props.description}>{(description) => <span class="min-w-0 truncate text-dimmed">{description()}</span>}</Show>
+      {props.children}
+      <Show when={props.chevron}>
+        <i class="ti ti-chevron-right shrink-0 text-sm opacity-60 transition-transform group-open:rotate-90" aria-hidden="true" />
+      </Show>
+    </>
+  );
+}
+
+function AiStatusLine(props: {
+  icon: string;
+  label: string;
+  tone?: ChatDisclosureTone;
+  class?: string;
+  children?: JSX.Element;
+}) {
+  return (
+    <p class={`${aiStatusRowClass} text-dimmed ${props.class ?? ""}`}>
+      <AiStatusContent icon={props.icon} label={props.label} tone={props.tone}>
+        {props.children}
+      </AiStatusContent>
+    </p>
+  );
+}
+
 function ChatDisclosure(props: {
   icon: string;
   label: string;
@@ -241,17 +286,22 @@ function ChatDisclosure(props: {
   return (
     <details class={`group max-w-[min(46rem,100%)] text-xs ${props.class ?? ""}`} open={props.defaultOpen}>
       <summary
-        class={`inline-flex max-w-full cursor-pointer list-none items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors ${chatDisclosureToneClass(tone())}`}
+        class={`${aiStatusRowClass} cursor-pointer list-none transition-colors ${chatDisclosureToneClass(tone())}`}
       >
-        <i class={`${props.icon} text-sm ${tone() === "ai" ? "text-cyan-600 dark:text-cyan-300" : ""}`} aria-hidden="true" />
-        <span class="shrink-0 font-medium">{props.label}</span>
-        <Show when={props.description}>
-          {(description) => <span class="min-w-0 truncate text-dimmed">{description()}</span>}
-        </Show>
-        <i class="ti ti-chevron-right shrink-0 text-sm opacity-60 transition-transform group-open:rotate-90" aria-hidden="true" />
+        <AiStatusContent icon={props.icon} label={props.label} description={props.description} tone={tone()} chevron />
       </summary>
       <div class="mt-1">{props.children}</div>
     </details>
+  );
+}
+
+function InlinePulseDots() {
+  return (
+    <span class="inline-flex items-center gap-0.5" aria-hidden="true">
+      <span class="h-1 w-1 animate-pulse rounded-full bg-current" />
+      <span class="h-1 w-1 animate-pulse rounded-full bg-current [animation-delay:120ms]" />
+      <span class="h-1 w-1 animate-pulse rounded-full bg-current [animation-delay:240ms]" />
+    </span>
   );
 }
 
@@ -693,15 +743,70 @@ function AssistantThinkingBlock(props: { text: string; streaming?: boolean }) {
   }
 
   return (
-    <p class="mb-2 inline-flex items-center gap-1.5 text-xs text-dimmed">
-      <i class="ti ti-sparkles text-sm text-cyan-600 dark:text-cyan-300" aria-hidden="true" />
-      <span>Thinking</span>
-      <span class="inline-flex items-center gap-0.5" aria-hidden="true">
-        <span class="h-1 w-1 animate-pulse rounded-full bg-current" />
-        <span class="h-1 w-1 animate-pulse rounded-full bg-current [animation-delay:120ms]" />
-        <span class="h-1 w-1 animate-pulse rounded-full bg-current [animation-delay:240ms]" />
-      </span>
-    </p>
+    <AiStatusLine icon="ti ti-sparkles" label="Thinking" tone="ai" class="mb-2">
+      <InlinePulseDots />
+    </AiStatusLine>
+  );
+}
+
+function CompactionBlock(props: { block: Extract<AiUiBlock, { type: "compaction" }> }) {
+  const status = () => props.block.status;
+  const result = () => props.block.result;
+  const description = () => {
+    if (status() === "completed") return "Context compacted";
+    if (status() === "skipped") return "No-op";
+    if (status() === "failed") return "Compaction failed";
+    return "Compacting context";
+  };
+  const details = () => {
+    if (status() === "completed") return "Older chat context was summarized and stored as compact conversation memory.";
+    if (status() === "skipped") return "The chat is already compacted or does not have enough older context to summarize safely.";
+    if (status() === "failed") return "The compaction turn did not complete successfully.";
+    return "The server is compacting older context.";
+  };
+
+  if (status() === "running") {
+    return (
+      <AiStatusLine icon="ti ti-sparkles" label="Compacting context" tone="ai" class="mb-2">
+        <InlinePulseDots />
+      </AiStatusLine>
+    );
+  }
+
+  return (
+    <ChatDisclosure
+      icon="ti ti-sparkles"
+      label="Show compaction"
+      description={description()}
+      tone={status() === "failed" ? "danger" : "ai"}
+      class="mb-2"
+    >
+      <div class="max-w-xl rounded-md bg-zinc-100/70 p-2 text-[11px] leading-5 text-secondary dark:bg-zinc-950/70">
+        <p>{details()}</p>
+        <Show when={result()}>
+          {(compactResult) => (
+            <dl class="mt-2 grid grid-cols-2 gap-2">
+              <div class="rounded-md bg-white/65 px-2 py-1 dark:bg-white/5">
+                <dt class="uppercase tracking-wide text-dimmed">Applied</dt>
+                <dd class="font-medium text-primary">{compactResult().applied ? "Yes" : "No"}</dd>
+              </div>
+              <div class="rounded-md bg-white/65 px-2 py-1 dark:bg-white/5">
+                <dt class="uppercase tracking-wide text-dimmed">Forced</dt>
+                <dd class="font-medium text-primary">{compactResult().forced ? "Yes" : "No"}</dd>
+              </div>
+              <div class="rounded-md bg-white/65 px-2 py-1 dark:bg-white/5">
+                <dt class="uppercase tracking-wide text-dimmed">Before</dt>
+                <dd class="font-medium text-primary">{compactResult().entriesBefore.toLocaleString()}</dd>
+              </div>
+              <div class="rounded-md bg-white/65 px-2 py-1 dark:bg-white/5">
+                <dt class="uppercase tracking-wide text-dimmed">After</dt>
+                <dd class="font-medium text-primary">{compactResult().entriesAfter.toLocaleString()}</dd>
+              </div>
+            </dl>
+          )}
+        </Show>
+      </div>
+    </ChatDisclosure>
   );
 }
 
@@ -888,6 +993,64 @@ function CloudSurveyBlock(props: { args: unknown; disabled?: boolean; onSubmit?:
   );
 }
 
+const surveyAnswerLabel = (question: Record<string, unknown> | null, value: unknown) => {
+  const options = Array.isArray(question?.options) ? (question!.options as unknown[]).filter(isRecord) : [];
+  const optionLabel = (entry: unknown) => {
+    const match = options.find((option) => String(option.value ?? "") === String(entry));
+    return String(match?.label ?? entry ?? "");
+  };
+  if (Array.isArray(value)) return value.map(optionLabel).filter(Boolean).join(", ");
+  if (typeof value === "object" && value !== null) return jsonPreview(value);
+  if (value === undefined || value === null || value === "") return "No answer";
+  return optionLabel(value);
+};
+
+function CloudSurveyResultBlock(props: { args?: unknown; result: unknown }) {
+  const survey = () => (isRecord(props.args) ? props.args : null);
+  const result = () => (isRecord(props.result) ? props.result : null);
+  const answers = () => (isRecord(result()?.answers) ? (result()!.answers as Record<string, unknown>) : {});
+  const questions = () => (Array.isArray(survey()?.questions) ? (survey()!.questions as unknown[]).filter(isRecord) : []);
+  const rows = () => {
+    const knownQuestions = questions().map((question) => {
+      const id = String(question.id ?? "");
+      return {
+        id,
+        label: String(question.label ?? id),
+        value: surveyAnswerLabel(question, answers()[id]),
+      };
+    });
+    const knownIds = new Set(knownQuestions.map((question) => question.id));
+    const extraAnswers = Object.entries(answers())
+      .filter(([id]) => !knownIds.has(id))
+      .map(([id, value]) => ({ id, label: id, value: surveyAnswerLabel(null, value) }));
+    return [...knownQuestions, ...extraAnswers].filter((row) => row.id);
+  };
+
+  return (
+    <details class="my-2 max-w-xl rounded-md border border-cyan-200 bg-white/80 p-2.5 text-sm dark:border-cyan-900/70 dark:bg-zinc-900/80">
+      <summary class="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-primary">
+        <span class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-200">
+          <i class="ti ti-forms text-base" aria-hidden="true" />
+        </span>
+        <span class="min-w-0 flex-1 truncate">{String(survey()?.title ?? "Survey")} submitted</span>
+        <i class="ti ti-chevron-down text-sm text-dimmed" aria-hidden="true" />
+      </summary>
+      <div class="mt-3 space-y-2">
+        <Show when={rows().length > 0} fallback={<p class="text-xs text-dimmed">No answers submitted.</p>}>
+          <For each={rows()}>
+            {(row) => (
+              <div class="rounded-md bg-zinc-50 px-2 py-1.5 dark:bg-zinc-950/50">
+                <p class="text-xs font-medium text-dimmed">{row.label}</p>
+                <p class="mt-0.5 whitespace-pre-wrap text-sm text-primary">{row.value}</p>
+              </div>
+            )}
+          </For>
+        </Show>
+      </div>
+    </details>
+  );
+}
+
 function GenericToolBlock(props: { name: string; args?: unknown; result?: unknown; status?: string }) {
   return (
     <ChatDisclosure icon="ti ti-tool" label={props.name} description={props.status ?? "tool"} class="my-1">
@@ -898,9 +1061,13 @@ function GenericToolBlock(props: { name: string; args?: unknown; result?: unknow
   );
 }
 
-function ToolCallBlockView(props: { block: ToolCallUiBlock | Extract<AssistantMessage["content"][number], { type: "tool_call" }> }) {
+function ToolCallBlockView(props: {
+  block: ToolCallUiBlock | Extract<AssistantMessage["content"][number], { type: "tool_call" }>;
+  hideDefaultFrontendTools?: boolean;
+}) {
   const name = () => props.block.name;
   const args = () => props.block.args;
+  if (props.hideDefaultFrontendTools && (isCardToolName(name()) || isSurveyToolName(name()))) return null;
   return (
     <Show
       when={isCardToolName(name())}
@@ -991,7 +1158,12 @@ function FrontendToolBlockView(props: {
             />
           }
         >
-          <CloudSurveyBlock args={request().args} disabled={!pending()} onSubmit={(result) => props.onResult?.(request(), result)} />
+          <Show
+            when={pending()}
+            fallback={<CloudSurveyResultBlock args={request().args} result={props.block.result ?? { submitted: true, answers: {} }} />}
+          >
+            <CloudSurveyBlock args={request().args} onSubmit={(result) => props.onResult?.(request(), result)} />
+          </Show>
         </Show>
       }
     >
@@ -1012,18 +1184,13 @@ function ActiveAssistantBlock(props: {
     case "thinking":
       return <AssistantThinkingBlock text={block.text} streaming />;
     case "tool_call":
-      return <ToolCallBlockView block={block} />;
+      return <ToolCallBlockView block={block} hideDefaultFrontendTools />;
     case "approval_request":
       return <ApprovalBlockView block={block} onApproval={props.onApproval} />;
     case "frontend_tool":
       return <FrontendToolBlockView block={block} onResult={props.onFrontendToolResult} />;
     case "compaction":
-      return (
-        <p class="my-2 inline-flex items-center gap-1.5 rounded-md bg-cyan-50 px-2 py-1 text-xs text-cyan-800 dark:bg-cyan-950/30 dark:text-cyan-200">
-          <i class="ti ti-package text-sm" aria-hidden="true" />
-          {block.status === "running" ? "Compacting context" : "Context compacted"}
-        </p>
-      );
+      return <CompactionBlock block={block} />;
     case "error":
       return (
         <p class="my-2 inline-flex items-center gap-1.5 rounded-md bg-red-50 px-2 py-1 text-xs text-red-700 dark:bg-red-950/35 dark:text-red-300">
@@ -1034,16 +1201,108 @@ function ActiveAssistantBlock(props: {
   }
 }
 
+function AssistantMessageLane(props: { children: JSX.Element }) {
+  return (
+    <div class="group/assistant-message px-3 py-2">
+      <div class="max-w-[min(46rem,100%)] text-sm leading-6 text-primary">{props.children}</div>
+    </div>
+  );
+}
+
+const forkTitleFromText = (text: string): string => {
+  const firstLine = text
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!firstLine) return "Forked chat";
+  return firstLine.length > 80 ? `${firstLine.slice(0, 77).trim()}...` : firstLine;
+};
+
+function ForkMessageDialog(props: {
+  entry: AiStoredMessage;
+  copyText: string;
+  close: () => void;
+  onForkMessage: (entry: AiStoredMessage, input?: AiForkMessageInput) => void | Promise<void>;
+}) {
+  const [title, setTitle] = createSignal(forkTitleFromText(props.copyText));
+  const [submitting, setSubmitting] = createSignal(false);
+
+  const submit = async () => {
+    const nextTitle = title().trim();
+    if (!nextTitle || submitting()) return;
+    setSubmitting(true);
+    try {
+      await props.onForkMessage(props.entry, { title: nextTitle });
+      props.close();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <PanelDialog>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <PanelDialog.Header
+          title="Fork chat"
+          subtitle="Create a new chat that keeps the conversation up to this response."
+          icon="ti ti-git-fork"
+          close={props.close}
+        />
+        <PanelDialog.Body>
+          <p class="text-sm leading-6 text-secondary">
+            The new chat starts from this assistant response, so you can explore a different direction without changing the current chat.
+          </p>
+          <TextInput
+            label="New chat name"
+            value={title}
+            onInput={setTitle}
+            required
+            maxLength={120}
+            placeholder="Name for the forked chat"
+          />
+        </PanelDialog.Body>
+        <PanelDialog.Footer>
+          <span />
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn-secondary btn-sm" disabled={submitting()} onClick={props.close}>
+              Cancel
+            </button>
+            <button type="submit" class="btn-primary btn-sm" disabled={submitting() || !title().trim()}>
+              <i class={submitting() ? "ti ti-loader-2 animate-spin" : "ti ti-git-fork"} />
+              Fork chat
+            </button>
+          </div>
+        </PanelDialog.Footer>
+      </form>
+    </PanelDialog>
+  );
+}
+
+const openForkMessageDialog = (
+  entry: AiStoredMessage,
+  copyText: string,
+  onForkMessage: (entry: AiStoredMessage, input?: AiForkMessageInput) => void | Promise<void>,
+) =>
+  dialogCore.open<void>(
+    (close) => <ForkMessageDialog entry={entry} copyText={copyText} onForkMessage={onForkMessage} close={() => close()} />,
+    panelDialogOptions,
+  );
+
 function AssistantMessageActions(props: {
   entry: AiStoredMessage;
   entries: AiStoredMessage[];
   copyText: string;
-  onForkMessage?: (entry: AiStoredMessage) => void | Promise<void>;
+  onForkMessage?: (entry: AiStoredMessage, input?: AiForkMessageInput) => void | Promise<void>;
 }) {
   const { copy, wasCopied } = clipboard.create(1400);
 
   return (
-    <div class="mt-1 flex items-center gap-0.5 text-dimmed">
+    <div class="invisible mt-1 flex h-7 items-center gap-0.5 text-dimmed opacity-0 transition-opacity group-focus-within/assistant-message:visible group-focus-within/assistant-message:opacity-100 group-hover/assistant-message:visible group-hover/assistant-message:opacity-100">
       <button
         type="button"
         class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"
@@ -1063,15 +1322,19 @@ function AssistantMessageActions(props: {
       >
         <i class={`ti ${wasCopied() ? "ti-check" : "ti-copy"} text-sm`} aria-hidden="true" />
       </button>
-      <button
-        type="button"
-        class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"
-        aria-label="Fork conversation"
-        title="Fork"
-        onClick={() => void props.onForkMessage?.(props.entry)}
-      >
-        <i class="ti ti-git-fork text-sm" aria-hidden="true" />
-      </button>
+      <Show when={props.onForkMessage}>
+        {(onForkMessage) => (
+          <button
+            type="button"
+            class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"
+            aria-label="Fork conversation"
+            title="Fork"
+            onClick={() => void openForkMessageDialog(props.entry, props.copyText, onForkMessage())}
+          >
+            <i class="ti ti-git-fork text-sm" aria-hidden="true" />
+          </button>
+        )}
+      </Show>
     </div>
   );
 }
@@ -1081,9 +1344,9 @@ function AssistantMessageBlock(props: {
   entry?: AiStoredMessage;
   streaming?: boolean;
   hideActions?: boolean;
-  onForkMessage?: (entry: AiStoredMessage) => void | Promise<void>;
+  onForkMessage?: (entry: AiStoredMessage, input?: AiForkMessageInput) => void | Promise<void>;
 }) {
-  const blocks = () => assistantVisibleBlocks(props.message);
+  const blocks = () => assistantDisplayBlocks(props.message);
   const actionEntry = () => {
     if (props.streaming || props.hideActions || !props.entry) return null;
     if (props.entry.loopAggregate || assistantVisibleTextFromMessage(props.entry.message)) return props.entry;
@@ -1091,58 +1354,56 @@ function AssistantMessageBlock(props: {
   };
 
   return (
-    <div class="px-3 py-2">
-      <div class="max-w-[min(46rem,100%)] text-sm leading-6 text-primary">
-        <Show
-          when={blocks().length > 0}
-          fallback={
-            <p class="inline-flex items-center gap-1.5 text-xs text-dimmed">
-              <i class="ti ti-sparkles text-sm" aria-hidden="true" />
-              {props.streaming ? "Thinking..." : "No text content"}
-            </p>
-          }
-        >
-          <For each={blocks()}>
-            {(block) => (
-              <Show
-                when={block.type === "thinking"}
-                fallback={
-                  <Show
-                    when={block.type === "text"}
-                    fallback={
-                      <Show when={block.type === "tool_call"}>
-                        <ToolCallBlockView block={block as Extract<AssistantMessage["content"][number], { type: "tool_call" }>} />
-                      </Show>
-                    }
-                  >
-                    <MarkdownView html={markdown.renderSync(block.type === "text" ? block.text : "")} class="markdown-content-sm" />
-                  </Show>
-                }
-              >
-                <AssistantThinkingBlock text={block.type === "thinking" ? block.thinking : ""} streaming={props.streaming} />
-              </Show>
-            )}
-          </For>
-        </Show>
-        <Show when={actionEntry()}>
-          {(entry) => (
-            <AssistantMessageActions
-              entry={entry()}
-              entries={[entry()]}
-              copyText={assistantVisibleTextFromMessage(entry().message)}
-              onForkMessage={props.onForkMessage}
-            />
+    <AssistantMessageLane>
+      <Show
+        when={blocks().length > 0}
+        fallback={
+          <p class="inline-flex items-center gap-1.5 text-xs text-dimmed">
+            <i class="ti ti-sparkles text-sm" aria-hidden="true" />
+            {props.streaming ? "Thinking..." : "No text content"}
+          </p>
+        }
+      >
+        <For each={blocks()}>
+          {(block) => (
+            <Show
+              when={block.type === "thinking"}
+              fallback={
+                <Show
+                  when={block.type === "text"}
+                  fallback={
+                    <Show when={block.type === "tool_call"}>
+                      <ToolCallBlockView block={block as Extract<AssistantMessage["content"][number], { type: "tool_call" }>} />
+                    </Show>
+                  }
+                >
+                  <MarkdownView html={markdown.renderSync(block.type === "text" ? block.text : "")} class="markdown-content-sm" />
+                </Show>
+              }
+            >
+              <AssistantThinkingBlock text={block.type === "thinking" ? block.thinking : ""} streaming={props.streaming} />
+            </Show>
           )}
-        </Show>
-      </div>
-    </div>
+        </For>
+      </Show>
+      <Show when={actionEntry()}>
+        {(entry) => (
+          <AssistantMessageActions
+            entry={entry()}
+            entries={[entry()]}
+            copyText={assistantVisibleTextFromMessage(entry().message)}
+            onForkMessage={props.onForkMessage}
+          />
+        )}
+      </Show>
+    </AssistantMessageLane>
   );
 }
 
 const isQuietToolResult = (result: unknown): boolean =>
   isRecord(result) && (result.displayed === true || result.submitted === true || result.ok === true);
 
-function ToolResultMessageBlock(props: { entry: AiStoredMessage }) {
+function ToolResultMessageBlock(props: { entry: AiStoredMessage; toolArgs?: unknown }) {
   const message = () => {
     const value = props.entry.message;
     return value.role === "tool_result" ? value : null;
@@ -1160,7 +1421,16 @@ function ToolResultMessageBlock(props: { entry: AiStoredMessage }) {
     return isError() ? "Tool failed" : "Tool result";
   };
 
-  if (!isError() && isQuietToolResult(result())) return null;
+  const toolResult = result();
+  if (!isError() && isSurveyToolName(message()?.name ?? "") && isRecord(toolResult) && toolResult.submitted === true) {
+    return (
+      <div class="px-3 py-1">
+        <CloudSurveyResultBlock args={props.toolArgs} result={toolResult} />
+      </div>
+    );
+  }
+
+  if (!isError() && isQuietToolResult(toolResult)) return null;
 
   return (
     <div class="px-3 py-1">
@@ -1199,58 +1469,75 @@ function SystemMessageBlock(props: { entry: AiStoredMessage }) {
 function AssistantResponseGroupBlock(props: {
   item: AiAssistantResponseTimelineItem;
   hideActions?: boolean;
-  onForkMessage?: (entry: AiStoredMessage) => void | Promise<void>;
+  onForkMessage?: (entry: AiStoredMessage, input?: AiForkMessageInput) => void | Promise<void>;
 }) {
   const copyText = () => copyTextFromAssistantEntries(props.item.entries);
   const actionEntry = () => (props.hideActions ? null : props.item.actionEntry);
+  const toolArgsByCallId = () => {
+    const map = new Map<string, unknown>();
+    for (const entry of props.item.entries) {
+      if (entry.kind !== "message" || entry.message.role !== "assistant") continue;
+      for (const block of assistantVisibleBlocks(entry.message)) {
+        if (block.type === "tool_call") map.set(block.id, block.args);
+      }
+    }
+    return map;
+  };
 
   return (
-    <div class="px-3 py-2">
-      <div class="max-w-[min(46rem,100%)] text-sm leading-6 text-primary">
-        <For each={props.item.entries}>
-          {(entry) => (
-            <Show
-              when={entry.kind === "message" && entry.message.role === "assistant"}
-              fallback={<Show when={entry.kind === "message" && entry.message.role === "tool_result"}>{<ToolResultMessageBlock entry={entry} />}</Show>}
-            >
-              <For each={assistantVisibleBlocks(entry.message)}>
-                {(block) => (
-                  <Show
-                    when={block.type === "thinking"}
-                    fallback={
-                      <Show
-                        when={block.type === "text"}
-                        fallback={
-                          <Show when={block.type === "tool_call"}>
-                            <ToolCallBlockView block={block as Extract<AssistantMessage["content"][number], { type: "tool_call" }>} />
-                          </Show>
-                        }
-                      >
-                        <MarkdownView html={markdown.renderSync(block.type === "text" ? block.text : "")} class="markdown-content-sm" />
-                      </Show>
-                    }
-                  >
-                    <AssistantThinkingBlock text={block.type === "thinking" ? block.thinking : ""} />
-                  </Show>
-                )}
-              </For>
-            </Show>
-          )}
-        </For>
-        <Show when={actionEntry()}>
-          {(entry) => (
-            <AssistantMessageActions entry={entry()} entries={props.item.entries} copyText={copyText()} onForkMessage={props.onForkMessage} />
-          )}
-        </Show>
-      </div>
-    </div>
+    <AssistantMessageLane>
+      <For each={props.item.entries}>
+        {(entry) => (
+          <Show
+            when={entry.kind === "message" && entry.message.role === "assistant"}
+            fallback={
+              <Show when={entry.kind === "message" && entry.message.role === "tool_result"}>
+                {
+                  <ToolResultMessageBlock
+                    entry={entry}
+                    toolArgs={entry.message.role === "tool_result" ? toolArgsByCallId().get(entry.message.callId) : undefined}
+                  />
+                }
+              </Show>
+            }
+          >
+            <For each={assistantDisplayBlocks(entry.message)}>
+              {(block) => (
+                <Show
+                  when={block.type === "thinking"}
+                  fallback={
+                    <Show
+                      when={block.type === "text"}
+                      fallback={
+                        <Show when={block.type === "tool_call"}>
+                          <ToolCallBlockView block={block as Extract<AssistantMessage["content"][number], { type: "tool_call" }>} />
+                        </Show>
+                      }
+                    >
+                      <MarkdownView html={markdown.renderSync(block.type === "text" ? block.text : "")} class="markdown-content-sm" />
+                    </Show>
+                  }
+                >
+                  <AssistantThinkingBlock text={block.type === "thinking" ? block.thinking : ""} />
+                </Show>
+              )}
+            </For>
+          </Show>
+        )}
+      </For>
+      <Show when={actionEntry()}>
+        {(entry) => (
+          <AssistantMessageActions entry={entry()} entries={props.item.entries} copyText={copyText()} onForkMessage={props.onForkMessage} />
+        )}
+      </Show>
+    </AssistantMessageLane>
   );
 }
 
 function AiTimelineItemView(props: {
   item: AiMessageTimelineItem;
   hideActions?: boolean;
-  onForkMessage?: (entry: AiStoredMessage) => void | Promise<void>;
+  onForkMessage?: (entry: AiStoredMessage, input?: AiForkMessageInput) => void | Promise<void>;
   onRetryMessage?: (entry: AiStoredMessage, input?: AiRetryMessageInput) => void | Promise<void>;
 }) {
   if (props.item.type === "assistant_response") {
@@ -1272,7 +1559,7 @@ export function AiMessageList(props: {
   assistantBlocks?: () => AiUiBlock[];
   onApproval?: (request: ApprovalUiBlock["request"], input: { approved: boolean; remember?: "always" }) => void | Promise<void>;
   onFrontendToolResult?: (request: FrontendToolUiBlock["request"], result: unknown) => void | Promise<void>;
-  onForkMessage?: (entry: AiStoredMessage) => void | Promise<void>;
+  onForkMessage?: (entry: AiStoredMessage, input?: AiForkMessageInput) => void | Promise<void>;
   onRetryMessage?: (entry: AiStoredMessage, input?: AiRetryMessageInput) => void | Promise<void>;
   streaming?: () => boolean;
   emptyTitle?: string;
@@ -1324,15 +1611,13 @@ export function AiMessageList(props: {
             )}
           </For>
           <Show when={activeBlocks().length > 0}>
-            <div class="px-3 py-2">
-              <div class="max-w-[min(46rem,100%)] text-sm leading-6 text-primary">
-                <For each={activeBlocks()}>
-                  {(block) => (
-                    <ActiveAssistantBlock block={block} onApproval={props.onApproval} onFrontendToolResult={props.onFrontendToolResult} />
-                  )}
-                </For>
-              </div>
-            </div>
+            <AssistantMessageLane>
+              <For each={activeBlocks()}>
+                {(block) => (
+                  <ActiveAssistantBlock block={block} onApproval={props.onApproval} onFrontendToolResult={props.onFrontendToolResult} />
+                )}
+              </For>
+            </AssistantMessageLane>
           </Show>
           <Show when={activeBlocks().length === 0 && assistantDraftMessage().content.length > 0}>
             <AssistantMessageBlock message={assistantDraftMessage()} streaming />
@@ -1661,7 +1946,7 @@ export function AiComposer(props: {
       <div
         role="group"
         aria-label="Assistant message composer"
-        class={`relative overflow-hidden rounded-lg border bg-white text-primary shadow-[var(--theme-shadow-elevated)] transition-[background-color,border-color,box-shadow] dark:bg-zinc-900 ${
+        class={`relative overflow-visible rounded-lg border bg-white text-primary shadow-[var(--theme-shadow-elevated)] transition-[background-color,border-color,box-shadow] dark:bg-zinc-900 ${
           dragActive()
             ? "border-cyan-400 bg-teal-50 dark:border-cyan-500 dark:bg-teal-950/30"
             : "border-cyan-300/80 dark:border-cyan-800/80"
@@ -1680,7 +1965,7 @@ export function AiComposer(props: {
         onDrop={onDrop}
       >
         <Show when={dragActive()}>
-          <div class="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-teal-50/85 text-sm font-medium text-cyan-700 dark:bg-teal-950/80 dark:text-cyan-200">
+          <div class="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-lg bg-teal-50/85 text-sm font-medium text-cyan-700 dark:bg-teal-950/80 dark:text-cyan-200">
             Drop files to attach
           </div>
         </Show>

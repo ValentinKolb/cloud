@@ -13,16 +13,22 @@ export type AiAssistantResponseTimelineItem = {
   actionEntry: AiStoredMessage | null;
 };
 
-export type AiMessageTimelineItem =
-  | { type: "entry"; id: string; entry: AiStoredMessage }
-  | AiAssistantResponseTimelineItem;
+export type AiMessageTimelineItem = { type: "entry"; id: string; entry: AiStoredMessage } | AiAssistantResponseTimelineItem;
 
 export const assistantBlocks = (message: Message): AssistantMessage["content"] => (message.role === "assistant" ? message.content : []);
 
 const isAssistantVisibleBlock = (block: AssistantMessage["content"][number]): block is AssistantVisibleBlock =>
   block.type === "thinking" || block.type === "text" || block.type === "tool_call";
 
-export const assistantVisibleBlocks = (message: Message): AssistantVisibleBlock[] => assistantBlocks(message).filter(isAssistantVisibleBlock);
+export const assistantVisibleBlocks = (message: Message): AssistantVisibleBlock[] =>
+  assistantBlocks(message).filter(isAssistantVisibleBlock);
+
+export const assistantDisplayBlocks = (message: Message): AssistantVisibleBlock[] => {
+  const blocks = assistantVisibleBlocks(message);
+  const thinkingBlocks = blocks.filter((block) => block.type === "thinking");
+  if (thinkingBlocks.length === 0) return blocks;
+  return [...thinkingBlocks, ...blocks.filter((block) => block.type !== "thinking")];
+};
 
 export const assistantVisibleTextFromMessage = (message: Message): string => {
   if (message.role !== "assistant") return "";

@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { createCloudAiWebExtractTool, createCloudAiWebSearchTool, isCloudAiFirecrawlConfigured } from "./firecrawl-tools";
 import { defineAiTool } from "./tools";
+import type { AiRuntimeTool } from "./types";
 
 const ToneSchema = z.enum(["neutral", "blue", "teal", "green", "amber", "red"]);
 
@@ -84,6 +86,20 @@ export const createCloudAiSurveyTool = () =>
   }).clientInteraction();
 
 export const createDefaultCloudAiTools = () => [createCloudAiCardTool(), createCloudAiSurveyTool()];
+
+export const createConfiguredDefaultCloudAiTools = async (config?: {
+  firecrawlApiKey?: string | null;
+  fetch?: typeof fetch;
+}) => {
+  const tools: AiRuntimeTool[] = createDefaultCloudAiTools();
+  const firecrawlConfigured =
+    config && "firecrawlApiKey" in config ? Boolean(config.firecrawlApiKey?.trim()) : await isCloudAiFirecrawlConfigured();
+  if (firecrawlConfigured) {
+    tools.push(createCloudAiWebSearchTool({ apiKey: config?.firecrawlApiKey, fetch: config?.fetch }));
+    tools.push(createCloudAiWebExtractTool({ apiKey: config?.firecrawlApiKey, fetch: config?.fetch }));
+  }
+  return tools;
+};
 
 export type CloudAiCardInput = z.infer<typeof CloudAiCardInputSchema>;
 export type CloudAiCardOutput = z.infer<typeof CloudAiCardOutputSchema>;

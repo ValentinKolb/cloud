@@ -433,7 +433,7 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
   const className = () =>
     mobile()
       ? `sidebar-item-mobile ${props.active ? (props.activeClass ?? activeMobileClass) : ""} ${itemToneClass(props.tone, true)} ${props.disabled ? "pointer-events-none opacity-50" : ""} ${props.class ?? ""}`
-      : `sidebar-item text-xs ${props.active ? (props.activeClass ?? "sidebar-item-active") : ""} ${itemToneClass(props.tone, false)} ${props.disabled ? "pointer-events-none opacity-50" : ""} ${props.class ?? ""}`;
+      : `sidebar-item group text-xs ${props.active ? (props.activeClass ?? "sidebar-item-active") : ""} ${itemToneClass(props.tone, false)} ${props.disabled ? "pointer-events-none opacity-50" : ""} ${props.class ?? ""}`;
   const style = () => (props.viewTransitionName ? `view-transition-name:${props.viewTransitionName}` : undefined);
   const dataAttrs = () =>
     Object.fromEntries(
@@ -450,7 +450,7 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
       onNavigate: props.onNavigate,
     });
 
-  const content = (
+  const mainContent = (
     <>
       <Show when={props.icon}>
         <i class={`${tablerIconClass(props.icon, "ti-circle")} ${mobile() ? "" : "text-sm"}`} />
@@ -459,22 +459,77 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
       <Show when={props.meta}>
         <span class="shrink-0 text-dimmed tabular-nums">{props.meta}</span>
       </Show>
-      <Show when={props.actionIcon && !mobile()}>
-        <button
-          type="button"
-          class="sidebar-item-action"
-          aria-label={props.actionLabel ?? "Row action"}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            props.onActionClick?.(event);
-          }}
-        >
-          <i class={`${tablerIconClass(props.actionIcon, "ti-dots")} text-xs`} />
-        </button>
-      </Show>
     </>
   );
+  const actionButton = () => (
+    <Show when={props.actionIcon && !mobile()}>
+      <button
+        type="button"
+        class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+        aria-label={props.actionLabel ?? "Row action"}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          props.onActionClick?.(event);
+        }}
+      >
+        <i class={`${tablerIconClass(props.actionIcon, "ti-dots")} text-xs`} />
+      </button>
+    </Show>
+  );
+  const content = (
+    <>
+      {mainContent}
+      {actionButton()}
+    </>
+  );
+  const actionRowContentClass = "flex min-w-0 flex-1 items-center gap-2 text-left";
+
+  const renderWithAction = () => (
+    <Show
+      when={props.disabled ? undefined : props.href}
+      fallback={
+        <div class={className()} title={props.title} style={style()} {...dataAttrs()}>
+          <button type="button" class={actionRowContentClass} disabled={props.disabled} onClick={props.onClick}>
+            {mainContent}
+          </button>
+          {actionButton()}
+        </div>
+      }
+    >
+      {(href) => (
+        <Show
+          when={enhanced(href())}
+          fallback={
+            <div class={className()} title={props.title} style={style()} {...dataAttrs()}>
+              <a href={href()} class={actionRowContentClass} onClick={props.onClick}>
+                {mainContent}
+              </a>
+              {actionButton()}
+            </div>
+          }
+        >
+          {(linkProps) => (
+            <div class={className()} title={props.title} style={style()} {...dataAttrs()}>
+              <a
+                href={href()}
+                class={actionRowContentClass}
+                onClick={(event) => {
+                  props.onClick?.(event);
+                  handleEnhancedClick(event, href(), linkProps());
+                }}
+              >
+                {mainContent}
+              </a>
+              {actionButton()}
+            </div>
+          )}
+        </Show>
+      )}
+    </Show>
+  );
+
+  if (props.actionIcon && !mobile()) return renderWithAction();
 
   return (
     <Show

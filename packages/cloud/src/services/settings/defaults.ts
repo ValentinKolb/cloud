@@ -230,6 +230,15 @@ export const SETTINGS: SettingDef[] = [
     group: "ai",
   },
   {
+    key: "ai.firecrawl_api_key",
+    label: "Firecrawl API Key",
+    kind: "secret",
+    default: "",
+    description: "Firecrawl API key used by Cloud AI web_search and web_extract tools.",
+    placeholder: "fc-...",
+    group: "ai",
+  },
+  {
     key: "gotenberg.url",
     label: "Gotenberg URL",
     kind: "url",

@@ -15,7 +15,8 @@ type ApprovalRequest = Extract<AiSseEvent, { type: "approval_request" }>;
 type FrontendToolRequest = Extract<AiSseEvent, { type: "frontend_tool" }>;
 type DoneEvent = Extract<AiSseEvent, { type: "done" }>;
 
-const eventLoopId = (event: AiSseEvent): string => event.loopId ?? (event.type === "nessi" ? event.event.loopId : undefined) ?? event.turnId;
+const eventLoopId = (event: AiSseEvent): string =>
+  event.loopId ?? (event.type === "nessi" ? event.event.loopId : undefined) ?? event.turnId;
 
 export type AiApprovalRequest = ApprovalRequest;
 export type AiFrontendToolRequest = FrontendToolRequest;
@@ -55,6 +56,9 @@ type AiChatRouteBranch = {
             $post: (...args: any[]) => Promise<Response>;
           };
         };
+      };
+      compact?: {
+        $post: (...args: any[]) => Promise<Response>;
       };
       turns: {
         $post: (...args: any[]) => Promise<Response>;
@@ -199,11 +203,7 @@ const createEmptySession = (conversationId: string): AiConversationSession => ({
 });
 
 const isRunningStatus = (status: AiChatRunStatus): boolean =>
-  status === "sending" ||
-  status === "streaming" ||
-  status === "waiting_for_action" ||
-  status === "reconnecting" ||
-  status === "stopping";
+  status === "sending" || status === "streaming" || status === "waiting_for_action" || status === "reconnecting" || status === "stopping";
 
 export const createAiChatController = <TRoute extends AiChatRouteBranch>(options: CreateAiChatControllerOptions<TRoute>) => {
   const [conversations, setConversations] = createSignal(options.initialConversations ?? []);
@@ -249,7 +249,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
   const activeSession = () => {
     sessionRevision();
     const conversationId = activeConversationId();
-    return conversationId ? sessions.get(conversationId) ?? null : null;
+    return conversationId ? (sessions.get(conversationId) ?? null) : null;
   };
 
   const setActiveConversationId = (conversationId: string | null) => {
@@ -315,11 +315,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
         : [...session.assistantBlocks.slice(0, index), block, ...session.assistantBlocks.slice(index + 1)];
   };
 
-  const updateToolBlock = (
-    session: AiConversationSession,
-    callId: string,
-    patch: Partial<Extract<AiUiBlock, { type: "tool_call" }>>,
-  ) => {
+  const updateToolBlock = (session: AiConversationSession, callId: string, patch: Partial<Extract<AiUiBlock, { type: "tool_call" }>>) => {
     const index = session.assistantBlocks.findIndex((block) => block.type === "tool_call" && block.callId === callId);
     if (index < 0) {
       session.assistantBlocks = [
@@ -542,7 +538,12 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
   };
 
   const maybeResumeSession = (session: AiConversationSession) => {
-    if (!(options.autoResume ?? true) || !session.activeTurn || isSessionRunning(session) || session.resumedTurnId === session.activeTurn.turnId) {
+    if (
+      !(options.autoResume ?? true) ||
+      !session.activeTurn ||
+      isSessionRunning(session) ||
+      session.resumedTurnId === session.activeTurn.turnId
+    ) {
       return;
     }
     session.resumedTurnId = session.activeTurn.turnId;
@@ -596,7 +597,11 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       session.runStatus = "waiting_for_action";
       session.approvalRequests = [...session.approvalRequests.filter((request) => request.callId !== event.callId), event];
       const blockId = `approval-${loopId}-${event.callId}`;
-      upsertAssistantBlock(session, { id: blockId, type: "approval_request", request: event, status: "pending" }, (block) => block.id === blockId);
+      upsertAssistantBlock(
+        session,
+        { id: blockId, type: "approval_request", request: event, status: "pending" },
+        (block) => block.id === blockId,
+      );
       touchSessions();
       return false;
     }
@@ -605,9 +610,24 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       session.runStatus = "waiting_for_action";
       session.frontendToolRequests = [...session.frontendToolRequests.filter((request) => request.callId !== event.callId), event];
       const blockId = `frontend-${loopId}-${event.callId}`;
-      upsertAssistantBlock(session, { id: blockId, type: "frontend_tool", request: event, status: "pending" }, (block) => block.id === blockId);
+      upsertAssistantBlock(
+        session,
+        { id: blockId, type: "frontend_tool", request: event, status: "pending" },
+        (block) => block.id === blockId,
+      );
       touchSessions();
       if (event.mode === "client" || event.mode === "client_view") void runFrontendTool(session, event);
+      return false;
+    }
+
+    if (event.type === "compaction_result") {
+      upsertAssistantBlock(session, {
+        id: `compaction-${loopId}`,
+        type: "compaction",
+        status: event.reason === "error" ? "failed" : event.result.applied ? "completed" : "skipped",
+        result: event.result,
+      });
+      touchSessions();
       return false;
     }
 
@@ -655,7 +675,13 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       touchSessions();
     } else if (nessiEvent.type === "turn_end") {
       if (session.pendingAssistantFinal) flushAssistantOutput(session);
-      session.pendingAssistantFinal = { conversationId: session.conversationId, message: nessiEvent.message, loopId, loopAggregate: null, loopDoneReason: null };
+      session.pendingAssistantFinal = {
+        conversationId: session.conversationId,
+        message: nessiEvent.message,
+        loopId,
+        loopAggregate: null,
+        loopDoneReason: null,
+      };
       if (!session.assistantDeltaQueue && !session.assistantDeltaTimer) commitPendingAssistantFinal(session);
       touchSessions();
     } else if (nessiEvent.type === "error") {
@@ -792,7 +818,9 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     const loaded = ensureSession(detail.conversation.id);
     loaded.messages = detail.messages;
     loaded.resumedTurnId = null;
-    loaded.activeTurn = detail.activeTurn ? { conversationId: detail.conversation.id, turnId: detail.activeTurn.id, loopId: detail.activeTurn.id } : null;
+    loaded.activeTurn = detail.activeTurn
+      ? { conversationId: detail.conversation.id, turnId: detail.activeTurn.id, loopId: detail.activeTurn.id }
+      : null;
     if (!detail.activeTurn && !isSessionRunning(loaded)) loaded.runStatus = "idle";
     applyPendingActions(loaded, detail.pendingActions);
     setActiveConversationId(detail.conversation.id);
@@ -878,7 +906,11 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     } catch (sendError) {
       if (thisRun === session.streamRunId) {
         session.runStatus = "failed";
-        session.error = controller.signal.aborted ? "AI request stopped." : sendError instanceof Error ? sendError.message : "AI request failed";
+        session.error = controller.signal.aborted
+          ? "AI request stopped."
+          : sendError instanceof Error
+            ? sendError.message
+            : "AI request failed";
         touchSessions();
       }
       return false;
@@ -890,6 +922,83 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
         if (completed || !turnAfterRefresh) {
           resetResumeRetry(session);
           clearAssistantOutput(session);
+        } else {
+          flushAssistantOutput(session);
+          scheduleResumeRetry(session, turnAfterRefresh);
+        }
+        touchSessions();
+      }
+    }
+  };
+
+  const compactConversation = async (input: { modelProfileId?: string } = {}) => {
+    const conversationId = activeConversationId();
+    const session = conversationId ? ensureSession(conversationId) : null;
+    const compactRoute = conversationId ? options.route.conversations[":conversationId"].compact : undefined;
+    if (!conversationId || !session) return false;
+    if (!compactRoute) {
+      session.error = "Compaction is not available for this chat.";
+      touchSessions();
+      return false;
+    }
+    if (isSessionRunning(session) || session.activeTurn) {
+      session.error = "Stop the current response before compacting context.";
+      touchSessions();
+      return false;
+    }
+
+    const controller = new AbortController();
+    const thisRun = ++session.streamRunId;
+    let completed = false;
+    session.error = null;
+    session.runStatus = "sending";
+    clearAssistantOutput(session);
+    resetResumeRetry(session);
+    session.approvalRequests = [];
+    session.frontendToolRequests = [];
+    session.abortController = controller;
+    touchSessions();
+
+    try {
+      const response = await compactRoute.$post(
+        inputWithParams({
+          param: { conversationId },
+          json: { modelProfileId: input.modelProfileId || undefined },
+        }),
+        { init: { signal: controller.signal } },
+      );
+
+      if (!response.ok) throw new Error(await readAiError(response, "AI compaction failed"));
+      if (thisRun === session.streamRunId) {
+        session.runStatus = "streaming";
+        touchSessions();
+      }
+      completed = await consumeStream(response, session, false);
+      if (thisRun !== session.streamRunId) return false;
+      if (completed) await waitForAssistantOutputSettled(session);
+      await refreshConversationDetail(conversationId);
+      await refreshConversations();
+      return true;
+    } catch (compactError) {
+      if (thisRun === session.streamRunId) {
+        session.runStatus = "failed";
+        session.error = controller.signal.aborted
+          ? "AI compaction stopped."
+          : compactError instanceof Error
+            ? compactError.message
+            : "AI compaction failed";
+        touchSessions();
+      }
+      return false;
+    } finally {
+      if (session.abortController === controller) session.abortController = null;
+      if (thisRun === session.streamRunId) {
+        if (session.runStatus !== "failed") setSessionRunning(session, false);
+        const turnAfterRefresh = session.activeTurn;
+        if (completed || !turnAfterRefresh) {
+          resetResumeRetry(session);
+          if (completed) flushAssistantOutput(session);
+          else clearAssistantOutput(session);
         } else {
           flushAssistantOutput(session);
           scheduleResumeRetry(session, turnAfterRefresh);
@@ -919,7 +1028,9 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     const forked = ensureSession(detail.conversation.id);
     forked.messages = detail.messages;
     forked.resumedTurnId = null;
-    forked.activeTurn = detail.activeTurn ? { conversationId: detail.conversation.id, turnId: detail.activeTurn.id, loopId: detail.activeTurn.id } : null;
+    forked.activeTurn = detail.activeTurn
+      ? { conversationId: detail.conversation.id, turnId: detail.activeTurn.id, loopId: detail.activeTurn.id }
+      : null;
     if (!detail.activeTurn) forked.runStatus = "idle";
     applyPendingActions(forked, detail.pendingActions);
     setConversations((prev) => [detail.conversation, ...prev.filter((conversation) => conversation.id !== detail.conversation.id)]);
@@ -1011,7 +1122,11 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
         session.approvalRequests = snapshot.approvalRequests;
         session.frontendToolRequests = snapshot.frontendToolRequests;
         session.resumedTurnId = snapshot.resumedTurnId;
-        session.error = controller.signal.aborted ? "AI request stopped." : retryError instanceof Error ? retryError.message : "AI retry failed";
+        session.error = controller.signal.aborted
+          ? "AI request stopped."
+          : retryError instanceof Error
+            ? retryError.message
+            : "AI retry failed";
         touchSessions();
       }
       return false;
@@ -1094,7 +1209,11 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       if (!ok) return false;
       const session = ensureSession(request.conversationId);
       const blockId = `frontend-${eventLoopId(request)}-${request.callId}`;
-      upsertAssistantBlock(session, { id: blockId, type: "frontend_tool", request, status: "completed", result }, (block) => block.id === blockId);
+      upsertAssistantBlock(
+        session,
+        { id: blockId, type: "frontend_tool", request, status: "completed", result },
+        (block) => block.id === blockId,
+      );
       touchSessions();
       return true;
     });
@@ -1136,6 +1255,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     openConversation,
     createConversation,
     send,
+    compactConversation,
     forkMessage,
     retryUserMessage,
     resume,

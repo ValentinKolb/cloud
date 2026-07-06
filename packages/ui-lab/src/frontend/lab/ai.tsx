@@ -6,6 +6,31 @@ import DemoCard from "./DemoCard";
 const FROM_AI_UI = "@valentinkolb/cloud/ai/ui";
 
 const now = new Date().toISOString();
+const cardArgs = {
+  title: "Activation",
+  value: "71%",
+  caption: "Example of the simplified Cloud highlight-card tool.",
+  tone: "teal",
+  trendValue: "+13%",
+  trendLabel: "vs last cohort",
+  trendDirection: "up",
+};
+const cardCallMessage = {
+  role: "assistant" as const,
+  content: [
+    {
+      type: "tool_call" as const,
+      id: "card-1",
+      name: "card",
+      args: cardArgs,
+    },
+  ],
+};
+const finalAnswerMessage = {
+  role: "assistant" as const,
+  content: [{ type: "text" as const, text: "Activation is improving. I need one prioritization signal before proposing the next iteration." }],
+};
+const finalAnswerUsage = { input: 380, output: 64, total: 444 };
 
 const demoModels: AiPublicModelProfile[] = [
   {
@@ -39,6 +64,9 @@ const demoMessages: AiStoredMessage[] = [
     providerModel: null,
     usage: null,
     stopReason: null,
+    loopId: null,
+    loopAggregate: null,
+    loopDoneReason: null,
     createdAt: now,
   },
   {
@@ -46,31 +74,14 @@ const demoMessages: AiStoredMessage[] = [
     conversationId: "ui-lab",
     seq: 2,
     kind: "message",
-    message: {
-      role: "assistant",
-      content: [
-        {
-          type: "tool_call",
-          id: "card-1",
-          name: "card",
-          args: {
-            kind: "chart",
-            title: "Activation by cohort",
-            caption: "Example of the default Cloud card tool.",
-            tone: "teal",
-            data: [
-              { label: "Week 1", value: 42 },
-              { label: "Week 2", value: 58 },
-              { label: "Week 3", value: 71 },
-            ],
-          },
-        },
-      ],
-    },
+    message: cardCallMessage,
     modelProfileId: "demo",
     providerModel: "demo/model",
     usage: null,
     stopReason: "tool_use",
+    loopId: "ui-lab-loop",
+    loopAggregate: null,
+    loopDoneReason: null,
     createdAt: now,
   },
   {
@@ -78,14 +89,36 @@ const demoMessages: AiStoredMessage[] = [
     conversationId: "ui-lab",
     seq: 3,
     kind: "message",
-    message: {
-      role: "assistant",
-      content: [{ type: "text", text: "Activation is improving. I need one prioritization signal before proposing the next iteration." }],
-    },
+    message: finalAnswerMessage,
     modelProfileId: "demo",
     providerModel: "demo/model",
-    usage: { input: 380, output: 64, total: 444 },
+    usage: finalAnswerUsage,
     stopReason: "stop",
+    loopId: "ui-lab-loop",
+    loopAggregate: {
+      turns: [
+        {
+          message: cardCallMessage,
+          stopReason: "tool_use",
+          toolCalls: [{ callId: "card-1", name: "card", args: cardArgs, result: { displayed: true } }],
+        },
+        {
+          message: finalAnswerMessage,
+          usage: finalAnswerUsage,
+          stopReason: "stop",
+          toolCalls: [],
+        },
+      ],
+      usage: finalAnswerUsage,
+      toolCallCount: 1,
+      toolErrorCount: 0,
+      toolIssueCount: 0,
+      toolMalformedCount: 0,
+      toolCancelledCount: 0,
+      toolIssues: [],
+      assistantMessageCount: 2,
+    },
+    loopDoneReason: "stop",
     createdAt: now,
   },
 ];

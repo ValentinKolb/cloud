@@ -1,4 +1,6 @@
 import type {
+  CompactDoneReason,
+  CompactResult,
   ContentPart,
   DoneReason,
   InboundEvent,
@@ -78,6 +80,7 @@ export type AiSettingsState =
       globalInstructions: string;
       compactionPrompt: string;
       maxToolResultChars: number;
+      firecrawlConfigured: boolean;
       profiles: AiModelProfile[];
     }
   | {
@@ -87,6 +90,7 @@ export type AiSettingsState =
       globalInstructions: string;
       compactionPrompt: string;
       maxToolResultChars: number;
+      firecrawlConfigured: boolean;
       profiles: AiModelProfile[];
       error: AiSettingsError;
     };
@@ -191,6 +195,11 @@ export type AiStreamEvent =
       args: unknown;
       mode: AiFrontendToolMode;
     })
+  | (AiStreamEventBase & {
+      type: "compaction_result";
+      reason: CompactDoneReason;
+      result: CompactResult;
+    })
   | (AiStreamEventBase & { type: "done"; reason: DoneReason; aggregate: LoopAggregate | null })
   | (AiStreamEventBase & { type: "error"; message: string; retryable?: boolean });
 
@@ -200,9 +209,7 @@ export type AiSseEvent = AiStreamEvent & {
 
 export type AiPendingTurnAction = Extract<AiStreamEvent, { type: "approval_request" | "frontend_tool" }>;
 
-export type AiTurnAbortResult =
-  | { found: true; status: AiTurnStatus; aborted: boolean }
-  | { found: false; status: null; aborted: false };
+export type AiTurnAbortResult = { found: true; status: AiTurnStatus; aborted: boolean } | { found: false; status: null; aborted: false };
 
 export type AiPendingTurnActionRecord = {
   turnId: string;
@@ -224,7 +231,8 @@ export type AiTurnToolSource =
   | { kind: "default" }
   | { kind: "resource"; resourceKey: string; params: Record<string, string> };
 
-export type AiTurnRunConfig = {
+export type AiChatTurnRunConfig = {
+  kind?: "chat";
   input: Input;
   actor?: RequestActor;
   modelPolicy?: AiModelPolicy;
@@ -238,6 +246,15 @@ export type AiTurnRunConfig = {
     resource?: AiConversationResource;
   };
 };
+
+export type AiCompactionTurnRunConfig = {
+  kind: "compact";
+  actor?: RequestActor;
+  modelPolicy?: AiModelPolicy;
+  requestedModelId?: string;
+};
+
+export type AiTurnRunConfig = AiChatTurnRunConfig | AiCompactionTurnRunConfig;
 
 export type AiStoredTurnEvent = AiSseEvent & {
   seq: number;
@@ -269,7 +286,12 @@ export type AiUiBlock =
       status: "pending" | "completed" | "failed";
       result?: unknown;
     }
-  | { id: string; type: "compaction"; status: "running" | "completed" }
+  | {
+      id: string;
+      type: "compaction";
+      status: "running" | "completed" | "skipped" | "failed";
+      result?: CompactResult;
+    }
   | { id: string; type: "error"; message: string };
 
 export type AiConversationStore = {
