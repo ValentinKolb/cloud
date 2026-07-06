@@ -28,6 +28,9 @@
       "@valentinkolb/cloud-app-notebooks/cli": [
         "../notebooks/src/cli.ts"
       ],
+      "@valentinkolb/cloud-app-pulse/cli": [
+        "../pulse/src/cli.ts"
+      ],
       "@valentinkolb/cloud-app-spaces/cli": [
         "../spaces/src/cli.ts"
       ],
@@ -54,6 +57,7 @@
     "../cloud/src/cli/**/*.ts",
     "../contacts/src/cli.ts",
     "../notebooks/src/cli.ts",
+    "../pulse/src/cli.ts",
     "../spaces/src/cli.ts",
     "../tools/src/cli.ts"
   ],
