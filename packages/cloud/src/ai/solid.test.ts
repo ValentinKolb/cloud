@@ -21,6 +21,8 @@ const conversation: AiConversation = {
   id: "conversation-1",
   appId: "assistant",
   title: "Conversation",
+  icon: "ti ti-message",
+  description: "",
   resource: { kind: "direct" },
   createdByUserId: "11111111-1111-4111-8111-111111111111",
   createdAt: new Date().toISOString(),
@@ -28,9 +30,10 @@ const conversation: AiConversation = {
 };
 
 const noLoopMetadata = {
+  loopId: null,
   loopAggregate: null,
   loopDoneReason: null,
-} satisfies Pick<AiStoredMessage, "loopAggregate" | "loopDoneReason">;
+} satisfies Pick<AiStoredMessage, "loopId" | "loopAggregate" | "loopDoneReason">;
 
 const messageActions = {
   messages: {
@@ -283,7 +286,7 @@ describe("AI Solid chat controller", () => {
             turnId: "turn-1",
             callId: "call-card",
             name: "cloud_card",
-            args: { kind: "stat_card", title: "Revenue", value: "42" },
+            args: { title: "Revenue", value: "42" },
             mode: "client_view",
           },
         ],
@@ -1245,6 +1248,7 @@ describe("AI Solid chat controller", () => {
       providerModel: "provider/model",
       usage: aggregate.usage ?? null,
       stopReason: "stop",
+      loopId: "turn-aggregate",
       loopAggregate: aggregate,
       loopDoneReason: "stop",
       createdAt: new Date().toISOString(),
@@ -1379,6 +1383,7 @@ describe("AI Solid chat controller", () => {
       providerModel: "provider/model",
       usage: aggregate.usage ?? null,
       stopReason: "stop",
+      loopId: "turn-loop",
       loopAggregate: aggregate,
       loopDoneReason: "stop",
       createdAt: new Date().toISOString(),

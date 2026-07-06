@@ -122,10 +122,20 @@ export type AiConversation = {
   id: string;
   appId: string;
   title: string;
+  icon: string;
+  description: string;
   resource: AiConversationResource;
   createdByUserId: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AiConversationPage = {
+  items: AiConversation[];
+  total: number;
+  page: number;
+  perPage: number;
+  hasNext: boolean;
 };
 
 export type AiStoredMessage = {
@@ -134,6 +144,7 @@ export type AiStoredMessage = {
   seq: number;
   kind: "message" | "summary";
   message: Message;
+  loopId: string | null;
   modelProfileId: string | null;
   providerModel: string | null;
   usage: Usage | null;
@@ -265,20 +276,46 @@ export type AiConversationStore = {
     appId: string;
     ownerUserId: string;
     title?: string;
+    icon?: string;
+    description?: string;
     resource?: AiConversationResource;
   }): Promise<AiConversation>;
-  listConversations(input: { appId: string; ownerUserId: string; resource?: AiConversationResource }): Promise<AiConversation[]>;
+  listConversations(input: {
+    appId: string;
+    ownerUserId: string;
+    resource?: AiConversationResource;
+    search?: string;
+    limit?: number;
+  }): Promise<AiConversation[]>;
+  listConversationsPage(input: {
+    appId: string;
+    ownerUserId: string;
+    resource?: AiConversationResource;
+    search?: string;
+    page: number;
+    perPage: number;
+  }): Promise<AiConversationPage>;
   getConversation(input: {
     conversationId: string;
     appId?: string;
     ownerUserId?: string;
     resource?: AiConversationResource;
   }): Promise<AiConversation | null>;
+  updateConversationMetadata(input: {
+    conversationId: string;
+    appId?: string;
+    ownerUserId?: string;
+    title: string;
+    icon?: string;
+    description?: string;
+  }): Promise<AiConversation | null>;
+  archiveConversation(input: { conversationId: string; appId?: string; ownerUserId?: string }): Promise<boolean>;
   listMessages(input: { conversationId: string }): Promise<AiStoredMessage[]>;
   copyMessages(input: { sourceConversationId: string; targetConversationId: string; throughSeq: number }): Promise<void>;
   truncateMessagesFrom(input: { conversationId: string; fromSeq: number }): Promise<void>;
   setLatestAssistantLoopAggregate(input: {
     conversationId: string;
+    loopId?: string | null;
     aggregate: LoopAggregate;
     doneReason: DoneReason;
   }): Promise<void>;

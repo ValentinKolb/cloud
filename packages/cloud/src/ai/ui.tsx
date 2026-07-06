@@ -19,6 +19,15 @@ import {
 import type { AiMessageRetryMode } from "./http";
 import type { AiPublicModelProfile, AiStoredMessage, AiUiBlock, AiUserContentPart } from "./types";
 import { AI_IMAGE_MEDIA_TYPES, isAiImageMediaType } from "./types";
+import {
+  assistantBlocks,
+  assistantVisibleBlocks,
+  assistantVisibleTextFromMessage,
+  buildAiMessageTimeline,
+  copyTextFromAssistantEntries,
+  type AiAssistantResponseTimelineItem,
+  type AiMessageTimelineItem,
+} from "./timeline";
 
 type AssistantMessage = Extract<Message, { role: "assistant" }>;
 
@@ -163,17 +172,6 @@ const userContentWithEditedVisibleText = (message: Message, text: string): AiUse
   return visible ? [{ type: "text", text: visible }, ...preserved] : preserved;
 };
 
-const assistantBlocks = (message: Message): AssistantMessage["content"] => (message.role === "assistant" ? message.content : []);
-
-const assistantVisibleBlocks = (message: Message) => {
-  const blocks = assistantBlocks(message);
-  return [
-    ...blocks.filter((part): part is Extract<(typeof blocks)[number], { type: "thinking" }> => part.type === "thinking"),
-    ...blocks.filter((part): part is Extract<(typeof blocks)[number], { type: "text" }> => part.type === "text"),
-    ...blocks.filter((part): part is Extract<(typeof blocks)[number], { type: "tool_call" }> => part.type === "tool_call"),
-  ];
-};
-
 const filePartsFromMessage = (message: Message) => {
   if (message.role !== "user") return [];
   return message.content.filter(
@@ -310,14 +308,6 @@ const latestUsage = (messages: AiStoredMessage[]): Usage | null => {
   return null;
 };
 
-const assistantVisibleTextFromMessage = (message: Message): string => {
-  if (message.role !== "assistant") return textFromMessage(message);
-  return message.content
-    .map((part) => (part.type === "text" ? part.text : ""))
-    .join("")
-    .trim();
-};
-
 const copyTextFromMessage = (message: Message): string => {
   if (message.role === "user") return userVisibleTextFromMessage(message);
   if (message.role === "assistant") return assistantVisibleTextFromMessage(message);
@@ -336,9 +326,12 @@ const wordCount = (text: string): number => text.trim().split(/\s+/).filter(Bool
 const formatDateTime = (value: string) =>
   new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 
-const openAssistantMessageInfo = (entry: AiStoredMessage) => {
-  const text = assistantVisibleTextFromMessage(entry.message);
-  const blocks = assistantBlocks(entry.message);
+const openAssistantResponseInfo = (entries: AiStoredMessage[]) => {
+  const assistantEntries = entries.filter((entry) => entry.kind === "message" && entry.message.role === "assistant");
+  const entry = assistantEntries.findLast((candidate) => candidate.loopAggregate) ?? assistantEntries.at(-1) ?? entries.at(-1);
+  if (!entry) return;
+  const text = copyTextFromAssistantEntries(entries);
+  const blocks = assistantEntries.flatMap((candidate) => assistantBlocks(candidate.message));
   const toolCalls = blocks.filter((block) => block.type === "tool_call");
   const aggregate = entry.loopAggregate;
   const aggregateToolCalls = aggregate?.turns.flatMap((turn) => turn.toolCalls) ?? null;
@@ -347,6 +340,7 @@ const openAssistantMessageInfo = (entry: AiStoredMessage) => {
   const stats = [
     { label: "Provider model", value: entry.providerModel ?? "Unknown" },
     { label: "Model profile", value: entry.modelProfileId ?? "Unknown" },
+    { label: "Loop id", value: entry.loopId ?? "Legacy message" },
     { label: "Loop done reason", value: entry.loopDoneReason ?? "Unknown" },
     { label: "Stop reason", value: entry.stopReason ?? "Unknown" },
     { label: "Created", value: formatDateTime(entry.createdAt) },
@@ -377,20 +371,18 @@ const openAssistantMessageInfo = (entry: AiStoredMessage) => {
       <PanelDialog>
         <PanelDialog.Header title="Message info" subtitle="Assistant response metadata" icon="ti ti-info-circle" close={close} />
         <PanelDialog.Body>
-          <PanelDialog.Section title="Stats" icon="ti ti-chart-dots" subtitle="Loop usage is shown when the model reported it.">
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <For each={stats}>
-                {(stat) => (
-                  <div class="rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950">
-                    <p class="text-[11px] uppercase tracking-[0.08em] text-dimmed">{stat.label}</p>
-                    <p class="mt-0.5 truncate text-sm font-medium text-primary" title={stat.value}>
-                      {stat.value}
-                    </p>
-                  </div>
-                )}
-              </For>
-            </div>
-          </PanelDialog.Section>
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <For each={stats}>
+              {(stat) => (
+                <div class="rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+                  <p class="text-[11px] uppercase tracking-[0.08em] text-dimmed">{stat.label}</p>
+                  <p class="mt-0.5 truncate text-sm font-medium text-primary" title={stat.value}>
+                    {stat.value}
+                  </p>
+                </div>
+              )}
+            </For>
+          </div>
           <Show when={(aggregateToolCalls?.length ?? toolCalls.length) > 0}>
             <PanelDialog.Section title="Tools" icon="ti ti-tool" subtitle="Tools requested by this assistant loop.">
               <div class="flex flex-wrap gap-1.5">
@@ -711,11 +703,17 @@ function AssistantThinkingBlock(props: { text: string; streaming?: boolean }) {
 
 function CloudCardBlock(props: { args: unknown }) {
   const card = () => (isRecord(props.args) ? props.args : null);
-  const kind = () => card()?.kind;
   const title = () => String(card()?.title ?? "Card");
+  const value = () => String(card()?.value ?? "");
   const caption = () => (typeof card()?.caption === "string" ? String(card()!.caption) : "");
-  const data = () => (Array.isArray(card()?.data) ? (card()!.data as unknown[]).filter(isRecord) : []);
-  const maxValue = () => Math.max(1, ...data().map((entry) => (typeof entry.value === "number" ? entry.value : 0)));
+  const legacyTrend = () => (isRecord(card()?.trend) ? (card()!.trend as Record<string, unknown>) : null);
+  const trendValue = () => (typeof card()?.trendValue === "string" ? String(card()!.trendValue) : String(legacyTrend()?.value ?? ""));
+  const trendLabel = () => (typeof card()?.trendLabel === "string" ? String(card()!.trendLabel) : String(legacyTrend()?.label ?? ""));
+  const trendDirection = () => {
+    const direction = card()?.trendDirection ?? legacyTrend()?.direction;
+    return direction === "up" || direction === "down" || direction === "flat" ? direction : "flat";
+  };
+  const hasTrend = () => Boolean(trendValue() || trendLabel());
 
   return (
     <div class={`my-2 max-w-xl rounded-md border p-2.5 ${toneClass(card()?.tone)}`}>
@@ -733,67 +731,20 @@ function CloudCardBlock(props: { args: unknown }) {
           </span>
           <div class="min-w-0 flex-1">
             <p class="text-sm font-semibold">{title()}</p>
-            <Show when={kind() === "stat_card"}>
-              <p class="mt-2 text-3xl font-semibold tracking-normal">{String(card()?.value ?? "")}</p>
-              <Show when={isRecord(card()?.trend)}>
-                <p class="mt-1 inline-flex items-center gap-1 rounded-md bg-white/55 px-1.5 py-0.5 text-xs dark:bg-white/10">
-                  <i
-                    class={`ti ${
-                      (card()?.trend as Record<string, unknown>).direction === "up"
-                        ? "ti-trending-up"
-                        : (card()?.trend as Record<string, unknown>).direction === "down"
-                          ? "ti-trending-down"
-                          : "ti-minus"
-                    } text-sm`}
-                    aria-hidden="true"
-                  />
-                  {String((card()?.trend as Record<string, unknown>).value ?? "")}
-                  <span class="opacity-70">{String((card()?.trend as Record<string, unknown>).label ?? "")}</span>
-                </p>
-              </Show>
-            </Show>
-            <Show when={kind() === "chart"}>
-              <div class="mt-3 space-y-2">
-                <For each={data()}>
-                  {(entry) => {
-                    const value = () => (typeof entry.value === "number" ? entry.value : 0);
-                    return (
-                      <div class="grid grid-cols-[minmax(5rem,1fr)_3fr_auto] items-center gap-2 text-xs">
-                        <span class="truncate opacity-80">{String(entry.label ?? "")}</span>
-                        <div class="h-2 overflow-hidden rounded-full bg-white/70 dark:bg-white/10">
-                          <div
-                            class="h-full rounded-full bg-cyan-500 dark:bg-cyan-300"
-                            style={{ width: `${Math.max(3, Math.round((value() / maxValue()) * 100))}%` }}
-                          />
-                        </div>
-                        <span class="tabular-nums opacity-80">{value().toLocaleString()}</span>
-                      </div>
-                    );
-                  }}
-                </For>
-              </div>
-            </Show>
-            <Show when={kind() === "table"}>
-              <div class="mt-3 overflow-x-auto">
-                <table class="min-w-full text-left text-xs">
-                  <thead class="border-b border-current/10">
-                    <tr>
-                      <For each={Array.isArray(card()?.columns) ? (card()!.columns as unknown[]) : []}>
-                        {(column) => <th class="px-2 py-1 font-medium opacity-75">{String(column)}</th>}
-                      </For>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <For each={Array.isArray(card()?.rows) ? (card()!.rows as unknown[]) : []}>
-                      {(row) => (
-                        <tr class="border-b border-current/10 last:border-b-0">
-                          <For each={Array.isArray(row) ? row : []}>{(cell) => <td class="px-2 py-1.5">{String(cell)}</td>}</For>
-                        </tr>
-                      )}
-                    </For>
-                  </tbody>
-                </table>
-              </div>
+            <p class="mt-2 text-3xl font-semibold tracking-normal">{value()}</p>
+            <Show when={hasTrend()}>
+              <p class="mt-1 inline-flex items-center gap-1 rounded-md bg-white/55 px-1.5 py-0.5 text-xs dark:bg-white/10">
+                <i
+                  class={`ti ${
+                    trendDirection() === "up" ? "ti-trending-up" : trendDirection() === "down" ? "ti-trending-down" : "ti-minus"
+                  } text-sm`}
+                  aria-hidden="true"
+                />
+                <Show when={trendValue()}>{trendValue()}</Show>
+                <Show when={trendLabel()}>
+                  <span class="opacity-70">{trendLabel()}</span>
+                </Show>
+              </p>
             </Show>
             <Show when={caption()}>
               <p class="mt-2 text-xs opacity-70">{caption()}</p>
@@ -1079,9 +1030,13 @@ function ActiveAssistantBlock(props: {
   }
 }
 
-function AssistantMessageActions(props: { entry: AiStoredMessage; onForkMessage?: (entry: AiStoredMessage) => void | Promise<void> }) {
+function AssistantMessageActions(props: {
+  entry: AiStoredMessage;
+  entries: AiStoredMessage[];
+  copyText: string;
+  onForkMessage?: (entry: AiStoredMessage) => void | Promise<void>;
+}) {
   const { copy, wasCopied } = clipboard.create(1400);
-  const text = () => copyTextFromMessage(props.entry.message);
 
   return (
     <div class="mt-1 flex items-center gap-0.5 text-dimmed">
@@ -1090,7 +1045,7 @@ function AssistantMessageActions(props: { entry: AiStoredMessage; onForkMessage?
         class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"
         aria-label="Message info"
         title="Info"
-        onClick={() => openAssistantMessageInfo(props.entry)}
+        onClick={() => openAssistantResponseInfo(props.entries)}
       >
         <i class="ti ti-info-circle text-sm" aria-hidden="true" />
       </button>
@@ -1099,8 +1054,8 @@ function AssistantMessageActions(props: { entry: AiStoredMessage; onForkMessage?
         class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 hover:text-primary disabled:opacity-40 dark:hover:bg-zinc-900"
         aria-label="Copy assistant message"
         title="Copy"
-        disabled={!text()}
-        onClick={() => void copy(text())}
+        disabled={!props.copyText}
+        onClick={() => void copy(props.copyText)}
       >
         <i class={`ti ${wasCopied() ? "ti-check" : "ti-copy"} text-sm`} aria-hidden="true" />
       </button>
@@ -1121,11 +1076,12 @@ function AssistantMessageBlock(props: {
   message: Message;
   entry?: AiStoredMessage;
   streaming?: boolean;
+  hideActions?: boolean;
   onForkMessage?: (entry: AiStoredMessage) => void | Promise<void>;
 }) {
   const blocks = () => assistantVisibleBlocks(props.message);
   const actionEntry = () => {
-    if (props.streaming || !props.entry) return null;
+    if (props.streaming || props.hideActions || !props.entry) return null;
     if (props.entry.loopAggregate || assistantVisibleTextFromMessage(props.entry.message)) return props.entry;
     return null;
   };
@@ -1165,7 +1121,14 @@ function AssistantMessageBlock(props: {
           </For>
         </Show>
         <Show when={actionEntry()}>
-          {(entry) => <AssistantMessageActions entry={entry()} onForkMessage={props.onForkMessage} />}
+          {(entry) => (
+            <AssistantMessageActions
+              entry={entry()}
+              entries={[entry()]}
+              copyText={assistantVisibleTextFromMessage(entry().message)}
+              onForkMessage={props.onForkMessage}
+            />
+          )}
         </Show>
       </div>
     </div>
@@ -1229,6 +1192,75 @@ function SystemMessageBlock(props: { entry: AiStoredMessage }) {
   );
 }
 
+function AssistantResponseGroupBlock(props: {
+  item: AiAssistantResponseTimelineItem;
+  hideActions?: boolean;
+  onForkMessage?: (entry: AiStoredMessage) => void | Promise<void>;
+}) {
+  const copyText = () => copyTextFromAssistantEntries(props.item.entries);
+  const actionEntry = () => (props.hideActions ? null : props.item.actionEntry);
+
+  return (
+    <div class="px-3 py-2">
+      <div class="max-w-[min(46rem,100%)] text-sm leading-6 text-primary">
+        <For each={props.item.entries}>
+          {(entry) => (
+            <Show
+              when={entry.kind === "message" && entry.message.role === "assistant"}
+              fallback={<Show when={entry.kind === "message" && entry.message.role === "tool_result"}>{<ToolResultMessageBlock entry={entry} />}</Show>}
+            >
+              <For each={assistantVisibleBlocks(entry.message)}>
+                {(block) => (
+                  <Show
+                    when={block.type === "thinking"}
+                    fallback={
+                      <Show
+                        when={block.type === "text"}
+                        fallback={
+                          <Show when={block.type === "tool_call"}>
+                            <ToolCallBlockView block={block as Extract<AssistantMessage["content"][number], { type: "tool_call" }>} />
+                          </Show>
+                        }
+                      >
+                        <MarkdownView html={markdown.renderSync(block.type === "text" ? block.text : "")} class="markdown-content-sm" />
+                      </Show>
+                    }
+                  >
+                    <AssistantThinkingBlock text={block.type === "thinking" ? block.thinking : ""} />
+                  </Show>
+                )}
+              </For>
+            </Show>
+          )}
+        </For>
+        <Show when={actionEntry()}>
+          {(entry) => (
+            <AssistantMessageActions entry={entry()} entries={props.item.entries} copyText={copyText()} onForkMessage={props.onForkMessage} />
+          )}
+        </Show>
+      </div>
+    </div>
+  );
+}
+
+function AiTimelineItemView(props: {
+  item: AiMessageTimelineItem;
+  hideActions?: boolean;
+  onForkMessage?: (entry: AiStoredMessage) => void | Promise<void>;
+  onRetryMessage?: (entry: AiStoredMessage, input?: AiRetryMessageInput) => void | Promise<void>;
+}) {
+  if (props.item.type === "assistant_response") {
+    return <AssistantResponseGroupBlock item={props.item} hideActions={props.hideActions} onForkMessage={props.onForkMessage} />;
+  }
+
+  const entry = props.item.entry;
+  if (entry.kind === "message" && entry.message.role === "user") {
+    return <UserMessageBubble entry={entry} onRetryMessage={props.onRetryMessage} />;
+  }
+
+  return <SystemMessageBlock entry={entry} />;
+}
+
 export function AiMessageList(props: {
   messages: () => AiStoredMessage[];
   assistantDraft?: () => string;
@@ -1242,9 +1274,10 @@ export function AiMessageList(props: {
   emptyTitle?: string;
 }) {
   let endRef: HTMLDivElement | undefined;
+  const timelineItems = createMemo(() => buildAiMessageTimeline(props.messages()));
 
   createEffect(() => {
-    props.messages().length;
+    timelineItems().length;
     props.assistantDraft?.();
     props.assistantThinkingDraft?.();
     props.assistantBlocks?.();
@@ -1276,21 +1309,14 @@ export function AiMessageList(props: {
         }
       >
         <div class="mx-auto flex max-w-4xl flex-col gap-1">
-          <For each={props.messages()}>
-            {(entry) => (
-              <Show
-                when={entry.kind === "message" && entry.message.role === "user"}
-                fallback={
-                  <Show
-                    when={entry.kind === "message" && entry.message.role === "assistant"}
-                    fallback={<SystemMessageBlock entry={entry} />}
-                  >
-                    <AssistantMessageBlock message={entry.message} entry={entry} onForkMessage={props.onForkMessage} />
-                  </Show>
-                }
-              >
-                <UserMessageBubble entry={entry} onRetryMessage={props.onRetryMessage} />
-              </Show>
+          <For each={timelineItems()}>
+            {(item, index) => (
+              <AiTimelineItemView
+                item={item}
+                hideActions={Boolean(props.streaming?.() && index() === timelineItems().length - 1)}
+                onForkMessage={props.onForkMessage}
+                onRetryMessage={props.onRetryMessage}
+              />
             )}
           </For>
           <Show when={activeBlocks().length > 0}>

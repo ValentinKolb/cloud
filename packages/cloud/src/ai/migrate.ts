@@ -13,6 +13,8 @@ export const migrateCloudAi = async (): Promise<void> => {
       resource_type TEXT,
       resource_id TEXT,
       title TEXT NOT NULL DEFAULT 'New chat',
+      icon TEXT NOT NULL DEFAULT 'ti ti-message',
+      description TEXT NOT NULL DEFAULT '',
       created_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -20,6 +22,9 @@ export const migrateCloudAi = async (): Promise<void> => {
       CONSTRAINT ai_conversations_resource_kind_check CHECK (resource_kind IN ('direct', 'resource'))
     )
   `.simple();
+
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT 'ti ti-message'`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`.simple();
 
   await sql`
     CREATE INDEX IF NOT EXISTS idx_ai_conversations_app_owner_updated
@@ -39,6 +44,7 @@ export const migrateCloudAi = async (): Promise<void> => {
       provider_model TEXT,
       usage JSONB,
       stop_reason TEXT,
+      loop_id TEXT,
       loop_aggregate JSONB,
       loop_done_reason TEXT,
       compacted_at TIMESTAMPTZ,
@@ -50,6 +56,7 @@ export const migrateCloudAi = async (): Promise<void> => {
   `.simple();
 
   await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS compacted_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS loop_id TEXT`.simple();
   await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS loop_aggregate JSONB`.simple();
   await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS loop_done_reason TEXT`.simple();
 
@@ -62,6 +69,12 @@ export const migrateCloudAi = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_ai_messages_active_conversation_seq
     ON ai.messages(conversation_id, seq ASC)
     WHERE compacted_at IS NULL
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_messages_active_conversation_loop_seq
+    ON ai.messages(conversation_id, loop_id, seq ASC)
+    WHERE compacted_at IS NULL AND loop_id IS NOT NULL
   `.simple();
 
   await sql`

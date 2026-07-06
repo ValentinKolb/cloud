@@ -89,6 +89,60 @@ describe("AI conversation store integration", () => {
       });
       conversationIds.push(resourceConversation.id);
 
+      const metadataConversation = await aiConversationStore.createConversation({
+        appId: "ai-test",
+        ownerUserId: userId,
+        title: "Metadata chat",
+        icon: "ti ti-sparkles",
+        description: "Initial description",
+      });
+      conversationIds.push(metadataConversation.id);
+      expect(metadataConversation).toMatchObject({
+        title: "Metadata chat",
+        icon: "ti ti-sparkles",
+        description: "Initial description",
+      });
+
+      const updatedMetadata = await aiConversationStore.updateConversationMetadata({
+        conversationId: metadataConversation.id,
+        appId: "ai-test",
+        ownerUserId: userId,
+        title: "Roadmap chat",
+        icon: "ti ti-map",
+        description: "Assistant planning notes",
+      });
+      expect(updatedMetadata).toMatchObject({
+        id: metadataConversation.id,
+        title: "Roadmap chat",
+        icon: "ti ti-map",
+        description: "Assistant planning notes",
+      });
+
+      const matchingPage = await aiConversationStore.listConversationsPage({
+        appId: "ai-test",
+        ownerUserId: userId,
+        search: "roadmap",
+        page: 1,
+        perPage: 10,
+      });
+      expect(matchingPage.items.map((conversation) => conversation.id)).toContain(metadataConversation.id);
+      expect(matchingPage.total).toBeGreaterThanOrEqual(1);
+
+      expect(
+        await aiConversationStore.archiveConversation({
+          conversationId: metadataConversation.id,
+          appId: "ai-test",
+          ownerUserId: userId,
+        }),
+      ).toBe(true);
+      expect(
+        await aiConversationStore.getConversation({
+          conversationId: metadataConversation.id,
+          appId: "ai-test",
+          ownerUserId: userId,
+        }),
+      ).toBeNull();
+
       const scoped = await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, resource });
       expect(scoped.map((conversation) => conversation.id)).toEqual([resourceConversation.id]);
       expect(
@@ -177,6 +231,59 @@ describe("AI conversation store integration", () => {
       expect((await aiConversationStore.getRunningTurn({ conversationId: direct.id }))?.id).toBe(turn.id);
       await expect(aiConversationStore.createTurn({ conversationId: direct.id, modelProfileId: "model-a" })).rejects.toThrow();
 
+      const loopStore = aiConversationStore.createSessionStore({
+        conversationId: direct.id,
+        modelProfileId: "model-a",
+        turnId: turn.id,
+      });
+      const loopAssistantMessage: Message = {
+        role: "assistant",
+        content: [{ type: "text", text: "Loop scoped response." }],
+        model: "provider/model",
+        usage: { input: 2, output: 3, total: 5 },
+        stopReason: "stop",
+      };
+      await loopStore.append(loopAssistantMessage);
+      const loopMessages = await aiConversationStore.listMessages({ conversationId: direct.id });
+      const storedLoopAssistant = loopMessages.find(
+        (message) =>
+          message.message.role === "assistant" &&
+          message.message.content.some((part) => part.type === "text" && part.text === "Loop scoped response."),
+      );
+      expect(storedLoopAssistant).toMatchObject({ loopId: turn.id, modelProfileId: "model-a" });
+      const loopScopedAggregate: LoopAggregate = {
+        turns: [
+          {
+            message: loopAssistantMessage as Extract<Message, { role: "assistant" }>,
+            usage: loopAssistantMessage.usage,
+            stopReason: "stop",
+            toolCalls: [],
+          },
+        ],
+        usage: loopAssistantMessage.usage,
+        toolCallCount: 0,
+        toolErrorCount: 0,
+        toolIssueCount: 0,
+        toolMalformedCount: 0,
+        toolCancelledCount: 0,
+        toolIssues: [],
+        assistantMessageCount: 1,
+      };
+      await aiConversationStore.setLatestAssistantLoopAggregate({
+        conversationId: direct.id,
+        loopId: turn.id,
+        aggregate: loopScopedAggregate,
+        doneReason: "stop",
+      });
+      const aggregatedLoopAssistant = (await aiConversationStore.listMessages({ conversationId: direct.id })).find(
+        (message) => message.id === storedLoopAssistant?.id,
+      );
+      expect(aggregatedLoopAssistant).toMatchObject({
+        loopId: turn.id,
+        loopAggregate: loopScopedAggregate,
+        loopDoneReason: "stop",
+      });
+
       await aiConversationStore.savePendingTurnAction({
         conversationId: direct.id,
         turnId: turn.id,
@@ -221,6 +328,12 @@ describe("AI conversation store integration", () => {
         },
       });
       expect(startEvent?.cursor).toBeTruthy();
+      const [storedEventShape] = await sql<{ jsonb_typeof: string }[]>`
+        SELECT jsonb_typeof(event)
+        FROM ai.turn_events
+        WHERE seq = ${Number(startEvent?.seq)}
+      `;
+      expect(storedEventShape?.jsonb_typeof).toBe("object");
       await aiConversationStore.appendTurnEvent({
         event: {
           type: "done",

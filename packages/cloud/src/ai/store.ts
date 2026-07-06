@@ -3,6 +3,7 @@ import type { Usage } from "@valentinkolb/nessi/ai";
 import { sql } from "bun";
 import type {
   AiConversation,
+  AiConversationPage,
   AiConversationResource,
   AiConversationStore,
   AiFrontendToolMode,
@@ -25,9 +26,15 @@ type ConversationRow = {
   resource_type: string | null;
   resource_id: string | null;
   title: string;
+  icon: string | null;
+  description: string | null;
   created_by_user_id: string | null;
   created_at: Date | string;
   updated_at: Date | string;
+};
+
+type CountRow = {
+  total: number | string;
 };
 
 type MessageRow = {
@@ -36,6 +43,7 @@ type MessageRow = {
   seq: number;
   kind: "message" | "summary";
   message: unknown;
+  loop_id: string | null;
   model_profile_id: string | null;
   provider_model: string | null;
   usage: unknown;
@@ -82,6 +90,17 @@ type PendingActionRow = {
 
 const iso = (value: Date | string): string => (value instanceof Date ? value.toISOString() : new Date(value).toISOString());
 
+const sanitizePagination = (input: { page: number; perPage: number }) => {
+  const page = Number.isInteger(input.page) && input.page > 0 ? input.page : 1;
+  const perPage = Number.isInteger(input.perPage) && input.perPage > 0 ? Math.min(input.perPage, 100) : 20;
+  return { page, perPage, offset: (page - 1) * perPage };
+};
+
+const searchPattern = (value: string | undefined): string | null => {
+  const trimmed = value?.trim().toLowerCase();
+  return trimmed ? `%${trimmed}%` : null;
+};
+
 const parseJsonValue = <T>(value: unknown): T => {
   if (typeof value === "string") return JSON.parse(value) as T;
   return value as T;
@@ -91,6 +110,8 @@ const rowToConversation = (row: ConversationRow): AiConversation => ({
   id: row.id,
   appId: row.app_id,
   title: row.title,
+  icon: row.icon?.trim() || "ti ti-message",
+  description: row.description ?? "",
   resource:
     row.resource_kind === "resource"
       ? {
@@ -114,6 +135,7 @@ const rowToMessage = (row: MessageRow): AiStoredMessage => {
     seq: row.seq,
     kind: row.kind,
     message,
+    loopId: row.loop_id,
     modelProfileId: row.model_profile_id,
     providerModel: row.provider_model,
     usage: row.usage ? parseJsonValue<Usage>(row.usage) : null,
@@ -251,6 +273,7 @@ const appendMessage = async (input: {
   message: Message;
   kind?: "message" | "summary";
   seq?: number;
+  loopId?: string | null;
   modelProfileId?: string | null;
 }): Promise<void> => {
   const usage = input.message.role === "assistant" ? (input.message.usage ?? null) : null;
@@ -273,6 +296,7 @@ const appendMessage = async (input: {
         kind,
         role,
         message,
+        loop_id,
         model_profile_id,
         provider_model,
         usage,
@@ -286,6 +310,7 @@ const appendMessage = async (input: {
         ${input.kind ?? "message"},
         ${input.message.role},
         ${JSON.stringify(input.message)}::jsonb,
+        ${input.loopId ?? null},
         ${input.modelProfileId ?? null},
         ${providerModel},
         ${usage ? JSON.stringify(usage) : null}::jsonb,
@@ -319,6 +344,8 @@ export const aiConversationStore: AiConversationStore = {
         resource_type,
         resource_id,
         title,
+        icon,
+        description,
         created_by_user_id
       )
       VALUES (
@@ -328,6 +355,8 @@ export const aiConversationStore: AiConversationStore = {
         ${resource.resourceType},
         ${resource.resourceId},
         ${input.title?.trim() || "New chat"},
+        ${input.icon?.trim() || "ti ti-message"},
+        ${input.description?.trim() ?? ""},
         ${input.ownerUserId}
       )
       RETURNING *
@@ -337,6 +366,8 @@ export const aiConversationStore: AiConversationStore = {
 
   listConversations: async (input) => {
     const resource = resourceFilter(input.resource, input.appId);
+    const pattern = searchPattern(input.search);
+    const limit = input.limit && input.limit > 0 ? Math.min(input.limit, 500) : 100;
     const rows = await sql<ConversationRow[]>`
       SELECT *
       FROM ai.conversations
@@ -347,10 +378,52 @@ export const aiConversationStore: AiConversationStore = {
         AND (${resource?.appId ?? null}::text IS NULL OR resource_app_id = ${resource?.appId ?? null})
         AND (${resource?.type ?? null}::text IS NULL OR resource_type = ${resource?.type ?? null})
         AND (${resource?.id ?? null}::text IS NULL OR resource_id = ${resource?.id ?? null})
+        AND (${pattern}::text IS NULL OR LOWER(title) LIKE ${pattern} OR LOWER(description) LIKE ${pattern})
       ORDER BY updated_at DESC, created_at DESC
-      LIMIT 100
+      LIMIT ${limit}
     `;
     return rows.map(rowToConversation);
+  },
+
+  listConversationsPage: async (input): Promise<AiConversationPage> => {
+    const resource = resourceFilter(input.resource, input.appId);
+    const pattern = searchPattern(input.search);
+    const { page, perPage, offset } = sanitizePagination(input);
+    const rows = await sql<ConversationRow[]>`
+      SELECT *
+      FROM ai.conversations
+      WHERE app_id = ${input.appId}
+        AND created_by_user_id = ${input.ownerUserId}
+        AND archived_at IS NULL
+        AND (${resource?.kind ?? null}::text IS NULL OR resource_kind = ${resource?.kind ?? null})
+        AND (${resource?.appId ?? null}::text IS NULL OR resource_app_id = ${resource?.appId ?? null})
+        AND (${resource?.type ?? null}::text IS NULL OR resource_type = ${resource?.type ?? null})
+        AND (${resource?.id ?? null}::text IS NULL OR resource_id = ${resource?.id ?? null})
+        AND (${pattern}::text IS NULL OR LOWER(title) LIKE ${pattern} OR LOWER(description) LIKE ${pattern})
+      ORDER BY updated_at DESC, created_at DESC
+      LIMIT ${perPage}
+      OFFSET ${offset}
+    `;
+    const countRows = await sql<CountRow[]>`
+      SELECT COUNT(*) AS total
+      FROM ai.conversations
+      WHERE app_id = ${input.appId}
+        AND created_by_user_id = ${input.ownerUserId}
+        AND archived_at IS NULL
+        AND (${resource?.kind ?? null}::text IS NULL OR resource_kind = ${resource?.kind ?? null})
+        AND (${resource?.appId ?? null}::text IS NULL OR resource_app_id = ${resource?.appId ?? null})
+        AND (${resource?.type ?? null}::text IS NULL OR resource_type = ${resource?.type ?? null})
+        AND (${resource?.id ?? null}::text IS NULL OR resource_id = ${resource?.id ?? null})
+        AND (${pattern}::text IS NULL OR LOWER(title) LIKE ${pattern} OR LOWER(description) LIKE ${pattern})
+    `;
+    const total = Number(countRows[0]?.total ?? 0);
+    return {
+      items: rows.map(rowToConversation),
+      total,
+      page,
+      perPage,
+      hasNext: page * perPage < total,
+    };
   },
 
   getConversation: async (input) => {
@@ -369,6 +442,38 @@ export const aiConversationStore: AiConversationStore = {
       LIMIT 1
     `;
     return rows[0] ? rowToConversation(rows[0]) : null;
+  },
+
+  updateConversationMetadata: async (input) => {
+    const title = input.title.trim() || "New chat";
+    const icon = input.icon?.trim() || "ti ti-message";
+    const description = input.description?.trim() ?? "";
+    const rows = await sql<ConversationRow[]>`
+      UPDATE ai.conversations
+      SET title = ${title},
+          icon = ${icon},
+          description = ${description},
+          updated_at = now()
+      WHERE id = ${input.conversationId}
+        AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
+        AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})
+        AND archived_at IS NULL
+      RETURNING *
+    `;
+    return rows[0] ? rowToConversation(rows[0]) : null;
+  },
+
+  archiveConversation: async (input) => {
+    const rows = await sql<{ id: string }[]>`
+      UPDATE ai.conversations
+      SET archived_at = now(), updated_at = now()
+      WHERE id = ${input.conversationId}
+        AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
+        AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})
+        AND archived_at IS NULL
+      RETURNING id
+    `;
+    return Boolean(rows[0]);
   },
 
   listMessages: async (input) => {
@@ -395,6 +500,7 @@ export const aiConversationStore: AiConversationStore = {
           kind,
           role,
           message,
+          loop_id,
           model_profile_id,
           provider_model,
           usage,
@@ -408,6 +514,7 @@ export const aiConversationStore: AiConversationStore = {
           kind,
           role,
           message,
+          loop_id,
           model_profile_id,
           provider_model,
           usage,
@@ -441,6 +548,7 @@ export const aiConversationStore: AiConversationStore = {
   },
 
   setLatestAssistantLoopAggregate: async (input) => {
+    const loopId = input.loopId ?? null;
     await sql`
       UPDATE ai.messages
       SET loop_aggregate = ${JSON.stringify(input.aggregate)}::jsonb,
@@ -453,7 +561,10 @@ export const aiConversationStore: AiConversationStore = {
           AND compacted_at IS NULL
           AND kind = 'message'
           AND role = 'assistant'
-        ORDER BY seq DESC
+          AND (${loopId}::text IS NULL OR loop_id = ${loopId} OR loop_id IS NULL)
+        ORDER BY
+          CASE WHEN ${loopId}::text IS NOT NULL AND loop_id = ${loopId} THEN 0 ELSE 1 END,
+          seq DESC
         LIMIT 1
       )
     `;
@@ -504,6 +615,7 @@ export const aiConversationStore: AiConversationStore = {
           kind,
           role,
           message,
+          loop_id,
           model_profile_id,
           provider_model,
           usage,
@@ -517,6 +629,7 @@ export const aiConversationStore: AiConversationStore = {
           'summary',
           ${input.summary.role},
           ${JSON.stringify(input.summary)}::jsonb,
+          NULL,
           ${input.modelProfileId ?? null},
           ${providerModel},
           ${usage ? JSON.stringify(usage) : null}::jsonb,
@@ -716,7 +829,7 @@ export const aiConversationStore: AiConversationStore = {
     const eventType = input.event.type;
     const rows = await sql<TurnEventRow[]>`
       INSERT INTO ai.turn_events (conversation_id, turn_id, event_type, event)
-      SELECT ${input.event.conversationId}, ${input.event.turnId}, ${eventType}, ${JSON.stringify(input.event)}::jsonb
+      SELECT ${input.event.conversationId}, ${input.event.turnId}, ${eventType}, ${input.event}::jsonb
       WHERE EXISTS (
         SELECT 1
         FROM ai.turns
@@ -863,11 +976,13 @@ export const aiConversationStore: AiConversationStore = {
         const running = await aiConversationStore.isTurnRunning({ conversationId: input.conversationId, turnId: input.turnId });
         if (!running) return;
       }
+      const loopId = input.turnId && message.role !== "user" && opts?.kind !== "summary" ? input.turnId : null;
       await appendMessage({
         conversationId: input.conversationId,
         message,
         kind: opts?.kind,
         seq: opts?.seq,
+        loopId,
         modelProfileId: input.modelProfileId,
       });
     },

@@ -99,6 +99,7 @@ const tempUserMessage = (conversationId: string, content: AiUserContentPart[]): 
   providerModel: null,
   usage: null,
   stopReason: null,
+  loopId: null,
   loopAggregate: null,
   loopDoneReason: null,
   createdAt: new Date().toISOString(),
@@ -107,7 +108,7 @@ const tempUserMessage = (conversationId: string, content: AiUserContentPart[]): 
 const tempAssistantMessage = (
   conversationId: string,
   message: AiStoredMessage["message"],
-  metadata: Partial<Pick<AiStoredMessage, "loopAggregate" | "loopDoneReason" | "usage">> = {},
+  metadata: Partial<Pick<AiStoredMessage, "loopId" | "loopAggregate" | "loopDoneReason" | "usage">> = {},
 ): AiStoredMessage => ({
   id: `tmp-assistant-${Date.now()}`,
   conversationId,
@@ -118,6 +119,7 @@ const tempAssistantMessage = (
   providerModel: null,
   usage: metadata.usage ?? null,
   stopReason: null,
+  loopId: metadata.loopId ?? null,
   loopAggregate: metadata.loopAggregate ?? null,
   loopDoneReason: metadata.loopDoneReason ?? null,
   createdAt: new Date().toISOString(),
@@ -179,6 +181,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
   let pendingAssistantFinal: {
     conversationId: string;
     message: AiStoredMessage["message"];
+    loopId: string | null;
     loopAggregate: DoneEvent["aggregate"];
     loopDoneReason: DoneEvent["reason"] | null;
   } | null = null;
@@ -282,6 +285,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
         loopAggregate: final.loopAggregate,
         loopDoneReason: final.loopDoneReason,
         usage: final.loopAggregate?.usage ?? null,
+        loopId: final.loopId,
       }),
     ]);
     resolveAssistantOutputWaiters();
@@ -596,7 +600,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       upsertAssistantBlock({ id: `compaction-${loopId}`, type: "compaction", status: "completed" });
     } else if (nessiEvent.type === "turn_end") {
       if (pendingAssistantFinal) flushAssistantOutput();
-      pendingAssistantFinal = { conversationId, message: nessiEvent.message, loopAggregate: null, loopDoneReason: null };
+      pendingAssistantFinal = { conversationId, message: nessiEvent.message, loopId, loopAggregate: null, loopDoneReason: null };
       if (!assistantDeltaQueue && !assistantDeltaTimer) commitPendingAssistantFinal();
     } else if (nessiEvent.type === "error") {
       setError(nessiEvent.error);

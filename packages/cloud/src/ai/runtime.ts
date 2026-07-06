@@ -50,8 +50,88 @@ const COMPACTION_MAX_TOOL_RESULT_CHARS = 1_200;
 const AI_TURN_LEASE_MS = 45_000;
 const AI_TURN_HEARTBEAT_MS = 10_000;
 const AI_RUNTIME_RECOVERY_INTERVAL_MS = 30_000;
+const AI_TOOL_START_CONTINUATION_TIMEOUT_MS = 5_000;
 const AI_WORKER_ID = `worker-${crypto.randomUUID()}`;
 const log = logger("ai:runtime");
+
+type PendingToolStart = {
+  callId: string;
+  name: string;
+};
+
+class AiToolStreamStalledError extends Error {
+  constructor(
+    readonly pending: PendingToolStart,
+  ) {
+    super(`The model started the "${pending.name}" tool but did not finish the tool call. Please try again.`);
+    this.name = "AiToolStreamStalledError";
+  }
+}
+
+const isToolStartContinuation = (pending: PendingToolStart | null, event: OutboundEvent): boolean => {
+  if (!pending) return false;
+  return (
+    (event.type === "tool_call" && event.callId === pending.callId) ||
+    ((event.type === "tool_error" || event.type === "tool_cancel") && event.callId === pending.callId)
+  );
+};
+
+const staleToolStartCancelEvent = (pending: PendingToolStart, loopId: string): Extract<OutboundEvent, { type: "tool_cancel" }> => ({
+  type: "tool_cancel",
+  agentId: "cloud",
+  loopId,
+  callId: pending.callId,
+  name: pending.name,
+  reason: "stream_ended_before_tool_call",
+  message: `The model started the "${pending.name}" tool but continued without valid tool call details.`,
+});
+
+const getStaleToolStartCancelEvent = (
+  pending: PendingToolStart | null,
+  event: OutboundEvent,
+  loopId: string,
+): Extract<OutboundEvent, { type: "tool_cancel" }> | null => {
+  if (!pending || isToolStartContinuation(pending, event)) return null;
+  return staleToolStartCancelEvent(pending, loopId);
+};
+
+const nessiEventLoopId = (event: OutboundEvent): string | null => {
+  const value = (event as { loopId?: unknown }).loopId;
+  return typeof value === "string" && value.trim() ? value : null;
+};
+
+const withTurnLoopId = (event: OutboundEvent, loopId: string): OutboundEvent => {
+  if (nessiEventLoopId(event)) return event;
+  return { ...event, loopId };
+};
+
+const readNextNessiEvent = async (
+  iterator: AsyncIterator<OutboundEvent>,
+  pendingToolStart: PendingToolStart | null,
+): Promise<IteratorResult<OutboundEvent>> => {
+  let timedOut = false;
+  const next = iterator.next().catch((error) => {
+    if (timedOut) return { done: true, value: undefined as never };
+    throw error;
+  });
+  if (!pendingToolStart) return await next;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      next,
+      new Promise<IteratorResult<OutboundEvent>>((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          reject(new AiToolStreamStalledError(pendingToolStart));
+        }, AI_TOOL_START_CONTINUATION_TIMEOUT_MS);
+        if (typeof timer === "object" && timer && "unref" in timer && typeof timer.unref === "function") timer.unref();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
 
 export const isAiSettingsError = (error: unknown): error is Error & { aiError: AiSettingsError } =>
   error instanceof Error && typeof (error as Error & { aiError?: unknown }).aiError === "object";
@@ -648,6 +728,11 @@ const runPersistedAiTurn = async (input: AiTurnJobInput, signal: AbortSignal): P
 
   let finalStatus: "completed" | "failed" | "aborted" = "failed";
   let finalError: string | null = null;
+  let internalFailure = false;
+  let pendingToolStart: PendingToolStart | null = null;
+  let missingLoopIdEventCount = 0;
+  let mismatchedLoopIdEventCount = 0;
+  const iterator = loop[Symbol.asyncIterator]();
 
   const write = (event: AiStreamEvent) => publishAiEvent({ ...event, loopId });
   const isLeaseOwner = () =>
@@ -666,7 +751,21 @@ const runPersistedAiTurn = async (input: AiTurnJobInput, signal: AbortSignal): P
       providerModel: resolved.provider.model,
     });
 
-    for await (const event of loop) {
+    while (true) {
+      const next = await readNextNessiEvent(iterator, pendingToolStart);
+      if (next.done) break;
+      const rawEvent = next.value;
+      const rawEventLoopId = nessiEventLoopId(rawEvent);
+      const event = withTurnLoopId(rawEvent, loopId);
+      const matchedToolStart = event.type === "tool_call" && pendingToolStart?.callId === event.callId ? pendingToolStart : null;
+      const staleToolStartCancel = getStaleToolStartCancelEvent(pendingToolStart, event, loopId);
+      if (staleToolStartCancel) {
+        await write({ type: "nessi", turnId: input.turnId, conversationId: input.conversationId, event: staleToolStartCancel });
+      }
+      if (matchedToolStart || staleToolStartCancel || ((event.type === "tool_error" || event.type === "tool_cancel") && pendingToolStart?.callId === event.callId)) {
+        pendingToolStart = null;
+      }
+
       if (!(await isLeaseOwner())) {
         finalStatus = "aborted";
         finalError = null;
@@ -675,7 +774,17 @@ const runPersistedAiTurn = async (input: AiTurnJobInput, signal: AbortSignal): P
         break;
       }
 
-      if (event.loopId !== loopId) {
+      if (!rawEventLoopId) {
+        missingLoopIdEventCount += 1;
+        if (missingLoopIdEventCount === 1) {
+          log.warn("AI turn received Nessi event without loop id; using turn id", {
+            conversationId: input.conversationId,
+            turnId: input.turnId,
+            eventType: event.type,
+          });
+        }
+      } else if (event.loopId !== loopId) {
+        mismatchedLoopIdEventCount += 1;
         log.warn("AI turn received mismatched Nessi loop id", {
           conversationId: input.conversationId,
           turnId: input.turnId,
@@ -793,13 +902,16 @@ const runPersistedAiTurn = async (input: AiTurnJobInput, signal: AbortSignal): P
           location: preparedTools.frontendModes.get(event.name) ?? "server",
           args: event.args,
         });
+        if (matchedToolStart) {
+          await aiToolAudit.noteToolStarted({
+            conversationId: input.conversationId,
+            turnId: input.turnId,
+            callId: event.callId,
+            toolName: event.name,
+          });
+        }
       } else if (event.type === "tool_start") {
-        await aiToolAudit.noteToolStarted({
-          conversationId: input.conversationId,
-          turnId: input.turnId,
-          callId: event.callId,
-          toolName: event.name,
-        });
+        pendingToolStart = { callId: event.callId, name: event.name };
       } else if (event.type === "tool_end") {
         await aiToolAudit.noteToolCompleted({
           turnId: input.turnId,
@@ -820,6 +932,7 @@ const runPersistedAiTurn = async (input: AiTurnJobInput, signal: AbortSignal): P
         if (aggregate && aggregate.assistantMessageCount > 0) {
           await aiConversationStore.setLatestAssistantLoopAggregate({
             conversationId: input.conversationId,
+            loopId,
             aggregate,
             doneReason: event.reason,
           });
@@ -828,7 +941,12 @@ const runPersistedAiTurn = async (input: AiTurnJobInput, signal: AbortSignal): P
       }
     }
   } catch (error) {
-    const aborted = abortController.signal.aborted || !(await isLeaseOwner().catch(() => false));
+    internalFailure = error instanceof AiToolStreamStalledError;
+    if (internalFailure) {
+      abortController.abort();
+      void iterator.return?.().catch(() => undefined);
+    }
+    const aborted = !internalFailure && (abortController.signal.aborted || !(await isLeaseOwner().catch(() => false)));
     finalStatus = aborted ? "aborted" : "failed";
     finalError = aborted ? null : error instanceof Error ? error.message : "AI turn failed";
     if (!aborted) {
@@ -853,7 +971,7 @@ const runPersistedAiTurn = async (input: AiTurnJobInput, signal: AbortSignal): P
     signal.removeEventListener("abort", abortFromJob);
     activeAiTurns.get(input.turnId)?.stopControls();
     activeAiTurns.delete(input.turnId);
-    if (abortController.signal.aborted) {
+    if (abortController.signal.aborted && !internalFailure) {
       finalStatus = "aborted";
       finalError = null;
     }
@@ -871,6 +989,8 @@ const runPersistedAiTurn = async (input: AiTurnJobInput, signal: AbortSignal): P
       toolIssueCount: latestAggregate?.toolIssueCount ?? 0,
       toolMalformedCount: latestAggregate?.toolMalformedCount ?? 0,
       toolCancelledCount: latestAggregate?.toolCancelledCount ?? 0,
+      missingLoopIdEventCount,
+      mismatchedLoopIdEventCount,
       inputTokens: latestAggregate?.usage?.input ?? null,
       outputTokens: latestAggregate?.usage?.output ?? null,
       totalTokens: latestAggregate?.usage?.total ?? null,
@@ -996,4 +1116,9 @@ export const createAiTurnResponse = async (input: RunAiTurnInput): Promise<Respo
     after: "0-0",
     signal: input.signal,
   });
+};
+
+export const __aiRuntimeTest = {
+  getStaleToolStartCancelEvent,
+  withTurnLoopId,
 };

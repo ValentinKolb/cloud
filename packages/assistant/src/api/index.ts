@@ -30,6 +30,8 @@ const ConversationSchema = z.object({
   id: z.string(),
   appId: z.string(),
   title: z.string(),
+  icon: z.string(),
+  description: z.string(),
   resource: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("direct") }),
     z.object({
@@ -45,12 +47,24 @@ const ConversationSchema = z.object({
   updatedAt: z.string(),
 });
 
+const ConversationListQuerySchema = z.object({
+  q: z.string().trim().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
+});
+
+const ConversationMetadataInputSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  icon: z.string().trim().min(1).max(80).optional(),
+  description: z.string().trim().max(500).optional(),
+});
+
 const StoredMessageSchema = z.object({
   id: z.string(),
   conversationId: z.string(),
   seq: z.number(),
   kind: z.enum(["message", "summary"]),
   message: z.unknown(),
+  loopId: z.string().nullable(),
   modelProfileId: z.string().nullable(),
   providerModel: z.string().nullable(),
   usage: z.unknown().nullable(),
@@ -197,7 +211,21 @@ const app = new Hono<AuthContext>()
       summary: "List conversations",
       responses: { 200: jsonResponse(z.array(ConversationSchema), "Conversations") },
     }),
-    async (c) => respond(c, ok(await aiConversationStore.listConversations({ appId: ASSISTANT_APP_ID, ownerUserId: userId(c) }))),
+    v("query", ConversationListQuerySchema),
+    async (c) => {
+      const query = c.req.valid("query");
+      return respond(
+        c,
+        ok(
+          await aiConversationStore.listConversations({
+            appId: ASSISTANT_APP_ID,
+            ownerUserId: userId(c),
+            search: query.q,
+            limit: query.limit,
+          }),
+        ),
+      );
+    },
   )
   .post(
     "/conversations",
@@ -217,6 +245,56 @@ const app = new Hono<AuthContext>()
         ok(await aiConversationStore.createConversation({ appId: ASSISTANT_APP_ID, ownerUserId: userId(c), title: body.title })),
         201,
       );
+    },
+  )
+  .patch(
+    "/conversations/:conversationId",
+    describeRoute({
+      tags: [ASSISTANT_OPENAPI_TAG],
+      summary: "Update assistant conversation metadata",
+      responses: {
+        200: jsonResponse(ConversationSchema, "Updated conversation"),
+        400: jsonResponse(AiApiErrorSchema, "Invalid input"),
+        404: jsonResponse(AiApiErrorSchema, "Not found"),
+      },
+    }),
+    v("json", ConversationMetadataInputSchema),
+    async (c) => {
+      const loaded = await loadAssistantConversation(c);
+      if (!loaded.ok) return loaded.response;
+      const body = c.req.valid("json");
+      const conversation = await aiConversationStore.updateConversationMetadata({
+        conversationId: loaded.conversation.id,
+        appId: ASSISTANT_APP_ID,
+        ownerUserId: userId(c),
+        title: body.title,
+        icon: body.icon,
+        description: body.description,
+      });
+      if (!conversation) return notFound(c);
+      return respond(c, ok(conversation));
+    },
+  )
+  .delete(
+    "/conversations/:conversationId",
+    describeRoute({
+      tags: [ASSISTANT_OPENAPI_TAG],
+      summary: "Archive an assistant conversation",
+      responses: {
+        200: jsonResponse(z.object({ ok: z.literal(true) }), "Conversation archived"),
+        404: jsonResponse(AiApiErrorSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const loaded = await loadAssistantConversation(c);
+      if (!loaded.ok) return loaded.response;
+      const archived = await aiConversationStore.archiveConversation({
+        conversationId: loaded.conversation.id,
+        appId: ASSISTANT_APP_ID,
+        ownerUserId: userId(c),
+      });
+      if (!archived) return notFound(c);
+      return respond(c, ok({ ok: true }));
     },
   )
   .get(
@@ -266,6 +344,8 @@ const app = new Hono<AuthContext>()
         appId: ASSISTANT_APP_ID,
         ownerUserId: userId(c),
         title: body.title ?? loaded.conversation.title,
+        icon: loaded.conversation.icon,
+        description: loaded.conversation.description,
         resource: loaded.conversation.resource,
       });
       await aiConversationStore.copyMessages({

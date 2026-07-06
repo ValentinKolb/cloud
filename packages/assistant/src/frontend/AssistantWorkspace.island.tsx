@@ -9,8 +9,10 @@ import type {
 import { createAiChatController } from "@valentinkolb/cloud/ai/solid";
 import { AiComposer, type AiComposerSendInput, AiMessageList, type AiSlashCommand, aiLatestUsage } from "@valentinkolb/cloud/ai/ui";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { navigateTo } from "@valentinkolb/ssr/nav";
+import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { apiClient } from "../api/client";
+import AssistantSidebar from "./AssistantSidebar";
 
 type Status = {
   ok: boolean;
@@ -46,16 +48,10 @@ export default function AssistantWorkspace(props: Props) {
     initialError: props.status.error?.message ?? null,
   });
   const [selectedModelId, setSelectedModelId] = createSignal(initialSelectedModelId());
-  const [searchQuery, setSearchQuery] = createSignal("");
 
   const canSend = createMemo(
     () => props.status.ok && props.status.enabled && props.models.length > 0 && !chat.running() && !chat.activeTurn(),
   );
-  const filteredConversations = createMemo(() => {
-    const query = searchQuery().trim().toLowerCase();
-    if (!query) return chat.conversations();
-    return chat.conversations().filter((conversation) => conversation.title.toLowerCase().includes(query));
-  });
   const usage = createMemo(() => aiLatestUsage(chat.messages()));
 
   createEffect(() => {
@@ -107,66 +103,26 @@ export default function AssistantWorkspace(props: Props) {
     },
   ];
 
-  const sidebarContent = (
-    <>
-      <AppWorkspace.SidebarSection title="Actions">
-        <AppWorkspace.SidebarItem icon="ti ti-plus" active={!chat.activeConversationId()} onClick={() => void chat.createConversation()}>
-          New conversation
-        </AppWorkspace.SidebarItem>
-      </AppWorkspace.SidebarSection>
-      <div class="px-2 pb-2">
-        <label class="sr-only" for="assistant-search">
-          Search conversations
-        </label>
-        <div class="relative">
-          <i class="ti ti-search pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-sm text-zinc-500" />
-          <input
-            id="assistant-search"
-            type="search"
-            class="input h-8 w-full pl-8 text-xs"
-            value={searchQuery()}
-            placeholder="Search conversations"
-            onInput={(event) => setSearchQuery(event.currentTarget.value)}
-          />
-        </div>
-      </div>
-      <AppWorkspace.SidebarSection title="Recent">
-        <Show when={chat.conversations().length > 0} fallback={<p class="px-2 py-1 text-xs text-dimmed">No conversations yet</p>}>
-          <Show when={filteredConversations().length > 0} fallback={<p class="px-2 py-1 text-xs text-dimmed">No matching conversations</p>}>
-            <For each={filteredConversations()}>
-              {(conversation) => (
-                <AppWorkspace.SidebarItem
-                  icon="ti ti-message"
-                  active={conversation.id === chat.activeConversationId()}
-                  onClick={() => void chat.openConversation(conversation.id)}
-                  title={conversation.title}
-                >
-                  {conversation.title}
-                </AppWorkspace.SidebarItem>
-              )}
-            </For>
-          </Show>
-        </Show>
-      </AppWorkspace.SidebarSection>
-    </>
-  );
+  const updateConversation = (updated: AiConversation) => {
+    chat.setConversations((prev) => prev.map((conversation) => (conversation.id === updated.id ? updated : conversation)));
+  };
+
+  const deleteConversation = (deleted: AiConversation) => {
+    chat.setConversations((prev) => prev.filter((conversation) => conversation.id !== deleted.id));
+    if (deleted.id === chat.activeConversationId()) navigateTo("/app/assistant");
+  };
 
   return (
     <AppWorkspace class="flex-1 min-h-0">
-      <AppWorkspace.Sidebar>
-        <AppWorkspace.SidebarHeader
-          title="Assistant"
-          subtitle="General purpose"
-          icon="ti ti-sparkles"
-          iconStyle="background-image: linear-gradient(135deg, var(--color-teal-500), var(--color-blue-500))"
-        />
-        <AppWorkspace.SidebarMobile>
-          <AppWorkspace.SidebarMobileBody scrollPreserveKey="assistant-sidebar-mobile">{sidebarContent}</AppWorkspace.SidebarMobileBody>
-        </AppWorkspace.SidebarMobile>
-        <AppWorkspace.SidebarDesktop>
-          <AppWorkspace.SidebarBody scrollPreserveKey="assistant-sidebar">{sidebarContent}</AppWorkspace.SidebarBody>
-        </AppWorkspace.SidebarDesktop>
-      </AppWorkspace.Sidebar>
+      <AssistantSidebar
+        conversations={chat.conversations}
+        activeConversationId={chat.activeConversationId}
+        activeView="chat"
+        onNewConversation={() => void chat.createConversation()}
+        onOpenConversation={(conversationId) => void chat.openConversation(conversationId)}
+        onConversationUpdated={updateConversation}
+        onConversationDeleted={deleteConversation}
+      />
 
       <AppWorkspace.Main class="bg-zinc-50/70 dark:bg-zinc-950/50">
         <section class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve="assistant-messages">

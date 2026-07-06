@@ -3,56 +3,15 @@ import { defineAiTool } from "./tools";
 
 const ToneSchema = z.enum(["neutral", "blue", "teal", "green", "amber", "red"]);
 
-const parseJsonObjectString = (value: unknown) => {
-  if (typeof value !== "string") return value;
-  try {
-    const parsed = JSON.parse(value);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : value;
-  } catch {
-    return value;
-  }
-};
-
-const TrendSchema = z.preprocess(
-  parseJsonObjectString,
-  z.object({
-    label: z.string().min(1),
-    value: z.string().min(1),
-    direction: z.enum(["up", "down", "flat"]).default("flat"),
-  }),
-);
-
-const StatCardSchema = z.object({
-  kind: z.literal("stat_card"),
+export const CloudAiCardInputSchema = z.object({
   title: z.string().min(1),
   value: z.string().min(1),
   caption: z.string().optional(),
   tone: ToneSchema.default("teal"),
-  trend: TrendSchema.optional(),
+  trendLabel: z.string().min(1).optional(),
+  trendValue: z.string().min(1).optional(),
+  trendDirection: z.enum(["up", "down", "flat"]).default("flat"),
 });
-
-const ChartCardSchema = z.object({
-  kind: z.literal("chart"),
-  title: z.string().min(1),
-  chart: z.enum(["bar", "line", "donut"]).default("bar"),
-  caption: z.string().optional(),
-  tone: ToneSchema.default("blue"),
-  data: z
-    .array(z.object({ label: z.string().min(1), value: z.number(), color: z.string().optional() }))
-    .min(1)
-    .max(12),
-});
-
-const TableCardSchema = z.object({
-  kind: z.literal("table"),
-  title: z.string().min(1),
-  caption: z.string().optional(),
-  tone: ToneSchema.default("neutral"),
-  columns: z.array(z.string().min(1)).min(1).max(6),
-  rows: z.array(z.array(z.string()).min(1).max(6)).min(1).max(12),
-});
-
-export const CloudAiCardInputSchema = z.discriminatedUnion("kind", [StatCardSchema, ChartCardSchema, TableCardSchema]);
 export const CloudAiCardOutputSchema = z.object({ displayed: z.boolean() });
 
 const SurveyQuestionSchema = z.discriminatedUnion("type", [
@@ -108,7 +67,7 @@ export const createCloudAiCardTool = () =>
   defineAiTool({
     name: "card",
     description:
-      "Render a safe visual block in the chat for small stat cards, compact charts, or small tables. Use this when a visual summary is clearer than plain text. Pass nested fields like trend as JSON objects, not escaped strings.",
+      "Render one compact visual highlight card in the chat. Use it only for a single status, metric, KPI, or short result. Use normal markdown for tables, lists, comparisons, and longer explanations. Keep all fields flat; do not pass arrays or nested objects.",
     inputSchema: CloudAiCardInputSchema,
     outputSchema: CloudAiCardOutputSchema,
     approval: "never",
