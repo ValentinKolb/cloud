@@ -1,6 +1,5 @@
 import { type AuthContext, auth, jsonResponse, requiresAdmin, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
-import { isAdminUser } from "@valentinkolb/cloud/shared";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
@@ -28,38 +27,11 @@ type BaseGroupResponse = z.infer<typeof BaseGroupSchema>;
 type MessageResponse = z.infer<typeof MessageResponseSchema>;
 const GroupIdParamSchema = z.object({ id: z.uuid() });
 
-const requireLocalGroupManageAccess = async (
-  c: Context<AuthContext>,
-  group: NonNullable<Awaited<ReturnType<typeof accountsService.group.get>>>,
-) => {
-  const user = expectUserBackedActor(c);
-  if (isAdminUser(user)) return null;
-  if (group.provider !== "local") return null;
-
-  // Authorize by group ID, not name. Group names are unique only per provider;
-  // managing an IPA group named "x" must never authorize mutations on a local
-  // group also named "x".
-  const managedGroupIds = await accountsService.user.managedGroupId.list({
-    userId: user.id,
-    recursive: true,
-  });
-  if (managedGroupIds.includes(group.id)) return null;
-
-  return await respond(c, fail(err.forbidden("Access denied")));
-};
-
 const requireGroupMutationContext = async (c: Context<AuthContext>, groupId: string) => {
   const group = await accountsService.group.get({ id: groupId });
   if (!group) {
     return {
       error: await respond(c, fail(err.notFound("Group not found"))),
-    };
-  }
-
-  const accessError = await requireLocalGroupManageAccess(c, group);
-  if (accessError) {
-    return {
-      error: accessError,
     };
   }
 
