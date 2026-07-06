@@ -113,6 +113,7 @@
         "@valentinkolb/cloud-app-ipa-hosts": "workspace:*",
         "@valentinkolb/cloud-app-notebooks": "workspace:*",
         "@valentinkolb/cloud-app-oauth": "workspace:*",
+        "@valentinkolb/cloud-app-pulse": "workspace:*",
         "@valentinkolb/cloud-app-spaces": "workspace:*",
         "@valentinkolb/cloud-app-tools": "workspace:*",
         "@valentinkolb/cloud-app-venue": "workspace:*",
