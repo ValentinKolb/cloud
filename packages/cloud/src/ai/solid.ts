@@ -7,15 +7,20 @@ import type { AiConversation, AiPendingTurnAction, AiSseEvent, AiStoredMessage, 
 type ActiveTurn = {
   conversationId: string;
   turnId: string;
+  loopId?: string;
   cursor?: string;
 };
 
 type ApprovalRequest = Extract<AiSseEvent, { type: "approval_request" }>;
 type FrontendToolRequest = Extract<AiSseEvent, { type: "frontend_tool" }>;
+type DoneEvent = Extract<AiSseEvent, { type: "done" }>;
+
+const eventLoopId = (event: AiSseEvent): string => event.loopId ?? (event.type === "nessi" ? event.event.loopId : undefined) ?? event.turnId;
 
 export type AiApprovalRequest = ApprovalRequest;
 export type AiFrontendToolRequest = FrontendToolRequest;
 export type AiFrontendToolHandler = (request: AiFrontendToolRequest) => unknown | Promise<unknown>;
+export type AiChatRunStatus = "idle" | "sending" | "streaming" | "waiting_for_action" | "reconnecting" | "stopping" | "failed";
 
 type TurnActionInput =
   | {
@@ -94,10 +99,16 @@ const tempUserMessage = (conversationId: string, content: AiUserContentPart[]): 
   providerModel: null,
   usage: null,
   stopReason: null,
+  loopAggregate: null,
+  loopDoneReason: null,
   createdAt: new Date().toISOString(),
 });
 
-const tempAssistantMessage = (conversationId: string, message: AiStoredMessage["message"]): AiStoredMessage => ({
+const tempAssistantMessage = (
+  conversationId: string,
+  message: AiStoredMessage["message"],
+  metadata: Partial<Pick<AiStoredMessage, "loopAggregate" | "loopDoneReason" | "usage">> = {},
+): AiStoredMessage => ({
   id: `tmp-assistant-${Date.now()}`,
   conversationId,
   seq: Date.now(),
@@ -105,8 +116,10 @@ const tempAssistantMessage = (conversationId: string, message: AiStoredMessage["
   message,
   modelProfileId: null,
   providerModel: null,
-  usage: null,
+  usage: metadata.usage ?? null,
   stopReason: null,
+  loopAggregate: metadata.loopAggregate ?? null,
+  loopDoneReason: metadata.loopDoneReason ?? null,
   createdAt: new Date().toISOString(),
 });
 
@@ -118,8 +131,8 @@ const isFrontendToolRequest = (action: AiPendingTurnAction): action is FrontendT
 
 const pendingActionToUiBlock = (action: AiPendingTurnAction): AiUiBlock =>
   action.type === "approval_request"
-    ? { id: `approval-${action.callId}`, type: "approval_request", request: action, status: "pending" }
-    : { id: `frontend-${action.callId}`, type: "frontend_tool", request: action, status: "pending" };
+    ? { id: `approval-${eventLoopId(action)}-${action.callId}`, type: "approval_request", request: action, status: "pending" }
+    : { id: `frontend-${eventLoopId(action)}-${action.callId}`, type: "frontend_tool", request: action, status: "pending" };
 
 const ASSISTANT_DRAFT_CHARS_PER_TICK = 8;
 const ASSISTANT_DRAFT_TICK_MS = 32;
@@ -134,7 +147,15 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
   const [assistantBlocks, setAssistantBlocks] = createSignal<AiUiBlock[]>(
     (options.initialPendingActions ?? []).map(pendingActionToUiBlock),
   );
-  const [running, setRunning] = createSignal(false);
+  const initialRunStatus: AiChatRunStatus = options.initialPendingActions?.length ? "waiting_for_action" : "idle";
+  const [runStatus, setRunStatus] = createSignal<AiChatRunStatus>(initialRunStatus);
+  const running = () =>
+    runStatus() === "sending" ||
+    runStatus() === "streaming" ||
+    runStatus() === "waiting_for_action" ||
+    runStatus() === "reconnecting" ||
+    runStatus() === "stopping";
+  const setRunning = (value: boolean) => setRunStatus(value ? "streaming" : "idle");
   const [error, setError] = createSignal<string | null>(options.initialError ?? null);
   const [approvalRequests, setApprovalRequests] = createSignal<ApprovalRequest[]>(
     (options.initialPendingActions ?? []).filter(isApprovalRequest),
@@ -144,7 +165,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
   );
   const [activeTurn, setActiveTurn] = createSignal<ActiveTurn | null>(
     options.initialConversationId && options.initialActiveTurn
-      ? { conversationId: options.initialConversationId, turnId: options.initialActiveTurn.id }
+      ? { conversationId: options.initialConversationId, turnId: options.initialActiveTurn.id, loopId: options.initialActiveTurn.id }
       : null,
   );
 
@@ -155,7 +176,12 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
   let assistantDeltaQueue = "";
   let assistantDeltaTimer: ReturnType<typeof setTimeout> | null = null;
   let assistantDeltaDrainStartedAt: number | null = null;
-  let pendingAssistantFinal: { conversationId: string; message: AiStoredMessage["message"] } | null = null;
+  let pendingAssistantFinal: {
+    conversationId: string;
+    message: AiStoredMessage["message"];
+    loopAggregate: DoneEvent["aggregate"];
+    loopDoneReason: DoneEvent["reason"] | null;
+  } | null = null;
   let assistantOutputWaiters: Array<() => void> = [];
   let runId = 0;
   let uiBlockId = 0;
@@ -250,7 +276,14 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     setAssistantDraft("");
     setAssistantThinkingDraft("");
     setAssistantBlocks([]);
-    setMessages((prev) => [...prev, tempAssistantMessage(final.conversationId, final.message)]);
+    setMessages((prev) => [
+      ...prev,
+      tempAssistantMessage(final.conversationId, final.message, {
+        loopAggregate: final.loopAggregate,
+        loopDoneReason: final.loopDoneReason,
+        usage: final.loopAggregate?.usage ?? null,
+      }),
+    ]);
     resolveAssistantOutputWaiters();
   };
 
@@ -317,6 +350,38 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     resolveAssistantOutputWaiters();
   };
 
+  const applyLoopDoneToAssistantOutput = (event: DoneEvent) => {
+    const aggregate = event.aggregate?.assistantMessageCount ? event.aggregate : null;
+
+    if (pendingAssistantFinal?.conversationId === event.conversationId) {
+      pendingAssistantFinal = {
+        ...pendingAssistantFinal,
+        loopAggregate: aggregate,
+        loopDoneReason: aggregate ? event.reason : null,
+      };
+      return;
+    }
+
+    if (!aggregate) return;
+    setMessages((prev) => {
+      const index = prev.findLastIndex(
+        (entry) => entry.conversationId === event.conversationId && entry.kind === "message" && entry.message.role === "assistant",
+      );
+      if (index < 0) return prev;
+      const entry = prev[index]!;
+      return [
+        ...prev.slice(0, index),
+        {
+          ...entry,
+          usage: aggregate.usage ?? entry.usage,
+          loopAggregate: aggregate,
+          loopDoneReason: event.reason,
+        },
+        ...prev.slice(index + 1),
+      ];
+    });
+  };
+
   const waitForAssistantOutputSettled = () =>
     assistantDeltaQueue || assistantDeltaTimer || pendingAssistantFinal
       ? new Promise<void>((resolve) => {
@@ -328,6 +393,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     const pending = actions ?? [];
     const approvals = pending.filter(isApprovalRequest);
     const frontendTools = pending.filter(isFrontendToolRequest);
+    if (pending.length > 0) setRunStatus("waiting_for_action");
     setApprovalRequests(approvals);
     setFrontendToolRequests(frontendTools);
     setAssistantBlocks((prev) => {
@@ -341,6 +407,30 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
 
   const abortStream = () => {
     activeAbortController?.abort();
+  };
+
+  const detachActiveRun = () => {
+    runId += 1;
+    clearResumeRetry();
+    abortStream();
+    setStreamController(null);
+    setRunning(false);
+    resumedTurnId = null;
+    setActiveTurn(null);
+    clearAssistantOutput();
+    clearPendingActions();
+  };
+
+  const detachStoppedRun = () => {
+    runId += 1;
+    clearResumeRetry();
+    flushAssistantOutput();
+    abortStream();
+    setStreamController(null);
+    setRunning(false);
+    resumedTurnId = null;
+    setActiveTurn(null);
+    clearPendingActions();
   };
 
   const clearResumeRetry = () => {
@@ -373,14 +463,21 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       return;
     }
 
+    setRunStatus("stopping");
     void options.route.conversations[":conversationId"].turns[":turnId"].abort
       .$post(inputWithParams({ param: { conversationId: turn.conversationId, turnId: turn.turnId } }))
       .then(async (response) => {
         if (!response.ok) {
+          setRunStatus("failed");
           setError(await readAiError(response, "Failed to stop AI turn"));
+          return;
         }
+        detachStoppedRun();
+        await refreshConversationDetail(turn.conversationId).catch(() => undefined);
+        await refreshConversations().catch(() => undefined);
       })
       .catch((abortError) => {
+        setRunStatus("failed");
         setError(abortError instanceof Error ? abortError.message : "Failed to stop AI turn");
       });
   };
@@ -402,49 +499,55 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     if (!response.ok) return;
     const body = (await response.json()) as AiConversationDetail;
     setMessages(body.messages);
-    setActiveTurn(body.activeTurn ? { conversationId, turnId: body.activeTurn.id } : null);
+    setActiveTurn(body.activeTurn ? { conversationId, turnId: body.activeTurn.id, loopId: body.activeTurn.id } : null);
     applyPendingActions(body.pendingActions);
   };
 
   const handleStreamEvent = (event: AiSseEvent, conversationId: string): boolean => {
     resetResumeRetry();
+    const loopId = eventLoopId(event);
 
     if (event.cursor) {
-      setActiveTurn((prev) => (prev && prev.turnId === event.turnId ? { ...prev, cursor: event.cursor } : prev));
+      setActiveTurn((prev) => (prev && prev.turnId === event.turnId ? { ...prev, loopId, cursor: event.cursor } : prev));
     }
 
     if (event.type === "turn_start") {
-      setActiveTurn({ conversationId, turnId: event.turnId, cursor: event.cursor });
+      setActiveTurn({ conversationId, turnId: event.turnId, loopId, cursor: event.cursor });
       setAssistantBlocks([]);
       return false;
     }
 
     if (event.type === "done") {
+      applyLoopDoneToAssistantOutput(event);
       setActiveTurn(null);
       return true;
     }
 
     if (event.type === "error") {
       setError(event.message);
-      upsertAssistantBlock({ id: `error-${event.turnId}`, type: "error", message: event.message });
+      upsertAssistantBlock({ id: `error-${loopId}`, type: "error", message: event.message });
       setActiveTurn(null);
       return true;
     }
 
     if (event.type === "approval_request") {
+      setRunStatus("waiting_for_action");
       setApprovalRequests((prev) => [...prev.filter((request) => request.callId !== event.callId), event]);
+      const blockId = `approval-${loopId}-${event.callId}`;
       upsertAssistantBlock(
-        { id: `approval-${event.callId}`, type: "approval_request", request: event, status: "pending" },
-        (block) => block.type === "approval_request" && block.request.callId === event.callId,
+        { id: blockId, type: "approval_request", request: event, status: "pending" },
+        (block) => block.id === blockId,
       );
       return false;
     }
 
     if (event.type === "frontend_tool") {
+      setRunStatus("waiting_for_action");
       setFrontendToolRequests((prev) => [...prev.filter((request) => request.callId !== event.callId), event]);
+      const blockId = `frontend-${loopId}-${event.callId}`;
       upsertAssistantBlock(
-        { id: `frontend-${event.callId}`, type: "frontend_tool", request: event, status: "pending" },
-        (block) => block.type === "frontend_tool" && block.request.callId === event.callId,
+        { id: blockId, type: "frontend_tool", request: event, status: "pending" },
+        (block) => block.id === blockId,
       );
       if (event.mode === "client" || event.mode === "client_view") void runFrontendTool(event);
       return false;
@@ -461,7 +564,22 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       appendThinkingBlockDelta(nessiEvent.delta);
     } else if (nessiEvent.type === "tool_start") {
       flushAssistantOutput();
-      updateToolBlock(nessiEvent.callId, { name: nessiEvent.name, status: "running" });
+      // Keep visible tool execution tied to `tool_call`. Nessi 0.3 emits root
+      // `tool_start` only after validation, but old replayed events may not.
+      setAssistantBlocks((prev) =>
+        prev.map((block) =>
+          block.type === "tool_call" && block.callId === nessiEvent.callId
+            ? { ...block, name: nessiEvent.name, status: "running" }
+            : block,
+        ),
+      );
+    } else if (nessiEvent.type === "tool_error" || nessiEvent.type === "tool_cancel") {
+      flushAssistantOutput();
+      if (nessiEvent.callId) {
+        setAssistantBlocks((prev) =>
+          prev.filter((block) => !(block.type === "tool_call" && block.callId === nessiEvent.callId && block.status === "running")),
+        );
+      }
     } else if (nessiEvent.type === "tool_call") {
       flushAssistantOutput();
       updateToolBlock(nessiEvent.callId, { name: nessiEvent.name, args: nessiEvent.args, status: "called" });
@@ -473,16 +591,16 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
         status: nessiEvent.isError ? "failed" : "completed",
       });
     } else if (nessiEvent.type === "compaction_start") {
-      upsertAssistantBlock({ id: "compaction", type: "compaction", status: "running" });
+      upsertAssistantBlock({ id: `compaction-${loopId}`, type: "compaction", status: "running" });
     } else if (nessiEvent.type === "compaction_end") {
-      upsertAssistantBlock({ id: "compaction", type: "compaction", status: "completed" });
+      upsertAssistantBlock({ id: `compaction-${loopId}`, type: "compaction", status: "completed" });
     } else if (nessiEvent.type === "turn_end") {
       if (pendingAssistantFinal) flushAssistantOutput();
-      pendingAssistantFinal = { conversationId, message: nessiEvent.message };
+      pendingAssistantFinal = { conversationId, message: nessiEvent.message, loopAggregate: null, loopDoneReason: null };
       if (!assistantDeltaQueue && !assistantDeltaTimer) commitPendingAssistantFinal();
     } else if (nessiEvent.type === "error") {
       setError(nessiEvent.error);
-      upsertAssistantBlock({ id: `error-${event.turnId}`, type: "error", message: nessiEvent.error });
+      upsertAssistantBlock({ id: `error-${loopId}`, type: "error", message: nessiEvent.error });
     }
     return false;
   };
@@ -523,7 +641,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     const thisRun = ++runId;
     let completed = false;
     setStreamController(controller);
-    setRunning(true);
+    setRunStatus("reconnecting");
     setError(null);
 
     try {
@@ -535,6 +653,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
         { init: { signal: controller.signal } },
       );
       if (!response.ok) throw new Error(await readAiError(response, "Failed to resume AI stream"));
+      if (thisRun === runId) setRunStatus("streaming");
       completed = await consumeStream(response, turn.conversationId, true);
       if (thisRun !== runId) return;
       if (completed) await waitForAssistantOutputSettled();
@@ -543,11 +662,12 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       await refreshConversations();
     } catch (resumeError) {
       if (controller.signal.aborted || thisRun !== runId) return;
+      setRunStatus("failed");
       setError(resumeError instanceof Error ? resumeError.message : "Failed to resume AI stream");
     } finally {
       if (activeAbortController === controller) setStreamController(null);
       if (thisRun === runId) {
-        setRunning(false);
+        if (runStatus() !== "failed") setRunning(false);
         const turnAfterRefresh = activeTurn();
         if (completed || !turnAfterRefresh) {
           resetResumeRetry();
@@ -577,7 +697,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
   }
 
   const openConversation = async (conversationId: string) => {
-    if (running()) return;
+    const shouldDetach = Boolean(running() || activeTurn());
     setError(null);
     resetResumeRetry();
     clearAssistantOutput();
@@ -588,14 +708,19 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       return;
     }
     const detail = (await response.json()) as AiConversationDetail;
+    if (shouldDetach) detachActiveRun();
     setActiveConversationId(detail.conversation.id);
     setMessages(detail.messages);
     resumedTurnId = null;
-    setActiveTurn(detail.activeTurn ? { conversationId: detail.conversation.id, turnId: detail.activeTurn.id } : null);
+    setActiveTurn(
+      detail.activeTurn ? { conversationId: detail.conversation.id, turnId: detail.activeTurn.id, loopId: detail.activeTurn.id } : null,
+    );
+    if (!detail.activeTurn) setRunStatus("idle");
     applyPendingActions(detail.pendingActions);
   };
 
-  const createConversation = async (input: { title?: string } = {}) => {
+  const createConversation = async (input: { title?: string } = {}, behavior: { detachActiveRun?: boolean } = {}) => {
+    const shouldDetach = behavior.detachActiveRun !== false && Boolean(running() || activeTurn());
     resetResumeRetry();
     clearAssistantOutput();
     const response = await options.route.conversations.$post(inputWithParams({ json: input }));
@@ -604,11 +729,13 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       return null;
     }
     const conversation = (await response.json()) as AiConversation;
+    if (shouldDetach) detachActiveRun();
     setConversations((prev) => [conversation, ...prev]);
     setActiveConversationId(conversation.id);
     setMessages([]);
     resumedTurnId = null;
     setActiveTurn(null);
+    setRunStatus("idle");
     clearPendingActions();
     return conversation;
   };
@@ -616,7 +743,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
   const ensureConversation = async () => {
     const current = activeConversationId();
     if (current) return current;
-    const conversation = await createConversation();
+    const conversation = await createConversation({}, { detachActiveRun: false });
     return conversation?.id ?? null;
   };
 
@@ -629,7 +756,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     const thisRun = ++runId;
     let completed = false;
     setError(null);
-    setRunning(true);
+    setRunStatus("sending");
     clearAssistantOutput();
     resetResumeRetry();
     clearPendingActions();
@@ -653,6 +780,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       );
 
       if (!response.ok) throw new Error(await readAiError(response, "AI request failed"));
+      if (thisRun === runId) setRunStatus("streaming");
       completed = await consumeStream(response, conversationId, false);
       if (thisRun !== runId) return false;
       if (completed) await waitForAssistantOutputSettled();
@@ -661,13 +789,14 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       return true;
     } catch (sendError) {
       if (thisRun === runId) {
+        setRunStatus("failed");
         setError(controller.signal.aborted ? "AI request stopped." : sendError instanceof Error ? sendError.message : "AI request failed");
       }
       return false;
     } finally {
       if (activeAbortController === controller) setStreamController(null);
       if (thisRun === runId) {
-        setRunning(false);
+        if (runStatus() !== "failed") setRunning(false);
         const turnAfterRefresh = activeTurn();
         if (completed || !turnAfterRefresh) {
           resetResumeRetry();
@@ -698,7 +827,10 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     setActiveConversationId(detail.conversation.id);
     setMessages(detail.messages);
     resumedTurnId = null;
-    setActiveTurn(detail.activeTurn ? { conversationId: detail.conversation.id, turnId: detail.activeTurn.id } : null);
+    setActiveTurn(
+      detail.activeTurn ? { conversationId: detail.conversation.id, turnId: detail.activeTurn.id, loopId: detail.activeTurn.id } : null,
+    );
+    if (!detail.activeTurn) setRunStatus("idle");
     applyPendingActions(detail.pendingActions);
     await refreshConversations().catch(() => undefined);
     return detail.conversation;
@@ -709,7 +841,11 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     input: { content?: AiUserContentPart[]; mode?: AiMessageRetryMode; modelProfileId?: string } = {},
   ): Promise<boolean> => {
     const conversationId = activeConversationId();
-    if (!conversationId || running() || activeTurn()) return false;
+    if (!conversationId) return false;
+    if (running()) {
+      setError("Stop the current response before trying again.");
+      return false;
+    }
 
     const currentMessages = messages();
     const target = currentMessages.find((message) => message.id === messageId);
@@ -718,12 +854,22 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       return false;
     }
     const content = input.content?.length ? input.content : target.message.content;
+    const currentActiveTurn = activeTurn();
+    const currentAssistantDraft = assistantDraft();
+    const currentAssistantThinkingDraft = assistantThinkingDraft();
+    const currentAssistantBlocks = assistantBlocks();
+    const currentApprovalRequests = approvalRequests();
+    const currentFrontendToolRequests = frontendToolRequests();
+    const currentResumedTurnId = resumedTurnId;
 
     const controller = new AbortController();
     const thisRun = ++runId;
     let completed = false;
     setError(null);
-    setRunning(true);
+    setRunStatus("sending");
+    resetResumeRetry();
+    resumedTurnId = null;
+    setActiveTurn(null);
     clearAssistantOutput();
     clearPendingActions();
     setStreamController(controller);
@@ -743,6 +889,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       );
 
       if (!response.ok) throw new Error(await readAiError(response, "AI retry failed"));
+      if (thisRun === runId) setRunStatus("streaming");
       completed = await consumeStream(response, conversationId, false);
       if (thisRun !== runId) return false;
       if (completed) await waitForAssistantOutputSettled();
@@ -751,14 +898,22 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       return true;
     } catch (retryError) {
       if (thisRun === runId) {
+        setRunStatus("failed");
         setMessages(currentMessages);
+        setActiveTurn(currentActiveTurn);
+        setAssistantDraft(currentAssistantDraft);
+        setAssistantThinkingDraft(currentAssistantThinkingDraft);
+        setAssistantBlocks(currentAssistantBlocks);
+        setApprovalRequests(currentApprovalRequests);
+        setFrontendToolRequests(currentFrontendToolRequests);
+        resumedTurnId = currentResumedTurnId;
         setError(controller.signal.aborted ? "AI request stopped." : retryError instanceof Error ? retryError.message : "AI retry failed");
       }
       return false;
     } finally {
       if (activeAbortController === controller) setStreamController(null);
       if (thisRun === runId) {
-        setRunning(false);
+        if (runStatus() !== "failed") setRunning(false);
         const turnAfterRefresh = activeTurn();
         if (completed || !turnAfterRefresh) {
           resetResumeRetry();
@@ -787,11 +942,16 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       setError(await readAiError(response, "Failed to continue AI turn"));
       return false;
     }
+    const remainingActionCount =
+      approvalRequests().filter((request) => request.callId !== input.callId).length +
+      frontendToolRequests().filter((request) => request.callId !== input.callId).length;
     setApprovalRequests((prev) => prev.filter((request) => request.callId !== input.callId));
     setFrontendToolRequests((prev) => prev.filter((request) => request.callId !== input.callId));
     const turn = activeTurn();
-    if (turn && turn.conversationId === input.conversationId && turn.turnId === input.turnId && !running()) {
-      void resume(turn);
+    if (turn && turn.conversationId === input.conversationId && turn.turnId === input.turnId) {
+      if (remainingActionCount > 0) setRunStatus("waiting_for_action");
+      else if (activeAbortController && !activeAbortController.signal.aborted) setRunStatus("streaming");
+      else void resume(turn);
     }
     return true;
   };
@@ -804,9 +964,10 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       action: { type: "approval_response", approved: input.approved, remember: input.remember },
     }).then((ok) => {
       if (!ok) return false;
+      const blockId = `approval-${eventLoopId(request)}-${request.callId}`;
       upsertAssistantBlock(
-        { id: `approval-${request.callId}`, type: "approval_request", request, status: input.approved ? "approved" : "rejected" },
-        (block) => block.type === "approval_request" && block.request.callId === request.callId,
+        { id: blockId, type: "approval_request", request, status: input.approved ? "approved" : "rejected" },
+        (block) => block.id === blockId,
       );
       return true;
     });
@@ -819,9 +980,10 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
       action: { type: "tool_result", result },
     }).then((ok) => {
       if (!ok) return false;
+      const blockId = `frontend-${eventLoopId(request)}-${request.callId}`;
       upsertAssistantBlock(
-        { id: `frontend-${request.callId}`, type: "frontend_tool", request, status: "completed", result },
-        (block) => block.type === "frontend_tool" && block.request.callId === request.callId,
+        { id: blockId, type: "frontend_tool", request, status: "completed", result },
+        (block) => block.id === blockId,
       );
       return true;
     });
@@ -839,6 +1001,7 @@ export const createAiChatController = <TRoute extends AiChatRouteBranch>(options
     assistantDraft,
     assistantThinkingDraft,
     assistantBlocks,
+    runStatus,
     running,
     error,
     setError,

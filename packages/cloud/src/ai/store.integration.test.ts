@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@valentinkolb/nessi";
+import type { LoopAggregate, Message } from "@valentinkolb/nessi";
 import { sql } from "bun";
 import { forgetAiToolApproval, hasRememberedAiToolApproval, rememberAiToolApproval } from "./approvals";
 import { migrateCloudAi } from "./migrate";
+import { abortAiTurn, submitAiTurnAction } from "./runtime";
 import { aiConversationStore } from "./store";
 import { aiToolAudit } from "./tool-audit";
 
@@ -111,6 +112,29 @@ describe("AI conversation store integration", () => {
 
       await store.append(userMessage);
       await store.append(assistantMessage);
+      const loopAggregate: LoopAggregate = {
+        turns: [
+          {
+            message: assistantMessage as Extract<Message, { role: "assistant" }>,
+            usage: assistantMessage.usage,
+            stopReason: "stop",
+            toolCalls: [],
+          },
+        ],
+        usage: assistantMessage.usage,
+        toolCallCount: 0,
+        toolErrorCount: 0,
+        toolIssueCount: 0,
+        toolMalformedCount: 0,
+        toolCancelledCount: 0,
+        toolIssues: [],
+        assistantMessageCount: 1,
+      };
+      await aiConversationStore.setLatestAssistantLoopAggregate({
+        conversationId: direct.id,
+        aggregate: loopAggregate,
+        doneReason: "stop",
+      });
 
       const loaded = await store.load();
       expect(loaded.map((entry) => ({ seq: entry.seq, kind: entry.kind, message: entry.message }))).toEqual([
@@ -124,6 +148,8 @@ describe("AI conversation store integration", () => {
         providerModel: "provider/model",
         usage: { input: 4, output: 3, total: 7, creditsUsed: 0.007 },
         stopReason: "stop",
+        loopAggregate,
+        loopDoneReason: "stop",
       });
       expect((await aiConversationStore.getConversation({ conversationId: direct.id }))?.title).toBe("Rewrite this text for me please");
 
@@ -150,7 +176,150 @@ describe("AI conversation store integration", () => {
       const turn = await aiConversationStore.createTurn({ conversationId: direct.id, modelProfileId: "model-a" });
       expect((await aiConversationStore.getRunningTurn({ conversationId: direct.id }))?.id).toBe(turn.id);
       await expect(aiConversationStore.createTurn({ conversationId: direct.id, modelProfileId: "model-a" })).rejects.toThrow();
+
+      await aiConversationStore.savePendingTurnAction({
+        conversationId: direct.id,
+        turnId: turn.id,
+        callId: "approval-1",
+        kind: "approval",
+        name: "write_record",
+        args: { id: "record-1" },
+        message: "Approve write",
+        approvalScope: "write_record:v1",
+        allowAlways: true,
+        resolvedEvent: null,
+      });
+      expect(await aiConversationStore.listPendingTurnActions({ conversationId: direct.id, turnId: turn.id })).toEqual([
+        {
+          type: "approval_request",
+          conversationId: direct.id,
+          turnId: turn.id,
+          loopId: turn.id,
+          callId: "approval-1",
+          name: "write_record",
+          args: { id: "record-1" },
+          message: "Approve write",
+          allowAlways: true,
+        },
+      ]);
+      const resolved = await aiConversationStore.resolvePendingTurnAction({
+        conversationId: direct.id,
+        turnId: turn.id,
+        callId: "approval-1",
+        event: { type: "approval_response", callId: "approval-1", approved: true },
+      });
+      expect(resolved?.resolvedEvent).toEqual({ type: "approval_response", callId: "approval-1", approved: true });
+      expect(await aiConversationStore.listPendingTurnActions({ conversationId: direct.id, turnId: turn.id })).toEqual([]);
+
+      const startEvent = await aiConversationStore.appendTurnEvent({
+        event: {
+          type: "turn_start",
+          conversationId: direct.id,
+          turnId: turn.id,
+          modelProfileId: "model-a",
+          providerModel: "provider/model",
+        },
+      });
+      expect(startEvent?.cursor).toBeTruthy();
+      await aiConversationStore.appendTurnEvent({
+        event: {
+          type: "done",
+          conversationId: direct.id,
+          turnId: turn.id,
+          reason: "stop",
+          aggregate: null,
+        },
+      });
+      const replayedEvents = await aiConversationStore.listTurnEvents({
+        conversationId: direct.id,
+        turnId: turn.id,
+        after: "0-0",
+      });
+      expect(replayedEvents.map((event) => event.type)).toEqual(["turn_start", "done"]);
+      expect(
+        (
+          await aiConversationStore.listTurnEvents({
+            conversationId: direct.id,
+            turnId: turn.id,
+            after: startEvent?.cursor,
+          })
+        ).map((event) => event.type),
+      ).toEqual(["done"]);
+
       await aiConversationStore.completeTurn({ turnId: turn.id, status: "completed" });
+      expect(await aiConversationStore.getRunningTurn({ conversationId: direct.id })).toBeNull();
+
+      const abortTurn = await aiConversationStore.createTurn({ conversationId: direct.id, modelProfileId: "model-a" });
+      expect(await aiConversationStore.requestTurnAbort({ conversationId: direct.id, turnId: abortTurn.id })).toMatchObject({
+        found: true,
+        status: "aborted",
+        aborted: true,
+      });
+      expect(await aiConversationStore.getRunningTurn({ conversationId: direct.id })).toBeNull();
+      expect(await aiConversationStore.requestTurnAbort({ conversationId: direct.id, turnId: abortTurn.id })).toMatchObject({
+        found: true,
+        status: "aborted",
+        aborted: false,
+      });
+
+      const leasedTurn = await aiConversationStore.createTurn({
+        conversationId: direct.id,
+        modelProfileId: "model-a",
+        leaseOwner: "worker-test",
+        leaseMs: 30_000,
+      });
+      expect(
+        await aiConversationStore.isTurnLeaseOwner({
+          conversationId: direct.id,
+          turnId: leasedTurn.id,
+          leaseOwner: "worker-test",
+        }),
+      ).toBe(true);
+      await aiConversationStore.completeTurn({ turnId: leasedTurn.id, status: "completed", leaseOwner: "other-worker" });
+      expect((await aiConversationStore.getRunningTurn({ conversationId: direct.id }))?.id).toBe(leasedTurn.id);
+      expect(
+        await aiConversationStore.heartbeatTurn({
+          conversationId: direct.id,
+          turnId: leasedTurn.id,
+          leaseOwner: "worker-test",
+          leaseMs: 30_000,
+        }),
+      ).toBe(true);
+      expect(
+        await aiConversationStore.heartbeatTurn({
+          conversationId: direct.id,
+          turnId: leasedTurn.id,
+          leaseOwner: "other-worker",
+          leaseMs: 30_000,
+        }),
+      ).toBe(false);
+      await sql`
+        UPDATE ai.turns
+        SET lease_expires_at = now() - interval '1 second'
+        WHERE id = ${leasedTurn.id}::uuid
+      `;
+      expect(await aiConversationStore.expireStaleTurns({ conversationId: direct.id })).toBe(1);
+      expect((await aiConversationStore.getRunningTurn({ conversationId: direct.id }))?.id).toBe(leasedTurn.id);
+      expect(
+        await aiConversationStore.isTurnLeaseOwner({
+          conversationId: direct.id,
+          turnId: leasedTurn.id,
+          leaseOwner: "worker-test",
+        }),
+      ).toBe(false);
+      expect((await aiConversationStore.listRecoverableTurns({ limit: 20 })).map((recoverable) => recoverable.id)).toContain(leasedTurn.id);
+      expect(
+        await aiConversationStore.claimTurnLease({
+          conversationId: direct.id,
+          turnId: leasedTurn.id,
+          leaseOwner: "other-worker",
+          leaseMs: 30_000,
+        }),
+      ).toBe(true);
+      expect((await aiConversationStore.listRecoverableTurns({ limit: 20 })).map((recoverable) => recoverable.id)).not.toContain(
+        leasedTurn.id,
+      );
+      await aiConversationStore.completeTurn({ turnId: leasedTurn.id, status: "completed", leaseOwner: "other-worker" });
       expect(await aiConversationStore.getRunningTurn({ conversationId: direct.id })).toBeNull();
     } finally {
       await cleanupFixture({ userId, conversationIds });
@@ -278,6 +447,68 @@ describe("AI tool audit and approval integration", () => {
       for (const extraUserId of extraUserIds) {
         await sql`DELETE FROM auth.users WHERE id = ${extraUserId}::uuid`;
       }
+    }
+  });
+});
+
+describe("AI runtime durable turn controls", () => {
+  test("accepts aborts and pending actions without a local active worker", async () => {
+    if (!(await canUseAiDatabase())) {
+      console.warn("Skipping AI runtime control DB test: auth/ai tables are not available.");
+      return;
+    }
+
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+
+    try {
+      const conversation = await aiConversationStore.createConversation({
+        appId: "ai-test",
+        ownerUserId: userId,
+      });
+      conversationIds.push(conversation.id);
+      const turn = await aiConversationStore.createTurn({ conversationId: conversation.id, modelProfileId: "model-a" });
+
+      await aiConversationStore.savePendingTurnAction({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        callId: "approval-remote",
+        kind: "approval",
+        name: "write_record",
+        args: { id: "record-1" },
+        approvalScope: "write_record:v1",
+        allowAlways: false,
+        resolvedEvent: null,
+      });
+
+      await expect(
+        submitAiTurnAction({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          callId: "approval-remote",
+          action: { type: "approval_response", approved: true },
+        }),
+      ).resolves.toEqual({ ok: true });
+      expect(
+        await aiConversationStore.getPendingTurnAction({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          callId: "approval-remote",
+        }),
+      ).toMatchObject({
+        resolvedEvent: { type: "approval_response", callId: "approval-remote", approved: true },
+      });
+
+      await expect(abortAiTurn({ conversationId: conversation.id, turnId: turn.id })).resolves.toEqual({ ok: true });
+      await expect(abortAiTurn({ conversationId: conversation.id, turnId: turn.id })).resolves.toEqual({ ok: true });
+      expect(await aiConversationStore.getRunningTurn({ conversationId: conversation.id })).toBeNull();
+      expect(
+        (await aiConversationStore.listTurnEvents({ conversationId: conversation.id, turnId: turn.id, after: "0-0" })).filter(
+          (event) => event.type === "done" && event.reason === "aborted",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
     }
   });
 });

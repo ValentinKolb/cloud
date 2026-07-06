@@ -3,6 +3,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AuthContext } from "../server";
 import { defineAiResource, requireAiResourceAccess } from "./resource";
+import { aiResourceKey, resolveAiResourceRunContext } from "./resource-runner";
+import { defineAiTool } from "./tools";
 
 const actor = {
   kind: "user",
@@ -196,5 +198,59 @@ describe("AI resource adapters", () => {
       context: 0,
       tools: 0,
     });
+  });
+
+  test("resource runner rehydrates registered context and guards server tools", async () => {
+    let allowed = true;
+    let accessCalls = 0;
+    const writeTool = defineAiTool({
+      name: "write_record",
+      description: "Write a record",
+      inputSchema: z.object({ title: z.string() }),
+      outputSchema: z.object({ ok: z.boolean() }),
+      approval: "once",
+    }).server(async () => ({ ok: true }));
+
+    const resource = defineAiResource({
+      appId: "grids",
+      id: "base-runner-test",
+      path: "/bases/:baseId",
+      params: z.object({ baseId: z.string() }),
+      access: async () => {
+        accessCalls += 1;
+        return allowed ? { allowed: true, data: { permission: "write" } } : { allowed: false, reason: "Revoked" };
+      },
+      resourceTitle: ({ params }) => `Base ${params.baseId}`,
+      systemPrompt: "Use the base context.",
+      context: ({ params }) => `Current base: ${params.baseId}`,
+      tools: [writeTool],
+    });
+
+    const run = await resolveAiResourceRunContext({
+      resourceKey: aiResourceKey(resource),
+      params: { baseId: "base-1" },
+      actor,
+      signal: new AbortController().signal,
+    });
+
+    expect(run.conversationResource).toMatchObject({
+      kind: "resource",
+      appId: "grids",
+      resourceType: "base-runner-test",
+      resourceId: "base-1",
+      title: "Base base-1",
+    });
+    expect(run.systemPrompt).toBe("Use the base context.");
+    expect(run.resourceContext).toBe("Current base: base-1");
+    expect(run.tools).toHaveLength(1);
+    expect(accessCalls).toBe(1);
+
+    allowed = false;
+    const guarded = run.tools[0];
+    if (!guarded || !("location" in guarded) || guarded.location !== "server") throw new Error("Expected a guarded server tool.");
+    await expect(
+      guarded.run({ title: "Draft" }, { actor, signal: new AbortController().signal } as Parameters<typeof guarded.run>[1]),
+    ).rejects.toThrow("Revoked");
+    expect(accessCalls).toBe(2);
   });
 });

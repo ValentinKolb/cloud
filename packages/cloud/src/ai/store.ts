@@ -1,7 +1,21 @@
-import type { Message, SessionStore, StoreEntry } from "@valentinkolb/nessi";
+import type { DoneReason, InboundEvent, LoopAggregate, Message, SessionStore, StoreEntry } from "@valentinkolb/nessi";
 import type { Usage } from "@valentinkolb/nessi/ai";
 import { sql } from "bun";
-import type { AiConversation, AiConversationResource, AiConversationStore, AiStoredMessage, AiTurn, AiTurnStatus } from "./types";
+import type {
+  AiConversation,
+  AiConversationResource,
+  AiConversationStore,
+  AiFrontendToolMode,
+  AiPendingTurnAction,
+  AiPendingTurnActionRecord,
+  AiSseEvent,
+  AiStoredMessage,
+  AiStoredTurnEvent,
+  AiStreamEvent,
+  AiTurn,
+  AiTurnRunConfig,
+  AiTurnStatus,
+} from "./types";
 
 type ConversationRow = {
   id: string;
@@ -26,6 +40,8 @@ type MessageRow = {
   provider_model: string | null;
   usage: unknown;
   stop_reason: string | null;
+  loop_aggregate: unknown;
+  loop_done_reason: DoneReason | null;
   created_at: Date | string;
 };
 
@@ -37,6 +53,31 @@ type TurnRow = {
   created_at: Date | string;
   completed_at: Date | string | null;
   error: string | null;
+  run_config?: unknown;
+};
+
+type TurnRunConfigRow = {
+  run_config: unknown | null;
+};
+
+type TurnEventRow = {
+  seq: number | string;
+  event: unknown;
+  created_at: Date | string;
+};
+
+type PendingActionRow = {
+  turn_id: string;
+  conversation_id: string;
+  call_id: string;
+  kind: "approval" | "custom_approval" | "client_tool";
+  tool_name: string;
+  args: unknown;
+  message: string | null;
+  approval_scope: string;
+  allow_always: boolean;
+  frontend_mode: AiFrontendToolMode | null;
+  resolved_event: unknown | null;
 };
 
 const iso = (value: Date | string): string => (value instanceof Date ? value.toISOString() : new Date(value).toISOString());
@@ -77,6 +118,8 @@ const rowToMessage = (row: MessageRow): AiStoredMessage => {
     providerModel: row.provider_model,
     usage: row.usage ? parseJsonValue<Usage>(row.usage) : null,
     stopReason: row.stop_reason,
+    loopAggregate: row.loop_aggregate ? parseJsonValue<LoopAggregate>(row.loop_aggregate) : null,
+    loopDoneReason: row.loop_done_reason,
     createdAt: iso(row.created_at),
   };
 };
@@ -90,6 +133,80 @@ const rowToTurn = (row: TurnRow): AiTurn => ({
   completedAt: row.completed_at ? iso(row.completed_at) : null,
   error: row.error,
 });
+
+const rowToStoredTurnEvent = (row: TurnEventRow): AiStoredTurnEvent => {
+  const seq = Number(row.seq);
+  const event = parseJsonValue<AiStreamEvent>(row.event);
+  return { ...event, cursor: String(seq), seq, createdAt: iso(row.created_at) };
+};
+
+const pendingActionToPublicEvent = (row: PendingActionRow): AiPendingTurnAction =>
+  row.kind === "client_tool"
+    ? {
+        type: "frontend_tool",
+        turnId: row.turn_id,
+        conversationId: row.conversation_id,
+        loopId: row.turn_id,
+        callId: row.call_id,
+        name: row.tool_name,
+        args: parseJsonValue(row.args),
+        mode: row.frontend_mode ?? "client",
+      }
+    : {
+        type: "approval_request",
+        turnId: row.turn_id,
+        conversationId: row.conversation_id,
+        loopId: row.turn_id,
+        callId: row.call_id,
+        name: row.tool_name,
+        args: parseJsonValue(row.args),
+        message: row.message ?? undefined,
+        allowAlways: row.allow_always,
+      };
+
+const rowToPendingActionRecord = (row: PendingActionRow): AiPendingTurnActionRecord => ({
+  turnId: row.turn_id,
+  conversationId: row.conversation_id,
+  callId: row.call_id,
+  kind: row.kind,
+  name: row.tool_name,
+  args: parseJsonValue(row.args),
+  message: row.message ?? undefined,
+  approvalScope: row.approval_scope,
+  allowAlways: row.allow_always,
+  frontendMode: row.frontend_mode ?? undefined,
+  resolvedEvent: row.resolved_event ? parseJsonValue<InboundEvent>(row.resolved_event) : null,
+});
+
+const seqAfterCursor = (cursor: string | null | undefined): number => {
+  if (!cursor || cursor === "0-0") return 0;
+  const numericPrefix = /^[0-9]+/.exec(cursor)?.[0];
+  if (!numericPrefix) return 0;
+  const seq = Number(numericPrefix);
+  return Number.isSafeInteger(seq) && seq > 0 ? seq : 0;
+};
+
+const boundedLeaseMs = (leaseMs: number | undefined): number => {
+  if (!Number.isFinite(leaseMs ?? NaN)) return 60_000;
+  return Math.min(Math.max(Math.floor(leaseMs!), 5_000), 5 * 60_000);
+};
+
+const expireStaleTurns = async (conversationId?: string): Promise<number> => {
+  const rows = await sql<{ count: number }[]>`
+    WITH expired AS (
+      UPDATE ai.turns
+      SET lease_owner = NULL,
+          lease_expires_at = NULL
+      WHERE status = 'running'
+        AND lease_expires_at IS NOT NULL
+        AND lease_expires_at < now()
+        AND (${conversationId ?? null}::uuid IS NULL OR conversation_id = ${conversationId ?? null})
+      RETURNING id
+    )
+    SELECT COUNT(*)::int AS count FROM expired
+  `;
+  return rows[0]?.count ?? 0;
+};
 
 const resourceColumns = (resource: AiConversationResource | undefined, fallbackAppId: string) => {
   if (!resource || resource.kind === "direct") {
@@ -159,7 +276,9 @@ const appendMessage = async (input: {
         model_profile_id,
         provider_model,
         usage,
-        stop_reason
+        stop_reason,
+        loop_aggregate,
+        loop_done_reason
       )
       VALUES (
         ${input.conversationId},
@@ -170,7 +289,9 @@ const appendMessage = async (input: {
         ${input.modelProfileId ?? null},
         ${providerModel},
         ${usage ? JSON.stringify(usage) : null}::jsonb,
-        ${stopReason}
+        ${stopReason},
+        NULL,
+        NULL
       )
     `;
 
@@ -277,7 +398,9 @@ export const aiConversationStore: AiConversationStore = {
           model_profile_id,
           provider_model,
           usage,
-          stop_reason
+          stop_reason,
+          loop_aggregate,
+          loop_done_reason
         )
         SELECT
           ${input.targetConversationId},
@@ -288,7 +411,9 @@ export const aiConversationStore: AiConversationStore = {
           model_profile_id,
           provider_model,
           usage,
-          stop_reason
+          stop_reason,
+          loop_aggregate,
+          loop_done_reason
         FROM ai.messages
         WHERE conversation_id = ${input.sourceConversationId}
           AND compacted_at IS NULL
@@ -313,6 +438,25 @@ export const aiConversationStore: AiConversationStore = {
       `;
       await sql`UPDATE ai.conversations SET updated_at = now() WHERE id = ${input.conversationId}`;
     });
+  },
+
+  setLatestAssistantLoopAggregate: async (input) => {
+    await sql`
+      UPDATE ai.messages
+      SET loop_aggregate = ${JSON.stringify(input.aggregate)}::jsonb,
+          loop_done_reason = ${input.doneReason},
+          usage = COALESCE(${input.aggregate.usage ? JSON.stringify(input.aggregate.usage) : null}::jsonb, usage)
+      WHERE id = (
+        SELECT id
+        FROM ai.messages
+        WHERE conversation_id = ${input.conversationId}
+          AND compacted_at IS NULL
+          AND kind = 'message'
+          AND role = 'assistant'
+        ORDER BY seq DESC
+        LIMIT 1
+      )
+    `;
   },
 
   compactMessages: async (input) => {
@@ -363,7 +507,9 @@ export const aiConversationStore: AiConversationStore = {
           model_profile_id,
           provider_model,
           usage,
-          stop_reason
+          stop_reason,
+          loop_aggregate,
+          loop_done_reason
         )
         VALUES (
           ${input.conversationId},
@@ -374,7 +520,9 @@ export const aiConversationStore: AiConversationStore = {
           ${input.modelProfileId ?? null},
           ${providerModel},
           ${usage ? JSON.stringify(usage) : null}::jsonb,
-          ${stopReason}
+          ${stopReason},
+          NULL,
+          NULL
         )
       `;
       await sql`UPDATE ai.conversations SET updated_at = now() WHERE id = ${input.conversationId}`;
@@ -382,15 +530,54 @@ export const aiConversationStore: AiConversationStore = {
   },
 
   createTurn: async (input) => {
+    await expireStaleTurns(input.conversationId);
+    const leaseMs = boundedLeaseMs(input.leaseMs);
     const rows = await sql<TurnRow[]>`
-      INSERT INTO ai.turns (conversation_id, model_profile_id)
-      VALUES (${input.conversationId}, ${input.modelProfileId})
+      INSERT INTO ai.turns (
+        conversation_id,
+        model_profile_id,
+        lease_owner,
+        lease_expires_at,
+        heartbeat_at,
+        run_config
+      )
+      VALUES (
+        ${input.conversationId},
+        ${input.modelProfileId},
+        ${input.leaseOwner ?? null},
+        now() + (${leaseMs} * interval '1 millisecond'),
+        now(),
+        ${input.runConfig ? JSON.stringify(input.runConfig) : null}::jsonb
+      )
       RETURNING *
     `;
     return rowToTurn(rows[0]!);
   },
 
+  getTurn: async (input) => {
+    const rows = await sql<TurnRow[]>`
+      SELECT *
+      FROM ai.turns
+      WHERE id = ${input.turnId}
+        AND conversation_id = ${input.conversationId}
+      LIMIT 1
+    `;
+    return rows[0] ? rowToTurn(rows[0]) : null;
+  },
+
+  getTurnRunConfig: async (input) => {
+    const rows = await sql<TurnRunConfigRow[]>`
+      SELECT run_config
+      FROM ai.turns
+      WHERE id = ${input.turnId}
+        AND conversation_id = ${input.conversationId}
+      LIMIT 1
+    `;
+    return rows[0]?.run_config ? parseJsonValue<AiTurnRunConfig>(rows[0].run_config) : null;
+  },
+
   getRunningTurn: async (input) => {
+    await expireStaleTurns(input.conversationId);
     const rows = await sql<TurnRow[]>`
       SELECT *
       FROM ai.turns
@@ -402,11 +589,267 @@ export const aiConversationStore: AiConversationStore = {
     return rows[0] ? rowToTurn(rows[0]) : null;
   },
 
+  listRecoverableTurns: async (input) => {
+    await expireStaleTurns();
+    const limit = Math.min(Math.max(Math.floor(input?.limit ?? 100), 1), 500);
+    const rows = await sql<TurnRow[]>`
+      SELECT *
+      FROM ai.turns
+      WHERE status = 'running'
+        AND (lease_owner IS NULL OR lease_owner = 'queued')
+      ORDER BY created_at ASC
+      LIMIT ${limit}
+    `;
+    return rows.map(rowToTurn);
+  },
+
+  claimTurnLease: async (input) => {
+    const leaseMs = boundedLeaseMs(input.leaseMs);
+    const rows = await sql<{ id: string }[]>`
+      UPDATE ai.turns
+      SET heartbeat_at = now(),
+          lease_owner = ${input.leaseOwner},
+          lease_expires_at = now() + (${leaseMs} * interval '1 millisecond')
+      WHERE id = ${input.turnId}
+        AND conversation_id = ${input.conversationId}
+        AND status = 'running'
+        AND (
+          lease_owner IS NULL
+          OR lease_owner = 'queued'
+          OR lease_owner = ${input.leaseOwner}
+          OR lease_expires_at IS NULL
+          OR lease_expires_at < now()
+        )
+      RETURNING id
+    `;
+    return Boolean(rows[0]);
+  },
+
+  heartbeatTurn: async (input) => {
+    const leaseMs = boundedLeaseMs(input.leaseMs);
+    const rows = await sql<{ id: string }[]>`
+      UPDATE ai.turns
+      SET heartbeat_at = now(),
+          lease_expires_at = now() + (${leaseMs} * interval '1 millisecond')
+      WHERE id = ${input.turnId}
+        AND conversation_id = ${input.conversationId}
+        AND lease_owner = ${input.leaseOwner}
+        AND status = 'running'
+      RETURNING id
+    `;
+    return Boolean(rows[0]);
+  },
+
+  expireStaleTurns: (input) => expireStaleTurns(input?.conversationId),
+
+  requestTurnAbort: async (input) => {
+    await expireStaleTurns(input.conversationId);
+    const reason = input.reason ?? "user";
+    const updated = await sql<TurnRow[]>`
+      UPDATE ai.turns
+      SET status = 'aborted',
+          completed_at = COALESCE(completed_at, now()),
+          error = NULL,
+          cancel_requested_at = COALESCE(cancel_requested_at, now()),
+          cancellation_reason = COALESCE(cancellation_reason, ${reason}),
+          lease_owner = NULL,
+          lease_expires_at = NULL
+      WHERE id = ${input.turnId}
+        AND conversation_id = ${input.conversationId}
+        AND status = 'running'
+      RETURNING *
+    `;
+    if (updated[0]) return { found: true, status: updated[0].status, aborted: true };
+
+    const existing = await sql<TurnRow[]>`
+      SELECT *
+      FROM ai.turns
+      WHERE id = ${input.turnId}
+        AND conversation_id = ${input.conversationId}
+      LIMIT 1
+    `;
+    return existing[0] ? { found: true, status: existing[0].status, aborted: false } : { found: false, status: null, aborted: false };
+  },
+
+  isTurnRunning: async (input) => {
+    const rows = await sql<{ exists: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM ai.turns
+        WHERE id = ${input.turnId}
+          AND conversation_id = ${input.conversationId}
+          AND status = 'running'
+      ) AS exists
+    `;
+    return Boolean(rows[0]?.exists);
+  },
+
+  isTurnLeaseOwner: async (input) => {
+    const rows = await sql<{ exists: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM ai.turns
+        WHERE id = ${input.turnId}
+          AND conversation_id = ${input.conversationId}
+          AND lease_owner = ${input.leaseOwner}
+          AND status = 'running'
+      ) AS exists
+    `;
+    return Boolean(rows[0]?.exists);
+  },
+
   completeTurn: async (input) => {
     await sql`
       UPDATE ai.turns
-      SET status = ${input.status}, completed_at = now(), error = ${input.error ?? null}
+      SET status = ${input.status},
+          completed_at = now(),
+          error = ${input.error ?? null},
+          lease_owner = NULL,
+          lease_expires_at = NULL
       WHERE id = ${input.turnId}
+        AND status = 'running'
+        AND (${input.leaseOwner ?? null}::text IS NULL OR lease_owner = ${input.leaseOwner ?? null})
+    `;
+  },
+
+  appendTurnEvent: async (input) => {
+    const eventType = input.event.type;
+    const rows = await sql<TurnEventRow[]>`
+      INSERT INTO ai.turn_events (conversation_id, turn_id, event_type, event)
+      SELECT ${input.event.conversationId}, ${input.event.turnId}, ${eventType}, ${JSON.stringify(input.event)}::jsonb
+      WHERE EXISTS (
+        SELECT 1
+        FROM ai.turns
+        WHERE id = ${input.event.turnId}
+          AND conversation_id = ${input.event.conversationId}
+          AND (
+            status = 'running'
+            OR ${eventType} IN ('done', 'error')
+          )
+      )
+      ON CONFLICT DO NOTHING
+      RETURNING seq, event, created_at
+    `;
+    if (rows[0]) return rowToStoredTurnEvent(rows[0]);
+    if (eventType !== "done" && eventType !== "error") return null;
+
+    const existing = await sql<TurnEventRow[]>`
+      SELECT seq, event, created_at
+      FROM ai.turn_events
+      WHERE turn_id = ${input.event.turnId}
+        AND event_type IN ('done', 'error')
+      ORDER BY seq ASC
+      LIMIT 1
+    `;
+    return existing[0] ? rowToStoredTurnEvent(existing[0]) : null;
+  },
+
+  listTurnEvents: async (input) => {
+    const after = seqAfterCursor(input.after);
+    const limit = Math.min(Math.max(Math.floor(input.limit ?? 500), 1), 1_000);
+    const rows = await sql<TurnEventRow[]>`
+      SELECT seq, event, created_at
+      FROM ai.turn_events
+      WHERE conversation_id = ${input.conversationId}
+        AND (${input.turnId ?? null}::uuid IS NULL OR turn_id = ${input.turnId ?? null})
+        AND seq > ${after}
+      ORDER BY seq ASC
+      LIMIT ${limit}
+    `;
+    return rows.map(rowToStoredTurnEvent);
+  },
+
+  savePendingTurnAction: async (input) => {
+    await sql`
+      INSERT INTO ai.pending_actions (
+        turn_id,
+        conversation_id,
+        call_id,
+        kind,
+        tool_name,
+        args,
+        message,
+        approval_scope,
+        allow_always,
+        frontend_mode,
+        status,
+        resolved_event,
+        resolved_at
+      )
+      VALUES (
+        ${input.turnId},
+        ${input.conversationId},
+        ${input.callId},
+        ${input.kind},
+        ${input.name},
+        ${JSON.stringify(input.args ?? null)}::jsonb,
+        ${input.message ?? null},
+        ${input.approvalScope},
+        ${input.allowAlways},
+        ${input.frontendMode ?? null},
+        ${input.resolvedEvent ? "resolved" : "pending"},
+        ${input.resolvedEvent ? JSON.stringify(input.resolvedEvent) : null}::jsonb,
+        CASE WHEN ${Boolean(input.resolvedEvent)} THEN now() ELSE NULL END
+      )
+      ON CONFLICT (turn_id, call_id)
+      DO UPDATE SET
+        kind = EXCLUDED.kind,
+        tool_name = EXCLUDED.tool_name,
+        args = EXCLUDED.args,
+        message = EXCLUDED.message,
+        approval_scope = EXCLUDED.approval_scope,
+        allow_always = EXCLUDED.allow_always,
+        frontend_mode = EXCLUDED.frontend_mode
+    `;
+  },
+
+  listPendingTurnActions: async (input) => {
+    const rows = await sql<PendingActionRow[]>`
+      SELECT *
+      FROM ai.pending_actions
+      WHERE conversation_id = ${input.conversationId}
+        AND turn_id = ${input.turnId}
+        AND status = 'pending'
+      ORDER BY created_at ASC
+    `;
+    return rows.map(pendingActionToPublicEvent);
+  },
+
+  getPendingTurnAction: async (input) => {
+    const rows = await sql<PendingActionRow[]>`
+      SELECT *
+      FROM ai.pending_actions
+      WHERE conversation_id = ${input.conversationId}
+        AND turn_id = ${input.turnId}
+        AND call_id = ${input.callId}
+      LIMIT 1
+    `;
+    return rows[0] ? rowToPendingActionRecord(rows[0]) : null;
+  },
+
+  resolvePendingTurnAction: async (input) => {
+    const rows = await sql<PendingActionRow[]>`
+      UPDATE ai.pending_actions
+      SET status = 'resolved',
+          resolved_event = ${JSON.stringify(input.event)}::jsonb,
+          resolved_at = now()
+      WHERE conversation_id = ${input.conversationId}
+        AND turn_id = ${input.turnId}
+        AND call_id = ${input.callId}
+        AND status = 'pending'
+      RETURNING *
+    `;
+    return rows[0] ? rowToPendingActionRecord(rows[0]) : null;
+  },
+
+  clearPendingTurnActions: async (input) => {
+    await sql`
+      UPDATE ai.pending_actions
+      SET status = 'aborted',
+          resolved_at = COALESCE(resolved_at, now())
+      WHERE conversation_id = ${input.conversationId}
+        AND turn_id = ${input.turnId}
+        AND status = 'pending'
     `;
   },
 
@@ -416,6 +859,10 @@ export const aiConversationStore: AiConversationStore = {
       return rows.map((row) => ({ seq: row.seq, kind: row.kind, message: row.message }));
     },
     append: async (message, opts) => {
+      if (input.turnId && message.role !== "user") {
+        const running = await aiConversationStore.isTurnRunning({ conversationId: input.conversationId, turnId: input.turnId });
+        if (!running) return;
+      }
       await appendMessage({
         conversationId: input.conversationId,
         message,

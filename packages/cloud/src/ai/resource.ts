@@ -1,4 +1,3 @@
-import type { Tool, ToolContext } from "@valentinkolb/nessi";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -12,6 +11,7 @@ import {
   toAiErrorResponse,
 } from "./http";
 import { AiTurnActionSchema, abortAiTurn, createAiTurnResponse, listPendingAiTurnActions, submitAiTurnAction } from "./runtime";
+import { aiResourceKey, registerAiResourceDefinition } from "./resource-runner";
 import { listAiModels, toPublicAiSettingsState } from "./settings";
 import { aiConversationStore } from "./store";
 import { createAiEventReplayResponse } from "./stream";
@@ -22,8 +22,6 @@ import type {
   AiResourceDefinition,
   AiResourceDescriptor,
   AiResourceHookContext,
-  AiRuntimeTool,
-  AiToolRuntime,
 } from "./types";
 
 type Awaitable<T> = T | Promise<T>;
@@ -191,43 +189,6 @@ const loadResourceRequestContext = async <TParams extends Record<string, string>
   };
 };
 
-const guardTools = <TParams extends Record<string, string>, TAccess>(
-  definition: AiResourceDefinition<TParams, TAccess>,
-  hook: AiResourceHookContext<TParams, TAccess>,
-  tools: AiRuntimeTool[],
-): AiRuntimeTool[] =>
-  tools.map((tool) => {
-    if ("location" in tool) {
-      if (tool.location !== "server") return tool;
-      return {
-        ...tool,
-        run: async (input: unknown, toolCtx: ToolContext & { actor: typeof hook.actor }) => {
-          const latest = await definition.access({
-            params: hook.params,
-            actor: hook.actor,
-            signal: toolCtx.signal,
-          });
-          if (!latest.allowed) throw new Error(latest.reason || "AI resource access denied");
-          return tool.run(input, toolCtx);
-        },
-      } as AiToolRuntime;
-    }
-
-    if (tool.kind !== "server") return tool;
-    return {
-      ...tool,
-      execute: async (input: unknown, toolCtx: ToolContext) => {
-        const latest = await definition.access({
-          params: hook.params,
-          actor: hook.actor,
-          signal: toolCtx.signal,
-        });
-        if (!latest.allowed) throw new Error(latest.reason || "AI resource access denied");
-        return tool.execute(input, toolCtx);
-      },
-    } as Tool;
-  });
-
 const createAiResourceRoutes = <TPath extends string, TParamsSchema extends z.ZodType<AiPathParams<TPath>>, TAccess>(
   definition: AiResourceDefinition<z.infer<TParamsSchema>, TAccess> & {
     path: TPath;
@@ -291,7 +252,7 @@ const createAiResourceRoutes = <TPath extends string, TParamsSchema extends z.Zo
         aiConversationStore.listMessages({ conversationId: conversation.id }),
         aiConversationStore.getRunningTurn({ conversationId: conversation.id }),
       ]);
-      const pendingActions = activeTurn ? listPendingAiTurnActions({ conversationId: conversation.id, turnId: activeTurn.id }) : [];
+      const pendingActions = activeTurn ? await listPendingAiTurnActions({ conversationId: conversation.id, turnId: activeTurn.id }) : [];
       return respond(c, ok({ conversation, messages, activeTurn, pendingActions }));
     })
     .post(`${basePath}/conversations/:conversationId/turns`, v("json", AiTurnInputSchema), async (c) => {
@@ -309,26 +270,14 @@ const createAiResourceRoutes = <TPath extends string, TParamsSchema extends z.Zo
       if (!conversation) return respond(c, fail(err.notFound("Conversation")));
 
       try {
-        const [modelPolicy, systemPrompt, resourceContext, tools] = await Promise.all([
-          resolveValue(definition.modelPolicy, ctx.hook, { kind: "platform-default" }),
-          resolveValue(definition.systemPrompt, ctx.hook, ""),
-          definition.context?.(ctx.hook) ?? "",
-          resolveValue(definition.tools, ctx.hook, [] as AiRuntimeTool[]),
-        ]);
+        const modelPolicy = await resolveValue(definition.modelPolicy, ctx.hook, { kind: "platform-default" });
         return await createAiTurnResponse({
           conversationId: conversation.id,
           input: aiTurnInputToContent(body),
           actor: ctx.actor,
           requestedModelId: body.modelProfileId,
           modelPolicy: normalizePolicy(modelPolicy),
-          systemPrompt,
-          resourceContext,
-          tools: guardTools(definition, ctx.hook, tools),
-          toolApprovalContext: {
-            actorUserId: ctx.ownerUserId,
-            appId: definition.appId,
-            resource: ctx.conversationResource,
-          },
+          toolSource: { kind: "resource", resourceKey: aiResourceKey(definition), params: ctx.params },
           signal: c.req.raw.signal,
         });
       } catch (error) {
@@ -349,8 +298,7 @@ const createAiResourceRoutes = <TPath extends string, TParamsSchema extends z.Zo
       });
       if (!conversation) return respond(c, fail(err.notFound("Conversation")));
 
-      const result = abortAiTurn({ conversationId: conversation.id, turnId });
-      if (!result.ok) return toAiActionFailureResponse(c, result);
+      await abortAiTurn({ conversationId: conversation.id, turnId });
       return respond(c, ok({ ok: true }));
     })
     .post(`${basePath}/conversations/:conversationId/turns/:turnId/actions/:callId`, v("json", AiTurnActionSchema), async (c) => {
@@ -416,6 +364,9 @@ export const defineAiResource = <const TPath extends string, TParamsSchema exten
     path: normalizePath(config.path) as TPath,
     parseParams: (raw: unknown) => config.params.parse(raw),
   };
+  registerAiResourceDefinition(
+    definition as unknown as AiResourceDefinition<Record<string, string>, unknown> & { params: z.ZodType<Record<string, string>> },
+  );
 
   return {
     ...definition,

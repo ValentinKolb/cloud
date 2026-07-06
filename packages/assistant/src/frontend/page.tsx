@@ -25,7 +25,7 @@ export default ssr<AuthContext>(async (c) => {
       ])
     : [[], null];
   const pendingActions =
-    activeConversation && activeTurn ? listPendingAiTurnActions({ conversationId: activeConversation, turnId: activeTurn.id }) : [];
+    activeConversation && activeTurn ? await listPendingAiTurnActions({ conversationId: activeConversation, turnId: activeTurn.id }) : [];
 
   return () => (
     <Layout c={c} fullPage title={[{ title: "Start", href: "/" }, { title: "Assistant" }]}>

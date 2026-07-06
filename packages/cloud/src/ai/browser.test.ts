@@ -10,7 +10,7 @@ describe("AI browser streaming helpers", () => {
         start(controller) {
           controller.enqueue(
             encoder.encode(
-              ': heartbeat\n\nid: 1-0\nevent: text\ndata: {"type":"nessi","turnId":"turn-1","conversationId":"conversation-1","event":{"type":"text","agentId":"cloud","delta":"Hi"},"cursor":"1-0"}\n\n: heartbeat\n\n',
+              ': heartbeat\n\nid: 1-0\nevent: text\ndata: {"type":"nessi","turnId":"turn-1","conversationId":"conversation-1","loopId":"turn-1","event":{"type":"text","agentId":"cloud","loopId":"turn-1","delta":"Hi"},"cursor":"1-0"}\n\n: heartbeat\n\n',
             ),
           );
           controller.close();
@@ -25,8 +25,9 @@ describe("AI browser streaming helpers", () => {
     expect(events[0]).toMatchObject({
       type: "nessi",
       turnId: "turn-1",
+      loopId: "turn-1",
       cursor: "1-0",
-      event: { type: "text", delta: "Hi" },
+      event: { type: "text", loopId: "turn-1", delta: "Hi" },
     });
   });
 

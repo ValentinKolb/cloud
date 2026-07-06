@@ -13,7 +13,6 @@ import {
   aiTurnInputToContent,
   createAiEventReplayResponse,
   createAiTurnResponse,
-  createDefaultCloudAiTools,
   listAiModels,
   listPendingAiTurnActions,
   submitAiTurnAction,
@@ -56,6 +55,8 @@ const StoredMessageSchema = z.object({
   providerModel: z.string().nullable(),
   usage: z.unknown().nullable(),
   stopReason: z.string().nullable(),
+  loopAggregate: z.unknown().nullable(),
+  loopDoneReason: z.string().nullable(),
   createdAt: z.string(),
 });
 
@@ -97,6 +98,7 @@ const ConversationDetailSchema = z.object({
         type: z.literal("approval_request"),
         turnId: z.string(),
         conversationId: z.string(),
+        loopId: z.string().optional(),
         callId: z.string(),
         name: z.string(),
         args: z.unknown(),
@@ -107,6 +109,7 @@ const ConversationDetailSchema = z.object({
         type: z.literal("frontend_tool"),
         turnId: z.string(),
         conversationId: z.string(),
+        loopId: z.string().optional(),
         callId: z.string(),
         name: z.string(),
         args: z.unknown(),
@@ -232,7 +235,7 @@ const app = new Hono<AuthContext>()
       const { conversation } = loaded;
       const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
       const activeTurn = await aiConversationStore.getRunningTurn({ conversationId: conversation.id });
-      const pendingActions = activeTurn ? listPendingAiTurnActions({ conversationId: conversation.id, turnId: activeTurn.id }) : [];
+      const pendingActions = activeTurn ? await listPendingAiTurnActions({ conversationId: conversation.id, turnId: activeTurn.id }) : [];
       return respond(c, ok({ conversation, messages, activeTurn, pendingActions }));
     },
   )
@@ -335,7 +338,7 @@ const app = new Hono<AuthContext>()
           requestedModelId: body.modelProfileId,
           modelPolicy,
           systemPrompt: instruction ? [ASSISTANT_SYSTEM_PROMPT, instruction].join("\n\n") : ASSISTANT_SYSTEM_PROMPT,
-          tools: createDefaultCloudAiTools(),
+          toolSource: { kind: "default" },
           toolApprovalContext: {
             actorUserId: userId(c),
             appId: ASSISTANT_APP_ID,
@@ -375,7 +378,7 @@ const app = new Hono<AuthContext>()
           requestedModelId: body.modelProfileId,
           modelPolicy: { kind: "selectable", requiredCapabilities: ["streaming"] },
           systemPrompt: ASSISTANT_SYSTEM_PROMPT,
-          tools: createDefaultCloudAiTools(),
+          toolSource: { kind: "default" },
           toolApprovalContext: {
             actorUserId: userId(c),
             appId: ASSISTANT_APP_ID,
@@ -404,8 +407,7 @@ const app = new Hono<AuthContext>()
       if (!loaded.ok) return loaded.response;
       const { conversation, turnId } = loaded;
 
-      const result = abortAiTurn({ conversationId: conversation.id, turnId });
-      if (!result.ok) return toAiActionFailureResponse(c, result);
+      await abortAiTurn({ conversationId: conversation.id, turnId });
       return respond(c, ok({ ok: true }));
     },
   )

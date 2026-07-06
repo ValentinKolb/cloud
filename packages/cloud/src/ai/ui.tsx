@@ -1,7 +1,7 @@
 import type { Message, Usage } from "@valentinkolb/nessi";
 import { fileIcons } from "@valentinkolb/stdlib";
 import { clipboard } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js";
 import { markdown } from "../shared";
 import {
   DialogHeader,
@@ -69,6 +69,7 @@ type PendingAiAttachment = PendingAiImage | PendingAiTextFile;
 type ApprovalUiBlock = Extract<AiUiBlock, { type: "approval_request" }>;
 type FrontendToolUiBlock = Extract<AiUiBlock, { type: "frontend_tool" }>;
 type ToolCallUiBlock = Extract<AiUiBlock, { type: "tool_call" }>;
+type ChatDisclosureTone = "neutral" | "ai" | "danger";
 
 const MAX_ATTACHMENTS = 8;
 const IMAGE_MAX_BYTES = 8 * 1024 * 1024;
@@ -219,6 +220,39 @@ const textAttachmentContext = (attachments: PendingAiTextFile[]): string | null 
   return output.trim();
 };
 
+const chatDisclosureToneClass = (tone: ChatDisclosureTone): string => {
+  if (tone === "danger") return "text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30";
+  if (tone === "ai") return "text-dimmed hover:bg-cyan-50 hover:text-cyan-700 dark:hover:bg-cyan-950/25 dark:hover:text-cyan-200";
+  return "text-dimmed hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900";
+};
+
+function ChatDisclosure(props: {
+  icon: string;
+  label: string;
+  description?: string;
+  tone?: ChatDisclosureTone;
+  defaultOpen?: boolean;
+  class?: string;
+  children: JSX.Element;
+}) {
+  const tone = () => props.tone ?? "neutral";
+  return (
+    <details class={`group max-w-[min(46rem,100%)] text-xs ${props.class ?? ""}`} open={props.defaultOpen}>
+      <summary
+        class={`inline-flex max-w-full cursor-pointer list-none items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors ${chatDisclosureToneClass(tone())}`}
+      >
+        <i class={`${props.icon} text-sm ${tone() === "ai" ? "text-cyan-600 dark:text-cyan-300" : ""}`} aria-hidden="true" />
+        <span class="shrink-0 font-medium">{props.label}</span>
+        <Show when={props.description}>
+          {(description) => <span class="min-w-0 truncate text-dimmed">{description()}</span>}
+        </Show>
+        <i class="ti ti-chevron-right shrink-0 text-sm opacity-60 transition-transform group-open:rotate-90" aria-hidden="true" />
+      </summary>
+      <div class="mt-1">{props.children}</div>
+    </details>
+  );
+}
+
 const textAttachmentSummariesFromMessage = (message: Message) => {
   if (message.role !== "user") return [];
   return message.content.flatMap((part) => {
@@ -270,7 +304,7 @@ const toneClass = (tone: unknown) => {
 
 const latestUsage = (messages: AiStoredMessage[]): Usage | null => {
   for (let i = messages.length - 1; i >= 0; i--) {
-    const usage = messages[i]?.usage;
+    const usage = messages[i]?.loopAggregate?.usage ?? messages[i]?.usage;
     if (usage) return usage;
   }
   return null;
@@ -306,27 +340,36 @@ const openAssistantMessageInfo = (entry: AiStoredMessage) => {
   const text = assistantVisibleTextFromMessage(entry.message);
   const blocks = assistantBlocks(entry.message);
   const toolCalls = blocks.filter((block) => block.type === "tool_call");
+  const aggregate = entry.loopAggregate;
+  const aggregateToolCalls = aggregate?.turns.flatMap((turn) => turn.toolCalls) ?? null;
+  const usage = aggregate?.usage ?? entry.usage;
   const thinkingBlocks = blocks.filter((block) => block.type === "thinking");
   const stats = [
     { label: "Provider model", value: entry.providerModel ?? "Unknown" },
     { label: "Model profile", value: entry.modelProfileId ?? "Unknown" },
+    { label: "Loop done reason", value: entry.loopDoneReason ?? "Unknown" },
     { label: "Stop reason", value: entry.stopReason ?? "Unknown" },
     { label: "Created", value: formatDateTime(entry.createdAt) },
-    { label: "Input tokens", value: usageValue(entry.usage, "input")?.toLocaleString() ?? "Not reported" },
-    { label: "Output tokens", value: usageValue(entry.usage, "output")?.toLocaleString() ?? "Not reported" },
-    { label: "Total tokens", value: usageValue(entry.usage, "total")?.toLocaleString() ?? "Not reported" },
+    { label: "Input tokens", value: usageValue(usage, "input")?.toLocaleString() ?? "Not reported" },
+    { label: "Output tokens", value: usageValue(usage, "output")?.toLocaleString() ?? "Not reported" },
+    { label: "Total tokens", value: usageValue(usage, "total")?.toLocaleString() ?? "Not reported" },
     {
       label: "Credits",
       value:
-        usageValue(entry.usage, "creditsUsed") !== null
-          ? usageValue(entry.usage, "creditsUsed")!.toLocaleString(undefined, { maximumFractionDigits: 6 })
+        usageValue(usage, "creditsUsed") !== null
+          ? usageValue(usage, "creditsUsed")!.toLocaleString(undefined, { maximumFractionDigits: 6 })
           : "Not reported",
     },
     { label: "Words", value: wordCount(text).toLocaleString() },
     { label: "Characters", value: text.length.toLocaleString() },
     { label: "Estimated tokens", value: estimateTokens(text).toLocaleString() },
+    { label: "Assistant turns", value: (aggregate?.assistantMessageCount ?? 1).toLocaleString() },
     { label: "Thinking blocks", value: thinkingBlocks.length.toLocaleString() },
-    { label: "Tool calls", value: toolCalls.length.toLocaleString() },
+    { label: "Tool calls", value: (aggregate?.toolCallCount ?? toolCalls.length).toLocaleString() },
+    { label: "Tool errors", value: (aggregate?.toolErrorCount ?? 0).toLocaleString() },
+    { label: "Tool stream issues", value: (aggregate?.toolIssueCount ?? 0).toLocaleString() },
+    { label: "Malformed tool streams", value: (aggregate?.toolMalformedCount ?? 0).toLocaleString() },
+    { label: "Cancelled tool streams", value: (aggregate?.toolCancelledCount ?? 0).toLocaleString() },
   ];
 
   void dialogCore.open<void>(
@@ -334,7 +377,7 @@ const openAssistantMessageInfo = (entry: AiStoredMessage) => {
       <PanelDialog>
         <PanelDialog.Header title="Message info" subtitle="Assistant response metadata" icon="ti ti-info-circle" close={close} />
         <PanelDialog.Body>
-          <PanelDialog.Section title="Stats" icon="ti ti-chart-dots" subtitle="Provider usage is shown when the model reported it.">
+          <PanelDialog.Section title="Stats" icon="ti ti-chart-dots" subtitle="Loop usage is shown when the model reported it.">
             <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <For each={stats}>
                 {(stat) => (
@@ -348,10 +391,10 @@ const openAssistantMessageInfo = (entry: AiStoredMessage) => {
               </For>
             </div>
           </PanelDialog.Section>
-          <Show when={toolCalls.length > 0}>
-            <PanelDialog.Section title="Tools" icon="ti ti-tool" subtitle="Tools requested by this assistant response.">
+          <Show when={(aggregateToolCalls?.length ?? toolCalls.length) > 0}>
+            <PanelDialog.Section title="Tools" icon="ti ti-tool" subtitle="Tools requested by this assistant loop.">
               <div class="flex flex-wrap gap-1.5">
-                <For each={toolCalls}>
+                <For each={aggregateToolCalls ?? toolCalls}>
                   {(tool) => (
                     <span class="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-1 text-xs text-secondary dark:bg-zinc-900">
                       <i class="ti ti-tool text-sm" aria-hidden="true" />
@@ -641,17 +684,27 @@ function UserMessageBubble(props: {
 }
 
 function AssistantThinkingBlock(props: { text: string; streaming?: boolean }) {
+  if (!props.streaming && !props.text.trim()) return null;
+
+  if (!props.streaming) {
+    return (
+      <ChatDisclosure icon="ti ti-sparkles" label="Show reasoning" tone="ai" class="mb-2">
+        <pre class="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-100/70 p-2 text-[11px] leading-5 text-secondary dark:bg-zinc-950/70">
+          {props.text}
+        </pre>
+      </ChatDisclosure>
+    );
+  }
+
   return (
     <p class="mb-2 inline-flex items-center gap-1.5 text-xs text-dimmed">
       <i class="ti ti-sparkles text-sm text-cyan-600 dark:text-cyan-300" aria-hidden="true" />
-      <span>{props.streaming ? "Thinking" : props.text ? "Reasoning captured" : "Thinking"}</span>
-      <Show when={props.streaming}>
-        <span class="inline-flex items-center gap-0.5" aria-hidden="true">
-          <span class="h-1 w-1 animate-pulse rounded-full bg-current" />
-          <span class="h-1 w-1 animate-pulse rounded-full bg-current [animation-delay:120ms]" />
-          <span class="h-1 w-1 animate-pulse rounded-full bg-current [animation-delay:240ms]" />
-        </span>
-      </Show>
+      <span>Thinking</span>
+      <span class="inline-flex items-center gap-0.5" aria-hidden="true">
+        <span class="h-1 w-1 animate-pulse rounded-full bg-current" />
+        <span class="h-1 w-1 animate-pulse rounded-full bg-current [animation-delay:120ms]" />
+        <span class="h-1 w-1 animate-pulse rounded-full bg-current [animation-delay:240ms]" />
+      </span>
     </p>
   );
 }
@@ -882,18 +935,11 @@ function CloudSurveyBlock(props: { args: unknown; disabled?: boolean; onSubmit?:
 
 function GenericToolBlock(props: { name: string; args?: unknown; result?: unknown; status?: string }) {
   return (
-    <details class="my-1 max-w-xl text-xs text-secondary">
-      <summary class="inline-flex cursor-pointer list-none rounded-md px-1.5 py-1 font-medium text-primary hover:bg-zinc-100 dark:hover:bg-zinc-900">
-        <span class="inline-flex items-center gap-1.5">
-          <i class="ti ti-tool text-sm" aria-hidden="true" />
-          {props.name}
-          <span class="text-dimmed">{props.status ?? "tool"}</span>
-        </span>
-      </summary>
+    <ChatDisclosure icon="ti ti-tool" label={props.name} description={props.status ?? "tool"} class="my-1">
       <pre class="mt-1 max-h-52 overflow-auto rounded-md bg-zinc-100 p-2 text-[11px] text-primary dark:bg-zinc-950/70">
         {jsonPreview({ args: props.args, result: props.result })}
       </pre>
-    </details>
+    </ChatDisclosure>
   );
 }
 
@@ -960,12 +1006,11 @@ function ApprovalBlockView(props: {
           </div>
         </Show>
       </div>
-      <details class="mt-2 text-xs">
-        <summary class="cursor-pointer opacity-75">Details</summary>
+      <ChatDisclosure icon="ti ti-list-details" label="Show details" class="mt-2">
         <pre class="mt-1 max-h-40 overflow-auto rounded-md bg-white/55 p-2 text-[11px] text-primary dark:bg-black/20">
           {jsonPreview(props.block.request.args)}
         </pre>
-      </details>
+      </ChatDisclosure>
     </div>
   );
 }
@@ -1079,6 +1124,11 @@ function AssistantMessageBlock(props: {
   onForkMessage?: (entry: AiStoredMessage) => void | Promise<void>;
 }) {
   const blocks = () => assistantVisibleBlocks(props.message);
+  const actionEntry = () => {
+    if (props.streaming || !props.entry) return null;
+    if (props.entry.loopAggregate || assistantVisibleTextFromMessage(props.entry.message)) return props.entry;
+    return null;
+  };
 
   return (
     <div class="px-3 py-2">
@@ -1114,7 +1164,7 @@ function AssistantMessageBlock(props: {
             )}
           </For>
         </Show>
-        <Show when={!props.streaming && props.entry ? props.entry : null}>
+        <Show when={actionEntry()}>
           {(entry) => <AssistantMessageActions entry={entry()} onForkMessage={props.onForkMessage} />}
         </Show>
       </div>
@@ -1147,19 +1197,14 @@ function ToolResultMessageBlock(props: { entry: AiStoredMessage }) {
 
   return (
     <div class="px-3 py-1">
-      <details class="max-w-[min(46rem,100%)] text-xs text-secondary">
-        <summary
-          class={`inline-flex cursor-pointer list-none items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-900 ${
-            isError() ? "text-red-600 dark:text-red-300" : "text-dimmed"
-          }`}
-        >
-          <i class={`ti ${isError() ? "ti-alert-circle" : "ti-tool"} text-sm`} aria-hidden="true" />
-          <span class="font-medium">{isError() ? "Tool error" : "Tool result"}</span>
-          <span class="text-dimmed">{name()}</span>
-          <span class="max-w-md truncate">{summary()}</span>
-        </summary>
+      <ChatDisclosure
+        icon={`ti ${isError() ? "ti-alert-circle" : "ti-tool"}`}
+        label={isError() ? "Show tool error" : "Show tool result"}
+        description={`${name()} · ${summary()}`}
+        tone={isError() ? "danger" : "neutral"}
+      >
         <pre class="mt-1 max-h-52 overflow-auto rounded-md bg-zinc-100 p-2 text-[11px] text-primary dark:bg-zinc-950/70">{text()}</pre>
-      </details>
+      </ChatDisclosure>
     </div>
   );
 }

@@ -69,8 +69,17 @@ describe("AI provider factory", () => {
 
       expect(provider.capabilities.thinking).toBe(true);
       expect(requests[0]).toMatchObject({ model: "qwen3.6", stream: true });
+      expect(requests[0]).not.toHaveProperty("max_tokens");
       expect(events).toContainEqual({ type: "thinking", delta: "plan first" });
       expect(events).toContainEqual({ type: "text", delta: "answer" });
+
+      for await (const _event of provider.stream({
+        messages: [{ role: "user", content: [{ type: "text", text: "short" }] }],
+        maxOutputTokens: 64,
+      })) {
+        // Exhaust the stream so the request body is captured.
+      }
+      expect(requests[1]).toMatchObject({ model: "qwen3.6", stream: true, max_tokens: 64 });
     } finally {
       globalThis.fetch = originalFetch;
     }

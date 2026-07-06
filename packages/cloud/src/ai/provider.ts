@@ -18,11 +18,11 @@ export const createAiProvider = (profile: AiModelProfile, apiKey?: string): Prov
     case "openrouter":
       return openrouter(profile.model, commonOptions(profile, apiKey));
     case "anthropic":
-      return anthropic(profile.model, { ...commonOptions(profile, apiKey), maxOutputTokens: profile.maxOutputTokens });
+      return anthropic(profile.model, commonOptions(profile, apiKey));
     case "mistral":
       return mistral(profile.model, commonOptions(profile, apiKey));
     case "gemini":
-      return gemini(profile.model, { ...commonOptions(profile, apiKey), maxOutputTokens: profile.maxOutputTokens });
+      return gemini(profile.model, commonOptions(profile, apiKey));
     case "ollama":
       return ollama(profile.model, {
         baseURL: profile.baseURL,
