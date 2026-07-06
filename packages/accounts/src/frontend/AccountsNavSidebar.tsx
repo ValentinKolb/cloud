@@ -1,4 +1,5 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import AccountsSearchButton from "./AccountsSearchButton.island";
 
 export type AccountsNavActiveKey =
   | "dashboard"
@@ -85,13 +86,17 @@ export default function AccountsNavSidebar(props: Props) {
       <AppWorkspace.SidebarHeader title="Accounts" icon="ti ti-users-group" iconStyle="background-color:#3b82f6" />
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems scrollPreserveKey="accounts-sidebar-mobile">
+          <AccountsSearchButton isAdmin={props.isAdmin} variant="sidebar-mobile" />
           {generalItems().map(renderItem)}
           {props.isAdmin ? adminItems().map(renderItem) : null}
         </AppWorkspace.SidebarMobileItems>
       </AppWorkspace.SidebarMobile>
       <AppWorkspace.SidebarDesktop>
         <AppWorkspace.SidebarBody scrollPreserveKey="accounts-sidebar">
-          <AppWorkspace.SidebarSection title="General">{generalItems().map(renderItem)}</AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection title="General">
+            <AccountsSearchButton isAdmin={props.isAdmin} variant="sidebar" registerShortcut />
+            {generalItems().map(renderItem)}
+          </AppWorkspace.SidebarSection>
           {props.isAdmin ? <AppWorkspace.SidebarSection title="Admin">{adminItems().map(renderItem)}</AppWorkspace.SidebarSection> : null}
         </AppWorkspace.SidebarBody>
       </AppWorkspace.SidebarDesktop>
