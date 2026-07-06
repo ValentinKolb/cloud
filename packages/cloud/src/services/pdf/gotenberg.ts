@@ -1,6 +1,7 @@
 import * as settings from "../settings";
 
 export type GotenbergRenderErrorCode =
+  | "bad_input"
   | "not_configured"
   | "html_too_large"
   | "pdf_too_large"
@@ -38,6 +39,13 @@ export type RenderHtmlToPdfInput = {
 export type RenderHtmlToPdfResult = {
   pdf: Uint8Array;
   contentType: string;
+};
+
+export type MergePdfsInput = {
+  files: Array<{
+    pdf: Uint8Array;
+    filename?: string;
+  }>;
 };
 
 export type GotenbergFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -143,6 +151,58 @@ export const renderHtmlToPdfWithConfig = async (
   };
 };
 
+export const mergePdfsWithConfig = async (
+  input: MergePdfsInput,
+  config: GotenbergConfig,
+  options: RenderHtmlToPdfOptions = {},
+): Promise<RenderHtmlToPdfResult> => {
+  if (input.files.length === 0) {
+    throw new GotenbergRenderError("bad_input", "At least one PDF file is required.");
+  }
+
+  const baseUrl = normalizeBaseUrl(config.url);
+  const form = new FormData();
+  input.files.forEach((file, index) => {
+    const filename = `${String(index + 1).padStart(6, "0")}.pdf`;
+    const bytes = file.pdf.buffer.slice(file.pdf.byteOffset, file.pdf.byteOffset + file.pdf.byteLength) as ArrayBuffer;
+    form.append("files", new Blob([bytes], { type: DEFAULT_PDF_CONTENT_TYPE }), filename);
+  });
+
+  const headers = new Headers();
+  const authHeader = basicAuthHeader(config);
+  if (authHeader) headers.set("Authorization", authHeader);
+
+  const transport = options.fetch ?? fetch;
+  let response: Response;
+  try {
+    response = await transport(`${baseUrl}/forms/pdfengines/merge`, {
+      method: "POST",
+      headers,
+      body: form,
+      signal: abortSignal(config.timeoutMs),
+    });
+  } catch (error) {
+    throw sanitizeFetchError(error);
+  }
+
+  if (!response.ok) {
+    throw new GotenbergRenderError("bad_response", `Gotenberg returned HTTP ${response.status}.`, response.status);
+  }
+
+  const buffer = await response.arrayBuffer();
+  if (buffer.byteLength > config.maxPdfBytes) {
+    throw new GotenbergRenderError(
+      "pdf_too_large",
+      `PDF output is too large (${buffer.byteLength} bytes, limit ${config.maxPdfBytes} bytes).`,
+    );
+  }
+
+  return {
+    pdf: new Uint8Array(buffer),
+    contentType: response.headers.get("content-type") || DEFAULT_PDF_CONTENT_TYPE,
+  };
+};
+
 export const getGotenbergConfig = async (): Promise<GotenbergConfig> => ({
   url: await settings.get<string>("gotenberg.url"),
   username: await settings.get<string>("gotenberg.username"),
@@ -154,6 +214,9 @@ export const getGotenbergConfig = async (): Promise<GotenbergConfig> => ({
 
 export const renderHtmlToPdf = async (input: RenderHtmlToPdfInput, options: RenderHtmlToPdfOptions = {}): Promise<RenderHtmlToPdfResult> =>
   renderHtmlToPdfWithConfig(input, await getGotenbergConfig(), options);
+
+export const mergePdfs = async (input: MergePdfsInput, options: RenderHtmlToPdfOptions = {}): Promise<RenderHtmlToPdfResult> =>
+  mergePdfsWithConfig(input, await getGotenbergConfig(), options);
 
 export const testGotenberg = async (options: RenderHtmlToPdfOptions = {}): Promise<{ bytes: number; contentType: string }> => {
   const result = await renderHtmlToPdf({ html: TEST_HTML, filename: "index.html" }, options);

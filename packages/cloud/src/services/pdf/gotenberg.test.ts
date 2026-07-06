@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type GotenbergConfig, GotenbergRenderError, renderHtmlToPdfWithConfig } from "./gotenberg";
+import { type GotenbergConfig, GotenbergRenderError, mergePdfsWithConfig, renderHtmlToPdfWithConfig } from "./gotenberg";
 
 const baseConfig = {
   url: "http://gotenberg:3000",
@@ -66,6 +66,50 @@ describe("Gotenberg PDF renderer", () => {
     });
 
     expect(authHeader).toBe("");
+  });
+
+  test("posts PDFs to the PDF engine merge endpoint in stable order", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const files: string[] = [];
+    const result = await mergePdfsWithConfig(
+      {
+        files: [
+          { pdf: new TextEncoder().encode("%PDF-one"), filename: "b.pdf" },
+          { pdf: new TextEncoder().encode("%PDF-two"), filename: "a.pdf" },
+        ],
+      },
+      baseConfig,
+      {
+        fetch: async (url, init) => {
+          calls.push({ url: String(url), init: init ?? {} });
+          for (const file of (init?.body as FormData).getAll("files")) {
+            if (file instanceof File) files.push(file.name);
+          }
+          return pdfResponse("%PDF-merged");
+        },
+      },
+    );
+
+    expect(result.contentType).toBe("application/pdf");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("http://gotenberg:3000/forms/pdfengines/merge");
+    expect(calls[0]?.init.method).toBe("POST");
+    expect(files).toEqual(["000001.pdf", "000002.pdf"]);
+  });
+
+  test("rejects empty PDF merge input before making a request", async () => {
+    let called = false;
+
+    await expect(
+      mergePdfsWithConfig({ files: [] }, baseConfig, {
+        fetch: async () => {
+          called = true;
+          return pdfResponse();
+        },
+      }),
+    ).rejects.toMatchObject({ code: "bad_input" });
+
+    expect(called).toBe(false);
   });
 
   test("rejects oversized HTML before making a request", async () => {

@@ -95,6 +95,8 @@ export type { FreeIpaConfig } from "./freeipa-config";
 export {
   GotenbergRenderError,
   getGotenbergConfig,
+  mergePdfs,
+  mergePdfsWithConfig,
   renderHtmlToPdf,
   renderHtmlToPdfWithConfig,
   renderTemplatePdfPreview,
@@ -103,6 +105,7 @@ export {
 export type {
   GotenbergConfig,
   GotenbergRenderErrorCode,
+  MergePdfsInput,
   RenderTemplatePdfPreviewInput,
   RenderTemplatePdfPreviewOptions,
   RenderHtmlToPdfInput,

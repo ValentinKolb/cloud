@@ -1,6 +1,7 @@
 export type {
   GotenbergConfig,
   GotenbergRenderErrorCode,
+  MergePdfsInput,
   RenderHtmlToPdfInput,
   RenderHtmlToPdfOptions,
   RenderHtmlToPdfResult,
@@ -8,6 +9,8 @@ export type {
 export {
   GotenbergRenderError,
   getGotenbergConfig,
+  mergePdfs,
+  mergePdfsWithConfig,
   renderHtmlToPdf,
   renderHtmlToPdfWithConfig,
   testGotenberg,
