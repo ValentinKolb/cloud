@@ -7,7 +7,14 @@ import type {
   AiTurn,
 } from "@valentinkolb/cloud/ai";
 import { createAiChatController } from "@valentinkolb/cloud/ai/solid";
-import { AiComposer, type AiComposerSendInput, AiMessageList, type AiSlashCommand, aiLatestUsage } from "@valentinkolb/cloud/ai/ui";
+import {
+  AiComposer,
+  type AiComposerAttachment,
+  type AiComposerSendInput,
+  AiMessageList,
+  type AiSlashCommand,
+  aiLatestUsage,
+} from "@valentinkolb/cloud/ai/ui";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
@@ -48,11 +55,35 @@ export default function AssistantWorkspace(props: Props) {
     initialError: props.status.error?.message ?? null,
   });
   const [selectedModelId, setSelectedModelId] = createSignal(initialSelectedModelId());
+  const [composerFocusToken, setComposerFocusToken] = createSignal(0);
+  const [composerDrafts, setComposerDrafts] = createSignal<Record<string, string>>({});
+  const [composerAttachments, setComposerAttachments] = createSignal<Record<string, AiComposerAttachment[]>>({});
 
   const canSend = createMemo(
     () => props.status.ok && props.status.enabled && props.models.length > 0 && !chat.running() && !chat.activeTurn(),
   );
   const usage = createMemo(() => aiLatestUsage(chat.messages()));
+  const composerSessionKey = () => chat.activeConversationId() ?? "__new__";
+  const composerDraft = () => composerDrafts()[composerSessionKey()] ?? "";
+  const setComposerDraft = (value: string) => {
+    const key = composerSessionKey();
+    setComposerDrafts((current) => ({ ...current, [key]: value }));
+  };
+  const activeComposerAttachments = () => composerAttachments()[composerSessionKey()] ?? [];
+  const setActiveComposerAttachments = (attachments: AiComposerAttachment[]) => {
+    const key = composerSessionKey();
+    setComposerAttachments((current) => ({ ...current, [key]: attachments }));
+  };
+  const focusComposer = () => setComposerFocusToken((value) => value + 1);
+  const createAndFocusConversation = async () => {
+    const conversation = await chat.createConversation();
+    if (conversation) focusComposer();
+    return conversation;
+  };
+  const openAndFocusConversation = async (conversationId: string) => {
+    await chat.openConversation(conversationId);
+    focusComposer();
+  };
 
   createEffect(() => {
     if (selectedModelId() && props.models.some((model) => model.id === selectedModelId())) return;
@@ -80,7 +111,7 @@ export default function AssistantWorkspace(props: Props) {
       description: "Start a new conversation",
       icon: "ti ti-message-plus",
       action: () => {
-        void chat.createConversation();
+        void createAndFocusConversation();
       },
     },
     {
@@ -109,6 +140,16 @@ export default function AssistantWorkspace(props: Props) {
 
   const deleteConversation = (deleted: AiConversation) => {
     chat.setConversations((prev) => prev.filter((conversation) => conversation.id !== deleted.id));
+    setComposerDrafts((current) => {
+      const next = { ...current };
+      delete next[deleted.id];
+      return next;
+    });
+    setComposerAttachments((current) => {
+      const next = { ...current };
+      delete next[deleted.id];
+      return next;
+    });
     if (deleted.id === chat.activeConversationId()) navigateTo("/app/assistant");
   };
 
@@ -118,8 +159,8 @@ export default function AssistantWorkspace(props: Props) {
         conversations={chat.conversations}
         activeConversationId={chat.activeConversationId}
         activeView="chat"
-        onNewConversation={() => void chat.createConversation()}
-        onOpenConversation={(conversationId) => void chat.openConversation(conversationId)}
+        onNewConversation={() => void createAndFocusConversation()}
+        onOpenConversation={(conversationId) => void openAndFocusConversation(conversationId)}
         onConversationUpdated={updateConversation}
         onConversationDeleted={deleteConversation}
       />
@@ -173,9 +214,14 @@ export default function AssistantWorkspace(props: Props) {
               models={() => props.models}
               selectedModelId={selectedModelId}
               onModelChange={setSelectedModelId}
-              onNewConversation={() => void chat.createConversation()}
+              onNewConversation={() => void createAndFocusConversation()}
+              draft={composerDraft}
+              onDraftChange={setComposerDraft}
+              attachments={activeComposerAttachments}
+              onAttachmentsChange={setActiveComposerAttachments}
               disabled={() => !canSend()}
               running={chat.running}
+              focusToken={composerFocusToken}
               placeholder={props.status.enabled ? "Ask Assistant anything or type / ..." : "AI is not configured"}
               usage={usage}
               slashCommands={slashCommands}

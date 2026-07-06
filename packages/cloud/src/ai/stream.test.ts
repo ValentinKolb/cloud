@@ -180,6 +180,60 @@ describe("AI SSE stream encoding", () => {
     }
   });
 
+  test("fans out live turn events to multiple replay subscribers", async () => {
+    const fixture = await createStreamFixture();
+    if (!fixture) {
+      console.warn("Skipping AI event-log multi-subscriber integration test: auth/ai tables are not available.");
+      return;
+    }
+
+    try {
+      const first = createAiEventReplayResponse({
+        conversationId: fixture.conversationId,
+        turnId: fixture.turnId,
+        after: "0-0",
+        heartbeatMs: 0,
+        pollMs: 0,
+      }).body?.getReader();
+      const second = createAiEventReplayResponse({
+        conversationId: fixture.conversationId,
+        turnId: fixture.turnId,
+        after: "0-0",
+        heartbeatMs: 0,
+        pollMs: 0,
+      }).body?.getReader();
+      expect(first).toBeDefined();
+      expect(second).toBeDefined();
+      if (!first || !second) return;
+
+      const firstRead = first.read();
+      const secondRead = second.read();
+      const published = await publishAiEvent({
+        type: "turn_start",
+        turnId: fixture.turnId,
+        conversationId: fixture.conversationId,
+        modelProfileId: "model-1",
+        providerModel: "provider/model",
+      });
+
+      const [firstChunk, secondChunk] = await Promise.race([
+        Promise.all([firstRead, secondRead]),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Timed out waiting for multi-subscriber AI events")), 1_000)),
+      ]);
+      await first.cancel().catch(() => undefined);
+      await second.cancel().catch(() => undefined);
+
+      const firstText = new TextDecoder().decode(firstChunk.value);
+      const secondText = new TextDecoder().decode(secondChunk.value);
+      expect(firstText).toContain(`id: ${published.cursor}\n`);
+      expect(secondText).toContain(`id: ${published.cursor}\n`);
+      expect(firstText).toContain(`"turnId":"${fixture.turnId}"`);
+      expect(secondText).toContain(`"turnId":"${fixture.turnId}"`);
+    } finally {
+      await fixture.cleanup();
+    }
+  });
+
   test("closes turn replay streams after final events", async () => {
     const fixture = await createStreamFixture();
     if (!fixture) {

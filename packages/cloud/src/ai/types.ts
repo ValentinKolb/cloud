@@ -209,6 +209,7 @@ export type AiPendingTurnActionRecord = {
   conversationId: string;
   callId: string;
   kind: "approval" | "custom_approval" | "client_tool";
+  status: "pending" | "resolved" | "aborted";
   name: string;
   args: unknown;
   message?: string;

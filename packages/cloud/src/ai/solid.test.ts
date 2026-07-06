@@ -233,6 +233,89 @@ describe("AI Solid chat controller", () => {
     });
   });
 
+  test("auto-resumes an initial active turn after reload", async () => {
+    const activeTurn = {
+      id: "turn-reload",
+      conversationId: conversation.id,
+      status: "running" as const,
+      modelProfileId: "model-1",
+      createdAt: new Date().toISOString(),
+      completedAt: null,
+      error: null,
+    };
+    const assistantMessage: AiStoredMessage = {
+      id: "message-reload-assistant",
+      conversationId: conversation.id,
+      seq: 2,
+      kind: "message",
+      message: { role: "assistant", content: [{ type: "text", text: "reloaded answer" }] },
+      modelProfileId: "model-1",
+      providerModel: "provider/model",
+      usage: null,
+      stopReason: "stop",
+      ...noLoopMetadata,
+      createdAt: new Date().toISOString(),
+    };
+    let replayAfter: string | undefined;
+    const route = {
+      conversations: {
+        $get: async () => Response.json([conversation]),
+        $post: async () => Response.json(conversation),
+        ":conversationId": {
+          ...messageActions,
+          $get: async () => Response.json({ conversation, messages: [assistantMessage], activeTurn: null, pendingActions: [] }),
+          turns: {
+            $post: async () => sse([]),
+            ":turnId": {
+              abort: {
+                $post: async () => Response.json({ ok: true }),
+              },
+              actions: {
+                ":callId": {
+                  $post: async () => Response.json({ ok: true }),
+                },
+              },
+              events: {
+                $get: async (input: { query?: Record<string, string> }) => {
+                  replayAfter = input.query?.after;
+                  return sse([
+                    {
+                      type: "turn_start",
+                      conversationId: conversation.id,
+                      turnId: activeTurn.id,
+                      modelProfileId: "model-1",
+                      providerModel: "provider/model",
+                      cursor: "1-0",
+                    },
+                    { type: "done", conversationId: conversation.id, turnId: activeTurn.id, reason: "stop", aggregate: null, cursor: "2-0" },
+                  ]);
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    await createRoot(async (dispose) => {
+      const chat = createAiChatController({
+        route,
+        initialConversations: [conversation],
+        initialConversationId: conversation.id,
+        initialActiveTurn: activeTurn,
+      });
+
+      for (let attempt = 0; attempt < 20 && chat.activeTurn(); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+
+      expect(replayAfter).toBe("0-0");
+      expect(chat.activeTurn()).toBeNull();
+      expect(chat.messages()).toEqual([assistantMessage]);
+      dispose();
+    });
+  });
+
   test("auto-acknowledges default visual client-view tools", async () => {
     let postedAction: unknown = null;
     const route = {
@@ -376,7 +459,7 @@ describe("AI Solid chat controller", () => {
     });
   });
 
-  test("creating a new conversation detaches a stale running stream", async () => {
+  test("creating a new conversation keeps an existing stream alive in its session", async () => {
     const runningTurn = {
       id: "turn-running",
       conversationId: conversation.id,
@@ -449,9 +532,138 @@ describe("AI Solid chat controller", () => {
       expect(chat.running()).toBe(false);
       expect(chat.activeTurn()).toBe(null);
       expect(chat.messages()).toEqual([]);
-      expect(streamClosed).toBe(true);
-      await resumePromise;
+      expect(streamClosed).toBe(false);
       dispose();
+      await resumePromise;
+      expect(streamClosed).toBe(true);
+    });
+  });
+
+  test("can keep one conversation streaming while sending in another conversation", async () => {
+    const runningTurn = {
+      id: "turn-running",
+      conversationId: conversation.id,
+      status: "running" as const,
+      modelProfileId: "model-1",
+      createdAt: new Date().toISOString(),
+      completedAt: null,
+      error: null,
+    };
+    const secondConversation = { ...conversation, id: "conversation-second", title: "Second chat" };
+    const secondAssistantMessage: AiStoredMessage = {
+      id: "message-second-assistant",
+      conversationId: secondConversation.id,
+      seq: 2,
+      kind: "message",
+      message: { role: "assistant", content: [{ type: "text", text: "second answer" }] },
+      modelProfileId: "model-1",
+      providerModel: "provider/model",
+      usage: null,
+      stopReason: "stop",
+      ...noLoopMetadata,
+      createdAt: new Date().toISOString(),
+    };
+    let firstStreamClosed = false;
+    const postedTurnConversationIds: string[] = [];
+    const route = {
+      conversations: {
+        $get: async () => Response.json([secondConversation, conversation]),
+        $post: async () => Response.json(secondConversation),
+        ":conversationId": {
+          ...messageActions,
+          $get: async (input: { param?: Record<string, string> }) =>
+            input.param?.conversationId === secondConversation.id
+              ? Response.json({ conversation: secondConversation, messages: [secondAssistantMessage], activeTurn: null, pendingActions: [] })
+              : Response.json({ conversation, messages: [], activeTurn: runningTurn, pendingActions: [] }),
+          turns: {
+            $post: async (input: { param?: Record<string, string> }) => {
+              postedTurnConversationIds.push(input.param?.conversationId ?? "");
+              return sse([
+                {
+                  type: "turn_start",
+                  conversationId: secondConversation.id,
+                  turnId: "turn-second",
+                  modelProfileId: "model-1",
+                  providerModel: "provider/model",
+                  cursor: "1-0",
+                },
+                {
+                  type: "nessi",
+                  conversationId: secondConversation.id,
+                  turnId: "turn-second",
+                  event: { type: "text", agentId: "cloud", delta: "second answer" },
+                  cursor: "2-0",
+                },
+                {
+                  type: "nessi",
+                  conversationId: secondConversation.id,
+                  turnId: "turn-second",
+                  event: { type: "turn_end", agentId: "cloud", message: secondAssistantMessage.message },
+                  cursor: "3-0",
+                },
+                { type: "done", conversationId: secondConversation.id, turnId: "turn-second", reason: "stop", aggregate: null, cursor: "4-0" },
+              ]);
+            },
+            ":turnId": {
+              abort: {
+                $post: async () => Response.json({ ok: true }),
+              },
+              actions: {
+                ":callId": {
+                  $post: async () => Response.json({ ok: true }),
+                },
+              },
+              events: {
+                $get: async (_input: unknown, request?: { init?: { signal?: AbortSignal } }) =>
+                  new Response(
+                    new ReadableStream<Uint8Array>({
+                      start(controller) {
+                        request?.init?.signal?.addEventListener(
+                          "abort",
+                          () => {
+                            firstStreamClosed = true;
+                            controller.close();
+                          },
+                          { once: true },
+                        );
+                      },
+                    }),
+                  ),
+              },
+            },
+          },
+        },
+      },
+    };
+
+    await createRoot(async (dispose) => {
+      const chat = createAiChatController({
+        route,
+        initialConversations: [conversation],
+        initialConversationId: conversation.id,
+        autoResume: false,
+      });
+
+      const resumePromise = chat.resume({ conversationId: conversation.id, turnId: runningTurn.id });
+      for (let attempt = 0; attempt < 10 && !chat.running(); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      expect(chat.running()).toBe(true);
+
+      await chat.createConversation();
+      expect(chat.activeConversationId()).toBe(secondConversation.id);
+      expect(chat.running()).toBe(false);
+      expect(firstStreamClosed).toBe(false);
+
+      const sent = await chat.send({ message: "hello second", modelProfileId: "model-1" });
+      expect(sent).toBe(true);
+      expect(postedTurnConversationIds).toEqual([secondConversation.id]);
+      expect(chat.messages()).toEqual([secondAssistantMessage]);
+      expect(firstStreamClosed).toBe(false);
+
+      dispose();
+      await resumePromise;
+      expect(firstStreamClosed).toBe(true);
     });
   });
 

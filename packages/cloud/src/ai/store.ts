@@ -79,6 +79,7 @@ type PendingActionRow = {
   conversation_id: string;
   call_id: string;
   kind: "approval" | "custom_approval" | "client_tool";
+  status: "pending" | "resolved" | "aborted";
   tool_name: string;
   args: unknown;
   message: string | null;
@@ -191,6 +192,7 @@ const rowToPendingActionRecord = (row: PendingActionRow): AiPendingTurnActionRec
   conversationId: row.conversation_id,
   callId: row.call_id,
   kind: row.kind,
+  status: row.status,
   name: row.tool_name,
   args: parseJsonValue(row.args),
   message: row.message ?? undefined,

@@ -349,6 +349,20 @@ const abortActiveTurn = (turnId: string, turn: ActiveAiTurn) => {
   turn.loop.abort();
 };
 
+const acknowledgeResolvedTurnAction = async (
+  input: { conversationId: string; turnId: string; callId: string },
+  turn: ActiveAiTurn | undefined,
+  event: InboundEvent,
+): Promise<{ ok: true }> => {
+  if (turn?.conversationId === input.conversationId && turn.pendingActions.delete(input.callId)) {
+    turn.loop.push(event);
+  }
+  await publishAiTurnControl({ type: "action", conversationId: input.conversationId, turnId: input.turnId, callId: input.callId }).catch(
+    () => undefined,
+  );
+  return { ok: true };
+};
+
 export const abortAiTurn = async (input: {
   conversationId: string;
   turnId: string;
@@ -402,6 +416,12 @@ export const submitAiTurnAction = async (input: {
   const turn = activeAiTurns.get(input.turnId);
   const activePending = turn?.conversationId === input.conversationId ? turn.pendingActions.get(input.callId) : undefined;
   const storedPending = await aiConversationStore.getPendingTurnAction(input);
+  if (storedPending?.resolvedEvent) {
+    return acknowledgeResolvedTurnAction(input, turn, storedPending.resolvedEvent);
+  }
+  if (storedPending && storedPending.status !== "pending") {
+    return { ok: false, status: 404, message: "AI action request not found." };
+  }
   const pending = activePending ?? storedPending;
   if (!pending) {
     return { ok: false, status: 404, message: "AI action request not found." };
@@ -448,16 +468,13 @@ export const submitAiTurnAction = async (input: {
   }
 
   const resolved = await aiConversationStore.resolvePendingTurnAction({ ...input, event });
-  if (!resolved) return { ok: false, status: 404, message: "AI action request not found." };
-
-  if (turn?.conversationId === input.conversationId) {
-    turn.pendingActions.delete(input.callId);
-    turn.loop.push(event);
+  if (!resolved) {
+    const latest = await aiConversationStore.getPendingTurnAction(input);
+    if (latest?.resolvedEvent) return acknowledgeResolvedTurnAction(input, turn, latest.resolvedEvent);
+    return { ok: false, status: 404, message: "AI action request not found." };
   }
-  await publishAiTurnControl({ type: "action", conversationId: input.conversationId, turnId: input.turnId, callId: input.callId }).catch(
-    () => undefined,
-  );
-  return { ok: true };
+
+  return acknowledgeResolvedTurnAction(input, turn, event);
 };
 
 const pendingActionFromNessiEvent = (
@@ -489,6 +506,44 @@ const pushResolvedPendingAction = async (turnId: string, turn: ActiveAiTurn, cal
   if (!pending?.resolvedEvent || !turn.pendingActions.has(callId)) return;
   turn.pendingActions.delete(callId);
   turn.loop.push(pending.resolvedEvent);
+};
+
+const autoResolveClientViewAction = async (input: {
+  conversationId: string;
+  turnId: string;
+  turn: ActiveAiTurn | undefined;
+  pending: PendingAiAction;
+}): Promise<void> => {
+  if (input.pending.kind !== "client_tool" || input.pending.frontendMode !== "client_view") return;
+
+  const fallbackResult = { displayed: true };
+  const parsed = input.pending.outputSchema?.safeParse(fallbackResult);
+  if (parsed && !parsed.success) return;
+
+  const event: InboundEvent = {
+    type: "tool_result",
+    callId: input.pending.callId,
+    result: parsed?.data ?? fallbackResult,
+  };
+  const resolved = await aiConversationStore.resolvePendingTurnAction({
+    conversationId: input.conversationId,
+    turnId: input.turnId,
+    callId: input.pending.callId,
+    event,
+  });
+  if (!resolved) return;
+
+  if (input.turn?.conversationId === input.conversationId && input.turn.pendingActions.delete(input.pending.callId)) {
+    input.turn.loop.push(event);
+  }
+  await aiToolAudit
+    .noteToolCompleted({
+      turnId: input.turnId,
+      callId: input.pending.callId,
+      result: event.result,
+      isError: false,
+    })
+    .catch(() => undefined);
 };
 
 const startTurnControlWatcher = (turnId: string, turn: ActiveAiTurn): (() => void) => {
@@ -803,6 +858,7 @@ const runPersistedAiTurn = async (input: AiTurnJobInput, signal: AbortSignal): P
           conversationId: input.conversationId,
           callId: pending.callId,
           kind: pending.kind,
+          status: "pending",
           name: pending.name,
           args: pending.args,
           message: pending.message,
@@ -879,6 +935,12 @@ const runPersistedAiTurn = async (input: AiTurnJobInput, signal: AbortSignal): P
                 allowAlways: pending.allowAlways,
               },
         );
+        await autoResolveClientViewAction({
+          conversationId: input.conversationId,
+          turnId: input.turnId,
+          turn: activeTurn,
+          pending,
+        });
         continue;
       }
       nessiEventCount += 1;

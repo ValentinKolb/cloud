@@ -54,26 +54,30 @@ export type AiRetryMessageInput = {
   content?: AiUserContentPart[];
 };
 
-type PendingAiImage = {
-  kind: "image";
-  id: string;
-  name: string;
-  size: number;
-  mediaType: string;
-  data: string;
-};
+export type AiComposerAttachment =
+  | {
+      kind: "image";
+      id: string;
+      name: string;
+      size: number;
+      mediaType: string;
+      data: string;
+    }
+  | {
+      kind: "text";
+      id: string;
+      name: string;
+      size: number;
+      mediaType: string;
+      text: string;
+      icon: string;
+    };
 
-type PendingAiTextFile = {
-  kind: "text";
-  id: string;
-  name: string;
-  size: number;
-  mediaType: string;
-  text: string;
-  icon: string;
-};
+type PendingAiImage = Extract<AiComposerAttachment, { kind: "image" }>;
 
-type PendingAiAttachment = PendingAiImage | PendingAiTextFile;
+type PendingAiTextFile = Extract<AiComposerAttachment, { kind: "text" }>;
+
+type PendingAiAttachment = AiComposerAttachment;
 
 type ApprovalUiBlock = Extract<AiUiBlock, { type: "approval_request" }>;
 type FrontendToolUiBlock = Extract<AiUiBlock, { type: "frontend_tool" }>;
@@ -1348,22 +1352,39 @@ export function AiComposer(props: {
   selectedModelId: () => string;
   onModelChange: (id: string) => void;
   onNewConversation?: () => void | Promise<void>;
+  draft?: () => string;
+  onDraftChange?: (value: string) => void;
+  attachments?: () => AiComposerAttachment[];
+  onAttachmentsChange?: (attachments: AiComposerAttachment[]) => void;
   disabled: () => boolean;
   running: () => boolean;
+  focusToken?: () => unknown;
   placeholder?: string;
   usage?: () => Usage | null;
   slashCommands?: () => AiSlashCommand[];
   onSend: (input: AiComposerSendInput) => boolean | Promise<boolean>;
   onStop: () => void;
 }) {
-  const [draft, setDraft] = createSignal("");
-  const [pendingAttachments, setPendingAttachments] = createSignal<PendingAiAttachment[]>([]);
+  const [uncontrolledDraft, setUncontrolledDraft] = createSignal("");
+  const [uncontrolledAttachments, setUncontrolledAttachments] = createSignal<PendingAiAttachment[]>([]);
   const [selectedCommandIndex, setSelectedCommandIndex] = createSignal(0);
   const [dragActive, setDragActive] = createSignal(false);
   let composerRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
   let sawRunning = props.running();
+
+  const draft = () => props.draft?.() ?? uncontrolledDraft();
+  const setDraftValue = (value: string) => {
+    if (props.onDraftChange) props.onDraftChange(value);
+    else setUncontrolledDraft(value);
+  };
+  const pendingAttachments = () => props.attachments?.() ?? uncontrolledAttachments();
+  const setAttachments = (next: PendingAiAttachment[] | ((current: PendingAiAttachment[]) => PendingAiAttachment[])) => {
+    const value = typeof next === "function" ? next(pendingAttachments()) : next;
+    if (props.onAttachmentsChange) props.onAttachmentsChange(value);
+    else setUncontrolledAttachments(value);
+  };
 
   const selectedModel = createMemo(() => props.models().find((model) => model.id === props.selectedModelId()) ?? null);
   const supportsVision = () => Boolean(selectedModel()?.capabilities.includes("vision"));
@@ -1390,7 +1411,7 @@ export function AiComposer(props: {
 
   createEffect(() => {
     if (supportsVision()) return;
-    setPendingAttachments((current) => {
+    setAttachments((current) => {
       const next = current.filter((attachment) => attachment.kind !== "image");
       if (next.length !== current.length) {
         toast.error("Image attachments were removed because the selected model does not support vision.", {
@@ -1402,6 +1423,12 @@ export function AiComposer(props: {
   });
 
   const focus = () => textareaRef?.focus();
+
+  createEffect(() => {
+    if (!props.focusToken) return;
+    props.focusToken();
+    requestAnimationFrame(focus);
+  });
 
   const shouldRestoreComposerFocus = () => {
     if (typeof document === "undefined") return false;
@@ -1511,10 +1538,10 @@ export function AiComposer(props: {
         toast.error(error instanceof Error ? error.message : `Could not attach ${file.name}.`, { title: "Attachment failed" });
       }
     }
-    if (next.length) setPendingAttachments((current) => [...current, ...next]);
+    if (next.length) setAttachments((current) => [...current, ...next]);
   };
 
-  const removeAttachment = (id: string) => setPendingAttachments((current) => current.filter((attachment) => attachment.id !== id));
+  const removeAttachment = (id: string) => setAttachments((current) => current.filter((attachment) => attachment.id !== id));
 
   const submit = async () => {
     if (props.running()) {
@@ -1538,8 +1565,8 @@ export function AiComposer(props: {
         : undefined;
 
     const previousDraft = draft();
-    setDraft("");
-    setPendingAttachments([]);
+    setDraftValue("");
+    setAttachments([]);
     requestAnimationFrame(() => {
       autoResize();
       focus();
@@ -1547,8 +1574,8 @@ export function AiComposer(props: {
 
     const sent = await Promise.resolve(props.onSend({ message: text || undefined, content })).catch(() => false);
     if (!sent) {
-      setDraft(previousDraft);
-      setPendingAttachments(attachments);
+      setDraftValue(previousDraft);
+      setAttachments(attachments);
       requestAnimationFrame(() => {
         autoResize();
         focus();
@@ -1557,8 +1584,8 @@ export function AiComposer(props: {
   };
 
   const executeCommand = async (command: AiSlashCommand) => {
-    setDraft("");
-    await command.action({ setDraft, submit: () => void submit(), focus });
+    setDraftValue("");
+    await command.action({ setDraft: setDraftValue, submit: () => void submit(), focus });
     requestAnimationFrame(() => {
       autoResize();
       focus();
@@ -1586,7 +1613,7 @@ export function AiComposer(props: {
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        setDraft("");
+        setDraftValue("");
         return;
       }
     }
@@ -1708,7 +1735,7 @@ export function AiComposer(props: {
           disabled={props.disabled()}
           placeholder={props.placeholder ?? "Ask Assistant anything or type / ..."}
           onInput={(event) => {
-            setDraft(event.currentTarget.value);
+            setDraftValue(event.currentTarget.value);
             autoResize();
           }}
           onKeyDown={onKeyDown}

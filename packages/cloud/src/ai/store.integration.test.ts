@@ -289,6 +289,7 @@ describe("AI conversation store integration", () => {
         turnId: turn.id,
         callId: "approval-1",
         kind: "approval",
+        status: "pending",
         name: "write_record",
         args: { id: "record-1" },
         message: "Approve write",
@@ -587,6 +588,7 @@ describe("AI runtime durable turn controls", () => {
         turnId: turn.id,
         callId: "approval-remote",
         kind: "approval",
+        status: "pending",
         name: "write_record",
         args: { id: "record-1" },
         approvalScope: "write_record:v1",
@@ -594,6 +596,14 @@ describe("AI runtime durable turn controls", () => {
         resolvedEvent: null,
       });
 
+      await expect(
+        submitAiTurnAction({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          callId: "approval-remote",
+          action: { type: "approval_response", approved: true },
+        }),
+      ).resolves.toEqual({ ok: true });
       await expect(
         submitAiTurnAction({
           conversationId: conversation.id,
