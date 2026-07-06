@@ -1,7 +1,10 @@
+import type { MutationResult } from "../../contracts/shared";
 import { freeipa } from "../../server/services";
 import { getFreeIpaTls } from "../../server/services/freeipa/tls";
-import type { MutationResult } from "../../contracts/shared";
 import { getFreeIpaConfig } from "../freeipa-config";
+import { logger } from "../logging";
+
+const log = logger("ipa:auth");
 
 const getEnabledConfig = async (): Promise<MutationResult<{ url: string; serviceUser: string; servicePassword: string }>> => {
   const config = await getFreeIpaConfig();
@@ -18,6 +21,68 @@ const getEnabledConfig = async (): Promise<MutationResult<{ url: string; service
       serviceUser: config.serviceUser,
       servicePassword: config.servicePassword,
     },
+  };
+};
+
+const normalizePasswordChangeText = (value: string): string =>
+  value
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const extractPasswordPolicyMessage = (policyError: string | null, body: string): string | null => {
+  const headerMessage = normalizePasswordChangeText(policyError ?? "");
+  if (headerMessage) return headerMessage;
+
+  const normalized = normalizePasswordChangeText(body);
+  const policyMatch = normalized.match(/policy-error[^:]*:\s*(.+)$/i);
+  if (policyMatch?.[1]) return policyMatch[1].trim();
+
+  if (/password|policy|quality|history|complexity|character|length|short|reuse/i.test(normalized)) {
+    return normalized.slice(0, 240);
+  }
+  return null;
+};
+
+const isCurrentPasswordFailure = (pwchangeResult: string | null, body: string): boolean => {
+  const haystack = `${pwchangeResult ?? ""} ${normalizePasswordChangeText(body)}`.toLowerCase();
+  return (
+    haystack.includes("invalid credentials") ||
+    haystack.includes("authentication failed") ||
+    haystack.includes("current password is incorrect") ||
+    haystack.includes("old password is incorrect") ||
+    haystack.includes("incorrect current password") ||
+    haystack.includes("incorrect old password")
+  );
+};
+
+const mapPasswordChangeFailure = (params: {
+  status: number;
+  pwchangeResult: string | null;
+  policyError: string | null;
+  body: string;
+}): Extract<MutationResult<void>, { ok: false }> => {
+  const policyMessage = extractPasswordPolicyMessage(params.policyError, params.body);
+  if (params.pwchangeResult === "policy-error" || normalizePasswordChangeText(params.policyError ?? "")) {
+    return {
+      ok: false,
+      error: policyMessage ?? "FreeIPA rejected the new password. Choose a different password and try again.",
+      status: 400,
+    };
+  }
+
+  if (isCurrentPasswordFailure(params.pwchangeResult, params.body)) {
+    return { ok: false, error: "Current password is incorrect.", status: 401 };
+  }
+
+  if (policyMessage) {
+    return { ok: false, error: policyMessage, status: 400 };
+  }
+
+  return {
+    ok: false,
+    error: "FreeIPA rejected the new password. Choose a different password and try again.",
+    status: params.status >= 500 ? 500 : 400,
   };
 };
 
@@ -80,13 +145,22 @@ export const changeExpiredPassword = async (params: {
   // FreeIPA returns X-IPA-Pwchange-Result header
   const pwchangeResult = res.headers.get("X-IPA-Pwchange-Result");
   if (pwchangeResult !== "ok") {
+    const policyError = res.headers.get("X-IPA-Pwchange-Policy-Error");
     const body = await res.text();
-    const policyMatch = body.match(/policy-error[^:]*:\s*(.+)/i);
-    const message = policyMatch?.[1] ?? "Failed to change password. Check your current password and try again.";
-    return { ok: false, error: message, status: 400 };
+    const failure = mapPasswordChangeFailure({ status: res.status, pwchangeResult, policyError, body });
+    log.warn("FreeIPA password change failed", {
+      status: res.status,
+      pwchangeResult,
+      mappedStatus: failure.status,
+    });
+    return failure;
   }
 
   return { ok: true, data: undefined };
+};
+
+export const __ipaAuthTest = {
+  mapPasswordChangeFailure,
 };
 
 // ==========================

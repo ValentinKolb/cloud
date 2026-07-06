@@ -1,22 +1,11 @@
-import { createSignal, Show } from "solid-js";
 import { Checkbox, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 
 type SelectionPayload = {
-  mode?: "specific" | "rules";
-  rules?: ("account_manager" | "local" | "ipa" | "guest" | "user")[];
-  all?: boolean;
   userIds?: string[];
   groupIds?: string[];
-  includeGroupMembers?: boolean;
-  accountManagers?: {
-    mode?: "none" | "all" | "groups";
-    groupIds?: string[];
-    recursive?: boolean;
-  };
-  providers?: ("local" | "ipa")[];
-  profiles?: ("user" | "guest")[];
 };
 
 type Props = {
@@ -25,6 +14,7 @@ type Props = {
   selection: SelectionPayload;
   selectionHash: string;
   errorCount: number;
+  finalizeDisabledReason?: string;
 };
 
 type RecipientPreview = {
@@ -97,8 +87,13 @@ function FinalizeDialog(props: {
 export default function NotificationBatchActions(props: Props) {
   const [loadingAction, setLoadingAction] = createSignal<"finalize" | "delete" | "retry" | null>(null);
   const isLoading = () => loadingAction() !== null;
+  const finalizeBlocked = () => Boolean(props.finalizeDisabledReason);
 
   const finalize = async () => {
+    if (props.finalizeDisabledReason) {
+      prompts.error(props.finalizeDisabledReason);
+      return;
+    }
     setLoadingAction("finalize");
     try {
       const previewRes = await apiClient.notifications.batches.preview.$post({ json: { selection: props.selection } });
@@ -182,7 +177,13 @@ export default function NotificationBatchActions(props: Props) {
           <i class={loadingAction() === "delete" ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
           <span>Delete draft</span>
         </button>
-        <button type="button" class="btn-primary btn-sm" onClick={finalize} disabled={isLoading()}>
+        <button
+          type="button"
+          class={`btn-primary btn-sm ${finalizeBlocked() ? "opacity-60" : ""}`}
+          onClick={finalize}
+          disabled={isLoading()}
+          aria-disabled={finalizeBlocked() ? "true" : undefined}
+        >
           <i class={loadingAction() === "finalize" ? "ti ti-loader-2 animate-spin" : "ti ti-send"} />
           <span>{loadingAction() === "finalize" ? "Checking..." : "Finalize"}</span>
         </button>

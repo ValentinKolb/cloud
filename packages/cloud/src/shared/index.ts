@@ -8,6 +8,7 @@ export * from "./account-session";
 export * from "./branding";
 export type * from "./icons";
 export { icons } from "./icons";
+export * from "./login-method";
 export { markdown } from "./markdown";
 export type { ErrorCode, EvalContext, EvalError, EvalResult, EvalValue, ProgressValue } from "./markdown/formula";
 export { createProgressValue, evaluateFormula, formatValue, isFormula, isTotalRow, parseProgressValue } from "./markdown/formula";

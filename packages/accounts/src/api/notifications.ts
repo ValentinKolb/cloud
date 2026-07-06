@@ -17,39 +17,43 @@ const NotificationPaginationQuerySchema = z.object({
   page: z.coerce.number().int().positive().max(MAX_PAGE).optional().default(1),
 });
 
-const SelectionSchema = z.object({
-  mode: z.enum(["specific", "rules"]).optional(),
-  rules: z
-    .array(z.enum(["account_manager", "local", "ipa", "guest", "user"]))
-    .max(5)
-    .optional(),
-  all: z.boolean().optional(),
-  userIds: z.array(z.uuid()).max(5000).optional(),
-  groupIds: z.array(z.uuid()).max(500).optional(),
-  includeGroupMembers: z.boolean().optional(),
-  accountManagers: z
-    .object({
-      mode: z.enum(["none", "all", "groups"]).optional(),
-      groupIds: z.array(z.uuid()).max(500).optional(),
-      recursive: z.boolean().optional(),
-    })
-    .optional(),
-  providers: z
-    .array(z.enum(["local", "ipa"]))
-    .max(2)
-    .optional(),
-  profiles: z
-    .array(z.enum(["user", "guest"]))
-    .max(2)
-    .optional(),
-});
+const SelectionInputSchema = z
+  .object({
+    userIds: z.array(z.uuid()).max(5000).optional(),
+    groupIds: z.array(z.uuid()).max(500).optional(),
+  })
+  .strict()
+  .refine((selection) => (selection.userIds?.length ?? 0) > 0 || (selection.groupIds?.length ?? 0) > 0, {
+    message: "Select at least one user or group.",
+  });
+
+const BatchSelectionResponseSchema = z
+  .object({
+    userIds: z.array(z.uuid()).optional(),
+    groupIds: z.array(z.uuid()).optional(),
+    mode: z.string().optional(),
+    rules: z.array(z.string()).optional(),
+    all: z.boolean().optional(),
+    includeGroupMembers: z.boolean().optional(),
+    accountManagers: z
+      .object({
+        mode: z.string().optional(),
+        groupIds: z.array(z.string()).optional(),
+        recursive: z.boolean().optional(),
+      })
+      .catchall(z.unknown())
+      .optional(),
+    providers: z.array(z.string()).optional(),
+    profiles: z.array(z.string()).optional(),
+  })
+  .catchall(z.unknown());
 
 const BatchSchema = z.object({
   id: z.string(),
   subject: z.string(),
   bodyMarkdown: z.string(),
   bodyHtml: z.string(),
-  selection: SelectionSchema,
+  selection: BatchSelectionResponseSchema,
   selectionHash: z.string(),
   status: BatchStatusSchema,
   createdBy: z.string().nullable(),
@@ -93,7 +97,7 @@ const PreviewResponseSchema = z.object({
 const CreateBatchSchema = z.object({
   subject: z.string().trim().min(1).max(200),
   bodyMarkdown: z.string().trim().min(1).max(100_000),
-  selection: SelectionSchema,
+  selection: SelectionInputSchema,
 });
 
 const FinalizeBatchSchema = z.object({
@@ -171,7 +175,7 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Admin access required"),
       },
     }),
-    v("json", z.object({ selection: SelectionSchema })),
+    v("json", z.object({ selection: SelectionInputSchema })),
     async (c) => respond(c, ok(await notificationBatches.preview(c.req.valid("json").selection))),
   )
   .post(

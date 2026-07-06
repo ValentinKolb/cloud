@@ -1,26 +1,43 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
-import { __notificationBatchTest } from "./batches";
+import { __notificationBatchTest, notificationBatches } from "./batches";
 
-const canUseDatabase = async () => {
+const canUseAuthDatabase = async () => {
   try {
     const [row] = await sql<
       {
         users: string | null;
         groups: string | null;
         user_groups: string | null;
-        group_manager_users: string | null;
-        group_manager_groups: string | null;
+        group_groups: string | null;
       }[]
     >`
       SELECT
         to_regclass('auth.users')::text AS users,
         to_regclass('auth.groups')::text AS groups,
         to_regclass('auth.user_groups_v2')::text AS user_groups,
-        to_regclass('auth.group_manager_users_v2')::text AS group_manager_users,
-        to_regclass('auth.group_manager_groups_v2')::text AS group_manager_groups
+        to_regclass('auth.group_groups_v2')::text AS group_groups
     `;
-    return Boolean(row?.users && row.groups && row.user_groups && row.group_manager_users && row.group_manager_groups);
+    return Boolean(row?.users && row.groups && row.user_groups && row.group_groups);
+  } catch {
+    return false;
+  }
+};
+
+const canUseNotificationBatchDatabase = async () => {
+  if (!(await canUseAuthDatabase())) return false;
+  try {
+    const [row] = await sql<
+      {
+        batches: string | null;
+        batch_recipients: string | null;
+      }[]
+    >`
+      SELECT
+        to_regclass('notifications.batches')::text AS batches,
+        to_regclass('notifications.batch_recipients')::text AS batch_recipients
+    `;
+    return Boolean(row?.batches && row.batch_recipients);
   } catch {
     return false;
   }
@@ -54,8 +71,7 @@ const insertGroup = async (suffix: string, label: string) => {
 
 const cleanupAuthFixture = async (userIds: string[], groupIds: string[]) => {
   for (const groupId of groupIds) {
-    await sql`DELETE FROM auth.group_manager_groups_v2 WHERE group_id = ${groupId}::uuid OR manager_group_id = ${groupId}::uuid`;
-    await sql`DELETE FROM auth.group_manager_users_v2 WHERE group_id = ${groupId}::uuid`;
+    await sql`DELETE FROM auth.group_groups_v2 WHERE parent_group_id = ${groupId}::uuid OR child_group_id = ${groupId}::uuid`;
     await sql`DELETE FROM auth.user_groups_v2 WHERE group_id = ${groupId}::uuid`;
   }
   for (const groupId of groupIds) {
@@ -71,51 +87,57 @@ describe("notification batch selections", () => {
     const selection = __notificationBatchTest.normalizeSelection({
       userIds: ["user-b", "user-a", "user-a"],
       groupIds: ["group-b", "group-a"],
-      accountManagers: {
-        mode: "groups",
-        groupIds: ["manager-b", "manager-a", "manager-b"],
-      },
-      providers: ["ipa", "local", "ipa"],
-      profiles: ["guest", "user", "guest"],
     });
 
     expect(selection.userIds).toEqual(["user-a", "user-b"]);
     expect(selection.groupIds).toEqual(["group-a", "group-b"]);
-    expect(selection.accountManagers?.groupIds).toEqual(["manager-a", "manager-b"]);
-    expect(selection.providers).toEqual(["ipa", "local"]);
-    expect(selection.profiles).toEqual(["guest", "user"]);
   });
 
-  test("defaults recursive member and manager resolution on", () => {
-    const selection = __notificationBatchTest.normalizeSelection({});
-
-    expect(selection.includeGroupMembers).toBe(true);
-    expect(selection.accountManagers?.mode).toBe("none");
-    expect(selection.accountManagers?.recursive).toBe(true);
-  });
-
-  test("normalizes modern rule selections", () => {
+  test("drops legacy rule-only selection fields", () => {
     const selection = __notificationBatchTest.normalizeSelection({
       mode: "rules",
-      rules: ["ipa", "account_manager", "ipa", "guest"],
-      groupIds: ["group-b", "group-a", "group-b"],
-    });
+      rules: ["ipa", "account_manager"],
+    } as never);
 
-    expect(selection.mode).toBe("rules");
-    expect(selection.rules).toEqual(["account_manager", "guest", "ipa"]);
-    expect(selection.groupIds).toEqual(["group-a", "group-b"]);
-    expect(selection.includeGroupMembers).toBe(true);
+    expect(selection).toEqual({ userIds: [], groupIds: [] });
+  });
+
+  test("blocks broad legacy audiences but allows compatible explicit drafts", () => {
+    expect(
+      __notificationBatchTest.hasLegacyAudienceSelection({
+        mode: "specific",
+        userIds: ["user-a"],
+        rules: [],
+        all: false,
+        includeGroupMembers: true,
+        accountManagers: { mode: "none", groupIds: [], recursive: true },
+        providers: [],
+        profiles: [],
+      } as never),
+    ).toBe(false);
+
+    expect(
+      __notificationBatchTest.hasLegacyAudienceSelection({
+        mode: "rules",
+        rules: ["account_manager"],
+      } as never),
+    ).toBe(true);
+
+    expect(
+      __notificationBatchTest.hasLegacyAudienceSelection({
+        userIds: ["user-a"],
+        providers: ["ipa"],
+      } as never),
+    ).toBe(true);
   });
 
   test("keeps selection hash stable across duplicate and order-only changes", () => {
     const left = __notificationBatchTest.selectionHash({
       userIds: ["user-b", "user-a", "user-a"],
-      accountManagers: { mode: "groups", groupIds: ["group-b", "group-a"] },
-      providers: ["local", "ipa"],
+      groupIds: ["group-b", "group-a", "group-a"],
     });
     const right = __notificationBatchTest.selectionHash({
-      providers: ["ipa", "local", "ipa"],
-      accountManagers: { groupIds: ["group-a", "group-b"], mode: "groups" },
+      groupIds: ["group-a", "group-b"],
       userIds: ["user-a", "user-b"],
     });
 
@@ -144,39 +166,94 @@ describe("notification batch selections", () => {
     expect(left).toBe(right);
   });
 
-  test("resolves account managers for scoped groups without requiring group membership", async () => {
-    if (!(await canUseDatabase())) {
+  test("resolves explicit users and recursive group members", async () => {
+    if (!(await canUseAuthDatabase())) {
       console.warn("Skipping notification batch DB test: auth tables are not available.");
       return;
     }
 
     const suffix = crypto.randomUUID();
-    const targetMemberId = await insertUser(suffix, "target-member");
-    const directManagerId = await insertUser(suffix, "direct-manager");
-    const groupManagerId = await insertUser(suffix, "group-manager");
-    const targetGroupId = await insertGroup(suffix, "target-group");
-    const managerGroupId = await insertGroup(suffix, "manager-group");
-    const userIds = [targetMemberId, directManagerId, groupManagerId];
-    const groupIds = [targetGroupId, managerGroupId];
+    const explicitUserId = await insertUser(suffix, "explicit-user");
+    const directMemberId = await insertUser(suffix, "direct-member");
+    const nestedMemberId = await insertUser(suffix, "nested-member");
+    const parentGroupId = await insertGroup(suffix, "parent-group");
+    const childGroupId = await insertGroup(suffix, "child-group");
+    const userIds = [explicitUserId, directMemberId, nestedMemberId];
+    const groupIds = [parentGroupId, childGroupId];
 
     try {
-      await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${targetMemberId}::uuid, ${targetGroupId}::uuid)`;
-      await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${groupManagerId}::uuid, ${managerGroupId}::uuid)`;
-      await sql`INSERT INTO auth.group_manager_users_v2 (group_id, user_id) VALUES (${targetGroupId}::uuid, ${directManagerId}::uuid)`;
-      await sql`INSERT INTO auth.group_manager_groups_v2 (group_id, manager_group_id) VALUES (${targetGroupId}::uuid, ${managerGroupId}::uuid)`;
+      await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${explicitUserId}::uuid, ${parentGroupId}::uuid)`;
+      await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${directMemberId}::uuid, ${parentGroupId}::uuid)`;
+      await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${nestedMemberId}::uuid, ${childGroupId}::uuid)`;
+      await sql`INSERT INTO auth.group_groups_v2 (parent_group_id, child_group_id) VALUES (${parentGroupId}::uuid, ${childGroupId}::uuid)`;
 
       const candidates = await __notificationBatchTest.resolveCandidates({
-        mode: "rules",
-        rules: ["account_manager"],
-        groupIds: [targetGroupId],
+        userIds: [explicitUserId],
+        groupIds: [parentGroupId],
       });
       const candidateIds = candidates.map((candidate) => candidate.id);
 
-      expect(candidateIds).toContain(directManagerId);
-      expect(candidateIds).toContain(groupManagerId);
-      expect(candidateIds).not.toContain(targetMemberId);
+      expect(candidateIds).toContain(explicitUserId);
+      expect(candidateIds).toContain(directMemberId);
+      expect(candidateIds).toContain(nestedMemberId);
+      expect(candidates.find((candidate) => candidate.id === explicitUserId)?.source_hits).toBe(2);
     } finally {
       await cleanupAuthFixture(userIds, groupIds);
+    }
+  });
+
+  test("finalize rejects legacy rule drafts without creating a recipient snapshot", async () => {
+    if (!(await canUseNotificationBatchDatabase())) {
+      console.warn("Skipping notification batch DB test: auth and notification tables are not available.");
+      return;
+    }
+
+    const suffix = crypto.randomUUID();
+    const actorId = await insertUser(suffix, "legacy-actor");
+    const legacySelection = { mode: "rules", rules: ["account_manager"] };
+    const selectionHash = __notificationBatchTest.selectionHash(legacySelection as never);
+    const [batch] = await sql<{ id: string }[]>`
+      INSERT INTO notifications.batches (subject, body_markdown, body_html, selection, selection_hash, created_by)
+      VALUES (
+        'Legacy rule draft',
+        'Body',
+        '<p>Body</p>',
+        ${JSON.stringify(legacySelection)}::jsonb,
+        ${selectionHash},
+        ${actorId}::uuid
+      )
+      RETURNING id
+    `;
+
+    try {
+      const result = await notificationBatches.finalize({
+        id: batch!.id,
+        actorUserId: actorId,
+        expectedSelectionHash: selectionHash,
+        expectedDeliverableCount: 0,
+        expectedRecipientHash: "unused",
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.message).toContain("Legacy notification drafts cannot be finalized");
+
+      const [recipientCount] = await sql<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count
+        FROM notifications.batch_recipients
+        WHERE batch_id = ${batch!.id}::uuid
+      `;
+      expect(Number(recipientCount?.count ?? 0)).toBe(0);
+
+      const [storedBatch] = await sql<{ status: string; finalized_at: Date | null }[]>`
+        SELECT status, finalized_at
+        FROM notifications.batches
+        WHERE id = ${batch!.id}::uuid
+      `;
+      expect(storedBatch?.status).toBe("draft");
+      expect(storedBatch?.finalized_at).toBeNull();
+    } finally {
+      await sql`DELETE FROM notifications.batches WHERE id = ${batch!.id}::uuid`;
+      await cleanupAuthFixture([actorId], []);
     }
   });
 });

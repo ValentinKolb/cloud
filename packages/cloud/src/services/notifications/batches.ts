@@ -1,7 +1,7 @@
-import { sql } from "bun";
 import { createHash } from "node:crypto";
-import { job } from "@valentinkolb/sync";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { job } from "@valentinkolb/sync";
+import { sql } from "bun";
 import { markdown } from "../../shared/markdown";
 import { logger } from "../logging";
 import { parsePgJsonValue, toPgTextArray, toPgUuidArray } from "../postgres";
@@ -14,23 +14,10 @@ const MAX_PER_PAGE = 100;
 
 export type NotificationBatchStatus = "draft" | "ready" | "running" | "completed" | "completed_with_errors" | "failed" | "cancelled";
 export type NotificationBatchRecipientStatus = "pending" | "sending" | "sent" | "skipped" | "error";
-export type NotificationBatchSelectionMode = "specific" | "rules";
-export type NotificationBatchRule = "account_manager" | "local" | "ipa" | "guest" | "user";
 
 export type NotificationBatchSelection = {
-  mode?: NotificationBatchSelectionMode;
-  rules?: NotificationBatchRule[];
-  all?: boolean;
   userIds?: string[];
   groupIds?: string[];
-  includeGroupMembers?: boolean;
-  accountManagers?: {
-    mode?: "none" | "all" | "groups";
-    groupIds?: string[];
-    recursive?: boolean;
-  };
-  providers?: ("local" | "ipa")[];
-  profiles?: ("user" | "guest")[];
 };
 
 export type NotificationBatchPreview = {
@@ -93,31 +80,34 @@ type RecipientCandidate = {
 type BatchRow = Record<string, unknown>;
 
 const normalizeIds = (values: string[] | null | undefined): string[] => [...new Set((values ?? []).filter(Boolean))].sort();
-const normalizeRules = (values: NotificationBatchRule[] | null | undefined): NotificationBatchRule[] =>
-  normalizeIds(values).filter(
-    (value): value is NotificationBatchRule =>
-      value === "account_manager" || value === "local" || value === "ipa" || value === "guest" || value === "user",
-  );
 
-const normalizeSelection = (selection: NotificationBatchSelection): NotificationBatchSelection => {
-  const providers = normalizeIds(selection.providers).filter((value): value is "local" | "ipa" => value === "local" || value === "ipa");
-  const profiles = normalizeIds(selection.profiles).filter((value): value is "user" | "guest" => value === "user" || value === "guest");
-  const managerMode = selection.accountManagers?.mode ?? "none";
-  return {
-    mode: selection.mode === "specific" || selection.mode === "rules" ? selection.mode : undefined,
-    rules: normalizeRules(selection.rules),
-    all: Boolean(selection.all),
-    userIds: normalizeIds(selection.userIds),
-    groupIds: normalizeIds(selection.groupIds),
-    includeGroupMembers: selection.includeGroupMembers !== false,
-    accountManagers: {
-      mode: managerMode,
-      groupIds: normalizeIds(selection.accountManagers?.groupIds),
-      recursive: selection.accountManagers?.recursive !== false,
-    },
-    providers,
-    profiles,
-  };
+const normalizeSelection = (selection: NotificationBatchSelection): NotificationBatchSelection => ({
+  userIds: normalizeIds(selection.userIds),
+  groupIds: normalizeIds(selection.groupIds),
+});
+
+const hasAudience = (selection: NotificationBatchSelection): boolean =>
+  (selection.userIds?.length ?? 0) > 0 || (selection.groupIds?.length ?? 0) > 0;
+
+const hasLegacyAudienceSelection = (selection: NotificationBatchSelection): boolean => {
+  const raw = selection as NotificationBatchSelection & Record<string, unknown>;
+  const mode = typeof raw.mode === "string" ? raw.mode : undefined;
+  const rules = Array.isArray(raw.rules) ? raw.rules : [];
+  const accountManagers = raw.accountManagers as { mode?: string; groupIds?: unknown } | undefined;
+  const managerMode = accountManagers && typeof accountManagers.mode === "string" ? accountManagers.mode : undefined;
+  const managerGroupIds = Array.isArray(accountManagers?.groupIds) ? accountManagers.groupIds : [];
+  const providers = Array.isArray(raw.providers) ? raw.providers : [];
+  const profiles = Array.isArray(raw.profiles) ? raw.profiles : [];
+  return (
+    (mode !== undefined && mode !== "specific") ||
+    rules.length > 0 ||
+    raw.all === true ||
+    raw.includeGroupMembers === false ||
+    (managerMode !== undefined && managerMode !== "none") ||
+    managerGroupIds.length > 0 ||
+    providers.length > 0 ||
+    profiles.length > 0
+  );
 };
 
 const selectionHash = (selection: NotificationBatchSelection): string =>
@@ -180,116 +170,8 @@ const resolveCandidates = async (rawSelection: NotificationBatchSelection): Prom
   const selection = normalizeSelection(rawSelection);
   const userIds = selection.userIds ?? [];
   const groupIds = selection.groupIds ?? [];
-  const rules = selection.rules ?? [];
 
-  if (selection.mode === "specific") {
-    if (userIds.length === 0) return [];
-    return await sql<RecipientCandidate[]>`
-      SELECT u.id, u.uid, u.display_name, u.mail, u.provider, u.profile, 1::int AS source_hits
-      FROM auth.users u
-      WHERE u.id = ANY(${toPgUuidArray(userIds)}::uuid[])
-      ORDER BY u.uid
-    `;
-  }
-
-  if (selection.mode === "rules") {
-    const providerRules = rules.filter((rule): rule is "local" | "ipa" => rule === "local" || rule === "ipa");
-    const profileRules = rules.filter((rule): rule is "user" | "guest" => rule === "user" || rule === "guest");
-    const providers = providerRules;
-    const profiles = profileRules;
-    const requiresAccountManager = rules.includes("account_manager");
-    return await sql<RecipientCandidate[]>`
-      WITH RECURSIVE
-        selected_groups(group_id) AS (
-          SELECT unnest(${toPgUuidArray(groupIds)}::uuid[])
-        ),
-        scope_group_tree(group_id) AS (
-          SELECT group_id FROM selected_groups
-          UNION
-          SELECT gg.child_group_id
-          FROM auth.group_groups_v2 gg
-          JOIN scope_group_tree tree ON tree.group_id = gg.parent_group_id
-        ),
-        scoped_users(user_id) AS (
-          SELECT u.id
-          FROM auth.users u
-          WHERE ${groupIds.length === 0}
-          UNION
-          SELECT ug.user_id
-          FROM auth.user_groups_v2 ug
-          JOIN scope_group_tree tree ON tree.group_id = ug.group_id
-        ),
-        user_all_groups(user_id, group_id) AS (
-          SELECT ug.user_id, ug.group_id
-          FROM auth.user_groups_v2 ug
-          UNION
-          SELECT ag.user_id, gg.parent_group_id
-          FROM auth.group_groups_v2 gg
-          JOIN user_all_groups ag ON ag.group_id = gg.child_group_id
-        ),
-        manager_seed_groups(group_id) AS (
-          SELECT gmg.manager_group_id
-          FROM auth.group_manager_groups_v2 gmg
-          WHERE ${groupIds.length === 0}
-          UNION
-          SELECT gmg.manager_group_id
-          FROM auth.group_manager_groups_v2 gmg
-          JOIN scope_group_tree tree ON tree.group_id = gmg.group_id
-          WHERE ${groupIds.length > 0}
-        ),
-        manager_group_tree(group_id) AS (
-          SELECT group_id FROM manager_seed_groups
-          UNION
-          SELECT gg.parent_group_id
-          FROM auth.group_groups_v2 gg
-          JOIN manager_group_tree tree ON tree.group_id = gg.child_group_id
-        ),
-        manager_users(user_id) AS (
-          SELECT gmu.user_id
-          FROM auth.group_manager_users_v2 gmu
-          WHERE ${groupIds.length === 0}
-          UNION
-          SELECT gmu.user_id
-          FROM auth.group_manager_users_v2 gmu
-          JOIN scope_group_tree tree ON tree.group_id = gmu.group_id
-          WHERE ${groupIds.length > 0}
-          UNION
-          SELECT ag.user_id
-          FROM user_all_groups ag
-          JOIN manager_group_tree tree ON tree.group_id = ag.group_id
-        ),
-        candidate_counts AS (
-          SELECT su.user_id, 1::int AS source_hits
-          FROM scoped_users su
-          WHERE ${!requiresAccountManager}
-          UNION
-          SELECT mu.user_id, 1::int AS source_hits
-          FROM manager_users mu
-          WHERE ${requiresAccountManager}
-        )
-      SELECT u.id, u.uid, u.display_name, u.mail, u.provider, u.profile, c.source_hits
-      FROM candidate_counts c
-      JOIN auth.users u ON u.id = c.user_id
-      WHERE (cardinality(${toPgTextArray(providers)}::text[]) = 0 OR u.provider = ANY(${toPgTextArray(providers)}::text[]))
-        AND (cardinality(${toPgTextArray(profiles)}::text[]) = 0 OR u.profile = ANY(${toPgTextArray(profiles)}::text[]))
-      ORDER BY u.uid
-    `;
-  }
-
-  const managerGroupIds = selection.accountManagers?.groupIds ?? [];
-  const providers = selection.providers ?? [];
-  const profiles = selection.profiles ?? [];
-  const managerMode = selection.accountManagers?.mode ?? "none";
-  const includeMembers = selection.includeGroupMembers !== false;
-  const recursiveManagers = selection.accountManagers?.recursive !== false;
-  const hasAnySource =
-    selection.all ||
-    userIds.length > 0 ||
-    (includeMembers && groupIds.length > 0) ||
-    managerMode === "all" ||
-    (managerMode === "groups" && managerGroupIds.length > 0);
-
-  if (!hasAnySource) return [];
+  if (userIds.length === 0 && groupIds.length === 0) return [];
 
   return await sql<RecipientCandidate[]>`
     WITH RECURSIVE
@@ -299,68 +181,19 @@ const resolveCandidates = async (rawSelection: NotificationBatchSelection): Prom
       selected_groups(group_id) AS (
         SELECT unnest(${toPgUuidArray(groupIds)}::uuid[])
       ),
-      selected_manager_groups(group_id) AS (
-        SELECT unnest(${toPgUuidArray(managerGroupIds)}::uuid[])
-      ),
-      member_group_tree(group_id) AS (
+      group_tree(group_id) AS (
         SELECT group_id FROM selected_groups
         UNION
         SELECT gg.child_group_id
         FROM auth.group_groups_v2 gg
-        JOIN member_group_tree tree ON tree.group_id = gg.parent_group_id
-        WHERE ${includeMembers}
-      ),
-      user_all_groups(user_id, group_id) AS (
-        SELECT ug.user_id, ug.group_id
-        FROM auth.user_groups_v2 ug
-        UNION
-        SELECT ag.user_id, gg.parent_group_id
-        FROM auth.group_groups_v2 gg
-        JOIN user_all_groups ag ON ag.group_id = gg.child_group_id
-      ),
-      manager_seed_groups(group_id) AS (
-        SELECT gmg.manager_group_id
-        FROM auth.group_manager_groups_v2 gmg
-        WHERE ${managerMode === "all"}
-        UNION
-        SELECT gmg.manager_group_id
-        FROM auth.group_manager_groups_v2 gmg
-        JOIN selected_manager_groups sg ON sg.group_id = gmg.group_id
-        WHERE ${managerMode === "groups"}
-      ),
-      manager_group_tree(group_id) AS (
-        SELECT group_id FROM manager_seed_groups
-        UNION
-        SELECT gg.parent_group_id
-        FROM auth.group_groups_v2 gg
-        JOIN manager_group_tree tree ON tree.group_id = gg.child_group_id
-        WHERE ${recursiveManagers}
+        JOIN group_tree tree ON tree.group_id = gg.parent_group_id
       ),
       candidates(user_id) AS (
-        SELECT u.id
-        FROM auth.users u
-        WHERE ${Boolean(selection.all)}
-        UNION ALL
         SELECT user_id FROM selected_users
         UNION ALL
         SELECT ug.user_id
         FROM auth.user_groups_v2 ug
-        JOIN member_group_tree tree ON tree.group_id = ug.group_id
-        WHERE ${includeMembers}
-        UNION ALL
-        SELECT gmu.user_id
-        FROM auth.group_manager_users_v2 gmu
-        WHERE ${managerMode === "all"}
-        UNION ALL
-        SELECT gmu.user_id
-        FROM auth.group_manager_users_v2 gmu
-        JOIN selected_manager_groups sg ON sg.group_id = gmu.group_id
-        WHERE ${managerMode === "groups"}
-        UNION ALL
-        SELECT ag.user_id
-        FROM user_all_groups ag
-        JOIN manager_group_tree tree ON tree.group_id = ag.group_id
-        WHERE ${managerMode === "all" || managerMode === "groups"}
+        JOIN group_tree tree ON tree.group_id = ug.group_id
       ),
       candidate_counts AS (
         SELECT user_id, COUNT(*)::int AS source_hits
@@ -370,8 +203,6 @@ const resolveCandidates = async (rawSelection: NotificationBatchSelection): Prom
     SELECT u.id, u.uid, u.display_name, u.mail, u.provider, u.profile, c.source_hits
     FROM candidate_counts c
     JOIN auth.users u ON u.id = c.user_id
-    WHERE (cardinality(${toPgTextArray(providers)}::text[]) = 0 OR u.provider = ANY(${toPgTextArray(providers)}::text[]))
-      AND (cardinality(${toPgTextArray(profiles)}::text[]) = 0 OR u.profile = ANY(${toPgTextArray(profiles)}::text[]))
     ORDER BY u.uid
   `;
 };
@@ -563,6 +394,9 @@ export const createDraft = async (params: {
   if (!subject) return fail(err.badInput("Subject is required"));
   if (!bodyMarkdown) return fail(err.badInput("Message is required"));
   const selection = normalizeSelection(params.selection);
+  if (!hasAudience(selection)) {
+    return fail(err.badInput("Select at least one user or group."));
+  }
   const candidates = await resolveCandidates(selection);
   if (!candidates.some((candidate) => candidate.mail)) {
     return fail(err.badInput("No deliverable recipients match this selection"));
@@ -656,7 +490,13 @@ export const finalize = async (params: {
   expectedDeliverableCount: number;
   expectedRecipientHash: string;
 }): Promise<Result<{ batch: NotificationBatch; jobId: string }>> => {
-  const candidates = await resolveCandidates((await get(params.id))?.selection ?? {});
+  const batch = await get(params.id);
+  if (!batch) return fail(err.notFound("Notification batch not found"));
+  if (hasLegacyAudienceSelection(batch.selection)) {
+    return fail(err.badInput("Legacy notification drafts cannot be finalized. Create a new notification batch."));
+  }
+
+  const candidates = await resolveCandidates(batch.selection);
   const deliverableCount = candidates.filter((candidate) => candidate.mail).length;
   const currentRecipientHash = recipientHash(candidates);
   if (deliverableCount === 0) {
@@ -827,6 +667,7 @@ export const notificationBatches = {
 
 export const __notificationBatchTest = {
   normalizeSelection,
+  hasLegacyAudienceSelection,
   selectionHash,
   recipientHash,
   resolveCandidates,

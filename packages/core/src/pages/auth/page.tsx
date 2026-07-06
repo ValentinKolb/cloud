@@ -1,11 +1,16 @@
-import { ssr } from "../../config";
-import LoginForm from "./LoginForm.island";
-import GuestLoginForm from "./GuestLoginForm.island";
-import AdminLoginForm from "./AdminLoginForm.island";
-import PasskeyLoginButton from "./PasskeyLoginButton.island";
-import { coreSettings } from "@valentinkolb/cloud/services";
 import { listLegalLinks } from "@valentinkolb/cloud";
-import { normalizeRedirectTo, readThemeFromCookieHeader } from "@valentinkolb/cloud/shared";
+import { coreSettings } from "@valentinkolb/cloud/services";
+import {
+  normalizeRedirectTo,
+  readLoginMethodFromCookieHeader,
+  readThemeFromCookieHeader,
+  resolveLoginFallbackMethod,
+} from "@valentinkolb/cloud/shared";
+import { ssr } from "../../config";
+import AdminLoginForm from "./AdminLoginForm.island";
+import GuestLoginForm from "./GuestLoginForm.island";
+import LoginForm from "./LoginForm.island";
+import PasskeyLoginButton from "./PasskeyLoginButton.island";
 
 /** Login page. */
 export default ssr(async (c) => {
@@ -30,6 +35,7 @@ export default ssr(async (c) => {
 
   const cookie = c.req.raw.headers.get("Cookie") ?? "";
   c.get("page").theme = readThemeFromCookieHeader(cookie);
+  const persistedLoginMethod = readLoginMethodFromCookieHeader(cookie);
 
   // If guest is hidden, force IPA method
   const isGuestHidden = freeIpaEnabled && hide === "guest";
@@ -37,16 +43,14 @@ export default ssr(async (c) => {
   // Admin login: hidden method, no switch link, no cookie interaction
   const isAdminLogin = method === "admin" && !token;
 
-  // Priority: magic-link token forces email > hide=guest forces ipa > ?method= > fallback email.
-  const activeMethod = !freeIpaEnabled
-    ? "email"
-    : token
-      ? "email"
-      : isGuestHidden
-        ? "ipa"
-        : method === "ipa" || method === "email"
-          ? method
-          : "email";
+  // Priority: magic-link token forces email > hide=guest forces ipa > ?method= > remembered fallback > email.
+  const activeMethod = resolveLoginFallbackMethod({
+    freeIpaEnabled,
+    hasToken: Boolean(token),
+    isGuestHidden,
+    queryMethod: method,
+    persistedMethod: persistedLoginMethod,
+  });
 
   const isEmailLogin = activeMethod === "email";
 

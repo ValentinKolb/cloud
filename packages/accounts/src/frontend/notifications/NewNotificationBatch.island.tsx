@@ -1,22 +1,16 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import {
+  Avatar,
   dialogCore,
   EntitySearch,
   type EntitySearchPrincipal,
-  Avatar,
-  MultiSelectInput,
-  type MultiSelectOption,
   PanelDialog,
   panelDialogOptions,
   prompts,
-  SegmentedControl,
   TextInput,
 } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-
-type AudienceMode = "specific" | "rules";
-type RuleId = "account_manager" | "local" | "ipa" | "guest" | "user";
 
 type SelectedUser = {
   id: string;
@@ -33,11 +27,8 @@ type SelectedGroup = {
 };
 
 type SelectionPayload = {
-  mode: AudienceMode;
   userIds?: string[];
   groupIds?: string[];
-  rules?: RuleId[];
-  includeGroupMembers?: boolean;
 };
 
 type PreviewState = {
@@ -47,56 +38,10 @@ type PreviewState = {
   recipientHash: string;
 };
 
-const RULE_OPTIONS: MultiSelectOption[] = [
-  {
-    id: "account_manager",
-    label: "Account managers",
-    description: "Users who manage at least one group in the selected scope.",
-    icon: "ti ti-shield-check",
-    color: "#2563eb",
-  },
-  {
-    id: "ipa",
-    label: "FreeIPA accounts",
-    description: "Only users from FreeIPA.",
-    icon: "ti ti-server",
-    color: "#7c3aed",
-  },
-  {
-    id: "local",
-    label: "Local accounts",
-    description: "Only local cloud users.",
-    icon: "ti ti-device-desktop",
-    color: "#059669",
-  },
-  {
-    id: "guest",
-    label: "Guests",
-    description: "Only guest profile accounts.",
-    icon: "ti ti-user-question",
-    color: "#f59e0b",
-  },
-  {
-    id: "user",
-    label: "Full users",
-    description: "Only regular full user accounts.",
-    icon: "ti ti-user",
-    color: "#0ea5e9",
-  },
-];
-
-const MODE_OPTIONS = [
-  { value: "specific", label: "Specific users", icon: "ti ti-user-plus" },
-  { value: "rules", label: "Rule based", icon: "ti ti-filter" },
-] satisfies { value: AudienceMode; label: string; icon: string }[];
-
 const notificationBatchDialogOptions = {
   ...panelDialogOptions,
   panelClassName: panelDialogOptions.panelClassName.replace("w-[min(96vw,48rem)]", "w-[min(96vw,72rem)]"),
 };
-
-const isRuleId = (value: string): value is RuleId =>
-  value === "account_manager" || value === "local" || value === "ipa" || value === "guest" || value === "user";
 
 const readError = async (res: Response, fallback: string) => {
   try {
@@ -110,35 +55,21 @@ const readError = async (res: Response, fallback: string) => {
 function BatchDialog(props: { close: () => void }) {
   const [subject, setSubject] = createSignal("");
   const [body, setBody] = createSignal("");
-  const [audienceMode, setAudienceMode] = createSignal<AudienceMode>("specific");
-  const [rules, setRules] = createSignal<RuleId[]>([]);
   const [users, setUsers] = createSignal<SelectedUser[]>([]);
   const [groups, setGroups] = createSignal<SelectedGroup[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [previewLoading, setPreviewLoading] = createSignal(false);
   const [preview, setPreview] = createSignal<PreviewState | null>(null);
 
-  const selection = createMemo<SelectionPayload>(() =>
-    audienceMode() === "specific"
-      ? {
-          mode: "specific",
-          userIds: users().map((user) => user.id),
-          includeGroupMembers: true,
-        }
-      : {
-          mode: "rules",
-          rules: rules(),
-          groupIds: groups().map((group) => group.id),
-          includeGroupMembers: true,
-        },
-  );
+  const selection = createMemo<SelectionPayload>(() => ({
+    userIds: users().map((user) => user.id),
+    groupIds: groups().map((group) => group.id),
+  }));
 
-  const hasAudience = () => audienceMode() === "rules" || users().length > 0;
+  const selectionHasAudience = (value: SelectionPayload) => (value.userIds?.length ?? 0) > 0 || (value.groupIds?.length ?? 0) > 0;
+  const selectionKey = (value: SelectionPayload) => JSON.stringify(value);
+  const hasAudience = () => selectionHasAudience(selection());
   const canCreate = () => subject().trim().length > 0 && body().trim().length > 0 && hasAudience();
-
-  const selectedRuleOptions = createMemo(() =>
-    RULE_OPTIONS.filter((option) => typeof option !== "string" && rules().includes(option.id as RuleId)),
-  );
 
   const addUser = (principal: EntitySearchPrincipal) => {
     if (principal.type !== "user") return;
@@ -173,23 +104,25 @@ function BatchDialog(props: { close: () => void }) {
 
   let previewRequest = 0;
 
-  const runPreview = async (options?: { quiet?: boolean }) => {
-    if (!hasAudience()) {
+  const runPreview = async (options?: { quiet?: boolean; selection?: SelectionPayload }) => {
+    const previewSelection = options?.selection ?? selection();
+    const previewSelectionKey = selectionKey(previewSelection);
+    if (!selectionHasAudience(previewSelection)) {
       setPreview(null);
-      if (!options?.quiet) prompts.error("Select at least one user or switch to rule based targeting.");
+      if (!options?.quiet) prompts.error("Select at least one user or group.");
       return null;
     }
     const requestId = ++previewRequest;
     setPreviewLoading(true);
     try {
-      const res = await apiClient.notifications.batches.preview.$post({ json: { selection: selection() } });
+      const res = await apiClient.notifications.batches.preview.$post({ json: { selection: previewSelection } });
       if (!res.ok) throw new Error(await readError(res, "Failed to preview recipients."));
       const data = await res.json();
-      if (requestId === previewRequest) setPreview(data);
+      if (requestId === previewRequest && selectionKey(selection()) === previewSelectionKey) setPreview(data);
       return data;
     } catch (error) {
       if (!options?.quiet) prompts.error(error instanceof Error ? error.message : String(error));
-      if (requestId === previewRequest) setPreview(null);
+      if (requestId === previewRequest && selectionKey(selection()) === previewSelectionKey) setPreview(null);
       return null;
     } finally {
       if (requestId === previewRequest) setPreviewLoading(false);
@@ -197,14 +130,14 @@ function BatchDialog(props: { close: () => void }) {
   };
 
   createEffect(() => {
-    const key = JSON.stringify(selection());
-    if (!key || !hasAudience()) {
+    const currentSelection = selection();
+    if (!selectionHasAudience(currentSelection)) {
       setPreview(null);
       setPreviewLoading(false);
       return;
     }
     const timeout = window.setTimeout(() => {
-      void runPreview({ quiet: true });
+      void runPreview({ quiet: true, selection: currentSelection });
     }, 350);
     onCleanup(() => window.clearTimeout(timeout));
   });
@@ -214,7 +147,8 @@ function BatchDialog(props: { close: () => void }) {
       prompts.error("Subject, message, and audience are required.");
       return;
     }
-    const latestPreview = preview() ?? (await runPreview());
+    const draftSelection = selection();
+    const latestPreview = await runPreview({ selection: draftSelection });
     if (!latestPreview) return;
     if (latestPreview.deliverableCount === 0) {
       prompts.error("No deliverable recipients match this audience.");
@@ -223,7 +157,7 @@ function BatchDialog(props: { close: () => void }) {
     setLoading(true);
     try {
       const res = await apiClient.notifications.batches.$post({
-        json: { subject: subject(), bodyMarkdown: body(), selection: selection() },
+        json: { subject: subject(), bodyMarkdown: body(), selection: draftSelection },
       });
       if (!res.ok) throw new Error(await readError(res, "Failed to create notification batch."));
       const batch = await res.json();
@@ -269,7 +203,7 @@ function BatchDialog(props: { close: () => void }) {
       (close) => (
         <PanelDialog>
           <PanelDialog.Header
-            title="Add group scope"
+            title="Add group"
             subtitle="Search one group. Members of nested child groups are included automatically."
             icon="ti ti-users-group"
             close={close}
@@ -333,140 +267,69 @@ function BatchDialog(props: { close: () => void }) {
           </PanelDialog.Section>
 
           <aside class="flex min-w-0 flex-col gap-3">
-            <PanelDialog.Section title="Audience mode" subtitle="Choose how recipients are selected." icon="ti ti-target-arrow">
-              <SegmentedControl<AudienceMode>
-                options={MODE_OPTIONS}
-                value={audienceMode}
-                onChange={(mode) => {
-                  setAudienceMode(mode);
-                  setPreview(null);
-                }}
-                ariaLabel="Audience mode"
-              />
-
-              <Show
-                when={audienceMode() === "specific"}
-                fallback={
-                  <div class="info-block-info flex items-start gap-2 text-xs">
-                    <i class="ti ti-info-circle mt-0.5 shrink-0" />
-                    <span>
-                      Rule categories are combined. Multiple values inside one category are alternatives. If no group scope is selected,
-                      rules are evaluated against all accounts.
-                    </span>
-                  </div>
-                }
-              >
-                <div class="info-block-info flex items-start gap-2 text-xs">
-                  <i class="ti ti-info-circle mt-0.5 shrink-0" />
-                  <span>Use this mode when you know the exact people. Only users in the list below receive the notification.</span>
+            <PanelDialog.Section
+              title="Selected users"
+              subtitle="Add explicit recipients. Group members can be added below."
+              icon="ti ti-users"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs text-dimmed">{users().length} users selected</span>
+                <button type="button" class="btn-input btn-input-sm" onClick={openUserPicker}>
+                  <i class="ti ti-user-plus" />
+                  <span>Add user</span>
+                </button>
+              </div>
+              <Show when={users().length > 0} fallback={<p class="text-xs text-dimmed">No individual users selected.</p>}>
+                <div class="flex flex-col gap-2">
+                  <For each={users()}>
+                    {(user) => (
+                      <button
+                        type="button"
+                        class="btn-input btn-input-sm justify-start"
+                        onClick={() => remove<SelectedUser>(user.id, setUsers)}
+                      >
+                        <Avatar username={user.label} userId={user.id} avatarHash={user.avatarHash} size="xs" />
+                        <span class="min-w-0 flex-1 truncate text-left">{user.label}</span>
+                        <span class="text-[10px] uppercase text-dimmed">{user.provider}</span>
+                        <i class="ti ti-x text-dimmed" />
+                      </button>
+                    )}
+                  </For>
                 </div>
               </Show>
             </PanelDialog.Section>
 
-            <Show
-              when={audienceMode() === "specific"}
-              fallback={
-                <>
-                  <PanelDialog.Section
-                    title="Required user properties"
-                    subtitle="Categories are combined; values inside a category are alternatives."
-                    icon="ti ti-checklist"
-                  >
-                    <MultiSelectInput
-                      label="Properties"
-                      description="Leave empty to include all accounts in the selected scope."
-                      placeholder="Choose required properties..."
-                      value={rules}
-                      onChange={(value) => {
-                        setRules(value.filter(isRuleId));
-                        setPreview(null);
-                      }}
-                      options={RULE_OPTIONS}
-                      selectedOptions={selectedRuleOptions}
-                      clearable
-                    />
-                    <Show when={rules().length === 0}>
-                      <div class={groups().length === 0 ? "info-block-warning text-xs" : "info-block-note text-xs"}>
-                        No user properties are selected. The group scope below, or all accounts if no groups are selected, is used as-is.
-                      </div>
-                    </Show>
-                  </PanelDialog.Section>
-
-                  <PanelDialog.Section
-                    title="Group scope"
-                    subtitle="Optionally restrict the rules to users connected to specific groups."
-                    icon="ti ti-users-group"
-                  >
-                    <div class="flex items-center justify-between gap-2">
-                      <span class="text-xs text-dimmed">{groups().length} groups selected</span>
-                      <button type="button" class="btn-input btn-input-sm" onClick={openGroupPicker}>
-                        <i class="ti ti-plus" />
-                        <span>Add group</span>
-                      </button>
-                    </div>
-                    <Show
-                      when={groups().length > 0}
-                      fallback={
-                        <div class={(rules().length === 0 ? "info-block-warning" : "info-block-info") + " flex items-start gap-2 text-xs"}>
-                          <i class={(rules().length === 0 ? "ti ti-alert-triangle" : "ti ti-info-circle") + " mt-0.5 shrink-0"} />
-                          <span>
-                            No groups selected. The rules above are evaluated against all users. Group members are resolved recursively.
-                          </span>
-                        </div>
-                      }
-                    >
-                      <div class="flex flex-col gap-2">
-                        <For each={groups()}>
-                          {(group) => (
-                            <button
-                              type="button"
-                              class="btn-input btn-input-sm justify-start"
-                              onClick={() => remove<SelectedGroup>(group.id, setGroups)}
-                            >
-                              <i class="ti ti-users-group" />
-                              <span class="min-w-0 flex-1 truncate text-left">{group.label}</span>
-                              <span class="text-[10px] uppercase text-dimmed">{group.provider}</span>
-                              <i class="ti ti-x text-dimmed" />
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-                  </PanelDialog.Section>
-                </>
-              }
+            <PanelDialog.Section
+              title="Selected groups"
+              subtitle="Members of selected groups and nested child groups are included."
+              icon="ti ti-users-group"
             >
-              <PanelDialog.Section title="Selected users" subtitle="Explicit recipients for this batch." icon="ti ti-users">
-                <div class="flex items-center justify-between gap-2">
-                  <span class="text-xs text-dimmed">{users().length} users selected</span>
-                  <button type="button" class="btn-input btn-input-sm" onClick={openUserPicker}>
-                    <i class="ti ti-user-plus" />
-                    <span>Add user</span>
-                  </button>
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs text-dimmed">{groups().length} groups selected</span>
+                <button type="button" class="btn-input btn-input-sm" onClick={openGroupPicker}>
+                  <i class="ti ti-plus" />
+                  <span>Add group</span>
+                </button>
+              </div>
+              <Show when={groups().length > 0} fallback={<p class="text-xs text-dimmed">No groups selected.</p>}>
+                <div class="flex flex-col gap-2">
+                  <For each={groups()}>
+                    {(group) => (
+                      <button
+                        type="button"
+                        class="btn-input btn-input-sm justify-start"
+                        onClick={() => remove<SelectedGroup>(group.id, setGroups)}
+                      >
+                        <i class="ti ti-users-group" />
+                        <span class="min-w-0 flex-1 truncate text-left">{group.label}</span>
+                        <span class="text-[10px] uppercase text-dimmed">{group.provider}</span>
+                        <i class="ti ti-x text-dimmed" />
+                      </button>
+                    )}
+                  </For>
                 </div>
-                <Show
-                  when={users().length > 0}
-                  fallback={<p class="text-xs text-dimmed">No users selected yet. Add at least one user to create a specific batch.</p>}
-                >
-                  <div class="flex flex-col gap-2">
-                    <For each={users()}>
-                      {(user) => (
-                        <button
-                          type="button"
-                          class="btn-input btn-input-sm justify-start"
-                          onClick={() => remove<SelectedUser>(user.id, setUsers)}
-                        >
-                          <Avatar username={user.label} userId={user.id} avatarHash={user.avatarHash} size="xs" />
-                          <span class="min-w-0 flex-1 truncate text-left">{user.label}</span>
-                          <span class="text-[10px] uppercase text-dimmed">{user.provider}</span>
-                          <i class="ti ti-x text-dimmed" />
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-              </PanelDialog.Section>
-            </Show>
+              </Show>
+            </PanelDialog.Section>
 
             <PanelDialog.Section
               title="Live preview"

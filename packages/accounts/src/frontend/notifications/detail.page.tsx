@@ -2,10 +2,10 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import {
   accounts,
   accountsAppService as accountsService,
-  notificationBatches,
   type NotificationBatch,
   type NotificationBatchRecipient,
   type NotificationBatchRecipientStatus,
+  notificationBatches,
 } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { Avatar, DataTable, type DataTableColumn, MarkdownView, Pagination, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
@@ -55,6 +55,30 @@ const RULE_LABELS: Record<string, { label: string; icon: string }> = {
   user: { label: "Full users", icon: "ti ti-user" },
 };
 
+type LegacyAudienceSelection = {
+  mode?: "specific" | "rules" | string;
+  rules?: string[];
+  all?: boolean;
+  includeGroupMembers?: boolean;
+  accountManagers?: { mode?: "none" | "all" | "groups"; groupIds?: string[] };
+  providers?: ("local" | "ipa")[];
+  profiles?: ("user" | "guest")[];
+};
+
+const hasLegacyRuleAudience = (selection: LegacyAudienceSelection): boolean => {
+  const managerMode = selection.accountManagers?.mode;
+  return (
+    (selection.mode !== undefined && selection.mode !== "specific") ||
+    Boolean(selection.rules?.length) ||
+    selection.all === true ||
+    selection.includeGroupMembers === false ||
+    (managerMode !== undefined && managerMode !== "none") ||
+    Boolean(selection.accountManagers?.groupIds?.length) ||
+    Boolean(selection.providers?.length) ||
+    Boolean(selection.profiles?.length)
+  );
+};
+
 const recipientBaseUrl = (batchId: string, status?: string) => {
   const query = new URLSearchParams();
   if (status) query.set("recipient_status", status);
@@ -84,8 +108,11 @@ export default ssr<AuthContext>(async (c) => {
       ? { items: [] as NotificationBatchRecipient[], total: 0 }
       : await notificationBatches.listRecipients({ batchId, page, perPage, status: recipientStatus });
   const totalPages = Math.max(1, Math.ceil(recipientsPage.total / perPage));
-  const selectionUserIds = batch.selection.userIds ?? [];
-  const selectionGroupIds = batch.selection.groupIds ?? [];
+  const storedSelection = batch.selection as NotificationBatch["selection"] & LegacyAudienceSelection;
+  const isLegacyRuleAudience = hasLegacyRuleAudience(storedSelection);
+  const selectionUserIds = storedSelection.userIds ?? [];
+  const selectionGroupIds = storedSelection.groupIds ?? [];
+  const activeSelection = { userIds: selectionUserIds, groupIds: selectionGroupIds };
   const previewSelectionUserIds = selectionUserIds.slice(0, AUDIENCE_PREVIEW_LIMIT);
   const previewSelectionGroupIds = selectionGroupIds.slice(0, AUDIENCE_PREVIEW_LIMIT);
   const [selectionUsers, selectionGroups] = await Promise.all([
@@ -100,15 +127,19 @@ export default ssr<AuthContext>(async (c) => {
           .then((result) => result.groups)
       : [],
   ]);
-  const selectionRules = batch.selection.rules ?? [];
+  const selectionRules = storedSelection.rules ?? [];
   const legacySources = [
-    batch.selection.all ? { label: "All users", icon: "ti ti-users" } : null,
-    batch.selection.accountManagers?.mode === "all" ? { label: "All account managers", icon: "ti ti-shield-check" } : null,
-    batch.selection.providers?.includes("local") ? { label: "Local accounts", icon: "ti ti-device-desktop" } : null,
-    batch.selection.providers?.includes("ipa") ? { label: "FreeIPA accounts", icon: "ti ti-server" } : null,
-    batch.selection.profiles?.includes("guest") ? { label: "Guests", icon: "ti ti-user-question" } : null,
-    batch.selection.profiles?.includes("user") ? { label: "Full users", icon: "ti ti-user" } : null,
+    storedSelection.all ? { label: "All users", icon: "ti ti-users" } : null,
+    storedSelection.accountManagers?.mode === "all" ? { label: "All account managers", icon: "ti ti-shield-check" } : null,
+    storedSelection.providers?.includes("local") ? { label: "Local accounts", icon: "ti ti-device-desktop" } : null,
+    storedSelection.providers?.includes("ipa") ? { label: "FreeIPA accounts", icon: "ti ti-server" } : null,
+    storedSelection.profiles?.includes("guest") ? { label: "Guests", icon: "ti ti-user-question" } : null,
+    storedSelection.profiles?.includes("user") ? { label: "Full users", icon: "ti ti-user" } : null,
   ].filter((entry): entry is { label: string; icon: string } => Boolean(entry));
+  const legacyFallbackSource =
+    selectionGroupIds.length > 0
+      ? { label: "All users in selected groups", icon: "ti ti-users-group" }
+      : { label: "All accounts", icon: "ti ti-users" };
 
   const columns: DataTableColumn<NotificationBatchRecipient>[] = [
     { id: "user", header: "User", value: (entry) => entry.displayName || entry.uid, cellClass: "min-w-[14rem]" },
@@ -147,9 +178,14 @@ export default ssr<AuthContext>(async (c) => {
             <NotificationBatchActions
               batchId={batch.id}
               status={batch.status}
-              selection={batch.selection}
+              selection={activeSelection}
               selectionHash={batch.selectionHash}
               errorCount={batch.errorCount}
+              finalizeDisabledReason={
+                isLegacyRuleAudience && batch.status === "draft"
+                  ? "Legacy rule-based drafts can no longer be finalized. Create a new notification batch with users and groups."
+                  : undefined
+              }
             />
           </div>
 
@@ -180,27 +216,30 @@ export default ssr<AuthContext>(async (c) => {
           <div class="paper p-4">
             <div class="flex items-start gap-2">
               <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
-                <i class={batch.selection.mode === "specific" ? "ti ti-user-plus" : "ti ti-filter"} />
+                <i class={isLegacyRuleAudience ? "ti ti-filter" : "ti ti-user-plus"} />
               </span>
               <div class="min-w-0 flex-1">
                 <h2 class="text-sm font-semibold text-primary">Audience</h2>
                 <p class="mt-1 text-xs text-dimmed">
-                  {batch.selection.mode === "specific"
-                    ? "This batch targets the explicitly selected users below."
-                    : batch.selection.mode === "rules"
-                      ? "This batch resolves users from the selected rules. Categories are combined; values inside one category are alternatives."
-                      : "This batch uses the previous audience selection format."}
+                  {isLegacyRuleAudience
+                    ? "This batch stores a legacy rule-based audience. Finalized recipient snapshots remain available; legacy drafts must be recreated."
+                    : "This batch targets explicitly selected users and recursive group members."}
                 </p>
+                {isLegacyRuleAudience && batch.status === "draft" ? (
+                  <div class="info-block-warning mt-2 text-xs">
+                    Legacy rule-based drafts can no longer be finalized. Create a new notification batch with users and groups.
+                  </div>
+                ) : null}
               </div>
             </div>
 
             <div class="mt-2 grid gap-2 lg:grid-cols-2">
               <div>
                 <p class="text-[11px] font-semibold uppercase tracking-wide text-dimmed">
-                  {batch.selection.mode === "specific" ? "Users" : "Rule filters"}
+                  {isLegacyRuleAudience ? "Legacy filters" : "Users"}
                 </p>
                 <div class="mt-2 flex flex-wrap gap-2">
-                  {batch.selection.mode === "specific" ? (
+                  {!isLegacyRuleAudience ? (
                     selectionUsers.length > 0 ? (
                       <>
                         {selectionUsers.map((user) => (
@@ -225,20 +264,16 @@ export default ssr<AuthContext>(async (c) => {
                     ) : (
                       <span class="text-xs text-dimmed">No users selected.</span>
                     )
-                  ) : batch.selection.mode === "rules" ? (
-                    selectionRules.length > 0 ? (
-                      selectionRules.map((rule) => {
-                        const item = RULE_LABELS[rule] ?? { label: rule, icon: "ti ti-filter" };
-                        return (
-                          <span class="chip max-w-full">
-                            <i class={item.icon} />
-                            <span class="truncate">{item.label}</span>
-                          </span>
-                        );
-                      })
-                    ) : (
-                      <span class="text-xs text-dimmed">No required user properties. All users in scope are included.</span>
-                    )
+                  ) : selectionRules.length > 0 ? (
+                    selectionRules.map((rule) => {
+                      const item = RULE_LABELS[rule] ?? { label: rule, icon: "ti ti-filter" };
+                      return (
+                        <span class="chip max-w-full">
+                          <i class={item.icon} />
+                          <span class="truncate">{item.label}</span>
+                        </span>
+                      );
+                    })
                   ) : legacySources.length > 0 ? (
                     legacySources.map((source) => (
                       <span class="chip max-w-full">
@@ -247,13 +282,16 @@ export default ssr<AuthContext>(async (c) => {
                       </span>
                     ))
                   ) : (
-                    <span class="text-xs text-dimmed">No audience sources stored.</span>
+                    <span class="chip max-w-full">
+                      <i class={legacyFallbackSource.icon} />
+                      <span class="truncate">{legacyFallbackSource.label}</span>
+                    </span>
                   )}
                 </div>
               </div>
 
               <div>
-                <p class="text-[11px] font-semibold uppercase tracking-wide text-dimmed">Group scope</p>
+                <p class="text-[11px] font-semibold uppercase tracking-wide text-dimmed">Groups</p>
                 <div class="mt-2 flex flex-wrap gap-2">
                   {selectionGroups.length > 0 ? (
                     <>
@@ -271,9 +309,7 @@ export default ssr<AuthContext>(async (c) => {
                       ) : null}
                     </>
                   ) : (
-                    <span class="text-xs text-dimmed">
-                      {batch.selection.mode === "rules" ? "No group scope. Rules apply to all accounts." : "No group scope."}
-                    </span>
+                    <span class="text-xs text-dimmed">No groups selected.</span>
                   )}
                 </div>
               </div>
@@ -301,7 +337,11 @@ export default ssr<AuthContext>(async (c) => {
             {batch.status !== "draft" ? <NotificationRecipientStatusFilters batchId={batch.id} status={recipientStatus ?? ""} /> : null}
 
             {batch.status === "draft" ? (
-              <Placeholder surface="paper">Finalize this draft to create the recipient snapshot.</Placeholder>
+              <Placeholder surface="paper">
+                {isLegacyRuleAudience
+                  ? "Create a new notification batch with users and groups."
+                  : "Finalize this draft to create the recipient snapshot."}
+              </Placeholder>
             ) : recipientsPage.items.length === 0 ? (
               <Placeholder surface="paper">No recipients found.</Placeholder>
             ) : (
@@ -316,13 +356,11 @@ export default ssr<AuthContext>(async (c) => {
                   renderCell={({ row: entry, col }) => {
                     if (col.id === "user") {
                       return (
-                        <a href={`/app/accounts/users/${entry.userId}`} class="flex min-w-0 items-center gap-2 text-primary hover:underline">
-                          <Avatar
-                            username={entry.displayName || entry.uid}
-                            userId={entry.userId}
-                            avatarHash={entry.avatarHash}
-                            size="xs"
-                          />
+                        <a
+                          href={`/app/accounts/users/${entry.userId}`}
+                          class="flex min-w-0 items-center gap-2 text-primary hover:underline"
+                        >
+                          <Avatar username={entry.displayName || entry.uid} userId={entry.userId} avatarHash={entry.avatarHash} size="xs" />
                           <span class="min-w-0 flex-1">
                             <span class="block truncate font-medium">{entry.displayName || entry.uid}</span>
                             <span class="block truncate text-[11px] text-dimmed">{entry.uid}</span>
