@@ -16,8 +16,14 @@ export const validateAccessLevelForResource = (resourceType: string, permission:
     return "View grants only accept 'read', 'admin', or 'none'";
   }
   if (resourceType === "form" && permission !== "write" && permission !== "none") return "Form grants only accept 'write' or 'none'";
-  if (resourceType === "documentTemplate" && permission !== "read" && permission !== "admin" && permission !== "none") {
-    return "Document template grants only accept 'read', 'admin', or 'none'";
+  if (
+    resourceType === "documentTemplate" &&
+    permission !== "read" &&
+    permission !== "write" &&
+    permission !== "admin" &&
+    permission !== "none"
+  ) {
+    return "Document template grants only accept 'read', 'write', 'admin', or 'none'";
   }
   if (resourceType === "dashboard" && permission !== "read" && permission !== "none") {
     return "Dashboard grants only accept 'read' or 'none'";
@@ -315,10 +321,10 @@ const app = new Hono<AuthContext>()
     "/by-document-template/:templateId",
     describeRoute({
       tags: ["Grids:Access"],
-      summary: "Grant access on a document template (only 'read' / 'admin' / 'none' accepted)",
+      summary: "Grant access on a document template (read / write / admin / none)",
       responses: {
         201: jsonResponse(z.object({ accessId: z.string().uuid() }), "Created"),
-        400: jsonResponse(ErrorResponseSchema, "Document template only accepts level 'read', 'admin', or 'none'"),
+        400: jsonResponse(ErrorResponseSchema, "Document template only accepts level 'read', 'write', 'admin', or 'none'"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
       },
     }),
@@ -326,8 +332,8 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const templateId = c.req.param("templateId")!;
       const body = c.req.valid("json");
-      if (body.permission !== "read" && body.permission !== "admin" && body.permission !== "none") {
-        return c.json({ message: "Document template ACL only accepts 'read', 'admin', or 'none'" }, 400);
+      if (body.permission !== "read" && body.permission !== "write" && body.permission !== "admin" && body.permission !== "none") {
+        return c.json({ message: "Document template ACL only accepts 'read', 'write', 'admin', or 'none'" }, 400);
       }
       const [templateRow] = await sql<{ table_id: string; base_id: string }[]>`
         SELECT dt.table_id, t.base_id

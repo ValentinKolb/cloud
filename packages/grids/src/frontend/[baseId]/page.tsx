@@ -2,6 +2,7 @@ import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { withInitialQueryPreview } from "../../api/workspace-query-preview";
 import { ssr } from "../../config";
+import { parseDocumentViewMode } from "../_components/sidebar/GridsSettingsStore";
 import GridsWorkspace from "../_components/workspace/GridsWorkspace.island";
 import { loadGridsWorkspaceState } from "../_components/workspace/workspace-state";
 
@@ -16,6 +17,7 @@ export default ssr<AuthContext>(async (c) => {
     activeDashboardSlug: c.req.param("dashboardId") ?? null,
     activeDocumentTableSlug: c.req.param("documentTableId") ?? null,
     activeDocumentTemplateSlug: c.req.param("documentTemplateId") ?? null,
+    initialDocumentViewMode: parseDocumentViewMode(c.req.header("Cookie")),
     dateConfig: await getDateConfig(c),
   });
 

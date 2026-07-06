@@ -422,9 +422,11 @@ export default function GridsWorkspace(props: Props) {
       table={route.table}
       template={route.template}
       editableTemplate={route.editableTemplate}
+      canWriteTemplate={route.canWriteTemplate}
       canManageTemplate={route.canManageTemplate}
       editMode={state().adminModeRequested}
       initialRecordId={route.initialRecordId}
+      initialDocumentViewMode={route.initialDocumentViewMode}
       dateConfig={state().dateConfig}
     />
   );

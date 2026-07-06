@@ -3,6 +3,7 @@ import {
   coreSettings,
   escapeLikePattern,
   type GotenbergConfig,
+  isUniqueViolation,
   type RenderHtmlToPdfResult,
   renderTemplatePdfPreview,
   type TemplatePdfPreviewResult,
@@ -13,18 +14,20 @@ import {
   renderLiquidTemplate,
   validateLiquidTemplate as validateSharedLiquidTemplate,
 } from "@valentinkolb/cloud/shared";
-import { type DateContext, err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { type DateContext, dates, err, fail, ok, type Result, type ServiceError } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { type BarcodeFormat, BarcodeRenderError, barcodeDataUrl } from "../barcode-rendering";
 import type {
   CreateDocumentTemplateInput,
   DocumentProfile,
   DocumentRun,
+  DocumentRunFolder,
   DocumentRunSummary,
   DocumentTemplate,
   DocumentTemplateSummary,
   RecordSnapshot,
   RecordSnapshotSummary,
+  UpdateDocumentRunMetadataInput,
   UpdateDocumentTemplateInput,
 } from "../contracts";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
@@ -50,9 +53,21 @@ export type DocumentRunPage = {
   offset: number;
   hasMore: boolean;
   nextOffset: number | null;
+  nextCursor: string | null;
+};
+
+export type DocumentRunBrowsePage = {
+  path: string[];
+  folders: DocumentRunFolder[];
+  items: DocumentRun[];
+  total?: number;
+  limit?: number;
+  hasMore?: boolean;
+  nextCursor?: string | null;
 };
 
 const DEFAULT_SOURCE = (tableId: string) => `from table {${tableId}}\nwhere record.id = '{{ record.id }}'\nlimit 1`;
+const DEFAULT_NUMBER_TEMPLATE = "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}";
 const DEFAULT_FILENAME_TEMPLATE = "{{ document.number }}.pdf";
 const TEMPLATE_MAX_BYTES = 200_000;
 const SOURCE_MAX_BYTES = 20_000;
@@ -67,6 +82,176 @@ const DOCUMENT_IMAGE_MAX_BYTES = 2_000_000;
 const DOCUMENT_IMAGE_MAX_COUNT = 12;
 
 const byteLength = (value: string): number => new TextEncoder().encode(value).byteLength;
+
+const DOCUMENT_TEMPLATE_ROOTS = new Set([
+  "record",
+  "table",
+  "rows",
+  "columns",
+  "query",
+  "document",
+  "snapshot",
+  "app",
+  "business",
+  "images",
+  "primaryImage",
+  "template",
+  "run",
+  "date",
+]);
+const DOCUMENT_SOURCE_ROOTS = new Set(["record", "table", "app", "business", "template", "date"]);
+const DOCUMENT_NUMBER_ROOTS = new Set(["record", "table", "template", "run", "date", "app", "business"]);
+const LIQUID_KEYWORDS = new Set([
+  "and",
+  "or",
+  "not",
+  "contains",
+  "in",
+  "true",
+  "false",
+  "nil",
+  "null",
+  "blank",
+  "empty",
+  "reversed",
+  "continue",
+]);
+const LIQUID_TAGS_WITHOUT_EXPRESSIONS = new Set([
+  "else",
+  "endif",
+  "endunless",
+  "endfor",
+  "endcase",
+  "endcapture",
+  "endcomment",
+  "endraw",
+  "break",
+  "continue",
+]);
+
+const stripLiquidStringLiterals = (value: string): string =>
+  value.replace(/"([^"\\]|\\.)*"|'([^'\\]|\\.)*'/g, (match) => " ".repeat(match.length));
+
+const stripLiquidCommentBlocks = (value: string): string => value.replace(/{%-?\s*(comment|raw)\s*-?%}[\s\S]*?{%-?\s*end\1\s*-?%}/g, "");
+
+const collectLiquidExpressionRoots = (expression: string): string[] => {
+  const sanitized = stripLiquidStringLiterals(expression.replace(/\|\s*[A-Za-z_][A-Za-z0-9_]*/g, ""));
+  const roots: string[] = [];
+  for (const match of sanitized.matchAll(/\b[A-Za-z_][A-Za-z0-9_]*\b/g)) {
+    const name = match[0];
+    const index = match.index ?? 0;
+    const before = sanitized[index - 1] ?? "";
+    const after = sanitized[index + name.length] ?? "";
+    if (before === "." || after === ":" || LIQUID_KEYWORDS.has(name)) continue;
+    roots.push(name);
+  }
+  return roots;
+};
+
+const liquidLocals = (frames: readonly (readonly string[])[]): Set<string> => {
+  const locals = new Set<string>();
+  for (const frame of frames) {
+    for (const local of frame) locals.add(local);
+  }
+  return locals;
+};
+
+const addLiquidLocal = (frames: string[][], local: string): void => {
+  frames[frames.length - 1]?.push(local);
+};
+
+const liquidExpressions = function* (source: string): Generator<{ expression: string; locals: ReadonlySet<string> }> {
+  const cleanSource = stripLiquidCommentBlocks(source);
+  const frames: string[][] = [[]];
+  for (const match of cleanSource.matchAll(/{{-?\s*([\s\S]*?)\s*-?}}|{%-?\s*([A-Za-z_][A-Za-z0-9_]*)([\s\S]*?)\s*-?%}/g)) {
+    const outputExpression = match[1];
+    if (outputExpression !== undefined) {
+      yield { expression: outputExpression, locals: liquidLocals(frames) };
+      continue;
+    }
+    const tag = match[2]!;
+    if (tag === "endfor") {
+      if (frames.length > 1) frames.pop();
+      continue;
+    }
+    if (LIQUID_TAGS_WITHOUT_EXPRESSIONS.has(tag) || tag === "comment" || tag === "raw") continue;
+    const body = match[3] ?? "";
+    if (tag === "for") {
+      const forMatch = body.match(/^\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+([\s\S]+)$/);
+      if (forMatch) {
+        yield { expression: forMatch[2]!, locals: liquidLocals(frames) };
+        frames.push([forMatch[1]!, "forloop"]);
+      }
+      continue;
+    }
+    if (tag === "assign") {
+      const localMatch = body.match(/^\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/);
+      const assignMatch = body.match(/=\s*([\s\S]+)$/);
+      if (assignMatch) yield { expression: assignMatch[1]!, locals: liquidLocals(frames) };
+      if (localMatch) addLiquidLocal(frames, localMatch[1]!);
+      continue;
+    }
+    if (tag === "capture") {
+      const captureMatch = body.match(/^\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
+      if (captureMatch) addLiquidLocal(frames, captureMatch[1]!);
+      continue;
+    }
+    yield { expression: body, locals: liquidLocals(frames) };
+  }
+};
+
+const validateLiquidRoots = (source: string, roots: ReadonlySet<string>, label: string): Result<void> => {
+  for (const { expression, locals } of liquidExpressions(source)) {
+    for (const root of collectLiquidExpressionRoots(expression)) {
+      if (roots.has(root) || locals.has(root)) continue;
+      return fail(err.badInput(`${label} uses unknown Liquid variable "${root}"`));
+    }
+  }
+  return ok();
+};
+
+const datePatternContext = (date: Date, dateConfig?: DateContext) => {
+  const iso = date.toISOString();
+  const dateOnly = dates.formatDateKey(date, dateConfig);
+  return {
+    iso,
+    date: dateOnly,
+    yyyy: dateOnly.slice(0, 4),
+    year: dateOnly.slice(0, 4),
+    month: dateOnly.slice(5, 7),
+    day: dateOnly.slice(8, 10),
+    yyyyMMdd: dateOnly.replaceAll("-", ""),
+  };
+};
+
+const templatePatternContext = (template: Partial<Pick<DocumentTemplate, "id" | "shortId" | "name">> | null | undefined) => ({
+  id: template?.id ?? null,
+  shortId: template?.shortId ?? "draft",
+  name: template?.name ?? "Draft template",
+});
+
+const runPatternContext = (runId: string | null | undefined, shortId: string | null | undefined) => ({
+  id: runId ?? null,
+  shortId: shortId ?? "draft",
+});
+
+const safeDocumentNumber = (value: string): string =>
+  value
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/[/:*?"<>|\\]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+
+const isServiceError = (error: unknown): error is ServiceError =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  "message" in error &&
+  "status" in error &&
+  typeof (error as { code?: unknown }).code === "string" &&
+  typeof (error as { message?: unknown }).message === "string" &&
+  typeof (error as { status?: unknown }).status === "number";
 
 const normalizeDocumentTags = (tags: readonly string[] | null | undefined): string[] =>
   [...new Set((tags ?? []).map((tag) => tag.replace(/\s+/g, " ").trim()).filter(Boolean))].slice(0, 20);
@@ -83,6 +268,33 @@ const safePdfFilename = (value: string, fallback: string): string => {
   const withExtension = /\.pdf$/i.test(withFallback) ? withFallback : `${withFallback}.pdf`;
   if (withExtension.length <= FILENAME_MAX_CHARS) return withExtension;
   return `${withExtension.slice(0, FILENAME_MAX_CHARS - 4).replace(/\.+$/, "")}.pdf`;
+};
+
+type DocumentRunCursor = { generatedAt: string; id: string };
+
+const encodeCursorPart = (value: string): string =>
+  Buffer.from(value, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+
+const decodeCursorPart = (value: string): string => {
+  const padded = value
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(Math.ceil(value.length / 4) * 4, "=");
+  return Buffer.from(padded, "base64").toString("utf8");
+};
+
+const encodeDocumentRunCursor = (run: Pick<DocumentRun, "generatedAt" | "id">): string =>
+  encodeCursorPart(JSON.stringify({ generatedAt: run.generatedAt, id: run.id } satisfies DocumentRunCursor));
+
+const decodeDocumentRunCursor = (cursor: string | null | undefined): DocumentRunCursor | null => {
+  if (!cursor) return null;
+  try {
+    const parsed = JSON.parse(decodeCursorPart(cursor)) as Partial<DocumentRunCursor>;
+    if (typeof parsed.generatedAt !== "string" || typeof parsed.id !== "string") return null;
+    return { generatedAt: parsed.generatedAt, id: parsed.id };
+  } catch {
+    return null;
+  }
 };
 
 export type DocumentTemplateAppData = {
@@ -235,6 +447,16 @@ export const validateLiquidTemplate = (source: string): Result<void> => {
   return valid.ok ? ok() : fail(err.badInput(valid.error));
 };
 
+const validateDocumentLiquidTemplate = (
+  source: string,
+  label: string,
+  roots: ReadonlySet<string> = DOCUMENT_TEMPLATE_ROOTS,
+): Result<void> => {
+  const valid = validateLiquidTemplate(source);
+  if (!valid.ok) return valid;
+  return validateLiquidRoots(source, roots, label);
+};
+
 export const renderLiquidText = async (
   template: string,
   data: Record<string, unknown>,
@@ -251,10 +473,33 @@ export const renderLiquidText = async (
   }
 };
 
-export const documentNumberFor = (params: { runId: string; recordId: string; generatedAt?: Date }): string => {
-  const date = (params.generatedAt ?? new Date()).toISOString().slice(0, 10).replaceAll("-", "");
-  const runSuffix = params.runId.replaceAll("-", "").slice(-12);
-  return `GRID-${date}-${params.recordId.slice(0, 8)}-${runSuffix}`.toUpperCase();
+export const documentNumberFor = (params: {
+  template: Partial<Pick<DocumentTemplate, "id" | "shortId" | "name" | "numberTemplate">>;
+  runId: string;
+  runShortId: string;
+  generatedAt?: Date;
+  dateConfig?: DateContext;
+  data?: Record<string, unknown>;
+}): Result<string> => {
+  const template = params.template.numberTemplate?.trim() || DEFAULT_NUMBER_TEMPLATE;
+  const valid = validateDocumentLiquidTemplate(template, "document number pattern", DOCUMENT_NUMBER_ROOTS);
+  if (!valid.ok) return valid;
+  try {
+    const rendered = renderLiquidTemplate(
+      template,
+      {
+        ...(params.data ?? {}),
+        template: templatePatternContext(params.template),
+        run: runPatternContext(params.runId, params.runShortId),
+        date: datePatternContext(params.generatedAt ?? new Date(), params.dateConfig),
+      },
+      { filters: documentLiquidFilters },
+    );
+    const number = safeDocumentNumber(rendered);
+    return number ? ok(number) : fail(err.badInput("document number pattern rendered an empty number"));
+  } catch (error) {
+    return fail(err.badInput(error instanceof Error ? error.message : "document number pattern render failed"));
+  }
 };
 
 const mapTemplate = (row: DbRow): DocumentTemplate => ({
@@ -268,6 +513,7 @@ const mapTemplate = (row: DbRow): DocumentTemplate => ({
   headerHtml: (row.header_html as string | null) ?? null,
   footerHtml: (row.footer_html as string | null) ?? null,
   pageCss: (row.page_css as string | null) ?? null,
+  numberTemplate: (row.number_template as string | null) ?? DEFAULT_NUMBER_TEMPLATE,
   filenameTemplate: (row.filename_template as string | null) ?? DEFAULT_FILENAME_TEMPLATE,
   enabled: row.enabled as boolean,
   position: row.position as number,
@@ -454,17 +700,18 @@ export const getTemplateByIdOrShortId = async (tableId: string, idOrSlug: string
   return getTemplateByShortId(tableId, idOrSlug);
 };
 
-const validateTemplateWrite = (input: {
+export const validateTemplateWrite = (input: {
   source?: string;
   html?: string;
   headerHtml?: string | null;
   footerHtml?: string | null;
   pageCss?: string | null;
+  numberTemplate?: string | null;
   filenameTemplate?: string | null;
 }): Result<void> => {
   if (input.source !== undefined && byteLength(input.source) > SOURCE_MAX_BYTES) return fail(err.badInput("GQL source is too large"));
   if (input.html !== undefined) {
-    const valid = validateLiquidTemplate(input.html);
+    const valid = validateDocumentLiquidTemplate(input.html, "HTML template");
     if (!valid.ok) return valid;
   }
   for (const [label, value] of [
@@ -474,16 +721,21 @@ const validateTemplateWrite = (input: {
   ] as const) {
     if (value === undefined || value === null || value === "") continue;
     if (byteLength(value) > TEMPLATE_PART_MAX_BYTES) return fail(err.badInput(`${label} is too large`));
-    const valid = validateLiquidTemplate(value);
+    const valid = validateDocumentLiquidTemplate(value, label);
     if (!valid.ok) return valid;
   }
   if (input.source !== undefined) {
-    const valid = validateLiquidTemplate(input.source);
+    const valid = validateDocumentLiquidTemplate(input.source, "GQL source", DOCUMENT_SOURCE_ROOTS);
+    if (!valid.ok) return valid;
+  }
+  if (input.numberTemplate !== undefined && input.numberTemplate !== null) {
+    if (byteLength(input.numberTemplate) > FILENAME_TEMPLATE_MAX_BYTES) return fail(err.badInput("document number pattern is too large"));
+    const valid = validateDocumentLiquidTemplate(input.numberTemplate, "document number pattern", DOCUMENT_NUMBER_ROOTS);
     if (!valid.ok) return valid;
   }
   if (input.filenameTemplate !== undefined && input.filenameTemplate !== null) {
     if (byteLength(input.filenameTemplate) > FILENAME_TEMPLATE_MAX_BYTES) return fail(err.badInput("filename template is too large"));
-    const valid = validateLiquidTemplate(input.filenameTemplate);
+    const valid = validateDocumentLiquidTemplate(input.filenameTemplate, "filename template");
     if (!valid.ok) return valid;
   }
   return ok();
@@ -506,12 +758,13 @@ export const createTemplate = async (
   const headerHtml = input.headerHtml?.trim() || null;
   const footerHtml = input.footerHtml?.trim() || null;
   const pageCss = input.pageCss?.trim() || null;
+  const numberTemplate = input.numberTemplate?.trim() || DEFAULT_NUMBER_TEMPLATE;
   const filenameTemplate = input.filenameTemplate?.trim() || DEFAULT_FILENAME_TEMPLATE;
 
   const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [inserted] = await sql<DbRow[]>`
       INSERT INTO grids.document_templates (
-        short_id, table_id, name, description, source, html, header_html, footer_html, page_css, filename_template,
+        short_id, table_id, name, description, source, html, header_html, footer_html, page_css, number_template, filename_template,
         enabled, position, created_by, updated_by
       )
       VALUES (
@@ -524,6 +777,7 @@ export const createTemplate = async (
         ${headerHtml},
         ${footerHtml},
         ${pageCss},
+        ${numberTemplate},
         ${filenameTemplate},
         ${input.enabled ?? true},
         COALESCE((SELECT MAX(position) + 1 FROM grids.document_templates WHERE table_id = ${tableId}::uuid), 0),
@@ -558,6 +812,7 @@ export const updateTemplate = async (
       header_html = ${input.headerHtml === undefined ? sql`header_html` : input.headerHtml?.trim() || null},
       footer_html = ${input.footerHtml === undefined ? sql`footer_html` : input.footerHtml?.trim() || null},
       page_css = ${input.pageCss === undefined ? sql`page_css` : input.pageCss?.trim() || null},
+      number_template = COALESCE(${input.numberTemplate?.trim() || null}, number_template),
       filename_template = COALESCE(${input.filenameTemplate?.trim() || null}, filename_template),
       enabled = COALESCE(${input.enabled ?? null}, enabled),
       position = COALESCE(${input.position ?? null}, position),
@@ -748,6 +1003,9 @@ export const buildTemplateInputContext = (
     paymentTerms: null,
     footerText: null,
   },
+  template: Partial<Pick<DocumentTemplate, "id" | "shortId" | "name">> | null = null,
+  generatedAt: Date = new Date(),
+  dateConfig?: DateContext,
 ): Record<string, unknown> => ({
   record: {
     id: record.id,
@@ -764,6 +1022,8 @@ export const buildTemplateInputContext = (
   },
   app: appData,
   business: businessData,
+  template: templatePatternContext(template),
+  date: datePatternContext(generatedAt, dateConfig),
 });
 
 export const buildRenderData = (params: {
@@ -771,12 +1031,15 @@ export const buildRenderData = (params: {
   table: DocumentTemplateTableContext;
   columns: unknown[];
   rows: unknown[];
+  template?: Partial<Pick<DocumentTemplate, "id" | "shortId" | "name">> | null;
+  run?: { id?: string | null; shortId?: string | null } | null;
   images?: DocumentTemplateImage[];
   primaryImage?: DocumentTemplateImage | null;
   app?: DocumentTemplateAppData;
   business?: DocumentTemplateBusinessData;
   documentNumber?: string;
   generatedAt?: string;
+  dateConfig?: DateContext;
   snapshot?: RecordSnapshot;
 }): Record<string, unknown> => ({
   record: params.record,
@@ -787,6 +1050,9 @@ export const buildRenderData = (params: {
   },
   rows: params.rows,
   columns: params.columns,
+  template: templatePatternContext(params.template),
+  run: runPatternContext(params.run?.id ?? null, params.run?.shortId ?? null),
+  date: datePatternContext(params.generatedAt ? new Date(params.generatedAt) : new Date(), params.dateConfig),
   images: params.images ?? [],
   primaryImage: params.primaryImage ?? params.images?.[0] ?? null,
   app: params.app ?? defaultTemplateAppData(),
@@ -842,15 +1108,19 @@ const buildTemplateImages = async (tableId: string, recordId: string, fields: Fi
 };
 
 export const buildLiveRenderData = async (params: {
-  template: Pick<DocumentTemplate, "source">;
+  template: Pick<DocumentTemplate, "source"> & Partial<Pick<DocumentTemplate, "id" | "shortId" | "name">>;
   table: Table;
   record: GridRecord;
   app?: DocumentTemplateAppData;
   dateConfig?: DateContext;
+  generatedAt?: Date;
 }): Promise<Result<{ source: string; columns: unknown[]; rows: Array<Record<string, unknown>>; data: Record<string, unknown> }>> => {
   const appData = params.app ?? (await buildTemplateAppData());
   const businessData = await buildTemplateBusinessData(params.table.baseId, appData);
-  const source = await renderDocumentSource(params.template, buildTemplateInputContext(params.record, params.table, appData, businessData));
+  const source = await renderDocumentSource(
+    params.template,
+    buildTemplateInputContext(params.record, params.table, appData, businessData, params.template, params.generatedAt, params.dateConfig),
+  );
   if (!source.ok) return source;
 
   const executed = await executeDocumentGqlSource({
@@ -868,9 +1138,12 @@ export const buildLiveRenderData = async (params: {
     table: params.table,
     columns: executed.data.columns,
     rows: executed.data.rows,
+    template: params.template,
     images,
     app: appData,
     business: businessData,
+    generatedAt: params.generatedAt?.toISOString(),
+    dateConfig: params.dateConfig,
   });
   return ok({ source: source.data, columns: executed.data.columns, rows: executed.data.rows, data });
 };
@@ -889,6 +1162,7 @@ export const createRunForRecord = async (params: {
   recordId: string;
   actorId: string | null;
   dateConfig?: DateContext;
+  generatedAt?: Date;
   filename?: string | null;
   tags?: string[];
 }): Promise<Result<DocumentRun>> => {
@@ -898,7 +1172,14 @@ export const createRunForRecord = async (params: {
   const record = await getRecord(params.table.id, params.recordId, { dateConfig: params.dateConfig });
   if (!record) return fail(err.notFound("record"));
 
-  const rendered = await buildLiveRenderData({ template: params.template, table: params.table, record, dateConfig: params.dateConfig });
+  const generatedAt = params.generatedAt ?? new Date();
+  const rendered = await buildLiveRenderData({
+    template: params.template,
+    table: params.table,
+    record,
+    dateConfig: params.dateConfig,
+    generatedAt,
+  });
   if (!rendered.ok) return rendered;
 
   const snapshot = await createRecordSnapshot({
@@ -915,6 +1196,8 @@ export const createRunForRecord = async (params: {
     snapshot: snapshot.data,
     renderData: { ...rendered.data.data, snapshot: snapshot.data },
     actorId: params.actorId,
+    generatedAt,
+    dateConfig: params.dateConfig,
     filename: params.filename,
     tags: params.tags,
   });
@@ -955,12 +1238,66 @@ export const renderDocumentPdfPreview = async (
     config ? { config } : {},
   );
 
+export const buildDocumentRunRenderData = async (params: {
+  template: Partial<Pick<DocumentTemplate, "id" | "shortId" | "name" | "numberTemplate" | "filenameTemplate">>;
+  renderData: Record<string, unknown>;
+  runId: string;
+  runShortId: string;
+  generatedAt?: Date;
+  dateConfig?: DateContext;
+  filename?: string | null;
+  tags?: string[];
+}): Promise<Result<{ documentNumber: string; filename: string; tags: string[]; data: Record<string, unknown> }>> => {
+  const generatedAt = params.generatedAt ?? new Date();
+  const documentNumber = documentNumberFor({
+    template: params.template,
+    runId: params.runId,
+    runShortId: params.runShortId,
+    generatedAt,
+    dateConfig: params.dateConfig,
+    data: params.renderData,
+  });
+  if (!documentNumber.ok) return fail(documentNumber.error);
+
+  const tags = normalizeDocumentTags(params.tags);
+  const renderDataBase = {
+    ...params.renderData,
+    template: templatePatternContext(params.template),
+    run: runPatternContext(params.runId, params.runShortId),
+    date: datePatternContext(generatedAt, params.dateConfig),
+    document: {
+      ...((typeof params.renderData.document === "object" && params.renderData.document !== null
+        ? params.renderData.document
+        : {}) as Record<string, unknown>),
+      number: documentNumber.data,
+      generatedAt: generatedAt.toISOString(),
+    },
+  };
+  const requestedFilename = params.filename?.trim() ?? "";
+  const renderedFilename = requestedFilename
+    ? ok(requestedFilename)
+    : await renderLiquidText(params.template.filenameTemplate || DEFAULT_FILENAME_TEMPLATE, renderDataBase, FILENAME_TEMPLATE_MAX_BYTES);
+  if (!renderedFilename.ok) return fail(renderedFilename.error);
+
+  const filename = safePdfFilename(renderedFilename.data, `${documentNumber.data}.pdf`);
+  const data = {
+    ...renderDataBase,
+    document: {
+      ...(renderDataBase.document as Record<string, unknown>),
+      filename,
+      tags,
+    },
+  };
+  return ok({ documentNumber: documentNumber.data, filename, tags, data });
+};
+
 export const createRun = async (params: {
   template: DocumentTemplate;
   snapshot: RecordSnapshot;
   renderData: Record<string, unknown>;
   actorId: string | null;
   generatedAt?: Date;
+  dateConfig?: DateContext;
   filename?: string | null;
   tags?: string[];
 }): Promise<Result<DocumentRun>> => {
@@ -976,83 +1313,81 @@ export const createRun = async (params: {
     headerHtml: params.template.headerHtml,
     footerHtml: params.template.footerHtml,
     pageCss: params.template.pageCss,
+    numberTemplate: params.template.numberTemplate,
     filenameTemplate: params.template.filenameTemplate,
   };
-  const documentNumber = documentNumberFor({ runId, recordId: params.snapshot.recordId, generatedAt });
-  const renderDataBase = {
-    ...params.renderData,
-    document: {
-      ...((typeof params.renderData.document === "object" && params.renderData.document !== null
-        ? params.renderData.document
-        : {}) as Record<string, unknown>),
-      number: documentNumber,
-      generatedAt: generatedAt.toISOString(),
-    },
-  };
-  const requestedFilename = params.filename?.trim() ?? "";
-  const renderedFilename = requestedFilename
-    ? ok(requestedFilename)
-    : await renderLiquidText(params.template.filenameTemplate || DEFAULT_FILENAME_TEMPLATE, renderDataBase, FILENAME_TEMPLATE_MAX_BYTES);
-  if (!renderedFilename.ok) return fail(renderedFilename.error);
-  const filename = safePdfFilename(renderedFilename.data, `${documentNumber}.pdf`);
-  const tags = normalizeDocumentTags(params.tags);
-  const renderData = {
-    ...renderDataBase,
-    document: {
-      ...(renderDataBase.document as Record<string, unknown>),
-      filename,
-      tags,
-    },
-  };
-  const row = await insertWithShortId<DbRow>(async (shortId) => {
-    const [inserted] = await sql<DbRow[]>`
-      INSERT INTO grids.document_runs (
-        id, short_id, template_id, snapshot_id, base_id, table_id, record_id,
-        document_number, filename, tags, template_snapshot, render_data, generated_by, generated_at
-      )
-      VALUES (
-        ${runId}::uuid,
-        ${shortId},
-        ${params.template.id}::uuid,
-        ${params.snapshot.id}::uuid,
-        ${params.snapshot.baseId}::uuid,
-        ${params.snapshot.tableId}::uuid,
-        ${params.snapshot.recordId}::uuid,
-        ${documentNumber},
-        ${filename},
-        ${sql.array(tags, "TEXT")},
-        ${templateSnapshot}::jsonb,
-        ${renderData}::jsonb,
-        ${params.actorId}::uuid,
-        ${generatedAt}
-      )
-      RETURNING *
-    `;
-    if (!inserted) throw new Error("insert returned no row");
-    return inserted;
-  }, "idx_grids_document_runs_short_id");
-  return ok(mapRun(row));
+  try {
+    const row = await insertWithShortId<DbRow>(async (shortId) => {
+      const built = await buildDocumentRunRenderData({
+        template: params.template,
+        renderData: params.renderData,
+        runId,
+        runShortId: shortId,
+        generatedAt,
+        dateConfig: params.dateConfig,
+        filename: params.filename,
+        tags: params.tags,
+      });
+      if (!built.ok) throw built.error;
+      const [inserted] = await sql<DbRow[]>`
+        INSERT INTO grids.document_runs (
+          id, short_id, template_id, snapshot_id, base_id, table_id, record_id,
+          document_number, filename, tags, template_snapshot, render_data, generated_by, generated_at
+        )
+        VALUES (
+          ${runId}::uuid,
+          ${shortId},
+          ${params.template.id}::uuid,
+          ${params.snapshot.id}::uuid,
+          ${params.snapshot.baseId}::uuid,
+          ${params.snapshot.tableId}::uuid,
+          ${params.snapshot.recordId}::uuid,
+          ${built.data.documentNumber},
+          ${built.data.filename},
+          ${sql.array(built.data.tags, "TEXT")},
+          ${templateSnapshot}::jsonb,
+          ${built.data.data}::jsonb,
+          ${params.actorId}::uuid,
+          ${generatedAt}
+        )
+        RETURNING *
+      `;
+      if (!inserted) throw new Error("insert returned no row");
+      return inserted;
+    }, "idx_grids_document_runs_short_id");
+    return ok(mapRun(row));
+  } catch (error) {
+    if (isUniqueViolation(error, "idx_grids_document_runs_number")) {
+      return fail({
+        code: "CONFLICT",
+        message: "Document number already exists. Change the number pattern or regenerate.",
+        status: 409,
+      });
+    }
+    if (isServiceError(error)) return fail(error);
+    throw error;
+  }
 };
 
 export const listRunsForRecord = async (tableId: string, recordId: string): Promise<DocumentRun[]> => {
   const rows = await sql<DbRow[]>`
     SELECT * FROM grids.document_runs
     WHERE table_id = ${tableId}::uuid AND record_id = ${recordId}::uuid
-    ORDER BY generated_at DESC
+    ORDER BY generated_at DESC, id DESC
   `;
   return rows.map(mapRun);
 };
 
-export const listRunsForTemplate = async (params: {
+const documentRunWhere = (params: {
   templateId: string;
   q?: string | null;
   tags?: string[];
-  limit?: number;
-  offset?: number;
-}): Promise<DocumentRunPage> => {
-  const limit = Math.min(Math.max(params.limit ?? 200, 1), 500);
-  const offset = Math.max(params.offset ?? 0, 0);
-  const conditions: unknown[] = [sql`template_id = ${params.templateId}::uuid`];
+  year?: number | null;
+  month?: number | null;
+  timeZone?: string | null;
+}) => {
+  const timeZone = params.timeZone || "UTC";
+  const conditions = [sql`template_id = ${params.templateId}::uuid`];
   const q = params.q?.trim();
   if (q) {
     const pattern = `%${escapeLikePattern(q)}%`;
@@ -1067,37 +1402,163 @@ export const listRunsForTemplate = async (params: {
   if (tags.length > 0) {
     conditions.push(sql`tags @> ${sql.array(tags, "TEXT")}`);
   }
-  const where = conditions.reduce((acc, cur) => sql`${acc} AND ${cur}`);
+  if (params.year) {
+    conditions.push(sql`EXTRACT(YEAR FROM generated_at AT TIME ZONE ${timeZone})::int = ${params.year}`);
+  }
+  if (params.month) {
+    conditions.push(sql`EXTRACT(MONTH FROM generated_at AT TIME ZONE ${timeZone})::int = ${params.month}`);
+  }
+  return conditions.reduce((acc, cur) => sql`${acc} AND ${cur}`);
+};
+
+export const listRunsForTemplate = async (params: {
+  templateId: string;
+  q?: string | null;
+  tags?: string[];
+  limit?: number;
+  offset?: number;
+  cursor?: string | null;
+  year?: number | null;
+  month?: number | null;
+  timeZone?: string | null;
+}): Promise<DocumentRunPage> => {
+  const limit = Math.min(Math.max(params.limit ?? 200, 1), 500);
+  const offset = Math.max(params.offset ?? 0, 0);
+  const cursor = decodeDocumentRunCursor(params.cursor);
+  const baseWhere = documentRunWhere(params);
+  const where = cursor ? sql`${baseWhere} AND (generated_at, id) < (${cursor.generatedAt}::timestamptz, ${cursor.id}::uuid)` : baseWhere;
   const [countRow] = await sql<Array<{ total: number | string }>>`
     SELECT COUNT(*)::int AS total
     FROM grids.document_runs
-    WHERE ${where}
+    WHERE ${baseWhere}
   `;
   const rows = await sql<DbRow[]>`
     SELECT *
     FROM grids.document_runs
     WHERE ${where}
-    ORDER BY generated_at DESC
-    LIMIT ${limit}
-    OFFSET ${offset}
+    ORDER BY generated_at DESC, id DESC
+    LIMIT ${limit + 1}
+    OFFSET ${cursor ? 0 : offset}
   `;
-  const items = rows.map(mapRun);
+  const hasMore = rows.length > limit;
+  const items = rows.slice(0, limit).map(mapRun);
   const total = Number(countRow?.total ?? items.length);
   const nextOffset = offset + items.length;
-  const hasMore = nextOffset < total;
+  const last = items.at(-1);
   return {
     items,
     total,
     limit,
-    offset,
+    offset: cursor ? 0 : offset,
     hasMore,
-    nextOffset: hasMore ? nextOffset : null,
+    nextOffset: hasMore && !cursor ? nextOffset : null,
+    nextCursor: hasMore && last ? encodeDocumentRunCursor(last) : null,
+  };
+};
+
+const runFolderPath = (path: readonly string[] | null | undefined): string[] =>
+  (path ?? [])
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+
+const monthKey = (month: number): string => String(month).padStart(2, "0");
+
+export const browseRunsForTemplate = async (params: {
+  templateId: string;
+  q?: string | null;
+  tags?: string[];
+  path?: string[];
+  limit?: number;
+  cursor?: string | null;
+  timeZone?: string | null;
+  mode?: "list" | "folders";
+}): Promise<DocumentRunBrowsePage> => {
+  const path = runFolderPath(params.path);
+  const q = params.q?.trim() ?? "";
+  if (params.mode === "list" || q || path.length >= 2) {
+    const year = path[0] ? Number(path[0]) : null;
+    const month = path[1] ? Number(path[1]) : null;
+    const page = await listRunsForTemplate({
+      templateId: params.templateId,
+      q,
+      tags: params.tags,
+      limit: params.limit,
+      cursor: params.cursor,
+      year: Number.isInteger(year) ? year : null,
+      month: Number.isInteger(month) ? month : null,
+      timeZone: params.timeZone,
+    });
+    return {
+      path,
+      folders: [],
+      items: page.items,
+      total: page.total,
+      limit: page.limit,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
+    };
+  }
+
+  const timeZone = params.timeZone || "UTC";
+  const where = documentRunWhere({ templateId: params.templateId, tags: params.tags, timeZone });
+  if (path.length === 0) {
+    const rows = await sql<Array<{ year: number | string; count: number | string }>>`
+      SELECT EXTRACT(YEAR FROM generated_at AT TIME ZONE ${timeZone})::int AS year, COUNT(*)::int AS count
+      FROM grids.document_runs
+      WHERE ${where}
+      GROUP BY year
+      ORDER BY year DESC
+    `;
+    return {
+      path,
+      folders: rows.map((row) => {
+        const year = String(row.year);
+        return { kind: "year", key: year, label: year, path: [year], count: Number(row.count) };
+      }),
+      items: [],
+    };
+  }
+
+  const year = Number(path[0]);
+  if (!Number.isInteger(year)) return { path: [], folders: [], items: [] };
+  const yearWhere = documentRunWhere({ templateId: params.templateId, tags: params.tags, year, timeZone });
+  const rows = await sql<Array<{ month: number | string; count: number | string }>>`
+    SELECT EXTRACT(MONTH FROM generated_at AT TIME ZONE ${timeZone})::int AS month, COUNT(*)::int AS count
+    FROM grids.document_runs
+    WHERE ${yearWhere}
+    GROUP BY month
+    ORDER BY month DESC
+  `;
+  return {
+    path: [String(year)],
+    folders: rows.map((row) => {
+      const key = monthKey(Number(row.month));
+      return { kind: "month", key, label: key, path: [String(year), key], count: Number(row.count) };
+    }),
+    items: [],
   };
 };
 
 export const getRun = async (runId: string): Promise<DocumentRun | null> => {
   const [row] = await sql<DbRow[]>`SELECT * FROM grids.document_runs WHERE id = ${runId}::uuid`;
   return row ? mapRun(row) : null;
+};
+
+export const updateRunMetadata = async (runId: string, input: UpdateDocumentRunMetadataInput): Promise<Result<DocumentRun>> => {
+  const current = await getRun(runId);
+  if (!current) return fail(err.notFound("document run not found"));
+  const filename =
+    input.filename === undefined ? current.filename : safePdfFilename(input.filename, `${current.documentNumber || current.shortId}.pdf`);
+  const tags = input.tags === undefined ? current.tags : normalizeDocumentTags(input.tags);
+  const [row] = await sql<DbRow[]>`
+    UPDATE grids.document_runs
+    SET filename = ${filename}, tags = ${sql.array(tags, "TEXT")}
+    WHERE id = ${runId}::uuid
+    RETURNING *
+  `;
+  if (!row) return fail(err.notFound("document run not found"));
+  return ok(mapRun(row));
 };
 
 export const renderRunPdf = async (run: DocumentRun): Promise<Result<RenderHtmlToPdfResult>> => {

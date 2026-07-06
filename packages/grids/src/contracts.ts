@@ -852,6 +852,7 @@ export const DocumentTemplateSchema = z.object({
   headerHtml: z.string().trim().max(50_000).nullable(),
   footerHtml: z.string().trim().max(50_000).nullable(),
   pageCss: z.string().trim().max(50_000).nullable(),
+  numberTemplate: z.string().trim().min(1).max(5_000),
   filenameTemplate: z.string().trim().min(1).max(5_000),
   enabled: z.boolean(),
   position: z.number().int(),
@@ -888,6 +889,7 @@ export const CreateDocumentTemplateSchema = z.object({
   headerHtml: z.string().trim().max(50_000).nullable().optional(),
   footerHtml: z.string().trim().max(50_000).nullable().optional(),
   pageCss: z.string().trim().max(50_000).nullable().optional(),
+  numberTemplate: z.string().trim().min(1).max(5_000).optional(),
   filenameTemplate: z.string().trim().min(1).max(5_000).optional(),
   enabled: z.boolean().optional(),
 });
@@ -901,6 +903,7 @@ export const UpdateDocumentTemplateSchema = z.object({
   headerHtml: z.string().trim().max(50_000).nullable().optional(),
   footerHtml: z.string().trim().max(50_000).nullable().optional(),
   pageCss: z.string().trim().max(50_000).nullable().optional(),
+  numberTemplate: z.string().trim().min(1).max(5_000).optional(),
   filenameTemplate: z.string().trim().min(1).max(5_000).optional(),
   enabled: z.boolean().optional(),
   position: z.number().int().optional(),
@@ -913,6 +916,8 @@ export const DocumentTemplateDraftPreviewSchema = z.object({
   headerHtml: z.string().trim().max(50_000).nullable().optional(),
   footerHtml: z.string().trim().max(50_000).nullable().optional(),
   pageCss: z.string().trim().max(50_000).nullable().optional(),
+  numberTemplate: z.string().trim().min(1).max(5_000).optional(),
+  filenameTemplate: z.string().trim().min(1).max(5_000).optional(),
   recordId: z.string().uuid(),
 });
 export type DocumentTemplateDraftPreviewInput = z.infer<typeof DocumentTemplateDraftPreviewSchema>;
@@ -990,8 +995,29 @@ export const DocumentRunSummaryListSchema = z.object({
   offset: z.number().int().nonnegative().optional(),
   hasMore: z.boolean().optional(),
   nextOffset: z.number().int().nonnegative().nullable().optional(),
+  nextCursor: z.string().nullable().optional(),
 });
 export type DocumentRunSummaryList = z.infer<typeof DocumentRunSummaryListSchema>;
+
+export const DocumentRunFolderSchema = z.object({
+  kind: z.enum(["year", "month"]),
+  key: z.string(),
+  label: z.string(),
+  path: z.array(z.string()),
+  count: z.number().int().nonnegative(),
+});
+export type DocumentRunFolder = z.infer<typeof DocumentRunFolderSchema>;
+
+export const DocumentRunBrowseResponseSchema = z.object({
+  path: z.array(z.string()),
+  folders: z.array(DocumentRunFolderSchema),
+  items: z.array(DocumentRunSummarySchema),
+  total: z.number().int().nonnegative().optional(),
+  limit: z.number().int().positive().optional(),
+  hasMore: z.boolean().optional(),
+  nextCursor: z.string().nullable().optional(),
+});
+export type DocumentRunBrowseResponse = z.infer<typeof DocumentRunBrowseResponseSchema>;
 
 export const DocumentRecordBodySchema = z.object({
   recordId: z.string().uuid(),
@@ -999,6 +1025,12 @@ export const DocumentRecordBodySchema = z.object({
   tags: z.array(z.string().trim().min(1).max(40)).max(20).optional().default([]),
 });
 export type DocumentRecordBody = z.infer<typeof DocumentRecordBodySchema>;
+
+export const UpdateDocumentRunMetadataSchema = z.object({
+  filename: z.string().trim().min(1).max(255).optional(),
+  tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+});
+export type UpdateDocumentRunMetadataInput = z.infer<typeof UpdateDocumentRunMetadataSchema>;
 
 export const DocumentPreviewResponseSchema = z.object({
   html: z.string(),

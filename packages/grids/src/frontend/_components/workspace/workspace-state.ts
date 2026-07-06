@@ -26,6 +26,7 @@ import { filterSearchableFields } from "../../../service/search";
 import { activeDisplayConfig, calendarQueryFilter, cardImageFieldIds } from "../records-view/display-mode";
 import { resolveEffectiveQuery } from "../records-view/effective-query";
 import { parseRecordsState, type RecordsState } from "../records-view/query-url";
+import type { GridsDocumentViewMode } from "../sidebar/GridsSettingsStore";
 
 type AuthUser = {
   id: string;
@@ -141,9 +142,11 @@ export type WorkspaceDocumentTemplateRoute = {
   table: Table;
   template: DocumentTemplateSummary;
   editableTemplate: DocumentTemplate | null;
+  canWriteTemplate: boolean;
   canManageTemplate: boolean;
   activeTemplateAccessEntries: AccessEntry[];
   initialRecordId: string | null;
+  initialDocumentViewMode: GridsDocumentViewMode;
 };
 
 export type GridsWorkspaceRoute =
@@ -250,6 +253,7 @@ type LoadWorkspaceParams = {
   activeDashboardSlug?: string | null;
   activeDocumentTableSlug?: string | null;
   activeDocumentTemplateSlug?: string | null;
+  initialDocumentViewMode?: GridsDocumentViewMode;
   dateConfig?: DateContext;
 };
 
@@ -797,6 +801,7 @@ const loadDocumentTemplateState = async (
   if (!gridsService.permission.hasAtLeast(level, "read")) {
     return { kind: "accessDenied", title: "Access denied", message: "No access to this document template" };
   }
+  const canWriteTemplate = gridsService.permission.hasAtLeast(level, "write");
   const canManageTemplate = gridsService.permission.hasAtLeast(level, "admin");
   return okState(
     common,
@@ -805,9 +810,11 @@ const loadDocumentTemplateState = async (
       table,
       template: gridsService.document.summarizeTemplate(template),
       editableTemplate: canManageTemplate ? template : null,
+      canWriteTemplate,
       canManageTemplate,
       activeTemplateAccessEntries: canManageTemplate ? await gridsService.access.listForDocumentTemplate(template.id) : [],
       initialRecordId: common.chrome.url.searchParams.get("record"),
+      initialDocumentViewMode: common.params.initialDocumentViewMode ?? "list",
     },
     [...common.chrome.titleBase, { title: "Documents" }, { title: template.name }],
   );

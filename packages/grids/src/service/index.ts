@@ -138,6 +138,7 @@ export const gridsService = {
     buildTemplateAppData: documents.buildTemplateAppData,
     buildTemplateInputContext: documents.buildTemplateInputContext,
     buildRenderData: documents.buildRenderData,
+    buildDocumentRunRenderData: documents.buildDocumentRunRenderData,
     buildLiveRenderData: documents.buildLiveRenderData,
     rowsWithColumnLabels: documents.rowsWithColumnLabels,
     renderSource: documents.renderDocumentSource,
@@ -147,8 +148,10 @@ export const gridsService = {
     createRunForRecord: documents.createRunForRecord,
     listRunsForRecord: documents.listRunsForRecord,
     listRunsForTemplate: documents.listRunsForTemplate,
+    browseRunsForTemplate: documents.browseRunsForTemplate,
     summarizeRun: documents.summarizeRun,
     getRun: documents.getRun,
+    updateRunMetadata: documents.updateRunMetadata,
     renderRunPdf: documents.renderRunPdf,
   },
   form: {

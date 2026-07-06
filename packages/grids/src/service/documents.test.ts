@@ -10,6 +10,7 @@ import {
   renderLiquidText,
   rowsWithColumnLabels,
   validateLiquidTemplate,
+  validateTemplateWrite,
 } from "./documents";
 
 describe("document rendering", () => {
@@ -151,6 +152,7 @@ describe("document rendering", () => {
     for (const starter of DOCUMENT_TEMPLATE_STARTERS) {
       const parts = [
         ["source", starter.source("11111111-1111-4111-8111-111111111111")],
+        ["numberTemplate", starter.numberTemplate],
         ["filenameTemplate", starter.filenameTemplate],
         ["html", starter.html],
         ["headerHtml", starter.headerHtml],
@@ -163,6 +165,17 @@ describe("document rendering", () => {
         const result = validateLiquidTemplate(value);
         expect(result.ok, `${starter.id} ${part}: ${result.ok ? "" : result.error.message}`).toBe(true);
       }
+
+      const writeResult = validateTemplateWrite({
+        source: starter.source("11111111-1111-4111-8111-111111111111"),
+        html: starter.html,
+        headerHtml: starter.headerHtml,
+        footerHtml: starter.footerHtml,
+        pageCss: starter.pageCss,
+        numberTemplate: starter.numberTemplate,
+        filenameTemplate: starter.filenameTemplate,
+      });
+      expect(writeResult.ok, `${starter.id} write: ${writeResult.ok ? "" : writeResult.error.message}`).toBe(true);
     }
   });
 
@@ -213,7 +226,7 @@ describe("document rendering", () => {
       rows,
       images: [image],
       business,
-      documentNumber: "GRID-20260628-22222222-AAAAAAAAAAAA",
+      documentNumber: "tplA1-20260628-runB2",
       generatedAt: "2026-06-28T12:00:00.000Z",
     });
     const emptyData = buildRenderData({ record, table, columns: [], rows: [], business });
@@ -286,14 +299,83 @@ describe("document rendering", () => {
     if (result.ok) expect(result.data).toContain("11111111-1111-4111-8111-111111111111");
   });
 
-  test("document number is stable for a run and contains the record id prefix", () => {
+  test("document number is stable for a run and uses the template pattern", () => {
     expect(
       documentNumberFor({
+        template: {
+          id: "33333333-3333-4333-8333-333333333333",
+          shortId: "tplA1",
+          name: "Invoice",
+          numberTemplate: "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}",
+        },
         runId: "11111111-2222-7333-8444-aaaaaaaaaaaa",
-        recordId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        runShortId: "runB2",
         generatedAt: new Date("2026-06-26T12:00:00.000Z"),
       }),
-    ).toBe("GRID-20260626-BBBBBBBB-AAAAAAAAAAAA");
+    ).toEqual({ ok: true, data: "tplA1-20260626-runB2" });
+  });
+
+  test("document number date uses the configured time zone", () => {
+    expect(
+      documentNumberFor({
+        template: {
+          shortId: "tplA1",
+          name: "Invoice",
+          numberTemplate: "{{ date.yyyyMMdd }}",
+        },
+        runId: "11111111-2222-7333-8444-aaaaaaaaaaaa",
+        runShortId: "runB2",
+        generatedAt: new Date("2026-06-26T22:30:00.000Z"),
+        dateConfig: { timeZone: "Europe/Berlin" },
+      }),
+    ).toEqual({ ok: true, data: "20260627" });
+  });
+
+  test("document pattern validation accepts Liquid loop built-ins and modifiers", () => {
+    const result = validateTemplateWrite({
+      source: "from table Items\nwhere record.id = '{{ record.id }}'",
+      html: "{% for row in rows reversed %}<p>{{ forloop.index }} {{ row.Name }}</p>{% endfor %}",
+      numberTemplate: "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}",
+      filenameTemplate: "{{ document.number }}.pdf",
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test("document pattern validation rejects loop locals outside their loop", () => {
+    const result = validateTemplateWrite({
+      source: "from table Items\nwhere record.id = '{{ record.id }}'",
+      html: "{% for row in rows %}<p>{{ row.Name }}</p>{% endfor %}<p>{{ row.Name }}</p>",
+      numberTemplate: "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}",
+      filenameTemplate: "{{ document.number }}.pdf",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('HTML template uses unknown Liquid variable "row"');
+  });
+
+  test("document pattern validation rejects unknown variables", () => {
+    const result = validateTemplateWrite({
+      source: "from table Items\nwhere record.id = '{{ record.id }}'",
+      html: "<p>{{ record.id }}</p>",
+      numberTemplate: "{{ records.name }}-{{ run.shortId }}",
+      filenameTemplate: "{{ document.number }}.pdf",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('document number pattern uses unknown Liquid variable "records"');
+  });
+
+  test("filename pattern validation rejects unknown variables", () => {
+    const result = validateTemplateWrite({
+      source: "from table Items\nwhere record.id = '{{ record.id }}'",
+      html: "<p>{{ record.id }}</p>",
+      numberTemplate: "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}",
+      filenameTemplate: "{{ documents.number }}.pdf",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('filename template uses unknown Liquid variable "documents"');
   });
 
   test("rows expose GQL output labels for ergonomic Liquid templates", () => {

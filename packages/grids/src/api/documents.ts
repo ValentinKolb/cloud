@@ -8,7 +8,9 @@ import {
   CreateRecordSnapshotResponseSchema,
   DocumentPreviewResponseSchema,
   DocumentRecordBodySchema,
+  DocumentRunBrowseResponseSchema,
   DocumentRunSummaryListSchema,
+  DocumentRunSummarySchema,
   DocumentTemplateDraftPreviewSchema,
   DocumentTemplateListSchema,
   DocumentTemplateSchema,
@@ -16,6 +18,7 @@ import {
   RecordSnapshotListResponseSchema,
   RecordSnapshotSchema,
   RelationLookupResponseSchema,
+  UpdateDocumentRunMetadataSchema,
   UpdateDocumentTemplateSchema,
 } from "../contracts";
 import { gridsService } from "../service";
@@ -79,6 +82,7 @@ const DocumentRunListQuerySchema = z.object({
   q: z.string().optional().default(""),
   limit: z.coerce.number().int().min(1).max(500).optional().default(200),
   offset: z.coerce.number().int().min(0).optional().default(0),
+  cursor: z.string().optional().default(""),
   tags: z
     .string()
     .optional()
@@ -89,6 +93,24 @@ const DocumentRunListQuerySchema = z.object({
         .map((p) => p.trim())
         .filter(Boolean),
     ),
+});
+
+const DocumentRunBrowseQuerySchema = DocumentRunListQuerySchema.extend({
+  mode: z.enum(["list", "folders"]).optional().default("list"),
+  path: z
+    .string()
+    .optional()
+    .default("")
+    .transform((s) =>
+      s
+        .split("/")
+        .map((part) => part.trim())
+        .filter(Boolean),
+    ),
+});
+
+const DocumentTemplateSummaryQuerySchema = z.object({
+  min: z.enum(["read", "write", "admin"]).optional().default("read"),
 });
 
 const UuidStringSchema = z.string().uuid();
@@ -112,14 +134,14 @@ const loadTemplateAndTable = async (templateId: string) => {
 const gateTemplate = async (
   c: Context<AuthContext>,
   loaded: NonNullable<Awaited<ReturnType<typeof loadTemplateAndTable>>>,
-  required: "read" | "admin",
+  required: "read" | "write" | "admin",
 ) => gateAt(c, { baseId: loaded.table.baseId, tableId: loaded.table.id, documentTemplateId: loaded.template.id }, required);
 
 const gateBaseAdminForTemplate = async (c: Context<AuthContext>, loaded: NonNullable<Awaited<ReturnType<typeof loadTemplateAndTable>>>) =>
   gateAt(c, { baseId: loaded.table.baseId }, "admin");
 
-const gateEnabledTemplateRead = async (c: Context<AuthContext>, loaded: NonNullable<Awaited<ReturnType<typeof loadTemplateAndTable>>>) => {
-  const gate = await gateTemplate(c, loaded, "read");
+const gateEnabledTemplateWrite = async (c: Context<AuthContext>, loaded: NonNullable<Awaited<ReturnType<typeof loadTemplateAndTable>>>) => {
+  const gate = await gateTemplate(c, loaded, "write");
   if (!gate.ok) return gate;
   if (!loaded.template.enabled && !gridsService.permission.hasAtLeast(gate.data, "admin")) {
     return gateAt(c, { baseId: loaded.table.baseId }, "admin");
@@ -130,14 +152,18 @@ const gateEnabledTemplateRead = async (c: Context<AuthContext>, loaded: NonNulla
 const liveRenderData = async (
   c: Context<AuthContext>,
   params: {
-    template: Pick<NonNullable<Awaited<ReturnType<typeof gridsService.document.getTemplate>>>, "source">;
+    template: Pick<NonNullable<Awaited<ReturnType<typeof gridsService.document.getTemplate>>>, "source"> &
+      Partial<Pick<NonNullable<Awaited<ReturnType<typeof gridsService.document.getTemplate>>>, "id" | "shortId" | "name">>;
     tableId: string;
     recordId: string;
+    generatedAt?: Date;
+    dateConfig?: Awaited<ReturnType<typeof getDateConfig>>;
   },
 ) => {
   const table = await gridsService.table.get(params.tableId);
   if (!table) return { ok: false as const, status: 404, phase: "data" as const, message: "Table not found" };
-  const record = await gridsService.record.get(params.tableId, params.recordId, { dateConfig: await getDateConfig(c) });
+  const dateConfig = params.dateConfig ?? (await getDateConfig(c));
+  const record = await gridsService.record.get(params.tableId, params.recordId, { dateConfig });
   if (!record) return { ok: false as const, status: 404, phase: "data" as const, message: "Record not found" };
 
   const rendered = await gridsService.document.buildLiveRenderData({
@@ -145,7 +171,8 @@ const liveRenderData = async (
     table,
     record,
     app: await gridsService.document.buildTemplateAppData(),
-    dateConfig: await getDateConfig(c),
+    dateConfig,
+    generatedAt: params.generatedAt,
   });
   if (!rendered.ok) return { ok: false as const, status: rendered.error.status, phase: "source" as const, message: rendered.error.message };
   return {
@@ -159,13 +186,42 @@ const liveRenderData = async (
   };
 };
 
-const draftTemplateFromBody = (body: z.infer<typeof DocumentTemplateDraftPreviewSchema>) => ({
+const draftTemplateFromBody = (
+  body: z.infer<typeof DocumentTemplateDraftPreviewSchema>,
+  base?: Partial<NonNullable<Awaited<ReturnType<typeof gridsService.document.getTemplate>>>>,
+) => ({
+  id: base?.id,
+  shortId: base?.shortId,
+  name: base?.name,
   source: body.source,
   html: body.html,
   headerHtml: body.headerHtml ?? null,
   footerHtml: body.footerHtml ?? null,
   pageCss: body.pageCss ?? null,
+  numberTemplate: body.numberTemplate ?? base?.numberTemplate,
+  filenameTemplate: body.filenameTemplate ?? base?.filenameTemplate,
 });
+
+const addDraftDocumentMetadata = async (
+  c: Context<AuthContext>,
+  params: {
+    template: ReturnType<typeof draftTemplateFromBody>;
+    data: Record<string, unknown>;
+    generatedAt: Date;
+    dateConfig: Awaited<ReturnType<typeof getDateConfig>>;
+  },
+) => {
+  const built = await gridsService.document.buildDocumentRunRenderData({
+    template: params.template,
+    renderData: params.data,
+    runId: "draft",
+    runShortId: "draft",
+    generatedAt: params.generatedAt,
+    dateConfig: params.dateConfig,
+  });
+  if (!built.ok) return { ok: false as const, response: c.json({ message: built.error.message, phase: "document" }, built.error.status) };
+  return { ok: true as const, data: built.data.data };
+};
 
 const renderDraftDataResponse = async (
   c: Context<AuthContext>,
@@ -175,11 +231,15 @@ const renderDraftDataResponse = async (
     recordId: string;
   },
 ) => {
-  const rendered = await liveRenderData(c, params);
+  const generatedAt = new Date();
+  const dateConfig = await getDateConfig(c);
+  const rendered = await liveRenderData(c, { ...params, generatedAt, dateConfig });
   if (!rendered.ok) return c.json({ message: rendered.message, phase: rendered.phase }, rendered.status === 400 ? 400 : 404);
-  const html = await gridsService.document.renderHtml(params.template, rendered.data);
+  const data = await addDraftDocumentMetadata(c, { template: params.template, data: rendered.data, generatedAt, dateConfig });
+  if (!data.ok) return data.response;
+  const html = await gridsService.document.renderHtml(params.template, data.data);
   if (!html.ok) return c.json({ message: html.error.message, phase: "html" }, html.error.status);
-  return c.json({ html: html.data, source: rendered.source, data: rendered.data });
+  return c.json({ html: html.data, source: rendered.source, data: data.data });
 };
 
 const renderDraftPdfResponse = async (
@@ -190,10 +250,14 @@ const renderDraftPdfResponse = async (
     recordId: string;
   },
 ) => {
-  const rendered = await liveRenderData(c, params);
+  const generatedAt = new Date();
+  const dateConfig = await getDateConfig(c);
+  const rendered = await liveRenderData(c, { ...params, generatedAt, dateConfig });
   if (!rendered.ok) return c.json({ message: rendered.message, phase: rendered.phase }, rendered.status === 400 ? 400 : 404);
+  const data = await addDraftDocumentMetadata(c, { template: params.template, data: rendered.data, generatedAt, dateConfig });
+  if (!data.ok) return data.response;
 
-  const pdf = await gridsService.document.renderPdfPreview(params.template, rendered.data, "preview.html");
+  const pdf = await gridsService.document.renderPdfPreview(params.template, data.data, "preview.html");
   if (!pdf.ok) {
     return c.json(
       { message: pdf.error.message, phase: pdf.error.phase, code: pdf.error.code },
@@ -216,6 +280,7 @@ const app = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
       },
     }),
+    v("query", DocumentTemplateSummaryQuerySchema),
     async (c) => {
       const tableId = uuidParam(c, "tableId");
       if (!tableId) return c.json({ message: "Table not found" }, 404);
@@ -224,10 +289,11 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const templates = await gridsService.document.listTemplatesForTable(tableId);
+      const required = c.req.valid("query").min;
       const visible = [];
       for (const template of templates) {
         if (!template.enabled) continue;
-        const templateGate = await gateTemplate(c, { template, table }, "read");
+        const templateGate = await gateTemplate(c, { template, table }, required);
         if (templateGate.ok) visible.push(gridsService.document.summarizeTemplate(template));
       }
       return c.json(visible);
@@ -343,7 +409,11 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
       const body = c.req.valid("json");
-      return renderDraftPdfResponse(c, { template: draftTemplateFromBody(body), tableId: loaded.table.id, recordId: body.recordId });
+      return renderDraftPdfResponse(c, {
+        template: draftTemplateFromBody(body, loaded.template),
+        tableId: loaded.table.id,
+        recordId: body.recordId,
+      });
     },
   )
 
@@ -365,7 +435,11 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
       const body = c.req.valid("json");
-      return renderDraftDataResponse(c, { template: draftTemplateFromBody(body), tableId: loaded.table.id, recordId: body.recordId });
+      return renderDraftDataResponse(c, {
+        template: draftTemplateFromBody(body, loaded.template),
+        tableId: loaded.table.id,
+        recordId: body.recordId,
+      });
     },
   )
 
@@ -424,7 +498,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
       if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateEnabledTemplateRead(c, loaded);
+      const gate = await gateEnabledTemplateWrite(c, loaded);
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const { q, limit, excludeIds } = c.req.valid("query");
       return c.json(await gridsService.relations.lookup({ targetTableId: loaded.table.id, q, limit, excludeIds }));
@@ -448,15 +522,21 @@ const app = new Hono<AuthContext>()
       const gate = await gateBaseAdminForTemplate(c, loaded);
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
+      const generatedAt = new Date();
+      const dateConfig = await getDateConfig(c);
       const rendered = await liveRenderData(c, {
         template: loaded.template,
         tableId: loaded.table.id,
         recordId: c.req.valid("json").recordId,
+        generatedAt,
+        dateConfig,
       });
       if (!rendered.ok) return errorResponse(c, rendered.message, rendered.status);
-      const html = await gridsService.document.renderHtml(loaded.template, rendered.data);
+      const data = await addDraftDocumentMetadata(c, { template: loaded.template, data: rendered.data, generatedAt, dateConfig });
+      if (!data.ok) return data.response;
+      const html = await gridsService.document.renderHtml(loaded.template, data.data);
       if (!html.ok) return c.json({ message: html.error.message }, html.error.status);
-      return c.json({ html: html.data, source: rendered.source, data: rendered.data });
+      return c.json({ html: html.data, source: rendered.source, data: data.data });
     },
   )
 
@@ -474,15 +554,21 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
       if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateEnabledTemplateRead(c, loaded);
+      const gate = await gateEnabledTemplateWrite(c, loaded);
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const generatedAt = new Date();
+      const dateConfig = await getDateConfig(c);
       const rendered = await liveRenderData(c, {
         template: loaded.template,
         tableId: loaded.table.id,
         recordId: c.req.valid("json").recordId,
+        generatedAt,
+        dateConfig,
       });
       if (!rendered.ok) return errorResponse(c, rendered.message, rendered.status);
-      const pdf = await gridsService.document.renderPdfPreview(loaded.template, rendered.data, `${loaded.template.shortId}-preview.html`);
+      const data = await addDraftDocumentMetadata(c, { template: loaded.template, data: rendered.data, generatedAt, dateConfig });
+      if (!data.ok) return data.response;
+      const pdf = await gridsService.document.renderPdfPreview(loaded.template, data.data, `${loaded.template.shortId}-preview.html`);
       if (!pdf.ok) {
         return c.json(
           { message: pdf.error.message, phase: pdf.error.phase, code: pdf.error.code },
@@ -508,18 +594,26 @@ const app = new Hono<AuthContext>()
       const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
       if (!loaded) return c.json({ message: "Document template not found" }, 404);
       if (!loaded.template.enabled) return c.json({ message: "Document template is disabled" }, 400);
-      const gate = await gateTemplate(c, loaded, "read");
+      const gate = await gateTemplate(c, loaded, "write");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
       const body = c.req.valid("json");
-      const rendered = await liveRenderData(c, { template: loaded.template, tableId: loaded.table.id, recordId: body.recordId });
+      const generatedAt = new Date();
+      const dateConfig = await getDateConfig(c);
+      const rendered = await liveRenderData(c, {
+        template: loaded.template,
+        tableId: loaded.table.id,
+        recordId: body.recordId,
+        generatedAt,
+        dateConfig,
+      });
       if (!rendered.ok) return errorResponse(c, rendered.message, rendered.status);
       const snapshot = await gridsService.document.createRecordSnapshot({
         baseId: loaded.table.baseId,
         tableId: loaded.table.id,
         recordId: body.recordId,
         actorId: c.get("user").id,
-        dateConfig: await getDateConfig(c),
+        dateConfig,
       });
       if (!snapshot.ok) return c.json({ message: snapshot.error.message }, snapshot.error.status);
       const run = await gridsService.document.createRun({
@@ -527,6 +621,8 @@ const app = new Hono<AuthContext>()
         snapshot: snapshot.data,
         renderData: { ...rendered.data, snapshot: snapshot.data },
         actorId: c.get("user").id,
+        generatedAt,
+        dateConfig,
         filename: body.filename,
         tags: body.tags,
       });
@@ -564,6 +660,7 @@ const app = new Hono<AuthContext>()
         tags: query.tags,
         limit: query.limit,
         offset: query.offset,
+        cursor: query.cursor || null,
       });
       return c.json({
         items: page.items.map(gridsService.document.summarizeRun),
@@ -572,6 +669,46 @@ const app = new Hono<AuthContext>()
         offset: page.offset,
         hasMore: page.hasMore,
         nextOffset: page.nextOffset,
+        nextCursor: page.nextCursor,
+      });
+    },
+  )
+
+  .get(
+    "/runs/by-template/:templateId/browse",
+    describeRoute({
+      tags: ["Grids:Document"],
+      summary: "Browse generated document runs as list items or year/month folders",
+      responses: {
+        200: jsonResponse(DocumentRunBrowseResponseSchema, "Document run browser page"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    v("query", DocumentRunBrowseQuerySchema),
+    async (c) => {
+      const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
+      if (!loaded) return c.json({ message: "Document template not found" }, 404);
+      const gate = await gateTemplate(c, loaded, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const query = c.req.valid("query");
+      const page = await gridsService.document.browseRunsForTemplate({
+        templateId: loaded.template.id,
+        q: query.q,
+        tags: query.tags,
+        limit: query.limit,
+        cursor: query.cursor || null,
+        path: query.path,
+        mode: query.mode,
+        timeZone: (await getDateConfig(c)).timeZone,
+      });
+      return c.json({
+        path: page.path,
+        folders: page.folders,
+        items: page.items.map(gridsService.document.summarizeRun),
+        total: page.total,
+        limit: page.limit,
+        hasMore: page.hasMore,
+        nextCursor: page.nextCursor,
       });
     },
   )
@@ -619,6 +756,33 @@ const app = new Hono<AuthContext>()
       return c.json({
         items: (await gridsService.document.listRunsForRecord(tableId, recordId)).map(gridsService.document.summarizeRun),
       });
+    },
+  )
+
+  .patch(
+    "/runs/:runId",
+    describeRoute({
+      tags: ["Grids:Document"],
+      summary: "Update generated document metadata",
+      responses: {
+        200: jsonResponse(DocumentRunSummarySchema, "Updated document run"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    v("json", UpdateDocumentRunMetadataSchema),
+    async (c) => {
+      const runId = uuidParam(c, "runId");
+      if (!runId) return c.json({ message: "Document run not found" }, 404);
+      const run = await gridsService.document.getRun(runId);
+      if (!run) return c.json({ message: "Document run not found" }, 404);
+      const template = run.templateId ? await loadTemplateAndTable(run.templateId) : null;
+      const gate = template
+        ? await gateTemplate(c, template, "write")
+        : await gateAt(c, { baseId: run.baseId, tableId: run.tableId }, "write");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const updated = await gridsService.document.updateRunMetadata(run.id, c.req.valid("json"));
+      if (!updated.ok) return c.json({ message: updated.error.message }, updated.error.status);
+      return c.json(gridsService.document.summarizeRun(updated.data));
     },
   )
 

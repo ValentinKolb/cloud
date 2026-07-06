@@ -414,7 +414,7 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string; live
   const [templates] = createResource(
     () => props.tableId,
     async (tableId) => {
-      const res = await apiClient.documents.templates["by-table"][":tableId"].$get({ param: { tableId } });
+      const res = await apiClient.documents.templates["by-table"][":tableId"].$get({ param: { tableId }, query: { min: "write" } });
       if (!res.ok) return [] as DocumentTemplateSummary[];
       return res.json();
     },

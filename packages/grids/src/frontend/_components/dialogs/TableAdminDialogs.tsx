@@ -2,6 +2,7 @@ import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import {
   AutocompleteEditor,
   Checkbox,
+  CheckboxCard,
   CopyButton,
   confirmDiscardIfDirty,
   dialogCore,
@@ -39,6 +40,9 @@ import { RecordDisplayConfigEditor } from "./RecordDisplayConfigEditor";
 const DOCUMENT_TEMPLATE_VARIABLES: TemplateVariable[] = [
   { name: "record", kind: "object" },
   { name: "table", kind: "object" },
+  { name: "template", kind: "object" },
+  { name: "run", kind: "object" },
+  { name: "date", kind: "object" },
   { name: "rows", kind: "array" },
   { name: "columns", kind: "array" },
   { name: "query", kind: "object" },
@@ -301,6 +305,8 @@ const FIELD_TYPE_PICKER_DESCRIPTIONS: Record<string, string> = {
 const CREATE_TYPE_OPTIONS = TYPE_OPTIONS.filter((type) => type.value !== "json");
 
 const defaultDocumentSource = (tableId: string) => `from table {${tableId}}\nwhere record.id = '{{ record.id }}'\nlimit 1`;
+const defaultDocumentNumberTemplate = "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}";
+const defaultDocumentFilenameTemplate = "{{ document.number }}.pdf";
 
 const defaultDocumentStarter = (): DocumentTemplateStarter => ({
   id: "blank",
@@ -312,7 +318,8 @@ const defaultDocumentStarter = (): DocumentTemplateStarter => ({
   expectedData: "One selected record.",
   page: "A4 portrait",
   source: (tableId) => defaultDocumentSource(tableId),
-  filenameTemplate: "{{ document.number }}.pdf",
+  numberTemplate: defaultDocumentNumberTemplate,
+  filenameTemplate: defaultDocumentFilenameTemplate,
   html: defaultDocumentHtml,
   headerHtml: "",
   footerHtml: "",
@@ -349,7 +356,8 @@ const starterPayload = (starter: DocumentTemplateStarter, tableId: string) => ({
   name: starter.id === "blank" ? "" : starter.name,
   description: starter.id === "blank" ? "" : starter.description,
   source: starter.source(tableId),
-  filenameTemplate: starter.filenameTemplate ?? "{{ document.number }}.pdf",
+  numberTemplate: starter.numberTemplate ?? defaultDocumentNumberTemplate,
+  filenameTemplate: starter.filenameTemplate ?? defaultDocumentFilenameTemplate,
   html: starter.html,
   headerHtml: starter.headerHtml ?? "",
   footerHtml: starter.footerHtml ?? "",
@@ -650,6 +658,7 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
         name: `${template.name} copy`,
         description: template.description,
         source: template.source,
+        numberTemplate: template.numberTemplate,
         filenameTemplate: template.filenameTemplate,
         html: template.html,
         headerHtml: template.headerHtml,
@@ -904,6 +913,12 @@ export function openDocumentTemplateEditorDialog(args: {
   return dialogCore.open<void>((close) => <DocumentTemplateEditorDialog args={args} close={close} />, panelDialogWorkspaceOptions);
 }
 
+const templateReferenceHref = (baseShortId: string) => `/app/grids/${encodeURIComponent(baseShortId)}/reference/templates`;
+
+const openTemplateReferenceWindow = (baseShortId: string) => {
+  window.open(templateReferenceHref(baseShortId), "grids-template-reference", "popup,width=1120,height=820,resizable=yes,scrollbars=yes");
+};
+
 function DocumentTemplateEditorDialog(props: {
   args: {
     baseId: string;
@@ -919,6 +934,7 @@ function DocumentTemplateEditorDialog(props: {
   const initialStarter = starterPayload(props.args.starter ?? defaultDocumentStarter(), props.args.tableId);
   const [name, setName] = createSignal(template?.name ?? initialStarter.name);
   const [description, setDescription] = createSignal(template?.description ?? initialStarter.description);
+  const [numberTemplate, setNumberTemplate] = createSignal(template?.numberTemplate ?? initialStarter.numberTemplate);
   const [filenameTemplate, setFilenameTemplate] = createSignal(template?.filenameTemplate ?? initialStarter.filenameTemplate);
   const [source, setSource] = createSignal(template?.source ?? initialStarter.source);
   const [html, setHtml] = createSignal(template?.html ?? initialStarter.html);
@@ -1000,6 +1016,7 @@ function DocumentTemplateEditorDialog(props: {
   const dirty = () =>
     name() !== (template?.name ?? initialStarter.name) ||
     description() !== (template?.description ?? initialStarter.description) ||
+    numberTemplate() !== (template?.numberTemplate ?? initialStarter.numberTemplate) ||
     filenameTemplate() !== (template?.filenameTemplate ?? initialStarter.filenameTemplate) ||
     source() !== (template?.source ?? initialStarter.source) ||
     html() !== (template?.html ?? initialStarter.html) ||
@@ -1015,6 +1032,8 @@ function DocumentTemplateEditorDialog(props: {
       headerHtml: headerHtml().trim() || null,
       footerHtml: footerHtml().trim() || null,
       pageCss: pageCss().trim() || null,
+      numberTemplate: numberTemplate().trim(),
+      filenameTemplate: filenameTemplate().trim(),
       recordId: previewRecordId().trim(),
     });
   const hasCurrentSuccessfulPreview = () => lastSuccessfulPreviewSignature() === currentPreviewSignature();
@@ -1028,6 +1047,7 @@ function DocumentTemplateEditorDialog(props: {
       const payload = {
         name: name().trim(),
         description: description().trim() || null,
+        numberTemplate: numberTemplate().trim(),
         filenameTemplate: filenameTemplate().trim(),
         source: source().trim(),
         html: html().trim(),
@@ -1037,6 +1057,7 @@ function DocumentTemplateEditorDialog(props: {
         enabled: enabled(),
       };
       if (!payload.name) throw new Error("Name is required");
+      if (!payload.numberTemplate) throw new Error("Document number pattern is required");
       if (!payload.filenameTemplate) throw new Error("Filename template is required");
       if (!payload.source) throw new Error("GQL source is required");
       if (!payload.html) throw new Error("HTML template is required");
@@ -1062,6 +1083,8 @@ function DocumentTemplateEditorDialog(props: {
       headerHtml: headerHtml().trim() || null,
       footerHtml: footerHtml().trim() || null,
       pageCss: pageCss().trim() || null,
+      numberTemplate: numberTemplate().trim(),
+      filenameTemplate: filenameTemplate().trim(),
       recordId,
     };
     const signature = currentPreviewSignature();
@@ -1140,6 +1163,8 @@ function DocumentTemplateEditorDialog(props: {
     const headerHtmlText = headerHtml().trim();
     const footerHtmlText = footerHtml().trim();
     const pageCssText = pageCss().trim();
+    const numberTemplateText = numberTemplate().trim();
+    const filenameTemplateText = filenameTemplate().trim();
     if (!recordId || !sourceText || !htmlText) {
       previewDataToken += 1;
       setPreviewData(null);
@@ -1161,6 +1186,8 @@ function DocumentTemplateEditorDialog(props: {
           headerHtml: headerHtmlText || null,
           footerHtml: footerHtmlText || null,
           pageCss: pageCssText || null,
+          numberTemplate: numberTemplateText,
+          filenameTemplate: filenameTemplateText,
           recordId,
         };
         const response = template
@@ -1198,13 +1225,29 @@ function DocumentTemplateEditorDialog(props: {
         title={`${template ? "Edit" : "Add"} template — ${props.args.tableName}`}
         icon="ti ti-file-type-pdf"
         close={closeIfClean}
+        actions={
+          <button type="button" class="btn-input btn-sm" onClick={() => openTemplateReferenceWindow(props.args.baseId)}>
+            <i class="ti ti-external-link" /> Reference
+          </button>
+        }
       />
       <PanelDialog.Body>
         <div class="flex h-full min-h-0 flex-col gap-2">
           <div class="grid shrink-0 gap-2 lg:grid-cols-2">
             <TextInput label="Name" value={name} onInput={setName} icon="ti ti-typography" required />
             <TextInput label="Description" value={description} onInput={setDescription} icon="ti ti-align-left" placeholder="Optional" />
-            <div class="lg:col-span-2">
+            <div>
+              <TextInput
+                label="Document number"
+                description="Liquid pattern for stable generated document numbers."
+                value={numberTemplate}
+                onInput={setNumberTemplate}
+                icon="ti ti-hash"
+                placeholder={defaultDocumentNumberTemplate}
+                required
+              />
+            </div>
+            <div>
               <TextInput
                 label="Filename"
                 description="Liquid pattern for generated PDF filenames. Users can edit the final filename before generating."
@@ -1216,11 +1259,13 @@ function DocumentTemplateEditorDialog(props: {
               />
             </div>
             <div class="lg:col-span-2">
-              <Checkbox
+              <CheckboxCard
                 value={enabled}
                 onChange={setEnabled}
                 label="Enabled"
                 description="Enabled templates appear in document generation lists and the Documents sidebar."
+                icon="ti ti-file-check"
+                variant="input"
               />
             </div>
             <div class="lg:col-span-2">
@@ -1333,6 +1378,7 @@ function DocumentTemplateEditorDialog(props: {
                         initialEntries={templateAccessEntries() ?? []}
                         allowedLevels={[
                           { level: "read", label: "Read", icon: "ti ti-eye" },
+                          { level: "write", label: "Write", icon: "ti ti-pencil" },
                           { level: "admin", label: "Admin", icon: "ti ti-shield" },
                         ]}
                       />

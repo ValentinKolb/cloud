@@ -130,6 +130,7 @@ const mapDocumentTemplate = (row: DbRow): DocumentTemplate => ({
   headerHtml: (row.header_html as string | null) ?? null,
   footerHtml: (row.footer_html as string | null) ?? null,
   pageCss: (row.page_css as string | null) ?? null,
+  numberTemplate: (row.number_template as string | null) ?? "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}",
   filenameTemplate: (row.filename_template as string | null) ?? "{{ document.number }}.pdf",
   enabled: row.enabled as boolean,
   position: row.position as number,

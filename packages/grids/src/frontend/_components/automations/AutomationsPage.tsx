@@ -233,7 +233,10 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
     () => (isDocumentAction() && tableId() ? tableId() : ""),
     async (selectedTableId) => {
       if (!selectedTableId) return [] as DocumentTemplateSummary[];
-      const res = await apiClient.documents.templates["by-table"][":tableId"].$get({ param: { tableId: selectedTableId } });
+      const res = await apiClient.documents.templates["by-table"][":tableId"].$get({
+        param: { tableId: selectedTableId },
+        query: { min: "write" },
+      });
       if (!res.ok) return [] as DocumentTemplateSummary[];
       return res.json();
     },

@@ -302,6 +302,7 @@ export const migrate = async (): Promise<void> => {
       header_html TEXT,
       footer_html TEXT,
       page_css TEXT,
+      number_template TEXT NOT NULL DEFAULT '{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}',
       filename_template TEXT NOT NULL DEFAULT '{{ document.number }}.pdf',
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
       position INT NOT NULL DEFAULT 0,
@@ -316,18 +317,27 @@ export const migrate = async (): Promise<void> => {
       CONSTRAINT document_templates_header_html_length_chk CHECK (header_html IS NULL OR length(header_html) <= 50000),
       CONSTRAINT document_templates_footer_html_length_chk CHECK (footer_html IS NULL OR length(footer_html) <= 50000),
       CONSTRAINT document_templates_page_css_length_chk CHECK (page_css IS NULL OR length(page_css) <= 50000),
+      CONSTRAINT document_templates_number_template_length_chk CHECK (length(number_template) BETWEEN 1 AND 5000),
       CONSTRAINT document_templates_filename_template_length_chk CHECK (length(filename_template) BETWEEN 1 AND 5000)
     )
   `.simple();
   await sql`ALTER TABLE grids.document_templates ADD COLUMN IF NOT EXISTS header_html TEXT`.simple();
   await sql`ALTER TABLE grids.document_templates ADD COLUMN IF NOT EXISTS footer_html TEXT`.simple();
   await sql`ALTER TABLE grids.document_templates ADD COLUMN IF NOT EXISTS page_css TEXT`.simple();
+  await sql`ALTER TABLE grids.document_templates ADD COLUMN IF NOT EXISTS number_template TEXT`.simple();
   await sql`ALTER TABLE grids.document_templates ADD COLUMN IF NOT EXISTS filename_template TEXT`.simple();
+  await sql`
+    UPDATE grids.document_templates
+    SET number_template = '{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}'
+    WHERE number_template IS NULL OR btrim(number_template) = ''
+  `.simple();
   await sql`
     UPDATE grids.document_templates
     SET filename_template = '{{ document.number }}.pdf'
     WHERE filename_template IS NULL OR btrim(filename_template) = ''
   `.simple();
+  await sql`ALTER TABLE grids.document_templates ALTER COLUMN number_template SET DEFAULT '{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}'`.simple();
+  await sql`ALTER TABLE grids.document_templates ALTER COLUMN number_template SET NOT NULL`.simple();
   await sql`ALTER TABLE grids.document_templates ALTER COLUMN filename_template SET DEFAULT '{{ document.number }}.pdf'`.simple();
   await sql`ALTER TABLE grids.document_templates ALTER COLUMN filename_template SET NOT NULL`.simple();
   await sql`
@@ -353,6 +363,13 @@ export const migrate = async (): Promise<void> => {
       ) THEN
         ALTER TABLE grids.document_templates
         ADD CONSTRAINT document_templates_page_css_length_chk CHECK (page_css IS NULL OR length(page_css) <= 50000);
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'document_templates_number_template_length_chk' AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.document_templates
+        ADD CONSTRAINT document_templates_number_template_length_chk CHECK (length(number_template) BETWEEN 1 AND 5000);
       END IF;
       IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
@@ -459,6 +476,10 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_document_runs_template
     ON grids.document_runs(template_id, generated_at DESC)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_document_runs_template_cursor
+    ON grids.document_runs(template_id, generated_at DESC, id DESC)
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_document_runs_record

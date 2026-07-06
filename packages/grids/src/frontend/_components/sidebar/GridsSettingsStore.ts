@@ -4,17 +4,24 @@ const COOKIE_NAME = "settings-app-grids";
 
 type GridsSettings = {
   lastPath: string | null;
+  documentViewMode: GridsDocumentViewMode;
 };
 
 const DEFAULT_SETTINGS: GridsSettings = {
   lastPath: null,
+  documentViewMode: "list",
 };
+
+export type GridsDocumentViewMode = "list" | "folders";
+
+const normalizeDocumentViewMode = (value: unknown): GridsDocumentViewMode => (value === "folders" ? "folders" : "list");
 
 const normalizeSettings = (raw: unknown): GridsSettings => {
   if (!raw || typeof raw !== "object") return DEFAULT_SETTINGS;
   const candidate = raw as Partial<GridsSettings>;
   return {
     lastPath: typeof candidate.lastPath === "string" ? candidate.lastPath : null,
+    documentViewMode: normalizeDocumentViewMode(candidate.documentViewMode),
   };
 };
 
@@ -27,6 +34,10 @@ const writeGridsSettings = (settings: GridsSettings) => cookies.writeJsonCookie(
 export const setLastGridsPath = (path: string) => {
   if (!isSafeGridsPath(path) || path === "/app/grids") return;
   writeGridsSettings({ ...readGridsSettings(), lastPath: path });
+};
+
+export const setDocumentViewMode = (mode: GridsDocumentViewMode) => {
+  writeGridsSettings({ ...readGridsSettings(), documentViewMode: mode });
 };
 
 const parseCookie = (cookieHeader: string | undefined): GridsSettings => {
@@ -44,3 +55,6 @@ export const parseLastGridsPath = (cookieHeader: string | undefined): string | n
   const path = parseCookie(cookieHeader).lastPath;
   return path && isSafeGridsPath(path) ? path : null;
 };
+
+export const parseDocumentViewMode = (cookieHeader: string | undefined): GridsDocumentViewMode =>
+  parseCookie(cookieHeader).documentViewMode;
