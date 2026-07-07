@@ -270,8 +270,8 @@ const resolveResource = (inventory: PulseInventory, ref: string): InventoryResou
   exactMatch(inventory.resources, ref, [(resource) => resource.key, (resource) => resource.id, (resource) => resource.label], "resource");
 
 const resourceEntityRefs = (resource: InventoryResource): string[] => {
-  const refs = [resource.key, resource.id, resource.label];
-  if (resource.type) refs.push(`${resource.type}:${resource.id}`, `${resource.type}:${resource.label}`);
+  const refs = [resource.key, resource.id];
+  if (resource.type) refs.push(`${resource.type}:${resource.id}`);
   return refs.filter(Boolean);
 };
 
@@ -288,9 +288,7 @@ const filterInventoryMetrics = (
   inventory.metrics.filter((metric) => {
     if (filters.type && metric.type !== filters.type) return false;
     if (filters.sourceId && metric.sourceId !== filters.sourceId) return false;
-    if (filters.resource && !(metric.resourceKey === filters.resource.key || matchesResourceEntity(filters.resource, metric.resourceId, metric.resourceType))) {
-      return false;
-    }
+    if (filters.resource && metric.resourceKey !== filters.resource.key) return false;
     if (filters.entity && metric.resourceId !== filters.entity && metric.resourceKey !== filters.entity) return false;
     if (filters.entityType && metric.resourceType !== filters.entityType) return false;
     return includesSearch(filters.q, [
@@ -324,18 +322,6 @@ const metricSummariesFromInventory = (metrics: InventoryMetric[]): PulseMetricSu
   }
   return [...summaries.values()].sort((left, right) => left.name.localeCompare(right.name));
 };
-
-const inventoryMetricToSeries = (metric: InventoryMetric): PulseMetricSeries => ({
-  id: metric.seriesId,
-  metric: metric.metric,
-  sourceId: metric.sourceId,
-  entityId: metric.resourceId,
-  entityType: metric.resourceType,
-  dimensions: metric.dimensions,
-  lastSeenAt: metric.lastSeenAt,
-  latestValue: metric.latestValue,
-  latestSampleAt: metric.latestSampleAt,
-});
 
 const filterInventoryStates = (
   inventory: PulseInventory,
@@ -575,18 +561,19 @@ const resourceListFlags = {
   q: flag.string({ description: "Search resources" }),
   type: flag.string({ description: "Resource type" }),
   ...sourceFilterFlags,
+  includeInventory: flag.boolean({ name: "include-inventory", description: "Include raw inventory data in JSON output" }),
 };
 
 const listResourcesForCommand = async (
   ctx: CloudCliContext,
   args: string[],
-  flags: SourceFilterFlags & { q?: string; type?: string },
+  flags: SourceFilterFlags & { q?: string; type?: string; includeInventory?: boolean },
 ) => {
   const { base } = await resolveBaseFromCommand(ctx, args, 0);
   const sourceId = await resolveSourceFilter(ctx, base.id, flags);
   const inventory = await readApi<PulseInventory>(ctx, `/bases/${encodeURIComponent(base.id)}/inventory`);
   const rows = resourceRows(inventory, { q: flags.q, type: flags.type, source: sourceId });
-  printJsonOrTable(ctx, { ...inventory, resources: rows }, rows, [
+  printJsonOrTable(ctx, flags.includeInventory ? { ...inventory, resources: rows } : { resources: rows }, rows, [
     { key: "type" },
     { key: "label" },
     { key: "metrics" },
@@ -1308,17 +1295,16 @@ const module = defineCliCommands({
               resource,
               entity: flags.entity,
               entityType: flags.entityType,
-            })
-              .filter((item) => item.metric === metric)
-              .map(inventoryMetricToSeries),
+            }).filter((item) => item.metric === metric),
             flags.limit,
             flags.offset,
           );
-          printJsonOrTable(ctx, series, seriesRows(series), [
+          printJsonOrTable(ctx, series, inventoryMetricRows(series), [
             { key: "metric" },
-            { key: "source" },
-            { key: "entity" },
             { key: "value" },
+            { key: "type" },
+            { key: "unit" },
+            { key: "source" },
             { key: "lastSeenAt" },
           ]);
           return;
@@ -1595,10 +1581,15 @@ const module = defineCliCommands({
       },
     }),
     command("dashboards public-url", {
-      summary: "Show or create a dashboard public display URL",
-      flags: { ...baseFlag, ...publicDisplayFlags },
+      summary: "Create or show a dashboard public display URL",
+      flags: {
+        ...baseFlag,
+        ...publicDisplayFlags,
+        yes: confirmFlag("Enable or refresh this dashboard public link"),
+      },
       args: { args: arg.rest({ valueLabel: "base dashboard", required: true }) },
       async run({ ctx, args, flags }) {
+        if (!flags.yes) throw new Error("Refusing to enable or refresh a public link without --yes.");
         const { base, rest } = await resolveBaseFromCommand(ctx, args.args, 1);
         const dashboard = await resolveDashboard(ctx, base.id, requireRestArg(rest, 0, "dashboard"));
         const result = await readApi<DashboardPublishResult>(

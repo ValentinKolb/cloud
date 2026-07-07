@@ -178,6 +178,70 @@ describe("pulse CLI", () => {
     ]);
   });
 
+  test("keeps resources JSON compact unless raw inventory is requested", async () => {
+    const { ctx, lines } = createContext(
+      ["resources", baseId],
+      {},
+      [jsonResponse(base), jsonResponse(inventory)],
+      "json",
+    );
+
+    await pulseCli.run(ctx);
+
+    const payload = JSON.parse(lines[0]!);
+    expect(payload.resources).toEqual([
+      {
+        key: "host:macbook",
+        type: "host",
+        label: "MacBook",
+        metrics: 1,
+        states: 1,
+        events: 0,
+        sources: 1,
+        lastSeenAt: "2026-07-07T12:00:00.000Z",
+      },
+    ]);
+    expect(payload.metrics).toBeUndefined();
+    expect(payload.states).toBeUndefined();
+    expect(payload.events).toBeUndefined();
+  });
+
+  test("does not match resource labels as state identities", async () => {
+    const collisionInventory = {
+      ...inventory,
+      states: [
+        ...inventory.states,
+        {
+          key: "system.host.online",
+          value: false,
+          sourceId,
+          entityId: "MacBook",
+          entityType: "host",
+          dimensions: { host: "other" },
+          updatedAt: "2026-07-07T12:01:00.000Z",
+        },
+      ],
+    };
+    const { ctx, tables } = createContext(
+      ["resources", "states", baseId, "MacBook"],
+      {},
+      [jsonResponse(base), jsonResponse(collisionInventory)],
+    );
+
+    await pulseCli.run(ctx);
+
+    expect(tables[0]).toEqual([
+      {
+        key: "system.host.online",
+        value: "true",
+        source: "11111111",
+        entity: "host:macbook",
+        entityType: "host",
+        updatedAt: "2026-07-07T12:00:00.000Z",
+      },
+    ]);
+  });
+
   test("prints a stable public display URL", async () => {
     const dashboard = {
       id: dashboardId,
@@ -190,7 +254,7 @@ describe("pulse CLI", () => {
     };
     const { ctx, calls, lines } = createContext(
       ["dashboards", "public-url", baseId, "Ops"],
-      { theme: "dark", height: "full" },
+      { theme: "dark", height: "full", yes: true },
       [jsonResponse(base), jsonResponse([dashboard]), jsonResponse({ dashboard, token: "public-token" })],
     );
 
@@ -199,6 +263,12 @@ describe("pulse CLI", () => {
     expect(calls.at(-1)?.path).toBe(`/api/pulse/dashboards/${dashboardId}/public-token`);
     expect(calls.at(-1)?.init?.method).toBe("POST");
     expect(lines).toEqual(["http://cloud.test/app/pulse/display/public-token?theme=dark&height=full"]);
+  });
+
+  test("requires confirmation before creating or refreshing a public display URL", async () => {
+    const { ctx } = createContext(["dashboards", "public-url", baseId, "Ops"]);
+
+    await expect(pulseCli.run(ctx)).rejects.toThrow("Refusing to enable or refresh a public link without --yes.");
   });
 
   test("keeps overview JSON compact unless inventory is requested", async () => {
