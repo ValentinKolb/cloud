@@ -4,7 +4,7 @@ import { z } from "zod";
 import { loadGridsWorkspaceState } from "../frontend/_components/workspace/workspace-state";
 import { withInitialQueryPreview } from "./workspace-query-preview";
 
-const parseWorkspaceHref = (href: string) => {
+export const parseWorkspaceHref = (href: string) => {
   const url = new URL(href, "http://grids.local");
   const parts = url.pathname.split("/").filter(Boolean);
   if (parts[0] !== "app" || parts[1] !== "grids" || !parts[2]) return null;
@@ -65,6 +65,28 @@ const parseWorkspaceHref = (href: string) => {
       activeTableSlug: null,
       activeViewSlug: null,
       activeDashboardSlug: parts[4],
+      activeDocumentTableSlug: null,
+      activeDocumentTemplateSlug: null,
+    };
+  }
+  if (parts.length === 4 && parts[3] === "workflows") {
+    return {
+      baseShortId,
+      activeTableSlug: null,
+      activeViewSlug: null,
+      activeDashboardSlug: null,
+      activeWorkflowSlug: null,
+      activeDocumentTableSlug: null,
+      activeDocumentTemplateSlug: null,
+    };
+  }
+  if (parts.length === 5 && parts[3] === "workflows") {
+    return {
+      baseShortId,
+      activeTableSlug: null,
+      activeViewSlug: null,
+      activeDashboardSlug: null,
+      activeWorkflowSlug: parts[4],
       activeDocumentTableSlug: null,
       activeDocumentTemplateSlug: null,
     };
