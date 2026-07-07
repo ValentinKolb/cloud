@@ -1,8 +1,6 @@
 import { dialogCore, IconInput, MarkdownEditor, panelDialogOptions, PanelDialog, prompts, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import type {
-  Automation,
-  AutomationButtonWidget,
   ChartWidget,
   Dashboard,
   Field,
@@ -15,6 +13,8 @@ import type {
   ViewStatsWidget,
   ViewWidget,
   Widget,
+  Workflow,
+  WorkflowButtonWidget,
 } from "../../../service";
 import { formatWidgetValue } from "../dashboard/widget-format";
 
@@ -85,13 +85,13 @@ export const defaultLinkWidget = (): LinkWidget => ({
   target: { kind: "url", url: "https://example.com" },
 });
 
-export const defaultAutomationButtonWidget = (): AutomationButtonWidget => ({
+export const defaultWorkflowButtonWidget = (): WorkflowButtonWidget => ({
   id: newId("w"),
-  kind: "automation-button",
+  kind: "workflow-button",
   span: 4,
-  automationId: "",
-  title: "Run automation",
-  description: "Start a saved manual automation from this dashboard.",
+  workflowId: "",
+  title: "Run workflow",
+  description: "Start a saved workflow from this dashboard.",
   buttonLabel: "Run",
 });
 
@@ -102,7 +102,7 @@ export const openCellEditDialog = (
   ctx: {
     tables: Array<{ id: string; name: string; slug: string }>;
     dashboards: Dashboard[];
-    manualAutomations: Automation[];
+    dashboardWorkflows: Workflow[];
     fieldsByTable: Record<string, Field[]>;
     viewsByTable: Record<string, View[]>;
     formsByTable: Record<string, Form[]>;
@@ -117,7 +117,7 @@ export const openCellEditDialog = (
     form: "Form widget",
     markdown: "Markdown widget",
     link: "Link widget",
-    "automation-button": "Automation widget",
+    "workflow-button": "Workflow widget",
   };
   const icon: Record<Widget["kind"], string> = {
     stat: "ti ti-number",
@@ -127,7 +127,7 @@ export const openCellEditDialog = (
     form: "ti ti-forms",
     markdown: "ti ti-markdown",
     link: "ti ti-link",
-    "automation-button": "ti ti-player-play",
+    "workflow-button": "ti ti-route",
   };
 
   return dialogCore.open<CellEditDialogResult>((close) => {
@@ -144,7 +144,7 @@ export const openCellEditDialog = (
             onUpdate={(next) => setDraft(next)}
             tables={ctx.tables}
             dashboards={ctx.dashboards}
-            manualAutomations={ctx.manualAutomations}
+            dashboardWorkflows={ctx.dashboardWorkflows}
             fieldsByTable={ctx.fieldsByTable}
             viewsByTable={ctx.viewsByTable}
             formsByTable={ctx.formsByTable}
@@ -199,7 +199,7 @@ function CellEditorBody(props: {
   onUpdate: (w: Widget) => void;
   tables: Array<{ id: string; name: string; slug: string }>;
   dashboards: Dashboard[];
-  manualAutomations: Automation[];
+  dashboardWorkflows: Workflow[];
   fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
   formsByTable: Record<string, Form[]>;
@@ -264,12 +264,12 @@ function CellEditorBody(props: {
           formsByTable={props.formsByTable}
         />
       );
-    case "automation-button":
+    case "workflow-button":
       return (
-        <AutomationButtonCellBody
+        <WorkflowButtonCellBody
           widget={props.widget}
-          onUpdate={props.onUpdate as (w: AutomationButtonWidget) => void}
-          manualAutomations={props.manualAutomations}
+          onUpdate={props.onUpdate as (w: WorkflowButtonWidget) => void}
+          dashboardWorkflows={props.dashboardWorkflows}
         />
       );
   }
@@ -938,24 +938,24 @@ function MarkdownCellBody(props: { widget: MarkdownWidget; onUpdate: (w: Markdow
   );
 }
 
-function AutomationButtonCellBody(props: {
-  widget: AutomationButtonWidget;
-  onUpdate: (w: AutomationButtonWidget) => void;
-  manualAutomations: Automation[];
+function WorkflowButtonCellBody(props: {
+  widget: WorkflowButtonWidget;
+  onUpdate: (w: WorkflowButtonWidget) => void;
+  dashboardWorkflows: Workflow[];
 }) {
   return (
-    <WidgetEditorSection title="Action" subtitle="Run one manual automation from this dashboard." icon="ti ti-player-play">
+    <WidgetEditorSection title="Action" subtitle="Run one workflow from this dashboard." icon="ti ti-route">
       <WidgetInfoBlock
-        title="Automation button"
-        body="Shows a button that starts one manual automation."
-        detail="Anyone who can open this dashboard can press this button. Automation settings stay admin-only."
+        title="Workflow button"
+        body="Shows a button that starts one workflow with a dashboardButton trigger."
+        detail="Anyone who can open this dashboard can press this button. Workflow editing stays admin-only."
       />
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <TextInput
           label="Title"
           value={() => props.widget.title ?? ""}
           onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
-          placeholder="Defaults to automation name"
+          placeholder="Defaults to workflow name"
         />
         <TextInput
           label="Button text"
@@ -970,24 +970,24 @@ function AutomationButtonCellBody(props: {
           placeholder="Optional context shown above the button"
         />
         <Select
-          label="Automation"
-          description="Only manual automations are listed."
-          value={() => props.widget.automationId}
+          label="Workflow"
+          description="Only workflows with a dashboardButton trigger are listed."
+          value={() => props.widget.workflowId}
           onChange={(v) => {
-            const automation = props.manualAutomations.find((candidate) => candidate.id === v);
+            const workflow = props.dashboardWorkflows.find((candidate) => candidate.id === v);
             props.onUpdate({
               ...props.widget,
-              automationId: v,
-              title: props.widget.title || automation?.name || undefined,
+              workflowId: v,
+              title: props.widget.title || workflow?.name || undefined,
             });
           }}
           options={[
-            { id: "", label: "(pick an automation)" },
-            ...props.manualAutomations.map((automation) => ({
-              id: automation.id,
-              label: automation.name,
-              description: automation.enabled ? (automation.description ?? "Manual automation") : "Disabled",
-              icon: automation.enabled ? "ti ti-player-play" : "ti ti-player-pause",
+            { id: "", label: "(pick a workflow)" },
+            ...props.dashboardWorkflows.map((workflow) => ({
+              id: workflow.id,
+              label: workflow.name,
+              description: workflow.enabled ? (workflow.description ?? "Dashboard workflow") : "Disabled",
+              icon: workflow.enabled ? "ti ti-route" : "ti ti-player-pause",
             })),
           ]}
         />
@@ -1078,7 +1078,7 @@ function validateWidgetDraft(widget: Widget, viewsByTable: Record<string, View[]
     if (widget.target.kind === "view" && !widget.target.viewId) return "Pick a view.";
     if (widget.target.kind === "form" && !widget.target.formId) return "Pick a form.";
   }
-  if (widget.kind === "automation-button" && !widget.automationId) return "Pick an automation.";
+  if (widget.kind === "workflow-button" && !widget.workflowId) return "Pick a workflow.";
   return null;
 }
 

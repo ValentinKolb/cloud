@@ -16,9 +16,8 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Automation, Dashboard, DashboardConfig, DashboardRow, Field, Form, View, Widget } from "../../../service";
+import type { Dashboard, DashboardConfig, DashboardRow, Field, Form, View, Widget, Workflow } from "../../../service";
 import {
-  defaultAutomationButtonWidget,
   defaultChartWidget,
   defaultFormWidget,
   defaultLinkWidget,
@@ -26,6 +25,7 @@ import {
   defaultStatWidget,
   defaultViewStatsWidget,
   defaultViewWidget,
+  defaultWorkflowButtonWidget,
   isChartReadyView,
   openCellEditDialog,
 } from "../dialogs/DashboardWidgetDialogs";
@@ -43,7 +43,7 @@ type Props = {
   isBaseDefault: boolean;
   tables: Array<{ id: string; name: string; slug: string }>;
   dashboards: Dashboard[];
-  manualAutomations: Automation[];
+  dashboardWorkflows: Workflow[];
   fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
   formsByTable: Record<string, Form[]>;
@@ -63,7 +63,7 @@ const CELL_KIND_OPTIONS: Array<{ id: Widget["kind"]; label: string; description:
   { id: "form", label: "Form", description: "Inline record creation.", icon: "ti ti-forms" },
   { id: "markdown", label: "Markdown", description: "Notes or instructions.", icon: "ti ti-markdown" },
   { id: "link", label: "Link", description: "Open a resource or URL.", icon: "ti ti-link" },
-  { id: "automation-button", label: "Automation", description: "Run a manual automation.", icon: "ti ti-player-play" },
+  { id: "workflow-button", label: "Workflow", description: "Run a dashboard workflow.", icon: "ti ti-route" },
 ];
 
 const newWidget = (kind: Widget["kind"], tableId: string): Widget => {
@@ -73,7 +73,7 @@ const newWidget = (kind: Widget["kind"], tableId: string): Widget => {
   if (kind === "view-stats") return defaultViewStatsWidget();
   if (kind === "markdown") return defaultMarkdownWidget();
   if (kind === "link") return defaultLinkWidget();
-  if (kind === "automation-button") return defaultAutomationButtonWidget();
+  if (kind === "workflow-button") return defaultWorkflowButtonWidget();
   return defaultFormWidget();
 };
 
@@ -97,7 +97,7 @@ const configuredNewWidget = (
   ctx: {
     tableId: string;
     dashboards: Dashboard[];
-    manualAutomations: Automation[];
+    dashboardWorkflows: Workflow[];
     viewsByTable: Record<string, View[]>;
     formsByTable: Record<string, Form[]>;
   },
@@ -129,9 +129,9 @@ const configuredNewWidget = (
     const tableId = ctx.tableId;
     return tableId ? ({ ...widget, title: "Open table", target: { kind: "table", tableId } } as Widget) : null;
   }
-  if (widget.kind === "automation-button") {
-    const automation = ctx.manualAutomations.find((candidate) => candidate.enabled);
-    return automation ? ({ ...widget, automationId: automation.id, title: automation.name, buttonLabel: "Run" } as Widget) : null;
+  if (widget.kind === "workflow-button") {
+    const workflow = ctx.dashboardWorkflows.find((candidate) => candidate.enabled && candidate.compiled.triggers.dashboardButton);
+    return workflow ? ({ ...widget, workflowId: workflow.id, title: workflow.name, buttonLabel: "Run" } as Widget) : null;
   }
   return widget;
 };
@@ -285,7 +285,7 @@ export default function DashboardWysiwygEditor(props: Props) {
     const initialWidget = configuredNewWidget(kind, {
       tableId: props.tables[0]?.id ?? "",
       dashboards: props.dashboards,
-      manualAutomations: props.manualAutomations,
+      dashboardWorkflows: props.dashboardWorkflows,
       viewsByTable: props.viewsByTable,
       formsByTable: props.formsByTable,
     });
@@ -295,8 +295,8 @@ export default function DashboardWysiwygEditor(props: Props) {
           ? "Create a form before adding a form widget."
           : kind === "chart"
             ? "Create a grouped view with at least one summary value first."
-            : kind === "automation-button"
-              ? "Create an enabled manual automation before adding this widget."
+            : kind === "workflow-button"
+              ? "Create an enabled workflow with a dashboard button trigger before adding this widget."
               : "Create a view before adding this widget.",
       );
       return;
@@ -304,7 +304,7 @@ export default function DashboardWysiwygEditor(props: Props) {
     const result = await openCellEditDialog(withSpan(initialWidget, row.cells.length === 0 ? 12 : (initialWidget.span ?? 3)), {
       tables: props.tables,
       dashboards: props.dashboards,
-      manualAutomations: props.manualAutomations,
+      dashboardWorkflows: props.dashboardWorkflows,
       fieldsByTable: props.fieldsByTable,
       viewsByTable: props.viewsByTable,
       formsByTable: props.formsByTable,
@@ -324,7 +324,7 @@ export default function DashboardWysiwygEditor(props: Props) {
       {
         tables: props.tables,
         dashboards: props.dashboards,
-        manualAutomations: props.manualAutomations,
+        dashboardWorkflows: props.dashboardWorkflows,
         fieldsByTable: props.fieldsByTable,
         viewsByTable: props.viewsByTable,
         formsByTable: props.formsByTable,

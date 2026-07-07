@@ -100,18 +100,18 @@ const ensureDashboardInBase = async (dashboardId: string, baseId: string, label:
   return row?.exists ? ok() : fail(err.badInput(`${label} must reference an alive dashboard in this base`));
 };
 
-const ensureAutomationInBase = async (automationId: string, baseId: string, label: string): Promise<Result<void>> => {
+const ensureWorkflowInBase = async (workflowId: string, baseId: string, label: string): Promise<Result<void>> => {
   const [row] = await sql<{ exists: boolean }[]>`
     SELECT EXISTS(
       SELECT 1
-      FROM grids.automations a
-      JOIN grids.bases b ON b.id = a.base_id AND b.deleted_at IS NULL
-      WHERE a.id = ${automationId}::uuid
-        AND a.base_id = ${baseId}::uuid
-        AND a.deleted_at IS NULL
+      FROM grids.workflows w
+      JOIN grids.bases b ON b.id = w.base_id AND b.deleted_at IS NULL
+      WHERE w.id = ${workflowId}::uuid
+        AND w.base_id = ${baseId}::uuid
+        AND w.deleted_at IS NULL
     ) AS exists
   `;
-  return row?.exists ? ok() : fail(err.badInput(`${label} must reference an alive automation in this base`));
+  return row?.exists ? ok() : fail(err.badInput(`${label} must reference an alive workflow in this base`));
 };
 
 const widgetsOf = (config: DashboardConfig): Widget[] => config.rows.flatMap((row) => row.cells);
@@ -203,8 +203,8 @@ const validateWidgetRefs = async (widget: Widget, baseId: string): Promise<Resul
       return ensureFormInBase(widget.formId, baseId, "form widget source");
     case "markdown":
       return ok();
-    case "automation-button":
-      return ensureAutomationInBase(widget.automationId, baseId, "automation button");
+    case "workflow-button":
+      return ensureWorkflowInBase(widget.workflowId, baseId, "workflow button");
     case "link":
       if (widget.target.kind === "dashboard") return ensureDashboardInBase(widget.target.dashboardId, baseId, "link target");
       if (widget.target.kind === "table") return ensureTableInBase(widget.target.tableId, baseId, "link target");

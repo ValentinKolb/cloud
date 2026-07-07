@@ -1,21 +1,21 @@
 import { createSignal, Show } from "solid-js";
 import { toast } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
-import type { AutomationButtonWidget as AutomationButtonWidgetConfig } from "../../../service";
+import type { WorkflowButtonWidget as WorkflowButtonWidgetConfig } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
 import type { WidgetData } from "./widget-data";
 
 type Props = {
   dashboardId: string;
-  widget: AutomationButtonWidgetConfig;
+  widget: WorkflowButtonWidgetConfig;
   data: WidgetData;
 };
 
-export default function AutomationButtonWidget(props: Props) {
+export default function WorkflowButtonWidget(props: Props) {
   const [running, setRunning] = createSignal(false);
-  const isAutomationButton = (d: WidgetData): d is Extract<WidgetData, { kind: "automation-button" }> => d.kind === "automation-button";
-  const data = () => (isAutomationButton(props.data) ? props.data : null);
-  const title = () => data()?.title || props.widget.title || "Run automation";
+  const isWorkflowButton = (d: WidgetData): d is Extract<WidgetData, { kind: "workflow-button" }> => d.kind === "workflow-button";
+  const data = () => (isWorkflowButton(props.data) ? props.data : null);
+  const title = () => data()?.title || props.widget.title || "Run workflow";
   const description = () => data()?.description ?? props.widget.description ?? null;
   const buttonLabel = () => data()?.buttonLabel || props.widget.buttonLabel || "Run";
   const disabledReason = () => data()?.disabledReason ?? null;
@@ -28,10 +28,10 @@ export default function AutomationButtonWidget(props: Props) {
       const res = await apiClient.dashboards[":dashboardId"].widgets[":widgetId"].run.$post({
         param: { dashboardId: props.dashboardId, widgetId: props.widget.id },
       });
-      if (!res.ok) throw new Error(await errorMessage(res, "Automation could not be started"));
-      toast.success("Automation started");
+      if (!res.ok) throw new Error(await errorMessage(res, "Workflow could not be started"));
+      toast.success("Workflow started");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Automation could not be started");
+      toast.error(error instanceof Error ? error.message : "Workflow could not be started");
     } finally {
       setRunning(false);
     }

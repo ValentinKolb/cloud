@@ -1,9 +1,12 @@
 import { Buffer } from "node:buffer";
+import { createHash, randomBytes } from "node:crypto";
 import {
   coreSettings,
   escapeLikePattern,
   type GotenbergConfig,
+  GotenbergRenderError,
   isUniqueViolation,
+  mergePdfs,
   type RenderHtmlToPdfResult,
   renderTemplatePdfPreview,
   type TemplatePdfPreviewResult,
@@ -18,11 +21,15 @@ import { type DateContext, dates, err, fail, ok, type Result, type ServiceError 
 import { sql } from "bun";
 import { type BarcodeFormat, BarcodeRenderError, barcodeDataUrl } from "../barcode-rendering";
 import type {
+  CreateDocumentLinkInput,
   CreateDocumentTemplateInput,
+  DocumentLink,
+  DocumentLinkTtl,
   DocumentProfile,
   DocumentRun,
   DocumentRunFolder,
   DocumentRunSummary,
+  DocumentRunSummaryList,
   DocumentTemplate,
   DocumentTemplateSummary,
   RecordSnapshot,
@@ -35,6 +42,7 @@ import { previewDslQuery } from "../query-dsl/preview";
 import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import { collectDslPlanExtraFieldTableIds } from "../query-dsl/source-plan";
 import { get as getBase } from "./bases";
+import { logAudit } from "./audit";
 import { listByTable as listFields } from "./fields";
 import { getContent as getFileContent, listForRecordField } from "./files";
 import { buildBaseGqlResolverContext } from "./gql-resolver-context";
@@ -43,6 +51,7 @@ import { get as getRecord } from "./records";
 import { insertWithShortId } from "./short-id";
 import { get as getTable } from "./tables";
 import type { Field, GridRecord, Table } from "./types";
+import { ensureRecordScanCode } from "./workflows";
 
 type DbRow = Record<string, unknown>;
 
@@ -80,6 +89,15 @@ const SNAPSHOT_MAX_RECORDS = 500;
 const DOCUMENT_QUERY_MAX_ROWS = 10_000;
 const DOCUMENT_IMAGE_MAX_BYTES = 2_000_000;
 const DOCUMENT_IMAGE_MAX_COUNT = 12;
+const WORKFLOW_RUN_DOWNLOAD_MAX_DOCUMENTS = 1_000;
+const DOCUMENT_LINK_TOKEN_PREFIX = "gdl_";
+const DOCUMENT_LINK_TOKEN_BYTES = 32;
+const DOCUMENT_LINK_TTL_MS: Record<DocumentLinkTtl, number> = {
+  "1d": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+  "30d": 30 * 24 * 60 * 60 * 1000,
+  "90d": 90 * 24 * 60 * 60 * 1000,
+};
 
 const byteLength = (value: string): number => new TextEncoder().encode(value).byteLength;
 
@@ -200,7 +218,7 @@ const liquidExpressions = function* (source: string): Generator<{ expression: st
   }
 };
 
-const validateLiquidRoots = (source: string, roots: ReadonlySet<string>, label: string): Result<void> => {
+export const validateLiquidRoots = (source: string, roots: ReadonlySet<string>, label: string): Result<void> => {
   for (const { expression, locals } of liquidExpressions(source)) {
     for (const root of collectLiquidExpressionRoots(expression)) {
       if (roots.has(root) || locals.has(root)) continue;
@@ -325,6 +343,13 @@ export type DocumentTemplateBusinessData = {
 
 type DocumentTemplateRecordContext = Pick<GridRecord, "id" | "tableId" | "version" | "data" | "createdAt" | "updatedAt">;
 type DocumentTemplateTableContext = Pick<Table, "id" | "shortId" | "name">;
+type DocumentTemplateRecordMeta = {
+  scan?: {
+    code: string;
+    url: string | null;
+    qrUrl: string | null;
+  };
+};
 
 type DocumentTemplateImage = {
   fieldId: string;
@@ -337,6 +362,40 @@ type DocumentTemplateImage = {
 };
 
 const defaultLogoDataUri = () => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(CLOUD_LOGO_SVG)}`;
+
+const appUrlForPath = (appData: DocumentTemplateAppData, path: string): string | null => {
+  if (!appData.url) return null;
+  return `${appData.url.replace(/\/+$/, "")}${path}`;
+};
+
+const buildRecordScanMeta = async (params: {
+  baseId: string;
+  tableId: string;
+  recordId: string;
+  appData: DocumentTemplateAppData;
+}): Promise<DocumentTemplateRecordMeta> => {
+  const scan = await ensureRecordScanCode({
+    baseId: params.baseId,
+    tableId: params.tableId,
+    recordId: params.recordId,
+  });
+  const url = appUrlForPath(params.appData, `/app/grids/scan?code=${encodeURIComponent(scan.code)}`);
+  return {
+    scan: {
+      code: scan.code,
+      url,
+      qrUrl: url,
+    },
+  };
+};
+
+const recordContextWithMeta = <T extends DocumentTemplateRecordContext | SnapshotRecord>(
+  record: T,
+  meta: DocumentTemplateRecordMeta = {},
+): T & { meta: DocumentTemplateRecordMeta } => ({
+  ...record,
+  meta,
+});
 
 const stringValue = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
 const nullableStringValue = (value: unknown): string | null => stringValue(value) || null;
@@ -473,6 +532,22 @@ export const renderLiquidText = async (
   }
 };
 
+export const renderLiquidPlainText = async (
+  template: string,
+  data: Record<string, unknown>,
+  maxBytes = TEMPLATE_MAX_BYTES,
+): Promise<Result<string>> => {
+  const valid = validateLiquidTemplate(template);
+  if (!valid.ok) return valid;
+  try {
+    const rendered = renderLiquidTemplate(template, data, { filters: documentLiquidFilters, escapeOutput: false });
+    if (byteLength(rendered) > maxBytes) return fail(err.badInput("rendered template is too large"));
+    return ok(rendered);
+  } catch (error) {
+    return fail(err.badInput(error instanceof Error ? error.message : "template render failed"));
+  }
+};
+
 export const documentNumberFor = (params: {
   template: Partial<Pick<DocumentTemplate, "id" | "shortId" | "name" | "numberTemplate">>;
   runId: string;
@@ -548,6 +623,7 @@ const mapRun = (row: DbRow): DocumentRun => ({
   id: row.id as string,
   shortId: row.short_id as string,
   templateId: (row.template_id as string | null) ?? null,
+  workflowRunId: (row.workflow_run_id as string | null) ?? null,
   snapshotId: row.snapshot_id as string,
   baseId: row.base_id as string,
   tableId: row.table_id as string,
@@ -560,6 +636,43 @@ const mapRun = (row: DbRow): DocumentRun => ({
   generatedBy: (row.generated_by as string | null) ?? null,
   generatedAt: (row.generated_at as Date).toISOString(),
 });
+
+const mapDocumentLink = (row: DbRow): DocumentLink => ({
+  id: row.id as string,
+  documentRunId: row.document_run_id as string,
+  baseId: row.base_id as string,
+  tableId: row.table_id as string,
+  recordId: row.record_id as string,
+  comment: (row.comment as string | null) ?? null,
+  createdBy: (row.created_by as string | null) ?? null,
+  createdAt: (row.created_at as Date).toISOString(),
+  expiresAt: (row.expires_at as Date).toISOString(),
+  revokedAt: row.revoked_at ? (row.revoked_at as Date).toISOString() : null,
+  revokedBy: (row.revoked_by as string | null) ?? null,
+  lastAccessedAt: row.last_accessed_at ? (row.last_accessed_at as Date).toISOString() : null,
+  accessCount: Number(row.access_count ?? 0),
+});
+
+const generateDocumentLinkToken = (): string => `${DOCUMENT_LINK_TOKEN_PREFIX}${randomBytes(DOCUMENT_LINK_TOKEN_BYTES).toString("base64url")}`;
+
+const hashDocumentLinkToken = (token: string): string => createHash("sha256").update(token).digest("hex");
+
+const normalizeDocumentLinkToken = (token: string): string | null => {
+  const normalized = token.trim();
+  if (!normalized.startsWith(DOCUMENT_LINK_TOKEN_PREFIX)) return null;
+  if (normalized.length < DOCUMENT_LINK_TOKEN_PREFIX.length + 32 || normalized.length > 160) return null;
+  if (!/^[A-Za-z0-9_-]+$/.test(normalized.slice(DOCUMENT_LINK_TOKEN_PREFIX.length))) return null;
+  return normalized;
+};
+
+const normalizeDocumentLinkComment = (comment: string | null | undefined): string | null => {
+  const normalized = comment?.trim() ?? "";
+  return normalized ? normalized.slice(0, 500) : null;
+};
+
+const documentLinkExpiresAt = (expiresIn: DocumentLinkTtl): Date => new Date(Date.now() + DOCUMENT_LINK_TTL_MS[expiresIn]);
+
+export const publicDocumentLinkPath = (token: string): string => `/share/grids/documents/${encodeURIComponent(token)}`;
 
 export const summarizeTemplate = (template: DocumentTemplate): DocumentTemplateSummary => ({
   id: template.id,
@@ -577,6 +690,7 @@ export const summarizeRun = (run: DocumentRun): DocumentRunSummary => ({
   id: run.id,
   shortId: run.shortId,
   templateId: run.templateId,
+  workflowRunId: run.workflowRunId,
   snapshotId: run.snapshotId,
   baseId: run.baseId,
   tableId: run.tableId,
@@ -1006,15 +1120,19 @@ export const buildTemplateInputContext = (
   template: Partial<Pick<DocumentTemplate, "id" | "shortId" | "name">> | null = null,
   generatedAt: Date = new Date(),
   dateConfig?: DateContext,
+  recordMeta: DocumentTemplateRecordMeta = {},
 ): Record<string, unknown> => ({
-  record: {
-    id: record.id,
-    tableId: record.tableId,
-    version: record.version,
-    data: record.data,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-  },
+  record: recordContextWithMeta(
+    {
+      id: record.id,
+      tableId: record.tableId,
+      version: record.version,
+      data: record.data,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    },
+    recordMeta,
+  ),
   table: {
     id: table.id,
     shortId: table.shortId,
@@ -1035,6 +1153,7 @@ export const buildRenderData = (params: {
   run?: { id?: string | null; shortId?: string | null } | null;
   images?: DocumentTemplateImage[];
   primaryImage?: DocumentTemplateImage | null;
+  recordMeta?: DocumentTemplateRecordMeta;
   app?: DocumentTemplateAppData;
   business?: DocumentTemplateBusinessData;
   documentNumber?: string;
@@ -1042,7 +1161,7 @@ export const buildRenderData = (params: {
   dateConfig?: DateContext;
   snapshot?: RecordSnapshot;
 }): Record<string, unknown> => ({
-  record: params.record,
+  record: recordContextWithMeta(params.record, params.recordMeta),
   table: params.table,
   query: {
     columns: params.columns,
@@ -1117,9 +1236,24 @@ export const buildLiveRenderData = async (params: {
 }): Promise<Result<{ source: string; columns: unknown[]; rows: Array<Record<string, unknown>>; data: Record<string, unknown> }>> => {
   const appData = params.app ?? (await buildTemplateAppData());
   const businessData = await buildTemplateBusinessData(params.table.baseId, appData);
+  const recordMeta = await buildRecordScanMeta({
+    baseId: params.table.baseId,
+    tableId: params.table.id,
+    recordId: params.record.id,
+    appData,
+  });
   const source = await renderDocumentSource(
     params.template,
-    buildTemplateInputContext(params.record, params.table, appData, businessData, params.template, params.generatedAt, params.dateConfig),
+    buildTemplateInputContext(
+      params.record,
+      params.table,
+      appData,
+      businessData,
+      params.template,
+      params.generatedAt,
+      params.dateConfig,
+      recordMeta,
+    ),
   );
   if (!source.ok) return source;
 
@@ -1140,6 +1274,7 @@ export const buildLiveRenderData = async (params: {
     rows: executed.data.rows,
     template: params.template,
     images,
+    recordMeta,
     app: appData,
     business: businessData,
     generatedAt: params.generatedAt?.toISOString(),
@@ -1165,6 +1300,7 @@ export const createRunForRecord = async (params: {
   generatedAt?: Date;
   filename?: string | null;
   tags?: string[];
+  workflowRunId?: string | null;
 }): Promise<Result<DocumentRun>> => {
   if (!params.template.enabled) return fail(err.badInput("Document template is disabled"));
   if (params.template.tableId !== params.table.id) return fail(err.badInput("Document template does not belong to the table"));
@@ -1200,6 +1336,7 @@ export const createRunForRecord = async (params: {
     dateConfig: params.dateConfig,
     filename: params.filename,
     tags: params.tags,
+    workflowRunId: params.workflowRunId,
   });
 };
 
@@ -1300,6 +1437,7 @@ export const createRun = async (params: {
   dateConfig?: DateContext;
   filename?: string | null;
   tags?: string[];
+  workflowRunId?: string | null;
 }): Promise<Result<DocumentRun>> => {
   const runId = Bun.randomUUIDv7();
   const generatedAt = params.generatedAt ?? new Date();
@@ -1331,13 +1469,14 @@ export const createRun = async (params: {
       if (!built.ok) throw built.error;
       const [inserted] = await sql<DbRow[]>`
         INSERT INTO grids.document_runs (
-          id, short_id, template_id, snapshot_id, base_id, table_id, record_id,
+          id, short_id, template_id, workflow_run_id, snapshot_id, base_id, table_id, record_id,
           document_number, filename, tags, template_snapshot, render_data, generated_by, generated_at
         )
         VALUES (
           ${runId}::uuid,
           ${shortId},
           ${params.template.id}::uuid,
+          ${params.workflowRunId ?? null}::uuid,
           ${params.snapshot.id}::uuid,
           ${params.snapshot.baseId}::uuid,
           ${params.snapshot.tableId}::uuid,
@@ -1376,6 +1515,36 @@ export const listRunsForRecord = async (tableId: string, recordId: string): Prom
     ORDER BY generated_at DESC, id DESC
   `;
   return rows.map(mapRun);
+};
+
+export const listRunsForWorkflowRun = async (
+  workflowRunId: string,
+  params: { limit?: number; offset?: number } = {},
+): Promise<DocumentRunSummaryList> => {
+  const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
+  const offset = Math.max(params.offset ?? 0, 0);
+  const [{ count } = { count: 0 }] = await sql<{ count: number }[]>`
+    SELECT count(*)::int AS count
+    FROM grids.document_runs
+    WHERE workflow_run_id = ${workflowRunId}::uuid
+  `;
+  const rows = await sql<DbRow[]>`
+    SELECT * FROM grids.document_runs
+    WHERE workflow_run_id = ${workflowRunId}::uuid
+    ORDER BY generated_at DESC, id DESC
+    LIMIT ${limit}
+    OFFSET ${offset}
+  `;
+  const nextOffset = offset + rows.length;
+  const total = count ?? 0;
+  return {
+    items: rows.map((row) => summarizeRun(mapRun(row))),
+    total,
+    limit,
+    offset,
+    hasMore: nextOffset < total,
+    nextOffset: nextOffset < total ? nextOffset : null,
+  };
 };
 
 const documentRunWhere = (params: {
@@ -1561,6 +1730,157 @@ export const updateRunMetadata = async (runId: string, input: UpdateDocumentRunM
   return ok(mapRun(row));
 };
 
+export const listDocumentLinksForRun = async (documentRunId: string): Promise<DocumentLink[]> => {
+  const rows = await sql<DbRow[]>`
+    SELECT *
+    FROM grids.document_links
+    WHERE document_run_id = ${documentRunId}::uuid
+    ORDER BY created_at DESC, id DESC
+  `;
+  return rows.map(mapDocumentLink);
+};
+
+export const getDocumentLink = async (linkId: string): Promise<DocumentLink | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT *
+    FROM grids.document_links
+    WHERE id = ${linkId}::uuid
+  `;
+  return row ? mapDocumentLink(row) : null;
+};
+
+export const createDocumentLink = async (params: {
+  run: DocumentRun;
+  input: CreateDocumentLinkInput;
+  actorId: string | null;
+  ip?: string | null;
+  userAgent?: string | null;
+}): Promise<Result<{ link: DocumentLink; token: string }>> => {
+  const token = generateDocumentLinkToken();
+  const expiresAt = documentLinkExpiresAt(params.input.expiresIn);
+  const comment = normalizeDocumentLinkComment(params.input.comment);
+  const [row] = await sql<DbRow[]>`
+    INSERT INTO grids.document_links (
+      document_run_id, base_id, table_id, record_id, token_hash, comment, created_by, expires_at
+    )
+    VALUES (
+      ${params.run.id}::uuid,
+      ${params.run.baseId}::uuid,
+      ${params.run.tableId}::uuid,
+      ${params.run.recordId}::uuid,
+      ${hashDocumentLinkToken(token)},
+      ${comment},
+      ${params.actorId}::uuid,
+      ${expiresAt}
+    )
+    RETURNING *
+  `;
+  if (!row) return fail(err.internal("Could not create document link"));
+  const link = mapDocumentLink(row);
+  await logAudit({
+    baseId: params.run.baseId,
+    tableId: params.run.tableId,
+    recordId: params.run.recordId,
+    userId: params.actorId,
+    action: "document_link.created",
+    ip: params.ip,
+    userAgent: params.userAgent,
+    diff: {
+      documentRunId: { old: null, new: params.run.id },
+      documentLinkId: { old: null, new: link.id },
+      expiresAt: { old: null, new: link.expiresAt },
+      comment: { old: null, new: link.comment },
+    },
+  });
+  return ok({ link, token });
+};
+
+export const revokeDocumentLink = async (params: {
+  linkId: string;
+  actorId: string | null;
+  ip?: string | null;
+  userAgent?: string | null;
+}): Promise<Result<DocumentLink>> => {
+  const [row] = await sql<DbRow[]>`
+    UPDATE grids.document_links
+    SET revoked_at = now(), revoked_by = ${params.actorId}::uuid
+    WHERE id = ${params.linkId}::uuid AND revoked_at IS NULL
+    RETURNING *
+  `;
+  if (!row) {
+    const existing = await getDocumentLink(params.linkId);
+    return existing ? ok(existing) : fail(err.notFound("Document link"));
+  }
+  const link = mapDocumentLink(row);
+  await logAudit({
+    baseId: link.baseId,
+    tableId: link.tableId,
+    recordId: link.recordId,
+    userId: params.actorId,
+    action: "document_link.revoked",
+    ip: params.ip,
+    userAgent: params.userAgent,
+    diff: {
+      documentRunId: { old: link.documentRunId, new: link.documentRunId },
+      documentLinkId: { old: link.id, new: link.id },
+      revokedAt: { old: null, new: link.revokedAt },
+    },
+  });
+  return ok(link);
+};
+
+export const resolveDocumentLinkDownload = async (
+  token: string,
+): Promise<Result<{ link: DocumentLink; run: DocumentRun }>> => {
+  const normalizedToken = normalizeDocumentLinkToken(token);
+  if (!normalizedToken) return fail(err.notFound("Document link"));
+
+  const [row] = await sql<DbRow[]>`
+    SELECT *
+    FROM grids.document_links
+    WHERE token_hash = ${hashDocumentLinkToken(normalizedToken)}
+      AND revoked_at IS NULL
+      AND expires_at > now()
+  `;
+  if (!row) return fail(err.notFound("Document link"));
+  const link = mapDocumentLink(row);
+  const run = await getRun(link.documentRunId);
+  if (!run) return fail(err.notFound("Document run"));
+  return ok({ link, run });
+};
+
+export const recordDocumentLinkAccess = async (
+  linkId: string,
+  audit: { ip?: string | null; userAgent?: string | null } = {},
+): Promise<Result<DocumentLink>> => {
+  const [row] = await sql<DbRow[]>`
+    UPDATE grids.document_links
+    SET access_count = access_count + 1, last_accessed_at = now()
+    WHERE id = ${linkId}::uuid
+      AND revoked_at IS NULL
+      AND expires_at > now()
+    RETURNING *
+  `;
+  if (!row) return fail(err.notFound("Document link"));
+  const link = mapDocumentLink(row);
+
+  await logAudit({
+    baseId: link.baseId,
+    tableId: link.tableId,
+    recordId: link.recordId,
+    userId: null,
+    action: "document_link.accessed",
+    ip: audit.ip,
+    userAgent: audit.userAgent,
+    diff: {
+      documentRunId: { old: link.documentRunId, new: link.documentRunId },
+      documentLinkId: { old: link.id, new: link.id },
+      accessCount: { old: link.accessCount - 1, new: link.accessCount },
+    },
+  });
+  return ok(link);
+};
+
 export const renderRunPdf = async (run: DocumentRun): Promise<Result<RenderHtmlToPdfResult>> => {
   const rendered = await renderTemplatePdfPreview({
     htmlTemplate: String(run.templateSnapshot.html ?? ""),
@@ -1574,4 +1894,49 @@ export const renderRunPdf = async (run: DocumentRun): Promise<Result<RenderHtmlT
   if (rendered.ok) return ok(rendered.pdf);
   const message = `${rendered.error.phase}: ${rendered.error.message}`;
   return fail(rendered.error.status === 400 ? err.badInput(message) : err.internal(message));
+};
+
+export const renderWorkflowRunPdf = async (
+  workflowRunId: string,
+): Promise<Result<RenderHtmlToPdfResult & { filename: string; documentCount: number }>> => {
+  const [{ count } = { count: 0 }] = await sql<{ count: number }[]>`
+    SELECT count(*)::int AS count
+    FROM grids.document_runs
+    WHERE workflow_run_id = ${workflowRunId}::uuid
+  `;
+  const total = count ?? 0;
+  if (total === 0) return fail(err.badInput("Workflow run did not generate any documents."));
+  if (total > WORKFLOW_RUN_DOWNLOAD_MAX_DOCUMENTS) {
+    return fail(err.badInput(`Combined PDF download supports at most ${WORKFLOW_RUN_DOWNLOAD_MAX_DOCUMENTS} documents per workflow run.`));
+  }
+
+  const rows = await sql<DbRow[]>`
+    SELECT * FROM grids.document_runs
+    WHERE workflow_run_id = ${workflowRunId}::uuid
+    ORDER BY generated_at ASC, id ASC
+  `;
+  const runs = rows.map(mapRun);
+  const rendered: Array<{ pdf: Uint8Array; filename: string }> = [];
+  for (const run of runs) {
+    const pdf = await renderRunPdf(run);
+    if (!pdf.ok) return fail(pdf.error);
+    rendered.push({ pdf: pdf.data.pdf, filename: run.filename });
+  }
+
+  const filename = `workflow-run-${workflowRunId.slice(0, 8)}.pdf`;
+  if (rendered.length === 1) {
+    return ok({ pdf: rendered[0]!.pdf, contentType: "application/pdf", filename: rendered[0]!.filename, documentCount: 1 });
+  }
+
+  try {
+    const merged = await mergePdfs({ files: rendered });
+    return ok({ ...merged, filename, documentCount: rendered.length });
+  } catch (error) {
+    if (error instanceof GotenbergRenderError) {
+      return fail(
+        error.code === "bad_input" || error.code === "not_configured" ? err.badInput(error.message) : err.internal(error.message),
+      );
+    }
+    throw error;
+  }
 };

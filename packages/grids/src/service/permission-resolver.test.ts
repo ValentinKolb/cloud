@@ -6,6 +6,7 @@ const tableId = "table-1";
 const viewId = "view-1";
 const documentTemplateId = "template-1";
 const dashboardId = "dash-1";
+const workflowId = "workflow-1";
 
 // Most tests use the "user" tier (most-specific principal). Cross-tier
 // behaviour gets its own block at the bottom.
@@ -108,6 +109,21 @@ describe("resolveEffectivePermission — dashboard target", () => {
   });
 });
 
+describe("resolveEffectivePermission — workflow target", () => {
+  test("workflow grant shadows base grant for workflow target", () => {
+    const grants: Grant[] = [
+      u({ resourceType: "base", resourceId: baseId, level: "admin" }),
+      u({ resourceType: "workflow", resourceId: workflowId, level: "write" }),
+    ];
+    expect(resolveEffectivePermission(grants, { baseId, workflowId })).toBe("write");
+  });
+
+  test("workflow inherits from base when no workflow grant exists", () => {
+    const grants: Grant[] = [u({ resourceType: "base", resourceId: baseId, level: "read" })];
+    expect(resolveEffectivePermission(grants, { baseId, workflowId })).toBe("read");
+  });
+});
+
 describe("resolveEffectivePermission — principal tier", () => {
   test("user tier wins over group tier at same resource", () => {
     const grants: Grant[] = [
@@ -115,6 +131,14 @@ describe("resolveEffectivePermission — principal tier", () => {
       { resourceType: "table", resourceId: tableId, level: "admin", principalTier: "group" },
     ];
     expect(resolveEffectivePermission(grants, { baseId, tableId })).toBe("none");
+  });
+
+  test("service account tier wins over user tier at same resource", () => {
+    const grants: Grant[] = [
+      { resourceType: "workflow", resourceId: workflowId, level: "write", principalTier: "serviceAccount" },
+      { resourceType: "workflow", resourceId: workflowId, level: "none", principalTier: "user" },
+    ];
+    expect(resolveEffectivePermission(grants, { baseId, workflowId })).toBe("write");
   });
 
   test("any deny in user tier beats any allow in same tier", () => {

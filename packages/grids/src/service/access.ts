@@ -11,6 +11,7 @@ const TABLE_BY_RESOURCE = {
   form: "grids.form_access",
   documentTemplate: "grids.document_template_access",
   dashboard: "grids.dashboard_access",
+  workflow: "grids.workflow_access",
 } as const;
 
 type DbAccessRow = {
@@ -104,7 +105,8 @@ const resourceIdFromBinding = (binding: AccessBinding): string => {
   if (binding.resourceType === "view") return binding.viewId;
   if (binding.resourceType === "form") return binding.formId;
   if (binding.resourceType === "documentTemplate") return binding.documentTemplateId;
-  return binding.dashboardId;
+  if (binding.resourceType === "dashboard") return binding.dashboardId;
+  return binding.workflowId;
 };
 
 const auditScopeFromBinding = (binding: AccessBinding): { baseId: string; tableId: string | null } => ({
@@ -207,6 +209,8 @@ const insertAccessBinding = async (
     await client`INSERT INTO grids.form_access (form_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
   } else if (resourceType === "documentTemplate") {
     await client`INSERT INTO grids.document_template_access (template_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
+  } else if (resourceType === "workflow") {
+    await client`INSERT INTO grids.workflow_access (workflow_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
   } else {
     await client`INSERT INTO grids.dashboard_access (dashboard_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
   }
@@ -340,6 +344,19 @@ const listAccess = async (resourceType: keyof typeof TABLE_BY_RESOURCE, resource
       WHERE dta.template_id = ${resourceId}::uuid
       ORDER BY a.created_at
     `;
+  } else if (resourceType === "workflow") {
+    rows = await sql<DbAccessRow[]>`
+      SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
+             a.permission, a.created_at,
+             COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
+      FROM grids.workflow_access wa
+      JOIN auth.access a ON a.id = wa.access_id
+      LEFT JOIN auth.users u ON u.id = a.user_id
+      LEFT JOIN auth.groups g ON g.id = a.group_id
+      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
+      WHERE wa.workflow_id = ${resourceId}::uuid
+      ORDER BY a.created_at
+    `;
   } else {
     rows = await sql<DbAccessRow[]>`
       SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
@@ -363,6 +380,7 @@ export const listViewAccess = (viewId: string) => listAccess("view", viewId);
 export const listFormAccess = (formId: string) => listAccess("form", formId);
 export const listDocumentTemplateAccess = (templateId: string) => listAccess("documentTemplate", templateId);
 export const listDashboardAccess = (dashboardId: string) => listAccess("dashboard", dashboardId);
+export const listWorkflowAccess = (workflowId: string) => listAccess("workflow", workflowId);
 
 export const listAccessForBaseTree = async (baseId: string): Promise<ScopedAccessEntry[]> => {
   const rows = await sql<
@@ -520,6 +538,30 @@ export const listAccessForBaseTree = async (baseId: string): Promise<ScopedAcces
       LEFT JOIN auth.groups g ON g.id = a.group_id
       LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
       WHERE d.base_id = ${baseId}::uuid AND d.deleted_at IS NULL
+
+      UNION ALL
+
+      SELECT
+        'workflow' AS resource_type,
+        w.id AS resource_id,
+        w.name AS resource_name,
+        NULL::uuid AS table_id,
+        NULL::text AS table_name,
+        a.id AS access_id,
+        a.user_id,
+        a.group_id,
+        a.service_account_id,
+        a.authenticated_only,
+        a.permission,
+        a.created_at,
+        COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
+      FROM grids.workflow_access wa
+      JOIN grids.workflows w ON w.id = wa.workflow_id
+      JOIN auth.access a ON a.id = wa.access_id
+      LEFT JOIN auth.users u ON u.id = a.user_id
+      LEFT JOIN auth.groups g ON g.id = a.group_id
+      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
+      WHERE w.base_id = ${baseId}::uuid AND w.deleted_at IS NULL
     ) entries
     ORDER BY
       CASE resource_type
@@ -528,7 +570,8 @@ export const listAccessForBaseTree = async (baseId: string): Promise<ScopedAcces
         WHEN 'view' THEN 2
         WHEN 'form' THEN 3
         WHEN 'documentTemplate' THEN 4
-        ELSE 5
+        WHEN 'dashboard' THEN 5
+        ELSE 6
       END,
       resource_name,
       created_at
@@ -612,7 +655,8 @@ export type AccessBinding =
   | { resourceType: "view"; baseId: string; tableId: string; viewId: string }
   | { resourceType: "form"; baseId: string; tableId: string; formId: string }
   | { resourceType: "documentTemplate"; baseId: string; tableId: string; documentTemplateId: string }
-  | { resourceType: "dashboard"; baseId: string; dashboardId: string };
+  | { resourceType: "dashboard"; baseId: string; dashboardId: string }
+  | { resourceType: "workflow"; baseId: string; workflowId: string };
 
 export const resolveAccessBinding = async (accessId: string, client: SqlClient = sql): Promise<AccessBinding | null> => {
   const [baseRow] = await client<{ base_id: string }[]>`
@@ -689,6 +733,20 @@ export const resolveAccessBinding = async (accessId: string, client: SqlClient =
       resourceType: "dashboard",
       baseId: dashboardRow.base_id,
       dashboardId: dashboardRow.dashboard_id,
+    };
+  }
+
+  const [workflowRow] = await client<{ workflow_id: string; base_id: string }[]>`
+    SELECT wa.workflow_id, w.base_id
+    FROM grids.workflow_access wa
+    JOIN grids.workflows w ON w.id = wa.workflow_id
+    WHERE wa.access_id = ${accessId}::uuid
+  `;
+  if (workflowRow) {
+    return {
+      resourceType: "workflow",
+      baseId: workflowRow.base_id,
+      workflowId: workflowRow.workflow_id,
     };
   }
 

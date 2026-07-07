@@ -1,11 +1,10 @@
 import * as access from "./access";
 import * as audit from "./audit";
-import * as automations from "./automations";
-import { automationRuntime } from "./automations-runtime";
 import * as baseCatalog from "./base-catalog";
 import * as bases from "./bases";
 import * as dashboards from "./dashboards";
 import * as documents from "./documents";
+import * as emailTemplates from "./email-templates";
 import * as exporter from "./export";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
 import * as fields from "./fields";
@@ -20,6 +19,9 @@ import * as relationsModule from "./relations";
 import * as tables from "./tables";
 import * as templates from "./templates";
 import * as views from "./views";
+import * as workflowRuntime from "./workflow-runtime";
+import { workflowTriggerRuntime } from "./workflow-trigger-runtime";
+import * as workflows from "./workflows";
 
 export const gridsService = {
   base: {
@@ -97,6 +99,7 @@ export const gridsService = {
     listForForm: access.listFormAccess,
     listForDocumentTemplate: access.listDocumentTemplateAccess,
     listForDashboard: access.listDashboardAccess,
+    listForWorkflow: access.listWorkflowAccess,
     updateLevel: access.updateAccessLevel,
     revoke: access.revokeAccess,
     resolveBinding: access.resolveAccessBinding,
@@ -147,12 +150,33 @@ export const gridsService = {
     createRun: documents.createRun,
     createRunForRecord: documents.createRunForRecord,
     listRunsForRecord: documents.listRunsForRecord,
+    listRunsForWorkflowRun: documents.listRunsForWorkflowRun,
     listRunsForTemplate: documents.listRunsForTemplate,
     browseRunsForTemplate: documents.browseRunsForTemplate,
     summarizeRun: documents.summarizeRun,
     getRun: documents.getRun,
     updateRunMetadata: documents.updateRunMetadata,
+    listDocumentLinksForRun: documents.listDocumentLinksForRun,
+    getDocumentLink: documents.getDocumentLink,
+    createDocumentLink: documents.createDocumentLink,
+    revokeDocumentLink: documents.revokeDocumentLink,
+    resolveDocumentLinkDownload: documents.resolveDocumentLinkDownload,
+    recordDocumentLinkAccess: documents.recordDocumentLinkAccess,
+    publicDocumentLinkPath: documents.publicDocumentLinkPath,
     renderRunPdf: documents.renderRunPdf,
+    renderWorkflowRunPdf: documents.renderWorkflowRunPdf,
+  },
+  emailTemplate: {
+    listForBase: emailTemplates.listForBase,
+    get: emailTemplates.get,
+    getByShortId: emailTemplates.getByShortId,
+    getByIdOrShortId: emailTemplates.getByIdOrShortId,
+    getByRef: emailTemplates.getByRef,
+    create: emailTemplates.create,
+    update: emailTemplates.update,
+    remove: emailTemplates.remove,
+    render: emailTemplates.renderEmailTemplate,
+    validateWrite: emailTemplates.validateEmailTemplateWrite,
   },
   form: {
     listForTable: forms.listForTable,
@@ -174,19 +198,40 @@ export const gridsService = {
     getContent: files.getContent,
     remove: files.remove,
   },
-  automation: {
-    listForBase: automations.listForBase,
-    listScheduledEnabled: automations.listScheduledEnabled,
-    get: automations.get,
-    create: automations.create,
-    update: automations.update,
-    remove: automations.remove,
-    listRuns: automations.listRuns,
-    execute: automations.execute,
-    markStaleRunningRunsFailed: automations.markStaleRunningRunsFailed,
-    purgeOldRuns: automations.purgeOldRuns,
+  workflow: {
+    listForBase: workflows.listForBase,
+    listEnabledForBase: workflows.listEnabledForBase,
+    listScheduledEnabled: workflows.listScheduledEnabled,
+    listRecordEventEnabled: workflows.listRecordEventEnabled,
+    get: workflows.get,
+    getByShortId: workflows.getByShortId,
+    getByIdOrShortId: workflows.getByIdOrShortId,
+    create: workflows.create,
+    update: workflows.update,
+    remove: workflows.remove,
+    createRun: workflows.createRun,
+    startRun: workflows.startRun,
+    finishRun: workflows.finishRun,
+    listRuns: workflows.listRuns,
+    listRunsPage: workflows.listRunsPage,
+    listEmailDeliveriesPage: workflows.listEmailDeliveriesPage,
+    runStats: workflows.runStats,
+    getRun: workflows.getRun,
+    createStepRun: workflows.createStepRun,
+    finishStepRun: workflows.finishStepRun,
+    listStepRuns: workflows.listStepRuns,
+    getOrCreateRecordScanCode: workflows.getOrCreateRecordScanCode,
+    ensureRecordScanCode: workflows.ensureRecordScanCode,
+    getRecordScanCode: workflows.getRecordScanCode,
+    recordMatchesWorkflowFilter: workflows.recordMatchesWorkflowFilter,
+    execute: workflowRuntime.execute,
+    executePreparedRun: workflowRuntime.executePreparedRun,
+    prepareBulkSelection: workflowRuntime.prepareBulkSelection,
+    executeScanner: workflowRuntime.executeScanner,
+    executeBulkSelection: workflowRuntime.executeBulkSelection,
+    executeRecordEvent: workflowRuntime.executeRecordEvent,
   },
-  automationRuntime,
+  workflowTriggerRuntime,
   template: {
     list: templates.list,
     get: templates.get,
@@ -212,7 +257,6 @@ export const gridsService = {
 
 export type {
   AggregationSpec,
-  AutomationButtonWidget,
   ChartWidget,
   Dashboard,
   DashboardConfig,
@@ -228,6 +272,16 @@ export type {
   ViewWidget,
   Widget,
   WidgetFormat,
+  Workflow,
+  WorkflowButtonWidget,
+  WorkflowDefinition,
+  WorkflowInput,
+  WorkflowInputType,
+  WorkflowRun,
+  WorkflowStep,
+  WorkflowStepRun,
+  WorkflowTriggerKind,
+  WorkflowTriggers,
 } from "../contracts";
 export type { AggKind, AggregateRequest } from "./aggregate-compiler";
 export type { FieldDependent } from "./field-dependents";
@@ -239,12 +293,6 @@ export type { SortSpec } from "./sort-compiler";
 export type {
   AuditAction,
   AuditEntry,
-  Automation,
-  AutomationAction,
-  AutomationPayloadConfig,
-  AutomationRun,
-  AutomationSubject,
-  AutomationTrigger,
   Base,
   Field,
   GridFile,
@@ -258,8 +306,6 @@ export type { ColumnSpec, FormatSpec, RecordQuery, View } from "./views";
 export {
   access,
   audit,
-  automationRuntime,
-  automations,
   bases,
   dashboards,
   documents,
@@ -274,4 +320,7 @@ export {
   tables,
   templates,
   views,
+  workflowRuntime,
+  workflows,
+  workflowTriggerRuntime,
 };

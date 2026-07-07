@@ -11,17 +11,17 @@ const LEVEL_RANK: Record<PermissionLevel, number> = {
 
 const LEVEL_BY_RANK: PermissionLevel[] = ["none", "read", "write", "admin"];
 
-export type ResourceType = "base" | "table" | "view" | "form" | "documentTemplate" | "dashboard";
+export type ResourceType = "base" | "table" | "view" | "form" | "documentTemplate" | "dashboard" | "workflow";
 
 /**
  * Principal tier — captures HOW the loaded grant matched the user.
- * "user" means an explicit grant on this user's UUID; "group" means a
- * grant on a group the user belongs to; "authenticated" is the
- * "any signed-in user" sentinel; "public" is "anyone, anonymous
+ * "serviceAccount" and "user" mean explicit grants on the actor itself;
+ * "group" means a grant on a group the user belongs to; "authenticated"
+ * is the "any signed-in user" sentinel; "public" is "anyone, anonymous
  * included". Tier specificity decreases left-to-right; a deny at a
  * MORE-specific tier shadows allow at a less-specific tier.
  */
-export type PrincipalTier = "user" | "group" | "authenticated" | "public";
+export type PrincipalTier = "serviceAccount" | "user" | "group" | "authenticated" | "public";
 
 export type Grant = {
   resourceType: ResourceType;
@@ -36,9 +36,10 @@ export type ResolveTarget =
   | { baseId: string; tableId: string; viewId: string }
   | { baseId: string; tableId: string; formId: string }
   | { baseId: string; tableId: string; documentTemplateId: string }
-  | { baseId: string; dashboardId: string };
+  | { baseId: string; dashboardId: string }
+  | { baseId: string; workflowId: string };
 
-const PRINCIPAL_TIERS: PrincipalTier[] = ["user", "group", "authenticated", "public"];
+const PRINCIPAL_TIERS: PrincipalTier[] = ["serviceAccount", "user", "group", "authenticated", "public"];
 
 /**
  * Resolves a single resource's effective level by walking principal
@@ -90,6 +91,10 @@ export const resolveEffectivePermission = (grants: Grant[], target: ResolveTarge
 
   if ("dashboardId" in target) {
     const lvl = tryScope("dashboard", target.dashboardId);
+    if (lvl !== null) return lvl;
+  }
+  if ("workflowId" in target) {
+    const lvl = tryScope("workflow", target.workflowId);
     if (lvl !== null) return lvl;
   }
   if ("documentTemplateId" in target) {
@@ -145,14 +150,17 @@ type DbRow = Record<string, unknown>;
 export const loadGrantsForUser = async (params: {
   userId: string | null;
   userGroups: string[];
+  serviceAccountId?: string | null;
   baseId: string;
   tableId?: string | null;
   viewId?: string | null;
   formId?: string | null;
   documentTemplateId?: string | null;
   dashboardId?: string | null;
+  workflowId?: string | null;
 }): Promise<Grant[]> => {
   const userId = params.userId;
+  const serviceAccountId = params.serviceAccountId ?? null;
   // Use the shared helper — it tolerates non-array inputs (bun.sql surfaces
   // empty uuid[] columns as "{}" string, and the admin user has no groups).
   const groups = toPgUuidArray(params.userGroups);
@@ -161,12 +169,14 @@ export const loadGrantsForUser = async (params: {
   const formId = params.formId ?? null;
   const documentTemplateId = params.documentTemplateId ?? null;
   const dashboardId = params.dashboardId ?? null;
+  const workflowId = params.workflowId ?? null;
 
   // CASE expression that classifies each auth.access row into one of
   // the four principal tiers. Mirrors the WHERE-clause filter so the
   // tier label corresponds to the matching condition. Same SQL fragment
   // is reused per resource leg.
   const tierExpr = sql`CASE
+    WHEN a.service_account_id IS NOT NULL THEN 'serviceAccount'
     WHEN a.user_id IS NOT NULL THEN 'user'
     WHEN a.group_id IS NOT NULL THEN 'group'
     WHEN a.authenticated_only = TRUE THEN 'authenticated'
@@ -174,9 +184,10 @@ export const loadGrantsForUser = async (params: {
   END`;
 
   const principalMatch = sql`(
-    a.user_id = ${userId}::uuid
+    a.service_account_id = ${serviceAccountId}::uuid
+    OR a.user_id = ${userId}::uuid
     OR a.group_id = ANY(${groups}::uuid[])
-    OR (a.authenticated_only = TRUE AND ${userId}::uuid IS NOT NULL)
+    OR (a.authenticated_only = TRUE AND (${userId}::uuid IS NOT NULL OR ${serviceAccountId}::uuid IS NOT NULL))
     OR (a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = FALSE)
   )`;
 
@@ -220,6 +231,13 @@ export const loadGrantsForUser = async (params: {
     FROM grids.dashboard_access da
     JOIN auth.access a ON a.id = da.access_id
     WHERE da.dashboard_id = ${dashboardId}::uuid AND ${principalMatch}
+
+    UNION ALL
+
+    SELECT 'workflow'::text, wa.workflow_id::text, a.permission, ${tierExpr}
+    FROM grids.workflow_access wa
+    JOIN auth.access a ON a.id = wa.access_id
+    WHERE wa.workflow_id = ${workflowId}::uuid AND ${principalMatch}
   `;
 
   return rows.map((row) => ({

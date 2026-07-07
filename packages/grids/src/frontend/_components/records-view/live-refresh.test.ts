@@ -27,7 +27,7 @@ describe("records live refresh helpers", () => {
     expect(isLiveRecordEventForTable(event, "table-1")).toBe(true);
     expect(isLiveRecordEventForTable({ ...event, type: "record.restored" }, "table-1")).toBe(true);
     expect(isLiveRecordEventForTable(event, "table-2")).toBe(false);
-    expect(isLiveRecordEventForTable({ ...event, type: "automation.run" }, "table-1")).toBe(false);
+    expect(isLiveRecordEventForTable({ ...event, type: "workflow.run" }, "table-1")).toBe(false);
     expect(isLiveRecordEventForTable({ ...event, v: 2 }, "table-1")).toBe(false);
   });
 

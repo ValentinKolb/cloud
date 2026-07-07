@@ -34,8 +34,6 @@ export type PurgeReport = {
   viewsPurged: number;
   formsPurged: number;
   dashboardsPurged: number;
-  automationsPurged: number;
-  automationRunsPurged: number;
   /** Number of records whose data lost zombie field-keys. */
   zombieFieldDataStripped: number;
 };
@@ -55,13 +53,9 @@ export type PurgeReport = {
  *
  * Safe to run repeatedly. Counts only reflect this run's deletions.
  */
-export const purgeSoftDeleted = async (
-  opts: { gracePeriodDays?: number; automationRunRetentionDays?: number } = {},
-): Promise<PurgeReport> => {
+export const purgeSoftDeleted = async (opts: { gracePeriodDays?: number } = {}): Promise<PurgeReport> => {
   const days = opts.gracePeriodDays ?? 30;
   const cutoff = sql`now() - (${days} || ' days')::interval`;
-  const runRetentionDays = opts.automationRunRetentionDays ?? 90;
-  const runCutoff = sql`now() - (${runRetentionDays} || ' days')::interval`;
 
   // ── 1. zombie field-data ────────────────────────────────────────────
   // For each field whose tombstone crossed the grace line, strip its
@@ -107,10 +101,6 @@ export const purgeSoftDeleted = async (
     DELETE FROM grids.dashboards
     WHERE deleted_at IS NOT NULL AND deleted_at < ${cutoff}
   `;
-  const automationsRes = await sql`
-    DELETE FROM grids.automations
-    WHERE deleted_at IS NOT NULL AND deleted_at < ${cutoff}
-  `;
   const tablesRes = await sql`
     DELETE FROM grids.tables
     WHERE deleted_at IS NOT NULL AND deleted_at < ${cutoff}
@@ -118,10 +108,6 @@ export const purgeSoftDeleted = async (
   const basesRes = await sql`
     DELETE FROM grids.bases
     WHERE deleted_at IS NOT NULL AND deleted_at < ${cutoff}
-  `;
-  const automationRunsRes = await sql`
-    DELETE FROM grids.automation_runs
-    WHERE created_at < ${runCutoff}
   `;
 
   return {
@@ -132,8 +118,6 @@ export const purgeSoftDeleted = async (
     viewsPurged: viewsRes.count ?? 0,
     formsPurged: formsRes.count ?? 0,
     dashboardsPurged: dashboardsRes.count ?? 0,
-    automationsPurged: automationsRes.count ?? 0,
-    automationRunsPurged: automationRunsRes.count ?? 0,
     zombieFieldDataStripped: stripped,
   };
 };

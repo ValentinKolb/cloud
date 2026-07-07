@@ -400,6 +400,45 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_document_template_access_access ON grids.document_template_access(access_id)`.simple();
   console.log("  ✓ grids.document_template_access");
 
+  // ──────────────────────────────────────────────────────────────────
+  // email templates
+  // ──────────────────────────────────────────────────────────────────
+  // Email templates are base-level Liquid templates used by workflows. They
+  // intentionally stay separate from document templates: no GQL source, no PDF
+  // page parts, no record snapshot ownership.
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.email_templates (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
+      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      subject TEXT NOT NULL,
+      html TEXT NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      position INT NOT NULL DEFAULT 0,
+      created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT email_templates_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
+      CONSTRAINT email_templates_subject_length_chk CHECK (length(subject) BETWEEN 1 AND 1000),
+      CONSTRAINT email_templates_html_length_chk CHECK (length(html) BETWEEN 1 AND 200000)
+    )
+  `.simple();
+  await sql`ALTER TABLE grids.email_templates DROP CONSTRAINT IF EXISTS email_templates_text_length_chk`.simple();
+  await sql`ALTER TABLE grids.email_templates DROP COLUMN IF EXISTS text`.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_email_templates_base_live
+    ON grids.email_templates(base_id, position) WHERE deleted_at IS NULL
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_email_templates_short_id
+    ON grids.email_templates(base_id, short_id) WHERE deleted_at IS NULL
+  `.simple();
+  console.log("  ✓ grids.email_templates");
+
   await sql`
     CREATE TABLE IF NOT EXISTS grids.record_snapshots (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -423,6 +462,7 @@ export const migrate = async (): Promise<void> => {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       short_id TEXT NOT NULL,
       template_id UUID,
+      workflow_run_id UUID,
       snapshot_id UUID NOT NULL REFERENCES grids.record_snapshots(id) ON DELETE RESTRICT,
       base_id UUID NOT NULL,
       table_id UUID NOT NULL,
@@ -439,6 +479,7 @@ export const migrate = async (): Promise<void> => {
       CONSTRAINT document_runs_tags_count_chk CHECK (cardinality(tags) <= 20)
     )
   `.simple();
+  await sql`ALTER TABLE grids.document_runs ADD COLUMN IF NOT EXISTS workflow_run_id UUID`.simple();
   await sql`ALTER TABLE grids.document_runs ADD COLUMN IF NOT EXISTS filename TEXT`.simple();
   await sql`
     UPDATE grids.document_runs
@@ -486,6 +527,11 @@ export const migrate = async (): Promise<void> => {
     ON grids.document_runs(table_id, record_id, generated_at DESC)
   `.simple();
   await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_document_runs_workflow_run
+    ON grids.document_runs(workflow_run_id, generated_at DESC, id DESC)
+    WHERE workflow_run_id IS NOT NULL
+  `.simple();
+  await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_document_runs_tags
     ON grids.document_runs USING GIN(tags)
   `.simple();
@@ -494,6 +540,41 @@ export const migrate = async (): Promise<void> => {
     ON grids.document_runs(table_id, short_id)
   `.simple();
   console.log("  ✓ grids.document_runs");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.document_links (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      document_run_id UUID NOT NULL REFERENCES grids.document_runs(id) ON DELETE CASCADE,
+      base_id UUID NOT NULL,
+      table_id UUID NOT NULL,
+      record_id UUID NOT NULL,
+      token_hash TEXT NOT NULL,
+      comment TEXT,
+      created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ,
+      revoked_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      last_accessed_at TIMESTAMPTZ,
+      access_count INTEGER NOT NULL DEFAULT 0,
+      CONSTRAINT document_links_comment_length_chk CHECK (comment IS NULL OR length(comment) <= 500),
+      CONSTRAINT document_links_access_count_chk CHECK (access_count >= 0)
+    )
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_document_links_token_hash
+    ON grids.document_links(token_hash)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_document_links_run
+    ON grids.document_links(document_run_id, created_at DESC)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_document_links_active
+    ON grids.document_links(expires_at)
+    WHERE revoked_at IS NULL
+  `.simple();
+  console.log("  ✓ grids.document_links");
 
   // ──────────────────────────────────────────────────────────────────
   // forms — record-entry surface for internal users + optional public URLs
@@ -640,75 +721,161 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ grids.dashboard_access");
 
   // ──────────────────────────────────────────────────────────────────
-  // automations — base-level triggers/actions
+  // workflows — YAML-authored base-level runtime definitions
   // ──────────────────────────────────────────────────────────────────
-  // Trigger/action stay JSONB discriminants so automation capabilities can
-  // evolve without DDL churn.
+  // `source` is the user-authored YAML. `compiled` is the validated typed AST
+  // produced by the backend parser; runtime workers execute only `compiled`.
   await sql`
-    CREATE TABLE IF NOT EXISTS grids.automations (
+    CREATE TABLE IF NOT EXISTS grids.workflows (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       short_id TEXT NOT NULL,
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT,
-      trigger JSONB NOT NULL DEFAULT '{"kind":"manual"}'::jsonb,
-      action JSONB NOT NULL,
-      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-      webhook_secret TEXT,
-      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      source TEXT NOT NULL,
+      compiled JSONB NOT NULL DEFAULT '{}'::jsonb,
+      enabled BOOLEAN NOT NULL DEFAULT FALSE,
       position INT NOT NULL DEFAULT 0,
       owner_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT automations_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
+      CONSTRAINT workflows_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
+      CONSTRAINT workflows_source_length_chk CHECK (length(source) BETWEEN 1 AND 200000)
     )
   `.simple();
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_grids_automations_base_live
-    ON grids.automations(base_id, position) WHERE deleted_at IS NULL
+    CREATE INDEX IF NOT EXISTS idx_grids_workflows_base_live
+    ON grids.workflows(base_id, position) WHERE deleted_at IS NULL
   `.simple();
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_grids_automations_schedule_live
-    ON grids.automations(base_id, enabled) WHERE deleted_at IS NULL AND trigger->>'kind' = 'schedule'
+    CREATE INDEX IF NOT EXISTS idx_grids_workflows_enabled_live
+    ON grids.workflows(base_id, enabled) WHERE deleted_at IS NULL
   `.simple();
   await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_automations_short_id
-    ON grids.automations(base_id, short_id) WHERE deleted_at IS NULL
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_workflows_short_id
+    ON grids.workflows(base_id, short_id) WHERE deleted_at IS NULL
   `.simple();
-  console.log("  ✓ grids.automations");
+  console.log("  ✓ grids.workflows");
 
   await sql`
-    CREATE TABLE IF NOT EXISTS grids.automation_runs (
+    CREATE TABLE IF NOT EXISTS grids.workflow_access (
+      workflow_id UUID NOT NULL REFERENCES grids.workflows(id) ON DELETE CASCADE,
+      access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
+      PRIMARY KEY (workflow_id, access_id)
+    )
+  `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_grids_workflow_access_access ON grids.workflow_access(access_id)`.simple();
+  console.log("  ✓ grids.workflow_access");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.workflow_runs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      automation_id UUID NOT NULL REFERENCES grids.automations(id) ON DELETE CASCADE,
+      workflow_id UUID REFERENCES grids.workflows(id) ON DELETE SET NULL,
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
-      -- Intentionally not FK'd: run history should survive subject table/record hard-deletes.
-      table_id UUID,
-      record_id UUID,
-      event TEXT NOT NULL,
-      trigger JSONB NOT NULL,
-      subject JSONB NOT NULL,
-      input JSONB,
-      status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
-      target_host TEXT,
-      http_status INT,
-      duration_ms INT,
+      actor_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      service_account_id UUID REFERENCES auth.service_accounts(id) ON DELETE SET NULL,
+      trigger_kind TEXT NOT NULL CHECK (trigger_kind IN ('form', 'api', 'scanner', 'bulkSelection', 'dashboardButton', 'schedule', 'recordEvent')),
+      trigger_input JSONB,
+      resolved_input JSONB,
+      trigger_key TEXT,
+      status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'canceled')),
       error TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      started_at TIMESTAMPTZ,
+      heartbeat_at TIMESTAMPTZ,
+      lease_expires_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ
+    )
+  `.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS trigger_key TEXT`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ`.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_runs_workflow
+    ON grids.workflow_runs(workflow_id, created_at DESC) WHERE workflow_id IS NOT NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_runs_base
+    ON grids.workflow_runs(base_id, created_at DESC)
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_workflow_runs_trigger_key
+    ON grids.workflow_runs(workflow_id, trigger_kind, trigger_key)
+    WHERE trigger_key IS NOT NULL AND workflow_id IS NOT NULL
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'document_runs_workflow_run_id_fkey' AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.document_runs
+        ADD CONSTRAINT document_runs_workflow_run_id_fkey
+        FOREIGN KEY (workflow_run_id) REFERENCES grids.workflow_runs(id) ON DELETE SET NULL;
+      END IF;
+    END $$;
+  `.simple();
+  console.log("  ✓ grids.workflow_runs");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.workflow_step_runs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      run_id UUID NOT NULL REFERENCES grids.workflow_runs(id) ON DELETE CASCADE,
+      step_index INT NOT NULL CHECK (step_index >= 0),
+      step_path TEXT NOT NULL,
+      resume_key TEXT,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'canceled')),
+      input JSONB,
+      output JSONB,
+      error TEXT,
+      duration_ms INT,
       started_at TIMESTAMPTZ,
       finished_at TIMESTAMPTZ
     )
   `.simple();
+  await sql`ALTER TABLE grids.workflow_step_runs ADD COLUMN IF NOT EXISTS resume_key TEXT`.simple();
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_grids_automation_runs_automation
-    ON grids.automation_runs(automation_id, created_at DESC)
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_step_runs_run
+    ON grids.workflow_step_runs(run_id, step_index)
   `.simple();
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_grids_automation_runs_base
-    ON grids.automation_runs(base_id, created_at DESC)
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_workflow_step_runs_resume
+    ON grids.workflow_step_runs(run_id, resume_key)
+    WHERE resume_key IS NOT NULL
   `.simple();
-  console.log("  ✓ grids.automation_runs");
+  console.log("  ✓ grids.workflow_step_runs");
+
+  // Opaque scan codes are lazy-generated record lookup keys. A code does not
+  // grant access; scanner workflows still resolve and run through permissions.
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.record_scan_codes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
+      record_id UUID NOT NULL REFERENCES grids.records(id) ON DELETE CASCADE,
+      code TEXT NOT NULL,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      rotated_at TIMESTAMPTZ,
+      CONSTRAINT record_scan_codes_code_length_chk CHECK (length(code) BETWEEN 16 AND 200)
+    )
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_record_scan_codes_code
+    ON grids.record_scan_codes(code)
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_record_scan_codes_active_record
+    ON grids.record_scan_codes(record_id) WHERE active = TRUE
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_record_scan_codes_table
+    ON grids.record_scan_codes(table_id, record_id) WHERE active = TRUE
+  `.simple();
+  console.log("  ✓ grids.record_scan_codes");
 
   console.log("  ✓ grids schema ready");
 };

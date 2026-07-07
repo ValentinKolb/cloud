@@ -52,7 +52,7 @@ export type TableHeader = {
 // fields configured, the page grew to several screens tall and the user
 // lost track of where they were while scrolling through configs. A modal
 // gives clear focus, a fixed viewport, and a single visible thing at a
-// time — matches Airtable's mental model.
+// time — matches Airtable's editing behavior.
 //
 // The dialog body re-uses the existing `FieldEditor` component verbatim;
 // only the chrome (header, panel sizing, backdrop) lives here. Save /

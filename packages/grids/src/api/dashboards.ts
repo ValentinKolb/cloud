@@ -1,20 +1,19 @@
-import { Hono, type Context } from "hono";
-import { describeRoute } from "hono-openapi";
-import { auth, v, respond, jsonResponse, getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, getDateConfig, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
+import { type Context, Hono } from "hono";
+import { describeRoute } from "hono-openapi";
 import {
-  DashboardSchema,
-  DashboardListSchema,
   CreateDashboardSchema,
+  type Dashboard,
+  DashboardListSchema,
+  DashboardSchema,
   UpdateDashboardSchema,
   WidgetSchema,
-  AutomationRunSchema,
-  type Automation,
-  type Dashboard,
+  WorkflowRunSchema,
 } from "../contracts";
 import { gridsService } from "../service";
 import { resolveWidgetData } from "../service/dashboard-widget-data";
-import { gateAt, resolveWithGrants, hasExplicitGrant } from "./permissions";
+import { gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
 
 // =============================================================================
 // /api/grids/dashboards
@@ -175,9 +174,9 @@ const app = new Hono<AuthContext>()
     "/:dashboardId/widgets/:widgetId/run",
     describeRoute({
       tags: ["Grids:Dashboard"],
-      summary: "Run a dashboard automation button",
+      summary: "Run a dashboard workflow button",
       responses: {
-        200: jsonResponse(AutomationRunSchema, "Run"),
+        200: jsonResponse(WorkflowRunSchema, "Run"),
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -191,22 +190,24 @@ const app = new Hono<AuthContext>()
       if (!(await canReadDashboardForRequest(c, dashboard))) return c.json({ message: "Dashboard not found" }, 404);
 
       const widget = dashboard.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === widgetId);
-      if (!widget || widget.kind !== "automation-button") return c.json({ message: "Widget not found" }, 404);
+      if (!widget || widget.kind !== "workflow-button") return c.json({ message: "Widget not found" }, 404);
 
-      const automation = (await gridsService.automation.get(widget.automationId)) as Automation | null;
-      if (!automation || automation.baseId !== dashboard.baseId) return c.json({ message: "Automation not found" }, 404);
-      if (automation.trigger.kind !== "manual") return c.json({ message: "Only manual automations can run from dashboards" }, 400);
-      if (!automation.enabled) return c.json({ message: "Automation is disabled" }, 400);
+      const workflow = await gridsService.workflow.get(widget.workflowId);
+      if (!workflow || workflow.baseId !== dashboard.baseId) return c.json({ message: "Workflow not found" }, 404);
+      if (!workflow.compiled.triggers.dashboardButton) return c.json({ message: "Workflow has no dashboard button trigger" }, 400);
+      if (!workflow.enabled) return c.json({ message: "Workflow is disabled" }, 400);
+      const workflowGate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "write");
+      if (!workflowGate.ok) return respond(c, () => Promise.resolve(workflowGate));
 
       const user = c.get("user");
       return respond(c, () =>
-        gridsService.automation.execute({
-          automationId: automation.id,
-          triggerKind: "manual",
-          reason: "dashboard",
-          actorId: user.id,
-          subject: { type: "base" },
-          triggerDetails: {
+        gridsService.workflow.execute({
+          workflowId: workflow.id,
+          triggerKind: "dashboardButton",
+          actorUserId: user.id,
+          actorGroupIds: user.memberofGroupIds,
+          serviceAccountId: null,
+          triggerInput: {
             dashboardId: dashboard.id,
             dashboardWidgetId: widget.id,
           },

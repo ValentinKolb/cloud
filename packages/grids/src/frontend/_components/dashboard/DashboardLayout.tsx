@@ -2,7 +2,7 @@ import { dnd, type DndBuildIntentContext } from "@valentinkolb/stdlib/solid";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show, onCleanup } from "solid-js";
 import type { Dashboard, DashboardRow, Widget } from "../../../service";
-import AutomationButtonWidget from "./AutomationButtonWidget";
+import WorkflowButtonWidget from "./WorkflowButtonWidget";
 import ChartWidget from "./ChartWidget";
 import FormCell from "./FormCell";
 import LinkWidget from "./LinkWidget";
@@ -479,8 +479,8 @@ function CellRenderer(props: {
           dateConfig={props.dateConfig}
         />
       );
-    case "automation-button":
-      return <AutomationButtonWidget dashboardId={props.dashboardId} widget={props.widget} data={data()} />;
+    case "workflow-button":
+      return <WorkflowButtonWidget dashboardId={props.dashboardId} widget={props.widget} data={data()} />;
   }
 }
 

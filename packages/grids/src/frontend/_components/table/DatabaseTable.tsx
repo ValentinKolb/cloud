@@ -1,6 +1,6 @@
 import { DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { For, type JSX, Show } from "solid-js";
+import { createEffect, For, type JSX, Show } from "solid-js";
 import type { AggregationSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field, GridRecord, RecordList } from "../../../service";
@@ -94,12 +94,37 @@ type Props = {
   onFieldMove?: (field: Field, direction: -1 | 1) => void;
   onViewColumnSettings?: (column: ColumnSpec, field: Field | null) => void;
   onViewColumnMove?: (column: ColumnSpec, direction: -1 | 1) => void;
+  bulkSelection?: {
+    selectedIds: ReadonlySet<string>;
+    onToggleRecord: (recordId: string, selected: boolean) => void;
+    onToggleVisible: (selected: boolean) => void;
+  };
 };
 
 const isComputedColumn = (column: ColumnSpec): column is Extract<ColumnSpec, { kind: "computed" }> =>
   "kind" in column && column.kind === "computed";
 
 const columnId = (column: ColumnSpec): string => (isComputedColumn(column) ? column.id : column.fieldId);
+
+const BULK_SELECTION_COLUMN_ID = "__bulk_selection";
+
+const SelectionCheckbox = (props: { checked: boolean; indeterminate?: boolean; label: string; onChange: (checked: boolean) => void }) => {
+  let inputRef: HTMLInputElement | undefined;
+  createEffect(() => {
+    if (inputRef) inputRef.indeterminate = !!props.indeterminate;
+  });
+  return (
+    <input
+      ref={inputRef}
+      type="checkbox"
+      class="h-4 w-4 rounded border-zinc-300 text-blue-600 focus:ring-2 focus:ring-blue-500/30 dark:border-zinc-700 dark:bg-zinc-900"
+      checked={props.checked}
+      aria-label={props.label}
+      onClick={(event) => event.stopPropagation()}
+      onChange={(event) => props.onChange(event.currentTarget.checked)}
+    />
+  );
+};
 
 export default function DatabaseTable(props: Props) {
   /** Fields that actually render. When the caller passes `viewColumns`,
@@ -189,7 +214,31 @@ export default function DatabaseTable(props: Props) {
     </span>
   );
 
-  const columns = (): DataTableColumn<GridRecord>[] =>
+  const visibleRecordIds = () => props.result.items.map((record) => record.id);
+  const selectedVisibleCount = () => visibleRecordIds().filter((id) => props.bulkSelection?.selectedIds.has(id)).length;
+  const allVisibleSelected = () => visibleRecordIds().length > 0 && selectedVisibleCount() === visibleRecordIds().length;
+  const someVisibleSelected = () => selectedVisibleCount() > 0 && !allVisibleSelected();
+
+  const selectionColumn = (): DataTableColumn<GridRecord> | null =>
+    props.bulkSelection
+      ? {
+          id: BULK_SELECTION_COLUMN_ID,
+          header: (
+            <SelectionCheckbox
+              checked={allVisibleSelected()}
+              indeterminate={someVisibleSelected()}
+              label={allVisibleSelected() ? "Clear visible records" : "Select visible records"}
+              onChange={props.bulkSelection.onToggleVisible}
+            />
+          ),
+          value: (record) => record.id,
+          class: "w-10 min-w-10 max-w-10",
+          headerClass: "w-10 min-w-10 max-w-10",
+          cellClass: "w-10 min-w-10 max-w-10",
+        }
+      : null;
+
+  const dataColumns = (): DataTableColumn<GridRecord>[] =>
     visibleColumns().map(({ column, field }) => {
       const computed = isComputedColumn(column);
       return {
@@ -200,6 +249,11 @@ export default function DatabaseTable(props: Props) {
         headerClass: computed ? "bg-blue-50/40 dark:bg-blue-950/15" : undefined,
       };
     });
+
+  const columns = (): DataTableColumn<GridRecord>[] => {
+    const selection = selectionColumn();
+    return selection ? [selection, ...dataColumns()] : dataColumns();
+  };
 
   const shellClass = () => undefined;
 
@@ -269,10 +323,20 @@ export default function DatabaseTable(props: Props) {
         cellContentClass="max-h-28 max-w-full overflow-auto pr-1"
         fillHeight
         renderCell={({ row, col }) => {
+          if (col.id === BULK_SELECTION_COLUMN_ID && props.bulkSelection) {
+            return (
+              <SelectionCheckbox
+                checked={props.bulkSelection.selectedIds.has(row.id)}
+                label={`Select record ${row.id}`}
+                onChange={(selected) => props.bulkSelection?.onToggleRecord(row.id, selected)}
+              />
+            );
+          }
           const field = visibleFields().find((f) => f.id === col.id);
           return field ? renderCell(row, field) : "";
         }}
         renderHeader={({ col, render }) => {
+          if (col.id === BULK_SELECTION_COLUMN_ID) return render();
           const entry = visibleColumns().find((item) => item.field.id === col.id);
           const field = entry?.field;
           const computed = entry ? isComputedColumn(entry.column) : false;

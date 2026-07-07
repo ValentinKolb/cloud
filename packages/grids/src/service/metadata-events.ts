@@ -36,10 +36,14 @@ export type GridsMetadataEvent = {
     | "dashboard.updated"
     | "dashboard.deleted"
     | "dashboard.restored"
+    | "workflow.created"
+    | "workflow.updated"
+    | "workflow.deleted"
+    | "workflow.restored"
     | "access.changed";
   baseId: string;
   resource: {
-    kind: "base" | "table" | "field" | "view" | "form" | "dashboard" | "access";
+    kind: "base" | "table" | "field" | "view" | "form" | "dashboard" | "workflow" | "access";
     id: string;
     tableId?: string;
   };

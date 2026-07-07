@@ -4,10 +4,10 @@ import wsRoutes from "../ws";
 import accessRoutes from "./access";
 import adminRoutes from "./admin";
 import adminSettingsRoutes from "./admin-settings";
-import automationsRoutes from "./automations";
 import basesRoutes from "./bases";
 import dashboardsRoutes from "./dashboards";
 import documentsRoutes from "./documents";
+import emailTemplateRoutes from "./email-templates";
 import fieldsRoutes from "./fields";
 import formsRoutes from "./forms";
 import formulasRoutes from "./formulas";
@@ -16,6 +16,7 @@ import recordsRoutes from "./records";
 import tablesRoutes from "./tables";
 import templatesRoutes from "./templates";
 import viewsRoutes from "./views";
+import workflowsRoutes from "./workflows";
 import workspaceRoutes from "./workspace";
 
 const app = new Hono()
@@ -32,9 +33,10 @@ const app = new Hono()
   .route("/views", viewsRoutes)
   .route("/dashboards", dashboardsRoutes)
   .route("/documents", documentsRoutes)
+  .route("/email-templates", emailTemplateRoutes)
   .route("/formulas", formulasRoutes)
   .route("/gql", gqlRoutes)
-  .route("/automations", automationsRoutes)
+  .route("/workflows", workflowsRoutes)
   .route("/workspace", workspaceRoutes)
   .route("/forms", formsRoutes);
 

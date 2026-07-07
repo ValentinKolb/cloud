@@ -15,7 +15,7 @@ import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
 import { formatIdentifierRef } from "../../../ref-syntax";
 import type { Field, Table, View } from "../../../service";
 import { fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
-import { FormulaSnippet, GridsStartPage } from "../help/grids-help-content";
+import { FormulaSnippet, GridsStartPage, GridsWorkflowsPage } from "../help/grids-help-content";
 import {
   GQL_EXAMPLES,
   GridsGqlExamplesPage,
@@ -30,9 +30,19 @@ const TAB_ALIASES = {
   "available-data": "tables",
   "query-language": "gql",
   "document-templates": "templates",
+  workflow: "workflows",
 } as const;
 
-export type GqlReferenceTab = "basics" | "datatypes" | "tables" | "formulas" | "gql" | "templates" | "examples" | "how-it-works";
+export type GqlReferenceTab =
+  | "basics"
+  | "datatypes"
+  | "tables"
+  | "formulas"
+  | "gql"
+  | "templates"
+  | "examples"
+  | "how-it-works"
+  | "workflows";
 export type QueryReferenceTab = GqlReferenceTab;
 
 export const QUERY_REFERENCE_TABS: readonly GqlReferenceTab[] = [
@@ -44,6 +54,7 @@ export const QUERY_REFERENCE_TABS: readonly GqlReferenceTab[] = [
   "examples",
   "how-it-works",
   "templates",
+  "workflows",
 ];
 
 export const normalizeQueryReferenceTab = (value: string | null | undefined): GqlReferenceTab | null => {
@@ -111,7 +122,7 @@ type DataTypeRow = {
 };
 
 const REFERENCE_TABS: Array<{ value: GqlReferenceTab; label: string; icon: string; description: string }> = [
-  { value: "basics", label: "Grids basics", icon: "ti-layout-grid", description: "Mental model and workflow" },
+  { value: "basics", label: "Grids basics", icon: "ti-layout-grid", description: "Overview and workflow" },
   { value: "datatypes", label: "Data & datatypes", icon: "ti-table", description: "Tables, fields, views, forms" },
   { value: "tables", label: "Tables & views", icon: "ti-database", description: "Available data in this base" },
   { value: "formulas", label: "Formulas", icon: "ti-function", description: "Fields, computed columns, predicates" },
@@ -119,6 +130,7 @@ const REFERENCE_TABS: Array<{ value: GqlReferenceTab; label: string; icon: strin
   { value: "examples", label: "GQL examples", icon: "ti-copy", description: "Copyable query patterns" },
   { value: "how-it-works", label: "How GQL works", icon: "ti-shield-check", description: "Resolution, permissions, limits" },
   { value: "templates", label: "Templates & PDFs", icon: "ti-file-type-pdf", description: "Documents, Liquid, snapshots" },
+  { value: "workflows", label: "Workflows", icon: "ti-route", description: "Inputs, triggers, steps, and runs" },
 ];
 
 const functionCategory = (name: string, returnType: string): string => {
@@ -777,6 +789,8 @@ export default function QueryReferenceWindow(props: Props) {
         return <GridsGqlExamplesPage catalogExample={catalogExample()} />;
       case "how-it-works":
         return <GridsGqlHowItWorksPage />;
+      case "workflows":
+        return <GridsWorkflowsPage />;
       case "basics":
       default:
         return <GridsStartPage />;

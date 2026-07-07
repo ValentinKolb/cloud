@@ -64,9 +64,9 @@ describe("dashboardRecordTableIds", () => {
         widget({ id: "markdown", kind: "markdown", markdown: "# Notes" }),
         widget({ id: "link", kind: "link", target: { kind: "table", tableId: TABLE_A } }),
         widget({
-          id: "automation",
-          kind: "automation-button",
-          automationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          id: "workflow",
+          kind: "workflow-button",
+          workflowId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
           title: "Run sync",
           buttonLabel: "Run",
         }),

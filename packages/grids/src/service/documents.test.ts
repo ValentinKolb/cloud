@@ -88,6 +88,32 @@ describe("document rendering", () => {
     expect(buildRenderData({ record, table, columns: [], rows: [], app, business }).business).toEqual(business);
   });
 
+  test("exposes record scan metadata outside record data", () => {
+    const table = { id: "table-1", shortId: "tbl1", name: "Items" };
+    const record = {
+      id: "record-1",
+      tableId: "table-1",
+      version: 1,
+      data: { name: "Camera" },
+      createdAt: "2026-06-28T00:00:00.000Z",
+      updatedAt: "2026-06-28T00:00:00.000Z",
+    };
+    const meta = {
+      scan: {
+        code: "gsc_test",
+        url: "https://cloud.example.test/app/grids/scan?code=gsc_test",
+        qrUrl: "https://cloud.example.test/app/grids/scan?code=gsc_test",
+      },
+    };
+
+    const input = buildTemplateInputContext(record, table, undefined, undefined, undefined, undefined, undefined, meta);
+    const render = buildRenderData({ record, table, columns: [], rows: [], recordMeta: meta });
+
+    expect(input.record).toMatchObject({ id: "record-1", data: { name: "Camera" }, meta });
+    expect(render.record).toMatchObject({ id: "record-1", data: { name: "Camera" }, meta });
+    expect((input.record as { data: Record<string, unknown> }).data).not.toHaveProperty("scan");
+  });
+
   test("renders Liquid templates with escaped output by default", async () => {
     const result = await renderDocumentHtml({ html: "<p>{{ record.data.name }}</p>" }, { record: { data: { name: "<b>Ada</b>" } } });
 

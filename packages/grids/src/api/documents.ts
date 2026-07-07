@@ -1,11 +1,15 @@
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, getDateConfig, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
-import { type Context, Hono } from "hono";
+import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import {
+  CreateDocumentLinkResponseSchema,
+  CreateDocumentLinkSchema,
   CreateDocumentTemplateSchema,
   CreateRecordSnapshotResponseSchema,
+  DocumentLinkListResponseSchema,
+  DocumentLinkSchema,
   DocumentPreviewResponseSchema,
   DocumentRecordBodySchema,
   DocumentRunBrowseResponseSchema,
@@ -22,45 +26,16 @@ import {
   UpdateDocumentTemplateSchema,
 } from "../contracts";
 import { gridsService } from "../service";
+import { encodeHeaderValue, pdfResponse } from "./download-response";
 import { gateAt } from "./permissions";
-
-const encodeHeaderValue = (value: string): string =>
-  encodeURIComponent(value).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
-
-const contentDispositionFilename = (disposition: "attachment" | "inline", filename: string): string => {
-  const safeFilename =
-    filename
-      .replace(/[\r\n]/g, " ")
-      .replace(/[/:*?"<>|\\]/g, "-")
-      .replace(/\s+/g, " ")
-      .trim() || "document.pdf";
-  const fallback =
-    safeFilename
-      .normalize("NFKD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[\r\n"\\]/g, "_")
-      .replace(/[^\x20-\x7E]/g, "_")
-      .trim() || "document.pdf";
-  return `${disposition}; filename="${fallback}"; filename*=UTF-8''${encodeHeaderValue(safeFilename)}`;
-};
-
-const pdfResponse = (
-  pdf: Uint8Array,
-  filename: string,
-  headers: Record<string, string> = {},
-  disposition: "attachment" | "inline" = "attachment",
-) =>
-  new Response(new Blob([pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer], { type: "application/pdf" }), {
-    headers: {
-      "Content-Type": "application/pdf",
-      "Content-Disposition": contentDispositionFilename(disposition, filename),
-      "Cache-Control": "no-store",
-      ...headers,
-    },
-  });
 
 const errorResponse = (c: Context<AuthContext>, message: string, status: number) =>
   c.json({ message }, status === 400 ? 400 : status === 403 ? 403 : status === 404 ? 404 : 500);
+
+const auditRequestContext = (c: Context<AuthContext>) => ({
+  ip: c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || c.req.header("cf-connecting-ip") || null,
+  userAgent: c.req.header("user-agent") ?? null,
+});
 
 const RecordLookupQuerySchema = z.object({
   q: z.string().optional().default(""),
@@ -139,6 +114,14 @@ const gateTemplate = async (
 
 const gateBaseAdminForTemplate = async (c: Context<AuthContext>, loaded: NonNullable<Awaited<ReturnType<typeof loadTemplateAndTable>>>) =>
   gateAt(c, { baseId: loaded.table.baseId }, "admin");
+
+const gateRun = async (c: Context<AuthContext>, run: NonNullable<Awaited<ReturnType<typeof gridsService.document.getRun>>>, required: "read" | "write") => {
+  const template = run.templateId ? await loadTemplateAndTable(run.templateId) : null;
+  return template ? gateTemplate(c, template, required) : gateAt(c, { baseId: run.baseId, tableId: run.tableId }, required);
+};
+
+const publicDocumentLinkUrl = (c: Context<AuthContext>, token: string): string =>
+  `${new URL(c.req.url).origin}${gridsService.document.publicDocumentLinkPath(token)}`;
 
 const gateEnabledTemplateWrite = async (c: Context<AuthContext>, loaded: NonNullable<Awaited<ReturnType<typeof loadTemplateAndTable>>>) => {
   const gate = await gateTemplate(c, loaded, "write");
@@ -267,8 +250,9 @@ const renderDraftPdfResponse = async (
   return pdfResponse(pdf.pdf.pdf, "preview.pdf", {}, "inline");
 };
 
-const app = new Hono<AuthContext>()
-  .use(auth.requireRole("authenticated"))
+export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHandler<AuthContext> } = {}) =>
+  new Hono<AuthContext>()
+    .use(deps.requireAuthenticated ?? auth.requireRole("authenticated"))
 
   .get(
     "/templates/by-table/:tableId",
@@ -787,6 +771,90 @@ const app = new Hono<AuthContext>()
   )
 
   .get(
+    "/runs/:runId/links",
+    describeRoute({
+      tags: ["Grids:Document"],
+      summary: "List expiring public links for a generated document",
+      responses: {
+        200: jsonResponse(DocumentLinkListResponseSchema, "Document links"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    async (c) => {
+      const runId = uuidParam(c, "runId");
+      if (!runId) return c.json({ message: "Document run not found" }, 404);
+      const run = await gridsService.document.getRun(runId);
+      if (!run) return c.json({ message: "Document run not found" }, 404);
+      const gate = await gateRun(c, run, "write");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      return c.json({ items: await gridsService.document.listDocumentLinksForRun(run.id) });
+    },
+  )
+
+  .post(
+    "/runs/:runId/links",
+    describeRoute({
+      tags: ["Grids:Document"],
+      summary: "Create an expiring public link for a generated document",
+      responses: {
+        201: jsonResponse(CreateDocumentLinkResponseSchema, "Created document link"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    v("json", CreateDocumentLinkSchema),
+    async (c) => {
+      const runId = uuidParam(c, "runId");
+      if (!runId) return c.json({ message: "Document run not found" }, 404);
+      const run = await gridsService.document.getRun(runId);
+      if (!run) return c.json({ message: "Document run not found" }, 404);
+      const gate = await gateRun(c, run, "write");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const created = await gridsService.document.createDocumentLink({
+        run,
+        input: c.req.valid("json"),
+        actorId: c.get("user").id,
+        ...auditRequestContext(c),
+      });
+      if (!created.ok) return c.json({ message: created.error.message }, created.error.status);
+      return c.json({ link: created.data.link, url: publicDocumentLinkUrl(c, created.data.token) }, 201);
+    },
+  )
+
+  .post(
+    "/links/:linkId/revoke",
+    describeRoute({
+      tags: ["Grids:Document"],
+      summary: "Revoke an expiring public document link",
+      responses: {
+        200: jsonResponse(DocumentLinkSchema, "Revoked document link"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    async (c) => {
+      const linkId = uuidParam(c, "linkId");
+      if (!linkId) return c.json({ message: "Document link not found" }, 404);
+      const link = await gridsService.document.getDocumentLink(linkId);
+      if (!link) return c.json({ message: "Document link not found" }, 404);
+      const run = await gridsService.document.getRun(link.documentRunId);
+      if (!run) return c.json({ message: "Document run not found" }, 404);
+      const gate = await gateRun(c, run, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+
+      const userId = c.get("user").id;
+      const canRevoke = link.createdBy === userId || gridsService.permission.hasAtLeast(gate.data, "write");
+      if (!canRevoke) return c.json({ message: "Only the creator or a document editor can revoke this link." }, 403);
+
+      const revoked = await gridsService.document.revokeDocumentLink({
+        linkId: link.id,
+        actorId: userId,
+        ...auditRequestContext(c),
+      });
+      if (!revoked.ok) return c.json({ message: revoked.error.message }, revoked.error.status);
+      return c.json(revoked.data);
+    },
+  )
+
+  .get(
     "/runs/:runId/download",
     describeRoute({
       tags: ["Grids:Document"],
@@ -889,4 +957,4 @@ const app = new Hono<AuthContext>()
     },
   );
 
-export default app;
+export default createDocumentsApi();

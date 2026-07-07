@@ -1,12 +1,12 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Dropdown, dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { Dropdown, dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { AggregationSpec, GroupBySpec, RecordDisplayConfig, RecordQuery, TableQueryResult } from "../../../contracts";
+import type { AggregationSpec, GroupBySpec, RecordDisplayConfig, RecordQuery, TableQueryResult, WorkflowRun } from "../../../contracts";
 import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
-import type { Field, Form, GridRecord, Table, View } from "../../../service";
+import type { Field, Form, GridRecord, Table, View, Workflow } from "../../../service";
 import type { ColumnSpec, FieldColumnSpec } from "../../../service/views";
 import { defaultTableAggregations } from "../../../table-defaults";
 import {
@@ -40,6 +40,7 @@ import { errorMessage } from "../utils/api-helpers";
 import { activeDisplayConfig, calendarQueryFilter, cardImageFieldIds, removeCalendarQueryFilter } from "./display-mode";
 import { fetchTableQuery } from "./fetcher";
 import { createGridsRecordEventsProvider } from "./grids-record-events-provider";
+import { bulkSelectionRunPayload, bulkWorkflowActionLabel, pruneBulkSelection, sameBulkSelection } from "./bulk-selection";
 import {
   highlightedIdsForLiveRefresh,
   liveRefreshQuery,
@@ -254,12 +255,19 @@ type Props = {
    */
   activeRecordQuery: RecordQuery | null;
   displayConfig: RecordDisplayConfig;
+  bulkSelectionWorkflows: Workflow[];
   dateConfig?: DateContext;
 };
 
 type RecordsTableQueryResult = TableQueryResult & {
   __recordsFetchEpoch?: number;
   __liveCommitId?: number;
+};
+
+type BulkWorkflowRunInput = {
+  workflow: Workflow;
+  selectedRecordIds: string[];
+  query: RecordQuery;
 };
 
 export default function RecordsView(props: Props) {
@@ -287,6 +295,7 @@ export default function RecordsView(props: Props) {
   const [query, setQuery] = createSignal<RecordQuery>(props.initialState.query);
   const [cursor, setCursor] = createSignal<string | null>(props.initialState.cursor);
   const [selectedRecordId, setSelectedRecordId] = createSignal<string | null>(props.initialState.selectedRecordId);
+  const [bulkSelectedRecordIds, setBulkSelectedRecordIds] = createSignal<Set<string>>(new Set());
   const [selectedGroup, setSelectedGroup] = createSignal<GroupBucket | null>(null);
   const resolvedSearchState = (state: RecordsState["search"]): RecordsState["search"] => {
     if (state.override) return state;
@@ -410,6 +419,56 @@ export default function RecordsView(props: Props) {
     );
   };
 
+  const bulkSelectionEnabled = () =>
+    props.bulkSelectionWorkflows.length > 0 && !props.trashMode && !isGrouped() && renderMode() === "table";
+  const selectedBulkCount = () => bulkSelectedRecordIds().size;
+  const clearBulkSelection = () => setBulkSelectedRecordIds(new Set<string>());
+  const toggleBulkRecordSelection = (recordId: string, selected: boolean) => {
+    setBulkSelectedRecordIds((prev) => {
+      const next = new Set(prev);
+      if (selected) next.add(recordId);
+      else next.delete(recordId);
+      return next;
+    });
+  };
+  const toggleVisibleBulkRecords = (selected: boolean) => {
+    const ids = (items() as GridRecord[]).map((record) => record.id);
+    setBulkSelectedRecordIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (selected) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const runBulkWorkflow = mutations.create<WorkflowRun, BulkWorkflowRunInput>({
+    mutation: async ({ workflow, selectedRecordIds, query }, { abortSignal }) => {
+      const res = await apiClient.workflows[":workflowId"].run["bulk-selection"].$post(
+        {
+          param: { workflowId: workflow.id },
+          json: bulkSelectionRunPayload(selectedRecordIds, query),
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!res.ok) throw new Error(await errorMessage(res, "Could not start workflow."));
+      return res.json();
+    },
+    onSuccess: (run) => {
+      clearBulkSelection();
+      toast.success(`Workflow queued: ${run.status}`);
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const queueBulkWorkflow = (workflow: Workflow) =>
+    runBulkWorkflow.mutate({
+      workflow,
+      selectedRecordIds: [...bulkSelectedRecordIds()],
+      query: queryWithSearch(),
+    });
+
   const [data, { refetch, mutate }] = createResource<
     RecordsTableQueryResult,
     {
@@ -505,6 +564,31 @@ export default function RecordsView(props: Props) {
   const items = () => (isGrouped() ? (data()?.items ?? []) : flatItems());
   const buckets = () => (data()?.buckets ?? []) as GroupBucket[];
   const aggregates = () => data()?.aggregates ?? {};
+
+  let bulkSelectionScopeKey = "";
+  createEffect(() => {
+    const key = JSON.stringify({
+      tableId: props.tableId,
+      viewId: props.activeView?.id ?? null,
+      trashMode: props.trashMode,
+      renderMode: renderMode(),
+      query: queryWithSearch(),
+    });
+    if (bulkSelectionScopeKey && key !== bulkSelectionScopeKey) clearBulkSelection();
+    bulkSelectionScopeKey = key;
+  });
+
+  createEffect(() => {
+    if (!bulkSelectionEnabled()) {
+      if (selectedBulkCount() > 0) clearBulkSelection();
+      return;
+    }
+    const visibleIds = new Set((items() as GridRecord[]).map((record) => record.id));
+    setBulkSelectedRecordIds((prev) => {
+      const next = pruneBulkSelection(prev, visibleIds);
+      return sameBulkSelection(prev, next) ? prev : next;
+    });
+  });
 
   // Relation labels: SSR seeded a static prop, the API endpoint now
   // also emits `relationLabels` for group-mode bucket keys. Merge both
@@ -1588,6 +1672,13 @@ export default function RecordsView(props: Props) {
                 Record info · {activeRecordMetaCount()}
               </button>
             </Show>
+            <Show when={bulkSelectionEnabled() && selectedBulkCount() > 0}>
+              <button type="button" class="btn-input btn-input-active btn-input-sm" onClick={clearBulkSelection}>
+                <i class="ti ti-checklist" />
+                {selectedBulkCount()} selected
+                <i class="ti ti-x text-[10px] opacity-60" />
+              </button>
+            </Show>
             <Dropdown
               // bottom-LEFT = drop below, right-edge aligned with the
               // trigger. The trigger lives at the far right of row 1
@@ -1611,6 +1702,11 @@ export default function RecordsView(props: Props) {
                   label: "Export records",
                   action: openExportDialog,
                 },
+                ...props.bulkSelectionWorkflows.map((workflow) => ({
+                  icon: "ti ti-route",
+                  label: bulkWorkflowActionLabel(workflow.name, selectedBulkCount()),
+                  action: () => queueBulkWorkflow(workflow),
+                })),
                 {
                   icon: "ti ti-code",
                   label: "Open query",
@@ -1748,6 +1844,15 @@ export default function RecordsView(props: Props) {
                         onViewColumnSettings={adminMode() && isSavedView() && props.canEditActiveView ? openViewColumnSettings : undefined}
                         onViewColumnMove={
                           adminMode() && (isSavedView() ? props.canEditActiveView : props.canManageTable) ? moveViewColumnInline : undefined
+                        }
+                        bulkSelection={
+                          bulkSelectionEnabled()
+                            ? {
+                                selectedIds: bulkSelectedRecordIds(),
+                                onToggleRecord: toggleBulkRecordSelection,
+                                onToggleVisible: toggleVisibleBulkRecords,
+                              }
+                            : undefined
                         }
                         dateConfig={props.dateConfig}
                       />

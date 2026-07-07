@@ -4,22 +4,35 @@ import type { Context } from "hono";
 import type { Grant, ResolveTarget, ResourceType } from "../service";
 import { gridsService } from "../service";
 
+const currentPermissionSubject = (c: Context<AuthContext>) => {
+  const actor = c.get("actor") as AuthContext["Variables"]["actor"] | undefined;
+  const accessSubject = c.get("accessSubject") as AuthContext["Variables"]["accessSubject"] | undefined;
+  const fallbackUser = c.get("user") as AuthContext["Variables"]["user"] | undefined;
+  const user = actor ? (actor.kind === "user" ? actor.user : actor.delegatedUser) : fallbackUser;
+  return {
+    userId: accessSubject?.type === "user" ? accessSubject.userId : (user?.id ?? null),
+    userGroups: user?.memberofGroupIds ?? [],
+    serviceAccountId:
+      actor?.kind === "service_account" ? actor.serviceAccount.id : accessSubject?.type === "service_account" ? accessSubject.serviceAccountId : null,
+  };
+};
+
 /**
  * Loads grants for the current user and resolves the effective permission
  * for a (base | table | view) target. Returns the effective level or null
  * if the user is denied. Routes typically pass the result to {@link gateAt}.
  */
 const effectivePermission = async (c: Context<AuthContext>, target: ResolveTarget): Promise<PermissionLevel> => {
-  const user = c.get("user");
+  const subject = currentPermissionSubject(c);
   const grants = await gridsService.permission.loadGrants({
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+    ...subject,
     baseId: target.baseId,
     tableId: "tableId" in target ? target.tableId : null,
     viewId: "viewId" in target ? target.viewId : null,
     formId: "formId" in target ? target.formId : null,
     documentTemplateId: "documentTemplateId" in target ? target.documentTemplateId : null,
     dashboardId: "dashboardId" in target ? target.dashboardId : null,
+    workflowId: "workflowId" in target ? target.workflowId : null,
   });
   return gridsService.permission.resolve(grants, target);
 };
@@ -52,16 +65,16 @@ export const resolveWithGrants = async (
   c: Context<AuthContext>,
   target: ResolveTarget,
 ): Promise<{ level: PermissionLevel; grants: Grant[] }> => {
-  const user = c.get("user");
+  const subject = currentPermissionSubject(c);
   const grants = await gridsService.permission.loadGrants({
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
+    ...subject,
     baseId: target.baseId,
     tableId: "tableId" in target ? target.tableId : null,
     viewId: "viewId" in target ? target.viewId : null,
     formId: "formId" in target ? target.formId : null,
     documentTemplateId: "documentTemplateId" in target ? target.documentTemplateId : null,
     dashboardId: "dashboardId" in target ? target.dashboardId : null,
+    workflowId: "workflowId" in target ? target.workflowId : null,
   });
   const level = gridsService.permission.resolve(grants, target);
   return { level, grants };

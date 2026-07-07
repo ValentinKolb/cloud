@@ -7,7 +7,7 @@ import { gridsService } from "../service";
 import { validateAccessLevelForResource } from "./access";
 
 const ScopedAccessEntrySchema = AccessEntrySchema.extend({
-  resourceType: z.enum(["base", "table", "view", "form", "documentTemplate", "dashboard"]),
+  resourceType: z.enum(["base", "table", "view", "form", "documentTemplate", "dashboard", "workflow"]),
   resourceId: z.string().uuid(),
   resourceName: z.string(),
   tableId: z.string().uuid().nullable(),

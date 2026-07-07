@@ -1,4 +1,4 @@
-import type { DocumentProfile, FieldColumnSpec, FilterTree, RecordDisplayConfig } from "../contracts";
+import type { DocumentProfile, FieldColumnSpec, RecordDisplayConfig } from "../contracts";
 
 export type Base = {
   id: string;
@@ -152,10 +152,29 @@ export type AuditAction =
   | "access.granted"
   | "access.updated"
   | "access.revoked"
-  | "automation.webhook.sent"
-  | "automation.webhook.failed"
-  | "automation.document.generated"
-  | "automation.document.failed";
+  | "workflow.created"
+  | "workflow.updated"
+  | "workflow.deleted"
+  | "workflow.access.granted"
+  | "workflow.access.updated"
+  | "workflow.access.revoked"
+  | "workflow.run.started"
+  | "workflow.run.succeeded"
+  | "workflow.run.failed"
+  | "workflow.record.updated"
+  | "workflow.record.created"
+  | "workflow.document.generated"
+  | "workflow.document_link.created"
+  | "workflow.email.sent"
+  | "workflow.email.failed"
+  | "workflow.http.sent"
+  | "workflow.http.failed"
+  | "email_template.created"
+  | "email_template.updated"
+  | "email_template.deleted"
+  | "document_link.created"
+  | "document_link.revoked"
+  | "document_link.accessed";
 
 export type AuditEntry = {
   id: string;
@@ -194,67 +213,6 @@ export type GridFilePreview = {
 
 export type GridFileContent = GridFile & {
   bytes: Uint8Array;
-};
-
-export type AutomationTrigger =
-  | { kind: "manual" }
-  | { kind: "schedule"; cron: string; timezone?: string }
-  | { kind: "record"; event: "created" | "updated" | "deleted"; tableId?: string; filter?: FilterTree };
-
-export type AutomationAction =
-  | {
-      kind: "webhook";
-      url: string;
-      timeoutMs?: number;
-    }
-  | {
-      kind: "document";
-      templateId: string;
-    };
-
-export type AutomationPayloadConfig = {
-  includeRecord?: boolean;
-  fieldIds?: string[];
-};
-
-export type Automation = {
-  id: string;
-  shortId: string;
-  baseId: string;
-  name: string;
-  description: string | null;
-  trigger: AutomationTrigger;
-  action: AutomationAction;
-  payload: AutomationPayloadConfig;
-  enabled: boolean;
-  position: number;
-  ownerUserId: string | null;
-  webhookSecretSet: boolean;
-  deletedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type AutomationSubject = { type: "base" } | { type: "record"; tableId: string; recordId: string };
-
-export type AutomationRun = {
-  id: string;
-  automationId: string;
-  baseId: string;
-  tableId: string | null;
-  recordId: string | null;
-  event: string;
-  trigger: Record<string, unknown>;
-  subject: AutomationSubject;
-  input: unknown | null;
-  status: "running" | "succeeded" | "failed";
-  targetHost: string | null;
-  httpStatus: number | null;
-  durationMs: number | null;
-  error: string | null;
-  createdAt: string;
-  startedAt: string | null;
-  finishedAt: string | null;
 };
 
 export type CreateBaseInput = { name: string; description?: string | null };

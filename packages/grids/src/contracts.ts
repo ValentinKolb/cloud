@@ -953,6 +953,7 @@ export const DocumentRunSchema = z.object({
   id: z.string().uuid(),
   shortId: ShortIdSchema,
   templateId: z.string().uuid().nullable(),
+  workflowRunId: z.string().uuid().nullable(),
   snapshotId: z.string().uuid(),
   baseId: z.string().uuid(),
   tableId: z.string().uuid(),
@@ -976,6 +977,7 @@ export const DocumentRunSummarySchema = DocumentRunSchema.pick({
   id: true,
   shortId: true,
   templateId: true,
+  workflowRunId: true,
   snapshotId: true,
   baseId: true,
   tableId: true,
@@ -998,6 +1000,83 @@ export const DocumentRunSummaryListSchema = z.object({
   nextCursor: z.string().nullable().optional(),
 });
 export type DocumentRunSummaryList = z.infer<typeof DocumentRunSummaryListSchema>;
+
+export const DocumentLinkTtlSchema = z.enum(["1d", "7d", "30d", "90d"]);
+export type DocumentLinkTtl = z.infer<typeof DocumentLinkTtlSchema>;
+
+export const DocumentLinkSchema = z.object({
+  id: z.string().uuid(),
+  documentRunId: z.string().uuid(),
+  baseId: z.string().uuid(),
+  tableId: z.string().uuid(),
+  recordId: z.string().uuid(),
+  comment: z.string().nullable(),
+  createdBy: z.string().uuid().nullable(),
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  revokedAt: z.string().datetime().nullable(),
+  revokedBy: z.string().uuid().nullable(),
+  lastAccessedAt: z.string().datetime().nullable(),
+  accessCount: z.number().int().nonnegative(),
+});
+export type DocumentLink = z.infer<typeof DocumentLinkSchema>;
+
+export const DocumentLinkListResponseSchema = z.object({
+  items: z.array(DocumentLinkSchema),
+});
+export type DocumentLinkListResponse = z.infer<typeof DocumentLinkListResponseSchema>;
+
+export const CreateDocumentLinkSchema = z.object({
+  expiresIn: DocumentLinkTtlSchema.default("30d"),
+  comment: z.string().trim().max(500).optional().nullable(),
+});
+export type CreateDocumentLinkInput = z.infer<typeof CreateDocumentLinkSchema>;
+
+export const CreateDocumentLinkResponseSchema = z.object({
+  link: DocumentLinkSchema,
+  url: z.string(),
+});
+export type CreateDocumentLinkResponse = z.infer<typeof CreateDocumentLinkResponseSchema>;
+
+export const EmailTemplateSchema = z.object({
+  id: z.string().uuid(),
+  shortId: ShortIdSchema,
+  baseId: z.string().uuid(),
+  name: z.string(),
+  description: z.string().nullable(),
+  subject: z.string(),
+  html: z.string(),
+  enabled: z.boolean(),
+  position: z.number().int(),
+  createdBy: z.string().uuid().nullable(),
+  updatedBy: z.string().uuid().nullable(),
+  deletedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type EmailTemplate = z.infer<typeof EmailTemplateSchema>;
+
+export const EmailTemplateListSchema = z.array(EmailTemplateSchema);
+
+export const CreateEmailTemplateSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  description: z.string().trim().max(2_000).nullable().optional(),
+  subject: z.string().trim().min(1).max(1_000),
+  html: z.string().trim().min(1).max(200_000),
+  enabled: z.boolean().optional(),
+  position: z.number().int().optional(),
+});
+export type CreateEmailTemplateInput = z.infer<typeof CreateEmailTemplateSchema>;
+
+export const UpdateEmailTemplateSchema = z.object({
+  name: z.string().trim().min(1).max(200).optional(),
+  description: z.string().trim().max(2_000).nullable().optional(),
+  subject: z.string().trim().min(1).max(1_000).optional(),
+  html: z.string().trim().min(1).max(200_000).optional(),
+  enabled: z.boolean().optional(),
+  position: z.number().int().optional(),
+});
+export type UpdateEmailTemplateInput = z.infer<typeof UpdateEmailTemplateSchema>;
 
 export const DocumentRunFolderSchema = z.object({
   kind: z.enum(["year", "month"]),
@@ -1105,7 +1184,7 @@ export type FormConfig = z.infer<typeof FormConfigSchema>;
 //               view id with pagesize 25.
 //   - "view-stats": derives compact stat cells from a saved View.
 //   - "form"  : embeds a saved Form for inline record creation.
-//   - "automation-button": runs one manual Automation from a button.
+//   - "workflow-button": runs one workflow dashboard button trigger.
 //
 // Dashboard widgets do not carry filter/sort/aggregate semantics.
 // Query semantics live in saved Views (`view.source` GQL); widgets are
@@ -1274,17 +1353,16 @@ export const LinkWidgetSchema = z.object({
 });
 
 /**
- * Automation button widget — explicit dashboard-scoped capability to
- * trigger one manual automation. Dashboard readers may press this
- * button, but this does not grant general automation list/edit/run
- * access. The backend re-checks the saved dashboard config before each
- * run.
+ * Workflow button widget — explicit dashboard-scoped capability to
+ * trigger one workflow. Dashboard readers may press this button, but
+ * this does not grant general workflow list/edit/run access. The
+ * backend re-checks the saved dashboard config before each run.
  */
-export const AutomationButtonWidgetSchema = z.object({
+export const WorkflowButtonWidgetSchema = z.object({
   id: z.string().min(1),
-  kind: z.literal("automation-button"),
+  kind: z.literal("workflow-button"),
   span: z.number().int().min(1).max(12).optional(),
-  automationId: z.string().uuid(),
+  workflowId: z.string().uuid(),
   title: z.string().max(200).optional(),
   description: z.string().max(1000).optional(),
   buttonLabel: z.string().max(80).optional(),
@@ -1306,7 +1384,7 @@ export const WidgetSchema = z.discriminatedUnion("kind", [
   FormWidgetSchema,
   MarkdownWidgetSchema,
   LinkWidgetSchema,
-  AutomationButtonWidgetSchema,
+  WorkflowButtonWidgetSchema,
 ]);
 export type Widget = z.infer<typeof WidgetSchema>;
 export type StatWidget = z.infer<typeof StatWidgetSchema>;
@@ -1316,7 +1394,7 @@ export type ViewStatsWidget = z.infer<typeof ViewStatsWidgetSchema>;
 export type FormWidget = z.infer<typeof FormWidgetSchema>;
 export type MarkdownWidget = z.infer<typeof MarkdownWidgetSchema>;
 export type LinkWidget = z.infer<typeof LinkWidgetSchema>;
-export type AutomationButtonWidget = z.infer<typeof AutomationButtonWidgetSchema>;
+export type WorkflowButtonWidget = z.infer<typeof WorkflowButtonWidgetSchema>;
 
 // Unified row — one type with any mix of cell kinds. Replaces the
 // previous three-row-type discriminated union (stats / view-stats /
@@ -1390,7 +1468,6 @@ export type UpdateDashboardInput = z.infer<typeof UpdateDashboardSchema>;
 
 export const DashboardListSchema = z.array(DashboardSchema);
 
-// ── Automations ───────────────────────────────────────────────────────────
 const HttpUrlSchema = z
   .string()
   .url()
@@ -1403,131 +1480,403 @@ const HttpUrlSchema = z
     }
   }, "URL must use http or https");
 
-export const AutomationTriggerSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("manual"),
-  }),
-  z.object({
-    kind: z.literal("schedule"),
+// ── Workflows ─────────────────────────────────────────────────────────────
+const WorkflowIdentifierSchema = z
+  .string()
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "Use a letter or underscore followed by letters, numbers, or underscores");
+
+const WorkflowInputTypeSchema = z.enum(["record", "recordList", "text", "number", "boolean", "date", "dateTime", "select"]);
+export type WorkflowInputType = z.infer<typeof WorkflowInputTypeSchema>;
+
+export const WorkflowInputSchema = z
+  .object({
+    type: WorkflowInputTypeSchema,
+    table: z.string().trim().min(1).max(200).optional(),
+    label: z.string().trim().min(1).max(120).optional(),
+    description: z.string().trim().max(1000).optional(),
+    required: z.boolean().optional(),
+    options: z.array(z.string().trim().min(1).max(200)).max(200).optional(),
+  })
+  .strict()
+  .superRefine((input, ctx) => {
+    if ((input.type === "record" || input.type === "recordList") && !input.table) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["table"],
+        message: "record and recordList inputs require a table",
+      });
+    }
+    if (input.type === "select" && (!input.options || input.options.length === 0)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["options"],
+        message: "select inputs require at least one option",
+      });
+    }
+  });
+export type WorkflowInput = z.infer<typeof WorkflowInputSchema>;
+
+export const WorkflowInputsSchema = z.record(WorkflowIdentifierSchema, WorkflowInputSchema).default({});
+export type WorkflowInputs = z.infer<typeof WorkflowInputsSchema>;
+
+const WorkflowTriggerFormSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+  })
+  .strict();
+
+const WorkflowTriggerApiSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+  })
+  .strict();
+
+const WorkflowTriggerScannerSchema = z
+  .object({
+    input: WorkflowIdentifierSchema,
+    resolve: z
+      .object({
+        by: z.enum(["scanCode", "field"]).default("scanCode"),
+        field: z.string().trim().min(1).max(200).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+const WorkflowTriggerBulkSelectionSchema = z
+  .object({
+    input: WorkflowIdentifierSchema,
+  })
+  .strict();
+
+const WorkflowTriggerDashboardButtonSchema = z
+  .object({
+    label: z.string().trim().min(1).max(80).optional(),
+  })
+  .strict();
+
+const WorkflowTriggerScheduleSchema = z
+  .object({
     cron: z.string().trim().min(1).max(120),
     timezone: z.string().trim().min(1).max(80).optional(),
-  }),
-  z.object({
-    kind: z.literal("record"),
+  })
+  .strict();
+
+const WorkflowTriggerRecordEventSchema = z
+  .object({
     event: z.enum(["created", "updated", "deleted"]),
-    tableId: z.string().uuid().optional(),
+    input: WorkflowIdentifierSchema.optional(),
+    table: z.string().trim().min(1).max(200).optional(),
     filter: FilterTreeSchema.optional(),
-  }),
-]);
-export type AutomationTrigger = z.infer<typeof AutomationTriggerSchema>;
+  })
+  .strict();
 
-export const AutomationActionSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("webhook"),
+export const WorkflowTriggersSchema = z
+  .object({
+    form: WorkflowTriggerFormSchema.optional(),
+    api: WorkflowTriggerApiSchema.optional(),
+    scanner: WorkflowTriggerScannerSchema.optional(),
+    bulkSelection: WorkflowTriggerBulkSelectionSchema.optional(),
+    dashboardButton: WorkflowTriggerDashboardButtonSchema.optional(),
+    schedule: WorkflowTriggerScheduleSchema.optional(),
+    recordEvent: WorkflowTriggerRecordEventSchema.optional(),
+  })
+  .strict()
+  .refine((triggers) => Object.values(triggers).some((value) => value !== undefined), {
+    message: "define at least one trigger",
+  });
+export type WorkflowTriggers = z.infer<typeof WorkflowTriggersSchema>;
+
+let WorkflowValueSchema: z.ZodTypeAny;
+WorkflowValueSchema = z.lazy(() =>
+  z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(WorkflowValueSchema), z.record(z.string(), WorkflowValueSchema)]),
+);
+
+export { WorkflowValueSchema };
+export type WorkflowValue = z.infer<typeof WorkflowValueSchema>;
+
+const WorkflowConditionSchema = z
+  .object({
+    equals: z.tuple([WorkflowValueSchema, WorkflowValueSchema]).optional(),
+    notEquals: z.tuple([WorkflowValueSchema, WorkflowValueSchema]).optional(),
+    exists: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict()
+  .refine((condition) => Object.values(condition).filter((value) => value !== undefined).length === 1, {
+    message: "condition must contain exactly one operator",
+  });
+
+const WorkflowRecordValuesSchema = z
+  .record(z.string().trim().min(1).max(200), WorkflowValueSchema)
+  .refine((values) => Object.keys(values).length > 0, {
+    message: "provide at least one value",
+  });
+
+const UpdateRecordWorkflowActionSchema = z
+  .object({
+    record: z.string().trim().min(1).max(500),
+    set: WorkflowRecordValuesSchema,
+  })
+  .strict();
+
+const CreateRecordWorkflowActionSchema = z
+  .object({
+    table: z.string().trim().min(1).max(200),
+    values: WorkflowRecordValuesSchema,
+    saveAs: WorkflowIdentifierSchema.optional(),
+  })
+  .strict();
+
+const GenerateDocumentWorkflowActionSchema = z
+  .object({
+    template: z.string().trim().min(1).max(200),
+    record: z.string().trim().min(1).max(500),
+    batch: z.boolean().optional(),
+    filename: WorkflowValueSchema.optional(),
+    tags: z.array(WorkflowValueSchema).max(20).optional(),
+    saveAs: WorkflowIdentifierSchema.optional(),
+  })
+  .strict();
+
+const CreateDocumentLinkWorkflowActionSchema = z
+  .object({
+    document: z.string().trim().min(1).max(500),
+    expiresIn: DocumentLinkTtlSchema.default("30d"),
+    comment: WorkflowValueSchema.optional(),
+    saveAs: WorkflowIdentifierSchema.optional(),
+  })
+  .strict();
+
+const WorkflowEmailRecipientSchema = z.union([
+  z
+    .object({
+      email: WorkflowValueSchema,
+    })
+    .strict(),
+  z
+    .object({
+      user: WorkflowValueSchema,
+    })
+    .strict(),
+]);
+
+const SendEmailWorkflowActionSchema = z
+  .object({
+    template: z.string().trim().min(1).max(200),
+    to: z.array(WorkflowEmailRecipientSchema).min(1).max(50),
+    data: z.record(z.string().trim().min(1).max(120), WorkflowValueSchema).optional(),
+    saveAs: WorkflowIdentifierSchema.optional(),
+  })
+  .strict();
+
+const HttpRequestWorkflowActionSchema = z
+  .object({
+    method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).default("POST"),
     url: HttpUrlSchema,
+    headers: z.record(z.string().trim().min(1).max(120), z.string().max(1000)).optional(),
+    json: WorkflowValueSchema.optional(),
     timeoutMs: z.number().int().min(1000).max(60_000).optional(),
-  }),
-  z.object({
-    kind: z.literal("document"),
-    templateId: z.string().uuid(),
-  }),
-]);
-export type AutomationAction = z.infer<typeof AutomationActionSchema>;
+    saveAs: WorkflowIdentifierSchema.optional(),
+  })
+  .strict();
 
-export const AutomationPayloadConfigSchema = z.object({
-  includeRecord: z.boolean().optional(),
-  fieldIds: z.array(z.string().uuid()).max(200).optional(),
-});
-export type AutomationPayloadConfig = z.infer<typeof AutomationPayloadConfigSchema>;
+const SetVariableWorkflowActionSchema = z
+  .object({
+    name: WorkflowIdentifierSchema,
+    value: WorkflowValueSchema,
+  })
+  .strict();
 
-export const AutomationSchema = z.object({
+const FailWorkflowActionSchema = z
+  .object({
+    message: z.string().trim().min(1).max(1000),
+  })
+  .strict();
+
+let WorkflowStepSchema: z.ZodTypeAny;
+WorkflowStepSchema = z.lazy(() =>
+  z.union([
+    z.object({ updateRecord: UpdateRecordWorkflowActionSchema }).strict(),
+    z.object({ createRecord: CreateRecordWorkflowActionSchema }).strict(),
+    z.object({ generateDocument: GenerateDocumentWorkflowActionSchema }).strict(),
+    z.object({ createDocumentLink: CreateDocumentLinkWorkflowActionSchema }).strict(),
+    z.object({ sendEmail: SendEmailWorkflowActionSchema }).strict(),
+    z.object({ httpRequest: HttpRequestWorkflowActionSchema }).strict(),
+    z.object({ setVariable: SetVariableWorkflowActionSchema }).strict(),
+    z.object({ fail: FailWorkflowActionSchema }).strict(),
+    z
+      .object({
+        if: WorkflowConditionSchema,
+        then: z.array(WorkflowStepSchema).min(1).max(200),
+        else: z.array(WorkflowStepSchema).min(1).max(200).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        switch: WorkflowValueSchema,
+        cases: z
+          .array(z.object({ when: WorkflowValueSchema, do: z.array(WorkflowStepSchema).min(1).max(200) }).strict())
+          .min(1)
+          .max(100),
+        default: z.array(WorkflowStepSchema).min(1).max(200).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        forEach: z.string().trim().min(1).max(500),
+        as: WorkflowIdentifierSchema,
+        do: z.array(WorkflowStepSchema).min(1).max(200),
+      })
+      .strict(),
+  ]),
+);
+
+export { WorkflowStepSchema };
+export type WorkflowStep = z.infer<typeof WorkflowStepSchema>;
+
+export const WorkflowDefinitionSchema = z
+  .object({
+    inputs: WorkflowInputsSchema.optional(),
+    triggers: WorkflowTriggersSchema,
+    steps: z.array(WorkflowStepSchema).min(1).max(1000),
+  })
+  .strict();
+export type WorkflowDefinition = z.infer<typeof WorkflowDefinitionSchema>;
+
+export const WorkflowSchema = z.object({
   id: z.string().uuid(),
   shortId: ShortIdSchema,
   baseId: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
-  trigger: AutomationTriggerSchema,
-  action: AutomationActionSchema,
-  payload: AutomationPayloadConfigSchema,
+  source: z.string(),
+  compiled: WorkflowDefinitionSchema,
   enabled: z.boolean(),
   position: z.number().int().min(0),
   ownerUserId: z.string().uuid().nullable(),
-  webhookSecretSet: z.boolean(),
   deletedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
-export type Automation = z.infer<typeof AutomationSchema>;
+export type Workflow = z.infer<typeof WorkflowSchema>;
 
-export const CreateAutomationSchema = z.object({
+export const CreateWorkflowSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(1000).nullable().optional(),
-  trigger: AutomationTriggerSchema,
-  action: AutomationActionSchema,
-  payload: AutomationPayloadConfigSchema.optional(),
+  source: z.string().min(1).max(200_000),
   enabled: z.boolean().optional(),
   position: z.number().int().min(0).optional(),
-  // Plaintext by design: the executor needs the original value for HMAC signing.
-  webhookSecret: z.string().min(8).max(512).nullable().optional(),
 });
-export type CreateAutomationInput = z.infer<typeof CreateAutomationSchema>;
+export type CreateWorkflowInput = z.infer<typeof CreateWorkflowSchema>;
 
-export const UpdateAutomationSchema = z.object({
+export const UpdateWorkflowSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(1000).nullable().optional(),
-  trigger: AutomationTriggerSchema.optional(),
-  action: AutomationActionSchema.optional(),
-  payload: AutomationPayloadConfigSchema.optional(),
+  source: z.string().min(1).max(200_000).optional(),
   enabled: z.boolean().optional(),
   position: z.number().int().min(0).optional(),
-  webhookSecret: z.string().min(8).max(512).nullable().optional(),
 });
-export type UpdateAutomationInput = z.infer<typeof UpdateAutomationSchema>;
+export type UpdateWorkflowInput = z.infer<typeof UpdateWorkflowSchema>;
 
-export const AutomationSubjectSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("base"),
-  }),
-  z.object({
-    type: z.literal("record"),
-    tableId: z.string().uuid(),
-    recordId: z.string().uuid(),
-  }),
-]);
-export type AutomationSubject = z.infer<typeof AutomationSubjectSchema>;
+export const WorkflowRunStatusSchema = z.enum(["queued", "running", "succeeded", "failed", "canceled"]);
+export type WorkflowRunStatus = z.infer<typeof WorkflowRunStatusSchema>;
 
-export const RunAutomationSchema = z.object({
-  input: z.unknown().nullable().optional(),
-  subject: AutomationSubjectSchema.optional(),
-  reason: z.string().trim().min(1).max(120).optional(),
-});
-export type RunAutomationInput = z.infer<typeof RunAutomationSchema>;
+export const WorkflowTriggerKindSchema = z.enum(["form", "api", "scanner", "bulkSelection", "dashboardButton", "schedule", "recordEvent"]);
+export type WorkflowTriggerKind = z.infer<typeof WorkflowTriggerKindSchema>;
 
-export const AutomationRunSchema = z.object({
+export const WorkflowRunSchema = z.object({
   id: z.string().uuid(),
-  automationId: z.string().uuid(),
+  workflowId: z.string().uuid().nullable(),
   baseId: z.string().uuid(),
-  tableId: z.string().uuid().nullable(),
-  recordId: z.string().uuid().nullable(),
-  event: z.string(),
-  trigger: z.record(z.string(), z.unknown()),
-  subject: AutomationSubjectSchema,
-  input: z.unknown().nullable(),
-  status: z.enum(["running", "succeeded", "failed"]),
-  targetHost: z.string().nullable(),
-  httpStatus: z.number().int().nullable(),
-  durationMs: z.number().int().nullable(),
+  actorUserId: z.string().uuid().nullable(),
+  serviceAccountId: z.string().uuid().nullable(),
+  triggerKind: WorkflowTriggerKindSchema,
+  triggerInput: z.record(z.string(), z.unknown()).nullable(),
+  resolvedInput: z.record(z.string(), z.unknown()).nullable(),
+  status: WorkflowRunStatusSchema,
   error: z.string().nullable(),
   createdAt: z.string().datetime(),
   startedAt: z.string().datetime().nullable(),
   finishedAt: z.string().datetime().nullable(),
 });
-export type AutomationRun = z.infer<typeof AutomationRunSchema>;
+export type WorkflowRun = z.infer<typeof WorkflowRunSchema>;
 
-export const AutomationListSchema = z.array(AutomationSchema);
-export const AutomationRunListSchema = z.object({
-  items: z.array(AutomationRunSchema),
+const WorkflowAutocompleteBaseBodySchema = z.object({
+  source: z.string().max(200_000),
+  /** UTF-16 offset in `source`; defaults to the end of the text. */
+  caret: z.number().int().min(0).max(200_000).optional(),
 });
+
+export const WorkflowAutocompleteBodySchema = WorkflowAutocompleteBaseBodySchema.refine(
+  (body) => body.caret === undefined || body.caret <= body.source.length,
+  { message: "caret must be inside source", path: ["caret"] },
+);
+export type WorkflowAutocompleteBody = z.infer<typeof WorkflowAutocompleteBodySchema>;
+
+export const WorkflowAutocompleteResponseSchema = z.object({
+  ok: z.literal(true),
+  diagnostics: z.array(DslQueryPreviewDiagnosticSchema),
+  items: z.array(DslQueryCompletionItemSchema),
+});
+export type WorkflowAutocompleteResponse = z.infer<typeof WorkflowAutocompleteResponseSchema>;
+
+export const WorkflowStepRunSchema = z.object({
+  id: z.string().uuid(),
+  runId: z.string().uuid(),
+  stepIndex: z.number().int().min(0),
+  stepPath: z.string(),
+  kind: z.string(),
+  status: WorkflowRunStatusSchema,
+  input: z.record(z.string(), z.unknown()).nullable(),
+  output: z.record(z.string(), z.unknown()).nullable(),
+  error: z.string().nullable(),
+  durationMs: z.number().int().nullable(),
+  startedAt: z.string().datetime().nullable(),
+  finishedAt: z.string().datetime().nullable(),
+});
+export type WorkflowStepRun = z.infer<typeof WorkflowStepRunSchema>;
+
+export const WorkflowEmailDeliverySchema = z.object({
+  id: z.string().uuid(),
+  workflowId: z.string().uuid().nullable(),
+  workflowRunId: z.string().uuid().nullable(),
+  templateId: z.string().uuid().nullable(),
+  subject: z.string().nullable(),
+  recipients: z.array(
+    z.object({
+      kind: z.enum(["email", "user"]),
+      recipient: z.string(),
+      notificationId: z.string().uuid().optional(),
+      status: z.string().optional(),
+    }),
+  ),
+  status: z.enum(["sent", "failed"]),
+  error: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+export type WorkflowEmailDelivery = z.infer<typeof WorkflowEmailDeliverySchema>;
+
+export const WorkflowListSchema = z.array(WorkflowSchema);
+export const WorkflowRunListSchema = z.object({
+  items: z.array(WorkflowRunSchema),
+  nextCursor: z.string().nullable().optional(),
+});
+export const WorkflowEmailDeliveryListSchema = z.object({
+  items: z.array(WorkflowEmailDeliverySchema),
+  nextCursor: z.string().nullable().optional(),
+});
+export const WorkflowRunStatsSchema = z.object({
+  total: z.number().int().min(0),
+  queued: z.number().int().min(0),
+  running: z.number().int().min(0),
+  succeeded: z.number().int().min(0),
+  failed: z.number().int().min(0),
+  canceled: z.number().int().min(0),
+  failedLast24h: z.number().int().min(0),
+  lastRunAt: z.string().datetime().nullable(),
+});
+export type WorkflowRunStats = z.infer<typeof WorkflowRunStatsSchema>;
 
 // ── Audit ─────────────────────────────────────────────────────────────────
 export const AuditEntrySchema = z.object({
@@ -1542,10 +1891,32 @@ export const AuditEntrySchema = z.object({
     "deleted",
     "restored",
     "imported",
-    "automation.webhook.sent",
-    "automation.webhook.failed",
-    "automation.document.generated",
-    "automation.document.failed",
+    "access.granted",
+    "access.updated",
+    "access.revoked",
+    "workflow.created",
+    "workflow.updated",
+    "workflow.deleted",
+    "workflow.access.granted",
+    "workflow.access.updated",
+    "workflow.access.revoked",
+    "workflow.run.started",
+    "workflow.run.succeeded",
+    "workflow.run.failed",
+    "workflow.record.updated",
+    "workflow.record.created",
+    "workflow.document.generated",
+    "workflow.document_link.created",
+    "workflow.email.sent",
+    "workflow.email.failed",
+    "workflow.http.sent",
+    "workflow.http.failed",
+    "email_template.created",
+    "email_template.updated",
+    "email_template.deleted",
+    "document_link.created",
+    "document_link.revoked",
+    "document_link.accessed",
   ]),
   diff: z.record(z.string(), z.object({ old: z.unknown(), new: z.unknown() })).nullable(),
   ip: z.string().nullable(),

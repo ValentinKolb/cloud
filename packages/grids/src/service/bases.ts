@@ -314,7 +314,7 @@ export const remove = async (id: string, actorId: string | null): Promise<Result
 /**
  * Restores a soft-deleted base. Children (tables/fields/records/views/forms)
  * that were independently deleted stay deleted — restore is non-cascading
- * by design, matching the user's mental model of "I deleted the base by
+ * by design, matching the user's expectation of "I deleted the base by
  * accident; the table I trashed last week is unrelated".
  */
 export const restore = async (id: string, actorId: string | null): Promise<Result<Base>> => {

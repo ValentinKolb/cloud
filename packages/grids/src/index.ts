@@ -1,12 +1,12 @@
+import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { websocket } from "hono/bun";
-import { app } from "./config";
-import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
+import { app } from "./config";
 import pageRoutes, { adminRoutes, publicRoutes } from "./frontend";
-import { gridsService } from "./service";
-import { automationRuntime } from "./service/automations-runtime";
 import { migrate } from "./migrate";
+import { gridsService } from "./service";
+import { workflowTriggerRuntime } from "./service/workflow-trigger-runtime";
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
@@ -24,15 +24,15 @@ const result = await app.start({
       await migrate();
     },
     start: async () => {
-      await automationRuntime.start();
+      await workflowTriggerRuntime.start();
     },
     stop: async () => {
-      await automationRuntime.stop();
+      await workflowTriggerRuntime.stop();
     },
   },
 });
 
 export default { ...result, websocket };
 
-export { gridsService as service };
 export type { ApiType } from "./api";
+export { gridsService as service };

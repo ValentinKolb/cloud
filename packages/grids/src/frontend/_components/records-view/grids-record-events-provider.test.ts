@@ -223,7 +223,7 @@ describe("createGridsRecordEventsProvider", () => {
     provider.connect();
     FakeWebSocket.instances[0]!.open();
     FakeWebSocket.instances[0]!.message(recordEvent({ tableId: OTHER_TABLE_ID, recordId: "other" }));
-    FakeWebSocket.instances[0]!.message(recordEvent({ type: "automation.run", recordId: "bad-type" }));
+    FakeWebSocket.instances[0]!.message(recordEvent({ type: "workflow.run", recordId: "bad-type" }));
     FakeWebSocket.instances[0]!.message(recordEvent({ recordId: "visible" }));
 
     expect(seen).toEqual(["visible"]);

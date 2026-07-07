@@ -28,6 +28,9 @@ export const validateAccessLevelForResource = (resourceType: string, permission:
   if (resourceType === "dashboard" && permission !== "read" && permission !== "none") {
     return "Dashboard grants only accept 'read' or 'none'";
   }
+  if (resourceType === "workflow" && permission !== "read" && permission !== "write" && permission !== "admin" && permission !== "none") {
+    return "Workflow grants only accept 'read', 'write', 'admin', or 'none'";
+  }
   return null;
 };
 
@@ -418,6 +421,68 @@ const app = new Hono<AuthContext>()
           gridsService.access.grant({
             resourceType: "dashboard",
             resourceId: dashboardId,
+            actorId: user.id,
+            ...body,
+          }),
+        201,
+      );
+    },
+  )
+
+  // ── Workflow ACL ───────────────────────────────────────────────────
+  // Workflow grants use the standard operational levels:
+  // read = inspect/list/run history, write = run operational workflows,
+  // admin = edit YAML/access/delete. Exact endpoint gates live in the
+  // workflow API; ACL mutations are still base-admin actions.
+  .get(
+    "/by-workflow/:workflowId",
+    describeRoute({
+      tags: ["Grids:Access"],
+      summary: "List ACL entries for a workflow",
+      responses: {
+        200: jsonResponse(AccessListSchema, "Entries"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Workflow not found"),
+      },
+    }),
+    async (c) => {
+      const workflowId = c.req.param("workflowId")!;
+      const workflow = await gridsService.workflow.get(workflowId);
+      if (!workflow) return c.json({ message: "Workflow not found" }, 404);
+      const gate = await gateAt(c, { baseId: workflow.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const entries = await gridsService.access.listForWorkflow(workflowId);
+      return c.json(entries);
+    },
+  )
+  .post(
+    "/by-workflow/:workflowId",
+    describeRoute({
+      tags: ["Grids:Access"],
+      summary: "Grant access on a workflow (read / write / admin / none)",
+      responses: {
+        201: jsonResponse(z.object({ accessId: z.string().uuid() }), "Created"),
+        400: jsonResponse(ErrorResponseSchema, "Workflow only accepts level 'read', 'write', 'admin', or 'none'"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    v("json", GrantAccessSchema),
+    async (c) => {
+      const workflowId = c.req.param("workflowId")!;
+      const workflow = await gridsService.workflow.get(workflowId);
+      if (!workflow) return c.json({ message: "Workflow not found" }, 404);
+      const body = c.req.valid("json");
+      const validationError = validateAccessLevelForResource("workflow", body.permission);
+      if (validationError) return c.json({ message: validationError }, 400);
+      const gate = await gateAt(c, { baseId: workflow.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
+      return respond(
+        c,
+        () =>
+          gridsService.access.grant({
+            resourceType: "workflow",
+            resourceId: workflowId,
             actorId: user.id,
             ...body,
           }),

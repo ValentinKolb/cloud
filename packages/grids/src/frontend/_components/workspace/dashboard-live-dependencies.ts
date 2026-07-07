@@ -13,7 +13,7 @@ const widgetTableDependency = (widget: Widget, viewToTable: Map<string, string>,
     case "form":
       return formToTable.get(widget.formId) ?? null;
     case "link":
-    case "automation-button":
+    case "workflow-button":
     case "markdown":
       return null;
   }

@@ -1,4 +1,5 @@
 import {
+  CopyButton,
   Dropdown,
   dialogCore,
   PanelDialog,
@@ -15,6 +16,10 @@ import { mutation as mutations, timed as timing } from "@valentinkolb/stdlib/sol
 import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type {
+  CreateDocumentLinkResponse,
+  DocumentLink,
+  DocumentLinkListResponse,
+  DocumentLinkTtl,
   DocumentRunBrowseResponse,
   DocumentRunFolder,
   DocumentRunSummary,
@@ -46,6 +51,12 @@ type DocumentViewMode = GridsDocumentViewMode | "custom";
 const iconActionClass =
   "inline-flex h-8 w-8 shrink-0 items-center justify-center text-dimmed transition-colors hover:text-secondary disabled:cursor-not-allowed disabled:opacity-50";
 const PAGE_SIZE = 200;
+const DOCUMENT_LINK_TTL_OPTIONS: Array<{ value: DocumentLinkTtl; label: string; description: string }> = [
+  { value: "1d", label: "1 day", description: "Short handoff" },
+  { value: "7d", label: "7 days", description: "One week" },
+  { value: "30d", label: "30 days", description: "Default" },
+  { value: "90d", label: "90 days", description: "Long running" },
+];
 const documentGenerateDialogOptions = {
   ...panelDialogOptions,
   panelClassName: `${panelDialogOptions.panelClassName} h-[min(90vh,54rem)] w-[min(96vw,80rem)]`,
@@ -53,10 +64,27 @@ const documentGenerateDialogOptions = {
 };
 
 const formatRelativeTime = (iso: string, dateConfig?: DateContext): string => dates.formatDateTimeRelative(iso, dateConfig);
+const formatDateTime = (iso: string, dateConfig?: DateContext): string =>
+  new Intl.DateTimeFormat(dateConfig?.locale, {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: dateConfig?.timeZone,
+  }).format(new Date(iso));
 const formatMonthPath = (year: string, month: string, dateConfig?: DateContext): string => {
   const date = new Date(Date.UTC(Number(year), Number(month) - 1, 1));
   if (Number.isNaN(date.getTime())) return month;
   return new Intl.DateTimeFormat(dateConfig?.locale, { month: "long", timeZone: "UTC" }).format(date);
+};
+
+const absoluteUrl = (url: string): string => {
+  if (typeof window === "undefined") return url;
+  return new URL(url, window.location.origin).toString();
+};
+
+const documentLinkStatus = (link: DocumentLink): { label: string; class: string; active: boolean } => {
+  if (link.revokedAt) return { label: "Revoked", class: "tag", active: false };
+  if (new Date(link.expiresAt).getTime() <= Date.now()) return { label: "Expired", class: "tag", active: false };
+  return { label: "Active", class: "tag-blue", active: true };
 };
 
 function DocumentTags(props: { tags: string[] }) {
@@ -214,6 +242,127 @@ function DocumentGenerateDialog(props: {
   );
 }
 
+const openDocumentLinkDialog = (args: { run: DocumentRunSummary; onCreated: (link: DocumentLink) => void | Promise<void> }) =>
+  dialogCore.open<void>((close) => <DocumentLinkDialog args={args} close={close} />, panelDialogOptions);
+
+function DocumentLinkDialog(props: {
+  args: {
+    run: DocumentRunSummary;
+    onCreated: (link: DocumentLink) => void | Promise<void>;
+  };
+  close: () => void;
+}) {
+  const [expiresIn, setExpiresIn] = createSignal<DocumentLinkTtl>("30d");
+  const [comment, setComment] = createSignal("");
+  const [createdUrl, setCreatedUrl] = createSignal<string | null>(null);
+
+  const createMut = mutations.create<CreateDocumentLinkResponse, void>({
+    mutation: async () => {
+      const res = await apiClient.documents.runs[":runId"].links.$post({
+        param: { runId: props.args.run.id },
+        json: {
+          expiresIn: expiresIn(),
+          comment: comment().trim() || null,
+        },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Could not create document link"));
+      return res.json();
+    },
+    onSuccess: async (created) => {
+      const url = absoluteUrl(created.url);
+      setCreatedUrl(url);
+      try {
+        await navigator.clipboard.writeText(url);
+      } catch {
+        // The visible copy button below is the fallback for locked-down browsers.
+      }
+      await props.args.onCreated(created.link);
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  return (
+    <PanelDialog>
+      <PanelDialog.Header title="Create public link" subtitle={props.args.run.filename} icon="ti ti-link" close={props.close} />
+      <PanelDialog.Body>
+        <Show
+          when={createdUrl()}
+          fallback={
+            <section class="flex flex-col gap-3">
+              <div>
+                <p class="text-sm font-medium text-primary">Validity</p>
+                <div class="mt-2 grid gap-2 sm:grid-cols-2">
+                  <For each={DOCUMENT_LINK_TTL_OPTIONS}>
+                    {(option) => (
+                      <button
+                        type="button"
+                        class={`rounded-md border px-3 py-2 text-left transition-colors ${
+                          expiresIn() === option.value
+                            ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-200"
+                            : "border-zinc-200 bg-white text-secondary hover:text-primary dark:border-zinc-800 dark:bg-zinc-950"
+                        }`}
+                        onClick={() => setExpiresIn(option.value)}
+                      >
+                        <span class="block text-sm font-medium">{option.label}</span>
+                        <span class="block text-xs text-dimmed">{option.description}</span>
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </div>
+              <TextInput
+                label="Comment"
+                description="Optional internal note. It is not visible to people using the link."
+                value={comment}
+                onInput={setComment}
+                icon="ti ti-message"
+                placeholder="Why this link exists"
+              />
+              <div class="info-block-info text-xs">
+                <i class="ti ti-shield-lock" />
+                The URL works without login until it expires or is revoked. It downloads this stored document snapshot only.
+              </div>
+            </section>
+          }
+        >
+          {(url) => (
+            <section class="flex flex-col gap-3">
+              <div class="info-block-success text-xs">
+                <i class="ti ti-check" />
+                Link created and copied to clipboard.
+              </div>
+              <code class="block break-all rounded-md bg-zinc-100 p-2 font-mono text-xs text-secondary dark:bg-zinc-900">
+                {url()}
+              </code>
+              <div class="flex flex-wrap items-center gap-2">
+                <CopyButton text={url()} label="Copy link" class="btn-input btn-sm" />
+                <a href={url()} target="_blank" rel="noreferrer" class="btn-input btn-sm">
+                  <i class="ti ti-external-link" />
+                  Open link
+                </a>
+              </div>
+            </section>
+          )}
+        </Show>
+      </PanelDialog.Body>
+      <PanelDialog.Footer>
+        <span />
+        <div class="flex items-center justify-end gap-2">
+          <button type="button" class="btn-input btn-sm" onClick={props.close} disabled={createMut.loading()}>
+            {createdUrl() ? "Done" : "Cancel"}
+          </button>
+          <Show when={!createdUrl()}>
+            <button type="button" class="btn-primary btn-sm" onClick={() => createMut.mutate(undefined)} disabled={createMut.loading()}>
+              {createMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-link-plus" />}
+              Create link
+            </button>
+          </Show>
+        </div>
+      </PanelDialog.Footer>
+    </PanelDialog>
+  );
+}
+
 const openDocumentRunDetailsDialog = (args: {
   run: DocumentRunSummary;
   canWrite: boolean;
@@ -234,6 +383,15 @@ function DocumentRunDetailsDialog(props: {
 }) {
   const [filename, setFilename] = createSignal(props.args.run.filename);
   const [tags, setTags] = createSignal<string[]>(props.args.run.tags);
+  const [links, { refetch: refetchLinks }] = createResource(
+    () => (props.args.canWrite ? props.args.run.id : null),
+    async (runId): Promise<DocumentLink[]> => {
+      if (!runId) return [];
+      const res = await apiClient.documents.runs[":runId"].links.$get({ param: { runId } });
+      if (!res.ok) throw new Error(await errorMessage(res, "Could not load document links"));
+      return ((await res.json()) as DocumentLinkListResponse).items;
+    },
+  );
 
   const saveMut = mutations.create<DocumentRunSummary, void>({
     mutation: async () => {
@@ -254,6 +412,26 @@ function DocumentRunDetailsDialog(props: {
     onError: (error) => prompts.error(error.message),
   });
 
+  const revokeMut = mutations.create<DocumentLink, DocumentLink>({
+    mutation: async (link) => {
+      const res = await apiClient.documents.links[":linkId"].revoke.$post({ param: { linkId: link.id } });
+      if (!res.ok) throw new Error(await errorMessage(res, "Could not revoke document link"));
+      return res.json();
+    },
+    onSuccess: async () => {
+      await refetchLinks();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const createLink = () =>
+    void openDocumentLinkDialog({
+      run: props.args.run,
+      onCreated: async () => {
+        await refetchLinks();
+      },
+    });
+
   return (
     <PanelDialog>
       <PanelDialog.Header title="Document details" subtitle={props.args.run.filename} icon="ti ti-file-type-pdf" close={props.close} />
@@ -270,6 +448,64 @@ function DocumentRunDetailsDialog(props: {
             <dd class="min-w-0 truncate font-mono text-xs text-secondary">{props.args.run.snapshotId}</dd>
           </dl>
         </section>
+        <Show when={props.args.canWrite}>
+          <section class="flex flex-col gap-2">
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <h3 class="text-sm font-semibold text-primary">Public links</h3>
+                <p class="text-xs text-dimmed">Expiring download links for this stored document.</p>
+              </div>
+              <button type="button" class="btn-input btn-sm" onClick={createLink}>
+                <i class="ti ti-link-plus" />
+                New link
+              </button>
+            </div>
+            <div class="overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
+              <Show when={!links.loading} fallback={<div class="p-3 text-sm text-dimmed">Loading links...</div>}>
+                <Show when={!links.error} fallback={<div class="p-3 text-sm text-red-600">{links.error?.message ?? "Could not load links."}</div>}>
+                  <Show when={(links() ?? []).length > 0} fallback={<div class="p-3 text-sm text-dimmed">No public links for this document.</div>}>
+                    <For each={links()}>
+                      {(link) => {
+                        const status = () => documentLinkStatus(link);
+                        return (
+                          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-b border-zinc-100 px-3 py-2 last:border-b-0 dark:border-zinc-800">
+                            <div class="min-w-0">
+                              <div class="flex min-w-0 flex-wrap items-center gap-2">
+                                <span class={status().class}>{status().label}</span>
+                                <span class="text-xs text-secondary">Expires {formatDateTime(link.expiresAt, props.args.dateConfig)}</span>
+                              </div>
+                              <Show when={link.comment}>
+                                {(comment) => <p class="mt-1 truncate text-sm text-primary">{comment()}</p>}
+                              </Show>
+                              <p class="mt-1 text-xs text-dimmed">
+                                Created {formatRelativeTime(link.createdAt, props.args.dateConfig)}
+                                {link.accessCount > 0 ? ` · ${link.accessCount} downloads` : ""}
+                                {link.lastAccessedAt ? ` · last ${formatRelativeTime(link.lastAccessedAt, props.args.dateConfig)}` : ""}
+                              </p>
+                            </div>
+                            <Show when={status().active}>
+                              <button
+                                type="button"
+                                class={iconActionClass}
+                                title="Revoke link"
+                                aria-label="Revoke link"
+                                onClick={() => void revokeMut.mutate(link)}
+                                disabled={revokeMut.loading()}
+                              >
+                                {revokeMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-link-off" />}
+                              </button>
+                            </Show>
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </Show>
+                </Show>
+              </Show>
+            </div>
+            <p class="text-xs text-dimmed">For security, the full URL is only shown when the link is created.</p>
+          </section>
+        </Show>
       </PanelDialog.Body>
       <PanelDialog.Footer>
         <button
@@ -434,6 +670,13 @@ export default function DocumentTemplateWorkspace(props: Props) {
     const res = await fetch(`/api/grids/documents/runs/${encodeURIComponent(run.id)}/download`, signal ? { signal } : undefined);
     await downloadPdfResponse(res, run.filename);
   };
+  const openCreateLink = (run: DocumentRunSummary) => {
+    if (!props.canWriteTemplate) return;
+    void openDocumentLinkDialog({
+      run,
+      onCreated: async () => {},
+    });
+  };
   const openRunDetails = (run: DocumentRunSummary) =>
     void openDocumentRunDetailsDialog({
       run,
@@ -481,6 +724,20 @@ export default function DocumentTemplateWorkspace(props: Props) {
           }}
         >
           <i class="ti ti-pencil" />
+        </button>
+      </Show>
+      <Show when={props.canWriteTemplate}>
+        <button
+          type="button"
+          class={iconActionClass}
+          title="Create public link"
+          aria-label="Create public link"
+          onClick={(event) => {
+            event.stopPropagation();
+            openCreateLink(run);
+          }}
+        >
+          <i class="ti ti-link" />
         </button>
       </Show>
       <button

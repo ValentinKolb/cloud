@@ -19,10 +19,11 @@ import {
 } from "../../../query-dsl/resolver";
 import { collectDslFieldTableIds } from "../../../query-dsl/source-plan";
 import type { DslQueryAst } from "../../../query-dsl/types";
-import type { Automation, Base, Dashboard, Field, Form, GridRecord, Table, View } from "../../../service";
+import type { Base, Dashboard, Field, Form, GridRecord, Table, View, Workflow } from "../../../service";
 import { gridsService } from "../../../service";
 import { resolveWidgetData, type WidgetData } from "../../../service/dashboard-widget-data";
 import { filterSearchableFields } from "../../../service/search";
+import { loadWorkflowCatalog, resolveWorkflowTableRef } from "../../../service/workflows";
 import { activeDisplayConfig, calendarQueryFilter, cardImageFieldIds } from "../records-view/display-mode";
 import { resolveEffectiveQuery } from "../records-view/effective-query";
 import { parseRecordsState, type RecordsState } from "../records-view/query-url";
@@ -55,6 +56,8 @@ export type WorkspaceGroupBucket = {
 
 export type WorkspaceCatalog = {
   dashboards: Dashboard[];
+  workflows: Workflow[];
+  workflowLevels: Record<string, "none" | "read" | "write" | "admin">;
   tables: Table[];
   tableLevels: Record<string, "none" | "read" | "write" | "admin">;
   fieldsByTable: Record<string, Field[]>;
@@ -106,6 +109,7 @@ export type WorkspaceRecordsRoute = {
   groupedExplode: boolean;
   activeRecordQuery: RecordQuery | null;
   displayConfig: RecordDisplayConfig;
+  bulkSelectionWorkflows: Workflow[];
 };
 
 export type WorkspaceDashboardRoute = {
@@ -116,15 +120,19 @@ export type WorkspaceDashboardRoute = {
   activeDashboardAccessEntries: AccessEntry[];
   canEditActiveDashboard: boolean;
   isBaseDefault: boolean;
-  manualAutomations: Automation[];
+  dashboardWorkflows: Workflow[];
 };
 
 export type WorkspaceEmptyRoute = {
   kind: "empty";
 };
 
-export type WorkspaceAutomationsRoute = {
-  kind: "automations";
+export type WorkspaceWorkflowsRoute = {
+  kind: "workflows";
+  activeWorkflow: Workflow | null;
+  canRunActiveWorkflow: boolean;
+  canManageActiveWorkflow: boolean;
+  selectedRunId: string | null;
 };
 
 export type WorkspaceQueryRoute = {
@@ -152,7 +160,7 @@ export type WorkspaceDocumentTemplateRoute = {
 export type GridsWorkspaceRoute =
   | WorkspaceRecordsRoute
   | WorkspaceDashboardRoute
-  | WorkspaceAutomationsRoute
+  | WorkspaceWorkflowsRoute
   | WorkspaceQueryRoute
   | WorkspaceDocumentTemplateRoute
   | WorkspaceEmptyRoute;
@@ -251,6 +259,7 @@ type LoadWorkspaceParams = {
   activeTableSlug?: string | null;
   activeViewSlug?: string | null;
   activeDashboardSlug?: string | null;
+  activeWorkflowSlug?: string | null;
   activeDocumentTableSlug?: string | null;
   activeDocumentTemplateSlug?: string | null;
   initialDocumentViewMode?: GridsDocumentViewMode;
@@ -307,6 +316,16 @@ const buildChrome = (href: string, base: Base): WorkspaceChrome => {
   };
 };
 
+const workflowLevelForUser = async (user: AuthUser, baseId: string, workflowId: string) => {
+  const grants = await gridsService.permission.loadGrants({
+    userId: user.id,
+    userGroups: user.memberofGroupIds,
+    baseId,
+    workflowId,
+  });
+  return gridsService.permission.resolve(grants, { baseId, workflowId });
+};
+
 const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCatalog> => {
   const catalogRaw = await gridsService.base.catalog({
     baseId,
@@ -341,8 +360,17 @@ const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCat
     documentTemplatesByTable,
     catalogRaw.documentTemplateLevels ?? {},
   );
+  const allWorkflows = gridsService.workflow?.listForBase ? await gridsService.workflow.listForBase(baseId) : [];
+  const workflowLevels = Object.fromEntries(
+    await Promise.all(allWorkflows.map(async (workflow) => [workflow.id, await workflowLevelForUser(user, baseId, workflow.id)] as const)),
+  );
+  const workflows = allWorkflows
+    .filter((workflow) => gridsService.permission.hasAtLeast(workflowLevels[workflow.id] ?? "none", "read"))
+    .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   return {
     dashboards: catalogRaw.dashboards,
+    workflows,
+    workflowLevels,
     tables,
     tableLevels: catalogRaw.tableLevels,
     fieldsByTable: catalogRaw.fieldsByTable,
@@ -362,7 +390,8 @@ const canUseEditModeForCatalog = (catalog: WorkspaceCatalog, user: AuthUser, can
   canCreateTables ||
   catalog.tables.some((t) => gridsService.permission.hasAtLeast(catalog.tableLevels[t.id] ?? "none", "admin")) ||
   Object.values(catalog.documentTemplateLevels).some((level) => gridsService.permission.hasAtLeast(level, "admin")) ||
-  catalog.dashboards.some((d) => d.ownerUserId === user.id || (d.ownerUserId === null && canManageBase));
+  catalog.dashboards.some((d) => d.ownerUserId === user.id || (d.ownerUserId === null && canManageBase)) ||
+  Object.values(catalog.workflowLevels).some((level) => gridsService.permission.hasAtLeast(level, "admin"));
 
 const okState = (common: WorkspaceCommon, route: GridsWorkspaceRoute, title = common.chrome.titleBase): OkWorkspaceState => ({
   kind: "ok",
@@ -400,9 +429,9 @@ const loadDashboardState = async (common: WorkspaceCommon, dashboard: Dashboard)
   const widgetData = Object.fromEntries(results);
   const canEditActiveDashboard =
     dashboard.ownerUserId === common.params.user.id || (dashboard.ownerUserId === null && common.canManageBase);
-  const manualAutomations =
+  const dashboardWorkflows =
     common.canManageBase && common.chrome.adminModeRequested
-      ? (await gridsService.automation.listForBase(common.base.id)).filter((automation) => automation.trigger.kind === "manual")
+      ? (await gridsService.workflow.listForBase(common.base.id)).filter((workflow) => Boolean(workflow.compiled.triggers.dashboardButton))
       : [];
 
   return okState(common, {
@@ -413,7 +442,7 @@ const loadDashboardState = async (common: WorkspaceCommon, dashboard: Dashboard)
     activeDashboardAccessEntries: canEditActiveDashboard ? await gridsService.access.listForDashboard(dashboard.id) : [],
     canEditActiveDashboard,
     isBaseDefault: common.base.defaultDashboardId === dashboard.id,
-    manualAutomations,
+    dashboardWorkflows,
   });
 };
 
@@ -504,6 +533,24 @@ const documentTemplateLevelForUser = async (user: AuthUser, baseId: string, tabl
     documentTemplateId: templateId,
   });
   return gridsService.permission.resolve(grants, { baseId, tableId, documentTemplateId: templateId });
+};
+
+const bulkSelectionWorkflowsForTable = async (user: AuthUser, baseId: string, tableId: string): Promise<Workflow[]> => {
+  if (!gridsService.workflow?.listEnabledForBase) return [];
+  const workflows = await gridsService.workflow.listEnabledForBase(baseId);
+  const catalog = await loadWorkflowCatalog(baseId);
+  const matches: Workflow[] = [];
+  for (const workflow of workflows) {
+    const bulk = workflow.compiled.triggers.bulkSelection;
+    if (!bulk) continue;
+    const input = workflow.compiled.inputs?.[bulk.input];
+    if (!input || input.type !== "recordList" || !input.table) continue;
+    const table = resolveWorkflowTableRef(catalog, input.table);
+    if (!table || table.id !== tableId) continue;
+    const level = await workflowLevelForUser(user, baseId, workflow.id);
+    if (gridsService.permission.hasAtLeast(level, "write")) matches.push(workflow);
+  }
+  return matches.sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 };
 
 type InitialRecordsArgs = {
@@ -782,6 +829,7 @@ const loadRecordsState = async (
       groupedExplode: initial.groupedExplode,
       activeRecordQuery: activeViewForQuery?.query ?? null,
       displayConfig,
+      bulkSelectionWorkflows: await bulkSelectionWorkflowsForTable(common.params.user, common.base.id, activeTable.id),
     },
     [
       ...common.chrome.titleBase,
@@ -838,12 +886,17 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
     requestedDocumentTable && params.activeDocumentTemplateSlug
       ? await gridsService.document.getTemplateByIdOrShortId(requestedDocumentTable.id, params.activeDocumentTemplateSlug)
       : null;
+  const requestedWorkflow = params.activeWorkflowSlug
+    ? await gridsService.workflow.getByIdOrShortId(baseId, params.activeWorkflowSlug)
+    : null;
+  const requestedWorkflowLevel = requestedWorkflow ? await workflowLevelForUser(params.user, baseId, requestedWorkflow.id) : "none";
   const hasDocumentTemplateRouteAccess = requestedDocumentTemplate
     ? gridsService.permission.hasAtLeast(
         await documentTemplateLevelForUser(params.user, baseId, requestedDocumentTemplate.tableId, requestedDocumentTemplate.id),
         "read",
       )
     : false;
+  const hasWorkflowRouteAccess = requestedWorkflow ? gridsService.permission.hasAtLeast(requestedWorkflowLevel, "read") : false;
   const requestedViewTable =
     params.activeTableSlug && params.activeViewSlug ? await gridsService.table.getByIdOrShortId(baseId, params.activeTableSlug) : null;
   const requestedView =
@@ -853,7 +906,15 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
   const hasViewRouteAccess = requestedView
     ? gridsService.permission.hasAtLeast(await viewLevelForUser(params.user, baseId, requestedView.tableId, requestedView.id), "read")
     : false;
-  if (!hasBaseRead && !hasFormOnlyAccess && !hasViewRouteAccess && !hasDocumentTemplateOnlyAccess && !hasDocumentTemplateRouteAccess) {
+  if (
+    !hasBaseRead &&
+    !hasFormOnlyAccess &&
+    !hasViewRouteAccess &&
+    !hasDocumentTemplateOnlyAccess &&
+    !hasDocumentTemplateRouteAccess &&
+    !hasWorkflowRouteAccess &&
+    catalog.workflows.length === 0
+  ) {
     return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
   }
 
@@ -872,7 +933,9 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
     canUseQueryWorkspace: hasBaseRead,
   };
   const queryWorkspaceRequested = chrome.url.pathname.endsWith("/query");
-  const activeDashboard = queryWorkspaceRequested ? null : await resolveActiveDashboard(params, base, catalog.dashboards);
+  const workflowWorkspaceRequested = chrome.url.pathname.includes("/workflows");
+  const activeDashboard =
+    queryWorkspaceRequested || workflowWorkspaceRequested ? null : await resolveActiveDashboard(params, base, catalog.dashboards);
   const renderDashboard = activeDashboard ? (catalog.dashboards.find((d) => d.id === activeDashboard.id) ?? null) : null;
   const activeTableFromSlug =
     requestedViewTable ?? (params.activeTableSlug ? await gridsService.table.getByIdOrShortId(baseId, params.activeTableSlug) : null);
@@ -917,9 +980,33 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
       ],
     );
   }
-  if (chrome.url.pathname.endsWith("/automations")) {
-    if (!canManageBase) return { kind: "accessDenied", title: "Access denied", message: "Only base admins can manage automations" };
-    return okState(common, { kind: "automations" }, [...chrome.titleBase, { title: "Automations" }]);
+  if (workflowWorkspaceRequested) {
+    if (params.activeWorkflowSlug && !requestedWorkflow) {
+      return { kind: "notFound", title: "Not found", message: "Workflow not found" };
+    }
+    const activeWorkflow = requestedWorkflow ? (catalog.workflows.find((workflow) => workflow.id === requestedWorkflow.id) ?? null) : null;
+    if (params.activeWorkflowSlug && !activeWorkflow) {
+      return { kind: "accessDenied", title: "Access denied", message: "No access to this workflow" };
+    }
+    if (!hasBaseRead && catalog.workflows.length === 0) {
+      return { kind: "accessDenied", title: "Access denied", message: "No access to workflows" };
+    }
+    const activeWorkflowLevel = activeWorkflow ? (catalog.workflowLevels[activeWorkflow.id] ?? "none") : "none";
+    return okState(
+      common,
+      {
+        kind: "workflows",
+        activeWorkflow,
+        canRunActiveWorkflow: gridsService.permission.hasAtLeast(activeWorkflowLevel, "write"),
+        canManageActiveWorkflow: gridsService.permission.hasAtLeast(activeWorkflowLevel, "admin"),
+        selectedRunId: chrome.url.searchParams.get("run"),
+      },
+      [
+        ...chrome.titleBase,
+        { title: "Workflows", href: `/app/grids/${base.shortId}/workflows` },
+        ...(activeWorkflow ? [{ title: activeWorkflow.name }] : []),
+      ],
+    );
   }
 
   if (params.activeDocumentTableSlug && params.activeDocumentTemplateSlug) {

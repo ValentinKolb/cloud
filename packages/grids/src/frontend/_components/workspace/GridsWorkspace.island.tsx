@@ -1,7 +1,6 @@
 import { AppWorkspace, layout, Placeholder, prompts } from "@valentinkolb/cloud/ui";
 import { createEffect, createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import { apiClient } from "../../../api/client";
-import AutomationsPage from "../automations/AutomationsPage";
 import DashboardLayout from "../dashboard/DashboardLayout";
 import DashboardWysiwygEditor from "../dashboard/DashboardWysiwygEditor";
 import DocumentTemplateWorkspace from "../documents/DocumentTemplateWorkspace";
@@ -14,6 +13,7 @@ import CreateDashboardButton from "../sidebar/CreateDashboardButton";
 import CreateTableButton from "../sidebar/CreateTableButton";
 import FormSidebarEntry from "../sidebar/FormSidebarEntry";
 import RememberGridsPath from "../sidebar/RememberGridsPath";
+import WorkflowsPage, { WorkflowRunDetailPanel } from "../workflows/WorkflowsPage";
 import { dashboardRecordTableIds } from "./dashboard-live-dependencies";
 import { createGridsMetadataEventsProvider } from "./grids-metadata-events-provider";
 import type {
@@ -22,6 +22,7 @@ import type {
   WorkspaceDocumentTemplateRoute,
   WorkspaceQueryRoute,
   WorkspaceRecordsRoute,
+  WorkspaceWorkflowsRoute,
 } from "./workspace-state";
 
 type Props = {
@@ -109,6 +110,20 @@ export default function GridsWorkspace(props: Props) {
   };
 
   const currentWorkspaceHref = () => `${window.location.pathname}${window.location.search}`;
+
+  const workflowRunDetailId = () => {
+    const route = state().route;
+    return route.kind === "workflows" ? route.selectedRunId : null;
+  };
+
+  const selectWorkflowRun = async (runId: string | null) => {
+    const url = new URL(currentWorkspaceHref(), "http://grids.local");
+    if (runId) url.searchParams.set("run", runId);
+    else url.searchParams.delete("run");
+    const nextHref = `${url.pathname}${url.search}`;
+    const applied = await applyWorkspaceHref(nextHref, { preserveScroll: true });
+    if (applied) window.history.pushState(null, "", nextHref);
+  };
 
   const runMetadataRefresh = async () => {
     if (metadataRefreshInFlight) return;
@@ -311,7 +326,8 @@ export default function GridsWorkspace(props: Props) {
     const route = s.route;
     if (route.kind === "records") return `records:${route.activeTable.id}:${route.activeView?.id ?? ""}:${s.adminModeRequested}`;
     if (route.kind === "dashboard") return `dashboard:${route.dashboard.id}:${s.adminModeRequested}`;
-    if (route.kind === "automations") return `automations:${s.base.id}`;
+    if (route.kind === "workflows")
+      return `workflows:${s.base.id}:${route.activeWorkflow?.id ?? ""}:${route.selectedRunId ?? ""}:${s.adminModeRequested}`;
     if (route.kind === "query") return `query:${s.base.id}:${route.queryPath}`;
     if (route.kind === "documentTemplate") return `document:${route.template.id}:${route.initialRecordId ?? ""}:${s.adminModeRequested}`;
     return `${route.kind}:${s.adminModeRequested}`;
@@ -356,6 +372,7 @@ export default function GridsWorkspace(props: Props) {
         groupedExplode={route.groupedExplode}
         activeRecordQuery={route.activeRecordQuery}
         displayConfig={route.displayConfig}
+        bulkSelectionWorkflows={route.bulkSelectionWorkflows}
         dateConfig={state().dateConfig}
       />
     </div>
@@ -370,7 +387,7 @@ export default function GridsWorkspace(props: Props) {
           isBaseDefault={route.isBaseDefault}
           tables={state().catalog.tables.map((t) => ({ id: t.id, name: t.name, slug: t.shortId }))}
           dashboards={state().catalog.dashboards}
-          manualAutomations={route.manualAutomations}
+          dashboardWorkflows={route.dashboardWorkflows}
           fieldsByTable={state().catalog.fieldsByTable}
           viewsByTable={state().catalog.viewsByTable}
           formsByTable={state().catalog.formsByTable}
@@ -393,12 +410,20 @@ export default function GridsWorkspace(props: Props) {
     </div>
   );
 
-  const renderAutomations = () => (
-    <AutomationsPage
+  const renderWorkflows = (route: WorkspaceWorkflowsRoute) => (
+    <WorkflowsPage
       baseId={state().base.id}
       baseShortId={state().base.shortId}
       tables={state().catalog.tables}
-      fieldsByTable={state().catalog.fieldsByTable}
+      workflows={state().catalog.workflows}
+      activeWorkflow={route.activeWorkflow}
+      selectedRunId={route.selectedRunId}
+      canCreateWorkflows={state().canManageBase}
+      canRunActiveWorkflow={route.canRunActiveWorkflow}
+      canManageActiveWorkflow={route.canManageActiveWorkflow}
+      editMode={state().adminModeRequested}
+      onWorkflowChanged={() => void applyWorkspaceHref(currentWorkspaceHref(), { preserveScroll: true })}
+      onSelectRun={(runId) => void selectWorkflowRun(runId)}
     />
   );
 
@@ -435,6 +460,40 @@ export default function GridsWorkspace(props: Props) {
     const route = state().route;
     return route.kind === "query";
   };
+
+  const renderWorkflowSidebarSection = () => (
+    <Show when={state().catalog.workflows.length > 0 || state().canManageBase}>
+      <AppWorkspace.SidebarSection title="Workflows">
+        <AppWorkspace.SidebarItem
+          href={keepEdit(`/app/grids/${state().base.shortId}/workflows`, state().adminModeRequested)}
+          icon="ti ti-route"
+          onNavigate={handleNavigate}
+          active={state().route.kind === "workflows" && !(state().route as WorkspaceWorkflowsRoute).activeWorkflow}
+          activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
+          class={state().route.kind === "workflows" ? undefined : sidebarStateClass(false, state().adminModeRequested)}
+        >
+          Overview
+        </AppWorkspace.SidebarItem>
+        {state().catalog.workflows.map((workflow) => {
+          const route = state().route;
+          const active = route.kind === "workflows" && route.activeWorkflow?.id === workflow.id;
+          return (
+            <AppWorkspace.SidebarItem
+              href={keepEdit(`/app/grids/${state().base.shortId}/workflows/${workflow.shortId}`, state().adminModeRequested)}
+              icon="ti ti-route"
+              onNavigate={handleNavigate}
+              active={active}
+              activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
+              class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
+              meta={workflow.enabled ? undefined : <span class="text-[9px] uppercase tracking-wider text-dimmed">off</span>}
+            >
+              {workflow.name}
+            </AppWorkspace.SidebarItem>
+          );
+        })}
+      </AppWorkspace.SidebarSection>
+    </Show>
+  );
 
   return (
     <>
@@ -562,6 +621,8 @@ export default function GridsWorkspace(props: Props) {
                 </AppWorkspace.SidebarSection>
               </Show>
 
+              {renderWorkflowSidebarSection()}
+
               <AppWorkspace.SidebarSection title="Tables">
                 {state().catalog.tables.length === 0 ? (
                   <p class="text-xs text-dimmed px-2 py-1">
@@ -613,19 +674,6 @@ export default function GridsWorkspace(props: Props) {
                   }),
                 )}
               </AppWorkspace.SidebarSection>
-
-              <Show when={state().canManageBase}>
-                <AppWorkspace.SidebarSection title="Admin">
-                  <AppWorkspace.SidebarItem
-                    href={`/app/grids/${state().base.shortId}/automations`}
-                    icon="ti ti-bolt"
-                    onNavigate={handleNavigate}
-                    active={state().route.kind === "automations"}
-                  >
-                    Automations
-                  </AppWorkspace.SidebarItem>
-                </AppWorkspace.SidebarSection>
-              </Show>
             </AppWorkspace.SidebarMobileBody>
           </AppWorkspace.SidebarMobile>
 
@@ -720,6 +768,8 @@ export default function GridsWorkspace(props: Props) {
                 </AppWorkspace.SidebarSection>
               </Show>
 
+              {renderWorkflowSidebarSection()}
+
               <AppWorkspace.SidebarSection title="Tables">
                 {state().catalog.tables.length === 0 ? (
                   <p class="text-xs text-dimmed px-2 py-1">
@@ -771,19 +821,6 @@ export default function GridsWorkspace(props: Props) {
                   }),
                 )}
               </AppWorkspace.SidebarSection>
-
-              <Show when={state().canManageBase}>
-                <AppWorkspace.SidebarSection title="Admin">
-                  <AppWorkspace.SidebarItem
-                    href={`/app/grids/${state().base.shortId}/automations`}
-                    icon="ti ti-bolt"
-                    onNavigate={handleNavigate}
-                    active={state().route.kind === "automations"}
-                  >
-                    Automations
-                  </AppWorkspace.SidebarItem>
-                </AppWorkspace.SidebarSection>
-              </Show>
             </AppWorkspace.SidebarBody>
 
             {state().canUseEditMode && (
@@ -806,7 +843,7 @@ export default function GridsWorkspace(props: Props) {
             {(route) => (
               <Switch>
                 <Match when={route.kind === "dashboard"}>{renderDashboard(route as WorkspaceDashboardRoute)}</Match>
-                <Match when={route.kind === "automations"}>{renderAutomations()}</Match>
+                <Match when={route.kind === "workflows"}>{renderWorkflows(route as WorkspaceWorkflowsRoute)}</Match>
                 <Match when={route.kind === "query"}>{renderQueryWorkspace(route as WorkspaceQueryRoute)}</Match>
                 <Match when={route.kind === "documentTemplate"}>
                   {renderDocumentTemplateWorkspace(route as WorkspaceDocumentTemplateRoute)}
@@ -832,6 +869,16 @@ export default function GridsWorkspace(props: Props) {
             )}
           </Show>
         </AppWorkspace.Main>
+        <AppWorkspace.Detail
+          open={Boolean(workflowRunDetailId())}
+          width="lg"
+          class="detail-stack"
+          viewTransitionName="grids-workflow-run-detail"
+        >
+          <Show keyed when={workflowRunDetailId()}>
+            {(runId) => <WorkflowRunDetailPanel runId={runId} onClose={() => void selectWorkflowRun(null)} />}
+          </Show>
+        </AppWorkspace.Detail>
       </AppWorkspace>
     </>
   );

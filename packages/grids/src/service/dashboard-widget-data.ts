@@ -17,7 +17,6 @@ import { previewDslQuery } from "../query-dsl/preview";
 import { type DslResolvedSqlQueryPlan, resolveDslQueryToQueryPlan, resolveDslQueryToRecordQuery } from "../query-dsl/resolver";
 import { collectDslPlanExtraFieldTableIds } from "../query-dsl/source-plan";
 import { aggregateOutputKey } from "./aggregate-capabilities";
-import * as automations from "./automations";
 import { canReadDashboardIncludedData } from "./dashboard-included-access";
 import * as dashboards from "./dashboards";
 import * as fields from "./fields";
@@ -29,6 +28,7 @@ import * as records from "./records";
 import * as tables from "./tables";
 import type { Field, GridRecord } from "./types";
 import * as views from "./views";
+import * as workflows from "./workflows";
 
 const isComputedColumn = (column: ColumnSpec): column is ComputedColumnSpec => "kind" in column && column.kind === "computed";
 
@@ -118,9 +118,9 @@ export type WidgetData =
         | { kind: "blocked"; reason: string };
     }
   | {
-      kind: "automation-button";
-      automationId: string;
-      automationName: string;
+      kind: "workflow-button";
+      workflowId: string;
+      workflowName: string;
       title: string;
       description: string | null;
       buttonLabel: string;
@@ -161,7 +161,7 @@ type DbRow = Record<string, unknown>;
 type SavedView = NonNullable<Awaited<ReturnType<typeof views.get>>>;
 type RuntimeView = SavedView & { query: RecordQuery };
 type LinkWidget = Extract<Widget, { kind: "link" }>;
-type AutomationButtonWidget = Extract<Widget, { kind: "automation-button" }>;
+type WorkflowButtonWidget = Extract<Widget, { kind: "workflow-button" }>;
 type LinkDataBase = {
   kind: "link";
   title: string;
@@ -252,8 +252,8 @@ export const resolveWidgetData = async (widget: Widget, viewer: ViewerContext, o
         return resolveMarkdown(widget);
       case "link":
         return await resolveLink(widget, viewer);
-      case "automation-button":
-        return await resolveAutomationButton(widget);
+      case "workflow-button":
+        return await resolveWorkflowButton(widget);
     }
   } catch (e) {
     return { kind: "error", reason: e instanceof Error ? e.message : "unknown error" };
@@ -428,22 +428,22 @@ const renderableFormFields = (form: Form, formFields: Field[]): Field[] => {
   return formFields.filter((field) => userInputIds.has(field.id));
 };
 
-const resolveAutomationButton = async (widget: AutomationButtonWidget): Promise<WidgetData> => {
-  const automation = await automations.get(widget.automationId);
-  if (!automation) return { kind: "error", reason: "automation not found" };
-  const title = widget.title?.trim() || automation.name;
-  const description = widget.description?.trim() || automation.description;
-  const manual = automation.trigger.kind === "manual";
-  const enabled = automation.enabled;
+const resolveWorkflowButton = async (widget: WorkflowButtonWidget): Promise<WidgetData> => {
+  const workflow = await workflows.get(widget.workflowId);
+  if (!workflow) return { kind: "error", reason: "workflow not found" };
+  const title = widget.title?.trim() || workflow.name;
+  const description = widget.description?.trim() || workflow.description;
+  const runnable = Boolean(workflow.compiled.triggers.dashboardButton);
+  const enabled = workflow.enabled;
   return {
-    kind: "automation-button",
-    automationId: automation.id,
-    automationName: automation.name,
+    kind: "workflow-button",
+    workflowId: workflow.id,
+    workflowName: workflow.name,
     title,
     description,
     buttonLabel: widget.buttonLabel?.trim() || "Run",
-    canRun: manual && enabled,
-    disabledReason: !manual ? "Only manual automations can run from dashboards" : !enabled ? "Automation is disabled" : null,
+    canRun: runnable && enabled,
+    disabledReason: !runnable ? "Workflow has no dashboard button trigger" : !enabled ? "Workflow is disabled" : null,
   };
 };
 

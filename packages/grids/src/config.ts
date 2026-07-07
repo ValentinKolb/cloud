@@ -22,18 +22,12 @@ export const app = defineApp({
       default: 10,
       description: "Maximum size per uploaded Grids file.",
     },
-    "grids.webhook_allow_private_networks": {
+    "grids.http_request_allow_private_networks": {
       kind: "boolean",
-      label: "Allow Private Webhooks",
+      label: "Allow Private HTTP Requests",
       default: false,
       description:
-        "Allow Grids automations to call private, loopback, and link-local webhook targets. Keep disabled unless this deployment intentionally integrates with internal services.",
-    },
-    "grids.automation_run_retention_days": {
-      kind: "number",
-      label: "Automation Run Retention",
-      default: 90,
-      description: "How many days Grids automation run history is retained.",
+        "Allow Grids workflows to call private, loopback, and link-local HTTP targets. Keep disabled unless this deployment intentionally integrates with internal services.",
     },
   },
   openapi: "/api/grids/openapi.json",

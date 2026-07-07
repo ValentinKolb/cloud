@@ -10,6 +10,7 @@ import {
   GridsTablesFieldsPage,
   GridsTroubleshootingPage,
   GridsViewsGqlPage,
+  GridsWorkflowsPage,
 } from "./grids-help-content";
 import { GridsTemplatesPage } from "./grids-reference-pages";
 
@@ -38,7 +39,7 @@ export default function GridsLayoutHelp() {
         id="grids-example"
         title="Example: invoices"
         icon="ti ti-receipt"
-        description="A full base from tables to documents and automation."
+        description="A full base from tables to documents and workflows."
         order={106}
       >
         <GridsInvoiceExamplePage />
@@ -92,10 +93,19 @@ export default function GridsLayoutHelp() {
         <GridsPermissionsPage />
       </Layout.Help>
       <Layout.Help
+        id="grids-workflows"
+        title="Workflows"
+        icon="ti ti-route"
+        description="YAML inputs, triggers, steps, runs, permissions, and examples."
+        order={148}
+      >
+        <GridsWorkflowsPage />
+      </Layout.Help>
+      <Layout.Help
         id="grids-operations"
         title="Operations"
         icon="ti ti-bolt"
-        description="Automations, webhooks, files, documents, live refresh, and edit mode."
+        description="Workflows, HTTP requests, files, documents, live refresh, and edit mode."
         order={150}
       >
         <GridsOperationsPage />

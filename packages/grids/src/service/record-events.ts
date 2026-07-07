@@ -76,6 +76,8 @@ export const registerRecordEventHandler = (handler: GridsRecordEventHandler): ((
   return () => recordEventHandlers.delete(handler);
 };
 
+export const recordEventReader = (group: string) => recordTopic.reader(group);
+
 export const liveRecordEvents = (config: { baseId: string; after?: string | null; signal?: AbortSignal }) =>
   recordTopic.live({
     tenantId: config.baseId,

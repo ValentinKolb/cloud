@@ -60,7 +60,7 @@ export const GridsTemplatesPage = (props: { mode?: "guide" | "reference" } = {})
         quotes, packing lists, checklists, and record summaries.
       </DocLead>
 
-      <DocSection title="Mental model">
+      <DocSection title="How templates work">
         <p class="text-dimmed">
           A template belongs to one table and describes one document family for records in that table. The selected preview record gives the
           template its current-record context. GQL decides which rows and columns the document can use. Liquid decides how those values

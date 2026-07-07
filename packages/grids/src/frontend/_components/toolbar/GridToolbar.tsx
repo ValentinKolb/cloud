@@ -202,7 +202,7 @@ export default function GridToolbar(props: Props) {
   // Click Filter when empty → append a blank row. Panel appears
   // automatically because we render iff filterRows().length > 0.
   // Click Filter when non-empty → append another row (matches the user's
-  // mental model: "Filter button = add a filter").
+  // Interaction rule: "Filter button = add a filter").
   const onFilterClick = () => {
     const blank = blankLeaf(props.fields);
     if (!blank) {
