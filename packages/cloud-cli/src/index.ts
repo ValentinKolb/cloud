@@ -13,9 +13,9 @@ import type {
   CloudCliOptions,
   CloudCliTableColumn,
 } from "@valentinkolb/cloud/cli";
-import accountsCliModule from "@valentinkolb/cloud-app-accounts/cli";
 import accountCliModule from "@valentinkolb/cloud/cli/account";
 import adminCliModule from "@valentinkolb/cloud/cli/admin";
+import accountsCliModule from "@valentinkolb/cloud-app-accounts/cli";
 import contactsCliModule from "@valentinkolb/cloud-app-contacts/cli";
 import ipaHostsCliModule from "@valentinkolb/cloud-app-ipa-hosts/cli";
 import notebooksCliModule from "@valentinkolb/cloud-app-notebooks/cli";
@@ -232,6 +232,12 @@ const maskToken = (token: string | undefined): string | undefined => {
 
 const hasPersistentTokenProvider = (profile: CloudCliProfile): boolean =>
   Boolean(profile.token || profile.tokenFile || profile.tokenCommand || profile.fd0 || profile.oauth);
+
+const isModuleHelpRequest = (args: readonly string[], flags: CloudCliFlags): boolean => {
+  if (flags.help === true || flags.h === true) return true;
+  const last = args.at(-1);
+  return last === "help" || last === "--help" || last === "-h";
+};
 
 const loadConfig = async (): Promise<CloudCliConfig> => {
   try {
@@ -1269,7 +1275,9 @@ export const main = async (argv = Bun.argv.slice(2)): Promise<number> => {
   }
 
   const parsed = parseArgs(moduleArgs, new Set([...BOOLEAN_FLAGS, ...(module.booleanFlags ?? [])]));
-  const resolvedOptions = module.requiresCloud === false ? await resolveOfflineOptions(global) : await resolveOptions(global);
+  const helpRequest = isModuleHelpRequest(parsed.args, parsed.flags);
+  const resolvedOptions =
+    module.requiresCloud === false || helpRequest ? await resolveOfflineOptions(global) : await resolveOptions(global);
   const options: ResolvedCliOptions = {
     ...resolvedOptions,
     output: takeBooleanFlag(parsed.flags, "json") ? "json" : resolvedOptions.output,

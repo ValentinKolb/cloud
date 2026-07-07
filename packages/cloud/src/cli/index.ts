@@ -47,4 +47,5 @@ export type CloudCliModule = {
 
 export const defineCloudCliModule = <TModule extends CloudCliModule>(module: TModule): TModule => module;
 
+export * from "./access";
 export * from "./commands";

@@ -4,10 +4,12 @@ import {
   type CloudCliContext,
   command,
   confirmFlag,
+  createAccessCommands,
   defineCliCommands,
   flag,
   readCliInput,
 } from "@valentinkolb/cloud/cli";
+import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import type {
   OpeningRule,
   PublicSection,
@@ -18,10 +20,6 @@ import type {
   VenueDashboard,
   VenueInput,
 } from "./contracts";
-
-type MessageResponse = {
-  message: string;
-};
 
 type VenueApiKey = {
   id: string;
@@ -63,9 +61,6 @@ const printJsonOrTable = <TRow extends Record<string, unknown>>(
   if (ctx.options.output === "json") ctx.json(raw);
   else ctx.table(rows, columns);
 };
-
-const compact = <T extends Record<string, unknown>>(value: T): Partial<T> =>
-  Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<T>;
 
 const slugify = (value: string): string =>
   value
@@ -123,6 +118,49 @@ const apiKeyRows = (keys: VenueApiKey[]) =>
     expiresAt: key.expiresAt ?? "",
     lastUsedAt: key.lastUsedAt ?? "",
   }));
+
+const venueAccessCommands = createAccessCommands({
+  resourceLabel: "venue",
+  resourceArgLabel: "venue",
+  resourceArgDescription: "Optional venue id, slug, or exact name. If omitted, the default from `cld venue use` is used.",
+  resolveResource: async (ctx, args) => {
+    if (args.length > 1) throw new Error(`Unexpected venue access arguments: ${args.slice(1).join(" ")}`);
+    const venue = await resolveVenueRef(ctx, args[0]);
+    return {
+      id: venue.id,
+      label: `${venue.name} (${venue.slug})`,
+    };
+  },
+  list: async (ctx, venue) => (await apiGet<{ entries: AccessEntry[] }>(ctx, `/venues/${encode(venue.id)}/access`)).entries,
+  grant: async (ctx, venue, principal: Principal, permission: PermissionLevel) =>
+    apiJson<AccessEntry>(ctx, "POST", `/venues/${encode(venue.id)}/access`, { principal, permission }),
+  update: async (ctx, venue, accessId, permission) => {
+    await apiJson<unknown>(ctx, "PATCH", `/venues/${encode(venue.id)}/access/${encode(accessId)}`, { permission });
+  },
+  revoke: async (ctx, venue, accessId) => {
+    await apiJson<unknown>(ctx, "DELETE", `/venues/${encode(venue.id)}/access/${encode(accessId)}`);
+  },
+  examples: {
+    list: ['cld venue access list "Cafe Counter"', "cld venue access list --include-service-accounts"],
+    grant: [
+      'cld venue access grant "Cafe Counter" --user valentin.kolb --permission read',
+      'cld venue access grant "Cafe Counter" --group "Staff" --permission write',
+      'cld venue access grant "Cafe Counter" --authenticated --permission read',
+    ],
+    set: [
+      'cld venue access set "Cafe Counter" --user valentin.kolb --permission admin',
+      "cld venue access set --access-id 00000000-0000-4000-8000-000000000000 --permission write",
+    ],
+    revoke: [
+      'cld venue access revoke "Cafe Counter" --user valentin.kolb --yes',
+      "cld venue access revoke --access-id 00000000-0000-4000-8000-000000000000 --yes",
+    ],
+    searchPrincipals: [
+      "cld venue access search-principals val --kind user,group",
+      'cld venue access search-principals "Staff" --kind group',
+    ],
+  },
+});
 
 const openingRuleRows = (rules: OpeningRule[]) =>
   rules.map((rule) => ({
@@ -196,11 +234,6 @@ const buildVenueInput = (
     logoBase64: base?.logoBase64 ?? null,
     bannerBase64: base?.bannerBase64 ?? null,
   };
-};
-
-const printMessage = (ctx: CloudCliContext, result: MessageResponse) => {
-  if (ctx.options.output === "json") ctx.json(result);
-  else ctx.print(result.message);
 };
 
 const printMutationResult = (ctx: CloudCliContext, result: unknown, fallback: string) => {
@@ -332,6 +365,7 @@ export default defineCliCommands({
         printMutationResult(ctx, result, `Deleted ${venue.name}`);
       },
     }),
+    ...venueAccessCommands,
     command("api-keys list", {
       summary: "List venue API keys",
       args: { venue: arg.optional({ valueLabel: "venue" }) },

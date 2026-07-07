@@ -120,6 +120,18 @@ const readUntil = async (stream: ReadableStream<Uint8Array>, marker: string): Pr
 };
 
 describe("cloud CLI OAuth session handling", () => {
+  test("nested module help does not require a configured server", async () => {
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    const result = await runCli(configPath, ["notebooks", "access", "grant", "help"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("cld notebooks access grant");
+    expect(result.stdout).toContain("--permission <value>");
+  });
+
   test("login callback returns a browser-readable completion page", async () => {
     const state: MockServerState = { refreshCalls: 0, authorizationCodeCalls: 0, revokeCalls: 0, meCalls: 0 };
     const server = startMockServer(state);

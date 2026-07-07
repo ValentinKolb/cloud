@@ -1,5 +1,14 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { arg, type CloudCliContext, type CloudCliFlags, command, defineCliCommands, flag } from "@valentinkolb/cloud/cli";
+import {
+  arg,
+  type CloudCliContext,
+  type CloudCliFlags,
+  command,
+  createAccessCommands,
+  defineCliCommands,
+  flag,
+} from "@valentinkolb/cloud/cli";
+import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import type {
   Contact,
   ContactBook,
@@ -679,6 +688,50 @@ const bookFlag = {
   book: flag.string({ description: "Contact book id or exact name" }),
 };
 
+const contactBookAccessCommands = createAccessCommands({
+  resourceLabel: "contact book",
+  resourceArgLabel: "book",
+  resourceArgDescription: "Optional contact book id or exact name. If omitted, the default from `cld contacts use` is used.",
+  resolveResource: async (ctx, args) => {
+    const { bookRef, rest } = await resolveBookArg(ctx, args, 0);
+    if (rest.length > 0) throw new Error(`Unexpected contact book access arguments: ${rest.join(" ")}`);
+    const book = await resolveBookRef(ctx, bookRef);
+    return {
+      id: book.id,
+      label: `${book.name} (${book.id})`,
+    };
+  },
+  list: async (ctx, book) => readApi<AccessEntry[]>(ctx, `/books/${book.id}/access`),
+  grant: async (ctx, book, principal: Principal, permission: PermissionLevel) =>
+    readApi<AccessEntry>(ctx, `/books/${book.id}/access`, jsonRequest("POST", { principal, permission })),
+  update: async (ctx, book, accessId, permission) => {
+    await readApi<unknown>(ctx, `/books/${book.id}/access/${accessId}`, jsonRequest("PATCH", { permission }));
+  },
+  revoke: async (ctx, book, accessId) => {
+    await readApi<unknown>(ctx, `/books/${book.id}/access/${accessId}`, { method: "DELETE" });
+  },
+  examples: {
+    list: ['cld contacts access list "Customers"', "cld contacts access list --include-service-accounts"],
+    grant: [
+      'cld contacts access grant "Customers" --user valentin.kolb --permission read',
+      'cld contacts access grant "Customers" --group "Editors" --permission write',
+      'cld contacts access grant "Customers" --authenticated --permission read',
+    ],
+    set: [
+      'cld contacts access set "Customers" --user valentin.kolb --permission admin',
+      "cld contacts access set --access-id 00000000-0000-4000-8000-000000000000 --permission write",
+    ],
+    revoke: [
+      'cld contacts access revoke "Customers" --user valentin.kolb --yes',
+      "cld contacts access revoke --access-id 00000000-0000-4000-8000-000000000000 --yes",
+    ],
+    searchPrincipals: [
+      "cld contacts access search-principals val --kind user,group",
+      'cld contacts access search-principals "Editors" --kind group',
+    ],
+  },
+});
+
 const contactFlag = {
   contact: flag.string({ description: "Contact id or exact display name" }),
 };
@@ -770,6 +823,7 @@ export default defineCliCommands({
       flags: bookFlag,
       run: ({ ctx, args }) => runContactsCommand(ctx, "delete-book", args.args),
     }),
+    ...contactBookAccessCommands,
     command("list", {
       summary: "List contacts",
       args: bookArg,

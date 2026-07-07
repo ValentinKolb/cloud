@@ -1,5 +1,14 @@
 import { readFile } from "node:fs/promises";
-import { arg, type CloudCliContext, type CloudCliFlags, command, defineCliCommands, flag } from "@valentinkolb/cloud/cli";
+import {
+  arg,
+  type CloudCliContext,
+  type CloudCliFlags,
+  command,
+  createAccessCommands,
+  defineCliCommands,
+  flag,
+} from "@valentinkolb/cloud/cli";
+import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import type {
   CalendarItem,
   ItemListResult,
@@ -266,6 +275,50 @@ const spaceFlag = {
   space: flag.string({ description: "Space id or exact name" }),
 };
 
+const spaceAccessCommands = createAccessCommands({
+  resourceLabel: "space",
+  resourceArgLabel: "space",
+  resourceArgDescription: "Optional space id or exact name. If omitted, the default from `cld spaces use` is used.",
+  resolveResource: async (ctx, args) => {
+    const { spaceRef, rest } = await resolveSpaceArg(ctx, args, 0);
+    if (rest.length > 0) throw new Error(`Unexpected space access arguments: ${rest.join(" ")}`);
+    const space = await resolveSpaceRef(ctx, spaceRef);
+    return {
+      id: space.id,
+      label: `${space.name} (${space.id})`,
+    };
+  },
+  list: async (ctx, space) => readApi<AccessEntry[]>(ctx, `/${space.id}/access`),
+  grant: async (ctx, space, principal: Principal, permission: PermissionLevel) =>
+    readApi<AccessEntry>(ctx, `/${space.id}/access`, jsonRequest("POST", { principal, permission })),
+  update: async (ctx, space, accessId, permission) => {
+    await readApi<unknown>(ctx, `/${space.id}/access/${accessId}`, jsonRequest("PATCH", { permission }));
+  },
+  revoke: async (ctx, space, accessId) => {
+    await readApi<unknown>(ctx, `/${space.id}/access/${accessId}`, { method: "DELETE" });
+  },
+  examples: {
+    list: ['cld spaces access list "Roadmap"', "cld spaces access list --include-service-accounts"],
+    grant: [
+      'cld spaces access grant "Roadmap" --user valentin.kolb --permission read',
+      'cld spaces access grant "Roadmap" --group "Editors" --permission write',
+      'cld spaces access grant "Roadmap" --authenticated --permission read',
+    ],
+    set: [
+      'cld spaces access set "Roadmap" --user valentin.kolb --permission admin',
+      "cld spaces access set --access-id 00000000-0000-4000-8000-000000000000 --permission write",
+    ],
+    revoke: [
+      'cld spaces access revoke "Roadmap" --user valentin.kolb --yes',
+      "cld spaces access revoke --access-id 00000000-0000-4000-8000-000000000000 --yes",
+    ],
+    searchPrincipals: [
+      "cld spaces access search-principals val --kind user,group",
+      'cld spaces access search-principals "Editors" --kind group',
+    ],
+  },
+});
+
 const contentFlags = {
   content: flag.string({ description: "Content text" }),
   file: flag.string({ aliases: ["f"], description: "Read content from file" }),
@@ -376,6 +429,7 @@ export default defineCliCommands({
         else ctx.print(`Created ${space.name} (${space.id}).${booleanFlag(ctx.flags, "use") ? " Using it as default." : ""}`);
       },
     }),
+    ...spaceAccessCommands,
     command("items", {
       summary: "List items in a space",
       args: optionalSpaceArgs,
