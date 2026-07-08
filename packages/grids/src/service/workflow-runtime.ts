@@ -21,7 +21,7 @@ import {
   createDocumentLink,
   createRunForRecord,
   getTemplate,
-  publicDocumentLinkPath,
+  publicDocumentLinkUrl,
 } from "./documents";
 import * as emailTemplates from "./email-templates";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
@@ -182,14 +182,6 @@ const isDocumentRun = (value: RuntimeValue): value is DocumentRun =>
       typeof (value as { filename?: unknown }).filename === "string" &&
       typeof (value as { snapshotId?: unknown }).snapshotId === "string",
   );
-
-const publicAppOrigin = async (): Promise<string> => {
-  const raw = String((await settingsGet<string>("app.url")) || "").trim();
-  const withScheme = raw.startsWith("http://") || raw.startsWith("https://") ? raw : `https://${raw || "localhost:3000"}`;
-  return withScheme.replace(/\/+$/, "");
-};
-
-const publicDocumentLinkUrl = async (token: string): Promise<string> => `${await publicAppOrigin()}${publicDocumentLinkPath(token)}`;
 
 const readRecord = async (ctx: RuntimeContext, ref: RuntimeRecord): Promise<Result<GridRecord>> => {
   const cached = ctx.records.get(pathKey(ref));

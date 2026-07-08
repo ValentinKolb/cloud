@@ -5,6 +5,7 @@ import {
   buildTemplateAppData,
   buildTemplateInputContext,
   documentNumberFor,
+  publicDocumentLinkUrlForAppUrl,
   renderDocumentHtml,
   renderDocumentSource,
   renderLiquidText,
@@ -47,6 +48,16 @@ describe("document rendering", () => {
 
     expect(buildTemplateInputContext(record, table, app).app).toEqual(app);
     expect(buildRenderData({ record, table, columns: [], rows: [], app }).app).toEqual(app);
+  });
+
+  test("builds public document links from configured app urls", () => {
+    expect(publicDocumentLinkUrlForAppUrl("https://cloud.example.test/", "gdl_publicToken")).toBe(
+      "https://cloud.example.test/share/grids/documents/gdl_publicToken",
+    );
+    expect(publicDocumentLinkUrlForAppUrl("cloud.example.test", "gdl_token/with/slashes")).toBe(
+      "https://cloud.example.test/share/grids/documents/gdl_token%2Fwith%2Fslashes",
+    );
+    expect(publicDocumentLinkUrlForAppUrl("", "gdl_defaultToken")).toBe("https://localhost:3000/share/grids/documents/gdl_defaultToken");
   });
 
   test("exposes base document business profile to document templates", () => {

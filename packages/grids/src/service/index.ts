@@ -164,6 +164,7 @@ export const gridsService = {
     resolveDocumentLinkDownload: documents.resolveDocumentLinkDownload,
     recordDocumentLinkAccess: documents.recordDocumentLinkAccess,
     publicDocumentLinkPath: documents.publicDocumentLinkPath,
+    publicDocumentLinkUrl: documents.publicDocumentLinkUrl,
     renderRunPdf: documents.renderRunPdf,
     renderWorkflowRunPdf: documents.renderWorkflowRunPdf,
   },

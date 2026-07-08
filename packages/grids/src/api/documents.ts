@@ -121,9 +121,6 @@ const gateRun = async (
   return template ? gateTemplate(c, template, required) : gateAt(c, { baseId: run.baseId, tableId: run.tableId }, required);
 };
 
-const publicDocumentLinkUrl = (c: Context<AuthContext>, token: string): string =>
-  `${new URL(c.req.url).origin}${gridsService.document.publicDocumentLinkPath(token)}`;
-
 const gateEnabledTemplateWrite = async (c: Context<AuthContext>, loaded: NonNullable<Awaited<ReturnType<typeof loadTemplateAndTable>>>) => {
   const gate = await gateTemplate(c, loaded, "write");
   if (!gate.ok) return gate;
@@ -836,7 +833,7 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
           ...auditRequestContext(c),
         });
         if (!created.ok) return c.json({ message: created.error.message }, created.error.status);
-        return c.json({ link: created.data.link, url: publicDocumentLinkUrl(c, created.data.token) }, 201);
+        return c.json({ link: created.data.link, url: await gridsService.document.publicDocumentLinkUrl(created.data.token) }, 201);
       },
     )
 

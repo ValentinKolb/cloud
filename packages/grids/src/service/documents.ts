@@ -675,6 +675,14 @@ const documentLinkExpiresAt = (expiresIn: DocumentLinkTtl): Date => new Date(Dat
 
 export const publicDocumentLinkPath = (token: string): string => `/share/grids/documents/${encodeURIComponent(token)}`;
 
+const publicDocumentLinkOrigin = (appUrl: unknown): string => publicUrlValue(appUrl).replace(/\/+$/, "") || "https://localhost:3000";
+
+export const publicDocumentLinkUrlForAppUrl = (appUrl: unknown, token: string): string =>
+  `${publicDocumentLinkOrigin(appUrl)}${publicDocumentLinkPath(token)}`;
+
+export const publicDocumentLinkUrl = async (token: string): Promise<string> =>
+  publicDocumentLinkUrlForAppUrl(await coreSettings.get<string>("app.url"), token);
+
 export const summarizeTemplate = (template: DocumentTemplate): DocumentTemplateSummary => ({
   id: template.id,
   shortId: template.shortId,
