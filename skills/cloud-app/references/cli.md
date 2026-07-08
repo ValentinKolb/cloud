@@ -71,6 +71,57 @@ Add `"./cli": "./src/cli.ts"` to the app package exports and import it from `pac
 - Use `flag.input()` plus `readCliInput()` for bodies, templates, notes, and secrets that may come from a flag, file, or stdin.
 - Keep help text factual and terse. Mention unusual behavior only when it differs from the normal API behavior.
 
+## Access Commands
+
+Apps that expose the standard Cloud `PermissionEditor` model should reuse the shared access helper instead of inventing command semantics.
+
+```ts
+import { createAccessCommands } from "@valentinkolb/cloud/cli";
+
+export default defineCliCommands({
+  name: "my-app",
+  summary: "Manage My App resources.",
+  commands: [
+    ...createAccessCommands({
+      resourceLabel: "project",
+      resolveResource: async (ctx, args) => resolveProject(ctx, args),
+      list: async (ctx, project) => ctx.readJson(await ctx.fetch(`/api/my-app/projects/${project.id}/access`)),
+      grant: async (ctx, project, principal, permission) =>
+        ctx.readJson(
+          await ctx.fetch(`/api/my-app/projects/${project.id}/access`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ principal, permission }),
+          }),
+        ),
+      update: async (ctx, project, accessId, permission) => {
+        await ctx.readJson(
+          await ctx.fetch(`/api/my-app/projects/${project.id}/access/${accessId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ permission }),
+          }),
+        );
+      },
+      revoke: async (ctx, project, accessId) => {
+        await ctx.readJson(await ctx.fetch(`/api/my-app/projects/${project.id}/access/${accessId}`, { method: "DELETE" }));
+      },
+    }),
+  ],
+});
+```
+
+The helper creates `access list`, `access grant`, `access set`, `access revoke`, and `access search-principals` commands. It mirrors the UI editor:
+
+- Principals use the shared contract: `user`, `group`, `service_account`, `authenticated`, or `public`.
+- Principal lookup uses `/api/accounts/entities`, the same source as `PermissionEditor`.
+- `grant` creates a new direct grant and lets the API reject duplicates.
+- `set` is idempotent: it updates an existing matching direct grant or creates one.
+- `revoke` requires `--yes` and accepts either `--access-id` or exactly one principal flag.
+- Public grants are hidden unless the app opts in with `allowPublic`.
+- Service-account grants are hidden unless the app opts in with `allowServiceAccounts`.
+- Override `allowedPermissions` when a resource does not support the default `read`, `write`, `admin` levels.
+
 ## API Calls
 
 Use `ctx.fetch()` and `ctx.readJson()` so profile credentials, token refresh, base URL handling, and HTTP errors stay consistent.

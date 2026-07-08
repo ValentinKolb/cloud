@@ -10,15 +10,12 @@ type FetchCall = {
 const baseId = "810db53e-e756-4db5-9a40-9091f04a0abd";
 const sourceId = "11111111-1111-4111-8111-111111111111";
 const dashboardId = "22222222-2222-4222-8222-222222222222";
+const userId = "33333333-3333-4333-8333-333333333333";
+const accessId = "44444444-4444-4444-8444-444444444444";
 
 const jsonResponse = (value: unknown, status = 200) => Response.json(value, { status });
 
-const createContext = (
-  args: string[],
-  flags: CloudCliFlags = {},
-  responses: Response[] = [],
-  output: "text" | "json" = "text",
-) => {
+const createContext = (args: string[], flags: CloudCliFlags = {}, responses: Response[] = [], output: "text" | "json" = "text") => {
   const calls: FetchCall[] = [];
   const lines: string[] = [];
   const tables: unknown[][] = [];
@@ -64,6 +61,14 @@ const base = {
   dataClearError: null,
   createdAt: "2026-07-07T00:00:00.000Z",
   updatedAt: "2026-07-07T00:00:00.000Z",
+};
+
+const accessEntry = {
+  id: accessId,
+  principal: { type: "user" as const, userId },
+  permission: "read",
+  displayName: "Valentin Kolb",
+  createdAt: "2026-07-07T00:00:00.000Z",
 };
 
 const source = {
@@ -129,12 +134,72 @@ const inventory = {
 };
 
 describe("pulse CLI", () => {
+  test("lists Pulse base access entries", async () => {
+    const { ctx, calls, tables } = createContext(["access", "list", baseId], {}, [jsonResponse(base), jsonResponse([accessEntry])]);
+
+    await pulseCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual([`/api/pulse/bases/${baseId}`, `/api/pulse/bases/${baseId}/access`]);
+    expect(tables[0]).toEqual([
+      {
+        accessId,
+        principal: "Valentin Kolb",
+        type: "user",
+        permission: "read",
+        createdAt: "2026-07-07T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  test("grants Pulse base access through the base access endpoint", async () => {
+    const { ctx, calls, lines } = createContext(["access", "grant", baseId], { user: userId, permission: "write" }, [
+      jsonResponse(base),
+      jsonResponse({ ...accessEntry, permission: "write" }, 201),
+    ]);
+
+    await pulseCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual([`/api/pulse/bases/${baseId}`, `/api/pulse/bases/${baseId}/access`]);
+    expect(calls[1]?.init?.method).toBe("POST");
+    expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({
+      principal: { type: "user", userId },
+      permission: "write",
+    });
+    expect(lines).toEqual(["Granted write on Test (810db53e) to Valentin Kolb."]);
+  });
+
+  test("updates Pulse base access through the global access endpoint", async () => {
+    const { ctx, calls, lines } = createContext(["access", "set", baseId], { "access-id": accessId, permission: "admin" }, [
+      jsonResponse(base),
+      jsonResponse({ message: "Access updated" }),
+    ]);
+
+    await pulseCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual([`/api/pulse/bases/${baseId}`, `/api/pulse/access/${accessId}`]);
+    expect(calls[1]?.init?.method).toBe("PATCH");
+    expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ permission: "admin" });
+    expect(lines).toEqual([`Updated ${accessId} to admin on Test (810db53e).`]);
+  });
+
+  test("revokes Pulse base access through the global access endpoint", async () => {
+    const { ctx, calls, lines } = createContext(["access", "revoke", baseId], { "access-id": accessId, yes: true }, [
+      jsonResponse(base),
+      jsonResponse({ message: "Access revoked" }),
+    ]);
+
+    await pulseCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual([`/api/pulse/bases/${baseId}`, `/api/pulse/access/${accessId}`]);
+    expect(calls[1]?.init?.method).toBe("DELETE");
+    expect(lines).toEqual([`Revoked access for ${accessId} on Test (810db53e).`]);
+  });
+
   test("lists metrics for a resolved resource", async () => {
-    const { ctx, calls, tables } = createContext(
-      ["resources", "metrics", baseId, "MacBook"],
-      {},
-      [jsonResponse(base), jsonResponse(inventory)],
-    );
+    const { ctx, calls, tables } = createContext(["resources", "metrics", baseId, "MacBook"], {}, [
+      jsonResponse(base),
+      jsonResponse(inventory),
+    ]);
 
     await pulseCli.run(ctx);
 
@@ -154,11 +219,11 @@ describe("pulse CLI", () => {
   });
 
   test("filters metric summaries by source name through inventory", async () => {
-    const { ctx, calls, tables } = createContext(
-      ["metrics", baseId],
-      { source: "docker" },
-      [jsonResponse(base), jsonResponse([source]), jsonResponse(inventory)],
-    );
+    const { ctx, calls, tables } = createContext(["metrics", baseId], { source: "docker" }, [
+      jsonResponse(base),
+      jsonResponse([source]),
+      jsonResponse(inventory),
+    ]);
 
     await pulseCli.run(ctx);
 
@@ -179,12 +244,7 @@ describe("pulse CLI", () => {
   });
 
   test("keeps resources JSON compact unless raw inventory is requested", async () => {
-    const { ctx, lines } = createContext(
-      ["resources", baseId],
-      {},
-      [jsonResponse(base), jsonResponse(inventory)],
-      "json",
-    );
+    const { ctx, lines } = createContext(["resources", baseId], {}, [jsonResponse(base), jsonResponse(inventory)], "json");
 
     await pulseCli.run(ctx);
 
@@ -222,11 +282,10 @@ describe("pulse CLI", () => {
         },
       ],
     };
-    const { ctx, tables } = createContext(
-      ["resources", "states", baseId, "MacBook"],
-      {},
-      [jsonResponse(base), jsonResponse(collisionInventory)],
-    );
+    const { ctx, tables } = createContext(["resources", "states", baseId, "MacBook"], {}, [
+      jsonResponse(base),
+      jsonResponse(collisionInventory),
+    ]);
 
     await pulseCli.run(ctx);
 
@@ -247,16 +306,16 @@ describe("pulse CLI", () => {
       id: dashboardId,
       baseId,
       name: "Ops",
-      config: { dsl: "dashboard \"Ops\" {}", layout: null, refreshIntervalSeconds: 5 },
+      config: { dsl: 'dashboard "Ops" {}', layout: null, refreshIntervalSeconds: 5 },
       publicEnabled: true,
       createdAt: "2026-07-07T00:00:00.000Z",
       updatedAt: "2026-07-07T00:00:00.000Z",
     };
-    const { ctx, calls, lines } = createContext(
-      ["dashboards", "public-url", baseId, "Ops"],
-      { theme: "dark", height: "full", yes: true },
-      [jsonResponse(base), jsonResponse([dashboard]), jsonResponse({ dashboard, token: "public-token" })],
-    );
+    const { ctx, calls, lines } = createContext(["dashboards", "public-url", baseId, "Ops"], { theme: "dark", height: "full", yes: true }, [
+      jsonResponse(base),
+      jsonResponse([dashboard]),
+      jsonResponse({ dashboard, token: "public-token" }),
+    ]);
 
     await pulseCli.run(ctx);
 

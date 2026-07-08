@@ -120,6 +120,18 @@ const readUntil = async (stream: ReadableStream<Uint8Array>, marker: string): Pr
 };
 
 describe("cloud CLI OAuth session handling", () => {
+  test("top-level help includes the Grids module", async () => {
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    const result = await runCli(configPath, ["help"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("grids");
+    expect(result.stdout).toContain("Manage Grids bases");
+  });
+
   test("nested module help does not require a configured server", async () => {
     const dir = await createTempDir();
     const configPath = join(dir, "config.json");

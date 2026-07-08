@@ -1,42 +1,21 @@
 {
   "compilerOptions": {
-    "lib": [
-      "ESNext",
-      "DOM",
-      "DOM.AsyncIterable"
-    ],
+    "lib": ["ESNext", "DOM", "DOM.AsyncIterable"],
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "../notebooks/src/*"
-      ],
-      "@valentinkolb/cloud/cli": [
-        "../cloud/src/cli/index.ts"
-      ],
-      "@valentinkolb/cloud/cli/account": [
-        "../cloud/src/cli/account.ts"
-      ],
-      "@valentinkolb/cloud/services/*": [
-        "../cloud/src/services/*"
-      ],
-      "@valentinkolb/cloud-app-contacts/cli": [
-        "../contacts/src/cli.ts"
-      ],
-      "@valentinkolb/cloud-app-notebooks/cli": [
-        "../notebooks/src/cli.ts"
-      ],
-      "@valentinkolb/cloud-app-pulse/cli": [
-        "../pulse/src/cli.ts"
-      ],
-      "@valentinkolb/cloud-app-spaces/cli": [
-        "../spaces/src/cli.ts"
-      ],
-      "@valentinkolb/cloud-app-tools/cli": [
-        "../tools/src/cli.ts"
-      ]
+      "@/*": ["../notebooks/src/*"],
+      "@valentinkolb/cloud/cli": ["../cloud/src/cli/index.ts"],
+      "@valentinkolb/cloud/cli/account": ["../cloud/src/cli/account.ts"],
+      "@valentinkolb/cloud/services/*": ["../cloud/src/services/*"],
+      "@valentinkolb/cloud-app-contacts/cli": ["../contacts/src/cli.ts"],
+      "@valentinkolb/cloud-app-grids/cli": ["../grids/src/cli.ts"],
+      "@valentinkolb/cloud-app-notebooks/cli": ["../notebooks/src/cli.ts"],
+      "@valentinkolb/cloud-app-pulse/cli": ["../pulse/src/cli.ts"],
+      "@valentinkolb/cloud-app-spaces/cli": ["../spaces/src/cli.ts"],
+      "@valentinkolb/cloud-app-tools/cli": ["../tools/src/cli.ts"]
     },
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
@@ -56,13 +35,11 @@
     "../cloud/src/types/**/*.d.ts",
     "../cloud/src/cli/**/*.ts",
     "../contacts/src/cli.ts",
+    "../grids/src/cli.ts",
     "../notebooks/src/cli.ts",
     "../pulse/src/cli.ts",
     "../spaces/src/cli.ts",
     "../tools/src/cli.ts"
   ],
-  "exclude": [
-    "./dist",
-    "./node_modules"
-  ]
+  "exclude": ["./dist", "./node_modules"]
 }

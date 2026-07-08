@@ -4,14 +4,14 @@ import {
   type CloudCliContext,
   command,
   confirmFlag,
+  createAccessCommands,
   defineCliCommands,
   flag,
   readCliInput,
 } from "@valentinkolb/cloud/cli";
-import type { PermissionLevel, ServiceAccountCredential } from "@valentinkolb/cloud/contracts";
+import type { AccessEntry, PermissionLevel, Principal, ServiceAccountCredential } from "@valentinkolb/cloud/contracts";
 import {
   METRIC_TYPES,
-  SOURCE_KINDS,
   type MetricQueryPoint,
   type MetricType,
   type PulseBase,
@@ -29,6 +29,7 @@ import {
   type PulseSavedQuery,
   type PulseSource,
   type PulseSourceScrape,
+  SOURCE_KINDS,
   type SourceKind,
 } from "./contracts";
 
@@ -161,7 +162,12 @@ const exactMatch = <T>(items: T[], ref: string, fields: ((item: T) => string | n
   const candidates = items
     .filter((item) => fields.some((field) => (field(item) ?? "").toLowerCase().includes(ref.toLowerCase())))
     .slice(0, 5)
-    .map((item) => fields.map((field) => field(item)).filter(Boolean).join(" / "))
+    .map((item) =>
+      fields
+        .map((field) => field(item))
+        .filter(Boolean)
+        .join(" / "),
+    )
     .join(", ");
   throw new Error(`Unknown ${label} "${ref}".${candidates ? ` Candidates: ${candidates}.` : ""}`);
 };
@@ -229,11 +235,7 @@ const resourceFilterFlags = {
   entityType: flag.string({ name: "entity-type", description: "Entity/resource type" }),
 };
 
-const publicDashboardDisplayUrl = (
-  ctx: CloudCliContext,
-  token: string,
-  options: { theme?: string; height?: string } = {},
-): string => {
+const publicDashboardDisplayUrl = (ctx: CloudCliContext, token: string, options: { theme?: string; height?: string } = {}): string => {
   const url = new URL(`/app/pulse/display/${encodeURIComponent(token)}`, ctx.options.server);
   if (options.theme === "light" || options.theme === "dark") url.searchParams.set("theme", options.theme);
   if (options.height === "scroll" || options.height === "full") url.searchParams.set("height", options.height);
@@ -249,7 +251,11 @@ const maxIso = (left: string | null, right: string | null): string | null => {
 const includesSearch = (q: string | undefined, values: (string | number | boolean | null | undefined)[]): boolean => {
   if (!q) return true;
   const normalized = q.toLowerCase();
-  return values.some((value) => String(value ?? "").toLowerCase().includes(normalized));
+  return values.some((value) =>
+    String(value ?? "")
+      .toLowerCase()
+      .includes(normalized),
+  );
 };
 
 const sliceRows = <T>(items: T[], limit?: number, offset?: number): T[] => {
@@ -281,10 +287,7 @@ const matchesResourceEntity = (resource: InventoryResource, entityId: string | n
   return Boolean(entityId && refs.has(entityId));
 };
 
-const filterInventoryMetrics = (
-  inventory: PulseInventory,
-  filters: ResourceSignalFilters & { type?: MetricType },
-): InventoryMetric[] =>
+const filterInventoryMetrics = (inventory: PulseInventory, filters: ResourceSignalFilters & { type?: MetricType }): InventoryMetric[] =>
   inventory.metrics.filter((metric) => {
     if (filters.type && metric.type !== filters.type) return false;
     if (filters.sourceId && metric.sourceId !== filters.sourceId) return false;
@@ -323,10 +326,7 @@ const metricSummariesFromInventory = (metrics: InventoryMetric[]): PulseMetricSu
   return [...summaries.values()].sort((left, right) => left.name.localeCompare(right.name));
 };
 
-const filterInventoryStates = (
-  inventory: PulseInventory,
-  filters: ResourceSignalFilters & { key?: string },
-): PulseCurrentState[] =>
+const filterInventoryStates = (inventory: PulseInventory, filters: ResourceSignalFilters & { key?: string }): PulseCurrentState[] =>
   inventory.states.filter((state) => {
     if (filters.key && state.key !== filters.key) return false;
     if (filters.sourceId && state.sourceId !== filters.sourceId) return false;
@@ -344,10 +344,7 @@ const filterInventoryStates = (
     ]);
   });
 
-const filterInventoryEvents = (
-  inventory: PulseInventory,
-  filters: ResourceSignalFilters & { kind?: string },
-): PulseRecordedEvent[] =>
+const filterInventoryEvents = (inventory: PulseInventory, filters: ResourceSignalFilters & { kind?: string }): PulseRecordedEvent[] =>
   inventory.events.filter((event) => {
     if (filters.kind && event.kind !== filters.kind) return false;
     if (filters.sourceId && event.sourceId !== filters.sourceId) return false;
@@ -552,6 +549,47 @@ const compileQueryText = (ctx: CloudCliContext, baseId: string, query: string): 
 const baseFlag = { base: flag.string({ description: "Pulse base ID or exact name" }) };
 const sourceKindFlag = flag.enum(SOURCE_KINDS, { name: "kind", description: "Source kind", required: true });
 const metricTypeFlag = flag.enum(METRIC_TYPES, { name: "type", description: "Metric type" });
+const pulseAccessCommands = createAccessCommands({
+  resourceLabel: "Pulse base",
+  resourceArgLabel: "base",
+  resourceArgDescription: "Optional Pulse base id or exact name. If omitted, the default from `cld pulse use` is used.",
+  resolveResource: async (ctx, args) => {
+    const { base } = await resolveBaseFromCommand(ctx, args, 0);
+    return {
+      id: base.id,
+      label: `${base.name} (${compactId(base.id)})`,
+    };
+  },
+  list: async (ctx, base) => readApi<AccessEntry[]>(ctx, `/bases/${encodeURIComponent(base.id)}/access`),
+  grant: async (ctx, base, principal: Principal, permission: PermissionLevel) =>
+    readApi<AccessEntry>(ctx, `/bases/${encodeURIComponent(base.id)}/access`, jsonRequest("POST", { principal, permission })),
+  update: async (ctx, _base, accessId, permission) => {
+    await readApi<MessageResult>(ctx, `/access/${encodeURIComponent(accessId)}`, jsonRequest("PATCH", { permission }));
+  },
+  revoke: async (ctx, _base, accessId) => {
+    await readApi<MessageResult>(ctx, `/access/${encodeURIComponent(accessId)}`, jsonRequest("DELETE"));
+  },
+  examples: {
+    list: ['cld pulse access list "Ops telemetry"', "cld pulse access list --base 810db53e-e756-4db5-9a40-9091f04a0abd"],
+    grant: [
+      'cld pulse access grant "Ops telemetry" --user valentin.kolb --permission read',
+      'cld pulse access grant "Ops telemetry" --group "Sysadmins" --permission admin',
+      'cld pulse access grant "Ops telemetry" --authenticated --permission read',
+    ],
+    set: [
+      'cld pulse access set "Ops telemetry" --group "Sysadmins" --permission write',
+      "cld pulse access set --base 810db53e-e756-4db5-9a40-9091f04a0abd --access-id 00000000-0000-4000-8000-000000000000 --permission admin",
+    ],
+    revoke: [
+      'cld pulse access revoke "Ops telemetry" --user valentin.kolb --yes',
+      "cld pulse access revoke --base 810db53e-e756-4db5-9a40-9091f04a0abd --access-id 00000000-0000-4000-8000-000000000000 --yes",
+    ],
+    searchPrincipals: [
+      "cld pulse access search-principals val --kind user,group",
+      'cld pulse access search-principals "Sysadmins" --kind group',
+    ],
+  },
+});
 const publicDisplayFlags = {
   theme: flag.enum(["light", "dark"] as const, { description: "Public display theme" }),
   height: flag.enum(["scroll", "full"] as const, { description: "Public display height mode" }),
@@ -592,17 +630,22 @@ const module = defineCliCommands({
       summary: "Show Pulse deployment capabilities",
       async run({ ctx }) {
         const capabilities = await readApi<PulseCapabilitySnapshot>(ctx, "/capabilities");
-        printJsonOrTable(ctx, capabilities, [
-          {
-            timescaleEnabled: yesNo(capabilities.timescaleEnabled),
-            timeBucketAvailable: yesNo(capabilities.timeBucketAvailable),
-            continuousAggregatesAvailable: yesNo(capabilities.continuousAggregatesAvailable),
-          },
-        ], [
-          { key: "timescaleEnabled", label: "Timescale" },
-          { key: "timeBucketAvailable", label: "time_bucket" },
-          { key: "continuousAggregatesAvailable", label: "continuous aggregates" },
-        ]);
+        printJsonOrTable(
+          ctx,
+          capabilities,
+          [
+            {
+              timescaleEnabled: yesNo(capabilities.timescaleEnabled),
+              timeBucketAvailable: yesNo(capabilities.timeBucketAvailable),
+              continuousAggregatesAvailable: yesNo(capabilities.continuousAggregatesAvailable),
+            },
+          ],
+          [
+            { key: "timescaleEnabled", label: "Timescale" },
+            { key: "timeBucketAvailable", label: "time_bucket" },
+            { key: "continuousAggregatesAvailable", label: "continuous aggregates" },
+          ],
+        );
       },
     }),
     command("list", {
@@ -659,7 +702,11 @@ const module = defineCliCommands({
         use: flag.boolean({ description: "Set the created base as default" }),
       },
       async run({ ctx, args, flags }) {
-        const base = await readApi<PulseBase>(ctx, "/bases", jsonRequest("POST", { name: args.name, description: flags.description ?? null }));
+        const base = await readApi<PulseBase>(
+          ctx,
+          "/bases",
+          jsonRequest("POST", { name: args.name, description: flags.description ?? null }),
+        );
         if (flags.use) await ctx.setDefault(PULSE_BASE_DEFAULT_KEY, base.id);
         if (ctx.options.output === "json") ctx.json(base);
         else ctx.print(`Created Pulse base ${base.name} (${base.id}).`);
@@ -708,6 +755,7 @@ const module = defineCliCommands({
         printMessage(ctx, result, result.message);
       },
     }),
+    ...pulseAccessCommands,
 
     command("sources list", {
       summary: "List Pulse sources",
@@ -792,7 +840,11 @@ const module = defineCliCommands({
         if (!flags.yes) throw new Error("Refusing to delete without --yes.");
         const { base, rest } = await resolveBaseFromCommand(ctx, args.args, 1);
         const source = await resolveSource(ctx, base.id, requireRestArg(rest, 0, "source"));
-        await readApi<unknown>(ctx, `/bases/${encodeURIComponent(base.id)}/sources/${encodeURIComponent(source.id)}`, jsonRequest("DELETE"));
+        await readApi<unknown>(
+          ctx,
+          `/bases/${encodeURIComponent(base.id)}/sources/${encodeURIComponent(source.id)}`,
+          jsonRequest("DELETE"),
+        );
         printMessage(ctx, { deleted: source.id }, `Deleted source ${source.name}.`);
       },
     }),
@@ -808,11 +860,7 @@ const module = defineCliCommands({
           `/bases/${encodeURIComponent(base.id)}/sources/${encodeURIComponent(source.id)}/scrape`,
           jsonRequest("POST"),
         );
-        printJsonOrTable(ctx, result, [result], [
-          { key: "metrics" },
-          { key: "events" },
-          { key: "states" },
-        ]);
+        printJsonOrTable(ctx, result, [result], [{ key: "metrics" }, { key: "events" }, { key: "states" }]);
       },
     }),
     command("sources scrapes", {
@@ -916,12 +964,12 @@ const module = defineCliCommands({
           events: inventory.events.length,
           states: inventory.states.length,
         };
-        printJsonOrTable(ctx, { summary, inventory }, [summary], [
-          { key: "resources" },
-          { key: "metrics" },
-          { key: "events" },
-          { key: "states" },
-        ]);
+        printJsonOrTable(
+          ctx,
+          { summary, inventory },
+          [summary],
+          [{ key: "resources" }, { key: "metrics" }, { key: "events" }, { key: "states" }],
+        );
       },
     }),
     command("resources", {
@@ -948,10 +996,7 @@ const module = defineCliCommands({
         const { base, rest } = await resolveBaseFromCommand(ctx, args.args, 1);
         const inventory = await readApi<PulseInventory>(ctx, `/bases/${encodeURIComponent(base.id)}/inventory`);
         const resource = resolveResource(inventory, requireRestArg(rest, 0, "resource"));
-        printJsonOrTable(ctx, resource, resourceDetailRows(resource), [
-          { key: "key" },
-          { key: "value" },
-        ]);
+        printJsonOrTable(ctx, resource, resourceDetailRows(resource), [{ key: "key" }, { key: "value" }]);
       },
     }),
     command("resources metrics", {
@@ -1005,7 +1050,11 @@ const module = defineCliCommands({
           readApi<PulseInventory>(ctx, `/bases/${encodeURIComponent(base.id)}/inventory`),
         ]);
         const resource = resolveResource(inventory, requireRestArg(rest, 0, "resource"));
-        const states = sliceRows(filterInventoryStates(inventory, { q: flags.q, sourceId, resource, key: flags.key }), flags.limit, flags.offset);
+        const states = sliceRows(
+          filterInventoryStates(inventory, { q: flags.q, sourceId, resource, key: flags.key }),
+          flags.limit,
+          flags.offset,
+        );
         printJsonOrTable(ctx, states, stateRows(states), [
           { key: "key" },
           { key: "value" },
@@ -1033,7 +1082,11 @@ const module = defineCliCommands({
           readApi<PulseInventory>(ctx, `/bases/${encodeURIComponent(base.id)}/inventory`),
         ]);
         const resource = resolveResource(inventory, requireRestArg(rest, 0, "resource"));
-        const events = sliceRows(filterInventoryEvents(inventory, { q: flags.q, sourceId, resource, kind: flags.kind }), flags.limit, flags.offset);
+        const events = sliceRows(
+          filterInventoryEvents(inventory, { q: flags.q, sourceId, resource, kind: flags.kind }),
+          flags.limit,
+          flags.offset,
+        );
         printJsonOrTable(ctx, events, eventRows(events), [
           { key: "kind" },
           { key: "value" },
@@ -1059,7 +1112,7 @@ const module = defineCliCommands({
           listDashboards(ctx, base.id),
         ]);
         const topResources = [...inventory.resources]
-          .sort((a, b) => (b.metricCount + b.stateCount + b.eventCount) - (a.metricCount + a.stateCount + a.eventCount))
+          .sort((a, b) => b.metricCount + b.stateCount + b.eventCount - (a.metricCount + a.stateCount + a.eventCount))
           .slice(0, 20);
         const topMetrics = [...metrics].sort((a, b) => b.seriesCount - a.seriesCount).slice(0, 20);
         const summary = overviewRows(base, inventory, sources, metrics)[0]!;
@@ -1187,7 +1240,14 @@ const module = defineCliCommands({
           const inventory = await readApi<PulseInventory>(ctx, `/bases/${encodeURIComponent(base.id)}/inventory`);
           const resource = flags.resource ? resolveResource(inventory, flags.resource) : undefined;
           const states = sliceRows(
-            filterInventoryStates(inventory, { q: flags.q, key: flags.key, sourceId, resource, entity: flags.entity, entityType: flags.entityType }),
+            filterInventoryStates(inventory, {
+              q: flags.q,
+              key: flags.key,
+              sourceId,
+              resource,
+              entity: flags.entity,
+              entityType: flags.entityType,
+            }),
             flags.limit,
             flags.offset,
           );
@@ -1237,7 +1297,14 @@ const module = defineCliCommands({
           const inventory = await readApi<PulseInventory>(ctx, `/bases/${encodeURIComponent(base.id)}/inventory`);
           const resource = flags.resource ? resolveResource(inventory, flags.resource) : undefined;
           const events = sliceRows(
-            filterInventoryEvents(inventory, { q: flags.q, kind: flags.kind, sourceId, resource, entity: flags.entity, entityType: flags.entityType }),
+            filterInventoryEvents(inventory, {
+              q: flags.q,
+              kind: flags.kind,
+              sourceId,
+              resource,
+              entity: flags.entity,
+              entityType: flags.entityType,
+            }),
             flags.limit,
             flags.offset,
           );
@@ -1357,17 +1424,14 @@ const module = defineCliCommands({
           return;
         }
         if (result.points.length) {
-          printJsonOrTable(ctx, result, result.points.map((point) => ({ bucket: point.bucket, value: point.value ?? "" })), [
-            { key: "bucket" },
-            { key: "value" },
-          ]);
+          printJsonOrTable(
+            ctx,
+            result,
+            result.points.map((point) => ({ bucket: point.bucket, value: point.value ?? "" })),
+            [{ key: "bucket" }, { key: "value" }],
+          );
         } else if (result.events.length) {
-          printJsonOrTable(ctx, result, eventRows(result.events), [
-            { key: "kind" },
-            { key: "value" },
-            { key: "entity" },
-            { key: "ts" },
-          ]);
+          printJsonOrTable(ctx, result, eventRows(result.events), [{ key: "kind" }, { key: "value" }, { key: "entity" }, { key: "ts" }]);
         } else if (result.states.length) {
           printJsonOrTable(ctx, result, stateRows(result.states), [
             { key: "key" },
@@ -1387,12 +1451,7 @@ const module = defineCliCommands({
       async run({ ctx, args }) {
         const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
         const queries = await listSavedQueries(ctx, base.id);
-        printJsonOrTable(ctx, queries, savedQueryRows(queries), [
-          { key: "id" },
-          { key: "name" },
-          { key: "query" },
-          { key: "updatedAt" },
-        ]);
+        printJsonOrTable(ctx, queries, savedQueryRows(queries), [{ key: "id" }, { key: "name" }, { key: "query" }, { key: "updatedAt" }]);
       },
     }),
     command("query save", {
@@ -1609,7 +1668,11 @@ const module = defineCliCommands({
       async run({ ctx, args }) {
         const { base, rest } = await resolveBaseFromCommand(ctx, args.args, 1);
         const dashboard = await resolveDashboard(ctx, base.id, requireRestArg(rest, 0, "dashboard"));
-        const updated = await readApi<PulseDashboard>(ctx, `/dashboards/${encodeURIComponent(dashboard.id)}/public-token`, jsonRequest("DELETE"));
+        const updated = await readApi<PulseDashboard>(
+          ctx,
+          `/dashboards/${encodeURIComponent(dashboard.id)}/public-token`,
+          jsonRequest("DELETE"),
+        );
         if (ctx.options.output === "json") ctx.json(updated);
         else ctx.print(`Unpublished dashboard ${updated.name}.`);
       },
@@ -1622,16 +1685,8 @@ const module = defineCliCommands({
       async run({ ctx, args, flags }) {
         const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
         const batch = await readJsonInput<PulseIngestBatch>(flags.batch, "ingest JSON");
-        const result = await readApi<IngestResult>(
-          ctx,
-          `/bases/${encodeURIComponent(base.id)}/ingest`,
-          jsonRequest("POST", batch),
-        );
-        printJsonOrTable(ctx, result, [result], [
-          { key: "metrics" },
-          { key: "events" },
-          { key: "states" },
-        ]);
+        const result = await readApi<IngestResult>(ctx, `/bases/${encodeURIComponent(base.id)}/ingest`, jsonRequest("POST", batch));
+        printJsonOrTable(ctx, result, [result], [{ key: "metrics" }, { key: "events" }, { key: "states" }]);
       },
     }),
   ],

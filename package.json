@@ -38,6 +38,7 @@
     "./server": "./packages/cloud/src/server/index.ts",
     "./browser": "./packages/cloud/src/server/api-client.ts",
     "./cli": "./packages/cloud/src/cli/index.ts",
+    "./cli/access": "./packages/cloud/src/cli/access.ts",
     "./shared": "./packages/cloud/src/shared/index.ts",
     "./services": "./packages/cloud/src/services/index.ts",
     "./services/*": "./packages/cloud/src/services/*",

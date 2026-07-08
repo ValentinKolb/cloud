@@ -5,9 +5,11 @@ import {
   type CloudCliContext,
   type CloudCliFlags,
   command,
+  createAccessCommands,
   defineCliCommands,
   flag,
 } from "@valentinkolb/cloud/cli";
+import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import type { ApiType } from "./api";
 import type { NamedBlockType } from "./lib/named-blocks";
 import {
@@ -84,6 +86,10 @@ type Pagination = {
 type Page<T> = {
   data: T[];
   pagination: Pagination;
+};
+
+type MessageResponse = {
+  message: string;
 };
 
 const NOTEBOOK_DEFAULT_KEY = "notebooks.notebook";
@@ -516,11 +522,14 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
       return 0;
     }
 
-    const response = await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}/content`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(request),
-    });
+    const response = await ctx.fetch(
+      `/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}/content`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+      },
+    );
     const payload = await ctx.readJson<NoteEditResponse>(response);
     if (ctx.options.output === "json") ctx.json(payload);
     else {
@@ -637,6 +646,67 @@ const noteArgs = {
   args: arg.rest({ valueLabel: "notebook-note-args", description: "Optional leading notebook, note, and command-specific arguments." }),
 };
 
+const notebookAccessCommands = createAccessCommands({
+  resourceLabel: "notebook",
+  resourceArgLabel: "notebook",
+  resourceArgDescription: "Optional notebook id, short id, or exact name. If omitted, the default from `cld notebooks use` is used.",
+  resolveResource: async (ctx, args) => {
+    const api = ctx.createApiClient<ApiType>("/api/notebooks");
+    const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    return {
+      ...notebook,
+      label: `${notebook.name} (${notebook.shortId})`,
+    };
+  },
+  list: async (ctx, notebook) =>
+    ctx.readJson<AccessEntry[]>(await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/access`)),
+  grant: async (ctx, notebook, principal: Principal, permission: PermissionLevel) =>
+    ctx.readJson<AccessEntry>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ principal, permission }),
+      }),
+    ),
+  update: async (ctx, notebook, accessId, permission) => {
+    await ctx.readJson<MessageResponse>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/access/${encodeURIComponent(accessId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ permission }),
+      }),
+    );
+  },
+  revoke: async (ctx, notebook, accessId) => {
+    await ctx.readJson<MessageResponse>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/access/${encodeURIComponent(accessId)}`, {
+        method: "DELETE",
+      }),
+    );
+  },
+  examples: {
+    list: ['cld notebooks access list "Product Notes"', "cld notebooks access list nhTHpc --include-service-accounts"],
+    grant: [
+      'cld notebooks access grant "Product Notes" --user valentin.kolb --permission read',
+      'cld notebooks access grant "Product Notes" --group "Editors" --permission write',
+      'cld notebooks access grant "Product Notes" --authenticated --permission read',
+    ],
+    set: [
+      'cld notebooks access set "Product Notes" --user valentin.kolb --permission admin',
+      "cld notebooks access set nhTHpc --access-id 00000000-0000-4000-8000-000000000000 --permission write",
+    ],
+    revoke: [
+      'cld notebooks access revoke "Product Notes" --user valentin.kolb --yes',
+      "cld notebooks access revoke nhTHpc --access-id 00000000-0000-4000-8000-000000000000 --yes",
+    ],
+    searchPrincipals: [
+      "cld notebooks access search-principals val --kind user,group",
+      'cld notebooks access search-principals "Editors" --kind group',
+    ],
+  },
+});
+
 const editFlags = {
   ...notebookFlag,
   ...noteFlag,
@@ -703,6 +773,7 @@ export default defineCliCommands({
       },
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "create", [args.name]),
     }),
+    ...notebookAccessCommands,
     command("tree", {
       summary: "Show a notebook note tree",
       args: notebookArgs,

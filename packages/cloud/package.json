@@ -25,6 +25,7 @@
     "./server": "./src/server/index.ts",
     "./browser": "./src/server/api-client.ts",
     "./cli": "./src/cli/index.ts",
+    "./cli/access": "./src/cli/access.ts",
     "./cli/account": "./src/cli/account.ts",
     "./cli/admin": "./src/cli/admin.ts",
     "./shared": "./src/shared/index.ts",
