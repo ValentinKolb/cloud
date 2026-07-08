@@ -283,7 +283,7 @@ const result = await myService.items.update({
 });
 ```
 
-Use this mental model:
+Use this overview:
 
 - `actor` = the credential that acted (`user` session, user-bound API key,
   resource API key, OAuth service token).

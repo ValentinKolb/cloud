@@ -11,7 +11,7 @@ description: >
 
 This skill covers everything you need to build a complete app. For platform overview and auth concepts, see the `cloud` skill. For deployment, see `cloud-ops`.
 
-> **Detailed references:** Cloud UI shell decisions → `references/app-ui-patterns.md` | App API keys → `references/api-keys.md` | App CLI commands → `references/cli.md` | App readiness checklist → `references/app-quality-checklist.md` | Backend patterns → `references/backend.md` | Frontend component details → `references/frontend.md`
+> **Detailed references:** Cloud UI shell decisions → `references/app-ui-patterns.md` | App API keys → `references/api-keys.md` | App CLI commands → `references/cli.md` | App help review → `references/app-help-review.md` | App readiness checklist → `references/app-quality-checklist.md` | Backend patterns → `references/backend.md` | Frontend component details → `references/frontend.md`
 
 For app testing conventions, use the Testing Patterns section in `references/backend.md`: prefer `bun:test`, keep pure service/frontend helper tests next to the code, avoid DB/browser tests unless the boundary itself is under test, and expose `test: "bun test"` when an app has tests.
 
