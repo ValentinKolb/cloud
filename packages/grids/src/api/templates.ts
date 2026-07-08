@@ -1,10 +1,11 @@
+import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { auth, jsonResponse, respond, v, type AuthContext } from "@valentinkolb/cloud/server";
-import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { BaseSchema } from "../contracts";
 import { gridsService } from "../service";
+import { currentActorUser } from "./permissions";
 
 const TemplateSummarySchema = z.object({
   id: z.string(),
@@ -46,7 +47,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", InstantiateTemplateSchema),
     async (c) => {
-      const user = c.get("user");
+      const user = currentActorUser(c);
+      if (!user) return c.json({ message: "Sign in to create a base from this template." }, 403);
       const body = c.req.valid("json");
       return respond(
         c,

@@ -1,4 +1,4 @@
-import { test, expect, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { AggregationSpec, ChartWidget, Field, GroupBySpec } from "../../../service";
 import {
   aggKey,

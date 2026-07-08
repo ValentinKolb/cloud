@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { dateHandler } from "./date";
 
 test("date: accepts YYYY-MM-DD as-is", () => {

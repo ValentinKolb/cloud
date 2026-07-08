@@ -2,16 +2,16 @@ import { expect, test } from "bun:test";
 import {
   COMPUTED_FIELD_TYPES,
   EXTERNAL_FIELD_TYPES,
-  LINK_FIELD_TYPES,
-  SERVER_GENERATED_FIELD_TYPES,
-  SYSTEM_FIELD_TYPES,
-  VALUE_FIELD_TYPES,
   fieldTypeRegistry,
   getFieldType,
   getRecordWritableFieldType,
   isKnownFieldType,
   isRecordWritableFieldType,
+  LINK_FIELD_TYPES,
   recordWritableFieldTypes,
+  SERVER_GENERATED_FIELD_TYPES,
+  SYSTEM_FIELD_TYPES,
+  VALUE_FIELD_TYPES,
 } from "./index";
 
 test("registry: covers all field kinds", () => {

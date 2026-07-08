@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Widget } from "../../../contracts";
-import type { GridsWorkspaceState } from "./workspace-state";
 import { dashboardRecordTableIds } from "./dashboard-live-dependencies";
+import type { GridsWorkspaceState } from "./workspace-state";
 
 const TABLE_A = "11111111-1111-4111-8111-111111111111";
 const TABLE_B = "22222222-2222-4222-8222-222222222222";

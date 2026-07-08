@@ -17,7 +17,7 @@ import type { DslQueryAst } from "../query-dsl/types";
 import { gridsService } from "../service";
 import { hydrateDslViewQueries } from "../service/gql-resolver-context";
 import type { Field, Table } from "../service/types";
-import { gateAt } from "./permissions";
+import { currentActorViewer, gateAt } from "./permissions";
 
 export type DslCurrentSource = { kind: "table"; tableId: string } | { kind: "view"; viewId: string } | undefined;
 
@@ -65,7 +65,7 @@ export const buildPermissionedGqlResolverContext = async (
   ast: DslQueryAst,
   options: ResolverContextOptions = {},
 ): Promise<DslResolverContext> => {
-  const user = c.get("user");
+  const viewer = currentActorViewer(c);
   const tables = await gridsService.table.listByBase(baseId);
 
   let readableTables: Table[] = tables;
@@ -88,8 +88,7 @@ export const buildPermissionedGqlResolverContext = async (
       readableTables.map((table) =>
         gridsService.view.listForTable({
           tableId: table.id,
-          userId: user.id,
-          userGroups: user.memberofGroupIds,
+          ...viewer,
         }),
       ),
     );
@@ -183,14 +182,13 @@ export const executeGqlSource = async (
   if (!resolved.ok) return { ok: true as const, response: { ok: false as const, diagnostics: resolved.diagnostics } };
 
   const dateConfig = await getDateConfig(c);
-  const user = c.get("user");
   const fieldsByTableId = await fieldsWithPlanExtras(ctx.fieldsByTableId, resolved.plan);
   const result = await previewDslQuery(resolved.plan, {
     fieldsByTableId,
     timeZone: dateConfig.timeZone,
     limit: body.limit,
     ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
-    viewer: { userId: user.id, userGroups: user.memberofGroupIds },
+    viewer: currentActorViewer(c),
   });
   if (!result.ok) {
     return {

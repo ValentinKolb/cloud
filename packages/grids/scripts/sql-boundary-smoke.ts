@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
-import { sql } from "bun";
 import { dates } from "@valentinkolb/stdlib";
+import { sql } from "bun";
 import { migrate as migrateAuth } from "../../core/src/migrate/core/auth";
 import { migrate as migrateGrids } from "../src/migrate";
-import { resolveWidgetData } from "../src/service/dashboard-widget-data";
 import { gridsService } from "../src/service";
+import { resolveWidgetData } from "../src/service/dashboard-widget-data";
 import { validateRelationTargets } from "../src/service/relations";
 
 type ServiceResult<T> = { ok: true; data: T } | { ok: false; error: { message?: string } };

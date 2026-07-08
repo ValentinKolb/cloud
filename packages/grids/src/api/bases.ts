@@ -1,11 +1,11 @@
+import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
-import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
-import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
-import { gridsService } from "../service";
 import { z } from "zod";
-import { BaseSchema, BaseListSchema, CreateBaseSchema, UpdateBaseSchema, TableSchema, FieldSchema, DashboardSchema } from "../contracts";
-import { gateAt } from "./permissions";
+import { BaseListSchema, BaseSchema, CreateBaseSchema, DashboardSchema, FieldSchema, TableSchema, UpdateBaseSchema } from "../contracts";
+import { gridsService } from "../service";
+import { currentActorUser, currentActorUserId, currentActorViewer, gateAt } from "./permissions";
 
 const TrashResponseSchema = z.object({
   tables: z.array(TableSchema),
@@ -40,11 +40,10 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         }),
       ),
       async (c) => {
-        const user = c.get("user");
+        const viewer = currentActorViewer(c);
         const { q, limit, offset } = c.req.valid("query");
         const result = await gridsService.base.listVisible({
-          userId: user.id,
-          userGroups: user.memberofGroupIds,
+          ...viewer,
           query: q,
           limit,
           offset,
@@ -65,7 +64,8 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
       }),
       v("json", CreateBaseSchema),
       async (c) => {
-        const user = c.get("user");
+        const user = currentActorUser(c);
+        if (!user) return c.json({ message: "Sign in to create a base." }, 403);
         // Anyone authenticated can create a base; they become its admin via
         // the auto-grant in the service (added in Phase 1C ACL UI). For now,
         // creator owns the base implicitly via created_by.
@@ -110,9 +110,8 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         const baseId = c.req.param("baseId")!;
         const gate = await gateAt(c, { baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        const user = c.get("user");
         const body = c.req.valid("json");
-        return respond(c, () => gridsService.base.update(baseId, body, user.id));
+        return respond(c, () => gridsService.base.update(baseId, body, currentActorUserId(c)));
       },
     )
 
@@ -130,8 +129,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         const baseId = c.req.param("baseId")!;
         const gate = await gateAt(c, { baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        const user = c.get("user");
-        const result = await gridsService.base.remove(baseId, user.id);
+        const result = await gridsService.base.remove(baseId, currentActorUserId(c));
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
         return c.body(null, 204);
       },
@@ -151,8 +149,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         const baseId = c.req.param("baseId")!;
         const gate = await gateAt(c, { baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        const user = c.get("user");
-        return respond(c, () => gridsService.base.restore(baseId, user.id));
+        return respond(c, () => gridsService.base.restore(baseId, currentActorUserId(c)));
       },
     )
 

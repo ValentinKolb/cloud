@@ -1,5 +1,5 @@
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 
 /**
  * Live-parent invariant helpers. The grids service contract is:

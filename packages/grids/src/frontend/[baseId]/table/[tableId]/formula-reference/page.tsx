@@ -1,4 +1,5 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { currentActorUser } from "../../../../../api/permissions";
 import { ssr } from "../../../../../config";
 import { gridsService } from "../../../../../service";
 import FormulaReferenceWindow from "../../../../_components/fields/FormulaReferenceWindow.island";
@@ -40,7 +41,17 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
-  const user = c.get("user") as AuthUser;
+  const user = currentActorUser(c);
+  if (!user) {
+    return () => (
+      <main class="min-h-screen bg-zinc-50 p-6 dark:bg-zinc-950">
+        <div class="paper mx-auto mt-16 max-w-md p-8 text-center text-dimmed">
+          <i class="ti ti-lock text-sm" /> Sign in to open the formula reference.
+        </div>
+      </main>
+    );
+  }
+
   if (!(await canReadTable(user, base.id, table.id))) {
     return () => (
       <main class="min-h-screen bg-zinc-50 p-6 dark:bg-zinc-950">

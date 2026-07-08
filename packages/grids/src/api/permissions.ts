@@ -4,15 +4,14 @@ import type { Context } from "hono";
 import type { Grant, ResolveTarget, ResourceType } from "../service";
 import { gridsService } from "../service";
 
-export const currentActorUser = (c: Context<AuthContext>) => {
+export const currentActorUser = <T extends AuthContext>(c: Context<T>) => {
   const actor = c.get("actor") as AuthContext["Variables"]["actor"] | undefined;
-  const fallbackUser = c.get("user") as AuthContext["Variables"]["user"] | undefined;
-  return actor ? (actor.kind === "user" ? actor.user : actor.delegatedUser) : (fallbackUser ?? null);
+  return actor?.kind === "user" ? actor.user : (actor?.delegatedUser ?? null);
 };
 
-export const currentActorUserId = (c: Context<AuthContext>) => currentActorUser(c)?.id ?? null;
+export const currentActorUserId = <T extends AuthContext>(c: Context<T>) => currentActorUser(c)?.id ?? null;
 
-const currentPermissionSubject = (c: Context<AuthContext>) => {
+export const currentPermissionSubject = <T extends AuthContext>(c: Context<T>) => {
   const actor = c.get("actor") as AuthContext["Variables"]["actor"] | undefined;
   const accessSubject = c.get("accessSubject") as AuthContext["Variables"]["accessSubject"] | undefined;
   const user = currentActorUser(c);
@@ -25,6 +24,15 @@ const currentPermissionSubject = (c: Context<AuthContext>) => {
         : accessSubject?.type === "service_account"
           ? accessSubject.serviceAccountId
           : null,
+  };
+};
+
+export const currentActorViewer = <T extends AuthContext>(c: Context<T>) => {
+  const subject = currentPermissionSubject(c);
+  return {
+    userId: subject.userId,
+    userGroups: subject.userGroups,
+    serviceAccountId: subject.serviceAccountId,
   };
 };
 

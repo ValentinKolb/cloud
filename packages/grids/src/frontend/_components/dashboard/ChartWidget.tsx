@@ -1,8 +1,8 @@
-import { Show } from "solid-js";
 import { Chart } from "@valentinkolb/cloud/ui";
-import type { Widget, Field } from "../../../service";
-import type { WidgetData } from "./widget-data";
+import { Show } from "solid-js";
+import type { Field, Widget } from "../../../service";
 import { buildChartRenderData } from "./widget-chart-data";
+import type { WidgetData } from "./widget-data";
 import { formatWidgetValue } from "./widget-format";
 
 type Props = {

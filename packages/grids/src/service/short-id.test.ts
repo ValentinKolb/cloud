@@ -1,4 +1,4 @@
-import { test, expect, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { insertWithShortId, SHORT_ID_REGEX } from "./short-id";
 
 // =============================================================================
@@ -39,6 +39,7 @@ describe("insertWithShortId", () => {
       return { shortId, attempt };
     }, "idx_grids_bases_shortId");
     expect(attempt).toBe(3);
+    expect(row.attempt).toBe(3);
     expect(seenSlugs).toHaveLength(3);
     // Each retry produces a fresh candidate (not memoised).
     expect(new Set(seenSlugs).size).toBe(3);

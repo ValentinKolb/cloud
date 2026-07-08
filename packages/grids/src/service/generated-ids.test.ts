@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { IdFieldConfigSchema } from "../field-types/system";
-import { generateIdValue, generatedIdRequiresRetry, isGeneratedIdUniqueCollision } from "./generated-ids";
 import { fieldUniqueIndexName } from "./field-indexes";
+import { generatedIdRequiresRetry, generateIdValue, isGeneratedIdUniqueCollision } from "./generated-ids";
 import type { Field } from "./types";
 
 const field = (config: Record<string, unknown>): Field => ({

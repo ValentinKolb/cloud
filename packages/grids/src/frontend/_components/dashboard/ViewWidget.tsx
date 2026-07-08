@@ -1,7 +1,8 @@
-import { Show } from "solid-js";
 import type { DateContext } from "@valentinkolb/stdlib";
+import { Show } from "solid-js";
 import type { Widget } from "../../../service";
 import DatabaseTable from "../table/DatabaseTable";
+import SourceAccessHint from "./SourceAccessHint";
 import type { WidgetData } from "./widget-data";
 
 type Props = {
@@ -47,12 +48,7 @@ export default function ViewWidget(props: Props) {
     <div class="paper flex-1 w-full flex flex-col min-h-0 min-w-0 overflow-hidden">
       <header class="px-3 py-2 flex items-center justify-between gap-2">
         <span class="text-xs font-semibold text-primary truncate">{titleOf()}</span>
-        <Show when={fullViewHref()}>
-          <a href={fullViewHref()!} class="text-[11px] text-dimmed hover:text-primary inline-flex items-center gap-1 shrink-0">
-            <span>Open full view</span>
-            <i class="ti ti-arrow-up-right text-[10px]" />
-          </a>
-        </Show>
+        <SourceAccessHint href={fullViewHref()} sourceAccess={isView(props.data) ? props.data.sourceAccess : undefined} />
       </header>
 
       <Show

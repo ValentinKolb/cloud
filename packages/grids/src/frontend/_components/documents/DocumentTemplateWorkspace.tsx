@@ -331,9 +331,7 @@ function DocumentLinkDialog(props: {
                 <i class="ti ti-check" />
                 Link created and copied to clipboard.
               </div>
-              <code class="block break-all rounded-md bg-zinc-100 p-2 font-mono text-xs text-secondary dark:bg-zinc-900">
-                {url()}
-              </code>
+              <code class="block break-all rounded-md bg-zinc-100 p-2 font-mono text-xs text-secondary dark:bg-zinc-900">{url()}</code>
               <div class="flex flex-wrap items-center gap-2">
                 <CopyButton text={url()} label="Copy link" class="btn-input btn-sm" />
                 <a href={url()} target="_blank" rel="noreferrer" class="btn-input btn-sm">
@@ -462,8 +460,14 @@ function DocumentRunDetailsDialog(props: {
             </div>
             <div class="overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
               <Show when={!links.loading} fallback={<div class="p-3 text-sm text-dimmed">Loading links...</div>}>
-                <Show when={!links.error} fallback={<div class="p-3 text-sm text-red-600">{links.error?.message ?? "Could not load links."}</div>}>
-                  <Show when={(links() ?? []).length > 0} fallback={<div class="p-3 text-sm text-dimmed">No public links for this document.</div>}>
+                <Show
+                  when={!links.error}
+                  fallback={<div class="p-3 text-sm text-red-600">{links.error?.message ?? "Could not load links."}</div>}
+                >
+                  <Show
+                    when={(links() ?? []).length > 0}
+                    fallback={<div class="p-3 text-sm text-dimmed">No public links for this document.</div>}
+                  >
                     <For each={links()}>
                       {(link) => {
                         const status = () => documentLinkStatus(link);
@@ -474,9 +478,7 @@ function DocumentRunDetailsDialog(props: {
                                 <span class={status().class}>{status().label}</span>
                                 <span class="text-xs text-secondary">Expires {formatDateTime(link.expiresAt, props.args.dateConfig)}</span>
                               </div>
-                              <Show when={link.comment}>
-                                {(comment) => <p class="mt-1 truncate text-sm text-primary">{comment()}</p>}
-                              </Show>
+                              <Show when={link.comment}>{(comment) => <p class="mt-1 truncate text-sm text-primary">{comment()}</p>}</Show>
                               <p class="mt-1 text-xs text-dimmed">
                                 Created {formatRelativeTime(link.createdAt, props.args.dateConfig)}
                                 {link.accessCount > 0 ? ` · ${link.accessCount} downloads` : ""}

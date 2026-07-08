@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { FormatSpecSchema } from "../contracts";
-import { fail, ok, type ComputedFieldKind, type LinkFieldType } from "./types";
+import { type ComputedFieldKind, fail, type LinkFieldType, ok } from "./types";
 
 // ─────────────────────────────────────────────────────────────────
 // Phase 4 — relation / lookup / rollup field types

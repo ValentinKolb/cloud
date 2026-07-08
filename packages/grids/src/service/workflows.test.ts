@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { parseWorkflowYaml } from "../workflows/dsl";
 import type { WorkflowCatalog } from "./workflows";
 import { validateWorkflowReferences } from "./workflows";
-import { parseWorkflowYaml } from "../workflows/dsl";
 
 type CatalogEntry = { id: string; shortId: string; name: string };
 type TemplateEntry = CatalogEntry & { tableId: string };
@@ -178,7 +178,9 @@ steps:
       message: stop
 `);
 
-    expect(validateWorkflowReferences(definition, catalog({ tables: [] }))).toEqual(["triggers.schedule: schedule cron must have 5 fields"]);
+    expect(validateWorkflowReferences(definition, catalog({ tables: [] }))).toEqual([
+      "triggers.schedule: schedule cron must have 5 fields",
+    ]);
   });
 
   test("rejects record event trigger table/input mismatches", () => {

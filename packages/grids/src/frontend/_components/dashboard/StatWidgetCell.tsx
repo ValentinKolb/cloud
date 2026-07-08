@@ -1,7 +1,7 @@
 import { StatCell } from "@valentinkolb/cloud/ui";
 import type { StatWidget } from "../../../service";
-import { formatWidgetValue } from "./widget-format";
 import type { WidgetData } from "./widget-data";
+import { formatWidgetValue } from "./widget-format";
 
 type Props = {
   widget: StatWidget;

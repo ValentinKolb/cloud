@@ -1,5 +1,5 @@
-import { LOOKUP_TARGET_META_KEY, type LookupTargetMeta } from "../lookup-display";
 import { sql } from "bun";
+import { LOOKUP_TARGET_META_KEY, type LookupTargetMeta } from "../lookup-display";
 import { parseJsonbRow } from "./jsonb";
 import type { Field } from "./types";
 

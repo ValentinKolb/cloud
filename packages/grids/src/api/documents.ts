@@ -27,7 +27,7 @@ import {
 } from "../contracts";
 import { gridsService } from "../service";
 import { encodeHeaderValue, pdfResponse } from "./download-response";
-import { gateAt } from "./permissions";
+import { currentActorUserId, gateAt } from "./permissions";
 
 const errorResponse = (c: Context<AuthContext>, message: string, status: number) =>
   c.json({ message }, status === 400 ? 400 : status === 403 ? 403 : status === 404 ? 404 : 500);
@@ -111,9 +111,6 @@ const gateTemplate = async (
   loaded: NonNullable<Awaited<ReturnType<typeof loadTemplateAndTable>>>,
   required: "read" | "write" | "admin",
 ) => gateAt(c, { baseId: loaded.table.baseId, tableId: loaded.table.id, documentTemplateId: loaded.template.id }, required);
-
-const gateBaseAdminForTemplate = async (c: Context<AuthContext>, loaded: NonNullable<Awaited<ReturnType<typeof loadTemplateAndTable>>>) =>
-  gateAt(c, { baseId: loaded.table.baseId }, "admin");
 
 const gateRun = async (
   c: Context<AuthContext>,
@@ -274,8 +271,7 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
         if (!tableId) return c.json({ message: "Table not found" }, 404);
         const table = await gridsService.table.get(tableId);
         if (!table) return c.json({ message: "Table not found" }, 404);
-        const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
-        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const tableGate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
         const templates = await gridsService.document.listTemplatesForTable(tableId);
         const required = c.req.valid("query").min;
         const visible = [];
@@ -284,6 +280,7 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
           const templateGate = await gateTemplate(c, { template, table }, required);
           if (templateGate.ok) visible.push(gridsService.document.summarizeTemplate(template));
         }
+        if (!tableGate.ok && visible.length === 0) return respond(c, () => Promise.resolve(tableGate));
         return c.json(visible);
       },
     )
@@ -327,7 +324,7 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
         if (!table) return c.json({ message: "Table not found" }, 404);
         const gate = await gateAt(c, { baseId: table.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        return respond(c, () => gridsService.document.createTemplate(tableId, c.req.valid("json"), c.get("user").id), 201);
+        return respond(c, () => gridsService.document.createTemplate(tableId, c.req.valid("json"), currentActorUserId(c)), 201);
       },
     )
 
@@ -393,7 +390,7 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
       async (c) => {
         const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
         if (!loaded) return c.json({ message: "Document template not found", phase: "data" }, 404);
-        const gate = await gateBaseAdminForTemplate(c, loaded);
+        const gate = await gateTemplate(c, loaded, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
         const body = c.req.valid("json");
@@ -419,7 +416,7 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
       async (c) => {
         const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
         if (!loaded) return c.json({ message: "Document template not found", phase: "data" }, 404);
-        const gate = await gateBaseAdminForTemplate(c, loaded);
+        const gate = await gateTemplate(c, loaded, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
         const body = c.req.valid("json");
@@ -464,9 +461,9 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
       async (c) => {
         const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
         if (!loaded) return c.json({ message: "Document template not found" }, 404);
-        const gate = await gateBaseAdminForTemplate(c, loaded);
+        const gate = await gateTemplate(c, loaded, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        return respond(c, () => gridsService.document.updateTemplate(loaded.template.id, c.req.valid("json"), c.get("user").id));
+        return respond(c, () => gridsService.document.updateTemplate(loaded.template.id, c.req.valid("json"), currentActorUserId(c)));
       },
     )
 
@@ -483,9 +480,9 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
       async (c) => {
         const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
         if (!loaded) return c.json({ message: "Document template not found" }, 404);
-        const gate = await gateBaseAdminForTemplate(c, loaded);
+        const gate = await gateTemplate(c, loaded, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        const result = await gridsService.document.removeTemplate(loaded.template.id, c.get("user").id);
+        const result = await gridsService.document.removeTemplate(loaded.template.id, currentActorUserId(c));
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
         return c.body(null, 204);
       },
@@ -526,7 +523,7 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
       async (c) => {
         const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
         if (!loaded) return c.json({ message: "Document template not found" }, 404);
-        const gate = await gateBaseAdminForTemplate(c, loaded);
+        const gate = await gateTemplate(c, loaded, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
         const generatedAt = new Date();
@@ -619,7 +616,7 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
           baseId: loaded.table.baseId,
           tableId: loaded.table.id,
           recordId: body.recordId,
-          actorId: c.get("user").id,
+          actorId: currentActorUserId(c),
           dateConfig,
         });
         if (!snapshot.ok) return c.json({ message: snapshot.error.message }, snapshot.error.status);
@@ -627,7 +624,7 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
           template: loaded.template,
           snapshot: snapshot.data,
           renderData: { ...rendered.data, snapshot: snapshot.data },
-          actorId: c.get("user").id,
+          actorId: currentActorUserId(c),
           generatedAt,
           dateConfig,
           filename: body.filename,
@@ -835,7 +832,7 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
         const created = await gridsService.document.createDocumentLink({
           run,
           input: c.req.valid("json"),
-          actorId: c.get("user").id,
+          actorId: currentActorUserId(c),
           ...auditRequestContext(c),
         });
         if (!created.ok) return c.json({ message: created.error.message }, created.error.status);
@@ -863,7 +860,7 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
         const gate = await gateRun(c, run, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-        const userId = c.get("user").id;
+        const userId = currentActorUserId(c);
         const canRevoke = link.createdBy === userId || gridsService.permission.hasAtLeast(gate.data, "write");
         if (!canRevoke) return c.json({ message: "Only the creator or a document editor can revoke this link." }, 403);
 
@@ -951,7 +948,7 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
           baseId: table.baseId,
           tableId,
           recordId,
-          actorId: c.get("user").id,
+          actorId: currentActorUserId(c),
           dateConfig: await getDateConfig(c),
         });
         if (!snapshot.ok) return c.json({ message: snapshot.error.message }, snapshot.error.status);
@@ -974,7 +971,7 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
         if (!snapshotId) return c.json({ message: "Record snapshot not found" }, 404);
         const snapshot = await gridsService.document.getSnapshot(snapshotId);
         if (!snapshot) return c.json({ message: "Record snapshot not found" }, 404);
-        const gate = await gateAt(c, { baseId: snapshot.baseId, tableId: snapshot.tableId }, "admin");
+        const gate = await gateAt(c, { baseId: snapshot.baseId, tableId: snapshot.tableId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         return c.json(snapshot);
       },

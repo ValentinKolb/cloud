@@ -1,4 +1,4 @@
-import { logger } from "@valentinkolb/cloud/services";
+import { logger, trace } from "@valentinkolb/cloud/services";
 import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import type { Result } from "@valentinkolb/stdlib";
@@ -43,6 +43,20 @@ type PreparedTriggerJobInput<T extends "schedule" | "recordEvent" | "bulkSelecti
 const workflowJob = job<WorkflowTriggerJobInput, { runId: string | null; status: string }>({
   id: "grids:workflows:trigger",
   defaults: { leaseMs: WORKFLOW_JOB_LEASE_MS, keyTtlMs: 24 * 60 * 60 * 1000 },
+  trace: trace.fromSyncJob<WorkflowTriggerJobInput, { runId: string | null; status: string }>({
+    name: "Grid workflow trigger",
+    source: "grids:workflows:trigger",
+    appId: "grids",
+    attributes: (event) =>
+      "input" in event && event.input
+        ? {
+            "cloud.grids.workflow_id": event.input.workflowId,
+            "cloud.grids.workflow_run_id": event.input.runId,
+            "cloud.grids.workflow_trigger": event.input.triggerKind,
+          }
+        : {},
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => {
     const input = ctx.input;
     const result = await executePreparedRun({
@@ -110,6 +124,15 @@ const createSchedule = async (workflow: Workflow): Promise<void> => {
     id: scheduleId(workflow.id),
     cron: schedule.cron,
     tz,
+    trace: trace.fromSyncSchedule<void>({
+      name: "Grid workflow schedule",
+      source: "grids:workflows:schedule",
+      appId: "grids",
+      attributes: {
+        "cloud.grids.workflow_id": workflow.id,
+        "cloud.grids.base_id": workflow.baseId,
+      },
+    }),
     process: async ({ ctx }) => {
       const triggerInput = { slotTs: ctx.slotTs, trigger: ctx.trigger, runNumber: ctx.runNumber };
       const run = await workflows.createRun({

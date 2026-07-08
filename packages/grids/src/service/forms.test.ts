@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeFormConfig, toPublicRenderableForm, toRenderableForm, type Form } from "./forms";
+import { type Form, normalizeFormConfig, toPublicRenderableForm, toRenderableForm } from "./forms";
 
 const form = (): Form => ({
   id: "00000000-0000-0000-0000-000000000001",

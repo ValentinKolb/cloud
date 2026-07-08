@@ -1,5 +1,5 @@
 import { parseDocument } from "yaml";
-import { WorkflowDefinitionSchema, type WorkflowDefinition, type WorkflowInput, type WorkflowInputType } from "../contracts";
+import { type WorkflowDefinition, WorkflowDefinitionSchema, type WorkflowInput, type WorkflowInputType } from "../contracts";
 
 export type WorkflowDiagnostic = {
   message: string;
@@ -8,9 +8,7 @@ export type WorkflowDiagnostic = {
   column?: number;
 };
 
-export type ParseWorkflowYamlResult =
-  | { ok: true; definition: WorkflowDefinition }
-  | { ok: false; diagnostics: WorkflowDiagnostic[] };
+export type ParseWorkflowYamlResult = { ok: true; definition: WorkflowDefinition } | { ok: false; diagnostics: WorkflowDiagnostic[] };
 type NormalizeYamlValueResult = { ok: true; value: unknown } | { ok: false; diagnostics: WorkflowDiagnostic[] };
 
 type RefKind = WorkflowInputType | "record" | "document" | "documentLink" | "email";
@@ -56,10 +54,12 @@ const lineColumnFromYamlError = (source: string, error: unknown): Pick<WorkflowD
 const compactPath = (path: (string | number)[]): string => (path.length === 0 ? "workflow" : path.map(String).join("."));
 
 const issueIsGenericUnionMiss = (issue: ZodIssueLike): boolean =>
-  (issue.code === "invalid_type" && issue.message.includes("received undefined")) || (issue.code === "unrecognized_keys" && issue.path.length === 0);
+  (issue.code === "invalid_type" && issue.message.includes("received undefined")) ||
+  (issue.code === "unrecognized_keys" && issue.path.length === 0);
 
 const issueScore = (issue: ZodIssueLike): number => {
-  if (issue.code === "invalid_union" && issue.errors) return Math.max(...issue.errors.map((branch) => branch.reduce((sum, item) => sum + issueScore(item), 0)));
+  if (issue.code === "invalid_union" && issue.errors)
+    return Math.max(...issue.errors.map((branch) => branch.reduce((sum, item) => sum + issueScore(item), 0)));
   if (issueIsGenericUnionMiss(issue)) return -4;
   return 10 + issue.path.length;
 };
@@ -182,9 +182,15 @@ const validateTriggers = (definition: WorkflowDefinition, diagnostics: WorkflowD
   if (bulkInput) {
     const input = inputs[bulkInput];
     if (!input) {
-      diagnostics.push({ path: ["triggers", "bulkSelection", "input"], message: `triggers.bulkSelection.input: unknown input "${bulkInput}"` });
+      diagnostics.push({
+        path: ["triggers", "bulkSelection", "input"],
+        message: `triggers.bulkSelection.input: unknown input "${bulkInput}"`,
+      });
     } else if (input.type !== "recordList") {
-      diagnostics.push({ path: ["triggers", "bulkSelection", "input"], message: "triggers.bulkSelection.input must reference a recordList input" });
+      diagnostics.push({
+        path: ["triggers", "bulkSelection", "input"],
+        message: "triggers.bulkSelection.input must reference a recordList input",
+      });
     }
   }
 
@@ -192,7 +198,10 @@ const validateTriggers = (definition: WorkflowDefinition, diagnostics: WorkflowD
   if (recordEventInput) {
     const input = inputs[recordEventInput];
     if (!input) {
-      diagnostics.push({ path: ["triggers", "recordEvent", "input"], message: `triggers.recordEvent.input: unknown input "${recordEventInput}"` });
+      diagnostics.push({
+        path: ["triggers", "recordEvent", "input"],
+        message: `triggers.recordEvent.input: unknown input "${recordEventInput}"`,
+      });
     } else if (input.type !== "record") {
       diagnostics.push({ path: ["triggers", "recordEvent", "input"], message: "triggers.recordEvent.input must reference a record input" });
     }
@@ -214,7 +223,15 @@ const validateSteps = (
 
     if ("updateRecord" in item) {
       const action = item.updateRecord as { record?: unknown };
-      expectRefKind({ ref: action.record, expected: "record", inputs, locals, diagnostics, path: [...stepPath, "updateRecord", "record"], label: "record" });
+      expectRefKind({
+        ref: action.record,
+        expected: "record",
+        inputs,
+        locals,
+        diagnostics,
+        path: [...stepPath, "updateRecord", "record"],
+        label: "record",
+      });
       continue;
     }
 
@@ -274,7 +291,15 @@ const validateSteps = (
     }
 
     if ("forEach" in item) {
-      expectRefKind({ ref: item.forEach, expected: "recordList", inputs, locals, diagnostics, path: [...stepPath, "forEach"], label: "forEach" });
+      expectRefKind({
+        ref: item.forEach,
+        expected: "recordList",
+        inputs,
+        locals,
+        diagnostics,
+        path: [...stepPath, "forEach"],
+        label: "forEach",
+      });
       const nextLocals = new Map(locals);
       if (typeof item.as === "string") nextLocals.set(item.as, "record");
       if (Array.isArray(item.do)) validateSteps(item.do, inputs, diagnostics, [...stepPath, "do"], nextLocals);

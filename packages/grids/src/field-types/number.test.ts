@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { numberHandler } from "./number";
 
 test("number: accepts numeric input and string-of-number", () => {

@@ -2,14 +2,9 @@ import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import {
-  CreateEmailTemplateSchema,
-  EmailTemplateListSchema,
-  EmailTemplateSchema,
-  UpdateEmailTemplateSchema,
-} from "../contracts";
+import { CreateEmailTemplateSchema, EmailTemplateListSchema, EmailTemplateSchema, UpdateEmailTemplateSchema } from "../contracts";
 import { gridsService } from "../service";
-import { gateAt } from "./permissions";
+import { currentActorUserId, gateAt } from "./permissions";
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
@@ -48,7 +43,7 @@ const app = new Hono<AuthContext>()
       const baseId = c.req.param("baseId")!;
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.emailTemplate.create(baseId, c.req.valid("json"), c.get("user").id), 201);
+      return respond(c, () => gridsService.emailTemplate.create(baseId, c.req.valid("json"), currentActorUserId(c)), 201);
     },
   )
 
@@ -90,7 +85,7 @@ const app = new Hono<AuthContext>()
       if (!template) return c.json({ message: "Email template not found" }, 404);
       const gate = await gateAt(c, { baseId: template.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.emailTemplate.update(template.id, c.req.valid("json"), c.get("user").id));
+      return respond(c, () => gridsService.emailTemplate.update(template.id, c.req.valid("json"), currentActorUserId(c)));
     },
   )
 
@@ -110,7 +105,7 @@ const app = new Hono<AuthContext>()
       if (!template) return c.json({ message: "Email template not found" }, 404);
       const gate = await gateAt(c, { baseId: template.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const result = await gridsService.emailTemplate.remove(template.id, c.get("user").id);
+      const result = await gridsService.emailTemplate.remove(template.id, currentActorUserId(c));
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },

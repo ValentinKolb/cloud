@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { parseFormula } from "../formula/parser";
 import { FormatSpecSchema } from "../contracts";
-import { type ComputedFieldKind } from "./types";
+import { parseFormula } from "../formula/parser";
+import type { ComputedFieldKind } from "./types";
 
 // Expression is optional at create-time so a brand-new formula field
 // can be added before the user has typed the formula in. Once an

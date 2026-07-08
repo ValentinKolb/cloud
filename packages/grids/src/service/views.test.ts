@@ -1,4 +1,4 @@
-import { test, expect, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { isVisibleByAclTiers } from "./views";
 
 const dflt = { ownerUserId: null, viewerUserId: "user-1" };

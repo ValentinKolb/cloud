@@ -1,15 +1,15 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import {
   Checkbox,
-  confirmDiscardIfDirty,
   CopyButton,
+  confirmDiscardIfDirty,
   dialogCore,
   ImageInput,
   MultiSelectInput,
-  panelDialogOptions,
-  panelDialogPanelClass,
   PanelDialog,
   Placeholder,
+  panelDialogOptions,
+  panelDialogPanelClass,
   prompts,
   Select,
   TextInput,

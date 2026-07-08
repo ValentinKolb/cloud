@@ -1,26 +1,26 @@
+import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, getDateConfig, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { auth, v, respond, jsonResponse, getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
-import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
-import { gridsService } from "../service";
 import {
-  TableSchema,
-  TableListSchema,
+  type ComputedColumnSpec,
   CreateTableSchema,
-  UpdateTableSchema,
-  TableQueryBodySchema,
-  TableQueryResponseSchema,
   RecordActorListResponseSchema,
   RecordMetaUserKeySchema,
-  RelationLookupResponseSchema,
-  type ComputedColumnSpec,
   type RecordQuery,
+  RelationLookupResponseSchema,
+  TableListSchema,
+  TableQueryBodySchema,
+  TableQueryResponseSchema,
+  TableSchema,
+  UpdateTableSchema,
 } from "../contracts";
+import { gridsService } from "../service";
 import type { GroupAggregationSpec } from "../service/group-compiler";
 import { validateRecordQueryForTable } from "../service/query-validation";
 import { compileGqlToRecordQuery } from "./gql-runtime";
-import { gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
+import { currentActorUserId, currentActorViewer, gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
 
 const viewUiPresentation = (view: {
   ui?: { columns?: RecordQuery["columns"]; groupedColumnOrder?: string[]; hiddenGroupedColumns?: string[] };
@@ -49,7 +49,12 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const tables = await gridsService.table.listByBase(baseId);
-      return c.json(tables);
+      const visible = [];
+      for (const table of tables) {
+        const tableGate = await gateAt(c, { baseId, tableId: table.id }, "read");
+        if (tableGate.ok) visible.push(table);
+      }
+      return c.json(visible);
     },
   )
 
@@ -69,7 +74,6 @@ const app = new Hono<AuthContext>()
       const baseId = c.req.param("baseId")!;
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
       const body = c.req.valid("json");
       return respond(
         c,
@@ -83,7 +87,7 @@ const app = new Hono<AuthContext>()
               columns: body.columns,
               displayConfig: body.displayConfig,
             },
-            user.id,
+            currentActorUserId(c),
           ),
         201,
       );
@@ -124,8 +128,7 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
-      return respond(c, () => gridsService.table.update(tableId, c.req.valid("json"), user.id));
+      return respond(c, () => gridsService.table.update(tableId, c.req.valid("json"), currentActorUserId(c)));
     },
   )
 
@@ -142,8 +145,7 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
-      const result = await gridsService.table.remove(tableId, user.id);
+      const result = await gridsService.table.remove(tableId, currentActorUserId(c));
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },
@@ -165,8 +167,7 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
-      return respond(c, () => gridsService.table.restore(tableId, user.id));
+      return respond(c, () => gridsService.table.restore(tableId, currentActorUserId(c)));
     },
   )
 
@@ -203,8 +204,8 @@ const app = new Hono<AuthContext>()
         if (!gridsService.permission.hasAtLeast(level, "read")) {
           return c.json({ message: "You do not have permission to access this resource." }, 403);
         }
-        const user = c.get("user");
-        const isOwner = view.ownerUserId === user.id;
+        const viewer = currentActorViewer(c);
+        const isOwner = view.ownerUserId === viewer.userId;
         const explicitGrant = hasExplicitGrant(grants, "view", view.id);
         if (view.ownerUserId !== null && !isOwner && !explicitGrant) {
           return c.json({ message: "View not found" }, 404);
@@ -244,12 +245,8 @@ const app = new Hono<AuthContext>()
       // label search and select-label search don't get forced through
       // the direct-field filter DSL.
       const tableFields = await gridsService.field.listByTable(tableId);
-      const user = c.get("user");
       const dateConfig = await getDateConfig(c);
-      const viewer = {
-        userId: user.id,
-        userGroups: user.memberofGroupIds,
-      };
+      const viewer = currentActorViewer(c);
 
       // Group-mode dispatch. The contract's AggregateKind is wider than
       // the group compiler's AggKindForGroup (no median/earliest/latest

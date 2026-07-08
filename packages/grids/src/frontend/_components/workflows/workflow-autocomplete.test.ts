@@ -44,7 +44,11 @@ describe("backend workflow autocomplete adapter", () => {
       },
     });
 
-    const suggestions = await completions[0]!.suggest("", { fullText: "triggers:\n", caret: 10, tokenStart: 10 }, new AbortController().signal);
+    const suggestions = await completions[0]!.suggest(
+      "",
+      { fullText: "triggers:\n", caret: 10, tokenStart: 10 },
+      new AbortController().signal,
+    );
 
     expect(seen).toEqual([{ source: "triggers:\n", caret: 10 }]);
     expect(suggestions).toEqual([

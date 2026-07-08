@@ -1,6 +1,6 @@
-import { FN_LIBRARY, isFormulaError, type FormulaRuntimeContext } from "./functions";
-import { decimalToString, isExactShaped, isNullish, toDecimalValue, toNumber } from "./numeric";
 import { normalizeRefKey } from "../ref-syntax";
+import { FN_LIBRARY, type FormulaRuntimeContext, isFormulaError } from "./functions";
+import { decimalToString, isExactShaped, isNullish, toDecimalValue, toNumber } from "./numeric";
 import { type BinOp, type Expr, formulaError, type Literal } from "./types";
 
 type EvalContext = FormulaRuntimeContext & {

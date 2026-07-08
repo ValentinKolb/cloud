@@ -1,5 +1,5 @@
-import { test, expect, describe } from "bun:test";
-import { relationHandler, lookupHandler, rollupHandler } from "./relations";
+import { describe, expect, test } from "bun:test";
+import { lookupHandler, relationHandler, rollupHandler } from "./relations";
 
 // =============================================================================
 // Relation / lookup / rollup field-type handlers.

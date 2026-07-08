@@ -1,5 +1,6 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { currentActorUser } from "../api/permissions";
 import { ssr } from "../config";
 import { gridsService } from "../service";
 import GridsLayoutHelp from "./_components/help/GridsLayoutHelp";
@@ -12,7 +13,16 @@ import { parseLastGridsPath } from "./_components/sidebar/GridsSettingsStore";
  * with the create button + paper-card grid.
  */
 export default ssr<AuthContext>(async (c) => {
-  const user = c.get("user");
+  const user = currentActorUser(c);
+  if (!user) {
+    return () => (
+      <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Grids" }]}>
+        <div class="paper mx-auto mt-16 max-w-md p-8 text-center text-dimmed">
+          <i class="ti ti-lock text-sm" /> Sign in to open Grids.
+        </div>
+      </Layout>
+    );
+  }
   const url = new URL(c.req.url);
   const initialQuery = url.searchParams.get("q")?.trim() ?? "";
   const pageRaw = Number.parseInt(url.searchParams.get("page") ?? "1", 10);

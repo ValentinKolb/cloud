@@ -1,5 +1,5 @@
 import { sql } from "bun";
-import { parseFormula, collectFieldRefs } from "../formula/parser";
+import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { normalizeRefKey } from "../ref-syntax";
 
 export type FieldDependent = {

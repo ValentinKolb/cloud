@@ -4,16 +4,16 @@ import {
   confirmDiscardIfDirty,
   dialogCore,
   IconInput,
-  panelDialogOptions,
   PanelDialog,
+  panelDialogOptions,
   prompts,
   Select,
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { DateContext } from "@valentinkolb/stdlib";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Dashboard, DashboardConfig, DashboardRow, Field, Form, View, Widget, Workflow } from "../../../service";
@@ -582,7 +582,7 @@ function DashboardGeneralBody(props: {
           </Show>
         </SectionCard>
 
-        <SectionCard title="Permissions" subtitle="Choose who can open this dashboard. Dashboards only support View access.">
+        <SectionCard title="Permissions" subtitle="Viewers see dashboard widgets. Source pages keep their own access.">
           <DashboardPermissions
             dashboardId={props.dashboard.id}
             initialEntries={props.initialAccessEntries}

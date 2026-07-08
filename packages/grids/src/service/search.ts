@@ -57,6 +57,7 @@ const canReadTargetTable = async (targetTableId: string, viewer?: ExpansionViewe
   const grants = await loadGrantsForUser({
     userId: viewer.userId,
     userGroups: viewer.userGroups,
+    serviceAccountId: viewer.serviceAccountId,
     baseId: target.baseId,
     tableId: targetTableId,
   });

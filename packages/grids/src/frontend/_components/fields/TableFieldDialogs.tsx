@@ -4,8 +4,8 @@ import {
   confirmDiscardIfDirty,
   dialogCore,
   IconInput,
-  panelDialogOptions,
   PanelDialog,
+  panelDialogOptions,
   prompts,
   Select,
   TextInput,
@@ -21,8 +21,8 @@ import { ColumnFormatControls, type ColumnFormatControlsHandle } from "../dialog
 import { FieldInput } from "../forms/form-fields";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
-import { RECORD_INPUT_FIELD_TYPES } from "./field-render";
 import { FIELD_TYPE_DESCRIPTIONS, FieldConfigEditor, type FieldConfigState, TYPE_LABELS } from "./field-config-editor";
+import { RECORD_INPUT_FIELD_TYPES } from "./field-render";
 
 const PRESENTABLE_TYPES = new Set(["text", "id", "number", "boolean", "date", "select", "percent", "duration"]);
 const INDEXABLE_TYPES = new Set(["text", "longtext", "id", "number", "percent", "duration", "date", "boolean", "select"]);

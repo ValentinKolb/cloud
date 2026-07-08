@@ -1,6 +1,6 @@
-import { formatIdentifierRef, normalizeRefKey, unquoteIdentifierBody } from "./ref-syntax";
 import { parseFormula } from "./formula/parser";
 import type { Expr, SourceSpan } from "./formula/types";
+import { formatIdentifierRef, normalizeRefKey, unquoteIdentifierBody } from "./ref-syntax";
 
 const IDENT_START = /[A-Za-z_]/;
 const IDENT_PART = /[A-Za-z0-9_]/;

@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import { sql } from "bun";
+import { resolveWidgetData } from "../src/frontend/_components/dashboard/widget-data";
+import { migrate } from "../src/migrate";
 import { gridsService } from "../src/service";
 import { ensureFieldIndex } from "../src/service/field-indexes";
-import { migrate } from "../src/migrate";
-import { resolveWidgetData } from "../src/frontend/_components/dashboard/widget-data";
 
 const ROWS = Number(process.env.ROWS ?? 100_000);
 const BATCH = Number(process.env.BATCH ?? 2_000);

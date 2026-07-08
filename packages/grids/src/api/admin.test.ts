@@ -121,6 +121,8 @@ const { createAdminApi } = await import("./admin");
 
 const requireAdmin: MiddlewareHandler<AuthContext> = async (c, next) => {
   if (!isPlatformAdmin) return c.json({ message: "Forbidden" }, 403);
+  c.set("actor", { kind: "user", user });
+  c.set("accessSubject", { type: "user", userId: user.id });
   c.set("user", user);
   await next();
 };

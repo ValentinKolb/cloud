@@ -50,11 +50,7 @@ const svgToBase64 = (svg: string): string => {
   return btoa(binary);
 };
 
-export const renderBarcodeSvg = (
-  value: unknown,
-  format: BarcodeFormat,
-  options: { color?: string } = {},
-): string | null => {
+export const renderBarcodeSvg = (value: unknown, format: BarcodeFormat, options: { color?: string } = {}): string | null => {
   const text = barcodeValueText(value).trim();
   if (!text) return null;
 

@@ -1,4 +1,4 @@
-import type { TableQueryResult, RecordQuery } from "../../../contracts";
+import type { RecordQuery, TableQueryResult } from "../../../contracts";
 import type { GridRecord } from "../../../service";
 
 export type LiveRecordEvent = {

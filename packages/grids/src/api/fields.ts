@@ -1,17 +1,17 @@
+import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
-import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
-import { gridsService } from "../service";
 import {
-  FieldSchema,
-  FieldListSchema,
   CreateFieldSchema,
-  UpdateFieldSchema,
-  ReorderFieldsSchema,
   FieldDependentsResponseSchema,
+  FieldListSchema,
+  FieldSchema,
+  ReorderFieldsSchema,
+  UpdateFieldSchema,
 } from "../contracts";
-import { gateAt } from "./permissions";
+import { gridsService } from "../service";
+import { currentActorUserId, gateAt } from "./permissions";
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
@@ -50,9 +50,8 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
       const { fieldIds } = c.req.valid("json");
-      const result = await gridsService.field.reorder(tableId, fieldIds, user.id);
+      const result = await gridsService.field.reorder(tableId, fieldIds, currentActorUserId(c));
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },
@@ -75,9 +74,8 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
       const body = c.req.valid("json");
-      return respond(c, () => gridsService.field.create({ tableId, ...body }, user.id), 201);
+      return respond(c, () => gridsService.field.create({ tableId, ...body }, currentActorUserId(c)), 201);
     },
   )
 
@@ -117,8 +115,7 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
-      return respond(c, () => gridsService.field.update(fieldId, c.req.valid("json"), user.id));
+      return respond(c, () => gridsService.field.update(fieldId, c.req.valid("json"), currentActorUserId(c)));
     },
   )
 
@@ -151,8 +148,7 @@ const app = new Hono<AuthContext>()
           409,
         );
       }
-      const user = c.get("user");
-      const result = await gridsService.field.softDelete(fieldId, user.id);
+      const result = await gridsService.field.softDelete(fieldId, currentActorUserId(c));
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },
@@ -178,8 +174,7 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
-      return respond(c, () => gridsService.field.restore(fieldId, user.id));
+      return respond(c, () => gridsService.field.restore(fieldId, currentActorUserId(c)));
     },
   );
 

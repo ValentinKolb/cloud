@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { gridsService } from "../service";
-import { gateAt } from "./permissions";
+import { currentActorUserId, gateAt } from "./permissions";
 
 const AccessListSchema = z.array(AccessEntrySchema);
 const UpdateLevelSchema = z.object({ permission: PermissionLevelSchema });
@@ -68,14 +68,13 @@ const app = new Hono<AuthContext>()
       const baseId = c.req.param("baseId")!;
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
       return respond(
         c,
         () =>
           gridsService.access.grant({
             resourceType: "base",
             resourceId: baseId,
-            actorId: user.id,
+            actorId: currentActorUserId(c),
             ...c.req.valid("json"),
           }),
         201,
@@ -126,14 +125,13 @@ const app = new Hono<AuthContext>()
       }
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
       return respond(
         c,
         () =>
           gridsService.access.grant({
             resourceType: "table",
             resourceId: tableId,
-            actorId: user.id,
+            actorId: currentActorUserId(c),
             ...body,
           }),
         201,
@@ -200,14 +198,13 @@ const app = new Hono<AuthContext>()
       if (!viewRow) return c.json({ message: "View not found" }, 404);
       const gate = await gateAt(c, { baseId: viewRow.base_id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
       return respond(
         c,
         () =>
           gridsService.access.grant({
             resourceType: "view",
             resourceId: viewId,
-            actorId: user.id,
+            actorId: currentActorUserId(c),
             ...body,
           }),
         201,
@@ -275,14 +272,13 @@ const app = new Hono<AuthContext>()
       if (!formRow) return c.json({ message: "Form not found" }, 404);
       const gate = await gateAt(c, { baseId: formRow.base_id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
       return respond(
         c,
         () =>
           gridsService.access.grant({
             resourceType: "form",
             resourceId: formId,
-            actorId: user.id,
+            actorId: currentActorUserId(c),
             ...body,
           }),
         201,
@@ -347,14 +343,13 @@ const app = new Hono<AuthContext>()
       if (!templateRow) return c.json({ message: "Document template not found" }, 404);
       const gate = await gateAt(c, { baseId: templateRow.base_id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
       return respond(
         c,
         () =>
           gridsService.access.grant({
             resourceType: "documentTemplate",
             resourceId: templateId,
-            actorId: user.id,
+            actorId: currentActorUserId(c),
             ...body,
           }),
         201,
@@ -414,14 +409,13 @@ const app = new Hono<AuthContext>()
       if (!row) return c.json({ message: "Dashboard not found" }, 404);
       const gate = await gateAt(c, { baseId: row.base_id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
       return respond(
         c,
         () =>
           gridsService.access.grant({
             resourceType: "dashboard",
             resourceId: dashboardId,
-            actorId: user.id,
+            actorId: currentActorUserId(c),
             ...body,
           }),
         201,
@@ -476,14 +470,13 @@ const app = new Hono<AuthContext>()
       if (validationError) return c.json({ message: validationError }, 400);
       const gate = await gateAt(c, { baseId: workflow.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
       return respond(
         c,
         () =>
           gridsService.access.grant({
             resourceType: "workflow",
             resourceId: workflowId,
-            actorId: user.id,
+            actorId: currentActorUserId(c),
             ...body,
           }),
         201,
@@ -522,8 +515,7 @@ const app = new Hono<AuthContext>()
       const validationError = validateAccessLevelForResource(binding.resourceType, permission);
       if (validationError) return c.json({ message: validationError }, 400);
 
-      const user = c.get("user");
-      const result = await gridsService.access.updateLevel(accessId, permission, user.id);
+      const result = await gridsService.access.updateLevel(accessId, permission, currentActorUserId(c));
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },
@@ -548,8 +540,7 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: binding.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-      const user = c.get("user");
-      const result = await gridsService.access.revoke(accessId, user.id);
+      const result = await gridsService.access.revoke(accessId, currentActorUserId(c));
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },

@@ -1,6 +1,6 @@
-import { test, expect, describe } from "bun:test";
-import { parseRecordsState, buildRecordsUrl, type RecordsState, type UrlPathContext } from "./query-url";
+import { describe, expect, test } from "bun:test";
 import type { ColumnSpec, RecordMetaQuery } from "../../../contracts";
+import { buildRecordsUrl, parseRecordsState, type RecordsState, type UrlPathContext } from "./query-url";
 
 // =============================================================================
 // query-url tests — URL ↔ RecordsState round-trip + path-based emit.

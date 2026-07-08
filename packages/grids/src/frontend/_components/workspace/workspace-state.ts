@@ -712,6 +712,43 @@ const loadInitialRecords = async (args: InitialRecordsArgs) => {
   };
 };
 
+const selectedRecordMeta = (
+  recordMeta: RecordQuery["recordMeta"] | null,
+  selectedRecordId: string,
+): NonNullable<RecordQuery["recordMeta"]> | null => {
+  if (recordMeta?.ids?.length && !recordMeta.ids.includes(selectedRecordId)) return null;
+  return { ...(recordMeta ?? {}), ids: [selectedRecordId] };
+};
+
+const loadSelectedRecordThroughView = async (params: {
+  activeTable: Table;
+  selectedRecordId: string;
+  initial: Awaited<ReturnType<typeof loadInitialRecords>>;
+  user: AuthUser;
+  trashMode: boolean;
+  dateConfig?: DateContext;
+}): Promise<GridRecord | null> => {
+  const recordMeta = selectedRecordMeta(params.initial.effectiveRecordMeta, params.selectedRecordId);
+  if (!recordMeta) return null;
+  const result = await gridsService.record.list({
+    tableId: params.activeTable.id,
+    limit: 1,
+    includeDeleted: params.initial.effectiveIncludeDeleted,
+    deletedOnly: params.trashMode,
+    filter: params.initial.effectiveFilter,
+    search: params.initial.searchSpec,
+    recordMeta,
+    sort: [],
+    cursor: null,
+    includeRelations: true,
+    viewer: buildViewer(params.user),
+    dateConfig: params.dateConfig,
+    computedColumns: params.initial.effective.columns?.filter(isComputedColumn),
+  });
+  if (!result.ok) return null;
+  return result.data.items.find((record) => record.id === params.selectedRecordId) ?? null;
+};
+
 const loadRecordsState = async (
   common: WorkspaceCommon,
   activeTable: Table,
@@ -774,7 +811,16 @@ const loadRecordsState = async (
   const selectedRecord = !selectedRecordId
     ? null
     : (initial.records.items.find((r) => r.id === selectedRecordId) ??
-      (await gridsService.record.get(activeTable.id, selectedRecordId, { dateConfig: common.params.dateConfig })));
+      (activeViewForQuery && !gridsService.permission.hasAtLeast(activeTableLevel, "read")
+        ? await loadSelectedRecordThroughView({
+            activeTable,
+            selectedRecordId,
+            initial,
+            user: common.params.user,
+            trashMode: common.chrome.trashMode,
+            dateConfig: common.params.dateConfig,
+          })
+        : await gridsService.record.get(activeTable.id, selectedRecordId, { dateConfig: common.params.dateConfig })));
   const canEditActiveView =
     !!activeView && (activeView.ownerUserId === common.params.user.id || gridsService.permission.hasAtLeast(candidateViewLevel, "admin"));
 

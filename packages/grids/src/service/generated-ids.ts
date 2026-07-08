@@ -1,8 +1,8 @@
 import { isUniqueViolation } from "@valentinkolb/cloud/services";
-import { crypto, dates, type DateContext } from "@valentinkolb/stdlib";
+import { crypto, type DateContext, dates } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { fieldUniqueIndexName, nextGeneratedIdSequenceValue } from "./field-indexes";
 import type { SqlClient } from "./audit";
+import { fieldUniqueIndexName, nextGeneratedIdSequenceValue } from "./field-indexes";
 import type { Field } from "./types";
 
 export type IdStrategy = "sequence" | "date_sequence" | "short_code" | "random_code" | "uuid" | "uuidv7" | "ulid";

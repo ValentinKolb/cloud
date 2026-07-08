@@ -1,5 +1,5 @@
-import { sql } from "bun";
 import { describe, expect, test } from "bun:test";
+import { sql } from "bun";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import * as fields from "./fields";

@@ -1,7 +1,7 @@
 import { markdown as markdownRenderer } from "@valentinkolb/cloud/shared";
-import { dates, err, fail, ok, type DateContext, type Result } from "@valentinkolb/stdlib";
+import { type DateContext, dates, err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { ExportFieldSpec, SearchSpec, RecordQuery } from "../contracts";
+import type { ExportFieldSpec, RecordQuery, SearchSpec } from "../contracts";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
@@ -133,6 +133,7 @@ const canReadTargetTable = async (targetTableId: string, viewer?: ExpansionViewe
   const grants = await loadGrantsForUser({
     userId: viewer.userId,
     userGroups: viewer.userGroups,
+    serviceAccountId: viewer.serviceAccountId,
     baseId: table.baseId,
     tableId: targetTableId,
   });

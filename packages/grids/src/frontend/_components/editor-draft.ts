@@ -1,4 +1,4 @@
-import { createMemo, createSignal, type Accessor } from "solid-js";
+import { type Accessor, createMemo, createSignal } from "solid-js";
 
 export type Draft<T extends object> = {
   draft: Accessor<T>;

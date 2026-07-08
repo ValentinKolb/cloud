@@ -1,8 +1,7 @@
-import { dnd, type DndBuildIntentContext } from "@valentinkolb/stdlib/solid";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { For, Show, onCleanup } from "solid-js";
+import { type DndBuildIntentContext, dnd } from "@valentinkolb/stdlib/solid";
+import { For, onCleanup, Show } from "solid-js";
 import type { Dashboard, DashboardRow, Widget } from "../../../service";
-import WorkflowButtonWidget from "./WorkflowButtonWidget";
 import ChartWidget from "./ChartWidget";
 import FormCell from "./FormCell";
 import LinkWidget from "./LinkWidget";
@@ -10,6 +9,7 @@ import MarkdownWidget from "./MarkdownWidget";
 import StatWidgetCell from "./StatWidgetCell";
 import ViewStatsCell from "./ViewStatsCell";
 import EmbeddedViewWidget from "./ViewWidget";
+import WorkflowButtonWidget from "./WorkflowButtonWidget";
 import type { WidgetData } from "./widget-data";
 
 type Props = {

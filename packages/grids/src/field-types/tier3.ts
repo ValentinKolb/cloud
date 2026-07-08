@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fail, ok, type ExternalFieldKind, type ValueFieldType } from "./types";
+import { type ExternalFieldKind, fail, ok, type ValueFieldType } from "./types";
 
 // ─────────────────────────────────────────────────────────────────
 // Tier-3 field types: json, file.

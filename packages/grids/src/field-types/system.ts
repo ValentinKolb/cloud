@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type ServerGeneratedFieldKind, type SystemFieldKind } from "./types";
+import type { ServerGeneratedFieldKind, SystemFieldKind } from "./types";
 
 /**
  * System fields are auto-populated by the platform on insert/update.

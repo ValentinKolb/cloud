@@ -8,7 +8,7 @@ import { z } from "zod";
 import { ExportBodySchema, GridRecordSchema, RecordPayloadSchema } from "../contracts";
 import { gridsService } from "../service";
 import { validateRecordQueryForTable } from "../service/query-validation";
-import { currentActorUserId, gateAt } from "./permissions";
+import { currentActorUserId, currentActorViewer, gateAt } from "./permissions";
 
 const RecordImportBodySchema = z.object({
   items: z.array(RecordPayloadSchema).min(1).max(500),
@@ -103,7 +103,6 @@ const app = new Hono<AuthContext>()
         return c.json({ message: `File exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit` }, 413);
       }
 
-      const user = c.get("user");
       const result = await gridsService.file.upload({
         tableId,
         recordId,
@@ -111,7 +110,7 @@ const app = new Hono<AuthContext>()
         filename: file.name || "untitled",
         mimeType: file.type || "application/octet-stream",
         bytes: new Uint8Array(await file.arrayBuffer()),
-        userId: user.id,
+        userId: currentActorUserId(c),
       });
       return respond(c, () => Promise.resolve(result));
     },
@@ -195,10 +194,9 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "write");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
       return respond(
         c,
-        async () => gridsService.record.create(tableId, c.req.valid("json"), user.id, { dateConfig: await getDateConfig(c) }),
+        async () => gridsService.record.create(tableId, c.req.valid("json"), currentActorUserId(c), { dateConfig: await getDateConfig(c) }),
         201,
       );
     },
@@ -278,9 +276,10 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const ifMatchHeader = c.req.header("If-Match");
       const ifMatchVersion = ifMatchHeader ? Number(ifMatchHeader) : undefined;
-      const user = c.get("user");
       return respond(c, async () =>
-        gridsService.record.update(tableId, recordId, c.req.valid("json"), user.id, ifMatchVersion, { dateConfig: await getDateConfig(c) }),
+        gridsService.record.update(tableId, recordId, c.req.valid("json"), currentActorUserId(c), ifMatchVersion, {
+          dateConfig: await getDateConfig(c),
+        }),
       );
     },
   )
@@ -299,8 +298,7 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "write");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
-      const result = await gridsService.record.softDelete(tableId, recordId, user.id);
+      const result = await gridsService.record.softDelete(tableId, recordId, currentActorUserId(c));
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },
@@ -324,7 +322,6 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-      const user = c.get("user");
       const body = c.req.valid("json");
       const queryValid = await validateRecordQueryForTable(tableId, body.query);
       if (!queryValid.ok) return c.json({ message: queryValid.error.message }, queryValid.error.status);
@@ -339,7 +336,7 @@ const app = new Hono<AuthContext>()
         csv: body.csv,
         markdown: body.markdown,
         dateConfig: await getDateConfig(c),
-        viewer: { userId: user.id, userGroups: user.memberofGroupIds },
+        viewer: currentActorViewer(c),
       });
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
 
@@ -373,8 +370,7 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "write");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
-      const result = await gridsService.record.restore(tableId, recordId, user.id);
+      const result = await gridsService.record.restore(tableId, recordId, currentActorUserId(c));
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },

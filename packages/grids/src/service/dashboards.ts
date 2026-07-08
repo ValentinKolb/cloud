@@ -1,12 +1,12 @@
-import { sql } from "bun";
-import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
+import { type Dashboard, type DashboardConfig, DashboardConfigSchema, type Widget } from "../contracts";
 import { logAudit } from "./audit";
-import { emitMetadataEvent } from "./metadata-events";
 import { parseJsonbRow } from "./jsonb";
-import { insertWithShortId } from "./short-id";
+import { emitMetadataEvent } from "./metadata-events";
 import { tableBelongsToBase } from "./query-validation";
-import { DashboardConfigSchema, type Dashboard, type DashboardConfig, type Widget } from "../contracts";
+import { insertWithShortId } from "./short-id";
 
 type DbRow = Record<string, unknown>;
 
@@ -287,12 +287,27 @@ export const get = async (id: string, opts: { includeDeleted?: boolean } = {}): 
  * grant API inserts a fresh auth.access row per POST so duplicate
  * principal rows are possible.
  */
-export const listForBase = async (params: { baseId: string; userId: string | null; userGroups?: string[] }): Promise<Dashboard[]> => {
+export const listForBase = async (params: {
+  baseId: string;
+  userId: string | null;
+  userGroups?: string[];
+  serviceAccountId?: string | null;
+}): Promise<Dashboard[]> => {
   const groups = toPgUuidArray(params.userGroups);
+  const serviceAccountId = params.serviceAccountId ?? null;
 
   const rows = await sql<DbRow[]>`
     WITH ranked AS (
       SELECT d.id, d.short_id, d.base_id, d.name, d.description, d.icon, d.config, d.owner_user_id, d.position, d.deleted_at, d.created_at, d.updated_at,
+        (
+          SELECT CASE
+            WHEN COUNT(*) = 0 THEN NULL
+            WHEN bool_or(a.permission = 'none') THEN 0
+            ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+          END
+          FROM grids.dashboard_access da JOIN auth.access a ON a.id = da.access_id
+          WHERE da.dashboard_id = d.id AND a.service_account_id = ${serviceAccountId}::uuid
+        ) AS service_account_rank,
         (
           SELECT CASE
             WHEN COUNT(*) = 0 THEN NULL
@@ -320,7 +335,7 @@ export const listForBase = async (params: { baseId: string; userId: string | nul
           FROM grids.dashboard_access da JOIN auth.access a ON a.id = da.access_id
           WHERE da.dashboard_id = d.id
             AND a.authenticated_only = TRUE
-            AND ${params.userId}::uuid IS NOT NULL
+            AND (${params.userId}::uuid IS NOT NULL OR ${serviceAccountId}::uuid IS NOT NULL)
         ) AS auth_rank,
         (
           SELECT CASE
@@ -338,9 +353,9 @@ export const listForBase = async (params: { baseId: string; userId: string | nul
     )
     SELECT id, short_id, base_id, name, description, icon, config, owner_user_id, position, deleted_at, created_at, updated_at
     FROM ranked
-    WHERE COALESCE(user_rank, group_rank, auth_rank, public_rank) >= 1
+    WHERE COALESCE(service_account_rank, user_rank, group_rank, auth_rank, public_rank) >= 1
        OR (
-         COALESCE(user_rank, group_rank, auth_rank, public_rank) IS NULL
+         COALESCE(service_account_rank, user_rank, group_rank, auth_rank, public_rank) IS NULL
          AND (owner_user_id IS NULL OR owner_user_id = ${params.userId}::uuid)
        )
     ORDER BY position, created_at

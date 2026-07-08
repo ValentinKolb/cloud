@@ -1,4 +1,5 @@
 import type { FormatSpec } from "../../../service/views";
+
 export { barcodeSvgForCell, barcodeUrl, barcodeValueText, canRenderBarcode } from "../../../barcode-rendering";
 
 type BarcodeFormat = Extract<FormatSpec, { kind: "barcode" }>;

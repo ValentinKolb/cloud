@@ -1,5 +1,5 @@
-import { Show } from "solid-js";
 import type { DateContext } from "@valentinkolb/stdlib";
+import { Show } from "solid-js";
 import type { LinkWidget as LinkWidgetConfig } from "../../../service";
 import { openFormModal } from "../records/FormSubmitModal";
 import type { WidgetData } from "./widget-data";

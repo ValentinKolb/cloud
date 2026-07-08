@@ -4,6 +4,7 @@ import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePe
 export type DashboardIncludedViewer = {
   userId: string | null;
   userGroups: string[];
+  serviceAccountId?: string | null;
   isAdmin?: boolean;
 };
 
@@ -17,6 +18,7 @@ export const canReadDashboardIncludedData = async (dashboard: Dashboard, viewer:
   const grants = await loadGrantsForUser({
     userId: viewer.userId,
     userGroups: viewer.userGroups,
+    serviceAccountId: viewer.serviceAccountId,
     baseId: dashboard.baseId,
     dashboardId: dashboard.id,
   });

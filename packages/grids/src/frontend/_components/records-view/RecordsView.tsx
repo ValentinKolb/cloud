@@ -37,10 +37,10 @@ import GridToolbar from "../toolbar/GridToolbar";
 // children means they hydrate as part of RecordsView, sharing its state.
 import SearchBar from "../toolbar/SearchBar";
 import { errorMessage } from "../utils/api-helpers";
+import { bulkSelectionRunPayload, bulkWorkflowActionLabel, pruneBulkSelection, sameBulkSelection } from "./bulk-selection";
 import { activeDisplayConfig, calendarQueryFilter, cardImageFieldIds, removeCalendarQueryFilter } from "./display-mode";
 import { fetchTableQuery } from "./fetcher";
 import { createGridsRecordEventsProvider } from "./grids-record-events-provider";
-import { bulkSelectionRunPayload, bulkWorkflowActionLabel, pruneBulkSelection, sameBulkSelection } from "./bulk-selection";
 import {
   highlightedIdsForLiveRefresh,
   liveRefreshQuery,

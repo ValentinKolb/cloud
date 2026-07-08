@@ -2,6 +2,7 @@ import { type AuthContext, auth, getDateConfig, v } from "@valentinkolb/cloud/se
 import { Hono } from "hono";
 import { z } from "zod";
 import { loadGridsWorkspaceState } from "../frontend/_components/workspace/workspace-state";
+import { currentActorUser } from "./permissions";
 import { withInitialQueryPreview } from "./workspace-query-preview";
 
 export const parseWorkspaceHref = (href: string) => {
@@ -129,8 +130,10 @@ const app = new Hono<AuthContext>()
   .get("/route", v("query", z.object({ href: z.string().min(1).max(3000) })), async (c) => {
     const target = parseWorkspaceHref(c.req.valid("query").href);
     if (!target) return c.json({ message: "Unsupported workspace route" }, 400);
+    const user = currentActorUser(c);
+    if (!user) return c.json({ message: "Sign in to open this workspace." }, 403);
     const state = await loadGridsWorkspaceState({
-      user: c.get("user"),
+      user,
       href: c.req.valid("query").href,
       dateConfig: await getDateConfig(c),
       ...target,

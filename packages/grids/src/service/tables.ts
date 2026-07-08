@@ -1,11 +1,11 @@
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
+import { FieldColumnSpecSchema, RecordDisplayConfigSchema } from "../contracts";
+import { normalizeRefKey } from "../ref-syntax";
 import { logAudit } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
-import { FieldColumnSpecSchema, RecordDisplayConfigSchema } from "../contracts";
-import { normalizeRefKey } from "../ref-syntax";
-import type { Table, CreateTableInput, UpdateTableInput } from "./types";
+import type { CreateTableInput, Table, UpdateTableInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 

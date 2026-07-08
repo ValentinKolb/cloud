@@ -5,6 +5,7 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { gridsService } from "../service";
 import { validateAccessLevelForResource } from "./access";
+import { currentActorUserId } from "./permissions";
 
 const ScopedAccessEntrySchema = AccessEntrySchema.extend({
   resourceType: z.enum(["base", "table", "view", "form", "documentTemplate", "dashboard", "workflow"]),
@@ -55,11 +56,10 @@ export const createAdminApi = (deps: { requireAdmin?: MiddlewareHandler<AuthCont
         const baseId = c.req.param("baseId")!;
         const base = await gridsService.base.get(baseId);
         if (!base) return c.json({ message: "Base not found" }, 404);
-        const user = c.get("user");
         const result = await gridsService.access.grant({
           resourceType: "base",
           resourceId: baseId,
-          actorId: user.id,
+          actorId: currentActorUserId(c),
           ...c.req.valid("json"),
         });
         if (!result.ok) return respond(c, () => Promise.resolve(result));
@@ -87,11 +87,10 @@ export const createAdminApi = (deps: { requireAdmin?: MiddlewareHandler<AuthCont
         if (!binding || binding.baseId !== baseId) {
           return c.json({ message: "Access entry not found" }, 404);
         }
-        const user = c.get("user");
         const permission = c.req.valid("json").permission;
         const validationError = validateAccessLevelForResource(binding.resourceType, permission);
         if (validationError) return c.json({ message: validationError }, 400);
-        const result = await gridsService.access.updateLevel(accessId, permission, user.id);
+        const result = await gridsService.access.updateLevel(accessId, permission, currentActorUserId(c));
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
         return c.body(null, 204);
       },
@@ -114,8 +113,7 @@ export const createAdminApi = (deps: { requireAdmin?: MiddlewareHandler<AuthCont
         if (!binding || binding.baseId !== baseId) {
           return c.json({ message: "Access entry not found" }, 404);
         }
-        const user = c.get("user");
-        const result = await gridsService.access.revoke(accessId, user.id);
+        const result = await gridsService.access.revoke(accessId, currentActorUserId(c));
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
         return c.body(null, 204);
       },
@@ -135,8 +133,7 @@ export const createAdminApi = (deps: { requireAdmin?: MiddlewareHandler<AuthCont
         const baseId = c.req.param("baseId")!;
         const base = await gridsService.base.get(baseId);
         if (!base) return c.json({ message: "Base not found" }, 404);
-        const user = c.get("user");
-        const result = await gridsService.base.remove(baseId, user.id);
+        const result = await gridsService.base.remove(baseId, currentActorUserId(c));
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
         return c.body(null, 204);
       },

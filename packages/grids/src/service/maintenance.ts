@@ -1,5 +1,5 @@
 import { sql } from "bun";
-import { dropGeneratedIdSequences, dropFieldIndex, dropFieldUniqueIndex } from "./field-indexes";
+import { dropFieldIndex, dropFieldUniqueIndex, dropGeneratedIdSequences } from "./field-indexes";
 
 /**
  * Hygiene jobs for the grids schema. Designed to be idempotent and safe

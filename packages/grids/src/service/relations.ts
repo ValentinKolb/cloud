@@ -1,5 +1,5 @@
-import { sql } from "bun";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
+import { sql } from "bun";
 import type { ComputedColumnSpec } from "../contracts";
 import { evaluate, renderResult } from "../formula/evaluator";
 import type { FormulaRuntimeContext } from "../formula/functions";
@@ -529,6 +529,7 @@ export const buildRelationLabelCacheForIds = async (
 export type ExpansionViewer = {
   userId: string | null;
   userGroups: string[];
+  serviceAccountId?: string | null;
   /** Trusted internal renderers can bypass per-resource ACLs after their own gate. */
   isAdmin?: boolean;
 };
@@ -557,6 +558,7 @@ const filterTargetsByViewerPermission = async (
       const grants = await loadGrantsForUser({
         userId: viewer.userId,
         userGroups: viewer.userGroups,
+        serviceAccountId: viewer.serviceAccountId,
         baseId: target.baseId,
         tableId,
       });

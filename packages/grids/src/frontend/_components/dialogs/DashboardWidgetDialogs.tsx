@@ -1,4 +1,4 @@
-import { dialogCore, IconInput, MarkdownEditor, panelDialogOptions, PanelDialog, prompts, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { dialogCore, IconInput, MarkdownEditor, PanelDialog, panelDialogOptions, prompts, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import type {
   ChartWidget,

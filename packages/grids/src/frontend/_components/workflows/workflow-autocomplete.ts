@@ -29,13 +29,11 @@ export const buildBackendWorkflowCompletions = (config: {
 }): Completion[] => {
   const suggest = (_query: string, ctx: SuggestContext, signal: AbortSignal): Suggestion[] | Promise<Suggestion[]> => {
     if (signal.aborted || isKnownLabelScan(ctx)) return [];
-    return config
-      .fetchAutocomplete({ source: ctx.fullText, caret: ctx.caret }, signal)
-      .then((response) => {
-        if (signal.aborted) return [];
-        config.onDiagnostics?.(response);
-        return response.items.map(toSuggestion);
-      });
+    return config.fetchAutocomplete({ source: ctx.fullText, caret: ctx.caret }, signal).then((response) => {
+      if (signal.aborted) return [];
+      config.onDiagnostics?.(response);
+      return response.items.map(toSuggestion);
+    });
   };
 
   return [

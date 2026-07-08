@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const viewerId = "44444444-4444-4444-8444-444444444444";
+const selectedRecordId = "77777777-7777-4777-8777-777777777777";
 
 const base = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -75,6 +76,8 @@ let catalogViewsByTable: Record<string, unknown[]> = { [table.id]: [] };
 let lookupTable: typeof table | null = null;
 let lookupView: typeof savedView | null = null;
 let lastRecordListParams: Record<string, unknown> | null = null;
+let recordGetCalls = 0;
+let recordListRecordForId: unknown | null = null;
 
 mock.module("../../../service", () => ({
   gridsService: {
@@ -124,10 +127,15 @@ mock.module("../../../service", () => ({
     record: {
       list: async (params: Record<string, unknown>) => {
         lastRecordListParams = params;
-        return { ok: true, data: { items: [], aggregates: {}, nextCursor: null, filePreviews: {} } };
+        const ids = (params.recordMeta as { ids?: unknown[] } | null | undefined)?.ids;
+        const items = ids?.includes(selectedRecordId) && recordListRecordForId ? [recordListRecordForId] : [];
+        return { ok: true, data: { items, aggregates: {}, nextCursor: null, filePreviews: {} } };
       },
       group: async () => ({ ok: true, data: { buckets: [], explode: false, nextCursor: null } }),
-      get: async () => null,
+      get: async () => {
+        recordGetCalls += 1;
+        return null;
+      },
     },
     aggregate: {},
     relations: {
@@ -156,6 +164,8 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     lookupTable = null;
     lookupView = null;
     lastRecordListParams = null;
+    recordGetCalls = 0;
+    recordListRecordForId = null;
   });
 
   test("loads records views from canonical GQL source instead of cached RecordQuery JSON", async () => {
@@ -205,6 +215,43 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     expect(state.route.activeView?.id).toBe(savedView.id);
     expect(state.route.fields.map((field) => field.id)).toEqual([statusField.id]);
     expect(state.route.canWriteRecords).toBe(false);
+  });
+
+  test("loads selected records through the readable view query when table read is denied", async () => {
+    catalogTables = [];
+    catalogTableLevels = {};
+    catalogFieldsByTable = {};
+    lookupTable = table;
+    lookupView = savedView;
+    viewLevel = "read";
+    recordListRecordForId = {
+      id: selectedRecordId,
+      tableId: table.id,
+      data: { [statusField.id]: "Open" },
+      version: 1,
+      deletedAt: null,
+      createdBy: null,
+      updatedBy: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    const state = await loadGridsWorkspaceState({
+      user,
+      baseShortId: base.shortId,
+      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${savedView.shortId}?record=${selectedRecordId}`,
+      activeTableSlug: table.shortId,
+      activeViewSlug: savedView.shortId,
+    });
+
+    expect(state.kind).toBe("ok");
+    if (state.kind !== "ok") return;
+    expect(state.route.kind).toBe("records");
+    if (state.route.kind !== "records") return;
+    expect(recordGetCalls).toBe(0);
+    expect(state.route.initialSelectedRecord?.id).toBe(selectedRecordId);
+    expect(lastRecordListParams?.recordMeta).toEqual({ ids: [selectedRecordId] });
+    expect(lastRecordListParams?.filter).toEqual({ fieldId: statusField.id, op: "equals", value: "Open" });
   });
 
   test("does not treat Cloud admin role as Grids base access", async () => {

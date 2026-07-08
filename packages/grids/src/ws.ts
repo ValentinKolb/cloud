@@ -1,6 +1,6 @@
 import type { User } from "@valentinkolb/cloud/contracts";
-import { accounts, logger } from "@valentinkolb/cloud/services";
 import { auth } from "@valentinkolb/cloud/server";
+import { accounts, logger } from "@valentinkolb/cloud/services";
 import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";
@@ -37,7 +37,6 @@ const SubscribeMetadataMessageSchema = z.object({
 });
 
 const ClientMessageSchema = z.discriminatedUnion("type", [SubscribeMessageSchema, SubscribeMetadataMessageSchema]);
-type ClientMessage = z.infer<typeof ClientMessageSchema>;
 type WsPhase = "open" | "subscribed" | "closing";
 type Subscription = { kind: "records"; baseId: string; tableId: string; dashboardId?: string } | { kind: "metadata"; baseId: string };
 

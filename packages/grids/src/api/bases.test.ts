@@ -39,6 +39,8 @@ mock.module("../service", () => ({
 const { createBasesApi } = await import("./bases");
 
 const requireAuthenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
+  c.set("actor", { kind: "user", user });
+  c.set("accessSubject", { type: "user", userId: user.id });
   c.set("user", user);
   await next();
 };
@@ -59,6 +61,7 @@ describe("Grids bases API", () => {
     expect(listVisibleParams).toEqual({
       userId: user.id,
       userGroups: user.memberofGroupIds,
+      serviceAccountId: null,
       query: "finance",
       limit: 25,
       offset: 50,

@@ -93,6 +93,8 @@ mock.module("./gql-runtime", () => ({
 const { createGqlApi } = await import("./query-dsl");
 
 const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
+  c.set("actor", { kind: "user", user });
+  c.set("accessSubject", { type: "user", userId: user.id });
   c.set("user", user);
   await next();
 };

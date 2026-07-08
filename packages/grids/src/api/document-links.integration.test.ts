@@ -49,7 +49,8 @@ const authenticateAs =
     await next();
   };
 
-const apiFor = (user: User) => new Hono<AuthContext>().route("/documents", createDocumentsApi({ requireAuthenticated: authenticateAs(user) }));
+const apiFor = (user: User) =>
+  new Hono<AuthContext>().route("/documents", createDocumentsApi({ requireAuthenticated: authenticateAs(user) }));
 
 const existingAuthUserId = async (): Promise<string> => {
   const [row] = await sql<{ id: string }[]>`

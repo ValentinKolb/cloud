@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { TableQueryResult, RecordQuery } from "../../../contracts";
+import type { RecordQuery, TableQueryResult } from "../../../contracts";
 import {
   highlightedIdsForLiveRefresh,
   isLiveRecordEventForTable,

@@ -1,5 +1,5 @@
-import { z } from "zod";
 import Decimal from "decimal.js";
+import { z } from "zod";
 import { fail, ok, type ValueFieldType } from "./types";
 
 type NumberConfigInput = {

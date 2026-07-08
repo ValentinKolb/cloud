@@ -1,6 +1,6 @@
-import { Show } from "solid-js";
-import { MarkdownView } from "@valentinkolb/cloud/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
+import { MarkdownView } from "@valentinkolb/cloud/ui";
+import { Show } from "solid-js";
 import type { Widget } from "../../../service";
 import type { WidgetData } from "./widget-data";
 

@@ -1,13 +1,9 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
+import { currentActorUser } from "../../../api/permissions";
 import { ssr } from "../../../config";
 import { gridsService } from "../../../service";
 import QueryReferenceWindow, { normalizeQueryReferenceTab } from "../../_components/query/QueryReferenceWindow";
-
-type AuthUser = {
-  id: string;
-  memberofGroupIds: string[];
-};
 
 const messagePage =
   (message: string, icon = "ti-alert-circle") =>
@@ -30,7 +26,9 @@ export default ssr<AuthContext>(async (c) => {
   const base = await gridsService.base.getByIdOrShortId(baseSlug);
   if (!base) return messagePage("Base not found");
 
-  const user = c.get("user") as AuthUser;
+  const user = currentActorUser(c);
+  if (!user) return messagePage("Sign in to open the Grids reference.", "ti-lock");
+
   const grants = await gridsService.permission.loadGrants({
     userId: user.id,
     userGroups: user.memberofGroupIds,

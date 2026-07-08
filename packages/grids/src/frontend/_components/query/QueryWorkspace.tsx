@@ -6,8 +6,8 @@ import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewDiagnostic, DslQueryPreviewResponse } from "../../../contracts";
 import { formatIdentifierRef } from "../../../ref-syntax";
 import type { Field, Table, View } from "../../../service";
-import { errorMessage } from "../utils/api-helpers";
 import { FieldValue } from "../table/FieldValue";
+import { errorMessage } from "../utils/api-helpers";
 import { buildBackendGqlCompletions } from "./query-autocomplete";
 import { currentSourceForApi, type QueryWorkspaceCurrentSource, visibleFields, visibleViews } from "./query-workspace-model";
 

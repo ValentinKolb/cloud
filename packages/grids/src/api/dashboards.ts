@@ -13,7 +13,7 @@ import {
 } from "../contracts";
 import { gridsService } from "../service";
 import { resolveWidgetData } from "../service/dashboard-widget-data";
-import { gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
+import { currentActorUser, currentActorUserId, currentActorViewer, gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
 
 // =============================================================================
 // /api/grids/dashboards
@@ -29,14 +29,14 @@ import { gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
 // =============================================================================
 
 const canReadDashboardForRequest = async (c: Context<AuthContext>, dashboard: Dashboard): Promise<boolean> => {
-  const user = c.get("user");
+  const viewer = currentActorViewer(c);
   const { level, grants } = await resolveWithGrants(c, {
     baseId: dashboard.baseId,
     dashboardId: dashboard.id,
   });
   if (!gridsService.permission.hasAtLeast(level, "read")) return false;
 
-  const isOwner = dashboard.ownerUserId === user.id;
+  const isOwner = dashboard.ownerUserId === viewer.userId;
   const explicitGrant = hasExplicitGrant(grants, "dashboard", dashboard.id);
   if (dashboard.ownerUserId !== null && !isOwner && !explicitGrant) return false;
   return true;
@@ -58,11 +58,9 @@ const app = new Hono<AuthContext>()
       if (!base) return c.json({ message: "Base not found" }, 404);
       const gate = await gateAt(c, { baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
       const list = await gridsService.dashboard.listForBase({
         baseId,
-        userId: user.id,
-        userGroups: user.memberofGroupIds,
+        ...currentActorViewer(c),
       });
       return c.json(list);
     },
@@ -91,7 +89,8 @@ const app = new Hono<AuthContext>()
       // shared visibility (see direct GET).
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
+      const user = currentActorUser(c);
+      if (!body.shared && !user) return c.json({ message: "Sign in to create a personal dashboard." }, 403);
       return respond(
         c,
         () =>
@@ -102,9 +101,9 @@ const app = new Hono<AuthContext>()
               description: body.description ?? null,
               icon: body.icon ?? null,
               config: body.config,
-              ownerUserId: body.shared ? null : user.id,
+              ownerUserId: body.shared ? null : (user?.id ?? null),
             },
-            user.id,
+            currentActorUserId(c),
           ),
         201,
       );
@@ -153,19 +152,12 @@ const app = new Hono<AuthContext>()
       const writeGate = await gateAt(c, { baseId: dashboard.baseId }, "admin");
       if (!writeGate.ok) return respond(c, () => Promise.resolve(writeGate));
 
-      const user = c.get("user");
       if (!(await canReadDashboardForRequest(c, dashboard))) return c.json({ message: "Dashboard not found" }, 404);
 
-      const data = await resolveWidgetData(
-        c.req.valid("json"),
-        {
-          userId: user.id,
-          userGroups: user.memberofGroupIds,
-        },
-        {
-          dateConfig: await getDateConfig(c),
-        },
-      );
+      const viewer = currentActorViewer(c);
+      const data = await resolveWidgetData(c.req.valid("json"), viewer, {
+        dateConfig: await getDateConfig(c),
+      });
       return c.json(data);
     },
   )
@@ -199,14 +191,14 @@ const app = new Hono<AuthContext>()
       const workflowGate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "write");
       if (!workflowGate.ok) return respond(c, () => Promise.resolve(workflowGate));
 
-      const user = c.get("user");
+      const viewer = currentActorViewer(c);
       return respond(c, () =>
         gridsService.workflow.execute({
           workflowId: workflow.id,
           triggerKind: "dashboardButton",
-          actorUserId: user.id,
-          actorGroupIds: user.memberofGroupIds,
-          serviceAccountId: null,
+          actorUserId: viewer.userId,
+          actorGroupIds: viewer.userGroups,
+          serviceAccountId: viewer.serviceAccountId,
           triggerInput: {
             dashboardId: dashboard.id,
             dashboardWidgetId: widget.id,
@@ -231,7 +223,8 @@ const app = new Hono<AuthContext>()
       const dashboardId = c.req.param("dashboardId")!;
       const dashboard = await gridsService.dashboard.get(dashboardId);
       if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
-      const user = c.get("user");
+      const body = c.req.valid("json");
+      if (body.shared === false && !currentActorUser(c)) return c.json({ message: "Sign in to make this dashboard personal." }, 403);
 
       // Locked product rule (review Wave 2 decision): dashboard write
       // requires base-admin regardless of ownership. Personal vs
@@ -241,7 +234,7 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: dashboard.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-      return respond(c, () => gridsService.dashboard.update(dashboardId, c.req.valid("json"), user.id));
+      return respond(c, () => gridsService.dashboard.update(dashboardId, body, currentActorUserId(c)));
     },
   )
 
@@ -259,11 +252,10 @@ const app = new Hono<AuthContext>()
       const dashboardId = c.req.param("dashboardId")!;
       const dashboard = await gridsService.dashboard.get(dashboardId);
       if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
-      const user = c.get("user");
       // Same rule as PATCH: dashboard write = base-admin.
       const gate = await gateAt(c, { baseId: dashboard.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const result = await gridsService.dashboard.remove(dashboardId, user.id);
+      const result = await gridsService.dashboard.remove(dashboardId, currentActorUserId(c));
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },
@@ -283,11 +275,10 @@ const app = new Hono<AuthContext>()
       const dashboardId = c.req.param("dashboardId")!;
       const dashboard = await gridsService.dashboard.get(dashboardId, { includeDeleted: true });
       if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
-      const user = c.get("user");
       // Restore is a write — base-admin only, regardless of ownership.
       const gate = await gateAt(c, { baseId: dashboard.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.dashboard.restore(dashboardId, user.id));
+      return respond(c, () => gridsService.dashboard.restore(dashboardId, currentActorUserId(c)));
     },
   );
 

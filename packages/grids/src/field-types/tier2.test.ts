@@ -1,5 +1,5 @@
-import { test, expect } from "bun:test";
-import { percentHandler, durationHandler } from "./tier2";
+import { expect, test } from "bun:test";
+import { durationHandler, percentHandler } from "./tier2";
 
 // ── percent ───────────────────────────────────────────────────────
 test("percent: 0..100 default range", () => {

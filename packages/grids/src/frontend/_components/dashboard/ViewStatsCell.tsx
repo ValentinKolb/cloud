@@ -1,8 +1,9 @@
-import { For, Show } from "solid-js";
 import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { For, Show } from "solid-js";
 import type { ViewStatsWidget } from "../../../service";
-import { formatWidgetValue } from "./widget-format";
+import SourceAccessHint from "./SourceAccessHint";
 import type { WidgetData } from "./widget-data";
+import { formatWidgetValue } from "./widget-format";
 
 type Props = {
   widget: ViewStatsWidget;
@@ -33,7 +34,7 @@ export default function ViewStatsCell(props: Props) {
   const fullViewHref = (): string | null => {
     if (!isViewStats(props.data) || !props.data.fullViewLink) return null;
     const { tableShortId, viewShortId } = props.data.fullViewLink;
-    return `/app/grids/${props.baseShortId}?table=${tableShortId}&view=${viewShortId}`;
+    return `/app/grids/${props.baseShortId}/table/${tableShortId}/view/${viewShortId}`;
   };
 
   const titleOf = () => props.widget.title ?? (isViewStats(props.data) ? props.data.title : "View stats");
@@ -42,12 +43,7 @@ export default function ViewStatsCell(props: Props) {
     <div class="paper flex-1 w-full flex flex-col min-h-0 min-w-0 overflow-hidden">
       <header class="px-3 py-2 flex items-center justify-between gap-2">
         <span class="text-xs font-semibold text-primary truncate">{titleOf()}</span>
-        <Show when={fullViewHref()}>
-          <a href={fullViewHref()!} class="text-[11px] text-dimmed hover:text-primary inline-flex items-center gap-1 shrink-0">
-            <span>Open full view</span>
-            <i class="ti ti-arrow-up-right text-[10px]" />
-          </a>
-        </Show>
+        <SourceAccessHint href={fullViewHref()} sourceAccess={isViewStats(props.data) ? props.data.sourceAccess : undefined} />
       </header>
 
       <Show

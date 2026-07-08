@@ -24,7 +24,7 @@ import { buildWorkflowCatalog } from "../service/workflows";
 import { parseWorkflowYaml } from "../workflows/dsl";
 import { buildWorkflowIntelligence, workflowDiagnostics } from "../workflows/intelligence";
 import { encodeHeaderValue, pdfResponse } from "./download-response";
-import { gateAt } from "./permissions";
+import { currentActorUserId, currentActorViewer, gateAt } from "./permissions";
 
 const WorkflowValidateSchema = z.object({
   source: z.string().min(1).max(200_000),
@@ -102,7 +102,7 @@ const visibleWorkflowsForBase = async (c: Parameters<typeof gateAt>[0], baseId: 
   return visible;
 };
 
-const permissionedWorkflowCatalog = async (c: Parameters<typeof gateAt>[0], baseId: string) => {
+export const permissionedWorkflowCatalog = async (c: Parameters<typeof gateAt>[0], baseId: string) => {
   const tables = await gridsService.table.listByBase(baseId);
   const visibleTables = [];
   const fieldsByTable = new Map<string, Array<{ id: string; shortId: string; name: string }>>();
@@ -110,16 +110,22 @@ const permissionedWorkflowCatalog = async (c: Parameters<typeof gateAt>[0], base
   const emailTemplates = [];
   for (const table of tables) {
     const tableGate = await gateAt(c, { baseId, tableId: table.id }, "read");
-    if (!tableGate.ok) continue;
-    visibleTables.push({ id: table.id, shortId: table.shortId, name: table.name });
-    const fields = await gridsService.field.listByTable(table.id);
-    fieldsByTable.set(
-      table.id,
-      fields.filter((field) => !field.deletedAt).map((field) => ({ id: field.id, shortId: field.shortId, name: field.name })),
-    );
+    let hasVisibleTemplate = false;
     for (const template of await gridsService.document.listTemplatesForTable(table.id)) {
       const templateGate = await gateAt(c, { baseId, tableId: table.id, documentTemplateId: template.id }, "read");
-      if (templateGate.ok) templates.push({ id: template.id, shortId: template.shortId, name: template.name, tableId: template.tableId });
+      if (templateGate.ok) {
+        hasVisibleTemplate = true;
+        templates.push({ id: template.id, shortId: template.shortId, name: template.name, tableId: template.tableId });
+      }
+    }
+    if (!tableGate.ok && !hasVisibleTemplate) continue;
+    visibleTables.push({ id: table.id, shortId: table.shortId, name: table.name });
+    if (tableGate.ok) {
+      const fields = await gridsService.field.listByTable(table.id);
+      fieldsByTable.set(
+        table.id,
+        fields.filter((field) => !field.deletedAt).map((field) => ({ id: field.id, shortId: field.shortId, name: field.name })),
+      );
     }
   }
   const emailTemplateGate = await gateAt(c, { baseId }, "admin");
@@ -132,12 +138,11 @@ const permissionedWorkflowCatalog = async (c: Parameters<typeof gateAt>[0], base
 };
 
 const workflowActor = (c: Parameters<typeof gateAt>[0]) => {
-  const actor = c.get("actor");
-  const user = actor.kind === "user" ? actor.user : actor.delegatedUser;
+  const viewer = currentActorViewer(c);
   return {
-    actorUserId: user?.id ?? null,
-    actorGroupIds: user?.memberofGroupIds ?? [],
-    serviceAccountId: actor.kind === "service_account" ? actor.serviceAccount.id : null,
+    actorUserId: viewer.userId,
+    actorGroupIds: viewer.userGroups,
+    serviceAccountId: viewer.serviceAccountId,
   };
 };
 
@@ -337,8 +342,7 @@ const app = new Hono<AuthContext>()
       if (!base) return c.json({ message: "Base not found" }, 404);
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
-      const result = await gridsService.workflow.create(baseId, c.req.valid("json"), user.id);
+      const result = await gridsService.workflow.create(baseId, c.req.valid("json"), currentActorUserId(c));
       if (result.ok) await gridsService.workflowTriggerRuntime.sync(result.data);
       return respond(c, () => Promise.resolve(result), 201);
     },
@@ -381,8 +385,7 @@ const app = new Hono<AuthContext>()
       if (!workflow) return c.json({ message: "Workflow not found" }, 404);
       const gate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
-      const result = await gridsService.workflow.update(workflowId, c.req.valid("json"), user.id);
+      const result = await gridsService.workflow.update(workflowId, c.req.valid("json"), currentActorUserId(c));
       if (result.ok) await gridsService.workflowTriggerRuntime.sync(result.data);
       return respond(c, () => Promise.resolve(result));
     },
@@ -405,8 +408,7 @@ const app = new Hono<AuthContext>()
       if (!workflow) return c.json({ message: "Workflow not found" }, 404);
       const gate = await gateAt(c, { baseId: workflow.baseId, workflowId: workflow.id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
-      const result = await gridsService.workflow.remove(workflowId, user.id);
+      const result = await gridsService.workflow.remove(workflowId, currentActorUserId(c));
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       await gridsService.workflowTriggerRuntime.delete(workflowId);
       return c.body(null, 204);

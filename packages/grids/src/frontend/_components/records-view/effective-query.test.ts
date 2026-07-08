@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { resolveEffectiveQuery } from "./effective-query";
-import type { View } from "../../../service";
 import type { RecordQuery } from "../../../contracts";
+import type { View } from "../../../service";
+import { resolveEffectiveQuery } from "./effective-query";
 import type { RecordsState } from "./query-url";
 
 const fieldId = "11111111-1111-4111-8111-111111111111";

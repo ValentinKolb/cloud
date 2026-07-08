@@ -12,15 +12,13 @@ export type ScannerWorkflowOption = {
 
 export type ScanWorkflowPageState = {
   initialCode: string;
-  scan:
-    | {
-        baseName: string;
-        tableName: string;
-        recordId: string;
-        recordLabel: string;
-        workflows: ScannerWorkflowOption[];
-      }
-    | null;
+  scan: {
+    baseName: string;
+    tableName: string;
+    recordId: string;
+    recordLabel: string;
+    workflows: ScannerWorkflowOption[];
+  } | null;
   error: string | null;
 };
 
@@ -82,13 +80,7 @@ export default function ScanWorkflowPage(props: { state: ScanWorkflowPageState }
             openCode();
           }}
         >
-          <TextInput
-            label="Scan code"
-            icon="ti ti-barcode"
-            value={code}
-            onInput={setCode}
-            placeholder="Scan or paste a code..."
-          />
+          <TextInput label="Scan code" icon="ti ti-barcode" value={code} onInput={setCode} placeholder="Scan or paste a code..." />
           <div class="mt-2 flex items-center justify-end gap-2">
             <button type="submit" class="btn-input btn-sm" disabled={!code().trim()}>
               <i class="ti ti-search" />
@@ -185,9 +177,7 @@ export default function ScanWorkflowPage(props: { state: ScanWorkflowPageState }
                 <span class={`badge ${run().status === "succeeded" ? "badge-success" : "badge-danger"}`}>{run().status}</span>
                 <span class="font-mono text-xs text-secondary">{run().id}</span>
               </div>
-              <Show when={run().error}>
-                {(error) => <p class="mt-2 text-red-600 dark:text-red-400">{error()}</p>}
-              </Show>
+              <Show when={run().error}>{(error) => <p class="mt-2 text-red-600 dark:text-red-400">{error()}</p>}</Show>
             </section>
           )}
         </Show>

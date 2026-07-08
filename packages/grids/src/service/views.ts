@@ -1,27 +1,27 @@
-import { sql } from "bun";
-import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
-import { logAudit } from "./audit";
-import { emitTableMetadataEvent } from "./metadata-events";
-import { parseJsonbRow } from "./jsonb";
-import { insertWithShortId } from "./short-id";
-import { normalizeRefKey } from "../ref-syntax";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
 import {
-  type View,
-  type RecordQuery,
   type ColumnSpec,
   type ComputedColumnSpec,
   type FieldColumnSpec,
   type FormatSpec,
-  ViewUiSettingsSchema,
+  type RecordQuery,
+  type View,
   type ViewUiSettings,
+  ViewUiSettingsSchema,
 } from "../contracts";
+import { normalizeRefKey } from "../ref-syntax";
+import { logAudit } from "./audit";
+import { parseJsonbRow } from "./jsonb";
+import { emitTableMetadataEvent } from "./metadata-events";
+import { insertWithShortId } from "./short-id";
 
 type DbRow = Record<string, unknown>;
 
 // View / RecordQuery / ColumnSpec / FormatSpec definitions live in contracts.ts —
 // re-export so consumers can keep importing them from the service layer.
-export type { View, RecordQuery, ColumnSpec, ComputedColumnSpec, FieldColumnSpec, FormatSpec };
+export type { ColumnSpec, ComputedColumnSpec, FieldColumnSpec, FormatSpec, RecordQuery, View };
 
 const parseUi = (raw: unknown): ViewUiSettings => {
   const parsed = ViewUiSettingsSchema.safeParse(parseJsonbRow<unknown>(raw, {}));
@@ -90,11 +90,17 @@ export const getByIdOrShortId = async (tableId: string, idOrSlug: string): Promi
  *   matching grant is `none`, the view is hidden even if it would
  *   otherwise be a default-shared view.
  */
-export const listForTable = async (params: { tableId: string; userId: string | null; userGroups?: string[] }): Promise<View[]> => {
+export const listForTable = async (params: {
+  tableId: string;
+  userId: string | null;
+  userGroups?: string[];
+  serviceAccountId?: string | null;
+}): Promise<View[]> => {
   // Defensive encoding: bun.sql may surface an empty uuid[] column as the
   // string "{}" instead of [], and admin users with no group memberships
   // hit exactly that path. toPgUuidArray normalizes both shapes.
   const groups = toPgUuidArray(params.userGroups);
+  const serviceAccountId = params.serviceAccountId ?? null;
 
   // Most-specific-wins per principal tier (user > group > authenticated >
   // public). Within a tier: any deny wins over any read — needed because
@@ -105,6 +111,15 @@ export const listForTable = async (params: { tableId: string; userId: string | n
   const rows = await sql<DbRow[]>`
     WITH ranked AS (
       SELECT v.id, v.short_id, v.table_id, v.name, v.description, v.icon, v.source, v.ui, v.owner_user_id, v.position, v.deleted_at, v.created_at, v.updated_at,
+        (
+          SELECT CASE
+            WHEN COUNT(*) = 0 THEN NULL
+            WHEN bool_or(a.permission = 'none') THEN 0
+            ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+          END
+          FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
+          WHERE va.view_id = v.id AND a.service_account_id = ${serviceAccountId}::uuid
+        ) AS service_account_rank,
         (
           SELECT CASE
             WHEN COUNT(*) = 0 THEN NULL
@@ -132,7 +147,7 @@ export const listForTable = async (params: { tableId: string; userId: string | n
           FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
           WHERE va.view_id = v.id
             AND a.authenticated_only = TRUE
-            AND ${params.userId}::uuid IS NOT NULL
+            AND (${params.userId}::uuid IS NOT NULL OR ${serviceAccountId}::uuid IS NOT NULL)
         ) AS auth_rank,
         (
           SELECT CASE
@@ -151,9 +166,9 @@ export const listForTable = async (params: { tableId: string; userId: string | n
     )
     SELECT id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
     FROM ranked
-    WHERE COALESCE(user_rank, group_rank, auth_rank, public_rank) >= 1
+    WHERE COALESCE(service_account_rank, user_rank, group_rank, auth_rank, public_rank) >= 1
        OR (
-         COALESCE(user_rank, group_rank, auth_rank, public_rank) IS NULL
+         COALESCE(service_account_rank, user_rank, group_rank, auth_rank, public_rank) IS NULL
          AND (owner_user_id IS NULL OR owner_user_id = ${params.userId}::uuid)
        )
     ORDER BY position, created_at

@@ -4,8 +4,8 @@ import {
   confirmDiscardIfDirty,
   dialogCore,
   IconInput,
-  panelDialogOptions,
   PanelDialog,
+  panelDialogOptions,
   prompts,
   TextInput,
 } from "@valentinkolb/cloud/ui";

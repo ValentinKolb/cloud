@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { booleanHandler } from "./boolean";
 
 test("boolean: native booleans pass through", () => {

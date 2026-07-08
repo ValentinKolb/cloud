@@ -1,6 +1,6 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { ComputedColumnSpec, AggregationSpec, FilterTree, GroupBySpec, GroupSortSpec, SearchSpec, RecordQuery } from "../contracts";
+import type { AggregationSpec, ComputedColumnSpec, FilterTree, GroupBySpec, GroupSortSpec, RecordQuery, SearchSpec } from "../contracts";
 import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { normalizeRefKey } from "../ref-syntax";
 import { compileAggregates } from "./aggregate-compiler";

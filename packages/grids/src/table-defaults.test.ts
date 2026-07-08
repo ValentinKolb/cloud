@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { defaultTableAggregations } from "./table-defaults";
 import type { Field } from "./service/types";
+import { defaultTableAggregations } from "./table-defaults";
 
 const field = (id: string, type: string): Field => ({
   id,

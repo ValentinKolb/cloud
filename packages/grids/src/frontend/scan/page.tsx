@@ -1,10 +1,11 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import type { Context } from "hono";
+import { currentActorUser } from "../../api/permissions";
 import { ssr } from "../../config";
 import { gridsService } from "../../service";
 import { loadWorkflowCatalog, resolveWorkflowTableRef } from "../../service/workflows";
-import ScanWorkflowPage, { type ScanWorkflowPageState, type ScannerWorkflowOption } from "../_components/workflows/ScanWorkflowPage.island";
+import ScanWorkflowPage, { type ScannerWorkflowOption, type ScanWorkflowPageState } from "../_components/workflows/ScanWorkflowPage.island";
 
 const recordLabel = async (tableId: string, recordId: string): Promise<string> => {
   const [fields, record] = await Promise.all([gridsService.field.listByTable(tableId), gridsService.record.get(tableId, recordId)]);
@@ -60,6 +61,9 @@ const scannerWorkflowOptions = async (
 };
 
 const loadScanState = async <T extends AuthContext>(c: Context<T>): Promise<ScanWorkflowPageState> => {
+  const user = currentActorUser(c);
+  if (!user) return { initialCode: "", scan: null, error: "Sign in to use scanner workflows." };
+
   const url = new URL(c.req.url);
   const initialCode = (url.searchParams.get("code") ?? "").trim();
   if (!initialCode) return { initialCode, scan: null, error: null };
@@ -69,7 +73,7 @@ const loadScanState = async <T extends AuthContext>(c: Context<T>): Promise<Scan
   const [base, table] = await Promise.all([gridsService.base.get(scanCode.baseId), gridsService.table.get(scanCode.tableId)]);
   if (!base || !table) return { initialCode, scan: null, error: "Scanned record no longer exists." };
 
-  const tableLevel = await permissionLevel(c.get("user"), { baseId: scanCode.baseId, tableId: scanCode.tableId });
+  const tableLevel = await permissionLevel(user, { baseId: scanCode.baseId, tableId: scanCode.tableId });
   if (!gridsService.permission.hasAtLeast(tableLevel, "read")) {
     return { initialCode, scan: null, error: "You do not have permission to read this scanned record." };
   }
@@ -82,7 +86,7 @@ const loadScanState = async <T extends AuthContext>(c: Context<T>): Promise<Scan
       tableName: table.name,
       recordId: scanCode.recordId,
       recordLabel: await recordLabel(scanCode.tableId, scanCode.recordId),
-      workflows: await scannerWorkflowOptions(c.get("user"), scanCode.baseId, scanCode.tableId),
+      workflows: await scannerWorkflowOptions(user, scanCode.baseId, scanCode.tableId),
     },
   };
 };

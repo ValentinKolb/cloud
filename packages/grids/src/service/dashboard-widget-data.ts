@@ -1,16 +1,16 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
-import {
-  type AggregationSpec,
-  type ColumnSpec,
-  type ComputedColumnSpec,
-  type GroupBySpec,
-  type View,
-  type RecordQuery,
-  type Widget,
-  type WidgetFormat,
-  type DslQueryPreviewColumn,
-  type DslQueryPreviewResponse,
+import type {
+  AggregationSpec,
+  ColumnSpec,
+  ComputedColumnSpec,
+  DslQueryPreviewColumn,
+  DslQueryPreviewResponse,
+  GroupBySpec,
+  RecordQuery,
+  View,
+  Widget,
+  WidgetFormat,
 } from "../contracts";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { previewDslQuery } from "../query-dsl/preview";
@@ -80,6 +80,7 @@ export type WidgetData =
       viewColumns?: ColumnSpec[];
       tableShortIds: Record<string, string>;
       fullViewLink: { tableShortId: string; viewShortId: string } | null;
+      sourceAccess: "open" | "dashboard";
     }
   | {
       kind: "view-stats";
@@ -87,6 +88,7 @@ export type WidgetData =
       cells: ViewStatsCell[];
       notice: string | null;
       fullViewLink: { tableShortId: string; viewShortId: string } | null;
+      sourceAccess?: "open" | "dashboard";
     }
   | {
       kind: "form";
@@ -149,6 +151,7 @@ const EMBEDDED_VIEW_PAGESIZE = 25;
 type ViewerContext = {
   userId: string | null;
   userGroups: string[];
+  serviceAccountId?: string | null;
   /** True only for trusted internal renderer contexts. */
   isAdmin?: boolean;
 };
@@ -157,7 +160,6 @@ type ResolveOptions = {
   dateConfig?: DateContext;
 };
 
-type DbRow = Record<string, unknown>;
 type SavedView = NonNullable<Awaited<ReturnType<typeof views.get>>>;
 type RuntimeView = SavedView & { query: RecordQuery };
 type LinkWidget = Extract<Widget, { kind: "link" }>;
@@ -390,6 +392,7 @@ const canReadTableTarget = async (table: SavedTable, viewer: ViewerContext): Pro
   const grants = await loadGrantsForUser({
     userId: viewer.userId,
     userGroups: viewer.userGroups,
+    serviceAccountId: viewer.serviceAccountId,
     baseId: table.baseId,
     tableId: table.id,
   });
@@ -401,6 +404,7 @@ const canReadViewTarget = async (view: SavedView, baseId: string, viewer: Viewer
   const grants = await loadGrantsForUser({
     userId: viewer.userId,
     userGroups: viewer.userGroups,
+    serviceAccountId: viewer.serviceAccountId,
     baseId,
     tableId: view.tableId,
     viewId: view.id,
@@ -602,6 +606,7 @@ const resolveSavedView = async (
   if ("error" in runtime) return { kind: "error", reason: runtime.error };
   const table = await tables.get(view.tableId);
   if (!table) return { kind: "error", reason: "view's parent table not found" };
+  const canOpenSource = await canReadViewTarget(view, table.baseId, viewer);
   const baseTables = await tables.listByBase(table.baseId);
   const tableShortIds = Object.fromEntries(baseTables.map((t) => [t.id, t.shortId]));
   // includeRelations=true with viewer ⇒ expansion is permission-gated:
@@ -628,7 +633,8 @@ const resolveSavedView = async (
     records: recordList.data.items,
     viewColumns: runtime.query.columns,
     tableShortIds,
-    fullViewLink: { tableShortId: table.shortId, viewShortId: view.shortId },
+    fullViewLink: canOpenSource ? { tableShortId: table.shortId, viewShortId: view.shortId } : null,
+    sourceAccess: canOpenSource ? "open" : "dashboard",
   };
 };
 
@@ -665,7 +671,9 @@ const resolveViewStats = async (
       fullViewLink: null,
     };
   }
-  const link = { tableShortId: table.shortId, viewShortId: view.shortId };
+  const canOpenSource = await canReadViewTarget(view, table.baseId, viewer);
+  const link = canOpenSource ? { tableShortId: table.shortId, viewShortId: view.shortId } : null;
+  const sourceAccess = canOpenSource ? "open" : "dashboard";
   const title = widget.title ?? view.name;
   const runtime = await compileRuntimeView(view);
   if ("error" in runtime) {
@@ -675,19 +683,21 @@ const resolveViewStats = async (
       cells: [],
       notice: runtime.error,
       fullViewLink: link,
+      sourceAccess,
     };
   }
   const isGrouped = (runtime.query.groupBy ?? []).length > 0;
   if (isGrouped) {
-    return await resolveGroupedViewStats(runtime, title, link, viewer, options);
+    return await resolveGroupedViewStats(runtime, title, link, sourceAccess, viewer, options);
   }
-  return await resolveUngroupedViewStats(runtime, title, link, viewer, options);
+  return await resolveUngroupedViewStats(runtime, title, link, sourceAccess, viewer, options);
 };
 
 const resolveUngroupedViewStats = async (
   view: RuntimeView,
   title: string,
-  link: { tableShortId: string; viewShortId: string },
+  link: { tableShortId: string; viewShortId: string } | null,
+  sourceAccess: "open" | "dashboard",
   viewer: ViewerContext,
   options: ResolveOptions,
 ): Promise<WidgetData> => {
@@ -716,6 +726,7 @@ const resolveUngroupedViewStats = async (
       cells: [],
       notice: "view has no visible fields",
       fullViewLink: link,
+      sourceAccess,
     };
   }
   const result = await records.list({
@@ -738,6 +749,7 @@ const resolveUngroupedViewStats = async (
       cells: [],
       notice: result.error.message,
       fullViewLink: link,
+      sourceAccess,
     };
   }
   const first = result.data.items[0];
@@ -748,6 +760,7 @@ const resolveUngroupedViewStats = async (
       cells: [],
       notice: "view has no records",
       fullViewLink: link,
+      sourceAccess,
     };
   }
   const cells: ViewStatsCell[] = visible.map((item) => ({
@@ -755,13 +768,14 @@ const resolveUngroupedViewStats = async (
     value: first.data[item.id] ?? null,
     format: item.format,
   }));
-  return { kind: "view-stats", title, cells, notice: null, fullViewLink: link };
+  return { kind: "view-stats", title, cells, notice: null, fullViewLink: link, sourceAccess };
 };
 
 const resolveGroupedViewStats = async (
   view: RuntimeView,
   title: string,
-  link: { tableShortId: string; viewShortId: string },
+  link: { tableShortId: string; viewShortId: string } | null,
+  sourceAccess: "open" | "dashboard",
   viewer: ViewerContext,
   options: ResolveOptions,
 ): Promise<WidgetData> => {
@@ -773,6 +787,7 @@ const resolveGroupedViewStats = async (
       cells: [],
       notice: "view has no aggregations",
       fullViewLink: link,
+      sourceAccess,
     };
   }
   const fieldsList = await fields.listByTable(view.tableId);
@@ -801,6 +816,7 @@ const resolveGroupedViewStats = async (
       cells: [],
       notice: result.error.message,
       fullViewLink: link,
+      sourceAccess,
     };
   }
   const first = result.data.buckets[0];
@@ -811,6 +827,7 @@ const resolveGroupedViewStats = async (
       cells: [],
       notice: "view has no buckets",
       fullViewLink: link,
+      sourceAccess,
     };
   }
   const cells: ViewStatsCell[] = aggs.map((a) => {
@@ -823,7 +840,7 @@ const resolveGroupedViewStats = async (
       format: inferFormatFromAgg(a.agg, targetField),
     };
   });
-  return { kind: "view-stats", title, cells, notice: null, fullViewLink: link };
+  return { kind: "view-stats", title, cells, notice: null, fullViewLink: link, sourceAccess };
 };
 
 // =============================================================================
@@ -860,6 +877,7 @@ const resolveSubmitPermission = async (viewer: ViewerContext, baseId: string, ta
   const grants = await loadGrantsForUser({
     userId: viewer.userId,
     userGroups: viewer.userGroups,
+    serviceAccountId: viewer.serviceAccountId,
     baseId,
     tableId,
     formId,

@@ -1,23 +1,23 @@
-import { sql } from "bun";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
-import { dates, ok, fail, err, type DateContext, type Result } from "@valentinkolb/stdlib";
+import { type DateContext, dates, err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
+import { getFieldType, getRecordWritableFieldType, isKnownFieldType } from "../field-types";
+import { normalizeRefKey } from "../ref-syntax";
 import { logAudit, type SqlClient } from "./audit";
-import { emitTableMetadataEvent } from "./metadata-events";
 import {
-  ensureFieldIndex,
   dropFieldIndex,
-  ensureFieldUniqueIndex,
   dropFieldUniqueIndex,
+  dropGeneratedIdSequences,
+  ensureFieldIndex,
+  ensureFieldUniqueIndex,
   findUniqueConflicts,
   isUniqueable,
-  dropGeneratedIdSequences,
 } from "./field-indexes";
 import { parseJsonbRow } from "./jsonb";
-import { getFieldType, getRecordWritableFieldType, isKnownFieldType } from "../field-types";
-import { insertWithShortId } from "./short-id";
-import { normalizeRefKey } from "../ref-syntax";
+import { emitTableMetadataEvent } from "./metadata-events";
 import { rewriteFieldNameReferences } from "./reference-renames";
-import type { Field, CreateFieldInput, UpdateFieldInput } from "./types";
+import { insertWithShortId } from "./short-id";
+import type { CreateFieldInput, Field, UpdateFieldInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 

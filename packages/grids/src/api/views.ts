@@ -5,7 +5,7 @@ import { describeRoute } from "hono-openapi";
 import { CreateViewSchema, UpdateViewSchema, ViewListSchema, ViewSchema } from "../contracts";
 import { gridsService } from "../service";
 import { compileGqlViewWrite } from "./gql-runtime";
-import { gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
+import { currentActorUser, currentActorUserId, currentActorViewer, gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
 
 const gqlDiagnosticMessage = (diagnostics: Array<{ message: string }>): string =>
   diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid GQL source";
@@ -26,11 +26,9 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
       const list = await gridsService.view.listForTable({
         tableId,
-        userId: user.id,
-        userGroups: user.memberofGroupIds,
+        ...currentActorViewer(c),
       });
       return c.json(list);
     },
@@ -67,7 +65,8 @@ const app = new Hono<AuthContext>()
         ...(body.source !== undefined ? { source: body.source } : {}),
       });
       if (!compiled.ok) return c.json({ message: gqlDiagnosticMessage(compiled.diagnostics) }, 400);
-      const user = c.get("user");
+      const user = currentActorUser(c);
+      if (!body.shared && !user) return c.json({ message: "Sign in to create a personal view." }, 403);
       return respond(
         c,
         () =>
@@ -79,9 +78,9 @@ const app = new Hono<AuthContext>()
               icon: body.icon ?? null,
               source: compiled.source,
               ui: body.ui,
-              ownerUserId: body.shared ? null : user.id,
+              ownerUserId: body.shared ? null : (user?.id ?? null),
             },
-            user.id,
+            currentActorUserId(c),
           ),
         201,
       );
@@ -109,7 +108,7 @@ const app = new Hono<AuthContext>()
       // honours view-level deny grants here. We translate gate failure
       // to 404 instead of 403 so the deny semantics don't leak the
       // resource's existence — same policy listings already use.
-      const user = c.get("user");
+      const viewer = currentActorViewer(c);
       const { level, grants } = await resolveWithGrants(c, {
         baseId: table.baseId,
         tableId: view.tableId,
@@ -122,7 +121,7 @@ const app = new Hono<AuthContext>()
       // Personal views: visible to the owner OR via an explicit view-
       // level grant. Inherited table-read alone does NOT make a personal
       // view visible to a non-owner.
-      const isOwner = view.ownerUserId === user.id;
+      const isOwner = view.ownerUserId === viewer.userId;
       const explicitGrant = hasExplicitGrant(grants, "view", view.id);
       if (view.ownerUserId !== null && !isOwner && !explicitGrant) {
         return c.json({ message: "View not found" }, 404);
@@ -148,9 +147,9 @@ const app = new Hono<AuthContext>()
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const user = c.get("user");
       const body = c.req.valid("json");
-      const isOwner = view.ownerUserId === user.id;
+      if (body.shared === false && !currentActorUser(c)) return c.json({ message: "Sign in to make this view personal." }, 403);
+      const isOwner = view.ownerUserId === currentActorViewer(c).userId;
 
       const gate = isOwner
         ? await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "read")
@@ -179,7 +178,7 @@ const app = new Hono<AuthContext>()
             ...body,
             ...(compiled?.ok ? { source: compiled.source } : {}),
           },
-          user.id,
+          currentActorUserId(c),
         ),
       );
     },
@@ -201,8 +200,7 @@ const app = new Hono<AuthContext>()
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const user = c.get("user");
-      const isOwner = view.ownerUserId === user.id;
+      const isOwner = view.ownerUserId === currentActorViewer(c).userId;
       const gate = isOwner
         ? await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "read")
         : await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "admin");
@@ -210,7 +208,7 @@ const app = new Hono<AuthContext>()
       if (!isOwner && !gridsService.permission.hasAtLeast(gate.data, "admin")) {
         return c.json({ message: "Only view admins can delete this view" }, 403);
       }
-      const result = await gridsService.view.remove(viewId, user.id);
+      const result = await gridsService.view.remove(viewId, currentActorUserId(c));
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },
@@ -232,8 +230,7 @@ const app = new Hono<AuthContext>()
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const user = c.get("user");
-      const isOwner = view.ownerUserId === user.id;
+      const isOwner = view.ownerUserId === currentActorViewer(c).userId;
       const gate = isOwner
         ? await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "read")
         : await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "admin");
@@ -241,7 +238,7 @@ const app = new Hono<AuthContext>()
       if (!isOwner && !gridsService.permission.hasAtLeast(gate.data, "admin")) {
         return c.json({ message: "Only view admins can restore this view" }, 403);
       }
-      return respond(c, () => gridsService.view.restore(viewId, user.id));
+      return respond(c, () => gridsService.view.restore(viewId, currentActorUserId(c)));
     },
   );
 

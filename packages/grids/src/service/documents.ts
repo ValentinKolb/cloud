@@ -41,8 +41,8 @@ import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { previewDslQuery } from "../query-dsl/preview";
 import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import { collectDslPlanExtraFieldTableIds } from "../query-dsl/source-plan";
-import { get as getBase } from "./bases";
 import { logAudit } from "./audit";
+import { get as getBase } from "./bases";
 import { listByTable as listFields } from "./fields";
 import { getContent as getFileContent, listForRecordField } from "./files";
 import { buildBaseGqlResolverContext } from "./gql-resolver-context";
@@ -653,7 +653,8 @@ const mapDocumentLink = (row: DbRow): DocumentLink => ({
   accessCount: Number(row.access_count ?? 0),
 });
 
-const generateDocumentLinkToken = (): string => `${DOCUMENT_LINK_TOKEN_PREFIX}${randomBytes(DOCUMENT_LINK_TOKEN_BYTES).toString("base64url")}`;
+const generateDocumentLinkToken = (): string =>
+  `${DOCUMENT_LINK_TOKEN_PREFIX}${randomBytes(DOCUMENT_LINK_TOKEN_BYTES).toString("base64url")}`;
 
 const hashDocumentLinkToken = (token: string): string => createHash("sha256").update(token).digest("hex");
 
@@ -1829,9 +1830,7 @@ export const revokeDocumentLink = async (params: {
   return ok(link);
 };
 
-export const resolveDocumentLinkDownload = async (
-  token: string,
-): Promise<Result<{ link: DocumentLink; run: DocumentRun }>> => {
+export const resolveDocumentLinkDownload = async (token: string): Promise<Result<{ link: DocumentLink; run: DocumentRun }>> => {
   const normalizedToken = normalizeDocumentLinkToken(token);
   if (!normalizedToken) return fail(err.notFound("Document link"));
 

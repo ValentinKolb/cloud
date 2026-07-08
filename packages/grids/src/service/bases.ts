@@ -52,8 +52,9 @@ export const list = async (opts: { includeDeleted?: boolean } = {}): Promise<Bas
 };
 
 export const listVisible = async (params: {
-  userId: string;
+  userId: string | null;
   userGroups: string[];
+  serviceAccountId?: string | null;
   query?: string;
   limit?: number;
   offset?: number;
@@ -73,16 +74,19 @@ export const listVisible = async (params: {
   const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
 
   const groups = toPgUuidArray(params.userGroups);
+  const serviceAccountId = params.serviceAccountId ?? null;
   const permissionRank = sql`CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 ELSE 0 END`;
-  const rankFor = (principal: "user" | "group" | "authenticated" | "public") => {
+  const rankFor = (principal: "serviceAccount" | "user" | "group" | "authenticated" | "public") => {
     const principalWhere =
-      principal === "user"
-        ? sql`a.user_id = ${params.userId}::uuid`
-        : principal === "group"
-          ? sql`a.group_id = ANY(${groups}::uuid[])`
-          : principal === "authenticated"
-            ? sql`a.authenticated_only = TRUE AND ${params.userId}::uuid IS NOT NULL`
-            : sql`a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = FALSE`;
+      principal === "serviceAccount"
+        ? sql`a.service_account_id = ${serviceAccountId}::uuid`
+        : principal === "user"
+          ? sql`a.user_id = ${params.userId}::uuid`
+          : principal === "group"
+            ? sql`a.group_id = ANY(${groups}::uuid[])`
+            : principal === "authenticated"
+              ? sql`a.authenticated_only = TRUE AND (${params.userId}::uuid IS NOT NULL OR ${serviceAccountId}::uuid IS NOT NULL)`
+              : sql`a.user_id IS NULL AND a.group_id IS NULL AND a.service_account_id IS NULL AND a.authenticated_only = FALSE`;
     return sql`(
       SELECT CASE
         WHEN COUNT(*) = 0 THEN NULL
@@ -97,6 +101,7 @@ export const listVisible = async (params: {
 
   const ranked = () => sql`
     SELECT b.*,
+      ${rankFor("serviceAccount")} AS service_account_rank,
       ${rankFor("user")} AS user_rank,
       ${rankFor("group")} AS group_rank,
       ${rankFor("authenticated")} AS auth_rank,
@@ -104,7 +109,7 @@ export const listVisible = async (params: {
     FROM grids.bases b
     WHERE ${where}
   `;
-  const visibleWhere = sql`COALESCE(user_rank, group_rank, auth_rank, public_rank, 0) >= 1`;
+  const visibleWhere = sql`COALESCE(service_account_rank, user_rank, group_rank, auth_rank, public_rank, 0) >= 1`;
   const [countRow] = await sql<{ total: number }[]>`
     SELECT COUNT(*)::int AS total
     FROM (${ranked()}) visible

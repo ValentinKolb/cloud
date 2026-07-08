@@ -1,9 +1,9 @@
+import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import { Dropdown, PermissionEditor, prompts, toast } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { apiClient } from "@/api/client";
-import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import { createMemo, createSignal, For, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 
 type AdminGridsActionsProps = {
   baseId: string;

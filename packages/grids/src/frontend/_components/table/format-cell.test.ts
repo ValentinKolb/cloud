@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { progressRatio } from "./format-cell";
-import { formatCell } from "./format-cell";
+import { formatCell, progressRatio } from "./format-cell";
 
 describe("formatCell", () => {
   test("normalizes date timestamps to date-only by default", () => {

@@ -1,4 +1,4 @@
-import { CopyButton, dialogCore, panelDialogOptions, PanelDialog } from "@valentinkolb/cloud/ui";
+import { CopyButton, dialogCore, PanelDialog, panelDialogOptions } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
