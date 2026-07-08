@@ -214,7 +214,10 @@ const LayoutHelpDialog = (props: { close: () => void; searchHelpApps: GlobalSear
       </div>
 
       <div class="grid min-h-0 flex-1 gap-3 md:grid-cols-[14rem_1fr]">
-        <nav class="paper flex gap-1 overflow-x-auto p-2 md:min-h-0 md:flex-col md:overflow-visible" aria-label="Help topics">
+        <nav
+          class="paper flex gap-1 overflow-x-auto p-2 md:min-h-0 md:flex-col md:overflow-x-hidden md:overflow-y-auto"
+          aria-label="Help topics"
+        >
           <For each={allTabs()}>
             {(tab) => {
               const active = () => tab.id === activeId();
