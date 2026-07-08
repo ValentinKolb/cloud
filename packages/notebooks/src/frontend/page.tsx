@@ -3,6 +3,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { expectUserBackedActor } from "@/actor";
 import { notebooksService } from "@/service";
 import { ssr } from "../config";
+import NotebookLayoutHelp from "./[id]/_components/help/NotebookLayoutHelp.island";
 import { parseLastNotebookId } from "./[id]/_components/settings/NotebookSettingsStore";
 import NotebooksOverview from "./NotebooksOverview.island";
 
@@ -32,6 +33,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Notebooks" }]}>
+      <NotebookLayoutHelp />
       <NotebooksOverview notebooks={notebooks} templates={templates} initialQuery={initialQuery} />
     </Layout>
   );
