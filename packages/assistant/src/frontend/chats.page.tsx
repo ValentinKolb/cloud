@@ -5,6 +5,7 @@ import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { AppWorkspace, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
 import AssistantAllChatsList from "./AssistantAllChatsList.island";
+import AssistantLayoutHelp from "./AssistantLayoutHelp.island";
 import AssistantSidebarStandalone from "./AssistantSidebarStandalone.island";
 
 const ASSISTANT_APP_ID = "assistant";
@@ -48,6 +49,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullPage title={[{ title: "Start", href: "/" }, { title: "Assistant", href: "/app/assistant" }, { title: "All Chats" }]}>
+      <AssistantLayoutHelp />
       <AppWorkspace class="flex-1 min-h-0">
         <AssistantSidebarStandalone initialConversations={recentConversations} activeView="all" />
 

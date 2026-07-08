@@ -4,6 +4,7 @@ import { announcements } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../../config";
+import CoreLayoutHelp from "../../CoreLayoutHelp.island";
 import AnnouncementActions from "./AnnouncementActions.island";
 
 const fmtDate = (value: string | null) => (value ? new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "—");
@@ -40,6 +41,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Announcements" stretch>
+      <CoreLayoutHelp />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2">
           <div class="flex flex-wrap items-center justify-between gap-3" style="view-transition-name: admin-announcements-title">

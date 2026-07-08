@@ -5,6 +5,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { Avatar } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { ssr } from "../../config";
+import CoreLayoutHelp from "../CoreLayoutHelp.island";
 import AccountActivity from "./AccountActivity.island";
 import ApiKeysSettings from "./ApiKeysSettings.island";
 import PasskeysSettings from "./PasskeysSettings.island";
@@ -81,6 +82,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Profile" }]}>
+      <CoreLayoutHelp />
       <div class="mx-auto flex max-w-6xl flex-col gap-4 px-2">
         {action === "extend" && (
           <div class="info-block-info text-sm">

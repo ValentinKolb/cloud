@@ -3,6 +3,7 @@ import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { LinkCard, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { getRuntimeContext } from "@valentinkolb/cloud/ssr";
+import CoreLayoutHelp from "../CoreLayoutHelp.island";
 
 export default ssr<AuthContext>(async (c) => {
   const allApps = getRuntimeContext(c).apps;
@@ -11,6 +12,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Overview">
+      <CoreLayoutHelp />
       <div class="max-w-6xl mx-auto">
         {/* Stat cards — see skills/cloud-app/references/frontend.md § Stats */}
         <div class="mb-2">

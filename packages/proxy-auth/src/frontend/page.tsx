@@ -6,6 +6,7 @@ import { ssr } from "../config";
 import { proxyAuthService } from "../service";
 import CreateProxyClient from "./_components/CreateProxyClient.island";
 import ProxyClientActions from "./_components/ProxyClientActions.island";
+import ProxyAuthLayoutHelp from "./ProxyAuthLayoutHelp.island";
 
 export default ssr<AuthContext>(async (c) => {
   const { items: clients } = await proxyAuthService.client.list();
@@ -38,6 +39,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Proxy Auth" stretch>
+      <ProxyAuthLayoutHelp />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-proxy-auth-title">

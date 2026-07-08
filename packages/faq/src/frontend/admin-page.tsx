@@ -7,6 +7,7 @@ import { faqService } from "../service";
 import CreateFaqButton from "./_components/CreateFaqButton.island";
 import DeleteFaqButton from "./_components/DeleteFaqButton.island";
 import EditFaqButton from "./_components/EditFaqButton.island";
+import FaqLayoutHelp from "./_components/help/FaqLayoutHelp.island";
 
 const AUDIENCE_LABELS: Record<string, string> = {
   anonymous: "Anonymous",
@@ -25,6 +26,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="FAQ" stretch>
+      <FaqLayoutHelp />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2">
           <div class="flex flex-wrap items-center justify-between gap-3" style="view-transition-name: admin-faq-toolbar">

@@ -1,56 +1,78 @@
 import { Layout } from "@valentinkolb/cloud/ssr/islands";
-import { DocLead, DocPage, DocRows, DocSection } from "@valentinkolb/cloud/ui";
+import { DocConceptGrid, DocLead, DocNote, DocPage, DocRows, DocSection } from "@valentinkolb/cloud/ui";
 
 export default function ToolsLayoutHelp() {
   return (
     <Layout.Help
       id="tools-start"
-      title="Getting Started"
+      title="Start"
       icon="ti ti-tool"
-      description="What the Tools app contains and when tools use the server."
+      description="Tool categories, search, browser-local tools, and server-backed network tools."
       order={100}
     >
       <DocPage>
-        <DocLead>Tools collects small utilities for generating, encoding, security checks, media work, and network testing.</DocLead>
+        <DocLead>
+          Tools is a workspace for small generators, encoders, security utilities, media tools, and network tests.
+        </DocLead>
 
-        <DocSection title="What is included">
+        <DocSection title="First useful path" eyebrow="Start here">
           <DocRows
+            items={[
+              {
+                title: "Find a tool",
+                icon: "ti-search",
+                text: "Use the overview, sidebar groups, or tool search to open the utility you need.",
+              },
+              {
+                title: "Enter the smallest input",
+                icon: "ti-keyboard",
+                text: "Most tools update their output from the values on the page and provide copy or download actions where supported.",
+              },
+              {
+                title: "Check where data goes",
+                icon: "ti-shield-check",
+                text: "Browser-local tools stay in the page. Network tools call the server because they need a stable endpoint or server-side request.",
+              },
+            ]}
+          />
+        </DocSection>
+
+        <DocSection title="Tool groups">
+          <DocConceptGrid
             items={[
               {
                 title: "Generators",
                 icon: "ti-sparkles",
-                text: "Create mailto links, QR codes, UUIDs, placeholder text, and passwords.",
+                text: "Mailto links, QR codes, UUIDs, lorem ipsum text, and passwords.",
               },
               {
-                title: "Encoders and security",
+                title: "Encoders",
+                icon: "ti-arrows-exchange",
+                text: "Base64, Hex, Base32, and color conversion.",
+              },
+              {
+                title: "Security",
                 icon: "ti-shield-lock",
-                text: "Encode and decode Base64, Hex, and Base32; convert colors; generate hashes; encrypt and decrypt data.",
+                text: "Hash generation, password generation, and encryption helpers.",
               },
               {
-                title: "Media and network",
+                title: "Media",
+                icon: "ti-photo",
+                text: "Image resize, crop, filter, rotate, and export.",
+              },
+              {
+                title: "Network",
                 icon: "ti-network",
-                text: "Process images, measure speed against the cloud server, and test webhook endpoints.",
+                text: "Speed tests against the cloud server and webhook endpoint testing.",
               },
             ]}
           />
         </DocSection>
 
-        <DocSection title="Data handling">
-          <DocRows
-            items={[
-              {
-                title: "Browser tools",
-                icon: "ti-device-laptop",
-                text: "Most tools run locally in your browser.",
-              },
-              {
-                title: "Server tools",
-                icon: "ti-server",
-                text: "Network tools may call the server for speed tests, stable webhook endpoints, or CORS-free requests.",
-              },
-            ]}
-          />
-        </DocSection>
+        <DocNote title="Webhook tester data" variant="info">
+          Webhook endpoints and request logs are stored on the server for inspection. The tester redacts sensitive headers such as
+          Authorization and Cookie before logging.
+        </DocNote>
       </DocPage>
     </Layout.Help>
   );

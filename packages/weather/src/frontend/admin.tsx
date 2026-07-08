@@ -3,6 +3,7 @@ import { coreSettings } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
 import WeatherSettingsForm from "./_components/WeatherSettingsForm.island";
+import WeatherLayoutHelp from "./_components/help/WeatherLayoutHelp.island";
 
 export default ssr<AuthContext>(async (c) => {
   const [defaultLat, defaultLon, cacheMinutes, geoUrl] = await Promise.all([
@@ -14,6 +15,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Weather" stretch>
+      <WeatherLayoutHelp />
       <div class="flex-1 min-h-0 overflow-hidden">
         <WeatherSettingsForm
           initial={{

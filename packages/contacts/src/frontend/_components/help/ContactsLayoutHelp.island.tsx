@@ -4,32 +4,31 @@ import { DocConceptGrid, DocLead, DocNote, DocPage, DocRows, DocSection } from "
 const StartTab = () => (
   <DocPage>
     <DocLead>
-      Contacts keeps people, companies, contact points, notes, and book-specific organization in one address book workspace. Use it when the
-      contact record itself is the source of truth.
+      Contacts keeps manual address books with structured contact records, tags, notes, hierarchy links, and book-level access.
     </DocLead>
 
-    <DocSection title="Mental model" eyebrow="Start here">
+    <DocSection title="Overview" eyebrow="Start here">
       <DocConceptGrid
         items={[
           {
             title: "Contact book",
             icon: "ti-cube",
-            text: "A shared address book with its own access rules, tags, import, and export settings.",
+            text: "A manual address book with its own tags, permissions, API keys, import, export, and deletion settings.",
           },
           {
             title: "Contact",
             icon: "ti-id",
-            text: "One person, company, supplier, customer, or other party with reach, address, work, personal, and bank details.",
+            text: "One person, company, supplier, customer, or other party with contact points, addresses, work data, personal data, and bank details.",
           },
           {
             title: "Tags",
             icon: "ti-tags",
-            text: "Book-specific labels for grouping contacts, such as VIP, Lead, Supplier, or Billing.",
+            text: "Book-specific labels for filtering and grouping contacts.",
           },
           {
             title: "Detail panel",
             icon: "ti-layout-sidebar-right",
-            text: "The working view for contact details, notes, member links, edit actions, and moving contacts between writable books.",
+            text: "The working view for reading details, editing a contact, adding notes, moving the contact, and managing members.",
           },
         ]}
       />
@@ -41,17 +40,17 @@ const StartTab = () => (
           {
             title: "Choose a book",
             icon: "ti-address-book",
-            text: "Open one contact book when you need its tags and permissions. Use All Contacts for a broad manual-contact search.",
+            text: "Open one book when you need its tags. Use All Contacts to search across readable manual books.",
           },
           {
             title: "Create the contact",
             icon: "ti-user-plus",
-            text: "Start with the name and the contact points people need first: email, phone, website, or address.",
+            text: "Start with the name and the contact points people use first: email, phone, website, or address.",
           },
           {
             title: "Add structure",
             icon: "ti-tags",
-            text: "Assign tags, work details, personal details, bank details, and notes only when they help later lookup or action.",
+            text: "Add tags, work details, personal details, bank details, notes, or a parent contact when they help later lookup.",
           },
           {
             title: "Open details",
@@ -63,8 +62,8 @@ const StartTab = () => (
     </DocSection>
 
     <DocNote title="System contacts" variant="info">
-      System contact books can appear in the sidebar, but system contacts are read-only. Manual contact books are where users create, edit,
-      tag, import, and export contacts.
+      The system book projects IPA directory contacts and is read-only. All Contacts searches manual books; open the system book directly to
+      browse system contacts.
     </DocNote>
   </DocPage>
 );
@@ -72,8 +71,7 @@ const StartTab = () => (
 const HierarchyTab = () => (
   <DocPage>
     <DocLead>
-      Contact hierarchy links contacts inside the same book. Use it for company-to-person, organization-to-team, household, or membership
-      relationships where one contact belongs under another.
+      Contact hierarchy links records inside the same manual book when one contact belongs under another.
     </DocLead>
 
     <DocSection title="How hierarchy works">
@@ -97,7 +95,7 @@ const HierarchyTab = () => (
           {
             title: "Same book",
             icon: "ti-cube",
-            text: "Parent and member contacts must live in the same manual contact book. Moving a contact removes parent/member links that would cross books.",
+            text: "Parent and member contacts must live in the same manual book. Moving a contact removes links that would cross books.",
           },
         ]}
       />
@@ -126,7 +124,7 @@ const HierarchyTab = () => (
     </DocSection>
 
     <DocNote title="Use hierarchy sparingly" variant="tip">
-      Use hierarchy for durable relationships. Use tags for loose categories that can overlap, such as VIP, Lead, Supplier, or Billing.
+      Use hierarchy for durable membership. Use tags for loose categories that can overlap.
     </DocNote>
   </DocPage>
 );
@@ -134,8 +132,7 @@ const HierarchyTab = () => (
 const BooksTab = () => (
   <DocPage>
     <DocLead>
-      Contact books define who can see or maintain a set of contacts. Book admins manage metadata, tags, access, import, export, and
-      deletion.
+      Contact book settings control metadata, tags, access, API keys, import, export, and deletion for one manual book.
     </DocLead>
 
     <DocSection title="Book settings">
@@ -157,9 +154,14 @@ const BooksTab = () => (
             text: "Grant read, write, or admin access to users and groups. Permission changes save immediately.",
           },
           {
+            title: "API keys",
+            icon: "ti-key",
+            text: "Create resource-bound keys for integrations that need access to this contact book.",
+          },
+          {
             title: "Import & export",
             icon: "ti-arrows-exchange",
-            text: "Import contacts from vCard, or export the book as vCard or CSV. These actions are restricted to book admins.",
+            text: "Preview and import vCard contacts, or export the book as vCard or CSV. These actions are restricted to book admins.",
           },
         ]}
       />
@@ -177,9 +179,9 @@ export default function ContactsLayoutHelp() {
     <>
       <Layout.Help
         id="contacts-start"
-        title="Getting Started"
+        title="Start"
         icon="ti ti-address-book"
-        description="Contact books, records, tags, and the detail workflow."
+        description="Contact books, records, tags, system contacts, and the detail workflow."
         order={100}
       >
         <StartTab />
@@ -195,9 +197,9 @@ export default function ContactsLayoutHelp() {
       </Layout.Help>
       <Layout.Help
         id="contacts-books-sharing"
-        title="Books & Sharing"
+        title="Books & access"
         icon="ti ti-lock"
-        description="Book settings, access, tags, import, and export."
+        description="Book settings, access, API keys, tags, import, export, and deletion."
         order={120}
       >
         <BooksTab />

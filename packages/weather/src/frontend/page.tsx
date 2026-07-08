@@ -5,6 +5,7 @@ import { AppOverview } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../config";
 import AddLocationButton from "./AddLocation.island";
+import WeatherLayoutHelp from "./_components/help/WeatherLayoutHelp.island";
 
 export default ssr<AuthContext>(async (c) => {
   const user = expectUserBackedActor(c);
@@ -15,6 +16,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Weather" }]}>
+      <WeatherLayoutHelp />
       <AppOverview title="Weather" subtitle="Track forecasts for your saved locations." icon="ti ti-temperature-celsius">
         <AppOverview.Main title="Locations" description="No saved locations yet.">
           <AppOverview.EmptyState

@@ -5,6 +5,7 @@ import { MarkdownView, Placeholder } from "@valentinkolb/cloud/ui";
 import { getUserBackedActor } from "@/actor";
 import { ssr } from "../config";
 import { faqService } from "../service";
+import FaqLayoutHelp from "./_components/help/FaqLayoutHelp.island";
 
 export default ssr<AuthContext>(async (c) => {
   const user = getUserBackedActor(c);
@@ -15,6 +16,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "FAQ" }]}>
+      <FaqLayoutHelp />
       <div class="max-w-2xl mx-auto flex flex-col gap-4">
         <h1 class="text-xl font-bold text-primary" style="view-transition-name: page-header">
           FAQ

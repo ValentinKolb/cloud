@@ -9,6 +9,7 @@ import BaseSidebar from "../_components/BaseSidebar";
 import FileDetailLayoutSync from "../_components/FileDetailLayoutSync.island";
 import FileDetailPanel from "../_components/FileDetailPanel.island";
 import FileList from "../_components/FileList.island";
+import FilesLayoutHelp from "../_components/help/FilesLayoutHelp.island";
 import { filePageBaseUrl } from "../url";
 
 /** Shortcut presets for common searches */
@@ -62,6 +63,7 @@ export default ssr<AuthContext>(async (c) => {
   if (basesInfo.length === 0) {
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files", href: "/app/files" }, { title: "Search" }]} fullWidth>
+        <FilesLayoutHelp />
         <div class="flex items-center justify-center gap-2 text-xs text-dimmed h-full">
           <i class="ti ti-folder-off" />
           <span>No accessible file storage</span>
@@ -166,6 +168,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files", href: "/app/files" }, { title: "Search" }]} fullWidth>
+      <FilesLayoutHelp />
       <AppWorkspace>
         <BaseSidebar bases={basesInfo} currentBaseType="search" currentBaseId="" />
 

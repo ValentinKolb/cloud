@@ -5,6 +5,7 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../config";
 import { DailyForecast, HourlyForecast, RadarCard } from "../_components";
+import WeatherLayoutHelp from "../_components/help/WeatherLayoutHelp.island";
 import LocationSidebar from "../_components/LocationSidebar";
 import DeleteLocationButton from "../DeleteLocation.island";
 import DisplaySettingsButton from "../DisplaySettings.island";
@@ -161,6 +162,7 @@ export default ssr<AuthContext>(async (c) => {
     return () => (
       <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Weather", href: "/app/weather" }, { title: "Not Found" }]}>
         <AppWorkspace>
+          <WeatherLayoutHelp />
           <LocationSidebar locations={locations} activeId={id} weatherMap={new Map()} />
           <AppWorkspace.Main>
             <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
@@ -197,6 +199,7 @@ export default ssr<AuthContext>(async (c) => {
       title={[{ title: "Start", href: "/" }, { title: "Weather", href: "/app/weather" }, { title: activeLocation.name }]}
     >
       <AppWorkspace>
+        <WeatherLayoutHelp />
         <LocationSidebar locations={locations} activeId={id} weatherMap={weatherMap} />
 
         <AppWorkspace.Main>

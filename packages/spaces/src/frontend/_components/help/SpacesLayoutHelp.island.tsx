@@ -47,7 +47,7 @@ const StartTab = () => (
       one place without forcing every team into a database model.
     </DocLead>
 
-    <DocSection title="Mental model" eyebrow="Start here">
+    <DocSection title="Overview" eyebrow="Start here">
       <DocConceptGrid
         items={[
           {
@@ -184,7 +184,7 @@ const WorkflowTab = () => (
   <DocPage>
     <DocLead>
       Spaces works best when each item has a clear next action. Keep item titles short, put context in notes, and use status or dates to
-      make queues obvious.
+      make queues obvious. Use events when the calendar view should carry the work.
     </DocLead>
 
     <DocSection title="Good item structure">
@@ -209,6 +209,11 @@ const WorkflowTab = () => (
             title: "Due date or event time",
             icon: "ti-calendar-time",
             text: "Use a deadline for tasks and a schedule for events when timing changes what people should do next.",
+          },
+          {
+            title: "Recurrence",
+            icon: "ti-refresh",
+            text: "Use recurring events for repeated appointments or routines. Keep one-off tasks as normal tasks.",
           },
           {
             title: "Tags",
@@ -282,8 +287,8 @@ const SharingTab = () => (
       />
     </DocSection>
 
-    <DocNote title="Overview help">
-      The Spaces overview shows the same help because users may open the help menu before selecting a space.
+    <DocNote title="Where to configure access">
+      Open a space, then use its settings to manage metadata, tags, statuses, calendar export, access, and deletion.
     </DocNote>
   </DocPage>
 );
@@ -293,7 +298,7 @@ export default function SpacesLayoutHelp() {
     <>
       <Layout.Help
         id="spaces-start"
-        title="Getting Started"
+        title="Overview"
         icon="ti ti-layout-sidebar"
         description="Core concepts and first setup path."
         order={100}

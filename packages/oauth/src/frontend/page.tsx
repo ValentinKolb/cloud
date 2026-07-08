@@ -6,6 +6,7 @@ import { ssr } from "../config";
 import { oauthService } from "../service";
 import ClientActions from "./_components/ClientActions.island";
 import CreateClientButton from "./_components/CreateClientButton.island";
+import OAuthLayoutHelp from "./_components/OAuthLayoutHelp.island";
 
 /** Admin OAuth clients list page. */
 export default ssr<AuthContext>(async (c) => {
@@ -44,6 +45,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="OAuth" stretch>
+      <OAuthLayoutHelp />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-oauth-title">

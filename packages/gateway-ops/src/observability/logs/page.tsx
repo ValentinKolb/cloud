@@ -3,6 +3,7 @@ import { get } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
+import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
 import LogTable from "./_components/LogTable.island";
 import { parseLogFilterFromUrl } from "./_components/types";
 import { createPagination } from "./contracts";
@@ -43,6 +44,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Logs" stretch>
+      <GatewayOpsLayoutHelp />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-logs-title">

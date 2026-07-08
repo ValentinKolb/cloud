@@ -6,6 +6,7 @@ import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../config";
 import { listRegisteredAppStatus, type RegisteredAppStatus } from "../registered-apps";
+import GatewayOpsLayoutHelp from "./GatewayOpsLayoutHelp.island";
 import RemoveRegisteredAppButton from "./RemoveRegisteredAppButton.island";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -145,6 +146,7 @@ export default ssr<AuthContext>(async (c) => {
   ];
   return () => (
     <AdminLayout c={c} title={isRoutesPage ? "Routes" : "Apps"} stretch>
+      <GatewayOpsLayoutHelp />
       <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-gateway-title">

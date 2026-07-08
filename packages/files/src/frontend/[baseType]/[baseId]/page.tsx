@@ -12,6 +12,7 @@ import FileDetailPanel from "../../_components/FileDetailPanel.island";
 import FileList from "../../_components/FileList.island";
 import FileSettings, { parseFileSettings } from "../../_components/FileSettings.island";
 import FileToolbar from "../../_components/FileToolbar.island";
+import FilesLayoutHelp from "../../_components/help/FilesLayoutHelp.island";
 import { filePageBaseUrl, filePageUrl } from "../../url";
 
 /**
@@ -122,6 +123,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
   if (!baseResult.ok) {
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files" }, { title: "Not Found" }]} fullWidth>
+        <FilesLayoutHelp />
         <div class="flex items-center justify-center gap-2 text-xs text-dimmed h-full">
           <i class="ti ti-folder-off" />
           <span>{baseResult.error}</span>
@@ -138,6 +140,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
   if (!accessResult.ok) {
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files" }, { title: "Access Denied" }]} fullWidth>
+        <FilesLayoutHelp />
         <div class="flex items-center justify-center gap-2 text-xs text-dimmed h-full">
           <i class="ti ti-lock" />
           <span>{accessResult.error}</span>
@@ -164,6 +167,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
   if (!infoResult.ok) {
     return () => (
       <Layout c={c} title={buildBreadcrumbs(baseType, baseId, currentBaseInfo.name, path)} fullWidth>
+        <FilesLayoutHelp />
         <AppWorkspace>
           <BaseSidebar
             bases={basesInfo}
@@ -237,6 +241,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
 
   return () => (
     <Layout c={c} title={breadcrumbs} fullWidth>
+      <FilesLayoutHelp />
       <AppWorkspace>
         <BaseSidebar
           bases={basesInfo}

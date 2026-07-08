@@ -2,6 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { settingsService } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
+import CoreLayoutHelp from "../../CoreLayoutHelp.island";
 import CoreSettingsForm, { type SettingFieldDef } from "./_components/CoreSettingsForm.island";
 import LegalSettingsForm, { type LegalInitial } from "./_components/LegalSettingsForm.island";
 
@@ -137,6 +138,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title={tab.title} stretch>
+      <CoreLayoutHelp />
       <div class="flex-1 min-h-0 overflow-hidden">
         <div class="flex h-full min-h-0 flex-col" style="view-transition-name: admin-settings-content">
           {tab.group ? (

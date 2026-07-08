@@ -5,6 +5,7 @@ import { Pagination, Placeholder, StatCell, StatGrid } from "@valentinkolb/cloud
 import { ssr } from "../config";
 import { createPagination } from "../contracts";
 import { ipaHostsService } from "../service";
+import HostsLayoutHelp from "./HostsLayoutHelp.island";
 import HostgroupCard from "./HostgroupCard";
 import HostSettings from "./HostSettings.island";
 import HostsTable from "./HostsTable";
@@ -47,12 +48,13 @@ export default ssr<AuthContext>(async (c) => {
     return prefix ? `/admin/ipa-hosts?${prefix}&${pageParam}=` : `/admin/ipa-hosts?${pageParam}=`;
   };
 
-  // True totals from a single SQL aggregation — hostStats counts distinct hosts
-  // across the whole mirror DB, not just the visible page.
+  // True totals from a single SQL aggregation: hostStats counts distinct hosts
+  // across the whole mirror DB, including rows outside the visible page.
   const hostsInGroups = hostStats.hostsInGroups;
 
   return () => (
     <AdminLayout c={c} title="Hosts" stretch>
+      <HostsLayoutHelp />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-hosts-title">

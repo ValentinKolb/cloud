@@ -3,9 +3,11 @@ import { DocConceptGrid, DocLead, DocNote, DocPage, DocRows, DocSection } from "
 
 const StartTab = () => (
   <DocPage>
-    <DocLead>Venues manage staffed locations with public opening status, shift signup, public page sections, and visitor feedback.</DocLead>
+    <DocLead>
+      Venues manages staffed places that need public opening status, shift signup, public page content, and visitor feedback.
+    </DocLead>
 
-    <DocSection title="Mental model" eyebrow="Start here">
+    <DocSection title="Overview" eyebrow="Start here">
       <DocConceptGrid
         items={[
           {
@@ -16,7 +18,7 @@ const StartTab = () => (
           {
             title: "Opening hours",
             icon: "ti-clock",
-            text: "Regular weekly hours plus closed-day overrides define the public status page.",
+            text: "Regular weekly hours plus date overrides decide whether the public page says the venue is open.",
           },
           {
             title: "Shift",
@@ -26,13 +28,13 @@ const StartTab = () => (
           {
             title: "Public section",
             icon: "ti-layout-list",
-            text: "Extra public-page content: markdown, menu, notice, or links.",
+            text: "An editable block on the public page. Sections can be markdown, menu, notice, or links.",
           },
         ]}
       />
     </DocSection>
 
-    <DocSection title="Common path">
+    <DocSection title="First useful path">
       <DocRows
         items={[
           {
@@ -43,12 +45,17 @@ const StartTab = () => (
           {
             title: "Configure the schedule",
             icon: "ti-calendar-time",
-            text: "Use settings to maintain regular hours, closed days, and recurring shift templates.",
+            text: "Use settings to maintain weekly opening hours, date overrides, and recurring shift templates.",
           },
           {
-            title: "Share the public page",
+            title: "Publish what visitors need",
             icon: "ti-external-link",
-            text: "The public page shows the venue status and enabled public sections.",
+            text: "Open the public page from the workspace sidebar. Enabled sections and feedback appear there.",
+          },
+          {
+            title: "Staff the venue",
+            icon: "ti-user-plus",
+            text: "Staff users sign up for visible shift slots. Admin users can also cancel assignments.",
           },
         ]}
       />
@@ -59,7 +66,7 @@ const StartTab = () => (
 const WorkTab = () => (
   <DocPage>
     <DocLead>
-      The workspace is split between staffing work, your own assignments, public content, and feedback from the public page.
+      The venue workspace separates daily staffing, personal assignments, public content, feedback, and administrative settings.
     </DocLead>
 
     <DocSection title="Workspace views">
@@ -78,7 +85,7 @@ const WorkTab = () => (
           {
             title: "Feedback",
             icon: "ti-message-star",
-            text: "Shows rating trends, comment search, and 7-, 14-, or 30-day filters when feedback is enabled.",
+            text: "Shows rating trends, comment search, and 7-, 14-, or 30-day filters for public feedback entries.",
           },
           {
             title: "Public sections",
@@ -106,6 +113,11 @@ const WorkTab = () => (
             title: "Links",
             icon: "ti-link",
             text: "Open the public page or copy your personal iCal subscription for venue shifts.",
+          },
+          {
+            title: "API keys",
+            icon: "ti-key",
+            text: "Admins can create resource-bound keys for integrations that need access to this venue.",
           },
         ]}
       />
