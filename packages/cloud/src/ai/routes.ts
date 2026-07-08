@@ -188,6 +188,9 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
       if (!target || target.kind !== "message" || target.message.role !== "user") {
         return respond(c, fail(err.badInput("Retry requires a user message.")));
       }
+      if (target.compactedAt) {
+        return respond(c, fail(err.badInput("This message was compacted out of the model context and cannot be retried.")));
+      }
 
       const body = c.req.valid("json");
       const content = body.content?.length ? aiTurnInputToContent({ content: body.content }) : target.message.content;
@@ -223,6 +226,9 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
       const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
       const target = messages.find((m) => m.id === messageId);
       if (!target) return respond(c, fail(err.notFound("Message")));
+      if (target.compactedAt) {
+        return respond(c, fail(err.badInput("This message was compacted out of the model context and cannot be forked.")));
+      }
 
       const body = c.req.valid("json");
       const forked = await aiConversationStore.createConversation({

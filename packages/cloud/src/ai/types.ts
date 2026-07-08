@@ -154,6 +154,13 @@ export type AiStoredMessage = {
   stopReason: string | null;
   loopAggregate: LoopAggregate | null;
   loopDoneReason: DoneReason | null;
+  /**
+   * Set once compaction archived this message out of the model context.
+   * Archived messages stay visible in the chat; only the model stops seeing them.
+   */
+  compactedAt: string | null;
+  /** UI metadata (e.g. how many messages a compaction summary replaced). */
+  meta: { compactedCount?: number } | null;
   createdAt: string;
 };
 
@@ -306,7 +313,10 @@ export type AiConversationStore = {
     description?: string;
   }): Promise<AiConversation | null>;
   archiveConversation(input: { conversationId: string; appId?: string; ownerUserId?: string }): Promise<boolean>;
+  /** Chat history for humans: includes compacted messages, hides superseded summaries. */
   listMessages(input: { conversationId: string }): Promise<AiStoredMessage[]>;
+  /** Model context: only active (non-compacted) messages — what the LLM sees. */
+  listContextMessages(input: { conversationId: string }): Promise<AiStoredMessage[]>;
   copyMessages(input: { sourceConversationId: string; targetConversationId: string; throughSeq: number }): Promise<void>;
   truncateMessagesFrom(input: { conversationId: string; fromSeq: number }): Promise<void>;
   setLatestAssistantLoopAggregate(input: {

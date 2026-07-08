@@ -58,6 +58,7 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS loop_id TEXT`.simple();
   await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS loop_aggregate JSONB`.simple();
   await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS loop_done_reason TEXT`.simple();
+  await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS meta JSONB`.simple();
 
   // Seq is only unique among active (non-compacted) rows: compaction archives rows
   // in place and the summary takes over the checkpoint seq.

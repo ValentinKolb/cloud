@@ -151,7 +151,8 @@ export function UserMessageBubble(props: { entry: AiStoredMessage }) {
               <i class={`ti ${wasCopied() ? "ti-check" : "ti-copy"} text-sm`} aria-hidden="true" />
             </button>
           </Show>
-          <Show when={actions.onRetryMessage}>
+          {/* Compacted messages left the model context — retrying them would rewrite history the model no longer shares. */}
+          <Show when={!props.entry.compactedAt ? actions.onRetryMessage : undefined}>
             {(onRetryMessage) => (
               <Dropdown
                 position="bottom-left"

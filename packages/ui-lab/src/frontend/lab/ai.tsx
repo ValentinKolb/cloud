@@ -68,6 +68,8 @@ const demoMessages: AiStoredMessage[] = [
     loopId: null,
     loopAggregate: null,
     loopDoneReason: null,
+    compactedAt: null,
+    meta: null,
     createdAt: now,
   },
   {
@@ -83,6 +85,8 @@ const demoMessages: AiStoredMessage[] = [
     loopId: "ui-lab-loop",
     loopAggregate: null,
     loopDoneReason: null,
+    compactedAt: null,
+    meta: null,
     createdAt: now,
   },
   {
@@ -122,6 +126,8 @@ const demoMessages: AiStoredMessage[] = [
       assistantMessageCount: 2,
     },
     loopDoneReason: "stop",
+    compactedAt: null,
+    meta: null,
     createdAt: now,
   },
 ];

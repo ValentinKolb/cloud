@@ -518,23 +518,40 @@ describe("AI conversation store integration", () => {
         summary: assistantMessage("Conversation summary: one to three"),
       });
 
-      const active = await aiConversationStore.listMessages({ conversationId: conversation.id });
-      expect(active).toHaveLength(2);
-      expect(active[0]).toMatchObject({ seq: 3, kind: "summary" });
-      expect(active[1]).toMatchObject({ seq: 4 });
+      // Human view keeps the archived messages visible; the summary marker sits
+      // after the rows it replaced (same checkpoint seq, summary sorts last).
+      const visible = await aiConversationStore.listMessages({ conversationId: conversation.id });
+      expect(visible.map((entry) => [entry.seq, entry.kind])).toEqual([
+        [1, "message"],
+        [2, "message"],
+        [3, "message"],
+        [3, "summary"],
+        [4, "message"],
+      ]);
+      expect(visible.slice(0, 3).every((entry) => entry.compactedAt !== null)).toBe(true);
+      expect(visible[3]?.meta).toEqual({ compactedCount: 3 });
 
-      // Archived rows keep their original seqs.
-      const archived = await sql<{ seq: number }[]>`
-        SELECT seq FROM ai.messages
-        WHERE conversation_id = ${conversation.id} AND compacted_at IS NOT NULL
-        ORDER BY seq ASC
-      `;
-      expect(archived.map((row) => row.seq)).toEqual([1, 2, 3]);
+      // The model context only contains the summary and what follows.
+      const context = await aiConversationStore.listContextMessages({ conversationId: conversation.id });
+      expect(context.map((entry) => [entry.seq, entry.kind])).toEqual([
+        [3, "summary"],
+        [4, "message"],
+      ]);
 
       // New appends continue after the highest ever seq.
       await session.append(assistantMessage("five"));
-      const afterAppend = await aiConversationStore.listMessages({ conversationId: conversation.id });
+      const afterAppend = await aiConversationStore.listContextMessages({ conversationId: conversation.id });
       expect(afterAppend.at(-1)?.seq).toBe(5);
+
+      // A second compaction hides the superseded summary from the human view.
+      await aiConversationStore.compactMessages({
+        conversationId: conversation.id,
+        checkpointSeq: 4,
+        summary: assistantMessage("Conversation summary: everything through four"),
+      });
+      const afterSecond = await aiConversationStore.listMessages({ conversationId: conversation.id });
+      expect(afterSecond.filter((entry) => entry.kind === "summary")).toHaveLength(1);
+      expect(afterSecond.find((entry) => entry.kind === "summary")).toMatchObject({ seq: 4 });
     } finally {
       await cleanupFixture({ userId, conversationIds });
     }

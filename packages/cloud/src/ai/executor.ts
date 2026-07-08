@@ -574,6 +574,10 @@ export class AiTurnExecutor {
         prompt: settings.compactionPrompt,
         maxOutputTokens: resolved.profile.maxOutputTokens,
         signal: abortController.signal,
+        // Manual /compact means "make the context small": summarize everything
+        // except the latest loop, so the marker lands right above the newest
+        // messages instead of far up the chat.
+        keepRecentLoops: 1,
       }),
     });
 

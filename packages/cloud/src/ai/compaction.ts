@@ -82,14 +82,21 @@ export const createCloudCompactFn = (input: {
   prompt: string;
   maxOutputTokens?: number;
   signal: AbortSignal;
+  /**
+   * Fixed number of recent loops to keep out of the summary. The manual
+   * /compact passes 1 ("make the context small"); automatic compaction leaves
+   * this unset and uses the fill-ratio heuristic ("only as much as needed").
+   */
+  keepRecentLoops?: number;
 }): CompactFn => {
   return (ctx) => {
     if (!ctx.force && (typeof ctx.fillRatio !== "number" || ctx.fillRatio < COMPACTION_FILL_RATIO)) return null;
 
     const totalLoops = countConversationLoops(ctx.entries);
-    if (totalLoops <= COMPACTION_KEEP_RECENT_LOOPS) return null;
+    const keepLoops = input.keepRecentLoops ?? keepLoopsForFillRatio(ctx.fillRatio, totalLoops);
+    if (totalLoops <= keepLoops) return null;
 
-    const splitIndex = findLoopSplitIndex(ctx.entries, keepLoopsForFillRatio(ctx.fillRatio, totalLoops));
+    const splitIndex = findLoopSplitIndex(ctx.entries, keepLoops);
     if (splitIndex < 1) return null;
 
     const sourceEntries = ctx.entries.slice(0, splitIndex);

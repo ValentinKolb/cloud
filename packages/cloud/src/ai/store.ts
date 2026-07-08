@@ -55,6 +55,8 @@ type MessageRow = {
   stop_reason: string | null;
   loop_aggregate: unknown;
   loop_done_reason: DoneReason | null;
+  compacted_at: Date | string | null;
+  meta: unknown;
   created_at: Date | string;
 };
 
@@ -143,6 +145,8 @@ const rowToMessage = (row: MessageRow): AiStoredMessage => {
     stopReason: row.stop_reason,
     loopAggregate: row.loop_aggregate ? parseJsonValue<LoopAggregate>(row.loop_aggregate) : null,
     loopDoneReason: row.loop_done_reason,
+    compactedAt: row.compacted_at ? iso(row.compacted_at) : null,
+    meta: row.meta ? parseJsonValue<AiStoredMessage["meta"]>(row.meta) : null,
     createdAt: iso(row.created_at),
   };
 };
@@ -258,6 +262,7 @@ const insertMessageLocked = async (input: {
   seq?: number;
   loopId?: string | null;
   modelProfileId?: string | null;
+  meta?: AiStoredMessage["meta"];
 }): Promise<MessageRow> => {
   const { usage, providerModel, stopReason } = messageColumns(input.message);
   const seqRows = input.seq
@@ -278,7 +283,8 @@ const insertMessageLocked = async (input: {
       model_profile_id,
       provider_model,
       usage,
-      stop_reason
+      stop_reason,
+      meta
     )
     VALUES (
       ${input.conversationId},
@@ -290,7 +296,8 @@ const insertMessageLocked = async (input: {
       ${input.modelProfileId ?? null},
       ${providerModel},
       ${usage ? JSON.stringify(usage) : null}::jsonb,
-      ${stopReason}
+      ${stopReason},
+      ${input.meta ? JSON.stringify(input.meta) : null}::jsonb
     )
     RETURNING *
   `;
@@ -508,6 +515,20 @@ export const aiConversationStore: AiConversationStore = {
   },
 
   listMessages: async (input) => {
+    // Human view: compacted messages stay visible; superseded (compacted)
+    // summaries are hidden. The active summary sorts after archived rows
+    // sharing its checkpoint seq, marking where the model context begins.
+    const rows = await sql<MessageRow[]>`
+      SELECT *
+      FROM ai.messages
+      WHERE conversation_id = ${input.conversationId}
+        AND NOT (kind = 'summary' AND compacted_at IS NOT NULL)
+      ORDER BY seq ASC, (kind = 'summary')::int ASC
+    `;
+    return rows.map(rowToMessage);
+  },
+
+  listContextMessages: async (input) => {
     const rows = await sql<MessageRow[]>`
       SELECT *
       FROM ai.messages
@@ -626,12 +647,16 @@ export const aiConversationStore: AiConversationStore = {
       `;
       if ((rows[0]?.count ?? 0) === 0) return;
 
-      await sql`
-        UPDATE ai.messages
-        SET compacted_at = now()
-        WHERE conversation_id = ${input.conversationId}
-          AND compacted_at IS NULL
-          AND seq <= ${checkpointSeq}
+      const archived = await sql<{ count: number }[]>`
+        WITH archived AS (
+          UPDATE ai.messages
+          SET compacted_at = now()
+          WHERE conversation_id = ${input.conversationId}
+            AND compacted_at IS NULL
+            AND seq <= ${checkpointSeq}
+          RETURNING id
+        )
+        SELECT COUNT(*)::int AS count FROM archived
       `;
 
       await insertMessageLocked({
@@ -641,6 +666,7 @@ export const aiConversationStore: AiConversationStore = {
         seq: checkpointSeq,
         loopId: null,
         modelProfileId: input.modelProfileId ?? null,
+        meta: { compactedCount: archived[0]?.count ?? 0 },
       });
     });
   },
@@ -1107,7 +1133,8 @@ export const aiConversationStore: AiConversationStore = {
 
   createSessionStore: (input): SessionStore => ({
     load: async (): Promise<StoreEntry[]> => {
-      const rows = await aiConversationStore.listMessages({ conversationId: input.conversationId });
+      // The loop must only ever see the active model context, never archived history.
+      const rows = await aiConversationStore.listContextMessages({ conversationId: input.conversationId });
       return rows.map((row) => ({ seq: row.seq, kind: row.kind, message: row.message }));
     },
     append: async (message, opts) => {

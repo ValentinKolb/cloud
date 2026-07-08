@@ -34,4 +34,19 @@ describe("AI compaction split", () => {
     expect(__compactionTest.keepLoopsForFillRatio(0.75, 10)).toBe(3);
     expect(__compactionTest.keepLoopsForFillRatio(0.95, 10)).toBe(2);
   });
+
+  test("manual compaction (keep 1 loop) splits right before the latest user message", () => {
+    const entries: StoreEntry[] = [
+      messageEntry(1, "user"),
+      messageEntry(2, "assistant"),
+      messageEntry(3, "user"),
+      messageEntry(4, "assistant"),
+      messageEntry(5, "user"),
+      messageEntry(6, "assistant"),
+    ];
+
+    // keepLoops = 1: everything before the last user message goes into the summary.
+    expect(__compactionTest.findLoopSplitIndex(entries, 1)).toBe(4);
+    expect(entries.slice(0, 4).map((entry) => entry.seq)).toEqual([1, 2, 3, 4]);
+  });
 });

@@ -22,6 +22,8 @@ const stored = (input: {
   stopReason: input.message.role === "assistant" ? (input.message.stopReason ?? null) : null,
   loopAggregate: input.loopAggregate ?? null,
   loopDoneReason: input.loopAggregate ? "stop" : null,
+  compactedAt: null,
+  meta: null,
   createdAt: new Date(0).toISOString(),
 });
 

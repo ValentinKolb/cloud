@@ -11,7 +11,7 @@ import type { AiStoredMessage } from "../types";
 import { AiTurnBlockList } from "./blocks";
 import { AiMessageActionsProvider, type AiMessageListActions, AssistantMessageActions } from "./message-actions";
 import { textFromMessage } from "./message-utils";
-import { AssistantMessageLane, ChatUtilityLine, PulseDots } from "./primitives";
+import { AssistantMessageLane, ChatUtilityDisclosure, ChatUtilityLine, PulseDots } from "./primitives";
 import { UserMessageBubble } from "./user-message";
 
 export type { AiMessageListActions };
@@ -21,29 +21,40 @@ export type AiMessageListSession = {
   activeTurn: () => AiActiveTurn | null;
 };
 
+/**
+ * Compaction marker: everything above was archived out of the model context and
+ * replaced by this summary. The messages stay visible for the reader; the model
+ * only sees the summary. Same look as the live "Compacting context" row.
+ */
 function SummaryRow(props: { entry: AiStoredMessage }) {
   const text = () => textFromMessage(props.entry.message);
+  const description = () => {
+    const count = props.entry.meta?.compactedCount;
+    const date = new Date(props.entry.createdAt).toLocaleDateString();
+    return count ? `${count} message${count === 1 ? "" : "s"} summarized · ${date}` : date;
+  };
   return (
-    <div class="px-3 py-1.5">
-      <div class="inline-flex max-w-[min(46rem,100%)] items-start gap-2 rounded-md bg-zinc-100/70 px-2.5 py-1.5 text-xs text-secondary dark:bg-zinc-900/70">
-        <i class="ti ti-info-circle mt-0.5 text-sm text-dimmed" aria-hidden="true" />
-        <div class="min-w-0">
-          <p class="font-medium text-primary">Summary</p>
-          <Show when={text()} fallback={<p class="text-dimmed">No visible content</p>}>
-            <p class="mt-0.5 whitespace-pre-wrap">{text()}</p>
-          </Show>
+    <div class="px-3 py-1">
+      <ChatUtilityDisclosure meta={{ icon: "ti ti-brain", label: "Context compacted", description: description(), tone: "ai" }}>
+        <div class="max-w-xl rounded-md bg-zinc-100/70 p-2 text-[11px] leading-5 text-secondary dark:bg-zinc-950/70">
+          <p class="mb-1 text-[10px] font-medium uppercase tracking-wide text-dimmed">
+            The model now sees this summary instead of the messages above
+          </p>
+          <p class="whitespace-pre-wrap">{text() || "No visible content"}</p>
         </div>
-      </div>
+      </ChatUtilityDisclosure>
     </div>
   );
 }
 
 function AssistantResponseGroup(props: { item: AiAssistantTimelineItem }) {
   const copyText = () => copyTextFromAssistantEntries(props.item.entries);
+  // Archived (compacted) responses stay readable but lose retry/fork actions.
+  const actionEntry = () => (props.item.actionEntry?.compactedAt ? null : props.item.actionEntry);
   return (
     <AssistantMessageLane
       actions={
-        <Show when={props.item.actionEntry}>
+        <Show when={actionEntry()}>
           {(entry) => <AssistantMessageActions entry={entry()} entries={props.item.entries} copyText={copyText()} />}
         </Show>
       }

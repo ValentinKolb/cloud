@@ -27,6 +27,8 @@ const storedMessage = (overrides: Partial<AiStoredMessage> & { id: string; seq: 
   stopReason: null,
   loopAggregate: null,
   loopDoneReason: null,
+  compactedAt: null,
+  meta: null,
   createdAt: "2026-07-07T00:00:00.000Z",
   ...overrides,
 });

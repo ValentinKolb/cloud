@@ -90,11 +90,40 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
 
   // ---- streaming --------------------------------------------------------
 
-  const applyEvent = (conversationId: string, event: AiStreamSseEvent) => {
-    if (streamConversationId !== conversationId) return;
+  const reduceEvent = (conversationId: string, event: AiStreamSseEvent) => {
     const next = reduceProjection({ conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn }, event);
     setState(reconcile(next, { key: "id", merge: true }));
     cache.set(conversationId, next);
+  };
+
+  /**
+   * Compaction rewrites history (archives messages, inserts the summary) — the
+   * additive event fold cannot express that, so the turn ends with one atomic
+   * detail refetch. The finished compaction block stays visible until the fresh
+   * state replaces it in a single step.
+   */
+  const foldCompaction = async (conversationId: string, event: AiStreamSseEvent) => {
+    const detail = await loadDetail(conversationId);
+    if (streamConversationId !== conversationId) return;
+    if (detail) setProjection(detailToProjection(detail), conversationId);
+    else reduceEvent(conversationId, event);
+    setRunStatusRaw(null);
+    void refreshConversations();
+  };
+
+  const applyEvent = (conversationId: string, event: AiStreamSseEvent) => {
+    if (streamConversationId !== conversationId) return;
+
+    if (
+      event.type === "turn_finished" &&
+      state.activeTurn?.turnId === event.turnId &&
+      state.activeTurn.blocks.some((block) => block.kind === "compaction")
+    ) {
+      void foldCompaction(conversationId, event);
+      return;
+    }
+
+    reduceEvent(conversationId, event);
     if (runStatusRaw() && runStatusRaw() !== "stopping") setRunStatusRaw(null);
 
     if (event.type === "turn_finished") {
@@ -239,6 +268,8 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       stopReason: null,
       loopAggregate: null,
       loopDoneReason: null,
+      compactedAt: null,
+      meta: null,
       createdAt: new Date().toISOString(),
     };
     setState("messages", (prev) => [...prev, optimistic]);
