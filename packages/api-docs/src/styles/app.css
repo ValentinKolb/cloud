@@ -1,5 +1,5 @@
-/* api-docs is just a Scalar UI mounted at /app/api-docs — Scalar ships its
-   own bundled stylesheet via the CDN, so this file only needs to exist for
+/* api-docs is a Scalar UI mounted at /app/api-docs. Scalar ships its
+   own bundled stylesheet through the CDN, so this file exists for
    the platform's per-app CSS pipeline (Layout's <link href="/public/api-docs/app.css">). */
 @import "tailwindcss/utilities.css" layer(utilities);
 @source "../**/*.{ts,tsx}";

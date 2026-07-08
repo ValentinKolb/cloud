@@ -1,13 +1,12 @@
 import { defineApp } from "@valentinkolb/cloud";
 
 /**
- * API Docs — single Scalar UI that aggregates every running app's
+ * API Docs: single Scalar UI that aggregates every running app's
  * OpenAPI spec (advertised via `defineApp({ openapi: ... })`) into
  * one source-switcher view. Each app's spec stays its own; this app
- * just renders them together so consumers see one navigable doc
- * index instead of N separate tabs.
+ * renders them together into one navigable doc index.
  *
- * Public on purpose: API references are documentation, not data —
+ * Public on purpose: API references are documentation, not data.
  * the `/api/<id>/openapi.json` endpoints they point at are public too.
  * Lives in the rail's "more" dropdown so it stays one click away
  * without taking primary-nav real estate.

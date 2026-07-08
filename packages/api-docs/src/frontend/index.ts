@@ -10,8 +10,8 @@ import { buildScalarSources } from "./sources";
  * the runtime registry on every request and emit one `sources` entry per
  * app that opted in via `defineApp({ openapi: "..." })`. New apps appear
  * as soon as they heartbeat into the registry; removing an app drops them
- * out of the switcher on the next reload. No special cases — this file
- * is just a flat filter+map over the registry.
+ * out of the switcher on the next reload. No special cases: this file
+ * maps registry entries into Scalar sources.
  */
 const pages = new Hono().get(
   "/",
