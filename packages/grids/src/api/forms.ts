@@ -1,12 +1,12 @@
-import { Hono, type Context } from "hono";
-import { z } from "zod";
-import { describeRoute } from "hono-openapi";
-import { sql } from "bun";
-import { auth, v, respond, jsonResponse, getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, getDateConfig, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
+import { sql } from "bun";
+import { type Context, Hono } from "hono";
+import { describeRoute } from "hono-openapi";
+import { z } from "zod";
 import { FormConfigSchema, ShortIdSchema, UserInputFormFieldEntrySchema } from "../contracts";
-import { gridsService } from "../service";
 import type { GridRecord } from "../service";
+import { gridsService } from "../service";
 import { materializeFieldDefault } from "../service/fields";
 import { gateAt } from "./permissions";
 
@@ -419,6 +419,32 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       return submitFormResponse(c, form, c.req.valid("json"), user.id);
+    },
+  )
+
+  .get(
+    "/:formId",
+    describeRoute({
+      tags: ["Grids:Form"],
+      summary: "Get a single form",
+      responses: {
+        200: jsonResponse(FormSchema, "Form"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const formId = c.req.param("formId")!;
+      const form = await gridsService.form.get(formId);
+      if (!form) return c.json({ message: "Form not found" }, 404);
+      const table = await gridsService.table.get(form.tableId);
+      if (!table) return c.json({ message: "Form not found" }, 404);
+      const tableGate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read");
+      if (!tableGate.ok) {
+        const formGate = await gateAt(c, { baseId: table.baseId, tableId: table.id, formId }, "write");
+        if (!formGate.ok) return respond(c, () => Promise.resolve(formGate));
+        return c.json(gridsService.form.toRenderableForm(form));
+      }
+      return c.json(form);
     },
   )
 

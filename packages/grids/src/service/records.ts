@@ -845,6 +845,52 @@ export const create = async (
   return ok(record);
 };
 
+export const createMany = async (
+  tableId: string,
+  payloads: Record<string, unknown>[],
+  actorId: string | null,
+  opts: {
+    bypassDirectInsertCheck?: boolean;
+    includeRelations?: boolean;
+    viewer?: ExpansionViewer;
+    dateConfig?: DateContext;
+  } = {},
+): Promise<Result<GridRecord[]>> => {
+  if (payloads.length === 0) return ok([]);
+  type RollbackError = Error & { result: Result<CreateRecordInTransactionResult[]> };
+  const created = await sql
+    .begin(async (tx) => {
+      const results: CreateRecordInTransactionResult[] = [];
+      for (const payload of payloads) {
+        const result = await createInTransaction(tx, tableId, payload, actorId, {
+          bypassDirectInsertCheck: opts.bypassDirectInsertCheck,
+          dateConfig: opts.dateConfig,
+        });
+        if (!result.ok) {
+          const rollback = new Error(result.error.message) as RollbackError;
+          rollback.result = result as Result<CreateRecordInTransactionResult[]>;
+          throw rollback;
+        }
+        results.push(result.data);
+      }
+      return ok(results);
+    })
+    .catch((error: unknown) => {
+      if (error && typeof error === "object" && "result" in error) return (error as RollbackError).result;
+      throw error;
+    });
+  if (!created.ok) return created;
+
+  const records: GridRecord[] = [];
+  for (const item of created.data) {
+    const record = await get(tableId, item.record.id, opts);
+    if (!record) return fail(err.notFound("Record"));
+    records.push(record);
+    await emitCreatedRecordEvent(tableId, record, item.changedFieldIds, actorId);
+  }
+  return ok(records);
+};
+
 export const update = async (
   tableId: string,
   recordId: string,

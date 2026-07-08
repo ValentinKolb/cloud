@@ -1,14 +1,22 @@
+import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, getDateConfig, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
+import * as settings from "@valentinkolb/cloud/services/settings";
+import { err, fail, ok } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { auth, v, respond, jsonResponse, getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
-import * as settings from "@valentinkolb/cloud/services/settings";
-import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
-import { ok, fail, err } from "@valentinkolb/stdlib";
+import { ExportBodySchema, GridRecordSchema, RecordPayloadSchema } from "../contracts";
 import { gridsService } from "../service";
-import { GridRecordSchema, RecordPayloadSchema, ExportBodySchema } from "../contracts";
-import { gateAt } from "./permissions";
 import { validateRecordQueryForTable } from "../service/query-validation";
+import { currentActorUserId, gateAt } from "./permissions";
+
+const RecordImportBodySchema = z.object({
+  items: z.array(RecordPayloadSchema).min(1).max(500),
+});
+
+const RecordImportResponseSchema = z.object({
+  items: z.array(GridRecordSchema),
+});
 
 const GridFileSchema = z.object({
   id: z.string().uuid(),
@@ -191,6 +199,37 @@ const app = new Hono<AuthContext>()
       return respond(
         c,
         async () => gridsService.record.create(tableId, c.req.valid("json"), user.id, { dateConfig: await getDateConfig(c) }),
+        201,
+      );
+    },
+  )
+
+  .post(
+    "/by-table/:tableId/import",
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary: "Import records atomically from JSON payloads",
+      description: "Creates all records in one transaction. The body is { items: [recordPayload, ...] }.",
+      responses: {
+        201: jsonResponse(RecordImportResponseSchema, "Imported records"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+      },
+    }),
+    v("json", RecordImportBodySchema),
+    async (c) => {
+      const tableId = c.req.param("tableId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "write");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      return respond(
+        c,
+        async () => {
+          const result = await gridsService.record.createMany(tableId, c.req.valid("json").items, currentActorUserId(c), {
+            dateConfig: await getDateConfig(c),
+          });
+          return result.ok ? ok({ items: result.data }) : result;
+        },
         201,
       );
     },

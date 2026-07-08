@@ -115,7 +115,11 @@ const gateTemplate = async (
 const gateBaseAdminForTemplate = async (c: Context<AuthContext>, loaded: NonNullable<Awaited<ReturnType<typeof loadTemplateAndTable>>>) =>
   gateAt(c, { baseId: loaded.table.baseId }, "admin");
 
-const gateRun = async (c: Context<AuthContext>, run: NonNullable<Awaited<ReturnType<typeof gridsService.document.getRun>>>, required: "read" | "write") => {
+const gateRun = async (
+  c: Context<AuthContext>,
+  run: NonNullable<Awaited<ReturnType<typeof gridsService.document.getRun>>>,
+  required: "read" | "write",
+) => {
   const template = run.templateId ? await loadTemplateAndTable(run.templateId) : null;
   return template ? gateTemplate(c, template, required) : gateAt(c, { baseId: run.baseId, tableId: run.tableId }, required);
 };
@@ -254,707 +258,726 @@ export const createDocumentsApi = (deps: { requireAuthenticated?: MiddlewareHand
   new Hono<AuthContext>()
     .use(deps.requireAuthenticated ?? auth.requireRole("authenticated"))
 
-  .get(
-    "/templates/by-table/:tableId",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "List document templates for a table",
-      responses: {
-        200: jsonResponse(DocumentTemplateSummaryListSchema, "Document templates"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .get(
+      "/templates/by-table/:tableId",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "List document templates for a table",
+        responses: {
+          200: jsonResponse(DocumentTemplateSummaryListSchema, "Document templates"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("query", DocumentTemplateSummaryQuerySchema),
+      async (c) => {
+        const tableId = uuidParam(c, "tableId");
+        if (!tableId) return c.json({ message: "Table not found" }, 404);
+        const table = await gridsService.table.get(tableId);
+        if (!table) return c.json({ message: "Table not found" }, 404);
+        const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const templates = await gridsService.document.listTemplatesForTable(tableId);
+        const required = c.req.valid("query").min;
+        const visible = [];
+        for (const template of templates) {
+          if (!template.enabled) continue;
+          const templateGate = await gateTemplate(c, { template, table }, required);
+          if (templateGate.ok) visible.push(gridsService.document.summarizeTemplate(template));
+        }
+        return c.json(visible);
       },
-    }),
-    v("query", DocumentTemplateSummaryQuerySchema),
-    async (c) => {
-      const tableId = uuidParam(c, "tableId");
-      if (!tableId) return c.json({ message: "Table not found" }, 404);
-      const table = await gridsService.table.get(tableId);
-      if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const templates = await gridsService.document.listTemplatesForTable(tableId);
-      const required = c.req.valid("query").min;
-      const visible = [];
-      for (const template of templates) {
-        if (!template.enabled) continue;
-        const templateGate = await gateTemplate(c, { template, table }, required);
-        if (templateGate.ok) visible.push(gridsService.document.summarizeTemplate(template));
-      }
-      return c.json(visible);
-    },
-  )
+    )
 
-  .get(
-    "/templates/by-table/:tableId/full",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "List full document templates for table admins",
-      responses: {
-        200: jsonResponse(DocumentTemplateListSchema, "Document templates"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .get(
+      "/templates/by-table/:tableId/full",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "List full document templates for table admins",
+        responses: {
+          200: jsonResponse(DocumentTemplateListSchema, "Document templates"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      async (c) => {
+        const tableId = uuidParam(c, "tableId");
+        if (!tableId) return c.json({ message: "Table not found" }, 404);
+        const table = await gridsService.table.get(tableId);
+        if (!table) return c.json({ message: "Table not found" }, 404);
+        const gate = await gateAt(c, { baseId: table.baseId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        return c.json(await gridsService.document.listTemplatesForTable(tableId));
       },
-    }),
-    async (c) => {
-      const tableId = uuidParam(c, "tableId");
-      if (!tableId) return c.json({ message: "Table not found" }, 404);
-      const table = await gridsService.table.get(tableId);
-      if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json(await gridsService.document.listTemplatesForTable(tableId));
-    },
-  )
+    )
 
-  .post(
-    "/templates/by-table/:tableId",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Create a document template",
-      responses: {
-        201: jsonResponse(DocumentTemplateSchema, "Created document template"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .post(
+      "/templates/by-table/:tableId",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Create a document template",
+        responses: {
+          201: jsonResponse(DocumentTemplateSchema, "Created document template"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("json", CreateDocumentTemplateSchema),
+      async (c) => {
+        const tableId = uuidParam(c, "tableId");
+        if (!tableId) return c.json({ message: "Table not found" }, 404);
+        const table = await gridsService.table.get(tableId);
+        if (!table) return c.json({ message: "Table not found" }, 404);
+        const gate = await gateAt(c, { baseId: table.baseId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        return respond(c, () => gridsService.document.createTemplate(tableId, c.req.valid("json"), c.get("user").id), 201);
       },
-    }),
-    v("json", CreateDocumentTemplateSchema),
-    async (c) => {
-      const tableId = uuidParam(c, "tableId");
-      if (!tableId) return c.json({ message: "Table not found" }, 404);
-      const table = await gridsService.table.get(tableId);
-      if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.document.createTemplate(tableId, c.req.valid("json"), c.get("user").id), 201);
-    },
-  )
+    )
 
-  .post(
-    "/templates/by-table/:tableId/preview-draft",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Render a draft document template PDF preview",
-      responses: {
-        200: { description: "Draft PDF preview" },
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .post(
+      "/templates/by-table/:tableId/preview-draft",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Render a draft document template PDF preview",
+        responses: {
+          200: { description: "Draft PDF preview" },
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("json", DocumentTemplateDraftPreviewSchema),
+      async (c) => {
+        const tableId = uuidParam(c, "tableId");
+        if (!tableId) return c.json({ message: "Table not found", phase: "data" }, 404);
+        const table = await gridsService.table.get(tableId);
+        if (!table) return c.json({ message: "Table not found", phase: "data" }, 404);
+        const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+
+        const body = c.req.valid("json");
+        return renderDraftPdfResponse(c, { template: draftTemplateFromBody(body), tableId, recordId: body.recordId });
       },
-    }),
-    v("json", DocumentTemplateDraftPreviewSchema),
-    async (c) => {
-      const tableId = uuidParam(c, "tableId");
-      if (!tableId) return c.json({ message: "Table not found", phase: "data" }, 404);
-      const table = await gridsService.table.get(tableId);
-      if (!table) return c.json({ message: "Table not found", phase: "data" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+    )
 
-      const body = c.req.valid("json");
-      return renderDraftPdfResponse(c, { template: draftTemplateFromBody(body), tableId, recordId: body.recordId });
-    },
-  )
+    .post(
+      "/templates/by-table/:tableId/preview-data-draft",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Render draft document template data for one preview record",
+        responses: {
+          200: jsonResponse(DocumentPreviewResponseSchema, "Draft document preview data"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("json", DocumentTemplateDraftPreviewSchema),
+      async (c) => {
+        const tableId = uuidParam(c, "tableId");
+        if (!tableId) return c.json({ message: "Table not found", phase: "data" }, 404);
+        const table = await gridsService.table.get(tableId);
+        if (!table) return c.json({ message: "Table not found", phase: "data" }, 404);
+        const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-  .post(
-    "/templates/by-table/:tableId/preview-data-draft",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Render draft document template data for one preview record",
-      responses: {
-        200: jsonResponse(DocumentPreviewResponseSchema, "Draft document preview data"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        const body = c.req.valid("json");
+        return renderDraftDataResponse(c, { template: draftTemplateFromBody(body), tableId, recordId: body.recordId });
       },
-    }),
-    v("json", DocumentTemplateDraftPreviewSchema),
-    async (c) => {
-      const tableId = uuidParam(c, "tableId");
-      if (!tableId) return c.json({ message: "Table not found", phase: "data" }, 404);
-      const table = await gridsService.table.get(tableId);
-      if (!table) return c.json({ message: "Table not found", phase: "data" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+    )
 
-      const body = c.req.valid("json");
-      return renderDraftDataResponse(c, { template: draftTemplateFromBody(body), tableId, recordId: body.recordId });
-    },
-  )
+    .post(
+      "/templates/:templateId/preview-draft",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Render a draft document template PDF preview using template admin access",
+        responses: {
+          200: { description: "Draft PDF preview" },
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("json", DocumentTemplateDraftPreviewSchema),
+      async (c) => {
+        const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
+        if (!loaded) return c.json({ message: "Document template not found", phase: "data" }, 404);
+        const gate = await gateBaseAdminForTemplate(c, loaded);
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-  .post(
-    "/templates/:templateId/preview-draft",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Render a draft document template PDF preview using template admin access",
-      responses: {
-        200: { description: "Draft PDF preview" },
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        const body = c.req.valid("json");
+        return renderDraftPdfResponse(c, {
+          template: draftTemplateFromBody(body, loaded.template),
+          tableId: loaded.table.id,
+          recordId: body.recordId,
+        });
       },
-    }),
-    v("json", DocumentTemplateDraftPreviewSchema),
-    async (c) => {
-      const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
-      if (!loaded) return c.json({ message: "Document template not found", phase: "data" }, 404);
-      const gate = await gateBaseAdminForTemplate(c, loaded);
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+    )
 
-      const body = c.req.valid("json");
-      return renderDraftPdfResponse(c, {
-        template: draftTemplateFromBody(body, loaded.template),
-        tableId: loaded.table.id,
-        recordId: body.recordId,
-      });
-    },
-  )
+    .post(
+      "/templates/:templateId/preview-data-draft",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Render draft document template data using template admin access",
+        responses: {
+          200: jsonResponse(DocumentPreviewResponseSchema, "Draft document preview data"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("json", DocumentTemplateDraftPreviewSchema),
+      async (c) => {
+        const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
+        if (!loaded) return c.json({ message: "Document template not found", phase: "data" }, 404);
+        const gate = await gateBaseAdminForTemplate(c, loaded);
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-  .post(
-    "/templates/:templateId/preview-data-draft",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Render draft document template data using template admin access",
-      responses: {
-        200: jsonResponse(DocumentPreviewResponseSchema, "Draft document preview data"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        const body = c.req.valid("json");
+        return renderDraftDataResponse(c, {
+          template: draftTemplateFromBody(body, loaded.template),
+          tableId: loaded.table.id,
+          recordId: body.recordId,
+        });
       },
-    }),
-    v("json", DocumentTemplateDraftPreviewSchema),
-    async (c) => {
-      const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
-      if (!loaded) return c.json({ message: "Document template not found", phase: "data" }, 404);
-      const gate = await gateBaseAdminForTemplate(c, loaded);
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+    )
 
-      const body = c.req.valid("json");
-      return renderDraftDataResponse(c, {
-        template: draftTemplateFromBody(body, loaded.template),
-        tableId: loaded.table.id,
-        recordId: body.recordId,
-      });
-    },
-  )
-
-  .patch(
-    "/templates/:templateId",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Update a document template",
-      responses: {
-        200: jsonResponse(DocumentTemplateSchema, "Updated document template"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .get(
+      "/templates/:templateId",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Get a document template",
+        responses: {
+          200: jsonResponse(DocumentTemplateSchema, "Document template"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      async (c) => {
+        const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
+        if (!loaded) return c.json({ message: "Document template not found" }, 404);
+        const gate = await gateTemplate(c, loaded, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        return c.json(loaded.template);
       },
-    }),
-    v("json", UpdateDocumentTemplateSchema),
-    async (c) => {
-      const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
-      if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateBaseAdminForTemplate(c, loaded);
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.document.updateTemplate(loaded.template.id, c.req.valid("json"), c.get("user").id));
-    },
-  )
+    )
 
-  .delete(
-    "/templates/:templateId",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Delete a document template",
-      responses: {
-        204: { description: "Deleted" },
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .patch(
+      "/templates/:templateId",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Update a document template",
+        responses: {
+          200: jsonResponse(DocumentTemplateSchema, "Updated document template"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("json", UpdateDocumentTemplateSchema),
+      async (c) => {
+        const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
+        if (!loaded) return c.json({ message: "Document template not found" }, 404);
+        const gate = await gateBaseAdminForTemplate(c, loaded);
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        return respond(c, () => gridsService.document.updateTemplate(loaded.template.id, c.req.valid("json"), c.get("user").id));
       },
-    }),
-    async (c) => {
-      const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
-      if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateBaseAdminForTemplate(c, loaded);
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const result = await gridsService.document.removeTemplate(loaded.template.id, c.get("user").id);
-      if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
-      return c.body(null, 204);
-    },
-  )
+    )
 
-  .get(
-    "/templates/:templateId/records/lookup",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Search records for a document template",
-      responses: {
-        200: jsonResponse(RelationLookupResponseSchema, "Lookup results"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .delete(
+      "/templates/:templateId",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Delete a document template",
+        responses: {
+          204: { description: "Deleted" },
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      async (c) => {
+        const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
+        if (!loaded) return c.json({ message: "Document template not found" }, 404);
+        const gate = await gateBaseAdminForTemplate(c, loaded);
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const result = await gridsService.document.removeTemplate(loaded.template.id, c.get("user").id);
+        if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
+        return c.body(null, 204);
       },
-    }),
-    v("query", RecordLookupQuerySchema),
-    async (c) => {
-      const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
-      if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateEnabledTemplateWrite(c, loaded);
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const { q, limit, excludeIds } = c.req.valid("query");
-      return c.json(await gridsService.relations.lookup({ targetTableId: loaded.table.id, q, limit, excludeIds }));
-    },
-  )
+    )
 
-  .post(
-    "/templates/:templateId/preview",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Preview a document template for one record",
-      responses: {
-        200: jsonResponse(DocumentPreviewResponseSchema, "Rendered HTML preview"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .get(
+      "/templates/:templateId/records/lookup",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Search records for a document template",
+        responses: {
+          200: jsonResponse(RelationLookupResponseSchema, "Lookup results"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("query", RecordLookupQuerySchema),
+      async (c) => {
+        const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
+        if (!loaded) return c.json({ message: "Document template not found" }, 404);
+        const gate = await gateEnabledTemplateWrite(c, loaded);
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const { q, limit, excludeIds } = c.req.valid("query");
+        return c.json(await gridsService.relations.lookup({ targetTableId: loaded.table.id, q, limit, excludeIds }));
       },
-    }),
-    v("json", DocumentRecordBodySchema),
-    async (c) => {
-      const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
-      if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateBaseAdminForTemplate(c, loaded);
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+    )
 
-      const generatedAt = new Date();
-      const dateConfig = await getDateConfig(c);
-      const rendered = await liveRenderData(c, {
-        template: loaded.template,
-        tableId: loaded.table.id,
-        recordId: c.req.valid("json").recordId,
-        generatedAt,
-        dateConfig,
-      });
-      if (!rendered.ok) return errorResponse(c, rendered.message, rendered.status);
-      const data = await addDraftDocumentMetadata(c, { template: loaded.template, data: rendered.data, generatedAt, dateConfig });
-      if (!data.ok) return data.response;
-      const html = await gridsService.document.renderHtml(loaded.template, data.data);
-      if (!html.ok) return c.json({ message: html.error.message }, html.error.status);
-      return c.json({ html: html.data, source: rendered.source, data: data.data });
-    },
-  )
+    .post(
+      "/templates/:templateId/preview",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Preview a document template for one record",
+        responses: {
+          200: jsonResponse(DocumentPreviewResponseSchema, "Rendered HTML preview"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("json", DocumentRecordBodySchema),
+      async (c) => {
+        const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
+        if (!loaded) return c.json({ message: "Document template not found" }, 404);
+        const gate = await gateBaseAdminForTemplate(c, loaded);
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-  .post(
-    "/templates/:templateId/preview-pdf",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Render a saved document template PDF preview",
-      responses: {
-        200: { description: "PDF preview" },
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        const generatedAt = new Date();
+        const dateConfig = await getDateConfig(c);
+        const rendered = await liveRenderData(c, {
+          template: loaded.template,
+          tableId: loaded.table.id,
+          recordId: c.req.valid("json").recordId,
+          generatedAt,
+          dateConfig,
+        });
+        if (!rendered.ok) return errorResponse(c, rendered.message, rendered.status);
+        const data = await addDraftDocumentMetadata(c, { template: loaded.template, data: rendered.data, generatedAt, dateConfig });
+        if (!data.ok) return data.response;
+        const html = await gridsService.document.renderHtml(loaded.template, data.data);
+        if (!html.ok) return c.json({ message: html.error.message }, html.error.status);
+        return c.json({ html: html.data, source: rendered.source, data: data.data });
       },
-    }),
-    v("json", DocumentRecordBodySchema),
-    async (c) => {
-      const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
-      if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateEnabledTemplateWrite(c, loaded);
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const generatedAt = new Date();
-      const dateConfig = await getDateConfig(c);
-      const rendered = await liveRenderData(c, {
-        template: loaded.template,
-        tableId: loaded.table.id,
-        recordId: c.req.valid("json").recordId,
-        generatedAt,
-        dateConfig,
-      });
-      if (!rendered.ok) return errorResponse(c, rendered.message, rendered.status);
-      const data = await addDraftDocumentMetadata(c, { template: loaded.template, data: rendered.data, generatedAt, dateConfig });
-      if (!data.ok) return data.response;
-      const pdf = await gridsService.document.renderPdfPreview(loaded.template, data.data, `${loaded.template.shortId}-preview.html`);
-      if (!pdf.ok) {
-        return c.json(
-          { message: pdf.error.message, phase: pdf.error.phase, code: pdf.error.code },
-          pdf.error.status === 400 ? 400 : pdf.error.status === 502 ? 502 : 500,
-        );
-      }
-      return pdfResponse(pdf.pdf.pdf, `${loaded.template.name}.pdf`, {}, "inline");
-    },
-  )
+    )
 
-  .post(
-    "/templates/:templateId/generate",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Generate a PDF for one record and store a document run",
-      responses: {
-        200: { description: "Generated PDF" },
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .post(
+      "/templates/:templateId/preview-pdf",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Render a saved document template PDF preview",
+        responses: {
+          200: { description: "PDF preview" },
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("json", DocumentRecordBodySchema),
+      async (c) => {
+        const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
+        if (!loaded) return c.json({ message: "Document template not found" }, 404);
+        const gate = await gateEnabledTemplateWrite(c, loaded);
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const generatedAt = new Date();
+        const dateConfig = await getDateConfig(c);
+        const rendered = await liveRenderData(c, {
+          template: loaded.template,
+          tableId: loaded.table.id,
+          recordId: c.req.valid("json").recordId,
+          generatedAt,
+          dateConfig,
+        });
+        if (!rendered.ok) return errorResponse(c, rendered.message, rendered.status);
+        const data = await addDraftDocumentMetadata(c, { template: loaded.template, data: rendered.data, generatedAt, dateConfig });
+        if (!data.ok) return data.response;
+        const pdf = await gridsService.document.renderPdfPreview(loaded.template, data.data, `${loaded.template.shortId}-preview.html`);
+        if (!pdf.ok) {
+          return c.json(
+            { message: pdf.error.message, phase: pdf.error.phase, code: pdf.error.code },
+            pdf.error.status === 400 ? 400 : pdf.error.status === 502 ? 502 : 500,
+          );
+        }
+        return pdfResponse(pdf.pdf.pdf, `${loaded.template.name}.pdf`, {}, "inline");
       },
-    }),
-    v("json", DocumentRecordBodySchema),
-    async (c) => {
-      const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
-      if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      if (!loaded.template.enabled) return c.json({ message: "Document template is disabled" }, 400);
-      const gate = await gateTemplate(c, loaded, "write");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+    )
 
-      const body = c.req.valid("json");
-      const generatedAt = new Date();
-      const dateConfig = await getDateConfig(c);
-      const rendered = await liveRenderData(c, {
-        template: loaded.template,
-        tableId: loaded.table.id,
-        recordId: body.recordId,
-        generatedAt,
-        dateConfig,
-      });
-      if (!rendered.ok) return errorResponse(c, rendered.message, rendered.status);
-      const snapshot = await gridsService.document.createRecordSnapshot({
-        baseId: loaded.table.baseId,
-        tableId: loaded.table.id,
-        recordId: body.recordId,
-        actorId: c.get("user").id,
-        dateConfig,
-      });
-      if (!snapshot.ok) return c.json({ message: snapshot.error.message }, snapshot.error.status);
-      const run = await gridsService.document.createRun({
-        template: loaded.template,
-        snapshot: snapshot.data,
-        renderData: { ...rendered.data, snapshot: snapshot.data },
-        actorId: c.get("user").id,
-        generatedAt,
-        dateConfig,
-        filename: body.filename,
-        tags: body.tags,
-      });
-      if (!run.ok) return c.json({ message: run.error.message }, run.error.status);
-      const pdf = await gridsService.document.renderRunPdf(run.data);
-      if (!pdf.ok) return c.json({ message: pdf.error.message }, pdf.error.status);
-      return pdfResponse(pdf.data.pdf, run.data.filename, {
-        "X-Grids-Document-Run-Id": run.data.id,
-        "X-Grids-Document-Number": run.data.documentNumber,
-        "X-Grids-Document-Filename": encodeHeaderValue(run.data.filename),
-      });
-    },
-  )
+    .post(
+      "/templates/:templateId/generate",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Generate a PDF for one record and store a document run",
+        responses: {
+          200: { description: "Generated PDF" },
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("json", DocumentRecordBodySchema),
+      async (c) => {
+        const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
+        if (!loaded) return c.json({ message: "Document template not found" }, 404);
+        if (!loaded.template.enabled) return c.json({ message: "Document template is disabled" }, 400);
+        const gate = await gateTemplate(c, loaded, "write");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-  .get(
-    "/runs/by-template/:templateId",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "List generated document runs for a template",
-      responses: {
-        200: jsonResponse(DocumentRunSummaryListSchema, "Document runs"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        const body = c.req.valid("json");
+        const generatedAt = new Date();
+        const dateConfig = await getDateConfig(c);
+        const rendered = await liveRenderData(c, {
+          template: loaded.template,
+          tableId: loaded.table.id,
+          recordId: body.recordId,
+          generatedAt,
+          dateConfig,
+        });
+        if (!rendered.ok) return errorResponse(c, rendered.message, rendered.status);
+        const snapshot = await gridsService.document.createRecordSnapshot({
+          baseId: loaded.table.baseId,
+          tableId: loaded.table.id,
+          recordId: body.recordId,
+          actorId: c.get("user").id,
+          dateConfig,
+        });
+        if (!snapshot.ok) return c.json({ message: snapshot.error.message }, snapshot.error.status);
+        const run = await gridsService.document.createRun({
+          template: loaded.template,
+          snapshot: snapshot.data,
+          renderData: { ...rendered.data, snapshot: snapshot.data },
+          actorId: c.get("user").id,
+          generatedAt,
+          dateConfig,
+          filename: body.filename,
+          tags: body.tags,
+        });
+        if (!run.ok) return c.json({ message: run.error.message }, run.error.status);
+        const pdf = await gridsService.document.renderRunPdf(run.data);
+        if (!pdf.ok) return c.json({ message: pdf.error.message }, pdf.error.status);
+        return pdfResponse(pdf.data.pdf, run.data.filename, {
+          "X-Grids-Document-Run-Id": run.data.id,
+          "X-Grids-Document-Number": run.data.documentNumber,
+          "X-Grids-Document-Filename": encodeHeaderValue(run.data.filename),
+        });
       },
-    }),
-    v("query", DocumentRunListQuerySchema),
-    async (c) => {
-      const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
-      if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateTemplate(c, loaded, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const query = c.req.valid("query");
-      const page = await gridsService.document.listRunsForTemplate({
-        templateId: loaded.template.id,
-        q: query.q,
-        tags: query.tags,
-        limit: query.limit,
-        offset: query.offset,
-        cursor: query.cursor || null,
-      });
-      return c.json({
-        items: page.items.map(gridsService.document.summarizeRun),
-        total: page.total,
-        limit: page.limit,
-        offset: page.offset,
-        hasMore: page.hasMore,
-        nextOffset: page.nextOffset,
-        nextCursor: page.nextCursor,
-      });
-    },
-  )
+    )
 
-  .get(
-    "/runs/by-template/:templateId/browse",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Browse generated document runs as list items or year/month folders",
-      responses: {
-        200: jsonResponse(DocumentRunBrowseResponseSchema, "Document run browser page"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .get(
+      "/runs/by-template/:templateId",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "List generated document runs for a template",
+        responses: {
+          200: jsonResponse(DocumentRunSummaryListSchema, "Document runs"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("query", DocumentRunListQuerySchema),
+      async (c) => {
+        const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
+        if (!loaded) return c.json({ message: "Document template not found" }, 404);
+        const gate = await gateTemplate(c, loaded, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const query = c.req.valid("query");
+        const page = await gridsService.document.listRunsForTemplate({
+          templateId: loaded.template.id,
+          q: query.q,
+          tags: query.tags,
+          limit: query.limit,
+          offset: query.offset,
+          cursor: query.cursor || null,
+        });
+        return c.json({
+          items: page.items.map(gridsService.document.summarizeRun),
+          total: page.total,
+          limit: page.limit,
+          offset: page.offset,
+          hasMore: page.hasMore,
+          nextOffset: page.nextOffset,
+          nextCursor: page.nextCursor,
+        });
       },
-    }),
-    v("query", DocumentRunBrowseQuerySchema),
-    async (c) => {
-      const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
-      if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateTemplate(c, loaded, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const query = c.req.valid("query");
-      const page = await gridsService.document.browseRunsForTemplate({
-        templateId: loaded.template.id,
-        q: query.q,
-        tags: query.tags,
-        limit: query.limit,
-        cursor: query.cursor || null,
-        path: query.path,
-        mode: query.mode,
-        timeZone: (await getDateConfig(c)).timeZone,
-      });
-      return c.json({
-        path: page.path,
-        folders: page.folders,
-        items: page.items.map(gridsService.document.summarizeRun),
-        total: page.total,
-        limit: page.limit,
-        hasMore: page.hasMore,
-        nextCursor: page.nextCursor,
-      });
-    },
-  )
+    )
 
-  .get(
-    "/runs/by-template/:templateId/:recordId",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "List generated document runs for a template and record",
-      responses: {
-        200: jsonResponse(DocumentRunSummaryListSchema, "Document runs"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .get(
+      "/runs/by-template/:templateId/browse",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Browse generated document runs as list items or year/month folders",
+        responses: {
+          200: jsonResponse(DocumentRunBrowseResponseSchema, "Document run browser page"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("query", DocumentRunBrowseQuerySchema),
+      async (c) => {
+        const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
+        if (!loaded) return c.json({ message: "Document template not found" }, 404);
+        const gate = await gateTemplate(c, loaded, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const query = c.req.valid("query");
+        const page = await gridsService.document.browseRunsForTemplate({
+          templateId: loaded.template.id,
+          q: query.q,
+          tags: query.tags,
+          limit: query.limit,
+          cursor: query.cursor || null,
+          path: query.path,
+          mode: query.mode,
+          timeZone: (await getDateConfig(c)).timeZone,
+        });
+        return c.json({
+          path: page.path,
+          folders: page.folders,
+          items: page.items.map(gridsService.document.summarizeRun),
+          total: page.total,
+          limit: page.limit,
+          hasMore: page.hasMore,
+          nextCursor: page.nextCursor,
+        });
       },
-    }),
-    async (c) => {
-      const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
-      if (!loaded) return c.json({ message: "Document template not found" }, 404);
-      const recordId = uuidParam(c, "recordId");
-      if (!recordId) return c.json({ message: "Record not found" }, 404);
-      const gate = await gateTemplate(c, loaded, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const runs = await gridsService.document.listRunsForRecord(loaded.table.id, recordId);
-      return c.json({ items: runs.filter((run) => run.templateId === loaded.template.id).map(gridsService.document.summarizeRun) });
-    },
-  )
+    )
 
-  .get(
-    "/runs/by-record/:tableId/:recordId",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "List generated document runs for a record",
-      responses: {
-        200: jsonResponse(DocumentRunSummaryListSchema, "Document runs"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .get(
+      "/runs/by-template/:templateId/:recordId",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "List generated document runs for a template and record",
+        responses: {
+          200: jsonResponse(DocumentRunSummaryListSchema, "Document runs"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      async (c) => {
+        const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
+        if (!loaded) return c.json({ message: "Document template not found" }, 404);
+        const recordId = uuidParam(c, "recordId");
+        if (!recordId) return c.json({ message: "Record not found" }, 404);
+        const gate = await gateTemplate(c, loaded, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const runs = await gridsService.document.listRunsForRecord(loaded.table.id, recordId);
+        return c.json({ items: runs.filter((run) => run.templateId === loaded.template.id).map(gridsService.document.summarizeRun) });
       },
-    }),
-    async (c) => {
-      const tableId = uuidParam(c, "tableId");
-      const recordId = uuidParam(c, "recordId");
-      if (!tableId || !recordId) return c.json({ message: "Record not found" }, 404);
-      const table = await gridsService.table.get(tableId);
-      if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json({
-        items: (await gridsService.document.listRunsForRecord(tableId, recordId)).map(gridsService.document.summarizeRun),
-      });
-    },
-  )
+    )
 
-  .patch(
-    "/runs/:runId",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Update generated document metadata",
-      responses: {
-        200: jsonResponse(DocumentRunSummarySchema, "Updated document run"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .get(
+      "/runs/by-record/:tableId/:recordId",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "List generated document runs for a record",
+        responses: {
+          200: jsonResponse(DocumentRunSummaryListSchema, "Document runs"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      async (c) => {
+        const tableId = uuidParam(c, "tableId");
+        const recordId = uuidParam(c, "recordId");
+        if (!tableId || !recordId) return c.json({ message: "Record not found" }, 404);
+        const table = await gridsService.table.get(tableId);
+        if (!table) return c.json({ message: "Table not found" }, 404);
+        const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        return c.json({
+          items: (await gridsService.document.listRunsForRecord(tableId, recordId)).map(gridsService.document.summarizeRun),
+        });
       },
-    }),
-    v("json", UpdateDocumentRunMetadataSchema),
-    async (c) => {
-      const runId = uuidParam(c, "runId");
-      if (!runId) return c.json({ message: "Document run not found" }, 404);
-      const run = await gridsService.document.getRun(runId);
-      if (!run) return c.json({ message: "Document run not found" }, 404);
-      const template = run.templateId ? await loadTemplateAndTable(run.templateId) : null;
-      const gate = template
-        ? await gateTemplate(c, template, "write")
-        : await gateAt(c, { baseId: run.baseId, tableId: run.tableId }, "write");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const updated = await gridsService.document.updateRunMetadata(run.id, c.req.valid("json"));
-      if (!updated.ok) return c.json({ message: updated.error.message }, updated.error.status);
-      return c.json(gridsService.document.summarizeRun(updated.data));
-    },
-  )
+    )
 
-  .get(
-    "/runs/:runId/links",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "List expiring public links for a generated document",
-      responses: {
-        200: jsonResponse(DocumentLinkListResponseSchema, "Document links"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .patch(
+      "/runs/:runId",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Update generated document metadata",
+        responses: {
+          200: jsonResponse(DocumentRunSummarySchema, "Updated document run"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("json", UpdateDocumentRunMetadataSchema),
+      async (c) => {
+        const runId = uuidParam(c, "runId");
+        if (!runId) return c.json({ message: "Document run not found" }, 404);
+        const run = await gridsService.document.getRun(runId);
+        if (!run) return c.json({ message: "Document run not found" }, 404);
+        const template = run.templateId ? await loadTemplateAndTable(run.templateId) : null;
+        const gate = template
+          ? await gateTemplate(c, template, "write")
+          : await gateAt(c, { baseId: run.baseId, tableId: run.tableId }, "write");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const updated = await gridsService.document.updateRunMetadata(run.id, c.req.valid("json"));
+        if (!updated.ok) return c.json({ message: updated.error.message }, updated.error.status);
+        return c.json(gridsService.document.summarizeRun(updated.data));
       },
-    }),
-    async (c) => {
-      const runId = uuidParam(c, "runId");
-      if (!runId) return c.json({ message: "Document run not found" }, 404);
-      const run = await gridsService.document.getRun(runId);
-      if (!run) return c.json({ message: "Document run not found" }, 404);
-      const gate = await gateRun(c, run, "write");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json({ items: await gridsService.document.listDocumentLinksForRun(run.id) });
-    },
-  )
+    )
 
-  .post(
-    "/runs/:runId/links",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Create an expiring public link for a generated document",
-      responses: {
-        201: jsonResponse(CreateDocumentLinkResponseSchema, "Created document link"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .get(
+      "/runs/:runId/links",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "List expiring public links for a generated document",
+        responses: {
+          200: jsonResponse(DocumentLinkListResponseSchema, "Document links"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      async (c) => {
+        const runId = uuidParam(c, "runId");
+        if (!runId) return c.json({ message: "Document run not found" }, 404);
+        const run = await gridsService.document.getRun(runId);
+        if (!run) return c.json({ message: "Document run not found" }, 404);
+        const gate = await gateRun(c, run, "write");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        return c.json({ items: await gridsService.document.listDocumentLinksForRun(run.id) });
       },
-    }),
-    v("json", CreateDocumentLinkSchema),
-    async (c) => {
-      const runId = uuidParam(c, "runId");
-      if (!runId) return c.json({ message: "Document run not found" }, 404);
-      const run = await gridsService.document.getRun(runId);
-      if (!run) return c.json({ message: "Document run not found" }, 404);
-      const gate = await gateRun(c, run, "write");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const created = await gridsService.document.createDocumentLink({
-        run,
-        input: c.req.valid("json"),
-        actorId: c.get("user").id,
-        ...auditRequestContext(c),
-      });
-      if (!created.ok) return c.json({ message: created.error.message }, created.error.status);
-      return c.json({ link: created.data.link, url: publicDocumentLinkUrl(c, created.data.token) }, 201);
-    },
-  )
+    )
 
-  .post(
-    "/links/:linkId/revoke",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Revoke an expiring public document link",
-      responses: {
-        200: jsonResponse(DocumentLinkSchema, "Revoked document link"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .post(
+      "/runs/:runId/links",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Create an expiring public link for a generated document",
+        responses: {
+          201: jsonResponse(CreateDocumentLinkResponseSchema, "Created document link"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      v("json", CreateDocumentLinkSchema),
+      async (c) => {
+        const runId = uuidParam(c, "runId");
+        if (!runId) return c.json({ message: "Document run not found" }, 404);
+        const run = await gridsService.document.getRun(runId);
+        if (!run) return c.json({ message: "Document run not found" }, 404);
+        const gate = await gateRun(c, run, "write");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const created = await gridsService.document.createDocumentLink({
+          run,
+          input: c.req.valid("json"),
+          actorId: c.get("user").id,
+          ...auditRequestContext(c),
+        });
+        if (!created.ok) return c.json({ message: created.error.message }, created.error.status);
+        return c.json({ link: created.data.link, url: publicDocumentLinkUrl(c, created.data.token) }, 201);
       },
-    }),
-    async (c) => {
-      const linkId = uuidParam(c, "linkId");
-      if (!linkId) return c.json({ message: "Document link not found" }, 404);
-      const link = await gridsService.document.getDocumentLink(linkId);
-      if (!link) return c.json({ message: "Document link not found" }, 404);
-      const run = await gridsService.document.getRun(link.documentRunId);
-      if (!run) return c.json({ message: "Document run not found" }, 404);
-      const gate = await gateRun(c, run, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+    )
 
-      const userId = c.get("user").id;
-      const canRevoke = link.createdBy === userId || gridsService.permission.hasAtLeast(gate.data, "write");
-      if (!canRevoke) return c.json({ message: "Only the creator or a document editor can revoke this link." }, 403);
+    .post(
+      "/links/:linkId/revoke",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Revoke an expiring public document link",
+        responses: {
+          200: jsonResponse(DocumentLinkSchema, "Revoked document link"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      async (c) => {
+        const linkId = uuidParam(c, "linkId");
+        if (!linkId) return c.json({ message: "Document link not found" }, 404);
+        const link = await gridsService.document.getDocumentLink(linkId);
+        if (!link) return c.json({ message: "Document link not found" }, 404);
+        const run = await gridsService.document.getRun(link.documentRunId);
+        if (!run) return c.json({ message: "Document run not found" }, 404);
+        const gate = await gateRun(c, run, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-      const revoked = await gridsService.document.revokeDocumentLink({
-        linkId: link.id,
-        actorId: userId,
-        ...auditRequestContext(c),
-      });
-      if (!revoked.ok) return c.json({ message: revoked.error.message }, revoked.error.status);
-      return c.json(revoked.data);
-    },
-  )
+        const userId = c.get("user").id;
+        const canRevoke = link.createdBy === userId || gridsService.permission.hasAtLeast(gate.data, "write");
+        if (!canRevoke) return c.json({ message: "Only the creator or a document editor can revoke this link." }, 403);
 
-  .get(
-    "/runs/:runId/download",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Redownload a generated document PDF from stored snapshot data",
-      responses: {
-        200: { description: "Generated PDF" },
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        const revoked = await gridsService.document.revokeDocumentLink({
+          linkId: link.id,
+          actorId: userId,
+          ...auditRequestContext(c),
+        });
+        if (!revoked.ok) return c.json({ message: revoked.error.message }, revoked.error.status);
+        return c.json(revoked.data);
       },
-    }),
-    async (c) => {
-      const runId = uuidParam(c, "runId");
-      if (!runId) return c.json({ message: "Document run not found" }, 404);
-      const run = await gridsService.document.getRun(runId);
-      if (!run) return c.json({ message: "Document run not found" }, 404);
-      const template = run.templateId ? await loadTemplateAndTable(run.templateId) : null;
-      const gate = template
-        ? await gateTemplate(c, template, "read")
-        : await gateAt(c, { baseId: run.baseId, tableId: run.tableId }, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const pdf = await gridsService.document.renderRunPdf(run);
-      if (!pdf.ok) return c.json({ message: pdf.error.message }, pdf.error.status);
-      return pdfResponse(pdf.data.pdf, run.filename, {
-        "X-Grids-Document-Run-Id": run.id,
-        "X-Grids-Document-Number": run.documentNumber,
-        "X-Grids-Document-Filename": encodeHeaderValue(run.filename),
-      });
-    },
-  )
+    )
 
-  .get(
-    "/snapshots/by-record/:tableId/:recordId",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "List standalone record snapshots for a record",
-      responses: {
-        200: jsonResponse(RecordSnapshotListResponseSchema, "Record snapshots"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .get(
+      "/runs/:runId/download",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Redownload a generated document PDF from stored snapshot data",
+        responses: {
+          200: { description: "Generated PDF" },
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      async (c) => {
+        const runId = uuidParam(c, "runId");
+        if (!runId) return c.json({ message: "Document run not found" }, 404);
+        const run = await gridsService.document.getRun(runId);
+        if (!run) return c.json({ message: "Document run not found" }, 404);
+        const template = run.templateId ? await loadTemplateAndTable(run.templateId) : null;
+        const gate = template
+          ? await gateTemplate(c, template, "read")
+          : await gateAt(c, { baseId: run.baseId, tableId: run.tableId }, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const pdf = await gridsService.document.renderRunPdf(run);
+        if (!pdf.ok) return c.json({ message: pdf.error.message }, pdf.error.status);
+        return pdfResponse(pdf.data.pdf, run.filename, {
+          "X-Grids-Document-Run-Id": run.id,
+          "X-Grids-Document-Number": run.documentNumber,
+          "X-Grids-Document-Filename": encodeHeaderValue(run.filename),
+        });
       },
-    }),
-    async (c) => {
-      const tableId = uuidParam(c, "tableId");
-      const recordId = uuidParam(c, "recordId");
-      if (!tableId || !recordId) return c.json({ message: "Record not found" }, 404);
-      const table = await gridsService.table.get(tableId);
-      if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json({ items: await gridsService.document.listSnapshotsForRecord(tableId, recordId) });
-    },
-  )
+    )
 
-  .post(
-    "/snapshots/by-record/:tableId/:recordId",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Create a standalone recursive record snapshot",
-      responses: {
-        200: jsonResponse(CreateRecordSnapshotResponseSchema, "Record snapshot"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .get(
+      "/snapshots/by-record/:tableId/:recordId",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "List standalone record snapshots for a record",
+        responses: {
+          200: jsonResponse(RecordSnapshotListResponseSchema, "Record snapshots"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      async (c) => {
+        const tableId = uuidParam(c, "tableId");
+        const recordId = uuidParam(c, "recordId");
+        if (!tableId || !recordId) return c.json({ message: "Record not found" }, 404);
+        const table = await gridsService.table.get(tableId);
+        if (!table) return c.json({ message: "Table not found" }, 404);
+        const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        return c.json({ items: await gridsService.document.listSnapshotsForRecord(tableId, recordId) });
       },
-    }),
-    async (c) => {
-      const tableId = uuidParam(c, "tableId");
-      const recordId = uuidParam(c, "recordId");
-      if (!tableId || !recordId) return c.json({ message: "Record not found" }, 404);
-      const table = await gridsService.table.get(tableId);
-      if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const snapshot = await gridsService.document.createRecordSnapshot({
-        baseId: table.baseId,
-        tableId,
-        recordId,
-        actorId: c.get("user").id,
-        dateConfig: await getDateConfig(c),
-      });
-      if (!snapshot.ok) return c.json({ message: snapshot.error.message }, snapshot.error.status);
-      return c.json({ snapshot: snapshot.data });
-    },
-  )
+    )
 
-  .get(
-    "/snapshots/:snapshotId",
-    describeRoute({
-      tags: ["Grids:Document"],
-      summary: "Get a record snapshot",
-      responses: {
-        200: jsonResponse(RecordSnapshotSchema, "Record snapshot"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+    .post(
+      "/snapshots/by-record/:tableId/:recordId",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Create a standalone recursive record snapshot",
+        responses: {
+          200: jsonResponse(CreateRecordSnapshotResponseSchema, "Record snapshot"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      async (c) => {
+        const tableId = uuidParam(c, "tableId");
+        const recordId = uuidParam(c, "recordId");
+        if (!tableId || !recordId) return c.json({ message: "Record not found" }, 404);
+        const table = await gridsService.table.get(tableId);
+        if (!table) return c.json({ message: "Table not found" }, 404);
+        const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const snapshot = await gridsService.document.createRecordSnapshot({
+          baseId: table.baseId,
+          tableId,
+          recordId,
+          actorId: c.get("user").id,
+          dateConfig: await getDateConfig(c),
+        });
+        if (!snapshot.ok) return c.json({ message: snapshot.error.message }, snapshot.error.status);
+        return c.json({ snapshot: snapshot.data });
       },
-    }),
-    async (c) => {
-      const snapshotId = uuidParam(c, "snapshotId");
-      if (!snapshotId) return c.json({ message: "Record snapshot not found" }, 404);
-      const snapshot = await gridsService.document.getSnapshot(snapshotId);
-      if (!snapshot) return c.json({ message: "Record snapshot not found" }, 404);
-      const gate = await gateAt(c, { baseId: snapshot.baseId, tableId: snapshot.tableId }, "admin");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json(snapshot);
-    },
-  );
+    )
+
+    .get(
+      "/snapshots/:snapshotId",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Get a record snapshot",
+        responses: {
+          200: jsonResponse(RecordSnapshotSchema, "Record snapshot"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        },
+      }),
+      async (c) => {
+        const snapshotId = uuidParam(c, "snapshotId");
+        if (!snapshotId) return c.json({ message: "Record snapshot not found" }, 404);
+        const snapshot = await gridsService.document.getSnapshot(snapshotId);
+        if (!snapshot) return c.json({ message: "Record snapshot not found" }, 404);
+        const gate = await gateAt(c, { baseId: snapshot.baseId, tableId: snapshot.tableId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        return c.json(snapshot);
+      },
+    );
 
 export default createDocumentsApi();
