@@ -10,6 +10,7 @@ import {
 import { fuzzy } from "@valentinkolb/stdlib";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { docHref, findDocPage, type UiLabDocPage, uiLabDocs, uiLabSearchEntries } from "./registry";
+import UiLabLayoutHelp from "./UiLabLayoutHelp.island";
 
 type UiLabDocsProps = {
   section: string;
@@ -120,56 +121,59 @@ export default function UiLabDocs(props: UiLabDocsProps) {
   });
 
   return (
-    <AppWorkspace class="flex-1 min-h-0">
-      <AppWorkspace.Sidebar>
-        <AppWorkspace.SidebarHeader title="UI Lab" subtitle="Components and utilities" icon="ti ti-palette" />
+    <>
+      <UiLabLayoutHelp />
+      <AppWorkspace class="flex-1 min-h-0">
+        <AppWorkspace.Sidebar>
+          <AppWorkspace.SidebarHeader title="UI Lab" subtitle="Components and utilities" icon="ti ti-palette" />
 
-        <AppWorkspace.SidebarMobile>
-          <AppWorkspace.SidebarMobileItems>
-            <SpotlightButton variant="sidebar-mobile" title={`Search UI Lab (${SPOTLIGHT_SHORTCUT_TITLE})`} onClick={openSearch} />
-            {uiLabDocs.map((group) => group.pages.map(renderSidebarItem))}
-          </AppWorkspace.SidebarMobileItems>
-        </AppWorkspace.SidebarMobile>
+          <AppWorkspace.SidebarMobile>
+            <AppWorkspace.SidebarMobileItems>
+              <SpotlightButton variant="sidebar-mobile" title={`Search UI Lab (${SPOTLIGHT_SHORTCUT_TITLE})`} onClick={openSearch} />
+              {uiLabDocs.map((group) => group.pages.map(renderSidebarItem))}
+            </AppWorkspace.SidebarMobileItems>
+          </AppWorkspace.SidebarMobile>
 
-        <AppWorkspace.SidebarDesktop>
-          <AppWorkspace.SidebarBody scrollPreserveKey="ui-lab-docs-sidebar">
-            <AppWorkspace.SidebarSection>
-              <SpotlightButton variant="sidebar" title={`Search UI Lab (${SPOTLIGHT_SHORTCUT_TITLE})`} onClick={openSearch} />
-            </AppWorkspace.SidebarSection>
-            {uiLabDocs.map((group) => (
-              <AppWorkspace.SidebarSection title={group.title}>{group.pages.map(renderSidebarItem)}</AppWorkspace.SidebarSection>
-            ))}
-          </AppWorkspace.SidebarBody>
-        </AppWorkspace.SidebarDesktop>
-      </AppWorkspace.Sidebar>
+          <AppWorkspace.SidebarDesktop>
+            <AppWorkspace.SidebarBody scrollPreserveKey="ui-lab-docs-sidebar">
+              <AppWorkspace.SidebarSection>
+                <SpotlightButton variant="sidebar" title={`Search UI Lab (${SPOTLIGHT_SHORTCUT_TITLE})`} onClick={openSearch} />
+              </AppWorkspace.SidebarSection>
+              {uiLabDocs.map((group) => (
+                <AppWorkspace.SidebarSection title={group.title}>{group.pages.map(renderSidebarItem)}</AppWorkspace.SidebarSection>
+              ))}
+            </AppWorkspace.SidebarBody>
+          </AppWorkspace.SidebarDesktop>
+        </AppWorkspace.Sidebar>
 
-      <AppWorkspace.Main>
-        <div ref={mainScroll} class="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-6">
-          <div class="mx-auto flex max-w-6xl flex-col gap-4">
-            {current() ? (
-              <>
-                <header class="flex flex-col gap-1">
-                  <div class="min-w-0">
-                    <div class="flex items-center gap-2 text-xs text-dimmed">
-                      <i class={`${current()!.icon} text-sm`} />
-                      <span>{currentSectionTitle()}</span>
+        <AppWorkspace.Main>
+          <div ref={mainScroll} class="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-6">
+            <div class="mx-auto flex max-w-6xl flex-col gap-4">
+              {current() ? (
+                <>
+                  <header class="flex flex-col gap-1">
+                    <div class="min-w-0">
+                      <div class="flex items-center gap-2 text-xs text-dimmed">
+                        <i class={`${current()!.icon} text-sm`} />
+                        <span>{currentSectionTitle()}</span>
+                      </div>
+                      <h1 class="text-xl font-semibold text-primary">{current()!.title}</h1>
+                      <p class="max-w-3xl text-sm text-dimmed">{current()!.summary}</p>
                     </div>
-                    <h1 class="text-xl font-semibold text-primary">{current()!.title}</h1>
-                    <p class="max-w-3xl text-sm text-dimmed">{current()!.summary}</p>
-                  </div>
-                </header>
+                  </header>
 
-                {current()!.render({ markdownHtml: props.markdownHtml, dockWorkspaceInitialState: props.dockWorkspaceInitialState })}
-              </>
-            ) : (
-              <div class="paper flex max-w-md flex-col items-center gap-2 self-center p-8 text-center text-xs text-dimmed">
-                <i class="ti ti-alert-circle text-2xl" />
-                <p>UI Lab page not found.</p>
-              </div>
-            )}
+                  {current()!.render({ markdownHtml: props.markdownHtml, dockWorkspaceInitialState: props.dockWorkspaceInitialState })}
+                </>
+              ) : (
+                <div class="paper flex max-w-md flex-col items-center gap-2 self-center p-8 text-center text-xs text-dimmed">
+                  <i class="ti ti-alert-circle text-2xl" />
+                  <p>UI Lab page not found.</p>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      </AppWorkspace.Main>
-    </AppWorkspace>
+        </AppWorkspace.Main>
+      </AppWorkspace>
+    </>
   );
 }
