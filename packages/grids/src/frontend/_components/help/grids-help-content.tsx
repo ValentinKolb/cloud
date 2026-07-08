@@ -1,6 +1,19 @@
-import { DocCode, DocConceptGrid, DocInlineCode, DocLead, DocNote, DocPage, DocRows, DocSection } from "@valentinkolb/cloud/ui";
+import {
+  CopyButton,
+  DataTable,
+  type DataTableColumn,
+  DocCode,
+  DocConceptGrid,
+  DocInlineCode,
+  DocLead,
+  DocNote,
+  DocPage,
+  DocRows,
+  DocSection,
+} from "@valentinkolb/cloud/ui";
 import { highlight } from "@valentinkolb/stdlib";
 import { For, type JSX } from "solid-js";
+import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
 
 export type Step = {
   title: string;
@@ -11,6 +24,15 @@ export type Recipe = {
   problem: string;
   use: string;
   avoid?: string;
+};
+
+type FunctionRow = {
+  name: string;
+  category: string;
+  signature: string;
+  description: string;
+  returnType: string;
+  search: string;
 };
 
 const formulaHighlight = highlight.compile(
@@ -122,7 +144,59 @@ export const RecipeRows = (props: { items: Recipe[] }) => (
   </div>
 );
 
-export const GridsStartPage = () => (
+const functionCategory = (name: string, returnType: string): string => {
+  if (["SUM", "AVG", "MEAN", "COUNT", "MIN", "MAX", "MEDIAN"].includes(name)) return "Aggregate";
+  if (["ABS", "ROUND", "FLOOR", "CEIL", "SQRT", "POW", "MOD", "PERCENT"].includes(name)) return "Number";
+  if (["IF", "IFEMPTY", "IFERROR", "AND", "OR", "NOT", "ISBLANK"].includes(name)) return "Logic";
+  if (
+    [
+      "CONTAINS",
+      "STARTSWITH",
+      "ENDSWITH",
+      "ICONTAINS",
+      "ISTARTSWITH",
+      "IENDSWITH",
+      "CONCAT",
+      "LEN",
+      "LOWER",
+      "UPPER",
+      "TRIM",
+      "LEFT",
+      "RIGHT",
+      "SUBSTRING",
+      "REPLACE",
+    ].includes(name)
+  )
+    return "Text";
+  if (["TODAY", "NOW", "YEAR", "MONTH", "DAY", "DATEADD", "DATEDIFF"].includes(name)) return "Date";
+  return returnType === "number" ? "Number" : "General";
+};
+
+const formulaFunctionRows: FunctionRow[] = GRID_FORMULA_FUNCTIONS.map((fn) => {
+  const category = functionCategory(fn.name, fn.returnType);
+  return {
+    name: fn.name,
+    category,
+    signature: fn.signature,
+    description: fn.description,
+    returnType: fn.returnType,
+    search: [fn.name, fn.signature, fn.description, category, fn.returnType].join(" "),
+  };
+});
+
+const formulaFunctionColumns: DataTableColumn<FunctionRow>[] = [
+  { id: "category", header: "Group", value: (row) => row.category },
+  { id: "signature", header: "Function", value: (row) => row.signature, cellClass: "font-mono text-xs min-w-48" },
+  { id: "description", header: "What it does", value: (row) => row.description, cellClass: "min-w-72" },
+  { id: "returnType", header: "Returns", value: (row) => row.returnType },
+  { id: "copy", header: "", value: (row) => row.name, cellClass: "w-12 text-right" },
+];
+
+const renderFormulaCopyCell = (value: unknown) => (
+  <CopyButton text={String(value ?? "")} class="btn-ghost btn-sm inline-flex h-7 w-7 items-center justify-center p-0" />
+);
+
+export const GridsOverviewPage = () => (
   <GridsDocPage>
     <DocLead>
       Grids is a database app for structured office work. A base contains tables, tables contain records, and fields describe the facts each
@@ -130,38 +204,38 @@ export const GridsStartPage = () => (
       table data.
     </DocLead>
 
-    <DocSection title="Overview" eyebrow="Start here">
-      <DocConceptGrid
+    <DocSection title="What Grids is for" eyebrow="Overview">
+      <DocRows
         items={[
           {
-            title: "Base",
-            icon: "ti-database",
-            text: "One workspace for one subject, such as finance, inventory, hiring, or a bookshop.",
-          },
-          {
-            title: "Table",
+            title: "Structured records",
             icon: "ti-table",
-            text: "One kind of record. Customers, invoices, books, items, and loans usually belong in separate tables.",
+            text: "Use tables when the data has fields, lifecycle, permissions, forms, views, dashboards, documents, or relations.",
           },
           {
-            title: "Field",
-            icon: "ti-columns",
-            text: "One fact about a record: status, amount, due date, owner, file, relation, formula, barcode, or ID.",
-          },
-          {
-            title: "View",
+            title: "Operational views",
             icon: "ti-filter",
-            text: "A saved way to inspect a table. Views can filter, sort, group, aggregate, and choose a display mode.",
+            text: "Use views when people revisit the same subset, order, grouping, aggregation, card board, or calendar.",
           },
           {
-            title: "Form",
+            title: "Guided input",
             icon: "ti-forms",
-            text: "A guided create flow for a table, useful for dashboards, public intake, and repeatable internal entry.",
+            text: "Use forms when users should create records through a focused flow instead of opening the whole table.",
           },
           {
-            title: "Dashboard",
+            title: "Reports and dashboards",
             icon: "ti-layout-dashboard",
-            text: "A working page with stats, charts, forms, Markdown, links, and embedded views.",
+            text: "Use dashboards for stats, charts, embedded views, Markdown, links, and workflow buttons.",
+          },
+          {
+            title: "Documents",
+            icon: "ti-file-type-pdf",
+            text: "Use document templates to render PDFs from records with GQL data sources and Liquid HTML.",
+          },
+          {
+            title: "Automations",
+            icon: "ti-route",
+            text: "Use workflows for repeatable operations started from forms, API requests, scanners, bulk selection, dashboards, schedules, or record events.",
           },
         ]}
       />
@@ -201,11 +275,199 @@ export const GridsStartPage = () => (
   </GridsDocPage>
 );
 
-export const GridsBuildWorkflowsPage = () => (
+export const GridsCoreModelPage = () => (
   <GridsDocPage>
     <DocLead>
-      Pick the smallest Grids feature that makes the workflow clear. Add structure when it removes repeated manual work, not because another
-      option exists.
+      A Grids base is a set of connected resources around saved table data. Keep the model simple first: tables store records, fields define
+      record shape, and the other resources read from or write to those tables.
+    </DocLead>
+
+    <DocSection title="Core objects" eyebrow="Model">
+      <DocConceptGrid
+        items={[
+          {
+            title: "Base",
+            icon: "ti-database",
+            text: "One workspace for one subject, such as finance, inventory, hiring, or a bookshop.",
+          },
+          {
+            title: "Table",
+            icon: "ti-table",
+            text: "One kind of record. Customers, invoices, books, items, and loans usually belong in separate tables.",
+          },
+          {
+            title: "Record",
+            icon: "ti-row-insert-bottom",
+            text: "One saved item inside a table. Records are the rows that views, forms, dashboards, templates, and workflows use.",
+          },
+          {
+            title: "Field",
+            icon: "ti-columns",
+            text: "One fact about a record: status, amount, due date, owner, file, relation, formula, barcode, or ID.",
+          },
+          {
+            title: "Relation",
+            icon: "ti-link",
+            text: "A field that links records across tables. Relation labels come from the target table's record label field.",
+          },
+          {
+            title: "Resource",
+            icon: "ti-folder",
+            text: "A shareable item such as a table, view, form, dashboard, document template, generated document, or workflow.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocSection title="How the pieces connect">
+      <DocRows
+        items={[
+          {
+            title: "Tables store data",
+            icon: "ti-database",
+            text: "Use tables as the source of truth. Do not encode data only in dashboards, documents, or workflow payloads.",
+          },
+          {
+            title: "Views shape data",
+            icon: "ti-filter",
+            text: "Use views to filter, sort, group, aggregate, and choose a display mode without copying records.",
+          },
+          {
+            title: "Forms write records",
+            icon: "ti-forms",
+            text: "Use forms to create records with guided fields. Submission still checks the target table permission.",
+          },
+          {
+            title: "Dashboards include data",
+            icon: "ti-layout-dashboard",
+            text: "Use dashboards to present included data, forms, links, Markdown, and workflow buttons in one operating page.",
+          },
+          {
+            title: "Templates render documents",
+            icon: "ti-file-type-pdf",
+            text: "Use GQL sources and Liquid HTML to turn selected records into generated PDFs.",
+          },
+          {
+            title: "Workflows run actions",
+            icon: "ti-route",
+            text: "Use workflow YAML for executable inputs, triggers, and steps. Keep the workflow name and description in the editor fields.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocNote title="Permission boundary">
+      Permissions are resource-based. A dashboard, view, form, generated document, or workflow can have its own access without granting open
+      access to every linked target.
+    </DocNote>
+  </GridsDocPage>
+);
+
+export const GridsStartPage = GridsOverviewPage;
+
+export const GridsFormulaReferencePage = () => (
+  <GridsDocPage>
+    <DocLead>
+      Formulas calculate values from fields in one record. The same expression model is used by formula fields, computed columns, query
+      predicates, and query output, so one reference is enough for humans, CLI workflows, and future agent context.
+    </DocLead>
+
+    <DocSection title="Where formulas run" eyebrow="Reference">
+      <DocRows
+        items={[
+          {
+            title: "Formula fields",
+            icon: "ti-table",
+            text: "A saved table field that recalculates when records are read and can be shown in views, cards, detail panels, dashboards, and templates.",
+          },
+          {
+            title: "Computed columns",
+            icon: "ti-calculator",
+            text: "A temporary output column for analysis. It does not change the table schema unless the user saves a real field.",
+          },
+          {
+            title: "GQL predicates",
+            icon: "ti-filter",
+            text: "A server-side condition used by where and having. Use formulas here to filter rows by derived values.",
+          },
+          {
+            title: "GQL output",
+            icon: "ti-code-plus",
+            text: "A calculated result column written as formula(expression) as alias.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocSection title="Expression rules">
+      <DocRows
+        items={[
+          {
+            title: "Fields",
+            icon: "ti-columns",
+            text: (
+              <>
+                Reference fields by name. Quote names with spaces or punctuation: <DocInlineCode>"Unit price"</DocInlineCode>.
+              </>
+            ),
+          },
+          {
+            title: "Text values",
+            icon: "ti-quote",
+            text: (
+              <>
+                Use single quotes for text values: <DocInlineCode>'Open'</DocInlineCode>. Double quotes mean a field name.
+              </>
+            ),
+          },
+          {
+            title: "Empty values",
+            icon: "ti-circle-dashed",
+            text: "Empty input stays empty unless the expression handles it. Use IFEMPTY for expected fallbacks.",
+          },
+          {
+            title: "Errors",
+            icon: "ti-alert-triangle",
+            text: "Formula errors render as an error value. Use IFERROR for expected divide-by-zero, missing-value, or conversion cases.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocSection title="Common formulas">
+      <div class="grid gap-3 xl:grid-cols-2">
+        <FormulaSnippet title="Line total" code="price * quantity" />
+        <FormulaSnippet title="Gross amount" code='"Unit price" * quantity * 1.19' />
+        <FormulaSnippet title="Fallback text" code="IFEMPTY(notes, 'No notes')" />
+        <FormulaSnippet title="Conditional label" code="IF(inStock, 'Available', 'Out of stock')" />
+        <FormulaSnippet title="Days until due" code="DATEDIFF(TODAY(), dueDate, 'days')" />
+        <FormulaSnippet title="Safe division" code="IFERROR(total / quantity, 0)" />
+      </div>
+    </DocSection>
+
+    <DocSection title="Full function reference">
+      <DataTable
+        rows={formulaFunctionRows}
+        columns={formulaFunctionColumns}
+        getRowId={(row) => row.name}
+        density="compact"
+        class="paper max-h-[36rem] overflow-auto"
+        renderCell={({ col, value, render }) => (col.id === "copy" ? renderFormulaCopyCell(value) : render(value))}
+      />
+    </DocSection>
+
+    <DocNote title="For scripts, CLI, and agents" variant="info">
+      Treat field names, formulas, GQL, templates, and workflows as public text surfaces. Prefer exact names from the reference or current
+      base inventory, keep aliases readable, and quote values deliberately so generated changes are reviewable.
+    </DocNote>
+  </GridsDocPage>
+);
+
+export const GridsBuildBasePage = () => (
+  <GridsDocPage>
+    <DocLead>
+      Build the smallest base that makes the work clear. Add tables, views, forms, dashboards, documents, and workflows when each one
+      removes a real manual step.
     </DocLead>
 
     <DocSection title="Common choices">
@@ -261,8 +523,28 @@ export const GridsBuildWorkflowsPage = () => (
         ]}
       />
     </DocSection>
+
+    <DocSection title="End-to-end example">
+      <StepList
+        items={[
+          { title: "Create tables", text: "For invoices, create Customers and Invoices. Mark Customer name as the customer record label." },
+          { title: "Add invoice fields", text: "Add Invoice date, Due date, Status, Subtotal, Tax, Total, Paid, and Receipt." },
+          { title: "Create work views", text: "Create views such as Open invoices, Overdue invoices, Paid invoices, and Monthly income." },
+          {
+            title: "Add output surfaces",
+            text: "Use a dashboard for operational summaries and a document template when invoices need generated PDFs.",
+          },
+          {
+            title: "Automate after the model is stable",
+            text: "Use a workflow after the table, view, permission, and document rules are clear enough to trust.",
+          },
+        ]}
+      />
+    </DocSection>
   </GridsDocPage>
 );
+
+export const GridsBuildWorkflowsPage = GridsBuildBasePage;
 
 export const GridsTablesFieldsPage = () => (
   <GridsDocPage>
@@ -348,11 +630,11 @@ export const GridsTablesFieldsPage = () => (
   </GridsDocPage>
 );
 
-export const GridsViewsGqlPage = () => (
+export const GridsViewsReportsPage = () => (
   <GridsDocPage>
     <DocLead>
       Views define how people inspect records. They can filter, sort, group, aggregate, and choose a display mode without duplicating data.
-      GQL is the text form for queries that need more precision than the click UI.
+      Use them for operational lists, card boards, calendars, grouped reports, chart sources, exports, and dashboard embeds.
     </DocLead>
 
     <DocSection title="Query building blocks">
@@ -396,29 +678,36 @@ export const GridsViewsGqlPage = () => (
       />
     </DocSection>
 
-    <DocSection title="GQL at a glance">
-      <p class="text-dimmed">
-        Use GQL for precise reports, formula filters, joins, grouped summaries, document sources, and previews. References use readable
-        names such as <DocInlineCode>amount</DocInlineCode>. Use double quotes for names with spaces and single quotes for text values.
-      </p>
-      <div class="mt-3 space-y-3">
-        <QuerySnippet title="Rows" code={"from table Orders\nselect Customer, Amount\nwhere Status = 'Open'\nsort Due asc\nlimit 50"} />
-        <QuerySnippet
-          title="Monthly chart source"
-          code={
-            'from table Orders\ngroup by "Ordered at" by month\naggregate sum("Line total") as revenue, count(*) as rows\nhaving revenue > 0\nsort "Ordered at" asc'
-          }
-        />
-      </div>
+    <DocSection title="Search and exact filters">
+      <DocRows
+        items={[
+          {
+            title: "Search",
+            icon: "ti-search",
+            text: "Search displayed values while exploring a table or view. It respects the current view, so filtered-out records stay hidden.",
+          },
+          {
+            title: "Search scope",
+            icon: "ti-search",
+            text: "Search includes text, long text, numbers, dates, booleans, select labels, and readable relation labels.",
+          },
+          {
+            title: "Exact filters",
+            icon: "ti-equal",
+            text: "Use filters for exact numeric, date, select, empty, permission-sensitive, formula, lookup, and file-related rules.",
+          },
+        ]}
+      />
     </DocSection>
 
-    <DocNote title="Saving GQL queries">
-      Simple row queries and regular grouped queries can be saved as normal views. Advanced features such as joins, formula predicates,
-      computed alias sorts, <DocInlineCode>having</DocInlineCode>, and non-zero <DocInlineCode>offset</DocInlineCode> are available in
-      preview first.
+    <DocNote title="When to use GQL">
+      Use GQL when a report, document source, dashboard widget, or preview needs more precision than the click UI. The GQL section documents
+      the text syntax.
     </DocNote>
   </GridsDocPage>
 );
+
+export const GridsViewsGqlPage = GridsViewsReportsPage;
 
 export const GridsSearchPage = () => (
   <GridsDocPage>
@@ -1177,6 +1466,86 @@ export const GridsTroubleshootingPage = () => (
             use: "Open the Source tab, check the rendered GQL, then use the Data tab to copy exact Liquid paths instead of guessing object names.",
           },
         ]}
+      />
+    </DocSection>
+  </GridsDocPage>
+);
+
+export const GridsOperationsTroubleshootingPage = () => (
+  <GridsDocPage>
+    <DocLead>
+      Operate a Grids base by keeping repeated work explicit, checking the current view and permissions first, and using workflows,
+      documents, files, and live refresh only where they support the table model.
+    </DocLead>
+
+    <DocSection title="Routine operations">
+      <DocRows
+        items={[
+          {
+            title: "Workflows",
+            icon: "ti-route",
+            text: "Run from scanners, bulk selections, record events, schedules, and dashboard buttons. Add filters so actions only run for relevant records.",
+          },
+          {
+            title: "HTTP requests",
+            icon: "ti-webhook",
+            text: "Send explicit JSON payloads to another system. Receivers should handle duplicate sends safely.",
+          },
+          {
+            title: "Files",
+            icon: "ti-paperclip",
+            text: "Attach files to records. Store searchable metadata in normal fields when users need filters or exports.",
+          },
+          {
+            title: "Documents",
+            icon: "ti-file-type-pdf",
+            text: "Generate PDFs from records. Grids stores document run metadata and renders the PDF bytes again when redownloaded.",
+          },
+          {
+            title: "Live refresh",
+            icon: "ti-refresh",
+            text: "Tables, views, and dashboards can refresh after record changes. Current filters still decide what appears.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocSection title="Common checks">
+      <RecipeRows
+        items={[
+          {
+            problem: "Chart source is missing",
+            use: "Open the source table, create or edit a grouped view, add an aggregation, then select that view in the chart widget.",
+          },
+          {
+            problem: "Record edit fails",
+            use: "Reload the record and try again. A version mismatch usually means another user or tab changed it first.",
+          },
+          {
+            problem: "Search misses a value",
+            use: "Check whether the value is searchable. Use a filter for formula output, lookups, files, and exact rules.",
+          },
+          {
+            problem: "Dashboard form will not submit",
+            use: "Check the form permission and target table write permission. Dashboard access alone is not enough to write records.",
+          },
+          {
+            problem: "Document preview fails",
+            use: "Open the Source tab, check the rendered GQL, then use the Data tab to copy exact Liquid paths instead of guessing object names.",
+          },
+        ]}
+      />
+    </DocSection>
+
+    <DocSection title="HTTP request payload idea">
+      <DocCode
+        code={`{
+  "event": "record.created",
+  "recordId": "019e...",
+  "tableId": "32b8...",
+  "changedFields": ["status"]
+}`}
+        copy
       />
     </DocSection>
   </GridsDocPage>
