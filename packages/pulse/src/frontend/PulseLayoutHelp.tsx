@@ -1,12 +1,12 @@
 import { Layout } from "@valentinkolb/cloud/ssr/islands";
 import {
   PulseDashboardDslHelpPage,
-  PulseInventoryHelpPage,
-  PulseOperationsHelpPage,
+  PulseDataModelHelpPage,
+  PulseFindDataHelpPage,
+  PulseOperateHelpPage,
   PulseQueryDslHelpPage,
+  PulseReferenceOverviewPage,
   PulseStartHelpPage,
-  PulseTroubleshootingHelpPage,
-  PulseWorkflowHelpPage,
 } from "./help/pulse-help-content";
 
 export default function PulseLayoutHelp() {
@@ -14,7 +14,7 @@ export default function PulseLayoutHelp() {
     <>
       <Layout.Help
         id="pulse-start"
-        title="Start: Pulse"
+        title="Overview"
         icon="ti ti-activity-heartbeat"
         description="Core concepts and the first path through a Pulse base."
         order={100}
@@ -22,22 +22,22 @@ export default function PulseLayoutHelp() {
         <PulseStartHelpPage />
       </Layout.Help>
       <Layout.Help
-        id="pulse-workflows"
-        title="Workflows"
-        icon="ti ti-route"
-        description="Where to start when you know the resource, signal, query, or dashboard you need."
+        id="pulse-data-model"
+        title="Data model"
+        icon="ti ti-stack-2"
+        description="How sources, resources, signals, variants, and dimensions fit together."
         order={105}
       >
-        <PulseWorkflowHelpPage />
+        <PulseDataModelHelpPage />
       </Layout.Help>
       <Layout.Help
-        id="pulse-operations"
-        title="Operations"
-        icon="ti ti-database-share"
-        description="Sources, ingest, retention, access, saved queries, and public displays."
+        id="pulse-find-data"
+        title="Find data"
+        icon="ti ti-database-search"
+        description="Where to start when you know the source, resource, signal, or dashboard you need."
         order={110}
       >
-        <PulseOperationsHelpPage />
+        <PulseFindDataHelpPage />
       </Layout.Help>
       <Layout.Help
         id="pulse-query-language"
@@ -58,22 +58,22 @@ export default function PulseLayoutHelp() {
         <PulseDashboardDslHelpPage />
       </Layout.Help>
       <Layout.Help
-        id="pulse-inventory"
-        title="Inventory"
-        icon="ti ti-database-search"
-        description="How to discover sources, resources, signals, variants, and dimensions."
-        order={140}
+        id="pulse-reference"
+        title="Reference"
+        icon="ti ti-book"
+        description="Canonical query, dashboard, and inventory lookup path."
+        order={135}
       >
-        <PulseInventoryHelpPage />
+        <PulseReferenceOverviewPage includeDashboardDsl />
       </Layout.Help>
       <Layout.Help
-        id="pulse-troubleshooting"
-        title="Troubleshooting"
+        id="pulse-operate"
+        title="Operate"
         icon="ti ti-lifebuoy"
-        description="Common symptoms and the first place to check."
-        order={150}
+        description="Source health, retention, access, public displays, and common symptoms."
+        order={140}
       >
-        <PulseTroubleshootingHelpPage />
+        <PulseOperateHelpPage />
       </Layout.Help>
     </>
   );
