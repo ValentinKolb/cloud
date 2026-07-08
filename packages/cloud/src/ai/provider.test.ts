@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ProviderEvent } from "@valentinkolb/nessi";
 import { createAiProvider } from "./provider";
 import type { AiModelProfile } from "./types";
 
@@ -60,7 +61,7 @@ describe("AI provider factory", () => {
           baseURL: "http://vllm.example.test/v1",
         }),
       );
-      const events = [];
+      const events: ProviderEvent[] = [];
       for await (const event of provider.stream({
         messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
       })) {
@@ -70,8 +71,17 @@ describe("AI provider factory", () => {
       expect(provider.capabilities.thinking).toBe(true);
       expect(requests[0]).toMatchObject({ model: "qwen3.6", stream: true });
       expect(requests[0]).not.toHaveProperty("max_tokens");
-      expect(events).toContainEqual({ type: "thinking", delta: "plan first" });
-      expect(events).toContainEqual({ type: "text", delta: "answer" });
+      // 0.5.0 block model: reasoning and text arrive as separate canonical blocks.
+      const deltaFor = (kind: string) => {
+        const start = events.find((event) => event.type === "block_start" && event.kind === kind);
+        if (!start || start.type !== "block_start") return "";
+        return events
+          .filter((event) => event.type === "block_delta" && event.blockId === start.blockId)
+          .map((event) => (event.type === "block_delta" ? event.delta : ""))
+          .join("");
+      };
+      expect(deltaFor("thinking")).toBe("plan first");
+      expect(deltaFor("text")).toBe("answer");
 
       for await (const _event of provider.stream({
         messages: [{ role: "user", content: [{ type: "text", text: "short" }] }],

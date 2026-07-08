@@ -9,7 +9,7 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { createSignal, For, onCleanup, onMount, Show, type Accessor } from "solid-js";
-import { apiClient } from "../api/client";
+import { assistantApi } from "../api/client";
 import { conversationIcon, openAssistantConversationEditor } from "./AssistantConversationEditor";
 
 type ConversationGroup = {
@@ -75,13 +75,7 @@ function AssistantSpotlightButton(props: { variant?: SpotlightButtonVariant; reg
         const trimmed = query.trim();
         if (!trimmed) return [];
 
-        const response = await apiClient.conversations.$get(
-          { query: { q: trimmed, limit: String(PER_SPOTLIGHT_PAGE) } },
-          { init: { signal: abortSignal } },
-        );
-        if (!response.ok) return [];
-
-        const conversations = (await response.json()) as AiConversation[];
+        const conversations = await assistantApi.listConversations({ q: trimmed, limit: PER_SPOTLIGHT_PAGE, signal: abortSignal });
         return conversations.map((conversation) => ({
           value: conversation,
           label: conversation.title,
@@ -114,6 +108,27 @@ function AssistantSpotlightButton(props: { variant?: SpotlightButtonVariant; reg
       title={`Search chats (${SPOTLIGHT_SHORTCUT_TITLE})`}
       ariaLabel="Search chats"
     />
+  );
+}
+
+function ConversationSidebarItem(props: {
+  conversation: AiConversation;
+  active: boolean;
+  open: (conversation: AiConversation) => void;
+  edit: (conversation: AiConversation) => void;
+}) {
+  return (
+    <AppWorkspace.SidebarItem
+      icon={conversationIcon(props.conversation)}
+      active={props.active}
+      onClick={() => props.open(props.conversation)}
+      title={props.conversation.title}
+      actionIcon="ti ti-settings"
+      actionLabel={`Edit ${props.conversation.title}`}
+      onActionClick={() => props.edit(props.conversation)}
+    >
+      {props.conversation.title}
+    </AppWorkspace.SidebarItem>
   );
 }
 
@@ -157,17 +172,12 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
                   <p class="sidebar-section-title px-2 pt-2">{group.title}</p>
                   <For each={group.items}>
                     {(conversation) => (
-                      <AppWorkspace.SidebarItem
-                        icon={conversationIcon(conversation)}
+                      <ConversationSidebarItem
+                        conversation={conversation}
                         active={conversation.id === activeConversationId()}
-                        onClick={() => openConversation(conversation)}
-                        title={conversation.title}
-                        actionIcon="ti ti-settings"
-                        actionLabel={`Edit ${conversation.title}`}
-                        onActionClick={() => void openEditor(conversation)}
-                      >
-                        {conversation.title}
-                      </AppWorkspace.SidebarItem>
+                        open={openConversation}
+                        edit={(item) => void openEditor(item)}
+                      />
                     )}
                   </For>
                 </>
@@ -204,17 +214,12 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
                 <AppWorkspace.SidebarSection title={group.title}>
                   <For each={group.items}>
                     {(conversation) => (
-                      <AppWorkspace.SidebarItem
-                        icon={conversationIcon(conversation)}
+                      <ConversationSidebarItem
+                        conversation={conversation}
                         active={conversation.id === activeConversationId()}
-                        onClick={() => openConversation(conversation)}
-                        title={conversation.title}
-                        actionIcon="ti ti-settings"
-                        actionLabel={`Edit ${conversation.title}`}
-                        onActionClick={() => void openEditor(conversation)}
-                      >
-                        {conversation.title}
-                      </AppWorkspace.SidebarItem>
+                        open={openConversation}
+                        edit={(item) => void openEditor(item)}
+                      />
                     )}
                   </For>
                 </AppWorkspace.SidebarSection>

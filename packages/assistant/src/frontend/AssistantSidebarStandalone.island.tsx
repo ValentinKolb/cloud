@@ -2,7 +2,7 @@ import type { AiConversation } from "@valentinkolb/cloud/ai";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { createSignal } from "solid-js";
-import { apiClient } from "../api/client";
+import { assistantApi } from "../api/client";
 import AssistantSidebar from "./AssistantSidebar";
 
 type Props = {
@@ -18,13 +18,12 @@ export default function AssistantSidebarStandalone(props: Props) {
     if (props.activeView === "all") navigateTo(window.location.pathname + window.location.search);
   };
   const createConversation = async () => {
-    const response = await apiClient.conversations.$post({ json: {} });
-    if (!response.ok) {
+    try {
+      const conversation = await assistantApi.createConversation();
+      navigateTo(`/app/assistant?conversation=${conversation.id}`);
+    } catch {
       await prompts.error("Failed to create chat.");
-      return;
     }
-    const conversation = (await response.json()) as AiConversation;
-    navigateTo(`/app/assistant?conversation=${conversation.id}`);
   };
 
   return (

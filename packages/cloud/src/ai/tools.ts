@@ -11,6 +11,8 @@ export const defineAiTool = <TInput extends z.ZodType, TOutput extends z.ZodType
   inputSchema: TInput;
   outputSchema: TOutput;
   approval?: AiToolApprovalPolicy;
+  /** Per-tool execution timeout. nessi aborts the call and reports a timeout issue. */
+  timeoutMs?: number;
 }) => {
   const def: AiToolDefinition<TInput, TOutput> = {
     name: config.name,
@@ -18,6 +20,7 @@ export const defineAiTool = <TInput extends z.ZodType, TOutput extends z.ZodType
     inputSchema: config.inputSchema,
     outputSchema: config.outputSchema,
     approval: config.approval ?? "once",
+    timeoutMs: config.timeoutMs,
   };
 
   return {
@@ -48,22 +51,16 @@ export type PreparedAiTools = {
   tools: Tool[];
   approvalPolicies: Map<string, AiToolApprovalPolicy>;
   frontendModes: Map<string, AiFrontendToolMode>;
-  outputSchemas: Map<string, z.ZodType>;
 };
 
 export const prepareAiTools = (input: { tools?: AiRuntimeTool[]; actor?: RequestActor }): PreparedAiTools => {
   const approvalPolicies = new Map<string, AiToolApprovalPolicy>();
   const frontendModes = new Map<string, AiFrontendToolMode>();
-  const outputSchemas = new Map<string, z.ZodType>();
 
   const tools = (input.tools ?? []).map((tool): Tool => {
-    if (!isCloudAiTool(tool)) {
-      if (tool.kind === "client" && tool.def.outputSchema) outputSchemas.set(tool.def.name, tool.def.outputSchema);
-      return tool;
-    }
+    if (!isCloudAiTool(tool)) return tool;
 
     approvalPolicies.set(tool.def.name, tool.def.approval);
-    outputSchemas.set(tool.def.name, tool.def.outputSchema);
 
     const nessiTool = defineNessiTool({
       name: tool.def.name,
@@ -71,6 +68,7 @@ export const prepareAiTools = (input: { tools?: AiRuntimeTool[]; actor?: Request
       inputSchema: tool.def.inputSchema,
       outputSchema: tool.def.outputSchema,
       needsApproval: tool.location === "server" && aiToolNeedsApproval(tool.def.approval),
+      timeoutMs: tool.def.timeoutMs,
     });
 
     if (tool.location === "server") {
@@ -86,5 +84,5 @@ export const prepareAiTools = (input: { tools?: AiRuntimeTool[]; actor?: Request
     });
   });
 
-  return { tools, approvalPolicies, frontendModes, outputSchemas };
+  return { tools, approvalPolicies, frontendModes };
 };

@@ -1,11 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { LoopAggregate, Message } from "@valentinkolb/nessi";
+import type { Message } from "@valentinkolb/nessi";
 import { sql } from "bun";
 import { forgetAiToolApproval, hasRememberedAiToolApproval, rememberAiToolApproval } from "./approvals";
 import { migrateCloudAi } from "./migrate";
-import { abortAiTurn, submitAiTurnAction } from "./runtime";
 import { aiConversationStore } from "./store";
-import { aiToolAudit } from "./tool-audit";
 
 const canUseAiDatabase = async () => {
   try {
@@ -21,18 +19,14 @@ const canUseAiDatabase = async () => {
         conversations: string | null;
         messages: string | null;
         turns: string | null;
-        toolCalls: string | null;
-        approvalPreferences: string | null;
       }[]
     >`
       SELECT
         to_regclass('ai.conversations')::text AS conversations,
         to_regclass('ai.messages')::text AS messages,
-        to_regclass('ai.turns')::text AS turns,
-        to_regclass('ai.tool_calls')::text AS "toolCalls",
-        to_regclass('ai.tool_approval_preferences')::text AS "approvalPreferences"
+        to_regclass('ai.turns')::text AS turns
     `;
-    return Boolean(aiRow?.conversations && aiRow.messages && aiRow.turns && aiRow.toolCalls && aiRow.approvalPreferences);
+    return Boolean(aiRow?.conversations && aiRow.messages && aiRow.turns);
   } catch {
     return false;
   }
@@ -55,583 +49,512 @@ const cleanupFixture = async (input: { userId: string; conversationIds: string[]
   await sql`DELETE FROM auth.users WHERE id = ${input.userId}::uuid`;
 };
 
-const parseJsonValue = <T>(value: unknown): T => (typeof value === "string" ? (JSON.parse(value) as T) : (value as T));
+const userMessage = (text: string): Message => ({ role: "user", content: [{ type: "text", text }] });
+const assistantMessage = (text: string): Message => ({
+  role: "assistant",
+  content: [{ type: "text", text }],
+  stopReason: "stop",
+});
+
+const runConfig = { kind: "chat" as const, input: "hi", toolSource: { kind: "none" as const } };
 
 describe("AI conversation store integration", () => {
-  test("persists conversations, messages, model metadata, and running turn locks", async () => {
+  test("submitChatTurn persists user message and turn transactionally", async () => {
     if (!(await canUseAiDatabase())) {
-      console.warn("Skipping AI conversation store DB test: auth/ai tables are not available.");
+      console.warn("Skipping AI store DB test: auth/ai tables are not available.");
       return;
     }
-
     const userId = await insertUser();
     const conversationIds: string[] = [];
 
     try {
-      const direct = await aiConversationStore.createConversation({
-        appId: "ai-test",
-        ownerUserId: userId,
-        title: "Manual title",
-      });
-      conversationIds.push(direct.id);
+      const conversation = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
+      conversationIds.push(conversation.id);
 
-      const resource = {
-        kind: "resource" as const,
-        appId: "grids",
-        resourceType: "base",
-        resourceId: `base-${crypto.randomUUID()}`,
-        title: "Base chat",
-      };
-      const resourceConversation = await aiConversationStore.createConversation({
-        appId: "ai-test",
-        ownerUserId: userId,
-        resource,
-      });
-      conversationIds.push(resourceConversation.id);
-
-      const metadataConversation = await aiConversationStore.createConversation({
-        appId: "ai-test",
-        ownerUserId: userId,
-        title: "Metadata chat",
-        icon: "ti ti-sparkles",
-        description: "Initial description",
-      });
-      conversationIds.push(metadataConversation.id);
-      expect(metadataConversation).toMatchObject({
-        title: "Metadata chat",
-        icon: "ti ti-sparkles",
-        description: "Initial description",
+      const submitted = await aiConversationStore.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: "test-model",
+        runConfig,
+        userMessage: userMessage("Hello turn"),
       });
 
-      const updatedMetadata = await aiConversationStore.updateConversationMetadata({
-        conversationId: metadataConversation.id,
-        appId: "ai-test",
-        ownerUserId: userId,
-        title: "Roadmap chat",
-        icon: "ti ti-map",
-        description: "Assistant planning notes",
-      });
-      expect(updatedMetadata).toMatchObject({
-        id: metadataConversation.id,
-        title: "Roadmap chat",
-        icon: "ti ti-map",
-        description: "Assistant planning notes",
+      expect(submitted.turn.status).toBe("queued");
+      expect(submitted.turn.attempt).toBe(0);
+      expect(submitted.message.message.role).toBe("user");
+      expect(submitted.message.loopId).toBe(submitted.turn.id);
+      expect(submitted.message.seq).toBe(1);
+
+      // Conversation title derives from the first user message.
+      const detail = await aiConversationStore.getConversation({ conversationId: conversation.id });
+      expect(detail?.title).toBe("Hello turn");
+
+      // A second active turn for the same conversation must be rejected (partial unique index).
+      await expect(
+        aiConversationStore.submitChatTurn({
+          conversationId: conversation.id,
+          modelProfileId: "test-model",
+          runConfig,
+          userMessage: userMessage("Second"),
+        }),
+      ).rejects.toThrow();
+
+      // ...and because it is transactional, the second user message must NOT exist.
+      const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
+      expect(messages).toHaveLength(1);
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
+    }
+  });
+
+  test("claimTurn increments attempts, enforces caps, and hands out run config", async () => {
+    if (!(await canUseAiDatabase())) return;
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+
+    try {
+      const conversation = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
+      conversationIds.push(conversation.id);
+      const { turn } = await aiConversationStore.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: "test-model",
+        runConfig,
+        userMessage: userMessage("claim me"),
       });
 
-      const matchingPage = await aiConversationStore.listConversationsPage({
-        appId: "ai-test",
-        ownerUserId: userId,
-        search: "roadmap",
-        page: 1,
-        perPage: 10,
+      const claim = await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "worker-a",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 50,
+        runBudgetMs: 60_000,
       });
-      expect(matchingPage.items.map((conversation) => conversation.id)).toContain(metadataConversation.id);
-      expect(matchingPage.total).toBeGreaterThanOrEqual(1);
+      expect(claim).not.toBeNull();
+      expect(claim!.turn.attempt).toBe(1);
+      expect(claim!.turn.status).toBe("running");
+      expect(claim!.runConfig).toMatchObject({ kind: "chat" });
 
+      // A second worker cannot claim while the lease is live.
+      const contender = await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "worker-b",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 50,
+        runBudgetMs: 60_000,
+      });
+      expect(contender).toBeNull();
+
+      // Expire the lease manually — now the claim succeeds and bumps the attempt.
+      await sql`UPDATE ai.turns SET lease_expires_at = now() - interval '1 second' WHERE id = ${turn.id}`;
+      const reclaimed = await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "worker-b",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 50,
+        runBudgetMs: 60_000,
+      });
+      expect(reclaimed?.turn.attempt).toBe(2);
+
+      // Heartbeat only works for the current owner.
       expect(
-        await aiConversationStore.archiveConversation({
-          conversationId: metadataConversation.id,
-          appId: "ai-test",
-          ownerUserId: userId,
+        await aiConversationStore.heartbeatTurn({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          leaseOwner: "worker-a",
+          leaseMs: 30_000,
+        }),
+      ).toBe(false);
+      expect(
+        await aiConversationStore.heartbeatTurn({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          leaseOwner: "worker-b",
+          leaseMs: 30_000,
         }),
       ).toBe(true);
-      expect(
-        await aiConversationStore.getConversation({
-          conversationId: metadataConversation.id,
-          appId: "ai-test",
-          ownerUserId: userId,
-        }),
-      ).toBeNull();
 
-      const scoped = await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, resource });
-      expect(scoped.map((conversation) => conversation.id)).toEqual([resourceConversation.id]);
-      expect(
-        await aiConversationStore.getConversation({
-          conversationId: resourceConversation.id,
-          appId: "ai-test",
-          ownerUserId: userId,
-          resource: { ...resource, resourceId: "other-base" },
-        }),
-      ).toBeNull();
-
-      const store = aiConversationStore.createSessionStore({ conversationId: direct.id, modelProfileId: "model-a" });
-      const userMessage: Message = { role: "user", content: [{ type: "text", text: "Rewrite this text for me please" }] };
-      const assistantMessage: Message = {
-        role: "assistant",
-        content: [{ type: "text", text: "Rewritten text." }],
-        model: "provider/model",
-        usage: { input: 4, output: 3, total: 7, creditsUsed: 0.007 },
-        stopReason: "stop",
-      };
-
-      await store.append(userMessage);
-      await store.append(assistantMessage);
-      const loopAggregate: LoopAggregate = {
-        turns: [
-          {
-            message: assistantMessage as Extract<Message, { role: "assistant" }>,
-            usage: assistantMessage.usage,
-            stopReason: "stop",
-            toolCalls: [],
-          },
-        ],
-        usage: assistantMessage.usage,
-        toolCallCount: 0,
-        toolErrorCount: 0,
-        toolIssueCount: 0,
-        toolMalformedCount: 0,
-        toolCancelledCount: 0,
-        toolIssues: [],
-        assistantMessageCount: 1,
-      };
-      await aiConversationStore.setLatestAssistantLoopAggregate({
-        conversationId: direct.id,
-        aggregate: loopAggregate,
-        doneReason: "stop",
-      });
-
-      const loaded = await store.load();
-      expect(loaded.map((entry) => ({ seq: entry.seq, kind: entry.kind, message: entry.message }))).toEqual([
-        { seq: 1, kind: "message", message: userMessage },
-        { seq: 2, kind: "message", message: assistantMessage },
-      ]);
-
-      const messages = await aiConversationStore.listMessages({ conversationId: direct.id });
-      expect(messages[1]).toMatchObject({
-        modelProfileId: "model-a",
-        providerModel: "provider/model",
-        usage: { input: 4, output: 3, total: 7, creditsUsed: 0.007 },
-        stopReason: "stop",
-        loopAggregate,
-        loopDoneReason: "stop",
-      });
-      expect((await aiConversationStore.getConversation({ conversationId: direct.id }))?.title).toBe("Rewrite this text for me please");
-
-      const summaryMessage: Message = {
-        role: "assistant",
-        content: [{ type: "text", text: "Conversation summary: user asked for a rewrite." }],
-        model: "provider/model",
-        stopReason: "stop",
-      };
-      await aiConversationStore.compactMessages({
-        conversationId: direct.id,
-        checkpointSeq: 1,
-        summary: summaryMessage,
-        modelProfileId: "model-a",
-      });
-      await store.append({ role: "user", content: [{ type: "text", text: "Continue please" }] });
-
-      expect((await store.load()).map((entry) => ({ seq: entry.seq, kind: entry.kind, message: entry.message }))).toEqual([
-        { seq: 1, kind: "summary", message: summaryMessage },
-        { seq: 2, kind: "message", message: assistantMessage },
-        { seq: 3, kind: "message", message: { role: "user", content: [{ type: "text", text: "Continue please" }] } },
-      ]);
-
-      const turn = await aiConversationStore.createTurn({ conversationId: direct.id, modelProfileId: "model-a" });
-      expect((await aiConversationStore.getRunningTurn({ conversationId: direct.id }))?.id).toBe(turn.id);
-      await expect(aiConversationStore.createTurn({ conversationId: direct.id, modelProfileId: "model-a" })).rejects.toThrow();
-
-      const loopStore = aiConversationStore.createSessionStore({
-        conversationId: direct.id,
-        modelProfileId: "model-a",
+      // Attempt cap blocks further claims.
+      await sql`UPDATE ai.turns SET lease_expires_at = now() - interval '1 second' WHERE id = ${turn.id}`;
+      const capped = await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
         turnId: turn.id,
+        leaseOwner: "worker-c",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 2,
+        runBudgetMs: 60_000,
       });
-      const loopAssistantMessage: Message = {
-        role: "assistant",
-        content: [{ type: "text", text: "Loop scoped response." }],
-        model: "provider/model",
-        usage: { input: 2, output: 3, total: 5 },
-        stopReason: "stop",
-      };
-      await loopStore.append(loopAssistantMessage);
-      const loopMessages = await aiConversationStore.listMessages({ conversationId: direct.id });
-      const storedLoopAssistant = loopMessages.find(
-        (message) =>
-          message.message.role === "assistant" &&
-          message.message.content.some((part) => part.type === "text" && part.text === "Loop scoped response."),
-      );
-      expect(storedLoopAssistant).toMatchObject({ loopId: turn.id, modelProfileId: "model-a" });
-      const loopScopedAggregate: LoopAggregate = {
-        turns: [
-          {
-            message: loopAssistantMessage as Extract<Message, { role: "assistant" }>,
-            usage: loopAssistantMessage.usage,
-            stopReason: "stop",
-            toolCalls: [],
-          },
-        ],
-        usage: loopAssistantMessage.usage,
-        toolCallCount: 0,
-        toolErrorCount: 0,
-        toolIssueCount: 0,
-        toolMalformedCount: 0,
-        toolCancelledCount: 0,
-        toolIssues: [],
-        assistantMessageCount: 1,
-      };
-      await aiConversationStore.setLatestAssistantLoopAggregate({
-        conversationId: direct.id,
-        loopId: turn.id,
-        aggregate: loopScopedAggregate,
-        doneReason: "stop",
+      expect(capped).toBeNull();
+
+      expect(
+        await aiConversationStore.completeTurn({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          status: "completed",
+          leaseOwner: "worker-b",
+        }),
+      ).toBe(true);
+      const done = await aiConversationStore.getTurn({ conversationId: conversation.id, turnId: turn.id });
+      expect(done?.status).toBe("completed");
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
+    }
+  });
+
+  test("suspend, resolve, and continuation claim flow", async () => {
+    if (!(await canUseAiDatabase())) return;
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+
+    try {
+      const conversation = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
+      conversationIds.push(conversation.id);
+      const { turn } = await aiConversationStore.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: "test-model",
+        runConfig,
+        userMessage: userMessage("suspend me"),
       });
-      const aggregatedLoopAssistant = (await aiConversationStore.listMessages({ conversationId: direct.id })).find(
-        (message) => message.id === storedLoopAssistant?.id,
-      );
-      expect(aggregatedLoopAssistant).toMatchObject({
-        loopId: turn.id,
-        loopAggregate: loopScopedAggregate,
-        loopDoneReason: "stop",
+
+      await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "worker-a",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 50,
+        runBudgetMs: 60_000,
       });
 
       await aiConversationStore.savePendingTurnAction({
-        conversationId: direct.id,
         turnId: turn.id,
-        callId: "approval-1",
+        conversationId: conversation.id,
+        callId: "call-1",
         kind: "approval",
         status: "pending",
-        name: "write_record",
-        args: { id: "record-1" },
-        message: "Approve write",
-        approvalScope: "write_record:v1",
+        name: "danger",
+        args: { action: "wipe" },
+        approvalScope: "danger",
         allowAlways: true,
         resolvedEvent: null,
       });
-      expect(await aiConversationStore.listPendingTurnActions({ conversationId: direct.id, turnId: turn.id })).toEqual([
-        {
-          type: "approval_request",
-          conversationId: direct.id,
-          turnId: turn.id,
-          loopId: turn.id,
-          callId: "approval-1",
-          name: "write_record",
-          args: { id: "record-1" },
-          message: "Approve write",
-          allowAlways: true,
-        },
-      ]);
-      const resolved = await aiConversationStore.resolvePendingTurnAction({
-        conversationId: direct.id,
-        turnId: turn.id,
-        callId: "approval-1",
-        event: { type: "approval_response", callId: "approval-1", approved: true },
-      });
-      expect(resolved?.resolvedEvent).toEqual({ type: "approval_response", callId: "approval-1", approved: true });
-      expect(await aiConversationStore.listPendingTurnActions({ conversationId: direct.id, turnId: turn.id })).toEqual([]);
 
-      const startEvent = await aiConversationStore.appendTurnEvent({
-        event: {
-          type: "turn_start",
-          conversationId: direct.id,
-          turnId: turn.id,
-          modelProfileId: "model-a",
-          providerModel: "provider/model",
-        },
-      });
-      expect(startEvent?.cursor).toBeTruthy();
-      const [storedEventShape] = await sql<{ jsonb_typeof: string }[]>`
-        SELECT jsonb_typeof(event)
-        FROM ai.turn_events
-        WHERE seq = ${Number(startEvent?.seq)}
-      `;
-      expect(storedEventShape?.jsonb_typeof).toBe("object");
-      await aiConversationStore.appendTurnEvent({
-        event: {
-          type: "done",
-          conversationId: direct.id,
-          turnId: turn.id,
-          reason: "stop",
-          aggregate: null,
-        },
-      });
-      const replayedEvents = await aiConversationStore.listTurnEvents({
-        conversationId: direct.id,
-        turnId: turn.id,
-        after: "0-0",
-      });
-      expect(replayedEvents.map((event) => event.type)).toEqual(["turn_start", "done"]);
+      const blocks = [{ id: "tool-call-1", kind: "tool" as const, callId: "call-1", name: "danger", status: "awaiting_approval" as const }];
       expect(
-        (
-          await aiConversationStore.listTurnEvents({
-            conversationId: direct.id,
-            turnId: turn.id,
-            after: startEvent?.cursor,
-          })
-        ).map((event) => event.type),
-      ).toEqual(["done"]);
+        await aiConversationStore.suspendTurn({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          leaseOwner: "worker-a",
+          blocks,
+          seq: 7,
+          waitingBudgetMs: 60 * 60_000,
+        }),
+      ).toBe(true);
 
-      await aiConversationStore.completeTurn({ turnId: turn.id, status: "completed" });
-      expect(await aiConversationStore.getRunningTurn({ conversationId: direct.id })).toBeNull();
+      const active = await aiConversationStore.getActiveTurn({ conversationId: conversation.id });
+      expect(active?.turn.status).toBe("waiting_for_action");
+      expect(active?.liveBlocks).toHaveLength(1);
+      expect(active?.liveSeq).toBe(7);
 
-      const abortTurn = await aiConversationStore.createTurn({ conversationId: direct.id, modelProfileId: "model-a" });
-      expect(await aiConversationStore.requestTurnAbort({ conversationId: direct.id, turnId: abortTurn.id })).toMatchObject({
-        found: true,
-        status: "aborted",
-        aborted: true,
-      });
-      expect(await aiConversationStore.getRunningTurn({ conversationId: direct.id })).toBeNull();
-      expect(await aiConversationStore.requestTurnAbort({ conversationId: direct.id, turnId: abortTurn.id })).toMatchObject({
-        found: true,
-        status: "aborted",
-        aborted: false,
-      });
-
-      const leasedTurn = await aiConversationStore.createTurn({
-        conversationId: direct.id,
-        modelProfileId: "model-a",
-        leaseOwner: "worker-test",
+      // A continuation claim requires a resolved action.
+      const early = await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "worker-b",
         leaseMs: 30_000,
+        from: "waiting",
+        maxAttempts: 50,
+        runBudgetMs: 60_000,
       });
+      expect(early).toBeNull();
+
+      const resolved = await aiConversationStore.resolvePendingTurnAction({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        callId: "call-1",
+        event: { type: "approval_response", callId: "call-1", approved: true },
+      });
+      expect(resolved?.status).toBe("resolved");
+
+      const continuation = await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "worker-b",
+        leaseMs: 30_000,
+        from: "waiting",
+        maxAttempts: 50,
+        runBudgetMs: 60_000,
+      });
+      expect(continuation?.turn.attempt).toBe(2);
+      expect(continuation?.liveBlocks).toHaveLength(1);
+
+      const seeds = await aiConversationStore.listResolvedPendingActions({ conversationId: conversation.id, turnId: turn.id });
+      expect(seeds).toHaveLength(1);
+      expect(seeds[0]?.resolvedEvent).toMatchObject({ type: "approval_response", approved: true });
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
+    }
+  });
+
+  test("abort request marks ownerless turns for caller finalization", async () => {
+    if (!(await canUseAiDatabase())) return;
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+
+    try {
+      const conversation = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
+      conversationIds.push(conversation.id);
+      const { turn } = await aiConversationStore.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: "test-model",
+        runConfig,
+        userMessage: userMessage("abort me"),
+      });
+
+      const request = await aiConversationStore.requestTurnAbort({ conversationId: conversation.id, turnId: turn.id });
+      expect(request).toMatchObject({ found: true, status: "queued", ownerless: true });
+
+      // Ownerless finalization (no leaseOwner) works for queued turns.
       expect(
-        await aiConversationStore.isTurnLeaseOwner({
-          conversationId: direct.id,
-          turnId: leasedTurn.id,
-          leaseOwner: "worker-test",
+        await aiConversationStore.completeTurn({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          status: "aborted",
         }),
       ).toBe(true);
-      await aiConversationStore.completeTurn({ turnId: leasedTurn.id, status: "completed", leaseOwner: "other-worker" });
-      expect((await aiConversationStore.getRunningTurn({ conversationId: direct.id }))?.id).toBe(leasedTurn.id);
-      expect(
-        await aiConversationStore.heartbeatTurn({
-          conversationId: direct.id,
-          turnId: leasedTurn.id,
-          leaseOwner: "worker-test",
-          leaseMs: 30_000,
-        }),
-      ).toBe(true);
-      expect(
-        await aiConversationStore.heartbeatTurn({
-          conversationId: direct.id,
-          turnId: leasedTurn.id,
-          leaseOwner: "other-worker",
-          leaseMs: 30_000,
-        }),
-      ).toBe(false);
+
+      // Cancel-requested turns are no longer claimable.
+      const claim = await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "worker-a",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 50,
+        runBudgetMs: 60_000,
+      });
+      expect(claim).toBeNull();
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
+    }
+  });
+
+  test("sweepTurns requeues crashed turns and finalizes over-budget or cancelled ones", async () => {
+    if (!(await canUseAiDatabase())) return;
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+
+    try {
+      // Crashed running turn (lease expired, within budget) -> requeued.
+      const crashConv = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
+      conversationIds.push(crashConv.id);
+      const { turn: crashTurn } = await aiConversationStore.submitChatTurn({
+        conversationId: crashConv.id,
+        modelProfileId: "test-model",
+        runConfig,
+        userMessage: userMessage("crash"),
+      });
+      await aiConversationStore.claimTurn({
+        conversationId: crashConv.id,
+        turnId: crashTurn.id,
+        leaseOwner: "worker-a",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 50,
+        runBudgetMs: 600_000,
+      });
+      await sql`UPDATE ai.turns SET lease_expires_at = now() - interval '1 second' WHERE id = ${crashTurn.id}`;
+
+      // Over-budget running turn (deadline passed, lease expired) -> failed.
+      const budgetConv = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
+      conversationIds.push(budgetConv.id);
+      const { turn: budgetTurn } = await aiConversationStore.submitChatTurn({
+        conversationId: budgetConv.id,
+        modelProfileId: "test-model",
+        runConfig,
+        userMessage: userMessage("budget"),
+      });
+      await aiConversationStore.claimTurn({
+        conversationId: budgetConv.id,
+        turnId: budgetTurn.id,
+        leaseOwner: "worker-b",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 50,
+        runBudgetMs: 600_000,
+      });
       await sql`
         UPDATE ai.turns
-        SET lease_expires_at = now() - interval '1 second'
-        WHERE id = ${leasedTurn.id}::uuid
+        SET lease_expires_at = now() - interval '1 second', deadline = now() - interval '1 second'
+        WHERE id = ${budgetTurn.id}
       `;
-      expect(await aiConversationStore.expireStaleTurns({ conversationId: direct.id })).toBe(1);
-      expect((await aiConversationStore.getRunningTurn({ conversationId: direct.id }))?.id).toBe(leasedTurn.id);
-      expect(
-        await aiConversationStore.isTurnLeaseOwner({
-          conversationId: direct.id,
-          turnId: leasedTurn.id,
-          leaseOwner: "worker-test",
-        }),
-      ).toBe(false);
-      expect((await aiConversationStore.listRecoverableTurns({ limit: 20 })).map((recoverable) => recoverable.id)).toContain(leasedTurn.id);
-      expect(
-        await aiConversationStore.claimTurnLease({
-          conversationId: direct.id,
-          turnId: leasedTurn.id,
-          leaseOwner: "other-worker",
-          leaseMs: 30_000,
-        }),
-      ).toBe(true);
-      expect((await aiConversationStore.listRecoverableTurns({ limit: 20 })).map((recoverable) => recoverable.id)).not.toContain(
-        leasedTurn.id,
-      );
-      await aiConversationStore.completeTurn({ turnId: leasedTurn.id, status: "completed", leaseOwner: "other-worker" });
-      expect(await aiConversationStore.getRunningTurn({ conversationId: direct.id })).toBeNull();
+
+      // Waiting turn past its action deadline -> aborted.
+      const waitConv = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
+      conversationIds.push(waitConv.id);
+      const { turn: waitTurn } = await aiConversationStore.submitChatTurn({
+        conversationId: waitConv.id,
+        modelProfileId: "test-model",
+        runConfig,
+        userMessage: userMessage("wait"),
+      });
+      await aiConversationStore.claimTurn({
+        conversationId: waitConv.id,
+        turnId: waitTurn.id,
+        leaseOwner: "worker-c",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 50,
+        runBudgetMs: 600_000,
+      });
+      await aiConversationStore.suspendTurn({
+        conversationId: waitConv.id,
+        turnId: waitTurn.id,
+        leaseOwner: "worker-c",
+        blocks: [],
+        seq: 1,
+        waitingBudgetMs: 60_000,
+      });
+      await sql`UPDATE ai.turns SET deadline = now() - interval '1 second' WHERE id = ${waitTurn.id}`;
+
+      const sweep = await aiConversationStore.sweepTurns();
+
+      expect(sweep.requeued.some((entry) => entry.turnId === crashTurn.id)).toBe(true);
+      expect(sweep.failed.some((entry) => entry.turnId === budgetTurn.id)).toBe(true);
+      expect(sweep.aborted.some((entry) => entry.turnId === waitTurn.id)).toBe(true);
+
+      const requeued = await aiConversationStore.getTurn({ conversationId: crashConv.id, turnId: crashTurn.id });
+      expect(requeued?.status).toBe("queued");
+      const failed = await aiConversationStore.getTurn({ conversationId: budgetConv.id, turnId: budgetTurn.id });
+      expect(failed?.status).toBe("failed");
+      const aborted = await aiConversationStore.getTurn({ conversationId: waitConv.id, turnId: waitTurn.id });
+      expect(aborted?.status).toBe("aborted");
     } finally {
       await cleanupFixture({ userId, conversationIds });
     }
   });
-});
 
-describe("AI tool audit and approval integration", () => {
-  test("stores scoped approval preferences and redacted tool call lifecycle metadata", async () => {
-    if (!(await canUseAiDatabase())) {
-      console.warn("Skipping AI tool audit DB test: auth/ai tables are not available.");
-      return;
-    }
-
+  test("session store guards turn-owned appends by lease and skips user messages", async () => {
+    if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();
     const conversationIds: string[] = [];
-    const extraUserIds: string[] = [];
 
     try {
-      const resource = {
-        kind: "resource" as const,
-        appId: "grids",
-        resourceType: "base",
-        resourceId: `base-${crypto.randomUUID()}`,
-      };
-      const approvalContext = { actorUserId: userId, appId: "grids", resource };
-
-      expect(await hasRememberedAiToolApproval(approvalContext, { toolName: "write_record", approvalScope: "v1" })).toBe(false);
-      await rememberAiToolApproval(approvalContext, { toolName: "write_record", approvalScope: "v1" });
-      expect(await hasRememberedAiToolApproval(approvalContext, { toolName: "write_record", approvalScope: "v1" })).toBe(true);
-      expect(
-        await hasRememberedAiToolApproval(
-          { ...approvalContext, resource: { ...resource, appId: "other-app" } },
-          { toolName: "write_record", approvalScope: "v1" },
-        ),
-      ).toBe(false);
-      expect(await hasRememberedAiToolApproval(approvalContext, { toolName: "write_record", approvalScope: "v2" })).toBe(false);
-      expect(await hasRememberedAiToolApproval(approvalContext, { toolName: "delete_record", approvalScope: "v1" })).toBe(false);
-      const otherUserId = await insertUser();
-      extraUserIds.push(otherUserId);
-      expect(
-        await hasRememberedAiToolApproval(
-          { ...approvalContext, actorUserId: otherUserId },
-          { toolName: "write_record", approvalScope: "v1" },
-        ),
-      ).toBe(false);
-      expect(
-        await hasRememberedAiToolApproval(
-          { ...approvalContext, resource: { ...resource, resourceId: "other-base" } },
-          { toolName: "write_record", approvalScope: "v1" },
-        ),
-      ).toBe(false);
-      await rememberAiToolApproval(approvalContext, {
-        toolName: "expired_write",
-        approvalScope: "v1",
-        expiresAt: new Date(Date.now() - 60_000),
-      });
-      expect(await hasRememberedAiToolApproval(approvalContext, { toolName: "expired_write", approvalScope: "v1" })).toBe(false);
-      await forgetAiToolApproval(approvalContext, { toolName: "write_record", approvalScope: "v1" });
-      expect(await hasRememberedAiToolApproval(approvalContext, { toolName: "write_record", approvalScope: "v1" })).toBe(false);
-      await rememberAiToolApproval(approvalContext, { toolName: "write_record", approvalScope: "v1" });
-
-      const conversation = await aiConversationStore.createConversation({
-        appId: "ai-test",
-        ownerUserId: userId,
-        resource,
-      });
+      const conversation = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
       conversationIds.push(conversation.id);
-      const turn = await aiConversationStore.createTurn({ conversationId: conversation.id, modelProfileId: "model-a" });
-
-      await aiToolAudit.noteToolCall({
+      const { turn } = await aiConversationStore.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: "test-model",
+        runConfig,
+        userMessage: userMessage("session"),
+      });
+      await aiConversationStore.claimTurn({
         conversationId: conversation.id,
         turnId: turn.id,
-        callId: "call-1",
-        toolName: "write_record",
-        location: "server",
-        args: { secret: "do-not-store", visible: "metadata-only" },
+        leaseOwner: "worker-a",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 50,
+        runBudgetMs: 60_000,
       });
-      await aiToolAudit.noteApprovalRequested({
+
+      const session = aiConversationStore.createSessionStore({
         conversationId: conversation.id,
+        modelProfileId: "test-model",
         turnId: turn.id,
-        callId: "call-1",
-        toolName: "write_record",
-        location: "server",
-        args: { secret: "do-not-store", visible: "metadata-only" },
+        leaseOwner: "worker-a",
       });
-      await aiToolAudit.noteApprovalResolved({ turnId: turn.id, callId: "call-1", approvalState: "approved_by_preference" });
-      await aiToolAudit.noteToolStarted({ conversationId: conversation.id, turnId: turn.id, callId: "call-1", toolName: "write_record" });
-      await aiToolAudit.noteToolCompleted({ turnId: turn.id, callId: "call-1", result: { id: "record-1", secret: "hidden" } });
 
-      const [row] = await sql<
-        {
-          status: string;
-          approval_state: string;
-          input_meta: { type: string; keys: string[] };
-          output_meta: { type: string; keys: string[] };
-          error: string | null;
-        }[]
-      >`
-        SELECT status, approval_state, input_meta, output_meta, error
-        FROM ai.tool_calls
-        WHERE turn_id = ${turn.id}::uuid AND call_id = 'call-1'
-      `;
+      // nessi re-appends the input on legacy paths — the session store must ignore it.
+      await session.append(userMessage("session"));
+      // Assistant output is appended with the turn as loop id.
+      await session.append(assistantMessage("answer"));
 
-      const inputMeta = parseJsonValue<{ type: string; keys: string[] }>(row?.input_meta);
-      const outputMeta = parseJsonValue<{ type: string; keys: string[] }>(row?.output_meta);
+      const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
+      expect(messages).toHaveLength(2);
+      expect(messages[1]?.message.role).toBe("assistant");
+      expect(messages[1]?.loopId).toBe(turn.id);
 
-      expect({
-        status: row?.status,
-        approval_state: row?.approval_state,
-        input_meta: inputMeta,
-        output_meta: outputMeta,
-        error: row?.error,
-      }).toMatchObject({
-        status: "completed",
-        approval_state: "approved_by_preference",
-        input_meta: { type: "object", keys: ["secret", "visible"] },
-        output_meta: { type: "object", keys: ["id", "secret"] },
-        error: null,
+      // A non-owner session store must fail loudly instead of writing.
+      const stranger = aiConversationStore.createSessionStore({
+        conversationId: conversation.id,
+        modelProfileId: "test-model",
+        turnId: turn.id,
+        leaseOwner: "worker-zzz",
       });
-      expect(JSON.stringify(inputMeta)).not.toContain("do-not-store");
-      expect(JSON.stringify(outputMeta)).not.toContain("hidden");
+      await expect(stranger.append(assistantMessage("intruder"))).rejects.toThrow("lost its lease");
+
+      const load = await session.load();
+      expect(load).toHaveLength(2);
     } finally {
       await cleanupFixture({ userId, conversationIds });
-      for (const extraUserId of extraUserIds) {
-        await sql`DELETE FROM auth.users WHERE id = ${extraUserId}::uuid`;
-      }
     }
   });
-});
 
-describe("AI runtime durable turn controls", () => {
-  test("accepts aborts and pending actions without a local active worker", async () => {
-    if (!(await canUseAiDatabase())) {
-      console.warn("Skipping AI runtime control DB test: auth/ai tables are not available.");
-      return;
-    }
-
+  test("compaction archives in place and reuses the checkpoint seq for the summary", async () => {
+    if (!(await canUseAiDatabase())) return;
     const userId = await insertUser();
     const conversationIds: string[] = [];
 
     try {
-      const conversation = await aiConversationStore.createConversation({
-        appId: "ai-test",
-        ownerUserId: userId,
-      });
+      const conversation = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
       conversationIds.push(conversation.id);
-      const turn = await aiConversationStore.createTurn({ conversationId: conversation.id, modelProfileId: "model-a" });
 
-      await aiConversationStore.savePendingTurnAction({
+      // Seed four messages without a turn (plain session store path).
+      const session = aiConversationStore.createSessionStore({ conversationId: conversation.id });
+      await session.append(assistantMessage("one"));
+      await session.append(assistantMessage("two"));
+      await session.append(assistantMessage("three"));
+      await session.append(assistantMessage("four"));
+
+      await aiConversationStore.compactMessages({
         conversationId: conversation.id,
-        turnId: turn.id,
-        callId: "approval-remote",
-        kind: "approval",
-        status: "pending",
-        name: "write_record",
-        args: { id: "record-1" },
-        approvalScope: "write_record:v1",
-        allowAlways: false,
-        resolvedEvent: null,
+        checkpointSeq: 3,
+        summary: assistantMessage("Conversation summary: one to three"),
       });
 
-      await expect(
-        submitAiTurnAction({
-          conversationId: conversation.id,
-          turnId: turn.id,
-          callId: "approval-remote",
-          action: { type: "approval_response", approved: true },
-        }),
-      ).resolves.toEqual({ ok: true });
-      await expect(
-        submitAiTurnAction({
-          conversationId: conversation.id,
-          turnId: turn.id,
-          callId: "approval-remote",
-          action: { type: "approval_response", approved: true },
-        }),
-      ).resolves.toEqual({ ok: true });
-      expect(
-        await aiConversationStore.getPendingTurnAction({
-          conversationId: conversation.id,
-          turnId: turn.id,
-          callId: "approval-remote",
-        }),
-      ).toMatchObject({
-        resolvedEvent: { type: "approval_response", callId: "approval-remote", approved: true },
-      });
+      const active = await aiConversationStore.listMessages({ conversationId: conversation.id });
+      expect(active).toHaveLength(2);
+      expect(active[0]).toMatchObject({ seq: 3, kind: "summary" });
+      expect(active[1]).toMatchObject({ seq: 4 });
 
-      await expect(abortAiTurn({ conversationId: conversation.id, turnId: turn.id })).resolves.toEqual({ ok: true });
-      await expect(abortAiTurn({ conversationId: conversation.id, turnId: turn.id })).resolves.toEqual({ ok: true });
-      expect(await aiConversationStore.getRunningTurn({ conversationId: conversation.id })).toBeNull();
-      expect(
-        (await aiConversationStore.listTurnEvents({ conversationId: conversation.id, turnId: turn.id, after: "0-0" })).filter(
-          (event) => event.type === "done" && event.reason === "aborted",
-        ),
-      ).toHaveLength(1);
+      // Archived rows keep their original seqs.
+      const archived = await sql<{ seq: number }[]>`
+        SELECT seq FROM ai.messages
+        WHERE conversation_id = ${conversation.id} AND compacted_at IS NOT NULL
+        ORDER BY seq ASC
+      `;
+      expect(archived.map((row) => row.seq)).toEqual([1, 2, 3]);
+
+      // New appends continue after the highest ever seq.
+      await session.append(assistantMessage("five"));
+      const afterAppend = await aiConversationStore.listMessages({ conversationId: conversation.id });
+      expect(afterAppend.at(-1)?.seq).toBe(5);
     } finally {
       await cleanupFixture({ userId, conversationIds });
+    }
+  });
+
+  test("tool approval preferences remember and forget approvals", async () => {
+    if (!(await canUseAiDatabase())) return;
+    const userId = await insertUser();
+
+    try {
+      const context = { actorUserId: userId, appId: "ai-test", resource: { kind: "direct" as const } };
+      const tool = { toolName: `tool-${crypto.randomUUID()}`, approvalScope: "scope" };
+
+      expect(await hasRememberedAiToolApproval(context, tool)).toBe(false);
+      await rememberAiToolApproval(context, tool);
+      expect(await hasRememberedAiToolApproval(context, tool)).toBe(true);
+      await forgetAiToolApproval(context, tool);
+      expect(await hasRememberedAiToolApproval(context, tool)).toBe(false);
+    } finally {
+      await cleanupFixture({ userId, conversationIds: [] });
     }
   });
 });

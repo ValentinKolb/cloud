@@ -1,7 +1,8 @@
+import type { Input, Message } from "@valentinkolb/nessi";
 import type { Context } from "hono";
 import { z } from "zod";
 import { type AuthContext, err, fail, respond } from "../server";
-import { isAiSettingsError } from "./runtime";
+import { isAiSettingsError } from "./validate";
 import type { AiSettingsError, AiUserContentPart } from "./types";
 import { isAiImageMediaType } from "./types";
 
@@ -70,6 +71,15 @@ export const aiTurnInputToContent = (input: AiTurnInput): string | AiUserContent
   return message && !hasTextPart ? [{ type: "text", text: message }, ...content] : content;
 };
 
+/** Normalize turn input into a nessi Input (loop prompt) and its persisted user Message. */
+export const aiInputToUserMessage = (content: string | AiUserContentPart[]): { input: Input; message: Message } => {
+  if (typeof content === "string") {
+    return { input: content, message: { role: "user", content: [{ type: "text", text: content }] } };
+  }
+  const parts = content.map((part) => (typeof part === "string" ? { type: "text" as const, text: part } : part));
+  return { input: parts, message: { role: "user", content: parts } };
+};
+
 export const AiReplayQuerySchema = z.object({
   after: z.string().trim().min(1).optional(),
 });
@@ -100,7 +110,7 @@ export const toAiErrorResponse = (c: Context<AuthContext>, error: unknown) => {
     return respond(c, fail(aiSettingsServiceError(error.aiError)));
   }
   const message = error instanceof Error ? error.message : "AI request failed";
-  if (message.includes("idx_ai_turns_one_running")) return respond(c, fail(err.conflict("Running turn")));
+  if (message.includes("idx_ai_turns_one_active")) return respond(c, fail(err.conflict("Running turn")));
   return respond(c, fail(err.internal(message)));
 };
 

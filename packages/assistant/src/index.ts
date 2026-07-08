@@ -1,4 +1,4 @@
-import { migrateCloudAi, startAiRuntimeRecovery } from "@valentinkolb/cloud/ai";
+import { migrateCloudAi, startAiRuntime } from "@valentinkolb/cloud/ai";
 import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import apiRoutes from "./api";
@@ -11,7 +11,7 @@ const router = new Hono<AuthContext>()
   .route("/api/assistant", apiRoutes)
   .route("/app/assistant", pageRoutes);
 
-let stopAiRuntimeRecovery: (() => void) | undefined;
+let stopAiRuntime: (() => void) | undefined;
 
 export default await app.start({
   fetch: router.fetch,
@@ -21,11 +21,11 @@ export default await app.start({
       await migrateCloudAi();
     },
     start: async () => {
-      stopAiRuntimeRecovery = startAiRuntimeRecovery();
+      stopAiRuntime = startAiRuntime();
     },
     stop: async () => {
-      stopAiRuntimeRecovery?.();
-      stopAiRuntimeRecovery = undefined;
+      stopAiRuntime?.();
+      stopAiRuntime = undefined;
     },
   },
 });

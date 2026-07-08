@@ -1,5 +1,4 @@
 import type {
-  CompactDoneReason,
   CompactResult,
   ContentPart,
   DoneReason,
@@ -7,7 +6,6 @@ import type {
   Input,
   LoopAggregate,
   Message,
-  OutboundEvent,
   Provider,
   SessionStore,
   Tool,
@@ -16,6 +14,7 @@ import type {
 import type { Usage } from "@valentinkolb/nessi/ai";
 import type { z } from "zod";
 import type { RequestActor } from "../server";
+import type { AiTurnBlock } from "./protocol";
 
 export const AI_MODEL_CAPABILITIES = ["streaming", "tools", "vision"] as const;
 export type AiModelCapability = (typeof AI_MODEL_CAPABILITIES)[number];
@@ -158,58 +157,48 @@ export type AiStoredMessage = {
   createdAt: string;
 };
 
-export type AiTurnStatus = "running" | "completed" | "failed" | "aborted";
+export type AiTurnStatus = "queued" | "running" | "waiting_for_action" | "completed" | "failed" | "aborted";
 
 export type AiTurn = {
   id: string;
   conversationId: string;
   status: AiTurnStatus;
+  attempt: number;
   modelProfileId: string | null;
   createdAt: string;
   completedAt: string | null;
   error: string | null;
 };
 
-type AiStreamEventBase = {
-  turnId: string;
-  conversationId: string;
-  /** Stable logical Nessi loop id. Optional so old persisted events still replay. */
-  loopId?: string;
-};
-
-export type AiStreamEvent =
-  | (AiStreamEventBase & { type: "turn_start"; modelProfileId: string; providerModel: string })
-  | (AiStreamEventBase & { type: "nessi"; event: OutboundEvent })
-  | (AiStreamEventBase & {
+export type AiPendingTurnAction =
+  | {
       type: "approval_request";
+      turnId: string;
+      conversationId: string;
       callId: string;
       name: string;
       args: unknown;
       message?: string;
       allowAlways: boolean;
-    })
-  | (AiStreamEventBase & {
+    }
+  | {
       type: "frontend_tool";
+      turnId: string;
+      conversationId: string;
       callId: string;
       name: string;
       args: unknown;
       mode: AiFrontendToolMode;
-    })
-  | (AiStreamEventBase & {
-      type: "compaction_result";
-      reason: CompactDoneReason;
-      result: CompactResult;
-    })
-  | (AiStreamEventBase & { type: "done"; reason: DoneReason; aggregate: LoopAggregate | null })
-  | (AiStreamEventBase & { type: "error"; message: string; retryable?: boolean });
+    };
 
-export type AiSseEvent = AiStreamEvent & {
-  cursor?: string;
-};
-
-export type AiPendingTurnAction = Extract<AiStreamEvent, { type: "approval_request" | "frontend_tool" }>;
-
-export type AiTurnAbortResult = { found: true; status: AiTurnStatus; aborted: boolean } | { found: false; status: null; aborted: false };
+export type AiTurnAbortRequest =
+  | { found: false }
+  | {
+      found: true;
+      status: AiTurnStatus;
+      /** True when no live lease exists — the caller must finalize the turn itself. */
+      ownerless: boolean;
+    };
 
 export type AiPendingTurnActionRecord = {
   turnId: string;
@@ -256,43 +245,27 @@ export type AiCompactionTurnRunConfig = {
 
 export type AiTurnRunConfig = AiChatTurnRunConfig | AiCompactionTurnRunConfig;
 
-export type AiStoredTurnEvent = AiSseEvent & {
-  seq: number;
-  createdAt: string;
+export type AiTurnClaim = {
+  turn: AiTurn;
+  runConfig: AiTurnRunConfig | null;
+  /** Live blocks persisted by a previous attempt (continuation base), if any. */
+  liveBlocks: AiTurnBlock[] | null;
+  /** Highest wire seq of the previous attempt; the new attempt continues from here. */
+  liveSeq: number;
 };
 
-export type AiUiBlock =
-  | { id: string; type: "text"; text: string }
-  | { id: string; type: "thinking"; text: string }
-  | {
-      id: string;
-      type: "tool_call";
-      callId: string;
-      name: string;
-      args?: unknown;
-      result?: unknown;
-      status: "running" | "called" | "completed" | "failed";
-    }
-  | {
-      id: string;
-      type: "approval_request";
-      request: Extract<AiStreamEvent, { type: "approval_request" }>;
-      status: "pending" | "approved" | "rejected";
-    }
-  | {
-      id: string;
-      type: "frontend_tool";
-      request: Extract<AiStreamEvent, { type: "frontend_tool" }>;
-      status: "pending" | "completed" | "failed";
-      result?: unknown;
-    }
-  | {
-      id: string;
-      type: "compaction";
-      status: "running" | "completed" | "skipped" | "failed";
-      result?: CompactResult;
-    }
-  | { id: string; type: "error"; message: string };
+export type AiTurnSweepAction = { conversationId: string; turnId: string };
+/** A turn finalized by the sweep, with the wire coordinates for its turn_finished event. */
+export type AiTurnFinalizedAction = AiTurnSweepAction & { attempt: number; seq: number };
+
+export type AiTurnSweepResult = {
+  /** Lease-expired or stale-queued turns that need (re-)enqueueing. */
+  requeued: AiTurnSweepAction[];
+  /** Turns finalized as failed (deadline exceeded); turn_finished must be published. */
+  failed: (AiTurnFinalizedAction & { error: string })[];
+  /** Turns finalized as aborted (cancel requested or waiting deadline); turn_finished must be published. */
+  aborted: AiTurnFinalizedAction[];
+};
 
 export type AiConversationStore = {
   createConversation(input: {
@@ -348,34 +321,67 @@ export type AiConversationStore = {
     summary: Message;
     modelProfileId?: string | null;
   }): Promise<void>;
-  createTurn(input: {
+  listTurnMessages(input: { conversationId: string; loopId: string }): Promise<AiStoredMessage[]>;
+  createTurn(input: { conversationId: string; modelProfileId: string; runConfig?: AiTurnRunConfig }): Promise<AiTurn>;
+  /** Persist the user message and create its turn in one transaction. */
+  submitChatTurn(input: {
     conversationId: string;
     modelProfileId: string;
-    leaseOwner?: string;
-    leaseMs?: number;
-    runConfig?: AiTurnRunConfig;
-  }): Promise<AiTurn>;
+    runConfig: AiTurnRunConfig;
+    userMessage: Message;
+    /** Delete active messages with seq >= truncateFromSeq first (retry-in-place). */
+    truncateFromSeq?: number;
+  }): Promise<{ turn: AiTurn; message: AiStoredMessage }>;
   getTurn(input: { conversationId: string; turnId: string }): Promise<AiTurn | null>;
-  getTurnRunConfig(input: { conversationId: string; turnId: string }): Promise<AiTurnRunConfig | null>;
-  getRunningTurn(input: { conversationId: string }): Promise<AiTurn | null>;
-  listRecoverableTurns(input?: { limit?: number }): Promise<AiTurn[]>;
-  claimTurnLease(input: { conversationId: string; turnId: string; leaseOwner: string; leaseMs: number }): Promise<boolean>;
-  heartbeatTurn(input: { conversationId: string; turnId: string; leaseOwner: string; leaseMs: number }): Promise<boolean>;
-  expireStaleTurns(input?: { conversationId?: string }): Promise<number>;
-  requestTurnAbort(input: { conversationId: string; turnId: string; reason?: string }): Promise<AiTurnAbortResult>;
-  isTurnRunning(input: { conversationId: string; turnId: string }): Promise<boolean>;
-  isTurnLeaseOwner(input: { conversationId: string; turnId: string; leaseOwner: string }): Promise<boolean>;
-  completeTurn(input: {
+  getActiveTurn(input: { conversationId: string }): Promise<{ turn: AiTurn; liveBlocks: AiTurnBlock[]; liveSeq: number } | null>;
+  /**
+   * Claim a turn attempt. Increments attempt and takes the lease atomically.
+   * `from: "queue"` claims queued or lease-expired running turns; `from: "waiting"`
+   * claims suspended turns that have at least one resolved pending action.
+   */
+  claimTurn(input: {
+    conversationId: string;
     turnId: string;
-    status: Exclude<AiTurnStatus, "running">;
+    leaseOwner: string;
+    leaseMs: number;
+    from: "queue" | "waiting";
+    maxAttempts: number;
+    runBudgetMs: number;
+  }): Promise<AiTurnClaim | null>;
+  heartbeatTurn(input: { conversationId: string; turnId: string; leaseOwner: string; leaseMs: number }): Promise<boolean>;
+  /** Release the worker: persist live state, drop the lease, park the turn until its actions resolve. */
+  suspendTurn(input: {
+    conversationId: string;
+    turnId: string;
+    leaseOwner: string;
+    blocks: AiTurnBlock[];
+    seq: number;
+    waitingBudgetMs: number;
+  }): Promise<boolean>;
+  saveTurnLiveState(input: {
+    conversationId: string;
+    turnId: string;
+    leaseOwner: string;
+    blocks: AiTurnBlock[];
+    seq: number;
+  }): Promise<boolean>;
+  /** Record an abort wish. The caller finalizes ownerless turns itself. */
+  requestTurnAbort(input: { conversationId: string; turnId: string; reason?: string }): Promise<AiTurnAbortRequest>;
+  completeTurn(input: {
+    conversationId: string;
+    turnId: string;
+    status: "completed" | "failed" | "aborted";
     error?: string | null;
+    /** When set, only the lease owner may finalize; otherwise only ownerless turns are finalized. */
     leaseOwner?: string;
-  }): Promise<void>;
-  appendTurnEvent(input: { event: AiStreamEvent }): Promise<AiStoredTurnEvent | null>;
-  listTurnEvents(input: { conversationId: string; turnId?: string; after?: string | null; limit?: number }): Promise<AiStoredTurnEvent[]>;
+  }): Promise<boolean>;
+  /** Periodic maintenance: requeue lost turns, fail over-budget turns, abort stale waits. */
+  sweepTurns(input?: { limit?: number }): Promise<AiTurnSweepResult>;
   savePendingTurnAction(input: AiPendingTurnActionRecord): Promise<void>;
   listPendingTurnActions(input: { conversationId: string; turnId: string }): Promise<AiPendingTurnAction[]>;
   getPendingTurnAction(input: { conversationId: string; turnId: string; callId: string }): Promise<AiPendingTurnActionRecord | null>;
+  listPendingActionRecords(input: { conversationId: string; turnId: string }): Promise<AiPendingTurnActionRecord[]>;
+  listResolvedPendingActions(input: { conversationId: string; turnId: string }): Promise<AiPendingTurnActionRecord[]>;
   resolvePendingTurnAction(input: {
     conversationId: string;
     turnId: string;
@@ -383,7 +389,12 @@ export type AiConversationStore = {
     event: InboundEvent;
   }): Promise<AiPendingTurnActionRecord | null>;
   clearPendingTurnActions(input: { conversationId: string; turnId: string }): Promise<void>;
-  createSessionStore(input: { conversationId: string; modelProfileId?: string | null; turnId?: string | null }): SessionStore;
+  createSessionStore(input: {
+    conversationId: string;
+    modelProfileId?: string | null;
+    turnId?: string | null;
+    leaseOwner?: string | null;
+  }): SessionStore;
 };
 
 export type AiAccessResult<TAccess = unknown> = {
@@ -422,6 +433,8 @@ export type AiToolDefinition<TInput extends z.ZodType = z.ZodType, TOutput exten
   inputSchema: TInput;
   outputSchema: TOutput;
   approval: AiToolApprovalPolicy;
+  /** Per-tool execution timeout enforced by nessi. */
+  timeoutMs?: number;
 };
 
 export type AiToolRuntime<TInput extends z.ZodType = z.ZodType, TOutput extends z.ZodType = z.ZodType> =

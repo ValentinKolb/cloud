@@ -178,10 +178,7 @@ describe("AI resource adapters", () => {
           body: JSON.stringify({ type: "approval_response", approved: true }),
         },
       ],
-      [
-        "/ai/bases/base-1/conversations/22222222-2222-4222-8222-222222222222/turns/33333333-3333-4333-8333-333333333333/events?after=0-0",
-        undefined,
-      ],
+      ["/ai/bases/base-1/conversations/22222222-2222-4222-8222-222222222222/stream", undefined],
     ];
 
     for (const [path, init] of requests) {

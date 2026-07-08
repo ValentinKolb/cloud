@@ -44,12 +44,11 @@ describe("Firecrawl AI tools", () => {
       timeout: 30000,
       ignoreInvalidURLs: true,
     });
-    expect(result).toEqual({
-      results: [{ title: "Example", url: "https://example.com", snippet: "A compact result", position: 1 }],
-      creditsUsed: 1,
-    });
+    // Flat result list — billing metadata like creditsUsed never reaches the model.
+    expect(result).toEqual([{ title: "Example", url: "https://example.com", snippet: "A compact result", position: 1 }]);
     expect(JSON.stringify(result)).not.toContain("fc-secret");
     expect(JSON.stringify(result)).not.toContain("must not be returned");
+    expect(JSON.stringify(result)).not.toContain("creditsUsed");
   });
 
   test("extracts markdown main content with deterministic truncation", async () => {
@@ -79,9 +78,8 @@ describe("Firecrawl AI tools", () => {
       description: "Useful source",
       content: "0123456789",
       truncated: true,
-      warning: "cached",
-      creditsUsed: 2,
     });
     expect(JSON.stringify(result)).not.toContain("fc-secret");
+    expect(JSON.stringify(result)).not.toContain("creditsUsed");
   });
 });

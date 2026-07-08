@@ -1,4 +1,5 @@
-import type { AiPublicModelProfile, AiStoredMessage, AiUiBlock } from "@valentinkolb/cloud/ai";
+import type { AiPublicModelProfile, AiStoredMessage, AiTurnBlock } from "@valentinkolb/cloud/ai";
+import type { AiActiveTurn } from "@valentinkolb/cloud/ai/solid";
 import { AiComposer, AiMessageList } from "@valentinkolb/cloud/ai/ui";
 import { createSignal } from "solid-js";
 import DemoCard from "./DemoCard";
@@ -110,6 +111,8 @@ const demoMessages: AiStoredMessage[] = [
         },
       ],
       usage: finalAnswerUsage,
+      issueCount: 0,
+      issues: [],
       toolCallCount: 1,
       toolErrorCount: 0,
       toolIssueCount: 0,
@@ -125,42 +128,36 @@ const demoMessages: AiStoredMessage[] = [
 
 export const AiChatBlocksDemo = () => {
   const [submitted, setSubmitted] = createSignal(false);
-  const blocks = (): AiUiBlock[] =>
+  const surveyBlock: AiTurnBlock = {
+    id: "tool-survey-1",
+    kind: "tool",
+    callId: "survey-1",
+    name: "survey",
+    status: "awaiting_client",
+    frontendMode: "client_interaction",
+    args: {
+      title: "Prioritize next step",
+      description: "Interactive frontend tools can collect structured input directly in chat.",
+      submitLabel: "Continue",
+      questions: [
+        {
+          type: "single",
+          id: "priority",
+          label: "Which path should the assistant optimize for?",
+          required: true,
+          options: [
+            { value: "quality", label: "Higher quality" },
+            { value: "speed", label: "Faster flow" },
+            { value: "clarity", label: "Clearer copy" },
+          ],
+        },
+      ],
+    },
+  };
+  const activeTurn = (): AiActiveTurn | null =>
     submitted()
-      ? []
-      : [
-          {
-            id: "survey",
-            type: "frontend_tool",
-            status: "pending",
-            request: {
-              type: "frontend_tool",
-              conversationId: "ui-lab",
-              turnId: "turn-1",
-              callId: "survey-1",
-              name: "survey",
-              mode: "client_interaction",
-              args: {
-                title: "Prioritize next step",
-                description: "Interactive frontend tools can collect structured input directly in chat.",
-                submitLabel: "Continue",
-                questions: [
-                  {
-                    type: "single",
-                    id: "priority",
-                    label: "Which path should the assistant optimize for?",
-                    required: true,
-                    options: [
-                      { value: "quality", label: "Higher quality" },
-                      { value: "speed", label: "Faster flow" },
-                      { value: "clarity", label: "Clearer copy" },
-                    ],
-                  },
-                ],
-              },
-            },
-          },
-        ];
+      ? null
+      : { turnId: "turn-1", attempt: 1, seq: 1, status: "waiting_for_action", modelProfileId: "demo", blocks: [surveyBlock] };
 
   return (
     <DemoCard
@@ -168,19 +165,21 @@ export const AiChatBlocksDemo = () => {
       chip={{ kind: "component", name: "AiMessageList", from: FROM_AI_UI }}
       description="Assistant and app-specific chats use the same block renderer for text, thinking, default cards, and interactive frontend tools."
       code={`<AiMessageList
-  messages={() => messages}
-  assistantBlocks={() => activeBlocks}
-  onFrontendToolResult={(request, result) => continueTurn(request, result)}
+  session={{ messages: () => messages, activeTurn: () => activeTurn }}
+  actions={{ onFrontendToolResult: (request, result) => continueTurn(request, result) }}
 />`}
     >
       <div class="h-[34rem] overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
         <AiMessageList
-          messages={() => demoMessages}
-          assistantBlocks={blocks}
-          streaming={() => !submitted()}
-          onRetryMessage={() => undefined}
-          onFrontendToolResult={() => {
-            setSubmitted(true);
+          session={{
+            messages: () => demoMessages,
+            activeTurn,
+          }}
+          actions={{
+            onRetryMessage: () => undefined,
+            onFrontendToolResult: () => {
+              setSubmitted(true);
+            },
           }}
         />
       </div>
@@ -196,32 +195,36 @@ export const AiComposerDemo = () => {
       chip={{ kind: "component", name: "AiComposer", from: FROM_AI_UI }}
       description="Minimal Assistant composer with text model dropdown, action menu, in-field attachment previews, context indicator, and borderless send action."
       code={`<AiComposer
-  models={() => models}
-  selectedModelId={selectedModelId}
-  onModelChange={setSelectedModelId}
-  onNewConversation={createConversation}
-  onSend={sendMessage}
+  models={{ profiles: () => models, selectedId: selectedModelId, onSelect: setSelectedModelId }}
+  state={{ disabled: () => false, running: () => false }}
+  actions={{ onNewConversation: createConversation, send: sendMessage, stop }}
 />`}
     >
       <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
         <AiComposer
-          models={() => demoModels}
-          selectedModelId={selectedModelId}
-          onModelChange={setSelectedModelId}
-          onNewConversation={() => undefined}
-          disabled={() => false}
-          running={() => false}
-          usage={() => ({ input: 290, output: 129, total: 419 })}
-          slashCommands={() => [
-            {
-              name: "summarize",
-              description: "Prepare a summary request",
-              icon: "ti ti-list-details",
-              action: ({ setDraft }) => setDraft("Summarize this:\n"),
-            },
-          ]}
-          onSend={() => true}
-          onStop={() => undefined}
+          models={{
+            profiles: () => demoModels,
+            selectedId: selectedModelId,
+            onSelect: setSelectedModelId,
+          }}
+          state={{
+            disabled: () => false,
+            running: () => false,
+            usage: () => ({ input: 290, output: 129, total: 419 }),
+          }}
+          actions={{
+            onNewConversation: () => undefined,
+            slashCommands: () => [
+              {
+                name: "summarize",
+                description: "Prepare a summary request",
+                icon: "ti ti-list-details",
+                action: ({ setDraft }) => setDraft("Summarize this:\n"),
+              },
+            ],
+            send: () => true,
+            stop: () => undefined,
+          }}
         />
       </div>
     </DemoCard>

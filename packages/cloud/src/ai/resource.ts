@@ -1,20 +1,10 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
-import { type AuthContext, err, fail, ok, respond, v } from "../server";
-import {
-  AiCreateConversationInputSchema,
-  AiReplayQuerySchema,
-  AiTurnInputSchema,
-  aiTurnInputToContent,
-  toAiActionFailureResponse,
-  toAiErrorResponse,
-} from "./http";
-import { AiTurnActionSchema, abortAiTurn, createAiTurnResponse, listPendingAiTurnActions, submitAiTurnAction } from "./runtime";
+import { type AuthContext, err, fail, ok, respond } from "../server";
 import { aiResourceKey, registerAiResourceDefinition } from "./resource-runner";
+import { type AiChatRequestContext, createAiChatRoutes } from "./routes";
 import { listAiModels, toPublicAiSettingsState } from "./settings";
-import { aiConversationStore } from "./store";
-import { createAiEventReplayResponse } from "./stream";
 import type {
   AiAccessResult,
   AiConversationResource,
@@ -197,163 +187,36 @@ const createAiResourceRoutes = <TPath extends string, TParamsSchema extends z.Zo
 ) => {
   const basePath = normalizePath(definition.path);
 
-  return new Hono<AuthContext>()
-    .get(`${basePath}/status`, async (c) => {
-      const ctx = await loadResourceRequestContext(c, definition);
-      if (ctx instanceof Response) return ctx;
-      const policy = normalizePolicy(await resolveValue(definition.modelPolicy, ctx.hook, { kind: "platform-default" }));
-      const [status, models] = await Promise.all([toPublicAiSettingsState(), listAiModels(policyForModelList(policy))]);
-      return respond(c, ok({ ...status, models, resource: ctx.descriptor, modelPolicy: policy }));
-    })
-    .get(`${basePath}/conversations`, async (c) => {
-      const ctx = await loadResourceRequestContext(c, definition);
-      if (ctx instanceof Response) return ctx;
-      return respond(
-        c,
-        ok(
-          await aiConversationStore.listConversations({
-            appId: definition.appId,
-            ownerUserId: ctx.ownerUserId,
-            resource: ctx.conversationResource,
-          }),
-        ),
-      );
-    })
-    .post(`${basePath}/conversations`, v("json", AiCreateConversationInputSchema), async (c) => {
-      const body = c.req.valid("json");
-      const ctx = await loadResourceRequestContext(c, definition);
-      if (ctx instanceof Response) return ctx;
-      return respond(
-        c,
-        ok(
-          await aiConversationStore.createConversation({
-            appId: definition.appId,
-            ownerUserId: ctx.ownerUserId,
-            title: body.title ?? ctx.descriptor.title,
-            resource: ctx.conversationResource,
-          }),
-        ),
-        201,
-      );
-    })
-    .get(`${basePath}/conversations/:conversationId`, async (c) => {
-      const ctx = await loadResourceRequestContext(c, definition);
-      if (ctx instanceof Response) return ctx;
-      const conversationId = c.req.param("conversationId");
-      if (!conversationId) return respond(c, fail(err.notFound("Conversation")));
-      const conversation = await aiConversationStore.getConversation({
-        conversationId,
-        appId: definition.appId,
-        ownerUserId: ctx.ownerUserId,
-        resource: ctx.conversationResource,
-      });
-      if (!conversation) return respond(c, fail(err.notFound("Conversation")));
-      const [messages, activeTurn] = await Promise.all([
-        aiConversationStore.listMessages({ conversationId: conversation.id }),
-        aiConversationStore.getRunningTurn({ conversationId: conversation.id }),
-      ]);
-      const pendingActions = activeTurn ? await listPendingAiTurnActions({ conversationId: conversation.id, turnId: activeTurn.id }) : [];
-      return respond(c, ok({ conversation, messages, activeTurn, pendingActions }));
-    })
-    .post(`${basePath}/conversations/:conversationId/turns`, v("json", AiTurnInputSchema), async (c) => {
-      const body = c.req.valid("json");
-      const ctx = await loadResourceRequestContext(c, definition);
-      if (ctx instanceof Response) return ctx;
-      const conversationId = c.req.param("conversationId");
-      if (!conversationId) return respond(c, fail(err.notFound("Conversation")));
-      const conversation = await aiConversationStore.getConversation({
-        conversationId,
-        appId: definition.appId,
-        ownerUserId: ctx.ownerUserId,
-        resource: ctx.conversationResource,
-      });
-      if (!conversation) return respond(c, fail(err.notFound("Conversation")));
+  const routes = createAiChatRoutes({
+    appId: definition.appId,
+    defaultTitle: (ctx) => (ctx.resource?.kind === "resource" ? ctx.resource.title : undefined),
+    resolveContext: async (c): Promise<AiChatRequestContext | Response> => {
+      const loaded = await loadResourceRequestContext(c, definition);
+      if (loaded instanceof Response) return loaded;
+      const policy = normalizePolicy(await resolveValue(definition.modelPolicy, loaded.hook, { kind: "platform-default" }));
+      const systemPrompt = await resolveValue(definition.systemPrompt, loaded.hook, undefined as string | undefined);
+      return {
+        actor: loaded.actor,
+        ownerUserId: loaded.ownerUserId,
+        resource: loaded.conversationResource,
+        toolSource: { kind: "resource", resourceKey: aiResourceKey(definition), params: loaded.params },
+        systemPrompt,
+        modelPolicy: policy,
+        toolApprovalContext: { actorUserId: loaded.ownerUserId, appId: definition.appId, resource: loaded.conversationResource },
+      };
+    },
+  });
 
-      try {
-        const modelPolicy = await resolveValue(definition.modelPolicy, ctx.hook, { kind: "platform-default" });
-        return await createAiTurnResponse({
-          conversationId: conversation.id,
-          input: aiTurnInputToContent(body),
-          actor: ctx.actor,
-          requestedModelId: body.modelProfileId,
-          modelPolicy: normalizePolicy(modelPolicy),
-          toolSource: { kind: "resource", resourceKey: aiResourceKey(definition), params: ctx.params },
-          signal: c.req.raw.signal,
-        });
-      } catch (error) {
-        return toAiErrorResponse(c, error);
-      }
-    })
-    .post(`${basePath}/conversations/:conversationId/turns/:turnId/abort`, async (c) => {
-      const ctx = await loadResourceRequestContext(c, definition);
-      if (ctx instanceof Response) return ctx;
-      const conversationId = c.req.param("conversationId");
-      const turnId = c.req.param("turnId");
-      if (!conversationId || !turnId) return respond(c, fail(err.notFound("Conversation")));
-      const conversation = await aiConversationStore.getConversation({
-        conversationId,
-        appId: definition.appId,
-        ownerUserId: ctx.ownerUserId,
-        resource: ctx.conversationResource,
-      });
-      if (!conversation) return respond(c, fail(err.notFound("Conversation")));
+  // A dedicated status route exposes the resource descriptor + effective policy.
+  const statusRoutes = new Hono<AuthContext>().get(`${basePath}/status`, async (c) => {
+    const ctx = await loadResourceRequestContext(c, definition);
+    if (ctx instanceof Response) return ctx;
+    const policy = normalizePolicy(await resolveValue(definition.modelPolicy, ctx.hook, { kind: "platform-default" }));
+    const [status, models] = await Promise.all([toPublicAiSettingsState(), listAiModels(policyForModelList(policy))]);
+    return respond(c, ok({ ...status, models, resource: ctx.descriptor, modelPolicy: policy }));
+  });
 
-      await abortAiTurn({ conversationId: conversation.id, turnId });
-      return respond(c, ok({ ok: true }));
-    })
-    .post(`${basePath}/conversations/:conversationId/turns/:turnId/actions/:callId`, v("json", AiTurnActionSchema), async (c) => {
-      const ctx = await loadResourceRequestContext(c, definition);
-      if (ctx instanceof Response) return ctx;
-      const conversationId = c.req.param("conversationId");
-      const turnId = c.req.param("turnId");
-      const callId = c.req.param("callId");
-      if (!conversationId || !turnId || !callId) return respond(c, fail(err.notFound("Conversation")));
-      const conversation = await aiConversationStore.getConversation({
-        conversationId,
-        appId: definition.appId,
-        ownerUserId: ctx.ownerUserId,
-        resource: ctx.conversationResource,
-      });
-      if (!conversation) return respond(c, fail(err.notFound("Conversation")));
-
-      const result = await submitAiTurnAction({
-        conversationId: conversation.id,
-        turnId,
-        callId,
-        action: c.req.valid("json"),
-        toolApprovalContext: {
-          actorUserId: ctx.ownerUserId,
-          appId: definition.appId,
-          resource: ctx.conversationResource,
-        },
-      });
-
-      if (!result.ok) {
-        return toAiActionFailureResponse(c, result);
-      }
-      return respond(c, ok({ ok: true }));
-    })
-    .get(`${basePath}/conversations/:conversationId/turns/:turnId/events`, v("query", AiReplayQuerySchema), async (c) => {
-      const query = c.req.valid("query");
-      const ctx = await loadResourceRequestContext(c, definition);
-      if (ctx instanceof Response) return ctx;
-      const conversationId = c.req.param("conversationId");
-      const turnId = c.req.param("turnId");
-      if (!conversationId || !turnId) return respond(c, fail(err.notFound("Conversation")));
-      const conversation = await aiConversationStore.getConversation({
-        conversationId,
-        appId: definition.appId,
-        ownerUserId: ctx.ownerUserId,
-        resource: ctx.conversationResource,
-      });
-      if (!conversation) return respond(c, fail(err.notFound("Conversation")));
-      return createAiEventReplayResponse({
-        conversationId: conversation.id,
-        turnId,
-        after: query.after ?? c.req.header("Last-Event-ID"),
-        signal: c.req.raw.signal,
-      });
-    });
+  return new Hono<AuthContext>().route("/", statusRoutes).route(basePath, routes);
 };
 
 export const defineAiResource = <const TPath extends string, TParamsSchema extends z.ZodType<AiPathParams<TPath>>, TAccess = unknown>(

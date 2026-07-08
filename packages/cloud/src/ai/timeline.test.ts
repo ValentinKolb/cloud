@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Message } from "@valentinkolb/nessi";
-import { assistantDisplayBlocks, assistantVisibleBlocks, buildAiMessageTimeline, copyTextFromAssistantEntries } from "./timeline";
+import { buildAiMessageTimeline, copyTextFromAssistantEntries } from "./timeline";
 import type { AiStoredMessage } from "./types";
 
 const stored = (input: {
@@ -26,7 +26,7 @@ const stored = (input: {
 });
 
 describe("AI message timeline", () => {
-  test("groups one Nessi loop into one visible assistant response", () => {
+  test("groups one loop into one assistant response with unified blocks", () => {
     const firstAssistant: Message = {
       role: "assistant",
       content: [
@@ -36,69 +36,58 @@ describe("AI message timeline", () => {
       stopReason: "tool_use",
     };
     const toolResult: Message = { role: "tool_result", callId: "call-card", name: "card", result: { displayed: true } };
-    const finalAssistant: Message = {
-      role: "assistant",
-      content: [{ type: "text", text: "Done." }],
-      stopReason: "stop",
-    };
-    const aggregate: NonNullable<AiStoredMessage["loopAggregate"]> = {
-      turns: [
-        {
-          message: firstAssistant as Extract<Message, { role: "assistant" }>,
-          stopReason: "tool_use",
-          toolCalls: [{ callId: "call-card", name: "card", args: { title: "Status" } }],
-        },
-        { message: finalAssistant as Extract<Message, { role: "assistant" }>, stopReason: "stop", toolCalls: [] },
-      ],
-      usage: { input: 10, output: 5, total: 15 },
-      toolCallCount: 1,
-      toolErrorCount: 0,
-      toolIssueCount: 0,
-      toolMalformedCount: 0,
-      toolCancelledCount: 0,
-      toolIssues: [],
-      assistantMessageCount: 2,
-    };
+    const finalAssistant: Message = { role: "assistant", content: [{ type: "text", text: "Done." }], stopReason: "stop" };
 
     const timeline = buildAiMessageTimeline([
       stored({ id: "user-1", seq: 1, message: { role: "user", content: [{ type: "text", text: "test" }] } }),
       stored({ id: "assistant-1", seq: 2, message: firstAssistant, loopId: "loop-1" }),
       stored({ id: "tool-1", seq: 3, message: toolResult, loopId: "loop-1" }),
-      stored({ id: "assistant-2", seq: 4, message: finalAssistant, loopId: "loop-1", loopAggregate: aggregate }),
+      stored({ id: "assistant-2", seq: 4, message: finalAssistant, loopId: "loop-1" }),
     ]);
 
     expect(timeline).toHaveLength(2);
-    expect(timeline[1]?.type).toBe("assistant_response");
-    if (timeline[1]?.type !== "assistant_response") throw new Error("Expected assistant response group");
-    expect(timeline[1].loopId).toBe("loop-1");
-    expect(timeline[1].entries.map((entry) => entry.id)).toEqual(["assistant-1", "tool-1", "assistant-2"]);
-    expect(timeline[1].actionEntry?.id).toBe("assistant-2");
-    expect(copyTextFromAssistantEntries(timeline[1].entries)).toBe("Here is the card.\n\nDone.");
+    expect(timeline[0]).toMatchObject({ type: "user" });
+
+    const group = timeline[1];
+    if (group?.type !== "assistant") throw new Error("expected assistant group");
+    expect(group.loopId).toBe("loop-1");
+    expect(group.entries).toHaveLength(3);
+    // Blocks: text, tool (completed via tool_result), text.
+    expect(group.blocks.map((block) => block.kind)).toEqual(["text", "tool", "text"]);
+    const toolBlock = group.blocks.find((block) => block.kind === "tool");
+    expect(toolBlock).toMatchObject({ kind: "tool", callId: "call-card", status: "completed" });
+    expect(group.actionEntry?.id).toBe("assistant-2");
   });
 
-  test("preserves assistant block order from the stored message", () => {
-    const message: Message = {
-      role: "assistant",
-      content: [
-        { type: "text", text: "first" },
-        { type: "thinking", thinking: "reasoning" },
-        { type: "tool_call", id: "call-1", name: "card", args: { title: "A" } },
-        { type: "text", text: "second" },
-      ],
-    };
+  test("splits distinct loops into separate assistant groups", () => {
+    const timeline = buildAiMessageTimeline([
+      stored({ id: "u1", seq: 1, message: { role: "user", content: [{ type: "text", text: "one" }] } }),
+      stored({ id: "a1", seq: 2, message: { role: "assistant", content: [{ type: "text", text: "first" }], stopReason: "stop" }, loopId: "loop-1" }),
+      stored({ id: "u2", seq: 3, message: { role: "user", content: [{ type: "text", text: "two" }] } }),
+      stored({ id: "a2", seq: 4, message: { role: "assistant", content: [{ type: "text", text: "second" }], stopReason: "stop" }, loopId: "loop-2" }),
+    ]);
 
-    expect(assistantVisibleBlocks(message).map((block) => block.type)).toEqual(["text", "thinking", "tool_call", "text"]);
+    expect(timeline.map((item) => item.type)).toEqual(["user", "assistant", "user", "assistant"]);
+    const [, first, , second] = timeline;
+    if (first?.type !== "assistant" || second?.type !== "assistant") throw new Error("expected assistant groups");
+    expect(first.loopId).toBe("loop-1");
+    expect(second.loopId).toBe("loop-2");
   });
 
-  test("displays reasoning before answer text for final assistant messages", () => {
-    const message: Message = {
-      role: "assistant",
-      content: [
-        { type: "text", text: "answer" },
-        { type: "thinking", thinking: "reasoning" },
-      ],
-    };
+  test("renders summary rows as their own items", () => {
+    const timeline = buildAiMessageTimeline([
+      { ...stored({ id: "s1", seq: 1, message: { role: "assistant", content: [{ type: "text", text: "summary" }], stopReason: "stop" } }), kind: "summary" },
+      stored({ id: "u1", seq: 2, message: { role: "user", content: [{ type: "text", text: "next" }] } }),
+    ]);
+    expect(timeline[0]).toMatchObject({ type: "summary" });
+    expect(timeline[1]).toMatchObject({ type: "user" });
+  });
 
-    expect(assistantDisplayBlocks(message).map((block) => block.type)).toEqual(["thinking", "text"]);
+  test("copyTextFromAssistantEntries joins visible assistant text", () => {
+    const entries = [
+      stored({ id: "a1", seq: 1, message: { role: "assistant", content: [{ type: "text", text: "one" }], stopReason: "stop" }, loopId: "loop-1" }),
+      stored({ id: "a2", seq: 2, message: { role: "assistant", content: [{ type: "text", text: "two" }], stopReason: "stop" }, loopId: "loop-1" }),
+    ];
+    expect(copyTextFromAssistantEntries(entries)).toBe("one\n\ntwo");
   });
 });

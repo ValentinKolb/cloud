@@ -24,18 +24,15 @@ export const CloudAiWebSearchInputSchema = z
   })
   .strict();
 
-export const CloudAiWebSearchOutputSchema = z.object({
-  results: z.array(
-    z.object({
-      title: z.string(),
-      url: z.string(),
-      snippet: z.string(),
-      position: z.number().int(),
-    }),
-  ),
-  warning: z.string().optional(),
-  creditsUsed: z.number().optional(),
-});
+/** Flat result list — no billing metadata, the model only needs the sources. */
+export const CloudAiWebSearchOutputSchema = z.array(
+  z.object({
+    title: z.string(),
+    url: z.string(),
+    snippet: z.string(),
+    position: z.number().int(),
+  }),
+);
 
 export const CloudAiWebExtractInputSchema = z
   .object({
@@ -49,8 +46,6 @@ export const CloudAiWebExtractOutputSchema = z.object({
   description: z.string().optional(),
   content: z.string(),
   truncated: z.boolean(),
-  warning: z.string().optional(),
-  creditsUsed: z.number().optional(),
 });
 
 const readFirecrawlApiKey = async (): Promise<string> => String((await coreSettings.get<string>(AI_FIRECRAWL_API_KEY_SETTING_KEY)) ?? "").trim();
@@ -132,7 +127,6 @@ const firecrawlPost = async (input: {
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const asString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
-const asNumber = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
 
 const truncate = (text: string, maxChars: number): { text: string; truncated: boolean } => {
   if (text.length <= maxChars) return { text, truncated: false };
@@ -218,11 +212,7 @@ export const runCloudAiWebSearch = async (
     }))
     .filter((item) => item.url.length > 0);
 
-  return CloudAiWebSearchOutputSchema.parse({
-    results,
-    warning: asString(body.warning) || undefined,
-    creditsUsed: asNumber(body.creditsUsed),
-  });
+  return CloudAiWebSearchOutputSchema.parse(results);
 };
 
 export const runCloudAiWebExtract = async (
@@ -262,8 +252,6 @@ export const runCloudAiWebExtract = async (
     description: asString(metadata.description) || asString(data.description) || undefined,
     content: truncated.text,
     truncated: truncated.truncated,
-    warning: asString(body.warning) || undefined,
-    creditsUsed: asNumber(body.creditsUsed),
   });
 };
 
@@ -275,6 +263,7 @@ export const createCloudAiWebSearchTool = (config: FirecrawlToolConfig = {}) =>
     inputSchema: CloudAiWebSearchInputSchema,
     outputSchema: CloudAiWebSearchOutputSchema,
     approval: "never",
+    timeoutMs: 90_000,
   }).server(async (input, ctx) => runCloudAiWebSearch(input, { ...config, signal: ctx.signal }));
 
 export const createCloudAiWebExtractTool = (config: FirecrawlToolConfig = {}) =>
@@ -284,6 +273,7 @@ export const createCloudAiWebExtractTool = (config: FirecrawlToolConfig = {}) =>
     inputSchema: CloudAiWebExtractInputSchema,
     outputSchema: CloudAiWebExtractOutputSchema,
     approval: "never",
+    timeoutMs: 90_000,
   }).server(async (input, ctx) => runCloudAiWebExtract(input, { ...config, signal: ctx.signal }));
 
 export type CloudAiWebSearchInput = z.infer<typeof CloudAiWebSearchInputSchema>;

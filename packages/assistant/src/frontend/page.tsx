@@ -1,7 +1,8 @@
-import { aiConversationStore, listAiModels, listPendingAiTurnActions, toPublicAiSettingsState } from "@valentinkolb/cloud/ai";
+import { aiConversationStore, listAiModels, loadAiStreamState, toPublicAiSettingsState } from "@valentinkolb/cloud/ai";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
+import AssistantLayoutHelp from "./AssistantLayoutHelp.island";
 import AssistantWorkspace from "./AssistantWorkspace.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -16,27 +17,19 @@ export default ssr<AuthContext>(async (c) => {
 
   const activeConversation =
     requestedConversationId && conversations.some((conversation) => conversation.id === requestedConversationId)
-      ? requestedConversationId
-      : (conversations[0]?.id ?? null);
-  const [messages, activeTurn] = activeConversation
-    ? await Promise.all([
-        aiConversationStore.listMessages({ conversationId: activeConversation }),
-        aiConversationStore.getRunningTurn({ conversationId: activeConversation }),
-      ])
-    : [[], null];
-  const pendingActions =
-    activeConversation && activeTurn ? await listPendingAiTurnActions({ conversationId: activeConversation, turnId: activeTurn.id }) : [];
+      ? conversations.find((conversation) => conversation.id === requestedConversationId)!
+      : (conversations[0] ?? null);
+  const initialDetail = activeConversation ? await loadAiStreamState(activeConversation) : null;
 
   return () => (
     <Layout c={c} fullPage title={[{ title: "Start", href: "/" }, { title: "Assistant" }]}>
+      <AssistantLayoutHelp />
       <AssistantWorkspace
         status={status}
         models={models}
         initialConversations={conversations}
-        initialConversationId={activeConversation}
-        initialMessages={messages}
-        initialActiveTurn={activeTurn}
-        initialPendingActions={pendingActions}
+        initialConversationId={activeConversation?.id ?? null}
+        initialDetail={initialDetail ? { conversation: initialDetail.conversation, messages: initialDetail.messages, activeTurn: initialDetail.activeTurn } : null}
       />
     </Layout>
   );

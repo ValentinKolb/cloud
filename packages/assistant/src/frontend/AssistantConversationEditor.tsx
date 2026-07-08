@@ -2,7 +2,7 @@ import type { AiConversation } from "@valentinkolb/cloud/ai";
 import { dialogCore, IconInput, PanelDialog, panelDialogOptions, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal } from "solid-js";
-import { apiClient } from "../api/client";
+import { assistantApi } from "../api/client";
 
 type EditConversationResult = { action: "save"; conversation: AiConversation } | { action: "delete"; conversation: AiConversation };
 
@@ -13,11 +13,6 @@ type EditConversationFormProps = {
 
 const DEFAULT_CHAT_ICON = "ti ti-message";
 
-const readErrorMessage = async (response: Response, fallback: string): Promise<string> => {
-  const body = (await response.json().catch(() => null)) as { message?: string; error?: { message?: string } } | null;
-  return body?.message ?? body?.error?.message ?? fallback;
-};
-
 export const conversationIcon = (conversation: AiConversation): string => conversation.icon?.trim() || DEFAULT_CHAT_ICON;
 
 function EditConversationForm(props: EditConversationFormProps) {
@@ -26,18 +21,12 @@ function EditConversationForm(props: EditConversationFormProps) {
   const [description, setDescription] = createSignal(props.conversation.description);
 
   const save = mutation.create<AiConversation, void>({
-    mutation: async () => {
-      const response = await apiClient.conversations[":conversationId"].$patch({
-        param: { conversationId: props.conversation.id },
-        json: {
-          title: title().trim(),
-          icon: icon().trim() || DEFAULT_CHAT_ICON,
-          description: description().trim(),
-        },
-      });
-      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to save chat"));
-      return (await response.json()) as AiConversation;
-    },
+    mutation: async () =>
+      assistantApi.updateConversation(props.conversation.id, {
+        title: title().trim(),
+        icon: icon().trim() || DEFAULT_CHAT_ICON,
+        description: description().trim(),
+      }),
     onSuccess: (conversation) => {
       toast.success("Chat saved");
       props.close({ action: "save", conversation });
@@ -56,10 +45,7 @@ function EditConversationForm(props: EditConversationFormProps) {
       });
       if (!confirmed) return false;
 
-      const response = await apiClient.conversations[":conversationId"].$delete({
-        param: { conversationId: props.conversation.id },
-      });
-      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to delete chat"));
+      await assistantApi.deleteConversation(props.conversation.id);
       return true;
     },
     onSuccess: (deleted) => {

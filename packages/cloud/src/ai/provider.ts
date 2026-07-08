@@ -2,6 +2,9 @@ import type { Provider } from "@valentinkolb/nessi/ai";
 import { anthropic, gemini, mistral, ollama, openAICompatible, openai, openrouter } from "@valentinkolb/nessi/ai";
 import type { AiModelProfile } from "./types";
 
+/** Bound how long a provider may stall: connect within 30s, never silent for more than 60s. */
+const PROVIDER_TIMEOUTS = { firstByteMs: 30_000, idleMs: 60_000 } as const;
+
 const commonOptions = (profile: AiModelProfile, apiKey?: string) => ({
   apiKey,
   baseURL: profile.baseURL,
@@ -9,6 +12,7 @@ const commonOptions = (profile: AiModelProfile, apiKey?: string) => ({
   temperature: profile.temperature,
   creditsPerInputToken: profile.creditsPerInputToken,
   creditsPerOutputToken: profile.creditsPerOutputToken,
+  timeouts: PROVIDER_TIMEOUTS,
 });
 
 export const createAiProvider = (profile: AiModelProfile, apiKey?: string): Provider => {
@@ -30,6 +34,7 @@ export const createAiProvider = (profile: AiModelProfile, apiKey?: string): Prov
         temperature: profile.temperature,
         creditsPerInputToken: profile.creditsPerInputToken,
         creditsPerOutputToken: profile.creditsPerOutputToken,
+        timeouts: PROVIDER_TIMEOUTS,
       });
     case "vllm":
       return openAICompatible({
@@ -41,6 +46,7 @@ export const createAiProvider = (profile: AiModelProfile, apiKey?: string): Prov
         temperature: profile.temperature,
         creditsPerInputToken: profile.creditsPerInputToken,
         creditsPerOutputToken: profile.creditsPerOutputToken,
+        timeouts: PROVIDER_TIMEOUTS,
         compat: {
           toolCallIdPolicy: "passthrough",
           supportsUsageInStreaming: true,
@@ -59,6 +65,7 @@ export const createAiProvider = (profile: AiModelProfile, apiKey?: string): Prov
         temperature: profile.temperature,
         creditsPerInputToken: profile.creditsPerInputToken,
         creditsPerOutputToken: profile.creditsPerOutputToken,
+        timeouts: PROVIDER_TIMEOUTS,
       });
   }
 };

@@ -60,22 +60,35 @@ export {
 export { migrateCloudAi } from "./migrate";
 export { createAiProvider } from "./provider";
 export { type DefineAiResourceConfig, type DefinedAiResource, defineAiResource, requireAiResourceAccess } from "./resource";
+export { type AiChatRequestContext, type AiChatRoutes, type AiChatRoutesConfig, createAiChatRoutes } from "./routes";
 export {
   type AiTurnActionInput,
   AiTurnActionSchema,
   abortAiTurn,
-  createAiCompactionResponse,
-  createAiTurnResponse,
   isAiSettingsError,
   listPendingAiTurnActions,
-  recoverAiRuntimeTurns,
-  type RunAiCompactionInput,
-  type RunAiTurnInput,
+  startAiRuntime,
   startAiRuntimeRecovery,
+  submitAiChatTurn,
+  submitAiCompaction,
+  type SubmitAiChatTurnInput,
+  type SubmitAiCompactionInput,
   submitAiTurnAction,
+  sweepAiRuntime,
   type ValidateAiTurnInput,
   validateAiTurnRequest,
 } from "./runtime";
+export {
+  type AiStreamSseEvent,
+  type AiStreamState,
+  type AiTurnBlock,
+  type AiTurnSnapshot,
+  type AiToolBlockStatus,
+  type AiWireEvent,
+  AI_WIRE_VERSION,
+  applyWireEventToBlocks,
+  isNewerWireEvent,
+} from "./protocol";
 export {
   listAiModels,
   readAiSettingsState,
@@ -85,7 +98,15 @@ export {
   toPublicAiSettingsState,
 } from "./settings";
 export { aiConversationStore } from "./store";
-export { aiEventsTopic, createAiEventReplayResponse, encodeSseEvent, publishAiEvent, sseHeaders } from "./stream";
+export {
+  aiStreamTopic,
+  aiTurnControlsTopic,
+  createAiConversationStreamResponse,
+  encodeSseEvent,
+  loadAiStreamState,
+  publishAiWireEvent,
+  sseHeaders,
+} from "./stream";
 export { type AiToolApprovalState, type AiToolCallLocation, aiToolAudit } from "./tool-audit";
 export { defineAiTool, isFrontendToolMode, type PreparedAiTools, prepareAiTools } from "./tools";
 export type {
@@ -109,14 +130,11 @@ export type {
   AiSettingsError,
   AiSettingsErrorCode,
   AiSettingsState,
-  AiSseEvent,
   AiStoredMessage,
-  AiStreamEvent,
   AiToolApprovalPolicy,
   AiToolDefinition,
   AiToolRuntime,
   AiTurn,
   AiTurnStatus,
-  AiUiBlock,
   AiUserContentPart,
 } from "./types";

@@ -50,7 +50,8 @@ describe("AI tools", () => {
     expect(prepared.tools[0]?.kind).toBe("client");
     expect(prepared.frontendModes.get("survey")).toBe("client_interaction");
     expect(prepared.approvalPolicies.get("survey")).toEqual({ kind: "user-configurable", default: "always", scope: "survey" });
-    expect(prepared.outputSchemas.get("survey")).toBe(tool.def.outputSchema);
+    // Output validation now lives in nessi: the schema travels with the tool definition.
+    expect(prepared.tools[0]?.def.outputSchema).toBe(tool.def.outputSchema);
   });
 
   test("ships default visual and survey tools as frontend tools", () => {
@@ -138,17 +139,13 @@ describe("AI tools", () => {
       model: "fake/card",
       capabilities: { streaming: true, tools: true, images: false, thinking: false, usage: true },
       async *stream() {
-        yield { type: "tool_start", callId: "call-card", name: "card" };
+        yield { type: "block_start", blockId: "block-0", index: 0, kind: "tool_call", callId: "call-card", name: "card" };
+        yield { type: "block_delta", blockId: "block-0", delta: JSON.stringify({ title: "Status", value: "OK" }) };
         yield {
-          type: "tool_delta",
-          callId: "call-card",
-          argsDelta: JSON.stringify({ title: "Status", value: "OK" }),
-        };
-        yield {
-          type: "tool_call",
-          callId: "call-card",
-          name: "card",
-          args: { title: "Status", value: "OK" },
+          type: "block_end",
+          blockId: "block-0",
+          index: 0,
+          block: { type: "tool_call", id: "call-card", name: "card", args: { title: "Status", value: "OK" } },
         };
         yield { type: "usage", usage: { input: 1, output: 1, total: 2 }, finishReason: "tool_use" };
       },
@@ -173,16 +170,16 @@ describe("AI tools", () => {
       },
     });
 
-    let actionRequest: Extract<OutboundEvent, { type: "action_request" }> | undefined;
+    let actionRequest: Extract<OutboundEvent, { type: "tool_action_request" }> | undefined;
     for await (const event of loop) {
-      if (event.type === "action_request") {
+      if (event.type === "tool_action_request") {
         actionRequest = event;
         break;
       }
     }
 
     expect(actionRequest).toMatchObject({
-      type: "action_request",
+      type: "tool_action_request",
       kind: "client_tool",
       callId: "call-card",
       name: "card",

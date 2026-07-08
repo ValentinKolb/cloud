@@ -1,11 +1,4 @@
-import type {
-  AiConversation,
-  AiPendingTurnAction,
-  AiPublicModelProfile,
-  AiSettingsError,
-  AiStoredMessage,
-  AiTurn,
-} from "@valentinkolb/cloud/ai";
+import type { AiConversation, AiPublicModelProfile, AiSettingsError, AiStoredMessage } from "@valentinkolb/cloud/ai";
 import { createAiChatController } from "@valentinkolb/cloud/ai/solid";
 import {
   AiComposer,
@@ -18,7 +11,6 @@ import {
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
-import { apiClient } from "../api/client";
 import AssistantSidebar from "./AssistantSidebar";
 
 type Status = {
@@ -29,14 +21,14 @@ type Status = {
   models: AiPublicModelProfile[];
 };
 
+type InitialDetail = { conversation: AiConversation; messages: AiStoredMessage[]; activeTurn: import("@valentinkolb/cloud/ai").AiTurnSnapshot | null };
+
 type Props = {
   status: Status;
   models: AiPublicModelProfile[];
   initialConversations: AiConversation[];
   initialConversationId: string | null;
-  initialMessages: AiStoredMessage[];
-  initialActiveTurn: AiTurn | null;
-  initialPendingActions: AiPendingTurnAction[];
+  initialDetail: InitialDetail | null;
 };
 
 export default function AssistantWorkspace(props: Props) {
@@ -46,12 +38,10 @@ export default function AssistantWorkspace(props: Props) {
   };
 
   const chat = createAiChatController({
-    route: apiClient,
+    baseUrl: "/api/assistant",
     initialConversations: props.initialConversations,
     initialConversationId: props.initialConversationId,
-    initialMessages: props.initialMessages,
-    initialActiveTurn: props.initialActiveTurn,
-    initialPendingActions: props.initialPendingActions,
+    initialDetail: props.initialDetail,
     initialError: props.status.error?.message ?? null,
   });
   const [selectedModelId, setSelectedModelId] = createSignal(initialSelectedModelId());
@@ -162,23 +152,24 @@ export default function AssistantWorkspace(props: Props) {
       <AppWorkspace.Main class="bg-zinc-50/70 dark:bg-zinc-950/50">
         <section class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve="assistant-messages">
           <AiMessageList
-            messages={chat.messages}
-            assistantDraft={chat.assistantDraft}
-            assistantThinkingDraft={chat.assistantThinkingDraft}
-            assistantBlocks={chat.assistantBlocks}
-            onApproval={(request, input) => {
-              void chat.respondToApproval(request, input);
+            session={{
+              messages: chat.messages,
+              activeTurn: chat.activeTurn,
             }}
-            onFrontendToolResult={(request, result) => {
-              void chat.submitFrontendToolResult(request, result);
+            actions={{
+              onApproval: (request, input) => {
+                void chat.respondToApproval(request, input);
+              },
+              onFrontendToolResult: (request, result) => {
+                void chat.submitFrontendToolResult(request, result);
+              },
+              onForkMessage: (entry, input) => {
+                void chat.forkMessage(entry.id, input);
+              },
+              onRetryMessage: (entry, input) => {
+                void chat.retryUserMessage(entry.id, { ...input, modelProfileId: selectedModelId() || undefined });
+              },
             }}
-            onForkMessage={(entry, input) => {
-              void chat.forkMessage(entry.id, input);
-            }}
-            onRetryMessage={(entry, input) => {
-              void chat.retryUserMessage(entry.id, { ...input, modelProfileId: selectedModelId() || undefined });
-            }}
-            streaming={() => Boolean(chat.activeTurn())}
             emptyTitle={props.status.enabled ? "Start a conversation" : "AI is disabled"}
           />
         </section>
@@ -192,35 +183,36 @@ export default function AssistantWorkspace(props: Props) {
               </p>
             </Show>
 
-            <Show when={chat.activeTurn() && !chat.running()}>
-              <div class="flex items-center justify-between gap-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-950/35 dark:text-amber-200">
-                <span class="flex min-w-0 items-center gap-1.5">
-                  <i class="ti ti-refresh text-sm" aria-hidden="true" />
-                  <span class="truncate">Reconnecting stream</span>
-                </span>
-                <button type="button" class="btn-input btn-input-sm shrink-0" onClick={chat.resumeActiveTurn}>
-                  Reconnect
-                </button>
+            <Show when={chat.streamStatus() === "reconnecting"}>
+              <div class="flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-950/35 dark:text-amber-200">
+                <i class="ti ti-refresh text-sm animate-spin" aria-hidden="true" />
+                <span class="truncate">Reconnecting…</span>
               </div>
             </Show>
 
             <AiComposer
-              models={() => props.models}
-              selectedModelId={selectedModelId}
-              onModelChange={setSelectedModelId}
-              onNewConversation={() => void createAndFocusConversation()}
-              draft={composerDraft}
-              onDraftChange={setComposerDraft}
-              attachments={activeComposerAttachments}
-              onAttachmentsChange={setActiveComposerAttachments}
-              disabled={() => !canSend()}
-              running={chat.running}
-              focusToken={composerFocusToken}
-              placeholder={props.status.enabled ? "Ask Assistant anything or type / ..." : "AI is not configured"}
-              usage={usage}
-              slashCommands={slashCommands}
-              onSend={send}
-              onStop={chat.abort}
+              models={{
+                profiles: () => props.models,
+                selectedId: selectedModelId,
+                onSelect: setSelectedModelId,
+              }}
+              state={{
+                draft: composerDraft,
+                onDraftChange: setComposerDraft,
+                attachments: activeComposerAttachments,
+                onAttachmentsChange: setActiveComposerAttachments,
+                disabled: () => !canSend(),
+                running: chat.running,
+                focusToken: composerFocusToken,
+                placeholder: props.status.enabled ? "Ask Assistant anything or type / ..." : "AI is not configured",
+                usage,
+              }}
+              actions={{
+                onNewConversation: () => void createAndFocusConversation(),
+                slashCommands,
+                send,
+                stop: chat.abort,
+              }}
             />
           </div>
         </div>
