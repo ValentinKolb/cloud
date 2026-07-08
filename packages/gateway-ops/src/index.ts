@@ -7,6 +7,7 @@ import { app } from "./config";
 import gatewayPage from "./frontend/page";
 import { gatewayOpsLifecycle } from "./lifecycle";
 import alertsPage from "./observability/alerts/page";
+import jobsPage from "./observability/jobs/page";
 import loggingApiRoutes from "./observability/logs/api";
 import logsPage from "./observability/logs/page";
 import loggingWidgetRoutes from "./observability/logs/widgets";
@@ -36,6 +37,7 @@ const router = new Hono<AuthContext>()
   .get("/admin/gateway/apps", auth.requireRole("admin", auth.redirectToLogin), ...gatewayPage)
   .get("/admin/gateway/routes", auth.requireRole("admin", auth.redirectToLogin), ...gatewayPage)
   .get("/admin/observability/logs", auth.requireRole("admin", auth.redirectToLogin), ...logsPage)
+  .get("/admin/observability/jobs", auth.requireRole("admin", auth.redirectToLogin), ...jobsPage)
   .get("/admin/observability/telemetry", auth.requireRole("admin", auth.redirectToLogin), ...telemetryPage)
   .get("/admin/observability/metrics", auth.requireRole("admin", auth.redirectToLogin), ...metricsPage)
   .get("/admin/observability/data", auth.requireRole("admin", auth.redirectToLogin), (c) => c.redirect("/admin/observability/postgres"))

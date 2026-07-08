@@ -1,7 +1,7 @@
-import { sql } from "bun";
-import { job, scheduler } from "@valentinkolb/sync";
 import { freeipa } from "@valentinkolb/cloud/server/services";
-import { logger, getFreeIpaConfig, get as settingsGet, set as settingsSet } from "@valentinkolb/cloud/services";
+import { getFreeIpaConfig, logger, get as settingsGet, set as settingsSet, trace } from "@valentinkolb/cloud/services";
+import { job, scheduler } from "@valentinkolb/sync";
+import { sql } from "bun";
 
 type DbRow = Record<string, unknown>;
 
@@ -248,6 +248,12 @@ export const syncFromIpaHosts = async (): Promise<SyncSummary> => {
 const syncJob = job<void, SyncSummary>({
   id: "ipa-hosts:sync",
   defaults: { leaseMs: 180_000 },
+  trace: trace.fromSyncJob<void, SyncSummary>({
+    name: "IPA hosts sync",
+    source: "ipa-hosts:sync",
+    appId: "ipa-hosts",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) {
       return {
@@ -283,6 +289,11 @@ const createSchedule = async (cron: string, tz: string): Promise<void> => {
     id: "ipa-hosts:sync",
     cron,
     tz,
+    trace: trace.fromSyncSchedule<void>({
+      name: "IPA hosts sync schedule",
+      source: "ipa-hosts:sync",
+      appId: "ipa-hosts",
+    }),
     process: async ({ ctx }) => {
       await syncJob.submit({ key: `slot:${ctx.slotTs}` });
     },

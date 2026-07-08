@@ -15,7 +15,7 @@
     "@valentinkolb/cloud": "workspace:*",
     "@valentinkolb/ssr": "0.10.0",
     "@valentinkolb/stdlib": "0.12.0",
-    "@valentinkolb/sync": "^5.3.0",
+    "@valentinkolb/sync": "^5.4.0",
     "hono": "^4.11.1",
     "hono-openapi": "^1.1.2",
     "solid-js": "^1.9.10",

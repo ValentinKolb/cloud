@@ -10,7 +10,7 @@ import {
   type Principal,
   type Result,
 } from "@valentinkolb/cloud/server";
-import { decryptSecret, encryptSecret, serviceAccountCredentials, serviceAccounts, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { decryptSecret, encryptSecret, serviceAccountCredentials, serviceAccounts, toPgTextArray, toPgUuidArray, trace } from "@valentinkolb/cloud/services";
 import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { AGGREGATIONS, PANEL_VISUALS } from "../contracts";
@@ -704,11 +704,12 @@ const dashboardRenderConfig = (dashboard: PulseDashboard): PulseDashboardConfig 
   return compiled.ok ? compiled.data : dashboard.config;
 };
 
-const publicMetricWidget = (widget: PulseDashboardMetricWidget): PulsePublicDashboardMetricWidget => ({
+const publicMetricWidget = (widget: PulseDashboardMetricWidget, metricUnitByName: Map<string, string | null>): PulsePublicDashboardMetricWidget => ({
   id: widget.id,
   kind: "metric",
   title: widget.title,
   metric: widget.metric,
+  unit: metricUnitByName.get(widget.query?.metric ?? widget.metric) ?? null,
   visual: widget.visual,
   aggregation: widget.aggregation,
   bucket: widget.bucket,
@@ -738,8 +739,8 @@ const publicStatesWidget = (widget: PulseDashboardStatesWidget): PulsePublicDash
   span: widget.span,
 });
 
-const publicDashboardWidget = (widget: PulseDashboardWidget): PulsePublicDashboardWidget => {
-  if (widget.kind === "metric") return publicMetricWidget(widget);
+const publicDashboardWidget = (widget: PulseDashboardWidget, metricUnitByName: Map<string, string | null>): PulsePublicDashboardWidget => {
+  if (widget.kind === "metric") return publicMetricWidget(widget, metricUnitByName);
   if (widget.kind === "events") return publicEventsWidget(widget);
   if (widget.kind === "states") return publicStatesWidget(widget);
   if (widget.kind === "markdown") return widget;
@@ -749,35 +750,50 @@ const publicDashboardWidget = (widget: PulseDashboardWidget): PulsePublicDashboa
     title: widget.title,
     description: widget.description,
     span: widget.span,
-    rows: widget.rows.map(publicDashboardRow),
+    rows: widget.rows.map((row) => publicDashboardRow(row, metricUnitByName)),
   };
   return card;
 };
 
-const publicDashboardRow = (row: PulseDashboardRow): PulsePublicDashboardRow => ({
+const publicDashboardRow = (row: PulseDashboardRow, metricUnitByName: Map<string, string | null>): PulsePublicDashboardRow => ({
   id: row.id,
   kind: "row",
   height: row.height,
-  cells: row.cells.map(publicDashboardWidget),
+  cells: row.cells.map((cell) => publicDashboardWidget(cell, metricUnitByName)),
 });
 
-const publicDashboardSection = (section: PulseDashboardSection): PulsePublicDashboardSection => ({
+const publicDashboardSection = (section: PulseDashboardSection, metricUnitByName: Map<string, string | null>): PulsePublicDashboardSection => ({
   id: section.id,
   kind: "section",
   title: section.title,
   description: section.description,
-  rows: section.rows.map(publicDashboardRow),
-  sections: section.sections?.map(publicDashboardSection),
+  rows: section.rows.map((row) => publicDashboardRow(row, metricUnitByName)),
+  sections: section.sections?.map((child) => publicDashboardSection(child, metricUnitByName)),
 });
 
-const publicDashboardLayout = (layout: PulseDashboardLayout | null): PulsePublicDashboardLayout | null =>
+const publicDashboardLayout = (
+  layout: PulseDashboardLayout | null,
+  metricUnitByName: Map<string, string | null>,
+): PulsePublicDashboardLayout | null =>
   layout
     ? {
         version: 1,
         description: layout.description,
-        sections: layout.sections.map(publicDashboardSection),
+        sections: layout.sections.map((section) => publicDashboardSection(section, metricUnitByName)),
       }
     : null;
+
+const publicDashboardMetricUnits = async (baseId: string, widgets: PulseDashboardMetricWidget[]): Promise<Map<string, string | null>> => {
+  const names = [...new Set(widgets.map((widget) => widget.query?.metric ?? widget.metric).filter(Boolean))];
+  if (!names.length) return new Map();
+  const rows = await sql<{ name: string; unit: string | null }[]>`
+    SELECT name, unit
+    FROM pulse.metric_defs
+    WHERE base_id = ${baseId}::uuid
+      AND name = ANY(${toPgTextArray(names)}::text[])
+  `;
+  return new Map(rows.map((row) => [row.name, row.unit]));
+};
 
 const publicRecordedEvent = (event: PulseRecordedEvent): PulsePublicRecordedEvent => ({
   id: event.id,
@@ -1219,6 +1235,13 @@ const purgeBaseDataClearBatch = async (baseId: string): Promise<BaseDeletionBatc
 const baseDeletionJob = job<{ baseId: string }, BaseDeletionBatch>({
   id: "pulse:base-delete",
   defaults: { leaseMs: 2 * 60_000 },
+  trace: trace.fromSyncJob<{ baseId: string }, BaseDeletionBatch>({
+    name: "Pulse base deletion",
+    source: "pulse:base-delete",
+    appId: "pulse",
+    attributes: (event) => ("input" in event && event.input ? { "cloud.pulse.base_id": event.input.baseId } : {}),
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => purgeBaseDeletionBatch(ctx.input.baseId),
   after: async ({ ctx }) => {
     if (ctx.error) {
@@ -1248,6 +1271,13 @@ const baseDeletionJob = job<{ baseId: string }, BaseDeletionBatch>({
 const baseDataClearJob = job<{ baseId: string }, BaseDeletionBatch>({
   id: "pulse:base-data-clear",
   defaults: { leaseMs: 2 * 60_000 },
+  trace: trace.fromSyncJob<{ baseId: string }, BaseDeletionBatch>({
+    name: "Pulse base data clear",
+    source: "pulse:base-data-clear",
+    appId: "pulse",
+    attributes: (event) => ("input" in event && event.input ? { "cloud.pulse.base_id": event.input.baseId } : {}),
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => purgeBaseDataClearBatch(ctx.input.baseId),
   after: async ({ ctx }) => {
     if (ctx.error) {
@@ -3227,8 +3257,10 @@ const getPublicDashboardSnapshot = async (token: string): Promise<Result<PulseDa
   const events: Record<string, PulsePublicRecordedEvent[]> = {};
   const states: Record<string, PulsePublicCurrentState[]> = {};
   let remainingWidgets = MAX_PUBLIC_EXECUTED_WIDGETS;
+  const metricWidgets = dashboardMetricWidgets(config);
+  const metricUnitByName = await publicDashboardMetricUnits(dashboard.baseId, metricWidgets);
 
-  for (const widget of dashboardMetricWidgets(config)) {
+  for (const widget of metricWidgets) {
     if (remainingWidgets-- <= 0) break;
     const result = await queryMetricData({
       kind: "metric",
@@ -3262,7 +3294,7 @@ const getPublicDashboardSnapshot = async (token: string): Promise<Result<PulseDa
     name: dashboard.name,
     config: {
       refreshIntervalSeconds: publicRefreshInterval(config.refreshIntervalSeconds),
-      layout: publicDashboardLayout(config.layout),
+      layout: publicDashboardLayout(config.layout, metricUnitByName),
     },
   };
 

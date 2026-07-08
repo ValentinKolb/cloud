@@ -225,6 +225,20 @@ Title rules:
 - `view-transition-name: admin-{slug}-title` (singular `-title`, not `-toolbar`) so cross-page animations match.
 - Use `text-base font-semibold text-primary` — `text-base` is intentional, keep it consistent with the rest of the admin pages.
 
+### Observability pages
+
+Admin observability pages live in Gateway Ops and should mirror the existing
+Logs, Telemetry, Metrics, Postgres, Redis, Notifications, and Background Jobs
+pages. Use `AdminLayout stretch`, `GatewayOpsLayoutHelp`, a plain title block,
+`StatGrid` for the first row, `SearchBar` for URL-backed search, and `DataTable`
+for the primary list. Keep filters in the URL and avoid app-specific shells.
+
+For background job observability, render from `trace.list()` and
+`trace.summary()` in `@valentinkolb/cloud/services`. The canonical page is
+`packages/gateway-ops/src/observability/jobs/page.tsx`; app jobs should write
+metadata through `trace.fromSyncJob`, `trace.fromSyncSchedule`, or
+`trace.withSpan` instead of creating separate admin trace tables.
+
 ### Global Search
 
 The platform provides a spotlight-style search dialog (triggered via `Cmd+K` / `Ctrl+K`). Each app registers search capabilities in `app.start()`:

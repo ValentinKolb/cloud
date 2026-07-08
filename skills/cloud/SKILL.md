@@ -224,13 +224,21 @@ These are provided by the `@valentinkolb/cloud` package. Import paths:
 ### Logging
 
 ```typescript
-import { logger } from "@valentinkolb/cloud/services";
+import { logger, trace } from "@valentinkolb/cloud/services";
 
 const log = logger("my-app:feature");
 log.info("Something happened", { key: "value" });  // → console + DB (fire-and-forget)
 ```
 
 Stored in `logging.entries` (level, source, message, metadata JSONB). Auto-cleanup after configurable retention days.
+
+Use `trace` for background-job observability metadata. `trace.fromSyncJob()` and
+`trace.fromSyncSchedule()` adapt `@valentinkolb/sync` callbacks into
+`logging.trace_spans` and `logging.trace_events`; `trace.withSpan()` covers
+manual non-sync work. Traces are metadata-only and OTLP-aligned: store ids,
+counts, status, duration, model/token stats, and retry data, not prompts,
+answers, raw bodies, tokens, cookies, API keys, or full tool arguments. Gateway
+Ops renders them at `/admin/observability/jobs`.
 
 ### Notifications
 

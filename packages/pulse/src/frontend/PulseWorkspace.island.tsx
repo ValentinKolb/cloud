@@ -79,7 +79,6 @@ import {
   VISUAL_OPTIONS,
   compactDate,
   compactDateWithDelta,
-  compactMetricUnit,
   dashboardCellSpan,
   dashboardEventQueryText,
   dashboardLayoutWidgets,
@@ -94,6 +93,7 @@ import {
   dimensionsSummary,
   eventGroupId,
   formatIngestCounts,
+  formatMetricValue,
   formatSignalValue,
   formatValue,
   gaugeMax,
@@ -2256,15 +2256,15 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     const data = metricWidgetPoints()[widget.id] ?? [];
     const last = data.at(-1)?.value ?? null;
     const summary = metricByName().get(widget.metric);
-    const unit = compactMetricUnit(summary?.unit);
+    const rawUnit = summary?.unit ?? null;
+    const valueFormat = (value: number) => formatMetricValue(value, rawUnit);
     if (widget.visual === "stat") {
       return (
         <Chart
           kind="stat"
           class="h-36 text-primary"
           label={widget.title}
-          value={formatValue(last)}
-          unit={unit}
+          value={formatMetricValue(last, rawUnit)}
           sparkline={data.map((point) => point.value ?? 0)}
         />
       );
@@ -2277,9 +2277,9 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           class="h-44 text-primary"
           value={value}
           min={0}
-          max={gaugeMax(unit ?? null, value)}
+          max={gaugeMax(rawUnit, value)}
           label={widget.title}
-          unit={unit}
+          format={valueFormat}
         />
       );
     }
@@ -2289,10 +2289,10 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         <Chart
           kind="barGauge"
           class="h-36 text-primary"
-          data={[{ label: widget.title, value, min: 0, max: gaugeMax(unit ?? null, value), unit }]}
+          data={[{ label: widget.title, value, min: 0, max: gaugeMax(rawUnit, value) }]}
           min={0}
-          max={gaugeMax(unit ?? null, value)}
-          unit={unit}
+          max={gaugeMax(rawUnit, value)}
+          format={valueFormat}
         />
       );
     }
@@ -2308,7 +2308,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           kind="heatmap"
           class="h-48 text-dimmed"
           data={pointsToHeatmap(data, pulseDateContext())}
-          format={(value) => formatValue(value)}
+          format={valueFormat}
           showValues={data.length <= 48}
         />
       );
@@ -2331,7 +2331,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         class="h-48 text-dimmed"
         series={[{ label: widget.title, data: data.map((point) => ({ x: Date.parse(point.bucket), y: point.value ?? 0 })) }]}
         xAxis={{ format: (value) => compactDate(new Date(value).toISOString(), pulseDateContext()) }}
-        yAxis={{ format: (value) => formatValue(value) }}
+        yAxis={{ format: valueFormat }}
         smooth
         area
       />
@@ -3571,7 +3571,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       const unit = focusedMetric()?.unit;
       return (
         <span class="text-xs font-medium text-primary">
-          {item.latestValue === null ? "-" : `${formatValue(item.latestValue)}${unit ? ` ${unit}` : ""}`}
+          {item.latestValue === null ? "-" : formatMetricValue(item.latestValue, unit)}
         </span>
       );
     }
@@ -4037,15 +4037,15 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     const data = points();
     const title = compiledMetricQuery()?.metric ?? (selectedMetric() || "Query");
     const last = data.at(-1)?.value ?? null;
-    const unit = compactMetricUnit(previewUnit());
+    const rawUnit = previewUnit();
+    const valueFormat = (value: number) => formatMetricValue(value, rawUnit);
     if (selectedVisual() === "stat") {
       return (
         <Chart
           kind="stat"
           class="h-full min-h-0 text-primary"
           label={title}
-          value={formatValue(last)}
-          unit={unit}
+          value={formatMetricValue(last, rawUnit)}
           sparkline={data.map((point) => point.value ?? 0)}
         />
       );
@@ -4058,9 +4058,9 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           class="h-full min-h-0 text-primary"
           value={value}
           min={0}
-          max={gaugeMax(unit ?? null, value)}
+          max={gaugeMax(rawUnit, value)}
           label={title}
-          unit={unit}
+          format={valueFormat}
         />
       );
     }
@@ -4070,10 +4070,10 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         <Chart
           kind="barGauge"
           class="h-full min-h-0 text-primary"
-          data={[{ label: title, value, min: 0, max: gaugeMax(unit ?? null, value), unit }]}
+          data={[{ label: title, value, min: 0, max: gaugeMax(rawUnit, value) }]}
           min={0}
-          max={gaugeMax(unit ?? null, value)}
-          unit={unit}
+          max={gaugeMax(rawUnit, value)}
+          format={valueFormat}
         />
       );
     }
@@ -4089,7 +4089,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
           kind="heatmap"
           class="h-full min-h-0 text-dimmed"
           data={pointsToHeatmap(data, pulseDateContext())}
-          format={(value) => formatValue(value)}
+          format={valueFormat}
           showValues={data.length <= 48}
         />
       );
@@ -4099,7 +4099,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         class="h-full min-h-0 text-dimmed"
         series={previewSeries()}
         xAxis={{ format: (value) => compactDate(new Date(value).toISOString(), pulseDateContext()) }}
-        yAxis={{ format: (value) => formatValue(value) }}
+        yAxis={{ format: valueFormat }}
         smooth
         area
       />

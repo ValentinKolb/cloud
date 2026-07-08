@@ -316,6 +316,60 @@ export default await app.start({
 
 **Warning:** Never add and drop temporary columns in migrations. PostgreSQL counts dropped columns towards the maximum column limit (1600). Repeated add/drop cycles across deployments can exhaust this limit even though the visible column count is low.
 
+### Background job traces
+
+Use `trace` for background-job observability metadata. It writes structured
+spans and events to the logging schema and powers `/admin/observability/jobs`.
+It is not a job wrapper and must not change queueing, locking, retries, or
+permission decisions.
+
+```typescript
+import { trace } from "@valentinkolb/cloud/services";
+import { job, scheduler } from "@valentinkolb/sync";
+
+const cleanupJob = job<void, { deleted: number }>({
+  id: "my-app:cleanup",
+  trace: trace.fromSyncJob<void, { deleted: number }>({
+    name: "My app cleanup",
+    source: "my-app:cleanup",
+    appId: "my-app",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
+  process: async () => ({ deleted: await cleanupOldRows() }),
+});
+
+await scheduler({ id: "my-app" }).create({
+  id: "my-app:cleanup",
+  cron: "0 4 * * *",
+  trace: trace.fromSyncSchedule<void>({
+    name: "My app cleanup schedule",
+    source: "my-app:cleanup",
+    appId: "my-app",
+  }),
+  process: async ({ ctx }) => {
+    await cleanupJob.submit({ key: `slot:${ctx.slotTs}` });
+  },
+});
+```
+
+For non-sync background work, use the manual API:
+
+```typescript
+await trace.withSpan(
+  { name: "Route rebuild", source: "gateway:routes", appId: "gateway", category: "job" },
+  async (span) => {
+    await rebuildRoutes();
+    await trace.record({ context: span, event: "routes.rebuilt", attributes: { "routes.count": 42 } });
+  },
+);
+```
+
+Trace metadata must stay small and non-secret. Store ids, counts, statuses,
+durations, model names, token counts, and retry data. Do not store prompts,
+answers, raw request bodies, API keys, cookies, tokens, or full tool arguments.
+The stored shape is intentionally close to OpenTelemetry spans/events so it can
+be exported as OTLP later.
+
 ### Adding Columns to Existing Tables
 
 ```typescript

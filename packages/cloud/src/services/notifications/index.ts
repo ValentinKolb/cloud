@@ -155,6 +155,10 @@ export const sendToUser = async (params: SendToUserParams): Promise<{ ok: true; 
     sentBy,
   });
 
+  if (result.status === "error") {
+    return { ok: false, error: result.error ?? "Email delivery failed" };
+  }
+
   return { ok: true, id: result.id };
 };
 

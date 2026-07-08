@@ -2,6 +2,26 @@ import { sql } from "bun";
 import type { PaginationParams } from "../../contracts/shared";
 import { escapeLikePattern, parsePgJsonRecord, toPgTextArray } from "../postgres";
 import { registerGroupLabel, registerSettings } from "../settings/defaults";
+import { redactMetadata } from "./redaction";
+import { trace } from "./trace";
+
+export type {
+  TraceAttributes,
+  TraceAttributeValue,
+  TraceCategory,
+  TraceContext,
+  TraceEvent,
+  TraceListFilter,
+  TraceRunStats,
+  TraceSeverity,
+  TraceSourceGroup,
+  TraceSpan,
+  TraceSpanKind,
+  TraceStatus,
+  TraceSummary,
+  TraceWindow,
+} from "./trace";
+export { trace };
 
 // ── Settings Registration ──────────────────────────────────────────────
 
@@ -80,27 +100,6 @@ const mapRow = (row: DbLogRow): LogEntry => ({
 // ==========================
 // Core: Write + Logger
 // ==========================
-
-/**
- * Keys whose values are scrubbed from log metadata before console + DB write.
- * Defense-in-depth: future code that accidentally passes a token/password/
- * cookie into `logger.info(...)` won't leak it to the persistent log.
- *
- * Match is case-insensitive and substring-based on the key (e.g. `apiKey`,
- * `accessToken`, `clientSecret` all trip).
- */
-const SENSITIVE_KEY_PATTERN = /(password|secret|token|cookie|authorization|api[_-]?key|private[_-]?key|session)/i;
-const REDACTED = "[REDACTED]";
-
-const redactMetadata = (input: unknown): unknown => {
-  if (input === null || typeof input !== "object") return input;
-  if (Array.isArray(input)) return input.map(redactMetadata);
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(input)) {
-    out[key] = SENSITIVE_KEY_PATTERN.test(key) ? REDACTED : redactMetadata(value);
-  }
-  return out;
-};
 
 /** Fire-and-forget write — mirrors to console, then inserts to DB async. */
 function write(params: WriteParams): void {
@@ -361,4 +360,5 @@ export const logging = {
   cleanup,
   summary,
   statsBy,
+  trace,
 };

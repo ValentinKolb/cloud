@@ -1,4 +1,4 @@
-import { logger } from "@valentinkolb/cloud/services";
+import { logger, trace } from "@valentinkolb/cloud/services";
 import { job, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
 import {
@@ -19,6 +19,19 @@ type ScrapeInput = {
 const scrapeJob = job<ScrapeInput, { metrics: number; events: number; states: number }>({
   id: "pulse:metrics:scrape",
   defaults: { leaseMs: 60_000 },
+  trace: trace.fromSyncJob<ScrapeInput, { metrics: number; events: number; states: number }>({
+    name: "Pulse metrics scrape",
+    source: "pulse:metrics:scrape",
+    appId: "pulse",
+    attributes: (event) =>
+      "input" in event && event.input
+        ? {
+            "cloud.pulse.base_id": event.input.baseId,
+            "cloud.pulse.source_id": event.input.sourceId,
+          }
+        : {},
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => {
     const result = await scrapeMetricsSource(ctx.input);
     if (!result.ok) throw new Error(result.error.message);
@@ -34,6 +47,12 @@ const scrapeJob = job<ScrapeInput, { metrics: number; events: number; states: nu
 const retentionJob = job<void, { metricSamples: number; events: number; stateChanges: number }>({
   id: "pulse:retention",
   defaults: { leaseMs: 5 * 60_000 },
+  trace: trace.fromSyncJob<void, { metricSamples: number; events: number; stateChanges: number }>({
+    name: "Pulse retention cleanup",
+    source: "pulse:retention",
+    appId: "pulse",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async () => {
     const metricSamples = await sql`
       DELETE FROM pulse.metric_samples ms
@@ -75,6 +94,12 @@ const retentionJob = job<void, { metricSamples: number; events: number; stateCha
 const hourlyRollupJob = job<void, { buckets: number }>({
   id: "pulse:rollup:hourly",
   defaults: { leaseMs: 5 * 60_000 },
+  trace: trace.fromSyncJob<void, { buckets: number }>({
+    name: "Pulse hourly rollup",
+    source: "pulse:rollup:hourly",
+    appId: "pulse",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async () => {
     const result = await sql`
       INSERT INTO pulse.metric_rollups_hourly (
@@ -169,6 +194,12 @@ export const pulseRuntime = {
     await pulseScheduler.create({
       id: "pulse:metrics:scrape-due",
       cron: "* * * * *",
+      trace: trace.fromSyncSchedule<{ submitted: number }>({
+        name: "Pulse due metrics scrape schedule",
+        source: "pulse:metrics:scrape-due",
+        appId: "pulse",
+        summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+      }),
       process: async ({ ctx }) => submitDueScrapes(ctx.slotTs),
       after: ({ ctx }) => {
         if (ctx.error && ctx.failureCount < 3) {
@@ -183,6 +214,11 @@ export const pulseRuntime = {
     await pulseScheduler.create({
       id: "pulse:rollup:hourly",
       cron: "23 * * * *",
+      trace: trace.fromSyncSchedule<void>({
+        name: "Pulse hourly rollup schedule",
+        source: "pulse:rollup:hourly",
+        appId: "pulse",
+      }),
       process: async ({ ctx }) => {
         await hourlyRollupJob.submit({ key: `slot:${ctx.slotTs}` });
       },
@@ -199,6 +235,11 @@ export const pulseRuntime = {
     await pulseScheduler.create({
       id: "pulse:retention",
       cron: "17 3 * * *",
+      trace: trace.fromSyncSchedule<void>({
+        name: "Pulse retention schedule",
+        source: "pulse:retention",
+        appId: "pulse",
+      }),
       process: async ({ ctx }) => {
         await retentionJob.submit({ key: `slot:${ctx.slotTs}` });
       },

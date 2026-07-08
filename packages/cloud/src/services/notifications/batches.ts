@@ -3,7 +3,7 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { markdown } from "../../shared/markdown";
-import { logger } from "../logging";
+import { logger, trace } from "../logging";
 import { parsePgJsonValue, toPgTextArray, toPgUuidArray } from "../postgres";
 import { sendEmail } from "./email";
 
@@ -356,6 +356,13 @@ const processBatchChunk = async (batchId: string): Promise<{ processed: number; 
 const batchJob = job<{ batchId: string }, { processed: number; remaining: number }>({
   id: "notifications:batches",
   defaults: { leaseMs: 180_000 },
+  trace: trace.fromSyncJob<{ batchId: string }, { processed: number; remaining: number }>({
+    name: "Notification batch delivery",
+    source: "notifications:batches",
+    appId: "core",
+    attributes: (event) => ("input" in event && event.input?.batchId ? { "cloud.notification.batch_id": event.input.batchId } : {}),
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return { processed: 0, remaining: 0 };
     const result = await processBatchChunk(ctx.input.batchId);

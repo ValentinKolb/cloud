@@ -1,5 +1,6 @@
 import { createTransport, type Transporter } from "nodemailer";
 import sanitizeHtml from "sanitize-html";
+import { sanitizeEmailHtml } from "../../shared";
 import * as settings from "../settings";
 import { coreSettings } from "../settings/api";
 
@@ -21,19 +22,6 @@ const getTransporter = async (): Promise<Transporter> => {
 /** Sanitize plain text content (no HTML allowed). */
 const sanitizeContent = (content: string): string => sanitizeHtml(content, { allowedTags: [], allowedAttributes: {} });
 
-/** Sanitize rich HTML content (links, basic formatting allowed). */
-const sanitizeRawHtml = (html: string): string =>
-  sanitizeHtml(html, {
-    allowedTags: ["a", "strong", "em", "p", "br", "span", "code"],
-    allowedAttributes: {
-      a: ["href", "target", "style"],
-      span: ["style"],
-      p: ["style"],
-      code: ["style"],
-    },
-    allowedSchemes: ["http", "https", "mailto"],
-  });
-
 /** Send an email with the standard HTML template. */
 export const sendEmail = async (to: string, subject: string, opts: { content?: string; rawHtml?: string }): Promise<void> => {
   const rawAppUrl = await settings.get<string>("app.url");
@@ -43,10 +31,11 @@ export const sendEmail = async (to: string, subject: string, opts: { content?: s
 
   let body = "";
   if (opts.rawHtml) {
-    body = sanitizeRawHtml(opts.rawHtml);
+    body = sanitizeEmailHtml(opts.rawHtml);
   } else if (opts.content) {
     body = `<p>${sanitizeContent(opts.content)}</p>`;
   }
+  const text = opts.content ? sanitizeContent(opts.content) : undefined;
 
   const html = await buildHtml(appUrl, appName, body);
   const transporter = await getTransporter();
@@ -56,6 +45,7 @@ export const sendEmail = async (to: string, subject: string, opts: { content?: s
     to,
     subject,
     html,
+    ...(text ? { text } : {}),
   });
 };
 

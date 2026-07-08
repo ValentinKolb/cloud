@@ -6,7 +6,7 @@ import type {
   PulseResourceMetric,
   PulseResourceSummary,
 } from "../../contracts";
-import { compactDateWithDelta, dimensionsSummary, formatSignalValue, formatValue, plural, signalSubject, type PulseDateContext } from "./helpers";
+import { compactDateWithDelta, dimensionsSummary, formatMetricValue, formatSignalValue, formatValue, plural, signalSubject, type PulseDateContext } from "./helpers";
 
 type Props = {
   resource: PulseResourceSummary;
@@ -96,8 +96,7 @@ export default function ResourceDetailView(props: Props) {
   const selectedState = createMemo(() => props.states.find((state) => stateId(state) === selectedStateId()) ?? props.states[0] ?? null);
   const selectedEvent = createMemo(() => props.events.find((event) => event.id === selectedEventId()) ?? props.events[0] ?? null);
 
-  const metricValue = (metric: PulseResourceMetric) =>
-    metric.latestValue === null ? "-" : `${formatValue(metric.latestValue)}${metric.unit ? ` ${metric.unit}` : ""}`;
+  const metricValue = (metric: PulseResourceMetric) => (metric.latestValue === null ? "-" : formatMetricValue(metric.latestValue, metric.unit));
   const updatePanesValue = (value: PanesValue) => {
     setPanesValue(value);
     const activeElement = findLeafActiveElement(value.root, "signals");

@@ -27,6 +27,7 @@ const staticGroups: AdminGroup[] = [
     label: "Observability",
     links: [
       { href: "/admin/observability/logs", icon: "ti-list-details", label: "Logs" },
+      { href: "/admin/observability/jobs", icon: "ti-activity", label: "Jobs" },
       { href: "/admin/observability/telemetry", icon: "ti-chart-line", label: "Telemetry" },
       { href: "/admin/observability/metrics", icon: "ti-plug", label: "Metrics" },
       { href: "/admin/observability/postgres", icon: "ti-database", label: "Postgres" },
@@ -43,6 +44,7 @@ const consoleAdminHrefs = new Set([
   "/admin/gateway/apps",
   "/admin/gateway/routes",
   "/admin/observability/logs",
+  "/admin/observability/jobs",
   "/admin/observability/telemetry",
   "/admin/observability/metrics",
   "/admin/observability/data",

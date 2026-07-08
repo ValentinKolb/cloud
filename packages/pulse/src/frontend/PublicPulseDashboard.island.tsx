@@ -16,27 +16,23 @@ import type {
   PulsePublicDashboardWidget,
   PulsePublicRecordedEvent,
 } from "../contracts";
-import { compactDate, compactDateWithDelta, compactDay, dashboardCellSpan, defaultPulseDateContext, formatSignalValue } from "./workspace/helpers";
+import {
+  compactDate,
+  compactDateWithDelta,
+  compactDay,
+  dashboardCellSpan,
+  defaultPulseDateContext,
+  formatMetricValue,
+  formatSignalValue,
+  formatValue,
+  gaugeMax,
+} from "./workspace/helpers";
 
 type Props = {
   token: string;
   initialSnapshot: PulseDashboardSnapshot;
   initialDateConfig?: DateContext;
   displayHeight?: "scroll" | "full";
-};
-
-const formatValue = (value: number | null | undefined): string => {
-  if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
-  if (Math.abs(value) >= 1_000_000) return value.toExponential(2);
-  if (Math.abs(value) >= 100) return value.toFixed(0);
-  if (Math.abs(value) >= 10) return value.toFixed(1);
-  return value.toFixed(2);
-};
-
-const gaugeMax = (value: number): number => {
-  if (value <= 100) return 100;
-  const magnitude = 10 ** Math.max(0, Math.floor(Math.log10(value)));
-  return Math.ceil(value / magnitude) * magnitude;
 };
 
 const pointsToBars = (points: MetricQueryPoint[], dateContext: DateContext) =>
@@ -106,20 +102,31 @@ export default function PublicPulseDashboard(props: Props) {
   const renderMetricWidget = (widget: PulsePublicDashboardMetricWidget) => {
     const data = pointsFor(widget);
     const last = data.at(-1)?.value ?? null;
+    const valueFormat = (value: number) => formatMetricValue(value, widget.unit);
     if (widget.visual === "stat") {
       return (
         <Chart
           kind="stat"
           class="h-40 text-primary"
           label={widget.title}
-          value={formatValue(last)}
+          value={formatMetricValue(last, widget.unit)}
           sparkline={data.map((point) => point.value ?? 0)}
         />
       );
     }
     if (widget.visual === "gauge") {
       const value = last ?? 0;
-      return <Chart kind="gauge" class="h-48 text-primary" value={value} min={0} max={gaugeMax(value)} label={widget.title} />;
+      return (
+        <Chart
+          kind="gauge"
+          class="h-48 text-primary"
+          value={value}
+          min={0}
+          max={gaugeMax(widget.unit ?? null, value)}
+          label={widget.title}
+          format={valueFormat}
+        />
+      );
     }
     if (widget.visual === "barGauge") {
       const value = last ?? 0;
@@ -127,9 +134,10 @@ export default function PublicPulseDashboard(props: Props) {
         <Chart
           kind="barGauge"
           class="h-40 text-primary"
-          data={[{ label: widget.title, value, min: 0, max: gaugeMax(value) }]}
+          data={[{ label: widget.title, value, min: 0, max: gaugeMax(widget.unit ?? null, value) }]}
           min={0}
-          max={gaugeMax(value)}
+          max={gaugeMax(widget.unit ?? null, value)}
+          format={valueFormat}
         />
       );
     }
@@ -145,7 +153,7 @@ export default function PublicPulseDashboard(props: Props) {
           kind="heatmap"
           class="h-56 text-dimmed"
           data={pointsToHeatmap(data, dateContext())}
-          format={(value) => formatValue(value)}
+          format={valueFormat}
           showValues={data.length <= 48}
         />
       );
@@ -168,7 +176,7 @@ export default function PublicPulseDashboard(props: Props) {
         class="h-56 text-dimmed"
         series={[{ label: widget.title, data: data.map((point) => ({ x: Date.parse(point.bucket), y: point.value ?? 0 })) }]}
         xAxis={{ format: (value) => compactDate(new Date(value).toISOString(), dateContext()) }}
-        yAxis={{ format: (value) => formatValue(value) }}
+        yAxis={{ format: valueFormat }}
         smooth
         area
       />

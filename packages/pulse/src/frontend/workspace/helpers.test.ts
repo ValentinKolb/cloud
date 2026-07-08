@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { PulseExplorerQuery } from "../../contracts";
 import { compileDashboardDsl } from "../../dashboard-dsl";
 import { compilePulseQueryText } from "../../query-dsl";
-import { compactMetricUnit, dashboardCellSpan, dashboardQueryLine, dashboardWidgetSnippetFromQuery, gaugeMax } from "./helpers";
+import { compactMetricUnit, dashboardCellSpan, dashboardQueryLine, dashboardWidgetSnippetFromQuery, formatMetricValue, formatValue, gaugeMax } from "./helpers";
 
 const compileSnippet = (snippet: string) =>
   compileDashboardDsl(
@@ -29,10 +29,22 @@ describe("Pulse workspace dashboard snippets", () => {
     expect(dashboardCellSpan(8, 3)).toBe(8);
   });
 
-  test("formats percent units compactly for charts", () => {
+  test("formats metric values with readable units", () => {
+    expect(formatValue(10)).toBe("10");
+    expect(formatMetricValue(100, "percent")).toBe("100%");
+    expect(formatMetricValue(61.29, "percentage")).toBe("61.29%");
+    expect(formatMetricValue(10, "count")).toBe("10");
+    expect(formatMetricValue(199, "count")).toBe("199");
+    expect(formatMetricValue(411_210, "seconds")).toBe("4d 18h");
+    expect(formatMetricValue(1_536, "bytes")).toBe("1.5 KiB");
+  });
+
+  test("formats metric units compactly for charts", () => {
     expect(compactMetricUnit("percent")).toBe("%");
     expect(compactMetricUnit("percentage")).toBe("%");
-    expect(compactMetricUnit("bytes")).toBe("bytes");
+    expect(compactMetricUnit("bytes")).toBe("B");
+    expect(compactMetricUnit("seconds")).toBe("s");
+    expect(compactMetricUnit("count")).toBeUndefined();
     expect(gaugeMax("percent", 61)).toBe(100);
   });
 

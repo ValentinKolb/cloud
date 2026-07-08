@@ -6,8 +6,24 @@ export { providers } from "./providers";
 export { authFlows } from "./auth-flows";
 export { toPgTextArray, toPgUuidArray, escapeLikePattern, isUniqueViolation } from "./postgres";
 
-export { logger, logging } from "./logging";
-export type { LogEntry } from "./logging";
+export { logger, logging, trace } from "./logging";
+export type {
+  LogEntry,
+  TraceAttributeValue,
+  TraceAttributes,
+  TraceCategory,
+  TraceContext,
+  TraceEvent,
+  TraceListFilter,
+  TraceRunStats,
+  TraceSeverity,
+  TraceSpan,
+  TraceSpanKind,
+  TraceSourceGroup,
+  TraceStatus,
+  TraceSummary,
+  TraceWindow,
+} from "./logging";
 export { audit } from "./audit";
 export type { AuditActionGroup, AuditActor, AuditEvent, AuditListFilter, AuditOutcome, AuditRecordParams, AuditTarget } from "./audit";
 

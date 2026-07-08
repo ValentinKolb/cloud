@@ -1,5 +1,5 @@
 import { job, scheduler } from "@valentinkolb/sync";
-import { logger, logging } from "../logging";
+import { logger, logging, trace } from "../logging";
 import { providers } from "../providers";
 import { get as getSetting } from "../settings";
 import { accountLifecycle } from "./index";
@@ -90,6 +90,12 @@ const retryOnError =
 const ipaSyncJob = job<void, JobSummary>({
   id: "auth:ipa:sync",
   defaults: { leaseMs: 120_000 },
+  trace: trace.fromSyncJob<void, JobSummary>({
+    name: "FreeIPA account sync",
+    source: "auth:ipa:sync",
+    appId: "core",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return abortedSummary();
     try {
@@ -117,6 +123,12 @@ const ipaSyncJob = job<void, JobSummary>({
 const reminderJob = job<void, JobSummary>({
   id: "auth:reminder:daily",
   defaults: { leaseMs: 180_000 },
+  trace: trace.fromSyncJob<void, JobSummary>({
+    name: "Account expiry reminders",
+    source: "auth:reminder:daily",
+    appId: "core",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return abortedSummary();
     const summary = await accountLifecycle.sendExpiryReminders();
@@ -129,6 +141,12 @@ const reminderJob = job<void, JobSummary>({
 const guestCleanupJob = job<void, JobSummary>({
   id: "auth:guest:cleanup",
   defaults: { leaseMs: 120_000 },
+  trace: trace.fromSyncJob<void, JobSummary>({
+    name: "Expired guest cleanup",
+    source: "auth:guest:cleanup",
+    appId: "core",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return abortedSummary();
     const summary = await accountLifecycle.cleanupExpiredGuests();
@@ -141,6 +159,12 @@ const guestCleanupJob = job<void, JobSummary>({
 const localUserCleanupJob = job<void, JobSummary>({
   id: "auth:local-user:cleanup",
   defaults: { leaseMs: 120_000 },
+  trace: trace.fromSyncJob<void, JobSummary>({
+    name: "Expired local user cleanup",
+    source: "auth:local-user:cleanup",
+    appId: "core",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return abortedSummary();
     const summary = await accountLifecycle.cleanupExpiredLocalUsers();
@@ -153,6 +177,12 @@ const localUserCleanupJob = job<void, JobSummary>({
 const auditCleanupJob = job<void, JobSummary>({
   id: "auth:lifecycle:audit:cleanup",
   defaults: { leaseMs: 120_000 },
+  trace: trace.fromSyncJob<void, JobSummary>({
+    name: "Lifecycle audit cleanup",
+    source: "auth:lifecycle:audit:cleanup",
+    appId: "core",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return abortedSummary();
     const summary = await accountLifecycle.cleanupLifecycleAudit();
@@ -165,6 +195,12 @@ const auditCleanupJob = job<void, JobSummary>({
 const logCleanupJob = job<void, { deleted: number; retentionDays: number }>({
   id: "app:logs:cleanup",
   defaults: { leaseMs: 120_000 },
+  trace: trace.fromSyncJob<void, { deleted: number; retentionDays: number }>({
+    name: "Log cleanup",
+    source: "logging",
+    appId: "core",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return { deleted: 0, retentionDays: 0 };
     const configured = Number((await getSetting<number | string | null>("logs.retention_days")) ?? 30);
@@ -179,6 +215,12 @@ const logCleanupJob = job<void, { deleted: number; retentionDays: number }>({
 const ipaBackfillJob = job<void, JobSummary>({
   id: "auth:ipa:backfill",
   defaults: { leaseMs: 300_000 },
+  trace: trace.fromSyncJob<void, JobSummary>({
+    name: "IPA expiry backfill",
+    source: "auth:ipa:backfill",
+    appId: "core",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return abortedSummary();
     const summary = await accountLifecycle.runIpaBackfill();
@@ -191,6 +233,12 @@ const ipaBackfillJob = job<void, JobSummary>({
 const guestBackfillJob = job<void, JobSummary>({
   id: "auth:guest:backfill",
   defaults: { leaseMs: 300_000 },
+  trace: trace.fromSyncJob<void, JobSummary>({
+    name: "Guest expiry backfill",
+    source: "auth:guest:backfill",
+    appId: "core",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return abortedSummary();
     const summary = await accountLifecycle.runGuestBackfill();
@@ -203,6 +251,12 @@ const guestBackfillJob = job<void, JobSummary>({
 const localUserBackfillJob = job<void, JobSummary>({
   id: "auth:local-user:backfill",
   defaults: { leaseMs: 300_000 },
+  trace: trace.fromSyncJob<void, JobSummary>({
+    name: "Local user expiry backfill",
+    source: "auth:local-user:backfill",
+    appId: "core",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return abortedSummary();
     const summary = await accountLifecycle.runLocalUserBackfill();
@@ -236,6 +290,11 @@ const createSchedule = async (config: {
     id: config.id,
     cron: config.cron,
     tz: config.tz,
+    trace: trace.fromSyncSchedule<void>({
+      name: config.id,
+      source: config.id,
+      appId: "core",
+    }),
     process: async ({ ctx }) => {
       await config.submit(`slot:${ctx.slotTs}`);
     },

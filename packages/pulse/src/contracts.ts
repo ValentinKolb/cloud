@@ -360,7 +360,9 @@ export type PulsePublicCurrentState = Pick<PulseCurrentState, "key" | "value" | 
 export type PulsePublicDashboardMetricWidget = Omit<
   PulseDashboardMetricWidget,
   "query" | "queryText" | "sourceId" | "entityId" | "entityType" | "dimensions"
->;
+> & {
+  unit?: string | null;
+};
 
 export type PulsePublicDashboardEventsWidget = Omit<PulseDashboardEventsWidget, "query" | "queryText">;
 

@@ -6,6 +6,7 @@ export { dates, dates as calendar, encoding, fileIcons, gradients } from "@valen
 export * from "./account-display";
 export * from "./account-session";
 export * from "./branding";
+export * from "./email-html";
 export type * from "./icons";
 export { icons } from "./icons";
 export * from "./login-method";

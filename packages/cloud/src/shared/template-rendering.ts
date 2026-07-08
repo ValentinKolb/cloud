@@ -7,6 +7,7 @@ type LiquidEngine = Liquid;
 export type LiquidTemplateFilter = Parameters<LiquidEngine["registerFilter"]>[1];
 export type LiquidTemplateOptions = {
   filters?: Record<string, LiquidTemplateFilter>;
+  escapeOutput?: boolean;
 };
 
 const ALLOWED_TAGS = new Set([
@@ -65,7 +66,7 @@ const createEngine = (options: LiquidTemplateOptions = {}) => {
     strictVariables: true,
     strictFilters: true,
     ownPropertyOnly: true,
-    outputEscape: escapeTemplateOutput,
+    ...(options.escapeOutput === false ? {} : { outputEscape: escapeTemplateOutput }),
     parseLimit: TEMPLATE_MAX_BYTES,
     renderLimit: RENDER_MAX_BYTES,
     memoryLimit: 2_000_000,
@@ -81,7 +82,7 @@ const createEngine = (options: LiquidTemplateOptions = {}) => {
 };
 
 const defaultEngine = createEngine();
-const engineFor = (options: LiquidTemplateOptions = {}) => (options.filters ? createEngine(options) : defaultEngine);
+const engineFor = (options: LiquidTemplateOptions = {}) => (options.filters || options.escapeOutput === false ? createEngine(options) : defaultEngine);
 
 export const migrateLegacyMustacheTemplate = (template: string): string =>
   template

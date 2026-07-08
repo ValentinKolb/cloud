@@ -1,4 +1,4 @@
-import { logger } from "@valentinkolb/cloud/services";
+import { logger, trace } from "@valentinkolb/cloud/services";
 import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { buildGatewayHealth, type GatewayHealth, type GatewayHealthStatus, scopeGatewayHealth } from "./health";
@@ -237,6 +237,18 @@ const sendWebhook = async (webhook: HealthWebhook, health: GatewayHealth, mode: 
 export const healthWebhookDeliveryJob = job<{ webhookId: string; mode?: "scheduled" | "test" }, void>({
   id: "gateway:health-webhook-delivery",
   defaults: { leaseMs: 60_000 },
+  trace: trace.fromSyncJob<{ webhookId: string; mode?: "scheduled" | "test" }, void>({
+    name: "Gateway health webhook delivery",
+    source: "gateway:health-webhook-delivery",
+    appId: "gateway-ops",
+    attributes: (event) =>
+      "input" in event && event.input
+        ? {
+            "cloud.gateway.webhook_id": event.input.webhookId,
+            "cloud.gateway.webhook_mode": event.input.mode ?? "scheduled",
+          }
+        : {},
+  }),
   process: async ({ ctx }) => {
     const webhook = await getHealthWebhook(ctx.input.webhookId);
     if (!webhook) return;

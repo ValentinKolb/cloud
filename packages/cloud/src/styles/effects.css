@@ -59,6 +59,110 @@
   }
 }
 
+.ai-pulse-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  line-height: 1;
+}
+
+.ai-pulse-dot {
+  width: 0.3rem;
+  height: 0.3rem;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.22;
+  animation: ai-dot-pulse 1s ease-in-out infinite;
+  will-change: opacity, transform;
+}
+
+.ai-pulse-dot:nth-child(2) {
+  animation-delay: 180ms;
+}
+
+.ai-pulse-dot:nth-child(3) {
+  animation-delay: 360ms;
+}
+
+@keyframes ai-dot-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.22;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 0.92;
+    transform: translateY(-1px);
+  }
+}
+
+.assistant-markdown-block {
+  @apply min-w-0 text-sm leading-6 text-primary;
+}
+
+.assistant-markdown-block :where(*) {
+  margin-block: 0;
+}
+
+.assistant-markdown-block
+  :where(p, ul, ol, pre, blockquote, table, h1, h2, h3, h4, h5, h6)
+  + :where(p, ul, ol, pre, blockquote, table, h1, h2, h3, h4, h5, h6) {
+  margin-top: 0.875rem;
+}
+
+.assistant-markdown-block :where(h1, h2, h3, h4, h5, h6) {
+  @apply font-semibold text-primary;
+}
+
+.assistant-markdown-block :where(ul, ol) {
+  padding-left: 1.25rem;
+}
+
+.assistant-markdown-block :where(ul) {
+  list-style: disc;
+}
+
+.assistant-markdown-block :where(ol) {
+  list-style: decimal;
+}
+
+.assistant-markdown-block :where(li + li) {
+  margin-top: 0.25rem;
+}
+
+.assistant-markdown-block :where(a) {
+  @apply text-blue-600 underline underline-offset-2 dark:text-blue-300;
+}
+
+.assistant-markdown-block :where(code) {
+  @apply rounded bg-zinc-100 px-1 py-0.5 text-[0.85em] text-primary dark:bg-zinc-900;
+}
+
+.assistant-markdown-block :where(pre) {
+  @apply overflow-auto rounded-md bg-zinc-100 p-3 text-xs leading-5 dark:bg-zinc-950/70;
+}
+
+.assistant-markdown-block :where(pre code) {
+  @apply bg-transparent p-0 text-inherit;
+}
+
+.assistant-markdown-block :where(blockquote) {
+  @apply border-l-2 border-zinc-300 pl-3 text-secondary dark:border-zinc-700;
+}
+
+.assistant-markdown-block :where(table) {
+  @apply w-full border-collapse text-left text-xs;
+}
+
+.assistant-markdown-block :where(th, td) {
+  @apply border-b border-zinc-200 px-2 py-1 align-top dark:border-zinc-800;
+}
+
+.assistant-markdown-block :where(th) {
+  @apply font-semibold text-primary;
+}
+
 /* Dashboard launchpad panel. Scoped through :has() so the calmer backdrop only
    applies to the dashboard app picker, not every bare dialog. */
 dialog:has(.launchpad-panel)::backdrop {

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { type LogEntry, logger, get as settingsGet, settingsService } from "@valentinkolb/cloud/services";
+import { type LogEntry, logger, get as settingsGet, settingsService, trace } from "@valentinkolb/cloud/services";
 import { parsePgJsonRecord } from "@valentinkolb/cloud/services/postgres";
 import { decryptValue, encryptValue } from "@valentinkolb/cloud/services/settings/crypto";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
@@ -619,6 +619,11 @@ const runScheduledSnapshots = async (): Promise<void> => {
 const snapshotJob = job<void, void>({
   id: "notebooks:snapshot:s3",
   defaults: { leaseMs: 900_000 },
+  trace: trace.fromSyncJob<void, void>({
+    name: "Notebook S3 snapshots",
+    source: SNAPSHOT_LOG_SOURCE,
+    appId: "notebooks",
+  }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return;
     await runScheduledSnapshots();
@@ -640,6 +645,11 @@ const createSchedule = async (cron: string, tz: string): Promise<void> => {
     id: "notebooks:snapshot:s3",
     cron,
     tz,
+    trace: trace.fromSyncSchedule<void>({
+      name: "Notebook S3 snapshot schedule",
+      source: SNAPSHOT_LOG_SOURCE,
+      appId: "notebooks",
+    }),
     process: async ({ ctx }) => {
       await snapshotJob.submit({ key: `slot:${ctx.slotTs}` });
     },

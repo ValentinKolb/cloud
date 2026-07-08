@@ -1,6 +1,6 @@
 import { appRegistry, listApps, listAppsDetailed } from "@valentinkolb/cloud";
 import type { AppLifecycle } from "@valentinkolb/cloud/contracts";
-import { get as getSetting, logger } from "@valentinkolb/cloud/services";
+import { get as getSetting, logger, trace } from "@valentinkolb/cloud/services";
 import { job, scheduler } from "@valentinkolb/sync";
 import { runHealthWebhookCheck } from "./health-webhooks";
 import { migrate } from "./migrate";
@@ -94,6 +94,12 @@ type OfflineAuditSummary = {
 const offlineAuditJob = job<void, OfflineAuditSummary>({
   id: "gateway:registered-apps:offline-audit",
   defaults: { leaseMs: 120_000 },
+  trace: trace.fromSyncJob<void, OfflineAuditSummary>({
+    name: "Registered app offline audit",
+    source: "gateway:registered-apps:offline-audit",
+    appId: "gateway-ops",
+    summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+  }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return { scanned: 0, offline: 0, logged: 0 };
     const liveApps = await listAppsDetailed();
@@ -170,6 +176,11 @@ const createOfflineAuditSchedule = async (): Promise<void> => {
     id: "gateway:registered-apps:offline-audit",
     cron,
     tz,
+    trace: trace.fromSyncSchedule<void>({
+      name: "Registered app offline audit schedule",
+      source: "gateway:registered-apps:offline-audit",
+      appId: "gateway-ops",
+    }),
     process: async ({ ctx }) => {
       await offlineAuditJob.submit({ key: `slot:${ctx.slotTs}` });
     },
@@ -186,6 +197,12 @@ const createHealthWebhookSchedule = async (cronOverride?: string): Promise<void>
     id: HEALTH_SCHEDULE_ID,
     cron,
     tz,
+    trace: trace.fromSyncSchedule<{ checked: number; submitted: number }>({
+      name: "Gateway health webhook check",
+      source: HEALTH_SCHEDULE_ID,
+      appId: "gateway-ops",
+      summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+    }),
     process: async () => runHealthWebhookCheck(),
   });
 };
@@ -196,9 +213,16 @@ const createTelemetryCleanupSchedule = async (): Promise<void> => {
     id: "gateway:telemetry:cleanup",
     cron: TELEMETRY_CLEANUP_CRON,
     tz,
+    trace: trace.fromSyncSchedule<{ deleted: number }>({
+      name: "Gateway telemetry cleanup",
+      source: "gateway:telemetry:cleanup",
+      appId: "gateway-ops",
+      summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
+    }),
     process: async () => {
       const deleted = await cleanupTelemetry();
       log.info("Gateway telemetry cleanup completed", { deleted });
+      return { deleted };
     },
   });
 };

@@ -1,4 +1,4 @@
-import { dates, type DateContext } from "@valentinkolb/stdlib";
+import { dates, text, type DateContext } from "@valentinkolb/stdlib";
 import type { DataTableColumn, FilterChipSection } from "@valentinkolb/cloud/ui";
 import type {
   MetricQueryPoint,
@@ -142,20 +142,74 @@ export const dashboardEventQueryText = (query: PulseDashboardEventQuery): string
 export const dashboardStateQueryText = (query: PulseDashboardStateQuery): string =>
   `states ${query.state ?? "*"}${query.since ? ` since ${query.since}` : ""}${queryFiltersToText(query)}`;
 
+const trimFixed = (value: number, fractionDigits: number): string => {
+  const fixed = value.toFixed(fractionDigits);
+  return fractionDigits === 0 ? fixed : fixed.replace(/\.?0+$/, "");
+};
+
 export const formatValue = (value: number | null | undefined): string => {
   if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
+  if (!Number.isFinite(value)) return "n/a";
+  if (value === 0) return "0";
   if (Math.abs(value) >= 1_000_000) return value.toExponential(2);
-  if (Math.abs(value) >= 100) return value.toFixed(0);
-  if (Math.abs(value) >= 10) return value.toFixed(1);
-  return value.toFixed(2);
+  if (Math.abs(value) >= 100) return trimFixed(value, 0);
+  if (Math.abs(value) >= 10) return trimFixed(value, 1);
+  if (Math.abs(value) >= 1) return trimFixed(value, 2);
+  if (Math.abs(value) >= 0.01) return trimFixed(value, 3);
+  return trimFixed(value, 4);
+};
+
+type MetricUnitKind = "bytes" | "count" | "milliseconds" | "percent" | "seconds" | "unknown";
+
+const metricUnitKind = (unit: string | null | undefined): MetricUnitKind => {
+  const normalized = unit?.trim().toLowerCase();
+  if (!normalized) return "unknown";
+  if (normalized === "%" || normalized === "percent" || normalized === "percentage") return "percent";
+  if (normalized === "count" || normalized === "counts") return "count";
+  if (normalized === "byte" || normalized === "bytes" || normalized === "b") return "bytes";
+  if (normalized === "second" || normalized === "seconds" || normalized === "sec" || normalized === "secs" || normalized === "s") return "seconds";
+  if (normalized === "millisecond" || normalized === "milliseconds" || normalized === "ms") return "milliseconds";
+  return "unknown";
 };
 
 export const compactMetricUnit = (unit: string | null | undefined): string | undefined => {
   const value = unit?.trim();
   if (!value) return undefined;
-  const normalized = value.toLowerCase();
-  if (normalized === "percent" || normalized === "percentage") return "%";
+  const kind = metricUnitKind(value);
+  if (kind === "percent") return "%";
+  if (kind === "count") return undefined;
+  if (kind === "bytes") return "B";
+  if (kind === "seconds") return "s";
+  if (kind === "milliseconds") return "ms";
   return value;
+};
+
+const formatSeconds = (seconds: number): string => {
+  const sign = seconds < 0 ? "-" : "";
+  const absolute = Math.abs(seconds);
+  if (absolute < 1) return `${sign}${formatValue(absolute * 1000)}ms`;
+  if (absolute < 60) return `${sign}${formatValue(absolute)}s`;
+
+  const totalSeconds = Math.round(absolute);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const remainingSeconds = totalSeconds % 60;
+  if (days > 0) return `${sign}${days}d${hours > 0 ? ` ${hours}h` : ""}`;
+  if (hours > 0) return `${sign}${hours}h${minutes > 0 ? ` ${minutes}m` : ""}`;
+  return `${sign}${minutes}m${remainingSeconds > 0 ? ` ${remainingSeconds}s` : ""}`;
+};
+
+export const formatMetricValue = (value: number | null | undefined, unit?: string | null): string => {
+  if (value === null || value === undefined || Number.isNaN(value) || !Number.isFinite(value)) return "n/a";
+  const kind = metricUnitKind(unit);
+  if (kind === "percent") return `${trimFixed(value, Math.abs(value) >= 100 ? 0 : 2)}%`;
+  if (kind === "count") return formatValue(value);
+  if (kind === "bytes") return `${value < 0 ? "-" : ""}${text.pprintBytes(Math.abs(value))}`;
+  if (kind === "seconds") return formatSeconds(value);
+  if (kind === "milliseconds") return formatSeconds(value / 1000);
+  const compactUnit = compactMetricUnit(unit);
+  return compactUnit ? `${formatValue(value)} ${compactUnit}` : formatValue(value);
 };
 
 export const formatSignalValue = (value: unknown): string => {
@@ -167,7 +221,7 @@ export const formatSignalValue = (value: unknown): string => {
 };
 
 export const gaugeMax = (unit: string | null, value: number): number => {
-  if (compactMetricUnit(unit) === "%") return 100;
+  if (metricUnitKind(unit) === "percent") return 100;
   if (value <= 1) return 1;
   const magnitude = 10 ** Math.max(0, Math.floor(Math.log10(value)));
   return Math.ceil(value / magnitude) * magnitude;

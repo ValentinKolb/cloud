@@ -19,7 +19,7 @@
  * without waiting up to 12h for the first scheduled tick.
  */
 
-import { logger, get as settingsGet } from "@valentinkolb/cloud/services";
+import { logger, get as settingsGet, trace } from "@valentinkolb/cloud/services";
 import { job, scheduler } from "@valentinkolb/sync";
 import { reindexAll } from "./note-refs";
 
@@ -79,6 +79,12 @@ const reindexJob = job<{ trigger: ReindexTrigger }, void>({
   // 5-minute lease leaves comfortable headroom; the scheduler renews
   // automatically while the job is running.
   defaults: { leaseMs: 300_000 },
+  trace: trace.fromSyncJob<{ trigger: ReindexTrigger }, void>({
+    name: "Notebook references reindex",
+    source: "notebooks:reindex",
+    appId: "notebooks",
+    attributes: (event) => ("input" in event && event.input ? { "cloud.notebooks.reindex_trigger": event.input.trigger } : {}),
+  }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return;
     await runReindex(ctx.input.trigger);
@@ -104,6 +110,11 @@ const createSchedule = async (cron: string, tz: string): Promise<void> => {
     id: "notebooks:reindex",
     cron,
     tz,
+    trace: trace.fromSyncSchedule<void>({
+      name: "Notebook references reindex schedule",
+      source: "notebooks:reindex",
+      appId: "notebooks",
+    }),
     process: async ({ ctx }) => {
       await reindexJob.submit({ key: `slot:${ctx.slotTs}`, input: { trigger: "scheduler" } });
     },

@@ -1,6 +1,6 @@
 import { StructuredDataPreview } from "@valentinkolb/cloud/ui";
 import type { PulseCurrentState, PulseMetricSeries, PulseRecordedEvent } from "../../contracts";
-import { compactDateWithDelta, formatSignalValue, formatValue, signalSubject, type PulseDateContext } from "./helpers";
+import { compactDateWithDelta, formatMetricValue, formatSignalValue, formatValue, signalSubject, type PulseDateContext } from "./helpers";
 
 type SourceProps = {
   sourceId: string | null | undefined;
@@ -41,9 +41,7 @@ export const FocusedMetricSeriesDetail = (props: SourceProps & { item: PulseMetr
         <div class="detail-row">
           <i class="ti ti-number detail-row-icon text-blue-500" />
           <span class="detail-row-label">Current</span>
-          <span class="truncate">
-            {props.item.latestValue === null ? "-" : `${formatValue(props.item.latestValue)}${props.metricUnit ? ` ${props.metricUnit}` : ""}`}
-          </span>
+          <span class="truncate">{props.item.latestValue === null ? "-" : formatMetricValue(props.item.latestValue, props.metricUnit)}</span>
         </div>
         <div class="detail-row">
           <i class="ti ti-chart-dots detail-row-icon text-blue-500" />
