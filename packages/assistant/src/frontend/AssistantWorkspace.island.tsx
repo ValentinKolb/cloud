@@ -8,9 +8,11 @@ import {
   type AiSlashCommand,
   aiLatestUsage,
 } from "@valentinkolb/cloud/ai/ui";
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import { assistantApi } from "../api/client";
+import { openAssistantConversationEditor } from "./AssistantConversationEditor";
 import AssistantSidebar from "./AssistantSidebar";
 
 type Status = {
@@ -95,6 +97,20 @@ export default function AssistantWorkspace(props: Props) {
     return chat.send({ ...input, modelProfileId: selectedModelId() || undefined });
   };
 
+  const activeConversation = () => chat.conversations().find((conversation) => conversation.id === chat.activeConversationId()) ?? null;
+  const requireIdleConversation = (): AiConversation | null => {
+    const conversation = activeConversation();
+    if (!conversation) {
+      chat.setError("Open a chat first.");
+      return null;
+    }
+    if (chat.running()) {
+      chat.setError("Stop the current response first.");
+      return null;
+    }
+    return conversation;
+  };
+
   const slashCommands = (): AiSlashCommand[] => [
     {
       name: "new",
@@ -114,6 +130,77 @@ export default function AssistantWorkspace(props: Props) {
           return;
         }
         void chat.compactConversation({ modelProfileId: selectedModelId() || undefined });
+      },
+    },
+    {
+      name: "fork",
+      description: "Fork this conversation into a new chat",
+      icon: "ti ti-git-fork",
+      action: () => {
+        if (!requireIdleConversation()) return;
+        const last = chat.messages().at(-1);
+        if (!last) {
+          chat.setError("Nothing to fork yet.");
+          return;
+        }
+        void chat.forkMessage(last.id);
+      },
+    },
+    {
+      name: "retry",
+      description: "Regenerate the last answer",
+      icon: "ti ti-refresh",
+      action: () => {
+        if (!requireIdleConversation()) return;
+        const target = chat
+          .messages()
+          .findLast((message) => message.kind === "message" && message.message.role === "user" && !message.compactedAt);
+        if (!target) {
+          chat.setError("No user message to retry.");
+          return;
+        }
+        void chat.retryUserMessage(target.id, { modelProfileId: selectedModelId() || undefined });
+      },
+    },
+    {
+      name: "rename",
+      description: "Rename this chat",
+      icon: "ti ti-pencil",
+      action: async () => {
+        const conversation = activeConversation();
+        if (!conversation) {
+          chat.setError("Open a chat first.");
+          return;
+        }
+        const result = await openAssistantConversationEditor(conversation);
+        if (result?.action === "save") updateConversation(result.conversation);
+        if (result?.action === "delete") deleteConversation(result.conversation);
+      },
+    },
+    {
+      name: "delete",
+      description: "Delete this chat",
+      icon: "ti ti-trash",
+      action: async () => {
+        const conversation = activeConversation();
+        if (!conversation) {
+          chat.setError("Open a chat first.");
+          return;
+        }
+        const confirmed = await prompts.confirm(`Delete "${conversation.title}"?`, {
+          title: "Delete chat",
+          icon: "ti ti-trash",
+          variant: "danger",
+          confirmText: "Delete",
+          cancelText: "Cancel",
+        });
+        if (!confirmed) return;
+        try {
+          await assistantApi.deleteConversation(conversation.id);
+          deleteConversation(conversation);
+        } catch (error) {
+          chat.setError(error instanceof Error ? error.message : "Failed to delete chat");
+        }
       },
     },
   ];

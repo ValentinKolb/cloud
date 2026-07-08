@@ -110,22 +110,22 @@ function AiSlashCommandMenu(props: {
   onSelect: (command: AiSlashCommand) => void;
 }) {
   return (
-    <div class="mb-2 overflow-hidden rounded-lg border border-zinc-200 bg-white p-1 shadow-[var(--theme-shadow-float)] dark:border-zinc-800 dark:bg-zinc-900">
+    <div class="mb-2 flex flex-col gap-0.5 overflow-hidden rounded-xl bg-white/95 p-1.5 ring-1 ring-inset ring-zinc-300/60 backdrop-blur dark:bg-zinc-950/95 dark:ring-zinc-700/60">
       <For each={props.commands}>
         {(command, index) => (
           <button
             type="button"
-            class={`flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors ${
+            class={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition-colors ${
               index() === props.selectedIndex
-                ? "bg-blue-50 text-blue-700 dark:bg-blue-950/45 dark:text-blue-200"
-                : "text-secondary hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                ? "bg-blue-50/80 text-blue-900 dark:bg-blue-950/45 dark:text-blue-100"
+                : "text-secondary hover:bg-zinc-200/65 dark:hover:bg-zinc-800/70"
             }`}
             onMouseDown={(event) => {
               event.preventDefault();
               props.onSelect(command);
             }}
           >
-            <i class={`${command.icon ?? "ti ti-slash"} text-base`} aria-hidden="true" />
+            <i class={`${command.icon ?? "ti ti-slash"} text-sm text-dimmed`} aria-hidden="true" />
             <span class="font-medium">/{command.name}</span>
             <span class="truncate text-xs text-dimmed">{command.description}</span>
           </button>
