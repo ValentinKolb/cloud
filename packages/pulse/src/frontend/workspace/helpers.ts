@@ -16,13 +16,11 @@ import type {
   PulseDashboardStatesWidget,
   PulseDashboardWidget,
   PulseExplorerQuery,
-  PulseMetricSeries,
   PulseRecordedEvent,
   PulseSource,
 } from "../../contracts";
 import { derivePulseResource, pulseResourceKey, pulseSignalSubject } from "../../resource-model";
 import type { QueryHistoryEntry, RefreshIntervalOption } from "./types";
-export { emptyActivityQueryState, readActivityQueryState, readWorkspacePathState } from "./routes";
 
 export const suggestionTagClass =
   "chip max-w-full cursor-pointer border-0 transition hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900 dark:hover:text-blue-200";
@@ -227,7 +225,7 @@ export const gaugeMax = (unit: string | null, value: number): number => {
   return Math.ceil(value / magnitude) * magnitude;
 };
 
-export const dashboardAutoSpan = (cellCount: number): number => {
+const dashboardAutoSpan = (cellCount: number): number => {
   if (cellCount <= 1) return 12;
   if (cellCount === 2) return 6;
   if (cellCount === 3) return 4;
@@ -261,27 +259,12 @@ export const queryPointColumns: DataTableColumn<MetricQueryPoint>[] = [
   { id: "value", header: "Value", value: (point) => formatValue(point.value), cellClass: "w-32 whitespace-nowrap" },
 ];
 
-export const seriesLabel = (series: PulseMetricSeries, sourceName?: string): string => {
-  const important = ["instance", "host", "node", "device", "mountpoint", "vmid", "name", "job"]
-    .map((key) => (series.dimensions[key] ? `${key}=${series.dimensions[key]}` : null))
-    .filter(Boolean);
-  const label =
-    important.length > 0
-      ? important.join(", ")
-      : series.entityId ||
-        Object.entries(series.dimensions)
-          .slice(0, 3)
-          .map(([key, value]) => `${key}=${value}`)
-          .join(", ");
-  return [sourceName, label || series.id.slice(0, 8)].filter(Boolean).join(" · ");
-};
-
 export const quoteQueryPart = (value: string): string =>
   /[\s,=]/.test(value) ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : value;
 
-export const resourceKey = pulseResourceKey;
+const resourceKey = pulseResourceKey;
 
-export const signalResourceId = (params: {
+const signalResourceId = (params: {
   metric?: string;
   key?: string;
   kind?: string;
@@ -291,7 +274,7 @@ export const signalResourceId = (params: {
   dimensions: Record<string, string>;
 }): string | null => derivePulseResource({ signalName: params.metric ?? params.key ?? params.kind, ...params })?.id ?? null;
 
-export const signalResourceType = (params: {
+const signalResourceType = (params: {
   metric?: string;
   key?: string;
   kind?: string;
@@ -328,10 +311,10 @@ export const dimensionsSummary = (dimensions: Record<string, string>, limit = 3)
     .map(([key, value]) => `${key}=${value}`)
     .join(" · ");
 
-export const dashboardWidgetDescendants = (widget: PulseDashboardWidget): PulseDashboardWidget[] =>
+const dashboardWidgetDescendants = (widget: PulseDashboardWidget): PulseDashboardWidget[] =>
   widget.kind === "card" ? [widget, ...widget.rows.flatMap((row) => row.cells.flatMap(dashboardWidgetDescendants))] : [widget];
 
-export const dashboardSectionWidgets = (section: PulseDashboardSection): PulseDashboardWidget[] => [
+const dashboardSectionWidgets = (section: PulseDashboardSection): PulseDashboardWidget[] => [
   ...section.rows.flatMap((row) => row.cells.flatMap(dashboardWidgetDescendants)),
   ...(section.sections ?? []).flatMap(dashboardSectionWidgets),
 ];
@@ -350,7 +333,7 @@ export const dashboardStatesWidgets = (config: PulseDashboardConfig) =>
 
 export const quoteDashboardDslString = (value: string): string => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 
-export const dashboardVisualStatement = (visual: PanelVisual): string => visual;
+const dashboardVisualStatement = (visual: PanelVisual): string => visual;
 
 export const dashboardQueryLine = (query: string): string => {
   let output = "";

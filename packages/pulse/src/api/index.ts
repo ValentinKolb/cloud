@@ -726,7 +726,7 @@ const app = new Hono<AuthContext>()
     },
   )
   .patch(
-    "/access/:accessId",
+    "/bases/:baseId/access/:accessId",
     describeRoute({
       tags: ["Pulse"],
       summary: "Update Pulse access level",
@@ -734,19 +734,27 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateBaseAccessSchema),
     async (c) => {
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      if (!baseId.ok) return respond(c, baseId.result);
       const accessId = requireUuidParam(c.req.param("accessId"), "access ID");
       if (!accessId.ok) return respond(c, accessId.result);
       return respondMessage(
         c,
-        pulseService.base.access.update({ accessId: accessId.value, user: c.get("user"), ...c.req.valid("json") }),
+        pulseService.base.access.update({ baseId: baseId.value, accessId: accessId.value, user: c.get("user"), ...c.req.valid("json") }),
         "Access updated",
       );
     },
   )
-  .delete("/access/:accessId", async (c) => {
+  .delete("/bases/:baseId/access/:accessId", async (c) => {
+    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+    if (!baseId.ok) return respond(c, baseId.result);
     const accessId = requireUuidParam(c.req.param("accessId"), "access ID");
     if (!accessId.ok) return respond(c, accessId.result);
-    return respondMessage(c, pulseService.base.access.revoke({ accessId: accessId.value, user: c.get("user") }), "Access revoked");
+    return respondMessage(
+      c,
+      pulseService.base.access.revoke({ baseId: baseId.value, accessId: accessId.value, user: c.get("user") }),
+      "Access revoked",
+    );
   })
   .get(
     "/bases/:baseId/sources",

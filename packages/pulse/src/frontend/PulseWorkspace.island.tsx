@@ -69,7 +69,7 @@ import ResourceBrowserView from "./workspace/ResourceBrowserView";
 import ResourceDetailView from "./workspace/ResourceDetailView";
 import SourceDetailView from "./workspace/SourceDetailView";
 import { navigatePulseWorkspace, replacePulseWorkspaceUrl } from "./workspace/navigation";
-import { buildPulseWorkspaceHref, readResourceQueryState } from "./workspace/routes";
+import { buildPulseWorkspaceHref, readActivityQueryState, readResourceQueryState } from "./workspace/routes";
 import {
   DASHBOARD_REFRESH_OPTIONS,
   FOCUSED_PAGE_SIZE,
@@ -108,11 +108,9 @@ import {
   queryPointColumns,
   quoteDashboardDslString,
   quoteQueryPart,
-  readActivityQueryState,
   readQueryHistory,
   refreshIntervalFromOption,
   refreshOptionFromConfig,
-  seriesLabel,
   signalResourceKey,
   signalSubject,
   sourceKindIcon,
@@ -1143,12 +1141,12 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
             });
 
           const updateAccess = (accessId: string, permission: GrantableLevel) =>
-            jsonFetch<void>(`/api/pulse/access/${accessId}`, {
+            jsonFetch<void>(`/api/pulse/bases/${base.id}/access/${accessId}`, {
               method: "PATCH",
               body: JSON.stringify({ permission }),
             });
 
-          const revokeAccess = (accessId: string) => jsonFetch<void>(`/api/pulse/access/${accessId}`, { method: "DELETE" });
+          const revokeAccess = (accessId: string) => jsonFetch<void>(`/api/pulse/bases/${base.id}/access/${accessId}`, { method: "DELETE" });
 
           const clearBaseData = async () => {
             const confirmed = await prompts.confirm(

@@ -563,11 +563,15 @@ const pulseAccessCommands = createAccessCommands({
   list: async (ctx, base) => readApi<AccessEntry[]>(ctx, `/bases/${encodeURIComponent(base.id)}/access`),
   grant: async (ctx, base, principal: Principal, permission: PermissionLevel) =>
     readApi<AccessEntry>(ctx, `/bases/${encodeURIComponent(base.id)}/access`, jsonRequest("POST", { principal, permission })),
-  update: async (ctx, _base, accessId, permission) => {
-    await readApi<MessageResult>(ctx, `/access/${encodeURIComponent(accessId)}`, jsonRequest("PATCH", { permission }));
+  update: async (ctx, base, accessId, permission) => {
+    await readApi<MessageResult>(
+      ctx,
+      `/bases/${encodeURIComponent(base.id)}/access/${encodeURIComponent(accessId)}`,
+      jsonRequest("PATCH", { permission }),
+    );
   },
-  revoke: async (ctx, _base, accessId) => {
-    await readApi<MessageResult>(ctx, `/access/${encodeURIComponent(accessId)}`, jsonRequest("DELETE"));
+  revoke: async (ctx, base, accessId) => {
+    await readApi<MessageResult>(ctx, `/bases/${encodeURIComponent(base.id)}/access/${encodeURIComponent(accessId)}`, jsonRequest("DELETE"));
   },
   examples: {
     list: ['cld pulse access list "Ops telemetry"', "cld pulse access list --base 810db53e-e756-4db5-9a40-9091f04a0abd"],

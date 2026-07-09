@@ -10,7 +10,16 @@ import {
   type Principal,
   type Result,
 } from "@valentinkolb/cloud/server";
-import { decryptSecret, encryptSecret, serviceAccountCredentials, serviceAccounts, toPgTextArray, toPgUuidArray, trace } from "@valentinkolb/cloud/services";
+import {
+  decryptSecret,
+  encryptSecret,
+  logger,
+  serviceAccountCredentials,
+  serviceAccounts,
+  toPgTextArray,
+  toPgUuidArray,
+  trace,
+} from "@valentinkolb/cloud/services";
 import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
 import { AGGREGATIONS, PANEL_VISUALS } from "../contracts";
@@ -83,6 +92,7 @@ const MAX_METRIC_BUCKETS = 2_000;
 const MAX_PUBLIC_EXECUTED_WIDGETS = 36;
 const MAX_SCRAPE_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_SCRAPE_SAMPLES = 50_000;
+const log = logger("pulse:service");
 
 type UserScope = {
   id: string;
@@ -189,7 +199,7 @@ type SourceScrapeRow = {
   error_message: string | null;
 };
 
-export type PulseSourceApiKey = ServiceAccountCredential & { permission: PermissionLevel };
+type PulseSourceApiKey = ServiceAccountCredential & { permission: PermissionLevel };
 
 const iso = (value: Date | string): string => (value instanceof Date ? value.toISOString() : new Date(value).toISOString());
 const isoNullable = (value: Date | string | null): string | null => (value ? iso(value) : null);
@@ -814,10 +824,10 @@ const publicCurrentState = (state: PulseCurrentState): PulsePublicCurrentState =
 
 const publicRefreshInterval = (value: DashboardRefreshInterval | null | undefined): DashboardRefreshInterval | null | undefined => (value === 1 ? 5 : value);
 
-const parseTime = (value: string | undefined): Date => {
-  if (!value) return new Date();
+const parseTime = (value: string | undefined): Result<Date> => {
+  if (!value) return ok(new Date());
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? new Date() : date;
+  return Number.isNaN(date.getTime()) ? fail(err.badInput("Invalid timestamp")) : ok(date);
 };
 
 const requireBaseAccess = async (baseId: string, user: UserScope, required: PermissionLevel): Promise<Result<void>> => {
@@ -1464,22 +1474,24 @@ const grantBaseAccess = async (params: {
   return entry ? ok(entry) : fail(err.internal("Failed to resolve access entry"));
 };
 
-const resolveBaseAccessBinding = async (accessId: string): Promise<string | null> => {
-  const [row] = await sql<{ base_id: string }[]>`
-    SELECT base_id FROM pulse.base_access WHERE access_id = ${accessId}::uuid
+const hasBaseAccessBinding = async (baseId: string, accessId: string): Promise<boolean> => {
+  const [row] = await sql<{ exists: boolean }[]>`
+    SELECT EXISTS(
+      SELECT 1 FROM pulse.base_access WHERE base_id = ${baseId}::uuid AND access_id = ${accessId}::uuid
+    ) AS exists
   `;
-  return row?.base_id ?? null;
+  return row?.exists === true;
 };
 
 const updateBaseAccess = async (params: {
+  baseId: string;
   accessId: string;
   user: UserScope;
   permission: Exclude<PermissionLevel, "none">;
 }): Promise<Result<void>> => {
-  const baseId = await resolveBaseAccessBinding(params.accessId);
-  if (!baseId) return fail(err.notFound("Access entry"));
-  const access = await requireBaseAccess(baseId, params.user, "admin");
+  const access = await requireBaseAccess(params.baseId, params.user, "admin");
   if (!access.ok) return fail(access.error);
+  if (!(await hasBaseAccessBinding(params.baseId, params.accessId))) return fail(err.notFound("Access entry"));
   const updated = await sql`
     UPDATE auth.access
     SET permission = ${params.permission}::auth.permission_level
@@ -1489,11 +1501,10 @@ const updateBaseAccess = async (params: {
   return ok();
 };
 
-const revokeBaseAccess = async (params: { accessId: string; user: UserScope }): Promise<Result<void>> => {
-  const baseId = await resolveBaseAccessBinding(params.accessId);
-  if (!baseId) return fail(err.notFound("Access entry"));
-  const access = await requireBaseAccess(baseId, params.user, "admin");
+const revokeBaseAccess = async (params: { baseId: string; accessId: string; user: UserScope }): Promise<Result<void>> => {
+  const access = await requireBaseAccess(params.baseId, params.user, "admin");
   if (!access.ok) return fail(access.error);
+  if (!(await hasBaseAccessBinding(params.baseId, params.accessId))) return fail(err.notFound("Access entry"));
   const deleted = await sql`DELETE FROM auth.access WHERE id = ${params.accessId}::uuid`;
   if (deleted.count === 0) return fail(err.notFound("Access entry"));
   return ok();
@@ -2174,11 +2185,14 @@ const recordMetric = async (params: { baseId: string; sourceId?: string | null; 
   if (!params.metric.name.trim()) return fail(err.badInput("Metric name is required"));
   if (!Number.isFinite(params.metric.value)) return fail(err.badInput("Metric value must be finite"));
 
+  const ts = parseTime(params.metric.ts);
+  if (!ts.ok) return fail(ts.error);
+
   const dimensions = normalizeDimensions(params.metric.dimensions);
   const series = await resolveMetricSeries({ baseId: params.baseId, sourceId: params.sourceId, metric: params.metric, dimensions });
   await sql`
     INSERT INTO pulse.metric_samples (base_id, series_id, ts, value)
-    VALUES (${params.baseId}::uuid, ${series.seriesId}::uuid, ${parseTime(params.metric.ts)}, ${params.metric.value})
+    VALUES (${params.baseId}::uuid, ${series.seriesId}::uuid, ${ts.data}, ${params.metric.value})
     ON CONFLICT (series_id, ts) DO UPDATE SET value = EXCLUDED.value, recorded_at = now()
   `;
   await upsertDimensionMetadata({ baseId: params.baseId, sourceId: params.sourceId, scope: "metric", dimensions });
@@ -2187,6 +2201,9 @@ const recordMetric = async (params: { baseId: string; sourceId?: string | null; 
 
 const recordEvent = async (params: { baseId: string; sourceId?: string | null; event: PulseEvent }): Promise<Result<void>> => {
   if (!params.event.kind.trim()) return fail(err.badInput("Event kind is required"));
+  const ts = parseTime(params.event.ts);
+  if (!ts.ok) return fail(ts.error);
+
   const dimensions = normalizeDimensions(params.event.dimensions);
   const hash = dimensionsHash(dimensions);
   const [eventRow] = await sql<{ id: string }[]>`
@@ -2196,7 +2213,7 @@ const recordEvent = async (params: { baseId: string; sourceId?: string | null; e
     VALUES (
       ${params.baseId}::uuid,
       ${params.sourceId ?? null}::uuid,
-      ${parseTime(params.event.ts)},
+      ${ts.data},
       ${params.event.kind},
       ${params.event.value ?? null},
       ${params.event.entityId ?? null},
@@ -2223,9 +2240,11 @@ const recordEvent = async (params: { baseId: string; sourceId?: string | null; e
 
 const setState = async (params: { baseId: string; sourceId?: string | null; state: PulseState }): Promise<Result<void>> => {
   if (!params.state.key.trim()) return fail(err.badInput("State key is required"));
+  const changedAt = parseTime(params.state.ts);
+  if (!changedAt.ok) return fail(changedAt.error);
+
   const dimensions = normalizeDimensions(params.state.dimensions);
   const hash = dimensionsHash(dimensions);
-  const changedAt = parseTime(params.state.ts);
   const encodedValue = JSON.stringify(params.state.value);
 
   await sql`
@@ -2241,7 +2260,7 @@ const setState = async (params: { baseId: string; sourceId?: string | null; stat
       ${encodedValue}::jsonb,
       ${hash},
       (${jsonbObject(dimensions)}::jsonb #>> '{}')::jsonb,
-      ${changedAt}
+      ${changedAt.data}
     )
     ON CONFLICT (base_id, state_key, entity_id, dimensions_hash)
     DO UPDATE SET value = EXCLUDED.value, source_id = EXCLUDED.source_id, entity_type = EXCLUDED.entity_type, dimensions = EXCLUDED.dimensions, updated_at = EXCLUDED.updated_at
@@ -2259,7 +2278,7 @@ const setState = async (params: { baseId: string; sourceId?: string | null; stat
       ${encodedValue}::jsonb,
       ${hash},
       (${jsonbObject(dimensions)}::jsonb #>> '{}')::jsonb,
-      ${changedAt}
+      ${changedAt.data}
     )
   `;
   await upsertDimensionMetadata({ baseId: params.baseId, sourceId: params.sourceId, scope: "state", dimensions });
@@ -2360,9 +2379,14 @@ const recordSourceScrape = async (params: {
         ${params.errorMessage ?? null}
       )
     `;
-  } catch {
+  } catch (error) {
     // Scrape history is diagnostic; never make the scrape itself fail because
     // the audit row could not be persisted.
+    log.warn("Failed to record Pulse source scrape", {
+      baseId: params.baseId,
+      sourceId: params.sourceId,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 };
 
@@ -3380,4 +3404,4 @@ export const pulseService = {
   capabilities,
 };
 
-export type PulseService = typeof pulseService;
+type PulseService = typeof pulseService;

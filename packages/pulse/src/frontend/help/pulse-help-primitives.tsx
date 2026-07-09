@@ -2,12 +2,12 @@ import { CopyButton, DocCode, DocPage } from "@valentinkolb/cloud/ui";
 import { For, type JSX } from "solid-js";
 import { pulseQueryHighlight } from "../query-authoring";
 
-export type PulseStep = {
+type PulseStep = {
   title: string;
   text: string;
 };
 
-export type PulseExample = {
+type PulseExample = {
   title: string;
   query: string;
   reason: string;
@@ -15,7 +15,7 @@ export type PulseExample = {
 
 export const PulseDocPage = (props: { children: JSX.Element }) => <DocPage class="!mx-0 !max-w-none w-full">{props.children}</DocPage>;
 
-export const formatPulseDocQuery = (query: string): string =>
+const formatPulseDocQuery = (query: string): string =>
   query
     .replace(
       /\s+(every|since|source|entity|entity_type|where|limit|warn|critical|description|query|section|card|row|controls|markdown)\b/gi,

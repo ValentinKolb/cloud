@@ -32,9 +32,9 @@ export type ResourceQueryState = {
   type: string;
 };
 
-export type DashboardControlQueryState = Record<string, string>;
+type DashboardControlQueryState = Record<string, string>;
 
-export type WorkspaceHrefState = {
+type WorkspaceHrefState = {
   view: WorkspaceView;
   dashboardId?: string;
   sourceId?: string;
@@ -49,8 +49,7 @@ export type WorkspaceHrefOptions = {
   focusedSearch?: string;
 };
 
-export const emptyActivityQueryState = (): ActivityQueryState => ({ q: "", type: "" });
-export const emptyResourceQueryState = (): ResourceQueryState => ({ q: "", sourceId: "", type: "" });
+const emptyResourceQueryState = (): ResourceQueryState => ({ q: "", sourceId: "", type: "" });
 
 const DASHBOARD_CONTROL_PREFIX = "c_";
 const dashboardControlVariable = (param: string): string | null =>

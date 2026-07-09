@@ -19,7 +19,7 @@ import type {
   StateQuery,
 } from "../contracts";
 
-export type DashboardDslDiagnostic = {
+type DashboardDslDiagnostic = {
   severity: "error";
   message: string;
   line: number;
@@ -28,7 +28,7 @@ export type DashboardDslDiagnostic = {
 
 type Result<T> = { ok: true; data: T; diagnostics: DashboardDslDiagnostic[] } | { ok: false; diagnostics: DashboardDslDiagnostic[] };
 
-export type DashboardDslDocument = {
+type DashboardDslDocument = {
   kind: "dashboard";
   title: string;
   description: string | null;

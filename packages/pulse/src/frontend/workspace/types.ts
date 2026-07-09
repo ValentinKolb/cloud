@@ -18,7 +18,7 @@ import type {
   PulseSource,
   PulseSourceScrape,
 } from "../../contracts";
-export type { ActivityQueryState, ResourceQueryState, WorkspaceRouteState, WorkspaceView } from "./routes";
+export type { WorkspaceView } from "./routes";
 import type { ActivityQueryState, ResourceQueryState, WorkspaceRouteState } from "./routes";
 
 export type MetricTextQueryResult = {

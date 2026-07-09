@@ -168,7 +168,7 @@ describe("pulse CLI", () => {
     expect(lines).toEqual(["Granted write on Test (810db53e) to Valentin Kolb."]);
   });
 
-  test("updates Pulse base access through the global access endpoint", async () => {
+  test("updates Pulse base access through the base access endpoint", async () => {
     const { ctx, calls, lines } = createContext(["access", "set", baseId], { "access-id": accessId, permission: "admin" }, [
       jsonResponse(base),
       jsonResponse({ message: "Access updated" }),
@@ -176,13 +176,13 @@ describe("pulse CLI", () => {
 
     await pulseCli.run(ctx);
 
-    expect(calls.map((call) => call.path)).toEqual([`/api/pulse/bases/${baseId}`, `/api/pulse/access/${accessId}`]);
+    expect(calls.map((call) => call.path)).toEqual([`/api/pulse/bases/${baseId}`, `/api/pulse/bases/${baseId}/access/${accessId}`]);
     expect(calls[1]?.init?.method).toBe("PATCH");
     expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ permission: "admin" });
     expect(lines).toEqual([`Updated ${accessId} to admin on Test (810db53e).`]);
   });
 
-  test("revokes Pulse base access through the global access endpoint", async () => {
+  test("revokes Pulse base access through the base access endpoint", async () => {
     const { ctx, calls, lines } = createContext(["access", "revoke", baseId], { "access-id": accessId, yes: true }, [
       jsonResponse(base),
       jsonResponse({ message: "Access revoked" }),
@@ -190,7 +190,7 @@ describe("pulse CLI", () => {
 
     await pulseCli.run(ctx);
 
-    expect(calls.map((call) => call.path)).toEqual([`/api/pulse/bases/${baseId}`, `/api/pulse/access/${accessId}`]);
+    expect(calls.map((call) => call.path)).toEqual([`/api/pulse/bases/${baseId}`, `/api/pulse/bases/${baseId}/access/${accessId}`]);
     expect(calls[1]?.init?.method).toBe("DELETE");
     expect(lines).toEqual([`Revoked access for ${accessId} on Test (810db53e).`]);
   });

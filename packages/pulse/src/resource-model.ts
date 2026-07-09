@@ -1,4 +1,4 @@
-export type PulseResourceIdentity = {
+type PulseResourceIdentity = {
   key: string;
   id: string;
   label: string;

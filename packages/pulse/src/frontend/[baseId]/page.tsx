@@ -11,9 +11,7 @@ import type {
   PulseDashboardControl,
   PulseDashboardEventsWidget,
   PulseDashboardMetricWidget,
-  PulseDashboardSection,
   PulseDashboardStatesWidget,
-  PulseDashboardWidget,
   PulseInventory,
   PulseMetricSeries,
   PulseRecordedEvent,
@@ -23,25 +21,8 @@ import { ssr } from "../../config";
 import { compilePulseQueryText } from "../../query-dsl";
 import { pulseService } from "../../service";
 import PulseWorkspace from "../PulseWorkspace.island";
-import { quoteQueryPart } from "../workspace/helpers";
+import { dashboardEventsWidgets, dashboardMetricWidgets, dashboardStatesWidgets, quoteQueryPart } from "../workspace/helpers";
 import { readActivityQueryState, readDashboardControlQueryState, readWorkspacePathState } from "../workspace/routes";
-
-const dashboardWidgetDescendants = (widget: PulseDashboardWidget): PulseDashboardWidget[] =>
-  widget.kind === "card" ? [widget, ...widget.rows.flatMap((row) => row.cells.flatMap(dashboardWidgetDescendants))] : [widget];
-
-const dashboardSectionWidgets = (section: PulseDashboardSection): PulseDashboardWidget[] => [
-  ...section.rows.flatMap((row) => row.cells.flatMap(dashboardWidgetDescendants)),
-  ...(section.sections ?? []).flatMap(dashboardSectionWidgets),
-];
-
-const dashboardMetricWidgets = (dashboard: PulseDashboard): PulseDashboardMetricWidget[] =>
-  dashboard.config.layout?.sections.flatMap(dashboardSectionWidgets).filter((widget): widget is PulseDashboardMetricWidget => widget.kind === "metric") ?? [];
-
-const dashboardEventsWidgets = (dashboard: PulseDashboard): PulseDashboardEventsWidget[] =>
-  dashboard.config.layout?.sections.flatMap(dashboardSectionWidgets).filter((widget): widget is PulseDashboardEventsWidget => widget.kind === "events") ?? [];
-
-const dashboardStatesWidgets = (dashboard: PulseDashboard): PulseDashboardStatesWidget[] =>
-  dashboard.config.layout?.sections.flatMap(dashboardSectionWidgets).filter((widget): widget is PulseDashboardStatesWidget => widget.kind === "states") ?? [];
 
 const dashboardControlValues = (config: PulseDashboardConfig, values: Record<string, string>): Record<string, string> =>
   Object.fromEntries((config.layout?.controls ?? []).map((control: PulseDashboardControl) => [control.variable, values[control.variable] ?? control.defaultValue]));
@@ -201,7 +182,7 @@ export default ssr<AuthContext>(async (c) => {
   const metricWidgetPointEntries =
     selectedDashboard && (routeState.view === "dashboard" || routeState.view === "dashboard-edit")
       ? await Promise.all(
-          dashboardMetricWidgets(selectedDashboard).map(async (widget): Promise<[string, MetricQueryPoint[]]> => {
+          dashboardMetricWidgets(selectedDashboard.config).map(async (widget): Promise<[string, MetricQueryPoint[]]> => {
             const result = await pulseService.query.metric(metricWidgetQuery(baseResult.data.id, selectedDashboard, widget, initialDashboardControlValues), user);
             return [widget.id, result.ok ? result.data : []];
           }),
@@ -210,7 +191,7 @@ export default ssr<AuthContext>(async (c) => {
   const dashboardEventEntries =
     selectedDashboard && (routeState.view === "dashboard" || routeState.view === "dashboard-edit")
       ? await Promise.all(
-          dashboardEventsWidgets(selectedDashboard).map(async (widget): Promise<[string, PulseRecordedEvent[]]> => {
+          dashboardEventsWidgets(selectedDashboard.config).map(async (widget): Promise<[string, PulseRecordedEvent[]]> => {
             const result = await pulseService.query.metricText({
               baseId: baseResult.data.id,
               query: widgetQueryText(widget, selectedDashboard, initialDashboardControlValues),
@@ -223,7 +204,7 @@ export default ssr<AuthContext>(async (c) => {
   const dashboardStateEntries =
     selectedDashboard && (routeState.view === "dashboard" || routeState.view === "dashboard-edit")
       ? await Promise.all(
-          dashboardStatesWidgets(selectedDashboard).map(async (widget): Promise<[string, PulseCurrentState[]]> => {
+          dashboardStatesWidgets(selectedDashboard.config).map(async (widget): Promise<[string, PulseCurrentState[]]> => {
             const result = await pulseService.query.metricText({
               baseId: baseResult.data.id,
               query: widgetQueryText(widget, selectedDashboard, initialDashboardControlValues),

@@ -1,9 +1,6 @@
 export const SOURCE_KINDS = ["metrics", "http_ingest", "internal"] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
-export const BASE_ACCESS_LEVELS = ["viewer", "editor", "admin"] as const;
-export type BaseAccessLevel = (typeof BASE_ACCESS_LEVELS)[number];
-
 export const METRIC_TYPES = ["gauge", "counter", "histogram", "summary"] as const;
 export type MetricType = (typeof METRIC_TYPES)[number];
 
@@ -13,8 +10,7 @@ export type Aggregation = (typeof AGGREGATIONS)[number];
 export const PANEL_VISUALS = ["line", "bar", "stat", "gauge", "barGauge", "histogram", "heatmap", "table"] as const;
 export type PanelVisual = (typeof PANEL_VISUALS)[number];
 
-export const DASHBOARD_REFRESH_INTERVALS = [1, 5, 10, 60] as const;
-export type DashboardRefreshInterval = (typeof DASHBOARD_REFRESH_INTERVALS)[number];
+export type DashboardRefreshInterval = 1 | 5 | 10 | 60;
 
 export type PulseBase = {
   id: string;
@@ -189,8 +185,8 @@ export type PulseCapabilitySnapshot = {
   continuousAggregatesAvailable: boolean;
 };
 
-export type PulseDashboardConditionOperator = ">" | ">=" | "<" | "<=" | "=" | "!=";
-export type PulseDashboardConditionLevel = "warn" | "critical";
+type PulseDashboardConditionOperator = ">" | ">=" | "<" | "<=" | "=" | "!=";
+type PulseDashboardConditionLevel = "warn" | "critical";
 
 export type PulseDashboardCondition = {
   level: PulseDashboardConditionLevel;
@@ -242,8 +238,6 @@ export type PulseDashboardStateQuery = {
   dimensions?: Record<string, string | number | boolean | null>;
   limit: number;
 };
-
-export type PulseDashboardWidgetQuery = PulseDashboardMetricQuery | PulseDashboardEventQuery | PulseDashboardStateQuery;
 
 export type PulseDashboardMetricWidget = {
   id: string;
@@ -420,7 +414,7 @@ export type PulseDashboardSnapshot = {
   states: Record<string, PulsePublicCurrentState[]>;
 };
 
-export type PulseDashboardDslDiagnostic = {
+type PulseDashboardDslDiagnostic = {
   severity: "error";
   message: string;
   line: number;
@@ -477,7 +471,7 @@ export type MetricQueryPoint = {
   value: number | null;
 };
 
-export type PulseQueryDiagnostic = {
+type PulseQueryDiagnostic = {
   severity: "error" | "info";
   message: string;
 };

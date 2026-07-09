@@ -3,7 +3,6 @@ import { Show } from "solid-js";
 import { PulseDocPage, PulseQuerySnippet, PulseStepList } from "./pulse-help-primitives";
 
 export { PulseDashboardDslHelpPage } from "./pulse-dashboard-dsl-help";
-export { PulseDocPage, PulseQuerySnippet } from "./pulse-help-primitives";
 export { PulseQueryDslHelpPage } from "./pulse-query-dsl-help";
 
 export const PulseStartHelpPage = () => (
