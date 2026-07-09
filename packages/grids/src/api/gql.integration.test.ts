@@ -4,8 +4,8 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import { Hono, type MiddlewareHandler } from "hono";
 import { migrate } from "../migrate";
+import { createGqlApi } from "./gql";
 import apiRoutes from "./index";
-import { createGqlApi } from "./query-dsl";
 
 const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
 

@@ -11,7 +11,7 @@ import emailTemplateRoutes from "./email-templates";
 import fieldsRoutes from "./fields";
 import formsRoutes from "./forms";
 import formulasRoutes from "./formulas";
-import gqlRoutes from "./query-dsl";
+import gqlRoutes from "./gql";
 import recordsRoutes from "./records";
 import tablesRoutes from "./tables";
 import templatesRoutes from "./templates";

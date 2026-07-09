@@ -102,7 +102,7 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
         const body = c.req.valid("json");
-        const result = await executeGqlSource(c, baseId, body);
+        const result = await executeGqlSource(c, baseId, { ...body, surface: body.surface ?? "query-explorer" }, { operation: "preview" });
         return c.json(result.response);
       },
     )
@@ -123,7 +123,7 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
         const body = c.req.valid("json");
-        const result = await executeGqlSource(c, baseId, body, { maxRows: 10_000 });
+        const result = await executeGqlSource(c, baseId, body, { maxRows: 10_000, operation: "execute" });
         return c.json(result.response);
       },
     )

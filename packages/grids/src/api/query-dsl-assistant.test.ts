@@ -90,7 +90,7 @@ mock.module("./gql-runtime", () => ({
   sourceAst: (ast: unknown) => ast,
 }));
 
-const { createGqlApi } = await import("./query-dsl");
+const { createGqlApi } = await import("./gql");
 
 const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
   c.set("actor", { kind: "user", user });
