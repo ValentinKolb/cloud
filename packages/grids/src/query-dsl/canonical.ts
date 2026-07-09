@@ -40,6 +40,13 @@ const GQL_PREDICATE_FUNCTIONS = new Set([
 ]);
 const SELECT_MEMBERSHIP_FUNCTIONS = new Set(["ONEOF", "NONEOF", "CONTAINSALL"]);
 const COMPARISON_OPS = new Set(["=", "!="]);
+const RECORD_SCOPE = "record";
+const RECORD_META_REFS = new Map(
+  ["id", "createdBy", "updatedBy", "deletedBy", "createdAt", "updatedAt", "deletedAt"].map((ref) => [
+    ref.replaceAll("_", "").toLowerCase(),
+    `record.${ref}`,
+  ]),
+);
 
 const fieldRef = (id: string): string => `{${id}}`;
 
@@ -65,6 +72,11 @@ const scopeTableId = (scope: CanonicalScope, alias: string | undefined): string 
   if (!alias) return scope.tableId;
   if (scope.sourceAlias && normalizeRefKey(scope.sourceAlias) === normalizeRefKey(alias)) return scope.tableId;
   return scope.joinsByAlias.get(normalizeRefKey(alias))?.tableId ?? null;
+};
+
+const recordMetaRef = (ref: DslQualifiedRef): string | null => {
+  if (!ref.scope || normalizeRefKey(ref.scope) !== RECORD_SCOPE) return null;
+  return RECORD_META_REFS.get(ref.ref.replaceAll("_", "").toLowerCase()) ?? null;
 };
 
 const canonicalScopeAlias = (scope: CanonicalScope, alias: string | undefined): string | undefined => {
@@ -115,6 +127,7 @@ const fieldForFormulaFieldRef = (
   options: FormulaPrintOptions,
 ): { ok: true; field: Field } | { ok: true; field: null } | { ok: false; diagnostic: DslResolverDiagnostic } => {
   const qualified = parseQualifiedIdentifierRef(ref) ?? { ref };
+  if (recordMetaRef(qualified)) return { ok: true, field: null };
   if (!qualified.scope && options.aggregateAliases?.has(normalizeRefKey(qualified.ref))) return { ok: true, field: null };
   if (scope.derivedColumns && !qualified.scope) return { ok: true, field: null };
   const resolved = fieldForRef(qualified, scope);
@@ -127,6 +140,8 @@ const resolveFormulaFieldRef = (
   options: FormulaPrintOptions,
 ): { ok: true; text: string } | { ok: false; diagnostic: DslResolverDiagnostic } => {
   const qualified = parseQualifiedIdentifierRef(ref) ?? { ref };
+  const metaRef = recordMetaRef(qualified);
+  if (metaRef) return { ok: true, text: metaRef };
   if (!qualified.scope && options.aggregateAliases?.has(normalizeRefKey(qualified.ref))) return { ok: true, text: qualified.ref };
   return resolveFieldRef(qualified, scope);
 };

@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import type { RecordQuery } from "../contracts";
 import type { Field } from "../service/types";
 import { canonicalizeDslQuery } from "./canonical";
 import { parseGridsQueryDsl } from "./parser";
+import { simpleQueryToGqlSource } from "./record-query-source";
 import type { DslResolverContext } from "./resolver";
 
 const field = (overrides: Partial<Field> & Pick<Field, "id" | "shortId" | "name" | "type" | "tableId">): Field => ({
@@ -139,6 +141,12 @@ const canonical = (source: string, context = ctx()): string => {
   return result.source;
 };
 
+const canonicalUiQuery = (query: RecordQuery, tableId = orders.id): string => {
+  const converted = simpleQueryToGqlSource({ tableId, query });
+  if (!converted.ok) throw new Error(converted.reason);
+  return canonical(converted.source);
+};
+
 describe("canonicalizeDslQuery", () => {
   test("emits an explicit stable source for implicit table queries", () => {
     expect(
@@ -273,5 +281,69 @@ where icontains({${notesId}}, 'urgent') and oneof({${paidId}}, true, false)`);
       `),
     ).toBe(`from table {${orders.id}}
 where {${stageId}} = 'open' and oneof({${stageId}}, 'closed', 'hold')`);
+  });
+
+  test("round-trips row RecordQuery UI state through canonical GQL", () => {
+    const recordId = "66666666-6666-4666-8666-666666666666";
+    const userId = "77777777-7777-4777-8777-777777777777";
+
+    expect(
+      canonicalUiQuery({
+        columns: [{ fieldId: amountId }, { kind: "computed", id: "computed_margin", label: "Margin", expression: "Amount - Cost" }],
+        filter: {
+          op: "AND",
+          filters: [
+            { fieldId: stageId, op: "isAnyOf", value: ["Open", "Closed"] },
+            { fieldId: notesId, op: "contains", value: "rush", caseInsensitive: true },
+          ],
+        },
+        recordMeta: {
+          ids: [recordId, recordId],
+          users: { updatedBy: [userId] },
+        },
+        sort: [{ fieldId: orderedAtId, direction: "desc", nullsFirst: false }],
+        search: { q: "camera", fieldIds: [notesId] },
+        includeDeleted: true,
+        limit: 50,
+      }),
+    ).toBe(`from table {${orders.id}}
+select {${amountId}}, formula({${amountId}} - {${costId}}) as __computed_margin
+where oneof({${stageId}}, 'open', 'closed') and icontains({${notesId}}, 'rush') and (record.id = '${recordId}' and record.updatedBy = '${userId}')
+sort {${orderedAtId}} desc nulls last
+search 'camera' in {${notesId}}
+limit 50
+include deleted`);
+  });
+
+  test("round-trips grouped RecordQuery UI state through canonical GQL", () => {
+    expect(
+      canonicalUiQuery({
+        groupBy: [{ fieldId: orderedAtId, granularity: "month", direction: "desc" }],
+        aggregations: [
+          { fieldId: "*" as const, agg: "count", label: "rows" },
+          { fieldId: amountId, agg: "sum", label: "revenue" },
+        ],
+        groupSort: [{ fieldId: amountId, agg: "sum", direction: "desc" }],
+        deletedOnly: true,
+        limit: 12,
+      }),
+    ).toBe(`from table {${orders.id}}
+group by {${orderedAtId}} by month
+aggregate count(*) as rows, sum({${amountId}}) as revenue
+sort revenue desc, {${orderedAtId}} desc
+limit 12
+deleted only`);
+  });
+
+  test("rejects UI footer-only aggregations instead of inventing row GQL", () => {
+    expect(
+      simpleQueryToGqlSource({
+        tableId: orders.id,
+        query: { aggregations: [{ fieldId: amountId, agg: "sum", label: "footer_total" }] },
+      }),
+    ).toEqual({
+      ok: false,
+      reason: "table footer aggregations are not part of row GQL source; use a direct GQL aggregate query",
+    });
   });
 });
