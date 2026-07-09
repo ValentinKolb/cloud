@@ -1,6 +1,78 @@
 # GQL Production-Readiness Analysis
 
-## Current release posture — 2026-06-14
+## Current status snapshot — 2026-07-09
+
+This file is both a current release-status note and the historical hardening
+log for GQL. Read this section first. The chronological batches below are kept
+as evidence, but old "open" items in historical sections are not automatically
+current release blockers.
+
+### Current backend posture
+
+GQL is the canonical read/query layer for Grids tables, views, dashboard data
+sources, document-template data sources, CLI queries, and assistant context.
+The public API route is `/gql`; the legacy `/query-dsl` API alias is removed.
+Views persist canonical GQL source text and UI-only presentation settings
+separately. Dashboard widgets consume saved-view/GQL data through the same
+parser, resolver, preview/runtime, statement-timeout, diagnostics, and
+permission-gating path as the query explorer.
+
+Current public syntax is intentionally narrow: typed `from table` / `from view`
+sources, readable or quoted names, stable braced ids for generated output,
+`asc` / `desc`, `offset`, `nulls first` / `nulls last`, direct `where` /
+`having` expressions, lowercase predicate helpers, and explicit
+`include deleted` / `deleted only`. Legacy GQL aliases such as `#field`, `skip`,
+`ascending`, `descending`, `&&`, `||`, `!`, and `AND(...)` / `OR(...)` /
+`NOT(...)` are rejected with replacement diagnostics.
+
+Current verification without a live DB:
+
+```bash
+cd packages/grids && bun run typecheck
+cd packages/grids && bun test
+```
+
+Latest local evidence from the review pass: `bun run typecheck` green and
+`bun test` green with 969 pass / 71 skip / 0 fail / 4675 expect() calls.
+DB-backed GQL tests are opt-in because they need Postgres:
+
+```bash
+cd packages/grids
+GRIDS_QUERY_DSL_DB_TEST=1 bun test src/query-dsl/sql-compiler.integration.test.ts src/api/gql.integration.test.ts
+```
+
+Before release, run the DB-backed suite against a real Grids schema. The local
+review session did not rerun those DB tests.
+
+### Current GQL-specific open work
+
+- **Runtime observability:** preview/execute paths should record
+  privacy-safe duration, result shape, timeout/error class, base/source ids, and
+  caller surface without persisting raw query text by default.
+- **Large-module maintainability:** `query-dsl/resolver.ts`,
+  `query-dsl/sql-compiler.ts`, `query-dsl/record-query-source.ts`,
+  `service/formula-sql-compiler.ts`, and the oversized GQL regression suites
+  should be split by responsibility. This is maintainability work, not a known
+  semantic blocker.
+- **Trusted render contexts:** document/workflow template rendering uses trusted
+  GQL contexts where view access can intentionally expose view output without
+  parent-table access. That boundary should stay explicit in service names,
+  tests, and docs.
+- **Stored formula legacy refs:** GQL rejects `#field`, but stored formula
+  expressions still support legacy `#slug` and `{uuid}` refs for compatibility.
+  Decide the long-term authoring/migration policy before calling formula
+  syntax fully one-obvious-way.
+- **Internal naming:** public routes and copy say GQL. The source directory is
+  still `query-dsl/`. Rename only if the value outweighs churn across tests,
+  imports, docs, and history.
+
+### Historical log
+
+The rest of this document records the hardening sequence that led to the
+current state. It remains useful for why decisions were made, what was fixed,
+and which tests proved each batch.
+
+## Historical backend hardening posture — 2026-06-14
 
 The GQL surface is now intentionally narrower and more publishable: one
 canonical field-reference style, one offset spelling, one boolean-operator
@@ -58,7 +130,7 @@ a small query language for Grids, not like a permissive SQL clone.
   labels, not raw UUID text.
   Saved-view search/filter/sort/limit scopes are applied before derived
   regrouping or re-aggregation.
-  Dashboard-widget consumption remains a product-integration guardrail.
+  Dashboard-widget consumption now uses the same GQL preview/runtime path.
 - **Positioned diagnostics:** parser/resolver diagnostics and mapped preview
   compiler guardrails carry `line`/`column`/`length` where the source clause is
   unambiguous. Unknown internal compiler failures remain message-only instead
@@ -70,8 +142,9 @@ a small query language for Grids, not like a permissive SQL clone.
 - **Dashboard backend contract:** saved view GQL sources can be resolved for
   dashboard-style backend consumption through the same parser, resolver, preview
   compiler, statement timeout, diagnostics, and relation viewer-gating as normal
-  GQL preview. The helper enforces view read/admin visibility;
-  visible widget schema/editor wiring is intentionally deferred.
+  GQL preview. The helper enforces view read/admin visibility, and dashboard
+  widgets resolve saved view sources through this path instead of a second
+  view-query/stat-source evaluator.
 - **Canonical numeric outputs:** SQL-projected formula/computed numeric results
   are normalized through the same Decimal.js rendering used by the formula
   engine, so PostgreSQL scale artifacts such as `1.300` do not leak as a
@@ -749,7 +822,7 @@ bun test` (805 pass / 15 skips / 3184 expects).
 
 ### Thirtieth batch — GQL API contract coverage
 
-- **Testable route construction:** `api/query-dsl.ts` now exposes a small
+- **Testable route construction:** `api/gql.ts` now exposes a small
   `createGqlApi` factory so backend tests can inject an authenticated actor
   while the production default export still uses `auth.requireRole("authenticated")`.
   This keeps auth behavior unchanged and avoids token/session fixture hacks.
@@ -785,7 +858,7 @@ bun test` (805 pass / 15 skips / 3184 expects).
 Verification: `cd packages/grids && bun run typecheck` green; full local Grids
 suite green (771 pass / 55 skips / 2790 expects); targeted Postgres GQL API
 integration green
-(`GRIDS_QUERY_DSL_DB_TEST=1 bun test src/api/query-dsl.integration.test.ts`:
+(`GRIDS_QUERY_DSL_DB_TEST=1 bun test src/api/gql.integration.test.ts`:
 6 pass / 32 expects).
 
 ### Thirty-first batch — explicit comment truncation diagnostics
@@ -804,7 +877,7 @@ Verification: focused parser test green
 expects); `cd packages/grids && bun run typecheck` green; full local Grids
 suite green (772 pass / 55 skips / 2792 expects); targeted Postgres GQL API
 integration green
-(`GRIDS_QUERY_DSL_DB_TEST=1 bun test src/api/query-dsl.integration.test.ts`:
+(`GRIDS_QUERY_DSL_DB_TEST=1 bun test src/api/gql.integration.test.ts`:
 6 pass / 32 expects).
 
 ### Thirty-second batch — grammar convergence + derived saved-search fix
@@ -975,16 +1048,14 @@ pass / 3422 expects); scoped Biome over the changed Grids backend files clean;
 pre-existing `packages/cloud/src/ui/*` a11y findings outside Grids and was left
 untouched.
 
-**Still open (deferred UI/product integration):**
-- **Visible GQL-backed dashboard widgets** — chart/stat/view-stats widgets still
-  expose saved-view sources in the current UI/config. Backend execution for
-  saved GQL exists; the widget schema/editor/renderer integration is postponed
-  to the dedicated frontend/UX pass.
+**Dashboard integration status:** completed after the backend contract pass.
+Dashboard widgets resolve saved view sources through the GQL parser, resolver,
+and preview/runtime path instead of the old view-query/stat-source shape.
 
 ---
 
 
-Date: 2026-06-12 · Scope: `packages/grids/src/query-dsl/`, expression layer (`formula/`, `service/formula-sql-compiler.ts`), downstream compilers (`filter/sort/group/aggregate-compiler.ts`, `field-storage.ts`), API (`api/query-dsl.ts`), frontend (`QueryWorkspace.tsx`, `query-completions.ts`).
+Date: 2026-06-12 · Scope: `packages/grids/src/query-dsl/`, expression layer (`formula/`, `service/formula-sql-compiler.ts`), downstream compilers (`filter/sort/group/aggregate-compiler.ts`, `field-storage.ts`), API (`api/gql.ts`), frontend (`QueryWorkspace.tsx`, `query-completions.ts`).
 
 Method: full source read of the pipeline, verification of all claims against code (two agent-assisted sweeps over tests and security surface, every agent finding re-verified by hand — two reported "HIGH" injection findings were **downgraded** after verification, see §B).
 
@@ -1075,7 +1146,7 @@ guardrails with unambiguous clause/field context. Ambiguous internal compiler
 failures intentionally stay message-only instead of guessing.
 
 ### A12 — Per-keystroke permission fan-out (perf)
-`api/query-dsl.ts:49-52` runs `gateAt` (each a `loadGrantsForUser` query) **per table in the base, sequentially**, on every preview request (debounced 250 ms client-side, but still per keystroke-pause). A 30-table base = 30 sequential grant queries + views + fields. Batch into one grant load (the UNION-ALL loader already supports it) and parallelize field loads.
+`api/gql.ts:49-52` runs `gateAt` (each a `loadGrantsForUser` query) **per table in the base, sequentially**, on every preview request (debounced 250 ms client-side, but still per keystroke-pause). A 30-table base = 30 sequential grant queries + views + fields. Batch into one grant load (the UNION-ALL loader already supports it) and parallelize field loads.
 **Status:** fixed by concurrent per-table read checks in the resolver context.
 
 ---
@@ -1110,11 +1181,12 @@ Query ≤ 20k chars, limit ≤ 10k (preview 500), offset ≤ 10k, joins ≤ 5, d
 
 ---
 
-## C. Remaining Missing Features
+## C. Historical Missing Features
 
-1. **GQL-backed dashboard widgets** — chart/stat widgets still consume saved
-   views; preview-only GQL plans cannot power widgets. Product integration is
-   intentionally postponed until backend language semantics are frozen.
+This section originally tracked missing GQL backend capabilities from the
+2026-06-12 audit. The remaining dashboard-widget item is now closed: widgets
+resolve saved view sources through the GQL parser/resolver/preview path. Current
+open work is listed in the 2026-07-09 status snapshot at the top of this file.
 
 ---
 
@@ -1169,13 +1241,9 @@ Query ≤ 20k chars, limit ≤ 10k (preview 500), offset ≤ 10k, joins ≤ 5, d
 
 ## F. Recommended Roadmap
 
-**P0 — deferred UI/product integration**
-1. Expose the backend GQL dashboard execution contract in widget schema/editor
-   and renderer flows.
-
 **P2 — cleanup before release**
-2. Decide whether the internal `query-dsl` source directory should be renamed
+1. Decide whether the internal `query-dsl` source directory should be renamed
    to `gql` for greppability.
-3. Add golden docs/reference tests for canonical examples and rejected legacy
-   syntax.
-4. Keep reference/autocomplete examples canonical only.
+2. Keep reference, assistant, autocomplete, and starter examples canonical only;
+   the public GQL golden tests now guard copyable reference examples and removed
+   alias diagnostics.
