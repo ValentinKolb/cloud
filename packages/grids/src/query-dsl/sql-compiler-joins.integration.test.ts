@@ -1,0 +1,362 @@
+import { beforeAll, describe, expect } from "bun:test";
+import { migrate } from "../migrate";
+import { cleanupFixture, insertDslDbFixture, postgresTest, preview } from "./sql-compiler.integration-fixtures";
+
+beforeAll(async () => {
+  if (process.env.GRIDS_QUERY_DSL_DB_TEST === "1") await migrate();
+});
+
+describe("Query DSL Postgres smoke — joins and grouped joins", () => {
+  postgresTest("executes select labels, membership, null ordering, and trash clauses", async () => {
+    const fixture = await insertDslDbFixture();
+    try {
+      const open = await preview(fixture, `where STAGE = 'Open'`);
+      expect(open.mode).toBe("rows");
+      expect(open.rows.map((row) => row.recordId)).toEqual([fixture.orderAId]);
+
+      const membership = await preview(fixture, `where oneof(STAGE, 'Open', 'Closed')\nsort AMT01 asc`);
+      expect(membership.rows.map((row) => row.recordId)).toEqual([fixture.orderBId, fixture.orderAId]);
+
+      const nullsLast = await preview(fixture, `select AMT01\nsort AMT01 asc`);
+      expect(nullsLast.rows.map((row) => row.recordId)).toEqual([fixture.orderBId, fixture.orderAId, fixture.orderCId]);
+
+      const nullsFirst = await preview(fixture, `select AMT01\nsort AMT01 asc nulls first`);
+      expect(nullsFirst.rows.map((row) => row.recordId)).toEqual([fixture.orderCId, fixture.orderBId, fixture.orderAId]);
+
+      const deletedOnly = await preview(fixture, `select STAT1\ndeleted only`);
+      expect(deletedOnly.rows.map((row) => row.recordId)).toEqual([fixture.orderDeletedId]);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("executes readable table, field, and join references", async () => {
+    const fixture = await insertDslDbFixture();
+    try {
+      const result = await preview(
+        fixture,
+        `
+          from table Orders
+          join table Customers as customer on Customer = customer.id
+          select Amount as order_amount, customer.Name as customer_label, formula(Amount - Cost) as line_margin
+          where Amount > Cost
+          sort customer_label asc
+          limit 10
+        `,
+      );
+
+      expect(result.mode).toBe("rows");
+      expect(result.rows).toHaveLength(1);
+      expect(Number(result.rows[0]?.values.q_col_0)).toBe(12.5);
+      expect(result.rows[0]?.values.q_col_1).toBe("Alice");
+      expect(Number(result.rows[0]?.values.q_col_2)).toBe(7.5);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("executes source aliases and self-joins", async () => {
+    const fixture = await insertDslDbFixture();
+    try {
+      const result = await preview(
+        fixture,
+        `
+          from table ${fixture.orders.shortId} as o
+          join table ${fixture.orders.shortId} as parent on o.PARNT = parent.id
+          select o.AMT01 as order_amount, parent.AMT01 as parent_amount
+          sort o.AMT01 asc
+          limit 10
+        `,
+      );
+
+      expect(result.mode).toBe("rows");
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]?.recordId).toBe(fixture.orderBId);
+      expect(Number(result.rows[0]?.values.q_col_0)).toBe(4);
+      expect(Number(result.rows[0]?.values.q_col_1)).toBe(12.5);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("executes reverse relation joins", async () => {
+    const fixture = await insertDslDbFixture();
+    try {
+      const result = await preview(
+        fixture,
+        `
+          from table ${fixture.customers.shortId} as c
+          join table ${fixture.orders.shortId} as order on order.CUSTL = c.id
+          select c.NAME1 as customer_name, order.AMT01 as order_amount
+          sort order.AMT01 asc
+        `,
+      );
+
+      expect(result.mode).toBe("rows");
+      expect(result.rows.map((row) => row.recordId)).toEqual([fixture.customerBId, fixture.customerAId]);
+      expect(result.rows[0]?.values.q_col_0).toBe("Bob");
+      expect(Number(result.rows[0]?.values.q_col_1)).toBe(4);
+      expect(result.rows[1]?.values.q_col_0).toBe("Alice");
+      expect(Number(result.rows[1]?.values.q_col_1)).toBe(12.5);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("executes grouped relation joins with joined aggregates", async () => {
+    const fixture = await insertDslDbFixture();
+    try {
+      const result = await preview(
+        fixture,
+        `
+          from table ${fixture.customers.shortId} as c
+          join table ${fixture.orders.shortId} as order on order.CUSTL = c.id
+          group by c.NAME1
+          aggregate sum(order.AMT01) as revenue
+          sort revenue desc
+        `,
+      );
+
+      expect(result.mode).toBe("groups");
+      expect(result.rows.map((row) => row.values.gk_0)).toEqual(["Alice", "Bob"]);
+      const byCustomer = new Map(result.rows.map((row) => [row.values.gk_0, row.values]));
+      expect(Number(byCustomer.get("Alice")?.[`${fixture.amountId}__sum`])).toBe(12.5);
+      expect(Number(byCustomer.get("Bob")?.[`${fixture.amountId}__sum`])).toBe(4);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("executes grouped relation joins with exploded joined group keys", async () => {
+    const fixture = await insertDslDbFixture();
+    try {
+      const tags = await preview(
+        fixture,
+        `
+          from table ${fixture.customers.shortId} as c
+          join table ${fixture.orders.shortId} as order on order.CUSTL = c.id
+          group by order.TAGS1
+          aggregate count(*) as rows
+          sort rows desc
+        `,
+      );
+      expect(tags.mode).toBe("groups");
+      expect(tags.explode).toBe(true);
+      const byTag = new Map(tags.rows.map((row) => [row.values.gk_0, Number(row.values["*__count"])]));
+      expect(byTag).toEqual(
+        new Map([
+          ["remote", 2],
+          ["priority", 1],
+        ]),
+      );
+
+      const implicitCount = await preview(
+        fixture,
+        `
+          from table ${fixture.customers.shortId} as c
+          join table ${fixture.orders.shortId} as order on order.CUSTL = c.id
+          group by order.TAGS1
+        `,
+      );
+      expect(implicitCount.mode).toBe("groups");
+      expect(implicitCount.explode).toBe(true);
+      const implicitByTag = new Map(implicitCount.rows.map((row) => [row.values.gk_0, Number(row.values["*__count"])]));
+      expect(implicitByTag).toEqual(
+        new Map([
+          ["remote", 2],
+          ["priority", 1],
+        ]),
+      );
+
+      const parent = await preview(
+        fixture,
+        `
+          from table ${fixture.customers.shortId} as c
+          join table ${fixture.orders.shortId} as order on order.CUSTL = c.id
+          group by order.PARNT
+          aggregate count(*) as rows
+        `,
+      );
+      expect(parent.mode).toBe("groups");
+      expect(parent.explode).toBe(true);
+      expect(parent.rows).toHaveLength(1);
+      expect(Number(parent.rows[0]?.values["*__count"])).toBe(1);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("executes grouped relation joins with base formula aggregates", async () => {
+    const fixture = await insertDslDbFixture();
+    try {
+      const result = await preview(
+        fixture,
+        `
+          from table ${fixture.orders.shortId}
+          join table ${fixture.customers.shortId} as customer on CUSTL = customer.id
+          group by customer.NAME1
+          aggregate sum(formula(AMT01 - COST1)) as margin
+          having margin > 0
+          sort margin desc
+        `,
+      );
+
+      expect(result.mode).toBe("groups");
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]?.values.gk_0).toBe("Alice");
+      expect(Number(result.rows[0]?.values.margin__sum)).toBe(7.5);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("executes grouped relation joins with computed joined group keys", async () => {
+    const fixture = await insertDslDbFixture();
+    try {
+      const formula = await preview(
+        fixture,
+        `
+          from table ${fixture.orders.shortId}
+          join table ${fixture.customers.shortId} as customer on CUSTL = customer.id
+          group by customer.SCOR2
+          aggregate count(*) as rows
+        `,
+      );
+      expect(formula.mode).toBe("groups");
+      const byScore = new Map(formula.rows.map((row) => [Number(row.values.gk_0), Number(row.values["*__count"])]));
+      expect(byScore.size).toBe(2);
+      expect(byScore.get(16)).toBe(1);
+      expect(byScore.get(6)).toBe(1);
+
+      const lookup = await preview(
+        fixture,
+        `
+          from table ${fixture.orders.shortId}
+          join table ${fixture.customers.shortId} as customer on CUSTL = customer.id
+          group by customer.FAMT1
+          aggregate count(*) as rows
+        `,
+      );
+      expect(lookup.mode).toBe("groups");
+      const byLookup = new Map(lookup.rows.map((row) => [Number(row.values.gk_0), Number(row.values["*__count"])]));
+      expect(byLookup.size).toBe(2);
+      expect(byLookup.get(12.5)).toBe(1);
+      expect(byLookup.get(4)).toBe(1);
+
+      const rollup = await preview(
+        fixture,
+        `
+          from table ${fixture.orders.shortId}
+          join table ${fixture.customers.shortId} as customer on CUSTL = customer.id
+          group by customer.FSUM1
+          aggregate count(*) as rows
+        `,
+      );
+      expect(rollup.mode).toBe("groups");
+      const byRollup = new Map(rollup.rows.map((row) => [Number(row.values.gk_0), Number(row.values["*__count"])]));
+      expect(byRollup.size).toBe(2);
+      expect(byRollup.get(12.5)).toBe(1);
+      expect(byRollup.get(4)).toBe(1);
+
+      const aggregate = await preview(
+        fixture,
+        `
+          from table ${fixture.orders.shortId}
+          join table ${fixture.customers.shortId} as customer on CUSTL = customer.id
+          group by customer.NAME1
+          aggregate sum(customer.FSUM1) as favorite_total
+          sort favorite_total desc
+        `,
+      );
+      expect(aggregate.mode).toBe("groups");
+      const byName = new Map(aggregate.rows.map((row) => [row.values.gk_0, Number(row.values.favorite_total__sum)]));
+      expect(byName).toEqual(
+        new Map([
+          ["Alice", 12.5],
+          ["Bob", 4],
+        ]),
+      );
+
+      const lookupAggregate = await preview(
+        fixture,
+        `
+          from table ${fixture.orders.shortId}
+          join table ${fixture.customers.shortId} as customer on CUSTL = customer.id
+          group by customer.NAME1
+          aggregate sum(customer.FAMT1) as favorite_lookup_total, avg(customer.FAMT1) as favorite_lookup_avg
+          sort favorite_lookup_total desc
+        `,
+      );
+      expect(lookupAggregate.mode).toBe("groups");
+      const lookupByName = new Map(
+        lookupAggregate.rows.map((row) => [
+          row.values.gk_0,
+          {
+            avg: Number(row.values.favorite_lookup_avg__avg),
+            total: Number(row.values.favorite_lookup_total__sum),
+          },
+        ]),
+      );
+      expect(lookupByName).toEqual(
+        new Map([
+          ["Alice", { avg: 12.5, total: 12.5 }],
+          ["Bob", { avg: 4, total: 4 }],
+        ]),
+      );
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("executes base computed fields as group keys", async () => {
+    const fixture = await insertDslDbFixture();
+    try {
+      const formula = await preview(
+        fixture,
+        `
+          from table ${fixture.customers.shortId}
+          group by SCOR2
+          aggregate count(*) as rows
+          sort SCOR2 asc
+        `,
+      );
+      expect(formula.mode).toBe("groups");
+      expect(formula.rows.map((row) => [Number(row.values.gk_0), Number(row.values["*__count"])])).toEqual([
+        [6, 1],
+        [16, 1],
+      ]);
+
+      const lookup = await preview(
+        fixture,
+        `
+          from table ${fixture.customers.shortId}
+          group by FAMT1
+          aggregate count(*) as rows
+          sort FAMT1 asc
+        `,
+      );
+      expect(lookup.mode).toBe("groups");
+      expect(lookup.rows.map((row) => [Number(row.values.gk_0), Number(row.values["*__count"])])).toEqual([
+        [4, 1],
+        [12.5, 1],
+      ]);
+
+      const rollup = await preview(
+        fixture,
+        `
+          from table ${fixture.customers.shortId}
+          group by FSUM1
+          aggregate count(*) as rows
+          sort FSUM1 asc
+        `,
+      );
+      expect(rollup.mode).toBe("groups");
+      expect(rollup.rows.map((row) => [Number(row.values.gk_0), Number(row.values["*__count"])])).toEqual([
+        [4, 1],
+        [12.5, 1],
+      ]);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+});
