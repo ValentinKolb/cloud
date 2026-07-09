@@ -10,6 +10,13 @@ type FormulaFieldRef = {
   type: string;
 };
 
+/**
+ * Canonical reference syntax for newly authored formulas.
+ *
+ * Stored formulas still evaluate legacy `#shortId` and `{fieldId}` references
+ * for compatibility, but UI completions and reference tables must emit this
+ * field-name form so users see one obvious way to write new formulas.
+ */
 export const formulaFieldToken = (field: Pick<FormulaFieldRef, "name">): string => formatIdentifierRef(field.name);
 
 const FUNCTION_BY_NAME = new Map(GRID_FORMULA_FUNCTIONS.map((fn) => [fn.name, fn]));
@@ -178,6 +185,8 @@ export const buildFormulaCompletions = (fields: FormulaFieldRef[]): Completion[]
   {
     trigger: "#",
     dropdown: true,
+    // Compatibility affordance: users may start searching with the old hash
+    // prefix, but accepting a suggestion writes the canonical field-name ref.
     suggest: (query) =>
       fields
         .filter((field) => matchesQuery(field, query))

@@ -109,14 +109,36 @@ describe("formula authoring helpers", () => {
     expect(suggestions[0]).toMatchObject({ label: "Product name", expansion: '"Product name"' });
   });
 
-  test("completions support # trigger by field name", () => {
+  test("completions use canonical field refs even from the legacy hash trigger", () => {
     const hashCompletion = buildFormulaCompletions(fields).find((c) => c.trigger === "#")!;
     const suggestions = hashCompletion.suggest("prod", { fullText: "#prod", caret: 5, tokenStart: 0 }, new AbortController().signal);
     expect(Array.isArray(suggestions)).toBe(true);
     if (Array.isArray(suggestions)) {
       expect(suggestions[0]).toMatchObject({ label: "Product name", expansion: '"Product name"' });
+      expect(suggestions[0]?.expansion?.startsWith("#")).toBe(false);
+      expect(suggestions[0]?.expansion?.startsWith("{")).toBe(false);
       expect(parseFormula(suggestions[0]!.expansion ?? "")).toMatchObject({ ok: true });
     }
+  });
+
+  test("all field suggestion paths emit canonical formulaFieldToken output", () => {
+    const expected = formulaFieldToken({ name: "Unit price" });
+    const valueSuggestion = formulaValueSuggestions(fields, "unit", {
+      fullText: "SUM(unit",
+      tokenStart: "SUM(".length,
+    })[0]!;
+    const hashCompletion = buildFormulaCompletions(fields).find((c) => c.trigger === "#")!;
+    const hashSuggestions = hashCompletion.suggest("unit", { fullText: "#unit", caret: 5, tokenStart: 0 }, new AbortController().signal);
+    const operatorCompletion = buildFormulaCompletions(fields).find((c) => c.trigger === "+")!;
+    const operatorSuggestions = operatorCompletion.suggest(
+      "unit",
+      { fullText: "Quantity + unit", caret: "Quantity + unit".length, tokenStart: "Quantity + ".length },
+      new AbortController().signal,
+    );
+
+    expect(valueSuggestion.expansion).toBe(expected);
+    expect(Array.isArray(hashSuggestions) && hashSuggestions[0]?.expansion).toBe(expected);
+    expect(Array.isArray(operatorSuggestions) && operatorSuggestions[0]?.expansion).toBe(`+${expected}`);
   });
 
   test("space completion ignores whitespace after value-position operators", () => {
