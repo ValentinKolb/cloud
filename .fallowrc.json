@@ -1,6 +1,10 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
   "publicPackages": ["@valentinkolb/cloud"],
+  "ignorePatterns": ["packages/grids/src/styles/app.css"],
+  "rules": {
+    "duplicate-exports": "off"
+  },
   "entry": [
     "packages/cloud/src/index.ts",
     "packages/cloud/src/services/index.ts",
@@ -19,7 +23,12 @@
   ],
   "dynamicallyLoaded": [
     "styles.css",
+    "packages/*/src/config.ts",
     "packages/*/src/styles/app.css",
+    "packages/*/src/**/*.test.ts",
+    "packages/*/src/**/*.test.tsx",
+    "packages/*/src/**/*.integration.test.ts",
+    "packages/*/src/**/*.integration.test.tsx",
     "packages/*/scripts/build-extras.ts",
     "packages/*/scripts/dev-extras.ts",
     "packages/cloud/scripts/preload.ts"

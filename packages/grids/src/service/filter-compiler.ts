@@ -1,23 +1,8 @@
 import { sql } from "bun";
+import type { FilterTree } from "../contracts";
 import type { Field } from "./types";
 
-// ──────────────────────────────────────────────────────────────────
-// Filter-tree shape (mirrors contracts.FilterTreeSchema)
-// ──────────────────────────────────────────────────────────────────
-
-export type FilterLeaf = {
-  fieldId: string;
-  op: string;
-  value?: unknown;
-  caseInsensitive?: boolean;
-};
-
-export type FilterGroup = {
-  op: "AND" | "OR";
-  filters: FilterTree[];
-};
-
-export type FilterTree = FilterLeaf | FilterGroup;
+type FilterGroup = Extract<FilterTree, { filters: FilterTree[] }>;
 
 // ──────────────────────────────────────────────────────────────────
 // Compiled clause IR — pure data, snapshot-testable.

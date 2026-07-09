@@ -2,6 +2,7 @@ import { sql } from "bun";
 import {
   type AggregationSpec,
   type FilterTree,
+  type GroupSortSpec,
   type RecordMetaQuery,
   type RecordMetaSortKey,
   type RecordMetaUserKey,
@@ -26,7 +27,7 @@ import {
   type FormulaSqlType,
   formulaSqlTypeForField,
 } from "../service/formula-sql-compiler";
-import { type GroupAggregationSpec, type GroupHavingRef, type GroupSortSpec, isGroupable } from "../service/group-compiler";
+import { type GroupAggregationSpec, type GroupHavingRef, isGroupable } from "../service/group-compiler";
 import { filterSearchableFields } from "../service/search";
 import type { Field } from "../service/types";
 import { createDslScopedFormulaFieldResolver, isScopedFormulaFieldRef } from "./scoped-formula";
@@ -73,7 +74,7 @@ export type DslResolverContext = {
   fieldsByTableId: Record<string, Field[]>;
 };
 
-export type DslResolvedQueryPlan = {
+type DslResolvedQueryPlan = {
   source: DslTableSource | DslViewSource;
   tableId: string;
   sourceAlias?: string;
@@ -81,14 +82,14 @@ export type DslResolvedQueryPlan = {
   offset?: number;
 };
 
-export type DslFormulaPredicate = {
+type DslFormulaPredicate = {
   kind: "formula";
   source: string;
   expression: Expr;
   sqlType: FormulaSqlType;
 };
 
-export type DslFormulaHavingPredicate = DslFormulaPredicate & {
+type DslFormulaHavingPredicate = DslFormulaPredicate & {
   aggregateRefs: GroupHavingRef[];
 };
 
@@ -108,7 +109,7 @@ export type DslResolvedSqlGroupBy = {
   nullsFirst?: boolean;
 };
 
-export type DslResolvedSqlGroupSort = GroupSortSpec & {
+type DslResolvedSqlGroupSort = GroupSortSpec & {
   nullsFirst?: boolean;
 };
 
@@ -172,7 +173,7 @@ export type DslResolvedSqlQueryPlan = DslResolvedQueryPlan & {
   diagnosticSpans?: DslPlanDiagnosticSpans;
 };
 
-export type DslPlanDiagnosticSpans = {
+type DslPlanDiagnosticSpans = {
   source?: DslSourceSpan;
   where?: DslSourceSpan;
   having?: DslSourceSpan;
@@ -211,7 +212,7 @@ export type DslResolvedSqlSort =
       nullsFirst?: boolean;
     };
 
-export type DslResolvedSqlSearch = {
+type DslResolvedSqlSearch = {
   q: string;
   tableId: string;
   joinAlias: string;
@@ -276,13 +277,13 @@ export type DslDerivedViewAggregation = {
   joinAlias?: string;
 };
 
-export type DslDerivedViewGroupSort = {
+type DslDerivedViewGroupSort = {
   key: string;
   direction: "asc" | "desc";
   nullsFirst?: boolean;
 };
 
-export type DslResolvedDerivedViewSource = {
+type DslResolvedDerivedViewSource = {
   query: RecordQuery;
   columns: DslDerivedViewColumn[];
   outputColumns: DslDerivedViewColumn[];
@@ -301,11 +302,9 @@ export type DslResolvedDerivedViewSource = {
   having?: DslFormulaHavingPredicate;
 };
 
-export type DslResolveResult = { ok: true; plan: DslResolvedQueryPlan } | { ok: false; diagnostics: DslResolverDiagnostic[] };
+type DslResolveResult = { ok: true; plan: DslResolvedQueryPlan } | { ok: false; diagnostics: DslResolverDiagnostic[] };
 
-export type DslSqlQueryPlanResolveResult =
-  | { ok: true; plan: DslResolvedSqlQueryPlan }
-  | { ok: false; diagnostics: DslResolverDiagnostic[] };
+type DslSqlQueryPlanResolveResult = { ok: true; plan: DslResolvedSqlQueryPlan } | { ok: false; diagnostics: DslResolverDiagnostic[] };
 
 type ResolvedSource = {
   source: DslTableSource | DslViewSource;

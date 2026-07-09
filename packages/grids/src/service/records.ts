@@ -1,6 +1,6 @@
 import { type DateContext, err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import type { ComputedColumnSpec, RecordMetaQuery } from "../contracts";
+import type { ComputedColumnSpec, FilterTree, GroupBySpec, GroupSortSpec, RecordMetaQuery, SearchSpec, SortSpec } from "../contracts";
 import { getRecordWritableFieldType, isRecordWritableFieldType } from "../field-types";
 import type { Expr } from "../formula/types";
 import { lookupTargetMeta } from "../lookup-display";
@@ -17,17 +17,10 @@ import {
 import { storageOf } from "./field-storage";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import { listFirstImagePreviews } from "./files";
-import { compileFilter, type FilterTree, renderClause } from "./filter-compiler";
+import { compileFilter, renderClause } from "./filter-compiler";
 import { compileFormulaPredicateAstToSql } from "./formula-sql-compiler";
 import { generatedIdRequiresRetry, generateIdValue, isGeneratedIdUniqueCollision } from "./generated-ids";
-import {
-  compileGroupQuery,
-  type GroupAggregationSpec,
-  type GroupBucket,
-  type GroupBySpec,
-  type GroupHavingRef,
-  type GroupSortSpec,
-} from "./group-compiler";
+import { compileGroupQuery, type GroupAggregationSpec, type GroupBucket, type GroupHavingRef } from "./group-compiler";
 import { parseJsonbRow } from "./jsonb";
 import { withLookupTargetMetadata } from "./lookup-display";
 import { liveRecordParentJoinSql, requireTableAlive } from "./parent-checks";
@@ -42,8 +35,8 @@ import {
   validateRelationTargets,
   writeRecordLinks,
 } from "./relations";
-import { compileSearchClause, type SearchSpec } from "./search";
-import { compileSort, decodeCursor, type SortSpec } from "./sort-compiler";
+import { compileSearchClause } from "./search";
+import { compileSort, decodeCursor } from "./sort-compiler";
 import type { Field, GridRecord, RecordList } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -172,8 +165,8 @@ export const emitCreatedRecordEvent = async (
 
 /**
  * Splits a validated payload into (a) JSONB-storable scalar/array data
- * and (b) the relation-link map keyed by fieldId. Relation values stop
- * landing in `records.data` in v3 — they live exclusively in
+ * and (b) the relation-link map keyed by fieldId. Relation values live
+ * exclusively in
  * `grids.record_links`. The read path hydrates them back into
  * `record.data[fieldId]` so consumers don't notice.
  *
@@ -311,7 +304,7 @@ const validateForUpdate = async (tableId: string, payload: Record<string, unknow
   return ok(out);
 };
 
-export type CreateRecordInTransactionResult = {
+type CreateRecordInTransactionResult = {
   record: GridRecord;
   changedFieldIds: string[];
 };
@@ -427,8 +420,8 @@ export const list = async (params: {
    * When true, populate each returned record's `expanded` field with
    * the presentable-field subset of every record it links to via
    * relation cells. One extra page-level batch (`O(target-tables)`
-   * roundtrips) — never N+1. Default false for backwards compat: old
-   * callers that don't know about expansion get the original shape.
+   * roundtrips) — never N+1. Default false so callers must opt into
+   * the heavier expanded shape explicitly.
    */
   includeRelations?: boolean;
   deletedOnly?: boolean;
@@ -498,9 +491,9 @@ export const list = async (params: {
   if (cursorWhere) conditions.push(cursorWhere);
   const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
 
-  // v3 Slice 4: lookup / rollup values are computed in the main query
-  // as correlated subqueries over record_links instead of a JS-side
-  // batch-fetch pass. Single source of truth, single round-trip.
+  // Lookup / rollup values are computed in the main query as correlated
+  // subqueries over record_links. Single source of truth, single
+  // round-trip.
   const computed = await buildComputedProjections(fields);
   const formulaSql = buildFormulaSqlProjections(fields, { dateConfig: params.dateConfig });
   // View computed columns evaluate in SQL when projectable (one semantics with
@@ -525,10 +518,10 @@ export const list = async (params: {
   const hasMore = rows.length > limit;
   const items = rows.slice(0, limit).map(mapRow);
 
-  // Hydrate relation fields from record_links (v3 source of truth) so
-  // the UI sees the link arrays. Lookup/rollup values are already in
-  // the row via the projection — applyComputedProjections lifts them
-  // into record.data[fieldId] alongside the JSONB-derived columns.
+  // Hydrate relation fields from record_links so the UI sees the link
+  // arrays. Lookup/rollup values are already in the row via the
+  // projection — applyComputedProjections lifts them into
+  // record.data[fieldId] alongside the JSONB-derived columns.
   await hydrateRelationsFromLinks(items, fields);
   const recordsById = new Map(items.map((r) => [r.id, r]));
   applyComputedProjections(rows.slice(0, limit) as Array<Record<string, unknown>>, recordsById, projections);
@@ -600,7 +593,7 @@ export const list = async (params: {
  * Returns one row per (groupBy-key) tuple with the configured
  * aggregations attached. Cursor pagination on the group-key tuple.
  *
- * v3 Slice 8. See group-compiler.ts for the SQL emission rules.
+ * See group-compiler.ts for the SQL emission rules.
  */
 export const group = async (params: {
   tableId: string;
@@ -928,13 +921,13 @@ export const update = async (
   );
   const persistedExistingData = Object.fromEntries(Object.entries(existing.data).filter(([key]) => persistableFieldIds.has(key)));
   const merged = { ...persistedExistingData, ...split.data };
-  // Drop any zombie relation keys that may still live in the existing
-  // JSONB from pre-v3 writes.
+  // Drop relation keys that may still live in the existing JSONB from
+  // older writes before relations moved exclusively to record_links.
   const relationFieldIds = new Set(fields.filter((f) => f.type === "relation" && !f.deletedAt).map((f) => f.id));
   for (const k of Object.keys(merged)) {
     if (relationFieldIds.has(k)) delete merged[k];
   }
-  // Strip nulls so JSONB doesn't carry zombie keys for cleared fields.
+  // Strip nulls so JSONB does not carry stale keys for cleared fields.
   for (const [k, v] of Object.entries(merged)) {
     if (v === null) delete merged[k];
   }

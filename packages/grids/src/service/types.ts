@@ -1,85 +1,6 @@
-import type { DocumentProfile, FieldColumnSpec, RecordDisplayConfig } from "../contracts";
+import type { DocumentProfile, Field, FieldColumnSpec, GridRecord, RecordDisplayConfig } from "../contracts";
 
-export type Base = {
-  id: string;
-  /** Short readable handle (5 chars). Used in URLs and as a stable
-   *  alias next to the UUID PK. Random + immutable per spec. */
-  shortId: string;
-  name: string;
-  description: string | null;
-  documentProfile: DocumentProfile;
-  createdBy: string | null;
-  /** When set, opening `/grids/<base>` with no ?table or ?dashboard
-   *  query param redirects to this dashboard. Service treats stale
-   *  ids (referenced dashboard soft-deleted) as null, so consumers
-   *  can rely on the value being a live dashboard id when non-null. */
-  defaultDashboardId: string | null;
-  /** Soft-delete tombstone. null = alive, ISO timestamp = trashed. */
-  deletedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type Table = {
-  id: string;
-  /** Short readable handle (5 chars), unique per base. URL routing
-   *  uses this; the UUID stays internal. */
-  shortId: string;
-  baseId: string;
-  name: string;
-  description: string | null;
-  icon?: string | null;
-  /** Default table columns. Views can override this through their
-   *  UI settings, but the renderer consumes the same ColumnSpec shape
-   *  in both cases. */
-  columns: FieldColumnSpec[];
-  displayConfig: RecordDisplayConfig;
-  position: number;
-  /** When true, records can only be added through a form (the
-   *  authenticated `/forms/:formId/submit` and the public
-   *  `/forms/public/:token/submit` endpoints). Direct inserts via the
-   *  records grid or `POST /records` get rejected with 403. Lets a
-   *  table act as a gated submission inbox where every entry passes
-   *  through form validation. */
-  disableDirectInsert: boolean;
-  /** Soft-delete tombstone. */
-  deletedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type Field = {
-  id: string;
-  /** Short readable handle (5 chars), unique per table. Surfaces in
-   *  formula references as `#abc12` and in the field-row CopyButton.
-   *  Internal storage + FKs still use the UUID id. */
-  shortId: string;
-  tableId: string;
-  name: string;
-  /** Optional helper text shown beside the field in the edit modal and
-   *  detail panel. Top-level (not in config) since it's metadata, not
-   *  type-specific configuration. */
-  description: string | null;
-  icon?: string | null;
-  type: string;
-  config: Record<string, unknown>;
-  position: number;
-  required: boolean;
-  /** When true, the field appears in the auto-generated label whenever
-   *  this record is referenced elsewhere (relation cells, picker
-   *  labels). Multiple presentable fields are joined with " · ". */
-  presentable: boolean;
-  /** When true, the field is hidden from the default records grid by
-   *  default; still rendered in the record detail panel. Views can
-   *  override via `view.ui.columns`. */
-  hideInTable: boolean;
-  defaultValue: unknown;
-  indexed: boolean;
-  uniqueConstraint: boolean;
-  deletedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
+export type { Base, Field, GridRecord, Table } from "../contracts";
 
 /**
  * Wrapper shape returned by `record.list` — bundles the rows, the
@@ -109,38 +30,6 @@ export type RecordList = {
    *  set, not just the current page. Keys follow `<fieldId>__<agg>` plus
    *  `*__count` for the filtered row count. */
   aggregates?: Record<string, unknown>;
-};
-
-export type GridRecord = {
-  id: string;
-  tableId: string;
-  data: Record<string, unknown>;
-  /**
-   * Optional inline expansion of records this row links to via relation
-   * fields. Keyed by the linked record's UUID; the value is a subset of
-   * that record's `data` containing exactly the fields needed to render
-   * a label (the target table's `presentable` fields, or the first
-   * text-shaped field when none are marked presentable).
-   *
-   * Populated only when a record-returning service call is passed
-   * `includeRelations: true`. Absent or `undefined` when expansion was
-   * not requested, when the record has no relation fields, or when the
-   * viewer can't read the target table (last case wired up by the
-   * upcoming permission-gate follow-up; for now expansion is unfiltered
-   * once requested).
-   *
-   * Renderers use it to render `<RecordLink>` with a presentable label
-   * instead of the raw UUID — zero extra DB calls at render time. The
-   * batched lookup that builds this map is O(unique-target-tables) SQL
-   * roundtrips per page, never N+1 per cell.
-   */
-  expanded?: Record<string, Record<string, unknown>>;
-  version: number;
-  deletedAt: string | null;
-  createdBy: string | null;
-  updatedBy: string | null;
-  createdAt: string;
-  updatedAt: string;
 };
 
 export type AuditAction =

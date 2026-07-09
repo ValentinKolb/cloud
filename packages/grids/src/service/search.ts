@@ -1,14 +1,10 @@
 import { sql } from "bun";
+import type { SearchSpec } from "../contracts";
 import { listByTable as listFields } from "./fields";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 import { type ExpansionViewer, relationLabelFields } from "./relations";
 import { get as getTable } from "./tables";
 import type { Field } from "./types";
-
-export type SearchSpec = {
-  q: string;
-  fieldIds?: string[];
-};
 
 type SearchClause = { clause: any };
 

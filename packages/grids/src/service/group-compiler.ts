@@ -1,5 +1,6 @@
 import type { DateContext } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import type { FilterTree, GroupBySpec, GroupSortSpec } from "../contracts";
 import type { Expr } from "../formula/types";
 import { normalizeRefKey } from "../ref-syntax";
 import {
@@ -12,7 +13,6 @@ import {
   isFormulaAggregatable,
 } from "./aggregate-capabilities";
 import { storageOf } from "./field-storage";
-import type { FilterTree } from "./filter-compiler";
 import { compileFilter, renderClause } from "./filter-compiler";
 import {
   compileFormulaAstToSql,
@@ -52,13 +52,6 @@ import type { Field } from "./types";
 // the records-list cursor (sortValues + id), except `id` is unused
 // (group rows have no id; the tuple itself is the unique identifier).
 
-export type GroupBySpec = {
-  fieldId: string;
-  direction?: "asc" | "desc";
-  /** Date-field grouping bucket. Backend: `date_trunc(<gran>, …)`. */
-  granularity?: "day" | "week" | "month" | "quarter" | "year";
-};
-
 type AggKindForGroup = AggregateKind;
 
 export type GroupAggregationSpec =
@@ -74,12 +67,6 @@ export type GroupAggregationSpec =
       expression: Expr;
       agg: AggKindForGroup;
     };
-
-export type GroupSortSpec = {
-  fieldId: string | "*";
-  agg: AggKindForGroup;
-  direction?: "asc" | "desc";
-};
 
 export type GroupHavingRef = GroupAggregationSpec & {
   ref: string;

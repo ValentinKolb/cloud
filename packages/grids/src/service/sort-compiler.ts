@@ -1,23 +1,14 @@
 import { sql } from "bun";
-import type { RecordMetaSortKey } from "../contracts";
+import type { RecordMetaSortKey, SortSpec } from "../contracts";
 import { type ProjectionKind, storageOf } from "./field-storage";
 import type { Field } from "./types";
 
-export type FieldSortSpec = {
-  source?: "field";
-  fieldId: string;
-  direction: "asc" | "desc";
-  nullsFirst?: boolean;
-};
-
-export type RecordSortSpec = {
+type RecordSortSpec = {
   source: "record";
   key: RecordMetaSortKey;
   direction: "asc" | "desc";
   nullsFirst?: boolean;
 };
-
-export type SortSpec = FieldSortSpec | RecordSortSpec;
 
 type CompiledSort = {
   /** ORDER BY fragments ready to be embedded after a WHERE clause. */
