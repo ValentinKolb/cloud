@@ -30,6 +30,14 @@ import {
 import { type GroupAggregationSpec, type GroupHavingRef, isGroupable } from "../service/group-compiler";
 import { filterSearchableFields } from "../service/search";
 import type { Field } from "../service/types";
+import {
+  type DslPlanDiagnosticSpans,
+  type DslResolverDiagnostic,
+  diagnostic,
+  diagnosticSpansForAst,
+  isResolverDiagnostic as isDiagnostic,
+  spanForExpr,
+} from "./resolver-diagnostics";
 import { createDslScopedFormulaFieldResolver, isScopedFormulaFieldRef } from "./scoped-formula";
 import type {
   DslAggregateItem,
@@ -43,12 +51,7 @@ import type {
   DslSourceSpan,
 } from "./types";
 
-export type DslResolverDiagnostic = {
-  line?: number;
-  column?: number;
-  length?: number;
-  message: string;
-};
+export type { DslResolverDiagnostic } from "./resolver-diagnostics";
 
 export type DslTableSource = {
   kind: "table";
@@ -171,17 +174,6 @@ export type DslResolvedSqlQueryPlan = DslResolvedQueryPlan & {
   wherePredicate?: DslWherePredicate;
   formulaHaving?: DslFormulaHavingPredicate;
   diagnosticSpans?: DslPlanDiagnosticSpans;
-};
-
-type DslPlanDiagnosticSpans = {
-  source?: DslSourceSpan;
-  where?: DslSourceSpan;
-  having?: DslSourceSpan;
-  search?: DslSourceSpan;
-  select?: Array<{ label: string; span?: DslSourceSpan }>;
-  groupBy?: Array<{ label: string; span?: DslSourceSpan }>;
-  aggregations?: Array<{ alias: string; span?: DslSourceSpan }>;
-  sort?: DslSourceSpan[];
 };
 
 export type DslResolvedSqlSort =
@@ -313,38 +305,6 @@ type ResolvedSource = {
   span?: DslSourceSpan;
 };
 
-const diagnosticSpansForAst = (ast: DslQueryAst, groupLabels?: string[]): DslPlanDiagnosticSpans => ({
-  ...(ast.source?.span ? { source: ast.source.span } : {}),
-  ...(ast.where?.span ? { where: ast.where.span } : {}),
-  ...(ast.having?.span ? { having: ast.having.span } : {}),
-  ...(ast.search?.span ? { search: ast.search.span } : {}),
-  ...(ast.select.length > 0
-    ? {
-        select: ast.select.map((item) => ({
-          label: item.alias ?? (item.kind === "field" ? item.field.ref : item.alias),
-          ...(item.span ? { span: item.span } : {}),
-        })),
-      }
-    : {}),
-  ...(ast.groupBy.length > 0
-    ? {
-        groupBy: ast.groupBy.map((item, index) => ({
-          label: groupLabels?.[index] ?? item.field.ref,
-          ...(item.span ? { span: item.span } : {}),
-        })),
-      }
-    : {}),
-  ...(ast.aggregations.length > 0
-    ? {
-        aggregations: ast.aggregations.map((item) => ({
-          alias: item.alias,
-          ...(item.span ? { span: item.span } : {}),
-        })),
-      }
-    : {}),
-  ...(ast.sort.length > 0 ? { sort: ast.sort.map((item) => item.span).filter((span): span is DslSourceSpan => Boolean(span)) } : {}),
-});
-
 type Scope = {
   tableId: string;
   sourceAlias?: string;
@@ -373,20 +333,6 @@ type JoinScope = {
 const MAX_JOIN_COUNT = 5;
 const MAX_JOIN_DEPTH = 3;
 const FORMULA_AGGREGATE_ALIAS_RE = /^[A-Za-z_][A-Za-z0-9_]{0,49}$/;
-
-const diagnostic = (message: string, span?: DslSourceSpan): DslResolverDiagnostic => ({
-  ...(span ? { line: span.line, column: span.column, length: span.length } : {}),
-  message,
-});
-
-const spanForExpr = (base: DslSourceSpan | undefined, expr: Expr): DslSourceSpan | undefined =>
-  base && expr.span
-    ? {
-        line: base.line,
-        column: base.column + expr.span.start,
-        length: Math.max(expr.span.end - expr.span.start, 1),
-      }
-    : base;
 
 const aliveFields = (fields: Field[]): Field[] => fields.filter((field) => !field.deletedAt).sort((a, b) => a.position - b.position);
 
@@ -674,8 +620,6 @@ const joinScopeByAlias = (scope: Scope, alias: string, span?: DslSourceSpan): Jo
   if (!join) return diagnostic(`unknown join alias "${alias}"`, span);
   return join;
 };
-
-const isDiagnostic = (value: unknown): value is DslResolverDiagnostic => typeof value === "object" && value !== null && "message" in value;
 
 const isAliasSortTarget = (target: DslSortItem["target"]): target is Extract<DslSortItem["target"], { kind: "alias" }> =>
   "kind" in target && target.kind === "alias";
