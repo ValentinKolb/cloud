@@ -3,6 +3,7 @@ import { GRID_FORMULA_FUNCTIONS } from "../formula/function-catalog";
 import { FN_LIBRARY } from "../formula/functions";
 import type { Field } from "../service/types";
 import { renderGqlAssistantContext, renderGqlAssistantSkill } from "./assistant-docs";
+import { parseGridsQueryDsl } from "./parser";
 import type { DslResolverContext } from "./resolver";
 
 const table = { kind: "table" as const, id: "11111111-1111-4111-8111-111111111111", shortId: "ITEMS", name: "Items" };
@@ -83,6 +84,13 @@ const ctx = (): DslResolverContext => ({
   },
 });
 
+const gqlCodeBlocks = (markdown: string): string[] => {
+  const blocks: string[] = [];
+  const pattern = /```gql\n([\s\S]*?)\n```/g;
+  for (const match of markdown.matchAll(pattern)) blocks.push(match[1]?.trim() ?? "");
+  return blocks;
+};
+
 describe("GQL assistant docs", () => {
   test("skill explains the assistant contract and GQL guardrails", () => {
     const skill = renderGqlAssistantSkill();
@@ -133,6 +141,16 @@ describe("GQL assistant docs", () => {
     expect(skill).toContain("`STARTSWITH(text, prefix)`");
     expect(skill).toContain("`IENDSWITH(text, suffix)`");
     expect(skill).toContain("use `and`, `or`, and `not` operators");
+  });
+
+  test("skill executable GQL examples parse with the public parser", () => {
+    const examples = gqlCodeBlocks(renderGqlAssistantSkill()).filter((block) => !block.includes("..."));
+
+    expect(examples.length).toBeGreaterThan(0);
+    for (const example of examples) {
+      const result = parseGridsQueryDsl(example);
+      expect(result.ok, example).toBe(true);
+    }
   });
 
   test("context renders only the permission-shaped resolver context", () => {
