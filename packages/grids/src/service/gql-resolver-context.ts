@@ -50,11 +50,13 @@ export const hydrateDslViewQueries = (params: {
     return resolved.ok ? { ...view, query: resolved.plan.query } : view;
   });
 
-export const buildBaseGqlResolverContext = async (params: {
+export const buildTrustedGqlResolverContext = async (params: {
   baseId: string;
   currentTableId?: string;
   ast: DslQueryAst;
+  purpose: "dashboard-widget-render" | "document-template-render";
 }): Promise<DslResolverContext> => {
+  void params.purpose;
   const baseTables = await tables.listByBase(params.baseId);
   const dslTables: DslTableSource[] = baseTables.map((table) => ({
     kind: "table",

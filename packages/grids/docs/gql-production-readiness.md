@@ -54,10 +54,12 @@ review session did not rerun those DB tests.
   `service/formula-sql-compiler.ts`, and the oversized GQL regression suites
   should be split by responsibility. This is maintainability work, not a known
   semantic blocker.
-- **Trusted render contexts:** document/workflow template rendering uses trusted
-  GQL contexts where view access can intentionally expose view output without
-  parent-table access. That boundary should stay explicit in service names,
-  tests, and docs.
+- **Trusted render contexts:** document template and dashboard rendering use an
+  explicitly named trusted GQL resolver context after the caller has passed the
+  document-template or dashboard access gate. This intentionally lets the
+  allowed resource render its saved GQL source without re-checking every parent
+  table, while public GQL autocomplete/preview still uses the permission-shaped
+  resolver context.
 - **Stored formula legacy refs:** GQL rejects `#field`, but stored formula
   expressions still support legacy `#slug` and `{uuid}` refs for compatibility.
   Decide the long-term authoring/migration policy before calling formula

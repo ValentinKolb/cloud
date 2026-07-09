@@ -45,7 +45,7 @@ import { logAudit } from "./audit";
 import { get as getBase } from "./bases";
 import { listByTable as listFields } from "./fields";
 import { getContent as getFileContent, listForRecordField } from "./files";
-import { buildBaseGqlResolverContext } from "./gql-resolver-context";
+import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
 import { parseJsonbRow } from "./jsonb";
 import { get as getRecord } from "./records";
 import { insertWithShortId } from "./short-id";
@@ -753,7 +753,12 @@ const executeDocumentGqlSource = async (params: {
   const parsed = parseGridsQueryDsl(params.source);
   if (!parsed.ok) return fail(err.badInput(diagnosticsMessage(parsed.diagnostics)));
 
-  const ctx = await buildBaseGqlResolverContext({ baseId: params.baseId, currentTableId: params.tableId, ast: parsed.ast });
+  const ctx = await buildTrustedGqlResolverContext({
+    baseId: params.baseId,
+    currentTableId: params.tableId,
+    ast: parsed.ast,
+    purpose: "document-template-render",
+  });
   const resolved = resolveDslQueryToQueryPlan(parsed.ast, ctx);
   if (!resolved.ok) return fail(err.badInput(diagnosticsMessage(resolved.diagnostics)));
 
@@ -762,6 +767,8 @@ const executeDocumentGqlSource = async (params: {
     fieldsByTableId,
     timeZone: params.dateConfig?.timeZone,
     maxRows: DOCUMENT_QUERY_MAX_ROWS,
+    // Document template read/write gates are checked before rendering. Once a
+    // template is allowed, its GQL source is the trusted document data boundary.
     viewer: { userId: null, userGroups: [], isAdmin: true },
   });
   if (!preview.ok) return fail(err.badInput(preview.error.message));

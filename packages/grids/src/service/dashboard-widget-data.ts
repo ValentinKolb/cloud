@@ -22,7 +22,7 @@ import * as dashboards from "./dashboards";
 import * as fields from "./fields";
 import type { Form } from "./forms";
 import * as forms from "./forms";
-import { buildBaseGqlResolverContext } from "./gql-resolver-context";
+import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
 import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 import * as records from "./records";
 import * as tables from "./tables";
@@ -183,7 +183,12 @@ const compileRuntimeView = async (view: SavedView): Promise<RuntimeView | { erro
   if (!table) return { error: "view's parent table not found" };
   const parsed = parseGridsQueryDsl(view.source);
   if (!parsed.ok) return { error: parsed.diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid view source" };
-  const context = await buildBaseGqlResolverContext({ baseId: table.baseId, currentTableId: view.tableId, ast: parsed.ast });
+  const context = await buildTrustedGqlResolverContext({
+    baseId: table.baseId,
+    currentTableId: view.tableId,
+    ast: parsed.ast,
+    purpose: "dashboard-widget-render",
+  });
   const resolved = resolveDslQueryToRecordQuery(parsed.ast, context);
   if (!resolved.ok) return { error: resolved.diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid view source" };
   return { ...view, query: withViewUiPresentation(resolved.plan.query, view) };
@@ -211,7 +216,12 @@ const previewSavedView = async (
   if (!table) return { error: "view's parent table not found" };
   const parsed = parseGridsQueryDsl(view.source);
   if (!parsed.ok) return { error: parsed.diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid view source" };
-  const context = await buildBaseGqlResolverContext({ baseId: table.baseId, currentTableId: view.tableId, ast: parsed.ast });
+  const context = await buildTrustedGqlResolverContext({
+    baseId: table.baseId,
+    currentTableId: view.tableId,
+    ast: parsed.ast,
+    purpose: "dashboard-widget-render",
+  });
   const resolved = resolveDslQueryToQueryPlan(parsed.ast, context);
   if (!resolved.ok) return { error: resolved.diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid view source" };
   const fieldsByTableId = await fieldsWithPlanExtras(context.fieldsByTableId, resolved.plan);
