@@ -543,11 +543,18 @@ const DslQueryCurrentSourceSchema = z
   ])
   .optional();
 
+export const DslQuerySurfaceSchema = z
+  .enum(["api", "cli", "dashboard", "document", "query-explorer", "records-view", "ssr", "workflow"])
+  .optional();
+export type DslQuerySurface = z.infer<typeof DslQuerySurfaceSchema>;
+
 export const DslQueryPreviewBodySchema = z.object({
   query: z.string().trim().min(1).max(20_000),
   /** Optional table scope for table/view pages where `from` is implicit. */
   currentTableId: z.string().uuid().optional(),
   currentSource: DslQueryCurrentSourceSchema,
+  /** Optional caller surface for privacy-safe runtime observability. */
+  surface: DslQuerySurfaceSchema,
   limit: z.number().int().min(1).max(500).optional(),
 });
 export type DslQueryPreviewBody = z.infer<typeof DslQueryPreviewBodySchema>;

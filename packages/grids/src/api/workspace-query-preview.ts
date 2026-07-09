@@ -21,8 +21,9 @@ export const withInitialQueryPreview = async <T extends GridsWorkspaceState>(c: 
       {
         query: state.route.initialQuery,
         ...(currentSource ? { currentSource } : {}),
+        surface: "ssr",
       },
-      { maxRows: 10_000 },
+      { maxRows: 10_000, operation: "initial-preview" },
     );
     return { ...state, route: { ...state.route, initialPreview: result.response } } as T;
   } catch (error) {

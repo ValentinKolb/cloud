@@ -17,6 +17,7 @@ import type { DslQueryAst } from "../query-dsl/types";
 import { gridsService } from "../service";
 import { hydrateDslViewQueries } from "../service/gql-resolver-context";
 import type { Field, Table } from "../service/types";
+import { type GqlRuntimeOperation, type GqlRuntimeTracer, traceGqlRuntime } from "./gql-observability";
 import { currentActorViewer, gateAt } from "./permissions";
 
 export type DslCurrentSource = { kind: "table"; tableId: string } | { kind: "view"; viewId: string } | undefined;
@@ -171,32 +172,59 @@ export const executeGqlSource = async (
   c: Context<AuthContext>,
   baseId: string,
   body: DslQueryPreviewBody,
-  options: { maxRows?: number } = {},
+  options: { maxRows?: number; operation?: GqlRuntimeOperation; tracer?: GqlRuntimeTracer } = {},
 ) => {
-  const parsed = parseGridsQueryDsl(body.query);
-  if (!parsed.ok) return { ok: true as const, response: { ok: false as const, diagnostics: parsed.diagnostics } };
-
-  const ctx = await buildPermissionedGqlResolverContext(c, baseId, body.currentTableId, body.currentSource, parsed.ast);
-  const ast = sourceAst(parsed.ast, body.currentSource, ctx);
-  const resolved = resolveDslQueryToQueryPlan(ast, ctx);
-  if (!resolved.ok) return { ok: true as const, response: { ok: false as const, diagnostics: resolved.diagnostics } };
-
-  const dateConfig = await getDateConfig(c);
-  const fieldsByTableId = await fieldsWithPlanExtras(ctx.fieldsByTableId, resolved.plan);
-  const result = await previewDslQuery(resolved.plan, {
-    fieldsByTableId,
-    timeZone: dateConfig.timeZone,
-    limit: body.limit,
+  const operation = options.operation ?? "preview";
+  const trace = await (options.tracer ?? traceGqlRuntime)({
+    baseId,
+    operation,
+    surface: body.surface ?? (operation === "initial-preview" ? "ssr" : operation === "preview" ? "query-explorer" : "api"),
+    ...(body.currentTableId ? { currentTableId: body.currentTableId } : {}),
+    ...(body.currentSource ? { currentSource: body.currentSource } : {}),
+    ...(body.limit !== undefined ? { limit: body.limit } : {}),
     ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
-    viewer: currentActorViewer(c),
   });
-  if (!result.ok) {
-    return {
-      ok: true as const,
-      response: { ok: false as const, diagnostics: [dslPreviewDiagnosticForCompilerError(resolved.plan, result.error.message)] },
-    };
+
+  try {
+    const parsed = parseGridsQueryDsl(body.query);
+    if (!parsed.ok) {
+      const response = { ok: false as const, diagnostics: parsed.diagnostics };
+      await trace.end({ stage: "parse", outcome: "diagnostic", response });
+      return { ok: true as const, response };
+    }
+
+    const ctx = await buildPermissionedGqlResolverContext(c, baseId, body.currentTableId, body.currentSource, parsed.ast);
+    const ast = sourceAst(parsed.ast, body.currentSource, ctx);
+    const resolved = resolveDslQueryToQueryPlan(ast, ctx);
+    if (!resolved.ok) {
+      const response = { ok: false as const, diagnostics: resolved.diagnostics };
+      await trace.end({ stage: "resolve", outcome: "diagnostic", response });
+      return { ok: true as const, response };
+    }
+
+    const dateConfig = await getDateConfig(c);
+    const fieldsByTableId = await fieldsWithPlanExtras(ctx.fieldsByTableId, resolved.plan);
+    const result = await previewDslQuery(resolved.plan, {
+      fieldsByTableId,
+      timeZone: dateConfig.timeZone,
+      limit: body.limit,
+      ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
+      viewer: currentActorViewer(c),
+    });
+    if (!result.ok) {
+      const response = { ok: false as const, diagnostics: [dslPreviewDiagnosticForCompilerError(resolved.plan, result.error.message)] };
+      await trace.end({ stage: "execute", outcome: "diagnostic", plan: resolved.plan, response });
+      return {
+        ok: true as const,
+        response,
+      };
+    }
+    await trace.end({ stage: "execute", outcome: "success", plan: resolved.plan, response: result.data });
+    return { ok: true as const, response: result.data };
+  } catch (error) {
+    await trace.end({ stage: "runtime", outcome: "error", error });
+    throw error;
   }
-  return { ok: true as const, response: result.data };
 };
 
 export const compileGqlViewWrite = async (
