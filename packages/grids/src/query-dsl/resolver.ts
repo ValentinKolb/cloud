@@ -30,6 +30,7 @@ import {
 import { type GroupAggregationSpec, type GroupHavingRef, isGroupable } from "../service/group-compiler";
 import { filterSearchableFields } from "../service/search";
 import type { Field } from "../service/types";
+import type { DslResolverContext, DslTableSource, DslViewSource } from "./resolver-context";
 import {
   type DslPlanDiagnosticSpans,
   type DslResolverDiagnostic,
@@ -38,6 +39,23 @@ import {
   isResolverDiagnostic as isDiagnostic,
   spanForExpr,
 } from "./resolver-diagnostics";
+import {
+  aliveFields,
+  buildComputedStub,
+  buildFieldMap,
+  createScope,
+  fieldByRef,
+  fieldByRefMap,
+  hasJoinAlias,
+  isDefaultSelectableField,
+  type JoinScope,
+  joinScopeByAlias,
+  refUsesAlias,
+  relationOutputDiagnostic,
+  relationTargetTableId,
+  type Scope,
+  setJoinAlias,
+} from "./resolver-scope";
 import { createDslScopedFormulaFieldResolver, isScopedFormulaFieldRef } from "./scoped-formula";
 import type {
   DslAggregateItem,
@@ -51,31 +69,8 @@ import type {
   DslSourceSpan,
 } from "./types";
 
+export type { DslResolverContext, DslTableSource, DslViewSource } from "./resolver-context";
 export type { DslResolverDiagnostic } from "./resolver-diagnostics";
-
-export type DslTableSource = {
-  kind: "table";
-  id: string;
-  shortId: string;
-  name: string;
-};
-
-export type DslViewSource = {
-  kind: "view";
-  id: string;
-  shortId: string;
-  name: string;
-  tableId: string;
-  source?: string;
-  query: RecordQuery;
-};
-
-export type DslResolverContext = {
-  currentTable?: DslTableSource;
-  tables: DslTableSource[];
-  views?: DslViewSource[];
-  fieldsByTableId: Record<string, Field[]>;
-};
 
 type DslResolvedQueryPlan = {
   source: DslTableSource | DslViewSource;
@@ -305,93 +300,9 @@ type ResolvedSource = {
   span?: DslSourceSpan;
 };
 
-type Scope = {
-  tableId: string;
-  sourceAlias?: string;
-  fields: Field[];
-  byRef: Map<string, Field[]>;
-  readableTableIds: Set<string>;
-  joins: Map<string, JoinScope>;
-  fieldAliases: Map<string, string>;
-  joinedAliases: Set<string>;
-  computedAliases: Set<string>;
-  /** Type-only stand-in for lookup/rollup fields so resolve-time formula
-   *  validation accepts them; real SQL is injected at compile time. */
-  computedStub: Map<string, FormulaSqlExpression>;
-};
-
-type JoinScope = {
-  alias: string;
-  tableId: string;
-  source: DslTableSource;
-  fields: Field[];
-  byRef: Map<string, Field[]>;
-  computedStub: Map<string, FormulaSqlExpression>;
-  depth: number;
-};
-
 const MAX_JOIN_COUNT = 5;
 const MAX_JOIN_DEPTH = 3;
 const FORMULA_AGGREGATE_ALIAS_RE = /^[A-Za-z_][A-Za-z0-9_]{0,49}$/;
-
-const aliveFields = (fields: Field[]): Field[] => fields.filter((field) => !field.deletedAt).sort((a, b) => a.position - b.position);
-
-const addFieldRef = (map: Map<string, Field[]>, ref: string | null | undefined, field: Field): void => {
-  if (!ref) return;
-  const key = normalizeRefKey(ref);
-  const existing = map.get(key) ?? [];
-  if (!existing.some((item) => item.id === field.id)) existing.push(field);
-  map.set(key, existing);
-};
-
-const buildFieldMap = (fields: Field[]): Map<string, Field[]> => {
-  const map = new Map<string, Field[]>();
-  for (const field of fields) {
-    addFieldRef(map, field.shortId, field);
-    addFieldRef(map, field.id, field);
-    addFieldRef(map, field.name, field);
-  }
-  return map;
-};
-
-const buildComputedStub = (fields: Field[]): Map<string, FormulaSqlExpression> =>
-  new Map(
-    fields
-      .filter((field) => !field.deletedAt && (field.type === "lookup" || field.type === "rollup"))
-      .map((field) => [field.id, { sql: sql`NULL`, type: "unknown" as const }]),
-  );
-
-const createScope = (fields: Field[], ctx: DslResolverContext, tableId: string, sourceAlias?: string): Scope => ({
-  tableId,
-  ...(sourceAlias ? { sourceAlias } : {}),
-  fields,
-  byRef: buildFieldMap(fields),
-  readableTableIds: new Set(ctx.tables.map((table) => table.id)),
-  joins: new Map(),
-  fieldAliases: new Map(),
-  joinedAliases: new Set(),
-  computedAliases: new Set(),
-  computedStub: buildComputedStub(fields),
-});
-
-const relationTargetTableId = (field: Field): string | null => {
-  if (field.type !== "relation") return null;
-  return (field.config as { targetTableId?: string }).targetTableId ?? null;
-};
-
-const relationOutputDiagnostic = (field: Field, scope: Scope): DslResolverDiagnostic | null => {
-  const targetTableId = relationTargetTableId(field);
-  if (!targetTableId || scope.readableTableIds.has(targetTableId)) return null;
-  return diagnostic(`relation field "${field.name}" target table is not available`);
-};
-
-const isDefaultSelectableField = (field: Field, scope: Scope): boolean => {
-  const kind = storageOf(field).kind;
-  if (kind === "unknown") return false;
-  // Computed kinds: formula / lookup / rollup project to SQL; file does not.
-  if (kind === "computed" && field.type !== "formula" && field.type !== "lookup" && field.type !== "rollup") return false;
-  return relationOutputDiagnostic(field, scope) === null;
-};
 
 const resolveSource = (astSource: DslSourceRef | undefined, ctx: DslResolverContext): ResolvedSource | DslResolverDiagnostic => {
   if (!astSource) {
@@ -592,33 +503,6 @@ const computedIdForAlias = (alias: string): string => {
     hash = Math.imul(hash, 0x01000193);
   }
   return `computed_${(hash >>> 0).toString(36).padStart(7, "0")}`;
-};
-
-const fieldByRef = (scope: Scope, ref: string, span?: DslSourceSpan): Field | DslResolverDiagnostic => {
-  const fields = (scope.byRef.get(normalizeRefKey(ref)) ?? []).filter((field) => !field.deletedAt);
-  if (fields.length === 0) return diagnostic(`unknown field "${ref}"`, span);
-  if (fields.length > 1) return diagnostic(`ambiguous field "${ref}"`, span);
-  return fields[0]!;
-};
-
-const fieldByRefMap = (byRef: Map<string, Field[]>, ref: string, label: string, span?: DslSourceSpan): Field | DslResolverDiagnostic => {
-  const fields = (byRef.get(normalizeRefKey(ref)) ?? []).filter((field) => !field.deletedAt);
-  if (fields.length === 0) return diagnostic(`unknown field ${label}`, span);
-  if (fields.length > 1) return diagnostic(`ambiguous field ${label}`, span);
-  return fields[0]!;
-};
-
-const aliasKey = (alias: string): string => normalizeRefKey(alias);
-const hasJoinAlias = (scope: Scope, alias: string): boolean => scope.joins.has(aliasKey(alias));
-const setJoinAlias = (scope: Scope, alias: string, join: JoinScope): void => {
-  scope.joins.set(aliasKey(alias), join);
-};
-const refUsesAlias = (ref: DslQualifiedRef, alias: string): boolean => normalizeRefKey(ref.scope ?? "") === normalizeRefKey(alias);
-
-const joinScopeByAlias = (scope: Scope, alias: string, span?: DslSourceSpan): JoinScope | DslResolverDiagnostic => {
-  const join = scope.joins.get(aliasKey(alias));
-  if (!join) return diagnostic(`unknown join alias "${alias}"`, span);
-  return join;
 };
 
 const isAliasSortTarget = (target: DslSortItem["target"]): target is Extract<DslSortItem["target"], { kind: "alias" }> =>
