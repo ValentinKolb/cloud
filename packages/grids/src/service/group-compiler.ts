@@ -139,8 +139,47 @@ const isFormulaAggregation = (req: GroupAggregationSpec): req is Extract<GroupAg
 
 const aggAliasFor = (req: GroupAggregationSpec): string => aggregateOutputKeyFor(req);
 
-/** Build a per-group projection. Scalar / date / relation branches
- *  diverge here. */
+const resolveGroupProjection = (
+  spec: GroupBySpec,
+  field: Field,
+  index: number,
+  timeZone: string,
+  nextJoinIndex: () => number,
+): ResolvedGroup | { error: string } => {
+  const alias = groupAlias(index);
+  const descriptor = storageOf(field);
+  if (descriptor.kind === "relationLink") {
+    const joinIndex = nextJoinIndex();
+    return {
+      spec,
+      field,
+      alias,
+      expr: sql`rl_${sql.unsafe(String(joinIndex))}.to_record_id::text`,
+      relationJoinIndex: joinIndex,
+    };
+  }
+  if (descriptor.kind === "jsonbArray") {
+    const joinIndex = nextJoinIndex();
+    return {
+      spec,
+      field,
+      alias,
+      expr: sql`ms_${sql.unsafe(String(joinIndex))}.value`,
+      selectJoinIndex: joinIndex,
+    };
+  }
+  if (field.type === "date" && spec.granularity) {
+    const value = (field.config as { includeTime?: boolean }).includeTime
+      ? sql`grids.try_timestamptz(r.data->>${field.id}) AT TIME ZONE ${timeZone}`
+      : sql`grids.try_iso_date(r.data->>${field.id})::timestamp`;
+    return { spec, field, alias, expr: sql`date_trunc(${spec.granularity}, ${value})::date` };
+  }
+
+  const projection = descriptor.project(field, "r");
+  if (!projection) return { error: `field "${field.name}" (type "${field.type}") has no group projection` };
+  return { spec, field, alias, expr: projection as any };
+};
+
 const resolveGroupBy = (
   specs: GroupBySpec[],
   fields: Field[],
@@ -149,92 +188,20 @@ const resolveGroupBy = (
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
   const resolved: ResolvedGroup[] = [];
   let relationJoinCounter = 0;
+  const nextJoinIndex = (): number => relationJoinCounter++;
 
-  for (let i = 0; i < specs.length; i++) {
-    const spec = specs[i]!;
+  for (const [index, spec] of specs.entries()) {
     const field = fieldsById.get(spec.fieldId);
     if (!field) return { ok: false, error: "unknown group-by field" };
     if (!isGroupable(field)) {
       return { ok: false, error: `field "${field.name}" (type "${field.type}") is not groupable` };
     }
-
-    // Granularity is a date-only feature. Silently ignoring it on a
-    // numeric/text/select field would let saved views carry meaningless
-    // query state that confuses future readers and never has any
-    // observable effect on the bucket keys.
     if (spec.granularity && field.type !== "date") {
-      return {
-        ok: false,
-        error: `granularity "${spec.granularity}" is only valid on date fields, not "${field.type}"`,
-      };
+      return { ok: false, error: `granularity "${spec.granularity}" is only valid on date fields, not "${field.type}"` };
     }
-
-    const alias = groupAlias(i);
-
-    const desc = storageOf(field);
-
-    if (desc.kind === "relationLink") {
-      // Explode-mode: each link contributes one row. The JOIN alias
-      // exposes the to_record_id; we use that as the group key. The
-      // descriptor reports relation as groupable but with project=null;
-      // we provide the SQL fragment ourselves since it depends on a
-      // JOIN that doesn't exist in any other compiler path.
-      const jIdx = relationJoinCounter++;
-      resolved.push({
-        spec,
-        field,
-        alias,
-        expr: sql`rl_${sql.unsafe(String(jIdx))}.to_record_id::text`,
-        relationJoinIndex: jIdx,
-      });
-      continue;
-    }
-
-    if (desc.kind === "jsonbArray") {
-      const jIdx = relationJoinCounter++;
-      resolved.push({
-        spec,
-        field,
-        alias,
-        expr: sql`ms_${sql.unsafe(String(jIdx))}.value`,
-        selectJoinIndex: jIdx,
-      });
-      continue;
-    }
-
-    if (field.type === "date" && spec.granularity) {
-      // Server-side bucketing. Date-time fields are stored as UTC
-      // instants and bucketed in the user's/app's configured timezone.
-      // Date-only fields stay pure calendar values.
-      const gran = spec.granularity;
-      const expr = (field.config as { includeTime?: boolean }).includeTime
-        ? sql`grids.try_timestamptz(r.data->>${field.id}) AT TIME ZONE ${timeZone}`
-        : sql`grids.try_iso_date(r.data->>${field.id})::timestamp`;
-      resolved.push({
-        spec,
-        field,
-        alias,
-        expr: sql`date_trunc(${gran}, ${expr})::date`,
-      });
-      continue;
-    }
-
-    // Every other groupable type routes through the descriptor: number
-    // uses try_numeric, date uses try_iso_date, boolean uses try_boolean,
-    // and text/select/system fields get their native shape.
-    const projected = desc.project(field, "r");
-    if (!projected) {
-      // Defensive: descriptor reported groupable but no projection.
-      // Currently unreachable — every groupable kind has a project()
-      // implementation — but keeping this branch keeps the compiler
-      // honest if a future descriptor adds groupable=true without
-      // project=non-null.
-      return {
-        ok: false,
-        error: `field "${field.name}" (type "${field.type}") has no group projection`,
-      };
-    }
-    resolved.push({ spec, field, alias, expr: projected as any });
+    const projection = resolveGroupProjection(spec, field, index, timeZone, nextJoinIndex);
+    if ("error" in projection) return { ok: false, error: projection.error };
+    resolved.push(projection);
   }
 
   return { ok: true, resolved };
@@ -280,15 +247,41 @@ const buildFormulaAggExpr = (
   }
 };
 
-const buildAggExpr = (
-  req: GroupAggregationSpec,
-  field: Field | null,
-  fields: Field[],
-  dateConfig?: DateContext,
-  computedFieldSql?: Map<string, FormulaSqlExpression>,
-  resolveField?: FormulaSqlFieldResolver,
-): { ok: true; expr: any; type: FormulaSqlType } | { ok: false; error: string } => {
-  if (isFormulaAggregation(req)) return buildFormulaAggExpr(req, fields, dateConfig, computedFieldSql, resolveField);
+type FieldAggregationSpec = Exclude<GroupAggregationSpec, { kind: "formula" }>;
+type BuiltAggregation = { ok: true; expr: any; type: FormulaSqlType } | { ok: false; error: string };
+
+const buildExistenceAggExpr = (req: FieldAggregationSpec, existsRef: any, system: boolean): BuiltAggregation | null => {
+  switch (req.agg) {
+    case "count":
+      return {
+        ok: true,
+        expr: system
+          ? sql`count(${existsRef}) FILTER (WHERE ${existsRef} IS NOT NULL)::bigint`
+          : sql`count(${existsRef}) FILTER (WHERE ${existsRef} IS NOT NULL AND ${existsRef} <> '')::bigint`,
+        type: "numeric",
+      };
+    case "countEmpty":
+      return {
+        ok: true,
+        expr: system
+          ? sql`count(*) FILTER (WHERE ${existsRef} IS NULL)::bigint`
+          : sql`count(*) FILTER (WHERE ${existsRef} IS NULL OR ${existsRef} = '')::bigint`,
+        type: "numeric",
+      };
+    case "countUnique":
+      return {
+        ok: true,
+        expr: system
+          ? sql`count(DISTINCT ${existsRef}) FILTER (WHERE ${existsRef} IS NOT NULL)::bigint`
+          : sql`count(DISTINCT ${existsRef}) FILTER (WHERE ${existsRef} IS NOT NULL AND ${existsRef} <> '')::bigint`,
+        type: "numeric",
+      };
+    default:
+      return null;
+  }
+};
+
+const buildFieldAggExpr = (req: FieldAggregationSpec, field: Field | null): BuiltAggregation => {
   if (req.fieldId === "*") {
     if (req.agg !== "count") {
       return { ok: false, error: `agg "${req.agg}" requires a fieldId (only count works on "*")` };
@@ -314,32 +307,10 @@ const buildAggExpr = (
   // (no '' check — columns are typed, "" is meaningless).
   const existsRef = desc.kind === "system" ? typedProj : sql`r.data->>${field.id}`;
   const isSystem = desc.kind === "system";
+  const existenceAggregate = buildExistenceAggExpr(req, existsRef, isSystem);
+  if (existenceAggregate) return existenceAggregate;
 
   switch (req.agg) {
-    case "count":
-      return {
-        ok: true,
-        expr: isSystem
-          ? sql`count(${existsRef}) FILTER (WHERE ${existsRef} IS NOT NULL)::bigint`
-          : sql`count(${existsRef}) FILTER (WHERE ${existsRef} IS NOT NULL AND ${existsRef} <> '')::bigint`,
-        type: "numeric",
-      };
-    case "countEmpty":
-      return {
-        ok: true,
-        expr: isSystem
-          ? sql`count(*) FILTER (WHERE ${existsRef} IS NULL)::bigint`
-          : sql`count(*) FILTER (WHERE ${existsRef} IS NULL OR ${existsRef} = '')::bigint`,
-        type: "numeric",
-      };
-    case "countUnique":
-      return {
-        ok: true,
-        expr: isSystem
-          ? sql`count(DISTINCT ${existsRef}) FILTER (WHERE ${existsRef} IS NOT NULL)::bigint`
-          : sql`count(DISTINCT ${existsRef}) FILTER (WHERE ${existsRef} IS NOT NULL AND ${existsRef} <> '')::bigint`,
-        type: "numeric",
-      };
     case "sum":
       return { ok: true, expr: sql`SUM(${typedProj})`, type: "numeric" };
     case "avg":
@@ -363,8 +334,20 @@ const buildAggExpr = (
       const fn = req.agg === "earliest" ? sql`MIN` : sql`MAX`;
       return { ok: true, expr: sql`${fn}(${typedProj})`, type: formulaTypeForAggregate(req, field) };
     }
+    default:
+      return { ok: false, error: `unsupported aggregate "${req.agg}"` };
   }
 };
+
+const buildAggExpr = (
+  req: GroupAggregationSpec,
+  field: Field | null,
+  fields: Field[],
+  dateConfig?: DateContext,
+  computedFieldSql?: Map<string, FormulaSqlExpression>,
+  resolveField?: FormulaSqlFieldResolver,
+): { ok: true; expr: any; type: FormulaSqlType } | { ok: false; error: string } =>
+  isFormulaAggregation(req) ? buildFormulaAggExpr(req, fields, dateConfig, computedFieldSql, resolveField) : buildFieldAggExpr(req, field);
 
 type ResolvedAggregations = {
   aggKeys: string[];
@@ -605,104 +588,51 @@ type CompileGroupResult =
   | { ok: true; query: any; resolvedGroups: ResolvedGroup[]; aggKeys: string[]; cursorable: boolean }
   | { ok: false; error: string };
 
-export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResult => {
-  if (params.groupBy.length === 0) {
-    return { ok: false, error: "groupBy is empty — use the regular records list for ungrouped queries" };
-  }
-  if (params.groupBy.length > 3) {
-    return { ok: false, error: "groupBy supports at most 3 levels" };
-  }
+const validateGroupShape = (params: CompileGroupParams): { ok: true } | { ok: false; error: string } => {
+  if (params.groupBy.length === 0) return { ok: false, error: "groupBy is empty — use the regular records list for ungrouped queries" };
+  if (params.groupBy.length > 3) return { ok: false, error: "groupBy supports at most 3 levels" };
+  return { ok: true };
+};
 
-  const groups = resolveGroupBy(params.groupBy, params.fields, params.timeZone ?? "UTC");
-  if (!groups.ok) return groups;
-
-  const fieldsById = new Map(params.fields.map((f) => [f.id, f]));
-  const groupSort = params.groupSort ?? [];
-  if (params.cursor && groupSort.length > 0) {
-    return {
-      ok: false,
-      error: "cursor pagination is not supported for aggregate-sorted groups",
-    };
-  }
-  if (params.cursor && params.fromEnd) {
-    return {
-      ok: false,
-      error: "cursor pagination is not supported for tail-window grouped queries",
-    };
-  }
+const validateGroupPaging = (params: CompileGroupParams, groupSort: GroupSortSpec[]): { ok: true } | { ok: false; error: string } => {
+  if (params.cursor && groupSort.length > 0) return { ok: false, error: "cursor pagination is not supported for aggregate-sorted groups" };
+  if (params.cursor && params.fromEnd) return { ok: false, error: "cursor pagination is not supported for tail-window grouped queries" };
   if ((params.offset ?? 0) > 0 && params.cursor) {
-    return {
-      ok: false,
-      error: "offset pagination is not supported together with grouped cursors",
-    };
+    return { ok: false, error: "offset pagination is not supported together with grouped cursors" };
   }
   if ((params.offset ?? 0) > 0 && params.fromEnd) {
-    return {
-      ok: false,
-      error: "offset pagination is not supported for tail-window grouped queries",
-    };
+    return { ok: false, error: "offset pagination is not supported for tail-window grouped queries" };
   }
+  return { ok: true };
+};
 
-  const aggregations = resolveAggregations(
-    params.aggregations,
-    fieldsById,
-    params.fields,
-    params.dateConfig,
-    params.computedFieldSql,
-    params.resolveField,
-  );
-  if (!aggregations.ok) return aggregations;
-
-  const sortCheck = validateGroupSort(groupSort, aggregations.resolved.seenKeys);
-  if (!sortCheck.ok) return sortCheck;
-  const userHaving = buildUserHavingClause(params.having, params.havingRefs, aggregations.resolved.aggExprs, fieldsById);
-  if (!userHaving.ok) return userHaving;
-
-  // ── SQL pieces ──────────────────────────────────────────────────────
-  // Filter (over base records) — same compiler as records.list. Note the
-  // filter sees `r.data->>...` indirectly via the rendered clause, which
-  // currently emits `data->>...` (no `r.` prefix). That's intentional —
-  // when there's only one table, the unqualified column references the
-  // outer FROM. For our query the FROM aliases as `r`, so the
-  // unqualified `data` resolves correctly.
+const buildGroupedSql = (
+  params: CompileGroupParams,
+  groups: ResolvedGroup[],
+  aggregations: ResolvedAggregations,
+  groupSort: GroupSortSpec[],
+  userHaving: any,
+): { ok: true; query: any; cursorable: boolean } | { ok: false; error: string } => {
   const where = buildWhereClause(params);
   if (!where.ok) return where;
+  const cursorHaving = buildCursorHavingClause(params.cursor, groups);
+  if (!cursorHaving.ok) return cursorHaving;
 
-  const selectList = buildSelectList(groups.resolved, aggregations.resolved.aggExprs);
-  const from = buildFromClause(groups.resolved);
-
-  // GROUP BY (positional — references the SELECT list aliases)
-  const groupByPositions = joinSql(groups.resolved.map((_, i) => sql`${sql.unsafe(String(i + 1))}`));
-  const orderBy = buildOrderBy(groups.resolved, groupSort);
-  const reverseOrderBy = buildOrderBy(groups.resolved, groupSort, true);
-
+  const selectList = buildSelectList(groups, aggregations.aggExprs);
+  const from = buildFromClause(groups);
+  const groupByPositions = joinSql(groups.map((_, index) => sql`${sql.unsafe(String(index + 1))}`));
+  const orderBy = buildOrderBy(groups, groupSort);
+  const reverseOrderBy = buildOrderBy(groups, groupSort, true);
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 1000);
   const offset = Math.min(Math.max(params.offset ?? 0, 0), 10_000);
-  // We over-fetch by 1 so the caller can detect hasMore.
   const fetchLimit = limit + 1;
-
-  // Cursor predicate as a HAVING clause. Group keys are GROUP BY
-  // expressions, not aggregates and not row columns; HAVING is the only
-  // place they're referenceable post-aggregation. (Don't expect this to
-  // make group queries cheap — Postgres still has to scan + group the
-  // qualifying base rows. Keyset just narrows the visible page.)
-  //
-  // NULLS LAST semantics: nulls sort to the end in both asc and desc
-  // because we explicitly emit `NULLS LAST` in ORDER BY. Cursor logic:
-  //   cursor key non-null + asc:  (col > cursor) OR col IS NULL
-  //   cursor key non-null + desc: (col < cursor) OR col IS NULL
-  //   cursor key null            :  FALSE — nothing comes after the
-  //                                 trailing-null tier at this level.
-  const having = buildCursorHavingClause(params.cursor, groups.resolved);
-  if (!having.ok) return having;
-  const havingClause = sql`(${having.havingClause}) AND (${userHaving.clause})`;
-
+  const having = sql`(${cursorHaving.havingClause}) AND (${userHaving})`;
   const groupedQuery = sql`
     SELECT ${selectList}
     FROM ${from}
     WHERE ${where.where}
     GROUP BY ${groupByPositions}
-    HAVING ${havingClause}
+    HAVING ${having}
   `;
 
   const query = params.fromEnd
@@ -723,12 +653,43 @@ export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResul
         LIMIT ${fetchLimit}
         OFFSET ${offset}
       `;
+  return { ok: true, query, cursorable: groupSort.length === 0 && offset === 0 };
+};
+
+export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResult => {
+  const shape = validateGroupShape(params);
+  if (!shape.ok) return shape;
+
+  const groups = resolveGroupBy(params.groupBy, params.fields, params.timeZone ?? "UTC");
+  if (!groups.ok) return groups;
+
+  const fieldsById = new Map(params.fields.map((f) => [f.id, f]));
+  const groupSort = params.groupSort ?? [];
+  const paging = validateGroupPaging(params, groupSort);
+  if (!paging.ok) return paging;
+
+  const aggregations = resolveAggregations(
+    params.aggregations,
+    fieldsById,
+    params.fields,
+    params.dateConfig,
+    params.computedFieldSql,
+    params.resolveField,
+  );
+  if (!aggregations.ok) return aggregations;
+
+  const sortCheck = validateGroupSort(groupSort, aggregations.resolved.seenKeys);
+  if (!sortCheck.ok) return sortCheck;
+  const userHaving = buildUserHavingClause(params.having, params.havingRefs, aggregations.resolved.aggExprs, fieldsById);
+  if (!userHaving.ok) return userHaving;
+  const sqlQuery = buildGroupedSql(params, groups.resolved, aggregations.resolved, groupSort, userHaving.clause);
+  if (!sqlQuery.ok) return sqlQuery;
 
   return {
     ok: true,
-    query,
+    query: sqlQuery.query,
     resolvedGroups: groups.resolved,
     aggKeys: aggregations.resolved.aggKeys,
-    cursorable: groupSort.length === 0 && offset === 0,
+    cursorable: sqlQuery.cursorable,
   };
 };
