@@ -153,30 +153,30 @@ const numericValues = (args: FormulaSqlExpression[], aggregate: "AVG" | "MIN" | 
   )`;
 };
 
-const compileBinop = (op: BinOp, left: FormulaSqlExpression, right: FormulaSqlExpression): FormulaSqlCompileResult => {
-  if (op === "&&") return ok(sql`(${asBoolean(left)} AND ${asBoolean(right)})`, "boolean");
-  if (op === "||") return ok(sql`(${asBoolean(left)} OR ${asBoolean(right)})`, "boolean");
+type ComparisonOperator = Extract<BinOp, "!=" | "<" | "<=" | "=" | ">" | ">=">;
+type ArithmeticOperator = Extract<BinOp, "%" | "*" | "+" | "-" | "/">;
 
-  const comparisonOperands = (): { leftSql: unknown; rightSql: unknown } => {
-    if (left.type === "numeric" || right.type === "numeric") return { leftSql: asNumeric(left), rightSql: asNumeric(right) };
-    if (left.type === "datetime" || right.type === "datetime") return { leftSql: asTimestamp(left), rightSql: asTimestamp(right) };
-    if (left.type === "date" || right.type === "date") return { leftSql: asDate(left), rightSql: asDate(right) };
-    if (left.type === "boolean" && right.type === "boolean") return { leftSql: asBoolean(left), rightSql: asBoolean(right) };
-    return { leftSql: asText(left), rightSql: asText(right) };
-  };
+const comparisonOperands = (left: FormulaSqlExpression, right: FormulaSqlExpression): { leftSql: unknown; rightSql: unknown } => {
+  if (left.type === "numeric" || right.type === "numeric") return { leftSql: asNumeric(left), rightSql: asNumeric(right) };
+  if (left.type === "datetime" || right.type === "datetime") return { leftSql: asTimestamp(left), rightSql: asTimestamp(right) };
+  if (left.type === "date" || right.type === "date") return { leftSql: asDate(left), rightSql: asDate(right) };
+  if (left.type === "boolean" && right.type === "boolean") return { leftSql: asBoolean(left), rightSql: asBoolean(right) };
+  return { leftSql: asText(left), rightSql: asText(right) };
+};
 
+const compileComparison = (op: ComparisonOperator, left: FormulaSqlExpression, right: FormulaSqlExpression): FormulaSqlCompileResult => {
+  const operands = comparisonOperands(left, right);
   if (op === "=" || op === "!=") {
-    const operands = comparisonOperands();
     const equal = sql`(${operands.leftSql} IS NOT DISTINCT FROM ${operands.rightSql})`;
     return ok(op === "=" ? equal : sql`NOT ${equal}`, "boolean");
   }
-  if (op === "<" || op === "<=" || op === ">" || op === ">=") {
-    const operands = comparisonOperands();
-    if (op === "<") return ok(sql`(${operands.leftSql} < ${operands.rightSql})`, "boolean");
-    if (op === "<=") return ok(sql`(${operands.leftSql} <= ${operands.rightSql})`, "boolean");
-    if (op === ">") return ok(sql`(${operands.leftSql} > ${operands.rightSql})`, "boolean");
-    return ok(sql`(${operands.leftSql} >= ${operands.rightSql})`, "boolean");
-  }
+  if (op === "<") return ok(sql`(${operands.leftSql} < ${operands.rightSql})`, "boolean");
+  if (op === "<=") return ok(sql`(${operands.leftSql} <= ${operands.rightSql})`, "boolean");
+  if (op === ">") return ok(sql`(${operands.leftSql} > ${operands.rightSql})`, "boolean");
+  return ok(sql`(${operands.leftSql} >= ${operands.rightSql})`, "boolean");
+};
+
+const compileArithmetic = (op: ArithmeticOperator, left: FormulaSqlExpression, right: FormulaSqlExpression): FormulaSqlCompileResult => {
   if (op === "+") {
     if (left.type === "text" && right.type === "text") return ok(sql`(${asText(left)} || ${asText(right)})`, "text");
     return ok(sql`(${asNumeric(left)} + ${asNumeric(right)})`, "numeric");
@@ -185,6 +185,15 @@ const compileBinop = (op: BinOp, left: FormulaSqlExpression, right: FormulaSqlEx
   if (op === "*") return ok(sql`(${asNumeric(left)} * ${asNumeric(right)})`, "numeric");
   if (op === "/") return ok(sql`(${asNumeric(left)} / NULLIF(${asNumeric(right)}, 0))`, "numeric");
   return ok(sql`MOD(${asNumeric(left)}, NULLIF(${asNumeric(right)}, 0))`, "numeric");
+};
+
+const compileBinop = (op: BinOp, left: FormulaSqlExpression, right: FormulaSqlExpression): FormulaSqlCompileResult => {
+  if (op === "&&") return ok(sql`(${asBoolean(left)} AND ${asBoolean(right)})`, "boolean");
+  if (op === "||") return ok(sql`(${asBoolean(left)} OR ${asBoolean(right)})`, "boolean");
+  if (op === "=" || op === "!=" || op === "<" || op === "<=" || op === ">" || op === ">=") {
+    return compileComparison(op, left, right);
+  }
+  return compileArithmetic(op, left, right);
 };
 
 const compileDateAdd = (args: Expr[], compiled: FormulaSqlExpression[]): FormulaSqlCompileResult => {
@@ -369,47 +378,54 @@ const inlineFormulaField = (field: Field, ctx: CompileContext): FormulaSqlCompil
   return compileExpr(parsed.ast, { ...ctx, inlineStack: nextStack, depth: ctx.depth + 1 });
 };
 
+const compileFieldExpr = (expr: Extract<Expr, { kind: "field" }>, ctx: CompileContext): FormulaSqlCompileResult => {
+  const custom = ctx.resolveField?.(expr.fieldId);
+  if (typeof custom === "string") return fail(custom);
+  if (custom) return ok(custom.sql, custom.type);
+  const field = fieldByRef(ctx.fieldsByRef, expr.fieldId);
+  if (typeof field === "string") return fail(field);
+  // Formula fields stay first-class operands by recursively inlining their SQL.
+  if (field.type === "formula") return inlineFormulaField(field, ctx);
+  if (field.type === "lookup" || field.type === "rollup") {
+    const computed = ctx.computedFieldSql?.get(field.id);
+    if (computed) return ok(computed.sql, computed.type);
+  }
+  const descriptor = storageOf(field);
+  const projection = descriptor.project(field, ctx.recordAlias);
+  if (projection === null) return fail(`Field ${field.name} (${field.type}) cannot be compiled into SQL formulas yet`);
+  return ok(projection, formulaSqlTypeForField(field));
+};
+
+const compileUnaryExpr = (expr: Extract<Expr, { kind: "unop" }>, ctx: CompileContext): FormulaSqlCompileResult => {
+  const operand = compileExpr(expr.operand, ctx);
+  if (!operand.ok) return operand;
+  if (expr.op === "-") return ok(sql`(-${asNumeric(operand.expression)})`, "numeric");
+  return ok(sql`NOT ${asBoolean(operand.expression)}`, "boolean");
+};
+
+const compileBinaryExpr = (expr: Extract<Expr, { kind: "binop" }>, ctx: CompileContext): FormulaSqlCompileResult => {
+  const left = compileExpr(expr.left, ctx);
+  if (!left.ok) return left;
+  const right = compileExpr(expr.right, ctx);
+  if (!right.ok) return right;
+  return compileBinop(expr.op, left.expression, right.expression);
+};
+
 const compileExpr = (expr: Expr, ctx: CompileContext): FormulaSqlCompileResult => {
-  if (expr.kind === "literal") {
-    const literal = sqlLiteral(expr.value);
-    return ok(literal.sql, literal.type);
-  }
-  if (expr.kind === "field") {
-    const custom = ctx.resolveField?.(expr.fieldId);
-    if (typeof custom === "string") return fail(custom);
-    if (custom) return ok(custom.sql, custom.type);
-    const field = fieldByRef(ctx.fieldsByRef, expr.fieldId);
-    if (typeof field === "string") return fail(field);
-    // A formula field referenced inside another expression inlines its own
-    // compiled SQL, so formula fields are first-class operands (filter/sort/
-    // aggregate/nested formula) — not just top-level select columns.
-    if (field.type === "formula") return inlineFormulaField(field, ctx);
-    // Lookup/rollup fields resolve to their pre-built correlated-subquery SQL
-    // when the caller supplied it (GQL); otherwise they fall through to the
-    // "cannot compile" error below.
-    if (field.type === "lookup" || field.type === "rollup") {
-      const computed = ctx.computedFieldSql?.get(field.id);
-      if (computed) return ok(computed.sql, computed.type);
+  switch (expr.kind) {
+    case "literal": {
+      const literal = sqlLiteral(expr.value);
+      return ok(literal.sql, literal.type);
     }
-    const descriptor = storageOf(field);
-    const projection = descriptor.project(field, ctx.recordAlias);
-    if (projection === null) return fail(`Field ${field.name} (${field.type}) cannot be compiled into SQL formulas yet`);
-    return ok(projection, formulaSqlTypeForField(field));
+    case "field":
+      return compileFieldExpr(expr, ctx);
+    case "unop":
+      return compileUnaryExpr(expr, ctx);
+    case "binop":
+      return compileBinaryExpr(expr, ctx);
+    case "call":
+      return compileFunction(expr.fn, expr.args, ctx);
   }
-  if (expr.kind === "unop") {
-    const operand = compileExpr(expr.operand, ctx);
-    if (!operand.ok) return operand;
-    if (expr.op === "-") return ok(sql`(-${asNumeric(operand.expression)})`, "numeric");
-    return ok(sql`NOT ${asBoolean(operand.expression)}`, "boolean");
-  }
-  if (expr.kind === "binop") {
-    const left = compileExpr(expr.left, ctx);
-    if (!left.ok) return left;
-    const right = compileExpr(expr.right, ctx);
-    if (!right.ok) return right;
-    return compileBinop(expr.op, left.expression, right.expression);
-  }
-  return compileFunction(expr.fn, expr.args, ctx);
 };
 
 export const compileFormulaAstToSql = (ast: Expr, options: FormulaSqlCompileOptions): FormulaSqlCompileResult => {
