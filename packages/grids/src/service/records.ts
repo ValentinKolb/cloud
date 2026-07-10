@@ -26,6 +26,7 @@ import { withLookupTargetMetadata } from "./lookup-display";
 import { liveRecordParentJoinSql, requireTableAlive } from "./parent-checks";
 import { type GridsRecordEvent, publishRecordEvent } from "./record-events";
 import { cleanRecordMeta, compileRecordMetaFilter, listRecordActors, recordMetaRequiresDeletedRows } from "./record-metadata";
+import { buildPersistedUpdateData, buildRecordDiff, mapRecordRow, splitRelationsFromData } from "./record-persistence";
 import {
   attachRelationExpansion,
   type ExpansionViewer,
@@ -55,18 +56,6 @@ const projectionFragmentsFor = (projections: ComputedProjection[]): unknown =>
 
 const formatFieldValidationError = (fieldName: string, validationError: string): string =>
   validationError === "required" ? `Field "${fieldName}" is required` : `Field "${fieldName}": ${validationError}`;
-
-const mapRow = (row: DbRow): GridRecord => ({
-  id: row.id as string,
-  tableId: row.table_id as string,
-  data: parseJsonbRow<Record<string, unknown>>(row.data, {}),
-  version: row.version as number,
-  deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
-  createdBy: (row.created_by as string | null) ?? null,
-  updatedBy: (row.updated_by as string | null) ?? null,
-  createdAt: (row.created_at as Date).toISOString(),
-  updatedAt: (row.updated_at as Date).toISOString(),
-});
 
 const relationIdsFor = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : typeof value === "string" ? [value] : [];
@@ -112,7 +101,7 @@ const enrichFormulaLookups = async (records: GridRecord[], fields: Field[], opti
         AND r.id = ANY(${sql.array([...ids], "UUID")})
         AND r.deleted_at IS NULL
     `;
-    const targetRecords = rows.map(mapRow);
+    const targetRecords = rows.map(mapRecordRow);
     await hydrateRelationsFromLinks(targetRecords, targetFields);
     const recordsById = new Map(targetRecords.map((record) => [record.id, record]));
     applyComputedProjections(rows as Array<Record<string, unknown>>, recordsById, targetProjections);
@@ -173,24 +162,6 @@ export const emitCreatedRecordEvent = async (
  * Accepted shapes for a relation value: array of UUIDs (cardinality:multiple),
  * single UUID string (cardinality:single), or null/empty (no links).
  */
-const splitRelationsFromData = (
-  data: Record<string, unknown>,
-  fields: Field[],
-): { data: Record<string, unknown>; relations: Map<string, string[]> } => {
-  const relationFieldIds = new Set(fields.filter((f) => f.type === "relation" && !f.deletedAt).map((f) => f.id));
-  const out: Record<string, unknown> = {};
-  const relations = new Map<string, string[]>();
-  for (const [k, v] of Object.entries(data)) {
-    if (relationFieldIds.has(k)) {
-      const ids = Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === "string") : typeof v === "string" ? [v] : [];
-      relations.set(k, ids);
-    } else {
-      out[k] = v;
-    }
-  }
-  return { data: out, relations };
-};
-
 /**
  * Pre-flight relation-target existence, batched per targetTableId. The
  * naive shape (one validateRelationTargets call per relation field)
@@ -397,7 +368,7 @@ export const createInTransaction = async (
     client,
   );
 
-  const record = mapRow(row);
+  const record = mapRecordRow(row);
   for (const [fieldId, toIds] of split.relations) {
     record.data[fieldId] = toIds;
   }
@@ -516,7 +487,7 @@ export const list = async (params: {
     ORDER BY ${orderBy} LIMIT ${limit + 1}
   `;
   const hasMore = rows.length > limit;
-  const items = rows.slice(0, limit).map(mapRow);
+  const items = rows.slice(0, limit).map(mapRecordRow);
 
   // Hydrate relation fields from record_links so the UI sees the link
   // arrays. Lookup/rollup values are already in the row via the
@@ -798,7 +769,7 @@ export const get = async (
       AND r.deleted_at IS NULL
   `;
   if (!row) return null;
-  const record = mapRow(row);
+  const record = mapRecordRow(row);
   // Hydrate relation fields + lookup/rollup projections so the response
   // mirrors the list-path shape exactly.
   await hydrateRelationsFromLinks([record], fields);
@@ -914,33 +885,10 @@ export const update = async (
   // Relations are managed exclusively via record_links — they MUST NOT
   // re-enter the JSONB blob (otherwise the hydration step on read
   // would have to special-case "JSONB takes precedence" semantics).
-  const persistableFieldIds = new Set(
-    fields
-      .filter((field) => isRecordWritableFieldType(field.type) && field.type !== "relation" && !field.deletedAt)
-      .map((field) => field.id),
-  );
-  const persistedExistingData = Object.fromEntries(Object.entries(existing.data).filter(([key]) => persistableFieldIds.has(key)));
-  const merged = { ...persistedExistingData, ...split.data };
-  // Drop relation keys that may still live in the existing JSONB from
-  // older writes before relations moved exclusively to record_links.
-  const relationFieldIds = new Set(fields.filter((f) => f.type === "relation" && !f.deletedAt).map((f) => f.id));
-  for (const k of Object.keys(merged)) {
-    if (relationFieldIds.has(k)) delete merged[k];
-  }
-  // Strip nulls so JSONB does not carry stale keys for cleared fields.
-  for (const [k, v] of Object.entries(merged)) {
-    if (v === null) delete merged[k];
-  }
+  const merged = buildPersistedUpdateData(existing.data, split.data, fields);
 
   // Build the diff up front so we can pass it into the transaction.
-  const diff: Record<string, { old: unknown; new: unknown }> = {};
-  for (const key of Object.keys(validated.data)) {
-    const oldVal = existing.data[key] ?? null;
-    const newVal = validated.data[key] ?? null;
-    if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
-      diff[key] = { old: oldVal, new: newVal };
-    }
-  }
+  const diff = buildRecordDiff(existing.data, validated.data);
 
   // ATOMIC: row UPDATE + relation link writes + audit in one transaction.
   // The version-check WHERE clause still gives us the optimistic-lock
