@@ -50,6 +50,7 @@ import {
 } from "./resolver-diagnostics";
 import { scopedFormulaResolverForScope } from "./resolver-formula-scope";
 import { type DslResolvedDerivedRelationJoin, type DslResolvedRelationJoin, resolveDerivedJoins, resolveJoins } from "./resolver-joins";
+import { type DslJoinedColumn, type DslOutputColumn, resolveQueryPlanSelect } from "./resolver-output";
 import {
   aliveFields,
   createScope,
@@ -57,7 +58,6 @@ import {
   fieldByRef,
   fieldByRefMap,
   hasAnyOutputAlias,
-  hasFieldRef,
   isBaseScope,
   isDefaultSelectableField,
   type JoinScope,
@@ -79,6 +79,7 @@ export type { DslDerivedViewColumn } from "./resolver-derived-columns";
 export { derivedViewColumns } from "./resolver-derived-columns";
 export type { DslResolverDiagnostic } from "./resolver-diagnostics";
 export type { DslResolvedDerivedRelationJoin, DslResolvedRelationJoin } from "./resolver-joins";
+export type { DslJoinedColumn, DslOutputColumn } from "./resolver-output";
 export type { DslWherePredicate } from "./resolver-where";
 
 type DslResolvedQueryPlan = {
@@ -102,27 +103,6 @@ export type DslResolvedSqlGroupBy = {
 type DslResolvedSqlGroupSort = GroupSortSpec & {
   nullsFirst?: boolean;
 };
-
-export type DslJoinedColumn = {
-  joinAlias: string;
-  tableId: string;
-  fieldId: string;
-  label?: string;
-};
-
-export type DslOutputColumn =
-  | {
-      kind: "field";
-      fieldId: string;
-      label?: string;
-    }
-  | {
-      kind: "computed";
-      id: string;
-      label: string;
-      expression: string;
-    }
-  | ({ kind: "joined" } & DslJoinedColumn);
 
 export type DslResolvedSqlQueryPlan = DslResolvedQueryPlan & {
   readableTableIds: string[];
@@ -248,15 +228,6 @@ const createDerivedScopedFormulaFieldResolver = (
 };
 
 const hasGroupedDslShape = (ast: DslQueryAst): boolean => ast.groupBy.length > 0 || ast.aggregations.length > 0 || Boolean(ast.having);
-
-const computedIdForAlias = (alias: string): string => {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < alias.length; i++) {
-    hash ^= alias.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return `computed_${(hash >>> 0).toString(36).padStart(7, "0")}`;
-};
 
 const isAliasSortTarget = (target: DslSortItem["target"]): target is Extract<DslSortItem["target"], { kind: "alias" }> =>
   "kind" in target && target.kind === "alias";
@@ -823,12 +794,6 @@ const resolveDerivedViewSourcePlan = (ast: DslQueryAst, source: ResolvedSource, 
   };
 };
 
-const aliasConflictDiagnostic = (scope: Scope, alias: string, span?: DslSourceSpan): DslResolverDiagnostic | null => {
-  if (hasAnyOutputAlias(scope, alias)) return diagnostic(`duplicate select alias "${alias}"`, span);
-  if (hasFieldRef(scope.fields, alias)) return diagnostic(`select alias "${alias}" conflicts with a source field`, span);
-  return null;
-};
-
 const hasDerivedColumnRef = (columns: DslDerivedViewColumn[], ref: string): boolean => {
   const key = normalizeRefKey(ref);
   return columns.some((column) => column.refs.some((candidate) => normalizeRefKey(candidate) === key));
@@ -856,95 +821,6 @@ const sortAlias = (target: DslSortItem["target"], scope: Scope): string | null =
   const ref = target.ref;
   if (fieldAliasId(scope, ref) || setHasAlias(scope.joinedAliases, ref) || setHasAlias(scope.computedAliases, ref)) return ref;
   return null;
-};
-
-const resolveJoinedFieldItem = (item: Extract<DslSelectItem, { kind: "field" }>, scope: Scope): DslJoinedColumn | DslResolverDiagnostic => {
-  if (!item.field.scope) return diagnostic("joined field resolver needs a scoped field", item.field.span);
-  const join = joinScopeByAlias(scope, item.field.scope, item.field.span);
-  if (isDiagnostic(join)) return join;
-  const field = fieldByRefMap(join.byRef, item.field.ref, `${item.field.scope}."${item.field.ref}"`, item.field.span);
-  if (isDiagnostic(field)) return field;
-  const relationDiagnostic = relationOutputDiagnostic(field, scope);
-  if (relationDiagnostic) return relationDiagnostic;
-  return {
-    joinAlias: join.alias,
-    tableId: join.tableId,
-    fieldId: field.id,
-    ...(item.alias ? { label: item.alias } : {}),
-  };
-};
-
-const resolveQueryPlanSelect = (
-  select: DslSelectItem[],
-  scope: Scope,
-): { columns?: RecordQuery["columns"]; joinedColumns: DslJoinedColumn[]; outputColumns: DslOutputColumn[] } | DslResolverDiagnostic => {
-  if (select.length === 0) return { joinedColumns: [], outputColumns: [] };
-  const columns: NonNullable<RecordQuery["columns"]> = [];
-  const joinedColumns: DslJoinedColumn[] = [];
-  const outputColumns: DslOutputColumn[] = [];
-  const computedIds = new Set<string>();
-
-  for (const item of select) {
-    const alias = item.kind === "field" ? item.alias : item.alias;
-    if (alias) {
-      const aliasConflict = aliasConflictDiagnostic(scope, alias, item.span);
-      if (aliasConflict) return aliasConflict;
-    }
-
-    if (item.kind === "field") {
-      if (isBaseScope(scope, item.field.scope)) {
-        const field = fieldByRef(scope, item.field.ref, item.field.span);
-        if (isDiagnostic(field)) return field;
-        const relationDiagnostic = relationOutputDiagnostic(field, scope);
-        if (relationDiagnostic) return relationDiagnostic;
-        if (item.alias) scope.fieldAliases.set(item.alias, field.id);
-        columns.push({ fieldId: field.id, ...(item.alias ? { label: item.alias } : {}) });
-        outputColumns.push({ kind: "field", fieldId: field.id, ...(item.alias ? { label: item.alias } : {}) });
-        continue;
-      }
-      if (item.field.scope) {
-        const joined = resolveJoinedFieldItem(item, scope);
-        if (isDiagnostic(joined)) return joined;
-        if (item.alias) scope.joinedAliases.add(item.alias);
-        joinedColumns.push(joined);
-        outputColumns.push({ kind: "joined", ...joined });
-        continue;
-      }
-      const field = fieldByRef(scope, item.field.ref, item.field.span);
-      if (isDiagnostic(field)) return field;
-      const relationDiagnostic = relationOutputDiagnostic(field, scope);
-      if (relationDiagnostic) return relationDiagnostic;
-      if (item.alias) scope.fieldAliases.set(item.alias, field.id);
-      columns.push({ fieldId: field.id, ...(item.alias ? { label: item.alias } : {}) });
-      outputColumns.push({ kind: "field", fieldId: field.id, ...(item.alias ? { label: item.alias } : {}) });
-      continue;
-    }
-
-    const compiled = compileFormulaAstToSql(item.expression, {
-      fields: scope.fields,
-      computedFieldSql: scope.computedStub,
-      resolveField: scopedFormulaResolverForScope(scope),
-    });
-    if (!compiled.ok) return diagnostic(`select "${item.alias}": ${compiled.error}`, item.span);
-    scope.computedAliases.add(item.alias);
-    const computedId = computedIdForAlias(item.alias);
-    if (computedIds.has(computedId)) return diagnostic(`computed select id collision for alias "${item.alias}"`, item.span);
-    computedIds.add(computedId);
-    columns.push({
-      kind: "computed",
-      id: computedId,
-      label: item.alias,
-      expression: item.source,
-    });
-    outputColumns.push({
-      kind: "computed",
-      id: computedId,
-      label: item.alias,
-      expression: item.source,
-    });
-  }
-
-  return { columns: columns.length > 0 ? columns : undefined, joinedColumns, outputColumns };
 };
 
 const mergeScopedFilter = (baseFilter: RecordQuery["filter"], dslFilter: RecordQuery["filter"]): RecordQuery["filter"] => {
