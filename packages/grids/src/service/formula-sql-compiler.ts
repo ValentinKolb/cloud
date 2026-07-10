@@ -206,7 +206,7 @@ const compileDateDiff = (args: Expr[], compiled: FormulaSqlExpression[]): Formul
   return ok(sql`FLOOR(${seconds})::numeric`, "numeric");
 };
 
-const FORMULA_ARITY: Record<string, { min: number; max: number }> = {
+const FORMULA_ARITY = {
   ABS: { min: 1, max: 1 },
   ROUND: { min: 1, max: 2 },
   FLOOR: { min: 1, max: 1 },
@@ -251,7 +251,7 @@ const FORMULA_ARITY: Record<string, { min: number; max: number }> = {
   DAY: { min: 1, max: 1 },
   DATEADD: { min: 2, max: 3 },
   DATEDIFF: { min: 2, max: 3 },
-};
+} as const satisfies Record<string, { min: number; max: number }>;
 
 const formatArity = (spec: { min: number; max: number }): string => {
   if (spec.min === spec.max) return spec.min === 1 ? "1 argument" : `${spec.min} arguments`;
@@ -259,9 +259,86 @@ const formatArity = (spec: { min: number; max: number }): string => {
   return `${spec.min}-${spec.max} arguments`;
 };
 
+type FormulaFunctionName = keyof typeof FORMULA_ARITY;
+
+type FormulaFunctionContext = {
+  sourceArgs: Expr[];
+  compiled: FormulaSqlExpression[];
+  compileContext: CompileContext;
+  arg: (index: number) => FormulaSqlExpression;
+  numericArg: (index: number) => unknown;
+  textArg: (index: number) => unknown;
+  boolArg: (index: number) => unknown;
+};
+
+type FormulaFunctionCompiler = (context: FormulaFunctionContext) => FormulaSqlCompileResult;
+
+const FORMULA_FUNCTION_COMPILERS = {
+  ABS: ({ numericArg }) => ok(sql`ABS(${numericArg(0)})`, "numeric"),
+  ROUND: ({ numericArg }) => ok(sql`ROUND(${numericArg(0)}, COALESCE(FLOOR(${numericArg(1)})::int, 0))`, "numeric"),
+  FLOOR: ({ numericArg }) => ok(sql`FLOOR(${numericArg(0)})`, "numeric"),
+  CEIL: ({ numericArg }) => ok(sql`CEIL(${numericArg(0)})`, "numeric"),
+  SQRT: ({ numericArg }) => ok(sql`CASE WHEN ${numericArg(0)} < 0 THEN NULL ELSE SQRT(${numericArg(0)}) END`, "numeric"),
+  POW: ({ numericArg }) => ok(sql`POWER(${numericArg(0)}, ${numericArg(1)})`, "numeric"),
+  MOD: ({ numericArg }) => ok(sql`MOD(${numericArg(0)}, NULLIF(${numericArg(1)}, 0))`, "numeric"),
+  SUM: ({ compiled }) => ok(numericValues(compiled, "SUM"), "numeric"),
+  AVG: ({ compiled }) => ok(numericValues(compiled, "AVG"), "numeric"),
+  MEAN: ({ compiled }) => ok(numericValues(compiled, "AVG"), "numeric"),
+  MEDIAN: ({ compiled }) => ok(numericValues(compiled, "MEDIAN"), "numeric"),
+  MIN: ({ compiled }) => ok(numericValues(compiled, "MIN"), "numeric"),
+  MAX: ({ compiled }) => ok(numericValues(compiled, "MAX"), "numeric"),
+  COUNT: ({ compiled }) => {
+    if (compiled.length === 0) return ok(sql`0::numeric`, "numeric");
+    const parts = compiled.map((expr) => sql`CASE WHEN ${expr.sql} IS NULL OR (${expr.sql})::text = '' THEN 0 ELSE 1 END`);
+    return ok(sql`(${sqlJoin(parts, sql` + `)})::numeric`, "numeric");
+  },
+  PERCENT: ({ numericArg }) => ok(sql`(${numericArg(0)} / NULLIF(${numericArg(1)}, 0) * 100)`, "numeric"),
+  CONCAT: ({ compiled }) => ok(compiled.length === 0 ? sql`''::text` : sql`CONCAT(${sqlJoin(compiled.map(asText), sql`, `)})`, "text"),
+  LEN: ({ textArg }) => ok(sql`CHAR_LENGTH(${textArg(0)})::numeric`, "numeric"),
+  LOWER: ({ textArg }) => ok(sql`LOWER(${textArg(0)})`, "text"),
+  UPPER: ({ textArg }) => ok(sql`UPPER(${textArg(0)})`, "text"),
+  TRIM: ({ textArg }) => ok(sql`TRIM(${textArg(0)})`, "text"),
+  LEFT: ({ textArg, numericArg }) => ok(sql`LEFT(${textArg(0)}, GREATEST(FLOOR(${numericArg(1)})::int, 0))`, "text"),
+  RIGHT: ({ textArg, numericArg }) => ok(sql`RIGHT(${textArg(0)}, GREATEST(FLOOR(${numericArg(1)})::int, 0))`, "text"),
+  SUBSTRING: ({ textArg, numericArg }) =>
+    ok(
+      sql`SUBSTRING(${textArg(0)} FROM GREATEST(FLOOR(${numericArg(1)})::int, 0) + 1 FOR GREATEST(FLOOR(${numericArg(2)})::int, 0))`,
+      "text",
+    ),
+  REPLACE: ({ textArg }) => ok(sql`REPLACE(${textArg(0)}, ${textArg(1)}, ${textArg(2)})`, "text"),
+  IF: ({ arg, boolArg }) => {
+    const thenType = arg(1).type;
+    const elseType = arg(2).type;
+    return ok(sql`CASE WHEN ${boolArg(0)} THEN ${arg(1).sql} ELSE ${arg(2).sql} END`, thenType === elseType ? thenType : "unknown");
+  },
+  IFEMPTY: ({ arg }) =>
+    ok(sql`CASE WHEN ${arg(0).sql} IS NULL OR (${arg(0).sql})::text = '' THEN ${arg(1).sql} ELSE ${arg(0).sql} END`, arg(0).type),
+  IFERROR: ({ arg }) => ok(sql`COALESCE(${arg(0).sql}, ${arg(1).sql})`, arg(0).type === arg(1).type ? arg(0).type : "unknown"),
+  AND: ({ compiled }) => ok(compiled.length === 0 ? sql`true` : sql`(${sqlJoin(compiled.map(asBoolean), sql` AND `)})`, "boolean"),
+  OR: ({ compiled }) => ok(compiled.length === 0 ? sql`false` : sql`(${sqlJoin(compiled.map(asBoolean), sql` OR `)})`, "boolean"),
+  NOT: ({ boolArg }) => ok(sql`NOT ${boolArg(0)}`, "boolean"),
+  ISBLANK: ({ arg }) => ok(sql`(${arg(0).sql} IS NULL OR (${arg(0).sql})::text = '')`, "boolean"),
+  CONTAINS: ({ textArg }) => ok(sql`POSITION(${textArg(1)} IN ${textArg(0)}) > 0`, "boolean"),
+  STARTSWITH: ({ textArg }) => ok(sql`POSITION(${textArg(1)} IN ${textArg(0)}) = 1`, "boolean"),
+  ENDSWITH: ({ textArg }) => ok(sql`RIGHT(${textArg(0)}, CHAR_LENGTH(${textArg(1)})) = ${textArg(1)}`, "boolean"),
+  ICONTAINS: ({ textArg }) => ok(sql`POSITION(LOWER(${textArg(1)}) IN LOWER(${textArg(0)})) > 0`, "boolean"),
+  ISTARTSWITH: ({ textArg }) => ok(sql`POSITION(LOWER(${textArg(1)}) IN LOWER(${textArg(0)})) = 1`, "boolean"),
+  IENDSWITH: ({ textArg }) => ok(sql`RIGHT(LOWER(${textArg(0)}), CHAR_LENGTH(${textArg(1)})) = LOWER(${textArg(1)})`, "boolean"),
+  TODAY: ({ compileContext }) => {
+    const timeZone = normalizeTimeZone(compileContext.dateConfig?.timeZone, "UTC");
+    return ok(sql`${dates.formatDateKey(compileContext.now, { ...compileContext.dateConfig, timeZone })}::date`, "date");
+  },
+  NOW: ({ compileContext }) => ok(sql`${compileContext.now.toISOString()}::timestamptz`, "datetime"),
+  YEAR: ({ arg }) => ok(sql`EXTRACT(YEAR FROM ${asDate(arg(0))})::numeric`, "numeric"),
+  MONTH: ({ arg }) => ok(sql`EXTRACT(MONTH FROM ${asDate(arg(0))})::numeric`, "numeric"),
+  DAY: ({ arg }) => ok(sql`EXTRACT(DAY FROM ${asDate(arg(0))})::numeric`, "numeric"),
+  DATEADD: ({ sourceArgs, compiled }) => compileDateAdd(sourceArgs, compiled),
+  DATEDIFF: ({ sourceArgs, compiled }) => compileDateDiff(sourceArgs, compiled),
+} satisfies Record<FormulaFunctionName, FormulaFunctionCompiler>;
+
 const compileFunction = (fn: string, args: Expr[], ctx: CompileContext): FormulaSqlCompileResult => {
   const upper = fn.toUpperCase();
-  const arity = FORMULA_ARITY[upper];
+  const arity = FORMULA_ARITY[upper as FormulaFunctionName];
   if (arity && (args.length < arity.min || args.length > arity.max)) {
     return fail(`${upper} needs ${formatArity(arity)}; got ${args.length}`);
   }
@@ -273,72 +350,9 @@ const compileFunction = (fn: string, args: Expr[], ctx: CompileContext): Formula
   const numericArg = (index: number): unknown => asNumeric(arg(index));
   const textArg = (index: number): unknown => asText(arg(index));
   const boolArg = (index: number): unknown => asBoolean(arg(index));
-
-  if (upper === "ABS") return ok(sql`ABS(${numericArg(0)})`, "numeric");
-  if (upper === "ROUND") return ok(sql`ROUND(${numericArg(0)}, COALESCE(FLOOR(${numericArg(1)})::int, 0))`, "numeric");
-  if (upper === "FLOOR") return ok(sql`FLOOR(${numericArg(0)})`, "numeric");
-  if (upper === "CEIL") return ok(sql`CEIL(${numericArg(0)})`, "numeric");
-  if (upper === "SQRT") return ok(sql`CASE WHEN ${numericArg(0)} < 0 THEN NULL ELSE SQRT(${numericArg(0)}) END`, "numeric");
-  if (upper === "POW") return ok(sql`POWER(${numericArg(0)}, ${numericArg(1)})`, "numeric");
-  if (upper === "MOD") return ok(sql`MOD(${numericArg(0)}, NULLIF(${numericArg(1)}, 0))`, "numeric");
-  if (upper === "SUM") return ok(numericValues(compiled, "SUM"), "numeric");
-  if (upper === "AVG" || upper === "MEAN") return ok(numericValues(compiled, "AVG"), "numeric");
-  if (upper === "MEDIAN") return ok(numericValues(compiled, "MEDIAN"), "numeric");
-  if (upper === "MIN") return ok(numericValues(compiled, "MIN"), "numeric");
-  if (upper === "MAX") return ok(numericValues(compiled, "MAX"), "numeric");
-  if (upper === "COUNT") {
-    if (compiled.length === 0) return ok(sql`0::numeric`, "numeric");
-    const parts = compiled.map((expr) => sql`CASE WHEN ${expr.sql} IS NULL OR (${expr.sql})::text = '' THEN 0 ELSE 1 END`);
-    return ok(sql`(${sqlJoin(parts, sql` + `)})::numeric`, "numeric");
-  }
-  if (upper === "PERCENT") return ok(sql`(${numericArg(0)} / NULLIF(${numericArg(1)}, 0) * 100)`, "numeric");
-
-  if (upper === "CONCAT") return ok(compiled.length === 0 ? sql`''::text` : sql`CONCAT(${sqlJoin(compiled.map(asText), sql`, `)})`, "text");
-  if (upper === "LEN") return ok(sql`CHAR_LENGTH(${textArg(0)})::numeric`, "numeric");
-  if (upper === "LOWER") return ok(sql`LOWER(${textArg(0)})`, "text");
-  if (upper === "UPPER") return ok(sql`UPPER(${textArg(0)})`, "text");
-  if (upper === "TRIM") return ok(sql`TRIM(${textArg(0)})`, "text");
-  if (upper === "LEFT") return ok(sql`LEFT(${textArg(0)}, GREATEST(FLOOR(${numericArg(1)})::int, 0))`, "text");
-  if (upper === "RIGHT") return ok(sql`RIGHT(${textArg(0)}, GREATEST(FLOOR(${numericArg(1)})::int, 0))`, "text");
-  if (upper === "SUBSTRING") {
-    return ok(
-      sql`SUBSTRING(${textArg(0)} FROM GREATEST(FLOOR(${numericArg(1)})::int, 0) + 1 FOR GREATEST(FLOOR(${numericArg(2)})::int, 0))`,
-      "text",
-    );
-  }
-  if (upper === "REPLACE") return ok(sql`REPLACE(${textArg(0)}, ${textArg(1)}, ${textArg(2)})`, "text");
-
-  if (upper === "IF") {
-    const thenType = arg(1).type;
-    const elseType = arg(2).type;
-    return ok(sql`CASE WHEN ${boolArg(0)} THEN ${arg(1).sql} ELSE ${arg(2).sql} END`, thenType === elseType ? thenType : "unknown");
-  }
-  if (upper === "IFEMPTY")
-    return ok(sql`CASE WHEN ${arg(0).sql} IS NULL OR (${arg(0).sql})::text = '' THEN ${arg(1).sql} ELSE ${arg(0).sql} END`, arg(0).type);
-  if (upper === "IFERROR") return ok(sql`COALESCE(${arg(0).sql}, ${arg(1).sql})`, arg(0).type === arg(1).type ? arg(0).type : "unknown");
-  if (upper === "AND") return ok(compiled.length === 0 ? sql`true` : sql`(${sqlJoin(compiled.map(asBoolean), sql` AND `)})`, "boolean");
-  if (upper === "OR") return ok(compiled.length === 0 ? sql`false` : sql`(${sqlJoin(compiled.map(asBoolean), sql` OR `)})`, "boolean");
-  if (upper === "NOT") return ok(sql`NOT ${boolArg(0)}`, "boolean");
-  if (upper === "ISBLANK") return ok(sql`(${arg(0).sql} IS NULL OR (${arg(0).sql})::text = '')`, "boolean");
-  if (upper === "CONTAINS") return ok(sql`POSITION(${textArg(1)} IN ${textArg(0)}) > 0`, "boolean");
-  if (upper === "STARTSWITH") return ok(sql`POSITION(${textArg(1)} IN ${textArg(0)}) = 1`, "boolean");
-  if (upper === "ENDSWITH") return ok(sql`RIGHT(${textArg(0)}, CHAR_LENGTH(${textArg(1)})) = ${textArg(1)}`, "boolean");
-  if (upper === "ICONTAINS") return ok(sql`POSITION(LOWER(${textArg(1)}) IN LOWER(${textArg(0)})) > 0`, "boolean");
-  if (upper === "ISTARTSWITH") return ok(sql`POSITION(LOWER(${textArg(1)}) IN LOWER(${textArg(0)})) = 1`, "boolean");
-  if (upper === "IENDSWITH") return ok(sql`RIGHT(LOWER(${textArg(0)}), CHAR_LENGTH(${textArg(1)})) = LOWER(${textArg(1)})`, "boolean");
-
-  if (upper === "TODAY") {
-    const timeZone = normalizeTimeZone(ctx.dateConfig?.timeZone, "UTC");
-    return ok(sql`${dates.formatDateKey(ctx.now, { ...ctx.dateConfig, timeZone })}::date`, "date");
-  }
-  if (upper === "NOW") return ok(sql`${ctx.now.toISOString()}::timestamptz`, "datetime");
-  if (upper === "YEAR") return ok(sql`EXTRACT(YEAR FROM ${asDate(arg(0))})::numeric`, "numeric");
-  if (upper === "MONTH") return ok(sql`EXTRACT(MONTH FROM ${asDate(arg(0))})::numeric`, "numeric");
-  if (upper === "DAY") return ok(sql`EXTRACT(DAY FROM ${asDate(arg(0))})::numeric`, "numeric");
-  if (upper === "DATEADD") return compileDateAdd(args, compiled);
-  if (upper === "DATEDIFF") return compileDateDiff(args, compiled);
-
-  return fail(`Unsupported formula function ${fn}`);
+  const compiler: FormulaFunctionCompiler | undefined = FORMULA_FUNCTION_COMPILERS[upper as FormulaFunctionName];
+  if (!compiler) return fail(`Unsupported formula function ${fn}`);
+  return compiler({ sourceArgs: args, compiled, compileContext: ctx, arg, numericArg, textArg, boolArg });
 };
 
 const inlineFormulaField = (field: Field, ctx: CompileContext): FormulaSqlCompileResult => {
