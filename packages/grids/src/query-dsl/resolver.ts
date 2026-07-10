@@ -16,7 +16,6 @@ import {
   type FormulaSqlType,
 } from "../service/formula-sql-compiler";
 import { type GroupHavingRef, isGroupable } from "../service/group-compiler";
-import { filterSearchableFields } from "../service/search";
 import type { Field } from "../service/types";
 import {
   type DslFormulaAggregation,
@@ -67,7 +66,7 @@ import {
   type Scope,
   setHasAlias,
 } from "./resolver-scope";
-import { type DslResolvedSqlSearch, resolveDerivedSearch } from "./resolver-search";
+import { type DslResolvedSqlSearch, resolveDerivedSearch, resolveSearch } from "./resolver-search";
 import { isDerivedViewSource, type ResolvedSource, resolveSource, validateViewSource, viewSourceNeedsRecordScope } from "./resolver-source";
 import { type DslWherePredicate, isRecordScopedRef, mergeRecordMeta, recordMetaSortKeyForRef, resolveWhere } from "./resolver-where";
 import { isScopedFormulaFieldRef } from "./scoped-formula";
@@ -812,9 +811,6 @@ const derivedAggregateAliasConflictDiagnostic = (
   return null;
 };
 
-const isSearchableField = (field: Field, fields: Field[]): boolean =>
-  filterSearchableFields(fields).some((candidate) => candidate.id === field.id);
-
 const sortAlias = (target: DslSortItem["target"], scope: Scope): string | null => {
   if (isAliasSortTarget(target)) return target.alias;
   if (target.scope) return null;
@@ -1187,52 +1183,8 @@ export const resolveDslQueryToQueryPlan = (ast: DslQueryAst, ctx: DslResolverCon
     } else wherePredicate = resolved.node;
   }
 
-  let searchSpec: { q: string; fieldIds?: string[] } | undefined;
-  const sqlSearchByJoin = new Map<string, DslResolvedSqlSearch>();
-  if (ast.search) {
-    const ids: string[] = [];
-    for (const ref of ast.search.fields) {
-      if (ref.scope && !isBaseScope(scope, ref.scope)) {
-        const join = joinScopeByAlias(scope, ref.scope, ref.span);
-        if (isDiagnostic(join)) {
-          errors.push(join);
-          break;
-        }
-        const field = fieldByRefMap(join.byRef, ref.ref, `${ref.scope}."${ref.ref}"`, ref.span);
-        if (isDiagnostic(field)) {
-          errors.push(field);
-          break;
-        }
-        if (!isSearchableField(field, join.fields)) {
-          errors.push(diagnostic(`field "${field.name}" is not searchable`, ref.span ?? ast.search.span));
-          break;
-        }
-        const existing =
-          sqlSearchByJoin.get(join.alias) ??
-          ({
-            q: ast.search.q,
-            tableId: join.tableId,
-            joinAlias: join.alias,
-            fieldIds: [],
-          } satisfies DslResolvedSqlSearch);
-        existing.fieldIds.push(field.id);
-        sqlSearchByJoin.set(join.alias, existing);
-        continue;
-      }
-      const field = fieldByRef(scope, ref.ref, ref.span);
-      if (isDiagnostic(field)) {
-        errors.push(field);
-        break;
-      }
-      if (!isSearchableField(field, scope.fields)) {
-        errors.push(diagnostic(`field "${field.name}" is not searchable`, ref.span ?? ast.search.span));
-        break;
-      }
-      ids.push(field.id);
-    }
-    if (ast.search.fields.length === 0 || ids.length > 0)
-      searchSpec = ids.length > 0 ? { q: ast.search.q, fieldIds: ids } : { q: ast.search.q };
-  }
+  const search = resolveSearch(ast.search, scope);
+  errors.push(...search.diagnostics);
 
   const groupBy = resolveGroupBy(ast.groupBy, scope, { joinedQuery: joinedGrouped });
   if (isDiagnostic(groupBy)) errors.push(groupBy);
@@ -1318,7 +1270,7 @@ export const resolveDslQueryToQueryPlan = (ast: DslQueryAst, ctx: DslResolverCon
     ...(resolvedGroupBy.length > 0 ? { groupBy: resolvedGroupBy } : {}),
     ...(sqlAggregations.aggregations.length > 0 ? { aggregations: sqlAggregations.aggregations } : {}),
     ...(groupedSort && groupedSort.groupSort.length > 0 ? { groupSort: groupedSort.groupSort } : {}),
-    ...(searchSpec ? { search: searchSpec } : {}),
+    ...(search.searchSpec ? { search: search.searchSpec } : {}),
     ...(sort && sort.viewSort.length > 0 ? { sort: sort.viewSort } : {}),
     ...(ast.limit !== undefined ? { limit: ast.limit } : {}),
     ...(ast.deletedOnly ? { deletedOnly: true } : ast.includeDeleted ? { includeDeleted: true } : {}),
@@ -1352,7 +1304,7 @@ export const resolveDslQueryToQueryPlan = (ast: DslQueryAst, ctx: DslResolverCon
           sqlAggregations: sqlAggregations.sqlAggregations,
         }
       : {}),
-    ...(sqlSearchByJoin.size > 0 ? { sqlSearch: [...sqlSearchByJoin.values()] } : {}),
+    ...(search.sqlSearch.length > 0 ? { sqlSearch: search.sqlSearch } : {}),
     ...(groupedSort && groupedSort.formulaGroupSort.length > 0 ? { formulaGroupSort: groupedSort.formulaGroupSort } : {}),
     ...(sqlAggregations.formulaAggregations.length > 0 ? { formulaAggregations: sqlAggregations.formulaAggregations } : {}),
     ...(wherePredicate ? { wherePredicate } : {}),
