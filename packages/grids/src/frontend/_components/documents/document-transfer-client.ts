@@ -9,6 +9,17 @@ type GenerateDocumentTemplateInput = PreviewDocumentTemplateInput & {
   tags?: string[];
 };
 
+export type DocumentTemplateDraftPreviewInput = {
+  source: string;
+  html: string;
+  headerHtml?: string | null;
+  footerHtml?: string | null;
+  pageCss?: string | null;
+  numberTemplate?: string;
+  filenameTemplate?: string;
+  recordId: string;
+};
+
 const documentTemplateActionUrl = (templateId: string, action: "preview-pdf" | "generate") =>
   `/api/grids/documents/templates/${encodeURIComponent(templateId)}/${action}`;
 
@@ -34,6 +45,26 @@ export const requestDocumentTemplateGeneration = (input: GenerateDocumentTemplat
 
 export const requestDocumentRunDownload = (runId: string, signal?: AbortSignal): Promise<Response> =>
   fetch(`/api/grids/documents/runs/${encodeURIComponent(runId)}/download`, signal ? { signal } : undefined);
+
+export const requestDocumentTemplateDraftPreview = (input: {
+  tableId: string;
+  templateId?: string;
+  draft: DocumentTemplateDraftPreviewInput;
+  signal?: AbortSignal;
+}): Promise<Response> => {
+  const scope = input.templateId
+    ? `/templates/${encodeURIComponent(input.templateId)}`
+    : `/templates/by-table/${encodeURIComponent(input.tableId)}`;
+  return fetch(`/api/grids/documents${scope}/preview-draft`, {
+    method: "POST",
+    signal: input.signal,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input.draft),
+  });
+};
+
+export const requestWorkflowDocumentsDownload = (workflowRunId: string, signal?: AbortSignal): Promise<Response> =>
+  fetch(`/api/grids/workflows/runs/${encodeURIComponent(workflowRunId)}/documents/download`, signal ? { signal } : undefined);
 
 export const isPdfResponse = (response: Response): boolean =>
   response.ok && (response.headers.get("content-type") ?? "").toLowerCase().includes("application/pdf");
