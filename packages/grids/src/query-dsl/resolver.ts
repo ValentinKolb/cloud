@@ -19,18 +19,25 @@ import {
   isFieldAggregatable,
   isFormulaAggregatable,
 } from "../service/aggregate-capabilities";
-import { groupSqlTypeForField, storageOf } from "../service/field-storage";
 import {
   compileFormulaAstToSql,
   compileFormulaPredicateAstToSql,
   type FormulaSqlExpression,
   type FormulaSqlType,
-  formulaSqlTypeForField,
 } from "../service/formula-sql-compiler";
 import { type GroupAggregationSpec, type GroupHavingRef, isGroupable } from "../service/group-compiler";
 import { filterSearchableFields } from "../service/search";
 import type { Field } from "../service/types";
 import type { DslResolverContext, DslTableSource, DslViewSource } from "./resolver-context";
+import {
+  createDerivedFormulaFieldResolver,
+  type DslDerivedViewColumn,
+  derivedColumnByRef,
+  derivedColumnSqlType,
+  derivedViewColumns,
+  formulaSqlTypeForDerivedField,
+  uniqueRefs,
+} from "./resolver-derived-columns";
 import {
   type DslPlanDiagnosticSpans,
   type DslResolverDiagnostic,
@@ -56,7 +63,6 @@ import {
   joinScopeByAlias,
   refUsesAlias,
   relationOutputDiagnostic,
-  relationTargetTableId,
   type Scope,
   setHasAlias,
   setJoinAlias,
@@ -75,6 +81,8 @@ import type {
 } from "./types";
 
 export type { DslResolverContext, DslTableSource, DslViewSource } from "./resolver-context";
+export type { DslDerivedViewColumn } from "./resolver-derived-columns";
+export { derivedViewColumns } from "./resolver-derived-columns";
 export type { DslResolverDiagnostic } from "./resolver-diagnostics";
 
 type DslResolvedQueryPlan = {
@@ -211,18 +219,6 @@ type DslResolvedSqlSearch = {
   fieldIds: string[];
 };
 
-export type DslDerivedViewColumn = {
-  kind: "group" | "aggregate";
-  key: string;
-  label: string;
-  refs: string[];
-  sqlType: FormulaSqlType | "json";
-  type: string;
-  fieldId?: string;
-  targetTableId?: string;
-  agg?: string;
-};
-
 export type DslResolvedDerivedRelationJoin = {
   mode: DslJoin["mode"];
   alias: string;
@@ -301,102 +297,6 @@ type DslSqlQueryPlanResolveResult = { ok: true; plan: DslResolvedSqlQueryPlan } 
 const MAX_JOIN_COUNT = 5;
 const MAX_JOIN_DEPTH = 3;
 const FORMULA_AGGREGATE_ALIAS_RE = /^[A-Za-z_][A-Za-z0-9_]{0,49}$/;
-
-const sqlTypeForGroupField = (field: Field): DslDerivedViewColumn["sqlType"] => {
-  return groupSqlTypeForField(field);
-};
-
-const uniqueRefs = (refs: Array<string | null | undefined>): string[] => {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const ref of refs) {
-    const trimmed = ref?.trim();
-    if (!trimmed) continue;
-    const key = normalizeRefKey(trimmed);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(trimmed);
-  }
-  return result;
-};
-
-export const derivedViewColumns = (query: RecordQuery, fields: Field[]): DslDerivedViewColumn[] | DslResolverDiagnostic => {
-  const fieldsById = new Map(fields.map((field) => [field.id, field]));
-  const columns: DslDerivedViewColumn[] = [];
-
-  for (const [index, group] of (query.groupBy ?? []).entries()) {
-    const field = fieldsById.get(group.fieldId);
-    if (!field) return diagnostic(`view source group field ${group.fieldId} is not available`);
-    const key = `gk_${index}`;
-    const fallback = group.granularity ? `${field.name} (${group.granularity})` : field.name;
-    const label = group.label?.trim() || fallback;
-    const targetTableId = relationTargetTableId(field);
-    columns.push({
-      kind: "group",
-      key,
-      label,
-      refs: uniqueRefs([key, label, field.id, field.shortId, field.name]),
-      fieldId: field.id,
-      ...(targetTableId ? { targetTableId } : {}),
-      type: field.type,
-      sqlType: sqlTypeForGroupField(field),
-    });
-  }
-
-  for (const aggregation of query.aggregations ?? []) {
-    const field = aggregation.fieldId === "*" ? null : fieldsById.get(aggregation.fieldId);
-    if (aggregation.fieldId !== "*" && !field) return diagnostic(`view source aggregate field ${aggregation.fieldId} is not available`);
-    const key = aggregateOutputKey(aggregation.fieldId, aggregation.agg);
-    const fallback = aggregation.fieldId === "*" ? "# records" : `${aggregation.agg} ${field?.name ?? "value"}`;
-    const label = aggregation.label?.trim() || fallback;
-    columns.push({
-      kind: "aggregate",
-      key,
-      label,
-      refs: uniqueRefs([
-        key,
-        label,
-        aggregation.label,
-        aggregation.fieldId === "*" ? "count" : `${aggregation.agg} ${field?.name ?? ""}`,
-        aggregation.fieldId === "*" ? "rows" : undefined,
-      ]),
-      fieldId: aggregation.fieldId,
-      agg: aggregation.agg,
-      type: "aggregate",
-      sqlType: aggregateSqlTypeForField(field ?? null, aggregation.agg, aggregation.fieldId === "*"),
-    });
-  }
-
-  return columns;
-};
-
-const derivedColumnByRef = (
-  columns: DslDerivedViewColumn[],
-  ref: string,
-  span?: DslSourceSpan,
-): DslDerivedViewColumn | DslResolverDiagnostic => {
-  const key = normalizeRefKey(ref);
-  const matches = columns.filter((column) => column.refs.some((candidate) => normalizeRefKey(candidate) === key));
-  if (matches.length === 0) return diagnostic(`unknown derived column "${ref}"`, span);
-  if (matches.length > 1) return diagnostic(`ambiguous derived column "${ref}"`, span);
-  return matches[0]!;
-};
-
-const derivedColumnSqlType = (column: DslDerivedViewColumn): FormulaSqlType => (column.sqlType === "json" ? "unknown" : column.sqlType);
-
-const formulaSqlTypeForDerivedField = (field: Field): FormulaSqlType | "json" => {
-  const kind = storageOf(field).kind;
-  if (kind === "relationLink" || kind === "jsonbArray") return "text";
-  return formulaSqlTypeForField(field);
-};
-
-const createDerivedFormulaFieldResolver =
-  (columns: DslDerivedViewColumn[], recordAlias: string): ((ref: string) => FormulaSqlExpression | string | null) =>
-  (ref) => {
-    const column = derivedColumnByRef(columns, ref);
-    if ("message" in column) return column.message;
-    return { sql: sql`${sql.unsafe(`${recordAlias}."${column.key}"`)}`, type: derivedColumnSqlType(column) };
-  };
 
 const createDerivedScopedFormulaFieldResolver = (
   columns: DslDerivedViewColumn[],
