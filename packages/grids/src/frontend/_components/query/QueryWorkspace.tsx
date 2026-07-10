@@ -1,6 +1,6 @@
 import { AutocompleteEditor, DataTable, type DataTableColumn, Panes, type PanesValue, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { highlight } from "@valentinkolb/stdlib";
-import { timed } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations, timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewDiagnostic, DslQueryPreviewResponse } from "../../../contracts";
@@ -252,7 +252,6 @@ export default function QueryWorkspace(props: Props) {
   const [query, setQuery] = createSignal(props.initialQuery);
   const [preview, setPreview] = createSignal<DslQueryPreviewResponse | null>(props.initialPreview ?? null);
   const [loading, setLoading] = createSignal(false);
-  const [saveLoading, setSaveLoading] = createSignal(false);
   const [panes, setPanes] = createSignal<PanesValue>(createQueryWorkspacePanesValue());
   const [sourceSearch, setSourceSearch] = createSignal("");
   const apiSource = createMemo(() => currentSourceForApi(props.currentSource));
@@ -397,10 +396,8 @@ export default function QueryWorkspace(props: Props) {
     insertAtEditorCursor(formatIdentifierRef(field.name));
   };
 
-  const handleSaveAsView = async () => {
-    if (!query().trim() || saveLoading()) return;
-    setSaveLoading(true);
-    try {
+  const saveViewMut = mutations.create<void, void>({
+    mutation: async () => {
       const compiledResponse = await apiClient.gql["by-base"][":baseId"]["compile-view"].$post({
         param: { baseId: props.baseId },
         json: { query: query(), ...(apiSource() ? { currentSource: apiSource() } : {}) },
@@ -447,16 +444,18 @@ export default function QueryWorkspace(props: Props) {
       if (typeof window !== "undefined" && table) {
         window.location.assign(`/app/grids/${props.baseShortId}/table/${table.shortId}/view/${view.shortId}`);
       }
-    } catch (error) {
-      prompts.error(error instanceof Error ? error.message : "Could not save view.");
-    } finally {
-      setSaveLoading(false);
-    }
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const handleSaveAsView = () => {
+    if (!query().trim() || saveViewMut.loading()) return;
+    saveViewMut.mutate(undefined);
   };
 
   const saveButtonLabel = () => "Save";
   const saveButtonTitle = () => "Save view";
-  const saveButtonIcon = () => (saveLoading() ? "ti ti-loader-2 animate-spin" : "ti ti-bookmark-plus");
+  const saveButtonIcon = () => (saveViewMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-bookmark-plus");
   const handleSave = () => handleSaveAsView();
 
   const firstTable = () => props.tables[0];
@@ -549,7 +548,7 @@ export default function QueryWorkspace(props: Props) {
                 type="button"
                 class="btn-input-primary btn-sm"
                 onClick={handleSave}
-                disabled={!query().trim() || saveLoading()}
+                disabled={!query().trim() || saveViewMut.loading()}
                 title={saveButtonTitle()}
               >
                 <i class={saveButtonIcon()} /> {saveButtonLabel()}

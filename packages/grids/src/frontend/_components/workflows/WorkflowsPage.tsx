@@ -34,6 +34,7 @@ import type {
 } from "../../../contracts";
 import type { Table } from "../../../service";
 import { downloadPdfResponse } from "../documents/document-download";
+import { requestDocumentRunDownload, requestWorkflowDocumentsDownload } from "../documents/document-transfer-client";
 import { errorMessage } from "../utils/api-helpers";
 import { buildBackendWorkflowCompletions } from "./workflow-autocomplete";
 
@@ -952,7 +953,7 @@ export function WorkflowRunDetailPanel(props: { runId: string; onClose: () => vo
   const downloadDocument = async (document: DocumentRunSummary) => {
     setDownloadingDocumentId(document.id);
     try {
-      const res = await fetch(`/api/grids/documents/runs/${encodeURIComponent(document.id)}/download`);
+      const res = await requestDocumentRunDownload(document.id);
       await downloadPdfResponse(res, document.filename);
     } catch (error) {
       prompts.error(error instanceof Error ? error.message : "Could not download document.");
@@ -964,7 +965,7 @@ export function WorkflowRunDetailPanel(props: { runId: string; onClose: () => vo
   const downloadAllDocuments = async () => {
     setDownloadingAll(true);
     try {
-      const res = await fetch(`/api/grids/workflows/runs/${encodeURIComponent(props.runId)}/documents/download`);
+      const res = await requestWorkflowDocumentsDownload(props.runId);
       await downloadPdfResponse(res, `workflow-run-${props.runId.slice(0, 8)}.pdf`);
     } catch (error) {
       prompts.error(error instanceof Error ? error.message : "Could not download generated documents.");

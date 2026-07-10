@@ -26,6 +26,7 @@ import { apiClient } from "@/api/client";
 import type { DocumentPreviewResponse, DocumentTemplate } from "../../../contracts";
 import { DOCUMENT_TEMPLATE_STARTERS, type DocumentTemplateStarter } from "../../../document-template-starters";
 import type { Field, Form, Table } from "../../../service";
+import { requestDocumentTemplateDraftPreview } from "../documents/document-transfer-client";
 import { createDraft } from "../editor-draft";
 import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field-config-editor";
 import { FIELD_TYPE_ICONS } from "../fields/field-type-meta";
@@ -1088,13 +1089,10 @@ function DocumentTemplateEditorDialog(props: {
       recordId,
     };
     const signature = currentPreviewSignature();
-    const path = template
-      ? `/api/grids/documents/templates/${encodeURIComponent(template.id)}/preview-draft`
-      : `/api/grids/documents/templates/by-table/${encodeURIComponent(props.args.tableId)}/preview-draft`;
-    const response = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+    const response = await requestDocumentTemplateDraftPreview({
+      tableId: props.args.tableId,
+      templateId: template?.id,
+      draft: payload,
     });
     if (response.ok) setLastSuccessfulPreviewSignature(signature);
     return response;
