@@ -12,6 +12,7 @@ import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import GatewayOpsLayoutHelp from "../../frontend/GatewayOpsLayoutHelp.island";
+import JobsActionToast from "./_components/JobsActionToast.island";
 import JobsFilterBar from "./_components/JobsFilterBar.island";
 import {
   buildJobsFilterUrl,
@@ -21,6 +22,12 @@ import {
   minDurationFromFilter,
   parseJobsFilterFromUrl,
 } from "./_components/types";
+import {
+  type BackgroundJobOverviewRow,
+  buildBackgroundJobRows,
+  filterBackgroundJobRows,
+  jobsObservabilityService,
+} from "./service";
 
 const baseUrl = "/admin/observability/jobs";
 const numberFormat = new Intl.NumberFormat("de-DE");
@@ -49,6 +56,8 @@ const formatDate = (value: string | null): string => {
     second: "2-digit",
   }).format(new Date(value));
 };
+
+const formatTimestamp = (value: number | null): string => (value === null ? "-" : formatDate(new Date(value).toISOString()));
 
 const windowLabel = (filter: JobsFilterState): string =>
   jobsWindowOptions.find((option) => option.value === filter.window)?.label.toLowerCase() ?? "24 hours";
@@ -107,9 +116,28 @@ const statusBadge = (input: { status: string | null; running?: boolean }) => {
 };
 
 const groupHealth = (group: TraceSourceGroup) => {
-  if (group.running > 0) return statusBadge({ status: "running", running: true });
-  if (group.failed > 0) return statusBadge({ status: "error" });
-  return statusBadge({ status: "ok" });
+  if (group.latestStartedAt && !group.latestEndedAt) return statusBadge({ status: group.latestStatus, running: true });
+  return statusBadge({ status: group.latestStatus });
+};
+
+const rowHealth = (row: BackgroundJobOverviewRow) => (row.trace ? groupHealth(row.trace) : statusBadge({ status: null }));
+
+const stateBadge = (row: BackgroundJobOverviewRow) => {
+  if (row.kind === "trace") {
+    return <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-dimmed dark:bg-zinc-900">Trace only</span>;
+  }
+  if (row.state === "available") {
+    return (
+      <span class="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200">
+        Available
+      </span>
+    );
+  }
+  return (
+    <span class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+      Unavailable
+    </span>
+  );
 };
 
 const summarize = (summary: Record<string, unknown> | null): string => {
@@ -156,15 +184,16 @@ const statsGrid = (stats: TraceRunStats, filter: JobsFilterState) => (
   </StatGrid>
 );
 
-const groupColumns: DataTableColumn<TraceSourceGroup>[] = [
-  { id: "source", header: "Source", value: (row) => row.source, cellClass: "min-w-[260px]" },
-  { id: "health", header: "Health", value: (row) => row.failed },
-  { id: "runs", header: "Runs", value: (row) => row.runs, headerClass: "text-right", cellClass: "text-right" },
+const overviewColumns: DataTableColumn<BackgroundJobOverviewRow>[] = [
+  { id: "source", header: "Schedule / Source", value: (row) => row.source, cellClass: "min-w-[280px]" },
+  { id: "control", header: "Control", subtitle: "handler", value: (row) => row.state },
+  { id: "health", header: "Latest", subtitle: "trace run", value: (row) => row.trace?.latestStatus ?? "" },
+  { id: "runs", header: "Runs", value: (row) => row.trace?.runs ?? 0, headerClass: "text-right", cellClass: "text-right" },
   {
     id: "failed",
     header: "Failed",
     subtitle: "error rate",
-    value: (row) => row.failed,
+    value: (row) => row.trace?.failed ?? 0,
     headerClass: "text-right",
     cellClass: "text-right",
   },
@@ -172,12 +201,12 @@ const groupColumns: DataTableColumn<TraceSourceGroup>[] = [
     id: "runtime",
     header: "Runtime",
     subtitle: "avg / p99",
-    value: (row) => row.avgDurationMs,
+    value: (row) => row.trace?.avgDurationMs ?? 0,
     headerClass: "text-right",
     cellClass: "text-right",
   },
-  { id: "types", header: "Types", value: (row) => row.categories.join(", ") },
-  { id: "latest", header: "Latest", value: (row) => row.latestStartedAt, cellClass: "whitespace-nowrap" },
+  { id: "next", header: "Next", subtitle: "scheduled", value: (row) => row.nextRunAt ?? 0, cellClass: "whitespace-nowrap" },
+  { id: "action", header: "", value: (row) => row.scheduleId ?? row.source, headerClass: "text-right", cellClass: "text-right" },
 ];
 
 const runColumns: DataTableColumn<TraceSpan>[] = [
@@ -197,45 +226,77 @@ const sourceSubtitle = (group: TraceSourceGroup): string => {
   return parts.join(" · ");
 };
 
-const OverviewTable = (props: { groups: TraceSourceGroup[]; filter: JobsFilterState }) => (
+const overviewSubtitle = (row: BackgroundJobOverviewRow): string => {
+  const parts = [row.family];
+  if (row.resourceLabel) parts.push(row.resourceLabel);
+  if (row.kind === "schedule") parts.push(`${row.schedulerId} / ${row.scheduleId}`);
+  else parts.push(sourceSubtitle(row.trace));
+  return parts.join(" · ");
+};
+
+const RunNowButton = (props: { row: BackgroundJobOverviewRow; filter: JobsFilterState }) => {
+  if (props.row.kind !== "schedule") return <span class="text-[10px] text-dimmed">-</span>;
+  const disabled = props.row.state !== "available";
+  return (
+    <form method="post" action="/admin/observability/jobs/run-now" class="inline-flex justify-end">
+      <input type="hidden" name="schedulerId" value={props.row.schedulerId} />
+      <input type="hidden" name="scheduleId" value={props.row.scheduleId} />
+      <input type="hidden" name="redirectTo" value={buildJobsFilterUrl(baseUrl, { run: null }, props.filter)} />
+      <button
+        type="submit"
+        class="btn-simple btn-sm"
+        disabled={disabled}
+        title={disabled ? props.row.lastError || "No live scheduler handler is available." : "Request a manual scheduler run."}
+      >
+        <i class="ti ti-player-play" />
+        Run now
+      </button>
+    </form>
+  );
+};
+
+const OverviewTable = (props: { rows: BackgroundJobOverviewRow[]; filter: JobsFilterState }) => (
   <section class="paper overflow-hidden">
     <div class="border-b border-zinc-100 px-3 py-2 dark:border-zinc-800/60">
-      <h2 class="text-xs font-semibold text-primary">Job families</h2>
-      <p class="text-[10px] text-dimmed">Grouped by source. Schedule definition spans are excluded from runtime statistics.</p>
+      <h2 class="text-xs font-semibold text-primary">Schedules and job families</h2>
+      <p class="text-[10px] text-dimmed">
+        Schedules come from sync schedulerControl. Runtime statistics stay SQL-based and are joined by source.
+      </p>
     </div>
     <DataTable
-      rows={props.groups}
-      columns={groupColumns}
-      getRowId={(row) => row.source}
+      rows={props.rows}
+      columns={overviewColumns}
+      getRowId={(row) => (row.kind === "schedule" ? `${row.schedulerId}:${row.scheduleId}` : `trace:${row.source}`)}
       hoverRows
       highlightColumns={false}
       density="compact"
       class="overflow-x-auto"
-      empty="No background job sources match the current filters"
+      empty="No background job schedules or sources match the current filters"
       renderCell={({ row, col }) => {
         if (col.id === "source")
           return (
             <a href={sourceUrl(props.filter, row.source)} class="block min-w-0 hover:text-blue-600 dark:hover:text-blue-300">
-              <span class="block truncate text-[11px] font-medium text-primary">{row.source}</span>
-              <span class="block truncate text-[10px] text-dimmed">{row.latestName ?? sourceSubtitle(row)}</span>
+              <span class="block truncate text-[11px] font-medium text-primary">{row.label}</span>
+              <span class="block truncate text-[10px] text-dimmed">{overviewSubtitle(row)}</span>
             </a>
           );
-        if (col.id === "health") return groupHealth(row);
-        if (col.id === "runs") return <span class="text-[10px] tabular-nums text-dimmed">{formatNumber(row.runs)}</span>;
+        if (col.id === "control") return stateBadge(row);
+        if (col.id === "health") return rowHealth(row);
+        if (col.id === "runs") return <span class="text-[10px] tabular-nums text-dimmed">{formatNumber(row.trace?.runs ?? 0)}</span>;
         if (col.id === "failed")
           return (
             <span class="text-[10px] tabular-nums text-dimmed">
-              {formatNumber(row.failed)} · {formatPercent(row.errorRate)}
+              {formatNumber(row.trace?.failed ?? 0)} · {formatPercent(row.trace?.errorRate ?? 0)}
             </span>
           );
         if (col.id === "runtime")
           return (
             <span class="text-[10px] tabular-nums text-dimmed">
-              {formatMs(row.avgDurationMs)} / {formatMs(row.p99DurationMs)}
+              {formatMs(row.trace?.avgDurationMs ?? null)} / {formatMs(row.trace?.p99DurationMs ?? null)}
             </span>
           );
-        if (col.id === "types") return <span class="text-[10px] text-dimmed">{sourceSubtitle(row)}</span>;
-        if (col.id === "latest") return <span class="text-[10px] text-dimmed">{formatDate(row.latestStartedAt)}</span>;
+        if (col.id === "next") return <span class="text-[10px] text-dimmed">{formatTimestamp(row.nextRunAt)}</span>;
+        if (col.id === "action") return <RunNowButton row={row} filter={props.filter} />;
         return "";
       }}
     />
@@ -377,27 +438,66 @@ const SourceRunsTable = (props: {
   </section>
 );
 
+type JobsActionFeedback = { tone: "error"; message: string } | null;
+
+const parseActionFeedback = (url: URL): JobsActionFeedback => {
+  const status = url.searchParams.get("job_action");
+  if (status === "error") return { tone: "error", message: url.searchParams.get("job_message") || "Schedule run could not be requested." };
+  return null;
+};
+
+const FeedbackBanner = (props: { feedback: JobsActionFeedback }) => {
+  if (!props.feedback) return null;
+  return (
+    <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+      <i class="ti ti-alert-circle" /> {props.feedback.message}
+    </div>
+  );
+};
+
+const ControlWarning = (props: { error: string | null }) =>
+  props.error ? (
+    <div class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+      <i class="ti ti-alert-triangle" /> Scheduler control is unavailable: {props.error}
+    </div>
+  ) : null;
+
 export default ssr<AuthContext>(async (c) => {
   const url = new URL(c.req.url);
   const filter = parseJobsFilterFromUrl(url);
+  const actionFeedback = parseActionFeedback(url);
   const traceFilter = traceFilterFromJobs(filter);
   const perPage = 100;
   const paginationInput = { page: filter.page, perPage, offset: (filter.page - 1) * perPage };
   const selectedRun = parseRunKey(filter.run);
+  const schedulesPromise = filter.source
+    ? Promise.resolve({ schedules: [], error: null as string | null })
+    : jobsObservabilityService
+        .listSchedules()
+        .then((schedules) => ({ schedules, error: null as string | null }))
+        .catch((error) => ({ schedules: [], error: error instanceof Error ? error.message : String(error) }));
 
-  const [stats, groups, listResult, selectedSpan, selectedEvents] = await Promise.all([
+  const [stats, groups, listResult, selectedSpan, selectedEvents, scheduleResult] = await Promise.all([
     trace.stats({ filter: traceFilter }),
     filter.source ? Promise.resolve([]) : trace.sourceGroups({ filter: traceFilter }),
     filter.source ? trace.list(paginationInput, { filter: traceFilter }) : Promise.resolve({ spans: [], total: 0 }),
     selectedRun ? trace.getSpan(selectedRun) : Promise.resolve(null),
     selectedRun ? trace.events({ ...selectedRun, limit: 200 }) : Promise.resolve([]),
+    schedulesPromise,
   ]);
   const pagination = createPagination(paginationInput, listResult.total);
   const selectedRunKey = selectedSpan ? runKey(selectedSpan) : filter.run;
+  const overviewRows = filterBackgroundJobRows(buildBackgroundJobRows(scheduleResult.schedules, groups), {
+    search: filter.search,
+    type: filter.type,
+    health: filter.health,
+    requireTraceMatch: filter.duration !== "all",
+  });
 
   return () => (
     <AdminLayout c={c} title="Background Jobs" stretch>
       <GatewayOpsLayoutHelp />
+      <JobsActionToast />
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-jobs-title">
@@ -419,6 +519,8 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {statsGrid(stats, filter)}
+          <FeedbackBanner feedback={actionFeedback} />
+          <ControlWarning error={scheduleResult.error} />
 
           <section class="paper p-3">
             <JobsFilterBar filter={filter} />
@@ -436,7 +538,7 @@ export default ssr<AuthContext>(async (c) => {
               {selectedSpan ? <RunDetailPanel span={selectedSpan} events={selectedEvents} closeHref={closeRunUrl(filter)} /> : null}
             </div>
           ) : (
-            <OverviewTable groups={groups} filter={filter} />
+            <OverviewTable rows={overviewRows} filter={filter} />
           )}
         </div>
       </div>

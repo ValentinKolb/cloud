@@ -233,11 +233,14 @@ pages. Use `AdminLayout stretch`, `GatewayOpsLayoutHelp`, a plain title block,
 `StatGrid` for the first row, `SearchBar` for URL-backed search, and `DataTable`
 for the primary list. Keep filters in the URL and avoid app-specific shells.
 
-For background job observability, render from `trace.list()` and
-`trace.summary()` in `@valentinkolb/cloud/services`. The canonical page is
-`packages/gateway-ops/src/observability/jobs/page.tsx`; app jobs should write
-metadata through `trace.fromSyncJob`, `trace.fromSyncSchedule`, or
-`trace.withSpan` instead of creating separate admin trace tables.
+For background job observability, render from `trace.stats()`,
+`trace.sourceGroups()`, and `trace.list()` in `@valentinkolb/cloud/services`.
+The canonical page is `packages/gateway-ops/src/observability/jobs/page.tsx`;
+app jobs should write metadata through `trace.fromSyncJob`,
+`trace.fromSyncSchedule`, or `trace.withSpan` instead of creating separate admin
+trace tables. Scheduled jobs appear in the canonical page through sync
+`schedulerControl`; app admin UIs should link there instead of exposing their
+own schedule-equivalent "run now" buttons.
 
 ### Global Search
 

@@ -240,6 +240,12 @@ counts, status, duration, model/token stats, and retry data, not prompts,
 answers, raw bodies, tokens, cookies, API keys, or full tool arguments. Gateway
 Ops renders them at `/admin/observability/jobs`.
 
+Every `@valentinkolb/sync` schedule in a Cloud app must set `meta` with
+`appId`, `family`, `label`, and `source` (plus `resourceLabel` for dynamic
+resource schedules). Gateway Ops discovers schedules through `schedulerControl`
+and uses `source` to join SQL trace stats. Do not add app-specific admin
+"run now" endpoints for scheduled work; use `/admin/observability/jobs`.
+
 ### Notifications
 
 ```typescript

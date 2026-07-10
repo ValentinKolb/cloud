@@ -1604,11 +1604,9 @@ export const accountsAppService = {
   },
 
   jobs: {
-    runSync: async (): Promise<string> => lifecycleJobs.submitIpaSync(),
     runIpaBackfill: async (): Promise<string> => lifecycleJobs.submitIpaBackfill(),
     runLocalUserBackfill: async (): Promise<string> => lifecycleJobs.submitLocalUserBackfill(),
     runGuestBackfill: async (): Promise<string> => lifecycleJobs.submitGuestBackfill(),
-    runReminders: async (): Promise<string> => lifecycleJobs.submitReminderRun(),
   },
 } as const;
 

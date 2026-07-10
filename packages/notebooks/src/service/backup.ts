@@ -645,6 +645,12 @@ const createSchedule = async (cron: string, tz: string): Promise<void> => {
     id: "notebooks:snapshot:s3",
     cron,
     tz,
+    meta: {
+      appId: "notebooks",
+      family: "notebooks:snapshots",
+      label: "Notebook S3 snapshot",
+      source: SNAPSHOT_LOG_SOURCE,
+    },
     trace: trace.fromSyncSchedule<void>({
       name: "Notebook S3 snapshot schedule",
       source: SNAPSHOT_LOG_SOURCE,
@@ -703,10 +709,6 @@ export const snapshotRuntime = {
     started = false;
     registered = false;
     registerPromise = null;
-  },
-
-  runNow: async (): Promise<void> => {
-    await snapshotJob.submit({ key: `manual:${Date.now()}` });
   },
 
   reschedule: async (cron: string): Promise<void> => {

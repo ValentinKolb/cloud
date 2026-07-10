@@ -284,15 +284,25 @@ const createSchedule = async (config: {
   id: string;
   cron: string;
   tz: string;
+  family: string;
+  label: string;
+  source?: string;
   submit: (key: string) => Promise<string>;
 }): Promise<void> => {
+  const source = config.source ?? config.id;
   await lifecycleScheduler.create({
     id: config.id,
     cron: config.cron,
     tz: config.tz,
+    meta: {
+      appId: "core",
+      family: config.family,
+      label: config.label,
+      source,
+    },
     trace: trace.fromSyncSchedule<void>({
       name: config.id,
-      source: config.id,
+      source,
       appId: "core",
     }),
     process: async ({ ctx }) => {
@@ -308,9 +318,20 @@ const createScheduleWithFallback = async (config: {
   tz: string;
   submit: (key: string) => Promise<string>;
   settingsKey: string;
+  family: string;
+  label: string;
+  source?: string;
 }): Promise<void> => {
   try {
-    await createSchedule({ id: config.id, cron: config.cron, tz: config.tz, submit: config.submit });
+    await createSchedule({
+      id: config.id,
+      cron: config.cron,
+      tz: config.tz,
+      family: config.family,
+      label: config.label,
+      source: config.source,
+      submit: config.submit,
+    });
   } catch (error) {
     if (config.cron === config.fallbackCron) throw error;
     log.warn("Invalid configured cron, falling back to default", {
@@ -320,7 +341,15 @@ const createScheduleWithFallback = async (config: {
       timezone: config.tz,
       error: error instanceof Error ? error.message : String(error),
     });
-    await createSchedule({ id: config.id, cron: config.fallbackCron, tz: config.tz, submit: config.submit });
+    await createSchedule({
+      id: config.id,
+      cron: config.fallbackCron,
+      tz: config.tz,
+      family: config.family,
+      label: config.label,
+      source: config.source,
+      submit: config.submit,
+    });
   }
 };
 
@@ -338,6 +367,8 @@ const doRegister = async (): Promise<void> => {
     fallbackCron: DEFAULT_IPA_SYNC_CRON,
     tz: scheduleTz,
     settingsKey: "freeipa.sync_cron",
+    family: "auth:ipa",
+    label: "FreeIPA account sync",
     submit: (key) => ipaSyncJob.submit({ key }),
   });
 
@@ -345,6 +376,8 @@ const doRegister = async (): Promise<void> => {
     id: "auth:reminder:daily",
     cron: reminderCron,
     tz: scheduleTz,
+    family: "auth:reminders",
+    label: "Daily account reminders",
     submit: (key) => reminderJob.submit({ key }),
   });
 
@@ -352,6 +385,8 @@ const doRegister = async (): Promise<void> => {
     id: "auth:guest:cleanup",
     cron: cleanupCron,
     tz: scheduleTz,
+    family: "auth:cleanup",
+    label: "Guest account cleanup",
     submit: (key) => guestCleanupJob.submit({ key }),
   });
 
@@ -359,6 +394,8 @@ const doRegister = async (): Promise<void> => {
     id: "auth:local-user:cleanup",
     cron: cleanupCron,
     tz: scheduleTz,
+    family: "auth:cleanup",
+    label: "Local user cleanup",
     submit: (key) => localUserCleanupJob.submit({ key }),
   });
 
@@ -366,6 +403,8 @@ const doRegister = async (): Promise<void> => {
     id: "auth:lifecycle:audit:cleanup",
     cron: cleanupCron,
     tz: scheduleTz,
+    family: "auth:cleanup",
+    label: "Account lifecycle audit cleanup",
     submit: (key) => auditCleanupJob.submit({ key }),
   });
 
@@ -373,6 +412,8 @@ const doRegister = async (): Promise<void> => {
     id: "app:logs:cleanup",
     cron: cleanupCron,
     tz: scheduleTz,
+    family: "app:cleanup",
+    label: "Application log cleanup",
     submit: (key) => logCleanupJob.submit({ key }),
   });
 
@@ -406,13 +447,10 @@ export const lifecycleJobs = {
     registerPromise = null;
   },
 
-  // Manual triggers — use a timestamp key so repeated presses within the same
-  // millisecond are deduped but subsequent calls always enqueue a new run.
+  // Manual-only backfill triggers. Scheduled jobs are run through schedulerControl.
   submitIpaBackfill: (): Promise<string> => ipaBackfillJob.submit({ key: `manual:${Date.now()}` }),
   submitLocalUserBackfill: (): Promise<string> => localUserBackfillJob.submit({ key: `manual:${Date.now()}` }),
   submitGuestBackfill: (): Promise<string> => guestBackfillJob.submit({ key: `manual:${Date.now()}` }),
-  submitReminderRun: (): Promise<string> => reminderJob.submit({ key: `manual:${Date.now()}` }),
-  submitIpaSync: (): Promise<string> => ipaSyncJob.submit({ key: `manual:${Date.now()}` }),
 
   metrics: () => lifecycleScheduler.metric(),
   listSchedules: async () => lifecycleScheduler.list(),

@@ -139,15 +139,14 @@ const app = new Hono<AuthContext>()
       });
     },
   )
-  // Single unified job-dispatch endpoint. The five RPC POSTs it replaces all
-  // mapped to `lifecycleJobs.submit*`; consolidating keeps the API surface
-  // small and makes adding job kinds a one-line change.
+  // Manual-only lifecycle jobs. Scheduled jobs such as IPA sync and reminders
+  // are triggered centrally through Gateway Ops schedulerControl.
   .post(
     "/jobs",
     describeRoute({
       tags: ["Admin Lifecycle"],
       summary: "Submit a lifecycle job",
-      description: "Dispatches one of the configured account-lifecycle jobs. Returns the submitted job ID.",
+      description: "Dispatches one of the account-lifecycle backfill jobs. Scheduled lifecycle jobs are controlled from Admin Observability Jobs.",
       ...requiresAdmin,
       responses: {
         200: jsonResponse(TriggerJobResponseSchema, "Job submitted"),
@@ -159,23 +158,19 @@ const app = new Hono<AuthContext>()
     v(
       "json",
       z.object({
-        kind: z.enum(["ipa-sync", "ipa-backfill", "local-user-backfill", "guest-backfill", "reminders"]),
+        kind: z.enum(["ipa-backfill", "local-user-backfill", "guest-backfill"]),
       }),
     ),
     async (c) =>
       respond(c, async () => {
         const { kind } = c.req.valid("json");
         switch (kind) {
-          case "ipa-sync":
-            return ok({ message: "IPA sync job submitted", jobId: await lifecycleJobs.submitIpaSync() });
           case "ipa-backfill":
             return ok({ message: "IPA backfill job submitted", jobId: await lifecycleJobs.submitIpaBackfill() });
           case "local-user-backfill":
             return ok({ message: "Local user backfill job submitted", jobId: await lifecycleJobs.submitLocalUserBackfill() });
           case "guest-backfill":
             return ok({ message: "Local guest backfill job submitted", jobId: await lifecycleJobs.submitGuestBackfill() });
-          case "reminders":
-            return ok({ message: "Reminder job submitted", jobId: await lifecycleJobs.submitReminderRun() });
         }
       }),
   )

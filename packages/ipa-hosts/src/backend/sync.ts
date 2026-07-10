@@ -289,6 +289,12 @@ const createSchedule = async (cron: string, tz: string): Promise<void> => {
     id: "ipa-hosts:sync",
     cron,
     tz,
+    meta: {
+      appId: "ipa-hosts",
+      family: "ipa-hosts:sync",
+      label: "IPA hosts sync",
+      source: "ipa-hosts:sync",
+    },
     trace: trace.fromSyncSchedule<void>({
       name: "IPA hosts sync schedule",
       source: "ipa-hosts:sync",

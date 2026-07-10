@@ -46,6 +46,7 @@ export const apiClient = api.create<ApiType>({ baseUrl: "/api/my-app" });
 - Created resources have matching edit and delete flows unless the user explicitly requested create-only data.
 - Optional resource/module types are complete: if the UI can create a type, admin can edit/delete it and public/workspace views can render it.
 - Settings belong in `defineApp({ settings })` when they are app-wide platform settings; resource settings belong in the app's own schema and settings modal.
+- Scheduled background work uses `@valentinkolb/sync` scheduler metadata (`appId`, `family`, `label`, `source`) plus `trace.fromSyncSchedule`; admin run-now controls live in Gateway Ops Background Jobs, not app-local admin endpoints.
 
 ## SSR and routing
 

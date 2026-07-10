@@ -83,4 +83,46 @@ describe("logging.trace", () => {
       await sql`DELETE FROM logging.trace_spans WHERE source = ${source}`;
     }
   });
+
+  test("source groups keep latest status separate from window error stats", async () => {
+    if (!(await canUseTraceDatabase())) {
+      console.warn("Skipping trace DB test: logging trace tables are not available.");
+      return;
+    }
+
+    const suffix = crypto.randomUUID();
+    const source = `test:trace:latest:${suffix}`;
+    const now = Date.now();
+    const failedSpan = await trace.start({
+      name: "Older failed run",
+      source,
+      spanKey: `test:trace:latest:${suffix}:failed`,
+      startedAt: now - 60_000,
+    });
+    const healthySpan = await trace.start({
+      name: "Latest healthy run",
+      source,
+      spanKey: `test:trace:latest:${suffix}:healthy`,
+      startedAt: now,
+    });
+
+    try {
+      await trace.end({ context: failedSpan, status: "error", endedAt: now - 59_500 });
+      await trace.end({ context: healthySpan, status: "ok", endedAt: now + 500 });
+
+      const groups = await trace.sourceGroups({ filter: { source, excludeDefinitions: true } });
+
+      expect(groups).toHaveLength(1);
+      expect(groups[0]).toMatchObject({
+        source,
+        runs: 2,
+        failed: 1,
+        errorRate: 50,
+        latestName: "Latest healthy run",
+        latestStatus: "ok",
+      });
+    } finally {
+      await sql`DELETE FROM logging.trace_spans WHERE source = ${source}`;
+    }
+  });
 });

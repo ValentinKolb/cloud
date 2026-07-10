@@ -58,7 +58,7 @@
     "@valentinkolb/nessi": "^0.5.0",
     "@valentinkolb/ssr": "0.10.0",
     "@valentinkolb/stdlib": "0.12.0",
-    "@valentinkolb/sync": "^5.4.0",
+    "@valentinkolb/sync": "^5.5.2",
     "bun-plugin-tailwind": "^0.1.2",
     "hono": "^4.11.1",
     "hono-openapi": "^1.1.2",

@@ -70,6 +70,10 @@ mock.module("@valentinkolb/cloud/services", () => ({
     warn: () => {},
     error: () => {},
   }),
+  trace: {
+    fromSyncJob: () => () => {},
+    fromSyncSchedule: () => () => {},
+  },
   serviceAccounts: {
     getByResource: async () => {
       serviceAccountLookupCount += 1;
@@ -105,11 +109,18 @@ mock.module("@valentinkolb/cloud/services", () => ({
 }));
 
 mock.module("@valentinkolb/sync", () => ({
+  SchedulerControlNotFoundError: class SchedulerControlNotFoundError extends Error {},
+  SchedulerControlTimeoutError: class SchedulerControlTimeoutError extends Error {},
+  SchedulerControlUnavailableError: class SchedulerControlUnavailableError extends Error {},
   job: () => ({
     submit: async (config: SubmittedJob) => {
       submittedJobs.push(config);
       return `job:${config.key}`;
     },
+  }),
+  schedulerControl: () => ({
+    list: async () => [],
+    runNow: async () => {},
   }),
   scheduler: () => ({
     start: () => {
@@ -237,15 +248,4 @@ describe("notebook reindex runtime", () => {
     expect(reindexRuns).toBe(0);
   });
 
-  test("submits manual reindex work through the sync job", async () => {
-    await reindexRuntime.runNow();
-
-    expect(submittedJobs).toHaveLength(1);
-    expect(submittedJobs[0]).toMatchObject({
-      input: { trigger: "scheduler" },
-    });
-    expect(submittedJobs[0]!.key.startsWith("manual:")).toBe(true);
-    expect(reindexRuns).toBe(0);
-    expect(schedulerStops).toBe(0);
-  });
 });

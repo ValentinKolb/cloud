@@ -176,6 +176,12 @@ const createOfflineAuditSchedule = async (): Promise<void> => {
     id: "gateway:registered-apps:offline-audit",
     cron,
     tz,
+    meta: {
+      appId: "gateway-ops",
+      family: "gateway:registered-apps",
+      label: "Registered app offline audit",
+      source: "gateway:registered-apps:offline-audit",
+    },
     trace: trace.fromSyncSchedule<void>({
       name: "Registered app offline audit schedule",
       source: "gateway:registered-apps:offline-audit",
@@ -197,6 +203,12 @@ const createHealthWebhookSchedule = async (cronOverride?: string): Promise<void>
     id: HEALTH_SCHEDULE_ID,
     cron,
     tz,
+    meta: {
+      appId: "gateway-ops",
+      family: "gateway:health",
+      label: "Gateway health webhook check",
+      source: HEALTH_SCHEDULE_ID,
+    },
     trace: trace.fromSyncSchedule<{ checked: number; submitted: number }>({
       name: "Gateway health webhook check",
       source: HEALTH_SCHEDULE_ID,
@@ -213,6 +225,12 @@ const createTelemetryCleanupSchedule = async (): Promise<void> => {
     id: "gateway:telemetry:cleanup",
     cron: TELEMETRY_CLEANUP_CRON,
     tz,
+    meta: {
+      appId: "gateway-ops",
+      family: "gateway:telemetry",
+      label: "Gateway telemetry cleanup",
+      source: "gateway:telemetry:cleanup",
+    },
     trace: trace.fromSyncSchedule<{ deleted: number }>({
       name: "Gateway telemetry cleanup",
       source: "gateway:telemetry:cleanup",

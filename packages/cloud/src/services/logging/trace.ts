@@ -681,34 +681,44 @@ const stats = async (options?: { filter?: TraceListFilter }): Promise<TraceRunSt
 const sourceGroups = async (options?: { filter?: TraceListFilter }): Promise<TraceSourceGroup[]> => {
   const where = traceWhere(options?.filter);
   const rows = await sql<DbTraceSourceGroupRow[]>`
-    SELECT
-      s.source,
-      (array_remove(array_agg(DISTINCT s.app_id), NULL))[1] AS app_id,
-      array_agg(DISTINCT s.category ORDER BY s.category)::text[] AS categories,
-      array_agg(DISTINCT s.name ORDER BY s.name)::text[] AS names,
-      COUNT(*)::int AS runs,
-      COUNT(DISTINCT s.source)::int AS sources,
-      COUNT(*) FILTER (WHERE s.category = 'job')::int AS job_runs,
-      COUNT(*) FILTER (WHERE s.category = 'schedule')::int AS schedule_runs,
-      COUNT(*) FILTER (WHERE s.category = 'ai')::int AS ai_runs,
-      COUNT(*) FILTER (WHERE s.category = 'custom')::int AS custom_runs,
-      COUNT(*) FILTER (WHERE s.ended_at IS NULL)::int AS running,
-      COUNT(*) FILTER (WHERE s.status = 'ok')::int AS succeeded,
-      COUNT(*) FILTER (WHERE s.status = 'error')::int AS failed,
-      COALESCE(ROUND((COUNT(*) FILTER (WHERE s.status = 'error'))::numeric * 100 / NULLIF(COUNT(*), 0), 2), 0)::float AS error_rate,
-      (AVG(s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL))::float AS avg_duration_ms,
-      (percentile_cont(0.95) WITHIN GROUP (ORDER BY s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL))::float AS p95_duration_ms,
-      (percentile_cont(0.99) WITHIN GROUP (ORDER BY s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL))::float AS p99_duration_ms,
-      (array_agg(s.name ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_name,
-      (array_agg(s.category ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_category,
-      (array_agg(s.status ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_status,
-      (array_agg(s.started_at ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_started_at,
-      (array_agg(s.ended_at ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_ended_at,
-      (array_agg(s.duration_ms ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_duration_ms
-    FROM logging.trace_spans s
-    WHERE ${where}
-    GROUP BY s.source
-    ORDER BY failed DESC, running DESC, p99_duration_ms DESC NULLS LAST, runs DESC, s.source ASC
+    WITH grouped AS (
+      SELECT
+        s.source,
+        (array_remove(array_agg(DISTINCT s.app_id), NULL))[1] AS app_id,
+        array_agg(DISTINCT s.category ORDER BY s.category)::text[] AS categories,
+        array_agg(DISTINCT s.name ORDER BY s.name)::text[] AS names,
+        COUNT(*)::int AS runs,
+        COUNT(DISTINCT s.source)::int AS sources,
+        COUNT(*) FILTER (WHERE s.category = 'job')::int AS job_runs,
+        COUNT(*) FILTER (WHERE s.category = 'schedule')::int AS schedule_runs,
+        COUNT(*) FILTER (WHERE s.category = 'ai')::int AS ai_runs,
+        COUNT(*) FILTER (WHERE s.category = 'custom')::int AS custom_runs,
+        COUNT(*) FILTER (WHERE s.ended_at IS NULL)::int AS running,
+        COUNT(*) FILTER (WHERE s.status = 'ok')::int AS succeeded,
+        COUNT(*) FILTER (WHERE s.status = 'error')::int AS failed,
+        COALESCE(ROUND((COUNT(*) FILTER (WHERE s.status = 'error'))::numeric * 100 / NULLIF(COUNT(*), 0), 2), 0)::float AS error_rate,
+        (AVG(s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL))::float AS avg_duration_ms,
+        (percentile_cont(0.95) WITHIN GROUP (ORDER BY s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL))::float AS p95_duration_ms,
+        (percentile_cont(0.99) WITHIN GROUP (ORDER BY s.duration_ms) FILTER (WHERE s.duration_ms IS NOT NULL))::float AS p99_duration_ms,
+        (array_agg(s.name ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_name,
+        (array_agg(s.category ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_category,
+        (array_agg(s.status ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_status,
+        (array_agg(s.started_at ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_started_at,
+        (array_agg(s.ended_at ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_ended_at,
+        (array_agg(s.duration_ms ORDER BY s.started_at DESC, s.updated_at DESC))[1] AS latest_duration_ms
+      FROM logging.trace_spans s
+      WHERE ${where}
+      GROUP BY s.source
+    )
+    SELECT *
+    FROM grouped
+    ORDER BY
+      (latest_ended_at IS NULL) DESC,
+      (latest_status = 'error') DESC,
+      error_rate DESC,
+      p99_duration_ms DESC NULLS LAST,
+      runs DESC,
+      source ASC
   `;
   return rows.map(mapSourceGroupRow);
 };

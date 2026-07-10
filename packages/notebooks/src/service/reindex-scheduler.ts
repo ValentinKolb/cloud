@@ -110,6 +110,12 @@ const createSchedule = async (cron: string, tz: string): Promise<void> => {
     id: "notebooks:reindex",
     cron,
     tz,
+    meta: {
+      appId: "notebooks",
+      family: "notebooks:maintenance",
+      label: "Notebook references reindex",
+      source: "notebooks:reindex",
+    },
     trace: trace.fromSyncSchedule<void>({
       name: "Notebook references reindex schedule",
       source: "notebooks:reindex",
@@ -179,11 +185,6 @@ export const reindexRuntime = {
     started = false;
     registered = false;
     registerPromise = null;
-  },
-
-  /** Force an immediate reindex — used by the admin UI's "Run now" button. */
-  runNow: async (): Promise<void> => {
-    await reindexJob.submit({ key: `manual:${Date.now()}`, input: { trigger: "scheduler" } });
   },
 
   /** Read the current cron — used by the admin settings UI. */

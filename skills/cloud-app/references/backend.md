@@ -341,6 +341,12 @@ const cleanupJob = job<void, { deleted: number }>({
 await scheduler({ id: "my-app" }).create({
   id: "my-app:cleanup",
   cron: "0 4 * * *",
+  meta: {
+    appId: "my-app",
+    family: "my-app:maintenance",
+    label: "My app cleanup",
+    source: "my-app:cleanup",
+  },
   trace: trace.fromSyncSchedule<void>({
     name: "My app cleanup schedule",
     source: "my-app:cleanup",
@@ -351,6 +357,12 @@ await scheduler({ id: "my-app" }).create({
   },
 });
 ```
+
+Schedule metadata is required for Cloud admin observability. Gateway Ops lists
+schedules through `schedulerControl()` and joins runtime stats by `meta.source`.
+Use `resourceLabel` for dynamic resource schedules, for example a workflow or
+notebook name. Do not add a parallel app-specific admin "run now" endpoint for a
+scheduled job; admins trigger scheduled work from `/admin/observability/jobs`.
 
 For non-sync background work, use the manual API:
 

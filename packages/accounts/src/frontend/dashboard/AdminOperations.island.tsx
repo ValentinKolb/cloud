@@ -1,21 +1,18 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { prompts } from "@valentinkolb/cloud/ui";
-// Platform lifecycle endpoints are owned by cloud-lib (not by an app), so
-// the typed client is a cloud-lib export and is identical regardless of
-// which container loads it. POST /api/admin/lifecycle/jobs takes a typed
-// `kind` discriminator that the dispatcher maps to the right job.
+// Platform lifecycle backfill endpoints are owned by cloud-lib (not by an app),
+// so the typed client is a cloud-lib export and is identical regardless of
+// which container loads it.
 import { coreClient } from "@valentinkolb/cloud/clients/core";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 
-type JobKind = "ipa-sync" | "ipa-backfill" | "local-user-backfill" | "guest-backfill" | "reminders";
-type OperationKey = "sync" | "ipa-backfill" | "local-user-backfill" | "local-guest-backfill" | "reminders";
+type JobKind = "ipa-backfill" | "local-user-backfill" | "guest-backfill";
+type OperationKey = "ipa-backfill" | "local-user-backfill" | "local-guest-backfill";
 
 const JOB_KIND_BY_OPERATION: Record<OperationKey, JobKind> = {
-  sync: "ipa-sync",
   "ipa-backfill": "ipa-backfill",
   "local-user-backfill": "local-user-backfill",
   "local-guest-backfill": "guest-backfill",
-  reminders: "reminders",
 };
 
 type OperationConfig = {
@@ -30,17 +27,6 @@ type OperationConfig = {
 };
 
 const OPERATIONS: readonly OperationConfig[] = [
-  {
-    key: "sync",
-    label: "Force Sync",
-    icon: "ti ti-refresh",
-    redirectTo: "/admin/observability/logs?source=auth:ipa:sync",
-    confirmText: "Start sync",
-    loadingText: "Starting sync...",
-    successText: "Sync job started.",
-    description:
-      "This starts an immediate FreeIPA identity sync job. Users and groups are synced. Expired IPA accounts may be demoted during the job. Detailed progress appears in the sync logs.",
-  },
   {
     key: "ipa-backfill",
     label: "Force IPA Backfill",
@@ -74,18 +60,9 @@ const OPERATIONS: readonly OperationConfig[] = [
     description:
       "This updates expiry dates for local guest accounts when they are missing or too early. Expiry is never set earlier than now plus 7 days.",
   },
-  {
-    key: "reminders",
-    label: "Force Reminder Run",
-    icon: "ti ti-mail-share",
-    redirectTo: "/admin/observability/logs?source=auth:reminder:daily",
-    confirmText: "Force reminder run",
-    loadingText: "Starting reminder run...",
-    successText: "Reminder run started.",
-    description:
-      "This evaluates account reminders with the current settings. Sent reminders are deduplicated by user, reminder threshold, and target expiry. Failed deliveries may be retried later.",
-  },
 ] as const;
+
+const SCHEDULED_JOBS_HREF = "/admin/observability/jobs?search=auth%3A";
 
 export default function AdminOperations(props: { freeIpaEnabled: boolean }) {
   let activeOperationKey: OperationKey | null = null;
@@ -136,10 +113,9 @@ export default function AdminOperations(props: { freeIpaEnabled: boolean }) {
   return (
     <div class="paper p-2">
       <div class="flex flex-col gap-2">
-        {OPERATIONS.filter((operation) => props.freeIpaEnabled || (operation.key !== "sync" && operation.key !== "ipa-backfill")).map(
+        {OPERATIONS.filter((operation) => props.freeIpaEnabled || operation.key !== "ipa-backfill").map(
           (operation) => {
             const isLoading = () => runMutation.loading() && activeOperationKey === operation.key;
-            const buttonClass = operation.key === "sync" ? "btn-primary" : "btn-secondary";
             return (
               <section class="flex flex-col gap-3 rounded-lg bg-zinc-50/80 px-4 py-4 md:flex-row md:items-center md:gap-4 dark:bg-zinc-900/65">
                 <div class="flex min-w-0 flex-1 items-start gap-3">
@@ -153,7 +129,7 @@ export default function AdminOperations(props: { freeIpaEnabled: boolean }) {
                 </div>
                 <button
                   type="button"
-                  class={`${buttonClass} btn-sm w-full justify-center md:w-auto md:min-w-48`}
+                  class="btn-secondary btn-sm w-full justify-center md:w-auto md:min-w-48"
                   onClick={() => void handleRun(operation)}
                   disabled={runMutation.loading()}
                 >
@@ -163,6 +139,20 @@ export default function AdminOperations(props: { freeIpaEnabled: boolean }) {
             );
           },
         )}
+        <section class="flex flex-col gap-3 rounded-lg bg-zinc-50/80 px-4 py-4 md:flex-row md:items-center md:gap-4 dark:bg-zinc-900/65">
+          <div class="flex min-w-0 flex-1 items-start gap-3">
+            <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-zinc-600 shadow-sm shadow-zinc-950/[0.04] dark:bg-zinc-950/75 dark:text-zinc-300 dark:shadow-none">
+              <i class="ti ti-calendar-time text-sm" />
+            </div>
+            <div class="min-w-0">
+              <h3 class="text-sm font-medium text-primary">Scheduled jobs</h3>
+              <p class="text-xs text-dimmed">Inspect and run account lifecycle schedules from observability.</p>
+            </div>
+          </div>
+          <a href={SCHEDULED_JOBS_HREF} class="btn-secondary btn-sm w-full justify-center md:w-auto md:min-w-48">
+            Open Scheduled Jobs
+          </a>
+        </section>
       </div>
     </div>
   );
