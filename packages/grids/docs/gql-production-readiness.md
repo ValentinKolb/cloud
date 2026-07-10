@@ -1,6 +1,6 @@
 # GQL Production-Readiness Analysis
 
-## Current status snapshot — 2026-07-09
+## Current status snapshot — 2026-07-10
 
 This file is both a current release-status note and the historical hardening
 log for GQL. Read this section first. The chronological batches below are kept
@@ -33,40 +33,34 @@ cd packages/grids && bun test
 ```
 
 Latest local evidence from the review pass: `bun run typecheck` green and
-`bun test` green with 969 pass / 71 skip / 0 fail / 4675 expect() calls.
+`bun test` green with 982 pass / 71 skip / 0 fail / 4734 expect() calls.
 DB-backed GQL tests are opt-in because they need Postgres:
 
 ```bash
 cd packages/grids
-GRIDS_QUERY_DSL_DB_TEST=1 bun test src/query-dsl/sql-compiler.integration.test.ts src/api/gql.integration.test.ts
+GRIDS_QUERY_DSL_DB_TEST=1 bun test \
+  src/query-dsl/sql-compiler.integration.test.ts \
+  src/query-dsl/sql-compiler-joins.integration.test.ts \
+  src/query-dsl/sql-compiler-aggregates.integration.test.ts \
+  src/query-dsl/sql-compiler-derived.integration.test.ts
+GRIDS_SQL_COMPILER_DB_TEST=1 bun test src/service/formula-sql-compiler.test.ts
 ```
 
-Before release, run the DB-backed suite against a real Grids schema. The local
-review session did not rerun those DB tests.
+The 2026-07-10 review ran these suites against the live Grids Postgres schema:
+37 GQL integration tests and 23 formula-SQL tests passed with no failures.
 
-### Current GQL-specific open work
+### Current GQL-specific release blockers
 
-- **Runtime observability:** preview/execute paths should record
-  privacy-safe duration, result shape, timeout/error class, base/source ids, and
-  caller surface without persisting raw query text by default.
-- **Large-module maintainability:** `query-dsl/resolver.ts`,
-  `query-dsl/sql-compiler.ts`, `query-dsl/record-query-source.ts`,
-  `service/formula-sql-compiler.ts`, and the oversized GQL regression suites
-  should be split by responsibility. This is maintainability work, not a known
-  semantic blocker.
-- **Trusted render contexts:** document template and dashboard rendering use an
-  explicitly named trusted GQL resolver context after the caller has passed the
-  document-template or dashboard access gate. This intentionally lets the
-  allowed resource render its saved GQL source without re-checking every parent
-  table, while public GQL autocomplete/preview still uses the permission-shaped
-  resolver context.
-- **Stored formula legacy refs:** GQL rejects `#field`, but stored formula
-  expressions still support legacy `#slug` and `{uuid}` refs for compatibility.
-  Decide the long-term authoring/migration policy before calling formula
-  syntax fully one-obvious-way.
-- **Internal naming:** public routes and copy say GQL. The source directory is
-  still `query-dsl/`. Rename only if the value outweighs churn across tests,
-  imports, docs, and history.
+No known GQL-specific backend release blocker remains in this review scope.
+The parser, resolver, SQL compilers, preview/runtime, autocomplete, public API,
+trusted resource renderers, and SSR workspace loaders have focused ownership
+boundaries and passing regression coverage.
+
+Two compatibility decisions remain intentional rather than open work. New
+formula authoring emits canonical field-name references, while stored
+`#shortId` and `{fieldId}` formulas remain readable. Public language and API
+surfaces use GQL; the internal `query-dsl/` directory keeps its historical name
+to avoid a repository-wide rename with no runtime or UX benefit.
 
 ### Historical log
 
@@ -1049,6 +1043,34 @@ pass / 3422 expects); scoped Biome over the changed Grids backend files clean;
 `git diff --check` clean. Root `bun run check:biome` currently fails in
 pre-existing `packages/cloud/src/ui/*` a11y findings outside Grids and was left
 untouched.
+
+### Thirty-ninth batch — structural ownership and SSR route closure
+
+- **Resolver and SQL compiler facades:** the former resolver and SQL compiler
+  hotspots are split into source/scope/where/search/join/group/aggregate/output
+  resolution and row/grouped/aggregate/derived SQL compilation. Public callers
+  still use one resolver and one SQL compiler entry point.
+- **Shared compiler ownership:** formula SQL, filter, sort, group, aggregate,
+  and formula runtime implementations are split behind their existing public
+  compiler or function-library facades. Small high-fan-in capability and source
+  plan modules remain single sources of truth.
+- **SSR workspace ownership:** `loadGridsWorkspaceState` is now a small facade
+  over catalog/access preflight and focused records, dashboard, document,
+  workflow, query, and route loaders. GQL-backed views, direct-resource access,
+  default dashboards, selected records, grouped initial data, and edit-mode
+  state retain their existing behavior.
+- **Source-only limit regression:** `from table ... limit N` and
+  `from view ... limit N` preserve the default projection without requiring a
+  `select` clause. The parser accepts only the unambiguous source-only inline
+  form instead of guessing across arbitrary whitespace.
+
+Verification: `cd packages/grids && bun run typecheck` green; full local Grids
+suite green (982 pass / 71 skips / 4734 expects); focused workspace-state tests
+green (8 pass); Fallow reports no remaining target or large function for the
+workspace state facade and extracted route loaders; browser SSR smoke rendered
+table, view, dashboard, document template, workflow overview/detail, and query
+routes; live Postgres GQL suites green (37 pass) and formula-SQL suite green
+(23 pass).
 
 **Dashboard integration status:** completed after the backend contract pass.
 Dashboard widgets resolve saved view sources through the GQL parser, resolver,
