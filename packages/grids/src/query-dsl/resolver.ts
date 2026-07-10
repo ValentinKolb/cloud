@@ -67,6 +67,7 @@ import {
   setHasAlias,
   setJoinAlias,
 } from "./resolver-scope";
+import { type DslResolvedSqlSearch, resolveDerivedSearch } from "./resolver-search";
 import { isDerivedViewSource, type ResolvedSource, resolveSource, validateViewSource, viewSourceNeedsRecordScope } from "./resolver-source";
 import { createDslScopedFormulaFieldResolver, isScopedFormulaFieldRef } from "./scoped-formula";
 import type {
@@ -212,13 +213,6 @@ export type DslResolvedSqlSort =
       nullsFirst?: boolean;
     };
 
-type DslResolvedSqlSearch = {
-  q: string;
-  tableId: string;
-  joinAlias: string;
-  fieldIds: string[];
-};
-
 export type DslResolvedDerivedRelationJoin = {
   mode: DslJoin["mode"];
   alias: string;
@@ -306,44 +300,6 @@ const createDerivedScopedFormulaFieldResolver = (
   const scoped = scopedFormulaResolverForScope(scope);
   const derived = createDerivedFormulaFieldResolver(columns, recordAlias);
   return (ref) => scoped(ref) ?? derived(ref);
-};
-
-const isDerivedSearchableColumn = (column: DslDerivedViewColumn): boolean => column.sqlType !== "json";
-
-const resolveDerivedSearch = (
-  search: DslQueryAst["search"],
-  columns: DslDerivedViewColumn[],
-  scope: Scope,
-): { search?: DslResolvedDerivedViewSource["search"]; joinedSearch: DslResolvedSqlSearch[] } | DslResolverDiagnostic | undefined => {
-  if (!search) return undefined;
-  if (search.fields.length === 0) return { search: { q: search.q, columns: columns.filter(isDerivedSearchableColumn) }, joinedSearch: [] };
-
-  const resolved: DslDerivedViewColumn[] = [];
-  const joined = new Map<string, DslResolvedSqlSearch>();
-  const seen = new Set<string>();
-  for (const ref of search.fields) {
-    if (ref.scope) {
-      const join = joinScopeByAlias(scope, ref.scope, ref.span ?? search.span);
-      if (isDiagnostic(join)) return join;
-      const field = fieldByRefMap(join.byRef, ref.ref, `${ref.scope}."${ref.ref}"`, ref.span ?? search.span);
-      if (isDiagnostic(field)) return field;
-      if (!filterSearchableFields([field]).some((candidate) => candidate.id === field.id)) {
-        return diagnostic(`field "${field.name}" (type "${field.type}") is not searchable`, ref.span ?? search.span);
-      }
-      const existing = joined.get(join.alias) ?? { q: search.q, tableId: join.tableId, joinAlias: join.alias, fieldIds: [] };
-      if (!existing.fieldIds.includes(field.id)) existing.fieldIds.push(field.id);
-      joined.set(join.alias, existing);
-      continue;
-    }
-    const column = derivedColumnByRef(columns, ref.ref, ref.span ?? search.span);
-    if (isDiagnostic(column)) return column;
-    if (!isDerivedSearchableColumn(column))
-      return diagnostic(`derived column "${column.label}" is not searchable`, ref.span ?? search.span);
-    if (seen.has(column.key)) continue;
-    seen.add(column.key);
-    resolved.push(column);
-  }
-  return { ...(resolved.length > 0 ? { search: { q: search.q, columns: resolved } } : {}), joinedSearch: [...joined.values()] };
 };
 
 const hasGroupedDslShape = (ast: DslQueryAst): boolean => ast.groupBy.length > 0 || ast.aggregations.length > 0 || Boolean(ast.having);
