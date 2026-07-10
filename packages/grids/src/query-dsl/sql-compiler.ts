@@ -11,12 +11,11 @@ import {
   isFormulaAggregatable,
 } from "../service/aggregate-capabilities";
 import { compileAggregates } from "../service/aggregate-compiler";
-import { groupSqlTypeForField, outputSqlTypeForField, storageOf } from "../service/field-storage";
+import { groupSqlTypeForField, storageOf } from "../service/field-storage";
 import { compileFilter, renderClause } from "../service/filter-compiler";
 import {
   compileFormulaAstToSql,
   compileFormulaPredicateAstToSql,
-  compileFormulaSourceToSql,
   type FormulaSqlExpression,
   type FormulaSqlFieldResolver,
   type FormulaSqlType,
@@ -33,7 +32,6 @@ import type {
   DslDerivedViewColumn,
   DslDerivedViewGroupBy,
   DslFormulaAggregation,
-  DslJoinedColumn,
   DslOutputColumn,
   DslResolvedDerivedRelationJoin,
   DslResolvedSqlAggregation,
@@ -42,6 +40,19 @@ import type {
   DslResolvedSqlSort,
 } from "./resolver";
 import { createDslScopedFormulaFieldResolver } from "./scoped-formula";
+import {
+  aliveFields,
+  compileBaseFieldColumn,
+  compileFormulaColumn,
+  compileJoinedColumn,
+  computedFieldSqlForScope,
+  fieldById,
+  fieldProjection,
+  isImplicitlySelectableField,
+  outputTypeFor,
+  relationTargetIsReadable,
+  sortProjectionForField,
+} from "./sql-compiler-fields";
 import { compileRelationJoin } from "./sql-compiler-joins";
 import type {
   DslSqlAggregateCompileResult,
@@ -68,39 +79,6 @@ const fail = (error: string): DslSqlCompileResult => ({ ok: false, error });
 const failGroup = (error: string): DslSqlGroupCompileResult => ({ ok: false, error });
 const failAggregate = (error: string): DslSqlAggregateCompileResult => ({ ok: false, error });
 
-const aliveFields = (fields: Field[]): Field[] => fields.filter((field) => !field.deletedAt).sort((a, b) => a.position - b.position);
-
-const outputTypeFor = (field: Field): DslSqlOutputColumn["sqlType"] => {
-  return outputSqlTypeForField(field);
-};
-
-const compileFormulaFieldProjection = (params: {
-  field: Field;
-  fields: Field[];
-  recordAlias: string;
-  timeZone?: string;
-  computedFieldSql?: Map<string, FormulaSqlExpression>;
-  resolveField?: FormulaSqlFieldResolver;
-}): { ok: true; projection: unknown; sqlType: FormulaSqlType } | { ok: false; error: string } => {
-  const expression = (params.field.config as { expression?: unknown }).expression;
-  if (typeof expression !== "string" || expression.trim().length === 0) {
-    return { ok: false, error: `formula field "${params.field.name}" has no expression` };
-  }
-  const compiled = compileFormulaSourceToSql(expression, {
-    fields: params.fields,
-    recordAlias: params.recordAlias,
-    dateConfig: params.timeZone ? { timeZone: params.timeZone } : undefined,
-    computedFieldSql: params.computedFieldSql,
-    resolveField: params.resolveField,
-  });
-  if (!compiled.ok) return { ok: false, error: `formula field "${params.field.name}": ${compiled.error}` };
-  return { ok: true, projection: compiled.expression.sql, sqlType: compiled.expression.type };
-};
-
-const fieldById = (fields: Field[], fieldId: string): Field | null =>
-  fields.find((field) => field.id === fieldId && !field.deletedAt) ?? null;
-
-const safeColumnAlias = (index: number): string => `q_col_${index}`;
 const groupKey = (index: number): string => `gk_${index}`;
 const isFormulaGroupAggregation = (aggregation: GroupAggregationSpec): aggregation is Extract<GroupAggregationSpec, { kind: "formula" }> =>
   "kind" in aggregation && aggregation.kind === "formula";
@@ -137,31 +115,6 @@ const outputColumnsForPlan = (plan: DslResolvedSqlQueryPlan, baseFields: Field[]
   ];
 };
 
-const isImplicitlySelectableField = (field: Field): boolean => {
-  const kind = storageOf(field).kind;
-  if (kind === "unknown") return false;
-  // Computed kinds: formula / lookup / rollup are projectable; file is not.
-  if (kind === "computed") return field.type === "formula" || field.type === "lookup" || field.type === "rollup";
-  return true;
-};
-
-const relationTargetTableId = (field: Field): string | null => {
-  if (field.type !== "relation") return null;
-  return (field.config as { targetTableId?: string }).targetTableId ?? null;
-};
-
-const relationTargetIsReadable = (field: Field, readableTableIds?: readonly string[]): boolean => {
-  const targetTableId = relationTargetTableId(field);
-  if (!targetTableId || !readableTableIds) return true;
-  return readableTableIds.includes(targetTableId);
-};
-
-const computedFieldSqlForScope = (
-  options: Pick<DslSqlCompileOptions, "computedFieldSql" | "computedFieldSqlByJoinAlias">,
-  joinAlias?: string,
-): Map<string, FormulaSqlExpression> | undefined =>
-  joinAlias ? options.computedFieldSqlByJoinAlias?.get(joinAlias) : options.computedFieldSql;
-
 const aggregateSqlType = (aggregation: GroupAggregationSpec, fieldsById: Map<string, Field>): FormulaSqlType => {
   if (isFormulaGroupAggregation(aggregation)) {
     const formulaAggregation = aggregation as DslFormulaAggregation;
@@ -183,187 +136,6 @@ const viewAggregateSqlType = (
   if (aggregation.fieldId === "*") return aggregateSqlTypeForField(null, aggregation.agg, true);
   const field = fieldsById.get(aggregation.fieldId);
   return aggregateSqlTypeForField(field ?? null, aggregation.agg, false);
-};
-
-const fieldProjection = (
-  field: Field,
-  recordAlias: string,
-  options?: {
-    fields?: Field[];
-    timeZone?: string;
-    readableTableIds?: readonly string[];
-    computedFieldSql?: Map<string, FormulaSqlExpression>;
-    resolveField?: FormulaSqlFieldResolver;
-  },
-): { ok: true; projection: unknown; sqlType?: FormulaSqlType } | { ok: false; error: string } => {
-  if (field.type === "formula") {
-    return compileFormulaFieldProjection({
-      field,
-      fields: options?.fields ?? [field],
-      recordAlias,
-      timeZone: options?.timeZone,
-      computedFieldSql: options?.computedFieldSql,
-      resolveField: options?.resolveField,
-    });
-  }
-  // Lookup/rollup project to their pre-built correlated subquery (over alias `r`).
-  if (field.type === "lookup" || field.type === "rollup") {
-    const computed = options?.computedFieldSql?.get(field.id);
-    if (computed) return { ok: true, projection: computed.sql, sqlType: computed.type };
-    return { ok: false, error: `field "${field.name}" (type "${field.type}") is not available in this query` };
-  }
-  if (!relationTargetIsReadable(field, options?.readableTableIds)) {
-    return { ok: false, error: `relation field "${field.name}" target table is not available` };
-  }
-  const descriptor = storageOf(field);
-  const projected = descriptor.project(field, recordAlias);
-  if (projected) return { ok: true, projection: projected };
-  if (descriptor.kind === "relationLink") {
-    return {
-      ok: true,
-      projection: sql`(
-        SELECT COALESCE(jsonb_agg(rl.to_record_id::text ORDER BY rl.position), '[]'::jsonb)
-        FROM grids.record_links rl
-        WHERE rl.from_record_id = ${sql.unsafe(recordAlias)}.id
-          AND rl.from_field_id = ${field.id}::uuid
-      )`,
-    };
-  }
-  if (descriptor.kind === "json" || descriptor.kind === "jsonbArray") {
-    return { ok: true, projection: sql`${sql.unsafe(recordAlias)}.data->${field.id}` };
-  }
-  return { ok: false, error: `field "${field.name}" (type "${field.type}") cannot be selected by GQL yet` };
-};
-
-const compileBaseFieldColumn = (params: {
-  field: Field;
-  fields: Field[];
-  label?: string;
-  recordAlias: string;
-  index: number;
-  tableId: string;
-  timeZone?: string;
-  readableTableIds?: readonly string[];
-  computedFieldSql?: Map<string, FormulaSqlExpression>;
-  resolveField?: FormulaSqlFieldResolver;
-}): { ok: true; fragment: unknown; column: DslSqlOutputColumn } | { ok: false; error: string } => {
-  const projection = fieldProjection(params.field, params.recordAlias, {
-    fields: params.fields,
-    timeZone: params.timeZone,
-    readableTableIds: params.readableTableIds,
-    computedFieldSql: params.computedFieldSql,
-    resolveField: params.resolveField,
-  });
-  if (!projection.ok) return projection;
-  const key = safeColumnAlias(params.index);
-  return {
-    ok: true,
-    fragment: sql`${projection.projection} AS ${sql.unsafe(key)}`,
-    column: {
-      key,
-      label: params.label ?? params.field.name,
-      tableId: params.tableId,
-      fieldId: params.field.id,
-      type: params.field.type,
-      sqlType: projection.sqlType ?? outputTypeFor(params.field),
-    },
-  };
-};
-
-const compileFormulaColumn = (params: {
-  expression: string;
-  label: string;
-  fields: Field[];
-  recordAlias: string;
-  index: number;
-  timeZone?: string;
-  computedFieldSql?: Map<string, FormulaSqlExpression>;
-  resolveField?: FormulaSqlFieldResolver;
-}): { ok: true; fragment: unknown; column: DslSqlOutputColumn } | { ok: false; error: string } => {
-  const compiled = compileFormulaSourceToSql(params.expression, {
-    fields: params.fields,
-    recordAlias: params.recordAlias,
-    dateConfig: params.timeZone ? { timeZone: params.timeZone } : undefined,
-    computedFieldSql: params.computedFieldSql,
-    resolveField: params.resolveField,
-    scopedRefs: Boolean(params.resolveField),
-  });
-  if (!compiled.ok) return { ok: false, error: compiled.error };
-  const key = safeColumnAlias(params.index);
-  return {
-    ok: true,
-    fragment: sql`${compiled.expression.sql} AS ${sql.unsafe(key)}`,
-    column: {
-      key,
-      label: params.label,
-      tableId: "",
-      type: "formula",
-      sqlType: compiled.expression.type,
-    },
-  };
-};
-
-const compileJoinedColumn = (params: {
-  joinedColumn: DslJoinedColumn;
-  fieldsByTableId: Record<string, Field[]>;
-  recordAlias: string;
-  index: number;
-  timeZone?: string;
-  readableTableIds?: readonly string[];
-  computedFieldSql?: Map<string, FormulaSqlExpression>;
-}): { ok: true; fragment: unknown; column: DslSqlOutputColumn } | { ok: false; error: string } => {
-  const fields = aliveFields(params.fieldsByTableId[params.joinedColumn.tableId] ?? []);
-  const field = fieldById(fields, params.joinedColumn.fieldId);
-  if (!field) return { ok: false, error: `joined field ${params.joinedColumn.fieldId} is not available` };
-  const projection = fieldProjection(field, params.recordAlias, {
-    fields,
-    timeZone: params.timeZone,
-    readableTableIds: params.readableTableIds,
-    computedFieldSql: params.computedFieldSql,
-  });
-  if (!projection.ok) return projection;
-  const key = safeColumnAlias(params.index);
-  return {
-    ok: true,
-    fragment: sql`${projection.projection} AS ${sql.unsafe(key)}`,
-    column: {
-      key,
-      label: params.joinedColumn.label ?? `${params.joinedColumn.joinAlias}.${field.name}`,
-      tableId: params.joinedColumn.tableId,
-      fieldId: field.id,
-      joinAlias: params.joinedColumn.joinAlias,
-      type: field.type,
-      sqlType: projection.sqlType ?? outputTypeFor(field),
-    },
-  };
-};
-
-const sortProjectionForField = (
-  field: Field,
-  recordAlias = "r",
-  options?: { fields?: Field[]; timeZone?: string; computedFieldSql?: Map<string, FormulaSqlExpression> },
-): { ok: true; projection: unknown } | { ok: false; error: string } => {
-  if (field.type === "formula") {
-    const projection = compileFormulaFieldProjection({
-      field,
-      fields: options?.fields ?? [field],
-      recordAlias,
-      timeZone: options?.timeZone,
-      computedFieldSql: options?.computedFieldSql,
-    });
-    if (!projection.ok) return projection;
-    return { ok: true, projection: projection.projection };
-  }
-  if (field.type === "lookup" || field.type === "rollup") {
-    const computed = options?.computedFieldSql?.get(field.id);
-    if (computed) return { ok: true, projection: computed.sql };
-    return { ok: false, error: `field "${field.name}" (type "${field.type}") is not available for sorting` };
-  }
-  const descriptor = storageOf(field);
-  if (!descriptor.sortable) return { ok: false, error: `field "${field.name}" (type "${field.type}") is not sortable` };
-  const projection = descriptor.project(field, recordAlias);
-  if (!projection) return { ok: false, error: `field "${field.name}" (type "${field.type}") is not sortable` };
-  return { ok: true, projection };
 };
 
 const compileSqlSort = (
