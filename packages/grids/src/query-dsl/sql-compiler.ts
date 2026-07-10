@@ -41,7 +41,6 @@ import type {
   DslResolvedSqlGroupBy,
   DslResolvedSqlQueryPlan,
   DslResolvedSqlSort,
-  DslWherePredicate,
 } from "./resolver";
 import { createDslScopedFormulaFieldResolver } from "./scoped-formula";
 import type {
@@ -54,59 +53,9 @@ import type {
   DslSqlGroupOutputColumn,
   DslSqlOutputColumn,
 } from "./sql-compiler-types";
+import { compileWherePredicate } from "./sql-compiler-where";
 
 export type { DslSqlAggregateOutputColumn, DslSqlGroupOutputColumn, DslSqlOutputColumn } from "./sql-compiler-types";
-
-// ── where predicate → SQL ────────────────────────────────────────────
-// A DslWherePredicate mixes typed-filter leaves (compiled by the shared
-// filter-compiler) and boolean formula leaves (compiled by the formula
-// compiler). Both execute fully in SQL; this folds them into one
-// boolean fragment combined with AND / OR / NOT.
-const compileWherePredicate = (
-  node: DslWherePredicate,
-  fields: Field[],
-  options: { timeZone?: string; computedFieldSql?: Map<string, FormulaSqlExpression>; resolveField?: FormulaSqlFieldResolver },
-): { ok: true; sql: unknown } | { ok: false; error: string } => {
-  switch (node.kind) {
-    case "and":
-    case "or": {
-      const parts: unknown[] = [];
-      for (const part of node.parts) {
-        const compiled = compileWherePredicate(part, fields, options);
-        if (!compiled.ok) return compiled;
-        parts.push(sql`(${compiled.sql})`);
-      }
-      if (parts.length === 0) return { ok: true, sql: node.kind === "and" ? sql`TRUE` : sql`FALSE` };
-      const separator = node.kind === "and" ? sql` AND ` : sql` OR `;
-      return { ok: true, sql: joinFragments(parts, separator) };
-    }
-    case "not": {
-      const compiled = compileWherePredicate(node.part, fields, options);
-      if (!compiled.ok) return compiled;
-      return { ok: true, sql: sql`(NOT (${compiled.sql}))` };
-    }
-    case "filter":
-    case "tree": {
-      const tree = node.kind === "tree" ? node.tree : node.leaf;
-      const compiled = compileFilter(tree, fields, { timeZone: options.timeZone });
-      if (!compiled.ok) return { ok: false, error: compiled.error };
-      return { ok: true, sql: renderClause(compiled.clause) };
-    }
-    case "recordMeta":
-      return { ok: true, sql: compileRecordMetaFilter(node.meta) };
-    case "formula": {
-      const compiled = compileFormulaPredicateAstToSql(node.expression, {
-        fields,
-        recordAlias: "r",
-        dateConfig: options.timeZone ? { timeZone: options.timeZone } : undefined,
-        computedFieldSql: options.computedFieldSql,
-        resolveField: options.resolveField,
-      });
-      if (!compiled.ok) return { ok: false, error: compiled.error };
-      return { ok: true, sql: compiled.expression.sql };
-    }
-  }
-};
 
 type RecordQueryColumn = NonNullable<RecordQuery["columns"]>[number];
 type RecordQueryComputedColumn = Extract<RecordQueryColumn, { kind: "computed" }>;
