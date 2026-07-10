@@ -21,7 +21,7 @@ import {
   type FormulaSqlType,
 } from "../service/formula-sql-compiler";
 import { compileGroupQuery, type GroupAggregationSpec, type GroupHavingRef } from "../service/group-compiler";
-import { compileRecordMetaFilter, recordMetaRequiresDeletedRows } from "../service/record-metadata";
+import { compileRecordMetaFilter } from "../service/record-metadata";
 import { relationLabelFields } from "../service/relations";
 import { compileDirectFieldSearchClause, escapeSearchLikePattern, optionIdsMatchingSearch } from "../service/search";
 import { compileSort } from "../service/sort-compiler";
@@ -53,7 +53,9 @@ import {
   relationTargetIsReadable,
   sortProjectionForField,
 } from "./sql-compiler-fields";
+import { joinFragments } from "./sql-compiler-fragments";
 import { compileRelationJoin } from "./sql-compiler-joins";
+import { compileViewSourceRecordScope, recordDeletedCondition, scopedFormulaResolverForPlan } from "./sql-compiler-scope";
 import type {
   DslSqlAggregateCompileResult,
   DslSqlAggregateOutputColumn,
@@ -211,85 +213,6 @@ const compileSqlSort = (
   const idDir = sorts[0]?.direction === "desc" ? sql`DESC` : sql`ASC`;
   orderParts.push(sql`r.id ${idDir}`);
   return { ok: true, orderBy: joinFragments(orderParts, sql`, `) };
-};
-
-const scopedFormulaResolverForPlan = (
-  plan: DslResolvedSqlQueryPlan,
-  baseFields: Field[],
-  joinAliases: Map<string, string>,
-  options: DslSqlCompileOptions,
-): FormulaSqlFieldResolver =>
-  createDslScopedFormulaFieldResolver({
-    base: {
-      ...(plan.sourceAlias ? { alias: plan.sourceAlias } : {}),
-      fields: baseFields,
-      recordAlias: "r",
-      computedFieldSql: options.computedFieldSql,
-    },
-    joins: (plan.joins ?? []).map((join) => ({
-      alias: join.alias,
-      fields: aliveFields(options.fieldsByTableId[join.tableId] ?? []),
-      recordAlias: joinAliases.get(join.alias) ?? join.alias,
-      computedFieldSql: options.computedFieldSqlByJoinAlias?.get(join.alias),
-    })),
-    dateConfig: options.timeZone ? { timeZone: options.timeZone } : undefined,
-  });
-
-const joinFragments = (parts: unknown[], separator: unknown): unknown => {
-  if (parts.length === 0) return sql``;
-  return parts.slice(1).reduce((acc, part) => sql`${acc}${separator}${part}`, parts[0]!);
-};
-
-/** Soft-delete predicate on the base record alias `r`: live-only by default,
- *  trash-only for `deleted only`, both for `include deleted`. Parent-table /
- *  base liveness JOINs are unaffected — a trashed table/base still hides its
- *  records, even in the trash view. */
-const recordDeletedCondition = (plan: DslResolvedSqlQueryPlan): unknown =>
-  plan.query.deletedOnly ? sql`r.deleted_at IS NOT NULL` : plan.query.includeDeleted ? sql`TRUE` : sql`r.deleted_at IS NULL`;
-
-const queryDeletedCondition = (query: RecordQuery): unknown =>
-  query.deletedOnly || recordMetaRequiresDeletedRows(query.recordMeta)
-    ? sql`r.deleted_at IS NOT NULL`
-    : query.includeDeleted
-      ? sql`TRUE`
-      : sql`r.deleted_at IS NULL`;
-
-const compileViewSourceRecordScope = (
-  plan: DslResolvedSqlQueryPlan,
-  fields: Field[],
-  options: Pick<DslSqlCompileOptions, "timeZone" | "viewSourceSearchClause">,
-): { ok: true; condition?: unknown } | { ok: false; error: string } => {
-  const source = plan.viewSourceQuery;
-  if (!source) return { ok: true };
-  const filter = compileFilter(source.filter ?? null, fields, { timeZone: options.timeZone });
-  if (!filter.ok) return { ok: false, error: `view source filter: ${filter.error}` };
-  const sort = compileSort(source.sort ?? [], fields, null);
-  if (!sort.ok) return { ok: false, error: `view source sort: ${sort.error}` };
-  if (source.search && options.viewSourceSearchClause === undefined) {
-    return { ok: false, error: "view source search was not compiled" };
-  }
-  const orderBy = sort.result.orderBy;
-  const limit = Math.min(Math.max(source.limit ?? 10_000, 1), 10_000);
-  const conditions = [
-    sql`r.table_id = ${plan.tableId}::uuid`,
-    queryDeletedCondition(source),
-    renderClause(filter.clause),
-    options.viewSourceSearchClause ?? sql`TRUE`,
-    compileRecordMetaFilter(source.recordMeta ?? null),
-  ];
-  const where = conditions.reduce((acc, condition) => sql`${acc} AND ${condition}`);
-  return {
-    ok: true,
-    condition: sql`r.id IN (
-      SELECT r.id
-      FROM grids.records r
-      JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
-      JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-      WHERE ${where}
-      ORDER BY ${orderBy}
-      LIMIT ${limit}
-    )`,
-  };
 };
 
 export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options: DslSqlCompileOptions): DslSqlCompileResult => {
