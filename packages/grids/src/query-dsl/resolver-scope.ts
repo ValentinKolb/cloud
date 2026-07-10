@@ -118,6 +118,37 @@ export const setJoinAlias = (scope: Scope, alias: string, join: JoinScope): void
   scope.joins.set(aliasKey(alias), join);
 };
 
+export const fieldAliasId = (scope: Scope, alias: string): string | null => {
+  const key = normalizeRefKey(alias);
+  for (const [candidate, fieldId] of scope.fieldAliases) {
+    if (normalizeRefKey(candidate) === key) return fieldId;
+  }
+  return null;
+};
+
+export const setHasAlias = (aliases: Set<string>, alias: string): boolean => {
+  const key = normalizeRefKey(alias);
+  for (const candidate of aliases) {
+    if (normalizeRefKey(candidate) === key) return true;
+  }
+  return false;
+};
+
+export const isBaseScope = (scope: Scope, alias: string | undefined): boolean =>
+  Boolean(alias && scope.sourceAlias && normalizeRefKey(alias) === normalizeRefKey(scope.sourceAlias));
+
+export const hasAnyOutputAlias = (scope: Scope, alias: string): boolean =>
+  hasJoinAlias(scope, alias) ||
+  fieldAliasId(scope, alias) !== null ||
+  setHasAlias(scope.joinedAliases, alias) ||
+  setHasAlias(scope.computedAliases, alias) ||
+  isBaseScope(scope, alias);
+
+export const hasFieldRef = (fields: Field[], alias: string): boolean => {
+  const key = normalizeRefKey(alias);
+  return fields.some((field) => !field.deletedAt && (normalizeRefKey(field.shortId) === key || normalizeRefKey(field.name) === key));
+};
+
 export const refUsesAlias = (ref: DslQualifiedRef, alias: string): boolean => normalizeRefKey(ref.scope ?? "") === normalizeRefKey(alias);
 
 export const joinScopeByAlias = (scope: Scope, alias: string, span?: DslSourceSpan): JoinScope | DslResolverDiagnostic => {

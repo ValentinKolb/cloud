@@ -44,9 +44,13 @@ import {
   buildComputedStub,
   buildFieldMap,
   createScope,
+  fieldAliasId,
   fieldByRef,
   fieldByRefMap,
+  hasAnyOutputAlias,
+  hasFieldRef,
   hasJoinAlias,
+  isBaseScope,
   isDefaultSelectableField,
   type JoinScope,
   joinScopeByAlias,
@@ -54,6 +58,7 @@ import {
   relationOutputDiagnostic,
   relationTargetTableId,
   type Scope,
+  setHasAlias,
   setJoinAlias,
 } from "./resolver-scope";
 import { isDerivedViewSource, type ResolvedSource, resolveSource, validateViewSource, viewSourceNeedsRecordScope } from "./resolver-source";
@@ -1015,37 +1020,6 @@ const resolveDerivedViewSourcePlan = (ast: DslQueryAst, source: ResolvedSource, 
       },
     },
   };
-};
-
-const fieldAliasId = (scope: Scope, alias: string): string | null => {
-  const key = normalizeRefKey(alias);
-  for (const [candidate, fieldId] of scope.fieldAliases) {
-    if (normalizeRefKey(candidate) === key) return fieldId;
-  }
-  return null;
-};
-
-const setHasAlias = (aliases: Set<string>, alias: string): boolean => {
-  const key = normalizeRefKey(alias);
-  for (const candidate of aliases) {
-    if (normalizeRefKey(candidate) === key) return true;
-  }
-  return false;
-};
-
-const isBaseScope = (scope: Scope, alias: string | undefined): boolean =>
-  Boolean(alias && scope.sourceAlias && normalizeRefKey(alias) === normalizeRefKey(scope.sourceAlias));
-
-const hasAnyOutputAlias = (scope: Scope, alias: string): boolean =>
-  hasJoinAlias(scope, alias) ||
-  fieldAliasId(scope, alias) !== null ||
-  setHasAlias(scope.joinedAliases, alias) ||
-  setHasAlias(scope.computedAliases, alias) ||
-  isBaseScope(scope, alias);
-
-const hasFieldRef = (fields: Field[], alias: string): boolean => {
-  const key = normalizeRefKey(alias);
-  return fields.some((field) => !field.deletedAt && (normalizeRefKey(field.shortId) === key || normalizeRefKey(field.name) === key));
 };
 
 const aliasConflictDiagnostic = (scope: Scope, alias: string, span?: DslSourceSpan): DslResolverDiagnostic | null => {
