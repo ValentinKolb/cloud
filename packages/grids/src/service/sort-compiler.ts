@@ -160,6 +160,86 @@ const orderGt = (proj: any, cast: CastKind, direction: "asc" | "desc", nullsFirs
   return sql`(${proj} < ${castedValue(cast, value)}) OR (${proj} IS NULL)`;
 };
 
+type ResolvedSort = {
+  spec: SortSpec;
+  projection: { sql: any; cast: CastKind };
+  nullsFirst: boolean;
+};
+
+const resolveSorts = (
+  specs: SortSpec[],
+  fieldsById: Map<string, Field>,
+): { ok: true; sorts: ResolvedSort[] } | { ok: false; error: string } => {
+  const sorts: ResolvedSort[] = [];
+  for (const spec of specs) {
+    if (isRecordSort(spec)) {
+      const projection = recordProjectionFor(spec.key);
+      if (!projection) return { ok: false, error: "unknown record sort field" };
+      sorts.push({ spec, projection, nullsFirst: spec.nullsFirst ?? false });
+      continue;
+    }
+
+    const field = fieldsById.get(spec.fieldId);
+    if (!field) return { ok: false, error: "unknown sort field" };
+    if (field.deletedAt) return { ok: false, error: `sort field "${field.name}" is deleted` };
+    const projection = projectionForField(field);
+    if (!projection) return { ok: false, error: `field "${field.name}" (type "${field.type}") is not sortable` };
+    sorts.push({ spec, projection, nullsFirst: spec.nullsFirst ?? false });
+  }
+  return { ok: true, sorts };
+};
+
+const buildOrderBy = (sorts: ResolvedSort[], pageDirection: "asc" | "desc"): any => {
+  const parts = sorts.map(({ spec, projection, nullsFirst }) => {
+    const direction = spec.direction === "desc" ? sql`DESC` : sql`ASC`;
+    const nulls = nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`;
+    return sql`${projection.sql} ${direction} ${nulls}`;
+  });
+  const idDirection = pageDirection === "desc" ? sql`DESC` : sql`ASC`;
+  return [...parts, sql`r.id ${idDirection}`].reduce((acc, part) => sql`${acc}, ${part}`);
+};
+
+const equalityPrefix = (sorts: ResolvedSort[], values: unknown[], length: number): any => {
+  let prefix: any = sql`TRUE`;
+  for (let index = 0; index < length; index++) {
+    const projection = sorts[index]!.projection;
+    prefix = sql`${prefix} AND ${nullSafeEq(projection.sql, projection.cast, values[index])}`;
+  }
+  return prefix;
+};
+
+const buildCursorWhere = (
+  sorts: ResolvedSort[],
+  cursor: { values: unknown[]; id: string } | null,
+  pageDirection: "asc" | "desc",
+): any | null => {
+  if (!cursor) return null;
+  const idCompare = pageDirection === "desc" ? sql`r.id < ${cursor.id}::uuid` : sql`r.id > ${cursor.id}::uuid`;
+  if (sorts.length === 0) return idCompare;
+
+  const branches = sorts.map((sort, index) => {
+    const { projection } = sort;
+    const after = orderGt(projection.sql, projection.cast, sort.spec.direction, sort.nullsFirst, cursor.values[index]);
+    return sql`(${equalityPrefix(sorts, cursor.values, index)} AND (${after}))`;
+  });
+  branches.push(sql`(${equalityPrefix(sorts, cursor.values, sorts.length)} AND ${idCompare})`);
+  return sql`(${branches.reduce((acc, branch) => sql`${acc} OR ${branch}`)})`;
+};
+
+const buildCursorSelect = (sorts: ResolvedSort[]): any => {
+  if (sorts.length === 0) return sql``;
+  return sorts
+    .map(({ projection }, index) => sql`, ${projection.sql} AS ${sql.unsafe(`__sort_${index}`)}`)
+    .reduce((acc, part) => sql`${acc}${part}`);
+};
+
+const cursorEncoder =
+  (sortCount: number) =>
+  (row: Record<string, unknown>): string => {
+    const values = Array.from({ length: sortCount }, (_, index) => row[`__sort_${index}`] ?? null);
+    return JSON.stringify({ v: values, i: row.id as string });
+  };
+
 /**
  * Compiles a multi-column sort spec to an ORDER BY fragment plus a
  * null-aware tuple cursor predicate. The cursor encodes the previous page's
@@ -179,133 +259,18 @@ export const compileSort = (
   cursor: { values: unknown[]; id: string } | null,
 ): { ok: true; result: CompiledSort } | { ok: false; error: string } => {
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
-  const effective = specs.length > 0 ? specs : [];
-
-  // Validate fields exist + not deleted + sortable. Storage descriptor
-  // is the source of truth for sortability — relation/lookup/rollup/
-  // formula/select/json all return null from projectionForField,
-  // and we reject them with a clean compile error rather than silently
-  // sorting all rows to NULL via a text fallback.
-  for (const s of effective) {
-    if (isRecordSort(s)) {
-      if (!recordProjectionFor(s.key)) return { ok: false, error: "unknown record sort field" };
-      continue;
-    }
-    const f = fieldsById.get(s.fieldId);
-    if (!f) return { ok: false, error: "unknown sort field" };
-    if (f.deletedAt) return { ok: false, error: `sort field "${f.name}" is deleted` };
-    if (!projectionForField(f)) {
-      return { ok: false, error: `field "${f.name}" (type "${f.type}") is not sortable` };
-    }
-  }
-
-  // Resolve effective nullsFirst per column. Grids query surfaces default to
-  // NULLS LAST for both directions unless the query explicitly opts into
-  // `nulls first`.
-  const resolved = effective.map((s) => {
-    const projection = isRecordSort(s) ? recordProjectionFor(s.key)! : projectionForField(fieldsById.get(s.fieldId)!)!;
-    return {
-      spec: s,
-      projection,
-      nullsFirst: s.nullsFirst ?? false,
-    };
-  });
-
-  // Build ORDER BY parts.
-  const orderParts = resolved.map(({ spec, projection, nullsFirst }) => {
-    const dir = spec.direction === "desc" ? sql`DESC` : sql`ASC`;
-    const nulls = nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`;
-    return sql`${projection.sql} ${dir} ${nulls}`;
-  });
-
-  // Tiebreaker on id uses the first sort column's direction. Any
-  // consistent choice gives a total order; the first column matches
-  // the user's primary intent (newest/oldest reading direction).
-  const pageDirection: "asc" | "desc" = effective[0]?.direction ?? "asc";
-  const idDirSql = pageDirection === "desc" ? sql`DESC` : sql`ASC`;
-  // r.id (not bare id) — records.list now JOINs grids.tables and
-  // grids.bases for the live-parent invariant, and all three tables
-  // carry an `id` column. An unqualified reference raises 42702
-  // "column reference 'id' is ambiguous" at runtime.
-  const orderBy = (orderParts.length > 0 ? [...orderParts, sql`r.id ${idDirSql}`] : [sql`r.id ${idDirSql}`]).reduce(
-    (acc, cur) => sql`${acc}, ${cur}`,
-  );
-
-  // Build cursor where clause if a cursor is present.
-  let cursorWhere: any | null = null;
-  if (cursor) {
-    if (resolved.length === 0) {
-      // ID-only paging.
-      cursorWhere = pageDirection === "desc" ? sql`r.id < ${cursor.id}::uuid` : sql`r.id > ${cursor.id}::uuid`;
-    } else {
-      // Lexicographic null-aware comparison:
-      //   gt(c1, v1)
-      //   OR (eq(c1, v1) AND gt(c2, v2))
-      //   OR ...
-      //   OR (eq(...) AND id (>|<) cursor_id)
-      const idCompare = pageDirection === "desc" ? sql`r.id < ${cursor.id}::uuid` : sql`r.id > ${cursor.id}::uuid`;
-
-      const branches: any[] = [];
-      for (let i = 0; i < resolved.length; i++) {
-        const proj = resolved[i]!.projection;
-        const value = cursor.values[i];
-        const gt = orderGt(proj.sql, proj.cast, resolved[i]!.spec.direction, resolved[i]!.nullsFirst, value);
-        // Equality prefix: all earlier columns equal.
-        let prefix: any = sql`TRUE`;
-        for (let j = 0; j < i; j++) {
-          const pj = resolved[j]!.projection;
-          const eq = nullSafeEq(pj.sql, pj.cast, cursor.values[j]);
-          prefix = sql`${prefix} AND ${eq}`;
-        }
-        branches.push(sql`(${prefix} AND (${gt}))`);
-      }
-      // Final branch: all sort cols equal AND id past cursor_id.
-      let allEqPrefix: any = sql`TRUE`;
-      for (let j = 0; j < resolved.length; j++) {
-        const pj = resolved[j]!.projection;
-        const eq = nullSafeEq(pj.sql, pj.cast, cursor.values[j]);
-        allEqPrefix = sql`${allEqPrefix} AND ${eq}`;
-      }
-      branches.push(sql`(${allEqPrefix} AND ${idCompare})`);
-
-      // Wrap the OR-reduction in an outer parenthesis. Without this, the
-      // caller's `... AND ${cursorWhere}` parses as `... AND A OR B OR C`,
-      // i.e. `(... AND A) OR B OR C` — letting later branches escape the
-      // table/deleted/filter predicates and return wrong rows.
-      const orChain = branches.reduce((acc, cur) => sql`${acc} OR ${cur}`);
-      cursorWhere = sql`(${orChain})`;
-    }
-  }
-
-  // Cursor SELECT extras: emit each sort projection as `__sort_<i>`.
-  // The result row will carry these columns alongside r.*, and the
-  // cursor encoder reads them — same null-safe values the ORDER BY
-  // sees, so corrupt JSONB doesn't leak through cursor encoding.
-  const cursorSelect =
-    resolved.length === 0
-      ? sql``
-      : resolved
-          .map(({ projection }, i) => {
-            return sql`, ${projection.sql} AS ${sql.unsafe(`__sort_${i}`)}`;
-          })
-          .reduce((acc, cur) => sql`${acc}${cur}`);
-
-  const encodeCursorFromRow = (row: Record<string, unknown>): string => {
-    const values: unknown[] = [];
-    for (let i = 0; i < resolved.length; i++) {
-      values.push(row[`__sort_${i}`] ?? null);
-    }
-    return JSON.stringify({ v: values, i: row.id as string });
-  };
+  const resolved = resolveSorts(specs, fieldsById);
+  if (!resolved.ok) return resolved;
+  const pageDirection = specs[0]?.direction ?? "asc";
 
   return {
     ok: true,
     result: {
-      orderBy,
-      cursorWhere,
-      fieldIds: effective.map(sortIdentity),
-      cursorSelect,
-      encodeCursorFromRow,
+      orderBy: buildOrderBy(resolved.sorts, pageDirection),
+      cursorWhere: buildCursorWhere(resolved.sorts, cursor, pageDirection),
+      fieldIds: specs.map(sortIdentity),
+      cursorSelect: buildCursorSelect(resolved.sorts),
+      encodeCursorFromRow: cursorEncoder(resolved.sorts.length),
     },
   };
 };
