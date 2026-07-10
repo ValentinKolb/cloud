@@ -3,6 +3,7 @@ import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ExportBody, Field, RecordQuery } from "../../../contracts";
 import { errorMessage } from "../utils/api-helpers";
+import { requestRecordExport } from "./record-transfer-client";
 
 type RowState = {
   fieldId: string;
@@ -113,12 +114,7 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
     setBusy(true);
     setError(null);
     try {
-      // Blob download exception: native fetch keeps access to body + download headers.
-      const res = await fetch(`/api/grids/records/by-table/${props.tableId}/export`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const res = await requestRecordExport(props.tableId, body);
       if (!res.ok) throw new Error(await errorMessage(res, "Export failed"));
       const blob = await res.blob();
       downloadBlob(blob, filenameFromDisposition(res.headers.get("Content-Disposition"), `grids-export.${format()}`));

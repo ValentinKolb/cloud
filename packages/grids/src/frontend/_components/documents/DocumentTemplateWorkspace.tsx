@@ -31,6 +31,7 @@ import {
   serializeDocumentBrowserKey,
 } from "./document-browser-model";
 import { downloadPdfResponse } from "./document-download";
+import { requestDocumentRunDownload } from "./document-transfer-client";
 import { formatDocumentMonth } from "./document-workspace-utils";
 
 type Props = {
@@ -155,7 +156,7 @@ export default function DocumentTemplateWorkspace(props: Props) {
     setRunItems((items) => items.map((item) => (item.id === next.id ? next : item)));
   };
   const downloadRun = async (run: DocumentRunSummary, signal?: AbortSignal) => {
-    const res = await fetch(`/api/grids/documents/runs/${encodeURIComponent(run.id)}/download`, signal ? { signal } : undefined);
+    const res = await requestDocumentRunDownload(run.id, signal);
     await downloadPdfResponse(res, run.filename);
   };
   const openCreateLink = (run: DocumentRunSummary) => {

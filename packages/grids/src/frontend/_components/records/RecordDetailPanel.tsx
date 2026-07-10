@@ -14,10 +14,17 @@ import { apiClient } from "@/api/client";
 import type { ColumnSpec, DocumentRunSummary, DocumentTemplateSummary, RecordSnapshot, RecordSnapshotSummary } from "../../../contracts";
 import type { AuditEntry, Field, GridFile, GridRecord } from "../../../service";
 import { downloadPdfResponse } from "../documents/document-download";
+import {
+  isPdfResponse,
+  requestDocumentRunDownload,
+  requestDocumentTemplateGeneration,
+  requestDocumentTemplatePreview,
+} from "../documents/document-transfer-client";
 import { isUserEditable } from "../fields/field-prompt-schema";
 import { errorMessage } from "../utils/api-helpers";
 import RecordReadView, { recordDisplayTitle } from "./RecordReadView";
 import { openRecordUpsertDialog } from "./RecordUpsertDialog";
+import { uploadRecordFile } from "./record-transfer-client";
 
 type Props = {
   baseId: string;
@@ -326,10 +333,9 @@ function DocumentGenerationReviewDialog(props: {
   const [previewed, setPreviewed] = createSignal(false);
   const generateMut = mutations.create<void, void>({
     mutation: async () => {
-      const res = await fetch(`/api/grids/documents/templates/${props.args.template.id}/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recordId: props.args.recordId }),
+      const res = await requestDocumentTemplateGeneration({
+        templateId: props.args.template.id,
+        recordId: props.args.recordId,
       });
       await downloadPdfResponse(res, `${props.args.template.name}.pdf`);
     },
@@ -339,12 +345,11 @@ function DocumentGenerationReviewDialog(props: {
 
   const previewPdf = async () => {
     setPreviewed(false);
-    const response = await fetch(`/api/grids/documents/templates/${props.args.template.id}/preview-pdf`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recordId: props.args.recordId }),
+    const response = await requestDocumentTemplatePreview({
+      templateId: props.args.template.id,
+      recordId: props.args.recordId,
     });
-    if (response.ok && (response.headers.get("content-type") ?? "").includes("application/pdf")) setPreviewed(true);
+    if (isPdfResponse(response)) setPreviewed(true);
     return response;
   };
 
@@ -459,7 +464,7 @@ function RecordDocumentsSection(props: { tableId: string; recordId: string; live
   const redownload = async (run: DocumentRunSummary) => {
     setBusy(run.id);
     try {
-      const res = await fetch(`/api/grids/documents/runs/${run.id}/download`);
+      const res = await requestDocumentRunDownload(run.id);
       await downloadPdfResponse(res, run.filename);
     } catch (error) {
       prompts.error(error instanceof Error ? error.message : "Failed to download document");
@@ -711,12 +716,11 @@ function FileFieldCell(props: { tableId: string; recordId: string; field: Field;
     if (!file) return;
     setUploading(true);
     try {
-      const form = new FormData();
-      form.set("file", file);
-      // FormData upload exception: the Hono client route is JSON-typed, native fetch keeps multipart exact.
-      const res = await fetch(`/api/grids/records/${props.tableId}/${props.recordId}/files/${props.field.id}`, {
-        method: "POST",
-        body: form,
+      const res = await uploadRecordFile({
+        tableId: props.tableId,
+        recordId: props.recordId,
+        fieldId: props.field.id,
+        file,
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to upload file"));
       await refetch();

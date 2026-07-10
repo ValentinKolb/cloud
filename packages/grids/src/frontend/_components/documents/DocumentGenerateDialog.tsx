@@ -5,6 +5,7 @@ import type { DocumentTemplateSummary } from "../../../contracts";
 import type { Table } from "../../../service";
 import RecordPicker from "../records/RecordPicker";
 import { downloadPdfResponse } from "./document-download";
+import { isPdfResponse, requestDocumentTemplateGeneration, requestDocumentTemplatePreview } from "./document-transfer-client";
 
 export type DocumentGenerateDialogArgs = {
   table: Table;
@@ -40,12 +41,8 @@ function DocumentGenerateDialog(props: { args: DocumentGenerateDialogArgs; close
     const selected = recordId().trim();
     if (!selected) throw new Error("Choose a record first.");
     setPreviewedRecordId(null);
-    const res = await fetch(`/api/grids/documents/templates/${encodeURIComponent(props.args.template.id)}/preview-pdf`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recordId: selected }),
-    });
-    if (res.ok && (res.headers.get("content-type") ?? "").includes("application/pdf")) setPreviewedRecordId(selected);
+    const res = await requestDocumentTemplatePreview({ templateId: props.args.template.id, recordId: selected });
+    if (isPdfResponse(res)) setPreviewedRecordId(selected);
     return res;
   };
 
@@ -54,11 +51,12 @@ function DocumentGenerateDialog(props: { args: DocumentGenerateDialogArgs; close
       const selected = recordId().trim();
       if (!selected) throw new Error("Choose a record first.");
       if (!hasCurrentPreview()) throw new Error("Render a PDF preview before generating this document.");
-      const res = await fetch(`/api/grids/documents/templates/${encodeURIComponent(props.args.template.id)}/generate`, {
-        method: "POST",
+      const res = await requestDocumentTemplateGeneration({
+        templateId: props.args.template.id,
+        recordId: selected,
+        filename: filename().trim() || undefined,
+        tags: tags(),
         signal: abortSignal,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recordId: selected, filename: filename().trim() || undefined, tags: tags() }),
       });
       await downloadPdfResponse(res, filename().trim() || `${props.args.template.name}.pdf`);
     },
