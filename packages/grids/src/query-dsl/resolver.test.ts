@@ -1904,6 +1904,60 @@ sort missing desc`),
     ]);
   });
 
+  test("source-only queries keep their default projection when limit is inline", () => {
+    const resolved = resolveDslQueryToQueryPlan(parseOk(`from table Orders limit 2`), ctx());
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+
+    const compiled = compileDslQueryPlanToSql(resolved.plan, { fieldsByTableId: ctx().fieldsByTableId });
+
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    expect(compiled.query.limit).toBe(2);
+    expect(compiled.query.columns.map((column) => column.label)).toEqual([
+      "Customer",
+      "Amount",
+      "Cost",
+      "Status",
+      "Ordered at",
+      "Paid",
+      "Customer link",
+    ]);
+  });
+
+  test("source-only view queries keep their default projection when limit is inline", () => {
+    const context = ctx({
+      views: [
+        {
+          kind: "view",
+          id: "33333333-3333-4333-8333-333333333333",
+          shortId: "AllOrders",
+          name: "All orders",
+          tableId: orders.id,
+          query: {},
+        },
+      ],
+    });
+    const resolved = resolveDslQueryToQueryPlan(parseOk(`from view "All orders" limit 2`), context);
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+
+    const compiled = compileDslQueryPlanToSql(resolved.plan, { fieldsByTableId: context.fieldsByTableId });
+
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    expect(compiled.query.limit).toBe(2);
+    expect(compiled.query.columns.map((column) => column.label)).toEqual([
+      "Customer",
+      "Amount",
+      "Cost",
+      "Status",
+      "Ordered at",
+      "Paid",
+      "Customer link",
+    ]);
+  });
+
   test("SQL compiler clamps limits and rejects grouped row execution", () => {
     const resolved = resolveDslQueryToQueryPlan(
       parseOk(`

@@ -70,6 +70,40 @@ describe("parseGridsQueryDsl", () => {
     expect(result.ast.offset).toBe(5);
   });
 
+  test("parses an inline limit after a source-only query", () => {
+    const sourceOnly = parseGridsQueryDsl(`from table Categories limit 2`);
+    expect(sourceOnly.ok).toBe(true);
+    if (!sourceOnly.ok) return;
+    expect(withoutSpans(sourceOnly.ast.source)).toEqual({ kind: "table", ref: "Categories" });
+    expect(sourceOnly.ast.select).toEqual([]);
+    expect(sourceOnly.ast.limit).toBe(2);
+  });
+
+  test("keeps clause words inside quoted source names", () => {
+    const result = parseGridsQueryDsl(`from table "Categories limit 2" limit 2`);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(withoutSpans(result.ast.source)).toEqual({ kind: "table", ref: "Categories limit 2" });
+    expect(result.ast.limit).toBe(2);
+  });
+
+  test("keeps clause words when they are source or field refs", () => {
+    const result = parseGridsQueryDsl(`from table Limit
+select Limit
+where Search = 'open'
+sort Sort asc
+limit 2`);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(withoutSpans(result.ast.source)).toEqual({ kind: "table", ref: "Limit" });
+    expect(withoutSpans(result.ast.select)).toEqual([{ kind: "field", field: { ref: "Limit" } }]);
+    expect(result.ast.where?.source).toBe("Search = 'open'");
+    expect(withoutSpans(result.ast.sort)).toEqual([{ target: { ref: "Sort" }, direction: "asc" }]);
+    expect(result.ast.limit).toBe(2);
+  });
+
   test("keeps semicolons inside strings and formulas", () => {
     const result = parseGridsQueryDsl(`where CONTAINS(Notes, 'sort; this text') and Price <= Cost * 1.10; sort created_at desc`);
 

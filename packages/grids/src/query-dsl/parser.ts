@@ -98,6 +98,12 @@ const stripComment = (line: string): { text: string; attachedCommentColumn?: num
 type InlineClause = { text: string; column: number };
 type InlineClauses = { clauses: InlineClause[]; attachedCommentColumn?: number };
 
+const inlineSourceLimitStartAt = (input: string, whitespaceStart: number): number | null => {
+  let start = whitespaceStart;
+  while (start < input.length && /\s/.test(input[start]!)) start++;
+  return /^limit\s+\d+\s*$/i.test(input.slice(start)) ? start : null;
+};
+
 const inlineColumn = (leadingOffset: number, source: string, start: number, end = source.length): number => {
   const raw = source.slice(start, end);
   const local = raw.search(/\S/);
@@ -152,6 +158,16 @@ const splitInlineClauses = (line: string): InlineClauses => {
       const previous = trimmed.slice(start, i).trim();
       if (previous) clauses.push({ text: previous, column: inlineColumn(leadingOffset, trimmed, start, i) });
       start = i + 1;
+      continue;
+    }
+    if (parenDepth === 0 && braceDepth === 0 && /\s/.test(c)) {
+      const boundary = inlineSourceLimitStartAt(trimmed, i);
+      const previous = trimmed.slice(start, i).trim();
+      if (boundary !== null && /^from\s+(?:table|view)\s+\S/i.test(previous)) {
+        clauses.push({ text: previous, column: inlineColumn(leadingOffset, trimmed, start, i) });
+        start = boundary;
+        i = boundary - 1;
+      }
     }
   }
 
