@@ -4,7 +4,7 @@ import { storageOf } from "../service/field-storage";
 import type { FormulaSqlExpression } from "../service/formula-sql-compiler";
 import type { Field } from "../service/types";
 import type { DslResolverContext, DslTableSource } from "./resolver-context";
-import { type DslResolverDiagnostic, diagnostic } from "./resolver-diagnostics";
+import { type DslResolverDiagnostic, diagnostic, isResolverDiagnostic as isDiagnostic } from "./resolver-diagnostics";
 import type { DslQualifiedRef, DslSourceSpan } from "./types";
 
 export type Scope = {
@@ -155,4 +155,25 @@ export const joinScopeByAlias = (scope: Scope, alias: string, span?: DslSourceSp
   const join = scope.joins.get(aliasKey(alias));
   if (!join) return diagnostic(`unknown join alias "${alias}"`, span);
   return join;
+};
+
+export const resolveScopedField = (
+  scope: Scope,
+  ref: DslQualifiedRef,
+): { field: Field; tableId: string; joinAlias?: string } | DslResolverDiagnostic => {
+  if (isBaseScope(scope, ref.scope)) {
+    const field = fieldByRef(scope, ref.ref, ref.span);
+    if (isDiagnostic(field)) return field;
+    return { field, tableId: scope.tableId };
+  }
+  if (ref.scope) {
+    const join = joinScopeByAlias(scope, ref.scope, ref.span);
+    if (isDiagnostic(join)) return join;
+    const field = fieldByRefMap(join.byRef, ref.ref, `${ref.scope}."${ref.ref}"`, ref.span);
+    if (isDiagnostic(field)) return field;
+    return { field, tableId: join.tableId, joinAlias: join.alias };
+  }
+  const field = fieldByRef(scope, ref.ref, ref.span);
+  if (isDiagnostic(field)) return field;
+  return { field, tableId: scope.tableId };
 };
