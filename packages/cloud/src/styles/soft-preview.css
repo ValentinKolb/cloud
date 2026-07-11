@@ -14,6 +14,12 @@ body:has(.cloud-ui-soft),
   --ui-hover: rgb(238 242 239 / 0.82);
   --ui-active: rgb(225 230 226 / 0.9);
   --ui-selected: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 8%, var(--ui-surface));
+  --ui-action-primary-surface: var(--color-zinc-900);
+  --ui-action-primary-hover: var(--color-black);
+  --ui-action-primary-active: var(--color-zinc-800);
+  --ui-action-primary-text: var(--color-white);
+  --ui-action-primary-border: transparent;
+  --ui-action-primary-hover-border: transparent;
   --ui-field: var(--ui-surface-muted);
   --ui-field-border: transparent;
   --ui-field-hover: var(--ui-hover);
@@ -106,6 +112,12 @@ body:has(.cloud-ui-soft),
   --ui-hover: rgb(32 38 34 / 0.82);
   --ui-active: rgb(48 57 51 / 0.9);
   --ui-selected: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 13%, var(--ui-surface));
+  --ui-action-primary-surface: var(--color-zinc-100);
+  --ui-action-primary-hover: var(--color-white);
+  --ui-action-primary-active: var(--color-zinc-200);
+  --ui-action-primary-text: var(--color-zinc-950);
+  --ui-action-primary-border: transparent;
+  --ui-action-primary-hover-border: transparent;
   --ui-field: var(--ui-surface-muted);
   --ui-field-border: transparent;
   --ui-field-hover: var(--ui-hover);
@@ -263,6 +275,10 @@ body:has(.cloud-ui-soft) :is(.btn-primary, .btn-secondary, .btn-success, .btn-da
 
 body:has(.cloud-ui-soft) :is(.btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-input, .btn-input-recessed):active {
   box-shadow: var(--theme-press);
+}
+
+body:has(.cloud-ui-soft) :is(.btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-input, .btn-input-recessed):focus-visible {
+  box-shadow: var(--ui-focus);
 }
 
 body:has(.cloud-ui-soft) :is(.btn-secondary, .btn-input, .btn-input-recessed) {

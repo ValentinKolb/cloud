@@ -38,7 +38,7 @@ Keep these roles independent:
 
 - **Canvas:** the app-level background and optional gradient from `defineApp({ appearance })`.
 - **Identity accent:** active rail item, workspace identity icon, active sidebar marker, and launchpad icon.
-- **Action accent:** primary buttons, links, focus, and selection. It stays platform-consistent unless a component has a domain reason to differ.
+- **Action hierarchy:** primary actions, links, focus, and selection stay platform-consistent and independent from app identity. They may use different treatments when their interaction roles differ.
 - **Status:** success, warning, danger, and information. Status colour never identifies an app.
 - **Data:** categories, series, severity, and other domain values. Data colour must remain legible without relying on colour alone.
 
@@ -76,8 +76,9 @@ Use one radius family. A child may use the same radius as its parent only when t
 - `--ui-shadow-surface`: subtle in-flow depth.
 - `--ui-shadow-float`: dialogs, popovers, menus, and toasts.
 
-### Fields and compact controls
+### Actions, fields, and compact controls
 
+- `--ui-action-primary-*`: surface, text, border, hover, and active roles for the main forward or write action. The soft system uses a high-contrast neutral treatment so app and status colours keep their meaning.
 - `--ui-field`, `--ui-field-border`: resting field well.
 - `--ui-field-hover`, `--ui-field-hover-border`: pointer hover without implying focus.
 - `--ui-field-focus`, `--ui-field-focus-border`: focused editing surface; combine with `--ui-focus` for keyboard visibility.
@@ -206,6 +207,8 @@ The header identifies the current resource, not the app twice.
 - Ghost buttons suit toolbars and progressive actions.
 - Danger buttons appear only for destructive actions.
 - Icon-only buttons need an accessible name and a shared tooltip.
+
+The soft system uses a high-contrast neutral primary button instead of app colour. Success and danger treatments remain reserved for their semantic meanings; a normal save or create action is neither green nor red.
 
 Buttons should feel responsive through colour and a small pressed-state change. Avoid glossy bevels, dramatic scaling, and multiple competing shadows.
 

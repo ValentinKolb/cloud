@@ -10,7 +10,16 @@
  * than "page action".
  */
 
-import { ContextMenu, CopyButton, Dropdown, type DropdownItem, RemoveBtn, SegmentedControl, Tooltip } from "@valentinkolb/cloud/ui";
+import {
+  ContextMenu,
+  CopyButton,
+  Dropdown,
+  type DropdownItem,
+  RemoveBtn,
+  SegmentedControl,
+  TextInput,
+  Tooltip,
+} from "@valentinkolb/cloud/ui";
 import { createSignal } from "solid-js";
 import DemoCard from "./DemoCard";
 
@@ -74,6 +83,55 @@ export const ButtonVariants = () => (
     </div>
   </DemoCard>
 );
+
+export const ActionHierarchy = () => {
+  const [query, setQuery] = createSignal("");
+
+  return (
+    <DemoCard
+      id="action-hierarchy"
+      chip={[
+        { kind: "utility", name: "btn-primary" },
+        { kind: "utility", name: "btn-secondary" },
+      ]}
+      variant="responsive action composition"
+      description="Search owns the flexible space. Secondary and primary actions stay grouped, move below it on narrow screens, and keep status colours out of ordinary create flows."
+      code={`<div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+  <div class="min-w-0 flex-1">
+    <TextInput type="search" placeholder="Search employees..." />
+  </div>
+  <div class="flex items-center gap-1.5 self-end sm:self-auto">
+    <button class="btn-secondary btn-sm">Filter</button>
+    <button class="btn-primary btn-sm">Add employee</button>
+  </div>
+</div>`}
+    >
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div class="min-w-0 flex-1">
+          <TextInput
+            type="search"
+            ariaLabel="Search employees"
+            placeholder="Search employees..."
+            icon="ti ti-search"
+            value={query}
+            onInput={setQuery}
+            clearable
+          />
+        </div>
+        <div class="flex items-center gap-1.5 self-end sm:self-auto">
+          <button type="button" class="btn-secondary btn-sm">
+            <i class="ti ti-filter" />
+            Filter
+          </button>
+          <button type="button" class="btn-primary btn-sm">
+            <i class="ti ti-plus" />
+            Add employee
+          </button>
+        </div>
+      </div>
+    </DemoCard>
+  );
+};
 
 export const AiButtonMarkers = () => (
   <DemoCard
@@ -408,6 +466,7 @@ export const ButtonsTab = () => (
   <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
     <ButtonSizes />
     <ButtonVariants />
+    <ActionHierarchy />
     <AiButtonMarkers />
     <ButtonInputs />
     <IconButtons />

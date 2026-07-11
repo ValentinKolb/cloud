@@ -36,19 +36,27 @@
   @apply dark:active:bg-zinc-700;
 }
 
-/* Primary: filled blue + soft bevel; darkens on hover; sinks (inset) on press */
+/* Primary: semantic forward/write action; sinks (inset) on press. */
 @utility btn-primary {
-  @apply btn-base bg-blue-500 text-white border-blue-600;
-  @apply hover:bg-blue-600 hover:border-blue-700;
-  @apply active:bg-blue-700 active:border-blue-700;
-  @apply dark:bg-blue-500 dark:text-white dark:border-blue-600;
-  @apply dark:hover:bg-blue-600 dark:hover:border-blue-700;
-  @apply dark:active:bg-blue-700;
+  @apply btn-base;
+  border-color: var(--ui-action-primary-border);
+  background: var(--ui-action-primary-surface);
+  color: var(--ui-action-primary-text);
   box-shadow:
     inset 0 1px 0 0 rgb(255 255 255 / 0.26),
     inset 0 -1px 1px 0 rgb(0 0 0 / 0.16);
+  &:hover {
+    border-color: var(--ui-action-primary-hover-border);
+    background: var(--ui-action-primary-hover);
+  }
   &:active {
+    border-color: var(--ui-action-primary-hover-border);
+    background: var(--ui-action-primary-active);
     box-shadow: var(--theme-press);
+  }
+  &:disabled:hover {
+    border-color: var(--ui-action-primary-border);
+    background: var(--ui-action-primary-surface);
   }
 }
 
