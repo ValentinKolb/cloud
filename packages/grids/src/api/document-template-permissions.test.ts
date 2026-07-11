@@ -95,6 +95,8 @@ let templateLevel: "none" | "read" = "read";
 let fieldListCalls = 0;
 let snapshotListCalls = 0;
 let snapshotCreateCalls = 0;
+let snapshotCreateInput: unknown;
+let snapshotGetCalls = 0;
 
 const snapshot = {
   id: snapshotId,
@@ -105,6 +107,11 @@ const snapshot = {
   graph: {},
   createdBy: user.id,
   createdAt: "2026-01-01T00:00:00.000Z",
+};
+
+const forbiddenResponse = {
+  message: "You do not have permission to access this resource.",
+  code: "FORBIDDEN",
 };
 
 mock.module("../service", () => ({
@@ -125,11 +132,15 @@ mock.module("../service", () => ({
         snapshotListCalls += 1;
         return [snapshot];
       },
-      createRecordSnapshot: async () => {
+      createRecordSnapshot: async (input: unknown) => {
         snapshotCreateCalls += 1;
+        snapshotCreateInput = input;
         return { ok: true, data: snapshot };
       },
-      getSnapshot: async (id: string) => (id === snapshotId ? snapshot : null),
+      getSnapshot: async (id: string) => {
+        snapshotGetCalls += 1;
+        return id === snapshotId ? snapshot : null;
+      },
       summarizeTemplate: (row: typeof template) => ({
         id: row.id,
         shortId: row.shortId,
@@ -186,6 +197,8 @@ describe("document template permission surfaces", () => {
     fieldListCalls = 0;
     snapshotListCalls = 0;
     snapshotCreateCalls = 0;
+    snapshotCreateInput = undefined;
+    snapshotGetCalls = 0;
   });
 
   test("lists readable document templates without table read access", async () => {
@@ -234,7 +247,44 @@ describe("document template permission surfaces", () => {
     const response = await app.request(`/snapshots/by-record/${tableId}/${recordId}`);
 
     expect(response.status).toBe(403);
+    expect(await response.json()).toEqual(forbiddenResponse);
     expect(snapshotListCalls).toBe(0);
+  });
+
+  for (const method of ["GET", "POST"] as const) {
+    test(`${method} snapshot by-record returns 404 for an invalid record id`, async () => {
+      const app = createDocumentsApi({ requireAuthenticated: authenticated });
+
+      const response = await app.request(`/snapshots/by-record/${tableId}/not-a-record-id`, { method });
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ message: "Record not found" });
+      expect(snapshotListCalls).toBe(0);
+      expect(snapshotCreateCalls).toBe(0);
+    });
+
+    test(`${method} snapshot by-record returns 404 for an unknown table`, async () => {
+      const app = createDocumentsApi({ requireAuthenticated: authenticated });
+      const unknownTableId = "99999999-9999-4999-8999-999999999999";
+
+      const response = await app.request(`/snapshots/by-record/${unknownTableId}/${recordId}`, { method });
+
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ message: "Table not found" });
+      expect(snapshotListCalls).toBe(0);
+      expect(snapshotCreateCalls).toBe(0);
+    });
+  }
+
+  test("lists standalone snapshots with table read access", async () => {
+    tableLevel = "read";
+    const app = createDocumentsApi({ requireAuthenticated: authenticated });
+
+    const response = await app.request(`/snapshots/by-record/${tableId}/${recordId}`);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ items: [snapshot] });
+    expect(snapshotListCalls).toBe(1);
   });
 
   test("requires table read access to create standalone snapshots", async () => {
@@ -243,7 +293,26 @@ describe("document template permission surfaces", () => {
     const response = await app.request(`/snapshots/by-record/${tableId}/${recordId}`, { method: "POST" });
 
     expect(response.status).toBe(403);
+    expect(await response.json()).toEqual(forbiddenResponse);
     expect(snapshotCreateCalls).toBe(0);
+  });
+
+  test("creates standalone snapshots with table read access", async () => {
+    tableLevel = "read";
+    const app = createDocumentsApi({ requireAuthenticated: authenticated });
+
+    const response = await app.request(`/snapshots/by-record/${tableId}/${recordId}`, { method: "POST" });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ snapshot });
+    expect(snapshotCreateCalls).toBe(1);
+    expect(snapshotCreateInput).toEqual({
+      baseId,
+      tableId,
+      recordId,
+      actorId: user.id,
+      dateConfig: { timeZone: "UTC", locale: "en", firstDayOfWeek: 1 },
+    });
   });
 
   test("requires table read access to open a standalone snapshot", async () => {
@@ -252,5 +321,29 @@ describe("document template permission surfaces", () => {
     const response = await app.request(`/snapshots/${snapshotId}`);
 
     expect(response.status).toBe(403);
+    expect(await response.json()).toEqual(forbiddenResponse);
+  });
+
+  test("opens standalone snapshots with table read access", async () => {
+    tableLevel = "read";
+    const app = createDocumentsApi({ requireAuthenticated: authenticated });
+
+    const response = await app.request(`/snapshots/${snapshotId}`);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(snapshot);
+    expect(snapshotGetCalls).toBe(1);
+  });
+
+  test("returns 404 for an unknown standalone snapshot", async () => {
+    tableLevel = "read";
+    const app = createDocumentsApi({ requireAuthenticated: authenticated });
+    const unknownSnapshotId = "88888888-8888-4888-8888-888888888888";
+
+    const response = await app.request(`/snapshots/${unknownSnapshotId}`);
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ message: "Record snapshot not found" });
+    expect(snapshotGetCalls).toBe(1);
   });
 });
