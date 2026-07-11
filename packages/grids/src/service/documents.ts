@@ -11,15 +11,9 @@ import {
   renderTemplatePdfPreview,
   type TemplatePdfPreviewResult,
 } from "@valentinkolb/cloud/services";
-import {
-  CLOUD_LOGO_SVG,
-  type LiquidTemplateFilter,
-  renderLiquidTemplate,
-  validateLiquidTemplate as validateSharedLiquidTemplate,
-} from "@valentinkolb/cloud/shared";
-import { type DateContext, dates, err, fail, ok, type Result, type ServiceError } from "@valentinkolb/stdlib";
+import { CLOUD_LOGO_SVG } from "@valentinkolb/cloud/shared";
+import { type DateContext, err, fail, ok, type Result, type ServiceError } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { type BarcodeFormat, BarcodeRenderError, barcodeDataUrl } from "../barcode-rendering";
 import type {
   CreateDocumentLinkInput,
   CreateDocumentTemplateInput,
@@ -43,6 +37,19 @@ import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import { collectDslPlanExtraFieldTableIds } from "../query-dsl/source-plan";
 import { logAudit } from "./audit";
 import { get as getBase } from "./bases";
+import {
+  DEFAULT_DOCUMENT_NUMBER_TEMPLATE,
+  DOCUMENT_NUMBER_ROOTS,
+  DOCUMENT_SOURCE_ROOTS,
+  datePatternContext,
+  documentLiquidFilters,
+  documentNumberFor,
+  renderLiquidText,
+  runPatternContext,
+  templatePatternContext,
+  utf8ByteLength,
+  validateDocumentLiquidTemplate,
+} from "./document-liquid";
 import { listByTable as listFields } from "./fields";
 import { getContent as getFileContent, listForRecordField } from "./files";
 import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
@@ -52,6 +59,8 @@ import { insertWithShortId } from "./short-id";
 import { get as getTable } from "./tables";
 import type { Field, GridRecord, Table } from "./types";
 import { ensureRecordScanCode } from "./workflows";
+
+export { documentNumberFor, renderLiquidPlainText, renderLiquidText, validateLiquidRoots, validateLiquidTemplate } from "./document-liquid";
 
 type DbRow = Record<string, unknown>;
 
@@ -76,9 +85,7 @@ type DocumentRunBrowsePage = {
 };
 
 const DEFAULT_SOURCE = (tableId: string) => `from table {${tableId}}\nwhere record.id = '{{ record.id }}'\nlimit 1`;
-const DEFAULT_NUMBER_TEMPLATE = "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}";
 const DEFAULT_FILENAME_TEMPLATE = "{{ document.number }}.pdf";
-const TEMPLATE_MAX_BYTES = 200_000;
 const SOURCE_MAX_BYTES = 20_000;
 const FILENAME_TEMPLATE_MAX_BYTES = 5_000;
 const FILENAME_MAX_CHARS = 255;
@@ -98,168 +105,6 @@ const DOCUMENT_LINK_TTL_MS: Record<DocumentLinkTtl, number> = {
   "30d": 30 * 24 * 60 * 60 * 1000,
   "90d": 90 * 24 * 60 * 60 * 1000,
 };
-
-const byteLength = (value: string): number => new TextEncoder().encode(value).byteLength;
-
-const DOCUMENT_TEMPLATE_ROOTS = new Set([
-  "record",
-  "table",
-  "rows",
-  "columns",
-  "query",
-  "document",
-  "snapshot",
-  "app",
-  "business",
-  "images",
-  "primaryImage",
-  "template",
-  "run",
-  "date",
-]);
-const DOCUMENT_SOURCE_ROOTS = new Set(["record", "table", "app", "business", "template", "date"]);
-const DOCUMENT_NUMBER_ROOTS = new Set(["record", "table", "template", "run", "date", "app", "business"]);
-const LIQUID_KEYWORDS = new Set([
-  "and",
-  "or",
-  "not",
-  "contains",
-  "in",
-  "true",
-  "false",
-  "nil",
-  "null",
-  "blank",
-  "empty",
-  "reversed",
-  "continue",
-]);
-const LIQUID_TAGS_WITHOUT_EXPRESSIONS = new Set([
-  "else",
-  "endif",
-  "endunless",
-  "endfor",
-  "endcase",
-  "endcapture",
-  "endcomment",
-  "endraw",
-  "break",
-  "continue",
-]);
-
-const stripLiquidStringLiterals = (value: string): string =>
-  value.replace(/"([^"\\]|\\.)*"|'([^'\\]|\\.)*'/g, (match) => " ".repeat(match.length));
-
-const stripLiquidCommentBlocks = (value: string): string => value.replace(/{%-?\s*(comment|raw)\s*-?%}[\s\S]*?{%-?\s*end\1\s*-?%}/g, "");
-
-const collectLiquidExpressionRoots = (expression: string): string[] => {
-  const sanitized = stripLiquidStringLiterals(expression.replace(/\|\s*[A-Za-z_][A-Za-z0-9_]*/g, ""));
-  const roots: string[] = [];
-  for (const match of sanitized.matchAll(/\b[A-Za-z_][A-Za-z0-9_]*\b/g)) {
-    const name = match[0];
-    const index = match.index ?? 0;
-    const before = sanitized[index - 1] ?? "";
-    const after = sanitized[index + name.length] ?? "";
-    if (before === "." || after === ":" || LIQUID_KEYWORDS.has(name)) continue;
-    roots.push(name);
-  }
-  return roots;
-};
-
-const liquidLocals = (frames: readonly (readonly string[])[]): Set<string> => {
-  const locals = new Set<string>();
-  for (const frame of frames) {
-    for (const local of frame) locals.add(local);
-  }
-  return locals;
-};
-
-const addLiquidLocal = (frames: string[][], local: string): void => {
-  frames[frames.length - 1]?.push(local);
-};
-
-const liquidExpressions = function* (source: string): Generator<{ expression: string; locals: ReadonlySet<string> }> {
-  const cleanSource = stripLiquidCommentBlocks(source);
-  const frames: string[][] = [[]];
-  for (const match of cleanSource.matchAll(/{{-?\s*([\s\S]*?)\s*-?}}|{%-?\s*([A-Za-z_][A-Za-z0-9_]*)([\s\S]*?)\s*-?%}/g)) {
-    const outputExpression = match[1];
-    if (outputExpression !== undefined) {
-      yield { expression: outputExpression, locals: liquidLocals(frames) };
-      continue;
-    }
-    const tag = match[2]!;
-    if (tag === "endfor") {
-      if (frames.length > 1) frames.pop();
-      continue;
-    }
-    if (LIQUID_TAGS_WITHOUT_EXPRESSIONS.has(tag) || tag === "comment" || tag === "raw") continue;
-    const body = match[3] ?? "";
-    if (tag === "for") {
-      const forMatch = body.match(/^\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+([\s\S]+)$/);
-      if (forMatch) {
-        yield { expression: forMatch[2]!, locals: liquidLocals(frames) };
-        frames.push([forMatch[1]!, "forloop"]);
-      }
-      continue;
-    }
-    if (tag === "assign") {
-      const localMatch = body.match(/^\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/);
-      const assignMatch = body.match(/=\s*([\s\S]+)$/);
-      if (assignMatch) yield { expression: assignMatch[1]!, locals: liquidLocals(frames) };
-      if (localMatch) addLiquidLocal(frames, localMatch[1]!);
-      continue;
-    }
-    if (tag === "capture") {
-      const captureMatch = body.match(/^\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
-      if (captureMatch) addLiquidLocal(frames, captureMatch[1]!);
-      continue;
-    }
-    yield { expression: body, locals: liquidLocals(frames) };
-  }
-};
-
-export const validateLiquidRoots = (source: string, roots: ReadonlySet<string>, label: string): Result<void> => {
-  for (const { expression, locals } of liquidExpressions(source)) {
-    for (const root of collectLiquidExpressionRoots(expression)) {
-      if (roots.has(root) || locals.has(root)) continue;
-      return fail(err.badInput(`${label} uses unknown Liquid variable "${root}"`));
-    }
-  }
-  return ok();
-};
-
-const datePatternContext = (date: Date, dateConfig?: DateContext) => {
-  const iso = date.toISOString();
-  const dateOnly = dates.formatDateKey(date, dateConfig);
-  return {
-    iso,
-    date: dateOnly,
-    yyyy: dateOnly.slice(0, 4),
-    year: dateOnly.slice(0, 4),
-    month: dateOnly.slice(5, 7),
-    day: dateOnly.slice(8, 10),
-    yyyyMMdd: dateOnly.replaceAll("-", ""),
-  };
-};
-
-const templatePatternContext = (template: Partial<Pick<DocumentTemplate, "id" | "shortId" | "name">> | null | undefined) => ({
-  id: template?.id ?? null,
-  shortId: template?.shortId ?? "draft",
-  name: template?.name ?? "Draft template",
-});
-
-const runPatternContext = (runId: string | null | undefined, shortId: string | null | undefined) => ({
-  id: runId ?? null,
-  shortId: shortId ?? "draft",
-});
-
-const safeDocumentNumber = (value: string): string =>
-  value
-    .replace(/[\u0000-\u001f\u007f]/g, " ")
-    .replace(/[/:*?"<>|\\]/g, "-")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 160);
 
 const isServiceError = (error: unknown): error is ServiceError =>
   typeof error === "object" &&
@@ -468,98 +313,6 @@ export const buildTemplateBusinessData = async (
   };
 };
 
-const barcodeDataUrlFilter: LiquidTemplateFilter = (value, bcid = "code128", showText = false) => {
-  if (typeof bcid !== "string") throw new Error("barcode_data_url requires a barcode type");
-  if (showText !== true && showText !== false && showText !== undefined && showText !== null) {
-    throw new Error("barcode_data_url show text flag must be a boolean");
-  }
-
-  const format: BarcodeFormat = { kind: "barcode", bcid, showText: showText === true };
-  try {
-    return barcodeDataUrl(value, format);
-  } catch (error) {
-    if (error instanceof BarcodeRenderError) throw new Error(error.message);
-    throw error;
-  }
-};
-
-const documentLiquidFilters: Record<string, LiquidTemplateFilter> = {
-  barcode_data_url: barcodeDataUrlFilter,
-};
-
-export const validateLiquidTemplate = (source: string): Result<void> => {
-  if (byteLength(source) > TEMPLATE_MAX_BYTES) return fail(err.badInput("template is too large"));
-  const valid = validateSharedLiquidTemplate(source, { filters: documentLiquidFilters });
-  return valid.ok ? ok() : fail(err.badInput(valid.error));
-};
-
-const validateDocumentLiquidTemplate = (
-  source: string,
-  label: string,
-  roots: ReadonlySet<string> = DOCUMENT_TEMPLATE_ROOTS,
-): Result<void> => {
-  const valid = validateLiquidTemplate(source);
-  if (!valid.ok) return valid;
-  return validateLiquidRoots(source, roots, label);
-};
-
-const renderLiquid = async (
-  template: string,
-  data: Record<string, unknown>,
-  options: { maxBytes?: number; escapeOutput?: boolean } = {},
-): Promise<Result<string>> => {
-  const valid = validateLiquidTemplate(template);
-  if (!valid.ok) return valid;
-  try {
-    const rendered = renderLiquidTemplate(template, data, { filters: documentLiquidFilters, escapeOutput: options.escapeOutput });
-    if (byteLength(rendered) > (options.maxBytes ?? TEMPLATE_MAX_BYTES)) return fail(err.badInput("rendered template is too large"));
-    return ok(rendered);
-  } catch (error) {
-    return fail(err.badInput(error instanceof Error ? error.message : "template render failed"));
-  }
-};
-
-export const renderLiquidText = async (
-  template: string,
-  data: Record<string, unknown>,
-  maxBytes = TEMPLATE_MAX_BYTES,
-): Promise<Result<string>> => renderLiquid(template, data, { maxBytes });
-
-export const renderLiquidPlainText = async (
-  template: string,
-  data: Record<string, unknown>,
-  maxBytes = TEMPLATE_MAX_BYTES,
-): Promise<Result<string>> => renderLiquid(template, data, { maxBytes, escapeOutput: false });
-
-export const documentNumberFor = (params: {
-  template: Partial<Pick<DocumentTemplate, "id" | "shortId" | "name" | "numberTemplate">>;
-  runId: string;
-  runShortId: string;
-  generatedAt?: Date;
-  dateConfig?: DateContext;
-  data?: Record<string, unknown>;
-}): Result<string> => {
-  const template = params.template.numberTemplate?.trim() || DEFAULT_NUMBER_TEMPLATE;
-  const valid = validateDocumentLiquidTemplate(template, "document number pattern", DOCUMENT_NUMBER_ROOTS);
-  if (!valid.ok) return valid;
-  try {
-    const rendered = renderLiquidTemplate(
-      template,
-      {
-        ...(params.data ?? {}),
-        template: templatePatternContext(params.template),
-        run: runPatternContext(params.runId, params.runShortId),
-        date: datePatternContext(params.generatedAt ?? new Date(), params.dateConfig),
-      },
-      { filters: documentLiquidFilters },
-    );
-    const number = safeDocumentNumber(rendered);
-    return number ? ok(number) : fail(err.badInput("document number pattern rendered an empty number"));
-  } catch (error) {
-    return fail(err.badInput(error instanceof Error ? error.message : "document number pattern render failed"));
-  }
-};
-
 const mapTemplate = (row: DbRow): DocumentTemplate => ({
   id: row.id as string,
   shortId: row.short_id as string,
@@ -571,7 +324,7 @@ const mapTemplate = (row: DbRow): DocumentTemplate => ({
   headerHtml: (row.header_html as string | null) ?? null,
   footerHtml: (row.footer_html as string | null) ?? null,
   pageCss: (row.page_css as string | null) ?? null,
-  numberTemplate: (row.number_template as string | null) ?? DEFAULT_NUMBER_TEMPLATE,
+  numberTemplate: (row.number_template as string | null) ?? DEFAULT_DOCUMENT_NUMBER_TEMPLATE,
   filenameTemplate: (row.filename_template as string | null) ?? DEFAULT_FILENAME_TEMPLATE,
   enabled: row.enabled as boolean,
   position: row.position as number,
@@ -822,7 +575,7 @@ export const validateTemplateWrite = (input: {
   numberTemplate?: string | null;
   filenameTemplate?: string | null;
 }): Result<void> => {
-  if (input.source !== undefined && byteLength(input.source) > SOURCE_MAX_BYTES) return fail(err.badInput("GQL source is too large"));
+  if (input.source !== undefined && utf8ByteLength(input.source) > SOURCE_MAX_BYTES) return fail(err.badInput("GQL source is too large"));
   if (input.html !== undefined) {
     const valid = validateDocumentLiquidTemplate(input.html, "HTML template");
     if (!valid.ok) return valid;
@@ -833,7 +586,7 @@ export const validateTemplateWrite = (input: {
     ["page CSS", input.pageCss],
   ] as const) {
     if (value === undefined || value === null || value === "") continue;
-    if (byteLength(value) > TEMPLATE_PART_MAX_BYTES) return fail(err.badInput(`${label} is too large`));
+    if (utf8ByteLength(value) > TEMPLATE_PART_MAX_BYTES) return fail(err.badInput(`${label} is too large`));
     const valid = validateDocumentLiquidTemplate(value, label);
     if (!valid.ok) return valid;
   }
@@ -842,12 +595,13 @@ export const validateTemplateWrite = (input: {
     if (!valid.ok) return valid;
   }
   if (input.numberTemplate !== undefined && input.numberTemplate !== null) {
-    if (byteLength(input.numberTemplate) > FILENAME_TEMPLATE_MAX_BYTES) return fail(err.badInput("document number pattern is too large"));
+    if (utf8ByteLength(input.numberTemplate) > FILENAME_TEMPLATE_MAX_BYTES)
+      return fail(err.badInput("document number pattern is too large"));
     const valid = validateDocumentLiquidTemplate(input.numberTemplate, "document number pattern", DOCUMENT_NUMBER_ROOTS);
     if (!valid.ok) return valid;
   }
   if (input.filenameTemplate !== undefined && input.filenameTemplate !== null) {
-    if (byteLength(input.filenameTemplate) > FILENAME_TEMPLATE_MAX_BYTES) return fail(err.badInput("filename template is too large"));
+    if (utf8ByteLength(input.filenameTemplate) > FILENAME_TEMPLATE_MAX_BYTES) return fail(err.badInput("filename template is too large"));
     const valid = validateDocumentLiquidTemplate(input.filenameTemplate, "filename template");
     if (!valid.ok) return valid;
   }
@@ -871,7 +625,7 @@ export const createTemplate = async (
   const headerHtml = input.headerHtml?.trim() || null;
   const footerHtml = input.footerHtml?.trim() || null;
   const pageCss = input.pageCss?.trim() || null;
-  const numberTemplate = input.numberTemplate?.trim() || DEFAULT_NUMBER_TEMPLATE;
+  const numberTemplate = input.numberTemplate?.trim() || DEFAULT_DOCUMENT_NUMBER_TEMPLATE;
   const filenameTemplate = input.filenameTemplate?.trim() || DEFAULT_FILENAME_TEMPLATE;
 
   const row = await insertWithShortId<DbRow>(
