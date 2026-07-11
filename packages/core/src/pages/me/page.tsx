@@ -328,7 +328,7 @@ export default ssr<AuthContext>(async (c) => {
                 <i class="ti ti-terminal-2 text-sm" />
                 Cloud CLI
               </h2>
-              <p class="mt-1 text-xs text-dimmed">Open and work with your Cloud content from the terminal.</p>
+              <p class="mt-1 text-xs text-dimmed">Work with your favorite Cloud apps from the terminal.</p>
               <code class="mt-4 block overflow-x-auto rounded-md bg-zinc-100 px-3 py-2 font-mono text-[11px] text-secondary dark:bg-zinc-800">
                 {cliInstallCommand}
               </code>
