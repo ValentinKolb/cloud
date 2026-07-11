@@ -1,6 +1,6 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Placeholder } from "@valentinkolb/cloud/ui";
 import type { Context } from "hono";
 import { expectUserBackedActor } from "@/actor";
 import type { DirectoryListing, FileBaseInfo, FileInfo } from "@/contracts";
@@ -11,6 +11,7 @@ import FileDetailLayoutSync from "../../_components/FileDetailLayoutSync.island"
 import FileDetailPanel from "../../_components/FileDetailPanel.island";
 import FileList from "../../_components/FileList.island";
 import FileSettings, { parseFileSettings } from "../../_components/FileSettings.island";
+import FilesUnavailable from "../../_components/FilesUnavailable";
 import FileToolbar from "../../_components/FileToolbar.island";
 import FilesLayoutHelp from "../../_components/help/FilesLayoutHelp.island";
 import { filePageBaseUrl, filePageUrl } from "../../url";
@@ -124,10 +125,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files" }, { title: "Not Found" }]} fullWidth>
         <FilesLayoutHelp />
-        <div class="flex items-center justify-center gap-2 text-xs text-dimmed h-full">
-          <i class="ti ti-folder-off" />
-          <span>{baseResult.error}</span>
-        </div>
+        <FilesUnavailable title="File storage not found" description={baseResult.error} icon="ti ti-folder-off" />
       </Layout>
     );
   }
@@ -141,10 +139,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files" }, { title: "Access Denied" }]} fullWidth>
         <FilesLayoutHelp />
-        <div class="flex items-center justify-center gap-2 text-xs text-dimmed h-full">
-          <i class="ti ti-lock" />
-          <span>{accessResult.error}</span>
-        </div>
+        <FilesUnavailable title="File storage unavailable" description={accessResult.error} icon="ti ti-lock" />
       </Layout>
     );
   }
@@ -168,7 +163,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
     return () => (
       <Layout c={c} title={buildBreadcrumbs(baseType, baseId, currentBaseInfo.name, path)} fullWidth>
         <FilesLayoutHelp />
-        <AppWorkspace>
+        <AppWorkspace class="cloud-ui-soft">
           <BaseSidebar
             bases={basesInfo}
             currentBaseType={baseType}
@@ -176,10 +171,14 @@ export const renderFilesBasePage = async <E extends AuthContext>(
             settingsPanel={() => <FileSettings initialSettings={fileSettings} />}
           />
           <AppWorkspace.Main>
-            <div class="flex-1 flex items-center justify-center gap-2 text-xs text-dimmed">
-              <i class="ti ti-folder-off" />
-              <span>{infoResult.error}</span>
-            </div>
+            <Placeholder
+              state="error"
+              variant="panel"
+              title="Folder unavailable"
+              description={infoResult.error}
+              icon="ti ti-folder-off"
+              class="h-full"
+            />
           </AppWorkspace.Main>
         </AppWorkspace>
       </Layout>
@@ -242,7 +241,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
   return () => (
     <Layout c={c} title={breadcrumbs} fullWidth>
       <FilesLayoutHelp />
-      <AppWorkspace>
+      <AppWorkspace class="cloud-ui-soft">
         <BaseSidebar
           bases={basesInfo}
           currentBaseType={baseType}
@@ -251,21 +250,19 @@ export const renderFilesBasePage = async <E extends AuthContext>(
         />
 
         {/* Main content */}
-        <AppWorkspace.Main class="gap-2">
-          <div class="flex flex-col gap-2">
-            <FileToolbar
-              baseType={baseType}
-              baseId={baseId}
-              currentPath={path}
-              initialFilterQuery={filterQuery ?? ""}
-              initialSelected={initialSelected}
-              allItems={sortedItems.map((i) => i.name)}
-              folderCount={folderCount}
-              fileCount={fileCount}
-              totalSize={formatSize(totalSize)}
-              bases={basesInfo}
-            />
-          </div>
+        <AppWorkspace.Main class="gap-[var(--ui-space-section)] p-[var(--ui-space-section)]">
+          <FileToolbar
+            baseType={baseType}
+            baseId={baseId}
+            currentPath={path}
+            initialFilterQuery={filterQuery ?? ""}
+            initialSelected={initialSelected}
+            allItems={sortedItems.map((i) => i.name)}
+            folderCount={folderCount}
+            fileCount={fileCount}
+            totalSize={formatSize(totalSize)}
+            bases={basesInfo}
+          />
 
           {/* File list */}
           <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve={listScrollKey}>

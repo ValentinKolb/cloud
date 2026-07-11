@@ -1,6 +1,6 @@
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
 import type { FileBaseInfo } from "@/contracts";
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
 
 type BaseSidebarProps = {
   bases: FileBaseInfo[];
@@ -26,6 +26,16 @@ export default function BaseSidebar(props: BaseSidebarProps) {
   const homeBases = props.bases.filter((b) => b.type === "home");
   const groupBases = props.bases.filter((b) => b.type === "group");
   const isSearch = props.currentBaseType === "search";
+  const currentBase = props.bases.find((base) => isActive(base, props.currentBaseType, props.currentBaseId));
+  const currentBaseLabel = currentBase ? (currentBase.type === "home" ? getHomeLabel(currentBase.name) : currentBase.name) : null;
+  const sidebarTitle = isSearch ? "Search" : (currentBaseLabel ?? "Files");
+  const sidebarSubtitle = isSearch
+    ? "Files"
+    : currentBase?.type === "home"
+      ? "Personal files"
+      : currentBase?.type === "group"
+        ? "Group files"
+        : undefined;
   const renderBaseItem = (base: FileBaseInfo) => (
     <AppWorkspace.SidebarItem
       href={getHref(base)}
@@ -39,7 +49,12 @@ export default function BaseSidebar(props: BaseSidebarProps) {
 
   return (
     <AppWorkspace.Sidebar>
-      <AppWorkspace.SidebarHeader title="Files" icon="ti ti-folders" iconStyle="background-color: var(--color-blue-500)" />
+      <AppWorkspace.SidebarHeader
+        title={sidebarTitle}
+        subtitle={sidebarSubtitle}
+        icon="ti ti-folders"
+        iconStyle="background-color: var(--color-blue-500)"
+      />
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>

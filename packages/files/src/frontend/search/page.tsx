@@ -9,6 +9,7 @@ import BaseSidebar from "../_components/BaseSidebar";
 import FileDetailLayoutSync from "../_components/FileDetailLayoutSync.island";
 import FileDetailPanel from "../_components/FileDetailPanel.island";
 import FileList from "../_components/FileList.island";
+import FilesUnavailable from "../_components/FilesUnavailable";
 import FilesLayoutHelp from "../_components/help/FilesLayoutHelp.island";
 import { filePageBaseUrl } from "../url";
 
@@ -64,10 +65,13 @@ export default ssr<AuthContext>(async (c) => {
     return () => (
       <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files", href: "/app/files" }, { title: "Search" }]} fullWidth>
         <FilesLayoutHelp />
-        <div class="flex items-center justify-center gap-2 text-xs text-dimmed h-full">
-          <i class="ti ti-folder-off" />
-          <span>No accessible file storage</span>
-        </div>
+        <FilesUnavailable
+          title="No accessible storage"
+          description="Ask an administrator to grant access to a home or group file storage."
+          icon="ti ti-folder-off"
+          actionHref="/"
+          actionLabel="Back to start"
+        />
       </Layout>
     );
   }
@@ -169,15 +173,15 @@ export default ssr<AuthContext>(async (c) => {
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files", href: "/app/files" }, { title: "Search" }]} fullWidth>
       <FilesLayoutHelp />
-      <AppWorkspace>
+      <AppWorkspace class="cloud-ui-soft">
         <BaseSidebar bases={basesInfo} currentBaseType="search" currentBaseId="" />
 
         {/* Main content */}
-        <AppWorkspace.Main>
+        <AppWorkspace.Main class="p-[var(--ui-space-section)]">
           <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve="files-search-results">
-            <div class="flex flex-col gap-3">
+            <div class="flex flex-col gap-[var(--ui-space-section)]">
               {/* Search form */}
-              <form action="/app/files/search" method="get" class="flex flex-col gap-4">
+              <form action="/app/files/search" method="get" class="flex flex-col gap-[var(--ui-space-section)]">
                 {/* Pattern input */}
                 <div class="group relative flex">
                   <div class="absolute left-3 inset-y-0 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">

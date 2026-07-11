@@ -355,7 +355,7 @@ export default function FileList(props: FileListProps) {
         <Show
           when={isGrid()}
           fallback={
-            <div class="paper overflow-hidden">
+            <div class="paper overflow-x-auto">
               <div class="grid" style={{ "grid-template-columns": rowTemplate() }}>
                 <div class="col-span-full grid grid-cols-subgrid items-center gap-4 border-b border-zinc-100 px-3 py-2 text-xs font-medium text-dimmed dark:border-zinc-800">
                   <div>Name</div>
@@ -527,7 +527,7 @@ export default function FileList(props: FileListProps) {
                 data-files-context-menu
                 role="menu"
                 aria-label="File actions"
-                class="fixed z-50 w-52 max-w-[min(22rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-zinc-300/60 bg-white/95 p-1 text-zinc-900 [box-shadow:var(--theme-shadow-float)] ring-1 ring-black/5 backdrop-blur-sm dark:border-zinc-600/50 dark:bg-zinc-950/95 dark:text-zinc-100"
+                class="context-menu-surface fixed z-50 w-52 max-w-[min(22rem,calc(100vw-1rem))] overflow-y-auto p-1 text-zinc-900 backdrop-blur-sm dark:text-zinc-100"
                 style={{
                   left: `${Math.min(menu().x, window.innerWidth - 220)}px`,
                   top: `${Math.min(menu().y, window.innerHeight - 320)}px`,
@@ -546,7 +546,7 @@ export default function FileList(props: FileListProps) {
                       <button
                         type="button"
                         role="menuitem"
-                        class={`flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors hover:bg-white/30 dark:hover:bg-white/10 ${
+                        class={`menu-item text-left ${
                           entry.variant === "danger" ? "text-red-600 dark:text-red-400" : "text-zinc-700 dark:text-zinc-300"
                         }`}
                         onClick={() => {
