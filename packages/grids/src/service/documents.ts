@@ -22,10 +22,8 @@ import type {
   DocumentProfile,
   DocumentRun,
   DocumentRunFolder,
-  DocumentRunSummary,
   DocumentRunSummaryList,
   DocumentTemplate,
-  DocumentTemplateSummary,
   RecordSnapshot,
   RecordSnapshotSummary,
   UpdateDocumentRunMetadataInput,
@@ -50,10 +48,18 @@ import {
   utf8ByteLength,
   validateDocumentLiquidTemplate,
 } from "./document-liquid";
+import {
+  type DocumentDbRow,
+  mapDocumentLink,
+  mapDocumentRun as mapRun,
+  mapRecordSnapshot as mapSnapshot,
+  mapRecordSnapshotSummary as mapSnapshotSummary,
+  mapDocumentTemplate as mapTemplate,
+  summarizeDocumentRun as summarizeRun,
+} from "./document-mappers";
 import { listByTable as listFields } from "./fields";
 import { getContent as getFileContent, listForRecordField } from "./files";
 import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
-import { parseJsonbRow } from "./jsonb";
 import { get as getRecord } from "./records";
 import { insertWithShortId } from "./short-id";
 import { get as getTable } from "./tables";
@@ -61,8 +67,9 @@ import type { Field, GridRecord, Table } from "./types";
 import { ensureRecordScanCode } from "./workflows";
 
 export { documentNumberFor, renderLiquidPlainText, renderLiquidText, validateLiquidRoots, validateLiquidTemplate } from "./document-liquid";
+export { summarizeDocumentRun as summarizeRun, summarizeDocumentTemplate as summarizeTemplate } from "./document-mappers";
 
-type DbRow = Record<string, unknown>;
+type DbRow = DocumentDbRow;
 
 type DocumentRunPage = {
   items: DocumentRun[];
@@ -313,82 +320,6 @@ export const buildTemplateBusinessData = async (
   };
 };
 
-const mapTemplate = (row: DbRow): DocumentTemplate => ({
-  id: row.id as string,
-  shortId: row.short_id as string,
-  tableId: row.table_id as string,
-  name: row.name as string,
-  description: (row.description as string | null) ?? null,
-  source: row.source as string,
-  html: row.html as string,
-  headerHtml: (row.header_html as string | null) ?? null,
-  footerHtml: (row.footer_html as string | null) ?? null,
-  pageCss: (row.page_css as string | null) ?? null,
-  numberTemplate: (row.number_template as string | null) ?? DEFAULT_DOCUMENT_NUMBER_TEMPLATE,
-  filenameTemplate: (row.filename_template as string | null) ?? DEFAULT_FILENAME_TEMPLATE,
-  enabled: row.enabled as boolean,
-  position: row.position as number,
-  createdBy: (row.created_by as string | null) ?? null,
-  updatedBy: (row.updated_by as string | null) ?? null,
-  deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
-  createdAt: (row.created_at as Date).toISOString(),
-  updatedAt: (row.updated_at as Date).toISOString(),
-});
-
-const mapSnapshot = (row: DbRow): RecordSnapshot => ({
-  id: row.id as string,
-  baseId: row.base_id as string,
-  tableId: row.table_id as string,
-  recordId: row.record_id as string,
-  root: parseJsonbRow<Record<string, unknown>>(row.root, {}),
-  graph: parseJsonbRow<Record<string, unknown>>(row.graph, {}),
-  createdBy: (row.created_by as string | null) ?? null,
-  createdAt: (row.created_at as Date).toISOString(),
-});
-
-const mapSnapshotSummary = (row: DbRow): RecordSnapshotSummary => ({
-  id: row.id as string,
-  baseId: row.base_id as string,
-  tableId: row.table_id as string,
-  recordId: row.record_id as string,
-  createdBy: (row.created_by as string | null) ?? null,
-  createdAt: (row.created_at as Date).toISOString(),
-});
-
-const mapRun = (row: DbRow): DocumentRun => ({
-  id: row.id as string,
-  shortId: row.short_id as string,
-  templateId: (row.template_id as string | null) ?? null,
-  workflowRunId: (row.workflow_run_id as string | null) ?? null,
-  snapshotId: row.snapshot_id as string,
-  baseId: row.base_id as string,
-  tableId: row.table_id as string,
-  recordId: row.record_id as string,
-  documentNumber: row.document_number as string,
-  filename: (row.filename as string | null) ?? `${row.document_number as string}.pdf`,
-  tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
-  templateSnapshot: parseJsonbRow<Record<string, unknown>>(row.template_snapshot, {}),
-  renderData: parseJsonbRow<Record<string, unknown>>(row.render_data, {}),
-  generatedBy: (row.generated_by as string | null) ?? null,
-  generatedAt: (row.generated_at as Date).toISOString(),
-});
-
-const mapDocumentLink = (row: DbRow): DocumentLink => ({
-  id: row.id as string,
-  documentRunId: row.document_run_id as string,
-  baseId: row.base_id as string,
-  tableId: row.table_id as string,
-  recordId: row.record_id as string,
-  comment: (row.comment as string | null) ?? null,
-  createdBy: (row.created_by as string | null) ?? null,
-  createdAt: (row.created_at as Date).toISOString(),
-  expiresAt: (row.expires_at as Date).toISOString(),
-  revokedAt: row.revoked_at ? (row.revoked_at as Date).toISOString() : null,
-  revokedBy: (row.revoked_by as string | null) ?? null,
-  lastAccessedAt: row.last_accessed_at ? (row.last_accessed_at as Date).toISOString() : null,
-  accessCount: Number(row.access_count ?? 0),
-});
-
 const generateDocumentLinkToken = (): string =>
   `${DOCUMENT_LINK_TOKEN_PREFIX}${randomBytes(DOCUMENT_LINK_TOKEN_BYTES).toString("base64url")}`;
 
@@ -418,34 +349,6 @@ export const publicDocumentLinkUrlForAppUrl = (appUrl: unknown, token: string): 
 
 export const publicDocumentLinkUrl = async (token: string): Promise<string> =>
   publicDocumentLinkUrlForAppUrl(await coreSettings.get<string>("app.url"), token);
-
-export const summarizeTemplate = (template: DocumentTemplate): DocumentTemplateSummary => ({
-  id: template.id,
-  shortId: template.shortId,
-  tableId: template.tableId,
-  name: template.name,
-  description: template.description,
-  enabled: template.enabled,
-  position: template.position,
-  createdAt: template.createdAt,
-  updatedAt: template.updatedAt,
-});
-
-export const summarizeRun = (run: DocumentRun): DocumentRunSummary => ({
-  id: run.id,
-  shortId: run.shortId,
-  templateId: run.templateId,
-  workflowRunId: run.workflowRunId,
-  snapshotId: run.snapshotId,
-  baseId: run.baseId,
-  tableId: run.tableId,
-  recordId: run.recordId,
-  documentNumber: run.documentNumber,
-  filename: run.filename,
-  tags: run.tags,
-  generatedBy: run.generatedBy,
-  generatedAt: run.generatedAt,
-});
 
 const diagnosticsMessage = (diagnostics: Array<{ message: string }>): string =>
   diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid GQL source";
