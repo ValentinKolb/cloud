@@ -839,7 +839,7 @@ Canonical callback shape:
 
 ### AppWorkspace
 
-Compound layout for full-height app screens with left sidebar, main work area, and optional right detail panel. Source: `packages/cloud/src/ui/misc/AppWorkspace.tsx`. UI Lab uses it at `/app/ui-lab/layout/workspace`.
+Compound layout for full-height app screens with left sidebar, main work area, and optional right detail panel. The root is one clipped workbench frame; its regions are not separate outer papers. Source: `packages/cloud/src/ui/misc/AppWorkspace.tsx`. UI Lab uses it at `/app/ui-lab/layout/workspace`.
 
 For full-height `AppWorkspace.Main` screens, use the same content spacing as admin stretch pages:
 
@@ -858,21 +858,21 @@ For full-height `AppWorkspace.Main` screens, use the same content spacing as adm
 </AppWorkspace.Main>
 ```
 
-Do not add a generic `p-3` / `p-4` wrapper inside `AppWorkspace.Main`. Padding is already owned by the surrounding shell; extra page padding makes AppWorkspace screens drift from admin pages and other full-height apps. Keep vertical rhythm at `gap-2` unless a specific component needs internal padding.
+Do not turn `AppWorkspace.Main` into another `paper`. The workspace root owns the outer surface, radius, and shadow. Content that needs an inset uses section spacing once; edge-to-edge tables, editors, and panes own their own internal padding. Keep vertical rhythm at `gap-2` unless a specific component needs a larger semantic section gap.
 
 Only put `scrollbar-gutter: stable` on the element that actually owns page scrolling. If the screen is composed of independently scrollable regions (for example an endpoints table and a requests table), keep `AppWorkspace.Main` as `flex min-h-0 flex-1 flex-col gap-2` without `overflow-y-auto` and put `overflow-auto` / `scrollPreserveKey` on each `DataTable`. Otherwise the reserved gutter appears as false spacing between main and detail.
 
-Keep `AppWorkspace` column gaps at `gap-2`. Do not add margins between `AppWorkspace.Main` and `AppWorkspace.Detail`; let `app-cols` own that spacing.
+Do not add gaps, margins, borders, radii, or shadows between `AppWorkspace.Sidebar`, `AppWorkspace.Main`, and `AppWorkspace.Detail`. They are internal regions of the unified frame. Sidebar and detail use the quiet surface role; main remains neutral.
 
-Detail panels should read like Grids record details: compose multiple small
-`detail-section` cards inside a `detail-stack` wrapper. Avoid wrapping the whole
-detail panel in one large `paper`; it makes the panel feel like a modal inside
-the workspace and breaks the shared app rhythm.
+Detail panels are quiet structured stacks: compose small `detail-section`
+groups inside a `detail-stack` wrapper. Avoid wrapping the whole detail panel
+in one large `paper`; within the unified frame, section tone and spacing provide
+grouping without repeated outer shadows.
 
 ```jsx
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 
-<AppWorkspace>
+<AppWorkspace class="cloud-ui-soft">
   <AppWorkspace.Sidebar>
     <AppWorkspace.SidebarHeader title="My App" icon="ti ti-list" />
     <AppWorkspace.SidebarDesktop>
@@ -890,6 +890,10 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
   </AppWorkspace.Detail>
 </AppWorkspace>
 ```
+
+`cloud-ui-soft` is the temporary rollout marker. Remove it only when the soft
+tokens and workspace rules are promoted globally in the dedicated rollout
+change.
 
 Use compound components instead of hand-written sidebar/detail classes. `SidebarItem` owns active, icon, mobile, tone, and meta styling.
 

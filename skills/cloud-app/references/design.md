@@ -27,7 +27,8 @@ The app canvas is the signature element. A restrained edge-to-neutral-to-edge ti
 ```text
 app colour          neutral work area          app colour
 ██████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒██████
- rail        sidebar paper       main paper       detail
+ rail       [ quiet nav | neutral main | quiet detail ]
+                         one workbench frame
 ```
 
 Do not add gradients inside ordinary cards, tables, kanban columns, or form fields. Assistant-specific AI surfaces may use the shared AI treatment when the gradient communicates an AI action.
@@ -118,7 +119,7 @@ Segmented controls and pagination share density and focus rhythm, not semantics.
 Use surfaces to group content. Use borders only when they explain structure.
 
 - `paper` is the default in-flow surface.
-- A workspace contains sidebar, main, and detail as sibling regions with one shared gap rhythm.
+- A workspace is one clipped workbench frame. Sidebar, main, and detail are internal sibling regions, not three adjacent papers.
 - Detail panels use a transparent `detail-stack` containing separate `detail-section` papers.
 - Inputs are quiet wells. They need a clear focus state, not a permanently strong outline.
 - Floating layers use one outer shadow and a boundary that remains visible in dark mode.
@@ -174,8 +175,10 @@ Dark mode mixes appearance colours into the dark canvas; it does not invert a li
 
 `AppWorkspace` is the standard full-height work shell.
 
-- Sidebar, main, and detail are siblings.
-- Major regions use the same surface radius and shell gap.
+- The workspace root owns the outer radius, clipping, surface, and depth.
+- Sidebar, main, and detail are siblings inside that single frame; they do not have independent outer radii or shadows.
+- Sidebar and detail use the quiet surface role while main remains neutral. This tone change replaces decorative dividers between regions.
+- Shell spacing separates the workspace from the platform chrome. Section spacing organizes content inside its regions; there is no shell gap between the regions themselves.
 - The sidebar owns navigation scrolling.
 - Main owns the primary work scroll unless the screen contains independent panes or tables.
 - Detail selection is URL-backed when it must survive reload, sharing, and browser history.
@@ -240,6 +243,7 @@ Use `DataTable` for tabular data.
 - Render only sections that contain data.
 - Put identity and primary actions in the first section.
 - Group contact rows, facts, activity, and metadata into separate sections.
+- Inside the unified workspace, detail sections separate through surface tone and spacing rather than repeated outer shadows.
 - Use `StructuredDataPreview` for small JSON-like values.
 - Close controls and contextual actions stay reachable on mobile.
 

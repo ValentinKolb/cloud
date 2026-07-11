@@ -212,8 +212,8 @@ export const AppWorkspaceDemo = () => {
     <DemoCard
       id="sidebarlayout"
       chip={{ kind: "component", name: "AppWorkspace", from: FROM_UI }}
-      description="Compound layout for app workspaces. The components own sidebar, active-item, main, and detail shell styling so apps do not hand-roll classes."
-      code={`<AppWorkspace>
+      description="One clipped workbench frame with quiet navigation and detail regions around a neutral main surface. Apps compose content without hand-rolling outer papers."
+      code={`<AppWorkspace class="cloud-ui-soft">
   <AppWorkspace.Sidebar>
     <AppWorkspace.SidebarHeader title="Project" subtitle="Q2 sprint" icon="ti ti-folder" />
     <AppWorkspace.SidebarMobile>
@@ -232,7 +232,7 @@ export const AppWorkspaceDemo = () => {
 </AppWorkspace>`}
     >
       <div class="h-80 overflow-hidden rounded-[var(--ui-radius-frame)] bg-[var(--ui-canvas)] p-2">
-        <AppWorkspace>
+        <AppWorkspace class="cloud-ui-soft">
           <AppWorkspace.Sidebar>
             <AppWorkspace.SidebarHeader title="Project" subtitle="Q2 sprint" icon="ti ti-folder" />
             <AppWorkspace.SidebarMobile>
