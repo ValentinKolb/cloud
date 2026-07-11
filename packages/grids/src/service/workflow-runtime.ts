@@ -9,7 +9,6 @@ import type {
   Workflow,
   WorkflowDefinition,
   WorkflowRun,
-  WorkflowStep,
   WorkflowStepRun,
   WorkflowTriggerKind,
   WorkflowValue,
@@ -23,15 +22,13 @@ import { get as getTable } from "./tables";
 import type { GridRecord, Table } from "./types";
 import { executeWorkflowEmailAction, type WorkflowEmailAction, type WorkflowNotificationSender } from "./workflow-email-action";
 import { requestWorkflowHttp } from "./workflow-http-client";
+import { executeWorkflowSteps, type RuntimeStep } from "./workflow-runtime-executor";
 import {
   claimRun,
-  createStepRun,
   createWorkflowRun,
   finishRun,
-  finishStepRun,
   get,
   getRecordScanCode,
-  getStepRunByPath,
   getWorkflowRun,
   heartbeatRun,
   loadWorkflowCatalog,
@@ -75,7 +72,6 @@ type RuntimeHttpRequestAction = {
   saveAs?: string;
 };
 type RuntimeSetVariableAction = { name: string; value: WorkflowValue };
-type RuntimeStep = Record<string, unknown>;
 
 export type WorkflowRuntimeInput = Record<string, unknown>;
 
@@ -917,124 +913,55 @@ const executeHttpRequest = async (ctx: RuntimeContext, action: RuntimeHttpReques
   return response.data.ok ? ok(output) : fail(err.badInput(`httpRequest returned HTTP ${response.data.status}`));
 };
 
-const stepKind = (step: WorkflowStep): string => Object.keys(step as RuntimeStep)[0] ?? "unknown";
-
 const heartbeatWorkflow = async (ctx: RuntimeContext): Promise<void> => {
   if (!ctx.runId) return;
   await Promise.all([heartbeatRun(ctx.runId, ctx.leaseMs), ctx.heartbeat?.()]);
 };
 
-const executeSteps = async (
-  ctx: RuntimeContext,
-  steps: WorkflowStep[],
-  runId: string,
-  path: string,
-): Promise<Result<RuntimeValue | null>> => {
-  let last: RuntimeValue | null = null;
-  for (let index = 0; index < steps.length; index += 1) {
-    const step = steps[index]!;
-    const item = step as RuntimeStep;
-    const currentPath = `${path}.${index}`;
-    const kind = stepKind(step);
-    await heartbeatWorkflow(ctx);
-    const previousStepRun = await getStepRunByPath(runId, currentPath);
-    if (previousStepRun?.status === "running" && isSideEffectStep(item)) {
-      return fail(err.conflict(`workflow step "${currentPath}" was interrupted during a side effect and cannot be retried safely`));
-    }
-    const stepRun = await createStepRun({ runId, stepIndex: index, stepPath: currentPath, kind, input: { kind } });
-    if (stepRun.status === "succeeded") {
-      const restored = restoreSucceededStep(ctx, item, stepRun);
-      if (!restored.ok) return restored;
-      await heartbeatWorkflow(ctx);
-      last = restored.data;
-      if (isWorkflowSucceed(last)) break;
-      continue;
-    }
-    let result: Result<RuntimeValue | null>;
-    if ("updateRecord" in item) result = await executeUpdateRecord(ctx, item.updateRecord as RuntimeUpdateRecordAction);
-    else if ("createRecord" in item) result = await executeCreateRecord(ctx, item.createRecord as RuntimeCreateRecordAction);
-    else if ("generateDocument" in item)
-      result = await executeGenerateDocument(ctx, item.generateDocument as RuntimeGenerateDocumentAction);
-    else if ("createDocumentLink" in item)
-      result = await executeCreateDocumentLink(ctx, item.createDocumentLink as RuntimeCreateDocumentLinkAction);
-    else if ("sendEmail" in item) result = await executeSendEmail(ctx, item.sendEmail as WorkflowEmailAction);
-    else if ("httpRequest" in item) result = await executeHttpRequest(ctx, item.httpRequest as RuntimeHttpRequestAction);
-    else if ("setVariable" in item) {
-      const action = item.setVariable as RuntimeSetVariableAction;
-      const evaluated = await evaluateValue(ctx, action.value);
-      if (evaluated.ok) ctx.variables.set(action.name, evaluated.data);
-      result = evaluated;
-    } else if ("fail" in item) {
-      const message = await renderRuntimeMessage(ctx, (item.fail as { message?: unknown }).message, "workflow failed");
-      result = message.ok ? fail(err.badInput(message.data)) : message;
-    } else if ("succeed" in item) {
-      const message = await renderRuntimeMessage(ctx, (item.succeed as { message?: unknown }).message, "workflow succeeded");
-      result = message.ok ? ok({ kind: "workflowSucceed", message: message.data }) : message;
-    } else if ("if" in item) {
-      const condition = item.if as RuntimeCondition;
-      const matched = await evaluateCondition(ctx, condition);
-      const branches = item as { then?: WorkflowStep[]; else?: WorkflowStep[] };
-      result = matched.ok
-        ? await executeSteps(
-            ctx,
-            matched.data ? (branches.then ?? []) : (branches.else ?? []),
-            runId,
-            `${currentPath}.${matched.data ? "then" : "else"}`,
-          )
-        : matched;
-    } else if ("switch" in item) {
-      const switched = await evaluateValue(ctx, item.switch as WorkflowValue);
-      if (!switched.ok) result = switched;
-      else {
-        let found: { do: WorkflowStep[] } | null = null;
-        let switchResult: Result<RuntimeValue | null> | null = null;
-        for (const candidate of (item as { cases?: Array<{ when: WorkflowValue; do: WorkflowStep[] }> }).cases ?? []) {
-          const when = await evaluateValue(ctx, candidate.when);
-          if (!when.ok) {
-            switchResult = when;
-            found = null;
-            break;
-          }
-          if (valuesEqual(switched.data, when.data)) {
-            found = candidate;
-            break;
-          }
-        }
-        result =
-          switchResult ??
-          (await executeSteps(ctx, found?.do ?? (item as { default?: WorkflowStep[] }).default ?? [], runId, `${currentPath}.switch`));
-      }
-    } else if ("forEach" in item) {
-      const list = await evaluateValue(ctx, item.forEach as string);
-      if (!list.ok) result = list;
-      else if (!isRecordList(list.data)) result = fail(err.badInput("forEach must resolve to a recordList"));
-      else if (list.data.recordIds.length > MAX_LOOP_ITEMS)
-        result = fail(err.badInput(`forEach supports at most ${MAX_LOOP_ITEMS} records per run`));
-      else {
-        const alias = String((item as { as?: unknown }).as ?? "");
-        const body = (item as { do?: WorkflowStep[] }).do ?? [];
-        result = ok(null);
-        for (const recordId of list.data.recordIds) {
-          await heartbeatWorkflow(ctx);
-          ctx.variables.set(alias, { kind: "record", tableId: list.data.tableId, recordId });
-          result = await executeSteps(ctx, body, runId, `${currentPath}.do.${recordId}`);
-          if (!result.ok || isWorkflowSucceed(result.data)) break;
-        }
-      }
-    } else result = fail(err.badInput(`unsupported workflow step "${kind}"`));
-
-    await finishStepRun(stepRun.id, {
-      status: result.ok ? "succeeded" : "failed",
-      output: result.ok ? { ok: true, value: stepOutputValue(result.data) } : null,
-      error: result.ok ? null : result.error.message,
-    });
-    await heartbeatWorkflow(ctx);
-    if (!result.ok) return result;
-    last = result.data;
-    if (isWorkflowSucceed(last)) break;
+const executeActionStep = async (ctx: RuntimeContext, item: RuntimeStep): Promise<Result<RuntimeValue | null> | null> => {
+  if ("updateRecord" in item) return executeUpdateRecord(ctx, item.updateRecord as RuntimeUpdateRecordAction);
+  if ("createRecord" in item) return executeCreateRecord(ctx, item.createRecord as RuntimeCreateRecordAction);
+  if ("generateDocument" in item) return executeGenerateDocument(ctx, item.generateDocument as RuntimeGenerateDocumentAction);
+  if ("createDocumentLink" in item) return executeCreateDocumentLink(ctx, item.createDocumentLink as RuntimeCreateDocumentLinkAction);
+  if ("sendEmail" in item) return executeSendEmail(ctx, item.sendEmail as WorkflowEmailAction);
+  if ("httpRequest" in item) return executeHttpRequest(ctx, item.httpRequest as RuntimeHttpRequestAction);
+  if ("setVariable" in item) {
+    const action = item.setVariable as RuntimeSetVariableAction;
+    const evaluated = await evaluateValue(ctx, action.value);
+    if (evaluated.ok) ctx.variables.set(action.name, evaluated.data);
+    return evaluated;
   }
-  return ok(last);
+  if ("fail" in item) {
+    const message = await renderRuntimeMessage(ctx, (item.fail as { message?: unknown }).message, "workflow failed");
+    return message.ok ? fail(err.badInput(message.data)) : message;
+  }
+  if ("succeed" in item) {
+    const message = await renderRuntimeMessage(ctx, (item.succeed as { message?: unknown }).message, "workflow succeeded");
+    return message.ok ? ok({ kind: "workflowSucceed", message: message.data }) : message;
+  }
+  return null;
 };
+
+const executeSteps = (ctx: RuntimeContext, runId: string): Promise<Result<RuntimeValue | null>> =>
+  executeWorkflowSteps<RuntimeValue>(
+    {
+      executeAction: (item) => executeActionStep(ctx, item),
+      evaluateCondition: (condition) => evaluateCondition(ctx, condition as RuntimeCondition),
+      evaluateValue: (value) => evaluateValue(ctx, value),
+      heartbeat: () => heartbeatWorkflow(ctx),
+      isRecordList,
+      isSideEffectStep,
+      isWorkflowSucceed,
+      maxLoopItems: MAX_LOOP_ITEMS,
+      restoreSucceededStep: (item, stepRun) => restoreSucceededStep(ctx, item, stepRun),
+      setLoopRecord: (alias, tableId, recordId) => ctx.variables.set(alias, { kind: "record", tableId, recordId }),
+      stepOutputValue,
+      valuesEqual,
+    },
+    ctx.workflow.compiled.steps,
+    runId,
+    "steps",
+  );
 
 const isTerminalRun = (run: WorkflowRun): boolean => run.status === "succeeded" || run.status === "failed" || run.status === "canceled";
 
@@ -1079,7 +1006,7 @@ const executeWorkflowRun = async (
   ctx.runId = started.id;
   await heartbeatWorkflow(ctx);
   try {
-    const result = await executeSteps(ctx, workflow.compiled.steps, started.id, "steps");
+    const result = await executeSteps(ctx, started.id);
     const finished = await finishRun(started.id, {
       status: result.ok ? "succeeded" : "failed",
       error: result.ok ? null : result.error.message,
