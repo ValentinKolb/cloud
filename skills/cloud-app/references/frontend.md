@@ -771,6 +771,35 @@ import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/clou
 type GrantableLevel = Exclude<PermissionLevel, "none">;
 ```
 
+### FileTree / FileView / FileBrowserPanel
+
+Path-first file components. Sources: `packages/cloud/src/ui/misc/FileTree.tsx`, `FileView.tsx`, `FileBrowser.tsx`. Showcase: UI-Lab → Content → File Browser. Real usages: the assistant chat-files modal (`conversationFileSource` from `@valentinkolb/cloud/ai/solid`) and the skill explorer (`AiSkillsManager.tsx`).
+
+The model is *path-first* (flat list of canonical paths, folders derived — explicit `kind: "folder"` entries model empty dirs), and *capability-by-presence*: whatever optional methods the `FileSource` provides become UI affordances. No `readOnly` flags — a source without `write` IS read-only.
+
+```tsx
+import { FileBrowserPanel, type FileSource, openFileBrowser } from "@valentinkolb/cloud/ui";
+
+const source: FileSource = {
+  list: async () => [{ path: "/docs/readme.md", size: 120, mediaType: "text/markdown" }],
+  read: async (path) => ({ encoding: "utf8", content: "…", mediaType: "text/markdown" }),
+  write: async (path, content, encoding) => { /* enables edit/save, new file, new folder */ },
+  remove: async (path) => { /* enables delete */ },
+  rename: async (from, to) => { /* enables rename (F2 / context menu) */ },
+  upload: async (dirPath, files) => { /* enables upload */ },
+  downloadHref: (path) => `/api/...?path=${encodeURIComponent(path)}`,
+  isReadOnly: (path) => path.startsWith("/input"), // per-path override on writable sources
+};
+
+<FileBrowserPanel source={source} initialPath="/docs/readme.md" class="h-96" />;
+// or as a dialog:
+void openFileBrowser({ source, title: "Files" });
+```
+
+`FileView` renders through a renderer registry (markdown → editor with in-toolbar save + preview/edit toggle, utf8 text → monospace editor with Ctrl/Cmd+S, images, PDF via `downloadHref`, binary fallback). Apps register custom renderers with `registerFileViewRenderer({ id, match, component, editable? })` — matched before the built-ins (e.g. office previews in a Files app).
+
+`FileTree` can be used standalone (`entries`, `selectedPath`/`onSelect`, optional controlled `expandedPaths`, `contextMenu(entry)` returning `DropdownItem[]`, `actions: { rename?, remove?, createFile?, createFolder?, move? }`). Rows expose their actions via a hover `⋯` dropdown AND right-click context menu; with `actions.move` files drag & drop onto folders (or the tree root). `FileBrowserPanel` derives `move` from `source.rename`. Keyboard: ↑/↓ navigate, ←/→ collapse/expand, Enter opens, F2 renames.
+
 Canonical callback shape:
 
 ```tsx

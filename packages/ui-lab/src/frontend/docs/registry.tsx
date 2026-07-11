@@ -43,6 +43,7 @@ import {
   StructuredDataPreviewDemo,
 } from "../lab/content";
 import { DocCodeDemo, DocComponentsDemo } from "../lab/docs-components";
+import { FileBrowserDemo, FileBrowserReadOnlyDemo } from "../lab/files";
 import {
   BadgesDemo,
   ChipsDemo,
@@ -851,6 +852,20 @@ export const uiLabDocs: UiLabDocSection[] = [
           <DemoGrid columns="one">
             <LightboxDemo />
             <PdfPreviewDemo />
+          </DemoGrid>
+        ),
+      ),
+      page(
+        "content",
+        "files",
+        "File Browser",
+        "ti ti-folder",
+        "Path-first FileTree + FileView over a FileSource adapter — editable and read-only.",
+        ["file-browser", "file-browser-readonly"],
+        () => (
+          <DemoGrid columns="one">
+            <FileBrowserDemo />
+            <FileBrowserReadOnlyDemo />
           </DemoGrid>
         ),
       ),
