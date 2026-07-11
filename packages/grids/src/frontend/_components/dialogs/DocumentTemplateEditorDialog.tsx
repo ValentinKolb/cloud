@@ -5,12 +5,8 @@ import {
   confirmDiscardIfDirty,
   dialogCore,
   PanelDialog,
-  Panes,
-  type PanesValue,
-  PdfPreview,
   panelDialogWorkspaceOptions,
   prompts,
-  TemplateEditor,
   type TemplateVariable,
   TextInput,
 } from "@valentinkolb/cloud/ui";
@@ -21,11 +17,11 @@ import { apiClient } from "@/api/client";
 import type { DocumentPreviewResponse, DocumentTemplate } from "../../../contracts";
 import type { DocumentTemplateStarter } from "../../../document-template-starters";
 import { requestDocumentTemplateDraftPreview } from "../documents/document-transfer-client";
-import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { buildBackendGqlCompletions } from "../query/query-autocomplete";
 import RecordPicker from "../records/RecordPicker";
 import { errorMessage } from "../utils/api-helpers";
-import { DocumentDataTree, RenderedDocumentSource, templateVariablesFromData } from "./DocumentTemplatePreviewData";
+import { DocumentTemplateEditorPanes } from "./DocumentTemplateEditorPanes";
+import { templateVariablesFromData } from "./DocumentTemplatePreviewData";
 import { defaultDocumentNumberTemplate, defaultDocumentStarter, starterPayload } from "./document-template-dialog-defaults";
 
 const DOCUMENT_TEMPLATE_VARIABLES: TemplateVariable[] = [
@@ -44,31 +40,6 @@ const DOCUMENT_TEMPLATE_VARIABLES: TemplateVariable[] = [
   { name: "images", kind: "array" },
   { name: "primaryImage", kind: "object" },
 ];
-
-const createDocumentTemplatePanesValue = (): PanesValue => ({
-  root: {
-    type: "split",
-    id: "document-template-split",
-    direction: "horizontal",
-    sizes: [58, 42],
-    children: [
-      {
-        type: "leaf",
-        id: "document-template-html",
-        elementIds: ["html", "header", "footer", "css"],
-        activeElementId: "html",
-        presentation: "tabs",
-      },
-      {
-        type: "leaf",
-        id: "document-template-preview",
-        elementIds: ["preview", "data", "source", "permissions"],
-        activeElementId: "preview",
-        presentation: "tabs",
-      },
-    ],
-  },
-});
 
 const documentGqlHighlight = highlight.compile(
   [
@@ -107,15 +78,6 @@ const readDocumentPreviewError = async (response: Response, fallback: string): P
     // Fall back below.
   }
   return { message: fallback, phase: null };
-};
-
-type DocumentTemplateSnippet = {
-  id: string;
-  title: string;
-  icon: string;
-  value: () => string;
-  onInput: (value: string) => void;
-  placeholder: string;
 };
 
 export function openDocumentTemplateEditorDialog(args: {
@@ -159,7 +121,6 @@ function DocumentTemplateEditorDialog(props: {
   const [pageCss, setPageCss] = createSignal(template?.pageCss ?? initialStarter.pageCss);
   const [enabled, setEnabled] = createSignal(template?.enabled ?? false);
   const [previewRecordId, setPreviewRecordId] = createSignal("");
-  const [templatePanes, setTemplatePanes] = createSignal<PanesValue>(createDocumentTemplatePanesValue());
   const [previewData, setPreviewData] = createSignal<DocumentPreviewResponse | null>(null);
   const [previewDataLoading, setPreviewDataLoading] = createSignal(false);
   const [previewDataError, setPreviewDataError] = createSignal<string | null>(null);
@@ -195,40 +156,6 @@ function DocumentTemplateEditorDialog(props: {
       byName.set(variable.name, variable);
     return [...byName.values()];
   });
-  const templateSnippets = createMemo<DocumentTemplateSnippet[]>(() => [
-    {
-      id: "html",
-      title: "Body",
-      icon: "ti ti-code",
-      value: html,
-      onInput: setHtml,
-      placeholder: "Write the main document HTML...",
-    },
-    {
-      id: "header",
-      title: "Header",
-      icon: "ti ti-layout-navbar",
-      value: headerHtml,
-      onInput: setHeaderHtml,
-      placeholder: "Optional Gotenberg header HTML...",
-    },
-    {
-      id: "footer",
-      title: "Footer",
-      icon: "ti ti-layout-bottombar",
-      value: footerHtml,
-      onInput: setFooterHtml,
-      placeholder: "Optional Gotenberg footer HTML...",
-    },
-    {
-      id: "css",
-      title: "Page CSS",
-      icon: "ti ti-braces",
-      value: pageCss,
-      onInput: setPageCss,
-      placeholder: "@page { size: A4; margin: 28mm 14mm 22mm; }",
-    },
-  ]);
   const dirty = () =>
     name() !== (template?.name ?? initialStarter.name) ||
     description() !== (template?.description ?? initialStarter.description) ||
@@ -525,82 +452,26 @@ function DocumentTemplateEditorDialog(props: {
             </div>
           </div>
 
-          <Panes.Root
-            value={templatePanes()}
-            onChange={setTemplatePanes}
-            class="min-h-[24rem] w-full flex-1"
-            allowResize
-            allowMove={false}
-            allowReorder={false}
-            allowHorizontalSplit={false}
-            allowVerticalSplit={false}
-            leafPresentation="single"
-          >
-            <For each={templateSnippets()}>
-              {(snippet) => (
-                <Panes.Element id={snippet.id} title={snippet.title} icon={snippet.icon}>
-                  <section class="flex h-full min-h-0 flex-col overflow-hidden">
-                    <TemplateEditor
-                      value={snippet.value}
-                      onInput={snippet.onInput}
-                      variables={templateVariables()}
-                      fill
-                      placeholder={snippet.placeholder}
-                    />
-                  </section>
-                </Panes.Element>
-              )}
-            </For>
-
-            <Panes.Element id="preview" title="Preview" icon="ti ti-file-type-pdf">
-              <section class="flex h-full min-h-0 flex-col overflow-hidden">
-                <PdfPreview
-                  title="Gotenberg PDF preview"
-                  class="min-h-0 flex-1"
-                  buttonLabel="Render preview"
-                  emptyText="Choose a record and render a PDF preview from the unsaved draft."
-                  disabled={() => !source().trim() || !html().trim() || !previewRecordId().trim()}
-                  request={previewPdf}
-                />
-              </section>
-            </Panes.Element>
-            <Panes.Element id="data" title="Data" icon="ti ti-list-tree">
-              <section class="flex h-full min-h-0 flex-col overflow-hidden">
-                <DocumentDataTree data={() => previewData()?.data ?? null} loading={previewDataLoading} error={previewDataError} />
-              </section>
-            </Panes.Element>
-            <Panes.Element id="source" title="Source" icon="ti ti-code">
-              <section class="flex h-full min-h-0 flex-col overflow-hidden">
-                <RenderedDocumentSource
-                  source={() => previewData()?.source ?? null}
-                  loading={previewDataLoading}
-                  error={previewDataError}
-                />
-              </section>
-            </Panes.Element>
-            <Panes.Element id="permissions" title="Access" icon="ti ti-lock">
-              <section class="flex h-full min-h-0 flex-col overflow-y-auto p-3">
-                <Show
-                  when={template}
-                  fallback={<div class="p-3 text-sm text-dimmed">Save the template before configuring document access.</div>}
-                >
-                  {(savedTemplate) => (
-                    <Show when={!templateAccessEntries.loading} fallback={<div class="p-3 text-sm text-dimmed">Loading access…</div>}>
-                      <ScopedPermissionEditor
-                        scope={{ type: "documentTemplate", id: savedTemplate().id }}
-                        initialEntries={templateAccessEntries() ?? []}
-                        allowedLevels={[
-                          { level: "read", label: "Read", icon: "ti ti-eye" },
-                          { level: "write", label: "Write", icon: "ti ti-pencil" },
-                          { level: "admin", label: "Admin", icon: "ti ti-shield" },
-                        ]}
-                      />
-                    </Show>
-                  )}
-                </Show>
-              </section>
-            </Panes.Element>
-          </Panes.Root>
+          <DocumentTemplateEditorPanes
+            template={template}
+            html={html}
+            setHtml={setHtml}
+            headerHtml={headerHtml}
+            setHeaderHtml={setHeaderHtml}
+            footerHtml={footerHtml}
+            setFooterHtml={setFooterHtml}
+            pageCss={pageCss}
+            setPageCss={setPageCss}
+            templateVariables={templateVariables}
+            previewData={previewData}
+            previewDataLoading={previewDataLoading}
+            previewDataError={previewDataError}
+            source={source}
+            previewRecordId={previewRecordId}
+            previewPdf={previewPdf}
+            accessEntries={() => templateAccessEntries() ?? []}
+            accessLoading={() => templateAccessEntries.loading}
+          />
         </div>
       </PanelDialog.Body>
       <PanelDialog.Footer>
