@@ -1,7 +1,7 @@
 import type { JSX } from "solid-js";
 import { Show } from "solid-js";
 import Chart from "./Chart";
-import { type StatGridSize, useStatGridSize } from "./StatGrid";
+import { type StatGridSize, useStatGridSize, useStatGridSurface } from "./StatGrid";
 
 /**
  * Single cell inside a {@link StatGrid}. Renders one stat: tiny
@@ -198,12 +198,15 @@ const Body = (props: StatCellProps & { cellIsLink: boolean }): JSX.Element => {
 
 const StatCell = (props: StatCellProps): JSX.Element => {
   // Static layout classes — shared between link and non-link wrapper.
-  // `bg-white` (and dark equivalent) is what tiles over the parent
-  // grid's `bg-zinc-100` bleed; without it the cell would look
-  // transparent on top of the divider colour.
+  // The cell background tiles over the parent grid's `bg-zinc-100`
+  // bleed; without it the cell would look transparent on top of the
+  // divider colour. On a `muted` grid the cells use the section-gray
+  // tone instead of white so the grid blends into dialog surfaces.
   const gridSize = useStatGridSize();
+  const gridSurface = useStatGridSurface();
   const size = () => props.size ?? gridSize;
-  const baseClass = () => `bg-white dark:bg-zinc-900 flex flex-col gap-0.5 min-w-0 ${size() === "sm" ? "px-3 py-2.5" : "px-4 py-4"}`;
+  const surfaceClass = () => (gridSurface === "muted" ? "bg-zinc-50 dark:bg-zinc-900" : "bg-white dark:bg-zinc-900");
+  const baseClass = () => `${surfaceClass()} flex flex-col gap-0.5 min-w-0 ${size() === "sm" ? "px-3 py-2.5" : "px-4 py-4"}`;
   if (props.href) {
     // Link variant: adds a subtle top-right `external-link` icon as
     // an affordance — sits in dimmed zinc by default, shifts to the

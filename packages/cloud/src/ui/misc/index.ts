@@ -1,3 +1,23 @@
+export {
+  AiSkillDetailDialog,
+  AiSkillsManagerBody,
+  type AiSkillsManagerBodyProps,
+  AiSkillsManagerDialog,
+  aiSkillsApi,
+  openAiSkillsManager,
+} from "./AiSkillsManager";
+export { type FileBrowserPanelProps, type FileSource, FileBrowserPanel, openFileBrowser } from "./FileBrowser";
+export { type FileTreeActions, type FileTreeEntry, type FileTreeProps, default as FileTree } from "./FileTree";
+export {
+  type FileViewContent,
+  type FileViewFile,
+  type FileViewProps,
+  type FileViewRenderer,
+  type FileViewRendererProps,
+  default as FileView,
+  formatFileViewSize,
+  registerFileViewRenderer,
+} from "./FileView";
 export type { AppOverviewEmptyStateProps, AppOverviewPanelProps, AppOverviewProps } from "./AppOverview";
 export { default as AppOverview } from "./AppOverview";
 export type {

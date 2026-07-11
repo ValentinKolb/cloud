@@ -1,4 +1,4 @@
-import { createSignal, createEffect, createMemo, onMount, onCleanup, untrack, For, Show } from "solid-js";
+import { createSignal, createEffect, createMemo, type JSX, onMount, onCleanup, untrack, For, Show } from "solid-js";
 import { handleShortcut, handleListContinuation, handleSmartPaste } from "./behaviors";
 import {
   type Completion,
@@ -82,6 +82,16 @@ export type MarkdownEditorProps = {
   showStats?: boolean;
   /** Visual variant. Defaults to the compact zinc input surface. */
   variant?: "default" | "paper";
+  /** Stretch to the parent's height (flex column) instead of the `lines` height — IDE-style hosts. */
+  fill?: boolean;
+  /** When provided, a save button renders at the toolbar's right edge and Cmd/Ctrl+S saves. */
+  onSave?: () => void;
+  /** Disables the save button (e.g. while nothing changed). */
+  saveDisabled?: () => boolean;
+  /** Renders the save button in its busy state. */
+  saving?: () => boolean;
+  /** Extra controls next to the save button (toolbar right edge). */
+  toolbarTrailing?: JSX.Element;
 };
 
 /**
@@ -620,9 +630,30 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
   // Height derived from `lines` prop. We use rem because line-height is
   // 1.55 — close enough to 1em-ish; rem keeps it predictable.
   const surfaceStyle = (): string => {
+    if (props.fill) return "";
     const lines = props.lines ?? 6;
     return `--md-h: ${lines * 1.5}rem`;
   };
+
+  const saveButton = (): JSX.Element => (
+    <>
+      {props.toolbarTrailing}
+      <Show when={props.onSave}>
+        <button
+          type="button"
+          class="md-editor-tool"
+          title="Save (Ctrl/Cmd+S)"
+          aria-label="Save"
+          tabIndex={-1}
+          disabled={props.disabled || props.saveDisabled?.() || props.saving?.()}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => props.onSave?.()}
+        >
+          <i class={props.saving?.() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} />
+        </button>
+      </Show>
+    </>
+  );
 
   return (
     <div
@@ -630,9 +661,16 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
       data-disabled={props.disabled ? "true" : undefined}
       data-error={props.error ? "true" : undefined}
       data-variant={props.variant === "paper" ? "paper" : undefined}
+      data-fill={props.fill ? "true" : undefined}
+      onKeyDown={(event) => {
+        if (props.onSave && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+          event.preventDefault();
+          if (!props.saveDisabled?.() && !props.saving?.()) props.onSave();
+        }
+      }}
     >
       <Show when={!props.noToolbar}>
-        <Toolbar textarea={taSignal} activeFormats={activeFormats} disabled={props.disabled} />
+        <Toolbar textarea={taSignal} activeFormats={activeFormats} disabled={props.disabled} trailing={saveButton()} />
       </Show>
       <div class="md-editor-surface" style={surfaceStyle()}>
         <Show when={!localValue() && props.placeholder}>

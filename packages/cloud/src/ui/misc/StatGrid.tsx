@@ -1,5 +1,5 @@
 import type { JSX } from "solid-js";
-import { Show, createContext, useContext } from "solid-js";
+import { createContext, Show, useContext } from "solid-js";
 
 /**
  * StatGrid — paper-framed container for a row of {@link StatCell}s.
@@ -60,9 +60,14 @@ type StatGridAction = {
 
 export type StatGridSize = "md" | "sm";
 
+/** Cell background: `white` for pages, `muted` matches gray section cards (e.g. PanelDialog.Section). */
+export type StatGridSurface = "white" | "muted";
+
 const StatGridSizeContext = createContext<StatGridSize>("md");
+const StatGridSurfaceContext = createContext<StatGridSurface>("white");
 
 export const useStatGridSize = () => useContext(StatGridSizeContext);
+export const useStatGridSurface = () => useContext(StatGridSurfaceContext);
 
 type StatGridProps = {
   children: JSX.Element;
@@ -89,6 +94,12 @@ type StatGridProps = {
    * default keeps the established admin/dashboard scale.
    */
   size?: StatGridSize;
+  /**
+   * Cell background surface. `muted` renders the grid in the same gray
+   * tone as section cards (PanelDialog.Section) so stats blend into
+   * dialogs and settings surfaces instead of popping bright white.
+   */
+  surface?: StatGridSurface;
   /**
    * Extra classes on the outer paper element — primarily for sizing
    * (`h-full`, `flex-1`) when the grid needs to fill a parent
@@ -118,9 +129,14 @@ const DEFAULT_GRID_COLS = "grid-cols-2 sm:grid-cols-3 md:grid-cols-6";
 
 const StatGrid = (props: StatGridProps): JSX.Element => {
   const gridCols = () => (props.columns ? (GRID_COLS_CLASS[props.columns] ?? DEFAULT_GRID_COLS) : DEFAULT_GRID_COLS);
+  const surface = () => props.surface ?? "white";
 
   return (
-    <div class={`paper overflow-hidden flex flex-col ${props.class ?? ""}`}>
+    <div
+      class={`paper overflow-hidden flex flex-col ${
+        surface() === "muted" ? "border-zinc-200 bg-zinc-50/70 dark:border-zinc-800 dark:bg-zinc-900/70" : ""
+      } ${props.class ?? ""}`}
+    >
       <Show when={props.title}>
         <header class="px-3 py-2 flex items-center justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800/60">
           <span class="text-xs font-semibold text-primary truncate">{props.title}</span>
@@ -140,7 +156,9 @@ const StatGrid = (props: StatGridProps): JSX.Element => {
           docblock for why. `flex-1` lets the grid expand to fill the
           paper when the caller passes a sizing class like `h-full`. */}
       <StatGridSizeContext.Provider value={props.size ?? "md"}>
-        <div class={`grid ${gridCols()} gap-px bg-zinc-100 dark:bg-zinc-800 flex-1`}>{props.children}</div>
+        <StatGridSurfaceContext.Provider value={surface()}>
+          <div class={`grid ${gridCols()} gap-px bg-zinc-100 dark:bg-zinc-800 flex-1`}>{props.children}</div>
+        </StatGridSurfaceContext.Provider>
       </StatGridSizeContext.Provider>
     </div>
   );

@@ -66,7 +66,12 @@ export const panelDialogPanelClass = `${panelDialogBasePanelClass} max-h-[86vh] 
 
 export const panelDialogOptions = {
   panelClassName: panelDialogPanelClass,
-  contentClassName: "min-h-0 p-0",
+  // The content wrapper must carry the panel's max-height EXPLICITLY (same
+  // 86vh as the panel class — `max-h-[inherit]` proved unreliable across
+  // browser dialog UA styles) and be a flex column, otherwise
+  // PanelDialog.Body can never scroll and long content gets clipped by the
+  // panel's overflow-hidden.
+  contentClassName: "flex max-h-[86vh] min-h-0 flex-col p-0",
 } satisfies OpenDialogOptions;
 
 export const panelDialogWorkspacePanelClass = `${panelDialogBasePanelClass} h-[80vh] max-h-[80vh] w-[80vw] max-w-[80vw]`;
@@ -172,7 +177,8 @@ function PanelDialogTabs<T extends string>(props: PanelDialogTabsProps<T>) {
       class={
         surface === "floating"
           ? "paper flex shrink-0 items-center gap-1 overflow-x-auto p-1.5"
-          : "flex shrink-0 items-center gap-1 overflow-x-auto border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-800"
+          : // No divider line — the active-tab tint and spacing carry the separation.
+            "flex shrink-0 items-center gap-1 overflow-x-auto px-2 py-1.5"
       }
     >
       <For each={props.options}>
@@ -204,11 +210,13 @@ const PanelDialog = ((props: PanelDialogProps) => {
   const surface = props.surface ?? "contained";
   return (
     <PanelDialogSurfaceContext.Provider value={surface}>
+      {/* As a flex child (dialog content / page shell), min-h-0 + flex-1 lets the
+          parent's height/max-height cap this root — Body then scrolls inside. */}
       <div
         class={
           surface === "floating"
-            ? "flex h-full w-full max-h-[inherit] min-h-0 flex-col gap-2 overflow-hidden"
-            : "flex h-full w-full max-h-[inherit] min-h-0 flex-col overflow-hidden"
+            ? "flex min-h-0 w-full flex-1 flex-col gap-2 overflow-hidden"
+            : "flex min-h-0 w-full flex-1 flex-col overflow-hidden"
         }
       >
         {props.children}

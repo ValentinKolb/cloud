@@ -9,7 +9,7 @@
  * currently sits inside a styled span. The set is computed by
  * `active-formats.ts` and pushed in from the host component.
  */
-import { For } from "solid-js";
+import { For, type JSX, Show } from "solid-js";
 import {
   toggleBold,
   toggleItalic,
@@ -30,6 +30,8 @@ type ToolbarProps = {
    * inside a styled span). */
   activeFormats?: () => Set<string>;
   disabled?: boolean;
+  /** Host-provided controls rendered right-aligned (e.g. a save button). */
+  trailing?: JSX.Element;
 };
 
 type Tool = { kind: "btn"; id: string; icon: string; title: string; run: (ta: HTMLTextAreaElement) => void } | { kind: "sep" };
@@ -83,6 +85,9 @@ export default function Toolbar(props: ToolbarProps) {
           )
         }
       </For>
+      <Show when={props.trailing}>
+        <span class="ml-auto inline-flex items-center gap-0.5">{props.trailing}</span>
+      </Show>
     </div>
   );
 }

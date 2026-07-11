@@ -19,7 +19,8 @@
   @apply bg-zinc-100 border-zinc-100;
   @apply hover:bg-zinc-200/70 hover:border-zinc-200/70;
   @apply dark:bg-zinc-800 dark:border-zinc-800;
-  @apply dark:hover:bg-zinc-700 dark:hover:border-zinc-700;
+  /* Dark mode hovers DARKEN (like light mode does) — a lighter hover reads washed-out. */
+  @apply dark:hover:bg-zinc-900/60 dark:hover:border-zinc-800;
   @apply transition-colors;
   @apply overflow-hidden;
   /* Recessed well — matches the `input` utility (default variant is field-shaped).
@@ -115,6 +116,20 @@
 .md-editor-surface {
   position: relative;
   height: var(--md-h, 8rem);
+}
+
+/* Fill mode — the editor stretches to its (flex) parent instead of a
+   line-count height. Used by IDE-style hosts like the file browser. */
+.md-editor[data-fill="true"] {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.md-editor[data-fill="true"] .md-editor-surface {
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 .md-editor-layer {
