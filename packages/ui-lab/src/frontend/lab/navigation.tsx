@@ -33,7 +33,7 @@ import {
   TextInput,
 } from "@valentinkolb/cloud/ui";
 import { Link } from "@valentinkolb/ssr/nav";
-import { createSignal, For } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import DemoCard from "./DemoCard";
 
 const FROM_UI = "@valentinkolb/cloud/ui";
@@ -207,6 +207,7 @@ export const FilterChipDemo = () => {
 
 export const AppWorkspaceDemo = () => {
   const [selectedId, setSelectedId] = createSignal("launch");
+  const [detailOpen, setDetailOpen] = createSignal(true);
 
   return (
     <DemoCard
@@ -227,8 +228,10 @@ export const AppWorkspaceDemo = () => {
       </AppWorkspace.SidebarSection>
     </AppWorkspace.SidebarDesktop>
   </AppWorkspace.Sidebar>
-  <AppWorkspace.Main>…</AppWorkspace.Main>
-  <AppWorkspace.Detail open width="sm">…</AppWorkspace.Detail>
+  <AppWorkspace.Main><button onClick={() => setDetailOpen(true)}>View details</button></AppWorkspace.Main>
+  <AppWorkspace.Detail open={detailOpen()} width="sm">
+    <button aria-label="Close details" onClick={() => setDetailOpen(false)}>…</button>
+  </AppWorkspace.Detail>
 </AppWorkspace>`}
     >
       <div class="h-80 overflow-hidden rounded-[var(--ui-radius-frame)] bg-[var(--ui-canvas)] p-2">
@@ -298,14 +301,28 @@ export const AppWorkspaceDemo = () => {
 
           <AppWorkspace.Main>
             <div class="flex h-full min-h-0 flex-col p-4">
-              <p class="text-sm font-semibold text-primary">Workspace content</p>
-              <p class="mt-1 text-xs text-dimmed">Current selection: {selectedId()}</p>
+              <div class="flex min-w-0 items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="text-sm font-semibold text-primary">Workspace content</p>
+                  <p class="mt-1 text-xs text-dimmed">Current selection: {selectedId()}</p>
+                </div>
+                <Show when={!detailOpen()}>
+                  <button type="button" class="btn-secondary btn-sm" onClick={() => setDetailOpen(true)}>
+                    View details
+                  </button>
+                </Show>
+              </div>
             </div>
           </AppWorkspace.Main>
 
-          <AppWorkspace.Detail open width="sm" class="detail-stack">
+          <AppWorkspace.Detail open={detailOpen()} width="sm" class="detail-stack">
             <div class="detail-section">
-              <h3 class="detail-section-label">Details</h3>
+              <div class="mb-3 flex items-center justify-between gap-2">
+                <h3 class="detail-section-label mb-0">Details</h3>
+                <button type="button" class="btn-simple btn-sm" aria-label="Close details" onClick={() => setDetailOpen(false)}>
+                  <i class="ti ti-x" aria-hidden="true" />
+                </button>
+              </div>
               <p class="text-xs text-dimmed">Detail panels use the same shell across apps.</p>
             </div>
           </AppWorkspace.Detail>

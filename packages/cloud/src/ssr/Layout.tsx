@@ -285,6 +285,8 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
             <a
               href={app.href}
               class={`rail-item ${active(pathname, app.match) ? "rail-item-active" : ""}`}
+              aria-label={app.label}
+              aria-current={active(pathname, app.match) ? "page" : undefined}
               title={app.label}
               style={appAccentStyle(app.accent)}
             >
