@@ -902,8 +902,7 @@ export const aiConversationStore: AiConversationStore = {
     await sql`
       UPDATE ai.messages
       SET loop_aggregate = ${JSON.stringify(input.aggregate)}::jsonb,
-          loop_done_reason = ${input.doneReason},
-          usage = COALESCE(${input.aggregate.usage ? JSON.stringify(input.aggregate.usage) : null}::jsonb, usage)
+          loop_done_reason = ${input.doneReason}
       WHERE id = (
         SELECT id
         FROM ai.messages

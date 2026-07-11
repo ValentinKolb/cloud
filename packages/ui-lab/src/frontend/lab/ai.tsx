@@ -41,7 +41,7 @@ const demoModels: AiPublicModelProfile[] = [
     model: "qwen3.6",
     capabilities: ["streaming", "tools"],
     dataBoundary: "private",
-    contextWindow: 8192,
+    contextWindow: 262000,
   },
   {
     id: "vision",
@@ -216,7 +216,8 @@ export const AiComposerDemo = () => {
           state={{
             disabled: () => false,
             running: () => false,
-            usage: () => ({ input: 290, output: 129, total: 419 }),
+            usage: () => ({ input: 15_876, output: 32, total: 15_908 }),
+            loopUsage: () => ({ input: 69_944, output: 819, total: 70_763 }),
           }}
           actions={{
             onNewConversation: () => undefined,

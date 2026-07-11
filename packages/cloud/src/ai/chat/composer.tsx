@@ -37,7 +37,7 @@ export type AiComposerSendInput = {
   files?: File[];
 };
 
-export function AiContextIndicator(props: { usage?: Usage | null; contextWindow?: number }) {
+export function AiContextIndicator(props: { usage?: Usage | null; loopUsage?: Usage | null; contextWindow?: number }) {
   const total = () => props.usage?.total ?? 0;
   const windowSize = () => props.contextWindow;
   const percent = () => {
@@ -76,7 +76,7 @@ export function AiContextIndicator(props: { usage?: Usage | null; contextWindow?
         role="tooltip"
         class="pointer-events-none invisible absolute bottom-full right-0 z-30 mb-2 w-64 rounded-lg border border-zinc-200 bg-white p-3 text-xs text-secondary opacity-0 shadow-[var(--theme-shadow-float)] transition-opacity group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100 dark:border-zinc-800 dark:bg-zinc-900"
       >
-        <p class="font-medium text-primary">Context</p>
+        <p class="font-medium text-primary">Last request context</p>
         <Show when={percent() !== null}>
           <div class="mt-2">
             <ProgressBar value={percent()!} size="xs" tone={(percent() ?? 0) >= 85 ? "danger" : "primary"} />
@@ -84,9 +84,23 @@ export function AiContextIndicator(props: { usage?: Usage | null; contextWindow?
         </Show>
         <div class="mt-2 space-y-1">
           <p class="flex justify-between gap-3">
-            <span>Used</span>
+            <span>Input</span>
+            <span class="tabular-nums text-primary">{props.usage?.input?.toLocaleString() ?? "Unknown"}</span>
+          </p>
+          <p class="flex justify-between gap-3">
+            <span>Output</span>
+            <span class="tabular-nums text-primary">{props.usage?.output?.toLocaleString() ?? "Unknown"}</span>
+          </p>
+          <p class="flex justify-between gap-3">
+            <span>Request total</span>
             <span class="tabular-nums text-primary">{total() > 0 ? total().toLocaleString() : "Unknown"}</span>
           </p>
+          <Show when={(props.loopUsage?.total ?? 0) > 0}>
+            <p class="flex justify-between gap-3">
+              <span>Loop total</span>
+              <span class="tabular-nums text-primary">{props.loopUsage!.total.toLocaleString()}</span>
+            </p>
+          </Show>
           <p class="flex justify-between gap-3">
             <span>Window</span>
             <span class="tabular-nums text-primary">{windowSize() ? windowSize()!.toLocaleString() : "Not configured"}</span>
@@ -190,6 +204,7 @@ export type AiComposerState = {
   focusToken?: () => unknown;
   placeholder?: string;
   usage?: () => Usage | null;
+  loopUsage?: () => Usage | null;
   /** Conversation VFS indicator: shows a files chip when count > 0; click opens the browser. */
   files?: { count: () => number; onOpen: () => void };
 };
@@ -610,7 +625,11 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
             </button>
           </Show>
 
-          <AiContextIndicator usage={props.state.usage?.()} contextWindow={selectedModel()?.contextWindow} />
+          <AiContextIndicator
+            usage={props.state.usage?.()}
+            loopUsage={props.state.loopUsage?.()}
+            contextWindow={selectedModel()?.contextWindow}
+          />
 
           <button
             type="button"

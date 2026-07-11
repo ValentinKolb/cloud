@@ -6,6 +6,7 @@ import {
   type AiComposerSendInput,
   AiMessageList,
   type AiSlashCommand,
+  aiLatestLoopUsage,
   aiLatestUsage,
 } from "@valentinkolb/cloud/ai/ui";
 import { AppWorkspace, openFileBrowser, prompts } from "@valentinkolb/cloud/ui";
@@ -87,6 +88,7 @@ export default function AssistantWorkspace(props: Props) {
     () => props.status.ok && props.status.enabled && props.models.length > 0 && !chat.running() && !chat.activeTurn(),
   );
   const usage = createMemo(() => aiLatestUsage(chat.messages()));
+  const loopUsage = createMemo(() => aiLatestLoopUsage(chat.messages()));
   const composerSessionKey = () => chat.activeConversationId() ?? "__new__";
   const composerDraft = () => composerDrafts()[composerSessionKey()] ?? "";
   const setComposerDraft = (value: string) => {
@@ -331,6 +333,7 @@ export default function AssistantWorkspace(props: Props) {
                 focusToken: composerFocusToken,
                 placeholder: props.status.enabled ? "Ask Assistant anything or type / ..." : "AI is not configured",
                 usage,
+                loopUsage,
                 files: {
                   count: chat.vfsFileCount,
                   onOpen: () => {

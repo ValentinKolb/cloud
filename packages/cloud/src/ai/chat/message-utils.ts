@@ -234,6 +234,15 @@ export const textAttachmentSummariesFromMessage = (message: Message) => {
 
 export const latestUsage = (messages: AiStoredMessage[]): Usage | null => {
   for (let i = messages.length - 1; i >= 0; i--) {
+    const entry = messages[i];
+    const usage = entry?.loopAggregate?.turns.findLast((turn) => Boolean(turn.usage))?.usage ?? entry?.usage;
+    if (usage) return usage;
+  }
+  return null;
+};
+
+export const latestLoopUsage = (messages: AiStoredMessage[]): Usage | null => {
+  for (let i = messages.length - 1; i >= 0; i--) {
     const usage = messages[i]?.loopAggregate?.usage ?? messages[i]?.usage;
     if (usage) return usage;
   }

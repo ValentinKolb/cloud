@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "@valentinkolb/nessi";
+import type { LoopAggregate, Message } from "@valentinkolb/nessi";
 import { sql } from "bun";
 import { forgetAiToolApproval, hasRememberedAiToolApproval, rememberAiToolApproval } from "./approvals";
 import { migrateCloudAi } from "./migrate";
@@ -59,6 +59,87 @@ const assistantMessage = (text: string): Message => ({
 const runConfig = { kind: "chat" as const, input: "hi", toolSource: { kind: "none" as const } };
 
 describe("AI conversation store integration", () => {
+  test("preserves full and historical tool results while keeping turn usage separate from loop usage", async () => {
+    if (!(await canUseAiDatabase())) return;
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+
+    try {
+      const conversation = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
+      conversationIds.push(conversation.id);
+      const store = aiConversationStore.createSessionStore({ conversationId: conversation.id, modelProfileId: "test-model" });
+      const turnUsage = { input: 15_876, output: 32, total: 15_908 };
+      const loopUsage = { input: 69_944, output: 819, total: 70_763 };
+
+      await store.append({
+        role: "assistant",
+        content: [{ type: "tool_call", id: "bash-1", name: "bash", args: { command: "build-report" } }],
+        usage: { input: 8_598, output: 118, total: 8_716 },
+        stopReason: "tool_use",
+      });
+      await store.append({
+        role: "tool_result",
+        callId: "bash-1",
+        name: "bash",
+        result: { stdout: "full output", stderr: "", exitCode: 0 },
+        historicalResult: {
+          originLoopId: "loop-1",
+          value: { command: "build-report", exitCode: 0, stdoutExcerpt: "full output", stderrExcerpt: "" },
+        },
+      });
+      await store.append({
+        role: "assistant",
+        content: [{ type: "text", text: "Done" }],
+        usage: turnUsage,
+        stopReason: "stop",
+      });
+
+      const aggregate: LoopAggregate = {
+        turns: [
+          {
+            message: { role: "assistant", content: [{ type: "text", text: "Working" }], stopReason: "tool_use" },
+            usage: { input: 8_598, output: 118, total: 8_716 },
+            stopReason: "tool_use",
+            toolCalls: [],
+          },
+          {
+            message: { role: "assistant", content: [{ type: "text", text: "Done" }], stopReason: "stop" },
+            usage: turnUsage,
+            stopReason: "stop",
+            toolCalls: [],
+          },
+        ],
+        usage: loopUsage,
+        issueCount: 0,
+        issues: [],
+        toolCallCount: 1,
+        toolErrorCount: 0,
+        toolIssueCount: 0,
+        toolMalformedCount: 0,
+        toolCancelledCount: 0,
+        toolIssues: [],
+        assistantMessageCount: 2,
+      };
+      await aiConversationStore.setLatestAssistantLoopAggregate({
+        conversationId: conversation.id,
+        aggregate,
+        doneReason: "stop",
+      });
+
+      const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
+      const toolResult = messages.find((entry) => entry.message.role === "tool_result")?.message;
+      const finalAssistant = messages.findLast((entry) => entry.message.role === "assistant");
+      expect(toolResult?.role === "tool_result" ? toolResult.historicalResult : undefined).toEqual({
+        originLoopId: "loop-1",
+        value: { command: "build-report", exitCode: 0, stdoutExcerpt: "full output", stderrExcerpt: "" },
+      });
+      expect(finalAssistant?.usage).toEqual(turnUsage);
+      expect(finalAssistant?.loopAggregate?.usage).toEqual(loopUsage);
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
+    }
+  });
+
   test("submitChatTurn persists user message and turn transactionally", async () => {
     if (!(await canUseAiDatabase())) {
       console.warn("Skipping AI store DB test: auth/ai tables are not available.");
