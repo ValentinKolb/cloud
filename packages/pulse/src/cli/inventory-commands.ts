@@ -1,5 +1,12 @@
 import { arg, type CloudCliContext, command, flag } from "@valentinkolb/cloud/cli";
-import type { MetricType, PulseCurrentState, PulseInventory, PulseMetricSummary, PulseRecordedEvent, PulseResourceMetric, PulseResourceSummary } from "../contracts";
+import type {
+  PulseCurrentState,
+  PulseInventory,
+  PulseMetricSummary,
+  PulseRecordedEvent,
+  PulseResourceMetric,
+  PulseResourceSummary,
+} from "../contracts";
 import {
   listDashboards,
   listSources,
@@ -8,17 +15,15 @@ import {
   resolveSourceFilter,
   type SourceFilterFlags,
 } from "./context";
-import { baseFlag, metricTypeFlag, resourceFilterFlags, sourceFilterFlags } from "./flags";
+import { baseFlag, metricTypeFlag, sourceFilterFlags } from "./flags";
 import {
   eventRows,
   inventoryMetricRows,
   metricRows,
-  metricSummariesFromInventory,
   overviewRows,
   resourceDetailRows,
   resourceRows,
   resourceSummaryRows,
-  sliceRows,
   stateRows,
 } from "./inventory";
 import { dashboardRows, sourceRows } from "./rows";
@@ -29,6 +34,8 @@ const resourceListFlags = {
   q: flag.string({ description: "Search resources" }),
   type: flag.string({ description: "Resource type" }),
   ...sourceFilterFlags,
+  limit: flag.int({ min: 1, max: 500, description: "Maximum rows" }),
+  offset: flag.int({ min: 0, description: "Row offset" }),
 };
 
 const listResources = async (
@@ -46,11 +53,17 @@ const readResource = async (ctx: CloudCliContext, baseId: string, ref: string): 
 const listResourcesForCommand = async (
   ctx: CloudCliContext,
   args: string[],
-  flags: SourceFilterFlags & { q?: string; type?: string },
+  flags: SourceFilterFlags & { q?: string; type?: string; limit?: number; offset?: number },
 ) => {
   const { base } = await resolveBaseFromCommand(ctx, args, 0);
   const sourceId = await resolveSourceFilter(ctx, base.id, flags);
-  const resources = await listResources(ctx, base.id, { q: flags.q, type: flags.type, sourceId, limit: 500 });
+  const resources = await listResources(ctx, base.id, {
+    q: flags.q,
+    type: flags.type,
+    sourceId,
+    limit: flags.limit ?? 100,
+    offset: flags.offset,
+  });
   const rows = resourceSummaryRows(resources);
   printJsonOrTable(ctx, { resources }, rows, [
     { key: "type" },
@@ -267,13 +280,7 @@ export const inventoryCommands = [
       if (topMetrics.length) {
         ctx.print("");
         ctx.print("Top metrics:");
-        ctx.table(metricRows(topMetrics), [
-          { key: "metric" },
-          { key: "type" },
-          { key: "unit" },
-          { key: "series" },
-          { key: "lastSeenAt" },
-        ]);
+        ctx.table(metricRows(topMetrics), [{ key: "metric" }, { key: "type" }, { key: "unit" }, { key: "series" }, { key: "lastSeenAt" }]);
       }
     },
   }),

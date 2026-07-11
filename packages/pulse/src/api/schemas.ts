@@ -1,11 +1,7 @@
-import {
-  AccessEntrySchema,
-  PermissionLevelSchema,
-  PrincipalSchema,
-  ServiceAccountCredentialSchema,
-} from "@valentinkolb/cloud/contracts";
+import { PermissionLevelSchema, PrincipalSchema, ServiceAccountCredentialSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 import { AGGREGATIONS, METRIC_TYPES, PANEL_VISUALS, SOURCE_KINDS } from "../contracts";
+import { PULSE_EXTERNAL_INGEST_BATCH_LIMIT, PULSE_EXTERNAL_INGEST_COLLECTION_LIMIT } from "../ingest-limits";
 
 const durationToMs = (value: string): number | null => {
   const match = value.match(/^(\d+)(m|h|d)$/);
@@ -61,11 +57,17 @@ const StateSchema = z.object({
   dimensions: DimensionsSchema,
 });
 
-export const IngestBatchSchema = z.object({
-  metrics: z.array(MetricSchema).max(500).optional(),
-  events: z.array(EventSchema).max(500).optional(),
-  states: z.array(StateSchema).max(500).optional(),
-});
+export const IngestBatchSchema = z
+  .object({
+    metrics: z.array(MetricSchema).max(PULSE_EXTERNAL_INGEST_COLLECTION_LIMIT).optional(),
+    events: z.array(EventSchema).max(PULSE_EXTERNAL_INGEST_COLLECTION_LIMIT).optional(),
+    states: z.array(StateSchema).max(PULSE_EXTERNAL_INGEST_COLLECTION_LIMIT).optional(),
+  })
+  .refine(
+    (batch) =>
+      (batch.metrics?.length ?? 0) + (batch.events?.length ?? 0) + (batch.states?.length ?? 0) <= PULSE_EXTERNAL_INGEST_BATCH_LIMIT,
+    { message: `Ingest batch exceeds ${PULSE_EXTERNAL_INGEST_BATCH_LIMIT} total items` },
+  );
 
 export const CreateBaseSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -377,6 +379,8 @@ export const CreateSavedQuerySchema = z.object({
 export const MetricSeriesQuerySchema = z.object({
   metric: z.string().trim().min(1).max(240),
   sourceId: z.string().uuid().optional(),
+  entityId: z.string().trim().min(1).max(500).optional(),
+  entityType: z.string().trim().min(1).max(120).optional(),
   q: z.string().trim().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
   offset: z.coerce.number().int().min(0).max(1_000_000).optional(),
@@ -387,6 +391,8 @@ export const ActivitySearchQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).optional(),
   offset: z.coerce.number().int().min(0).max(1_000_000).optional(),
   sourceId: z.string().uuid().optional(),
+  entityId: z.string().trim().min(1).max(500).optional(),
+  entityType: z.string().trim().min(1).max(120).optional(),
   kind: z.string().trim().min(1).max(240).optional(),
   key: z.string().trim().min(1).max(240).optional(),
 });

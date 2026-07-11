@@ -1,4 +1,4 @@
-import { auth, err, fail, jsonResponse, respond, v, type AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, err, fail, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
@@ -28,6 +28,7 @@ const routes = new Hono<AuthContext>()
           serviceAccount: actor.serviceAccount,
           scopes: actor.scopes,
           batch: c.req.valid("json"),
+          idempotencyKey: c.req.header("idempotency-key"),
         }),
       );
     },

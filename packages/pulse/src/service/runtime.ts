@@ -25,6 +25,7 @@ type RetentionResult = {
   eventDimensions: number;
   events: number;
   stateChanges: number;
+  idempotencyRecords: number;
   done: boolean;
 };
 
@@ -52,6 +53,15 @@ const scrapeJob = job<ScrapeInput, { metrics: number; events: number; states: nu
   after: ({ ctx }) => {
     if (ctx.error && ctx.failureCount < 3) {
       ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 30_000, maxMs: 5 * 60_000 }) });
+      return;
+    }
+    if (ctx.error) {
+      log.error("Pulse metrics scrape exhausted retries", {
+        baseId: ctx.input.baseId,
+        sourceId: ctx.input.sourceId,
+        failureCount: ctx.failureCount,
+        error: ctx.error.message,
+      });
     }
   },
 });
@@ -180,33 +190,120 @@ const deleteExpiredStateChangesChunk = async (baseId?: string): Promise<number> 
   return result.count ?? 0;
 };
 
+const deleteExpiredIdempotencyChunk = async (baseId?: string): Promise<number> => {
+  const scopedBaseId = baseId ?? null;
+  const result = await sql`
+    WITH victim AS (
+      SELECT item.source_id, item.idempotency_key
+      FROM pulse.ingest_idempotency item
+      JOIN pulse.sources source ON source.id = item.source_id
+      WHERE item.expires_at <= now()
+        AND (${scopedBaseId}::uuid IS NULL OR source.base_id = ${scopedBaseId}::uuid)
+      LIMIT ${RETENTION_DELETE_BATCH_SIZE}
+    )
+    DELETE FROM pulse.ingest_idempotency item
+    USING victim
+    WHERE item.source_id = victim.source_id
+      AND item.idempotency_key = victim.idempotency_key
+  `;
+  return result.count ?? 0;
+};
+
 export const runRetentionBatch = async (baseId?: string): Promise<RetentionResult> => {
   const metricSamples = await deleteExpiredMetricSamplesChunk(baseId);
   if (metricSamples > 0) {
-    return { phase: "metric_samples", metricSamples, metricRollups: 0, eventDimensions: 0, events: 0, stateChanges: 0, done: false };
+    return {
+      phase: "metric_samples",
+      metricSamples,
+      metricRollups: 0,
+      eventDimensions: 0,
+      events: 0,
+      stateChanges: 0,
+      idempotencyRecords: 0,
+      done: false,
+    };
   }
 
   const metricRollups = await deleteExpiredMetricRollupsChunk(baseId);
   if (metricRollups > 0) {
-    return { phase: "metric_rollups_hourly", metricSamples: 0, metricRollups, eventDimensions: 0, events: 0, stateChanges: 0, done: false };
+    return {
+      phase: "metric_rollups_hourly",
+      metricSamples: 0,
+      metricRollups,
+      eventDimensions: 0,
+      events: 0,
+      stateChanges: 0,
+      idempotencyRecords: 0,
+      done: false,
+    };
   }
 
   const eventDimensions = await deleteExpiredEventDimensionsChunk(baseId);
   if (eventDimensions > 0) {
-    return { phase: "event_dimensions", metricSamples: 0, metricRollups: 0, eventDimensions, events: 0, stateChanges: 0, done: false };
+    return {
+      phase: "event_dimensions",
+      metricSamples: 0,
+      metricRollups: 0,
+      eventDimensions,
+      events: 0,
+      stateChanges: 0,
+      idempotencyRecords: 0,
+      done: false,
+    };
   }
 
   const events = await deleteExpiredEventsChunk(baseId);
   if (events > 0) {
-    return { phase: "events", metricSamples: 0, metricRollups: 0, eventDimensions: 0, events, stateChanges: 0, done: false };
+    return {
+      phase: "events",
+      metricSamples: 0,
+      metricRollups: 0,
+      eventDimensions: 0,
+      events,
+      stateChanges: 0,
+      idempotencyRecords: 0,
+      done: false,
+    };
   }
 
   const stateChanges = await deleteExpiredStateChangesChunk(baseId);
   if (stateChanges > 0) {
-    return { phase: "state_changes", metricSamples: 0, metricRollups: 0, eventDimensions: 0, events: 0, stateChanges, done: false };
+    return {
+      phase: "state_changes",
+      metricSamples: 0,
+      metricRollups: 0,
+      eventDimensions: 0,
+      events: 0,
+      stateChanges,
+      idempotencyRecords: 0,
+      done: false,
+    };
   }
 
-  return { phase: "done", metricSamples: 0, metricRollups: 0, eventDimensions: 0, events: 0, stateChanges: 0, done: true };
+  const idempotencyRecords = await deleteExpiredIdempotencyChunk(baseId);
+  if (idempotencyRecords > 0) {
+    return {
+      phase: "ingest_idempotency",
+      metricSamples: 0,
+      metricRollups: 0,
+      eventDimensions: 0,
+      events: 0,
+      stateChanges: 0,
+      idempotencyRecords,
+      done: false,
+    };
+  }
+
+  return {
+    phase: "done",
+    metricSamples: 0,
+    metricRollups: 0,
+    eventDimensions: 0,
+    events: 0,
+    stateChanges: 0,
+    idempotencyRecords: 0,
+    done: true,
+  };
 };
 
 const retentionJob = job<void, RetentionResult>({
@@ -222,6 +319,13 @@ const retentionJob = job<void, RetentionResult>({
   after: ({ ctx }) => {
     if (ctx.error && ctx.failureCount < 3) {
       ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 60_000, maxMs: 10 * 60_000 }) });
+      return;
+    }
+    if (ctx.error) {
+      log.error("Pulse retention cleanup exhausted retries", {
+        failureCount: ctx.failureCount,
+        error: ctx.error.message,
+      });
       return;
     }
     if (ctx.data && !ctx.data.done) ctx.reschedule({ delayMs: 0 });
@@ -277,6 +381,13 @@ const hourlyRollupJob = job<void, { buckets: number }>({
   after: ({ ctx }) => {
     if (ctx.error && ctx.failureCount < 3) {
       ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 60_000, maxMs: 10 * 60_000 }) });
+      return;
+    }
+    if (ctx.error) {
+      log.error("Pulse hourly rollup exhausted retries", {
+        failureCount: ctx.failureCount,
+        error: ctx.error.message,
+      });
     }
   },
 });
@@ -351,6 +462,13 @@ export const pulseRuntime = {
             failureCount: ctx.failureCount,
           });
           ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 30_000, maxMs: 5 * 60_000 }) });
+          return;
+        }
+        if (ctx.error) {
+          log.error("Pulse scrape scheduler exhausted retries", {
+            error: ctx.error.message,
+            failureCount: ctx.failureCount,
+          });
         }
       },
     });
@@ -378,6 +496,13 @@ export const pulseRuntime = {
             failureCount: ctx.failureCount,
           });
           ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 60_000, maxMs: 10 * 60_000 }) });
+          return;
+        }
+        if (ctx.error) {
+          log.error("Pulse hourly rollup scheduler exhausted retries", {
+            error: ctx.error.message,
+            failureCount: ctx.failureCount,
+          });
         }
       },
     });
@@ -405,6 +530,13 @@ export const pulseRuntime = {
             failureCount: ctx.failureCount,
           });
           ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 60_000, maxMs: 10 * 60_000 }) });
+          return;
+        }
+        if (ctx.error) {
+          log.error("Pulse retention scheduler exhausted retries", {
+            error: ctx.error.message,
+            failureCount: ctx.failureCount,
+          });
         }
       },
     });

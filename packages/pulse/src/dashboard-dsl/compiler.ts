@@ -33,20 +33,25 @@ import { STATE_WIDGET_VISUALS } from "./constants";
 import { parseDashboardDsl } from "./parser";
 
 const titleId = (prefix: string, title: string): string =>
-  `${prefix}-${title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 48) || "item"}`;
+  `${prefix}-${
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 48) || "item"
+  }`;
 
 const queryWithDefaultControls = (query: string, controls: DashboardDslDocument["controls"]): string => {
   const defaults = new Map(controls.map((control) => [control.variable, quoteQueryValue(control.defaultValue)]));
   return query.replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (match, variable: string) => defaults.get(variable) ?? match);
 };
 
-const quoteQueryValue = (value: string): string => (/[\s,=]/.test(value) ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : value);
+const quoteQueryValue = (value: string): string =>
+  /[\s,=]/.test(value) ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : value;
 
-const stripBaseId = (query: MetricQuery | EventQuery | StateQuery): PulseDashboardMetricQuery | PulseDashboardEventQuery | PulseDashboardStateQuery => {
+const stripBaseId = (
+  query: MetricQuery | EventQuery | StateQuery,
+): PulseDashboardMetricQuery | PulseDashboardEventQuery | PulseDashboardStateQuery => {
   if (query.kind === "metric") {
     const { baseId: _baseId, ...rest } = query;
     return rest;
@@ -104,7 +109,9 @@ const compileDashboardControls = (document: DashboardDslDocument, uniqueId: Uniq
 
 const compileDashboardLayout = (context: DashboardCompilerContext, controls: PulseDashboardControl[]): PulseDashboardLayout => {
   const { document, uniqueId } = context;
-  const sections = document.blocks.filter((block): block is DashboardDslSection => block.kind === "section").map((section) => compileSection(section, context));
+  const sections = document.blocks
+    .filter((block): block is DashboardDslSection => block.kind === "section")
+    .map((section) => compileSection(section, context));
   const topRows = compileBlocksToRows(document.blocks, document.title, context);
   return {
     version: 1,
@@ -122,7 +129,9 @@ const compileSection = (section: DashboardDslSection, context: DashboardCompiler
   title: section.title,
   description: section.description,
   rows: compileBlocksToRows(section.blocks, section.title, context),
-  sections: section.blocks.filter((block): block is DashboardDslSection => block.kind === "section").map((child) => compileSection(child, context)),
+  sections: section.blocks
+    .filter((block): block is DashboardDslSection => block.kind === "section")
+    .map((child) => compileSection(child, context)),
 });
 
 const compileBlocksToRows = (blocks: DashboardDslBlock[], parentTitle: string, context: DashboardCompilerContext): PulseDashboardRow[] => {
@@ -183,6 +192,11 @@ const compileCardWidget = (block: DashboardDslCard, context: DashboardCompilerCo
 const compileVisualWidget = (block: DashboardDslVisual, context: DashboardCompilerContext): PulseDashboardWidget | null => {
   if (!block.query) return null;
   const resolvedQueryText = queryWithDefaultControls(block.query, context.document.controls);
+  const unresolvedVariable = resolvedQueryText.match(/\$[A-Za-z_][A-Za-z0-9_]*/)?.[0];
+  if (unresolvedVariable) {
+    pushWidgetDiagnostic(context, block, `Unknown dashboard variable "${unresolvedVariable}"`);
+    return null;
+  }
   const query = context.compileQuery(resolvedQueryText);
   if (!query.ok) {
     context.diagnostics.push({
@@ -219,9 +233,21 @@ const compileMetricWidget = (block: DashboardDslVisual, query: MetricQuery, uniq
 });
 
 const normalizeMetricVisual = (visual: DashboardDslVisual["visual"]): PulseDashboardMetricWidget["visual"] =>
-  visual === "table" || visual === "stat" || visual === "gauge" || visual === "barGauge" || visual === "bar" || visual === "histogram" || visual === "heatmap" ? visual : "line";
+  visual === "table" ||
+  visual === "stat" ||
+  visual === "gauge" ||
+  visual === "barGauge" ||
+  visual === "bar" ||
+  visual === "histogram" ||
+  visual === "heatmap"
+    ? visual
+    : "line";
 
-const compileEventsWidget = (block: DashboardDslVisual, query: EventQuery, context: DashboardCompilerContext): PulseDashboardEventsWidget | null => {
+const compileEventsWidget = (
+  block: DashboardDslVisual,
+  query: EventQuery,
+  context: DashboardCompilerContext,
+): PulseDashboardEventsWidget | null => {
   if (block.visual !== "table") {
     pushWidgetDiagnostic(context, block, `Events widget "${block.title}" must use table visual`);
     return null;
@@ -239,7 +265,11 @@ const compileEventsWidget = (block: DashboardDslVisual, query: EventQuery, conte
   };
 };
 
-const compileStatesWidget = (block: DashboardDslVisual, query: StateQuery, context: DashboardCompilerContext): PulseDashboardStatesWidget | null => {
+const compileStatesWidget = (
+  block: DashboardDslVisual,
+  query: StateQuery,
+  context: DashboardCompilerContext,
+): PulseDashboardStatesWidget | null => {
   if (!isStateWidgetVisual(block.visual)) {
     pushWidgetDiagnostic(context, block, `States widget "${block.title}" must use table or stat visual`);
     return null;
@@ -257,11 +287,13 @@ const compileStatesWidget = (block: DashboardDslVisual, query: StateQuery, conte
   };
 };
 
-const isStateWidgetVisual = (visual: DashboardDslVisual["visual"]): visual is PulseDashboardStatesWidget["visual"] => STATE_WIDGET_VISUALS.has(visual);
+const isStateWidgetVisual = (visual: DashboardDslVisual["visual"]): visual is PulseDashboardStatesWidget["visual"] =>
+  STATE_WIDGET_VISUALS.has(visual);
 
 const widgetQueryText = (block: DashboardDslVisual): string | undefined => block.query ?? undefined;
 
-const widgetConditions = (block: DashboardDslVisual): PulseDashboardCondition[] | undefined => (block.conditions.length ? block.conditions : undefined);
+const widgetConditions = (block: DashboardDslVisual): PulseDashboardCondition[] | undefined =>
+  block.conditions.length ? block.conditions : undefined;
 
 const widgetSpan = (block: DashboardDslVisual): number | undefined => block.span ?? undefined;
 

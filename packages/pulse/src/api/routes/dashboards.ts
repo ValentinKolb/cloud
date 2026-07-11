@@ -1,4 +1,4 @@
-import { jsonResponse, respond, respondMessage, v, type AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, jsonResponse, respond, respondMessage, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
@@ -8,6 +8,7 @@ import {
   DashboardDslCompileResultSchema,
   DashboardDslCompileSchema,
   DashboardSchema,
+  DashboardSnapshotSchema,
   UpdateDashboardSchema,
 } from "../schemas";
 import { requireUuidParam } from "../shared";
@@ -57,6 +58,19 @@ const routes = new Hono<AuthContext>()
       const dashboardId = requireUuidParam(c.req.param("dashboardId"), "dashboard ID");
       if (!dashboardId.ok) return respond(c, dashboardId.result);
       return respond(c, pulseService.dashboard.update({ dashboardId: dashboardId.value, user: c.get("user"), ...c.req.valid("json") }));
+    },
+  )
+  .get(
+    "/dashboards/:dashboardId/snapshot",
+    describeRoute({
+      tags: ["Pulse"],
+      summary: "Render an authenticated Pulse dashboard snapshot",
+      responses: { 200: jsonResponse(DashboardSnapshotSchema, "Rendered Pulse dashboard snapshot") },
+    }),
+    async (c) => {
+      const dashboardId = requireUuidParam(c.req.param("dashboardId"), "dashboard ID");
+      if (!dashboardId.ok) return respond(c, dashboardId.result);
+      return respond(c, pulseService.dashboard.snapshot({ dashboardId: dashboardId.value, user: c.get("user") }));
     },
   )
   .delete("/dashboards/:dashboardId", async (c) => {

@@ -251,4 +251,29 @@ describe("Pulse dashboard DSL", () => {
     expect(result.data.layout?.sections[0]?.title).toBe("Today");
     expect(result.data.layout?.sections[0]?.rows[0]?.cells[0]?.kind).toBe("card");
   });
+
+  test("reports invalid row heights and empty layout blocks", () => {
+    for (const [text, message] of [
+      [
+        'dashboard "Test" { row height giant { stat "Value" { query metric test.value latest } } }',
+        'Row height must be "sm", "md", or "lg"',
+      ],
+      ['dashboard "Test" { section "Empty" { } }', 'Section "Empty" must contain at least one section or widget'],
+      ['dashboard "Test" { card "Empty" { description "No widget" } }', 'Card "Empty" must contain at least one widget'],
+      ['dashboard "Test" { row { } }', "Row must contain at least one widget"],
+    ] as const) {
+      const result = parseDashboardDsl(text);
+      expect(result.ok).toBe(false);
+      expect(result.diagnostics.some((diagnostic) => diagnostic.message === message)).toBe(true);
+    }
+  });
+
+  test("rejects unknown dashboard variables before runtime", () => {
+    const result = compileDashboardDsl('dashboard "Test" { stat "Value" { query metric test.value latest since $missing } }', (query) => {
+      const compiled = compilePulseQueryText("base", query);
+      return compiled.ok ? { ok: true, data: compiled.data } : { ok: false, message: compiled.error.message };
+    });
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.some((diagnostic) => diagnostic.message === 'Unknown dashboard variable "$missing"')).toBe(true);
+  });
 });

@@ -245,6 +245,28 @@ export const PulseOperateHelpPage = () => (
       />
     </DocSection>
 
+    <DocSection title="HTTP ingest guarantees">
+      <DocRows
+        items={[
+          {
+            title: "Bounded batches",
+            icon: "ti-box-multiple",
+            text: "One request accepts up to 500 metrics, 500 events, and 500 states, with at most 1,500 signals in total. Split larger payloads into separate requests.",
+          },
+          {
+            title: "Source-bound tokens",
+            icon: "ti-key",
+            text: "Every ingest token belongs to one source. Pulse ignores source identifiers in the payload and records all signals under the authenticated source.",
+          },
+          {
+            title: "Retry-safe requests",
+            icon: "ti-repeat",
+            text: "Send the same Idempotency-Key when retrying one batch. Pulse returns the original result for 24 hours and rejects reuse with different content.",
+          },
+        ]}
+      />
+    </DocSection>
+
     <DocSection title="Common symptoms">
       <DocRows
         items={[

@@ -1,8 +1,9 @@
-import { trace } from "@valentinkolb/cloud/services";
+import { logger, trace } from "@valentinkolb/cloud/services";
 import { job } from "@valentinkolb/sync";
 import { sql } from "bun";
 
 const BASE_DELETE_BATCH_SIZE = 50_000;
+const log = logger("pulse:base-lifecycle");
 
 type BaseDeletionBatch = {
   phase: string;
@@ -169,6 +170,23 @@ const deleteSourceScrapesChunk = async (baseId: string): Promise<number> => {
   return result.count ?? 0;
 };
 
+const deleteIngestIdempotencyChunk = async (baseId: string): Promise<number> => {
+  const result = await sql`
+    WITH victim AS (
+      SELECT item.source_id, item.idempotency_key
+      FROM pulse.ingest_idempotency item
+      JOIN pulse.sources source ON source.id = item.source_id
+      WHERE source.base_id = ${baseId}::uuid
+      LIMIT ${BASE_DELETE_BATCH_SIZE}
+    )
+    DELETE FROM pulse.ingest_idempotency item
+    USING victim
+    WHERE item.source_id = victim.source_id
+      AND item.idempotency_key = victim.idempotency_key
+  `;
+  return result.count ?? 0;
+};
+
 const deleteMetricSeriesChunk = async (baseId: string): Promise<number> => {
   const result = await sql`
     WITH victim AS (
@@ -298,6 +316,7 @@ const BASE_DELETE_STEPS: Array<{ phase: string; run: (baseId: string) => Promise
   { phase: "states_current", run: deleteCurrentStatesChunk },
   { phase: "metric_series_dimensions", run: deleteMetricSeriesDimensionsChunk },
   { phase: "source_scrapes", run: deleteSourceScrapesChunk },
+  { phase: "ingest_idempotency", run: deleteIngestIdempotencyChunk },
   { phase: "metric_series", run: deleteMetricSeriesChunk },
   { phase: "metric_defs", run: deleteMetricDefsChunk },
   { phase: "dimension_metadata", run: deleteDimensionMetadataChunk },
@@ -317,6 +336,7 @@ const BASE_DATA_CLEAR_STEPS: Array<{ phase: string; run: (baseId: string) => Pro
   { phase: "states_current", run: deleteCurrentStatesChunk },
   { phase: "metric_series_dimensions", run: deleteMetricSeriesDimensionsChunk },
   { phase: "source_scrapes", run: deleteSourceScrapesChunk },
+  { phase: "ingest_idempotency", run: deleteIngestIdempotencyChunk },
   { phase: "metric_series", run: deleteMetricSeriesChunk },
   { phase: "metric_defs", run: deleteMetricDefsChunk },
   { phase: "dimension_metadata", run: deleteDimensionMetadataChunk },
@@ -467,6 +487,7 @@ const baseDeletionJob = job<{ baseId: string }, BaseDeletionBatch>({
         WHERE id = ${ctx.input.baseId}::uuid
       `;
       if (!failed) ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 5 * 60_000 }) });
+      else log.error("Pulse base deletion exhausted retries", { baseId: ctx.input.baseId, error: message, failureCount: ctx.failureCount });
       return;
     }
     if (ctx.data && !ctx.data.done) ctx.reschedule({ delayMs: 0 });
@@ -503,6 +524,7 @@ const baseDataClearJob = job<{ baseId: string }, BaseDeletionBatch>({
         WHERE id = ${ctx.input.baseId}::uuid
       `;
       if (!failed) ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 5 * 60_000 }) });
+      else log.error("Pulse data clear exhausted retries", { baseId: ctx.input.baseId, error: message, failureCount: ctx.failureCount });
       return;
     }
     if (ctx.data && !ctx.data.done) ctx.reschedule({ delayMs: 0 });

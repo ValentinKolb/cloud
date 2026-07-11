@@ -10,16 +10,15 @@ import type {
   PulseResourceMetric,
   PulseResourceSummary,
 } from "../contracts";
-import { derivePulseResource } from "../resource-model";
 import { requireBaseAccess, type UserScope } from "./access-control";
 import {
   type CurrentStateRow,
-  type RecordedEventRow,
   isoNullable,
   mapCurrentState,
   mapRecordedEvent,
   normalizeDimensions,
   parseJsonObject,
+  type RecordedEventRow,
 } from "./telemetry-values";
 
 type InventoryMetricRow = {
@@ -68,22 +67,6 @@ const escapeLikePattern = (value: string): string => value.replace(/([\\%_])/g, 
 const searchPattern = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim();
   return trimmed ? `%${escapeLikePattern(trimmed)}%` : null;
-};
-
-const mergeResourceDimensions = (current: Record<string, string>, next: Record<string, string>): Record<string, string> => {
-  const merged = { ...current };
-  for (const [key, value] of Object.entries(next)) {
-    if (key in merged) continue;
-    merged[key] = value;
-    if (Object.keys(merged).length >= 8) break;
-  }
-  return merged;
-};
-
-const maxIsoNullable = (left: string | null, right: string | null): string | null => {
-  if (!left) return right;
-  if (!right) return left;
-  return Date.parse(right) > Date.parse(left) ? right : left;
 };
 
 const parseUuidArray = (value: unknown): string[] => {
@@ -138,7 +121,13 @@ const mapResourceMetric = (row: ResourceMetricRow): PulseResourceMetric => ({
 export const listMetrics = async (
   baseId: string,
   user: UserScope,
-  params: { q?: string | null; sourceId?: string | null; type?: MetricType | null } = {},
+  params: {
+    q?: string | null;
+    sourceId?: string | null;
+    type?: MetricType | null;
+    entityId?: string | null;
+    entityType?: string | null;
+  } = {},
 ): Promise<Result<PulseMetricSummary[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
@@ -157,6 +146,8 @@ export const listMetrics = async (
     LEFT JOIN pulse.metric_series ms
       ON ms.metric_id = md.id
       AND (${sourceId}::uuid IS NULL OR ms.source_id = ${sourceId}::uuid)
+      AND (${params.entityId ?? null}::text IS NULL OR ms.entity_id = ${params.entityId ?? null})
+      AND (${params.entityType ?? null}::text IS NULL OR ms.entity_type = ${params.entityType ?? null})
     WHERE md.base_id = ${baseId}::uuid
       AND (${pattern}::text IS NULL OR md.name ILIKE ${pattern} ESCAPE '\\')
       AND (${params.type ?? null}::pulse.metric_type IS NULL OR md.type = ${params.type ?? null}::pulse.metric_type)
@@ -178,7 +169,15 @@ export const listMetrics = async (
 export const listMetricSeries = async (
   baseId: string,
   user: UserScope,
-  params: { metric: string; sourceId?: string | null; q?: string | null; limit?: number; offset?: number },
+  params: {
+    metric: string;
+    sourceId?: string | null;
+    entityId?: string | null;
+    entityType?: string | null;
+    q?: string | null;
+    limit?: number;
+    offset?: number;
+  },
 ): Promise<Result<PulseMetricSeries[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
@@ -222,11 +221,17 @@ export const listMetricSeries = async (
     WHERE ms.base_id = ${baseId}::uuid
       AND md.name = ${metric}
       AND ms.source_id IS NOT DISTINCT FROM COALESCE(${params.sourceId ?? null}::uuid, ms.source_id)
+      AND (${params.entityId ?? null}::text IS NULL OR ms.entity_id = ${params.entityId ?? null})
+      AND (${params.entityType ?? null}::text IS NULL OR ms.entity_type = ${params.entityType ?? null})
       AND (
         ${pattern}::text IS NULL
         OR ms.entity_id ILIKE ${pattern} ESCAPE '\\'
         OR ms.entity_type ILIKE ${pattern} ESCAPE '\\'
-        OR ms.dimensions::text ILIKE ${pattern} ESCAPE '\\'
+        OR EXISTS (
+          SELECT 1 FROM pulse.metric_series_dimensions dimension
+          WHERE dimension.series_id = ms.id
+            AND (dimension.key ILIKE ${pattern} ESCAPE '\\' OR dimension.value ILIKE ${pattern} ESCAPE '\\')
+        )
       )
     ORDER BY ms.last_seen_at DESC NULLS LAST, ms.entity_id ASC NULLS LAST
     LIMIT ${limit}
@@ -250,7 +255,15 @@ export const listMetricSeries = async (
 export const listRecentEvents = async (
   baseId: string,
   user: UserScope,
-  params: { q?: string | null; kind?: string | null; sourceId?: string | null; limit?: number; offset?: number } = {},
+  params: {
+    q?: string | null;
+    kind?: string | null;
+    sourceId?: string | null;
+    entityId?: string | null;
+    entityType?: string | null;
+    limit?: number;
+    offset?: number;
+  } = {},
 ): Promise<Result<PulseRecordedEvent[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
@@ -263,12 +276,18 @@ export const listRecentEvents = async (
     WHERE base_id = ${baseId}::uuid
       AND (${params.kind ?? null}::text IS NULL OR kind = ${params.kind ?? null})
       AND (${params.sourceId ?? null}::uuid IS NULL OR source_id = ${params.sourceId ?? null}::uuid)
+      AND (${params.entityId ?? null}::text IS NULL OR entity_id = ${params.entityId ?? null})
+      AND (${params.entityType ?? null}::text IS NULL OR entity_type = ${params.entityType ?? null})
       AND (
         ${pattern}::text IS NULL
         OR kind ILIKE ${pattern} ESCAPE '\\'
         OR entity_id ILIKE ${pattern} ESCAPE '\\'
         OR entity_type ILIKE ${pattern} ESCAPE '\\'
-        OR dimensions::text ILIKE ${pattern} ESCAPE '\\'
+        OR EXISTS (
+          SELECT 1 FROM pulse.event_dimensions dimension
+          WHERE dimension.event_id = pulse.events.id
+            AND (dimension.key ILIKE ${pattern} ESCAPE '\\' OR dimension.value ILIKE ${pattern} ESCAPE '\\')
+        )
         OR payload::text ILIKE ${pattern} ESCAPE '\\'
       )
     ORDER BY ts DESC, recorded_at DESC
@@ -281,7 +300,15 @@ export const listRecentEvents = async (
 export const listCurrentStates = async (
   baseId: string,
   user: UserScope,
-  params: { q?: string | null; key?: string | null; sourceId?: string | null; limit?: number; offset?: number } = {},
+  params: {
+    q?: string | null;
+    key?: string | null;
+    sourceId?: string | null;
+    entityId?: string | null;
+    entityType?: string | null;
+    limit?: number;
+    offset?: number;
+  } = {},
 ): Promise<Result<PulseCurrentState[]>> => {
   const access = await requireBaseAccess(baseId, user, "read");
   if (!access.ok) return fail(access.error);
@@ -294,6 +321,8 @@ export const listCurrentStates = async (
     WHERE base_id = ${baseId}::uuid
       AND (${params.key ?? null}::text IS NULL OR state_key = ${params.key ?? null})
       AND (${params.sourceId ?? null}::uuid IS NULL OR source_id = ${params.sourceId ?? null}::uuid)
+      AND (${params.entityId ?? null}::text IS NULL OR entity_id = ${params.entityId ?? null})
+      AND (${params.entityType ?? null}::text IS NULL OR entity_type = ${params.entityType ?? null})
       AND (
         ${pattern}::text IS NULL
         OR state_key ILIKE ${pattern} ESCAPE '\\'
@@ -330,10 +359,7 @@ export const listResources = async (
       AND (${params.sourceId ?? null}::uuid IS NULL OR source_ids @> ARRAY[${params.sourceId ?? null}::uuid])
       AND (
         ${pattern}::text IS NULL
-        OR label ILIKE ${pattern} ESCAPE '\\'
-        OR resource_id ILIKE ${pattern} ESCAPE '\\'
-        OR resource_type ILIKE ${pattern} ESCAPE '\\'
-        OR dimensions::text ILIKE ${pattern} ESCAPE '\\'
+        OR search_text ILIKE ${pattern} ESCAPE '\\'
       )
     ORDER BY last_seen_at DESC NULLS LAST, label ASC
     LIMIT ${limit}
@@ -503,13 +529,19 @@ export const listResourceStates = async (
 };
 
 export const listInventory = async (baseId: string, user: UserScope): Promise<Result<PulseInventory>> => {
-  const access = await requireBaseAccess(baseId, user, "read");
-  if (!access.ok) return fail(access.error);
+  const resourceResult = await listResources(baseId, user, { limit: 500 });
+  if (!resourceResult.ok) return fail(resourceResult.error);
+  const resources = resourceResult.data;
+  const resourceKeys = resources.map((resource) => resource.key);
+  if (resourceKeys.length === 0) return ok({ resources: [], metrics: [], events: [], states: [] });
 
   const [metricRows, eventRows, stateRows] = await Promise.all([
-    sql<InventoryMetricRow[]>`
+    sql<ResourceMetricRow[]>`
       SELECT
         ms.id AS series_id,
+        ms.resource_key,
+        ms.resource_id,
+        ms.resource_type,
         md.name AS metric,
         md.type,
         md.unit,
@@ -530,6 +562,7 @@ export const listInventory = async (baseId: string, user: UserScope): Promise<Re
         LIMIT 1
       ) latest ON TRUE
       WHERE ms.base_id = ${baseId}::uuid
+        AND ms.resource_key = ANY(${sql.array(resourceKeys, "TEXT")})
       ORDER BY ms.last_seen_at DESC NULLS LAST, md.name ASC
       LIMIT 5000
     `,
@@ -537,6 +570,7 @@ export const listInventory = async (baseId: string, user: UserScope): Promise<Re
       SELECT id, kind, ts, value, source_id, entity_id, entity_type, dimensions, payload, recorded_at
       FROM pulse.events
       WHERE base_id = ${baseId}::uuid
+        AND resource_key = ANY(${sql.array(resourceKeys, "TEXT")})
       ORDER BY ts DESC, recorded_at DESC
       LIMIT 1000
     `,
@@ -544,115 +578,16 @@ export const listInventory = async (baseId: string, user: UserScope): Promise<Re
       SELECT state_key, value, source_id, entity_id, entity_type, dimensions, updated_at
       FROM pulse.states_current
       WHERE base_id = ${baseId}::uuid
+        AND resource_key = ANY(${sql.array(resourceKeys, "TEXT")})
       ORDER BY updated_at DESC, state_key ASC
       LIMIT 5000
     `,
   ]);
 
-  const resources = new Map<string, PulseResourceSummary & { metricNames: Set<string> }>();
-  const ensureResource = (params: {
-    signalName: string;
-    entityId?: string | null;
-    entityType?: string | null;
-    sourceId?: string | null;
-    dimensions: Record<string, string>;
-    lastSeenAt: string | null;
-  }) => {
-    const identity = derivePulseResource(params);
-    if (!identity) return null;
-    const current =
-      resources.get(identity.key) ??
-      ({
-        key: identity.key,
-        id: identity.id,
-        label: identity.label,
-        type: identity.type,
-        sourceIds: [],
-        metricSeriesCount: 0,
-        metricCount: 0,
-        eventCount: 0,
-        stateCount: 0,
-        lastSeenAt: null,
-        dimensions: {},
-        metricNames: new Set<string>(),
-      } satisfies PulseResourceSummary & { metricNames: Set<string> });
-    if (!current.type && identity.type) current.type = identity.type;
-    if (!current.label && identity.label) current.label = identity.label;
-    if (params.sourceId && !current.sourceIds.includes(params.sourceId)) current.sourceIds.push(params.sourceId);
-    current.lastSeenAt = maxIsoNullable(current.lastSeenAt, params.lastSeenAt);
-    current.dimensions = mergeResourceDimensions(current.dimensions, params.dimensions);
-    resources.set(identity.key, current);
-    return current;
-  };
-
-  const metrics: PulseResourceMetric[] = [];
-  for (const row of metricRows) {
-    const dimensions = normalizeDimensions(parseJsonObject(row.dimensions));
-    const lastSeenAt = isoNullable(row.last_seen_at);
-    const resource = ensureResource({
-      signalName: row.metric,
-      entityId: row.entity_id,
-      entityType: row.entity_type,
-      sourceId: row.source_id,
-      dimensions,
-      lastSeenAt,
-    });
-    if (!resource) continue;
-    resource.metricSeriesCount += 1;
-    resource.metricNames.add(row.metric);
-    resource.metricCount = resource.metricNames.size;
-    metrics.push({
-      seriesId: row.series_id,
-      resourceKey: resource.key,
-      resourceId: resource.id,
-      resourceType: resource.type,
-      metric: row.metric,
-      type: row.type,
-      unit: row.unit,
-      sourceId: row.source_id,
-      dimensions,
-      lastSeenAt,
-      latestValue: row.latest_value,
-      latestSampleAt: isoNullable(row.latest_sample_at),
-    });
-  }
-
-  const events = eventRows.map(mapRecordedEvent);
-  for (const event of events) {
-    const resource = ensureResource({
-      signalName: event.kind,
-      entityId: event.entityId,
-      entityType: event.entityType,
-      sourceId: event.sourceId,
-      dimensions: event.dimensions,
-      lastSeenAt: event.ts,
-    });
-    if (resource) resource.eventCount += 1;
-  }
-
-  const states = stateRows.map(mapCurrentState);
-  for (const state of states) {
-    const resource = ensureResource({
-      signalName: state.key,
-      entityId: state.entityId,
-      entityType: state.entityType,
-      sourceId: state.sourceId,
-      dimensions: state.dimensions,
-      lastSeenAt: state.updatedAt,
-    });
-    if (resource) resource.stateCount += 1;
-  }
-
   return ok({
-    resources: [...resources.values()]
-      .map(({ metricNames: _metricNames, ...resource }) => resource)
-      .sort((left, right) => {
-        const leftCount = left.metricSeriesCount + left.stateCount + left.eventCount;
-        const rightCount = right.metricSeriesCount + right.stateCount + right.eventCount;
-        return rightCount - leftCount || left.id.localeCompare(right.id);
-      }),
-    metrics,
-    events,
-    states,
+    resources,
+    metrics: metricRows.map(mapResourceMetric),
+    events: eventRows.map(mapRecordedEvent),
+    states: stateRows.map(mapCurrentState),
   });
 };

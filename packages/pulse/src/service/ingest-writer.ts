@@ -1,16 +1,22 @@
 import { createHash } from "node:crypto";
 import type { ServiceAccount } from "@valentinkolb/cloud/contracts";
 import { err, fail, isServiceError, ok, type Result, type ServiceError } from "@valentinkolb/cloud/server";
+import { logger } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { PulseEvent, PulseIngestBatch, PulseMetric, PulseState } from "../contracts";
+import {
+  PULSE_INGEST_IDEMPOTENCY_KEY_MAX_LENGTH,
+  PULSE_INGEST_IDEMPOTENCY_TTL_HOURS,
+  PULSE_INTERNAL_INGEST_BATCH_LIMIT,
+} from "../ingest-limits";
 import { derivePulseResource, type PulseResourceIdentity } from "../resource-model";
 import { requireBaseActive } from "./access-control";
+import { type PulseSqlClient, prepareIngestBatch, writePreparedIngestBatch } from "./ingest-bulk";
 import { PULSE_INGEST_SCOPE, resolveIngestSourceForServiceAccount } from "./source-management";
 import { jsonbObject, normalizeDimensions } from "./telemetry-values";
 
-const MAX_INGEST_BATCH_ITEMS = 50_000;
-
 type SqlClient = typeof sql;
+const log = logger("pulse:ingest");
 
 class IngestTransactionFailure extends Error {
   constructor(readonly serviceError: ServiceError) {
@@ -242,7 +248,12 @@ const validateBatch = (batch: PulseIngestBatch): Result<void> => {
   return ok();
 };
 
-const recordMetricInClient = async (params: { baseId: string; sourceId?: string | null; metric: PulseMetric; db?: SqlClient }): Promise<Result<void>> => {
+const recordMetricInClient = async (params: {
+  baseId: string;
+  sourceId?: string | null;
+  metric: PulseMetric;
+  db?: SqlClient;
+}): Promise<Result<void>> => {
   if (!params.metric.name.trim()) return fail(err.badInput("Metric name is required"));
   if (!Number.isFinite(params.metric.value)) return fail(err.badInput("Metric value must be finite"));
 
@@ -258,7 +269,14 @@ const recordMetricInClient = async (params: { baseId: string; sourceId?: string 
     entityType: params.metric.entityType,
     dimensions,
   });
-  const series = await resolveMetricSeries({ baseId: params.baseId, sourceId: params.sourceId, metric: params.metric, dimensions, resource, db });
+  const series = await resolveMetricSeries({
+    baseId: params.baseId,
+    sourceId: params.sourceId,
+    metric: params.metric,
+    dimensions,
+    resource,
+    db,
+  });
   await db`
     INSERT INTO pulse.metric_samples (base_id, series_id, ts, value)
     VALUES (${params.baseId}::uuid, ${series.seriesId}::uuid, ${ts.data}, ${params.metric.value})
@@ -340,7 +358,12 @@ const insertEventDimensionRows = async (params: {
   }
 };
 
-const recordEventInClient = async (params: { baseId: string; sourceId?: string | null; event: PulseEvent; db?: SqlClient }): Promise<Result<void>> => {
+const recordEventInClient = async (params: {
+  baseId: string;
+  sourceId?: string | null;
+  event: PulseEvent;
+  db?: SqlClient;
+}): Promise<Result<void>> => {
   if (!params.event.kind.trim()) return fail(err.badInput("Event kind is required"));
   const ts = parseTime(params.event.ts);
   if (!ts.ok) return fail(ts.error);
@@ -375,7 +398,12 @@ const recordEventInClient = async (params: { baseId: string; sourceId?: string |
 export const recordEvent = async (params: { baseId: string; sourceId?: string | null; event: PulseEvent }): Promise<Result<void>> =>
   recordEventInClient(params);
 
-const setStateInClient = async (params: { baseId: string; sourceId?: string | null; state: PulseState; db?: SqlClient }): Promise<Result<void>> => {
+const setStateInClient = async (params: {
+  baseId: string;
+  sourceId?: string | null;
+  state: PulseState;
+  db?: SqlClient;
+}): Promise<Result<void>> => {
   if (!params.state.key.trim()) return fail(err.badInput("State key is required"));
   const changedAt = parseTime(params.state.ts);
   if (!changedAt.ok) return fail(changedAt.error);
@@ -475,54 +503,22 @@ const setStateInClient = async (params: { baseId: string; sourceId?: string | nu
 export const setState = async (params: { baseId: string; sourceId?: string | null; state: PulseState }): Promise<Result<void>> =>
   setStateInClient(params);
 
-const ingestMetricBatch = async (params: {
+type IngestCounts = { metrics: number; events: number; states: number };
+
+const ingestBatchInClient = async (params: {
   baseId: string;
   sourceId?: string | null;
-  metrics: PulseMetric[];
-  db?: SqlClient;
-}): Promise<Result<number>> => {
-  let count = 0;
-  for (const metric of params.metrics) {
-    const result = await recordMetricInClient({ baseId: params.baseId, sourceId: params.sourceId, metric, db: params.db });
-    if (!result.ok) return fail(result.error);
-    count += 1;
-  }
-  return ok(count);
-};
-
-const ingestEventBatch = async (params: {
-  baseId: string;
-  sourceId?: string | null;
-  events: PulseEvent[];
-  db?: SqlClient;
-}): Promise<Result<number>> => {
-  let count = 0;
-  for (const event of params.events) {
-    const result = await recordEventInClient({ baseId: params.baseId, sourceId: params.sourceId, event, db: params.db });
-    if (!result.ok) return fail(result.error);
-    count += 1;
-  }
-  return ok(count);
-};
-
-const ingestStateBatch = async (params: {
-  baseId: string;
-  sourceId?: string | null;
-  states: PulseState[];
-  db?: SqlClient;
-}): Promise<Result<number>> => {
-  let count = 0;
-  for (const state of params.states) {
-    const result = await setStateInClient({ baseId: params.baseId, sourceId: params.sourceId, state, db: params.db });
-    if (!result.ok) return fail(result.error);
-    count += 1;
-  }
-  return ok(count);
-};
-
-const unwrapIngestResult = <T>(result: Result<T>): T => {
-  if (result.ok) return result.data;
-  throw new IngestTransactionFailure(result.error);
+  batch: PulseIngestBatch;
+  db: PulseSqlClient;
+}): Promise<IngestCounts> => {
+  const prepared = prepareIngestBatch(params.batch, params.sourceId);
+  await writePreparedIngestBatch({ baseId: params.baseId, sourceId: params.sourceId, batch: prepared, db: params.db });
+  await touchSourceLastSeen(params.sourceId, params.db);
+  return {
+    metrics: prepared.metrics.length,
+    events: prepared.events.length,
+    states: prepared.states.length,
+  };
 };
 
 export const ingestBatch = async (params: {
@@ -532,7 +528,9 @@ export const ingestBatch = async (params: {
 }): Promise<Result<{ metrics: number; events: number; states: number }>> => {
   const requestedCount = countBatchItems(params.batch);
   if (requestedCount === 0) return fail(err.badInput("Ingest batch is empty"));
-  if (requestedCount > MAX_INGEST_BATCH_ITEMS) return fail(err.badInput(`Ingest batch exceeds ${MAX_INGEST_BATCH_ITEMS} items`));
+  if (requestedCount > PULSE_INTERNAL_INGEST_BATCH_LIMIT) {
+    return fail(err.badInput(`Ingest batch exceeds the internal limit of ${PULSE_INTERNAL_INGEST_BATCH_LIMIT} items`));
+  }
   const valid = validateBatch(params.batch);
   if (!valid.ok) return fail(valid.error);
   const active = await requireBaseActive(params.baseId);
@@ -540,16 +538,19 @@ export const ingestBatch = async (params: {
 
   // Ingest batches are all-or-nothing: once preflight passes, every write participates in this transaction.
   try {
-    return await sql.begin(async (tx): Promise<Result<{ metrics: number; events: number; states: number }>> => {
-      const metrics = unwrapIngestResult(await ingestMetricBatch({ baseId: params.baseId, sourceId: params.sourceId, metrics: params.batch.metrics ?? [], db: tx }));
-      const events = unwrapIngestResult(await ingestEventBatch({ baseId: params.baseId, sourceId: params.sourceId, events: params.batch.events ?? [], db: tx }));
-      const states = unwrapIngestResult(await ingestStateBatch({ baseId: params.baseId, sourceId: params.sourceId, states: params.batch.states ?? [], db: tx }));
-      await touchSourceLastSeen(params.sourceId, tx);
-      return ok({ metrics, events, states });
-    });
+    return await sql.begin(
+      async (tx): Promise<Result<IngestCounts>> =>
+        ok(await ingestBatchInClient({ baseId: params.baseId, sourceId: params.sourceId, batch: params.batch, db: tx })),
+    );
   } catch (error) {
     if (error instanceof IngestTransactionFailure) return fail(error.serviceError);
     if (isServiceError(error)) return fail(error);
+    log.error("Pulse batch ingest failed", {
+      baseId: params.baseId,
+      sourceId: params.sourceId ?? null,
+      items: requestedCount,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return fail(err.internal("Failed to ingest Pulse batch"));
   }
 };
@@ -558,11 +559,85 @@ export const ingestByApiKey = async (params: {
   serviceAccount: ServiceAccount;
   scopes: string[];
   batch: PulseIngestBatch;
-}): Promise<Result<{ metrics: number; events: number; states: number }>> => {
+  idempotencyKey?: string | null;
+}): Promise<Result<IngestCounts>> => {
   if (!params.scopes.includes(PULSE_INGEST_SCOPE) && !params.scopes.includes("write") && !params.scopes.includes("admin")) {
     return fail(err.forbidden("API key cannot ingest Pulse data"));
   }
   const source = await resolveIngestSourceForServiceAccount(params.serviceAccount);
   if (!source.ok) return fail(source.error);
-  return ingestBatch({ baseId: source.data.baseId, sourceId: source.data.id, batch: params.batch });
+  const idempotencyKey = params.idempotencyKey?.trim() || null;
+  if (!idempotencyKey) return ingestBatch({ baseId: source.data.baseId, sourceId: source.data.id, batch: params.batch });
+  if (idempotencyKey.length > PULSE_INGEST_IDEMPOTENCY_KEY_MAX_LENGTH) {
+    return fail(err.badInput(`Idempotency key exceeds ${PULSE_INGEST_IDEMPOTENCY_KEY_MAX_LENGTH} characters`));
+  }
+
+  const requestedCount = countBatchItems(params.batch);
+  if (requestedCount === 0) return fail(err.badInput("Ingest batch is empty"));
+  if (requestedCount > PULSE_INTERNAL_INGEST_BATCH_LIMIT) {
+    return fail(err.badInput(`Ingest batch exceeds the internal limit of ${PULSE_INTERNAL_INGEST_BATCH_LIMIT} items`));
+  }
+  const valid = validateBatch(params.batch);
+  if (!valid.ok) return fail(valid.error);
+  const active = await requireBaseActive(source.data.baseId);
+  if (!active.ok) return fail(active.error);
+
+  const requestHash = createHash("sha256").update(JSON.stringify(params.batch)).digest("hex");
+  try {
+    return await sql.begin(async (tx): Promise<Result<IngestCounts>> => {
+      const inserted = await tx<{ request_hash: string }[]>`
+        INSERT INTO pulse.ingest_idempotency (source_id, idempotency_key, request_hash, expires_at)
+        VALUES (
+          ${source.data.id}::uuid,
+          ${idempotencyKey},
+          ${requestHash},
+          now() + (${PULSE_INGEST_IDEMPOTENCY_TTL_HOURS}::text || ' hours')::interval
+        )
+        ON CONFLICT (source_id, idempotency_key) DO NOTHING
+        RETURNING request_hash
+      `;
+      if (inserted.length === 0) {
+        const [existing] = await tx<{ request_hash: string; response: IngestCounts | string | null }[]>`
+          SELECT request_hash, response
+          FROM pulse.ingest_idempotency
+          WHERE source_id = ${source.data.id}::uuid AND idempotency_key = ${idempotencyKey}
+        `;
+        if (!existing) throw new Error("Failed to resolve ingest idempotency record");
+        if (existing.request_hash !== requestHash) {
+          throw new IngestTransactionFailure({
+            code: "CONFLICT",
+            message: "Idempotency key was already used for a different ingest batch",
+            status: 409,
+          });
+        }
+        const response = typeof existing.response === "string" ? JSON.parse(existing.response) : existing.response;
+        if (!response) throw new Error("Idempotent ingest response is unavailable");
+        return ok(response);
+      }
+
+      const counts = await ingestBatchInClient({
+        baseId: source.data.baseId,
+        sourceId: source.data.id,
+        batch: params.batch,
+        db: tx,
+      });
+      await tx`
+        UPDATE pulse.ingest_idempotency
+        SET response = (${JSON.stringify(counts)}::jsonb #>> '{}')::jsonb
+        WHERE source_id = ${source.data.id}::uuid AND idempotency_key = ${idempotencyKey}
+      `;
+      return ok(counts);
+    });
+  } catch (error) {
+    if (error instanceof IngestTransactionFailure) return fail(error.serviceError);
+    if (isServiceError(error)) return fail(error);
+    log.error("Pulse API-key ingest failed", {
+      baseId: source.data.baseId,
+      sourceId: source.data.id,
+      items: requestedCount,
+      idempotent: true,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return fail(err.internal("Failed to ingest Pulse batch"));
+  }
 };

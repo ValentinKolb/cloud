@@ -2,7 +2,6 @@ import { arg, command, flag } from "@valentinkolb/cloud/cli";
 import type {
   MetricType,
   PulseCurrentState,
-  PulseInventory,
   PulseMetricSeries,
   PulseMetricSummary,
   PulseRecordedEvent,
@@ -11,18 +10,7 @@ import type {
 } from "../contracts";
 import { requireRestArg, resolveBaseFromCommand, resolveSourceFilter } from "./context";
 import { baseFlag, metricTypeFlag, resourceFilterFlags } from "./flags";
-import {
-  eventRows,
-  filterInventoryEvents,
-  filterInventoryMetrics,
-  filterInventoryStates,
-  inventoryMetricRows,
-  metricRows,
-  metricSummariesFromInventory,
-  seriesRows,
-  sliceRows,
-  stateRows,
-} from "./inventory";
+import { eventRows, inventoryMetricRows, metricRows, metricSummariesFromInventory, seriesRows, sliceRows, stateRows } from "./inventory";
 import { exactMatch, printJsonOrTable, queryString, readApi } from "./shared";
 
 const readResource = async (ctx: Parameters<typeof readApi>[0], baseId: string, ref: string): Promise<PulseResourceSummary> => {
@@ -93,35 +81,13 @@ export const signalCommands = [
         ]);
         return;
       }
-      if (flags.entity || flags.entityType) {
-        const inventory = await readApi<PulseInventory>(ctx, `/bases/${encodeURIComponent(base.id)}/inventory`);
-        const metrics = sliceRows(
-          metricSummariesFromInventory(
-            filterInventoryMetrics(inventory, {
-              q: flags.q,
-              type: flags.type as MetricType | undefined,
-              sourceId,
-              entity: flags.entity,
-              entityType: flags.entityType,
-            }),
-          ),
-          flags.limit,
-          flags.offset,
-        );
-        printJsonOrTable(ctx, metrics, metricRows(metrics), [
-          { key: "metric" },
-          { key: "type" },
-          { key: "unit" },
-          { key: "series" },
-          { key: "lastSeenAt" },
-        ]);
-        return;
-      }
       const metrics = await readApi<PulseMetricSummary[]>(
         ctx,
         `/bases/${encodeURIComponent(base.id)}/metrics${queryString({
           q: flags.q,
           sourceId,
+          entityId: flags.entity,
+          entityType: flags.entityType,
           type: flags.type as MetricType | undefined,
           limit: flags.limit,
           offset: flags.offset,
@@ -169,34 +135,14 @@ export const signalCommands = [
         ]);
         return;
       }
-      if (flags.entity || flags.entityType) {
-        const inventory = await readApi<PulseInventory>(ctx, `/bases/${encodeURIComponent(base.id)}/inventory`);
-        const states = sliceRows(
-          filterInventoryStates(inventory, {
-            q: flags.q,
-            key: flags.key,
-            sourceId,
-            entity: flags.entity,
-            entityType: flags.entityType,
-          }),
-          flags.limit,
-          flags.offset,
-        );
-        printJsonOrTable(ctx, states, stateRows(states), [
-          { key: "key" },
-          { key: "value" },
-          { key: "source" },
-          { key: "entity" },
-          { key: "updatedAt" },
-        ]);
-        return;
-      }
       const states = await readApi<PulseCurrentState[]>(
         ctx,
         `/bases/${encodeURIComponent(base.id)}/states${queryString({
           q: flags.q,
           key: flags.key,
           sourceId,
+          entityId: flags.entity,
+          entityType: flags.entityType,
           limit: flags.limit,
           offset: flags.offset,
         })}`,
@@ -243,34 +189,14 @@ export const signalCommands = [
         ]);
         return;
       }
-      if (flags.entity || flags.entityType) {
-        const inventory = await readApi<PulseInventory>(ctx, `/bases/${encodeURIComponent(base.id)}/inventory`);
-        const events = sliceRows(
-          filterInventoryEvents(inventory, {
-            q: flags.q,
-            kind: flags.kind,
-            sourceId,
-            entity: flags.entity,
-            entityType: flags.entityType,
-          }),
-          flags.limit,
-          flags.offset,
-        );
-        printJsonOrTable(ctx, events, eventRows(events), [
-          { key: "kind" },
-          { key: "value" },
-          { key: "source" },
-          { key: "entity" },
-          { key: "ts" },
-        ]);
-        return;
-      }
       const events = await readApi<PulseRecordedEvent[]>(
         ctx,
         `/bases/${encodeURIComponent(base.id)}/recent-events${queryString({
           q: flags.q,
           kind: flags.kind,
           sourceId,
+          entityId: flags.entity,
+          entityType: flags.entityType,
           limit: flags.limit,
           offset: flags.offset,
         })}`,
@@ -324,34 +250,14 @@ export const signalCommands = [
         ]);
         return;
       }
-      if (flags.entity || flags.entityType) {
-        const inventory = await readApi<PulseInventory>(ctx, `/bases/${encodeURIComponent(base.id)}/inventory`);
-        const series = sliceRows(
-          filterInventoryMetrics(inventory, {
-            q: flags.q,
-            sourceId,
-            entity: flags.entity,
-            entityType: flags.entityType,
-          }).filter((item) => item.metric === metric),
-          flags.limit,
-          flags.offset,
-        );
-        printJsonOrTable(ctx, series, inventoryMetricRows(series), [
-          { key: "metric" },
-          { key: "value" },
-          { key: "type" },
-          { key: "unit" },
-          { key: "source" },
-          { key: "lastSeenAt" },
-        ]);
-        return;
-      }
       const series = await readApi<PulseMetricSeries[]>(
         ctx,
         `/bases/${encodeURIComponent(base.id)}/series${queryString({
           metric,
           q: flags.q,
           sourceId,
+          entityId: flags.entity,
+          entityType: flags.entityType,
           limit: flags.limit,
           offset: flags.offset,
         })}`,

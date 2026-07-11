@@ -1,5 +1,5 @@
 import { arg, type CloudCliContext, command, confirmFlag, flag, readCliInput } from "@valentinkolb/cloud/cli";
-import type { PulseDashboard, PulseDashboardConfig, PulseDashboardDslCompileResult } from "../contracts";
+import type { PulseDashboard, PulseDashboardConfig, PulseDashboardDslCompileResult, PulseDashboardSnapshot } from "../contracts";
 import { listDashboards, requireRestArg, resolveBaseFromCommand, resolveDashboard } from "./context";
 import { baseFlag, DASHBOARD_DSL_INPUT, publicDisplayFlags } from "./flags";
 import { dashboardRows } from "./rows";
@@ -55,6 +55,23 @@ export const dashboardCommands = [
         ctx.print(`Public: ${yesNo(dashboard.publicEnabled)}`);
         ctx.print(`Refresh: ${dashboard.config.refreshIntervalSeconds ?? "manual"}`);
         if (dashboard.config.dsl) ctx.print(dashboard.config.dsl);
+      }
+    },
+  }),
+  command("dashboards snapshot", {
+    summary: "Render dashboard data without publishing it",
+    flags: baseFlag,
+    args: { args: arg.rest({ valueLabel: "base dashboard", required: true }) },
+    async run({ ctx, args }) {
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, 1);
+      const dashboard = await resolveDashboard(ctx, base.id, requireRestArg(rest, 0, "dashboard"));
+      const snapshot = await readApi<PulseDashboardSnapshot>(ctx, `/dashboards/${encodeURIComponent(dashboard.id)}/snapshot`);
+      if (ctx.options.output === "json") ctx.json(snapshot);
+      else {
+        const pointCount = Object.values(snapshot.points).reduce((sum, points) => sum + points.length, 0);
+        const eventCount = Object.values(snapshot.events).reduce((sum, events) => sum + events.length, 0);
+        const stateCount = Object.values(snapshot.states).reduce((sum, states) => sum + states.length, 0);
+        ctx.print(`${snapshot.dashboard.name}: ${pointCount} points, ${eventCount} events, ${stateCount} states`);
       }
     },
   }),

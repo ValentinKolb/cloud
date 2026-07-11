@@ -1,7 +1,5 @@
 import { fail, ok, type Result } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
-import { compileDashboardDsl } from "../dashboard-dsl";
-import { compilePulseQueryText } from "../query-dsl";
 import type {
   PulseCapabilitySnapshot,
   PulseDashboardDslCompileResult,
@@ -11,6 +9,8 @@ import type {
   PulseMetric,
   PulseState,
 } from "../contracts";
+import { compileDashboardDsl } from "../dashboard-dsl";
+import { compilePulseQueryText } from "../query-dsl";
 import { requireBaseAccess, type UserScope } from "./access-control";
 import {
   clearBaseData,
@@ -24,6 +24,7 @@ import {
   updateBase,
   updateBaseAccess,
 } from "./base-management";
+import { normalizeDashboardConfig } from "./dashboard-config";
 import {
   createDashboard,
   deleteDashboard,
@@ -32,12 +33,15 @@ import {
   listDashboards,
   updateDashboard,
 } from "./dashboard-management";
-import { normalizeDashboardConfig } from "./dashboard-config";
 import { ingestBatch, ingestByApiKey, recordEvent, recordMetric, setState } from "./ingest-writer";
 import { runMetricsSourceScrape } from "./metrics-scraper";
-import { getPublicDashboardSnapshot as getPublicDashboardSnapshotWithDeps } from "./public-dashboard-snapshot";
-import { compileQueryText, queryMetric, queryMetricText } from "./query-management";
+import {
+  getDashboardSnapshot as getDashboardSnapshotWithDeps,
+  getPublicDashboardSnapshot as getPublicDashboardSnapshotWithDeps,
+} from "./public-dashboard-snapshot";
 import { queryEventsData, queryMetricData, queryStatesData } from "./query-execution";
+import { compileQueryText, queryMetric, queryMetricText } from "./query-management";
+import { createSavedQuery, deleteSavedQuery, listSavedQueries } from "./saved-query-management";
 import {
   listCurrentStates,
   listInventory,
@@ -46,10 +50,9 @@ import {
   listRecentEvents,
   listResourceEvents,
   listResourceMetrics,
-  listResources,
   listResourceStates,
+  listResources,
 } from "./signal-catalog";
-import { createSavedQuery, deleteSavedQuery, listSavedQueries } from "./saved-query-management";
 import {
   createSource,
   createSourceApiKey,
@@ -104,6 +107,9 @@ const getPublicDashboardSnapshot = async (token: string): Promise<Result<PulseDa
   return getPublicDashboardSnapshotWithDeps(token, { queryMetricData, queryEventsData, queryStatesData });
 };
 
+const getDashboardSnapshot = async (params: { dashboardId: string; user: UserScope }): Promise<Result<PulseDashboardSnapshot>> =>
+  getDashboardSnapshotWithDeps(params.dashboardId, params.user, { queryMetricData, queryEventsData, queryStatesData });
+
 const capabilities = async (): Promise<Result<PulseCapabilitySnapshot>> => {
   const [extension] = await sql<{ installed: boolean }[]>`
     SELECT EXISTS (
@@ -153,6 +159,7 @@ export const pulseService = {
     update: updateDashboard,
     remove: deleteDashboard,
     compileDsl: compileDashboardDslText,
+    snapshot: getDashboardSnapshot,
     enablePublic: enablePublicDashboard,
     disablePublic: disablePublicDashboard,
     publicSnapshot: getPublicDashboardSnapshot,
@@ -186,5 +193,3 @@ export const pulseService = {
   },
   capabilities,
 };
-
-type PulseService = typeof pulseService;

@@ -1,6 +1,6 @@
 import { err, fail, ok, type Result } from "@valentinkolb/cloud/server";
-import { AGGREGATIONS } from "../contracts";
 import type { Aggregation, EventQuery, MetricQuery, PulseExplorerQuery, StateQuery } from "../contracts";
+import { AGGREGATIONS } from "../contracts";
 
 const MAX_DURATION_MS = 90 * 24 * 60 * 60_000;
 
@@ -95,7 +95,8 @@ const readQueryLimit = (value: string | undefined, fallback: number): Result<num
   if (!value) return ok(fallback);
   const limit = Number(value);
   if (!Number.isInteger(limit) || limit <= 0) return fail(err.badInput("Limit must be a positive integer"));
-  return ok(Math.min(limit, 1_000));
+  if (limit > 1_000) return fail(err.badInput("Limit cannot exceed 1000 rows"));
+  return ok(limit);
 };
 
 const validateUuid = (value: string | null): boolean =>
@@ -112,6 +113,7 @@ type SharedClauses = {
 
 type SharedClauseState = SharedClauses & {
   index: number;
+  seen: Set<string>;
 };
 
 type SharedClauseReader = (tokens: string[], state: SharedClauseState) => Result<void>;
@@ -136,25 +138,30 @@ const parseSharedQueryClauses = (
     dimensions: {},
     limit: defaults.limit ?? 500,
     index: startIndex,
+    seen: new Set(),
   };
   while (state.index < tokens.length) {
     const clause = readSharedQueryClause(tokens, state);
     if (!clause.ok) return fail(clause.error);
   }
-  const { index: _index, ...clauses } = state;
+  const { index: _index, seen: _seen, ...clauses } = state;
   return ok(clauses);
 };
 
 const readSharedQueryClause = (tokens: string[], state: SharedClauseState): Result<void> => {
   const token = tokens[state.index]?.toLowerCase();
   const reader = token ? SHARED_CLAUSE_READERS[token] : undefined;
-  if (reader) return reader(tokens, state);
-  return fail(err.badInput(`Unexpected token "${tokens[state.index]}"`));
+  if (!token || !reader) return fail(err.badInput(`Unexpected token "${tokens[state.index]}"`));
+  if (state.seen.has(token)) return fail(err.badInput(`Clause "${token}" may only be used once`));
+  state.seen.add(token);
+  return reader(tokens, state);
 };
 
 const SHARED_CLAUSE_READERS: Record<string, SharedClauseReader> = {
   since: (tokens, state) => {
-    state.since = tokens[state.index + 1] ?? "";
+    const value = tokens[state.index + 1];
+    if (!value) return fail(err.badInput("Since duration is missing"));
+    state.since = value;
     state.index += 2;
     return ok(undefined);
   },
@@ -190,26 +197,31 @@ const readLimitClause = (tokens: string[], state: SharedClauseState): Result<voi
 
 const readWhereClause = (tokens: string[], state: SharedClauseState): Result<void> => {
   state.index += 1;
+  let filters = 0;
   while (state.index < tokens.length) {
     const filter = tokens[state.index];
     if (!filter || filter === ",") {
       state.index += 1;
       continue;
     }
+    if (SHARED_CLAUSE_READERS[filter.toLowerCase()]) break;
     const parsed = parseDimensionFilter(filter);
     if (!parsed) return fail(err.badInput(`Invalid dimension filter "${filter}"`));
     state.dimensions[parsed[0]] = parsed[1];
+    filters += 1;
     state.index += 1;
   }
+  if (filters === 0) return fail(err.badInput("Where requires at least one key=value filter"));
   return ok(undefined);
 };
 
 const compileMetricQueryTokens = (baseId: string, tokens: string[]): Result<MetricQuery> => {
   const parts = readMetricTokenParts(tokens);
   if (!parts.ok) return fail(parts.error);
-  const shared = parseSharedQueryClauses(parts.data.sharedTokens, 2, { since: "24h", limit: 1_000 });
+  const shared = parseSharedQueryClauses(parts.data.sharedTokens, 0, { since: "24h", limit: 1_000 });
   if (!shared.ok) return fail(shared.error);
-  if (!intervalToMs(parts.data.bucket) || !intervalToMs(shared.data.since)) return fail(err.badInput("Use compact durations like 5m, 1h, or 7d"));
+  if (!intervalToMs(parts.data.bucket) || !intervalToMs(shared.data.since))
+    return fail(err.badInput("Use compact durations like 5m, 1h, or 7d"));
   return ok(metricQueryFromParts(baseId, parts.data, shared.data));
 };
 
@@ -219,7 +231,8 @@ const readMetricTokenParts = (tokens: string[]): Result<MetricTokenParts> => {
   const aggregation = readMetricAggregation(tokens[2]);
   if (!aggregation.ok) return fail(aggregation.error);
   const metricOptions = readMetricOptions(tokens, metric);
-  return ok({ metric, aggregation: aggregation.data, bucket: metricOptions.bucket, sharedTokens: metricOptions.sharedTokens });
+  if (!metricOptions.ok) return fail(metricOptions.error);
+  return ok({ metric, aggregation: aggregation.data, bucket: metricOptions.data.bucket, sharedTokens: metricOptions.data.sharedTokens });
 };
 
 const readMetricAggregation = (value: string | undefined): Result<Aggregation> => {
@@ -227,21 +240,26 @@ const readMetricAggregation = (value: string | undefined): Result<Aggregation> =
   return ok(value as Aggregation);
 };
 
-const readMetricOptions = (tokens: string[], metric: string): Pick<MetricTokenParts, "bucket" | "sharedTokens"> => {
+const readMetricOptions = (tokens: string[], _metric: string): Result<Pick<MetricTokenParts, "bucket" | "sharedTokens">> => {
   let bucket = "5m";
+  let everySeen = false;
   let index = 3;
-  const sharedTokens = ["metric", metric, "since", "24h"];
+  const sharedTokens: string[] = [];
   while (index < tokens.length) {
     const token = tokens[index]?.toLowerCase();
     if (token === "every") {
-      bucket = tokens[index + 1] ?? "";
+      if (everySeen) return fail(err.badInput('Clause "every" may only be used once'));
+      const value = tokens[index + 1];
+      if (!value) return fail(err.badInput("Every duration is missing"));
+      everySeen = true;
+      bucket = value;
       index += 2;
       continue;
     }
     sharedTokens.push(tokens[index]!);
     index += 1;
   }
-  return { bucket, sharedTokens };
+  return ok({ bucket, sharedTokens });
 };
 
 const metricQueryFromParts = (baseId: string, parts: MetricTokenParts, shared: SharedClauses): MetricQuery => ({

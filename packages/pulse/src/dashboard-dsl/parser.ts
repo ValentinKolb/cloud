@@ -213,6 +213,7 @@ class Parser {
       return null;
     }
     const body = this.readContainerBody(["description", "section", "card", "markdown", "row", ...VISUALS]);
+    if (body.blocks.length === 0) this.error(start, `Section "${title}" must contain at least one section or widget`);
     return { kind: "section", title, description: body.description, blocks: body.blocks };
   }
 
@@ -228,6 +229,7 @@ class Parser {
       return null;
     }
     const body = this.readContainerBody(["description", "markdown", "row", ...VISUALS]);
+    if (body.blocks.length === 0) this.error(start, `Card "${title}" must contain at least one widget`);
     return { kind: "card", title, description: body.description, span, blocks: body.blocks };
   }
 
@@ -238,6 +240,7 @@ class Parser {
       return null;
     }
     const body = this.readContainerBody(["card", "markdown", ...VISUALS]);
+    if (body.blocks.length === 0) this.error(start, "Row must contain at least one widget");
     return { kind: "row", height, blocks: body.blocks };
   }
 
@@ -250,7 +253,9 @@ class Parser {
     }
     const state = this.readMarkdownBody();
     if (state.content === null) this.error(start, "Markdown block must contain a triple-quoted string");
-    return state.content === null ? null : { kind: "markdown", title, description: state.description, markdown: state.content.trim(), span };
+    return state.content === null
+      ? null
+      : { kind: "markdown", title, description: state.description, markdown: state.content.trim(), span };
   }
 
   private readVisual(keyword: string, start: Position): DashboardDslVisual | null {
@@ -264,10 +269,25 @@ class Parser {
       this.error(this.position, 'Expected "{" after widget title');
       return null;
     }
-    const state: VisualBlockState = { description: null, query: null, queryPosition: null, visual: visualFromKeyword(keyword), conditions: [] };
+    const state: VisualBlockState = {
+      description: null,
+      query: null,
+      queryPosition: null,
+      visual: visualFromKeyword(keyword),
+      conditions: [],
+    };
     this.readVisualBody(state);
     if (!state.query) this.error(start, `Widget "${title}" must contain a query statement`);
-    return { kind: "visual", title, visual: state.visual, description: state.description, query: state.query, queryPosition: state.queryPosition, span, conditions: state.conditions };
+    return {
+      kind: "visual",
+      title,
+      visual: state.visual,
+      description: state.description,
+      query: state.query,
+      queryPosition: state.queryPosition,
+      span,
+      conditions: state.conditions,
+    };
   }
 
   private readMarkdownBody(): MarkdownBlockState {
@@ -318,7 +338,8 @@ class Parser {
     if (statement === "description") this.readVisualDescription(state);
     else if (statement === "visual") this.readVisualOverride(statementStart, state);
     else if (statement === "query") this.readVisualQuery(statementStart, state);
-    else if (CONDITION_LEVELS.has(statement)) this.readVisualCondition(statement as PulseDashboardCondition["level"], statementStart, state);
+    else if (CONDITION_LEVELS.has(statement))
+      this.readVisualCondition(statement as PulseDashboardCondition["level"], statementStart, state);
     else {
       this.error(statementStart, `Unsupported widget statement "${statement || this.peek()}"`);
       this.recoverToNextStatement();
@@ -334,7 +355,8 @@ class Parser {
 
   private readVisualOverride(statementStart: Position, state: VisualBlockState) {
     const value = this.readIdentifier();
-    if (!value || !VISUALS.has(value)) this.error(statementStart, "Visual must be one of line, bar, stat, gauge, barGauge, histogram, heatmap, or table");
+    if (!value || !VISUALS.has(value))
+      this.error(statementStart, "Visual must be one of line, bar, stat, gauge, barGauge, histogram, heatmap, or table");
     else state.visual = visualFromKeyword(value);
   }
 
@@ -391,7 +413,9 @@ class Parser {
       return "md";
     }
     const value = this.readIdentifier();
-    return value === "sm" || value === "lg" ? value : "md";
+    if (value === "sm" || value === "md" || value === "lg") return value;
+    this.error(checkpoint, 'Row height must be "sm", "md", or "lg"');
+    return "md";
   }
 
   private readOptionalSpan(): number | null {

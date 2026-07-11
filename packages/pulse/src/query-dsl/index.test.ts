@@ -43,7 +43,14 @@ describe("Pulse query DSL", () => {
     expect(events.ok).toBe(true);
     expect(states.ok).toBe(true);
     if (events.ok) expect(events.data).toMatchObject({ kind: "events", event: "deploy.finished", entityId: "app-core", limit: 50 });
-    if (states.ok) expect(states.data).toMatchObject({ kind: "states", state: "service.online", entityId: "app-core", entityType: "service", limit: 10 });
+    if (states.ok)
+      expect(states.data).toMatchObject({
+        kind: "states",
+        state: "service.online",
+        entityId: "app-core",
+        entityType: "service",
+        limit: 10,
+      });
   });
 
   test("rejects excessive lookback windows", () => {
@@ -76,6 +83,26 @@ describe("Pulse query DSL", () => {
       const result = compilePulseQueryText(baseId, query);
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.message).toContain("Unexpected token");
+    }
+  });
+
+  test("allows filters before later clauses", () => {
+    const result = compilePulseQueryText(baseId, "events deploy.finished where env=prod, region=eu since 6h limit 25");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toMatchObject({ kind: "events", since: "6h", limit: 25, dimensions: { env: "prod", region: "eu" } });
+  });
+
+  test("rejects duplicate clauses and excessive row limits", () => {
+    for (const [query, message] of [
+      ["metric system.cpu.usage avg every 1m every 5m", 'Clause "every" may only be used once'],
+      ["events deploy.finished since 1h since 2h", 'Clause "since" may only be used once'],
+      ["states service.online limit 1001", "Limit cannot exceed 1000 rows"],
+      ["events deploy.finished where limit 10", "Where requires at least one key=value filter"],
+    ] as const) {
+      const result = compilePulseQueryText(baseId, query);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.message).toBe(message);
     }
   });
 });

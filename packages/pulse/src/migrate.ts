@@ -2,6 +2,7 @@ import { sql } from "bun";
 
 export const migrate = async (): Promise<void> => {
   await sql`CREATE EXTENSION IF NOT EXISTS pgcrypto`.simple();
+  await sql`CREATE EXTENSION IF NOT EXISTS pg_trgm`.simple();
   await sql`CREATE SCHEMA IF NOT EXISTS pulse`.simple();
   console.log("  ✓ pulse schema");
 
@@ -131,6 +132,20 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_source_scrapes_source_started ON pulse.source_scrapes(source_id, started_at DESC)`.simple();
 
   await sql`
+    CREATE TABLE IF NOT EXISTS pulse.ingest_idempotency (
+      source_id UUID NOT NULL REFERENCES pulse.sources(id) ON DELETE CASCADE,
+      idempotency_key TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      response JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      PRIMARY KEY (source_id, idempotency_key),
+      CONSTRAINT pulse_ingest_idempotency_key_length CHECK (char_length(idempotency_key) BETWEEN 1 AND 200)
+    )
+  `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_ingest_idempotency_expires ON pulse.ingest_idempotency(expires_at)`.simple();
+
+  await sql`
     DO $$ BEGIN
       CREATE TYPE pulse.metric_type AS ENUM ('gauge', 'counter', 'histogram', 'summary');
     EXCEPTION
@@ -192,6 +207,8 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_metric_series_dimensions_lookup ON pulse.metric_series_dimensions(key, value, series_id)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_metric_series_dimensions_key_search ON pulse.metric_series_dimensions USING GIN (key gin_trgm_ops)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_metric_series_dimensions_value_search ON pulse.metric_series_dimensions USING GIN (value gin_trgm_ops)`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.metric_samples (
@@ -259,6 +276,8 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_event_dimensions_lookup ON pulse.event_dimensions(base_id, key, value, event_id)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_event_dimensions_key_search ON pulse.event_dimensions USING GIN (key gin_trgm_ops)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_event_dimensions_value_search ON pulse.event_dimensions USING GIN (value gin_trgm_ops)`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.states_current (
@@ -333,6 +352,38 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_observed_resources_base_seen ON pulse.observed_resources(base_id, last_seen_at DESC)`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_observed_resources_base_type ON pulse.observed_resources(base_id, resource_type, last_seen_at DESC)`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_observed_resources_sources ON pulse.observed_resources USING GIN (source_ids)`.simple();
+  await sql`ALTER TABLE pulse.observed_resources ADD COLUMN IF NOT EXISTS search_text TEXT`.simple();
+  await sql`
+    UPDATE pulse.observed_resources
+    SET search_text = concat_ws(' ', resource_key, resource_id, resource_type, label, dimensions::text)
+    WHERE search_text IS NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_pulse_observed_resources_search
+    ON pulse.observed_resources USING GIN (search_text gin_trgm_ops)
+  `.simple();
+  await sql`
+    CREATE OR REPLACE FUNCTION pulse.refresh_observed_resource_search_text()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      NEW.search_text := concat_ws(' ', NEW.resource_key, NEW.resource_id, NEW.resource_type, NEW.label, NEW.dimensions::text);
+      RETURN NEW;
+    END $$
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS pulse_observed_resources_search_text ON pulse.observed_resources`.simple();
+  await sql`
+    CREATE TRIGGER pulse_observed_resources_search_text
+    BEFORE INSERT OR UPDATE OF resource_key, resource_id, resource_type, label, dimensions
+    ON pulse.observed_resources
+    FOR EACH ROW EXECUTE FUNCTION pulse.refresh_observed_resource_search_text()
+  `.simple();
+
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_metric_defs_name_search ON pulse.metric_defs USING GIN (name gin_trgm_ops)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_metric_series_base_source_seen ON pulse.metric_series(base_id, source_id, last_seen_at DESC)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_events_base_source_ts ON pulse.events(base_id, source_id, ts DESC)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_states_base_source_updated ON pulse.states_current(base_id, source_id, updated_at DESC)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_events_kind_search ON pulse.events USING GIN (kind gin_trgm_ops)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_states_key_search ON pulse.states_current USING GIN (state_key gin_trgm_ops)`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.dashboards (

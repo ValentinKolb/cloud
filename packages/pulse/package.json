@@ -9,6 +9,7 @@
     "./cli": "./src/cli.ts"
   },
   "scripts": {
+    "test": "APP_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef bun test src",
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.typecheck.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')"
   },
   "dependencies": {

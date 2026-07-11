@@ -240,11 +240,11 @@ describe("pulse CLI", () => {
   });
 
   test("creates source ingest tokens through the source-token command group", async () => {
-    const { ctx, calls, lines } = createContext(
-      ["source-tokens", "create", baseId, "docker"],
-      { name: "docker-host" },
-      [jsonResponse(base), jsonResponse([source]), jsonResponse({ credential: sourceToken, token: "secret-token" }, 201)],
-    );
+    const { ctx, calls, lines } = createContext(["source-tokens", "create", baseId, "docker"], { name: "docker-host" }, [
+      jsonResponse(base),
+      jsonResponse([source]),
+      jsonResponse({ credential: sourceToken, token: "secret-token" }, 201),
+    ]);
 
     await pulseCli.run(ctx);
 
@@ -259,11 +259,12 @@ describe("pulse CLI", () => {
   });
 
   test("revokes source ingest tokens through the source-token command group", async () => {
-    const { ctx, calls, lines } = createContext(
-      ["source-tokens", "revoke", baseId, "docker", "docker-host"],
-      { yes: true },
-      [jsonResponse(base), jsonResponse([source]), jsonResponse([sourceToken]), jsonResponse({ message: "revoked" })],
-    );
+    const { ctx, calls, lines } = createContext(["source-tokens", "revoke", baseId, "docker", "docker-host"], { yes: true }, [
+      jsonResponse(base),
+      jsonResponse([source]),
+      jsonResponse([sourceToken]),
+      jsonResponse({ message: "revoked" }),
+    ]);
 
     await pulseCli.run(ctx);
 
@@ -418,7 +419,12 @@ describe("pulse CLI", () => {
   });
 
   test("keeps resources JSON compact without signal payloads", async () => {
-    const { ctx, lines } = createContext(["resources", "list", baseId], {}, [jsonResponse(base), jsonResponse(inventory.resources)], "json");
+    const { ctx, lines } = createContext(
+      ["resources", "list", baseId],
+      {},
+      [jsonResponse(base), jsonResponse(inventory.resources)],
+      "json",
+    );
 
     await pulseCli.run(ctx);
 
@@ -444,9 +450,14 @@ describe("pulse CLI", () => {
   });
 
   test("prints resources as compact table rows", async () => {
-    const { ctx, tables } = createContext(["resources", "list", baseId], {}, [jsonResponse(base), jsonResponse(inventory.resources)]);
+    const { ctx, calls, tables } = createContext(["resources", "list", baseId], { limit: "50", offset: "100" }, [
+      jsonResponse(base),
+      jsonResponse(inventory.resources),
+    ]);
 
     await pulseCli.run(ctx);
+
+    expect(calls.at(-1)?.path).toBe(`/api/pulse/bases/${baseId}/resources?limit=50&offset=100`);
 
     expect(tables[0]).toEqual([
       {
@@ -494,15 +505,11 @@ describe("pulse CLI", () => {
       createdAt: "2026-07-07T00:00:00.000Z",
       updatedAt: "2026-07-07T00:00:00.000Z",
     };
-    const { ctx, calls, lines } = createContext(
-      ["dashboards", "create", baseId],
-      { name: "Ops", content: dsl },
-      [
-        jsonResponse(base),
-        jsonResponse({ ok: true, diagnostics: [], config: dashboard.config }),
-        jsonResponse(dashboard, 201),
-      ],
-    );
+    const { ctx, calls, lines } = createContext(["dashboards", "create", baseId], { name: "Ops", content: dsl }, [
+      jsonResponse(base),
+      jsonResponse({ ok: true, diagnostics: [], config: dashboard.config }),
+      jsonResponse(dashboard, 201),
+    ]);
 
     await pulseCli.run(ctx);
 
@@ -518,6 +525,38 @@ describe("pulse CLI", () => {
     expect(lines).toEqual([`Created dashboard Ops (${dashboardId}).`]);
   });
 
+  test("renders an authenticated dashboard snapshot without publishing it", async () => {
+    const dashboard = {
+      id: dashboardId,
+      baseId,
+      name: "Ops",
+      config: { dsl: 'dashboard "Ops" {}', layout: null, refreshIntervalSeconds: 5 },
+      publicEnabled: false,
+      createdAt: "2026-07-07T00:00:00.000Z",
+      updatedAt: "2026-07-07T00:00:00.000Z",
+    };
+    const snapshot = {
+      dashboard: { id: dashboardId, name: "Ops", config: { layout: null, refreshIntervalSeconds: 5 } },
+      points: { cpu: [{ ts: "2026-07-07T12:00:00.000Z", value: 42 }] },
+      events: { deploys: [{ id: "event", kind: "deploy", ts: "2026-07-07T12:00:00.000Z", value: {} }] },
+      states: { health: [{ key: "service.online", value: true, updatedAt: "2026-07-07T12:00:00.000Z" }] },
+    };
+    const { ctx, calls, lines } = createContext(["dashboards", "snapshot", baseId, "Ops"], {}, [
+      jsonResponse(base),
+      jsonResponse([dashboard]),
+      jsonResponse(snapshot),
+    ]);
+
+    await pulseCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual([
+      `/api/pulse/bases/${baseId}`,
+      `/api/pulse/bases/${baseId}/dashboards`,
+      `/api/pulse/dashboards/${dashboardId}/snapshot`,
+    ]);
+    expect(lines).toEqual(["Ops: 1 points, 1 events, 1 states"]);
+  });
+
   test("updates dashboard DSL without sending compiled layout", async () => {
     const dsl = 'dashboard "Ops" {}';
     const dashboard = {
@@ -529,16 +568,12 @@ describe("pulse CLI", () => {
       createdAt: "2026-07-07T00:00:00.000Z",
       updatedAt: "2026-07-07T00:00:00.000Z",
     };
-    const { ctx, calls, lines } = createContext(
-      ["dashboards", "update", baseId, "Ops"],
-      { content: dsl },
-      [
-        jsonResponse(base),
-        jsonResponse([dashboard]),
-        jsonResponse({ ok: true, diagnostics: [], config: dashboard.config }),
-        jsonResponse(dashboard),
-      ],
-    );
+    const { ctx, calls, lines } = createContext(["dashboards", "update", baseId, "Ops"], { content: dsl }, [
+      jsonResponse(base),
+      jsonResponse([dashboard]),
+      jsonResponse({ ok: true, diagnostics: [], config: dashboard.config }),
+      jsonResponse(dashboard),
+    ]);
 
     await pulseCli.run(ctx);
 
