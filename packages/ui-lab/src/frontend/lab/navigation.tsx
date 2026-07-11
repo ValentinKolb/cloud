@@ -1158,7 +1158,7 @@ export const ResourceApiKeysDemo = () => (
   revokeKey={(credentialId) => api.revokeResourceKey(gridId, credentialId)}
 />`}
   >
-    <div class="paper-highlighted p-3">
+    <div class="paper p-3">
       <ResourceApiKeys
         title="Grid API keys"
         description="Keys shown here are bound to this resource, not to global settings."
@@ -1295,7 +1295,7 @@ export const PermissionEditorDemo = () => (
   revokeAccess={(accessId) => api.revokeAccess(notebookId, accessId)}
 />`}
   >
-    <div class="paper-highlighted p-3">
+    <div class="paper p-3">
       <PermissionEditor
         initialEntries={permissionEntries}
         allowPublic

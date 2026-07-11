@@ -221,6 +221,7 @@ Use Cloud input components, including `Select`; do not substitute native control
 
 - Labels describe the value. Descriptions explain consequences or format.
 - Fields share height, radius, padding, focus, disabled, and error treatment.
+- A focused field shows one continuous focus indicator. Do not combine differently coloured borders and rings on the same edge.
 - Prefixes and suffixes stay visually secondary to the value.
 - Search keeps focus while results update.
 - Error text states what needs correction.

@@ -127,19 +127,6 @@ const getPrincipalIcon = (principal: Principal): string => {
   }
 };
 
-const getPermissionColor = (level: PermissionLevel): string => {
-  switch (level) {
-    case "read":
-      return "text-blue-500";
-    case "write":
-      return "text-amber-500";
-    case "admin":
-      return "text-purple-500";
-    default:
-      return "text-zinc-500";
-  }
-};
-
 // Backend `/api/accounts/entities` shape (the subset we consume).
 type ApiEntity =
   | { kind: "user"; user: { id: string; uid: string; displayName: string; mail: string | null } }
@@ -383,14 +370,8 @@ function AccessEntryRow(props: {
   const display = () => resolveEntryDisplay(props.entry.permission, props.allowed);
   const isInteractive = () => props.canEdit && !props.singlePicker;
 
-  const badgeClass = () => `flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border ${getPermissionColor(props.entry.permission)}`;
-  const badgeBorderList = () => ({
-    "border-blue-200 dark:border-blue-900": props.entry.permission === "read",
-    "border-amber-200 dark:border-amber-900": props.entry.permission === "write",
-    "border-purple-200 dark:border-purple-900": props.entry.permission === "admin",
-    "border-zinc-200 dark:border-zinc-700":
-      props.entry.permission !== "read" && props.entry.permission !== "write" && props.entry.permission !== "admin",
-  });
+  const badgeClass =
+    "flex items-center gap-1 rounded-full border border-transparent bg-[var(--ui-surface-muted)] px-2 py-0.5 text-xs text-secondary";
 
   const badgeContent = (
     <>
@@ -431,32 +412,18 @@ function AccessEntryRow(props: {
 
       {/* Permission badge — interactive Dropdown when editable, plain
           span otherwise. */}
-      <Show
-        when={isInteractive()}
-        fallback={
-          <span class={`${badgeClass()} cursor-default`} classList={badgeBorderList()}>
-            {badgeContent}
-          </span>
-        }
-      >
+      <Show when={isInteractive()} fallback={<span class={`${badgeClass} cursor-default`}>{badgeContent}</span>}>
         <Dropdown
           trigger={
-            <button
-              type="button"
-              class={`${badgeClass()} cursor-pointer transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800`}
-              classList={badgeBorderList()}
-            >
+            <button type="button" class={`${badgeClass} cursor-pointer transition-colors hover:bg-[var(--ui-hover)]`}>
               {badgeContent}
             </button>
           }
           position="bottom-left"
           width="10rem"
-          // Custom `element` items rather than action items — lets us
-          // color-tint each row by its level (matching the row pill
-          // colors), prefix icons correctly with the `ti ` base class
-          // (Dropdown's action.icon expected the full class but we
-          // store just `ti-eye` etc.), and mark the currently-active
-          // level with a checkmark.
+          // Custom `element` items let us prefix icons correctly with
+          // the `ti ` base class and mark the current level without
+          // assigning decorative colors to permission semantics.
           elements={props.allowed.map((option) => ({
             element: (close) => {
               const isCurrent = () => option.level === props.entry.permission;
@@ -470,10 +437,10 @@ function AccessEntryRow(props: {
                   class="flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
                   classList={{ "bg-zinc-50 dark:bg-zinc-700/50": isCurrent() }}
                 >
-                  <i class={`ti ${option.icon} ${getPermissionColor(option.level)}`} />
+                  <i class={`ti ${option.icon} text-dimmed`} />
                   <span class="flex-1 text-left">{option.label}</span>
                   <Show when={isCurrent()}>
-                    <i class="ti ti-check text-emerald-500" />
+                    <i class="ti ti-check text-primary" />
                   </Show>
                 </button>
               );

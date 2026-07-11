@@ -25,7 +25,7 @@ body:has(.cloud-ui-soft),
   --ui-field-hover: var(--ui-hover);
   --ui-field-hover-border: var(--ui-border);
   --ui-field-focus: var(--ui-surface);
-  --ui-field-focus-border: var(--color-blue-400);
+  --ui-field-focus-border: transparent;
   --ui-divider: var(--ui-border);
   --ui-control-recess: none;
   --ui-check-surface: var(--ui-field);
@@ -86,7 +86,7 @@ body:has(.cloud-ui-soft),
   --ui-space-control: 0.375rem;
   --ui-shadow-surface: 0 18px 42px -32px rgb(22 38 29 / 0.36), 0 2px 10px rgb(22 38 29 / 0.045);
   --ui-shadow-float: 0 18px 46px -18px rgb(22 38 29 / 0.26), 0 5px 16px rgb(22 38 29 / 0.09);
-  --ui-paper-highlighted: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 5%, var(--ui-surface));
+  --ui-paper-highlighted: var(--ui-surface-subtle);
   --theme-bevel-top: none;
   --theme-bevel-bottom: none;
   --theme-recess: none;
@@ -123,7 +123,7 @@ body:has(.cloud-ui-soft),
   --ui-field-hover: var(--ui-hover);
   --ui-field-hover-border: var(--ui-border);
   --ui-field-focus: var(--ui-surface);
-  --ui-field-focus-border: var(--color-blue-400);
+  --ui-field-focus-border: transparent;
   --ui-segment-inactive-text: var(--color-zinc-400);
   --ui-segment-hover-text: var(--color-zinc-200);
   --ui-divider: var(--ui-border);
@@ -387,6 +387,7 @@ body:has(.cloud-ui-soft) .input:hover {
 
 body:has(.cloud-ui-soft) .input:focus,
 body:has(.cloud-ui-soft) .input:focus-within {
+  border-color: var(--ui-field-focus-border) !important;
   box-shadow: var(--ui-focus);
 }
 
