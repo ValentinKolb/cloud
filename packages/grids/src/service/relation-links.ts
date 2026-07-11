@@ -1,0 +1,97 @@
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
+import { sql } from "bun";
+import type { SqlClient } from "./audit";
+import { liveRecordParentJoinSql } from "./parent-checks";
+import type { Field, GridRecord } from "./types";
+
+type DbRow = Record<string, unknown>;
+
+export const validateRelationTargets = async (
+  targetTableId: string,
+  targetIds: string[],
+  client: SqlClient = sql,
+): Promise<{ ok: true } | { ok: false; missing: string[] }> => {
+  if (targetIds.length === 0) return { ok: true };
+  const rows = await client<{ id: string }[]>`
+    SELECT r.id::text AS id
+    FROM grids.records r
+    ${liveRecordParentJoinSql("r", "rt", "rb")}
+    WHERE r.id = ANY(${client.array(targetIds, "UUID")})
+      AND r.table_id = ${targetTableId}::uuid
+      AND r.deleted_at IS NULL
+  `;
+  const found = new Set(rows.map((row) => row.id));
+  const missing = targetIds.filter((id) => !found.has(id));
+  return missing.length === 0 ? { ok: true } : { ok: false, missing };
+};
+
+const replaceRecordLinks = async (client: SqlClient, fromRecordId: string, fromFieldId: string, toRecordIds: string[]): Promise<void> => {
+  await client`
+    DELETE FROM grids.record_links
+    WHERE from_record_id = ${fromRecordId}::uuid
+      AND from_field_id = ${fromFieldId}::uuid
+  `;
+  if (toRecordIds.length === 0) return;
+  const values = toRecordIds
+    .map((id, index) => client`(${fromRecordId}::uuid, ${fromFieldId}::uuid, ${id}::uuid, ${index})`)
+    .reduce((accumulator, current) => client`${accumulator}, ${current}`);
+  await client`
+    INSERT INTO grids.record_links (from_record_id, from_field_id, to_record_id, position)
+    VALUES ${values}
+    ON CONFLICT (from_record_id, from_field_id, to_record_id) DO UPDATE
+      SET position = EXCLUDED.position
+  `;
+};
+
+export const writeRecordLinks = async (
+  fromRecordId: string,
+  fromFieldId: string,
+  toRecordIds: string[],
+  client?: SqlClient,
+): Promise<void> => {
+  if (client) {
+    await replaceRecordLinks(client, fromRecordId, fromFieldId, toRecordIds);
+    return;
+  }
+  await sql.begin((tx) => replaceRecordLinks(tx, fromRecordId, fromFieldId, toRecordIds));
+};
+
+export const readRecordLinksBatch = async (recordIds: string[], fieldIds: string[]): Promise<Map<string, Map<string, string[]>>> => {
+  const links = new Map<string, Map<string, string[]>>();
+  if (recordIds.length === 0 || fieldIds.length === 0) return links;
+  const rows = await sql<DbRow[]>`
+    SELECT from_record_id, from_field_id, to_record_id, position
+    FROM grids.record_links
+    WHERE from_record_id = ANY(${toPgUuidArray(recordIds)}::uuid[])
+      AND from_field_id = ANY(${toPgUuidArray(fieldIds)}::uuid[])
+    ORDER BY from_record_id, from_field_id, position
+  `;
+  for (const row of rows) {
+    const recordId = row.from_record_id as string;
+    const fieldId = row.from_field_id as string;
+    const targetId = row.to_record_id as string;
+    let recordLinks = links.get(recordId);
+    if (!recordLinks) {
+      recordLinks = new Map();
+      links.set(recordId, recordLinks);
+    }
+    const targets = recordLinks.get(fieldId) ?? [];
+    targets.push(targetId);
+    recordLinks.set(fieldId, targets);
+  }
+  return links;
+};
+
+export const hydrateRelationsFromLinks = async (records: GridRecord[], fields: Field[]): Promise<void> => {
+  if (records.length === 0) return;
+  const relationFields = fields.filter((field) => field.type === "relation" && !field.deletedAt);
+  if (relationFields.length === 0) return;
+  const links = await readRecordLinksBatch(
+    records.map((record) => record.id),
+    relationFields.map((field) => field.id),
+  );
+  for (const record of records) {
+    const recordLinks = links.get(record.id);
+    for (const field of relationFields) record.data[field.id] = recordLinks?.get(field.id) ?? [];
+  }
+};

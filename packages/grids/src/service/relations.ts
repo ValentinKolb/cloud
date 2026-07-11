@@ -1,14 +1,15 @@
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import type { SqlClient } from "./audit";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
 import { liveRecordParentJoinSql } from "./parent-checks";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
+import { readRecordLinksBatch } from "./relation-links";
 import { get as getTable } from "./tables";
 import type { Field, GridRecord } from "./types";
 
 export { enrichRecordsWithComputedColumns, enrichRecordsWithFormulas } from "./relation-formulas";
+export { hydrateRelationsFromLinks, validateRelationTargets, writeRecordLinks } from "./relation-links";
 
 type DbRow = Record<string, unknown>;
 const LABEL_TEXT_TYPES = new Set(["text"]);
@@ -19,153 +20,6 @@ export const relationLabelFields = (fields: Field[]): Field[] => {
   if (presentable.length > 0) return presentable;
   const firstText = alive.find((f) => LABEL_TEXT_TYPES.has(f.type));
   return firstText ? [firstText] : [];
-};
-
-// =============================================================================
-// record_links junction-table helpers
-// =============================================================================
-// All relation-field reads/writes go through this layer. The previous
-// JSONB-array storage in `records.data` is no longer the source of truth
-// for relations — record_links is. The records-list pipeline hydrates
-// each record's `data[relationFieldId]` from record_links just before
-// returning, so consumers that read `record.data[fieldId]` keep working
-// unchanged.
-
-/**
- * Pre-flight check for a relation-write. Verifies every target id
- * exists and lives in the relation's configured target table, and
- * isn't soft-deleted. Returns the list of missing ids if any — the
- * caller surfaces this as a 400 BEFORE doing any DB mutation, so
- * we never end up with partial link state.
- *
- * Single round-trip — `id = ANY(uuid[])` plus a target-table filter.
- */
-export const validateRelationTargets = async (
-  targetTableId: string,
-  targetIds: string[],
-  client: SqlClient = sql,
-): Promise<{ ok: true } | { ok: false; missing: string[] }> => {
-  if (targetIds.length === 0) return { ok: true };
-  const rows = await client<{ id: string }[]>`
-    SELECT r.id::text AS id
-    FROM grids.records r
-    ${liveRecordParentJoinSql("r", "rt", "rb")}
-    WHERE r.id = ANY(${client.array(targetIds, "UUID")})
-      AND r.table_id = ${targetTableId}::uuid
-      AND r.deleted_at IS NULL
-  `;
-  const found = new Set(rows.map((r) => r.id));
-  const missing = targetIds.filter((id) => !found.has(id));
-  return missing.length === 0 ? { ok: true } : { ok: false, missing };
-};
-
-/**
- * Replaces the link list for (recordId, fieldId) atomically. Used by
- * record-create and record-update for every relation field in the
- * payload. Targets are written in the order given (used as `position`).
- *
- * Single transaction: DELETE existing rows for this (record, field),
- * then INSERT the new set. Both sides of an empty target list are
- * handled — passing `[]` clears all links.
- *
- * Pre-flight target existence is the caller's job — call
- * `validateRelationTargets` first to avoid orphan-record states on
- * partial failure.
- */
-export const writeRecordLinks = async (
-  fromRecordId: string,
-  fromFieldId: string,
-  toRecordIds: string[],
-  client?: SqlClient,
-): Promise<void> => {
-  // When a tx client is supplied, run inside the caller's transaction so
-  // record-row + link writes are atomic. When called bare (no tx), open
-  // our own transaction so DELETE+INSERT remain atomic for that pair.
-  if (client) {
-    await runInClient(client, fromRecordId, fromFieldId, toRecordIds);
-    return;
-  }
-  await sql.begin((tx) => runInClient(tx, fromRecordId, fromFieldId, toRecordIds));
-};
-
-const runInClient = async (client: SqlClient, fromRecordId: string, fromFieldId: string, toRecordIds: string[]): Promise<void> => {
-  await client`
-    DELETE FROM grids.record_links
-    WHERE from_record_id = ${fromRecordId}::uuid
-      AND from_field_id = ${fromFieldId}::uuid
-  `;
-  if (toRecordIds.length === 0) return;
-  // Build a single VALUES tuple list so the INSERT runs in one round-trip.
-  // Position preserves the user-ordered cardinality:multiple semantic.
-  const values = toRecordIds
-    .map((id, i) => client`(${fromRecordId}::uuid, ${fromFieldId}::uuid, ${id}::uuid, ${i})`)
-    .reduce((acc, cur) => client`${acc}, ${cur}`);
-  await client`
-    INSERT INTO grids.record_links (from_record_id, from_field_id, to_record_id, position)
-    VALUES ${values}
-    ON CONFLICT (from_record_id, from_field_id, to_record_id) DO UPDATE
-      SET position = EXCLUDED.position
-  `;
-};
-
-/**
- * Batch-fetches links for a set of records across multiple relation
- * fields. Returns a nested map `recordId → fieldId → toRecordId[]`,
- * preserving link order. ONE round-trip regardless of how many records
- * or fields — keeps the records-list hot path linear.
- *
- * Empty record list or empty field list → empty map.
- */
-const readRecordLinksBatch = async (recordIds: string[], fieldIds: string[]): Promise<Map<string, Map<string, string[]>>> => {
-  const out = new Map<string, Map<string, string[]>>();
-  if (recordIds.length === 0 || fieldIds.length === 0) return out;
-  const recArr = toPgUuidArray(recordIds);
-  const fldArr = toPgUuidArray(fieldIds);
-  const rows = await sql<DbRow[]>`
-    SELECT from_record_id, from_field_id, to_record_id, position
-    FROM grids.record_links
-    WHERE from_record_id = ANY(${recArr}::uuid[])
-      AND from_field_id  = ANY(${fldArr}::uuid[])
-    ORDER BY from_record_id, from_field_id, position
-  `;
-  for (const row of rows) {
-    const rid = row.from_record_id as string;
-    const fid = row.from_field_id as string;
-    const tid = row.to_record_id as string;
-    let perRec = out.get(rid);
-    if (!perRec) {
-      perRec = new Map();
-      out.set(rid, perRec);
-    }
-    const arr = perRec.get(fid) ?? [];
-    arr.push(tid);
-    perRec.set(fid, arr);
-  }
-  return out;
-};
-
-/**
- * Hydrates `record.data[relationFieldId]` for every relation field on
- * the table by reading from record_links. Mutates the records in place
- * (consistent with the other enrichment helpers). Any stale JSONB
- * values get overwritten — record_links is the source of truth.
- *
- * Empty input → no-op. Tables with no relation fields → no-op.
- */
-export const hydrateRelationsFromLinks = async (records: GridRecord[], fields: Field[]): Promise<void> => {
-  if (records.length === 0) return;
-  const relationFields = fields.filter((f) => f.type === "relation" && !f.deletedAt);
-  if (relationFields.length === 0) return;
-  const links = await readRecordLinksBatch(
-    records.map((r) => r.id),
-    relationFields.map((f) => f.id),
-  );
-  for (const rec of records) {
-    const perRec = links.get(rec.id);
-    for (const rf of relationFields) {
-      rec.data[rf.id] = perRec?.get(rf.id) ?? [];
-    }
-  }
 };
 
 /**
