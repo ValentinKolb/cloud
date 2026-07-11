@@ -269,13 +269,15 @@ const detailWidthClass = (props: AppWorkspaceDetailProps): string => {
 };
 
 const AppWorkspaceMain = (props: AppWorkspaceMainProps) => (
-  <main class={`order-3 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:order-2 ${props.class ?? ""}`}>{props.children}</main>
+  <main class={`workspace-main order-3 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:order-2 ${props.class ?? ""}`}>
+    {props.children}
+  </main>
 );
 
 const AppWorkspaceDetail = (props: AppWorkspaceDetailProps) => (
   <aside
     id={props.id}
-    class={`${props.open ? "flex" : "hidden"} order-2 min-h-0 w-full shrink-0 flex-col overflow-hidden lg:order-3 lg:h-full ${detailWidthClass(props)} ${props.class ?? ""}`}
+    class={`workspace-detail ${props.open ? "flex" : "hidden"} order-2 min-h-0 w-full shrink-0 flex-col overflow-hidden lg:order-3 lg:h-full ${detailWidthClass(props)} ${props.class ?? ""}`}
     style={props.viewTransitionName ? `view-transition-name:${props.viewTransitionName}` : undefined}
   >
     {props.children}
@@ -338,7 +340,7 @@ const AppWorkspaceSidebar = (props: AppWorkspaceSidebarProps) => {
   return (
     <>
       <Show when={header() && mobile()}>
-        <nav class="sidebar-container-mobile">
+        <nav class="workspace-sidebar-mobile sidebar-container-mobile">
           <details class="group">
             <summary class="sidebar-mobile-toggle">
               <SidebarHeaderContent header={header()!} mobile />
@@ -351,10 +353,10 @@ const AppWorkspaceSidebar = (props: AppWorkspaceSidebarProps) => {
         </nav>
       </Show>
 
-      <aside class={`sidebar-container ${props.class ?? ""}`}>
-        <div class="paper flex h-full min-h-0 flex-col gap-4 p-3">
+      <aside class={`workspace-sidebar sidebar-container ${props.class ?? ""}`}>
+        <div class="workspace-sidebar-surface paper flex h-full min-h-0 flex-col gap-4 p-3">
           <Show when={header() && header()!.showDesktop !== false}>
-            <div class="relative flex items-center gap-3 pr-7">
+            <div class="workspace-sidebar-header relative flex items-center gap-3 pr-7">
               <SidebarHeaderContent header={header()!} />
             </div>
           </Show>
@@ -643,7 +645,7 @@ const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps
 };
 
 const AppWorkspace = ((props: AppWorkspaceProps) => (
-  <div class={`app-cols h-full ${props.class ?? ""}`}>{props.children}</div>
+  <div class={`app-workspace app-cols h-full ${props.class ?? ""}`}>{props.children}</div>
 )) as AppWorkspaceComponent;
 
 AppWorkspace.Main = AppWorkspaceMain;

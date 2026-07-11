@@ -290,7 +290,7 @@ Mobile is a composed state, not a squeezed desktop layout.
 
 - The desktop rail becomes the mobile app/menu trigger.
 - Sidebar content moves into the shared mobile navigation surface.
-- Detail may replace the main view or stack before it; it never becomes an unreadably narrow third column.
+- An open detail replaces the main view below the desktop breakpoint by default. Screens that deliberately stack detail and main must compose that mobile state explicitly; detail never becomes an unreadably narrow third column.
 - Toolbars wrap by priority. Search expands before secondary icon actions.
 - Tables scroll horizontally inside their own region.
 - Touch targets remain usable even when desktop density is compact.

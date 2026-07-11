@@ -127,41 +127,82 @@ body:has(.cloud-ui-soft),
 }
 
 /* The rail is part of the canvas, not a separately tinted column. */
-.cloud-app-canvas:has(.cloud-ui-soft) > [class*="bg-white/20"],
-.dark .cloud-app-canvas:has(.cloud-ui-soft) > [class*="dark:bg-zinc-950/20"] {
+.cloud-app-canvas:has(.cloud-ui-soft) > .layout-rail {
   width: 2.5rem;
   background: transparent;
 }
 
+.cloud-app-canvas:has(.cloud-ui-soft) > .layout-rail-navigation {
+  gap: 0.25rem;
+  padding-top: 0.25rem;
+}
+
 /* Compact breadcrumb paper with optical balance against the narrow rail. */
 @media (min-width: 768px) {
-  .cloud-app-canvas:has(.cloud-ui-soft) > header.paper {
+  .cloud-app-canvas:has(.cloud-ui-soft) > .layout-header {
     min-height: 2.875rem;
-    margin: 0.25rem 0.5rem 0 0;
+    margin: var(--ui-space-shell) var(--ui-space-shell) var(--ui-space-shell) 0;
     padding: 0.375rem 0.75rem 0.375rem 1.125rem;
     border-color: transparent;
     border-radius: var(--ui-radius-surface);
   }
+
+  .cloud-app-canvas:has(.cloud-ui-soft) .layout-content-main {
+    padding: 0 var(--ui-space-shell) var(--ui-space-shell) 0;
+  }
+}
+
+@media (min-width: 1024px) {
+  .cloud-ui-soft.workspace-detail,
+  .cloud-ui-soft .workspace-detail {
+    flex: none;
+  }
 }
 
 /* Major workspace regions use one surface/gap/radius language. */
-.cloud-ui-soft.sidebar-container,
-.cloud-ui-soft .sidebar-container {
+.cloud-ui-soft.workspace-sidebar,
+.cloud-ui-soft .workspace-sidebar {
   width: 12.625rem;
 }
 
-.cloud-ui-soft .sidebar-container > .paper {
+.cloud-ui-soft .workspace-sidebar-surface {
   gap: var(--ui-space-section);
   padding: 0.625rem;
   border-color: transparent;
-  background: var(--ui-surface-subtle);
+  background: var(--ui-surface);
 }
 
-.cloud-ui-soft > main {
+.cloud-ui-soft.workspace-main,
+.cloud-ui-soft .workspace-main {
   border: 1px solid var(--ui-border);
+  border-color: transparent;
   border-radius: var(--ui-radius-surface);
   background: var(--ui-surface);
   box-shadow: var(--ui-shadow-surface);
+}
+
+.cloud-ui-soft .workspace-sidebar-header {
+  min-height: var(--ui-control-md);
+  gap: 0.625rem;
+  padding: 0 0.25rem;
+}
+
+.cloud-ui-soft .workspace-sidebar-mobile > details {
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-surface);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-surface);
+}
+
+.cloud-ui-soft .workspace-sidebar-mobile .sidebar-mobile-toggle {
+  min-height: 2.75rem;
+  padding: 0.375rem 0.625rem;
+}
+
+.cloud-ui-soft .workspace-sidebar-mobile .sidebar-mobile-actions {
+  gap: var(--ui-space-control);
+  padding: 0 0.625rem 0.625rem;
 }
 
 /* Resource identity stays visible without a large solid app tile. */
@@ -318,8 +359,19 @@ body:has(.cloud-ui-soft) .state-placeholder-icon-panel {
 }
 
 @media (max-width: 767px) {
-  .cloud-ui-soft > main {
-    min-height: calc(100dvh - 4.25rem);
+  .cloud-app-canvas:has(.cloud-ui-soft) .layout-content-main {
+    padding: 0 var(--ui-space-shell) var(--ui-space-shell);
+  }
+}
+
+@media (max-width: 1023px) {
+  .cloud-ui-soft.app-workspace:has(> .workspace-detail:not(.hidden)) > .workspace-main {
+    display: none;
+  }
+
+  .cloud-ui-soft.app-workspace > .workspace-detail:not(.hidden) {
+    min-height: 0;
+    flex: 1 1 auto;
   }
 }
 

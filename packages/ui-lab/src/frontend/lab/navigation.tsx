@@ -231,7 +231,7 @@ export const AppWorkspaceDemo = () => {
   <AppWorkspace.Detail open width="sm">…</AppWorkspace.Detail>
 </AppWorkspace>`}
     >
-      <div class="h-80 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
+      <div class="h-80 overflow-hidden rounded-[var(--ui-radius-frame)] bg-[var(--ui-canvas)] p-2">
         <AppWorkspace>
           <AppWorkspace.Sidebar>
             <AppWorkspace.SidebarHeader title="Project" subtitle="Q2 sprint" icon="ti ti-folder" />
@@ -296,8 +296,8 @@ export const AppWorkspaceDemo = () => {
             </AppWorkspace.SidebarDesktop>
           </AppWorkspace.Sidebar>
 
-          <AppWorkspace.Main class="p-3">
-            <div class="paper flex h-full min-h-0 flex-col p-4">
+          <AppWorkspace.Main>
+            <div class="flex h-full min-h-0 flex-col p-4">
               <p class="text-sm font-semibold text-primary">Workspace content</p>
               <p class="mt-1 text-xs text-dimmed">Current selection: {selectedId()}</p>
             </div>

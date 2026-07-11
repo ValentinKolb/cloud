@@ -210,7 +210,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
       )}{" "}
       {/* ── Rail: logo cell (row 1, col 1) — grid gives it the same height as the header ── */}{" "}
       {showRail && (
-        <div class="hidden md:flex items-center justify-center w-12 bg-white/20 dark:bg-zinc-950/20">
+        <div class="layout-rail hidden md:flex items-center justify-center w-12 bg-white/20 dark:bg-zinc-950/20">
           {" "}
           <a href="/" aria-label="Home">
             {" "}
@@ -220,7 +220,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
       )}{" "}
       {/* ── Header (row 1) ── */}{" "}
       <header
-        class="flex justify-between items-center m-2 md:ml-0 md:m-1.5 py-1.5 md:py-2 px-2 md:px-3 paper"
+        class="layout-header flex justify-between items-center m-2 md:ml-0 md:m-1.5 py-1.5 md:py-2 px-2 md:px-3 paper"
         style="box-shadow: var(--theme-shadow-elevated)"
       >
         {" "}
@@ -279,7 +279,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
       </header>{" "}
       {/* ── Rail: apps cell (row 2, col 1) ── */}{" "}
       {showRail && (
-        <div class="hidden md:flex flex-col items-center w-12 gap-1 pt-1 bg-white/20 dark:bg-zinc-950/20">
+        <div class="layout-rail layout-rail-navigation hidden md:flex flex-col items-center w-12 gap-1 pt-1 bg-white/20 dark:bg-zinc-950/20">
           {" "}
           {primaryApps.map((app) => (
             <a
@@ -313,7 +313,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
         )}{" "}
         {user && <ProfileWarnings user={user} />} {user && <ExpiryWarnings user={user} />}{" "}
         <main
-          class={`min-h-0 flex-1 ${contentPadding} ${fullPage ? "flex flex-col overflow-hidden" : fullWidth ? "flex flex-col md:overflow-hidden" : "md:overflow-auto"}`}
+          class={`layout-content-main min-h-0 flex-1 ${contentPadding} ${fullPage ? "flex flex-col overflow-hidden" : fullWidth ? "flex flex-col md:overflow-hidden" : "md:overflow-auto"}`}
         >
           {" "}
           {children}{" "}
