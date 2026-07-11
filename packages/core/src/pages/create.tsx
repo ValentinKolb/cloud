@@ -6,11 +6,14 @@ import announcementsAdminPage from "./admin/announcements/page";
 import adminPage from "./admin/page";
 import settingsPage from "./admin/settings/page";
 import newPasswordPage from "./auth/new-password/page";
-import passwordResetPage from "./auth/password-reset/page";
 import loginPage from "./auth/page";
+import passwordResetPage from "./auth/password-reset/page";
 import { makeLegalPage } from "./legal/page-handler";
 import profilePage from "./me/page";
 import notFoundPage from "./NotFound";
+
+const cliInstallerUrl =
+  process.env.CLD_INSTALL_URL ?? "https://raw.githubusercontent.com/ValentinKolb/cloud/main/packages/cloud-cli/scripts/install.sh";
 
 /**
  * Creates the SSR pages router.
@@ -30,6 +33,8 @@ export const createPagesRouter = (options?: { brandingPublicDir?: string }): Hon
     })
     // Root: hand off to the dashboard app, which owns the user landing page.
     .get("/", auth.requireRole("authenticated", auth.redirectToLogin), (c) => c.redirect("/app/dashboard", 302))
+    // A short, instance-local bootstrap URL for the first-party CLI.
+    .get("/cli", (c) => c.redirect(cliInstallerUrl, 302))
     // Profile
     .get("/me", auth.requireRole("authenticated", auth.redirectToLogin), ...profilePage)
     // Admin pages (admin only)

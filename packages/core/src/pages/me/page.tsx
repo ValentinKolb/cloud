@@ -54,6 +54,11 @@ export default ssr<AuthContext>(async (c) => {
   const directGroups = sessionUser.memberofGroup;
   const supplementalRoles = sessionUser.roles.filter((role) => role === "admin" || role === "group-manager");
   const isExpiredAccount = sessionUser.accountExpires ? new Date(sessionUser.accountExpires) < new Date() : false;
+  const requestUrl = new URL(c.req.url);
+  const forwardedHost = c.req.header("x-forwarded-host")?.split(",")[0]?.trim();
+  const forwardedProtocol = c.req.header("x-forwarded-proto")?.split(",")[0]?.trim();
+  const cloudUrl = `${forwardedProtocol ?? requestUrl.protocol.replace(":", "")}://${forwardedHost ?? requestUrl.host}`;
+  const cliInstallCommand = `curl -fsSL ${cloudUrl}/cli | sh`;
   const [pendingRequest, apiKeys, passkeys, activityPage] = await Promise.all([
     sessionUser.provider === "local"
       ? accountsAppService.accountRequest.getPendingForUser({ userId: sessionUser.id })
@@ -313,6 +318,24 @@ export default ssr<AuthContext>(async (c) => {
           </main>
 
           <aside class="flex min-w-0 flex-col gap-4">
+            <section class="paper p-5">
+              <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">
+                <i class="ti ti-terminal-2 text-sm" />
+                Cloud CLI
+              </h2>
+              <p class="mt-1 text-xs text-dimmed">Manage this Cloud instance from your terminal.</p>
+              <code class="mt-4 block overflow-x-auto rounded-md bg-zinc-100 px-3 py-2 font-mono text-[11px] text-secondary dark:bg-zinc-800">
+                {cliInstallCommand}
+              </code>
+              <p class="mt-3 text-xs text-dimmed">
+                Then run <code class="font-mono text-secondary">cld login --server {cloudUrl}</code>.
+              </p>
+              <a href="/cli" class="btn-secondary btn-sm mt-4">
+                <i class="ti ti-download" />
+                Download installer
+              </a>
+            </section>
+
             {sessionUser.provider === "local" && (freeIpaEnabled || pendingRequest) && (
               <section class="paper p-5">
                 <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">

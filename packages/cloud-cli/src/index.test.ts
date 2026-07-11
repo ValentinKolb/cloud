@@ -120,6 +120,28 @@ const readUntil = async (stream: ReadableStream<Uint8Array>, marker: string): Pr
 };
 
 describe("cloud CLI OAuth session handling", () => {
+  test("prints its version without requiring a configured server", async () => {
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    const result = await runCli(configPath, ["--version"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toMatch(/^cld 0\.0\.0-dev \(unknown\)\n$/);
+  });
+
+  test("rejects incomplete update versions before contacting a release server", async () => {
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+
+    const result = await runCli(configPath, ["update", "--version"]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("--version requires a value.");
+  });
+
   test("top-level help includes the Grids module", async () => {
     const dir = await createTempDir();
     const configPath = join(dir, "config.json");

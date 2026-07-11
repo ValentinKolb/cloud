@@ -25,6 +25,7 @@ export const app = defineApp({
   routes: [
     "/",
     "/auth",
+    "/cli",
     "/me",
     "/admin",
     "/legal/privacy",

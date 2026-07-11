@@ -1,0 +1,114 @@
+name: Cloud CLI release
+
+on:
+  push:
+    tags:
+      - "cli-v*"
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: cli-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run --cwd packages/cloud-cli typecheck
+      - run: bun test packages/cloud-cli/src
+
+  build:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: darwin_arm64
+          - runner: macos-15-intel
+            target: darwin_x64
+          - runner: ubuntu-24.04-arm
+            target: linux_arm64
+          - runner: ubuntu-latest
+            target: linux_x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      - name: Build CLI binary
+        env:
+          CLD_VERSION: ${{ github.ref_name }}
+          CLD_COMMIT: ${{ github.sha }}
+          CLD_TARGETS: ${{ matrix.target }}
+          CLD_OUTPUT_DIR: release
+        run: bun run --cwd packages/cloud-cli build
+
+      - name: Smoke test native binary
+        run: |
+          set -euo pipefail
+          binary="packages/cloud-cli/release/cld_${{ matrix.target }}"
+          "$binary" --version
+          "$binary" help
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cld-${{ matrix.target }}
+          if-no-files-found: error
+          path: packages/cloud-cli/release/cld_${{ matrix.target }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cld-*
+          path: release
+          merge-multiple: true
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Package release manifest
+        working-directory: release
+        run: |
+          set -euo pipefail
+          cp ../packages/cloud-cli/scripts/install.sh cld-install.sh
+          chmod 755 cld_*
+          find . -maxdepth 1 -type f -regextype posix-extended -regex './cld_(darwin|linux)_(arm64|x64)' -printf '%f\n' | sort | while read -r file; do
+            sha256sum "$file"
+          done > checksums.txt
+          cosign sign-blob --yes \
+            --output-signature checksums.txt.sig \
+            --output-certificate checksums.txt.pem \
+            checksums.txt
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: release
+        run: |
+          set -euo pipefail
+          assets=(cld_* checksums.txt checksums.txt.sig checksums.txt.pem)
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "${assets[@]}" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "Cloud CLI ${GITHUB_REF_NAME#cli-v}" \
+              --generate-notes \
+              "${assets[@]}"
+          fi

@@ -27,6 +27,10 @@ import toolsCliModule from "@valentinkolb/cloud-app-tools/cli";
 import venueCliModule from "@valentinkolb/cloud-app-venue/cli";
 import type { Hono } from "hono";
 import { hc } from "hono/client";
+import { updateCli } from "./release";
+
+declare const __CLD_VERSION__: string;
+declare const __CLD_COMMIT__: string;
 
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
@@ -91,6 +95,9 @@ const OAUTH_REFRESH_SKEW_MS = 60_000;
 const PROFILE_LOCK_TIMEOUT_MS = 15_000;
 const PROFILE_LOCK_STALE_MS = 60_000;
 const BOOLEAN_FLAGS = new Set(["json"]);
+
+const cliVersion = typeof __CLD_VERSION__ === "string" ? __CLD_VERSION__ : "0.0.0-dev";
+const cliCommit = typeof __CLD_COMMIT__ === "string" ? __CLD_COMMIT__ : "unknown";
 
 const modules: CloudCliModule[] = [
   accountCliModule,
@@ -700,6 +707,8 @@ Usage:
   cld logout [--profile <name>]
   cld auth status
   cld profile <list|show|use|set> [options]
+  cld update [--version <version>] [--yes] [--no-verify]
+  cld --version
 
 Global options:
   --profile <name>        Profile name (default: current profile)
@@ -732,6 +741,57 @@ Usage:
   cld profile set [name] --server <url> --fd0 <secret> [--fd0-scope <scope>]
   cld profile set [name] --server <url> --token-command <command>
 `;
+
+const updateHelp = (): string => `cld update
+
+Usage:
+  cld update [--version <version>] [--yes] [--no-verify]
+
+Options:
+  --version <version>  Install cli-vX.Y.Z or X.Y.Z (default: latest CLI release)
+  --yes                Skip the confirmation prompt
+  --no-verify          Skip optional Cosign verification; SHA-256 is always verified
+`;
+
+const confirmCliUpdate = async (message: string): Promise<boolean> => {
+  if (!process.stdin.isTTY) throw new CliError("Not a terminal; pass --yes to update non-interactively.");
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await prompt.question(`${message} [Y/n] `);
+    return answer === "" || /^(y|yes)$/i.test(answer);
+  } finally {
+    prompt.close();
+  }
+};
+
+const runUpdateCommand = async (args: string[]): Promise<number> => {
+  const parsed = parseArgs(args);
+  if (isModuleHelpRequest(parsed.args, parsed.flags)) {
+    console.log(updateHelp());
+    return 0;
+  }
+  if (parsed.args.length > 0) throw new CliError("Usage: cld update [--version <version>] [--yes] [--no-verify]");
+  const allowedFlags = new Set(["version", "yes", "y", "no-verify"]);
+  const unsupportedFlag = Object.keys(parsed.flags).find((flag) => !allowedFlags.has(flag));
+  if (unsupportedFlag) throw new CliError(`Unknown update option "--${unsupportedFlag}".`);
+  if (parsed.flags.version === true) throw new CliError("--version requires a value.");
+  const version = takeStringFlag(parsed.flags, "version");
+  const yes = takeBooleanFlag(parsed.flags, "yes", "y");
+  const noVerify = takeBooleanFlag(parsed.flags, "no-verify");
+  const result = await updateCli({ version, verifyCosign: !noVerify, confirm: yes ? undefined : confirmCliUpdate });
+  if (result.release.version === cliVersion) {
+    console.log(`cld ${cliVersion} is already up to date.`);
+    return 0;
+  }
+  const verification =
+    result.cosign === "verified"
+      ? "SHA-256 and Cosign verified"
+      : result.cosign === "unavailable"
+        ? "SHA-256 verified; Cosign unavailable"
+        : "SHA-256 verified";
+  console.log(`Updated cld to ${result.release.version} (${verification}).`);
+  return 0;
+};
 
 const runProfileCommand = async (args: string[]): Promise<number> => {
   const [command, maybeName, ...rest] = args;
@@ -1255,6 +1315,10 @@ const runAuthCommand = async (args: string[], global: GlobalArgs): Promise<numbe
 };
 
 export const main = async (argv = Bun.argv.slice(2)): Promise<number> => {
+  if (argv.length === 1 && ["--version", "-V", "version"].includes(argv[0]!)) {
+    console.log(`cld ${cliVersion} (${cliCommit})`);
+    return 0;
+  }
   const global = parseGlobalArgs(argv);
   const [moduleName, ...moduleArgs] = global.rest;
 
@@ -1267,6 +1331,7 @@ export const main = async (argv = Bun.argv.slice(2)): Promise<number> => {
   if (moduleName === "logout") return runLogoutCommand(moduleArgs, global);
   if (moduleName === "auth") return runAuthCommand(moduleArgs, global);
   if (moduleName === "profile") return runProfileCommand(moduleArgs);
+  if (moduleName === "update") return runUpdateCommand(moduleArgs);
 
   const module = moduleByName.get(moduleName);
   if (!module) throw new CliError(`Unknown module "${moduleName}". Run \`cld help\`.`);

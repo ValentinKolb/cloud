@@ -2,6 +2,19 @@
 
 `cld` is the first-party Cloud CLI for local operators and coding agents.
 
+## Install
+
+Install the standalone binary from any Cloud instance:
+
+```bash
+curl -fsSL https://cloud.example.com/cli | sh
+cld login --server https://cloud.example.com
+```
+
+The installer places `cld` in `~/.local/bin`, verifies SHA-256 checksums, and
+uses Cosign when it is available. Run `cld update` to install the latest CLI
+release without changing profiles or OAuth credentials.
+
 Run it from the workspace without installing a binary:
 
 ```bash
