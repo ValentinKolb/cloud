@@ -29,6 +29,7 @@ import type { GridsRecordEvent } from "./record-events";
 import { create as createRecord, get as getRecord, list as listRecords, update as updateRecord } from "./records";
 import { get as getTable } from "./tables";
 import type { GridRecord, Table } from "./types";
+import { recordWorkflowEmailDelivery } from "./workflow-email-deliveries";
 import { requestWorkflowHttp } from "./workflow-http-client";
 import {
   claimRun,
@@ -91,6 +92,7 @@ type RuntimeHttpRequestAction = {
 };
 type RuntimeSetVariableAction = { name: string; value: WorkflowValue };
 type RuntimeStep = Record<string, unknown>;
+type WorkflowNotificationSender = Pick<typeof notifications, "send" | "sendToUser">;
 
 export type WorkflowRuntimeInput = Record<string, unknown>;
 
@@ -104,6 +106,7 @@ export type ExecuteWorkflowParams = {
   resolvedInput?: WorkflowRuntimeInput | null;
   leaseMs?: number;
   heartbeat?: () => Promise<void>;
+  notificationSender?: WorkflowNotificationSender;
 };
 
 export type WorkflowTriggerAuthorization =
@@ -166,6 +169,7 @@ type RuntimeContext = {
   dateConfig: DateContext;
   leaseMs?: number;
   heartbeat?: () => Promise<void>;
+  notificationSender: WorkflowNotificationSender;
 };
 
 const normalizeScannedText = (value: string): string => {
@@ -336,6 +340,7 @@ const createRuntimeContext = async (params: ExecuteWorkflowParams, workflow: Wor
   dateConfig: await workflowDateConfig(),
   leaseMs: params.leaseMs,
   heartbeat: params.heartbeat,
+  notificationSender: params.notificationSender ?? notifications,
 });
 
 const plainResolvedInput = (ctx: RuntimeContext): WorkflowRuntimeInput =>
@@ -885,6 +890,8 @@ const renderEmailData = async (ctx: RuntimeContext, action: RuntimeSendEmailActi
 };
 
 const executeSendEmail = async (ctx: RuntimeContext, action: RuntimeSendEmailAction): Promise<Result<RuntimeValue>> => {
+  const workflowRunId = ctx.runId;
+  if (!workflowRunId) return fail(err.internal("sendEmail requires an active workflow run"));
   const templateRef = resolveWorkflowEmailTemplateRef(ctx.catalog, action.template);
   if (!templateRef) return fail(err.badInput(`unknown workflow email template "${action.template}"`));
   const template = await emailTemplates.get(templateRef.id);
@@ -895,7 +902,7 @@ const executeSendEmail = async (ctx: RuntimeContext, action: RuntimeSendEmailAct
   const rendered = await emailTemplates.renderEmailTemplate(template, data.data);
   if (!rendered.ok) return rendered;
 
-  const sent: Array<{ id: string; kind: "email" | "user"; recipient: string; status: string }> = [];
+  const sent: Array<{ deliveryId: string; id: string; kind: "email" | "user"; recipient: string; status: string }> = [];
   for (const recipient of action.to) {
     const kind = "email" in recipient ? "email" : "user";
     const raw = "email" in recipient ? recipient.email : recipient.user;
@@ -910,7 +917,7 @@ const executeSendEmail = async (ctx: RuntimeContext, action: RuntimeSendEmailAct
     let status = "error";
     let errorMessage: string | null = null;
     if (kind === "email") {
-      const result = await notifications.send({
+      const result = await ctx.notificationSender.send({
         type: "email",
         recipient: value,
         subject: rendered.data.subject,
@@ -921,7 +928,7 @@ const executeSendEmail = async (ctx: RuntimeContext, action: RuntimeSendEmailAct
       status = result.status;
       if (result.status === "error") errorMessage = result.error ?? "email delivery failed";
     } else {
-      const result = await notifications.sendToUser({
+      const result = await ctx.notificationSender.sendToUser({
         userId: value,
         subject: rendered.data.subject,
         rawHtml: rendered.data.html,
@@ -934,21 +941,56 @@ const executeSendEmail = async (ctx: RuntimeContext, action: RuntimeSendEmailAct
         errorMessage = result.error;
       }
     }
-    sent.push({ id: notificationId, kind, recipient: recipientSummary(kind, value), status });
-    if (errorMessage) {
-      await logAudit({
-        baseId: ctx.workflow.baseId,
-        userId: ctx.actorUserId,
-        action: "workflow.email.failed",
-        diff: {
-          workflowEmail: {
-            old: null,
-            new: { ...workflowAuditMeta(ctx), templateId: template.id, recipient: recipientSummary(kind, value), error: errorMessage },
+    const summary = recipientSummary(kind, value);
+    const delivery = await sql.begin(async (tx) => {
+      const stored = await recordWorkflowEmailDelivery(
+        {
+          baseId: ctx.workflow.baseId,
+          workflowId: ctx.workflow.id,
+          workflowRunId,
+          templateId: template.id,
+          recipientKind: kind,
+          recipientSummary: summary,
+          notificationId: notificationId || null,
+          providerStatus: status,
+          status: errorMessage ? "failed" : "sent",
+          subject: rendered.data.subject,
+          error: errorMessage,
+        },
+        tx,
+      );
+      const recipientAudit = {
+        deliveryId: stored.id,
+        kind,
+        recipient: summary,
+        notificationId,
+        status,
+      };
+      await logAudit(
+        {
+          baseId: ctx.workflow.baseId,
+          userId: ctx.actorUserId,
+          action: errorMessage ? "workflow.email.failed" : "workflow.email.sent",
+          diff: {
+            workflowEmail: {
+              old: null,
+              new: errorMessage
+                ? { ...workflowAuditMeta(ctx), templateId: template.id, ...recipientAudit, error: errorMessage }
+                : {
+                    ...workflowAuditMeta(ctx),
+                    templateId: template.id,
+                    subject: rendered.data.subject,
+                    recipients: [recipientAudit],
+                  },
+            },
           },
         },
-      });
-      return fail(err.badInput(errorMessage));
-    }
+        tx,
+      );
+      return stored;
+    });
+    sent.push({ deliveryId: delivery.id, id: notificationId, kind, recipient: summary, status });
+    if (errorMessage) return fail(err.badInput(errorMessage));
   }
 
   const output = {
@@ -957,22 +999,6 @@ const executeSendEmail = async (ctx: RuntimeContext, action: RuntimeSendEmailAct
     recipients: sent,
   };
   if (action.saveAs) ctx.variables.set(action.saveAs, output);
-  await logAudit({
-    baseId: ctx.workflow.baseId,
-    userId: ctx.actorUserId,
-    action: "workflow.email.sent",
-    diff: {
-      workflowEmail: {
-        old: null,
-        new: {
-          ...workflowAuditMeta(ctx),
-          templateId: template.id,
-          subject: rendered.data.subject,
-          recipients: sent.map((item) => ({ kind: item.kind, recipient: item.recipient, notificationId: item.id, status: item.status })),
-        },
-      },
-    },
-  });
   return ok(output);
 };
 
@@ -1285,6 +1311,7 @@ const scannerWorkflowContext = async (
     dateConfig: await workflowDateConfig(),
     leaseMs: params.leaseMs,
     heartbeat: params.heartbeat,
+    notificationSender: params.notificationSender ?? notifications,
   };
   return ok({ ...ctx, inputName: scanner.input, tableId: table.id });
 };
@@ -1348,6 +1375,7 @@ const bulkWorkflowContext = async (
     variables: new Map(),
     records: new Map(),
     dateConfig: await workflowDateConfig(),
+    notificationSender: params.notificationSender ?? notifications,
   };
   return ok({ ...ctx, inputName, tableId: table.id });
 };
@@ -1544,6 +1572,7 @@ export const prepareRecordEvent = async (params: ExecuteRecordEventWorkflowParam
     dateConfig: await workflowDateConfig(),
     leaseMs: params.leaseMs,
     heartbeat: params.heartbeat,
+    notificationSender: params.notificationSender ?? notifications,
   };
   const runPermission = await requireWorkflowRunPermission(ctx);
   if (!runPermission.ok) return runPermission;

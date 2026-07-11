@@ -10,6 +10,7 @@ import {
   failQueuedRunAttempt,
   finishStepRun,
   getOrCreateRecordScanCode,
+  listEmailDeliveriesPage,
   listRecordEventBaseIds,
   listRecordEventEnabled,
   update as updateWorkflow,
@@ -476,6 +477,90 @@ describe("workflow runtime integration", () => {
       if (!prepared.ok) throw new Error(prepared.error.message);
       expect((prepared.data.resolvedInput.records as string[]).length).toBe(2);
       expect(prepared.data.triggerInput).toEqual({ input: "records", query: { limit: 2 } });
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("persists and audits each recipient when a later email delivery fails", async () => {
+    const fixture = await insertFixture("write");
+    try {
+      const templateId = uuid();
+      await sql`
+        INSERT INTO grids.email_templates (id, short_id, base_id, name, subject, html)
+        VALUES (
+          ${templateId}::uuid, ${shortId("E")}, ${fixture.baseId}::uuid, 'Partial delivery',
+          'Workflow notice', '<p>Workflow notice</p>'
+        )
+      `;
+      const definition: WorkflowDefinition = {
+        triggers: { form: {} },
+        steps: [
+          {
+            sendEmail: {
+              template: "Partial delivery",
+              to: [{ email: "first@example.test" }, { email: "second@example.test" }],
+            },
+          },
+        ],
+      };
+      const workflowId = await insertWorkflow(fixture.baseId, "Partial email delivery", definition);
+      const run = await createWorkflowRun({
+        workflowId,
+        baseId: fixture.baseId,
+        triggerKind: "form",
+        triggerInput: {},
+        resolvedInput: {},
+      });
+      let sends = 0;
+      const firstNotificationId = uuid();
+      const failedNotificationId = uuid();
+
+      const executed = await executePreparedRun({
+        workflowId,
+        runId: run.id,
+        triggerKind: "form",
+        triggerInput: {},
+        resolvedInput: {},
+        authorization: { kind: "workflow" },
+        notificationSender: {
+          send: async () => {
+            sends += 1;
+            return sends === 1
+              ? { id: firstNotificationId, status: "sent" as const }
+              : { id: failedNotificationId, status: "error" as const, error: "mailbox unavailable" };
+          },
+          sendToUser: async () => ({ ok: false as const, error: "unexpected user recipient" }),
+        },
+      });
+      expect(executed.ok).toBe(false);
+      if (executed.ok) throw new Error("Expected partial email delivery failure");
+      expect(executed.error.message).toBe("mailbox unavailable");
+      expect(sends).toBe(2);
+
+      const page = await listEmailDeliveriesPage({
+        baseId: fixture.baseId,
+        workflowIds: [workflowId],
+        workflowId,
+      });
+      expect(page.items).toHaveLength(2);
+      expect(page.items.map((delivery) => delivery.status).sort()).toEqual(["failed", "sent"]);
+      expect(page.items.find((delivery) => delivery.status === "sent")?.recipients[0]?.notificationId).toBe(firstNotificationId);
+      expect(page.items.find((delivery) => delivery.status === "failed")?.recipients[0]?.notificationId).toBe(failedNotificationId);
+
+      const auditRows = await sql<Array<{ action: string; delivery_id: string | null }>>`
+        SELECT action, COALESCE(
+          diff #>> '{workflowEmail,new,deliveryId}',
+          diff #>> '{workflowEmail,new,recipients,0,deliveryId}'
+        ) AS delivery_id
+        FROM grids.audit_log
+        WHERE base_id = ${fixture.baseId}::uuid
+          AND action IN ('workflow.email.sent', 'workflow.email.failed')
+          AND diff #>> '{workflowEmail,new,workflowRunId}' = ${run.id}
+        ORDER BY created_at ASC, id ASC
+      `;
+      expect(auditRows.map((row) => row.action).sort()).toEqual(["workflow.email.failed", "workflow.email.sent"]);
+      expect(new Set(auditRows.map((row) => row.delivery_id))).toEqual(new Set(page.items.map((delivery) => delivery.id)));
     } finally {
       await cleanupFixture(fixture);
     }

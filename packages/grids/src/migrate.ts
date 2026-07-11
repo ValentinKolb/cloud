@@ -1,4 +1,5 @@
 import { sql } from "bun";
+import { backfillWorkflowEmailDeliveries } from "./workflow-email-delivery-backfill";
 
 /**
  * Schema for the Grids app: bases → tables → fields, records, views, forms,
@@ -984,6 +985,68 @@ export const migrate = async (): Promise<void> => {
     END $$;
   `.simple();
   console.log("  ✓ grids.workflow_runs");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.workflow_email_deliveries (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      workflow_id UUID REFERENCES grids.workflows(id) ON DELETE SET NULL,
+      workflow_run_id UUID REFERENCES grids.workflow_runs(id) ON DELETE SET NULL,
+      template_id UUID REFERENCES grids.email_templates(id) ON DELETE SET NULL,
+      recipient_kind TEXT NOT NULL CHECK (recipient_kind IN ('email', 'user')),
+      recipient_summary TEXT NOT NULL,
+      notification_id UUID,
+      provider_status TEXT,
+      status TEXT NOT NULL CHECK (status IN ('sent', 'failed')),
+      subject TEXT,
+      error TEXT,
+      source_audit_id UUID,
+      recipient_index INT CHECK (recipient_index IS NULL OR recipient_index > 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`ALTER TABLE grids.workflow_email_deliveries ADD COLUMN IF NOT EXISTS source_audit_id UUID`.simple();
+  await sql`ALTER TABLE grids.workflow_email_deliveries ADD COLUMN IF NOT EXISTS recipient_index INT`.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'workflow_email_deliveries_recipient_index_check'
+          AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.workflow_email_deliveries
+          ADD CONSTRAINT workflow_email_deliveries_recipient_index_check
+          CHECK (recipient_index IS NULL OR recipient_index > 0);
+      END IF;
+    END $$
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_email_deliveries_base
+    ON grids.workflow_email_deliveries(base_id, created_at DESC, id DESC)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_email_deliveries_workflow
+    ON grids.workflow_email_deliveries(workflow_id, created_at DESC, id DESC)
+    WHERE workflow_id IS NOT NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_email_deliveries_run
+    ON grids.workflow_email_deliveries(workflow_run_id, created_at DESC)
+    WHERE workflow_run_id IS NOT NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_email_deliveries_failed
+    ON grids.workflow_email_deliveries(base_id, created_at DESC)
+    WHERE status = 'failed'
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_workflow_email_deliveries_audit_recipient
+    ON grids.workflow_email_deliveries(source_audit_id, recipient_index)
+    WHERE source_audit_id IS NOT NULL AND recipient_index IS NOT NULL
+  `.simple();
+  await backfillWorkflowEmailDeliveries();
+  console.log("  ✓ grids.workflow_email_deliveries");
 
   await sql`
     CREATE TABLE IF NOT EXISTS grids.workflow_step_runs (

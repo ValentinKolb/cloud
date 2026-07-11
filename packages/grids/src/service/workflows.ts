@@ -1,4 +1,4 @@
-import { isUniqueViolation, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import { isUniqueViolation, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import { crypto, err, fail, ok, type Result } from "@valentinkolb/stdlib";
@@ -25,6 +25,7 @@ import { parseJsonbRow } from "./jsonb";
 import { emitMetadataEvent } from "./metadata-events";
 import type { GridsRecordEvent } from "./record-events";
 import { insertWithShortId } from "./short-id";
+import { listWorkflowEmailDeliveries } from "./workflow-email-deliveries";
 import { notifyWorkflowRunEvent } from "./workflow-run-events";
 import { validateSchedule } from "./workflow-validators";
 
@@ -243,35 +244,6 @@ const mapStepRunRow = (row: DbRow): WorkflowStepRun => ({
   startedAt: row.started_at ? (row.started_at as Date).toISOString() : null,
   finishedAt: row.finished_at ? (row.finished_at as Date).toISOString() : null,
 });
-
-const safeString = (value: unknown): string | null => (typeof value === "string" && value.length > 0 ? value : null);
-
-const mapWorkflowEmailDeliveryRow = (row: DbRow): WorkflowEmailDelivery => {
-  const diff = parseJsonbRow<Record<string, { new?: unknown }>>(row.diff, {});
-  const payload =
-    diff.workflowEmail?.new && typeof diff.workflowEmail.new === "object" ? (diff.workflowEmail.new as Record<string, unknown>) : {};
-  const recipients = Array.isArray(payload.recipients)
-    ? payload.recipients
-        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
-        .map((item) => ({
-          kind: item.kind === "user" ? ("user" as const) : ("email" as const),
-          recipient: safeString(item.recipient) ?? "***",
-          ...(safeString(item.notificationId) ? { notificationId: safeString(item.notificationId)! } : {}),
-          ...(safeString(item.status) ? { status: safeString(item.status)! } : {}),
-        }))
-    : [];
-  return {
-    id: row.id as string,
-    workflowId: safeString(payload.workflowId),
-    workflowRunId: safeString(payload.workflowRunId),
-    templateId: safeString(payload.templateId),
-    subject: safeString(payload.subject),
-    recipients,
-    status: row.action === "workflow.email.failed" ? "failed" : "sent",
-    error: safeString(payload.error),
-    createdAt: (row.created_at as Date).toISOString(),
-  };
-};
 
 const mapScanCodeRow = (row: DbRow): RecordScanCode => ({
   id: row.id as string,
@@ -1114,27 +1086,18 @@ export const listRunsPage = async (params: ListWorkflowRunsPageParams): Promise<
 export const listEmailDeliveriesPage = async (params: ListWorkflowEmailDeliveriesPageParams): Promise<WorkflowEmailDeliveryPage> => {
   if (params.workflowIds.length === 0) return { items: [], nextCursor: null };
   const cap = Math.min(Math.max(params.limit ?? 50, 1), 200);
-  const workflowIds = toPgTextArray(params.workflowIds);
   const cursor = parseRunCursor(params.cursor);
-  const workflowIdClause = params.workflowId ? sql`AND diff #>> '{workflowEmail,new,workflowId}' = ${params.workflowId}` : sql``;
-  const cursorClause = cursor ? sql`AND (created_at, id) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)` : sql``;
-  const rows = await sql<DbRow[]>`
-    SELECT id, base_id, table_id, record_id, user_id, action, diff, ip, user_agent, created_at
-    FROM grids.audit_log
-    WHERE base_id = ${params.baseId}::uuid
-      AND action IN ('workflow.email.sent', 'workflow.email.failed')
-      AND diff #>> '{workflowEmail,new,workflowId}' = ANY(${workflowIds}::text[])
-      ${workflowIdClause}
-      ${cursorClause}
-    ORDER BY created_at DESC, id DESC
-    LIMIT ${cap + 1}
-  `;
-  const mapped = rows.map(mapWorkflowEmailDeliveryRow);
-  const items = mapped.slice(0, cap);
-  const last = items[items.length - 1];
+  const rows = await listWorkflowEmailDeliveries({
+    baseId: params.baseId,
+    workflowIds: params.workflowIds,
+    workflowId: params.workflowId,
+    cursor,
+    limit: cap + 1,
+  });
+  const pageRows = rows.slice(0, cap);
   return {
-    items,
-    nextCursor: mapped.length > cap && last ? `${last.createdAt}|${last.id}` : null,
+    items: pageRows.map((row) => row.delivery),
+    nextCursor: rows.length > cap ? (pageRows[pageRows.length - 1]?.cursor ?? null) : null,
   };
 };
 
