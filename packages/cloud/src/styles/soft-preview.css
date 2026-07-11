@@ -222,13 +222,19 @@ body:has(.cloud-ui-soft),
   width: 1.4375rem;
   height: 1.4375rem;
   border-radius: 0.4375rem;
-  background: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 9%, transparent);
-  color: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 80%, black);
+  background: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 9%, transparent) !important;
+  color: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 80%, black) !important;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 16%, transparent);
 }
 
-.dark .cloud-ui-soft .sidebar-header-icon {
-  color: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white);
+.cloud-ui-soft .sidebar-header-icon-mobile {
+  background: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 9%, transparent) !important;
+  color: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 80%, black) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 16%, transparent);
+}
+
+.dark .cloud-ui-soft :is(.sidebar-header-icon, .sidebar-header-icon-mobile) {
+  color: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white) !important;
 }
 
 .cloud-ui-soft .sidebar-header-title {
@@ -266,6 +272,60 @@ body:has(.cloud-ui-soft),
   color: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 78%, black);
   background: var(--ui-selected);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 20%, transparent);
+}
+
+/* Overview pages use the same restrained identity and spacing rhythm. */
+.cloud-ui-soft.app-overview,
+.cloud-ui-soft .app-overview {
+  padding: var(--ui-space-section);
+}
+
+.cloud-ui-soft .app-overview-header {
+  margin-bottom: 1rem;
+}
+
+.cloud-ui-soft .app-overview-identity {
+  gap: 0.625rem;
+}
+
+.cloud-ui-soft .app-overview-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--ui-radius-control);
+  background: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 9%, var(--ui-surface)) !important;
+  color: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 80%, black) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 16%, transparent);
+}
+
+.cloud-ui-soft .app-overview-icon > i {
+  color: inherit !important;
+}
+
+.dark .cloud-ui-soft .app-overview-icon {
+  color: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white) !important;
+}
+
+.cloud-ui-soft .app-overview-title {
+  font-size: 1.125rem;
+  letter-spacing: -0.015em;
+}
+
+.cloud-ui-soft .app-overview-subtitle {
+  font-size: 0.8125rem;
+}
+
+.cloud-ui-soft .app-overview-columns {
+  gap: var(--ui-space-section);
+}
+
+.cloud-ui-soft .app-overview-panel-header {
+  gap: var(--ui-space-section);
+  margin-bottom: var(--ui-space-section);
+}
+
+.cloud-ui-soft .app-overview-toolbar {
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* Controls are precise and quiet; state comes from colour and focus, not gloss. */

@@ -17,7 +17,12 @@ export default ssr<AuthContext>(async (c) => {
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Weather" }]}>
       <WeatherLayoutHelp />
-      <AppOverview title="Weather" subtitle="Track forecasts for your saved locations." icon="ti ti-temperature-celsius">
+      <AppOverview
+        class="cloud-ui-soft"
+        title="Weather"
+        subtitle="Track forecasts for your saved locations."
+        icon="ti ti-temperature-celsius"
+      >
         <AppOverview.Main title="Locations" description="No saved locations yet.">
           <AppOverview.EmptyState
             title="No locations yet"

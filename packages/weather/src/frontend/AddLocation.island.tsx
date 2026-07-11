@@ -85,7 +85,7 @@ const AddLocationButton = (props: { variant?: "button" | "sidebar" }) => {
   }
 
   return (
-    <button type="button" onClick={() => addMutation.mutate({})} disabled={addMutation.loading()} class="btn-secondary btn-sm w-full">
+    <button type="button" onClick={() => addMutation.mutate({})} disabled={addMutation.loading()} class="btn-primary btn-sm w-full">
       {addMutation.loading() ? (
         <i class="ti ti-loader-2 animate-spin" />
       ) : (

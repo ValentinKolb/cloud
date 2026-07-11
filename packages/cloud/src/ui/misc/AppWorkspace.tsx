@@ -309,7 +309,7 @@ const SidebarHeaderContent = (props: { header: SidebarHeaderSlot; mobile?: boole
   <>
     <Show when={props.header.icon !== false}>
       <div
-        class={`${props.mobile ? "h-8 w-8 rounded-lg" : "sidebar-header-icon"} flex shrink-0 items-center justify-center bg-blue-500 text-white`}
+        class={`${props.mobile ? "sidebar-header-icon-mobile h-8 w-8 rounded-lg" : "sidebar-header-icon"} flex shrink-0 items-center justify-center bg-blue-500 text-white`}
         style={`${props.header.iconStyle ?? ""}${props.header.iconViewTransitionName ? `;view-transition-name:${props.header.iconViewTransitionName}` : ""}`}
       >
         <i class={`${tablerIconClass(props.header.icon || undefined, "ti-layout-sidebar")} ${props.mobile ? "text-sm" : "text-xs"}`} />

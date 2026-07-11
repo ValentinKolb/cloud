@@ -37,7 +37,7 @@ const tablerIconClass = (icon: string | null | undefined, fallback: string): str
 };
 
 const PanelHeader = (props: Pick<AppOverviewPanelProps, "title" | "description" | "toolbar">) => (
-  <div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+  <div class="app-overview-panel-header mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
     <div class="min-w-0">
       <h2 class="text-sm font-semibold text-primary">{props.title}</h2>
       <Show when={props.description}>
@@ -45,7 +45,7 @@ const PanelHeader = (props: Pick<AppOverviewPanelProps, "title" | "description" 
       </Show>
     </div>
     <Show when={props.toolbar}>
-      <div class="w-full sm:w-80">{props.toolbar}</div>
+      <div class="app-overview-toolbar w-full sm:w-80">{props.toolbar}</div>
     </Show>
   </div>
 );
@@ -77,22 +77,22 @@ const AppOverviewEmptyState = (props: AppOverviewEmptyStateProps) => (
 );
 
 const AppOverview = ((props: AppOverviewProps) => (
-  <div class={`mx-auto max-w-6xl p-3 sm:p-4 ${props.class ?? ""}`}>
-    <header class="mb-5">
-      <div class="flex items-center gap-3">
-        <div class="thumbnail flex h-11 w-11 shrink-0 items-center justify-center bg-zinc-100 dark:bg-zinc-800">
+  <div class={`app-overview mx-auto max-w-6xl p-3 sm:p-4 ${props.class ?? ""}`}>
+    <header class="app-overview-header mb-5">
+      <div class="app-overview-identity flex items-center gap-3">
+        <div class="app-overview-icon thumbnail flex h-11 w-11 shrink-0 items-center justify-center bg-zinc-100 dark:bg-zinc-800">
           <i class={`${tablerIconClass(props.icon, "ti-apps")} text-xl text-zinc-600 dark:text-zinc-400`} />
         </div>
         <div class="min-w-0">
-          <h1 class="text-xl font-semibold text-primary">{props.title}</h1>
+          <h1 class="app-overview-title text-xl font-semibold text-primary">{props.title}</h1>
           <Show when={props.subtitle}>
-            <p class="text-sm text-dimmed">{props.subtitle}</p>
+            <p class="app-overview-subtitle text-sm text-dimmed">{props.subtitle}</p>
           </Show>
         </div>
       </div>
     </header>
 
-    <div class="flex flex-col items-start gap-4 lg:flex-row">{props.children}</div>
+    <div class="app-overview-columns flex flex-col items-start gap-4 lg:flex-row">{props.children}</div>
   </div>
 )) as AppOverviewComponent;
 

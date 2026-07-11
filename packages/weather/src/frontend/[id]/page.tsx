@@ -1,7 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { type WeatherData, weatherService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Placeholder } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../config";
 import { DailyForecast, HourlyForecast, RadarCard } from "../_components";
@@ -42,7 +42,7 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
   const { current, hourly, daily } = data;
 
   return (
-    <article class="flex flex-col gap-4" aria-label={`Weather for ${location.name}`}>
+    <article class="flex flex-col gap-[var(--ui-space-section)] p-[var(--ui-space-section)]" aria-label={`Weather for ${location.name}`}>
       {/* Current - centered, no paper */}
       <section class="flex flex-col items-center gap-2 py-4" aria-label="Current weather">
         <div class="flex items-center gap-3">
@@ -90,7 +90,7 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
       )}
 
       {/* Weekly + Radar */}
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 gap-[var(--ui-space-section)] md:grid-cols-2">
         {/* Left column: Weekly Forecast + Details */}
         <div class="flex flex-col gap-3">
           {/* Weekly Forecast */}
@@ -161,14 +161,18 @@ export default ssr<AuthContext>(async (c) => {
   if (!activeLocation) {
     return () => (
       <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Weather", href: "/app/weather" }, { title: "Not Found" }]}>
-        <AppWorkspace>
+        <AppWorkspace class="cloud-ui-soft">
           <WeatherLayoutHelp />
           <LocationSidebar locations={locations} activeId={id} weatherMap={new Map()} />
           <AppWorkspace.Main>
-            <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
-              <i class="ti ti-map-pin-off text-sm" />
-              Location not found
-            </p>
+            <Placeholder
+              state="error"
+              variant="panel"
+              title="Location not found"
+              description="Choose another saved location or add a new city."
+              icon="ti ti-map-pin-off"
+              class="h-full"
+            />
           </AppWorkspace.Main>
         </AppWorkspace>
       </Layout>
@@ -198,7 +202,7 @@ export default ssr<AuthContext>(async (c) => {
       fullWidth
       title={[{ title: "Start", href: "/" }, { title: "Weather", href: "/app/weather" }, { title: activeLocation.name }]}
     >
-      <AppWorkspace>
+      <AppWorkspace class="cloud-ui-soft">
         <WeatherLayoutHelp />
         <LocationSidebar locations={locations} activeId={id} weatherMap={weatherMap} />
 
@@ -208,16 +212,20 @@ export default ssr<AuthContext>(async (c) => {
             {activeWeather ? (
               <WeatherDetail location={activeLocation} data={activeWeather} />
             ) : (
-              <div class="flex flex-col gap-4">
-                <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed" role="alert">
-                  <i class="ti ti-cloud-off text-sm" aria-hidden="true" />
-                  Weather data unavailable. DWD only provides data for Germany.
-                </p>
-                <div class="flex flex-wrap items-center justify-end gap-2">
-                  <DisplaySettingsButton lat={activeLocation.lat} lon={activeLocation.lon} />
-                  <DeleteLocationButton id={activeLocation.id} />
-                </div>
-              </div>
+              <Placeholder
+                state="error"
+                variant="panel"
+                title="Weather data unavailable"
+                description="DWD currently provides forecast data only for locations in Germany."
+                icon="ti ti-cloud-off"
+                class="h-full"
+                action={
+                  <div class="flex flex-wrap items-center justify-center gap-2">
+                    <DisplaySettingsButton lat={activeLocation.lat} lon={activeLocation.lon} />
+                    <DeleteLocationButton id={activeLocation.id} />
+                  </div>
+                }
+              />
             )}
           </div>
         </AppWorkspace.Main>
