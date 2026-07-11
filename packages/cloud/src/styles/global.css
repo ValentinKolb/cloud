@@ -53,6 +53,29 @@
   --font-condensed: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
 }
 
+.cloud-app-canvas {
+  background: linear-gradient(
+    var(--app-canvas-angle, 135deg),
+    color-mix(in srgb, var(--app-canvas-from, var(--color-zinc-50)) var(--app-canvas-strength, 0%), var(--color-zinc-50)),
+    color-mix(
+        in srgb,
+        var(--app-canvas-via, var(--app-canvas-from, var(--color-zinc-50))) var(--app-canvas-strength, 0%),
+        var(--color-zinc-50)
+      )
+      50%,
+    color-mix(in srgb, var(--app-canvas-to, var(--color-zinc-50)) var(--app-canvas-strength, 0%), var(--color-zinc-50))
+  );
+}
+
+.dark .cloud-app-canvas {
+  background: linear-gradient(
+    var(--app-canvas-angle, 135deg),
+    color-mix(in srgb, var(--app-canvas-from, var(--color-zinc-950)) var(--app-canvas-dark-strength, 0%), var(--color-zinc-950)),
+    color-mix(in srgb, var(--app-canvas-via-dark, var(--color-zinc-950)) var(--app-canvas-dark-strength, 0%), var(--color-zinc-950)) 50%,
+    color-mix(in srgb, var(--app-canvas-to, var(--color-zinc-950)) var(--app-canvas-dark-strength, 0%), var(--color-zinc-950))
+  );
+}
+
 :root {
   color-scheme: light;
   /* Depth language (visual redesign). Inset bevel for in-flow surfaces (clip-safe),

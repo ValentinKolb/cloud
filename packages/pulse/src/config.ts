@@ -5,6 +5,7 @@ export const app = defineApp({
   name: "Pulse",
   icon: "ti ti-activity-heartbeat",
   description: "Metrics, events, states, and realtime dashboards.",
+  appearance: { accent: "#1e40af", background: { from: "#1d4ed8", to: "#4f46e5", angle: 135 } },
   basePath: "/app/pulse",
   baseUrl: "http://app-pulse:3000",
   nav: {

@@ -10,6 +10,7 @@ export const app = defineApp({
   name: "Files",
   icon: "ti ti-folders",
   description: "Browse, upload, move, and manage files across accessible bases.",
+  appearance: { accent: "#1d4ed8", background: { from: "#2563eb", to: "#38bdf8", angle: 135 } },
   basePath: "/app/files",
   baseUrl: "http://app-files:3000",
   adminHref: "/admin/files",

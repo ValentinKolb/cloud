@@ -26,6 +26,10 @@ export const app = defineApp({
   name: "My App",
   icon: "ti ti-star",
   description: "Short description.",
+  appearance: {
+    accent: "#217346",
+    background: { from: "#217346", to: "#4ca56f", angle: 135, strength: 20 },
+  },
   basePath: "/app/my-app",
   baseUrl: "http://app-my-app:3000",
   nav: { href: "/app/my-app", section: "primary", requiresAuth: true },
@@ -35,6 +39,8 @@ export const { ssr, plugin } = app;
 ```
 
 The `ssr` export is the page handler wrapper used in `frontend/index.ts`. The `basePath` is defined directly in `defineApp()`.
+
+`appearance` is optional. Cloud applies it centrally to the page canvas, active app-rail item, and launchpad icon. Use six-digit hex colors; omit `background` for a solid accent tint, add `to` for a two-stop gradient, or add `via` and `to` for three stops. The canvas uses a neutral middle stop and a `strength` of `20` by default. Set `strength` from `0` to `100` only when an app deliberately needs quieter or stronger colored edges. Do not duplicate these colors in app page or paper styles.
 
 ### Page Pattern
 

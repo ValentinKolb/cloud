@@ -16,6 +16,7 @@ export const buildRuntimeFromRegistry = (entries: AppRegistryEntry[]): CloudRunt
       name: e.name,
       icon: e.icon,
       description: e.description,
+      appearance: e.appearance,
       adminHref: e.nav?.adminHref,
       routes: e.routes,
       nav: e.nav

@@ -7,6 +7,7 @@ export type AppLaunchpadApp = {
   label: string;
   href: string;
   description?: string;
+  accent?: string;
 };
 
 export type AppLaunchpadLegalLink = {
@@ -47,9 +48,9 @@ const paletteForId = (id: string) => {
   return appIconPalette[hash] ?? appIconPalette[0];
 };
 
-const appIconStyle = (id: string) => {
-  const tone = paletteForId(id);
-  return `--app-icon-color:${tone.from}`;
+const appIconStyle = (app: AppLaunchpadApp) => {
+  const tone = /^#[0-9a-f]{6}$/i.test(app.accent ?? "") ? app.accent! : paletteForId(app.id).from;
+  return `--app-icon-color:${tone}`;
 };
 
 const readEmbeddedContext = (): AppLaunchpadContext | undefined => {
@@ -81,7 +82,7 @@ const AppLaunchpadPanel = (props: AppLaunchpadContext) => (
           >
             <span
               class="app-icon grid h-12 w-12 place-items-center rounded-[0.95rem] text-[1.25rem] sm:h-16 sm:w-16 sm:rounded-[1.25rem] sm:text-[1.7rem]"
-              style={appIconStyle(app.id)}
+              style={appIconStyle(app)}
             >
               <i class={app.iconClass} />
             </span>

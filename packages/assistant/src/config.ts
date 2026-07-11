@@ -5,6 +5,14 @@ export const app = defineApp({
   name: "Assistant",
   icon: "ti ti-sparkles",
   description: "General-purpose AI assistant for writing, rewriting, summarizing, and questions.",
+  appearance: {
+    accent: "#14b8a6",
+    background: {
+      from: "#14b8a6",
+      to: "#3b82f6",
+      angle: 135,
+    },
+  },
   basePath: "/app/assistant",
   baseUrl: "http://app-assistant:3000",
   nav: {

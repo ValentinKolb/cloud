@@ -5,6 +5,7 @@ export const app = defineApp({
   name: "Tools",
   icon: "ti ti-tools",
   description: "Utility tools for day-to-day work tasks.",
+  appearance: { accent: "#475569", background: { from: "#64748b" } },
   basePath: "/tools",
   baseUrl: "http://app-tools:3000",
   nav: {

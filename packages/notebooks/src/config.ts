@@ -5,6 +5,15 @@ export const app = defineApp({
   name: "Notebooks",
   icon: "ti ti-note",
   description: "Collaborative notebooks with structured notes and realtime sync.",
+  appearance: {
+    accent: "#eab308",
+    background: {
+      from: "#ffd60a",
+      to: "#ffcc00",
+      angle: 145,
+      strength: 24,
+    },
+  },
   basePath: "/app/notebooks",
   baseUrl: "http://app-notebooks:3000",
   adminHref: "/admin/notebooks",

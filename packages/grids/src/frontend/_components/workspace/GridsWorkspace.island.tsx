@@ -640,7 +640,7 @@ export default function GridsWorkspace(props: Props) {
           <AppWorkspace.SidebarHeader
             title={state().base.name}
             icon="ti ti-table"
-            iconStyle="background-color:#3b82f6"
+            iconStyle="background-color:var(--app-accent)"
             action={
               state().canManageBase ? (
                 <button

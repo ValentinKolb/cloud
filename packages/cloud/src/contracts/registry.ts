@@ -1,3 +1,5 @@
+import type { AppAppearance } from "./app";
+
 /**
  * App-registry entry type. Populated internally by `defineApp()` + the
  * heartbeat runtime; never parsed from external input — plain TS types are
@@ -37,6 +39,7 @@ export type AppRegistryEntry = {
   name: string;
   icon: string;
   description: string;
+  appearance?: AppAppearance;
   baseUrl: string;
   /**
    * Top-level URL prefixes the gateway routes to this app. The gateway

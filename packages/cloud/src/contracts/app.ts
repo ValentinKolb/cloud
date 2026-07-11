@@ -11,11 +11,26 @@ export type LegalLink = {
   icon?: string;
 };
 
+export type AppAppearanceColor = `#${string}`;
+
+export type AppAppearance = {
+  accent: AppAppearanceColor;
+  background?: {
+    from: AppAppearanceColor;
+    via?: AppAppearanceColor;
+    to?: AppAppearanceColor;
+    angle?: number;
+    /** Edge color intensity from 0 to 100. Defaults to 20. */
+    strength?: number;
+  };
+};
+
 export type AppMeta = {
   id: string;
   name: string;
   icon: string;
   description: string;
+  appearance?: AppAppearance;
   adminHref?: string;
   /**
    * Top-level URL prefixes the gateway routes to this app. The gateway

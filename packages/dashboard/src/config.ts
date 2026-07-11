@@ -5,6 +5,7 @@ export const app = defineApp({
   name: "Dashboard",
   icon: "ti ti-layout-dashboard",
   description: "User home — composable widgets from every app on the platform.",
+  appearance: { accent: "#7c3aed", background: { from: "#8b5cf6", to: "#d946ef", angle: 135 } },
   basePath: "/app/dashboard",
   baseUrl: "http://app-dashboard:3000",
   // `section: "hidden"` keeps the dashboard out of the rail (users land here

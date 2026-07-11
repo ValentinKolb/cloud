@@ -11,6 +11,7 @@ export const migrate = async (): Promise<void> => {
       name TEXT NOT NULL,
       icon TEXT NOT NULL,
       description TEXT NOT NULL,
+      appearance JSONB,
       base_url TEXT NOT NULL,
       routes JSONB NOT NULL DEFAULT '[]'::jsonb,
       nav JSONB,
@@ -25,6 +26,7 @@ export const migrate = async (): Promise<void> => {
       last_offline_logged_at TIMESTAMPTZ
     )
   `.simple();
+  await sql`ALTER TABLE gateway.registered_apps ADD COLUMN IF NOT EXISTS appearance JSONB`.simple();
   console.log("  ✓ gateway.registered_apps table");
 
   await sql`

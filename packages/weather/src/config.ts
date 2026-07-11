@@ -5,6 +5,16 @@ export const app = defineApp({
   name: "Weather",
   icon: "ti ti-temperature-celsius",
   description: "Forecasts, saved locations, and weather widgets.",
+  appearance: {
+    accent: "#0369a1",
+    background: {
+      from: "#3b82f6",
+      via: "#ffffff",
+      to: "#facc15",
+      angle: 135,
+      strength: 12,
+    },
+  },
   basePath: "/app/weather",
   baseUrl: "http://app-weather:3000",
   adminHref: "/admin/weather",

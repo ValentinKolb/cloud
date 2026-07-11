@@ -4,9 +4,10 @@ import { hasRole, type User } from "../contracts/shared";
 import type { LayoutAnnouncementsState } from "../server/middleware/settings";
 import { dates } from "../shared";
 import { readThemeFromCookieHeader } from "../shared/theme";
-import Avatar from "../ui/misc/Avatar";
 import type { LayoutBreadcrumb } from "../ui/layout";
+import Avatar from "../ui/misc/Avatar";
 import AppLaunchpad, { type AppLaunchpadApp } from "./AppLaunchpad.island";
+import { appAccentStyle, appAppearanceStyle, resolveCurrentApp } from "./app-appearance";
 import Footer from "./Footer.island";
 import GlobalAnnouncements from "./GlobalAnnouncements.island";
 import type { GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
@@ -20,7 +21,7 @@ import TimezoneCookie from "./TimezoneCookie.island";
 
 // Types
 type Breadcrumb = LayoutBreadcrumb;
-type AppLink = { id: string; iconClass: string; label: string; href: string; match: string; description?: string };
+type AppLink = { id: string; iconClass: string; label: string; href: string; match: string; description?: string; accent?: string };
 type LayoutContext = {
   get(key: "user"): User | undefined;
   get(key: "page"): { theme?: "light" | "dark" };
@@ -75,6 +76,7 @@ function buildNavLinks(apps: RuntimeContext["apps"], user: User | undefined): { 
         href: app.nav!.href,
         match: resolveNavMatch(app) ?? app.nav!.href.split("?")[0] ?? app.nav!.href,
         description: app.description,
+        accent: app.appearance?.accent,
       } satisfies AppLink,
     }));
   const primary = links.filter((entry) => entry.section === "primary").map((entry) => entry.link);
@@ -87,6 +89,7 @@ function buildNavLinks(apps: RuntimeContext["apps"], user: User | undefined): { 
       href: "/admin",
       match: "/admin",
       description: "Platform administration.",
+      accent: undefined,
     });
   }
   return { primary, more };
@@ -150,6 +153,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
   c.get("page").theme = readThemeFromCookieHeader(cookie);
   const user = c.get("user");
   const pathname = new URL(c.req.raw.url).pathname;
+  const currentApp = resolveCurrentApp(runtime.apps, pathname);
   const { primary: primaryApps, more: moreApps } = buildNavLinks(runtime.apps, user);
   const allApps = [...primaryApps, ...moreApps];
   const launchpadApps: AppLaunchpadApp[] = allApps.map((app) => ({
@@ -158,6 +162,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
     label: app.label,
     href: app.href,
     description: app.description,
+    accent: app.accent,
   }));
   const searchHelpApps: GlobalSearchHelpApp[] = runtime.apps
     .filter((app) => (app.searchTags?.length ?? 0) > 0)
@@ -207,7 +212,10 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
     ? "grid-cols-1 md:grid-cols-[auto_1fr] grid-rows-[auto_1fr]"
     : `grid-cols-1 ${!fullPage ? "grid-rows-[auto_1fr_auto]" : "grid-rows-[auto_1fr]"}`;
   return (
-    <div class={`grid min-h-screen w-screen relative md:h-screen md:overflow-hidden bg-zinc-50 dark:bg-zinc-950 ${gridClass}`}>
+    <div
+      class={`cloud-app-canvas grid min-h-screen w-screen relative md:h-screen md:overflow-hidden ${gridClass}`}
+      style={appAppearanceStyle(currentApp?.appearance)}
+    >
       <TimezoneCookie />
       {showRail && <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} />}
       {showRail && (
@@ -289,7 +297,12 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
         <div class="hidden md:flex flex-col items-center w-12 gap-1 pt-1 bg-white/20 dark:bg-zinc-950/20">
           {" "}
           {primaryApps.map((app) => (
-            <a href={app.href} class={`rail-item ${active(pathname, app.match) ? "rail-item-active" : ""}`} title={app.label}>
+            <a
+              href={app.href}
+              class={`rail-item ${active(pathname, app.match) ? "rail-item-active" : ""}`}
+              title={app.label}
+              style={appAccentStyle(app.accent)}
+            >
               {" "}
               <i class={`${app.iconClass} text-base`} />{" "}
             </a>
@@ -303,7 +316,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
         </div>
       )}{" "}
       {/* ── Main content (row 2) ── */}{" "}
-      <div class="flex flex-col min-h-0 min-w-0 bg-zinc-50 dark:bg-zinc-950">
+      <div class="flex flex-col min-h-0 min-w-0">
         {" "}
         {user && announcements && (
           <GlobalAnnouncements

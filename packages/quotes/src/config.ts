@@ -5,6 +5,7 @@ export const app = defineApp({
   name: "Quotes",
   icon: "ti ti-quote",
   description: "Display a cached motivational quote that refreshes hourly.",
+  appearance: { accent: "#be185d", background: { from: "#ec4899", to: "#f59e0b", angle: 135 } },
   basePath: "/app/quotes",
   baseUrl: "http://app-quotes:3000",
   widgets: [{ id: "quote", path: "/api/quotes/widget/quote" }],

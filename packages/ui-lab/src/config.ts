@@ -5,6 +5,7 @@ export const app = defineApp({
   name: "UI Lab",
   icon: "ti ti-palette",
   description: "Static showcase of shared UI components and styles.",
+  appearance: { accent: "#a21caf", background: { from: "#a855f7", to: "#ec4899", angle: 135 } },
   basePath: "/app/ui-lab",
   baseUrl: "http://app-ui-lab:3000",
   // ui-lab is a public component showcase. In production, simply don't

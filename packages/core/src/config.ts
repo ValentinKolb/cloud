@@ -6,6 +6,7 @@ export const app = defineApp({
   name: "Core",
   icon: "ti ti-cloud",
   description: "Auth, search, admin, and platform services.",
+  appearance: { accent: "#0284c7", background: { from: "#38bdf8", to: "#60a5fa", angle: 135 } },
   baseUrl: "http://app-core:3000",
   settings: CORE_SETTINGS,
   legalLinks: [

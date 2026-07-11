@@ -7,6 +7,7 @@ export const app = defineApp({
   name: "Gateway",
   icon: "ti ti-route-scan",
   description: "Admin console for gateway operations, observability, and notifications.",
+  appearance: { accent: "#b91c1c", background: { from: "#ef4444", to: "#f97316", angle: 135 } },
   basePath: "/admin/gateway",
   baseUrl: `http://app-gateway-ops:${port}`,
   adminHref: "/admin/gateway",

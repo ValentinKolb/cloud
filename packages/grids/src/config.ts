@@ -5,6 +5,15 @@ export const app = defineApp({
   name: "Grids",
   icon: "ti ti-table",
   description: "Flexible tables: bases, fields, records, views, forms.",
+  appearance: {
+    accent: "#008f4c",
+    background: {
+      from: "#00a651",
+      to: "#22c55e",
+      angle: 135,
+      strength: 28,
+    },
+  },
   basePath: "/app/grids",
   baseUrl: "http://app-grids:3000",
   adminHref: "/admin/grids",

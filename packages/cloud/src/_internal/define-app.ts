@@ -10,16 +10,16 @@ import { createConfig as createSsrConfig } from "@valentinkolb/ssr";
 import { createSSRHandler, routes } from "@valentinkolb/ssr/hono";
 import { Hono } from "hono";
 import { generateSpecs } from "hono-openapi";
-import type { AppCapabilities, AppLifecycle, AppMeta, AppSearchContext, CloudContext } from "../contracts/app";
+import type { AppAppearance, AppCapabilities, AppLifecycle, AppMeta, AppSearchContext, CloudContext } from "../contracts/app";
 import type { AppRegistryEntry } from "../contracts/registry";
 import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
 import type { Role } from "../contracts/shared";
-import { themeBootstrapScript } from "../shared/theme";
 import { auth } from "../server/middleware/auth";
 import { logger } from "../services/logging";
 import { get, loadCache as loadSettingsCache, set } from "../services/settings";
 import { createSettingsAPI, type SettingsAPI } from "../services/settings/api";
 import { registerSettings, type SettingDef } from "../services/settings/defaults";
+import { themeBootstrapScript } from "../shared/theme";
 import { createHeartbeat } from "./heartbeat";
 import { ensureRuntimeWatcher, getCurrentRuntime, stopRuntimeWatcher } from "./runtime-watcher";
 import { servePublicAsset } from "./static-assets";
@@ -50,6 +50,7 @@ export type AppOptions<S extends AppSettingsMap = {}> = {
   name: string;
   icon: string;
   description: string;
+  appearance?: AppAppearance;
   /** URL prefix for SSR asset isolation. Omit for the global `/_ssr/` path (core). */
   basePath?: string;
   /** Base URL as seen by other containers (e.g. "http://app-notebooks:3000"). */
@@ -278,6 +279,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     name: opts.name,
     icon: opts.icon,
     description: opts.description,
+    appearance: opts.appearance,
     adminHref: opts.adminHref,
     routes: [...opts.routes],
     nav: opts.nav,
@@ -304,6 +306,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
       name: meta.name,
       icon: meta.icon,
       description: meta.description,
+      appearance: meta.appearance,
       baseUrl,
       routes: [...meta.routes],
       nav:

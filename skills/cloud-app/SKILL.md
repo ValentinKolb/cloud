@@ -121,6 +121,10 @@ export const app = defineApp({
   name: "My App",                        // display name
   icon: "ti ti-star",                    // Tabler icon class
   description: "Short description.",
+  appearance: {                           // optional app identity
+    accent: "#217346",                    // active rail + launchpad icon
+    background: { from: "#217346", strength: 20 }, // optional canvas; add `via`/`to` for a gradient
+  },
   basePath: "/app/my-app",              // SSR asset URL prefix
   baseUrl: "http://app-my-app:3000",    // container URL for service registry
   adminHref: "/admin/my-app",           // optional admin page link

@@ -5,6 +5,13 @@ export const app = defineApp({
   name: "Contacts",
   icon: "ti ti-address-book",
   description: "Business contact books with structured emails, phones, postal addresses, and IPA system directory projection.",
+  appearance: {
+    accent: "#4f46e5",
+    background: {
+      from: "#6366f1",
+      to: "#8b5cf6",
+    },
+  },
   basePath: "/app/contacts",
   baseUrl: "http://app-contacts:3000",
   adminHref: "/admin/contacts",

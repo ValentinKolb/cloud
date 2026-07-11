@@ -5,6 +5,7 @@ export const app = defineApp({
   name: "Hosts",
   icon: "ti ti-server",
   description: "Manage FreeIPA hosts, hostgroups, and mirrored host membership data.",
+  appearance: { accent: "#0e7490", background: { from: "#06b6d4", to: "#14b8a6", angle: 135 } },
   basePath: "/admin/ipa-hosts",
   baseUrl: "http://app-ipa-hosts:3000",
   adminHref: "/admin/ipa-hosts",

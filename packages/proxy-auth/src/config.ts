@@ -5,6 +5,7 @@ export const app = defineApp({
   name: "Proxy Auth",
   icon: "ti ti-load-balancer",
   description: "Configure forward-auth clients and verify callback access flows.",
+  appearance: { accent: "#334155", background: { from: "#475569", to: "#4f46e5", angle: 135 } },
   basePath: "/admin/proxy-auth",
   baseUrl: "http://app-proxy-auth:3000",
   adminHref: "/admin/proxy-auth",

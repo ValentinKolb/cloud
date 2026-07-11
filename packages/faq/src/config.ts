@@ -5,6 +5,7 @@ export const app = defineApp({
   name: "FAQ",
   icon: "ti ti-help-circle",
   description: "Frequently asked questions and public help content.",
+  appearance: { accent: "#b45309", background: { from: "#f59e0b" } },
   basePath: "/faq",
   baseUrl: "http://app-faq:3000",
   adminHref: "/admin/faq",

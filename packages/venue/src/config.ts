@@ -5,6 +5,7 @@ export const app = defineApp({
   name: "Venues",
   icon: "ti ti-building-carousel",
   description: "Venues, opening hours, staffing shifts, public status pages, and anonymous feedback.",
+  appearance: { accent: "#a16207", background: { from: "#d97706", to: "#f59e0b", angle: 135 } },
   basePath: "/app/venue",
   baseUrl: "http://app-venue:3000",
   nav: {
