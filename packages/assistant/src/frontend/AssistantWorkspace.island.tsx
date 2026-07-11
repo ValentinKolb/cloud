@@ -294,7 +294,7 @@ export default function AssistantWorkspace(props: Props) {
   };
 
   return (
-    <AppWorkspace class="flex-1 min-h-0">
+    <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
       <AssistantSidebar
         conversations={chat.conversations}
         activeConversationId={chat.activeConversationId}
@@ -307,7 +307,7 @@ export default function AssistantWorkspace(props: Props) {
         onConversationDeleted={deleteConversation}
       />
 
-      <AppWorkspace.Main class="paper">
+      <AppWorkspace.Main>
         <section class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve="assistant-messages">
           <AiMessageList
             session={{
@@ -347,7 +347,7 @@ export default function AssistantWorkspace(props: Props) {
           />
         </section>
 
-        <div class="shrink-0 bg-gradient-to-t from-zinc-50 via-zinc-50/95 to-transparent px-3 pb-3 pt-6 dark:from-zinc-950 dark:via-zinc-950/95">
+        <div class="shrink-0 px-[var(--ui-space-section)] pb-[var(--ui-space-section)] pt-2">
           <div class="mx-auto flex max-w-4xl flex-col gap-2">
             <Show when={chat.error()}>
               <p class="inline-flex items-start gap-1.5 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:bg-red-950/35 dark:text-red-300">

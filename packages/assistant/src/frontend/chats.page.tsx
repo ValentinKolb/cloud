@@ -50,39 +50,30 @@ export default ssr<AuthContext>(async (c) => {
   return () => (
     <Layout c={c} fullPage title={[{ title: "Start", href: "/" }, { title: "Assistant", href: "/app/assistant" }, { title: "All Chats" }]}>
       <AssistantLayoutHelp />
-      <AppWorkspace class="flex-1 min-h-0">
+      <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
         <AssistantSidebarStandalone initialConversations={recentConversations} activeView="all" />
 
-        <AppWorkspace.Main class="paper">
-          <div class="flex min-h-0 flex-1 flex-col gap-3">
-            <div class="paper flex shrink-0 flex-col gap-3 p-4" style="view-transition-name: assistant-all-chats-header">
-              <div class="flex min-w-0 flex-wrap items-end justify-between gap-3">
-                <div class="min-w-0">
-                  <h1 class="text-base font-semibold text-primary">All Chats</h1>
-                  <p class="mt-1 text-xs text-dimmed">
-                    {conversationsPage.total} {conversationsPage.total === 1 ? "chat" : "chats"}
-                  </p>
-                </div>
-              </div>
-              <SearchBar
-                action={buildAllChatsUrl({ page: 1 })}
-                value={search}
-                placeholder="Search chats..."
-                ariaLabel="Search chats"
-              />
+        <AppWorkspace.Main class="gap-[var(--ui-space-section)] p-[var(--ui-space-section)]">
+          <header class="flex shrink-0 flex-col gap-[var(--ui-space-section)]" style="view-transition-name: assistant-all-chats-header">
+            <div class="min-w-0">
+              <h1 class="text-base font-semibold text-primary">All Chats</h1>
+              <p class="mt-1 text-xs text-dimmed">
+                {conversationsPage.total} {conversationsPage.total === 1 ? "chat" : "chats"}
+              </p>
             </div>
+            <SearchBar action={buildAllChatsUrl({ page: 1 })} value={search} placeholder="Search chats..." ariaLabel="Search chats" />
+          </header>
 
-            <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve="assistant-all-chats">
-              {conversationsPage.items.length === 0 ? (
-                <Placeholder surface="paper">{search ? "No chats match your search." : "No chats yet."}</Placeholder>
-              ) : (
-                <AssistantAllChatsList conversations={conversationsPage.items} />
-              )}
-            </div>
+          <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve="assistant-all-chats">
+            {conversationsPage.items.length === 0 ? (
+              <Placeholder surface="paper">{search ? "No chats match your search." : "No chats yet."}</Placeholder>
+            ) : (
+              <AssistantAllChatsList conversations={conversationsPage.items} />
+            )}
+          </div>
 
-            <div class="shrink-0">
-              <Pagination currentPage={conversationsPage.page} totalPages={totalPages} baseUrl={paginationBaseUrl(search)} />
-            </div>
+          <div class="shrink-0">
+            <Pagination currentPage={conversationsPage.page} totalPages={totalPages} baseUrl={paginationBaseUrl(search)} />
           </div>
         </AppWorkspace.Main>
       </AppWorkspace>
