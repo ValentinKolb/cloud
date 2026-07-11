@@ -25,6 +25,9 @@ const MODEL_ID = "mock-exec";
 let mockServer: ReturnType<typeof Bun.serve> | null = null;
 /** The SSE chunks the mock returns for the next /chat/completions call. */
 let nextCompletion: string[] = [];
+let completionQueue: string[][] = [];
+let onCompletionRequest: ((body: unknown, index: number) => void | Promise<void>) | null = null;
+let completionRequestCount = 0;
 
 const mockProfile = (): AiModelProfile => ({
   id: MODEL_ID,
@@ -81,10 +84,14 @@ beforeAll(() => {
     port: 0,
     async fetch(req) {
       if (new URL(req.url).pathname.endsWith("/chat/completions")) {
+        const requestBody = await req.json().catch(() => null);
+        const requestIndex = completionRequestCount++;
+        await onCompletionRequest?.(requestBody, requestIndex);
+        const chunks = completionQueue.shift() ?? nextCompletion;
         const body = new ReadableStream<Uint8Array>({
           start(controller) {
             const encoder = new TextEncoder();
-            for (const chunk of nextCompletion) controller.enqueue(encoder.encode(chunk));
+            for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
             controller.close();
           },
         });
@@ -236,6 +243,69 @@ describe("AI executor integration", () => {
       expect(messages.filter((m) => m.message.role === "user")).toHaveLength(1);
       expect(messages.filter((m) => m.message.role === "assistant")).toHaveLength(1);
     } finally {
+      await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
+  test("steering submitted during the final provider response continues the same turn", async () => {
+    if (!(await canRun())) return;
+    const userId = await insertUser();
+    const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
+
+    try {
+      completionRequestCount = 0;
+      completionQueue = [textCompletion("Initial answer"), textCompletion("Revised answer")];
+      const requests: unknown[] = [];
+      const { turn } = await aiConversationStore.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: MODEL_ID,
+        runConfig: { kind: "chat", input: "Start", toolSource: { kind: "none" } },
+        userMessage: userMessage("Start"),
+      });
+      onCompletionRequest = async (body, index) => {
+        requests.push(body);
+        if (index !== 0) return;
+        const result = await aiConversationStore.enqueueTurnSteer({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          clientRequestId: "late-steer",
+          text: "Change course",
+        });
+        expect(result.ok).toBe(true);
+      };
+
+      const collecting = collectWire(conversation.id, (event) => event.type === "turn_finished");
+      const claim = await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "steer-exec",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 5,
+        runBudgetMs: 60_000,
+      });
+      await createExecutor("steer-exec").run({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        claim: claim!,
+        signal: new AbortController().signal,
+      });
+
+      const events = await collecting;
+      const blockSets = events.filter((event): event is Extract<AiWireEvent, { type: "block_set" }> => event.type === "block_set");
+      expect(blockSets.some((event) => event.block.kind === "steer_message" && event.block.status === "consumed")).toBe(true);
+      expect(blockSets.some((event) => event.block.kind === "steer_applied")).toBe(true);
+      expect(events.at(-1)).toMatchObject({ type: "turn_finished", status: "completed" });
+
+      const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
+      expect(messages.map((entry) => entry.message.role)).toEqual(["user", "assistant", "user", "assistant"]);
+      expect(messages[2]?.meta?.steerId).toBeTruthy();
+      expect(requests).toHaveLength(2);
+      expect(JSON.stringify(requests[1])).toContain("Change course");
+    } finally {
+      onCompletionRequest = null;
+      completionQueue = [];
       await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
     }

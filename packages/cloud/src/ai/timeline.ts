@@ -1,6 +1,6 @@
 import type { Message } from "@valentinkolb/nessi";
 import type { AiTurnBlock } from "./protocol";
-import { buildBlocksFromMessages } from "./protocol";
+import { buildBlocksFromMessages, steerAppliedBlockId } from "./protocol";
 import type { AiStoredMessage } from "./types";
 
 export type AiAssistantTimelineItem = {
@@ -68,24 +68,51 @@ const timestampMs = (value: string | undefined): number | null => {
 export const buildAiMessageTimeline = (messages: AiStoredMessage[]): AiMessageTimelineItem[] => {
   const items: AiMessageTimelineItem[] = [];
   let lastUserEntry: AiStoredMessage | null = null;
+  let pendingSteers: Array<{ loopId: string | null; steerId: string }> = [];
+
+  const flushPendingSteers = () => {
+    for (const steer of pendingSteers) {
+      items.push({
+        type: "assistant",
+        id: `steer-marker-${steer.steerId}`,
+        loopId: steer.loopId,
+        entries: [],
+        blocks: [{ id: steerAppliedBlockId(steer.steerId), kind: "steer_applied", steerId: steer.steerId }],
+        actionEntry: null,
+        workedMs: 0,
+      });
+    }
+    pendingSteers = [];
+  };
 
   for (let index = 0; index < messages.length; ) {
     const entry = messages[index]!;
 
     if (entry.kind === "summary") {
+      flushPendingSteers();
       items.push({ type: "summary", id: entry.id, entry });
       index += 1;
       continue;
     }
     if (entry.message.role === "user") {
+      if (!entry.meta?.steerId) flushPendingSteers();
+      if (pendingSteers.some((steer) => steer.loopId !== entry.loopId)) flushPendingSteers();
       lastUserEntry = entry;
       items.push({ type: "user", id: entry.id, entry });
+      if (entry.meta?.steerId) pendingSteers.push({ loopId: entry.loopId, steerId: entry.meta.steerId });
       index += 1;
       continue;
     }
 
     // Assistant response group: this assistant message plus following same-loop parts.
     const loopId = entry.loopId;
+    if (pendingSteers.some((steer) => steer.loopId !== loopId)) flushPendingSteers();
+    const steerBlocks = pendingSteers.map((steer) => ({
+      id: steerAppliedBlockId(steer.steerId),
+      kind: "steer_applied" as const,
+      steerId: steer.steerId,
+    }));
+    pendingSteers = [];
     const entries = [entry];
     index += 1;
     while (index < messages.length && isAssistantPart(messages[index]!) && sameLoop(messages[index]!, loopId)) {
@@ -102,16 +129,21 @@ export const buildAiMessageTimeline = (messages: AiStoredMessage[]): AiMessageTi
     const finishedAt = timestampMs(entries.at(-1)?.createdAt);
     const workedMs = timing?.totalElapsedMs ?? (startedAt !== null && finishedAt !== null ? Math.max(0, finishedAt - startedAt) : 0);
 
+    const blocks = [
+      ...steerBlocks,
+      ...buildBlocksFromMessages(entries.map((stored) => ({ seq: stored.seq, message: stored.message, meta: stored.meta }))),
+    ];
     items.push({
       type: "assistant",
-      id: loopId ? `assistant-loop-${loopId}` : `assistant-legacy-${entry.id}`,
+      id: loopId ? `assistant-loop-${loopId}-${entry.id}` : `assistant-legacy-${entry.id}`,
       loopId,
       entries,
-      blocks: buildBlocksFromMessages(entries.map((stored) => ({ seq: stored.seq, message: stored.message }))),
+      blocks,
       actionEntry: assistantActionEntry(entries),
       workedMs,
     });
   }
 
+  flushPendingSteers();
   return items;
 };

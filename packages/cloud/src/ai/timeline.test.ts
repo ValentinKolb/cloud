@@ -133,6 +133,72 @@ describe("AI message timeline", () => {
     expect(second.loopId).toBe("loop-2");
   });
 
+  test("folds a steering marker into the next assistant response in the same loop", () => {
+    const timeline = buildAiMessageTimeline([
+      stored({ id: "u1", seq: 1, message: { role: "user", content: [{ type: "text", text: "start" }] }, loopId: "loop-1" }),
+      stored({
+        id: "a1",
+        seq: 2,
+        message: { role: "assistant", content: [{ type: "text", text: "initial" }], stopReason: "stop" },
+        loopId: "loop-1",
+      }),
+      {
+        ...stored({ id: "u2", seq: 3, message: { role: "user", content: [{ type: "text", text: "change course" }] }, loopId: "loop-1" }),
+        meta: { steerId: "steer-1" },
+      },
+      stored({
+        id: "a2",
+        seq: 4,
+        message: { role: "assistant", content: [{ type: "text", text: "revised" }], stopReason: "stop" },
+        loopId: "loop-1",
+      }),
+    ]);
+
+    expect(timeline.map((item) => item.type)).toEqual(["user", "assistant", "user", "assistant"]);
+    const final = timeline[3];
+    if (final?.type !== "assistant") throw new Error("expected assistant group");
+    expect(final.blocks).toEqual([
+      { id: "steer-applied-steer-1", kind: "steer_applied", steerId: "steer-1" },
+      expect.objectContaining({ kind: "text", text: "revised" }),
+    ]);
+    expect(timeline[1]?.id).not.toBe(final.id);
+  });
+
+  test("keeps one applied marker per steering message in an ordered batch", () => {
+    const timeline = buildAiMessageTimeline([
+      {
+        ...stored({ id: "u1", seq: 1, message: { role: "user", content: [{ type: "text", text: "first" }] }, loopId: "loop-1" }),
+        meta: { steerId: "s1" },
+      },
+      {
+        ...stored({ id: "u2", seq: 2, message: { role: "user", content: [{ type: "text", text: "second" }] }, loopId: "loop-1" }),
+        meta: { steerId: "s2" },
+      },
+      stored({
+        id: "a1",
+        seq: 3,
+        message: { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" },
+        loopId: "loop-1",
+      }),
+    ]);
+    expect(timeline.map((item) => item.type)).toEqual(["user", "user", "assistant"]);
+    const response = timeline[2];
+    if (response?.type !== "assistant") throw new Error("expected assistant group");
+    expect(response.blocks.slice(0, 2).map((block) => block.id)).toEqual(["steer-applied-s1", "steer-applied-s2"]);
+  });
+
+  test("keeps a standalone marker when no assistant response follows the steer", () => {
+    const timeline = buildAiMessageTimeline([
+      {
+        ...stored({ id: "u1", seq: 1, message: { role: "user", content: [{ type: "text", text: "change course" }] }, loopId: "loop-1" }),
+        meta: { steerId: "s1" },
+      },
+    ]);
+
+    expect(timeline.map((item) => item.type)).toEqual(["user", "assistant"]);
+    expect(timeline[1]?.type === "assistant" ? timeline[1].blocks[0]?.id : null).toBe("steer-applied-s1");
+  });
+
   test("renders summary rows as their own items", () => {
     const timeline = buildAiMessageTimeline([
       {

@@ -221,6 +221,10 @@ export function AiTurnBlockView(props: { block: AiTurnBlock; turnId: string; str
       return <AssistantMarkdownBlock html={markdown.renderSync(block.text)} />;
     case "thinking":
       return <ThinkingBlockView text={block.text} streaming={props.streaming} />;
+    case "steer_message":
+      return null;
+    case "steer_applied":
+      return <ChatUtilityLine meta={{ icon: "ti ti-route", label: "Conversation steered", tone: "ai" }} />;
     case "tool":
       return <ToolBlockView turnId={props.turnId} block={block} />;
     case "compaction":

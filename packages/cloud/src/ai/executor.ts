@@ -14,6 +14,8 @@ import {
   applyWireEventToBlocks,
   buildBlocksFromMessages,
   compactionBlockId,
+  steerAppliedBlockId,
+  steerMessageBlockId,
   streamBlockId,
   toolBlockId,
 } from "./protocol";
@@ -32,6 +34,7 @@ import type {
   AiStoredMessage,
   AiTurnClaim,
   AiTurnRunConfig,
+  AiTurnSteer,
 } from "./types";
 import { validateAiTurnRequest } from "./validate";
 
@@ -59,7 +62,11 @@ type ValidatedTurn = { settings: Awaited<ReturnType<typeof validateAiTurnRequest
 // Baseline rebuild — reconstruct the full active-turn view from persisted rounds
 // ---------------------------------------------------------------------------
 
-const rebuildBlocksFromMessages = (messages: AiStoredMessage[], pending: AiPendingTurnActionRecord[]): AiTurnBlock[] => {
+const rebuildBlocksFromMessages = (
+  messages: AiStoredMessage[],
+  pending: AiPendingTurnActionRecord[],
+  steers: AiTurnSteer[] = [],
+): AiTurnBlock[] => {
   const blocks = buildBlocksFromMessages(messages);
   const indexByCallId = new Map(blocks.map((block, index) => [block.kind === "tool" ? block.callId : `_${index}`, index]));
 
@@ -76,11 +83,23 @@ const rebuildBlocksFromMessages = (messages: AiStoredMessage[], pending: AiPendi
     }
   }
 
+  const known = new Set(blocks.map((block) => block.id));
+  for (const steer of steers) {
+    if (steer.status === "discarded" || known.has(steerMessageBlockId(steer.id))) continue;
+    blocks.push({
+      id: steerMessageBlockId(steer.id),
+      kind: "steer_message",
+      steerId: steer.id,
+      text: steer.text,
+      status: steer.status === "pending" ? "pending" : "consumed",
+    });
+  }
+
   return blocks;
 };
 
 // ---------------------------------------------------------------------------
-// Event mapper — nessi 0.5 block/tool events to Cloud wire block ops
+// Event mapper — Nessi block/tool events to Cloud wire block ops
 // ---------------------------------------------------------------------------
 
 type BlockSetOp = { type: "block_set"; block: AiTurnBlock };
@@ -294,11 +313,12 @@ export class AiTurnExecutor {
     pipeline: StreamPipeline,
     status: "completed" | "failed" | "aborted",
     error: string | null,
-  ): Promise<void> {
+  ) {
     if (status === "failed" && error) log.error("AI turn failed", { conversationId, turnId, error });
     const finalized = await aiConversationStore.completeTurn({ conversationId, turnId, status, error, leaseOwner: this.config.leaseOwner });
-    if (finalized) await pipeline.emitTurnFinished(status, error);
+    if (finalized === "completed") await pipeline.emitTurnFinished(status, error);
     await pipeline.flush().catch(() => undefined);
+    return finalized;
   }
 
   private async runChat(
@@ -308,6 +328,7 @@ export class AiTurnExecutor {
     config: AiChatTurnRunConfig,
     pipeline: StreamPipeline,
     signal: AbortSignal,
+    skipResolvedActions = false,
   ): Promise<void> {
     const startedAt = Date.now();
     const abortController = new AbortController();
@@ -356,17 +377,20 @@ export class AiTurnExecutor {
       leaseOwner: this.config.leaseOwner,
     });
 
-    const [loopMessages, pendingRecords, resolvedRecords] = await Promise.all([
+    const [loopMessages, pendingRecords, resolvedRecords, turnSteers] = await Promise.all([
       aiConversationStore.listTurnMessages({ conversationId, loopId: turnId }),
       aiConversationStore.listPendingActionRecords({ conversationId, turnId }),
       aiConversationStore.listResolvedPendingActions({ conversationId, turnId }),
+      aiConversationStore.listTurnSteers({ conversationId, turnId }),
     ]);
     const assistantMessages = loopMessages.filter((message) => message.message.role !== "user");
-    const isFresh = assistantMessages.length === 0 && resolvedRecords.length === 0;
+    const isFresh = assistantMessages.length === 0 && resolvedRecords.length === 0 && !skipResolvedActions;
 
     // Rebuild the whole active-turn view so a re-run/continuation reconstructs it.
-    pipeline.seedBaseline(rebuildBlocksFromMessages(assistantMessages, pendingRecords));
+    pipeline.seedBaseline(rebuildBlocksFromMessages(loopMessages, pendingRecords, turnSteers));
     await pipeline.emitBaseline();
+
+    const appliedSteers: AiTurnSteer[] = [];
 
     const loop = nessi({
       agentId: "cloud",
@@ -386,6 +410,16 @@ export class AiTurnExecutor {
         memory: prefs?.memory,
       }),
       store,
+      steering: async ({ signal: steeringSignal }) => {
+        if (steeringSignal.aborted) return undefined;
+        const steers = await aiConversationStore.takePendingTurnSteers({
+          conversationId,
+          turnId,
+          leaseOwner: this.config.leaseOwner,
+        });
+        appliedSteers.push(...steers);
+        return steers.length > 0 ? steers.map((steer) => steer.text) : undefined;
+      },
       tools: prepared.tools,
       maxTurns: prepared.tools.length > 0 ? 8 : 1,
       temperature: resolved.profile.temperature,
@@ -403,7 +437,7 @@ export class AiTurnExecutor {
     });
 
     // Seed the resumed loop with resolved actions before iterating.
-    for (const record of resolvedRecords) {
+    for (const record of skipResolvedActions ? [] : resolvedRecords) {
       if (record.resolvedEvent) loop.push(record.resolvedEvent);
     }
 
@@ -415,6 +449,7 @@ export class AiTurnExecutor {
       abortController,
       prepared,
       approvalContext: material.toolApprovalContext,
+      appliedSteers,
     });
     signal.removeEventListener("abort", onSignal);
 
@@ -425,7 +460,11 @@ export class AiTurnExecutor {
       return;
     }
 
-    await this.finalize(conversationId, turnId, pipeline, outcome.status, outcome.error);
+    const finalized = await this.finalize(conversationId, turnId, pipeline, outcome.status, outcome.error);
+    if (finalized === "pending_steering" && outcome.status === "completed" && !signal.aborted) {
+      await this.runChat(conversationId, turnId, claim, config, pipeline, signal, true);
+      return;
+    }
     log.info("AI turn finished", {
       conversationId,
       turnId,
@@ -445,8 +484,9 @@ export class AiTurnExecutor {
     abortController: AbortController;
     prepared: PreparedAiTools;
     approvalContext?: AiToolApprovalContext;
+    appliedSteers: AiTurnSteer[];
   }): Promise<AttemptOutcome> {
-    const { loop, pipeline, conversationId, turnId, abortController, prepared, approvalContext } = input;
+    const { loop, pipeline, conversationId, turnId, abortController, prepared, approvalContext, appliedSteers } = input;
     const stopHeartbeat = this.startHeartbeat(conversationId, turnId, abortController);
     let lastIssueMessage: string | null = null;
 
@@ -462,7 +502,12 @@ export class AiTurnExecutor {
           continue;
         }
 
-        await pipeline.apply(event);
+        if (event.type === "steer_applied") {
+          const steer = appliedSteers.shift();
+          if (steer) await pipeline.applySteer(steer);
+        } else {
+          await pipeline.apply(event);
+        }
 
         if (event.type === "tool_execution_start") {
           await aiToolAudit
@@ -788,6 +833,24 @@ class StreamPipeline {
     const ops = this.mapper.translate(event);
     if (ops.length > 0 && this.firstBlockMs === null) this.firstBlockMs = Date.now() - this.createdAt;
     for (const op of ops) await this.emitOp(op);
+    await this.maybeSnapshot();
+  }
+
+  async applySteer(steer: AiTurnSteer): Promise<void> {
+    await this.emitOp({
+      type: "block_set",
+      block: {
+        id: steerMessageBlockId(steer.id),
+        kind: "steer_message",
+        steerId: steer.id,
+        text: steer.text,
+        status: "consumed",
+      },
+    });
+    await this.emitOp({
+      type: "block_set",
+      block: { id: steerAppliedBlockId(steer.id), kind: "steer_applied", steerId: steer.id },
+    });
     await this.maybeSnapshot();
   }
 

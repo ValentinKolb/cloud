@@ -192,6 +192,39 @@ export const migrateCloudAi = async (): Promise<void> => {
     ON ai.turns(conversation_id, created_at DESC)
   `.simple();
 
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.turn_steers (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      conversation_id UUID NOT NULL REFERENCES ai.conversations(id) ON DELETE CASCADE,
+      turn_id UUID NOT NULL REFERENCES ai.turns(id) ON DELETE CASCADE,
+      seq INTEGER NOT NULL,
+      client_request_id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      message_id UUID REFERENCES ai.messages(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      consumed_at TIMESTAMPTZ,
+      CONSTRAINT ai_turn_steers_status_check CHECK (status IN ('pending', 'consumed', 'discarded')),
+      CONSTRAINT ai_turn_steers_text_check CHECK (length(btrim(text)) BETWEEN 1 AND 20000)
+    )
+  `.simple();
+
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_turn_steers_turn_seq
+    ON ai.turn_steers(turn_id, seq)
+  `.simple();
+
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_turn_steers_request
+    ON ai.turn_steers(turn_id, client_request_id)
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_turn_steers_pending
+    ON ai.turn_steers(conversation_id, turn_id, seq ASC)
+    WHERE status = 'pending'
+  `.simple();
+
   // Streaming persistence moved to live_blocks snapshots plus the Redis fanout
   // topic; the per-delta event log is gone.
   await sql`DROP TABLE IF EXISTS ai.turn_events`.simple();

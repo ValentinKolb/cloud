@@ -22,6 +22,8 @@ export type AiToolBlockStatus = "running" | "awaiting_approval" | "awaiting_clie
 export type AiTurnBlock =
   | { id: string; kind: "text"; text: string }
   | { id: string; kind: "thinking"; text: string }
+  | { id: string; kind: "steer_message"; steerId: string; text: string; status: "pending" | "consumed" | "failed" }
+  | { id: string; kind: "steer_applied"; steerId: string }
   | {
       id: string;
       kind: "tool";
@@ -119,11 +121,13 @@ export const applyWireEventToBlocks = (blocks: AiTurnBlock[], event: AiWireEvent
  * (baseline rebuild on claim) and the client (rendering finished turns), so a
  * live turn and its persisted form render through exactly the same block list.
  */
-export const buildBlocksFromMessages = (messages: { seq: number; message: Message }[]): AiTurnBlock[] => {
+export const buildBlocksFromMessages = (
+  messages: { seq: number; message: Message; meta?: { steerId?: string } | null }[],
+): AiTurnBlock[] => {
   const blocks: AiTurnBlock[] = [];
   const toolIndex = new Map<string, number>();
 
-  for (const { seq, message } of messages) {
+  for (const { seq, message, meta } of messages) {
     if (message.role === "assistant") {
       message.content.forEach((block, index) => {
         if (block.type === "text") {
@@ -135,6 +139,15 @@ export const buildBlocksFromMessages = (messages: { seq: number; message: Messag
           blocks.push({ id: toolBlockId(block.id), kind: "tool", callId: block.id, name: block.name, args: block.args, status: "running" });
         }
       });
+    } else if (message.role === "user" && meta?.steerId) {
+      blocks.push({
+        id: steerMessageBlockId(meta.steerId),
+        kind: "steer_message",
+        steerId: meta.steerId,
+        text: userMessageText(message),
+        status: "consumed",
+      });
+      blocks.push({ id: steerAppliedBlockId(meta.steerId), kind: "steer_applied", steerId: meta.steerId });
     } else if (message.role === "tool_result") {
       const at = toolIndex.get(message.callId);
       const existing = at !== undefined ? blocks[at] : undefined;
@@ -166,5 +179,38 @@ export const streamBlockId = (attempt: number, turnIndex: number, nessiBlockId: 
 
 /** Block id for text/thinking blocks rebuilt from a persisted message. */
 export const messageBlockId = (messageSeq: number, blockIndex: number): string => `m${messageSeq}-${blockIndex}`;
+
+export const steerMessageBlockId = (steerId: string): string => `steer-message-${steerId}`;
+export const steerAppliedBlockId = (steerId: string): string => `steer-applied-${steerId}`;
+
+export type AiActiveTurnSegment =
+  | { type: "assistant"; id: string; blocks: AiTurnBlock[] }
+  | { type: "steer"; id: string; block: Extract<AiTurnBlock, { kind: "steer_message" }> };
+
+export const splitActiveTurnBlocks = (blocks: AiTurnBlock[]): AiActiveTurnSegment[] => {
+  const segments: AiActiveTurnSegment[] = [];
+  let assistant: AiTurnBlock[] = [];
+  const flush = () => {
+    if (assistant.length === 0) return;
+    segments.push({ type: "assistant", id: `assistant-${segments.length}-${assistant[0]!.id}`, blocks: assistant });
+    assistant = [];
+  };
+  for (const block of blocks) {
+    if (block.kind === "steer_message") {
+      flush();
+      segments.push({ type: "steer", id: block.id, block });
+    } else {
+      assistant.push(block);
+    }
+  }
+  flush();
+  return segments;
+};
+
+const userMessageText = (message: Extract<Message, { role: "user" }>): string =>
+  message.content
+    .filter((part): part is Extract<(typeof message.content)[number], { type: "text" }> => typeof part !== "string" && part.type === "text")
+    .map((part) => part.text)
+    .join("\n");
 
 export const compactionBlockId = "compaction";

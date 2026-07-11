@@ -29,7 +29,9 @@ const cardCallMessage = {
 };
 const finalAnswerMessage = {
   role: "assistant" as const,
-  content: [{ type: "text" as const, text: "Activation is improving. I need one prioritization signal before proposing the next iteration." }],
+  content: [
+    { type: "text" as const, text: "Activation is improving. I need one prioritization signal before proposing the next iteration." },
+  ],
 };
 const finalAnswerUsage = { input: 380, output: 64, total: 444 };
 
@@ -203,7 +205,7 @@ export const AiComposerDemo = () => {
       code={`<AiComposer
   models={{ profiles: () => models, selectedId: selectedModelId, onSelect: setSelectedModelId }}
   state={{ disabled: () => false, running: () => false }}
-  actions={{ onNewConversation: createConversation, send: sendMessage, stop }}
+  actions={{ onNewConversation: createConversation, send: sendMessage, steer: steerMessage, stop }}
 />`}
     >
       <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
@@ -230,6 +232,7 @@ export const AiComposerDemo = () => {
               },
             ],
             send: () => true,
+            steer: () => true,
             stop: () => undefined,
           }}
         />

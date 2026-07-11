@@ -3,18 +3,19 @@ import { z } from "zod";
 import { type AuthContext, err, fail, ok, type RequestActor, respond, v } from "../server";
 import type { AiToolApprovalContext } from "./approvals";
 import { createConfiguredDefaultCloudAiTools } from "./default-tools";
+import { AI_FILES_MAX_FILE_BYTES_DEFAULT, aiFileStore, guessAiMediaType, normalizeAiFilePath } from "./files-store";
 import {
   AiCompactionInputSchema,
   AiCreateConversationInputSchema,
   AiMessageForkInputSchema,
   AiMessageRetryInputSchema,
+  AiSteerInputSchema,
   AiTurnInputSchema,
   aiInputToUserMessage,
   aiTurnInputToContent,
   toAiActionFailureResponse,
   toAiErrorResponse,
 } from "./http";
-import { AI_FILES_MAX_FILE_BYTES_DEFAULT, aiFileStore, guessAiMediaType, normalizeAiFilePath } from "./files-store";
 import { aiMaintenanceJobs } from "./maintenance";
 import { createCloudAiMemoryTool } from "./memory-tool";
 import { AI_USER_INSTRUCTIONS_MAX_CHARS, AI_USER_MEMORY_MAX_CHARS, aiActorUser, aiPrefsUserId, aiUserPrefs } from "./prefs";
@@ -278,6 +279,27 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
       } catch (error) {
         return toAiErrorResponse(c, error);
       }
+    })
+    .post("/conversations/:conversationId/turns/:turnId/steer", v("json", AiSteerInputSchema), async (c) => {
+      const ctx = await config.resolveContext(c);
+      if (ctx instanceof Response) return ctx;
+      const conversation = await loadConversation(c, ctx);
+      if (!conversation) return notFound(c);
+      const turnId = c.req.param("turnId");
+      if (!turnId) return notFound(c);
+      const body = c.req.valid("json");
+      const result = await aiConversationStore.enqueueTurnSteer({
+        conversationId: conversation.id,
+        turnId,
+        clientRequestId: body.clientRequestId,
+        text: body.message,
+      });
+      if (!result.ok) {
+        if (result.reason === "not_found") return respond(c, fail(err.notFound("Turn")));
+        if (result.reason === "not_chat") return respond(c, fail(err.badInput("Compaction turns cannot be steered.")));
+        return respond(c, fail(err.conflict("This turn is no longer active.")));
+      }
+      return respond(c, ok(result.steer), 201);
     })
     .post("/conversations/:conversationId/messages/:messageId/retry", v("json", AiMessageRetryInputSchema), async (c) => {
       const ctx = await config.resolveContext(c);

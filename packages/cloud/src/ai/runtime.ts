@@ -128,7 +128,7 @@ export const abortAiTurn = async (input: { conversationId: string; turnId: strin
 
   if (request.ownerless) {
     const finalized = await aiConversationStore.completeTurn({ ...input, status: "aborted", error: null });
-    if (finalized) {
+    if (finalized === "completed") {
       const attempt = active?.turn.id === input.turnId ? active.turn.attempt : 1;
       const seq = (active?.turn.id === input.turnId ? active.liveSeq : 0) + 1;
       await publishAiWireEvent({

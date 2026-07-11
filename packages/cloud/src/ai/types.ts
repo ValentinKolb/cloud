@@ -229,11 +229,30 @@ export type AiStoredMessage = {
    */
   compactedAt: string | null;
   /** UI metadata (e.g. how many messages a compaction summary replaced). */
-  meta: { compactedCount?: number } | null;
+  meta: { compactedCount?: number; steerId?: string } | null;
   createdAt: string;
 };
 
 export type AiTurnStatus = "queued" | "running" | "waiting_for_action" | "completed" | "failed" | "aborted";
+
+export type AiTurnSteerStatus = "pending" | "consumed" | "discarded";
+
+export type AiTurnSteer = {
+  id: string;
+  conversationId: string;
+  turnId: string;
+  seq: number;
+  clientRequestId: string;
+  text: string;
+  status: AiTurnSteerStatus;
+  messageId: string | null;
+  createdAt: string;
+  consumedAt: string | null;
+};
+
+export type AiTurnSteerEnqueueResult = { ok: true; steer: AiTurnSteer } | { ok: false; reason: "not_found" | "not_chat" | "not_active" };
+
+export type AiTurnCompletionResult = "completed" | "pending_steering" | "lost";
 
 export type AiTurn = {
   id: string;
@@ -500,7 +519,7 @@ export type AiConversationStore = {
     error?: string | null;
     /** When set, only the lease owner may finalize; otherwise only ownerless turns are finalized. */
     leaseOwner?: string;
-  }): Promise<boolean>;
+  }): Promise<AiTurnCompletionResult>;
   /** Periodic maintenance: requeue lost turns, fail over-budget turns, abort stale waits. */
   sweepTurns(input?: { limit?: number }): Promise<AiTurnSweepResult>;
   savePendingTurnAction(input: AiPendingTurnActionRecord): Promise<void>;
@@ -515,6 +534,15 @@ export type AiConversationStore = {
     event: InboundEvent;
   }): Promise<AiPendingTurnActionRecord | null>;
   clearPendingTurnActions(input: { conversationId: string; turnId: string }): Promise<void>;
+  enqueueTurnSteer(input: {
+    conversationId: string;
+    turnId: string;
+    clientRequestId: string;
+    text: string;
+  }): Promise<AiTurnSteerEnqueueResult>;
+  listTurnSteers(input: { conversationId: string; turnId: string }): Promise<AiTurnSteer[]>;
+  /** Atomically make pending steers visible to the model and return them in order. */
+  takePendingTurnSteers(input: { conversationId: string; turnId: string; leaseOwner: string }): Promise<AiTurnSteer[]>;
   createSessionStore(input: {
     conversationId: string;
     modelProfileId?: string | null;

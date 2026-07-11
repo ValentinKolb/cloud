@@ -1,7 +1,7 @@
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import { Placeholder } from "../../ui";
 import type { AiActiveTurn } from "../client/projection";
-import { isRenderableTurnBlock } from "../protocol";
+import { type AiActiveTurnSegment, isRenderableTurnBlock, splitActiveTurnBlocks } from "../protocol";
 import {
   type AiAssistantTimelineItem,
   type AiMessageTimelineItem,
@@ -13,7 +13,7 @@ import { AiTurnBlockList } from "./blocks";
 import { AiMessageActionsProvider, type AiMessageListActions, AssistantMessageActions } from "./message-actions";
 import { formatWorkedDuration, isCardToolName, isSurveyToolName, textFromMessage } from "./message-utils";
 import { AssistantMessageLane, ChatUtilityDisclosure, ChatUtilityLine, PulseDots } from "./primitives";
-import { UserMessageBubble } from "./user-message";
+import { SteerMessageBubble, UserMessageBubble } from "./user-message";
 
 export type { AiMessageListActions };
 
@@ -130,6 +130,7 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
   const timelineItems = createMemo(() => buildAiMessageTimeline(props.session.messages()));
   const activeTurn = () => props.session.activeTurn();
   const activeBlocks = () => activeTurn()?.blocks ?? [];
+  const activeSegments = createMemo(() => splitActiveTurnBlocks(activeBlocks()));
   const streaming = () => activeTurn()?.status === "running";
   const history = () => props.session.history;
 
@@ -242,14 +243,33 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
             <For each={timelineItems()}>{(item) => <TimelineItemView item={item} />}</For>
             <Show when={activeTurn()}>
               {(turn) => (
-                <AssistantMessageLane>
-                  <Show
-                    when={activeBlocks().length > 0}
-                    fallback={<ChatUtilityLine meta={{ icon: "ti ti-sparkles", label: "Thinking", tone: "ai" }} trailing={<PulseDots />} />}
-                  >
-                    <AiTurnBlockList blocks={turn().blocks} turnId={turn().turnId} streaming={streaming()} />
-                  </Show>
-                </AssistantMessageLane>
+                <Show
+                  when={activeSegments().length > 0}
+                  fallback={
+                    <AssistantMessageLane>
+                      <ChatUtilityLine meta={{ icon: "ti ti-sparkles", label: "Thinking", tone: "ai" }} trailing={<PulseDots />} />
+                    </AssistantMessageLane>
+                  }
+                >
+                  <For each={activeSegments()}>
+                    {(segment, index) => (
+                      <Switch>
+                        <Match when={segment.type === "steer"}>
+                          <SteerMessageBubble block={(segment as Extract<AiActiveTurnSegment, { type: "steer" }>).block} />
+                        </Match>
+                        <Match when={segment.type === "assistant"}>
+                          <AssistantMessageLane>
+                            <AiTurnBlockList
+                              blocks={(segment as Extract<AiActiveTurnSegment, { type: "assistant" }>).blocks}
+                              turnId={turn().turnId}
+                              streaming={streaming() && index() === activeSegments().length - 1}
+                            />
+                          </AssistantMessageLane>
+                        </Match>
+                      </Switch>
+                    )}
+                  </For>
+                </Show>
               )}
             </Show>
             <div ref={endRef} />

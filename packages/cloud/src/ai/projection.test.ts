@@ -152,6 +152,47 @@ describe("projection reducer", () => {
     expect(visible.map((message) => message.id)).toEqual(["u1"]);
   });
 
+  test("hides consumed steering messages while their active blocks represent them", () => {
+    const initial = storedMessage({ id: "u1", seq: 1, loopId: "turn-1" });
+    const steer = storedMessage({
+      id: "u2",
+      seq: 2,
+      loopId: "turn-1",
+      message: { role: "user", content: [{ type: "text", text: "change course" }] },
+      meta: { steerId: "steer-1" },
+    });
+    const state = feed([
+      {
+        type: "state",
+        conversation,
+        messages: [initial, steer],
+        activeTurn: {
+          turnId: "turn-1",
+          attempt: 1,
+          seq: 3,
+          status: "running",
+          blocks: [
+            { id: "steer-message-steer-1", kind: "steer_message", steerId: "steer-1", text: "change course", status: "consumed" },
+            { id: "steer-applied-steer-1", kind: "steer_applied", steerId: "steer-1" },
+          ],
+          modelProfileId: "m",
+          createdAt: "x",
+        },
+      } as AiStreamSseEvent,
+    ]);
+    expect(visibleMessages(state).map((message) => message.id)).toEqual(["u1"]);
+
+    const finished = reduceProjection(state, wire({
+      attempt: 1,
+      seq: 4,
+      type: "turn_finished",
+      status: "completed",
+      error: null,
+      messages: [initial, steer],
+    }));
+    expect(visibleMessages(finished).map((message) => message.id)).toEqual(["u1", "u2"]);
+  });
+
   test("stale attempt events are ignored; newer attempt supersedes", () => {
     let state = feed([
       { type: "state", conversation, messages: [], activeTurn: null } as AiStreamSseEvent,
@@ -165,6 +206,26 @@ describe("projection reducer", () => {
     );
     expect(state.activeTurn?.blocks).toEqual([{ id: "s2-1", kind: "text", text: "new" }]);
     expect(state.activeTurn?.attempt).toBe(2);
+  });
+
+  test("turn_started preserves an optimistic pending steering bubble", () => {
+    const state = reduceProjection(
+      {
+        ...emptyProjection(conversation),
+        activeTurn: {
+          turnId: "turn-1",
+          attempt: 0,
+          seq: 0,
+          status: "running",
+          blocks: [{ id: "steer-request-1", kind: "steer_message", steerId: "request-1", text: "change", status: "pending" }],
+          modelProfileId: "m",
+        },
+      },
+      wire({ turnId: "turn-1", attempt: 1, seq: 1, type: "turn_started", modelProfileId: "m", providerModel: "p" }),
+    );
+    expect(state.activeTurn?.blocks).toEqual([
+      { id: "steer-request-1", kind: "steer_message", steerId: "request-1", text: "change", status: "pending" },
+    ]);
   });
 
   test("derives waiting_for_action from an awaiting tool block", () => {

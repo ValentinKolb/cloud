@@ -84,9 +84,8 @@ export default function AssistantWorkspace(props: Props) {
   const [composerDrafts, setComposerDrafts] = createSignal<Record<string, string>>({});
   const [composerAttachments, setComposerAttachments] = createSignal<Record<string, AiComposerAttachment[]>>({});
 
-  const canSend = createMemo(
-    () => props.status.ok && props.status.enabled && props.models.length > 0 && !chat.running() && !chat.activeTurn(),
-  );
+  const canUseComposer = createMemo(() => props.status.ok && props.status.enabled && props.models.length > 0);
+  const canSend = createMemo(() => canUseComposer() && !chat.running() && !chat.activeTurn());
   const usage = createMemo(() => aiLatestUsage(chat.messages()));
   const loopUsage = createMemo(() => aiLatestLoopUsage(chat.messages()));
   const composerSessionKey = () => chat.activeConversationId() ?? "__new__";
@@ -124,6 +123,10 @@ export default function AssistantWorkspace(props: Props) {
   const send = async (input: AiComposerSendInput) => {
     if (!canSend()) return false;
     return chat.send({ ...input, modelProfileId: selectedModelId() || undefined });
+  };
+  const steer = async (message: string) => {
+    if (!canUseComposer() || !chat.activeTurn()) return false;
+    return chat.steer(message);
   };
 
   const activeConversation = () => chat.conversations().find((conversation) => conversation.id === chat.activeConversationId()) ?? null;
@@ -295,6 +298,9 @@ export default function AssistantWorkspace(props: Props) {
               onRetryMessage: (entry, input) => {
                 void chat.retryUserMessage(entry.id, { ...input, modelProfileId: selectedModelId() || undefined });
               },
+              onRetrySteer: (block) => {
+                void chat.retrySteer(block);
+              },
               fileUrl: chat.fileContentUrl,
             }}
             emptyTitle={props.status.enabled ? "Start a conversation" : "AI is disabled"}
@@ -328,10 +334,14 @@ export default function AssistantWorkspace(props: Props) {
                 onDraftChange: setComposerDraft,
                 attachments: activeComposerAttachments,
                 onAttachmentsChange: setActiveComposerAttachments,
-                disabled: () => !canSend(),
+                disabled: () => !canUseComposer(),
                 running: chat.running,
                 focusToken: composerFocusToken,
-                placeholder: props.status.enabled ? "Ask Assistant anything or type / ..." : "AI is not configured",
+                placeholder: props.status.enabled
+                  ? chat.running()
+                    ? "Steer the current response"
+                    : "Ask Assistant anything or type / ..."
+                  : "AI is not configured",
                 usage,
                 loopUsage,
                 files: {
@@ -352,6 +362,7 @@ export default function AssistantWorkspace(props: Props) {
                 onNewConversation: () => void createAndFocusConversation(),
                 slashCommands,
                 send,
+                steer,
                 stop: chat.abort,
               }}
             />

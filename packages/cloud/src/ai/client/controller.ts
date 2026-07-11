@@ -1,8 +1,8 @@
 import { type Accessor, createMemo, createSignal, onCleanup } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { type AiAttachmentRef, aiAttachmentMarker } from "../attachments";
-import type { AiStreamSseEvent, AiTurnSnapshot } from "../protocol";
-import type { AiConversation, AiStoredMessage, AiTurn, AiUserContentPart } from "../types";
+import { type AiStreamSseEvent, type AiTurnBlock, type AiTurnSnapshot, steerMessageBlockId } from "../protocol";
+import type { AiConversation, AiStoredMessage, AiTurn, AiTurnSteer, AiUserContentPart } from "../types";
 import {
   type AiChatProjection,
   activeTurnFromSnapshot,
@@ -55,6 +55,19 @@ const readError = async (response: Response, fallback: string): Promise<string> 
   const body = await response.json().catch(() => null);
   return body && typeof body === "object" && "message" in body && typeof body.message === "string" ? body.message : fallback;
 };
+
+const reconcileSteerBlocks = (blocks: AiTurnBlock[], localId: string, steer: AiTurnSteer): AiTurnBlock[] => {
+  const stableId = steerMessageBlockId(steer.id);
+  const stableExists = blocks.some((block) => block.id === stableId);
+  const next = blocks.filter((block) => block.id !== localId);
+  if (!stableExists) {
+    next.push({ id: stableId, kind: "steer_message", steerId: steer.id, text: steer.text, status: "pending" });
+  }
+  return next;
+};
+
+const failSteerBlock = (blocks: AiTurnBlock[], blockId: string): AiTurnBlock[] =>
+  blocks.map((block) => (block.id === blockId && block.kind === "steer_message" ? { ...block, status: "failed" } : block));
 
 export const createAiChatController = (options: CreateAiChatControllerOptions) => {
   const [conversations, setConversations] = createSignal(options.initialConversations ?? []);
@@ -401,6 +414,16 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       );
       // Replace the optimistic message with the persisted one.
       setState("messages", (prev) => prev.map((message) => (message.id === optimistic.id ? result.message : message)));
+      setState("activeTurn", (current) =>
+        current ?? {
+          turnId: result.turn.id,
+          attempt: 0,
+          seq: 0,
+          status: "running",
+          blocks: [],
+          modelProfileId: result.turn.modelProfileId,
+        },
+      );
       cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
       if (attachmentParts.length > 0) void refreshFiles();
       return true;
@@ -410,6 +433,75 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       setGlobalError(sendError instanceof Error ? sendError.message : "AI request failed");
       return false;
     }
+  };
+
+  const submitSteer = async (input: { text: string; clientRequestId: string; blockId: string }) => {
+    const conversationId = activeConversationId();
+    const turn = state.activeTurn;
+    if (!conversationId || !turn || runStatus() === "stopping") return false;
+
+    try {
+      const result = await request<AiTurnSteer>(
+        `/conversations/${conversationId}/turns/${turn.turnId}/steer`,
+        { method: "POST", body: JSON.stringify({ message: input.text, clientRequestId: input.clientRequestId }) },
+        "Failed to steer the current response",
+      );
+      setState("activeTurn", (current) => {
+        if (!current || current.turnId !== turn.turnId) return current;
+        return { ...current, blocks: reconcileSteerBlocks(current.blocks, input.blockId, result) };
+      });
+      cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
+      return true;
+    } catch (steerError) {
+      setState("activeTurn", (current) =>
+        current
+          ? {
+              ...current,
+              blocks: failSteerBlock(current.blocks, input.blockId),
+            }
+          : current,
+      );
+      setGlobalError(steerError instanceof Error ? steerError.message : "Failed to steer the current response");
+      return true;
+    }
+  };
+
+  const steer = async (message: string) => {
+    const text = message.trim();
+    const turn = state.activeTurn;
+    if (!text || !turn || runStatus() === "stopping") return false;
+    setGlobalError(null);
+    const clientRequestId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    const blockId = `steer-request-${clientRequestId}`;
+    setState("activeTurn", (current) =>
+      current
+        ? {
+            ...current,
+            blocks: [
+              ...current.blocks,
+              { id: blockId, kind: "steer_message" as const, steerId: clientRequestId, text, status: "pending" as const },
+            ],
+          }
+        : current,
+    );
+    return submitSteer({ text, clientRequestId, blockId });
+  };
+
+  const retrySteer = async (block: Extract<AiTurnSnapshot["blocks"][number], { kind: "steer_message" }>) => {
+    if (block.status !== "failed") return false;
+    setGlobalError(null);
+    setState("activeTurn", (current) =>
+      current
+        ? {
+            ...current,
+            blocks: current.blocks.map((candidate) =>
+              candidate.id === block.id && candidate.kind === "steer_message" ? { ...candidate, status: "pending" as const } : candidate,
+            ),
+          }
+        : current,
+    );
+    return submitSteer({ text: block.text, clientRequestId: block.steerId, blockId: block.id });
   };
 
   /** Download URL for a conversation VFS file (present blocks, attachment chips). */
@@ -575,6 +667,8 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     openConversation,
     createConversation,
     send,
+    steer,
+    retrySteer,
     abort,
     compactConversation,
     retryUserMessage,
@@ -589,3 +683,5 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
 };
 
 export type AiChatController = ReturnType<typeof createAiChatController>;
+
+export const __aiControllerTest = { failSteerBlock, reconcileSteerBlocks };

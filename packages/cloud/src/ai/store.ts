@@ -19,6 +19,7 @@ import type {
   AiTurnClaim,
   AiTurnRunConfig,
   AiTurnStatus,
+  AiTurnSteer,
   AiTurnSweepResult,
 } from "./types";
 
@@ -113,6 +114,19 @@ type PendingActionRow = {
   allow_always: boolean;
   frontend_mode: AiFrontendToolMode | null;
   resolved_event: unknown | null;
+};
+
+type TurnSteerRow = {
+  id: string;
+  conversation_id: string;
+  turn_id: string;
+  seq: number;
+  client_request_id: string;
+  text: string;
+  status: "pending" | "consumed" | "discarded";
+  message_id: string | null;
+  created_at: Date | string;
+  consumed_at: Date | string | null;
 };
 
 const iso = (value: Date | string): string => (value instanceof Date ? value.toISOString() : new Date(value).toISOString());
@@ -260,6 +274,19 @@ const rowToPendingActionRecord = (row: PendingActionRow): AiPendingTurnActionRec
   allowAlways: row.allow_always,
   frontendMode: row.frontend_mode ?? undefined,
   resolvedEvent: row.resolved_event ? parseJsonValue<InboundEvent>(row.resolved_event) : null,
+});
+
+const rowToTurnSteer = (row: TurnSteerRow): AiTurnSteer => ({
+  id: row.id,
+  conversationId: row.conversation_id,
+  turnId: row.turn_id,
+  seq: Number(row.seq),
+  clientRequestId: row.client_request_id,
+  text: row.text,
+  status: row.status,
+  messageId: row.message_id,
+  createdAt: iso(row.created_at),
+  consumedAt: row.consumed_at ? iso(row.consumed_at) : null,
 });
 
 const boundedMs = (value: number, fallback: number, min: number, max: number): number => {
@@ -1158,36 +1185,62 @@ export const aiConversationStore: AiConversationStore = {
   },
 
   completeTurn: async (input) => {
-    const rows = await sql<{ id: string }[]>`
-      UPDATE ai.turns
-      SET status = ${input.status},
-          completed_at = now(),
-          error = ${input.error ?? null},
-          lease_owner = NULL,
-          lease_expires_at = NULL,
-          live_blocks = NULL
-      WHERE id = ${input.turnId}
-        AND conversation_id = ${input.conversationId}
-        AND status IN ('queued', 'running', 'waiting_for_action')
-        AND (
-          (${input.leaseOwner ?? null}::text IS NOT NULL AND lease_owner = ${input.leaseOwner ?? null})
-          OR (
-            ${input.leaseOwner ?? null}::text IS NULL
-            AND (lease_owner IS NULL OR lease_expires_at IS NULL OR lease_expires_at < now())
+    return sql.begin(async () => {
+      const turnRows = await sql<{ id: string }[]>`
+        SELECT id
+        FROM ai.turns
+        WHERE id = ${input.turnId}
+          AND conversation_id = ${input.conversationId}
+          AND status IN ('queued', 'running', 'waiting_for_action')
+          AND (
+            (${input.leaseOwner ?? null}::text IS NOT NULL AND lease_owner = ${input.leaseOwner ?? null})
+            OR (
+              ${input.leaseOwner ?? null}::text IS NULL
+              AND (lease_owner IS NULL OR lease_expires_at IS NULL OR lease_expires_at < now())
+            )
           )
-        )
-      RETURNING id
-    `;
-    if (rows[0]) {
+        FOR UPDATE
+      `;
+      if (!turnRows[0]) return "lost" as const;
+
+      if (input.status === "completed") {
+        const pending = await sql<{ id: string }[]>`
+          SELECT id
+          FROM ai.turn_steers
+          WHERE conversation_id = ${input.conversationId}
+            AND turn_id = ${input.turnId}
+            AND status = 'pending'
+          LIMIT 1
+        `;
+        if (pending[0]) return "pending_steering" as const;
+      }
+
+      await sql`
+        UPDATE ai.turns
+        SET status = ${input.status},
+            completed_at = now(),
+            error = ${input.error ?? null},
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            live_blocks = NULL
+        WHERE id = ${input.turnId}
+      `;
       await sql`
         UPDATE ai.pending_actions
         SET status = 'aborted', resolved_at = COALESCE(resolved_at, now())
         WHERE turn_id = ${input.turnId}
           AND status = 'pending'
       `;
-      return true;
-    }
-    return false;
+      if (input.status !== "completed") {
+        await sql`
+          UPDATE ai.turn_steers
+          SET status = 'discarded', consumed_at = COALESCE(consumed_at, now())
+          WHERE turn_id = ${input.turnId}
+            AND status = 'pending'
+        `;
+      }
+      return "completed" as const;
+    });
   },
 
   sweepTurns: async (input) => {
@@ -1254,6 +1307,12 @@ export const aiConversationStore: AiConversationStore = {
       await sql`
         UPDATE ai.pending_actions
         SET status = 'aborted', resolved_at = COALESCE(resolved_at, now())
+        WHERE turn_id = ${finalized.turnId}
+          AND status = 'pending'
+      `;
+      await sql`
+        UPDATE ai.turn_steers
+        SET status = 'discarded', consumed_at = COALESCE(consumed_at, now())
         WHERE turn_id = ${finalized.turnId}
           AND status = 'pending'
       `;
@@ -1416,6 +1475,104 @@ export const aiConversationStore: AiConversationStore = {
     `;
   },
 
+  enqueueTurnSteer: async (input) =>
+    sql.begin(async () => {
+      const turnRows = await sql<TurnRow[]>`
+        SELECT *
+        FROM ai.turns
+        WHERE id = ${input.turnId}
+          AND conversation_id = ${input.conversationId}
+        FOR UPDATE
+      `;
+      const turn = turnRows[0];
+      if (!turn) return { ok: false, reason: "not_found" as const };
+      const runConfig = turn.run_config ? parseJsonValue<AiTurnRunConfig>(turn.run_config) : null;
+      if (runConfig?.kind === "compact") return { ok: false, reason: "not_chat" as const };
+      if (!(["queued", "running", "waiting_for_action"] as AiTurnStatus[]).includes(turn.status)) {
+        return { ok: false, reason: "not_active" as const };
+      }
+
+      const existing = await sql<TurnSteerRow[]>`
+        SELECT *
+        FROM ai.turn_steers
+        WHERE turn_id = ${input.turnId}
+          AND client_request_id = ${input.clientRequestId}
+        LIMIT 1
+      `;
+      if (existing[0]) return { ok: true, steer: rowToTurnSteer(existing[0]) };
+
+      const rows = await sql<TurnSteerRow[]>`
+        INSERT INTO ai.turn_steers (conversation_id, turn_id, seq, client_request_id, text)
+        VALUES (
+          ${input.conversationId},
+          ${input.turnId},
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM ai.turn_steers WHERE turn_id = ${input.turnId}),
+          ${input.clientRequestId},
+          ${input.text}
+        )
+        RETURNING *
+      `;
+      return { ok: true, steer: rowToTurnSteer(rows[0]!) };
+    }),
+
+  listTurnSteers: async (input) => {
+    const rows = await sql<TurnSteerRow[]>`
+      SELECT *
+      FROM ai.turn_steers
+      WHERE conversation_id = ${input.conversationId}
+        AND turn_id = ${input.turnId}
+      ORDER BY seq ASC
+    `;
+    return rows.map(rowToTurnSteer);
+  },
+
+  takePendingTurnSteers: async (input) =>
+    sql.begin(async () => {
+      const owner = await sql<{ id: string }[]>`
+        SELECT id
+        FROM ai.turns
+        WHERE id = ${input.turnId}
+          AND conversation_id = ${input.conversationId}
+          AND status = 'running'
+          AND lease_owner = ${input.leaseOwner}
+          AND cancel_requested_at IS NULL
+          AND lease_expires_at > now()
+        FOR UPDATE
+      `;
+      if (!owner[0]) throw new Error("AI turn lost its lease while taking steering.");
+
+      const pending = await sql<TurnSteerRow[]>`
+        SELECT *
+        FROM ai.turn_steers
+        WHERE conversation_id = ${input.conversationId}
+          AND turn_id = ${input.turnId}
+          AND status = 'pending'
+        ORDER BY seq ASC
+        FOR UPDATE
+      `;
+      if (pending.length === 0) return [];
+
+      await sql`SELECT id FROM ai.conversations WHERE id = ${input.conversationId} FOR UPDATE`;
+      const consumed: AiTurnSteer[] = [];
+      for (const steer of pending) {
+        const message = await insertMessageLocked({
+          conversationId: input.conversationId,
+          message: { role: "user", content: [{ type: "text", text: steer.text }] },
+          loopId: input.turnId,
+          meta: { steerId: steer.id },
+        });
+        const rows = await sql<TurnSteerRow[]>`
+          UPDATE ai.turn_steers
+          SET status = 'consumed', message_id = ${message.id}, consumed_at = now()
+          WHERE id = ${steer.id}
+            AND status = 'pending'
+          RETURNING *
+        `;
+        if (rows[0]) consumed.push(rowToTurnSteer(rows[0]));
+      }
+      return consumed;
+    }),
+
   createSessionStore: (input): SessionStore => ({
     load: async (): Promise<StoreEntry[]> => {
       // The loop must only ever see the active model context, never archived history.
@@ -1423,7 +1580,7 @@ export const aiConversationStore: AiConversationStore = {
       return rows.map((row) => ({ seq: row.seq, kind: row.kind, message: row.message }));
     },
     append: async (message, opts) => {
-      // User messages are persisted transactionally at submit time; the loop must never re-append them.
+      // Initial input and durable steering are already persisted transactionally before Nessi appends them.
       if (message.role === "user") return;
 
       if (input.turnId && input.leaseOwner) {

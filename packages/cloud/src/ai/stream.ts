@@ -1,6 +1,13 @@
 import { topic } from "@valentinkolb/sync";
 import { logger } from "../services/logging";
-import { type AiStreamSseEvent, type AiTurnSnapshot, type AiWireEvent, isNewerWireEvent } from "./protocol";
+import {
+  type AiStreamSseEvent,
+  type AiTurnSnapshot,
+  type AiWireEvent,
+  isNewerWireEvent,
+  steerAppliedBlockId,
+  steerMessageBlockId,
+} from "./protocol";
 import { aiConversationStore } from "./store";
 import type { AiConversation } from "./types";
 
@@ -76,12 +83,30 @@ export const loadAiStreamState = async (conversation: AiConversation): Promise<E
     aiConversationStore.listMessagesPage({ conversationId: conversation.id, limit: AI_STREAM_INITIAL_MESSAGE_LIMIT }),
     aiConversationStore.getActiveTurn({ conversationId: conversation.id }),
   ]);
+  const snapshot = active ? turnSnapshotFromActive(active) : null;
+  if (snapshot) {
+    const steers = await aiConversationStore.listTurnSteers({ conversationId: conversation.id, turnId: snapshot.turnId });
+    const known = new Set(snapshot.blocks.map((block) => block.id));
+    for (const steer of steers) {
+      if (steer.status === "discarded" || known.has(steerMessageBlockId(steer.id))) continue;
+      snapshot.blocks.push({
+        id: steerMessageBlockId(steer.id),
+        kind: "steer_message",
+        steerId: steer.id,
+        text: steer.text,
+        status: steer.status === "pending" ? "pending" : "consumed",
+      });
+      if (steer.status === "consumed" && !known.has(steerAppliedBlockId(steer.id))) {
+        snapshot.blocks.push({ id: steerAppliedBlockId(steer.id), kind: "steer_applied", steerId: steer.id });
+      }
+    }
+  }
   return {
     type: "state",
     conversation,
     messages: page.messages,
     hasMoreMessages: page.hasMore,
-    activeTurn: active ? turnSnapshotFromActive(active) : null,
+    activeTurn: snapshot,
   };
 };
 

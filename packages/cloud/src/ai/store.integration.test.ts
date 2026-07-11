@@ -279,7 +279,7 @@ describe("AI conversation store integration", () => {
           status: "completed",
           leaseOwner: "worker-b",
         }),
-      ).toBe(true);
+      ).toBe("completed");
       const done = await aiConversationStore.getTurn({ conversationId: conversation.id, turnId: turn.id });
       expect(done?.status).toBe("completed");
     } finally {
@@ -341,6 +341,16 @@ describe("AI conversation store integration", () => {
       expect(active?.turn.status).toBe("waiting_for_action");
       expect(active?.liveBlocks).toHaveLength(1);
       expect(active?.liveSeq).toBe(7);
+      expect(
+        (
+          await aiConversationStore.enqueueTurnSteer({
+            conversationId: conversation.id,
+            turnId: turn.id,
+            clientRequestId: "waiting-steer",
+            text: "Apply after approval",
+          })
+        ).ok,
+      ).toBe(true);
 
       // A continuation claim requires a resolved action.
       const early = await aiConversationStore.claimTurn({
@@ -374,9 +384,107 @@ describe("AI conversation store integration", () => {
       expect(continuation?.turn.attempt).toBe(2);
       expect(continuation?.liveBlocks).toHaveLength(1);
 
+      const resumedSteers = await aiConversationStore.takePendingTurnSteers({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "worker-b",
+      });
+      expect(resumedSteers.map((steer) => steer.text)).toEqual(["Apply after approval"]);
+
       const seeds = await aiConversationStore.listResolvedPendingActions({ conversationId: conversation.id, turnId: turn.id });
       expect(seeds).toHaveLength(1);
       expect(seeds[0]?.resolvedEvent).toMatchObject({ type: "approval_response", approved: true });
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
+    }
+  });
+
+  test("durable steering is ordered, idempotent, and atomically persisted before completion", async () => {
+    if (!(await canUseAiDatabase())) return;
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+
+    try {
+      const conversation = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
+      conversationIds.push(conversation.id);
+      const { turn } = await aiConversationStore.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: "test-model",
+        runConfig,
+        userMessage: userMessage("Start"),
+      });
+      await aiConversationStore.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "steer-worker",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 5,
+        runBudgetMs: 60_000,
+      });
+
+      const first = await aiConversationStore.enqueueTurnSteer({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        clientRequestId: "request-1",
+        text: "First steer",
+      });
+      const duplicate = await aiConversationStore.enqueueTurnSteer({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        clientRequestId: "request-1",
+        text: "First steer",
+      });
+      const second = await aiConversationStore.enqueueTurnSteer({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        clientRequestId: "request-2",
+        text: "Second steer",
+      });
+      expect(first.ok && duplicate.ok ? duplicate.steer.id : null).toBe(first.ok ? first.steer.id : null);
+      expect(second.ok ? second.steer.seq : null).toBe(2);
+
+      expect(await aiConversationStore.completeTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        status: "completed",
+        leaseOwner: "steer-worker",
+      })).toBe("pending_steering");
+      expect((await aiConversationStore.listMessages({ conversationId: conversation.id })).filter((entry) => entry.message.role === "user")).toHaveLength(1);
+
+      await expect(aiConversationStore.takePendingTurnSteers({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "other-worker",
+      })).rejects.toThrow("lost its lease");
+
+      const consumed = await aiConversationStore.takePendingTurnSteers({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "steer-worker",
+      });
+      expect(consumed.map((steer) => steer.text)).toEqual(["First steer", "Second steer"]);
+      expect(consumed.every((steer) => steer.status === "consumed" && Boolean(steer.messageId))).toBe(true);
+      expect(await aiConversationStore.takePendingTurnSteers({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "steer-worker",
+      })).toEqual([]);
+
+      const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
+      const steeringMessages = messages.filter((entry) => entry.meta?.steerId);
+      expect(steeringMessages.map((entry) => entry.message.role === "user" ? entry.message.content[0] : null)).toEqual([
+        { type: "text", text: "First steer" },
+        { type: "text", text: "Second steer" },
+      ]);
+      expect(new Set(steeringMessages.map((entry) => entry.meta?.steerId))).toEqual(new Set(consumed.map((steer) => steer.id)));
+
+      expect(await aiConversationStore.completeTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        status: "completed",
+        leaseOwner: "steer-worker",
+      })).toBe("completed");
     } finally {
       await cleanupFixture({ userId, conversationIds });
     }
@@ -396,6 +504,12 @@ describe("AI conversation store integration", () => {
         runConfig,
         userMessage: userMessage("abort me"),
       });
+      await aiConversationStore.enqueueTurnSteer({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        clientRequestId: "abort-steer",
+        text: "Too late",
+      });
 
       const request = await aiConversationStore.requestTurnAbort({ conversationId: conversation.id, turnId: turn.id });
       expect(request).toMatchObject({ found: true, status: "queued", ownerless: true });
@@ -407,7 +521,8 @@ describe("AI conversation store integration", () => {
           turnId: turn.id,
           status: "aborted",
         }),
-      ).toBe(true);
+      ).toBe("completed");
+      expect((await aiConversationStore.listTurnSteers({ conversationId: conversation.id, turnId: turn.id }))[0]?.status).toBe("discarded");
 
       // Cancel-requested turns are no longer claimable.
       const claim = await aiConversationStore.claimTurn({

@@ -213,6 +213,7 @@ export type AiComposerActions = {
   slashCommands?: () => AiSlashCommand[];
   onNewConversation?: () => void | Promise<void>;
   send: (input: AiComposerSendInput) => boolean | Promise<boolean>;
+  steer: (message: string) => boolean | Promise<boolean>;
   stop: () => void;
 };
 
@@ -240,7 +241,9 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
 
   const selectedModel = createMemo(() => props.models.profiles().find((model) => model.id === props.models.selectedId()) ?? null);
   const supportsVision = () => Boolean(selectedModel()?.capabilities.includes("vision"));
-  const canSubmit = () => !props.state.disabled() && (draft().trim().length > 0 || pendingAttachments().length > 0);
+  const canSubmit = () =>
+    !props.state.disabled() &&
+    (props.state.running() ? draft().trim().length > 0 : draft().trim().length > 0 || pendingAttachments().length > 0);
   const slashCommands = () => props.actions.slashCommands?.() ?? [];
   const modelPickerDisabled = () => props.state.disabled() || props.state.running() || props.models.profiles().length === 0;
   const slashMatches = createMemo(() => {
@@ -403,7 +406,26 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
 
   const submit = async () => {
     if (props.state.running()) {
-      props.actions.stop();
+      const text = draft().trim();
+      if (!text) return;
+      if (pendingAttachments().length > 0) {
+        toast.error("Attachments cannot be added while steering the current response.", { title: "Text only" });
+        return;
+      }
+      const previousDraft = draft();
+      setDraftValue("");
+      requestAnimationFrame(() => {
+        autoResize();
+        focus();
+      });
+      const steered = await Promise.resolve(props.actions.steer(text)).catch(() => false);
+      if (!steered) {
+        setDraftValue(previousDraft);
+        requestAnimationFrame(() => {
+          autoResize();
+          focus();
+        });
+      }
       return;
     }
     if (!canSubmit()) return;
@@ -489,6 +511,7 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
   const onDrop = (event: DragEvent) => {
     event.preventDefault();
     setDragActive(false);
+    if (props.state.running()) return;
     const files = event.dataTransfer?.files;
     if (files?.length) void addAttachments(files);
   };
@@ -579,7 +602,7 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
           </Show>
 
           <Show
-            when={!props.state.disabled()}
+            when={!props.state.disabled() && !props.state.running()}
             fallback={
               <span class="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-300 dark:text-zinc-700">
                 <i class="ti ti-plus text-base" aria-hidden="true" />
@@ -631,15 +654,26 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
             contextWindow={selectedModel()?.contextWindow}
           />
 
+          <Show when={props.state.running()}>
+            <button
+              type="button"
+              class="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:text-red-600 focus-ui dark:text-zinc-500 dark:hover:text-red-300"
+              title="Stop"
+              aria-label="Stop"
+              onClick={() => props.actions.stop()}
+            >
+              <i class="ti ti-player-stop text-base" aria-hidden="true" />
+            </button>
+          </Show>
           <button
             type="button"
             class="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:text-cyan-600 focus-ui disabled:cursor-not-allowed disabled:opacity-35 dark:text-zinc-500 dark:hover:text-cyan-300"
-            disabled={props.state.running() ? false : !canSubmit()}
-            title={props.state.running() ? "Stop" : "Send"}
-            aria-label={props.state.running() ? "Stop" : "Send"}
+            disabled={!canSubmit()}
+            title={props.state.running() ? "Steer response" : "Send"}
+            aria-label={props.state.running() ? "Steer response" : "Send"}
             onClick={() => void submit()}
           >
-            <i class={`ti ${props.state.running() ? "ti-player-stop" : "ti-arrow-up"} text-base`} aria-hidden="true" />
+            <i class={`ti ${props.state.running() ? "ti-route" : "ti-arrow-up"} text-base`} aria-hidden="true" />
           </button>
         </div>
       </div>

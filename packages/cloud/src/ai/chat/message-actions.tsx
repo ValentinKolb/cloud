@@ -2,6 +2,7 @@ import type { Message, Usage } from "@valentinkolb/nessi";
 import { clipboard } from "@valentinkolb/stdlib/solid";
 import { createContext, createSignal, For, type JSX, Show, useContext } from "solid-js";
 import { dialogCore, PanelDialog, panelDialogOptions, StatCell, StatGrid, TextInput } from "../../ui";
+import type { AiTurnBlock } from "../protocol";
 import type { AiStoredMessage } from "../types";
 import { type AiForkMessageInput, type AiRetryMessageInput, displayToolName, formatWorkedDuration } from "./message-utils";
 
@@ -12,12 +13,14 @@ type ApprovalHandler = (request: AiTurnActionRequest, input: { approved: boolean
 type FrontendToolResultHandler = (request: AiTurnActionRequest, result: unknown) => void | Promise<void>;
 type ForkMessageHandler = (entry: AiStoredMessage, input?: AiForkMessageInput) => void | Promise<void>;
 type RetryMessageHandler = (entry: AiStoredMessage, input?: AiRetryMessageInput) => void | Promise<void>;
+type RetrySteerHandler = (block: Extract<AiTurnBlock, { kind: "steer_message" }>) => void | Promise<void>;
 
 export type AiMessageListActions = {
   onApproval?: ApprovalHandler;
   onFrontendToolResult?: FrontendToolResultHandler;
   onForkMessage?: ForkMessageHandler;
   onRetryMessage?: RetryMessageHandler;
+  onRetrySteer?: RetrySteerHandler;
   /** Download URL for a conversation VFS file (present blocks, attachment chips). */
   fileUrl?: (path: string) => string | null;
 };

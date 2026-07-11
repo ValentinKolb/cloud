@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AiTurnInputSchema, aiTurnInputToContent } from "./http";
+import { AiSteerInputSchema, AiTurnInputSchema, aiTurnInputToContent } from "./http";
 
 describe("AI HTTP input helpers", () => {
   test("keeps the message when content contains only files", () => {
@@ -35,5 +35,14 @@ describe("AI HTTP input helpers", () => {
         content: [{ type: "file", mediaType: "image/svg+xml", data: "abc123" }],
       }),
     ).toThrow();
+  });
+
+  test("steering is text-only and requires an idempotency key", () => {
+    expect(AiSteerInputSchema.parse({ message: "  Change course  ", clientRequestId: "request-1" })).toEqual({
+      message: "Change course",
+      clientRequestId: "request-1",
+    });
+    expect(() => AiSteerInputSchema.parse({ message: "", clientRequestId: "request-1" })).toThrow();
+    expect(() => AiSteerInputSchema.parse({ message: "Change course" })).toThrow();
   });
 });

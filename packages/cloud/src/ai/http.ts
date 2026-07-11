@@ -46,6 +46,11 @@ export const AiTurnInputSchema = z
 
 export type AiTurnInput = z.infer<typeof AiTurnInputSchema>;
 
+export const AiSteerInputSchema = z.object({
+  message: z.string().trim().min(1).max(20000),
+  clientRequestId: z.string().trim().min(1).max(120),
+});
+
 export const AiCompactionInputSchema = z.object({
   modelProfileId: z.string().trim().min(1).optional(),
 });

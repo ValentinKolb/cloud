@@ -1,15 +1,16 @@
 import { clipboard } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { DialogHeader, Dropdown, type DropdownItem, dialogCore, TextInput } from "../../ui";
+import type { AiTurnBlock } from "../protocol";
 import type { AiStoredMessage } from "../types";
 import { useAiMessageActions } from "./message-actions";
 import {
+  type AiRetryMessageInput,
   copyTextFromMessage,
   filePartsFromMessage,
   formatBytes,
   imageSrc,
   textAttachmentSummariesFromMessage,
-  type AiRetryMessageInput,
   userContentWithEditedVisibleText,
   userVisibleTextFromMessage,
   vfsAttachmentsFromMessage,
@@ -187,6 +188,35 @@ export function UserMessageBubble(props: { entry: AiStoredMessage }) {
             )}
           </Show>
         </div>
+      </div>
+    </div>
+  );
+}
+
+export function SteerMessageBubble(props: { block: Extract<AiTurnBlock, { kind: "steer_message" }> }) {
+  const actions = useAiMessageActions();
+  return (
+    <div class="flex justify-end px-3 py-2">
+      <div class="flex max-w-[min(44rem,88%)] flex-col items-end gap-1">
+        <div class="paper rounded-br-sm px-3 py-2 text-sm leading-6 text-primary">
+          <p class="whitespace-pre-wrap">{props.block.text}</p>
+        </div>
+        <Show when={props.block.status === "pending"}>
+          <span class="inline-flex items-center gap-1 text-[10px] text-dimmed">
+            <i class="ti ti-clock text-xs" aria-hidden="true" />
+            Pending
+          </span>
+        </Show>
+        <Show when={props.block.status === "failed"}>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 text-[10px] font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+            onClick={() => void actions.onRetrySteer?.(props.block)}
+          >
+            <i class="ti ti-refresh text-xs" aria-hidden="true" />
+            Retry
+          </button>
+        </Show>
       </div>
     </div>
   );
