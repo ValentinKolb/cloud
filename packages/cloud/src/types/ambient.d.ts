@@ -7,6 +7,11 @@ declare module "*.md" {
   export default content;
 }
 
+declare module "*.sh" {
+  const content: string;
+  export default content;
+}
+
 declare module "@babel/core" {
   export const types: typeof import("@babel/types");
 

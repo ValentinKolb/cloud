@@ -38,6 +38,7 @@ for (const target of selectedTargets) {
     define: {
       __CLD_VERSION__: JSON.stringify(version),
       __CLD_COMMIT__: JSON.stringify(commit),
+      __CLD_STANDALONE__: "true",
     },
     minify: true,
   });

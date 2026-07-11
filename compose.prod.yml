@@ -11,6 +11,7 @@ x-shared-env: &shared-env
   DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
   REDIS_URL: redis://valkey:6379
   APP_SECRET: ${APP_SECRET}
+  APP_URL: https://${CLOUD_HOST}
 
 x-app-defaults: &app-defaults
   restart: unless-stopped

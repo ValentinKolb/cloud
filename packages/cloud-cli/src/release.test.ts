@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { arch, platform, tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveCliRelease, updateCli } from "./release";
+import { COSIGN_CERTIFICATE_IDENTITY_REGEXP, resolveCliRelease, updateCli } from "./release";
 
 const temporaryDirectories: string[] = [];
 
@@ -27,12 +27,27 @@ const currentAssetName = () => {
 };
 
 describe("Cloud CLI releases", () => {
-  test("resolves the newest CLI release without selecting app releases", async () => {
-    const response = Response.json([{ tag_name: "cloud-core-v1.0.0" }, { tag_name: "cli-v1.2.3" }, { tag_name: "cli-v1.2.2" }]);
+  test("resolves the highest stable CLI release across pages", async () => {
+    const firstPage = [
+      { tag_name: "cloud-core-v1.0.0" },
+      { tag_name: "cli-v1.9.4" },
+      { tag_name: "cli-v2.0.0-rc.1", prerelease: true },
+      ...Array.from({ length: 97 }, (_, index) => ({ id: index })),
+    ];
+    const release = await resolveCliRelease(undefined, {
+      fetchImpl: async (input) => {
+        const page = new URL(String(input)).searchParams.get("page");
+        return Response.json(page === "1" ? firstPage : [{ tag_name: "cli-v2.0.0" }]);
+      },
+    });
 
-    const release = await resolveCliRelease(undefined, { fetchImpl: async () => response });
+    expect(release).toEqual({ tag: "cli-v2.0.0", version: "2.0.0" });
+  });
 
-    expect(release).toEqual({ tag: "cli-v1.2.3", version: "1.2.3" });
+  test("rejects prerelease versions and pins Cosign to the CLI workflow", async () => {
+    await expect(resolveCliRelease("1.2.3-rc.1", { fetchImpl: async () => Response.json({}) })).rejects.toThrow("stable version");
+    expect(COSIGN_CERTIFICATE_IDENTITY_REGEXP).toContain("workflows/cli");
+    expect(COSIGN_CERTIFICATE_IDENTITY_REGEXP).toContain("refs/tags/cli-v");
   });
 
   test("updates an installed binary only after checksum verification", async () => {
@@ -108,7 +123,7 @@ describe("Cloud CLI releases", () => {
     }
   });
 
-  test("installs the latest matching CLI release through the shell installer", async () => {
+  test("installs the highest stable CLI release through the shell installer", async () => {
     const directory = await createTemporaryDirectory();
     const prefix = join(directory, "bin");
     const assetName = currentAssetName();
@@ -120,10 +135,13 @@ describe("Cloud CLI releases", () => {
       fetch(request) {
         const url = new URL(request.url);
         if (url.pathname === "/releases") {
-          return new Response(JSON.stringify([{ tag_name: "cloud-core-v9.9.9" }, { tag_name: "cli-v1.2.3" }], null, 2));
+          if (url.searchParams.get("page") !== "1") return Response.json([]);
+          return new Response(
+            JSON.stringify([{ tag_name: "cloud-core-v9.9.9" }, { tag_name: "cli-v1.9.4" }, { tag_name: "cli-v2.0.0" }], null, 2),
+          );
         }
-        if (url.pathname === "/release/download/cli-v1.2.3/checksums.txt") return new Response(`${sha256(binary)}  ${assetName}\n`);
-        if (url.pathname === `/release/download/cli-v1.2.3/${assetName}`) return new Response(binary);
+        if (url.pathname === "/release/download/cli-v2.0.0/checksums.txt") return new Response(`${sha256(binary)}  ${assetName}\n`);
+        if (url.pathname === `/release/download/cli-v2.0.0/${assetName}`) return new Response(binary);
         return new Response("not found", { status: 404 });
       },
     });

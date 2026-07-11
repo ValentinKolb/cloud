@@ -13,9 +13,43 @@ PREFIX="${HOME}/.local/bin"
 VERSION="${CLD_VERSION:-latest}"
 VERIFY=1
 ASSUME_YES=0
+CURL_RETRY_COUNT=3
+CURL_CONNECT_TIMEOUT=10
+CURL_MAX_TIME=60
+MAX_RELEASE_PAGES=100
+COSIGN_IDENTITY_REGEXP='^https://github\.com/ValentinKolb/cloud/\.github/workflows/cli\.yml@refs/tags/cli-v[0-9]+\.[0-9]+\.[0-9]+$'
 
 die() { printf 'cld: %s\n' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
+curl_get() {
+  curl -fsSL --retry "$CURL_RETRY_COUNT" --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_MAX_TIME" "$@"
+}
+
+stable_version_key() {
+  printf '%s\n' "$1" | awk -F. '
+    NF == 3 && $1 ~ /^(0|[1-9][0-9]*)$/ && $2 ~ /^(0|[1-9][0-9]*)$/ && $3 ~ /^(0|[1-9][0-9]*)$/ {
+      printf "%09d%09d%09d\n", $1, $2, $3
+    }
+  '
+}
+
+latest_release() {
+  page=1
+  tags=""
+  while :; do
+    body=$(curl_get "${API_BASE}/releases?per_page=100&page=${page}") || return 1
+    [ "$(printf '%s' "$body" | tr -d '[:space:]')" = "[]" ] && break
+    page_tags=$(printf '%s\n' "$body" | sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"\(cli-v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p')
+    tags="${tags}${page_tags}\n"
+    [ "$page" -lt "$MAX_RELEASE_PAGES" ] || return 1
+    page=$((page + 1))
+  done
+  printf '%b' "$tags" | while IFS= read -r tag; do
+    [ -n "$tag" ] || continue
+    key=$(stable_version_key "${tag#cli-v}") || continue
+    [ -n "$key" ] && printf '%s %s\n' "$key" "$tag"
+  done | sort | tail -n 1 | awk '{ print $2 }'
+}
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -71,13 +105,15 @@ esac
 
 have curl || die "curl is required"
 if [ "$VERSION" = "latest" ]; then
-  VERSION=$(curl -fsSL "${API_BASE}/releases?per_page=100" | sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"\(cli-v[^"]*\)".*/\1/p' | head -n 1)
-  [ -n "$VERSION" ] || die "could not find a Cloud CLI release"
+  VERSION=$(latest_release) || die "could not find a Cloud CLI release"
+  [ -n "$VERSION" ] || die "could not find a stable Cloud CLI release"
 elif [ "${VERSION#cli-v}" = "$VERSION" ]; then
-  VERSION="cli-v${VERSION}"
+  VERSION="cli-v${VERSION#v}"
 fi
 
 VERSION_NUM=${VERSION#cli-v}
+TARGET_KEY=$(stable_version_key "$VERSION_NUM")
+[ -n "$TARGET_KEY" ] || die "--version must be a stable version such as 1.2.3"
 ASSET="cld_${OS}_${ARCH}"
 DOWNLOAD_BASE="${RELEASE_BASE}/download/${VERSION}"
 CURRENT=""
@@ -87,6 +123,11 @@ fi
 
 if [ "$CURRENT" = "$VERSION_NUM" ]; then
   printf 'cld %s already installed at %s\n' "$VERSION_NUM" "$PREFIX"
+  exit 0
+fi
+CURRENT_KEY=$(stable_version_key "$CURRENT")
+if [ "${CLD_VERSION:-latest}" = "latest" ] && [ -n "$CURRENT_KEY" ] && [ "$CURRENT_KEY" \> "$TARGET_KEY" ]; then
+  printf 'cld %s is newer than the latest published release (%s)\n' "$CURRENT" "$VERSION_NUM"
   exit 0
 fi
 
@@ -116,21 +157,21 @@ cleanup() {
 }
 trap cleanup EXIT
 
-curl -fsSL "${DOWNLOAD_BASE}/checksums.txt" -o "$TMP/checksums.txt" || die "missing checksum manifest"
+curl_get "${DOWNLOAD_BASE}/checksums.txt" -o "$TMP/checksums.txt" || die "missing checksum manifest"
 if [ "$VERIFY" = "1" ] && have cosign; then
-  curl -fsSL "${DOWNLOAD_BASE}/checksums.txt.sig" -o "$TMP/checksums.txt.sig" || die "missing checksum signature"
-  curl -fsSL "${DOWNLOAD_BASE}/checksums.txt.pem" -o "$TMP/checksums.txt.pem" || die "missing checksum certificate"
+  curl_get "${DOWNLOAD_BASE}/checksums.txt.sig" -o "$TMP/checksums.txt.sig" || die "missing checksum signature"
+  curl_get "${DOWNLOAD_BASE}/checksums.txt.pem" -o "$TMP/checksums.txt.pem" || die "missing checksum certificate"
   cosign verify-blob \
     --certificate "$TMP/checksums.txt.pem" \
     --signature "$TMP/checksums.txt.sig" \
-    --certificate-identity-regexp "^https://github.com/${REPO}/" \
+    --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
     "$TMP/checksums.txt" >/dev/null 2>&1 || die "Cosign verification failed"
 fi
 
 expected=$(awk -v target="$ASSET" '$2 == target || $2 == "*" target { print $1 }' "$TMP/checksums.txt")
 [ -n "$expected" ] || die "$ASSET is not listed in checksums.txt"
-curl -fsSL "${DOWNLOAD_BASE}/${ASSET}" -o "$TMP/$ASSET" || die "could not download $ASSET"
+curl_get "${DOWNLOAD_BASE}/${ASSET}" -o "$TMP/$ASSET" || die "could not download $ASSET"
 if have sha256sum; then
   actual=$(sha256sum "$TMP/$ASSET" | awk '{ print $1 }')
 elif have shasum; then

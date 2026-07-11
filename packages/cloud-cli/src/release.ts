@@ -12,11 +12,22 @@ export const CLI_RELEASE_BASE = `https://github.com/${CLI_RELEASE_REPOSITORY}/re
 export const CLI_RELEASE_API_BASE = `https://api.github.com/repos/${CLI_RELEASE_REPOSITORY}`;
 
 const MAX_RELEASE_FILE_BYTES = 512 * 1024 * 1024;
-const cliReleaseTag = /^cli-v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+const CLI_RELEASE_PAGE_SIZE = 100;
+const FETCH_TIMEOUT_MS = 30_000;
+const FETCH_ATTEMPTS = 3;
+const cliReleaseTag = /^cli-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+export const COSIGN_CERTIFICATE_IDENTITY_REGEXP =
+  "^https://github\\.com/ValentinKolb/cloud/\\.github/workflows/cli\\.yml@refs/tags/cli-v[0-9]+\\.[0-9]+\\.[0-9]+$";
 
 export type CliRelease = {
   tag: string;
   version: string;
+};
+
+type StableVersion = {
+  major: number;
+  minor: number;
+  patch: number;
 };
 
 export type CliTarget = {
@@ -64,6 +75,32 @@ const releaseSource = (source: ReleaseSource) => ({
 
 const toCliTag = (version: string): string => (version.startsWith("cli-v") ? version : `cli-v${version.replace(/^v/, "")}`);
 
+const parseStableVersion = (value: string): StableVersion | null => {
+  const match = value.match(/^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
+  if (!match) return null;
+  return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) };
+};
+
+const compareStableVersions = (left: StableVersion, right: StableVersion): number =>
+  left.major - right.major || left.minor - right.minor || left.patch - right.patch;
+
+const retryDelay = (attempt: number): Promise<void> => Bun.sleep(250 * 2 ** attempt);
+
+const fetchWithRetry = async (url: string, init: RequestInit, fetchImpl: FetchImplementation): Promise<Response> => {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < FETCH_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      if (response.ok || (response.status < 500 && response.status !== 429)) return response;
+      lastError = new Error(`Request failed with ${response.status}.`);
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt + 1 < FETCH_ATTEMPTS) await retryDelay(attempt);
+  }
+  throw new Error(`Cloud CLI release request failed: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+};
+
 export const resolveCliTarget = (os = platform(), cpu = arch()): CliTarget => {
   if (os !== "darwin" && os !== "linux") throw new Error(`Cloud CLI does not support ${os}. Use macOS or Linux.`);
   const normalizedArch = cpu === "x64" ? "x64" : cpu === "arm64" ? "arm64" : null;
@@ -77,29 +114,54 @@ const parseRelease = (value: GithubRelease): CliRelease | null => {
   return { tag: value.tag_name, version: value.tag_name.slice("cli-v".length) };
 };
 
+const releaseVersion = (release: CliRelease): StableVersion => {
+  const version = parseStableVersion(release.version);
+  if (!version) throw new Error(`Cloud CLI release ${release.tag} is not a stable version.`);
+  return version;
+};
+
 export const resolveCliRelease = async (version: string | undefined, source: ReleaseSource = {}): Promise<CliRelease> => {
   const { apiBase, fetchImpl } = releaseSource(source);
   const requestedTag = version ? toCliTag(version) : undefined;
-  const url = requestedTag ? `${apiBase}/releases/tags/${encodeURIComponent(requestedTag)}` : `${apiBase}/releases?per_page=100`;
-  const response = await fetchImpl(url, { headers: { Accept: "application/vnd.github+json" } });
-  if (!response.ok) throw new Error(`Could not resolve Cloud CLI release (${response.status}).`);
-  const payload = (await response.json()) as unknown;
+  const requestedVersion = version ? parseStableVersion(version.replace(/^cli-v/, "").replace(/^v/, "")) : null;
+  if (version && !requestedVersion) throw new Error("Cloud CLI updates require a stable version such as 1.2.3.");
+
+  const url = requestedTag ? `${apiBase}/releases/tags/${encodeURIComponent(requestedTag)}` : undefined;
+  const response = url
+    ? await fetchWithRetry(url, { headers: { Accept: "application/vnd.github+json" } }, fetchImpl)
+    : undefined;
 
   if (requestedTag) {
+    if (!response) throw new Error("Could not resolve the requested Cloud CLI release.");
+    if (!response.ok) throw new Error(`Could not resolve Cloud CLI release (${response.status}).`);
+    const payload = (await response.json()) as unknown;
     if (!payload || typeof payload !== "object") throw new Error(`Cloud CLI release ${requestedTag} is invalid.`);
     const release = parseRelease(payload as GithubRelease);
     if (!release || release.tag !== requestedTag) throw new Error(`Cloud CLI release ${requestedTag} was not found.`);
     return release;
   }
 
-  if (!Array.isArray(payload)) throw new Error("Cloud CLI release response is invalid.");
-  const release = payload.map((entry) => (entry && typeof entry === "object" ? parseRelease(entry as GithubRelease) : null)).find(Boolean);
-  if (!release) throw new Error("No Cloud CLI release is available.");
-  return release;
+  let newest: CliRelease | null = null;
+  for (let page = 1; ; page += 1) {
+    const pageUrl = `${apiBase}/releases?per_page=${CLI_RELEASE_PAGE_SIZE}&page=${page}`;
+    const pageResponse = await fetchWithRetry(pageUrl, { headers: { Accept: "application/vnd.github+json" } }, fetchImpl);
+    if (!pageResponse.ok) throw new Error(`Could not resolve Cloud CLI release (${pageResponse.status}).`);
+    const payload = (await pageResponse.json()) as unknown;
+    if (!Array.isArray(payload)) throw new Error("Cloud CLI release response is invalid.");
+    for (const entry of payload) {
+      if (!entry || typeof entry !== "object") continue;
+      const release = parseRelease(entry as GithubRelease);
+      if (!release || (newest && compareStableVersions(releaseVersion(release), releaseVersion(newest)) <= 0)) continue;
+      newest = release;
+    }
+    if (payload.length < CLI_RELEASE_PAGE_SIZE) break;
+  }
+  if (!newest) throw new Error("No stable Cloud CLI release is available.");
+  return newest;
 };
 
 const fetchBytes = async (url: string, fetchImpl: FetchImplementation): Promise<Uint8Array> => {
-  const response = await fetchImpl(url);
+  const response = await fetchWithRetry(url, {}, fetchImpl);
   if (!response.ok) throw new Error(`Could not download ${url} (${response.status}).`);
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > MAX_RELEASE_FILE_BYTES) throw new Error("Cloud CLI release asset is too large.");
@@ -144,7 +206,7 @@ const verifyCosign = async (
       "--signature",
       signaturePath,
       "--certificate-identity-regexp",
-      `^https://github.com/${CLI_RELEASE_REPOSITORY}/`,
+      COSIGN_CERTIFICATE_IDENTITY_REGEXP,
       "--certificate-oidc-issuer",
       "https://token.actions.githubusercontent.com",
       manifestPath,
@@ -190,16 +252,26 @@ const replaceBinary = async (staged: string, destination: string): Promise<void>
 
 export const updateCli = async (options: UpdateOptions = {}): Promise<CliUpdateResult> => {
   const executablePath = options.executablePath ?? process.execPath;
-  const standalone = options.standalone ?? (Bun as typeof Bun & { isStandaloneExecutable?: boolean }).isStandaloneExecutable === true;
+  const standalone =
+    options.standalone ??
+    ((typeof __CLD_STANDALONE__ === "boolean" && __CLD_STANDALONE__ === true) ||
+      (Bun as typeof Bun & { isStandaloneExecutable?: boolean }).isStandaloneExecutable === true);
   if (!standalone) throw new Error("cld update is only available from an installed Cloud CLI binary.");
 
   const source = releaseSource(options);
-  const [release, target] = await Promise.all([
-    resolveCliRelease(options.version, source),
-    Promise.resolve(options.target ?? resolveCliTarget()),
-  ]);
   const currentVersion = typeof __CLD_VERSION__ === "string" ? __CLD_VERSION__ : "0.0.0-dev";
+  const currentStableVersion = parseStableVersion(currentVersion);
+  const target = options.target ?? resolveCliTarget();
+  const requestedVersion = options.version ? parseStableVersion(options.version.replace(/^cli-v/, "").replace(/^v/, "")) : null;
+  if (requestedVersion && currentStableVersion && compareStableVersions(requestedVersion, currentStableVersion) === 0) {
+    return { release: { tag: `cli-v${currentVersion}`, version: currentVersion }, target, cosign: "skipped" };
+  }
+
+  const release = await resolveCliRelease(options.version, source);
   if (release.version === currentVersion) return { release, target, cosign: "skipped" };
+  if (!options.version && currentStableVersion && compareStableVersions(releaseVersion(release), currentStableVersion) < 0) {
+    throw new Error(`Refusing to downgrade cld ${currentVersion} to ${release.version} without --version.`);
+  }
 
   if (options.confirm && !(await options.confirm(`Update cld ${currentVersion} to ${release.version}?`))) {
     throw new Error("Update cancelled.");
@@ -230,3 +302,4 @@ export const updateCli = async (options: UpdateOptions = {}): Promise<CliUpdateR
 };
 
 declare const __CLD_VERSION__: string;
+declare const __CLD_STANDALONE__: boolean;

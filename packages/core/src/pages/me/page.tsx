@@ -35,9 +35,17 @@ const parseActivityDays = (value: string | undefined): 7 | 30 | 90 => {
   return 30;
 };
 
+const publicCloudUrl = (value: string): string => {
+  const raw = value.trim().replace(/\/+$/, "");
+  const configured = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+  const local = configured.hostname === "localhost" || configured.hostname === "127.0.0.1" || configured.hostname === "::1";
+  return new URL(/^https?:\/\//i.test(raw) || !local ? configured : `http://${raw}`).origin;
+};
+
 export default ssr<AuthContext>(async (c) => {
-  const [rawAppName, freeIpaEnabledRaw] = await Promise.all([
+  const [rawAppName, rawAppUrl, freeIpaEnabledRaw] = await Promise.all([
     coreSettings.get<string>("app.name"),
+    coreSettings.get<string>("app.url"),
     coreSettings.get<boolean>("freeipa.enable"),
   ]);
   const appName = rawAppName || "My App";
@@ -54,10 +62,7 @@ export default ssr<AuthContext>(async (c) => {
   const directGroups = sessionUser.memberofGroup;
   const supplementalRoles = sessionUser.roles.filter((role) => role === "admin" || role === "group-manager");
   const isExpiredAccount = sessionUser.accountExpires ? new Date(sessionUser.accountExpires) < new Date() : false;
-  const requestUrl = new URL(c.req.url);
-  const forwardedHost = c.req.header("x-forwarded-host")?.split(",")[0]?.trim();
-  const forwardedProtocol = c.req.header("x-forwarded-proto")?.split(",")[0]?.trim();
-  const cloudUrl = `${forwardedProtocol ?? requestUrl.protocol.replace(":", "")}://${forwardedHost ?? requestUrl.host}`;
+  const cloudUrl = publicCloudUrl(rawAppUrl);
   const cliInstallCommand = `curl -fsSL ${cloudUrl}/cli | sh`;
   const [pendingRequest, apiKeys, passkeys, activityPage] = await Promise.all([
     sessionUser.provider === "local"
@@ -323,7 +328,7 @@ export default ssr<AuthContext>(async (c) => {
                 <i class="ti ti-terminal-2 text-sm" />
                 Cloud CLI
               </h2>
-              <p class="mt-1 text-xs text-dimmed">Manage this Cloud instance from your terminal.</p>
+              <p class="mt-1 text-xs text-dimmed">Open and work with your Cloud content from the terminal.</p>
               <code class="mt-4 block overflow-x-auto rounded-md bg-zinc-100 px-3 py-2 font-mono text-[11px] text-secondary dark:bg-zinc-800">
                 {cliInstallCommand}
               </code>

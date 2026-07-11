@@ -11,9 +11,7 @@ import passwordResetPage from "./auth/password-reset/page";
 import { makeLegalPage } from "./legal/page-handler";
 import profilePage from "./me/page";
 import notFoundPage from "./NotFound";
-
-const cliInstallerUrl =
-  process.env.CLD_INSTALL_URL ?? "https://raw.githubusercontent.com/ValentinKolb/cloud/main/packages/cloud-cli/scripts/install.sh";
+import cliInstaller from "../../../cloud-cli/scripts/install.sh" with { type: "text" };
 
 /**
  * Creates the SSR pages router.
@@ -33,8 +31,9 @@ export const createPagesRouter = (options?: { brandingPublicDir?: string }): Hon
     })
     // Root: hand off to the dashboard app, which owns the user landing page.
     .get("/", auth.requireRole("authenticated", auth.redirectToLogin), (c) => c.redirect("/app/dashboard", 302))
-    // A short, instance-local bootstrap URL for the first-party CLI.
-    .get("/cli", (c) => c.redirect(cliInstallerUrl, 302))
+    // Serve the installer from the currently deployed Core bundle, rather than
+    // piping a mutable branch artifact into a user's shell.
+    .get("/cli", (c) => c.body(cliInstaller, 200, { "Content-Type": "text/x-shellscript; charset=utf-8" }))
     // Profile
     .get("/me", auth.requireRole("authenticated", auth.redirectToLogin), ...profilePage)
     // Admin pages (admin only)
