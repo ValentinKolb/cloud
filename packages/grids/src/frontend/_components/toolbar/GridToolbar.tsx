@@ -1,21 +1,19 @@
-import { Dropdown, prompts } from "@valentinkolb/cloud/ui";
+import { prompts } from "@valentinkolb/cloud/ui";
 import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createSignal, on, Show, untrack } from "solid-js";
+import { createEffect, createSignal, on, Show, untrack } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ColumnSpec, RecordQuery } from "../../../contracts";
 import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
 import type { Field, Form, GridRecord, View } from "../../../service";
-import { isUserEditable } from "../fields/field-prompt-schema";
-import { openFormModal } from "../records/FormSubmitModal";
-import { openRecordUpsertDialog } from "../records/RecordUpsertDialog";
 import type { CardSize } from "../records-view/query-url";
 import { errorMessage } from "../utils/api-helpers";
 import { type AggregationRow, isAggregationRowComplete } from "./AggregationsPanel";
 import { CardSizeDropdown } from "./CardSizeDropdown";
 import FilterPanel, { blankLeaf, type FilterLeaf, isFilterLeafComplete } from "./FilterPanel";
 import { filterableFields } from "./filter-ops";
+import { GridCreateActions } from "./GridCreateActions";
 import { type GroupByRow, isGroupByRowComplete } from "./GroupByPanel";
 import SortPanel, { blankSortRow, isSortRowComplete, type SortRow } from "./SortPanel";
 
@@ -90,7 +88,6 @@ export default function GridToolbar(props: Props) {
   const hasFilterableFields = () => filterableFields(props.fields).length > 0;
   const hasToolbarQuery = () => hasFilter() || hasSort() || hasGroupBy() || hasAgg() || hasCustomColumns();
   const hasSaveableQuery = () => hasToolbarQuery() || props.currentSearch.q.trim().length > 0;
-  const activeForms = createMemo(() => (props.forms ?? []).filter((f) => f.isActive));
   const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
   const completeFilterRows = (rows: FilterLeaf[]) => rows.filter((l) => isFilterLeafComplete(l, props.fields));
 
@@ -145,58 +142,6 @@ export default function GridToolbar(props: Props) {
       { defer: true },
     ),
   );
-
-  // ---- Direct insert -----------------------------------------------------
-  // Single-step create: RecordUpsertDialog renders all editable fields
-  // including relations (RelationPicker is embedded inline). The dialog
-  // resolves with the full payload, we POST it, and RecordsView refetches
-  // the resource. No separate prompts.form / detail-panel ping-pong.
-  const addMut = mutations.create<GridRecord, Record<string, unknown>>({
-    mutation: async (payload) => {
-      const res = await apiClient.records["by-table"][":tableId"].$post({
-        param: { tableId: props.tableId },
-        json: payload,
-      });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to create record"));
-      return res.json();
-    },
-    onSuccess: (created) => {
-      // Prefer the parent's hook (KISS, no full reload — RecordsView
-      // refetches its createResource and optionally opens the detail
-      // panel for the new row). Fall back to a full nav for any future
-      // caller that doesn't wire it up.
-      if (props.onRecordCreated) props.onRecordCreated(created);
-      else refreshCurrentPath();
-    },
-    onError: (e) => prompts.error(e.message),
-  });
-
-  const handleAddRow = async () => {
-    const liveFields = props.fields.filter((f) => !f.deletedAt);
-    // Quick guard: if the user has nothing they can fill out (all
-    // computed / system fields), bail with a useful message rather
-    // than open an empty dialog.
-    const fillable = liveFields.filter((f) => isUserEditable(f.type) || f.type === "relation");
-    if (fillable.length === 0) {
-      prompts.error("This table has no editable fields. Add one first.");
-      return;
-    }
-    const result = await openRecordUpsertDialog({
-      mode: "create",
-      fields: liveFields,
-      baseId: props.baseId,
-      tableName: props.tableName,
-      dateConfig: props.dateConfig,
-    });
-    if (!result) return;
-    addMut.mutate(result);
-  };
-
-  const submitForm = (form: Form) =>
-    openFormModal(form, props.fields, {
-      onSubmitted: () => props.onRecordsChanged?.(),
-      dateConfig: props.dateConfig,
-    });
 
   // ---- Filter / Sort one-click toggles ----------------------------------
   // Click Filter when empty → append a blank row. Panel appears
@@ -317,59 +262,18 @@ export default function GridToolbar(props: Props) {
   return (
     <div class="flex flex-col gap-2">
       <div class="flex flex-wrap items-center gap-2">
-        {/* Create flow: forms first; direct insert is a secondary path
-            and can be disabled at table level. */}
-        <Show when={props.canWrite}>
-          <Show
-            when={activeForms().length > 0}
-            fallback={
-              <Show when={!props.disableDirectInsert}>
-                <button type="button" class="btn-input-primary btn-input-sm" onClick={handleAddRow} disabled={addMut.loading()}>
-                  <Show when={addMut.loading()} fallback={<i class="ti ti-plus" />}>
-                    <i class="ti ti-loader-2 animate-spin" />
-                  </Show>
-                  Add record
-                </button>
-              </Show>
-            }
-          >
-            <Show
-              when={activeForms().length === 1 ? activeForms()[0] : undefined}
-              fallback={
-                <Dropdown
-                  position="bottom-right"
-                  trigger={
-                    <span class="btn-input-primary btn-input-sm">
-                      <i class="ti ti-forms" />
-                      Add with form
-                      <i class="ti ti-chevron-down text-[10px] opacity-60" />
-                    </span>
-                  }
-                  elements={activeForms().map((form) => ({
-                    icon: "ti ti-forms",
-                    label: form.name,
-                    action: () => void submitForm(form),
-                  }))}
-                />
-              }
-            >
-              {(form) => (
-                <button type="button" class="btn-input-primary btn-input-sm" onClick={() => void submitForm(form())}>
-                  <i class="ti ti-forms" />
-                  Add with form
-                </button>
-              )}
-            </Show>
-            <Show when={!props.disableDirectInsert}>
-              <button type="button" class="btn-input-primary btn-input-sm" onClick={handleAddRow} disabled={addMut.loading()}>
-                <Show when={addMut.loading()} fallback={<i class="ti ti-plus" />}>
-                  <i class="ti ti-loader-2 animate-spin" />
-                </Show>
-                Add record
-              </button>
-            </Show>
-          </Show>
-        </Show>
+        <GridCreateActions
+          baseId={props.baseId}
+          tableId={props.tableId}
+          tableName={props.tableName}
+          disableDirectInsert={props.disableDirectInsert}
+          fields={props.fields}
+          forms={props.forms}
+          canWrite={props.canWrite}
+          onRecordCreated={props.onRecordCreated}
+          onRecordsChanged={props.onRecordsChanged}
+          dateConfig={props.dateConfig}
+        />
 
         <Show when={props.onOpenQuery || props.queryHref}>
           {(queryTarget) => (
