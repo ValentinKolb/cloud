@@ -41,6 +41,11 @@ describe("workflow YAML intelligence", () => {
     expect(item("triggers:\n  sc", "scanner")?.textEdit.text).toContain("scanner:");
   });
 
+  test("suggests workflow result actions", () => {
+    expect(labels("steps:\n  - su")).toContain("succeed");
+    expect(item("steps:\n  - su", "succeed")?.textEdit.text).toContain("message:");
+  });
+
   test("filters trigger input suggestions by declared input type", () => {
     const source = `inputs:
   item:

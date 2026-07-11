@@ -1,4 +1,4 @@
-export const GRIDS_STREAM_CURSOR_PATTERN = /^\d+-\d+$/;
+const GRIDS_STREAM_CURSOR_PATTERN = /^\d+-\d+$/;
 
 export const gridsWorkspace = {
   wsType: {
@@ -15,5 +15,3 @@ export const gridsWorkspace = {
   },
   streamCursorPattern: GRIDS_STREAM_CURSOR_PATTERN,
 } as const;
-
-export type GridsWorkspaceWsType = (typeof gridsWorkspace.wsType)[keyof typeof gridsWorkspace.wsType];

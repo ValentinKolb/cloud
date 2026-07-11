@@ -130,7 +130,9 @@ const configuredNewWidget = (
     return tableId ? ({ ...widget, title: "Open table", target: { kind: "table", tableId } } as Widget) : null;
   }
   if (widget.kind === "workflow-button") {
-    const workflow = ctx.dashboardWorkflows.find((candidate) => candidate.enabled && candidate.compiled.triggers.dashboardButton);
+    const workflow = ctx.dashboardWorkflows.find(
+      (candidate) => candidate.enabled && (candidate.compiled.triggers.dashboardButton || candidate.compiled.triggers.scanner),
+    );
     return workflow ? ({ ...widget, workflowId: workflow.id, title: workflow.name, buttonLabel: "Run" } as Widget) : null;
   }
   return widget;

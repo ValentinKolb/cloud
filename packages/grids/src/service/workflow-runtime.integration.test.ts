@@ -2,8 +2,15 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import type { WorkflowDefinition } from "../contracts";
 import { migrate } from "../migrate";
-import { executeBulkSelection, executePreparedRun, executeScanner, prepareBulkSelection } from "./workflow-runtime";
-import { createRun, createStepRun, finishStepRun, getOrCreateRecordScanCode } from "./workflows";
+import { executeBulkSelection, executePreparedRun, executeRecordEvent, executeScanner, prepareBulkSelection } from "./workflow-runtime";
+import {
+  claimStaleQueuedRuns,
+  createStepRun,
+  createWorkflowRun,
+  failQueuedRunAttempt,
+  finishStepRun,
+  getOrCreateRecordScanCode,
+} from "./workflows";
 
 const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
 
@@ -33,6 +40,16 @@ const publicAccess = async (permission: "read" | "write"): Promise<string> => {
     RETURNING id::text AS id
   `;
   if (!row) throw new Error("Failed to create access row");
+  return row.id;
+};
+
+const groupAccess = async (groupId: string, permission: "read" | "write"): Promise<string> => {
+  const [row] = await sql<{ id: string }[]>`
+    INSERT INTO auth.access (group_id, permission)
+    VALUES (${groupId}::uuid, ${permission}::auth.permission_level)
+    RETURNING id::text AS id
+  `;
+  if (!row) throw new Error("Failed to create group access row");
   return row.id;
 };
 
@@ -76,11 +93,33 @@ const scannerWorkflowDefinition = (resolve?: { by: "field"; field: string }): Wo
   steps: [{ setVariable: { name: "seen", value: "inputs.item.Name" } }],
 });
 
-const insertWorkflow = async (baseId: string, name: string, definition: WorkflowDefinition): Promise<string> => {
+const recordEventWorkflowDefinition = (): WorkflowDefinition => ({
+  inputs: {
+    item: { type: "record", table: "Items" },
+  },
+  triggers: {
+    recordEvent: { event: "updated", input: "item" },
+  },
+  steps: [
+    {
+      updateRecord: {
+        record: "inputs.item",
+        set: { Status: "inputs.item.Name" },
+      },
+    },
+  ],
+});
+
+const insertWorkflow = async (
+  baseId: string,
+  name: string,
+  definition: WorkflowDefinition,
+  ownerUserId: string | null = null,
+): Promise<string> => {
   const workflowId = uuid();
   await sql`
-    INSERT INTO grids.workflows (id, short_id, base_id, name, source, compiled, enabled, position)
-    VALUES (${workflowId}::uuid, ${shortId("W")}, ${baseId}::uuid, ${name}, ${name}, ${definition}::jsonb, TRUE, 0)
+    INSERT INTO grids.workflows (id, short_id, base_id, name, source, compiled, enabled, position, owner_user_id)
+    VALUES (${workflowId}::uuid, ${shortId("W")}, ${baseId}::uuid, ${name}, ${name}, ${definition}::jsonb, TRUE, 0, ${ownerUserId}::uuid)
   `;
   return workflowId;
 };
@@ -157,6 +196,53 @@ beforeAll(async () => {
 });
 
 describe("workflow runtime integration", () => {
+  postgresTest("leases an orphaned queued run to only one reconciler", async () => {
+    const fixture = await insertFixture();
+    try {
+      const actorGroupId = uuid();
+      const run = await createWorkflowRun({
+        workflowId: fixture.workflowId,
+        baseId: fixture.baseId,
+        triggerKind: "form",
+        triggerInput: { source: "original" },
+        resolvedInput: { source: "resolved" },
+        actorGroupIds: [actorGroupId],
+        authorization: {
+          kind: "dashboard-widget",
+          dashboardId: uuid(),
+          dashboardWidgetId: "widget-1",
+        },
+      });
+      await sql`
+        UPDATE grids.workflow_runs
+        SET created_at = now() - interval '2 days'
+        WHERE id = ${run.id}::uuid
+      `;
+
+      const claims = (await Promise.all([claimStaleQueuedRuns(24 * 60 * 60 * 1000), claimStaleQueuedRuns(24 * 60 * 60 * 1000)])).flat();
+      const claimed = claims.filter((candidate) => candidate.id === run.id);
+
+      expect(claimed).toHaveLength(1);
+      expect(claimed[0]).toMatchObject({
+        triggerInput: { source: "original" },
+        resolvedInput: { source: "resolved" },
+        actorGroupIds: [actorGroupId],
+        authorization: { kind: "dashboard-widget", dashboardWidgetId: "widget-1" },
+        queueAttempts: 1,
+      });
+      expect((await claimStaleQueuedRuns(24 * 60 * 60 * 1000)).some((candidate) => candidate.id === run.id)).toBe(false);
+
+      await sql`UPDATE grids.workflow_runs SET status = 'running' WHERE id = ${run.id}::uuid`;
+      expect(await failQueuedRunAttempt(run.id, 1, "late submit failure")).toBeNull();
+      const [current] = await sql<Array<{ status: string }>>`
+        SELECT status FROM grids.workflow_runs WHERE id = ${run.id}::uuid
+      `;
+      expect(current?.status).toBe("running");
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
   postgresTest("bulk selection executes explicit record ids through native record actions", async () => {
     const fixture = await insertFixture("write");
     try {
@@ -181,7 +267,7 @@ describe("workflow runtime integration", () => {
     try {
       const triggerInput = { input: "records", recordIds: [fixture.recordAId, fixture.recordBId] };
       const resolvedInput = { records: [fixture.recordAId, fixture.recordBId] };
-      const run = await createRun({
+      const run = await createWorkflowRun({
         workflowId: fixture.workflowId,
         baseId: fixture.baseId,
         triggerKind: "bulkSelection",
@@ -206,6 +292,7 @@ describe("workflow runtime integration", () => {
         triggerKind: "bulkSelection",
         triggerInput,
         resolvedInput,
+        authorization: { kind: "workflow" },
       });
       expect(executed.ok).toBe(true);
       if (!executed.ok) throw new Error(executed.error.message);
@@ -218,12 +305,92 @@ describe("workflow runtime integration", () => {
     }
   });
 
+  postgresTest("prepared workflow runs reclaim expired running leases", async () => {
+    const fixture = await insertFixture("write");
+    try {
+      const triggerInput = { input: "records", recordIds: [fixture.recordAId] };
+      const resolvedInput = { records: [fixture.recordAId] };
+      const run = await createWorkflowRun({
+        workflowId: fixture.workflowId,
+        baseId: fixture.baseId,
+        triggerKind: "bulkSelection",
+        triggerInput,
+        resolvedInput,
+      });
+      await sql`
+        UPDATE grids.workflow_runs
+        SET status = 'running',
+            started_at = now() - interval '5 minutes',
+            heartbeat_at = now() - interval '5 minutes',
+            lease_expires_at = now() - interval '1 minute'
+        WHERE id = ${run.id}::uuid
+      `;
+
+      const executed = await executePreparedRun({
+        workflowId: fixture.workflowId,
+        runId: run.id,
+        triggerKind: "bulkSelection",
+        triggerInput,
+        resolvedInput,
+        authorization: { kind: "workflow" },
+      });
+      expect(executed.ok).toBe(true);
+      if (!executed.ok) throw new Error(executed.error.message);
+
+      const statuses = await recordStatuses(fixture);
+      expect(statuses[fixture.recordAId]).toBe("Alpha");
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("prepared workflow runs leave active running leases untouched", async () => {
+    const fixture = await insertFixture("write");
+    try {
+      const triggerInput = { input: "records", recordIds: [fixture.recordAId] };
+      const resolvedInput = { records: [fixture.recordAId] };
+      const run = await createWorkflowRun({
+        workflowId: fixture.workflowId,
+        baseId: fixture.baseId,
+        triggerKind: "bulkSelection",
+        triggerInput,
+        resolvedInput,
+      });
+      await sql`
+        UPDATE grids.workflow_runs
+        SET status = 'running',
+            started_at = now(),
+            heartbeat_at = now(),
+            lease_expires_at = now() + interval '5 minutes'
+        WHERE id = ${run.id}::uuid
+      `;
+      await sql`UPDATE grids.workflows SET enabled = FALSE WHERE id = ${fixture.workflowId}::uuid`;
+
+      const executed = await executePreparedRun({
+        workflowId: fixture.workflowId,
+        runId: run.id,
+        triggerKind: "bulkSelection",
+        triggerInput,
+        resolvedInput,
+        authorization: { kind: "workflow" },
+      });
+      expect(executed.ok).toBe(true);
+      if (!executed.ok) throw new Error(executed.error.message);
+      expect(executed.data.status).toBe("running");
+
+      const statuses = await recordStatuses(fixture);
+      expect(statuses[fixture.recordAId]).toBe("new");
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
   postgresTest("bulk selection refuses to retry interrupted side-effect steps", async () => {
     const fixture = await insertFixture("write");
     try {
       const triggerInput = { input: "records", recordIds: [fixture.recordAId, fixture.recordBId] };
       const resolvedInput = { records: [fixture.recordAId, fixture.recordBId] };
-      const run = await createRun({
+      const run = await createWorkflowRun({
         workflowId: fixture.workflowId,
         baseId: fixture.baseId,
         triggerKind: "bulkSelection",
@@ -244,6 +411,7 @@ describe("workflow runtime integration", () => {
         triggerKind: "bulkSelection",
         triggerInput,
         resolvedInput,
+        authorization: { kind: "workflow" },
       });
       expect(executed.ok).toBe(false);
       if (executed.ok) throw new Error("Expected interrupted step failure");
@@ -285,6 +453,74 @@ describe("workflow runtime integration", () => {
       expect(prepared.error.message).toContain("cannot run this workflow");
     } finally {
       await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("record events run as the workflow owner principal and retain the event actor as metadata", async () => {
+    const fixture = await insertFixture("write");
+    const ownerUserId = uuid();
+    const eventActorUserId = uuid();
+    const ownerGroupId = uuid();
+    const accessIds: string[] = [];
+    try {
+      await sql`DELETE FROM grids.base_access WHERE access_id = ${fixture.accessIds[0]}::uuid`;
+      await sql`DELETE FROM auth.access WHERE id = ${fixture.accessIds[0]}::uuid`;
+      fixture.accessIds.length = 0;
+
+      await sql`
+        INSERT INTO auth.users (id, uid, provider, profile, display_name, mail, given_name, sn)
+        VALUES
+          (${ownerUserId}::uuid, ${`owner-${ownerUserId}`}, 'local', 'user', 'Workflow Owner', 'owner@example.test', 'Workflow', 'Owner'),
+          (${eventActorUserId}::uuid, ${`actor-${eventActorUserId}`}, 'local', 'user', 'Event Actor', 'actor@example.test', 'Event', 'Actor')
+      `;
+      await sql`
+        INSERT INTO auth.groups (id, cn, provider, name, description)
+        VALUES (${ownerGroupId}::uuid, ${`workflow-owner-${ownerGroupId}`}, 'local', 'Workflow owners', 'Workflow owner integration test')
+      `;
+      await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${ownerUserId}::uuid, ${ownerGroupId}::uuid)`;
+
+      const tableAccessId = await groupAccess(ownerGroupId, "write");
+      accessIds.push(tableAccessId);
+      await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${fixture.tableId}::uuid, ${tableAccessId}::uuid)`;
+
+      const workflowId = await insertWorkflow(fixture.baseId, "Record event owner run", recordEventWorkflowDefinition(), ownerUserId);
+      const workflowAccessId = await groupAccess(ownerGroupId, "write");
+      accessIds.push(workflowAccessId);
+      await sql`INSERT INTO grids.workflow_access (workflow_id, access_id) VALUES (${workflowId}::uuid, ${workflowAccessId}::uuid)`;
+
+      const run = await executeRecordEvent({
+        workflowId,
+        event: {
+          v: 1,
+          type: "record.updated",
+          baseId: fixture.baseId,
+          tableId: fixture.tableId,
+          recordId: fixture.recordAId,
+          version: 2,
+          changedFieldIds: [fixture.nameFieldId],
+          actorId: eventActorUserId,
+          occurredAt: "2026-07-08T00:00:00.000Z",
+        },
+      });
+      expect(run.ok).toBe(true);
+      if (!run.ok) throw new Error(run.error.message);
+
+      const statuses = await recordStatuses(fixture);
+      expect(statuses[fixture.recordAId]).toBe("Alpha");
+
+      const [runRow] = await sql<Array<{ actor_user_id: string | null; trigger_input: Record<string, unknown> }>>`
+        SELECT actor_user_id::text AS actor_user_id, trigger_input
+        FROM grids.workflow_runs
+        WHERE id = ${run.data.id}::uuid
+      `;
+      expect(runRow?.actor_user_id).toBe(ownerUserId);
+      expect(runRow?.trigger_input.eventActorUserId).toBe(eventActorUserId);
+    } finally {
+      await cleanupFixture(fixture);
+      for (const accessId of accessIds) await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;
+      await sql`DELETE FROM auth.user_groups_v2 WHERE user_id = ${ownerUserId}::uuid OR group_id = ${ownerGroupId}::uuid`;
+      await sql`DELETE FROM auth.groups WHERE id = ${ownerGroupId}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${ownerUserId}::uuid OR id = ${eventActorUserId}::uuid`;
     }
   });
 

@@ -379,7 +379,7 @@ export const listTrashedByBase = async (baseId: string): Promise<Dashboard[]> =>
   return rows.map(mapRow);
 };
 
-export type CreateDashboardServiceInput = {
+type CreateDashboardServiceInput = {
   baseId: string;
   name: string;
   description?: string | null;
@@ -438,7 +438,7 @@ export const create = async (input: CreateDashboardServiceInput, actorId: string
   return ok(dashboard);
 };
 
-export type UpdateDashboardServiceInput = {
+type UpdateDashboardServiceInput = {
   name?: string;
   description?: string | null;
   icon?: string | null;

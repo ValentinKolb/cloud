@@ -202,10 +202,10 @@ describe("exact-arithmetic for decimal-string values", () => {
   });
 });
 
-// ── Slug references ──────────────────────────────────────────────
+// ── Legacy slug references ───────────────────────────────────────
 //
-// `#slug` is the preferred user-facing syntax; `{uuid}` still parses
-// for backwards compat. Both emit the same `field` AST node — the
+// `#slug` remains supported for stored formula compatibility. Both
+// `#slug` and `{uuid}` emit the same `field` AST node — the
 // evaluator distinguishes them by looking up the UUID map first, then
 // falling back to the slug map.
 describe("slug references", () => {

@@ -26,15 +26,6 @@ BASE_URL="${BASE_URL:-http://localhost:3000}"
 ADMIN_TOKEN="${ADMIN_TOKEN:-dev-admin}"
 DEBUG="${DEBUG:-0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WEBHOOK_RECEIVER_PID=""
-
-cleanup_bg() {
-  if [[ -n "${WEBHOOK_RECEIVER_PID:-}" ]]; then
-    kill "$WEBHOOK_RECEIVER_PID" >/dev/null 2>&1 || true
-    wait "$WEBHOOK_RECEIVER_PID" 2>/dev/null || true
-  fi
-}
-trap cleanup_bg EXIT
 
 # Colour the output a little so failures pop in long logs. NO_COLOR
 # turns it off (e.g. for CI logs).
@@ -196,95 +187,6 @@ RELATION_FIELD_ID=$(json '.id')
 http POST /api/grids/fields/by-table/$ORDERS_TABLE_ID "{\"name\":\"item_price_sum\",\"type\":\"rollup\",\"config\":{\"relationFieldId\":\"$RELATION_FIELD_ID\",\"targetFieldId\":\"$PRICE_FIELD_ID\",\"agg\":\"sum\"}}"
 expect_status 201 "POST fields/orders.item_price_sum (cross-table rollup) → 201"
 ROLLUP_FIELD_ID=$(json '.id')
-
-# ────────────────────────────────────────────────────────────────────
-# Automations: manual webhook E2E via local receiver
-# ────────────────────────────────────────────────────────────────────
-
-echo ""
-echo "━━━ automations webhook e2e ━━━"
-
-WEBHOOK_PORT="${WEBHOOK_PORT:-$((3900 + RANDOM % 500))}"
-WEBHOOK_CAPTURE_FILE="$(mktemp)"
-WEBHOOK_URL="${WEBHOOK_URL:-http://host.docker.internal:$WEBHOOK_PORT/hook}"
-WEBHOOK_CAPTURE_FILE="$WEBHOOK_CAPTURE_FILE" WEBHOOK_PORT="$WEBHOOK_PORT" WEBHOOK_BIND="${WEBHOOK_BIND:-0.0.0.0}" \
-  bun "$SCRIPT_DIR/webhook-receiver.ts" >/tmp/grids-webhook-receiver.log 2>&1 &
-WEBHOOK_RECEIVER_PID="$!"
-
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  if curl -fsS "http://127.0.0.1:$WEBHOOK_PORT/health" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 0.2
-done
-
-if ! curl -fsS "http://127.0.0.1:$WEBHOOK_PORT/health" >/dev/null 2>&1; then
-  fail "webhook receiver startup" "receiver did not answer on port $WEBHOOK_PORT"
-else
-  pass "local webhook receiver started"
-fi
-
-http PUT /api/grids/admin/settings/grids.webhook_allow_private_networks '{"value":true}'
-expect_status 200 "enable private webhook targets for local smoke"
-
-AUTOMATION_BODY=$(cat <<JSON
-{
-  "name": "smoke webhook",
-  "trigger": {"kind": "manual"},
-  "action": {"kind": "webhook", "url": "$WEBHOOK_URL"},
-  "webhookSecret": "smoke-secret"
-}
-JSON
-)
-http POST /api/grids/automations/by-base/$BASE_ID "$AUTOMATION_BODY"
-expect_status 201 "POST automation webhook → 201"
-AUTOMATION_ID=$(json '.id')
-WEBHOOK_SECRET_SET=$(json '.webhookSecretSet')
-[[ "$WEBHOOK_SECRET_SET" == "true" ]] && pass "automation response redacts secret but reports it exists" \
-  || fail "automation webhookSecretSet" "expected true, got $WEBHOOK_SECRET_SET"
-
-http POST /api/grids/automations/$AUTOMATION_ID/run '{"input":null,"reason":"smoke"}'
-expect_status 200 "POST automation run → 200"
-RUN_STATUS=$(json '.status')
-[[ "$RUN_STATUS" == "succeeded" ]] && pass "automation run succeeded" \
-  || fail "automation run status" "expected succeeded, got $RUN_STATUS"
-
-if [[ -s "$WEBHOOK_CAPTURE_FILE" ]]; then
-  CAPTURE="$(tail -n 1 "$WEBHOOK_CAPTURE_FILE")"
-  echo "$CAPTURE" | jq -e '.json.event == "automation.manual"' >/dev/null \
-    && pass "webhook capture event automation.manual" \
-    || fail "webhook capture event" "bad capture: $CAPTURE"
-  echo "$CAPTURE" | jq -e '.json.input == null and .json.trigger.reason == "smoke"' >/dev/null \
-    && pass "webhook capture input null + reason" \
-    || fail "webhook capture payload" "bad capture: $CAPTURE"
-echo "$CAPTURE" | jq -e '.headers["x-grids-signature"] | startswith("sha256=")' >/dev/null \
-  && pass "webhook signature header present" \
-  || fail "webhook signature header" "bad capture: $CAPTURE"
-else
-  fail "webhook capture file" "receiver did not capture a request"
-fi
-
-SCHEDULE_BODY=$(cat <<JSON
-{
-  "name": "smoke schedule",
-  "trigger": {"kind": "schedule", "cron": "*/5 * * * *", "timezone": "Europe/Berlin"},
-  "action": {"kind": "webhook", "url": "$WEBHOOK_URL"},
-  "enabled": true
-}
-JSON
-)
-http POST /api/grids/automations/by-base/$BASE_ID "$SCHEDULE_BODY"
-expect_status 201 "POST scheduled automation → 201"
-SCHEDULE_AUTOMATION_ID=$(json '.id')
-
-http PATCH /api/grids/automations/$SCHEDULE_AUTOMATION_ID '{"enabled":false}'
-expect_status 200 "PATCH scheduled automation disable → 200"
-
-http GET /api/grids/automations/$SCHEDULE_AUTOMATION_ID/runs
-expect_status 200 "GET scheduled automation runs → 200"
-
-http POST /api/grids/automations/by-base/$BASE_ID "{\"name\":\"bad cron\",\"trigger\":{\"kind\":\"schedule\",\"cron\":\"99 * * * *\"},\"action\":{\"kind\":\"webhook\",\"url\":\"$WEBHOOK_URL\"}}"
-expect_status 400 "POST scheduled automation with invalid cron → 400"
 
 # ────────────────────────────────────────────────────────────────────
 # short_id invariant: every entity got a 5-char alphanumeric short_id.
@@ -763,8 +665,6 @@ expect_status 404 "GET /app/grids/<base>/settings stays removed"
 echo ""
 echo "━━━ cleanup ━━━"
 cleanup_delete /api/grids/bases/$BASE_ID
-http PUT /api/grids/admin/settings/grids.webhook_allow_private_networks '{"value":false}'
-expect_status 200 "restore private webhook target setting"
 
 # ────────────────────────────────────────────────────────────────────
 # Summary

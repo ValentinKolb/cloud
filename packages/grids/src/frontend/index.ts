@@ -14,7 +14,6 @@ import viewRecordsPage from "./[baseId]/table/[tableId]/view/[viewId]/page";
 import adminPage from "./admin";
 import indexPage from "./page";
 import publicFormPage from "./public/forms/[token]/page";
-import scanPage from "./scan/page";
 
 /** Admin pages mounted at `/admin/grids` — platform-admin only. */
 export const adminRoutes = new Hono<AuthContext>().get("/", auth.requireRole("admin", auth.redirectToLogin), ...adminPage);
@@ -47,20 +46,17 @@ export const publicRoutes = new Hono<AuthContext>()
  * URL shape (path-based, mirrors notebooks). Routes are registered in
  * specificity order so Hono's matcher tries the longest path first:
  *
- *   /:base/table/:table/view/:view       →  records page scoped to view
- *   /:base/table/:table                  →  records page
- *   /:base/document/:table/:template     →  document template page
- *   /:base/dashboard/:dashboard          →  dashboard render
- *   /:base                               →  base home (redirects)
- *
- * The records / view / dashboard / document render routes all share the SAME
- * default-export handler from [baseId]/page.tsx via re-export — the
- * handler reads route params from c.req.param
- * and branches inside.
+ *   /:base/table/:table/view/:view       → records page scoped to view
+ *   /:base/table/:table                  → table records page
+ *   /:base/document/:table/:template     → document template workspace
+ *   /:base/dashboard/:dashboard          → dashboard render page
+ *   /:base/reference/...                 → reference window
+ *   /:base/query                         → GQL query explorer
+ *   /:base/workflows[/workflow]          → workflow overview/detail
+ *   /:base                               → workspace shell/default redirect
  */
 export default new Hono<AuthContext>()
   .get("/", auth.requireRole("user", auth.redirectToLogin), ...indexPage)
-  .get("/scan", auth.requireRole("user", auth.redirectToLogin), ...scanPage)
   // Old edit URLs redirect to the canonical in-context edit mode.
   .get("/:baseId/table/:tableId/view/:viewId/edit", auth.requireRole("user", auth.redirectToLogin), (c) =>
     c.redirect(`/app/grids/${c.req.param("baseId")}/table/${c.req.param("tableId")}/view/${c.req.param("viewId")}?edit=true`, 302),

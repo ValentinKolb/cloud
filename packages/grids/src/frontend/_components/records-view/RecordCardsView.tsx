@@ -3,7 +3,8 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show } from "solid-js";
 import type { RecordDisplayConfig } from "../../../contracts";
 import type { Field, GridFilePreview, GridRecord } from "../../../service";
-import { FieldValue, fieldDisplayFormat, formatFieldValueText } from "../table/FieldValue";
+import { FieldValue } from "../table/FieldValue";
+import { fieldDisplayFormat, formatFieldValueText } from "../table/field-value-format";
 import { displayRecordTitle, visibleCardFields } from "./display-mode";
 import type { CardSize } from "./query-url";
 

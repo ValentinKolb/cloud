@@ -171,13 +171,11 @@ const app = new Hono<AuthContext>()
     },
   )
 
-  // ── Unified query endpoint (v3 Slice 5) ──────────────────────────────
+  // ── Unified query endpoint ──────────────────────────────────────────
   // Body: { query: RecordQuery, cursor? }. Response shape depends on what
   // the RecordQuery asked for — see TableQueryResponseSchema.
-  // Old per-action read routes (/by-table/:id list, /aggregate/:id,
-  // /group/:id) were removed in alpha. This is the only table-read
-  // path so saved views, ad-hoc queries, exports, and dashboards share
-  // one contract.
+  // This is the only table-read path so saved views, ad-hoc queries,
+  // exports, and dashboards share one contract.
   .post(
     "/:tableId/query",
     describeRoute({
@@ -406,10 +404,8 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Table not found"),
       },
     }),
-    // Validated query schema. Prior code parsed every param manually
-    // (limit=abc → NaN, excludeIds split into unchecked strings cast as
-    // uuid[] → 500 instead of 400). Zod coerces / validates up front so
-    // bad inputs surface as clean 400s.
+    // Zod coerces and validates lookup params up front so invalid
+    // limits and UUID lists surface as clean 400s.
     v(
       "query",
       z.object({

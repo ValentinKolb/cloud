@@ -1651,7 +1651,7 @@ export type UpdateWorkflowInput = z.infer<typeof UpdateWorkflowSchema>;
 
 export const WorkflowRunStatusSchema = z.enum(["queued", "running", "succeeded", "failed", "canceled"]);
 
-const WorkflowTriggerKindSchema = z.enum(["form", "api", "scanner", "bulkSelection", "dashboardButton", "schedule", "recordEvent"]);
+export const WorkflowTriggerKindSchema = z.enum(["form", "api", "scanner", "bulkSelection", "dashboardButton", "schedule", "recordEvent"]);
 export type WorkflowTriggerKind = z.infer<typeof WorkflowTriggerKindSchema>;
 
 export const WorkflowRunSchema = z.object({
@@ -1735,7 +1735,24 @@ export const WorkflowEmailDeliveryListSchema = z.object({
   items: z.array(WorkflowEmailDeliverySchema),
   nextCursor: z.string().nullable().optional(),
 });
+export const WorkflowRunStatsWindowSchema = z.enum(["10m", "1h", "12h", "24h", "7d", "30d"]);
+export type WorkflowRunStatsWindow = z.infer<typeof WorkflowRunStatsWindowSchema>;
+const WorkflowRunStatsRowSchema = z.object({
+  workflowId: z.string().uuid(),
+  total: z.number().int().min(0),
+  queued: z.number().int().min(0),
+  running: z.number().int().min(0),
+  succeeded: z.number().int().min(0),
+  failed: z.number().int().min(0),
+  canceled: z.number().int().min(0),
+  errorRate: z.number().min(0),
+  avgDurationMs: z.number().int().min(0).nullable(),
+  p99DurationMs: z.number().int().min(0).nullable(),
+  lastRunAt: z.string().datetime().nullable(),
+  latestStatus: WorkflowRunStatusSchema.nullable(),
+});
 export const WorkflowRunStatsSchema = z.object({
+  window: WorkflowRunStatsWindowSchema,
   total: z.number().int().min(0),
   queued: z.number().int().min(0),
   running: z.number().int().min(0),
@@ -1743,7 +1760,11 @@ export const WorkflowRunStatsSchema = z.object({
   failed: z.number().int().min(0),
   canceled: z.number().int().min(0),
   failedLast24h: z.number().int().min(0),
+  errorRate: z.number().min(0),
+  avgDurationMs: z.number().int().min(0).nullable(),
+  p99DurationMs: z.number().int().min(0).nullable(),
   lastRunAt: z.string().datetime().nullable(),
+  byWorkflow: z.array(WorkflowRunStatsRowSchema),
 });
 export type WorkflowRunStats = z.infer<typeof WorkflowRunStatsSchema>;
 

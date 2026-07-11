@@ -1,16 +1,7 @@
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import {
-  type ColumnSpec,
-  type ComputedColumnSpec,
-  type FieldColumnSpec,
-  type FormatSpec,
-  type RecordQuery,
-  type View,
-  type ViewUiSettings,
-  ViewUiSettingsSchema,
-} from "../contracts";
+import { type View, type ViewUiSettings, ViewUiSettingsSchema } from "../contracts";
 import { normalizeRefKey } from "../ref-syntax";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
@@ -18,10 +9,6 @@ import { emitTableMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
 
 type DbRow = Record<string, unknown>;
-
-// View / RecordQuery / ColumnSpec / FormatSpec definitions live in contracts.ts —
-// re-export so consumers can keep importing them from the service layer.
-export type { ColumnSpec, ComputedColumnSpec, FieldColumnSpec, FormatSpec, RecordQuery, View };
 
 const parseUi = (raw: unknown): ViewUiSettings => {
   const parsed = ViewUiSettingsSchema.safeParse(parseJsonbRow<unknown>(raw, {}));
@@ -181,7 +168,7 @@ export const listForTable = async (params: {
 // Pure ACL tier resolution (testable)
 // ──────────────────────────────────────────────────────────────────
 
-export type TierRanks = {
+type TierRanks = {
   /** Highest matching rank from direct user grants, or 0 if any user-deny exists, or null when no user rows match. */
   userRank: number | null;
   groupRank: number | null;
@@ -203,9 +190,9 @@ export const isVisibleByAclTiers = (ranks: TierRanks, defaults: { ownerUserId: s
 };
 
 export const get = async (id: string, opts: { includeDeleted?: boolean } = {}): Promise<View | null> => {
-  // SELECT v.* — slug must be in the projection or mapRow throws (see
-  // Wave 1.1's slug invariant). Live-parent invariant: parent table +
-  // base must be alive; trashed views require explicit `includeDeleted`.
+  // SELECT v.* keeps the slug in the projection for mapRow. Live-parent
+  // invariant: parent table + base must be alive; trashed views require
+  // explicit `includeDeleted`.
   const [row] = opts.includeDeleted
     ? await sql<DbRow[]>`
         SELECT v.*
@@ -239,7 +226,7 @@ const ensureUniqueViewName = async (tableId: string, name: string, exceptViewId:
   return (row?.count ?? 0) === 0 ? ok() : fail(err.conflict("view name must be unique within this grid"));
 };
 
-export type CreateViewServiceInput = {
+type CreateViewServiceInput = {
   tableId: string;
   name: string;
   description?: string | null;
@@ -296,7 +283,7 @@ export const create = async (input: CreateViewServiceInput, actorId: string | nu
   return ok(view);
 };
 
-export type UpdateViewServiceInput = {
+type UpdateViewServiceInput = {
   name?: string;
   description?: string | null;
   icon?: string | null;

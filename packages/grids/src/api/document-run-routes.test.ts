@@ -137,8 +137,8 @@ mock.module("../service", () => ({
       },
       listRunsForRecord: async () => [run, otherTemplateRun],
       getRun: async (id: string) => (id === runId ? currentRun : null),
-      updateRunMetadata: async (id: string, input: unknown) => {
-        updateInput = { id, input };
+      updateRunMetadata: async (id: string, input: unknown, actorId: string | null) => {
+        updateInput = { id, input, actorId };
         return { ok: true, data: { ...run, ...(input as object) } };
       },
       renderRunPdf: async (input: unknown) => {
@@ -406,7 +406,7 @@ describe("document run routes", () => {
       const response = await app().request(path(`/runs/${runId}`), patchJson({ filename: " Updated.pdf ", tags: ["paid"] }));
 
       expect(response.status).toBe(200);
-      expect(updateInput).toEqual({ id: runId, input: { filename: "Updated.pdf", tags: ["paid"] } });
+      expect(updateInput).toEqual({ id: runId, input: { filename: "Updated.pdf", tags: ["paid"] }, actorId: userId });
       expect(await response.json()).toEqual(summarizeRun({ ...run, filename: "Updated.pdf", tags: ["paid"] }));
     });
 
@@ -419,7 +419,7 @@ describe("document run routes", () => {
       tableLevel = "write";
       const response = await app().request(path(`/runs/${runId}`), patchJson({ tags: ["paid"] }));
       expect(response.status).toBe(200);
-      expect(updateInput).toEqual({ id: runId, input: { tags: ["paid"] } });
+      expect(updateInput).toEqual({ id: runId, input: { tags: ["paid"] }, actorId: userId });
     });
   });
 

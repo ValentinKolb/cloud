@@ -11,7 +11,7 @@ export const currentActorUser = <T extends AuthContext>(c: Context<T>) => {
 
 export const currentActorUserId = <T extends AuthContext>(c: Context<T>) => currentActorUser(c)?.id ?? null;
 
-export const currentPermissionSubject = <T extends AuthContext>(c: Context<T>) => {
+const currentPermissionSubject = <T extends AuthContext>(c: Context<T>) => {
   const actor = c.get("actor") as AuthContext["Variables"]["actor"] | undefined;
   const accessSubject = c.get("accessSubject") as AuthContext["Variables"]["accessSubject"] | undefined;
   const user = currentActorUser(c);

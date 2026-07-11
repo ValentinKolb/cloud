@@ -5,25 +5,16 @@ import { For, type JSX, Show } from "solid-js";
 import type { FormatSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field, GridRecord } from "../../../service";
+import { BarcodeDisplay } from "./BarcodeCell";
+import { canRenderBarcode } from "./BarcodeRendering";
 import { expandedRecordLabel, fieldDisplayFormat, isMarkdownLongtext, relationIds, valueToLabelPart } from "./field-value-format";
-
-export {
-  expandedRecordLabel,
-  fieldDisplayFormat,
-  formatFieldValueText,
-  isMarkdownLongtext,
-  relationIds,
-  valueToLabelPart,
-} from "./field-value-format";
-
-import { BarcodeDisplay, canRenderBarcode } from "./BarcodeCell";
 import { formatCell, progressRatio } from "./format-cell";
 import { RecordLink } from "./RecordLink";
 import { SelectValueBadges } from "./select-badges";
 
 type FieldValueMode = "table" | "card" | "detail";
 
-export type FieldValueProps = {
+type FieldValueProps = {
   field: Field;
   value: unknown;
   record?: GridRecord;

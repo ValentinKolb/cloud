@@ -100,9 +100,9 @@ export const csvQuote = (s: string, delimiter = ","): string => {
   return s;
 };
 
-export type ExportFormat = "csv" | "json";
+type ExportFormat = "csv" | "json";
 
-export type ExportResult = {
+type ExportResult = {
   body: string;
   contentType: string;
   filename: string;

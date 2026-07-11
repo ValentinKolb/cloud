@@ -27,7 +27,7 @@ const mapRow = (row: DbRow): AuditEntry => ({
   createdAt: (row.created_at as Date).toISOString(),
 });
 
-export type LogAuditInput = {
+type LogAuditInput = {
   baseId?: string | null;
   tableId?: string | null;
   recordId?: string | null;
@@ -61,7 +61,7 @@ export const logAudit = async (input: LogAuditInput, client: SqlClient = sql): P
   `;
 };
 
-export type AuditEntryWithUser = AuditEntry & {
+type AuditEntryWithUser = AuditEntry & {
   /** Display name resolved from auth.users; null when the actor is
    *  unknown (anonymous form submission or deleted user). */
   userDisplayName: string | null;

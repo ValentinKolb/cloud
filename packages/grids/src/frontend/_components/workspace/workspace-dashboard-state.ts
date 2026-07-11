@@ -27,7 +27,7 @@ export const loadDashboardState = async (common: WorkspaceCommon, dashboard: Das
   const dashboardWorkflows =
     common.canManageBase && common.chrome.adminModeRequested
       ? (await gridsService.workflow.listForBase(common.base.id)).filter((workflow) =>
-          Boolean(workflow.compiled.triggers.dashboardButton),
+          Boolean(workflow.compiled.triggers.dashboardButton || workflow.compiled.triggers.scanner),
         )
       : [];
 

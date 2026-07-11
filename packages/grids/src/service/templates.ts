@@ -20,14 +20,14 @@ import * as workflows from "./workflows";
 
 const log = logger("grids:templates");
 
-export type TemplateSummary = {
+type TemplateSummary = {
   id: string;
   name: string;
   description: string;
   icon: string;
 };
 
-export type InstantiateTemplateInput = {
+type InstantiateTemplateInput = {
   name?: string;
   withSampleData?: boolean;
 };

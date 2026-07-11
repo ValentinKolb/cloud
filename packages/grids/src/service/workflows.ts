@@ -11,6 +11,7 @@ import type {
   WorkflowEmailDelivery,
   WorkflowRun,
   WorkflowRunStats,
+  WorkflowRunStatsWindow,
   WorkflowStepRun,
   WorkflowTriggerKind,
 } from "../contracts";
@@ -35,12 +36,28 @@ type CreateRunInput = {
   triggerInput?: Record<string, unknown> | null;
   resolvedInput?: Record<string, unknown> | null;
   actorUserId?: string | null;
+  actorGroupIds?: string[];
   serviceAccountId?: string | null;
+  authorization?: StoredWorkflowAuthorization;
+};
+
+type StoredWorkflowAuthorization = { kind: "workflow" } | { kind: "dashboard-widget"; dashboardId: string; dashboardWidgetId: string };
+
+export type RecoverableQueuedWorkflowRun = WorkflowRun & {
+  actorGroupIds: string[];
+  authorization: unknown;
+  queueAttempts: number;
 };
 
 type FinishRunInput = {
   status: Extract<WorkflowRun["status"], "succeeded" | "failed" | "canceled">;
   error?: string | null;
+  resultMessage?: string | null;
+};
+
+type ClaimedWorkflowRun = {
+  run: WorkflowRun;
+  claimed: boolean;
 };
 
 type WorkflowRunCursor = {
@@ -49,17 +66,27 @@ type WorkflowRunCursor = {
 };
 
 const DEFAULT_RUN_LEASE_MS = 120_000;
+const DEFAULT_STATS_WINDOW: WorkflowRunStatsWindow = "24h";
+const STATS_WINDOW_SECONDS: Record<WorkflowRunStatsWindow, number> = {
+  "10m": 10 * 60,
+  "1h": 60 * 60,
+  "12h": 12 * 60 * 60,
+  "24h": 24 * 60 * 60,
+  "7d": 7 * 24 * 60 * 60,
+  "30d": 30 * 24 * 60 * 60,
+};
 
-export type ListWorkflowRunsPageParams = {
+type ListWorkflowRunsPageParams = {
   baseId: string;
   workflowIds: string[];
   workflowId?: string | null;
   status?: WorkflowRun["status"] | null;
+  triggerKind?: WorkflowTriggerKind | null;
   cursor?: string | null;
   limit?: number | null;
 };
 
-export type ListWorkflowEmailDeliveriesPageParams = {
+type ListWorkflowEmailDeliveriesPageParams = {
   baseId: string;
   workflowIds: string[];
   workflowId?: string | null;
@@ -67,12 +94,12 @@ export type ListWorkflowEmailDeliveriesPageParams = {
   limit?: number | null;
 };
 
-export type WorkflowRunPage = {
+type WorkflowRunPage = {
   items: WorkflowRun[];
   nextCursor: string | null;
 };
 
-export type WorkflowEmailDeliveryPage = {
+type WorkflowEmailDeliveryPage = {
   items: WorkflowEmailDelivery[];
   nextCursor: string | null;
 };
@@ -113,14 +140,14 @@ export type WorkflowCatalog = {
   emailTemplates: WorkflowCatalogIndex<WorkflowCatalogEntry>;
 };
 
-export type WorkflowCatalogInput = {
+type WorkflowCatalogInput = {
   tables: WorkflowCatalogEntry[];
   fieldsByTable?: Map<string, WorkflowCatalogEntry[]>;
   templates?: Array<WorkflowCatalogEntry & { tableId: string }>;
   emailTemplates?: WorkflowCatalogEntry[];
 };
 
-export type RecordScanCode = {
+type RecordScanCode = {
   id: string;
   baseId: string;
   tableId: string;
@@ -177,9 +204,17 @@ const mapRunRow = (row: DbRow): WorkflowRun => ({
   resolvedInput: parseJsonbRow<WorkflowRun["resolvedInput"]>(row.resolved_input, null),
   status: row.status as WorkflowRun["status"],
   error: (row.error as string | null) ?? null,
+  resultMessage: (row.result_message as string | null) ?? null,
   createdAt: (row.created_at as Date).toISOString(),
   startedAt: row.started_at ? (row.started_at as Date).toISOString() : null,
   finishedAt: row.finished_at ? (row.finished_at as Date).toISOString() : null,
+});
+
+const mapRecoverableRunRow = (row: DbRow): RecoverableQueuedWorkflowRun => ({
+  ...mapRunRow(row),
+  actorGroupIds: parseJsonbRow<string[]>(row.actor_group_ids, []),
+  authorization: parseJsonbRow<unknown>(row.trigger_authorization, null),
+  queueAttempts: Number(row.queue_attempts ?? 0),
 });
 
 const mapStepRunRow = (row: DbRow): WorkflowStepRun => ({
@@ -614,6 +649,8 @@ export const listScheduledEnabled = async (): Promise<Workflow[]> => {
   return rows.map(mapWorkflowRow);
 };
 
+// Consumed through the injected workflow store namespace in workflow-trigger-runtime.
+// fallow-ignore-next-line unused-export
 export const listRuntimeBaseIds = async (): Promise<string[]> => {
   const rows = await sql<Array<{ id: string }>>`
     SELECT id::text AS id
@@ -791,17 +828,19 @@ export const remove = async (id: string, actorId: string | null): Promise<Result
   return result;
 };
 
-export const createRun = async (input: CreateRunInput, client: SqlClient = sql): Promise<WorkflowRun> => {
+export const createWorkflowRun = async (input: CreateRunInput, client: SqlClient = sql): Promise<RecoverableQueuedWorkflowRun> => {
   const [row] = await client<DbRow[]>`
     INSERT INTO grids.workflow_runs (
-      workflow_id, base_id, actor_user_id, service_account_id, trigger_kind,
+      workflow_id, base_id, actor_user_id, actor_group_ids, service_account_id, trigger_authorization, trigger_kind,
       trigger_key, trigger_input, resolved_input, status
     )
     VALUES (
       ${input.workflowId}::uuid,
       ${input.baseId}::uuid,
       ${input.actorUserId ?? null}::uuid,
+      ${toPgUuidArray(input.actorGroupIds ?? [])}::uuid[],
       ${input.serviceAccountId ?? null}::uuid,
+      ${input.authorization ?? { kind: "workflow" }}::jsonb,
       ${input.triggerKind},
       ${input.triggerKey ?? null},
       ${input.triggerInput ?? null}::jsonb,
@@ -811,14 +850,83 @@ export const createRun = async (input: CreateRunInput, client: SqlClient = sql):
     ON CONFLICT (workflow_id, trigger_kind, trigger_key)
     WHERE trigger_key IS NOT NULL AND workflow_id IS NOT NULL
     DO UPDATE SET trigger_key = grids.workflow_runs.trigger_key
-    RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_kind, trigger_input,
-              resolved_input, status, error, created_at, started_at, finished_at
+    RETURNING id, workflow_id, base_id, actor_user_id, to_json(actor_group_ids) AS actor_group_ids,
+              service_account_id, trigger_authorization,
+              trigger_kind, trigger_input, resolved_input, status, error, result_message, queue_attempts,
+              created_at, started_at, finished_at
   `;
   if (!row) throw err.internal("workflow run insert failed");
+  return mapRecoverableRunRow(row);
+};
+
+export const claimStaleQueuedRuns = async (staleMs = 30_000, limit = 100): Promise<RecoverableQueuedWorkflowRun[]> => {
+  const cap = Math.min(Math.max(limit, 1), 500);
+  const rows = await sql<DbRow[]>`
+    WITH candidates AS (
+      SELECT id
+      FROM grids.workflow_runs
+      WHERE status = 'queued'
+        AND created_at < now() - (${staleMs} * interval '1 millisecond')
+        AND (last_queue_attempt_at IS NULL OR last_queue_attempt_at < now() - (${staleMs} * interval '1 millisecond'))
+      ORDER BY created_at, id
+      FOR UPDATE SKIP LOCKED
+      LIMIT ${cap}
+    )
+    UPDATE grids.workflow_runs wr
+    SET queue_attempts = queue_attempts + 1,
+        last_queue_attempt_at = now()
+    FROM candidates c
+    WHERE wr.id = c.id
+    RETURNING wr.id, wr.workflow_id, wr.base_id, wr.actor_user_id, to_json(wr.actor_group_ids) AS actor_group_ids,
+              wr.service_account_id,
+              wr.trigger_authorization, wr.trigger_kind, wr.trigger_input, wr.resolved_input, wr.status, wr.error,
+              wr.result_message, wr.queue_attempts, wr.created_at, wr.started_at, wr.finished_at
+  `;
+  return rows.map(mapRecoverableRunRow);
+};
+
+export const failQueuedRunAttempt = async (
+  runId: string,
+  queueAttempt: number,
+  error: string,
+  client: SqlClient = sql,
+): Promise<WorkflowRun | null> => {
+  const [row] = await client<DbRow[]>`
+    UPDATE grids.workflow_runs
+    SET status = 'failed',
+        error = ${error},
+        lease_expires_at = NULL,
+        finished_at = now()
+    WHERE id = ${runId}::uuid
+      AND status = 'queued'
+      AND queue_attempts = ${queueAttempt}
+    RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_kind, trigger_input,
+              resolved_input, status, error, result_message, created_at, started_at, finished_at
+  `;
+  if (!row) return null;
+  await logAudit(
+    {
+      baseId: row.base_id as string,
+      userId: (row.actor_user_id as string | null) ?? null,
+      action: "workflow.run.failed",
+      diff: {
+        workflowRun: {
+          old: null,
+          new: {
+            id: row.id,
+            workflowId: row.workflow_id,
+            serviceAccountId: row.service_account_id,
+            status: "failed",
+          },
+        },
+      },
+    },
+    client,
+  );
   return mapRunRow(row);
 };
 
-export const startRun = async (runId: string, client: SqlClient = sql, leaseMs = DEFAULT_RUN_LEASE_MS): Promise<WorkflowRun> => {
+export const claimRun = async (runId: string, client: SqlClient = sql, leaseMs = DEFAULT_RUN_LEASE_MS): Promise<ClaimedWorkflowRun> => {
   const [row] = await client<DbRow[]>`
     UPDATE grids.workflow_runs
     SET status = 'running',
@@ -831,11 +939,11 @@ export const startRun = async (runId: string, client: SqlClient = sql, leaseMs =
         OR (status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at < now())
       )
     RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_kind, trigger_input,
-              resolved_input, status, error, created_at, started_at, finished_at
+              resolved_input, status, error, result_message, created_at, started_at, finished_at
   `;
   if (!row) {
-    const existing = await getRun(runId);
-    if (existing) return existing;
+    const existing = await getWorkflowRun(runId);
+    if (existing) return { run: existing, claimed: false };
     throw err.notFound("workflow run");
   }
   await logAudit(
@@ -857,7 +965,7 @@ export const startRun = async (runId: string, client: SqlClient = sql, leaseMs =
     },
     client,
   );
-  return mapRunRow(row);
+  return { run: mapRunRow(row), claimed: true };
 };
 
 export const heartbeatRun = async (runId: string, leaseMs = DEFAULT_RUN_LEASE_MS, client: SqlClient = sql): Promise<void> => {
@@ -874,11 +982,12 @@ export const finishRun = async (runId: string, input: FinishRunInput, client: Sq
     UPDATE grids.workflow_runs
     SET status = ${input.status},
         error = ${input.error ?? null},
+        result_message = ${input.resultMessage ?? null},
         lease_expires_at = NULL,
         finished_at = now()
     WHERE id = ${runId}::uuid
     RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_kind, trigger_input,
-              resolved_input, status, error, created_at, started_at, finished_at
+              resolved_input, status, error, result_message, created_at, started_at, finished_at
   `;
   if (!row) throw err.notFound("workflow run");
   await logAudit(
@@ -907,7 +1016,7 @@ export const listRuns = async (workflowId: string, limit = 50): Promise<Workflow
   const cap = Math.min(Math.max(limit, 1), 200);
   const rows = await sql<DbRow[]>`
     SELECT id, workflow_id, base_id, actor_user_id, service_account_id, trigger_kind, trigger_input,
-           resolved_input, status, error, created_at, started_at, finished_at
+           resolved_input, status, error, result_message, created_at, started_at, finished_at
     FROM grids.workflow_runs
     WHERE workflow_id = ${workflowId}::uuid
     ORDER BY created_at DESC, id DESC
@@ -923,15 +1032,17 @@ export const listRunsPage = async (params: ListWorkflowRunsPageParams): Promise<
   const cursor = parseRunCursor(params.cursor);
   const workflowIdClause = params.workflowId ? sql`AND workflow_id = ${params.workflowId}::uuid` : sql``;
   const statusClause = params.status ? sql`AND status = ${params.status}` : sql``;
+  const triggerClause = params.triggerKind ? sql`AND trigger_kind = ${params.triggerKind}` : sql``;
   const cursorClause = cursor ? sql`AND (created_at, id) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)` : sql``;
   const rows = await sql<DbRow[]>`
     SELECT id, workflow_id, base_id, actor_user_id, service_account_id, trigger_kind, trigger_input,
-           resolved_input, status, error, created_at, started_at, finished_at
+           resolved_input, status, error, result_message, created_at, started_at, finished_at
     FROM grids.workflow_runs
     WHERE base_id = ${params.baseId}::uuid
       AND workflow_id = ANY(${workflowIds}::uuid[])
       ${workflowIdClause}
       ${statusClause}
+      ${triggerClause}
       ${cursorClause}
     ORDER BY created_at DESC, id DESC
     LIMIT ${cap + 1}
@@ -969,32 +1080,129 @@ export const listEmailDeliveriesPage = async (params: ListWorkflowEmailDeliverie
   };
 };
 
-export const runStats = async (baseId: string, workflowIds: string[]): Promise<WorkflowRunStats> => {
+type WorkflowRunStatsRow = WorkflowRunStats["byWorkflow"][number];
+
+type RunStatsSqlRow = {
+  total: number | string;
+  queued: number | string;
+  running: number | string;
+  succeeded: number | string;
+  failed: number | string;
+  canceled: number | string;
+  failed_last_24h?: number | string;
+  avg_duration_ms: number | string | null;
+  p99_duration_ms: number | string | null;
+  last_run_at: Date | string | null;
+};
+
+type WorkflowRunStatsSqlRow = RunStatsSqlRow & {
+  workflow_id: string;
+  latest_status: WorkflowRun["status"] | null;
+};
+
+const emptyRunStats = (window: WorkflowRunStatsWindow): WorkflowRunStats => ({
+  window,
+  total: 0,
+  queued: 0,
+  running: 0,
+  succeeded: 0,
+  failed: 0,
+  canceled: 0,
+  failedLast24h: 0,
+  errorRate: 0,
+  avgDurationMs: null,
+  p99DurationMs: null,
+  lastRunAt: null,
+  byWorkflow: [],
+});
+
+const numberOrNull = (value: number | string | null | undefined): number | null => {
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const intCount = (value: number | string | null | undefined): number => Math.max(0, Math.trunc(numberOrNull(value) ?? 0));
+
+const errorRate = (failed: number, total: number): number => (total > 0 ? (failed / total) * 100 : 0);
+
+const mapStatsRow = (
+  row: RunStatsSqlRow | undefined,
+  window: WorkflowRunStatsWindow,
+  byWorkflow: WorkflowRunStatsRow[],
+): WorkflowRunStats => {
+  const total = intCount(row?.total);
+  const failed = intCount(row?.failed);
+  return {
+    window,
+    total,
+    queued: intCount(row?.queued),
+    running: intCount(row?.running),
+    succeeded: intCount(row?.succeeded),
+    failed,
+    canceled: intCount(row?.canceled),
+    failedLast24h: intCount(row?.failed_last_24h),
+    errorRate: errorRate(failed, total),
+    avgDurationMs: numberOrNull(row?.avg_duration_ms),
+    p99DurationMs: numberOrNull(row?.p99_duration_ms),
+    lastRunAt: row?.last_run_at ? new Date(row.last_run_at).toISOString() : null,
+    byWorkflow,
+  };
+};
+
+const mapWorkflowStatsRow = (row: WorkflowRunStatsSqlRow): WorkflowRunStatsRow => {
+  const total = intCount(row.total);
+  const failed = intCount(row.failed);
+  return {
+    workflowId: row.workflow_id,
+    total,
+    queued: intCount(row.queued),
+    running: intCount(row.running),
+    succeeded: intCount(row.succeeded),
+    failed,
+    canceled: intCount(row.canceled),
+    errorRate: errorRate(failed, total),
+    avgDurationMs: numberOrNull(row.avg_duration_ms),
+    p99DurationMs: numberOrNull(row.p99_duration_ms),
+    lastRunAt: row.last_run_at ? new Date(row.last_run_at).toISOString() : null,
+    latestStatus: row.latest_status,
+  };
+};
+
+export const runStats = async (
+  baseId: string,
+  workflowIds: string[],
+  options: { window?: WorkflowRunStatsWindow | null } = {},
+): Promise<WorkflowRunStats> => {
+  const window = options.window ?? DEFAULT_STATS_WINDOW;
   if (workflowIds.length === 0) {
-    return {
-      total: 0,
-      queued: 0,
-      running: 0,
-      succeeded: 0,
-      failed: 0,
-      canceled: 0,
-      failedLast24h: 0,
-      lastRunAt: null,
-    };
+    return emptyRunStats(window);
   }
   const ids = toPgUuidArray(workflowIds);
-  const [row] = await sql<
-    Array<{
-      total: number;
-      queued: number;
-      running: number;
-      succeeded: number;
-      failed: number;
-      canceled: number;
-      failed_last_24h: number;
-      last_run_at: Date | string | null;
-    }>
-  >`
+  const windowSeconds = STATS_WINDOW_SECONDS[window];
+  const [row] = await sql<RunStatsSqlRow[]>`
+    WITH filtered AS (
+      SELECT
+        status,
+        created_at,
+        CASE
+          WHEN started_at IS NOT NULL AND finished_at IS NOT NULL
+          THEN GREATEST(0, EXTRACT(EPOCH FROM (finished_at - started_at)) * 1000)
+          ELSE NULL
+        END AS duration_ms
+      FROM grids.workflow_runs
+      WHERE base_id = ${baseId}::uuid
+        AND workflow_id = ANY(${ids}::uuid[])
+        AND created_at >= now() - (${windowSeconds} * interval '1 second')
+    ),
+    failed_24h AS (
+      SELECT count(*)::int AS failed_last_24h
+      FROM grids.workflow_runs
+      WHERE base_id = ${baseId}::uuid
+        AND workflow_id = ANY(${ids}::uuid[])
+        AND status = 'failed'
+        AND created_at >= now() - interval '24 hours'
+    )
     SELECT
       count(*)::int AS total,
       count(*) FILTER (WHERE status = 'queued')::int AS queued,
@@ -1002,28 +1210,58 @@ export const runStats = async (baseId: string, workflowIds: string[]): Promise<W
       count(*) FILTER (WHERE status = 'succeeded')::int AS succeeded,
       count(*) FILTER (WHERE status = 'failed')::int AS failed,
       count(*) FILTER (WHERE status = 'canceled')::int AS canceled,
-      count(*) FILTER (WHERE status = 'failed' AND created_at >= now() - interval '24 hours')::int AS failed_last_24h,
+      (SELECT failed_last_24h FROM failed_24h) AS failed_last_24h,
+      round((avg(duration_ms) FILTER (WHERE duration_ms IS NOT NULL))::numeric)::int AS avg_duration_ms,
+      round((percentile_cont(0.99) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE duration_ms IS NOT NULL))::numeric)::int AS p99_duration_ms,
       max(created_at) AS last_run_at
-    FROM grids.workflow_runs
-    WHERE base_id = ${baseId}::uuid
-      AND workflow_id = ANY(${ids}::uuid[])
+    FROM filtered
   `;
-  return {
-    total: Number(row?.total ?? 0),
-    queued: Number(row?.queued ?? 0),
-    running: Number(row?.running ?? 0),
-    succeeded: Number(row?.succeeded ?? 0),
-    failed: Number(row?.failed ?? 0),
-    canceled: Number(row?.canceled ?? 0),
-    failedLast24h: Number(row?.failed_last_24h ?? 0),
-    lastRunAt: row?.last_run_at ? new Date(row.last_run_at).toISOString() : null,
-  };
+  const workflowRows = await sql<WorkflowRunStatsSqlRow[]>`
+    WITH filtered AS (
+      SELECT
+        id,
+        workflow_id::text AS workflow_id,
+        status,
+        created_at,
+        CASE
+          WHEN started_at IS NOT NULL AND finished_at IS NOT NULL
+          THEN GREATEST(0, EXTRACT(EPOCH FROM (finished_at - started_at)) * 1000)
+          ELSE NULL
+        END AS duration_ms
+      FROM grids.workflow_runs
+      WHERE base_id = ${baseId}::uuid
+        AND workflow_id = ANY(${ids}::uuid[])
+        AND created_at >= now() - (${windowSeconds} * interval '1 second')
+    ),
+    latest AS (
+      SELECT DISTINCT ON (workflow_id) workflow_id, status AS latest_status
+      FROM filtered
+      ORDER BY workflow_id, created_at DESC, id DESC
+    )
+    SELECT
+      f.workflow_id,
+      count(*)::int AS total,
+      count(*) FILTER (WHERE f.status = 'queued')::int AS queued,
+      count(*) FILTER (WHERE f.status = 'running')::int AS running,
+      count(*) FILTER (WHERE f.status = 'succeeded')::int AS succeeded,
+      count(*) FILTER (WHERE f.status = 'failed')::int AS failed,
+      count(*) FILTER (WHERE f.status = 'canceled')::int AS canceled,
+      round((avg(f.duration_ms) FILTER (WHERE f.duration_ms IS NOT NULL))::numeric)::int AS avg_duration_ms,
+      round((percentile_cont(0.99) WITHIN GROUP (ORDER BY f.duration_ms) FILTER (WHERE f.duration_ms IS NOT NULL))::numeric)::int AS p99_duration_ms,
+      max(f.created_at) AS last_run_at,
+      latest.latest_status
+    FROM filtered f
+    JOIN latest ON latest.workflow_id = f.workflow_id
+    GROUP BY f.workflow_id, latest.latest_status
+    ORDER BY max(f.created_at) DESC, f.workflow_id
+  `;
+  return mapStatsRow(row, window, workflowRows.map(mapWorkflowStatsRow));
 };
 
-export const getRun = async (runId: string): Promise<WorkflowRun | null> => {
+export const getWorkflowRun = async (runId: string): Promise<WorkflowRun | null> => {
   const [row] = await sql<DbRow[]>`
     SELECT id, workflow_id, base_id, actor_user_id, service_account_id, trigger_kind, trigger_input,
-           resolved_input, status, error, created_at, started_at, finished_at
+           resolved_input, status, error, result_message, created_at, started_at, finished_at
     FROM grids.workflow_runs
     WHERE id = ${runId}::uuid
   `;

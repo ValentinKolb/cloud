@@ -4,13 +4,9 @@ import { loadWorkspaceRoute } from "./workspace-route-state";
 import type { GridsWorkspaceState, LoadWorkspaceParams } from "./workspace-state-model";
 
 export type {
-  GridsWorkspaceRoute,
   GridsWorkspaceState,
-  WorkspaceCatalog,
   WorkspaceDashboardRoute,
   WorkspaceDocumentTemplateRoute,
-  WorkspaceEmptyRoute,
-  WorkspaceGroupBucket,
   WorkspaceQueryRoute,
   WorkspaceRecordsRoute,
   WorkspaceWorkflowsRoute,

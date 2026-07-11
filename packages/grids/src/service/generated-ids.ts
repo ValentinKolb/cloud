@@ -5,7 +5,7 @@ import type { SqlClient } from "./audit";
 import { fieldUniqueIndexName, nextGeneratedIdSequenceValue } from "./field-indexes";
 import type { Field } from "./types";
 
-export type IdStrategy = "sequence" | "date_sequence" | "short_code" | "random_code" | "uuid" | "uuidv7" | "ulid";
+type IdStrategy = "sequence" | "date_sequence" | "short_code" | "random_code" | "uuid" | "uuidv7" | "ulid";
 
 type IdConfig = {
   strategy?: IdStrategy;

@@ -22,7 +22,7 @@ import {
 type DslQueryPreviewSuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 type DslQueryPreviewRow = DslQueryPreviewSuccess["rows"][number];
 
-export type DslQueryPreviewOptions = {
+type DslQueryPreviewOptions = {
   fieldsByTableId: Record<string, Field[]>;
   timeZone?: string;
   limit?: number;

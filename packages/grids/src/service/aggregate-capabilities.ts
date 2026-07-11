@@ -9,7 +9,7 @@ const NUMERIC_AGGS: ReadonlySet<AggregateKind> = new Set(["sum", "avg", "median"
 const MIN_MAX_AGGS: ReadonlySet<AggregateKind> = new Set(["min", "max"]);
 const DATE_EDGE_AGGS: ReadonlySet<AggregateKind> = new Set(["earliest", "latest"]);
 
-export const GROUP_AGGREGATE_KINDS: ReadonlySet<AggregateKind> = new Set([
+const GROUP_AGGREGATE_KINDS: ReadonlySet<AggregateKind> = new Set([
   "count",
   "countEmpty",
   "countUnique",

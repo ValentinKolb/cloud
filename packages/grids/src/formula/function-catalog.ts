@@ -1,6 +1,6 @@
 export type FormulaValueType = "any" | "number" | "text" | "boolean" | "date";
 
-export type FormulaArg = {
+type FormulaArg = {
   label: string;
   type: FormulaValueType;
 };

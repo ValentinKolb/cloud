@@ -42,10 +42,9 @@ const getMaxFileSizeBytes = async (): Promise<number> => {
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
 
-  // GET /by-table/:tableId (list) deleted in Wave 6.1.
-  // The unified POST /tables/:id/query (api/tables.ts) supersedes it
-  // with the same filter/sort/cursor semantics plus search merging.
-  // No frontend callers remained at the time of removal.
+  // Record listing is served by the unified table query endpoint so
+  // list, search, filter, sort, group, and aggregate reads share one
+  // backend contract.
 
   .get(
     "/:tableId/:recordId/files/:fieldId",
@@ -351,10 +350,8 @@ const app = new Hono<AuthContext>()
     },
   )
 
-  // POST /aggregate/:tableId and POST /group/:tableId deleted in Wave
-  // 6.1. The unified POST /tables/:id/query (api/tables.ts) handles
-  // both group and footer-aggregate dispatch. No frontend callers
-  // remained at the time of removal.
+  // Grouping and aggregate reads are served by the unified table query
+  // endpoint, keeping all record-read semantics in one place.
 
   .post(
     "/:tableId/:recordId/restore",

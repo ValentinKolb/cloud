@@ -31,27 +31,28 @@ import { get as getTable } from "./tables";
 import type { GridRecord, Table } from "./types";
 import { validateHttpRequestTarget } from "./workflow-validators";
 import {
-  createRun,
+  claimRun,
   createStepRun,
+  createWorkflowRun,
   finishRun,
   finishStepRun,
   get,
   getRecordScanCode,
   getStepRunByPath,
-  getRun as getWorkflowRun,
+  getWorkflowRun,
   heartbeatRun,
   loadWorkflowCatalog,
   resolveWorkflowEmailTemplateRef,
   resolveWorkflowFieldRef,
   resolveWorkflowTableRef,
   resolveWorkflowTemplateRef,
-  startRun,
   type WorkflowCatalog,
 } from "./workflows";
 
 type RuntimeRecord = { kind: "record"; tableId: string; recordId: string };
 type RuntimeRecordList = { kind: "recordList"; tableId: string; recordIds: string[] };
-type RuntimeValue = WorkflowValue | RuntimeRecord | RuntimeRecordList | DocumentRun | GridRecord;
+type RuntimeWorkflowSucceed = { kind: "workflowSucceed"; message: string };
+type RuntimeValue = WorkflowValue | RuntimeRecord | RuntimeRecordList | RuntimeWorkflowSucceed | DocumentRun | GridRecord;
 type RuntimeCondition = {
   equals?: [WorkflowValue, WorkflowValue];
   notEquals?: [WorkflowValue, WorkflowValue];
@@ -101,13 +102,17 @@ export type ExecuteWorkflowParams = {
   serviceAccountId?: string | null;
   triggerInput?: WorkflowRuntimeInput | null;
   resolvedInput?: WorkflowRuntimeInput | null;
-  trustTriggerPermission?: boolean;
   leaseMs?: number;
   heartbeat?: () => Promise<void>;
 };
 
-export type ExecutePreparedWorkflowRunParams = ExecuteWorkflowParams & {
+export type WorkflowTriggerAuthorization =
+  | { kind: "workflow" }
+  | { kind: "dashboard-widget"; dashboardId: string; dashboardWidgetId: string };
+
+type ExecutePreparedWorkflowRunParams = ExecuteWorkflowParams & {
   runId: string;
+  authorization: WorkflowTriggerAuthorization;
 };
 
 export type ExecuteScannerWorkflowParams = Omit<ExecuteWorkflowParams, "triggerKind" | "triggerInput" | "resolvedInput"> & {
@@ -120,8 +125,25 @@ export type ExecuteBulkSelectionWorkflowParams = Omit<ExecuteWorkflowParams, "tr
   query?: RecordQuery;
 };
 
-export type ExecuteRecordEventWorkflowParams = Omit<ExecuteWorkflowParams, "triggerKind" | "triggerInput" | "resolvedInput"> & {
+type ExecuteRecordEventWorkflowParams = Omit<ExecuteWorkflowParams, "triggerKind" | "triggerInput" | "resolvedInput"> & {
   event: GridsRecordEvent;
+};
+
+export type PreparedWorkflowTriggerRun = {
+  workflow: Workflow;
+  triggerKind: WorkflowTriggerKind;
+  triggerInput: WorkflowRuntimeInput | null;
+  resolvedInput: WorkflowRuntimeInput;
+  actorUserId: string | null;
+  actorGroupIds: string[];
+  serviceAccountId: string | null;
+  authorization: WorkflowTriggerAuthorization;
+};
+
+type WorkflowRunPrincipal = {
+  actorUserId: string | null;
+  actorGroupIds: string[];
+  serviceAccountId: string | null;
 };
 
 const MAX_BULK_RECORDS = 10_000;
@@ -131,6 +153,7 @@ const DEFAULT_HTTP_TIMEOUT_MS = 15_000;
 const MAX_HTTP_TIMEOUT_MS = 60_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const SCAN_CODE_PATH_RE = /(?:^|\/)scan(?:\?|$)/;
 
 type RuntimeContext = {
   workflow: Workflow;
@@ -148,10 +171,40 @@ type RuntimeContext = {
   heartbeat?: () => Promise<void>;
 };
 
+const normalizeScannedText = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = new URL(trimmed, "https://grids.local");
+    const code = parsed.searchParams.get("code");
+    if (code && SCAN_CODE_PATH_RE.test(parsed.pathname)) return code.trim();
+  } catch {
+    // Non-URL scanner payloads are expected. Fall back to the raw scanned value.
+  }
+  return trimmed;
+};
+
 const workflowDateConfig = async (): Promise<DateContext> => ({
   timeZone: normalizeTimeZone(String((await settingsGet<string>("app.timezone")) || "").trim(), "UTC"),
   locale: "en",
   firstDayOfWeek: 1,
+});
+
+const loadUserGroupIds = async (userId: string | null): Promise<string[]> => {
+  if (!userId) return [];
+  const rows = await sql<{ id: string }[]>`
+    SELECT group_id::text AS id
+    FROM auth.user_groups_v2
+    WHERE user_id = ${userId}::uuid
+    ORDER BY group_id
+  `;
+  return rows.map((row) => row.id);
+};
+
+export const workflowOwnerPrincipal = async (workflow: Pick<Workflow, "ownerUserId">): Promise<WorkflowRunPrincipal> => ({
+  actorUserId: workflow.ownerUserId,
+  actorGroupIds: await loadUserGroupIds(workflow.ownerUserId),
+  serviceAccountId: null,
 });
 
 const byteLength = (value: string): number => new TextEncoder().encode(value).byteLength;
@@ -182,6 +235,9 @@ const isDocumentRun = (value: RuntimeValue): value is DocumentRun =>
       typeof (value as { filename?: unknown }).filename === "string" &&
       typeof (value as { snapshotId?: unknown }).snapshotId === "string",
   );
+
+const isWorkflowSucceed = (value: RuntimeValue | null): value is RuntimeWorkflowSucceed =>
+  Boolean(value && typeof value === "object" && (value as { kind?: unknown }).kind === "workflowSucceed");
 
 const readRecord = async (ctx: RuntimeContext, ref: RuntimeRecord): Promise<Result<GridRecord>> => {
   const cached = ctx.records.get(pathKey(ref));
@@ -271,6 +327,58 @@ const requireDeclaredTrigger = (definition: WorkflowDefinition, kind: WorkflowTr
   return ok();
 };
 
+const createRuntimeContext = async (params: ExecuteWorkflowParams, workflow: Workflow): Promise<RuntimeContext> => ({
+  workflow,
+  definition: workflow.compiled,
+  catalog: await loadWorkflowCatalog(workflow.baseId),
+  runId: null,
+  actorUserId: params.actorUserId ?? null,
+  actorGroupIds: params.actorGroupIds ?? [],
+  serviceAccountId: params.serviceAccountId ?? null,
+  input: new Map(),
+  variables: new Map(),
+  records: new Map(),
+  dateConfig: await workflowDateConfig(),
+  leaseMs: params.leaseMs,
+  heartbeat: params.heartbeat,
+});
+
+const plainResolvedInput = (ctx: RuntimeContext): WorkflowRuntimeInput =>
+  Object.fromEntries([...ctx.input.entries()].map(([key, value]) => [key, valueToPlain(value)]));
+
+type WorkflowExecutionPreparation = PreparedWorkflowTriggerRun & {
+  ctx: RuntimeContext;
+};
+
+const prepareWorkflowExecution = async (
+  params: ExecuteWorkflowParams,
+  authorization: WorkflowTriggerAuthorization = { kind: "workflow" },
+): Promise<Result<WorkflowExecutionPreparation>> => {
+  const workflow = await get(params.workflowId);
+  if (!workflow) return fail(err.notFound("workflow"));
+  if (!workflow.enabled) return fail(err.badInput("workflow is disabled"));
+  const trigger = requireDeclaredTrigger(workflow.compiled, params.triggerKind);
+  if (!trigger.ok) return trigger;
+  const ctx = await createRuntimeContext(params, workflow);
+  if (authorization.kind === "workflow") {
+    const permission = await requireWorkflowRunPermission(ctx);
+    if (!permission.ok) return permission;
+  }
+  const input = resolveInputs(ctx, params.resolvedInput ?? params.triggerInput ?? {});
+  if (!input.ok) return input;
+  return ok({
+    workflow,
+    ctx,
+    triggerKind: params.triggerKind,
+    triggerInput: params.triggerInput ?? null,
+    resolvedInput: plainResolvedInput(ctx),
+    actorUserId: ctx.actorUserId,
+    actorGroupIds: ctx.actorGroupIds,
+    serviceAccountId: ctx.serviceAccountId,
+    authorization,
+  });
+};
+
 const resolveInputRecord = (tableId: string, raw: unknown): RuntimeRecord | null => {
   if (typeof raw === "string" && UUID_RE.test(raw)) return { kind: "record", tableId, recordId: raw };
   if (raw && typeof raw === "object") {
@@ -358,6 +466,7 @@ const resolveInputs = (ctx: RuntimeContext, rawInput: WorkflowRuntimeInput): Res
 const valueToPlain = (value: RuntimeValue): unknown => {
   if (isRecord(value)) return value.recordId;
   if (isRecordList(value)) return value.recordIds;
+  if (isWorkflowSucceed(value)) return { message: value.message };
   return value;
 };
 
@@ -375,7 +484,13 @@ const evaluateValue = async (ctx: RuntimeContext, value: WorkflowValue): Promise
   if (typeof value === "string") {
     if (value === "now()") return ok(new Date().toISOString());
     const [rootName, ...path] = value.split(".");
-    const root = rootName === "inputs" ? ctx.input.get(path.shift() ?? "") : ctx.variables.get(rootName ?? "");
+    if (rootName === "inputs") {
+      const inputName = path.shift() ?? "";
+      const root = ctx.input.get(inputName);
+      if (root === undefined) return fail(err.badInput(`workflow value references unknown input "${inputName}"`));
+      return path.length > 0 ? readPathValue(ctx, root, path.join(".")) : ok(root);
+    }
+    const root = ctx.variables.get(rootName ?? "");
     if (root === undefined) return ok(value);
     return path.length > 0 ? readPathValue(ctx, root, path.join(".")) : ok(root);
   }
@@ -403,10 +518,56 @@ const evaluateValue = async (ctx: RuntimeContext, value: WorkflowValue): Promise
 const valuesEqual = (left: RuntimeValue, right: RuntimeValue): boolean =>
   JSON.stringify(valueToPlain(left)) === JSON.stringify(valueToPlain(right));
 
+const MESSAGE_EXPR_RE = /\{\{\s*([^{}]+?)\s*\}\}/g;
+
+const stringifyMessageValue = (value: RuntimeValue): string => {
+  const plain = valueToPlain(value);
+  if (plain === null || plain === undefined) return "";
+  if (typeof plain === "string") return plain;
+  if (typeof plain === "number" || typeof plain === "boolean") return String(plain);
+  return JSON.stringify(plain);
+};
+
+const evaluateMessageExpression = async (ctx: RuntimeContext, expression: string): Promise<Result<string>> => {
+  if (expression === "now()") {
+    const value = await evaluateValue(ctx, expression);
+    return value.ok ? ok(stringifyMessageValue(value.data)) : value;
+  }
+  const [rootName, inputName] = expression.split(".");
+  if (!rootName) return fail(err.badInput("workflow message expression is empty"));
+  if (rootName === "inputs") {
+    if (!inputName || !ctx.input.has(inputName))
+      return fail(err.badInput(`message expression "${expression}" references an unknown input`));
+  } else if (!ctx.variables.has(rootName)) {
+    return fail(err.badInput(`message expression "${expression}" references an unknown value`));
+  }
+  const value = await evaluateValue(ctx, expression);
+  return value.ok ? ok(stringifyMessageValue(value.data)) : value;
+};
+
+const renderRuntimeMessage = async (ctx: RuntimeContext, raw: unknown, fallback: string): Promise<Result<string>> => {
+  const template = String(raw ?? fallback);
+  let rendered = "";
+  let cursor = 0;
+  for (const match of template.matchAll(MESSAGE_EXPR_RE)) {
+    const index = match.index ?? 0;
+    rendered += template.slice(cursor, index);
+    const expression = match[1]?.trim() ?? "";
+    const evaluated = await evaluateMessageExpression(ctx, expression);
+    if (!evaluated.ok) return evaluated;
+    rendered += evaluated.data;
+    cursor = index + match[0].length;
+  }
+  rendered += template.slice(cursor);
+  if (rendered.length > 1000) return fail(err.badInput("workflow message renders longer than 1000 characters"));
+  return ok(rendered);
+};
+
 const stepOutputValue = (value: RuntimeValue | null): unknown => {
   if (value === null) return null;
   if (isRecord(value)) return { kind: "record", tableId: value.tableId, recordId: value.recordId };
   if (isRecordList(value)) return { kind: "recordList", tableId: value.tableId, count: value.recordIds.length };
+  if (isWorkflowSucceed(value)) return value;
   if (isGridRecord(value)) return { kind: "record", tableId: value.tableId, recordId: value.id };
   if (isDocumentRun(value)) return value;
   if (value && typeof value === "object" && "kind" in value) return value;
@@ -423,6 +584,9 @@ const restoreStepOutputValue = (value: unknown): RuntimeValue | null => {
   if (item.kind === "recordList" && typeof item.tableId === "string" && Array.isArray(item.recordIds)) {
     const recordIds = item.recordIds.filter((recordId): recordId is string => typeof recordId === "string");
     return recordIds.length === item.recordIds.length ? { kind: "recordList", tableId: item.tableId, recordIds } : null;
+  }
+  if (item.kind === "workflowSucceed" && typeof item.message === "string") {
+    return { kind: "workflowSucceed", message: item.message };
   }
   if (
     typeof item.id === "string" &&
@@ -930,6 +1094,7 @@ const executeSteps = async (
       if (!restored.ok) return restored;
       await heartbeatWorkflow(ctx);
       last = restored.data;
+      if (isWorkflowSucceed(last)) break;
       continue;
     }
     let result: Result<RuntimeValue | null>;
@@ -946,8 +1111,13 @@ const executeSteps = async (
       const evaluated = await evaluateValue(ctx, action.value);
       if (evaluated.ok) ctx.variables.set(action.name, evaluated.data);
       result = evaluated;
-    } else if ("fail" in item) result = fail(err.badInput(String((item.fail as { message?: unknown }).message ?? "workflow failed")));
-    else if ("if" in item) {
+    } else if ("fail" in item) {
+      const message = await renderRuntimeMessage(ctx, (item.fail as { message?: unknown }).message, "workflow failed");
+      result = message.ok ? fail(err.badInput(message.data)) : message;
+    } else if ("succeed" in item) {
+      const message = await renderRuntimeMessage(ctx, (item.succeed as { message?: unknown }).message, "workflow succeeded");
+      result = message.ok ? ok({ kind: "workflowSucceed", message: message.data }) : message;
+    } else if ("if" in item) {
       const condition = item.if as RuntimeCondition;
       const matched = await evaluateCondition(ctx, condition);
       const branches = item as { then?: WorkflowStep[]; else?: WorkflowStep[] };
@@ -995,7 +1165,7 @@ const executeSteps = async (
           await heartbeatWorkflow(ctx);
           ctx.variables.set(alias, { kind: "record", tableId: list.data.tableId, recordId });
           result = await executeSteps(ctx, body, runId, `${currentPath}.do.${recordId}`);
-          if (!result.ok) break;
+          if (!result.ok || isWorkflowSucceed(result.data)) break;
         }
       }
     } else result = fail(err.badInput(`unsupported workflow step "${kind}"`));
@@ -1008,59 +1178,51 @@ const executeSteps = async (
     await heartbeatWorkflow(ctx);
     if (!result.ok) return result;
     last = result.data;
+    if (isWorkflowSucceed(last)) break;
   }
   return ok(last);
 };
 
 const isTerminalRun = (run: WorkflowRun): boolean => run.status === "succeeded" || run.status === "failed" || run.status === "canceled";
 
-const executeWorkflowRun = async (params: ExecuteWorkflowParams, preparedRun: WorkflowRun | null = null): Promise<Result<WorkflowRun>> => {
-  const workflow = await get(params.workflowId);
-  if (!workflow) return fail(err.notFound("workflow"));
-  if (!workflow.enabled) return fail(err.badInput("workflow is disabled"));
+const executeWorkflowRun = async (
+  params: ExecuteWorkflowParams,
+  preparedRun: WorkflowRun | null = null,
+  authorization: WorkflowTriggerAuthorization = { kind: "workflow" },
+): Promise<Result<WorkflowRun>> => {
+  let startedPreparedRun: WorkflowRun | null = null;
   if (preparedRun) {
-    if (preparedRun.workflowId !== workflow.id) return fail(err.badInput("workflow run does not belong to this workflow"));
+    if (preparedRun.workflowId !== params.workflowId) return fail(err.badInput("workflow run does not belong to this workflow"));
     if (preparedRun.triggerKind !== params.triggerKind) return fail(err.badInput("workflow run trigger does not match this execution"));
     if (isTerminalRun(preparedRun)) return ok(preparedRun);
-    if (preparedRun.status !== "queued") return ok(preparedRun);
+    if (preparedRun.status !== "queued" && preparedRun.status !== "running") return ok(preparedRun);
+    const claimed = await claimRun(preparedRun.id, undefined, params.leaseMs);
+    if (!claimed.claimed || claimed.run.status !== "running") return ok(claimed.run);
+    startedPreparedRun = claimed.run;
   }
-  const trigger = requireDeclaredTrigger(workflow.compiled, params.triggerKind);
-  if (!trigger.ok) return trigger;
-  const ctx: RuntimeContext = {
-    workflow,
-    definition: workflow.compiled,
-    catalog: await loadWorkflowCatalog(workflow.baseId),
-    runId: null,
-    actorUserId: params.actorUserId ?? null,
-    actorGroupIds: params.actorGroupIds ?? [],
-    serviceAccountId: params.serviceAccountId ?? null,
-    input: new Map(),
-    variables: new Map(),
-    records: new Map(),
-    dateConfig: await workflowDateConfig(),
-    leaseMs: params.leaseMs,
-    heartbeat: params.heartbeat,
-  };
-  if (!params.trustTriggerPermission) {
-    const permission = await requireWorkflowRunPermission(ctx);
-    if (!permission.ok) return permission;
-  }
-  const input = resolveInputs(ctx, params.resolvedInput ?? params.triggerInput ?? {});
-  if (!input.ok) return input;
+  const prepared = await prepareWorkflowExecution(params, authorization);
+  if (!prepared.ok) return prepared;
+  const { workflow, ctx } = prepared.data;
 
   const run =
-    preparedRun ??
-    (await createRun({
+    startedPreparedRun ??
+    (await createWorkflowRun({
       workflowId: workflow.id,
       baseId: workflow.baseId,
       triggerKind: params.triggerKind,
       triggerInput: params.triggerInput ?? null,
-      resolvedInput: Object.fromEntries([...ctx.input.entries()].map(([key, value]) => [key, valueToPlain(value)])),
+      resolvedInput: prepared.data.resolvedInput,
       actorUserId: ctx.actorUserId,
+      actorGroupIds: ctx.actorGroupIds,
       serviceAccountId: ctx.serviceAccountId,
+      authorization,
     }));
-  const started = await startRun(run.id, undefined, params.leaseMs);
-  if (started.status !== "running") return ok(started);
+  let started = startedPreparedRun;
+  if (!started) {
+    const claimed = await claimRun(run.id, undefined, params.leaseMs);
+    if (!claimed.claimed || claimed.run.status !== "running") return ok(claimed.run);
+    started = claimed.run;
+  }
   ctx.runId = started.id;
   await heartbeatWorkflow(ctx);
   try {
@@ -1068,6 +1230,7 @@ const executeWorkflowRun = async (params: ExecuteWorkflowParams, preparedRun: Wo
     const finished = await finishRun(started.id, {
       status: result.ok ? "succeeded" : "failed",
       error: result.ok ? null : result.error.message,
+      resultMessage: result.ok && isWorkflowSucceed(result.data) ? result.data.message : null,
     });
     return result.ok ? ok(finished) : fail(result.error);
   } catch (error) {
@@ -1077,12 +1240,49 @@ const executeWorkflowRun = async (params: ExecuteWorkflowParams, preparedRun: Wo
   }
 };
 
-export const execute = async (params: ExecuteWorkflowParams): Promise<Result<WorkflowRun>> => executeWorkflowRun(params);
+const execute = async (params: ExecuteWorkflowParams): Promise<Result<WorkflowRun>> => executeWorkflowRun(params);
+
+export const prepareWorkflowTriggerRun = async (params: ExecuteWorkflowParams): Promise<Result<PreparedWorkflowTriggerRun>> => {
+  const prepared = await prepareWorkflowExecution(params);
+  if (!prepared.ok) return prepared;
+  return ok({
+    workflow: prepared.data.workflow,
+    triggerKind: prepared.data.triggerKind,
+    triggerInput: prepared.data.triggerInput,
+    resolvedInput: prepared.data.resolvedInput,
+    actorUserId: prepared.data.actorUserId,
+    actorGroupIds: prepared.data.actorGroupIds,
+    serviceAccountId: prepared.data.serviceAccountId,
+    authorization: prepared.data.authorization,
+  });
+};
+
+export const prepareDashboardWorkflowTriggerRun = async (
+  params: ExecuteWorkflowParams & { triggerKind: "dashboardButton"; dashboardId: string; dashboardWidgetId: string },
+): Promise<Result<PreparedWorkflowTriggerRun>> => {
+  const authorization: WorkflowTriggerAuthorization = {
+    kind: "dashboard-widget",
+    dashboardId: params.dashboardId,
+    dashboardWidgetId: params.dashboardWidgetId,
+  };
+  const prepared = await prepareWorkflowExecution(params, authorization);
+  if (!prepared.ok) return prepared;
+  return ok({
+    workflow: prepared.data.workflow,
+    triggerKind: prepared.data.triggerKind,
+    triggerInput: prepared.data.triggerInput,
+    resolvedInput: prepared.data.resolvedInput,
+    actorUserId: prepared.data.actorUserId,
+    actorGroupIds: prepared.data.actorGroupIds,
+    serviceAccountId: prepared.data.serviceAccountId,
+    authorization,
+  });
+};
 
 export const executePreparedRun = async (params: ExecutePreparedWorkflowRunParams): Promise<Result<WorkflowRun>> => {
   const run = await getWorkflowRun(params.runId);
   if (!run) return fail(err.notFound("workflow run"));
-  const result = await executeWorkflowRun(params, run);
+  const result = await executeWorkflowRun(params, run, params.authorization);
   if (!result.ok) {
     const latest = await getWorkflowRun(params.runId);
     if (latest && (latest.status === "queued" || latest.status === "running")) {
@@ -1225,7 +1425,7 @@ const resolveBulkQueryRecordIds = async (ctx: RuntimeContext, tableId: string, q
       search: query.search ?? null,
       recordMeta: query.recordMeta ?? null,
       sort: query.sort ?? [],
-      viewer: { userId: ctx.actorUserId, userGroups: ctx.actorGroupIds },
+      viewer: { userId: ctx.actorUserId, userGroups: ctx.actorGroupIds, serviceAccountId: ctx.serviceAccountId },
       dateConfig: ctx.dateConfig,
     });
     if (!page.ok) return page;
@@ -1237,30 +1437,62 @@ const resolveBulkQueryRecordIds = async (ctx: RuntimeContext, tableId: string, q
 };
 
 export const executeScanner = async (params: ExecuteScannerWorkflowParams): Promise<Result<WorkflowRun>> => {
+  const prepared = await prepareScanner(params);
+  if (!prepared.ok) return prepared;
+  return execute({
+    ...params,
+    triggerKind: "scanner",
+    triggerInput: prepared.data.triggerInput,
+    resolvedInput: prepared.data.resolvedInput,
+  });
+};
+
+const prepareScannerWithAuthorization = async (
+  params: ExecuteScannerWorkflowParams,
+  authorization: WorkflowTriggerAuthorization,
+): Promise<Result<PreparedWorkflowTriggerRun>> => {
   const prepared = await scannerWorkflowContext(params);
   if (!prepared.ok) return prepared;
   const { inputName, tableId, ...ctx } = prepared.data;
-  const runPermission = await requireWorkflowRunPermission(ctx);
-  if (!runPermission.ok) return runPermission;
+  if (authorization.kind === "workflow") {
+    const runPermission = await requireWorkflowRunPermission(ctx);
+    if (!runPermission.ok) return runPermission;
+  }
   const readPermission = await requireTableReadPermission(ctx, tableId);
   if (!readPermission.ok) return readPermission;
   const scanner = ctx.definition.triggers.scanner!;
-  const scannedText = params.scannedText.trim();
+  const scannedText = normalizeScannedText(params.scannedText);
   if (!scannedText) return fail(err.badInput("scanner input is empty"));
   const recordId =
     scanner.resolve?.by === "field"
       ? await resolveScannerField(ctx, tableId, scanner.resolve.field ?? "", scannedText)
       : await resolveScannerCode(ctx, tableId, scannedText);
   if (!recordId.ok) return recordId;
-  return execute({
-    ...params,
+  return ok({
+    workflow: ctx.workflow,
     triggerKind: "scanner",
     triggerInput: { scan: scannedText },
     resolvedInput: { [inputName]: recordId.data },
+    actorUserId: ctx.actorUserId,
+    actorGroupIds: ctx.actorGroupIds,
+    serviceAccountId: ctx.serviceAccountId,
+    authorization,
   });
 };
 
-export type PreparedBulkSelectionWorkflowRun = {
+export const prepareScanner = async (params: ExecuteScannerWorkflowParams): Promise<Result<PreparedWorkflowTriggerRun>> =>
+  prepareScannerWithAuthorization(params, { kind: "workflow" });
+
+export const prepareDashboardScanner = async (
+  params: ExecuteScannerWorkflowParams & { dashboardId: string; dashboardWidgetId: string },
+): Promise<Result<PreparedWorkflowTriggerRun>> =>
+  prepareScannerWithAuthorization(params, {
+    kind: "dashboard-widget",
+    dashboardId: params.dashboardId,
+    dashboardWidgetId: params.dashboardWidgetId,
+  });
+
+type PreparedBulkSelectionWorkflowRun = {
   workflow: Workflow;
   triggerInput: WorkflowRuntimeInput;
   resolvedInput: WorkflowRuntimeInput;
@@ -1312,7 +1544,7 @@ export const executeBulkSelection = async (params: ExecuteBulkSelectionWorkflowP
   });
 };
 
-export type PreparedRecordEventWorkflowRun = {
+type PreparedRecordEventWorkflowRun = {
   workflow: Workflow;
   triggerInput: WorkflowRuntimeInput;
   resolvedInput: WorkflowRuntimeInput;
@@ -1331,14 +1563,15 @@ export const prepareRecordEvent = async (params: ExecuteRecordEventWorkflowParam
   if (!eventName || recordEvent.event !== eventName) return fail(err.badInput("record event does not match workflow trigger"));
 
   const catalog = await loadWorkflowCatalog(workflow.baseId);
+  const principal = await workflowOwnerPrincipal(workflow);
   const ctx: RuntimeContext = {
     workflow,
     definition: workflow.compiled,
     catalog,
     runId: null,
-    actorUserId: params.actorUserId ?? params.event.actorId ?? null,
-    actorGroupIds: params.actorGroupIds ?? [],
-    serviceAccountId: params.serviceAccountId ?? null,
+    actorUserId: principal.actorUserId,
+    actorGroupIds: principal.actorGroupIds,
+    serviceAccountId: principal.serviceAccountId,
     input: new Map(),
     variables: new Map(),
     records: new Map(),
@@ -1371,6 +1604,7 @@ export const prepareRecordEvent = async (params: ExecuteRecordEventWorkflowParam
       recordId: params.event.recordId,
       version: params.event.version,
       changedFieldIds: params.event.changedFieldIds,
+      eventActorUserId: params.event.actorId,
       occurredAt: params.event.occurredAt,
     },
     resolvedInput: recordEvent.input ? { [recordEvent.input]: params.event.recordId } : {},

@@ -116,10 +116,8 @@ const app = new Hono<AuthContext>()
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const body = c.req.valid("json");
-      // Tables only carry read/write/none — the structural ops that
-      // table-admin used to authorise (field CRUD, table delete, ACL
-      // management, form CRUD) all moved to base-admin in the
-      // permission simplification.
+      // Tables only carry read/write/none — structural ops such as field CRUD,
+      // table delete, ACL management, and form CRUD live at base-admin.
       if (body.permission === "admin") {
         return c.json({ message: "Table grants only accept 'read' / 'write' / 'none'" }, 400);
       }
@@ -140,10 +138,9 @@ const app = new Hono<AuthContext>()
   )
 
   // ── View ACL ────────────────────────────────────────────────────────
-  // View ACL only grants read at write-time (enforced on POST). Both
-  // routes gate at admin on the view's parent table/base — without
-  // this gate, any user could plant `none` grants that shadow table/
-  // base permissions on views they don't own.
+  // View ACL grants read/admin/none at write-time (enforced on POST). Both
+  // routes gate at base-admin — without this gate, any user could plant `none`
+  // grants that shadow table/base permissions on views they don't own.
   .get(
     "/by-view/:viewId",
     describeRoute({
@@ -216,9 +213,9 @@ const app = new Hono<AuthContext>()
   // Form ACLs only carry `write` (= "can submit this form even when it
   // has no public token"). read/admin are rejected at write-time:
   // `read` would just be "can render the form schema", which is implied
-  // by being granted any form access; `admin` (= edit form config)
-  // lives at table-admin and would conflict if duplicated here. Caller
-  // must be admin on the form's parent table — same reasoning as views.
+  // by being granted any form access; `admin` (= edit form config) lives at
+  // base-admin and would conflict if duplicated here. Caller must be base-admin
+  // — same reasoning as views.
   .get(
     "/by-form/:formId",
     describeRoute({
@@ -288,8 +285,9 @@ const app = new Hono<AuthContext>()
 
   // ── Document template ACL ───────────────────────────────────────────
   // Document templates can be used from the workspace sidebar even when
-  // the caller cannot browse the backing table. read = use/generate,
-  // admin = edit/delete/share the template, none = explicit deny.
+  // the caller cannot browse the backing table. read = inspect/redownload
+  // generated documents, write = generate/update operational document
+  // metadata, admin = edit/delete/share the template, none = explicit deny.
   .get(
     "/by-document-template/:templateId",
     describeRoute({

@@ -19,7 +19,6 @@ import * as relationsModule from "./relations";
 import * as tables from "./tables";
 import * as templates from "./templates";
 import * as views from "./views";
-import * as workflowRuntime from "./workflow-runtime";
 import { workflowTriggerRuntime } from "./workflow-trigger-runtime";
 import * as workflows from "./workflows";
 
@@ -68,7 +67,8 @@ export const gridsService = {
     create: records.create,
     createMany: records.createMany,
     createInTransaction: records.createInTransaction,
-    emitCreatedEvent: records.emitCreatedRecordEvent,
+    notifyEvent: records.notifyRecordEventOutbox,
+    eventOutboxStats: records.recordEventOutboxStats,
     update: records.update,
     softDelete: records.softDelete,
     restore: records.restore,
@@ -148,14 +148,14 @@ export const gridsService = {
     renderSource: documents.renderDocumentSource,
     renderHtml: documents.renderDocumentHtml,
     renderPdfPreview: documents.renderDocumentPdfPreview,
-    createRun: documents.createRun,
+    createRun: documents.createDocumentRun,
     createRunForRecord: documents.createRunForRecord,
     listRunsForRecord: documents.listRunsForRecord,
     listRunsForWorkflowRun: documents.listRunsForWorkflowRun,
     listRunsForTemplate: documents.listRunsForTemplate,
     browseRunsForTemplate: documents.browseRunsForTemplate,
     summarizeRun: documents.summarizeRun,
-    getRun: documents.getRun,
+    getRun: documents.getDocumentRun,
     updateRunMetadata: documents.updateRunMetadata,
     listDocumentLinksForRun: documents.listDocumentLinksForRun,
     getDocumentLink: documents.getDocumentLink,
@@ -211,27 +211,16 @@ export const gridsService = {
     create: workflows.create,
     update: workflows.update,
     remove: workflows.remove,
-    createRun: workflows.createRun,
-    startRun: workflows.startRun,
-    finishRun: workflows.finishRun,
     listRuns: workflows.listRuns,
     listRunsPage: workflows.listRunsPage,
     listEmailDeliveriesPage: workflows.listEmailDeliveriesPage,
     runStats: workflows.runStats,
-    getRun: workflows.getRun,
-    createStepRun: workflows.createStepRun,
-    finishStepRun: workflows.finishStepRun,
+    getRun: workflows.getWorkflowRun,
     listStepRuns: workflows.listStepRuns,
     getOrCreateRecordScanCode: workflows.getOrCreateRecordScanCode,
     ensureRecordScanCode: workflows.ensureRecordScanCode,
     getRecordScanCode: workflows.getRecordScanCode,
     recordMatchesWorkflowFilter: workflows.recordMatchesWorkflowFilter,
-    execute: workflowRuntime.execute,
-    executePreparedRun: workflowRuntime.executePreparedRun,
-    prepareBulkSelection: workflowRuntime.prepareBulkSelection,
-    executeScanner: workflowRuntime.executeScanner,
-    executeBulkSelection: workflowRuntime.executeBulkSelection,
-    executeRecordEvent: workflowRuntime.executeRecordEvent,
   },
   workflowTriggerRuntime,
   template: {
@@ -267,62 +256,24 @@ export type {
   GroupBySpec,
   LinkWidget,
   MarkdownWidget,
-  StatTone,
-  StatTrend,
   StatWidget,
+  View,
   ViewStatsWidget,
   ViewWidget,
   Widget,
   WidgetFormat,
   Workflow,
   WorkflowButtonWidget,
-  WorkflowDefinition,
-  WorkflowInput,
-  WorkflowInputType,
-  WorkflowRun,
-  WorkflowStep,
-  WorkflowStepRun,
-  WorkflowTriggerKind,
-  WorkflowTriggers,
 } from "../contracts";
-export type { AggKind, AggregateRequest } from "./aggregate-compiler";
-export type { FieldDependent } from "./field-dependents";
-export type { FilterGroup, FilterLeaf, FilterTree } from "./filter-compiler";
-export type { Form, FormConfig, FormFieldEntry } from "./forms";
+export type { Form, FormFieldEntry } from "./forms";
 export type { Grant, ResolveTarget, ResourceType } from "./permission-resolver";
-export type { ExpansionViewer } from "./relations";
-export type { SortSpec } from "./sort-compiler";
 export type {
-  AuditAction,
   AuditEntry,
   Base,
   Field,
   GridFile,
-  GridFileContent,
   GridFilePreview,
   GridRecord,
   RecordList,
   Table,
 } from "./types";
-export type { ColumnSpec, FormatSpec, RecordQuery, View } from "./views";
-export {
-  access,
-  audit,
-  bases,
-  dashboards,
-  documents,
-  exporter,
-  fields,
-  files,
-  forms,
-  formulaPreview,
-  maintenance,
-  metadataEvents,
-  records,
-  tables,
-  templates,
-  views,
-  workflowRuntime,
-  workflows,
-  workflowTriggerRuntime,
-};

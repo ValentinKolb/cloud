@@ -65,8 +65,6 @@ export const IdFieldConfigSchema = z.preprocess(
   ]),
 );
 
-export type IdFieldConfig = z.infer<typeof IdFieldConfigSchema>;
-
 export const createdAtHandler: SystemFieldKind = {
   type: "created_at",
   kind: "system",

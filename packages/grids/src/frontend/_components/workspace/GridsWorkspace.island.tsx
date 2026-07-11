@@ -495,6 +495,142 @@ export default function GridsWorkspace(props: Props) {
     </Show>
   );
 
+  const renderQuerySidebarItem = () =>
+    state().canUseQueryWorkspace ? (
+      <AppWorkspace.SidebarItem
+        href={`/app/grids/${state().base.shortId}/query`}
+        icon="ti ti-code"
+        onNavigate={handleNavigate}
+        active={isUnsavedQueryRoute()}
+      >
+        Query
+      </AppWorkspace.SidebarItem>
+    ) : null;
+
+  const renderWorkspaceNavigationSections = () => (
+    <>
+      <Show when={state().catalog.dashboards.length > 0 || state().canCreateTables}>
+        <AppWorkspace.SidebarSection title="Dashboards">
+          {[...state().catalog.dashboards]
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+            .map((d) => {
+              const route = state().route;
+              const active = route.kind === "dashboard" && route.dashboard.id === d.id;
+              return (
+                <AppWorkspace.SidebarItem
+                  href={keepEdit(`/app/grids/${state().base.shortId}/dashboard/${d.shortId}`, state().adminModeRequested)}
+                  icon={d.icon ?? "ti ti-layout-dashboard"}
+                  onNavigate={handleNavigate}
+                  active={active}
+                  activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
+                  class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
+                  meta={
+                    state().base.defaultDashboardId === d.id ? <span class="text-[9px] uppercase tracking-wider">default</span> : undefined
+                  }
+                >
+                  {d.name}
+                </AppWorkspace.SidebarItem>
+              );
+            })}
+          {state().canCreateTables && <CreateDashboardButton baseId={state().base.id} baseShortId={state().base.shortId} />}
+        </AppWorkspace.SidebarSection>
+      </Show>
+
+      <Show when={state().catalog.sidebarForms.length > 0}>
+        <AppWorkspace.SidebarSection title="Forms">
+          {state().catalog.sidebarForms.map(({ form, table }) => {
+            const canEditForm = hasAtLeast(state().catalog.tableLevels[table.id] ?? "none", "admin");
+            return (
+              <FormSidebarEntry
+                form={form}
+                fields={state().catalog.fieldsByTable[table.id] ?? []}
+                editMode={state().adminModeRequested && canEditForm}
+                initialAccessEntries={state().catalog.formAccessEntriesByTable[table.id]?.[form.id] ?? []}
+                dateConfig={state().dateConfig}
+              />
+            );
+          })}
+        </AppWorkspace.SidebarSection>
+      </Show>
+
+      <Show when={state().catalog.sidebarDocumentTemplates.length > 0}>
+        <AppWorkspace.SidebarSection title="Documents">
+          {state().catalog.sidebarDocumentTemplates.map(({ template, table }) => {
+            const route = state().route;
+            const active = route.kind === "documentTemplate" && route.template.id === template.id;
+            return (
+              <AppWorkspace.SidebarItem
+                href={keepEdit(
+                  `/app/grids/${state().base.shortId}/document/${table.shortId}/${template.shortId}`,
+                  state().adminModeRequested,
+                )}
+                icon="ti ti-file-type-pdf"
+                onNavigate={handleNavigate}
+                active={active}
+                activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
+                class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
+                meta={<span class="truncate text-[9px] uppercase tracking-wider">{table.name}</span>}
+              >
+                {template.name}
+              </AppWorkspace.SidebarItem>
+            );
+          })}
+        </AppWorkspace.SidebarSection>
+      </Show>
+
+      {renderWorkflowSidebarSection()}
+
+      <AppWorkspace.SidebarSection title="Tables">
+        {state().catalog.tables.length === 0 ? (
+          <p class="text-xs text-dimmed px-2 py-1">
+            {state().catalog.sidebarForms.length > 0 || state().catalog.sidebarDocumentTemplates.length > 0
+              ? "No table access."
+              : "No tables yet."}
+          </p>
+        ) : (
+          state().catalog.tables.map((t) => {
+            const route = state().route;
+            const active = route.kind === "records" && route.activeTable.id === t.id && route.activeView === null;
+            return (
+              <AppWorkspace.SidebarItem
+                href={keepEdit(`/app/grids/${state().base.shortId}/table/${t.shortId}`, state().adminModeRequested)}
+                icon={t.icon ?? "ti ti-table"}
+                onNavigate={handleNavigate}
+                active={active}
+                activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
+                class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
+              >
+                {t.name}
+              </AppWorkspace.SidebarItem>
+            );
+          })
+        )}
+        {state().canCreateTables && <CreateTableButton baseId={state().base.id} baseShortId={state().base.shortId} />}
+      </AppWorkspace.SidebarSection>
+
+      <AppWorkspace.SidebarSection title="Views">
+        {state().catalog.tables.flatMap((t) =>
+          (state().catalog.viewsByTable[t.id] ?? []).map((view) => {
+            const route = state().route;
+            const active = route.kind === "records" && route.activeTable.id === t.id && route.activeView?.id === view.id;
+            return (
+              <AppWorkspace.SidebarItem
+                href={keepEdit(`/app/grids/${state().base.shortId}/table/${t.shortId}/view/${view.shortId}`, state().adminModeRequested)}
+                icon={view.icon ?? "ti ti-table-spark"}
+                onNavigate={handleNavigate}
+                active={active}
+                activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
+                class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
+              >
+                {view.name}
+              </AppWorkspace.SidebarItem>
+            );
+          }),
+        )}
+      </AppWorkspace.SidebarSection>
+    </>
+  );
+
   return (
     <>
       <RememberGridsPath path={state().rememberPath} />
@@ -538,142 +674,10 @@ export default function GridsWorkspace(props: Props) {
               <AppWorkspace.SidebarItem href="/app/grids" icon="ti ti-layout-grid" navigation="document">
                 All grids
               </AppWorkspace.SidebarItem>
-              {state().canUseQueryWorkspace && (
-                <AppWorkspace.SidebarItem
-                  href={`/app/grids/${state().base.shortId}/query`}
-                  icon="ti ti-code"
-                  onNavigate={handleNavigate}
-                  active={isUnsavedQueryRoute()}
-                >
-                  Query
-                </AppWorkspace.SidebarItem>
-              )}
+              {renderQuerySidebarItem()}
             </AppWorkspace.SidebarMobileItems>
             <AppWorkspace.SidebarMobileBody scrollPreserveKey={`grids-sidebar-mobile-body-${state().base.id}`}>
-              <Show when={state().catalog.dashboards.length > 0 || state().canCreateTables}>
-                <AppWorkspace.SidebarSection title="Dashboards">
-                  {[...state().catalog.dashboards]
-                    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
-                    .map((d) => {
-                      const route = state().route;
-                      const active = route.kind === "dashboard" && route.dashboard.id === d.id;
-                      return (
-                        <AppWorkspace.SidebarItem
-                          href={keepEdit(`/app/grids/${state().base.shortId}/dashboard/${d.shortId}`, state().adminModeRequested)}
-                          icon={d.icon ?? "ti ti-layout-dashboard"}
-                          onNavigate={handleNavigate}
-                          active={active}
-                          activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
-                          class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
-                          meta={
-                            state().base.defaultDashboardId === d.id ? (
-                              <span class="text-[9px] uppercase tracking-wider">default</span>
-                            ) : undefined
-                          }
-                        >
-                          {d.name}
-                        </AppWorkspace.SidebarItem>
-                      );
-                    })}
-                  {state().canCreateTables && <CreateDashboardButton baseId={state().base.id} baseShortId={state().base.shortId} />}
-                </AppWorkspace.SidebarSection>
-              </Show>
-
-              <Show when={state().catalog.sidebarForms.length > 0}>
-                <AppWorkspace.SidebarSection title="Forms">
-                  {state().catalog.sidebarForms.map(({ form, table }) => {
-                    const canEditForm = hasAtLeast(state().catalog.tableLevels[table.id] ?? "none", "admin");
-                    return (
-                      <FormSidebarEntry
-                        form={form}
-                        fields={state().catalog.fieldsByTable[table.id] ?? []}
-                        editMode={state().adminModeRequested && canEditForm}
-                        initialAccessEntries={state().catalog.formAccessEntriesByTable[table.id]?.[form.id] ?? []}
-                        dateConfig={state().dateConfig}
-                      />
-                    );
-                  })}
-                </AppWorkspace.SidebarSection>
-              </Show>
-
-              <Show when={state().catalog.sidebarDocumentTemplates.length > 0}>
-                <AppWorkspace.SidebarSection title="Documents">
-                  {state().catalog.sidebarDocumentTemplates.map(({ template, table }) => {
-                    const route = state().route;
-                    const active = route.kind === "documentTemplate" && route.template.id === template.id;
-                    return (
-                      <AppWorkspace.SidebarItem
-                        href={keepEdit(
-                          `/app/grids/${state().base.shortId}/document/${table.shortId}/${template.shortId}`,
-                          state().adminModeRequested,
-                        )}
-                        icon="ti ti-file-type-pdf"
-                        onNavigate={handleNavigate}
-                        active={active}
-                        activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
-                        class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
-                        meta={<span class="truncate text-[9px] uppercase tracking-wider">{table.name}</span>}
-                      >
-                        {template.name}
-                      </AppWorkspace.SidebarItem>
-                    );
-                  })}
-                </AppWorkspace.SidebarSection>
-              </Show>
-
-              {renderWorkflowSidebarSection()}
-
-              <AppWorkspace.SidebarSection title="Tables">
-                {state().catalog.tables.length === 0 ? (
-                  <p class="text-xs text-dimmed px-2 py-1">
-                    {state().catalog.sidebarForms.length > 0 || state().catalog.sidebarDocumentTemplates.length > 0
-                      ? "No table access."
-                      : "No tables yet."}
-                  </p>
-                ) : (
-                  state().catalog.tables.map((t) => {
-                    const route = state().route;
-                    const active = route.kind === "records" && route.activeTable.id === t.id && route.activeView === null;
-                    return (
-                      <AppWorkspace.SidebarItem
-                        href={keepEdit(`/app/grids/${state().base.shortId}/table/${t.shortId}`, state().adminModeRequested)}
-                        icon={t.icon ?? "ti ti-table"}
-                        onNavigate={handleNavigate}
-                        active={active}
-                        activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
-                        class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
-                      >
-                        {t.name}
-                      </AppWorkspace.SidebarItem>
-                    );
-                  })
-                )}
-                {state().canCreateTables && <CreateTableButton baseId={state().base.id} baseShortId={state().base.shortId} />}
-              </AppWorkspace.SidebarSection>
-
-              <AppWorkspace.SidebarSection title="Views">
-                {state().catalog.tables.flatMap((t) =>
-                  (state().catalog.viewsByTable[t.id] ?? []).map((view) => {
-                    const route = state().route;
-                    const active = route.kind === "records" && route.activeTable.id === t.id && route.activeView?.id === view.id;
-                    return (
-                      <AppWorkspace.SidebarItem
-                        href={keepEdit(
-                          `/app/grids/${state().base.shortId}/table/${t.shortId}/view/${view.shortId}`,
-                          state().adminModeRequested,
-                        )}
-                        icon={view.icon ?? "ti ti-table-spark"}
-                        onNavigate={handleNavigate}
-                        active={active}
-                        activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
-                        class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
-                      >
-                        {view.name}
-                      </AppWorkspace.SidebarItem>
-                    );
-                  }),
-                )}
-              </AppWorkspace.SidebarSection>
+              {renderWorkspaceNavigationSections()}
             </AppWorkspace.SidebarMobileBody>
           </AppWorkspace.SidebarMobile>
 
@@ -683,145 +687,11 @@ export default function GridsWorkspace(props: Props) {
                 <AppWorkspace.SidebarItem href="/app/grids" icon="ti ti-layout-grid" navigation="document">
                   All Grids
                 </AppWorkspace.SidebarItem>
-                {state().canUseQueryWorkspace && (
-                  <AppWorkspace.SidebarItem
-                    href={`/app/grids/${state().base.shortId}/query`}
-                    icon="ti ti-code"
-                    onNavigate={handleNavigate}
-                    active={isUnsavedQueryRoute()}
-                  >
-                    Query
-                  </AppWorkspace.SidebarItem>
-                )}
+                {renderQuerySidebarItem()}
               </AppWorkspace.SidebarSection>
             </div>
 
-            <AppWorkspace.SidebarBody scrollPreserveKey="grids-sidebar">
-              <Show when={state().catalog.dashboards.length > 0 || state().canCreateTables}>
-                <AppWorkspace.SidebarSection title="Dashboards">
-                  {[...state().catalog.dashboards]
-                    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
-                    .map((d) => {
-                      const route = state().route;
-                      const active = route.kind === "dashboard" && route.dashboard.id === d.id;
-                      return (
-                        <AppWorkspace.SidebarItem
-                          href={keepEdit(`/app/grids/${state().base.shortId}/dashboard/${d.shortId}`, state().adminModeRequested)}
-                          icon={d.icon ?? "ti ti-layout-dashboard"}
-                          onNavigate={handleNavigate}
-                          active={active}
-                          activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
-                          class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
-                          meta={
-                            state().base.defaultDashboardId === d.id ? (
-                              <span class="text-[9px] uppercase tracking-wider">default</span>
-                            ) : undefined
-                          }
-                        >
-                          {d.name}
-                        </AppWorkspace.SidebarItem>
-                      );
-                    })}
-                  {state().canCreateTables && <CreateDashboardButton baseId={state().base.id} baseShortId={state().base.shortId} />}
-                </AppWorkspace.SidebarSection>
-              </Show>
-
-              <Show when={state().catalog.sidebarForms.length > 0}>
-                <AppWorkspace.SidebarSection title="Forms">
-                  {state().catalog.sidebarForms.map(({ form, table }) => {
-                    const canEditForm = hasAtLeast(state().catalog.tableLevels[table.id] ?? "none", "admin");
-                    return (
-                      <FormSidebarEntry
-                        form={form}
-                        fields={state().catalog.fieldsByTable[table.id] ?? []}
-                        editMode={state().adminModeRequested && canEditForm}
-                        initialAccessEntries={state().catalog.formAccessEntriesByTable[table.id]?.[form.id] ?? []}
-                        dateConfig={state().dateConfig}
-                      />
-                    );
-                  })}
-                </AppWorkspace.SidebarSection>
-              </Show>
-
-              <Show when={state().catalog.sidebarDocumentTemplates.length > 0}>
-                <AppWorkspace.SidebarSection title="Documents">
-                  {state().catalog.sidebarDocumentTemplates.map(({ template, table }) => {
-                    const route = state().route;
-                    const active = route.kind === "documentTemplate" && route.template.id === template.id;
-                    return (
-                      <AppWorkspace.SidebarItem
-                        href={keepEdit(
-                          `/app/grids/${state().base.shortId}/document/${table.shortId}/${template.shortId}`,
-                          state().adminModeRequested,
-                        )}
-                        icon="ti ti-file-type-pdf"
-                        onNavigate={handleNavigate}
-                        active={active}
-                        activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
-                        class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
-                        meta={<span class="truncate text-[9px] uppercase tracking-wider">{table.name}</span>}
-                      >
-                        {template.name}
-                      </AppWorkspace.SidebarItem>
-                    );
-                  })}
-                </AppWorkspace.SidebarSection>
-              </Show>
-
-              {renderWorkflowSidebarSection()}
-
-              <AppWorkspace.SidebarSection title="Tables">
-                {state().catalog.tables.length === 0 ? (
-                  <p class="text-xs text-dimmed px-2 py-1">
-                    {state().catalog.sidebarForms.length > 0 || state().catalog.sidebarDocumentTemplates.length > 0
-                      ? "No table access."
-                      : "No tables yet."}
-                  </p>
-                ) : (
-                  state().catalog.tables.map((t) => {
-                    const route = state().route;
-                    const active = route.kind === "records" && route.activeTable.id === t.id && route.activeView === null;
-                    return (
-                      <AppWorkspace.SidebarItem
-                        href={keepEdit(`/app/grids/${state().base.shortId}/table/${t.shortId}`, state().adminModeRequested)}
-                        icon={t.icon ?? "ti ti-table"}
-                        onNavigate={handleNavigate}
-                        active={active}
-                        activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
-                        class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
-                      >
-                        {t.name}
-                      </AppWorkspace.SidebarItem>
-                    );
-                  })
-                )}
-                {state().canCreateTables && <CreateTableButton baseId={state().base.id} baseShortId={state().base.shortId} />}
-              </AppWorkspace.SidebarSection>
-
-              <AppWorkspace.SidebarSection title="Views">
-                {state().catalog.tables.flatMap((t) =>
-                  (state().catalog.viewsByTable[t.id] ?? []).map((view) => {
-                    const route = state().route;
-                    const active = route.kind === "records" && route.activeTable.id === t.id && route.activeView?.id === view.id;
-                    return (
-                      <AppWorkspace.SidebarItem
-                        href={keepEdit(
-                          `/app/grids/${state().base.shortId}/table/${t.shortId}/view/${view.shortId}`,
-                          state().adminModeRequested,
-                        )}
-                        icon={view.icon ?? "ti ti-table-spark"}
-                        onNavigate={handleNavigate}
-                        active={active}
-                        activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
-                        class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
-                      >
-                        {view.name}
-                      </AppWorkspace.SidebarItem>
-                    );
-                  }),
-                )}
-              </AppWorkspace.SidebarSection>
-            </AppWorkspace.SidebarBody>
+            <AppWorkspace.SidebarBody scrollPreserveKey="grids-sidebar">{renderWorkspaceNavigationSections()}</AppWorkspace.SidebarBody>
 
             {state().canUseEditMode && (
               <AppWorkspace.SidebarFooter class="pt-2">

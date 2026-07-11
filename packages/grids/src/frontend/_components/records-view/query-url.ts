@@ -60,7 +60,7 @@ export type RecordsState = {
 };
 
 export type CardSize = "small" | "medium" | "large";
-export const DEFAULT_CARD_SIZE: CardSize = "medium";
+const DEFAULT_CARD_SIZE: CardSize = "medium";
 
 const tryParseJson = <T>(raw: string | null | undefined): T | null => {
   if (!raw) return null;

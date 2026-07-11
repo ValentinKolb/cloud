@@ -26,7 +26,7 @@ export const relationLabelFields = (fields: Field[]): Field[] => {
 };
 
 // =============================================================================
-// record_links junction-table helpers (v3)
+// record_links junction-table helpers
 // =============================================================================
 // All relation-field reads/writes go through this layer. The previous
 // JSONB-array storage in `records.data` is no longer the source of truth
@@ -151,7 +151,7 @@ const readRecordLinksBatch = async (recordIds: string[], fieldIds: string[]): Pr
 /**
  * Hydrates `record.data[relationFieldId]` for every relation field on
  * the table by reading from record_links. Mutates the records in place
- * (consistent with the other enrichment helpers). Old JSONB-array
+ * (consistent with the other enrichment helpers). Any stale JSONB
  * values get overwritten — record_links is the source of truth.
  *
  * Empty input → no-op. Tables with no relation fields → no-op.
@@ -172,13 +172,11 @@ export const hydrateRelationsFromLinks = async (records: GridRecord[], fields: F
   }
 };
 
-// v3 Slice 4: lookup/rollup VALUES are computed in the main records
-// query as correlated subqueries over record_links (see
-// `service/computed-projections.ts`). The previous JS-side enrichment
-// pass — fetchLinkedValuesBatched + enrichRecordsWithLookups — has been
-// deleted. Single source of truth (SQL), single round-trip per page,
-// and filter/sort/group on lookup/rollup values is a tractable
-// extension for Slice 8.
+// Lookup/rollup values are computed in the main records query as
+// correlated subqueries over record_links (see
+// `service/computed-projections.ts`). Single source of truth (SQL),
+// single round-trip per page, and one path for filter/sort/group
+// semantics.
 
 /**
  * Topologically orders formula fields by their inter-formula references.
@@ -196,9 +194,9 @@ const orderFormulasByDeps = (
   }>;
   cycle: Set<string>;
 } => {
-  // Refs in formulas are either UUIDs (legacy {uuid} syntax) or slugs
-  // (#slug syntax). Normalise both to UUIDs via the slug-map so the
-  // dep graph stays UUID-keyed.
+  // Stored formulas can contain UUID refs ({uuid}) or slug refs
+  // (#slug). Normalise both to UUIDs via the slug-map so the dependency
+  // graph stays UUID-keyed.
   const resolveRef = (ref: string): string => slugToId[ref] ?? slugToId[normalizeRefKey(ref)] ?? ref;
 
   const compiled = formulaFields
@@ -381,7 +379,7 @@ export const buildRelationLabelCache = async (
   const relationFields = fields.filter((f) => f.type === "relation" && !f.deletedAt);
   if (relationFields.length === 0 || records.length === 0) return {};
 
-  // v3: pull links from record_links in one batch; the JSONB array on
+  // Pull links from record_links in one batch; the JSONB array on
   // record.data is no longer authoritative.
   const links = await readRecordLinksBatch(
     records.map((r) => r.id),

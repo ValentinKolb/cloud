@@ -21,7 +21,7 @@ export type ResourceType = "base" | "table" | "view" | "form" | "documentTemplat
  * included". Tier specificity decreases left-to-right; a deny at a
  * MORE-specific tier shadows allow at a less-specific tier.
  */
-export type PrincipalTier = "serviceAccount" | "user" | "group" | "authenticated" | "public";
+type PrincipalTier = "serviceAccount" | "user" | "group" | "authenticated" | "public";
 
 export type Grant = {
   resourceType: ResourceType;
@@ -79,9 +79,9 @@ const resolveResourceLevel = (grants: Grant[]): PermissionLevel | null => {
  *
  * Note on dashboards: this resolver returns whatever level the grants
  * resolve to. The API gate decides what that level allows for a
- * dashboard — by product rule (locked Wave 2 decision), dashboard
- * write requires `admin`; the resolver doesn't know about that
- * collapse.
+ * dashboard. Dashboard write policy is intentionally applied by the
+ * API gate: writing a dashboard requires `admin`; this resolver only
+ * returns the effective ACL level.
  */
 export const resolveEffectivePermission = (grants: Grant[], target: ResolveTarget): PermissionLevel => {
   const tryScope = (resourceType: ResourceType, resourceId: string): PermissionLevel | null => {

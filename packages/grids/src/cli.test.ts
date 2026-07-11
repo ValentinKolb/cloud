@@ -837,7 +837,7 @@ describe("grids CLI", () => {
       `/api/grids/dashboards/${dashboardId}/widgets/widget-1/run`,
     ]);
     expect(calls[2]?.init?.method).toBe("POST");
-    expect(lines).toEqual([`Started workflow run ${runId} (succeeded).`]);
+    expect(lines).toEqual([`Queued workflow run ${runId} (succeeded).`]);
   });
 
   test("rejects dashboard UUIDs outside the selected base", async () => {
@@ -1176,7 +1176,31 @@ describe("grids CLI", () => {
     ]);
     expect(calls[2]?.init?.method).toBe("POST");
     expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ input: { recordId } });
-    expect(lines).toEqual([`Started workflow run ${runId} (succeeded).`]);
+    expect(lines).toEqual([`Queued workflow run ${runId} (succeeded).`]);
+  });
+
+  test("triggers scheduled workflows through the scheduler endpoint", async () => {
+    const scheduledWorkflow = {
+      ...workflow,
+      source: 'triggers:\n  schedule:\n    cron: "0 8 * * *"\nsteps:\n  - setVariable:\n      name: ok\n      value: true',
+      compiled: { triggers: { schedule: { cron: "0 8 * * *" } }, steps: [{ setVariable: { name: "ok", value: true } }] },
+    };
+    const { ctx, calls, lines } = createContext(["workflows", "trigger", baseId, "Send reminder"], { mode: "schedule" }, [
+      jsonResponse(base),
+      jsonResponse([scheduledWorkflow]),
+      jsonResponse({ message: "Scheduled workflow run requested." }),
+    ]);
+
+    await gridsCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual([
+      `/api/grids/bases/${baseId}`,
+      `/api/grids/workflows/by-base/${baseId}`,
+      `/api/grids/workflows/${workflowId}/run/schedule`,
+    ]);
+    expect(calls[2]?.init?.method).toBe("POST");
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({});
+    expect(lines).toEqual(["Scheduled workflow run requested."]);
   });
 
   test("lists workflow run steps", async () => {

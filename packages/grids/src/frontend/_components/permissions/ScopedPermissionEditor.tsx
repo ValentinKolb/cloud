@@ -6,7 +6,7 @@ import { errorMessage } from "../utils/api-helpers";
 type GrantableLevel = Exclude<PermissionLevel, "none">;
 type AllowedLevel = GrantableLevel | { level: GrantableLevel; label?: string; icon?: string };
 
-export type PermissionScope =
+type PermissionScope =
   | { type: "base"; id: string }
   | { type: "table"; id: string }
   | { type: "view"; id: string }

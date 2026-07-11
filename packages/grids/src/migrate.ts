@@ -1,15 +1,17 @@
 import { sql } from "bun";
 
 /**
- * Schema for the Grids app: bases → tables → (fields, records, views, forms).
+ * Schema for the Grids app: bases → tables → fields, records, views, forms,
+ * document templates, dashboards, workflows, and generated artifacts.
  *
  * Storage strategy: records use JSONB keyed by stable field IDs. Per-field
  * expression indexes are opt-in (`fields.indexed=true`). No GIN on `data` by
  * default — ad-hoc filter performance is the user's call when they enable
  * indexing per field.
  *
- * Permission model: base → table → view, with `auth.access` junction tables.
- * View ACL grants `read` only; write/admin authority always lives at table+.
+ * Permission model: one `auth.access` row bound through a Grids resource-specific
+ * junction table. Base grants are the broad scope; table/view/form/document
+ * template/dashboard/workflow grants can narrow or expose specific surfaces.
  */
 export const migrate = async (): Promise<void> => {
   await sql`CREATE SCHEMA IF NOT EXISTS grids`.simple();
@@ -162,6 +164,24 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_fields_table ON grids.fields(table_id, position) WHERE deleted_at IS NULL`.simple();
+  // Alpha cleanup: number precision used to persist as `scale`. Normalize once
+  // so runtime and UI only have one decimal-place config key.
+  await sql`
+    UPDATE grids.fields
+    SET config = (config - 'scale') || jsonb_build_object('decimalPlaces', (config->>'scale')::int)
+    WHERE type = 'number'
+      AND config ? 'scale'
+      AND NOT (config ? 'decimalPlaces')
+      AND jsonb_typeof(config->'scale') = 'number'
+      AND config->>'scale' ~ '^[0-9]+$'
+      AND (config->>'scale')::int BETWEEN 0 AND 20
+  `.simple();
+  await sql`
+    UPDATE grids.fields
+    SET config = config - 'scale'
+    WHERE type = 'number'
+      AND config ? 'scale'
+  `.simple();
   console.log("  ✓ grids.fields");
 
   // ──────────────────────────────────────────────────────────────────
@@ -611,7 +631,7 @@ export const migrate = async (): Promise<void> => {
   // even when it has no public token"); the API rejects read/admin
   // grants because they don't map to anything useful — read is implied
   // by being granted any form access (the user needs to render the
-  // form schema), admin == form CRUD which lives at table-admin.
+  // form schema), admin == form CRUD which lives at base-admin.
   await sql`
     CREATE TABLE IF NOT EXISTS grids.form_access (
       form_id UUID NOT NULL REFERENCES grids.forms(id) ON DELETE CASCADE,
@@ -644,6 +664,87 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_audit_record ON grids.audit_log(record_id, created_at DESC) WHERE record_id IS NOT NULL`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_audit_table ON grids.audit_log(table_id, created_at DESC) WHERE table_id IS NOT NULL`.simple();
   console.log("  ✓ grids.audit_log");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.record_event_outbox (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
+      record_id UUID NOT NULL,
+      payload JSONB NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempts INT NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+      next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_error TEXT,
+      delivered_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT record_event_outbox_status_check CHECK (status IN ('pending', 'failed', 'delivered', 'dead'))
+    )
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'record_event_outbox_status_check'
+          AND connamespace = 'grids'::regnamespace
+          AND pg_get_constraintdef(oid) NOT LIKE '%dead%'
+      ) THEN
+        ALTER TABLE grids.record_event_outbox DROP CONSTRAINT record_event_outbox_status_check;
+        ALTER TABLE grids.record_event_outbox
+          ADD CONSTRAINT record_event_outbox_status_check CHECK (status IN ('pending', 'failed', 'delivered', 'dead'));
+      END IF;
+    END $$
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_record_event_outbox_pending
+    ON grids.record_event_outbox(next_attempt_at, created_at)
+    WHERE status IN ('pending', 'failed')
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_record_event_outbox_delivered
+    ON grids.record_event_outbox(delivered_at)
+    WHERE status = 'delivered'
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF to_regprocedure('grids.enqueue_record_event(uuid,uuid,jsonb)') IS NULL THEN
+        BEGIN
+          EXECUTE $function$
+            CREATE FUNCTION grids.enqueue_record_event(p_table_id uuid, p_record_id uuid, p_payload jsonb)
+            RETURNS uuid
+            LANGUAGE plpgsql
+            VOLATILE
+            AS $body$
+            DECLARE
+              outbox_id uuid := gen_random_uuid();
+              event_base_id uuid;
+            BEGIN
+              SELECT base_id INTO event_base_id FROM grids.tables WHERE id = p_table_id;
+              IF event_base_id IS NULL THEN
+                RAISE EXCEPTION 'record event table does not exist';
+              END IF;
+              INSERT INTO grids.record_event_outbox (id, base_id, table_id, record_id, payload)
+              VALUES (
+                outbox_id,
+                event_base_id,
+                p_table_id,
+                p_record_id,
+                p_payload || jsonb_build_object('baseId', event_base_id::text, 'tableId', p_table_id::text, 'recordId', p_record_id::text)
+              );
+              RETURN outbox_id;
+            END;
+            $body$
+          $function$;
+        EXCEPTION WHEN duplicate_function THEN
+          NULL;
+        END;
+      END IF;
+    END $$
+  `.simple();
+  console.log("  ✓ grids.record_event_outbox");
 
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_bases_short_id
@@ -775,22 +876,66 @@ export const migrate = async (): Promise<void> => {
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       actor_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       service_account_id UUID REFERENCES auth.service_accounts(id) ON DELETE SET NULL,
+      actor_group_ids UUID[] NOT NULL DEFAULT '{}',
+      trigger_authorization JSONB NOT NULL DEFAULT '{"kind":"workflow"}'::jsonb,
       trigger_kind TEXT NOT NULL CHECK (trigger_kind IN ('form', 'api', 'scanner', 'bulkSelection', 'dashboardButton', 'schedule', 'recordEvent')),
       trigger_input JSONB,
       resolved_input JSONB,
       trigger_key TEXT,
       status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'canceled')),
       error TEXT,
+      result_message TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       started_at TIMESTAMPTZ,
       heartbeat_at TIMESTAMPTZ,
       lease_expires_at TIMESTAMPTZ,
+      queue_attempts INT NOT NULL DEFAULT 0 CHECK (queue_attempts >= 0),
+      last_queue_attempt_at TIMESTAMPTZ,
       finished_at TIMESTAMPTZ
     )
   `.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS trigger_key TEXT`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ`.simple();
   await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS result_message TEXT`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS actor_group_ids UUID[]`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS trigger_authorization JSONB`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS queue_attempts INT`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ADD COLUMN IF NOT EXISTS last_queue_attempt_at TIMESTAMPTZ`.simple();
+  await sql`
+    UPDATE grids.workflow_runs
+    SET status = 'failed',
+        error = 'Could not recover workflow run created before durable queue payloads were available',
+        finished_at = now()
+    WHERE status = 'queued'
+      AND (actor_group_ids IS NULL OR trigger_authorization IS NULL OR queue_attempts IS NULL)
+  `.simple();
+  await sql`
+    UPDATE grids.workflow_runs
+    SET actor_group_ids = COALESCE(actor_group_ids, '{}'::uuid[]),
+        trigger_authorization = COALESCE(trigger_authorization, '{"kind":"workflow"}'::jsonb),
+        queue_attempts = COALESCE(queue_attempts, 0)
+    WHERE actor_group_ids IS NULL OR trigger_authorization IS NULL OR queue_attempts IS NULL
+  `.simple();
+  await sql`ALTER TABLE grids.workflow_runs ALTER COLUMN actor_group_ids SET DEFAULT '{}'::uuid[]`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ALTER COLUMN actor_group_ids SET NOT NULL`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ALTER COLUMN trigger_authorization SET DEFAULT '{"kind":"workflow"}'::jsonb`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ALTER COLUMN trigger_authorization SET NOT NULL`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ALTER COLUMN queue_attempts SET DEFAULT 0`.simple();
+  await sql`ALTER TABLE grids.workflow_runs ALTER COLUMN queue_attempts SET NOT NULL`.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'workflow_runs_queue_attempts_check'
+          AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.workflow_runs
+          ADD CONSTRAINT workflow_runs_queue_attempts_check CHECK (queue_attempts >= 0);
+      END IF;
+    END $$
+  `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_workflow_runs_workflow
     ON grids.workflow_runs(workflow_id, created_at DESC) WHERE workflow_id IS NOT NULL
@@ -803,6 +948,11 @@ export const migrate = async (): Promise<void> => {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_workflow_runs_trigger_key
     ON grids.workflow_runs(workflow_id, trigger_kind, trigger_key)
     WHERE trigger_key IS NOT NULL AND workflow_id IS NOT NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflow_runs_queued_recovery
+    ON grids.workflow_runs(last_queue_attempt_at, created_at)
+    WHERE status = 'queued'
   `.simple();
   await sql`
     DO $$

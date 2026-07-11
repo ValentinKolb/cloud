@@ -1,4 +1,4 @@
-import type { FormatSpec } from "../../../service/views";
+import type { FormatSpec } from "../../../contracts";
 
 export { barcodeSvgForCell, barcodeUrl, barcodeValueText, canRenderBarcode } from "../../../barcode-rendering";
 

@@ -1,7 +1,7 @@
 import type { Dashboard } from "../contracts";
 import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 
-export type DashboardIncludedViewer = {
+type DashboardIncludedViewer = {
   userId: string | null;
   userGroups: string[];
   serviceAccountId?: string | null;

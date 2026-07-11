@@ -7,7 +7,6 @@ type NumberConfigInput = {
   max?: string | number;
   precision?: number;
   decimalPlaces?: number;
-  scale?: number;
   integerOnly?: boolean;
 };
 
@@ -22,8 +21,6 @@ const NumberConfigSchema = z
     max: z.union([z.string(), z.number()]).optional(),
     precision: z.number().int().min(1).max(38).optional(),
     decimalPlaces: z.number().int().min(0).max(20).optional(),
-    /** Legacy input accepted while alpha DBs still contain old decimal configs. */
-    scale: z.number().int().min(0).max(20).optional(),
     integerOnly: z.boolean().optional(),
     unit: z.string().min(1).max(20).optional(),
     unitPosition: z.enum(["prefix", "suffix"]).optional(),
@@ -45,8 +42,7 @@ const parseFiniteDecimal = (raw: string): Decimal | null => {
 
 const parseConfigDecimal = (value: unknown): Decimal | null => parseDecimal(value);
 
-const configuredPlacesInput = (config: NumberConfigInput): number | undefined =>
-  config.integerOnly ? 0 : (config.decimalPlaces ?? config.scale);
+const configuredPlacesInput = (config: NumberConfigInput): number | undefined => (config.integerOnly ? 0 : config.decimalPlaces);
 
 const decimalPlacesConfigIssue = (config: NumberConfigInput): ConfigIssue | null => {
   const places = configuredPlacesInput(config);
@@ -86,8 +82,7 @@ type NumberConfig = z.infer<typeof NumberConfigSchema>;
 
 const isEmptyInput = (raw: unknown): boolean => raw === null || raw === undefined || raw === "";
 
-const configuredDecimalPlaces = (config: NumberConfig): number | undefined =>
-  config.integerOnly ? 0 : (config.decimalPlaces ?? config.scale);
+const configuredDecimalPlaces = (config: NumberConfig): number | undefined => (config.integerOnly ? 0 : config.decimalPlaces);
 
 const decimalPlacesError = (dec: Decimal, places: number | undefined): string | null => {
   if (places === undefined || dec.decimalPlaces() <= places) return null;

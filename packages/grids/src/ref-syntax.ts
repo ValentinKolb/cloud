@@ -1,4 +1,4 @@
-export const SIMPLE_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const SIMPLE_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const IDENTIFIER_REF_MAX_LENGTH = 200;
 
 export const QUERY_RESERVED_WORDS = new Set([
@@ -39,10 +39,9 @@ export const QUERY_RESERVED_WORDS = new Set([
 
 export const normalizeRefKey = (value: string): string => value.trim().toLowerCase();
 
-export const isSafeBareIdentifier = (value: string): boolean =>
-  SIMPLE_IDENTIFIER_RE.test(value) && !QUERY_RESERVED_WORDS.has(value.toLowerCase());
+const isSafeBareIdentifier = (value: string): boolean => SIMPLE_IDENTIFIER_RE.test(value) && !QUERY_RESERVED_WORDS.has(value.toLowerCase());
 
-export const quoteIdentifier = (value: string): string => `"${value.replaceAll(`"`, `""`)}"`;
+const quoteIdentifier = (value: string): string => `"${value.replaceAll(`"`, `""`)}"`;
 
 export const formatIdentifierRef = (value: string): string => (isSafeBareIdentifier(value) ? value : quoteIdentifier(value));
 
@@ -96,7 +95,7 @@ export const parseIdentifierRef = (input: string): string | null => {
   return null;
 };
 
-export type QualifiedIdentifierRef = {
+type QualifiedIdentifierRef = {
   scope?: string;
   ref: string;
 };
@@ -129,36 +128,6 @@ export const parseQualifiedIdentifierRef = (input: string): QualifiedIdentifierR
 
   const ref = parseIdentifierRef(trimmed);
   return ref ? { ref } : null;
-};
-
-export const splitTopLevelOutsideQuotes = (input: string, separator: string): [string, string] | null => {
-  let quote: string | null = null;
-  let depth = 0;
-  for (let i = 0; i < input.length; i++) {
-    const c = input[i]!;
-    if (quote) {
-      if (quote === `"` && c === `"` && input[i + 1] === `"`) {
-        i++;
-        continue;
-      }
-      if (quote !== `"` && c === "\\" && i + 1 < input.length) {
-        i++;
-        continue;
-      }
-      if (c === quote) quote = null;
-      continue;
-    }
-    if (c === `"` || c === "'") {
-      quote = c;
-      continue;
-    }
-    if (c === "(") depth++;
-    if (c === ")") depth = Math.max(0, depth - 1);
-    if (depth === 0 && input.slice(i, i + separator.length).toLowerCase() === separator.toLowerCase()) {
-      return [input.slice(0, i).trim(), input.slice(i + separator.length).trim()];
-    }
-  }
-  return null;
 };
 
 export const splitTrailingKeywordOutsideQuotes = (input: string, keyword: string): [string, string] | null => {

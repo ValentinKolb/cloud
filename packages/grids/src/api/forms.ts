@@ -5,14 +5,13 @@ import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { FormConfigSchema, ShortIdSchema, UserInputFormFieldEntrySchema } from "../contracts";
-import type { GridRecord } from "../service";
 import { gridsService } from "../service";
 import { materializeFieldDefault } from "../service/fields";
 import { currentActorUserId, gateAt } from "./permissions";
 
-// v3 Slice 6: tagged-union FormFieldEntry. Pre-v3 entries (no `kind`)
+// FormFieldEntry is a tagged union. Stored entries without a `kind`
 // are normalized to user_input by the service layer on read; the API
-// contract still requires the discriminator on writes.
+// contract requires the discriminator on writes.
 //
 // IMPORTANT: never reuse this for the *public* form response. form_value
 // entries' `value` field MUST NOT leak to anonymous callers — that's
@@ -166,7 +165,7 @@ const submitFormResponse = async (
     }
   }
 
-  const createdEvents: Array<{ tableId: string; record: GridRecord; changedFieldIds: string[] }> = [];
+  const createdEventIds: string[] = [];
   try {
     const mainRecordId = await sql.begin(async (tx) => {
       for (const [relationFieldId, drafts] of Object.entries(inlineCreates)) {
@@ -235,7 +234,7 @@ const submitFormResponse = async (
           });
           if (!created.ok) throw new SubmitFailure(created.error.message, submitFailureStatus(created.error.status));
           replacement.set(draft.tempId, created.data.record.id);
-          createdEvents.push({ tableId: targetTableId, record: created.data.record, changedFieldIds: created.data.changedFieldIds });
+          createdEventIds.push(created.data.outboxId);
         }
 
         const sourceIds = currentIds.length > 0 ? [...currentIds] : [...draftIds];
@@ -253,13 +252,11 @@ const submitFormResponse = async (
         dateConfig,
       });
       if (!created.ok) throw new SubmitFailure(created.error.message, submitFailureStatus(created.error.status));
-      createdEvents.push({ tableId: form.tableId, record: created.data.record, changedFieldIds: created.data.changedFieldIds });
+      createdEventIds.push(created.data.outboxId);
       return created.data.record.id;
     });
 
-    for (const event of createdEvents) {
-      await gridsService.record.emitCreatedEvent(event.tableId, event.record, event.changedFieldIds, actorId);
-    }
+    for (const outboxId of createdEventIds) gridsService.record.notifyEvent(outboxId);
     return c.json({ recordId: mainRecordId }, 201);
   } catch (e) {
     if (e instanceof SubmitFailure) return c.json({ message: e.message }, e.status);

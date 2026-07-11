@@ -106,8 +106,8 @@ export default function GridsLayoutHelp() {
         <GridsTemplatesPage />
       </Layout.Help>
       <Layout.Help
-        id="grids-automations"
-        title="Automations"
+        id="grids-workflows"
+        title="Workflows"
         icon="ti ti-route"
         description="Workflow YAML inputs, triggers, steps, runs, permissions, and examples."
         order={140}

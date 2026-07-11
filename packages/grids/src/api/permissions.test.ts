@@ -30,7 +30,7 @@ const user = {
 
 const serviceAccount = {
   id: "44444444-4444-4444-8444-444444444444",
-  name: "Grids automation",
+  name: "Grids workflow",
   kind: "resource_bound",
   status: "active",
   delegatedUserId: null,

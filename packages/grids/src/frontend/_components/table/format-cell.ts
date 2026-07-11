@@ -1,6 +1,6 @@
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import Decimal from "decimal.js";
-import type { FormatSpec } from "../../../service/views";
+import type { FormatSpec } from "../../../contracts";
 
 /**
  * Renders a single field value to its display string. Type-aware:

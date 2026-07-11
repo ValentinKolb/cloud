@@ -1,11 +1,11 @@
 import type { z } from "zod";
 
-export type ValidateResult<T> = { ok: true; value: T } | { ok: false; error: string };
+type ValidateResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 export const ok = <T>(value: T): ValidateResult<T> => ({ ok: true, value });
 export const fail = (error: string): ValidateResult<never> => ({ ok: false, error });
 
-export type FieldTypeBase = {
+type FieldTypeBase = {
   type: string;
   /** Zod schema for the field's config blob (what's saved in fields.config). */
   configSchema: z.ZodTypeAny;

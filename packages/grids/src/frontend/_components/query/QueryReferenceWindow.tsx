@@ -33,19 +33,8 @@ const TAB_ALIASES = {
   workflow: "workflows",
 } as const;
 
-export type GqlReferenceTab =
-  | "basics"
-  | "datatypes"
-  | "tables"
-  | "formulas"
-  | "gql"
-  | "templates"
-  | "examples"
-  | "how-it-works"
-  | "workflows";
-export type QueryReferenceTab = GqlReferenceTab;
-
-export const QUERY_REFERENCE_TABS: readonly GqlReferenceTab[] = [
+type GqlReferenceTab = "basics" | "datatypes" | "tables" | "formulas" | "gql" | "templates" | "examples" | "how-it-works" | "workflows";
+const QUERY_REFERENCE_TABS: readonly GqlReferenceTab[] = [
   "basics",
   "datatypes",
   "tables",
@@ -62,9 +51,6 @@ export const normalizeQueryReferenceTab = (value: string | null | undefined): Gq
   if (QUERY_REFERENCE_TABS.includes(value as GqlReferenceTab)) return value as GqlReferenceTab;
   return TAB_ALIASES[value as keyof typeof TAB_ALIASES] ?? null;
 };
-
-export const isQueryReferenceTab = (value: string | null | undefined): value is GqlReferenceTab =>
-  normalizeQueryReferenceTab(value) !== null;
 
 type Props = {
   baseId: string;

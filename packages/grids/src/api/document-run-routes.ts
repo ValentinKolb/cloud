@@ -17,7 +17,7 @@ import {
   uuidParam,
 } from "./documents-api-shared";
 import { encodeHeaderValue, pdfResponse } from "./download-response";
-import { gateAt } from "./permissions";
+import { currentActorUserId, gateAt } from "./permissions";
 
 export const createDocumentRunRoutes = () =>
   new Hono<AuthContext>()
@@ -164,7 +164,7 @@ export const createDocumentRunRoutes = () =>
           ? await gateTemplate(c, template, "write")
           : await gateAt(c, { baseId: run.baseId, tableId: run.tableId }, "write");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        const updated = await gridsService.document.updateRunMetadata(run.id, c.req.valid("json"));
+        const updated = await gridsService.document.updateRunMetadata(run.id, c.req.valid("json"), currentActorUserId(c));
         if (!updated.ok) return c.json({ message: updated.error.message }, updated.error.status);
         return c.json(gridsService.document.summarizeRun(updated.data));
       },

@@ -75,6 +75,7 @@ const STEP_SNIPPETS = [
     detail: "Send a JSON HTTP request",
   },
   { label: "setVariable", insertText: "setVariable:\n    name: value\n    value: ", detail: "Store a value for later steps" },
+  { label: "succeed", insertText: "succeed:\n    message: ", detail: "Stop the workflow with a success message" },
   { label: "if", insertText: "if:\n    equals: [, ]\n  then:\n    - ", detail: "Branch when a condition matches" },
   { label: "switch", insertText: "switch: \n  cases:\n    - when: \n      do:\n        - ", detail: "Branch by value" },
   { label: "forEach", insertText: "forEach: inputs.\n  as: item\n  do:\n    - ", detail: "Loop over a recordList input" },

@@ -1,4 +1,4 @@
-export type BarcodeOption = { id: string; label: string; description: string; icon: string };
+type BarcodeOption = { id: string; label: string; description: string; icon: string };
 
 export const CURATED_BARCODE_OPTIONS: BarcodeOption[] = [
   { id: "code128", label: "Code 128", description: "General-purpose linear barcode.", icon: "ti ti-barcode" },

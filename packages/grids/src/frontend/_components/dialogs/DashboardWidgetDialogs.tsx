@@ -947,8 +947,8 @@ function WorkflowButtonCellBody(props: {
     <WidgetEditorSection title="Action" subtitle="Run one workflow from this dashboard." icon="ti ti-route">
       <WidgetInfoBlock
         title="Workflow button"
-        body="Shows a button that starts one workflow with a dashboardButton trigger."
-        detail="Anyone who can open this dashboard can press this button. Workflow editing stays admin-only."
+        body="Shows a button that starts a dashboard workflow or opens a scanner workflow."
+        detail="Users can press the button when they can open this dashboard and run the selected workflow. Workflow editing stays admin-only."
       />
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <TextInput
@@ -971,7 +971,7 @@ function WorkflowButtonCellBody(props: {
         />
         <Select
           label="Workflow"
-          description="Only workflows with a dashboardButton trigger are listed."
+          description="Workflows with dashboardButton or scanner triggers are listed."
           value={() => props.widget.workflowId}
           onChange={(v) => {
             const workflow = props.dashboardWorkflows.find((candidate) => candidate.id === v);

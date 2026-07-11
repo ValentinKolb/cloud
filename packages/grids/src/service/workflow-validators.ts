@@ -11,7 +11,7 @@ type ScheduleLike = {
   timezone?: string;
 };
 
-export const isValidCronPart = (part: string, min: number, max: number): boolean => {
+const isValidCronPart = (part: string, min: number, max: number): boolean => {
   if (!part || !/^[0-9*/,\-]+$/.test(part)) return false;
   const atoms = part.split(",");
   return atoms.every((atom) => {
@@ -64,7 +64,7 @@ const ipv4InRange = (ip: string, base: string, bits: number): boolean => {
   return (ipv4ToNumber(ip) & mask) === (ipv4ToNumber(base) & mask);
 };
 
-export const isUnsafeHttpAddress = (address: string): boolean => {
+const isUnsafeHttpAddress = (address: string): boolean => {
   if (isIP(address) === 4) {
     return (
       ipv4InRange(address, "0.0.0.0", 8) ||
@@ -80,7 +80,7 @@ export const isUnsafeHttpAddress = (address: string): boolean => {
   return lower === "::" || lower === "::1" || lower.startsWith("fe80:") || lower.startsWith("fc") || lower.startsWith("fd");
 };
 
-export const isUnsafeHttpHost = (hostname: string): boolean => {
+const isUnsafeHttpHost = (hostname: string): boolean => {
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
   return (
     host === "localhost" ||
@@ -90,12 +90,6 @@ export const isUnsafeHttpHost = (hostname: string): boolean => {
     (isIP(host) !== 0 && isUnsafeHttpAddress(host))
   );
 };
-
-const isTrustedInternalHttpTarget = (url: URL): boolean =>
-  url.protocol === "http:" &&
-  url.hostname.toLowerCase() === "app-tools" &&
-  (url.port === "" || url.port === "3000") &&
-  url.pathname.startsWith("/tools/api/webhooks/receive/");
 
 export const validateHttpRequestTarget = async (rawUrl: string): Promise<Result<URL>> => {
   let url: URL;
@@ -107,8 +101,6 @@ export const validateHttpRequestTarget = async (rawUrl: string): Promise<Result<
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return fail(err.badInput("HTTP request URL must use http or https"));
   }
-
-  if (isTrustedInternalHttpTarget(url)) return ok(url);
 
   const allowPrivate = Boolean(await settingsGet<boolean>(PRIVATE_HTTP_SETTING));
   if (allowPrivate) return ok(url);

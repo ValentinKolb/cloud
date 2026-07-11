@@ -97,9 +97,8 @@ export type WidgetData =
       /** True when the viewer has form-write OR table-write on this
        *  form's target — the same gate `/api/grids/forms/:formId/submit`
        *  enforces. Resolved SSR-side so the renderer can swap to a
-       *  read-only placeholder without an extra client-side perm
-       *  fetch. Default true if no viewer context is supplied (legacy
-       *  callers / scripts that don't carry a user). */
+       *  read-only placeholder without an extra client-side permission
+       *  fetch. Trusted internal renderers may omit viewer context. */
       canSubmit: boolean;
     }
   | {
@@ -126,6 +125,7 @@ export type WidgetData =
       title: string;
       description: string | null;
       buttonLabel: string;
+      action: "run" | "scanner";
       canRun: boolean;
       disabledReason: string | null;
     }
@@ -447,7 +447,10 @@ const resolveWorkflowButton = async (widget: WorkflowButtonWidget): Promise<Widg
   if (!workflow) return { kind: "error", reason: "workflow not found" };
   const title = widget.title?.trim() || workflow.name;
   const description = widget.description?.trim() || workflow.description;
-  const runnable = Boolean(workflow.compiled.triggers.dashboardButton);
+  const hasDashboardButton = Boolean(workflow.compiled.triggers.dashboardButton);
+  const hasScanner = Boolean(workflow.compiled.triggers.scanner);
+  const action = hasDashboardButton ? "run" : hasScanner ? "scanner" : "run";
+  const runnable = hasDashboardButton || hasScanner;
   const enabled = workflow.enabled;
   return {
     kind: "workflow-button",
@@ -455,9 +458,10 @@ const resolveWorkflowButton = async (widget: WorkflowButtonWidget): Promise<Widg
     workflowName: workflow.name,
     title,
     description,
-    buttonLabel: widget.buttonLabel?.trim() || "Run",
+    buttonLabel: widget.buttonLabel?.trim() || (action === "scanner" ? "Scan" : "Run"),
+    action,
     canRun: runnable && enabled,
-    disabledReason: !runnable ? "Workflow has no dashboard button trigger" : !enabled ? "Workflow is disabled" : null,
+    disabledReason: !runnable ? "Workflow has no scanner or dashboard button trigger" : !enabled ? "Workflow is disabled" : null,
   };
 };
 
@@ -650,9 +654,8 @@ const resolveSavedView = async (
 
 // =============================================================================
 // view-stats — auto-derived 2×N stat grid from a view's first row /
-// first bucket. Same logic as the deprecated `view-stats` row type,
-// just lifted to cell level (the cell renders an internal 2-column
-// hairline grid within its single paper slot).
+// first bucket. The cell renders an internal 2-column hairline grid
+// within its single paper slot.
 // =============================================================================
 
 const resolveViewStats = async (

@@ -2,13 +2,11 @@ import { type AccessUser, listUsersWithAccess } from "@valentinkolb/cloud/server
 import { sql } from "bun";
 import type { RecordMetaQuery, RecordMetaUserKey } from "../contracts";
 
-export type RecordActor = {
+type RecordActor = {
   id: string;
   label: string;
   subtitle: string | null;
 };
-
-const USER_KEYS: RecordMetaUserKey[] = ["createdBy", "updatedBy", "deletedBy"];
 
 const nonEmpty = (ids: string[] | undefined): string[] => [...new Set((ids ?? []).filter(Boolean))];
 
@@ -97,10 +95,4 @@ export const listRecordActors = async (params: {
     label: user.displayName,
     subtitle: actorSubtitle(user),
   }));
-};
-
-export const recordMetaActiveCount = (meta: RecordMetaQuery | null | undefined): number => {
-  const cleaned = cleanRecordMeta(meta);
-  if (!cleaned) return 0;
-  return (cleaned.ids?.length ? 1 : 0) + USER_KEYS.reduce((count, key) => count + (cleaned.users?.[key]?.length ? 1 : 0), 0);
 };

@@ -14,9 +14,7 @@ type Props = {
 /**
  * View-stats cell — embeds a saved view's first row (ungrouped) or
  * first bucket (grouped) as a compact 2-column hairline stat-grid
- * inside a single paper-card. Renders inside a row's cell slot,
- * unlike the (deprecated) row-level view-stats which took the full
- * row width.
+ * inside a single paper-card. Renders inside a row's cell slot.
  *
  * Internal layout: title-bar header (with optional "Open full view"
  * link), then a 2-column StatGrid below — auto-derived cells stack

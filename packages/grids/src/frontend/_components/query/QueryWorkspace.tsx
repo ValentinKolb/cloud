@@ -1,7 +1,7 @@
 import { AutocompleteEditor, DataTable, type DataTableColumn, Panes, type PanesValue, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { highlight } from "@valentinkolb/stdlib";
 import { mutation as mutations, timed } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewDiagnostic, DslQueryPreviewResponse } from "../../../contracts";
 import { formatIdentifierRef } from "../../../ref-syntax";
@@ -39,6 +39,8 @@ type QuerySourceRow = {
   search: string;
 };
 const MAX_SYNCED_QUERY_HREF_LENGTH = 2800;
+
+const isAbortError = (error: unknown): boolean => error instanceof DOMException && error.name === "AbortError";
 
 const createQueryWorkspacePanesValue = (): PanesValue => ({
   root: {
@@ -306,6 +308,7 @@ export default function QueryWorkspace(props: Props) {
     }),
   );
   let previewToken = 0;
+  let previewAbort: AbortController | undefined;
   let lastPreviewQuery = props.initialPreview !== undefined ? props.initialQuery : "";
 
   createEffect(() => {
@@ -319,21 +322,29 @@ export default function QueryWorkspace(props: Props) {
 
   const loadPreview = async (source: string) => {
     const token = ++previewToken;
+    previewAbort?.abort();
+    previewAbort = undefined;
     if (!source.trim()) {
       setPreview(null);
       setLoading(false);
       return;
     }
+    const abort = new AbortController();
+    previewAbort = abort;
     setLoading(true);
     try {
-      const response = await apiClient.gql["by-base"][":baseId"].execute.$post({
-        param: { baseId: props.baseId },
-        json: { query: source, ...(apiSource() ? { currentSource: apiSource() } : {}) },
-      });
+      const response = await apiClient.gql["by-base"][":baseId"].execute.$post(
+        {
+          param: { baseId: props.baseId },
+          json: { query: source, ...(apiSource() ? { currentSource: apiSource() } : {}) },
+        },
+        { init: { signal: abort.signal } },
+      );
       if (!response.ok) throw new Error(await errorMessage(response, "Could not execute query."));
       const data = await response.json();
       if (token === previewToken) setPreview(data);
     } catch (error) {
+      if (isAbortError(error)) return;
       if (token === previewToken) {
         setPreview({
           ok: false,
@@ -341,7 +352,10 @@ export default function QueryWorkspace(props: Props) {
         });
       }
     } finally {
-      if (token === previewToken) setLoading(false);
+      if (token === previewToken) {
+        previewAbort = undefined;
+        setLoading(false);
+      }
     }
   };
 
@@ -352,6 +366,12 @@ export default function QueryWorkspace(props: Props) {
     if (source === lastPreviewQuery) return;
     lastPreviewQuery = source;
     previewDebounce.debouncedFn(source);
+  });
+
+  onCleanup(() => {
+    previewToken++;
+    previewAbort?.abort();
+    previewAbort = undefined;
   });
 
   const onInput = (next: string) => {

@@ -1,6 +1,6 @@
 import { type Accessor, createMemo, createSignal } from "solid-js";
 
-export type Draft<T extends object> = {
+type Draft<T extends object> = {
   draft: Accessor<T>;
   set: (next: T) => void;
   patch: (partial: Partial<T>) => void;

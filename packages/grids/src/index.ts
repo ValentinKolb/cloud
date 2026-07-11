@@ -6,6 +6,7 @@ import { app } from "./config";
 import pageRoutes, { adminRoutes, publicRoutes } from "./frontend";
 import { migrate } from "./migrate";
 import { gridsService } from "./service";
+import { startRecordEventOutbox, stopRecordEventOutbox } from "./service/record-event-outbox";
 import { workflowTriggerRuntime } from "./service/workflow-trigger-runtime";
 
 const router = new Hono<AuthContext>()
@@ -24,10 +25,12 @@ const result = await app.start({
       await migrate();
     },
     start: async () => {
+      await startRecordEventOutbox();
       await workflowTriggerRuntime.start();
     },
     stop: async () => {
       await workflowTriggerRuntime.stop();
+      await stopRecordEventOutbox();
     },
   },
 });

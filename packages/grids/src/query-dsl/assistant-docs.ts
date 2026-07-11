@@ -12,7 +12,7 @@ import {
 
 type AssistantBase = Pick<Base, "name" | "shortId" | "description">;
 
-export type GqlAssistantContextInput = {
+type GqlAssistantContextInput = {
   base: AssistantBase;
   ctx: DslResolverContext;
   generatedAt?: string;

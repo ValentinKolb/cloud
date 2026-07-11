@@ -166,8 +166,8 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const fieldId = c.req.param("fieldId")!;
-      // Fetch the trashed field directly — the regular `get` filters
-      // out deleted_at IS NOT NULL by default.
+      // `field.get` intentionally returns soft-deleted fields while still
+      // enforcing the live parent table/base invariant.
       const field = await gridsService.field.get(fieldId);
       if (!field) return c.json({ message: "Field not found" }, 404);
       const table = await gridsService.table.get(field.tableId);

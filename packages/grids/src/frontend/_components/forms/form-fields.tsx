@@ -6,7 +6,7 @@ import type { Field, FormFieldEntry } from "../../../service";
 import RelationPicker from "../records/RelationPicker";
 import type { InlineCreateDraft, InlineCreateState } from "./form-submit-payload";
 
-export { buildFormSubmitPayload, type InlineCreateDraft, type InlineCreateState } from "./form-submit-payload";
+export { buildFormSubmitPayload, type InlineCreateState } from "./form-submit-payload";
 
 /** A user_input form-field entry — `form_value` entries don't render. */
 export type UserInputEntry = Extract<FormFieldEntry, { kind: "user_input" }>;
@@ -140,9 +140,7 @@ export function FieldInput(props: {
       );
 
     case "number": {
-      const decimalPlaces =
-        (props.field.config as { decimalPlaces?: number; scale?: number }).decimalPlaces ??
-        (props.field.config as { scale?: number }).scale;
+      const decimalPlaces = (props.field.config as { decimalPlaces?: number }).decimalPlaces;
       const unit = (props.field.config as { unit?: string }).unit;
       const unitPosition = (props.field.config as { unitPosition?: "prefix" | "suffix" }).unitPosition ?? "suffix";
       const numberText = (): string => {

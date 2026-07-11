@@ -1,9 +1,10 @@
 import { DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { Show } from "solid-js";
+import type { FormatSpec } from "../../../contracts";
 import type { Field } from "../../../service";
-import type { FormatSpec } from "../../../service/views";
-import { FieldValue, formatFieldValueText } from "./FieldValue";
+import { FieldValue } from "./FieldValue";
+import { formatFieldValueText } from "./field-value-format";
 import { formatCell } from "./format-cell";
 
 /**

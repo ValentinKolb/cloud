@@ -75,28 +75,4 @@ export const isKnownFieldType = (type: string): boolean => type in fieldTypeRegi
 
 export const isRecordWritableFieldType = (type: string): boolean => type in RECORD_WRITABLE_FIELD_TYPES;
 
-export const isValueFieldType = (type: string): boolean => type in VALUE_FIELD_TYPES;
-
-export const isLinkFieldType = (type: string): boolean => type in LINK_FIELD_TYPES;
-
-export const isComputedFieldType = (type: string): boolean => type in COMPUTED_FIELD_TYPES;
-
-export const isServerGeneratedFieldType = (type: string): boolean => type in SERVER_GENERATED_FIELD_TYPES;
-
-export const isSystemFieldType = (type: string): boolean => type in SYSTEM_FIELD_TYPES;
-
-export const isExternalFieldType = (type: string): boolean => type in EXTERNAL_FIELD_TYPES;
-
 export const recordWritableFieldTypes = (): string[] => Object.keys(RECORD_WRITABLE_FIELD_TYPES);
-
-export type {
-  ComputedFieldKind,
-  ExternalFieldKind,
-  FieldTypeDefinition,
-  LinkFieldType,
-  RecordWritableFieldType,
-  ServerGeneratedFieldKind,
-  SystemFieldKind,
-  ValidateResult,
-  ValueFieldType,
-} from "./types";

@@ -14,6 +14,7 @@ const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice
 
 type GqlApiFixture = {
   baseId: string;
+  accessId: string;
   tableId: string;
   viewId: string;
   amountId: string;
@@ -22,6 +23,7 @@ type GqlApiFixture = {
 
 type GqlRelationApiFixture = {
   baseId: string;
+  accessId: string;
   ordersTableId: string;
   customersTableId: string;
   byCustomerViewId: string;
@@ -88,7 +90,18 @@ const existingAuthUserId = async (): Promise<string> => {
   return row.id;
 };
 
-const insertFixture = async (): Promise<GqlApiFixture> => {
+const grantBaseRead = async (baseId: string, userId: string): Promise<string> => {
+  const [access] = await sql<{ id: string }[]>`
+    INSERT INTO auth.access (user_id, permission)
+    VALUES (${userId}::uuid, 'read'::auth.permission_level)
+    RETURNING id::text AS id
+  `;
+  if (!access) throw new Error("Failed to create test base access");
+  await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${access.id}::uuid)`;
+  return access.id;
+};
+
+const insertFixture = async (userId: string): Promise<GqlApiFixture> => {
   const baseId = uuid();
   const tableId = uuid();
   const viewId = uuid();
@@ -127,8 +140,9 @@ const insertFixture = async (): Promise<GqlApiFixture> => {
     INSERT INTO grids.views (id, short_id, table_id, name, source, ui, position)
     VALUES (${viewId}::uuid, ${shortId("V")}, ${tableId}::uuid, 'Visible orders', ${`from table {${tableId}}`}, '{}'::jsonb, 0)
   `;
+  const accessId = await grantBaseRead(baseId, userId);
 
-  return { baseId, tableId, viewId, amountId, stageId };
+  return { baseId, accessId, tableId, viewId, amountId, stageId };
 };
 
 const insertAutocompletePermissionFixture = async (
@@ -182,7 +196,7 @@ const insertAutocompletePermissionFixture = async (
   return { baseId, accessIds: [baseAccess.id, secretDeny.id] };
 };
 
-const insertRelationFixture = async (): Promise<GqlRelationApiFixture> => {
+const insertRelationFixture = async (userId: string): Promise<GqlRelationApiFixture> => {
   const baseId = uuid();
   const ordersTableId = uuid();
   const customersTableId = uuid();
@@ -238,13 +252,15 @@ const insertRelationFixture = async (): Promise<GqlRelationApiFixture> => {
       (${orderAId}::uuid, ${customerLinkId}::uuid, ${customerAId}::uuid, 0),
       (${orderBId}::uuid, ${customerLinkId}::uuid, ${customerBId}::uuid, 0)
   `;
+  const accessId = await grantBaseRead(baseId, userId);
 
-  return { baseId, ordersTableId, customersTableId, byCustomerViewId, amountId, customerLinkId, customerNameId };
+  return { baseId, accessId, ordersTableId, customersTableId, byCustomerViewId, amountId, customerLinkId, customerNameId };
 };
 
-const cleanupFixture = async (baseId: string): Promise<void> => {
+const cleanupFixture = async (baseId: string, accessId?: string): Promise<void> => {
   await sql`DELETE FROM grids.audit_log WHERE base_id = ${baseId}::uuid`;
   await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+  if (accessId) await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;
 };
 
 const cleanupAutocompletePermissionFixture = async (baseId: string, accessIds: string[]): Promise<void> => {
@@ -310,8 +326,8 @@ describe("GQL API route contract", () => {
   });
 
   postgresTest("canonicalizes implicit table and view current sources at the public API boundary", async () => {
-    const fixture = await insertFixture();
-    const user = testUser({ id: await existingAuthUserId() });
+    const user = testUser({ id: await existingAuthUserId(), roles: ["user"] });
+    const fixture = await insertFixture(user.id);
     const app = apiFor(user);
 
     try {
@@ -351,13 +367,14 @@ where {${fixture.stageId}} = 'open'`);
 select {${fixture.amountId}}
 limit 2`);
     } finally {
-      await cleanupFixture(fixture.baseId);
+      await cleanupFixture(fixture.baseId, fixture.accessId);
     }
   });
 
   postgresTest("previews derived relation search by target labels without an explicit join", async () => {
-    const fixture = await insertRelationFixture();
-    const app = apiFor(testUser());
+    const user = testUser({ id: await existingAuthUserId(), roles: ["user"] });
+    const fixture = await insertRelationFixture(user.id);
+    const app = apiFor(user);
 
     try {
       const response = await app.request(
@@ -383,13 +400,14 @@ limit 2`);
       expect(body.rows[0]?.values.gk_0).toBe("Alice");
       expect(Number(body.rows[0]?.values[`${fixture.amountId}__sum`])).toBe(12.5);
     } finally {
-      await cleanupFixture(fixture.baseId);
+      await cleanupFixture(fixture.baseId, fixture.accessId);
     }
   });
 
   postgresTest("returns parser and canonicalization diagnostics instead of generic API errors", async () => {
-    const fixture = await insertFixture();
-    const app = apiFor(testUser());
+    const user = testUser({ id: await existingAuthUserId(), roles: ["user"] });
+    const fixture = await insertFixture(user.id);
+    const app = apiFor(user);
 
     try {
       const legacySyntax = await app.request(
@@ -416,7 +434,7 @@ limit 2`);
       if (optionBody.ok) throw new Error("expected canonicalization diagnostics");
       expect(optionBody.diagnostics[0]?.message).toBe('unknown option "Missing" for "Stage"; expected one of: Open, Closed, On hold');
     } finally {
-      await cleanupFixture(fixture.baseId);
+      await cleanupFixture(fixture.baseId, fixture.accessId);
     }
   });
 });

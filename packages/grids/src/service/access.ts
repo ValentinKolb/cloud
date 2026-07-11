@@ -44,7 +44,7 @@ type AccessAuditSnapshot = {
   permission: PermissionLevel;
 };
 
-export type ScopedAccessEntry = AccessEntry & {
+type ScopedAccessEntry = AccessEntry & {
   resourceType: AccessResourceType;
   resourceId: string;
   resourceName: string;

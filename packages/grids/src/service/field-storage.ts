@@ -89,8 +89,8 @@ type StorageDescriptor = {
   searchable: boolean;
 };
 
-export type FieldSqlScalarType = "numeric" | "text" | "boolean" | "date" | "datetime" | "unknown";
-export type FieldSqlOutputType = FieldSqlScalarType | "json";
+type FieldSqlScalarType = "numeric" | "text" | "boolean" | "date" | "datetime" | "unknown";
+type FieldSqlOutputType = FieldSqlScalarType | "json";
 
 const data = (alias: string) => sql.unsafe(`${alias}.data`);
 

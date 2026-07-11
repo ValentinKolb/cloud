@@ -15,12 +15,12 @@ import { highlight } from "@valentinkolb/stdlib";
 import { For, type JSX } from "solid-js";
 import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
 
-export type Step = {
+type Step = {
   title: string;
   text: string;
 };
 
-export type Recipe = {
+type Recipe = {
   problem: string;
   use: string;
   avoid?: string;
@@ -84,7 +84,7 @@ const workflowHighlight = highlight.compile(
     {
       kind: "keyword",
       match:
-        /\b(?:name|description|inputs|type|table|required|options|triggers|form|api|scanner|bulkSelection|dashboardButton|schedule|recordEvent|steps|updateRecord|createRecord|generateDocument|createDocumentLink|sendEmail|httpRequest|setVariable|fail|if|then|else|switch|cases|default|forEach|as|do|set|values|record|template|document|expiresIn|comment|to|email|user|data|method|url|headers|json|saveAs)\b/,
+        /\b(?:name|description|inputs|type|table|required|options|triggers|form|api|scanner|bulkSelection|dashboardButton|schedule|recordEvent|steps|updateRecord|createRecord|generateDocument|createDocumentLink|sendEmail|httpRequest|setVariable|succeed|fail|if|then|else|switch|cases|default|forEach|as|do|set|values|record|template|document|expiresIn|comment|to|email|user|data|method|url|headers|json|saveAs)\b/,
     },
     { kind: "string", match: /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/ },
     { kind: "placeholder", match: /\b(?:inputs|variables)\.[A-Za-z_][A-Za-z0-9_.]*\b/ },
@@ -106,7 +106,7 @@ export const TemplateSnippet = (props: { code: string; title?: string }) => (
   <DocCode title={props.title} code={props.code} highlight={templateHighlight} copy />
 );
 
-export const WorkflowSnippet = (props: { code: string; title?: string }) => (
+const WorkflowSnippet = (props: { code: string; title?: string }) => (
   <DocCode title={props.title} code={props.code} highlight={workflowHighlight} copy />
 );
 
@@ -233,7 +233,7 @@ export const GridsOverviewPage = () => (
             text: "Use document templates to render PDFs from records with GQL data sources and Liquid HTML.",
           },
           {
-            title: "Automations",
+            title: "Workflows",
             icon: "ti-route",
             text: "Use workflows for repeatable operations started from forms, API requests, scanners, bulk selection, dashboards, schedules, or record events.",
           },
@@ -544,8 +544,6 @@ export const GridsBuildBasePage = () => (
   </GridsDocPage>
 );
 
-export const GridsBuildWorkflowsPage = GridsBuildBasePage;
-
 export const GridsTablesFieldsPage = () => (
   <GridsDocPage>
     <DocLead>
@@ -707,56 +705,6 @@ export const GridsViewsReportsPage = () => (
   </GridsDocPage>
 );
 
-export const GridsViewsGqlPage = GridsViewsReportsPage;
-
-export const GridsSearchPage = () => (
-  <GridsDocPage>
-    <DocLead>
-      Search finds records by displayed values. Use it for exploration. Use filters when the rule must be exact, saved, exported, or reused
-      by a dashboard.
-    </DocLead>
-
-    <DocSection title="Search scope">
-      <DocConceptGrid
-        items={[
-          {
-            title: "Included",
-            icon: "ti-search",
-            text: "Text, long text, numbers, dates, booleans, select labels, and relation labels the user may read.",
-          },
-          {
-            title: "Not included",
-            icon: "ti-search-off",
-            text: "Search does not include files, raw JSON, formula output, lookup values, or rollup totals.",
-          },
-        ]}
-      />
-    </DocSection>
-
-    <DocSection title="Practical rules">
-      <DocRows
-        items={[
-          {
-            title: "Relation labels",
-            icon: "ti-link",
-            text: "Relation search uses the linked record label only when the current user can read the linked table.",
-          },
-          {
-            title: "Current view",
-            icon: "ti-filter",
-            text: "Search respects the current view. If the view filters records out, search will not bring them back.",
-          },
-          {
-            title: "Exact values",
-            icon: "ti-equal",
-            text: "Use a filter for exact numeric, date, select, empty, or permission-sensitive rules.",
-          },
-        ]}
-      />
-    </DocSection>
-  </GridsDocPage>
-);
-
 export const GridsDashboardFormsPage = () => (
   <GridsDocPage>
     <DocLead>
@@ -794,7 +742,7 @@ export const GridsDashboardFormsPage = () => (
           {
             title: "Workflow buttons",
             icon: "ti-route",
-            text: "Let dashboard users run a workflow that declares a dashboardButton trigger.",
+            text: "Let dashboard users run a dashboardButton workflow or open a scanner workflow session. Users also need permission to run the workflow.",
           },
         ]}
       />
@@ -869,6 +817,11 @@ export const GridsWorkflowsPage = () => (
         A workflow is a saved action surface. It can be started from a form, authenticated API request, scanner, table bulk selection,
         dashboard button, schedule, or record event. Each run records who started it, which trigger was used, the resolved input, every
         step, generated documents, errors, and timing.
+      </p>
+      <p class="mt-3 text-dimmed">
+        Scanner workflows are workflow-scoped sessions. A user starts one workflow first, then scans any matching item labels for that
+        operation. The label stays generic for the record; the workflow decides whether the scan means return, checkout, inventory check, or
+        another action.
       </p>
       <p class="mt-3 text-dimmed">
         Keep display metadata out of YAML. Write the name and description in the normal fields at the top of the editor. Write only behavior
@@ -994,15 +947,23 @@ steps:
           {
             title: "scanner",
             icon: "ti-scan",
-            text: "Resolves scanned text into one record input. Resolve by opaque scanCode by default or by a configured unique field.",
+            text: "Opens a scanner session for one workflow and resolves each scanned value into one record input. Resolve by opaque scanCode by default or by a configured unique field.",
           },
           {
             title: "bulkSelection",
             icon: "ti-list-check",
             text: "Runs for a table selection or current query. The input must be a recordList.",
           },
-          { title: "dashboardButton", icon: "ti-click", text: "Exposes the workflow as a dashboard action. Optional field: label." },
-          { title: "schedule", icon: "ti-clock", text: "Runs from a five-field cron expression. Optional field: timezone." },
+          {
+            title: "dashboardButton",
+            icon: "ti-click",
+            text: "Runs directly from a dashboard action. Scanner workflows can also be placed on dashboards without this trigger.",
+          },
+          {
+            title: "schedule",
+            icon: "ti-clock",
+            text: "Runs from a five-field cron expression. Optional field: timezone. Scheduled workflows cannot require interactive inputs.",
+          },
           {
             title: "recordEvent",
             icon: "ti-activity",
@@ -1032,6 +993,11 @@ steps:
     event: updated
     input: item`}
       />
+      <DocNote title="Required inputs">
+        Every active trigger must be able to provide every required input. Forms and APIs can provide all input types. A scanner provides
+        only its configured record input, bulk selection provides only its configured recordList input, and schedules or dashboard buttons
+        provide no required inputs.
+      </DocNote>
     </DocSection>
 
     <DocSection title="Step reference">
@@ -1096,9 +1062,9 @@ steps:
             text: "Sends one JSON HTTP request. Methods: GET, POST, PUT, PATCH, DELETE. Optional fields: headers, json, timeoutMs, saveAs.",
           },
           {
-            title: "setVariable and fail",
+            title: "setVariable, succeed, and fail",
             icon: "ti-variable",
-            text: "setVariable stores a value for later steps. fail stops the run with a visible error message.",
+            text: "setVariable stores a value for later steps. succeed stops the run with a visible success message; fail stops it with a visible error message.",
           },
         ]}
       />
@@ -1147,7 +1113,9 @@ steps:
       saveAs: hook
   - setVariable:
       name: finishedAt
-      value: now()`}
+      value: now()
+  - succeed:
+      message: "{{ inputs.item.Name }} checked in."`}
       />
     </DocSection>
 
@@ -1309,9 +1277,19 @@ steps:
             text: "Starting a workflow requires write access to that workflow. Service account calls use the existing Cloud service-account pattern.",
           },
           {
-            title: "Data permission",
+            title: "Interactive run identity",
+            icon: "ti-user-check",
+            text: "Forms, API requests, scanners, bulk selections, and dashboard buttons run as the user or service account that starts them, including that principal's current groups.",
+          },
+          {
+            title: "Automatic run identity",
+            icon: "ti-clock-play",
+            text: "Schedules and record events run as the workflow owner with the owner's current groups. A record event keeps the user who changed the record in trigger metadata, but does not inherit that user's permissions.",
+          },
+          {
+            title: "Action permission",
             icon: "ti-database",
-            text: "Record reads, record writes, document generation, document links, and email sends still check the actor's permissions for the affected table, template, or workflow.",
+            text: "Record reads, record writes, document generation, document links, and email sends check the run identity against the affected table, template, or workflow.",
           },
           {
             title: "Email delivery",
@@ -1354,9 +1332,11 @@ steps:
           set:
             Status: Available
             Last scanned at: now()
+      - succeed:
+          message: "{{ inputs.item.Name }} returned."
     else:
       - fail:
-          message: Item is not currently loaned out.`}
+          message: "{{ inputs.item.Name }} is not currently loaned out."`}
       />
     </DocSection>
 
@@ -1382,95 +1362,6 @@ steps:
   </GridsDocPage>
 );
 
-export const GridsOperationsPage = () => (
-  <GridsDocPage>
-    <DocLead>
-      Operational features make stable workflows repeatable: attach files, generate documents, send HTTP requests, refresh live views, and
-      keep record events connected to dashboards.
-    </DocLead>
-
-    <DocSection title="Operations">
-      <DocRows
-        items={[
-          {
-            title: "Workflows",
-            icon: "ti-route",
-            text: "Run from scanners, bulk selections, record events, schedules, and dashboard buttons. Add filters so actions only run for relevant records.",
-          },
-          {
-            title: "HTTP requests",
-            icon: "ti-webhook",
-            text: "Send explicit JSON payloads to another system. Receivers should handle duplicate sends safely.",
-          },
-          {
-            title: "Files",
-            icon: "ti-paperclip",
-            text: "Attach files to records. Store searchable metadata in normal fields when users need filters or exports.",
-          },
-          {
-            title: "Documents",
-            icon: "ti-file-type-pdf",
-            text: "Generate PDFs from records. Grids stores document run metadata and renders the PDF bytes again when redownloaded.",
-          },
-          {
-            title: "Live refresh",
-            icon: "ti-refresh",
-            text: "Tables, views, and dashboards can refresh after record changes. Current filters still decide what appears.",
-          },
-        ]}
-      />
-    </DocSection>
-
-    <DocSection title="HTTP request payload idea">
-      <DocCode
-        code={`{
-  "event": "record.created",
-  "recordId": "019e...",
-  "tableId": "32b8...",
-  "changedFields": ["status"]
-}`}
-        copy
-      />
-    </DocSection>
-  </GridsDocPage>
-);
-
-export const GridsTroubleshootingPage = () => (
-  <GridsDocPage>
-    <DocLead>
-      Most Grids issues are caused by a mismatch between the current view, the source table, permissions, a field setting, or a document
-      template source. Check those first before changing the data model.
-    </DocLead>
-
-    <DocSection title="Common checks">
-      <RecipeRows
-        items={[
-          {
-            problem: "Chart source is missing",
-            use: "Open the source table, create or edit a grouped view, add an aggregation, then select that view in the chart widget.",
-          },
-          {
-            problem: "Record edit fails",
-            use: "Reload the record and try again. A version mismatch usually means another user or tab changed it first.",
-          },
-          {
-            problem: "Search misses a value",
-            use: "Check whether the value is searchable. Use a filter for formula output, lookups, files, and exact rules.",
-          },
-          {
-            problem: "Dashboard form will not submit",
-            use: "Check the form permission and target table write permission. Dashboard access alone is not enough to write records.",
-          },
-          {
-            problem: "Document preview fails",
-            use: "Open the Source tab, check the rendered GQL, then use the Data tab to copy exact Liquid paths instead of guessing object names.",
-          },
-        ]}
-      />
-    </DocSection>
-  </GridsDocPage>
-);
-
 export const GridsOperationsTroubleshootingPage = () => (
   <GridsDocPage>
     <DocLead>
@@ -1488,7 +1379,7 @@ export const GridsOperationsTroubleshootingPage = () => (
           },
           {
             title: "HTTP requests",
-            icon: "ti-webhook",
+            icon: "ti-send",
             text: "Send explicit JSON payloads to another system. Receivers should handle duplicate sends safely.",
           },
           {
@@ -1547,45 +1438,6 @@ export const GridsOperationsTroubleshootingPage = () => (
 }`}
         copy
       />
-    </DocSection>
-  </GridsDocPage>
-);
-
-export const GridsInvoiceExamplePage = () => (
-  <GridsDocPage>
-    <DocLead>
-      This example builds an invoice base that collects invoices, tracks payment, reports monthly income, generates PDFs, and notifies
-      another system when an invoice is paid.
-    </DocLead>
-
-    <DocSection title="Invoice base recipe">
-      <StepList
-        items={[
-          { title: "Create tables", text: "Create Customers and Invoices. In Customers, mark Customer name as the record label." },
-          { title: "Add invoice fields", text: "Add Invoice date, Due date, Status, Subtotal, Tax, Total, Paid, and Receipt." },
-          {
-            title: "Add the total formula",
-            text: "Reference Subtotal and Tax from the suggestion list, then preview the first rows before saving.",
-          },
-          { title: "Create work views", text: "Create Open invoices, Overdue invoices, Paid invoices, and Monthly income." },
-          {
-            title: "Create a PDF template",
-            text: "Use a per-record GQL source, invoice body HTML, header/footer snippets, page CSS, and document.number.",
-          },
-          {
-            title: "Create a dashboard",
-            text: "Add open count, income stats, a monthly income line chart, overdue invoices, and Markdown instructions.",
-          },
-          {
-            title: "Add a workflow",
-            text: "Trigger when an invoice updates, filter to Paid is true, and send an httpRequest to accounting or notifications.",
-          },
-        ]}
-      />
-    </DocSection>
-
-    <DocSection title="Formula">
-      <FormulaSnippet code="Subtotal + Tax" />
     </DocSection>
   </GridsDocPage>
 );

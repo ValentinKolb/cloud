@@ -6,7 +6,7 @@ export type DslSourceSpan = {
   length: number;
 };
 
-export type DslSourceKind = "table" | "view";
+type DslSourceKind = "table" | "view";
 
 export type DslSourceRef = {
   kind: DslSourceKind;
@@ -35,7 +35,7 @@ export type DslSelectItem =
       span?: DslSourceSpan;
     };
 
-export type DslJoinMode = "inner" | "left";
+type DslJoinMode = "inner" | "left";
 
 export type DslJoin = {
   mode: DslJoinMode;
@@ -81,7 +81,7 @@ export type DslQueryAst = {
   aggregations: DslAggregateItem[];
   having?: { expression: Expr; source: string; span?: DslSourceSpan };
   sort: DslSortItem[];
-  /** `search 'text'` / `search 'text' in #a, #b` — free-text search. */
+  /** `search 'text'` / `search 'text' in Name, Notes` — free-text search. */
   search?: { q: string; fields: DslQualifiedRef[]; span?: DslSourceSpan };
   limit?: number;
   offset?: number;

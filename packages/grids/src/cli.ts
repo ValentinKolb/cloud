@@ -571,7 +571,7 @@ const GQL_REFERENCE = {
   refs: [
     "Use exact field/source names when unambiguous: Name",
     'Quote names with spaces: "Birth year"',
-    "Use stable ids in braces when automation must not break on rename: {field-uuid}",
+    "Use stable ids in braces when workflows must not break on rename: {field-uuid}",
     "Qualified refs use aliases: items.Name, author.Country",
   ],
   examples: [
@@ -583,7 +583,7 @@ const GQL_REFERENCE = {
 
 const FORMULA_REFERENCE = {
   syntax: [
-    'Field refs: Name, "Birth year", {field-uuid}, or #shortId.',
+    'Field refs: Name, "Birth year", or {field-uuid}.',
     "Text literals use quotes: 'camera'.",
     "Operators: +, -, *, /, %, =, !=, <, <=, >, >=, and, or, not.",
     "Functions are case-insensitive. Prefer uppercase in shared docs.",
@@ -2906,7 +2906,7 @@ const dashboardCommands = [
         `/dashboards/${encodeURIComponent(dashboard.id)}/widgets/${encodeURIComponent(widgetId)}/run`,
         jsonRequest("POST"),
       );
-      printJsonOrMessage(ctx, run, `Started workflow run ${run.id} (${run.status}).`);
+      printJsonOrMessage(ctx, run, `Queued workflow run ${run.id} (${run.status}).`);
     },
   }),
 ];
@@ -3861,7 +3861,7 @@ const workflowCommands = [
     flags: {
       ...baseFlag,
       ...workflowFlag,
-      mode: flag.enum(["api", "form", "dashboard-button", "bulk-selection", "scanner"] as const, {
+      mode: flag.enum(["api", "form", "dashboard-button", "bulk-selection", "scanner", "schedule"] as const, {
         default: "api",
         description: "Trigger mode",
       }),
@@ -3875,9 +3875,19 @@ const workflowCommands = [
       "cld grids workflows trigger Bookshop 'Send reminders' --input '{\"email\":\"ada@example.test\"}'",
       "cld grids workflows trigger Bookshop 'Scan item' --mode scanner --code '<scan-code>'",
       "cld grids workflows trigger Bookshop 'Print labels' --mode bulk-selection --bulk-input items --record-id <record-uuid>",
+      "cld grids workflows trigger Bookshop 'Nightly sync' --mode schedule",
     ],
     async run({ ctx, args, flags }) {
       const { workflow } = await resolveWorkflowFromCommand(ctx, args.args, flags.workflow);
+      if (flags.mode === "schedule") {
+        const response = await readApi<MessageResponse>(
+          ctx,
+          `/workflows/${encodeURIComponent(workflow.id)}/run/schedule`,
+          jsonRequest("POST", {}),
+        );
+        printJsonOrMessage(ctx, response, response.message ?? "Scheduled workflow run requested.");
+        return;
+      }
       if (flags.mode === "scanner") {
         if (!flags.code) throw new Error("Missing scanner code. Pass --code.");
         const run = await readApi<WorkflowRun>(
@@ -3885,7 +3895,7 @@ const workflowCommands = [
           `/workflows/${encodeURIComponent(workflow.id)}/run/scanner`,
           jsonRequest("POST", { code: flags.code }),
         );
-        printJsonOrMessage(ctx, run, `Started workflow run ${run.id} (${run.status}).`);
+        printJsonOrMessage(ctx, run, `Queued workflow run ${run.id} (${run.status}).`);
         return;
       }
       if (flags.mode === "bulk-selection") {
@@ -3907,7 +3917,7 @@ const workflowCommands = [
         `/workflows/${encodeURIComponent(workflow.id)}/run/${endpoint}`,
         jsonRequest("POST", { input }),
       );
-      printJsonOrMessage(ctx, run, `Started workflow run ${run.id} (${run.status}).`);
+      printJsonOrMessage(ctx, run, `Queued workflow run ${run.id} (${run.status}).`);
     },
   }),
 ];

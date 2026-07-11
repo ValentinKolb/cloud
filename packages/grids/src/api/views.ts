@@ -104,10 +104,10 @@ const app = new Hono<AuthContext>()
       const table = await gridsService.table.get(view.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
 
-      // Gate at the view scope (most specific). The Wave 2.1 resolver
-      // honours view-level deny grants here. We translate gate failure
-      // to 404 instead of 403 so the deny semantics don't leak the
-      // resource's existence — same policy listings already use.
+      // Gate at the view scope (most specific), including view-level
+      // deny grants. We translate gate failure to 404 instead of 403
+      // so deny semantics don't leak the resource's existence — same
+      // policy listings already use.
       const viewer = currentActorViewer(c);
       const { level, grants } = await resolveWithGrants(c, {
         baseId: table.baseId,

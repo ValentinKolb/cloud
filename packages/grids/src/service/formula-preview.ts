@@ -12,25 +12,25 @@ import type { Field, GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
 
-export type FormulaPreviewDiagnostic = {
+type FormulaPreviewDiagnostic = {
   severity: "error" | "info";
   message: string;
 };
 
-export type FormulaPreviewField = {
+type FormulaPreviewField = {
   id: string;
   shortId: string;
   name: string;
   type: string;
 };
 
-export type FormulaPreviewRow = {
+type FormulaPreviewRow = {
   recordId: string;
   values: Record<string, unknown>;
   result: unknown;
 };
 
-export type FormulaPreviewResult = {
+type FormulaPreviewResult = {
   ok: boolean;
   diagnostics: FormulaPreviewDiagnostic[];
   fields: FormulaPreviewField[];

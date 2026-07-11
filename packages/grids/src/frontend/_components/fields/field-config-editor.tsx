@@ -311,8 +311,7 @@ function NumberConstraints(props: { config: () => FieldConfigState; onChange: (n
   const min = () => (typeof cfg().min === "number" || typeof cfg().min === "string" ? String(cfg().min) : "");
   const max = () => (typeof cfg().max === "number" || typeof cfg().max === "string" ? String(cfg().max) : "");
   const precision = () => (typeof cfg().precision === "number" ? String(cfg().precision) : "");
-  const decimalPlaces = () =>
-    typeof cfg().decimalPlaces === "number" ? String(cfg().decimalPlaces) : typeof cfg().scale === "number" ? String(cfg().scale) : "";
+  const decimalPlaces = () => (typeof cfg().decimalPlaces === "number" ? String(cfg().decimalPlaces) : "");
   const unit = () => (typeof cfg().unit === "string" ? (cfg().unit as string) : "");
   const unitPosition = () => (cfg().unitPosition === "prefix" ? "prefix" : "suffix");
   const integerOnly = () => Boolean(cfg().integerOnly);
@@ -324,10 +323,10 @@ function NumberConstraints(props: { config: () => FieldConfigState; onChange: (n
   };
   const onInt = (key: "precision" | "decimalPlaces", v: string, minValue: number, maxValue: number) => {
     const t = v.trim();
-    if (t === "") return update({ [key]: undefined, ...(key === "decimalPlaces" ? { scale: undefined } : {}) });
+    if (t === "") return update({ [key]: undefined });
     const n = Number(t);
     if (!Number.isInteger(n) || n < minValue || n > maxValue) return;
-    update({ [key]: n, ...(key === "decimalPlaces" ? { scale: undefined, integerOnly: n === 0 ? true : undefined } : {}) });
+    update({ [key]: n, ...(key === "decimalPlaces" ? { integerOnly: n === 0 ? true : undefined } : {}) });
   };
 
   return (
@@ -382,7 +381,7 @@ function NumberConstraints(props: { config: () => FieldConfigState; onChange: (n
           description="Reject decimal values for this field."
           icon="ti ti-number"
           value={integerOnly}
-          onChange={(checked) => update({ integerOnly: checked || undefined, decimalPlaces: checked ? 0 : undefined, scale: undefined })}
+          onChange={(checked) => update({ integerOnly: checked || undefined, decimalPlaces: checked ? 0 : undefined })}
         />
       </div>
     </div>

@@ -117,9 +117,9 @@ test("collectFieldRefs walks nested expression", () => {
   }
 });
 
-// ── #slug field-reference syntax ─────────────────────────────────
+// ── Legacy #slug field-reference syntax ──────────────────────────
 //
-// `#slug` is the preferred short form. The tokenizer scans
+// `#slug` remains supported for stored formula compatibility. The tokenizer scans
 // alphanumerics and underscores until the first non-slug char, so the slug binding
 // stops cleanly at operators, parens, commas, and whitespace — i.e.
 // every legal next token after a field reference.

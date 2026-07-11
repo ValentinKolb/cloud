@@ -5,15 +5,8 @@ import type { GridTemplate } from "./types";
 
 export type {
   GridTemplate,
-  TemplateDashboard,
   TemplateDateExpression,
-  TemplateField,
-  TemplateForm,
-  TemplateRecord,
   TemplateRef,
-  TemplateTable,
-  TemplateValue,
-  TemplateView,
 } from "./types";
 
 export const templates: GridTemplate[] = [bookshopTemplate, financeTemplate, inventoryTemplate];

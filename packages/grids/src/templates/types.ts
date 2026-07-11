@@ -1,11 +1,11 @@
-export type TemplateRefKind = "table" | "field" | "record" | "view" | "form" | "dashboard";
+type TemplateRefKind = "table" | "field" | "record" | "view" | "form" | "dashboard";
 
 export type TemplateRef = {
   $ref: TemplateRefKind;
   key: string;
 };
 
-export type TemplateFormulaExpression = {
+type TemplateFormulaExpression = {
   $formula: Array<string | TemplateRef>;
 };
 
@@ -14,17 +14,6 @@ export type TemplateDateExpression = {
   day: number;
   monthOffset?: number;
 };
-
-export type TemplateValue =
-  | string
-  | number
-  | boolean
-  | null
-  | TemplateRef
-  | TemplateFormulaExpression
-  | TemplateDateExpression
-  | TemplateValue[]
-  | { [key: string]: TemplateValue };
 
 export type TemplateField = {
   key: string;
@@ -41,7 +30,7 @@ export type TemplateField = {
   uniqueConstraint?: boolean;
 };
 
-export type TemplateTable = {
+type TemplateTable = {
   key: string;
   name: string;
   description?: string | null;
@@ -49,20 +38,20 @@ export type TemplateTable = {
   fields: TemplateField[];
 };
 
-export type TemplateRecordFile = {
+type TemplateRecordFile = {
   field: string;
   filename: string;
   dataUrl: string;
 };
 
-export type TemplateRecord = {
+type TemplateRecord = {
   key: string;
   table: string;
   values: Record<string, unknown>;
   files?: TemplateRecordFile[];
 };
 
-export type TemplateView = {
+type TemplateView = {
   key: string;
   table: string;
   name: string;
@@ -71,7 +60,7 @@ export type TemplateView = {
   shared?: boolean;
 };
 
-export type TemplateForm = {
+type TemplateForm = {
   key: string;
   table: string;
   name: string;
@@ -79,7 +68,7 @@ export type TemplateForm = {
   config: Record<string, unknown>;
 };
 
-export type TemplateDashboard = {
+type TemplateDashboard = {
   key: string;
   name: string;
   description?: string | null;
@@ -137,7 +126,6 @@ export const field = (key: string): TemplateRef => ({ $ref: "field", key });
 export const record = (key: string): TemplateRef => ({ $ref: "record", key });
 export const view = (key: string): TemplateRef => ({ $ref: "view", key });
 export const form = (key: string): TemplateRef => ({ $ref: "form", key });
-export const dashboard = (key: string): TemplateRef => ({ $ref: "dashboard", key });
 export const formula = (...parts: Array<string | TemplateRef>): TemplateFormulaExpression => ({ $formula: parts });
 export const currentMonthDate = (day: number, monthOffset = 0): TemplateDateExpression => ({
   $date: "current_month",

@@ -4,12 +4,13 @@ import { For, type JSX, Show } from "solid-js";
 import type { ColumnSpec, FormatSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field, GridRecord } from "../../../service";
-import { barcodeValueText, canRenderBarcode } from "../table/BarcodeCell";
-import { FieldValue, fieldDisplayFormat, formatFieldValueText } from "../table/FieldValue";
+import { barcodeValueText, canRenderBarcode } from "../table/BarcodeRendering";
+import { FieldValue } from "../table/FieldValue";
+import { fieldDisplayFormat, formatFieldValueText } from "../table/field-value-format";
 
 type RecordReadViewMode = "live" | "trash" | "snapshot";
 
-export type RecordReadViewProps = {
+type RecordReadViewProps = {
   baseId: string;
   tableId: string;
   tableName: string;

@@ -1,12 +1,16 @@
-import { toast } from "@valentinkolb/cloud/ui";
-import { createSignal, Show } from "solid-js";
+import { dialogCore, PanelDialog, panelDialogWorkspaceOptions, toast } from "@valentinkolb/cloud/ui";
+import { createSignal, lazy, Show, Suspense } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { WorkflowButtonWidget as WorkflowButtonWidgetConfig } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
+import type { WorkflowScannerState } from "../workflows/WorkflowScannerSurface.island";
 import type { WidgetData } from "./widget-data";
+
+const WorkflowScannerSurface = lazy(() => import("../workflows/WorkflowScannerSurface.island"));
 
 type Props = {
   dashboardId: string;
+  baseShortId: string;
   widget: WorkflowButtonWidgetConfig;
   data: WidgetData;
 };
@@ -21,8 +25,49 @@ export default function WorkflowButtonWidget(props: Props) {
   const disabledReason = () => data()?.disabledReason ?? null;
   const canRun = () => Boolean(data()?.canRun) && !running();
 
+  const openScanner = () => {
+    const d = data();
+    if (!d || d.action !== "scanner" || !canRun()) return;
+    void dialogCore.open<void>(
+      (close) => (
+        <PanelDialog surface="floating">
+          <PanelDialog.Header
+            title={`${title()} scanner`}
+            subtitle={props.widget.description ?? d.workflowName}
+            icon="ti ti-barcode"
+            close={() => close()}
+          />
+          <PanelDialog.Body>
+            <Suspense fallback={<div class="p-4 text-sm text-dimmed">Loading scanner...</div>}>
+              <WorkflowScannerSurface
+                mode="dialog"
+                state={
+                  {
+                    baseShortId: props.baseShortId,
+                    workflowId: d.workflowId,
+                    dashboardId: props.dashboardId,
+                    dashboardWidgetId: props.widget.id,
+                    workflowName: d.workflowName,
+                    workflowDescription: description(),
+                    initialCode: null,
+                    returnHref: `/app/grids/${props.baseShortId}/dashboard/${props.dashboardId}`,
+                  } satisfies WorkflowScannerState
+                }
+              />
+            </Suspense>
+          </PanelDialog.Body>
+        </PanelDialog>
+      ),
+      panelDialogWorkspaceOptions,
+    );
+  };
+
   const run = async () => {
     if (!canRun()) return;
+    if (data()?.action === "scanner") {
+      openScanner();
+      return;
+    }
     setRunning(true);
     try {
       const res = await apiClient.dashboards[":dashboardId"].widgets[":widgetId"].run.$post({
@@ -57,10 +102,20 @@ export default function WorkflowButtonWidget(props: Props) {
             </Show>
           </div>
           <div class="mt-auto flex flex-wrap items-center gap-2">
-            <button type="button" class="btn-primary btn-sm" disabled={!canRun()} onClick={run}>
-              <i class={running() ? "ti ti-loader-2 animate-spin" : "ti ti-player-play"} />
-              {running() ? "Running..." : buttonLabel()}
-            </button>
+            <Show
+              when={data()?.action === "scanner"}
+              fallback={
+                <button type="button" class="btn-primary btn-sm" disabled={!canRun()} onClick={run}>
+                  <i class={running() ? "ti ti-loader-2 animate-spin" : "ti ti-player-play"} />
+                  {running() ? "Running..." : buttonLabel()}
+                </button>
+              }
+            >
+              <button type="button" class="btn-primary btn-sm" disabled={!canRun()} onClick={openScanner}>
+                <i class="ti ti-barcode" />
+                {buttonLabel()}
+              </button>
+            </Show>
             <Show when={disabledReason()}>
               <span class="text-xs text-dimmed">{disabledReason()}</span>
             </Show>

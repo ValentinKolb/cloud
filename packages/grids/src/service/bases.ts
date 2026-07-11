@@ -344,7 +344,7 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
 // Admin views (platform-admin only — bypasses per-base ACLs)
 // ──────────────────────────────────────────────────────────────────
 
-export type AdminListItem = Base & {
+type AdminListItem = Base & {
   tableCount: number;
   recordCount: number;
   accessCount: number;

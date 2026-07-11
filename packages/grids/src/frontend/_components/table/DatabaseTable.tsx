@@ -1,12 +1,12 @@
 import { DataTable, type DataTableColumn, Placeholder } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { createEffect, For, type JSX, Show } from "solid-js";
-import type { AggregationSpec } from "../../../contracts";
+import type { AggregationSpec, ColumnSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field, GridRecord, RecordList } from "../../../service";
-import type { ColumnSpec } from "../../../service/views";
 import { fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
-import { FieldValue, fieldDisplayFormat, formatFieldValueText } from "./FieldValue";
+import { FieldValue } from "./FieldValue";
+import { fieldDisplayFormat, formatFieldValueText } from "./field-value-format";
 
 /** Friendly label for an aggregation kind — used as the fallback when
  *  the user didn't set a custom label on the aggregation row. */

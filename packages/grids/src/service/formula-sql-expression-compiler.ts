@@ -26,7 +26,7 @@ const MAX_FORMULA_INLINE_DEPTH = 8;
 
 export type FormulaSqlFieldResolver = (ref: string) => FormulaSqlExpression | string | null;
 
-export type FormulaSqlCompileOptions = {
+type FormulaSqlCompileOptions = {
   fields: Field[];
   /** Trusted SQL alias for the records table. Defaults to `r`. */
   recordAlias?: string;

@@ -9,14 +9,14 @@ import {
 } from "../service/formula-sql-compiler";
 import type { Field } from "../service/types";
 
-export type DslFormulaRecordScope = {
+type DslFormulaRecordScope = {
   alias?: string;
   fields: Field[];
   recordAlias: string;
   computedFieldSql?: Map<string, FormulaSqlExpression>;
 };
 
-export type DslScopedFormulaOptions = {
+type DslScopedFormulaOptions = {
   base: DslFormulaRecordScope;
   joins?: DslFormulaRecordScope[];
   dateConfig?: DateContext;

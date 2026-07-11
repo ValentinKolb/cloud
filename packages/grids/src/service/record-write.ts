@@ -5,7 +5,7 @@ import { logAudit, type SqlClient } from "./audit";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import { generatedIdRequiresRetry, generateIdValue, isGeneratedIdUniqueCollision } from "./generated-ids";
 import { requireTableAlive } from "./parent-checks";
-import { type GridsRecordEvent, publishRecordEvent } from "./record-events";
+import { notifyRecordEventOutbox } from "./record-event-outbox";
 import { buildPersistedUpdateData, buildRecordDiff, mapRecordRow, splitRelationsFromData } from "./record-persistence";
 import { get } from "./record-read";
 import { type ExpansionViewer, enrichRecordsWithFormulas, validateRelationTargets, writeRecordLinks } from "./relations";
@@ -21,37 +21,6 @@ const recordVersionConflict = () => ({
 
 const formatFieldValidationError = (fieldName: string, validationError: string): string =>
   validationError === "required" ? `Field "${fieldName}" is required` : `Field "${fieldName}": ${validationError}`;
-
-const baseIdForTable = async (tableId: string): Promise<string | null> => {
-  const [row] = await sql<{ base_id: string }[]>`
-    SELECT base_id FROM grids.tables WHERE id = ${tableId}::uuid AND deleted_at IS NULL
-  `;
-  return row?.base_id ?? null;
-};
-
-const emitRecordEvent = async (event: Omit<GridsRecordEvent, "v" | "occurredAt">): Promise<void> => {
-  const payload: GridsRecordEvent = { v: 1, occurredAt: new Date().toISOString(), ...event };
-  await publishRecordEvent(payload);
-};
-
-export const emitCreatedRecordEvent = async (
-  tableId: string,
-  record: GridRecord,
-  changedFieldIds: string[],
-  actorId: string | null,
-): Promise<void> => {
-  const baseId = await baseIdForTable(tableId);
-  if (!baseId) return;
-  await emitRecordEvent({
-    type: "record.created",
-    baseId,
-    tableId,
-    recordId: record.id,
-    version: record.version,
-    changedFieldIds,
-    actorId,
-  });
-};
 
 /**
  * Pre-flight relation-target existence, batched per targetTableId. The
@@ -169,6 +138,7 @@ const validateForUpdate = async (tableId: string, payload: Record<string, unknow
 type CreateRecordInTransactionResult = {
   record: GridRecord;
   changedFieldIds: string[];
+  outboxId: string;
 };
 
 export const createInTransaction = async (
@@ -214,6 +184,15 @@ export const createInTransaction = async (
     if (!preflight.ok) return preflight;
 
     id = Bun.randomUUIDv7();
+    const changedFieldIds = Object.keys(validated.data);
+    const eventPayload = {
+      v: 1,
+      type: "record.created",
+      version: 1,
+      changedFieldIds,
+      actorId,
+      occurredAt: new Date().toISOString(),
+    };
     if (hasRetryGeneratedId) await client`SAVEPOINT grids_generated_id_insert`;
     try {
       const rows = await client<DbRow[]>`
@@ -226,7 +205,7 @@ export const createInTransaction = async (
           ${actorId}::uuid,
           ${actorId}::uuid
         )
-        RETURNING *
+        RETURNING *, grids.enqueue_record_event(${tableId}::uuid, ${id}::uuid, ${eventPayload}::jsonb)::text AS outbox_id
       `;
       row = rows[0];
       if (hasRetryGeneratedId) await client`RELEASE SAVEPOINT grids_generated_id_insert`;
@@ -258,6 +237,8 @@ export const createInTransaction = async (
     },
     client,
   );
+  const changedFieldIds = Object.keys(validated.data);
+  const outboxId = row.outbox_id as string;
 
   const record = mapRecordRow(row);
   for (const [fieldId, toIds] of split.relations) {
@@ -265,7 +246,7 @@ export const createInTransaction = async (
   }
   enrichRecordsWithFormulas([record], fields, { dateConfig: opts.dateConfig });
 
-  return ok({ record, changedFieldIds: Object.keys(validated.data) });
+  return ok({ record, changedFieldIds, outboxId });
 };
 
 export const create = async (
@@ -288,7 +269,7 @@ export const create = async (
   if (!created.ok) return created;
   const record = await get(tableId, created.data.record.id, opts);
   if (!record) return fail(err.notFound("Record"));
-  await emitCreatedRecordEvent(tableId, record, created.data.changedFieldIds, actorId);
+  notifyRecordEventOutbox(created.data.outboxId);
   return ok(record);
 };
 
@@ -333,7 +314,7 @@ export const createMany = async (
     const record = await get(tableId, item.record.id, opts);
     if (!record) return fail(err.notFound("Record"));
     records.push(record);
-    await emitCreatedRecordEvent(tableId, record, item.changedFieldIds, actorId);
+    notifyRecordEventOutbox(item.outboxId);
   }
   return ok(records);
 };
@@ -372,6 +353,14 @@ export const update = async (
 
   // Build the diff up front so we can pass it into the transaction.
   const diff = buildRecordDiff(existing.data, validated.data);
+  const eventPayload = {
+    v: 1,
+    type: "record.updated",
+    version: existing.version + 1,
+    changedFieldIds: Object.keys(diff),
+    actorId,
+    occurredAt: new Date().toISOString(),
+  };
 
   // ATOMIC: row UPDATE + relation link writes + audit in one transaction.
   // The version-check WHERE clause still gives us the optimistic-lock
@@ -388,7 +377,7 @@ export const update = async (
         AND table_id = ${tableId}::uuid
         AND deleted_at IS NULL
         AND version = ${existing.version}
-      RETURNING *
+      RETURNING *, grids.enqueue_record_event(${tableId}::uuid, ${recordId}::uuid, ${eventPayload}::jsonb)::text AS outbox_id
     `;
       if (!r) {
         // Trigger rollback by throwing a sentinel; caller catches it and
@@ -406,7 +395,7 @@ export const update = async (
       if (Object.keys(diff).length > 0) {
         await logAudit({ tableId, recordId, userId: actorId, action: "updated", diff }, tx);
       }
-      return r;
+      return { row: r, outboxId: r.outbox_id as string };
     })
     .catch((e: unknown) => {
       if ((e as { __versionConflict?: true })?.__versionConflict) return null;
@@ -416,46 +405,33 @@ export const update = async (
 
   const record = await get(tableId, recordId, opts);
   if (!record) return fail(err.notFound("Record"));
-  const baseId = await baseIdForTable(tableId);
-  if (baseId) {
-    await emitRecordEvent({
-      type: "record.updated",
-      baseId,
-      tableId,
-      recordId: record.id,
-      version: record.version,
-      changedFieldIds: Object.keys(diff),
-      actorId,
-    });
-  }
+  notifyRecordEventOutbox(txResult.outboxId);
   return ok(record);
 };
 
 export const softDelete = async (tableId: string, recordId: string, actorId: string | null): Promise<Result<void>> => {
   const existing = await get(tableId, recordId);
-  const deleted = await sql.begin(async (tx) => {
-    const result = await tx`
+  const eventPayload = {
+    v: 1,
+    type: "record.deleted",
+    version: existing?.version ?? null,
+    changedFieldIds: existing ? Object.keys(existing.data) : [],
+    actorId,
+    occurredAt: new Date().toISOString(),
+  };
+  const outboxId = await sql.begin(async (tx) => {
+    const [row] = await tx<Array<{ outbox_id: string }>>`
       UPDATE grids.records
       SET deleted_at = now(), updated_by = ${actorId}::uuid, updated_at = now()
       WHERE id = ${recordId}::uuid AND table_id = ${tableId}::uuid AND deleted_at IS NULL
+      RETURNING grids.enqueue_record_event(${tableId}::uuid, ${recordId}::uuid, ${eventPayload}::jsonb)::text AS outbox_id
     `;
-    if (result.count === 0) return false;
+    if (!row) return null;
     await logAudit({ tableId, recordId, userId: actorId, action: "deleted" }, tx);
-    return true;
+    return row.outbox_id;
   });
-  if (!deleted) return fail(err.notFound("Record"));
-  const baseId = await baseIdForTable(tableId);
-  if (baseId) {
-    await emitRecordEvent({
-      type: "record.deleted",
-      baseId,
-      tableId,
-      recordId,
-      version: existing?.version ?? null,
-      changedFieldIds: existing ? Object.keys(existing.data) : [],
-      actorId,
-    });
-  }
+  if (!outboxId) return fail(err.notFound("Record"));
+  notifyRecordEventOutbox(outboxId);
   return ok();
 };
 
@@ -466,28 +442,26 @@ export const restore = async (tableId: string, recordId: string, actorId: string
   const parentAlive = await requireTableAlive(tableId);
   if (!parentAlive.ok) return parentAlive;
 
-  const restored = await sql.begin(async (tx) => {
-    const result = await tx`
+  const eventPayload = {
+    v: 1,
+    type: "record.restored",
+    version: null,
+    changedFieldIds: [],
+    actorId,
+    occurredAt: new Date().toISOString(),
+  };
+  const outboxId = await sql.begin(async (tx) => {
+    const [row] = await tx<Array<{ outbox_id: string }>>`
       UPDATE grids.records
       SET deleted_at = NULL, updated_by = ${actorId}::uuid, updated_at = now()
       WHERE id = ${recordId}::uuid AND table_id = ${tableId}::uuid AND deleted_at IS NOT NULL
+      RETURNING grids.enqueue_record_event(${tableId}::uuid, ${recordId}::uuid, ${eventPayload}::jsonb)::text AS outbox_id
     `;
-    if (result.count === 0) return false;
+    if (!row) return null;
     await logAudit({ tableId, recordId, userId: actorId, action: "restored" }, tx);
-    return true;
+    return row.outbox_id;
   });
-  if (!restored) return fail(err.notFound("Record"));
-  const baseId = await baseIdForTable(tableId);
-  if (baseId) {
-    await emitRecordEvent({
-      type: "record.restored",
-      baseId,
-      tableId,
-      recordId,
-      version: null,
-      changedFieldIds: [],
-      actorId,
-    });
-  }
+  if (!outboxId) return fail(err.notFound("Record"));
+  notifyRecordEventOutbox(outboxId);
   return ok();
 };

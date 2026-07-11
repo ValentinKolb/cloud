@@ -1,6 +1,6 @@
 import type { RecordQuery } from "../../../contracts";
 
-export type BulkSelectionRunPayload = { recordIds: string[] } | { query: RecordQuery };
+type BulkSelectionRunPayload = { recordIds: string[] } | { query: RecordQuery };
 
 export const bulkSelectionRunPayload = (selectedRecordIds: readonly string[], query: RecordQuery): BulkSelectionRunPayload => {
   const uniqueIds = [...new Set(selectedRecordIds)];

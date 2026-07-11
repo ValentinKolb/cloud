@@ -69,6 +69,20 @@ steps:
     expect(result.definition.triggers.bulkSelection?.input).toBe("items");
   });
 
+  test("parses succeed steps for human workflow messages", () => {
+    const result = parseWorkflowYaml(`
+triggers:
+  api: {}
+steps:
+  - succeed:
+      message: Item returned.
+`);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.definition.steps[0]).toEqual({ succeed: { message: "Item returned." } });
+  });
+
   test("rejects unknown keys instead of silently accepting dialect drift", () => {
     const result = parseWorkflowYaml(`
 on:
@@ -98,6 +112,29 @@ steps:
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.diagnostics.some((diagnostic) => diagnostic.message.includes("name"))).toBe(true);
+  });
+
+  test("rejects unknown input references in workflow values", () => {
+    const result = parseWorkflowYaml(`
+inputs:
+  item:
+    type: record
+    table: Items
+triggers:
+  api: {}
+steps:
+  - httpRequest:
+      url: https://example.com/hook
+      json:
+        record: inputs.missing.Name
+        literal: example.com.value
+`);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+      'steps.0.httpRequest.json.record: references unknown input "missing"',
+    );
   });
 
   test("rejects scanner and bulk trigger input type mismatches", () => {
@@ -158,6 +195,69 @@ steps:
       expect(result.diagnostics.map((diagnostic) => diagnostic.message)).toContain(
         "triggers.recordEvent.input must reference a record input",
       );
+  });
+
+  test("rejects triggers that cannot provide required inputs", () => {
+    const schedule = parseWorkflowYaml(`
+inputs:
+  item:
+    type: record
+    table: Items
+    required: true
+triggers:
+  schedule:
+    cron: "0 8 * * *"
+steps:
+  - fail:
+      message: stop
+`);
+
+    expect(schedule.ok).toBe(false);
+    if (!schedule.ok)
+      expect(schedule.diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+        'triggers.schedule: required input "item" cannot be provided by this trigger',
+      );
+
+    const scanner = parseWorkflowYaml(`
+inputs:
+  item:
+    type: record
+    table: Items
+    required: true
+  note:
+    type: text
+    required: true
+triggers:
+  scanner:
+    input: item
+steps:
+  - succeed:
+      message: ok
+`);
+
+    expect(scanner.ok).toBe(false);
+    if (!scanner.ok)
+      expect(scanner.diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+        'triggers.scanner: required input "note" cannot be provided by this trigger',
+      );
+
+    const api = parseWorkflowYaml(`
+inputs:
+  item:
+    type: record
+    table: Items
+    required: true
+  note:
+    type: text
+    required: true
+triggers:
+  api: {}
+steps:
+  - succeed:
+      message: ok
+`);
+
+    expect(api.ok).toBe(true);
   });
 
   test("rejects record actions that target unknown or list references", () => {

@@ -3,7 +3,7 @@ import { sql } from "bun";
 import { migrate } from "../migrate";
 import {
   createDocumentLink,
-  getRun,
+  getDocumentRun,
   listDocumentLinksForRun,
   recordDocumentLinkAccess,
   resolveDocumentLinkDownload,
@@ -90,7 +90,7 @@ describe("document links integration", () => {
   postgresTest("creates hashed expiring links and rejects revoked links", async () => {
     const fixture = await insertFixture();
     try {
-      const run = await getRun(fixture.runId);
+      const run = await getDocumentRun(fixture.runId);
       if (!run) throw new Error("Fixture run missing");
 
       const created = await createDocumentLink({

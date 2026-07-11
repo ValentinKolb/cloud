@@ -1,8 +1,8 @@
 import { Checkbox, dialogCore, NumberInput, PanelDialog, panelDialogOptions, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { createSignal, Show } from "solid-js";
+import type { FormatSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field } from "../../../service";
-import type { FormatSpec } from "../../../service/views";
 import { TYPE_LABELS } from "../fields/field-config-editor";
 import { barcodeSelectedLabel, DEFAULT_BARCODE_BCID, searchBarcodeOptions } from "../table/barcode-options";
 

@@ -112,8 +112,7 @@ describe("document rendering", () => {
     const meta = {
       scan: {
         code: "gsc_test",
-        url: "https://cloud.example.test/app/grids/scan?code=gsc_test",
-        qrUrl: "https://cloud.example.test/app/grids/scan?code=gsc_test",
+        qrText: "gsc_test",
       },
     };
 

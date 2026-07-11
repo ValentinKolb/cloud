@@ -8,7 +8,7 @@ import { insertWithShortId } from "./short-id";
 
 type DbRow = Record<string, unknown>;
 
-export const EMAIL_TEMPLATE_ROOTS = new Set(["data", "app", "business", "workflow", "run", "date"]);
+const EMAIL_TEMPLATE_ROOTS = new Set(["data", "app", "business", "workflow", "run", "date"]);
 
 const mapEmailTemplate = (row: DbRow): EmailTemplate => ({
   id: row.id as string,

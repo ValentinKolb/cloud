@@ -5,7 +5,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "so
 import type { AggregationSpec, FilterTree, GroupBySpec, RecordQuery, TableQueryResult } from "../../../contracts";
 import type { Field, GridRecord } from "../../../service";
 import { fetchTableQuery } from "../records-view/fetcher";
-import { formatFieldValueText } from "./FieldValue";
+import { formatFieldValueText } from "./field-value-format";
 import type { GroupBucket } from "./GroupedTable";
 
 const PAGE_SIZE = 30;

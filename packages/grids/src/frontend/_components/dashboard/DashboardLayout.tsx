@@ -480,7 +480,7 @@ function CellRenderer(props: {
         />
       );
     case "workflow-button":
-      return <WorkflowButtonWidget dashboardId={props.dashboardId} widget={props.widget} data={data()} />;
+      return <WorkflowButtonWidget dashboardId={props.dashboardId} baseShortId={props.baseShortId} widget={props.widget} data={data()} />;
   }
 }
 

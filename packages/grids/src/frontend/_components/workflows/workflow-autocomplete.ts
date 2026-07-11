@@ -6,10 +6,7 @@ export type WorkflowAutocompleteRequest = {
   caret: number;
 };
 
-export type WorkflowAutocompleteFetcher = (
-  request: WorkflowAutocompleteRequest,
-  signal: AbortSignal,
-) => Promise<WorkflowAutocompleteResponse>;
+type WorkflowAutocompleteFetcher = (request: WorkflowAutocompleteRequest, signal: AbortSignal) => Promise<WorkflowAutocompleteResponse>;
 
 const WORKFLOW_TRIGGER_CHARS = [" ", "\n", "\t", ":", "-", ".", "[", "{", ",", "'"];
 

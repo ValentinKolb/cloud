@@ -5,14 +5,14 @@ export type QueryWorkspaceCurrentSource =
   | { kind: "table"; tableId: string; label: string; ref: string }
   | { kind: "view"; viewId: string; label: string; ref: string };
 
-export type QueryWorkspaceApiSource = { kind: "table"; tableId: string } | { kind: "view"; viewId: string };
+type QueryWorkspaceApiSource = { kind: "table"; tableId: string } | { kind: "view"; viewId: string };
 
 export const currentSourceForApi = (source: QueryWorkspaceCurrentSource | undefined): QueryWorkspaceApiSource | undefined => {
   if (!source) return undefined;
   return source.kind === "table" ? { kind: "table", tableId: source.tableId } : { kind: "view", viewId: source.viewId };
 };
 
-export type QueryTextStats = {
+type QueryTextStats = {
   chars: number;
   lines: number;
   nonEmptyLines: number;
@@ -36,7 +36,7 @@ export const queryTextStats = (query: string): QueryTextStats => {
   };
 };
 
-export type PreviewSummary =
+type PreviewSummary =
   | { kind: "idle"; label: "No result"; tone: "muted" }
   | { kind: "checking"; label: "Checking"; tone: "pending" }
   | { kind: "issues"; label: "Issues"; tone: "danger"; diagnostics: number }
@@ -69,7 +69,7 @@ export const previewSummary = (preview: DslQueryPreviewResponse | null, loading:
   };
 };
 
-export type SourceCatalogSummary = {
+type SourceCatalogSummary = {
   tables: number;
   fields: number;
   views: number;

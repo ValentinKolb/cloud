@@ -26,7 +26,7 @@ import { dropFieldIndex, dropFieldUniqueIndex, dropGeneratedIdSequences } from "
  *    (returns the JSONB minus that key), so it's a single UPDATE per
  *    table rather than per-record.
  */
-export type PurgeReport = {
+type PurgeReport = {
   basesPurged: number;
   tablesPurged: number;
   fieldsPurged: number;

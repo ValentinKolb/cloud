@@ -32,7 +32,7 @@ import type { Field } from "./types";
  * each subquery a tiny index scan.
  */
 
-export type ComputedProjectionOutputType = "text" | "numeric" | "decimal" | "int" | "date" | "timestamptz" | "boolean" | "json";
+type ComputedProjectionOutputType = "text" | "numeric" | "decimal" | "int" | "date" | "timestamptz" | "boolean" | "json";
 
 export type ComputedProjection = {
   /** The lookup/rollup field whose value this projection produces. */
@@ -51,7 +51,7 @@ export type ComputedProjection = {
 
 /** Maps a projection output type onto the formula-compiler's SQL type system so
  *  GQL can treat lookup/rollup values like any other typed expression. */
-export const computedOutputToFormulaType = (output: ComputedProjectionOutputType): FormulaSqlType =>
+const computedOutputToFormulaType = (output: ComputedProjectionOutputType): FormulaSqlType =>
   output === "numeric" || output === "decimal" || output === "int"
     ? "numeric"
     : output === "date"
@@ -229,8 +229,8 @@ export const buildComputedProjections = async (fields: Field[], options: { recor
       // Target type is non-projectable (relation/lookup/rollup/formula/
       // select/json/system-without-numeric). Skip silently — the
       // UI's lookup/rollup config editor should validate this at
-      // save-time (Wave 5.2). Until then, a partial / nonsensical config
-      // produces no rollup column rather than a crash.
+      // save-time. A partial or nonsensical config produces no rollup
+      // column rather than a crash.
       continue;
     }
 

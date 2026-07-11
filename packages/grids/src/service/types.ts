@@ -62,6 +62,9 @@ export type AuditAction =
   | "email_template.updated"
   | "email_template.deleted"
   | "document_template.created"
+  | "document.generated"
+  | "document.metadata.updated"
+  | "record_snapshot.created"
   | "document_link.created"
   | "document_link.revoked"
   | "document_link.accessed";

@@ -1,13 +1,21 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Dropdown, dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { Dropdown, dialogCore, PanelDialog, panelDialogOptions, prompts, toast } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { AggregationSpec, GroupBySpec, RecordDisplayConfig, RecordQuery, TableQueryResult, WorkflowRun } from "../../../contracts";
+import type {
+  AggregationSpec,
+  ColumnSpec,
+  FieldColumnSpec,
+  GroupBySpec,
+  RecordDisplayConfig,
+  RecordQuery,
+  TableQueryResult,
+  WorkflowRun,
+} from "../../../contracts";
 import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
 import type { Field, Form, GridRecord, Table, View, Workflow } from "../../../service";
-import type { ColumnSpec, FieldColumnSpec } from "../../../service/views";
 import { defaultTableAggregations } from "../../../table-defaults";
 import {
   createFieldFromPrompt,
@@ -18,7 +26,6 @@ import {
 } from "../dialogs/TableAdminDialogs";
 import { openViewColumnSettingsDialog } from "../dialogs/ViewColumnSettingsDialog";
 import { openViewSettingsDialog } from "../dialogs/ViewSettingsDialogs";
-import { FormulaExpressionEditor } from "../fields/FormulaExpressionEditor";
 import { openFieldEditDialog } from "../fields/TableFieldDialogs";
 import QueryWorkspace from "../query/QueryWorkspace";
 import type { QueryWorkspaceCurrentSource } from "../query/query-workspace-model";
@@ -37,7 +44,9 @@ import GridToolbar from "../toolbar/GridToolbar";
 // children means they hydrate as part of RecordsView, sharing its state.
 import SearchBar from "../toolbar/SearchBar";
 import { errorMessage } from "../utils/api-helpers";
+import { openAddViewColumnsDialog } from "./AddViewColumnsDialog";
 import { bulkSelectionRunPayload, bulkWorkflowActionLabel, pruneBulkSelection, sameBulkSelection } from "./bulk-selection";
+import { openComputedColumnDialog } from "./ComputedColumnDialog";
 import { activeDisplayConfig, calendarQueryFilter, cardImageFieldIds, removeCalendarQueryFilter } from "./display-mode";
 import { fetchTableQuery } from "./fetcher";
 import { createGridsRecordEventsProvider } from "./grids-record-events-provider";
@@ -73,90 +82,6 @@ const isFieldColumn = (column: ColumnSpec): column is FieldColumnSpec => !isComp
 
 const columnId = (column: ColumnSpec): string => (isComputedColumn(column) ? column.id : column.fieldId);
 
-const randomComputedColumnId = (): string => {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  const bytes = new Uint8Array(10);
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) crypto.getRandomValues(bytes);
-  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
-  return `computed_${Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("")}`;
-};
-
-type ComputedColumnDialogResult = { action: "save"; column: Extract<ColumnSpec, { kind: "computed" }> } | { action: "delete" };
-
-const openComputedColumnDialog = (args: {
-  fields: Field[];
-  currentTableId: string;
-  baseShortId: string;
-  tableShortId: string;
-  column?: Extract<ColumnSpec, { kind: "computed" }>;
-}) =>
-  dialogCore.open<ComputedColumnDialogResult | null>((close) => {
-    const [label, setLabel] = createSignal(args.column?.label ?? "");
-    const [expression, setExpression] = createSignal(args.column?.expression ?? "");
-    const save = () => {
-      const nextLabel = label().trim();
-      const nextExpression = expression().trim();
-      if (!nextLabel) {
-        prompts.error("Name is required");
-        return;
-      }
-      if (!nextExpression) {
-        prompts.error("Expression is required");
-        return;
-      }
-      close({
-        action: "save",
-        column: {
-          kind: "computed",
-          id: args.column?.id ?? randomComputedColumnId(),
-          label: nextLabel,
-          expression: nextExpression,
-          ...(args.column?.format ? { format: args.column.format } : {}),
-        },
-      });
-    };
-    return (
-      <PanelDialog>
-        <PanelDialog.Header
-          title={args.column ? "Edit computed column" : "Computed column"}
-          icon="ti ti-calculator"
-          close={() => close(null)}
-        />
-        <PanelDialog.Body>
-          <div class="info-block-info text-xs">
-            Computed columns are view-only. They recalculate from the current row whenever the table is read and are saved with the view
-            setup.
-          </div>
-          <TextInput label="Name" value={label} onInput={setLabel} icon="ti ti-typography" placeholder="e.g. Total with VAT" required />
-          <FormulaExpressionEditor
-            value={expression}
-            onInput={setExpression}
-            fields={args.fields}
-            currentTableId={args.currentTableId}
-            baseShortId={args.baseShortId}
-            tableShortId={args.tableShortId}
-            ariaLabel="Computed column expression"
-          />
-        </PanelDialog.Body>
-        <PanelDialog.Footer>
-          <Show when={args.column} fallback={<span />}>
-            <button type="button" class="btn-danger btn-sm" onClick={() => close({ action: "delete" })}>
-              <i class="ti ti-trash" /> Delete column
-            </button>
-          </Show>
-          <div class="flex items-center gap-2">
-            <button type="button" class="btn-simple btn-sm" onClick={() => close(null)}>
-              Cancel
-            </button>
-            <button type="button" class="btn-primary btn-sm" onClick={save}>
-              Save
-            </button>
-          </div>
-        </PanelDialog.Footer>
-      </PanelDialog>
-    );
-  }, panelDialogOptions);
-
 const toAggregationRows = (specs: AggregationSpec[] | undefined): AggregationRow[] =>
   (specs ?? [])
     .filter((s): s is AggregationSpec & { agg: AggKindUI } => UI_AGG_KINDS.has(s.agg as AggKindUI))
@@ -177,10 +102,10 @@ const filterRowsFromQuery = (filter: RecordQuery["filter"]): FilterLeaf[] => {
  * pagination), and lets createResource refetch the records-data
  * envelope from POST /tables/:id/query.
  *
- * The detail panel column still lives outside this island (Phase 4
- * will absorb it). Until then the panel coordinates via the legacy
- * record-detail-context custom-event bus, which we honour by emitting
- * a `popstate` synthetic so the panel can resync its highlight.
+ * The detail panel column still lives outside this island. The panel
+ * coordinates via the record-detail-context custom-event bus; this
+ * island emits a `popstate` synthetic so the panel can resync its
+ * highlight.
  */
 
 type RuntimeView = View & {
@@ -1481,7 +1406,6 @@ export default function RecordsView(props: Props) {
         label: field.name,
         description: field.type,
         icon: field.icon ?? "ti ti-columns",
-        add: () => persistFlatViewColumns([...(effectiveViewColumns() ?? []), { fieldId: field.id }]),
       }));
   };
 
@@ -1514,10 +1438,6 @@ export default function RecordsView(props: Props) {
           ? {
               id,
               ...label,
-              add: () => {
-                const next = (query().hiddenGroupedColumns ?? []).filter((hiddenId) => hiddenId !== id);
-                patchRecordQueryMut.mutate({ hiddenGroupedColumns: next });
-              },
             }
           : null;
       })
@@ -1532,56 +1452,17 @@ export default function RecordsView(props: Props) {
       await prompts.alert("All columns are already visible.", { title: "No hidden columns", icon: "ti ti-check" });
       return;
     }
-    dialogCore.open<void>((close) => {
-      const [selectedColumnIds, setSelectedColumnIds] = createSignal<string[]>([]);
-      const addSelected = () => {
-        const selected = selectedColumnIds();
-        if (selected.length === 0) return;
-        if (isGrouped()) {
-          patchRecordQueryMut.mutate({
-            hiddenGroupedColumns: (query().hiddenGroupedColumns ?? []).filter((hiddenId) => !selected.includes(hiddenId)),
-          });
-        } else {
-          const existing = effectiveViewColumns() ?? [];
-          const existingIds = new Set(existing.map(columnId));
-          persistFlatViewColumns([...existing, ...selected.filter((id) => !existingIds.has(id)).map((fieldId) => ({ fieldId }))]);
-        }
-        close();
-      };
-      return (
-        <PanelDialog>
-          <PanelDialog.Header title="Add columns" icon="ti ti-plus" close={() => close()} />
-          <PanelDialog.Body>
-            <MultiSelectInput
-              label="Columns"
-              description="Choose one or more hidden columns to show."
-              placeholder="Choose columns"
-              icon="ti ti-columns"
-              value={selectedColumnIds}
-              onChange={setSelectedColumnIds}
-              options={columns.map((column) => ({
-                id: column.id,
-                label: column.label,
-                description: column.description,
-                icon: column.icon,
-              }))}
-              clearable
-            />
-          </PanelDialog.Body>
-          <PanelDialog.Footer>
-            <span />
-            <div class="flex items-center gap-2">
-              <button type="button" class="btn-simple btn-sm" onClick={() => close()}>
-                Cancel
-              </button>
-              <button type="button" class="btn-primary btn-sm" onClick={addSelected} disabled={selectedColumnIds().length === 0}>
-                Add columns
-              </button>
-            </div>
-          </PanelDialog.Footer>
-        </PanelDialog>
-      );
-    }, panelDialogOptions);
+    const selected = await openAddViewColumnsDialog(columns);
+    if (!selected?.length) return;
+    if (isGrouped()) {
+      patchRecordQueryMut.mutate({
+        hiddenGroupedColumns: (query().hiddenGroupedColumns ?? []).filter((hiddenId) => !selected.includes(hiddenId)),
+      });
+      return;
+    }
+    const existing = effectiveViewColumns() ?? [];
+    const existingIds = new Set(existing.map(columnId));
+    persistFlatViewColumns([...existing, ...selected.filter((id) => !existingIds.has(id)).map((fieldId) => ({ fieldId }))]);
   };
 
   const openAddComputedColumn = async () => {

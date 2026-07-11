@@ -10,7 +10,7 @@ export type GqlAutocompleteRequest = {
   currentSource?: CurrentSource;
 };
 
-export type GqlAutocompleteFetcher = (request: GqlAutocompleteRequest, signal: AbortSignal) => Promise<DslQueryAutocompleteResponse>;
+type GqlAutocompleteFetcher = (request: GqlAutocompleteRequest, signal: AbortSignal) => Promise<DslQueryAutocompleteResponse>;
 
 const GQL_TRIGGER_CHARS = [" ", "\n", "\t", ";", "(", ",", ".", "+", "-", "*", "/", "%", "=", "<", ">"];
 

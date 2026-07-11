@@ -70,6 +70,14 @@ test("number: accepts display-only unit config", () => {
   ).toBe(true);
 });
 
+test("number: does not persist legacy scale config", () => {
+  const parsed = numberHandler.configSchema.safeParse({ scale: 2 });
+
+  expect(parsed.success).toBe(true);
+  if (parsed.success) expect(parsed.data).toEqual({});
+  expect(numberHandler.validate("123.456", { scale: 2 }, false)).toEqual({ ok: true, value: "123.456" });
+});
+
 test("number: preserves precision as decimal strings", () => {
   expect(numberHandler.validate("0.30", { precision: 10, decimalPlaces: 2 }, false)).toEqual({ ok: true, value: "0.30" });
 });

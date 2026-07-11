@@ -130,8 +130,8 @@ const COLS = sql`id, short_id, table_id, name, config, public_token, is_active, 
 
 /**
  * Normalises a raw FormFieldEntry, defaulting `kind` to "user_input"
- * when the discriminator is missing (pre-v3 entries). Keeps the rest
- * of the type system honest without forcing a destructive migration.
+ * when the discriminator is missing. Keeps the rest of the type
+ * system honest without forcing a destructive migration.
  */
 const normalizeFieldEntry = (raw: unknown): FormFieldEntry | null => {
   if (!raw || typeof raw !== "object") return null;
@@ -142,7 +142,7 @@ const normalizeFieldEntry = (raw: unknown): FormFieldEntry | null => {
   if (kind === "form_value") {
     return { kind: "form_value", fieldId, value: obj.value };
   }
-  // Default → user_input (covers explicit "user_input" and pre-v3 entries).
+  // Default → user_input (covers explicit "user_input" and older entries).
   return {
     kind: "user_input",
     fieldId,
@@ -237,7 +237,7 @@ export const getByShortId = async (tableId: string, shortId: string): Promise<Fo
  */
 const DEFAULT_FORM_TYPES = new Set(["text", "longtext", "number", "boolean", "date", "select"]);
 
-export const isFormFieldEligible = (field: Field): boolean => {
+const isFormFieldEligible = (field: Field): boolean => {
   if (field.deletedAt) return false;
   return DEFAULT_FORM_TYPES.has(field.type);
 };
@@ -349,8 +349,8 @@ export const get = async (id: string, opts: { includeDeleted?: boolean } = {}): 
  * are intentionally excluded — once trashed, the public URL stops
  * resolving. Restoring the form re-enables it.
  *
- * v3 Slice 5/6 follow-up: also verify the parent table and base are
- * alive. A soft-deleted parent must invalidate the form's public URL,
+ * The parent table and base must be alive. A soft-deleted parent
+ * invalidates the form's public URL,
  * otherwise anonymous callers could keep submitting records into a
  * trashed table — the records would survive cascade-restore but stand
  * orphaned in any other restore order.
@@ -370,7 +370,7 @@ export const getByPublicToken = async (token: string): Promise<Form | null> => {
   return row ? mapRow(row) : null;
 };
 
-export type CreateFormInput = {
+type CreateFormInput = {
   tableId: string;
   name: string;
   config?: FormConfig;
@@ -501,7 +501,7 @@ export const create = async (input: CreateFormInput, actorId: string | null): Pr
   return ok(form);
 };
 
-export type UpdateFormInput = {
+type UpdateFormInput = {
   name?: string;
   config?: FormConfig;
   isPublic?: boolean;

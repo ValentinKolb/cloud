@@ -55,7 +55,7 @@ import { ensureRecordScanCode } from "./workflows";
 
 type DbRow = Record<string, unknown>;
 
-export type DocumentRunPage = {
+type DocumentRunPage = {
   items: DocumentRun[];
   total: number;
   limit: number;
@@ -65,7 +65,7 @@ export type DocumentRunPage = {
   nextCursor: string | null;
 };
 
-export type DocumentRunBrowsePage = {
+type DocumentRunBrowsePage = {
   path: string[];
   folders: DocumentRunFolder[];
   items: DocumentRun[];
@@ -315,7 +315,7 @@ const decodeDocumentRunCursor = (cursor: string | null | undefined): DocumentRun
   }
 };
 
-export type DocumentTemplateAppData = {
+type DocumentTemplateAppData = {
   name: string;
   url: string;
   contactEmail: string | null;
@@ -324,7 +324,7 @@ export type DocumentTemplateAppData = {
   logoDataUri: string;
 };
 
-export type DocumentTemplateBusinessData = {
+type DocumentTemplateBusinessData = {
   legalName: string;
   senderLine: string;
   address: string;
@@ -346,8 +346,7 @@ type DocumentTemplateTableContext = Pick<Table, "id" | "shortId" | "name">;
 type DocumentTemplateRecordMeta = {
   scan?: {
     code: string;
-    url: string | null;
-    qrUrl: string | null;
+    qrText: string;
   };
 };
 
@@ -363,28 +362,16 @@ type DocumentTemplateImage = {
 
 const defaultLogoDataUri = () => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(CLOUD_LOGO_SVG)}`;
 
-const appUrlForPath = (appData: DocumentTemplateAppData, path: string): string | null => {
-  if (!appData.url) return null;
-  return `${appData.url.replace(/\/+$/, "")}${path}`;
-};
-
-const buildRecordScanMeta = async (params: {
-  baseId: string;
-  tableId: string;
-  recordId: string;
-  appData: DocumentTemplateAppData;
-}): Promise<DocumentTemplateRecordMeta> => {
+const buildRecordScanMeta = async (params: { baseId: string; tableId: string; recordId: string }): Promise<DocumentTemplateRecordMeta> => {
   const scan = await ensureRecordScanCode({
     baseId: params.baseId,
     tableId: params.tableId,
     recordId: params.recordId,
   });
-  const url = appUrlForPath(params.appData, `/app/grids/scan?code=${encodeURIComponent(scan.code)}`);
   return {
     scan: {
       code: scan.code,
-      url,
-      qrUrl: url,
+      qrText: scan.code,
     },
   };
 };
@@ -436,7 +423,7 @@ const appDataFromSettingsSnapshot = (settings?: unknown): DocumentTemplateAppDat
   });
 };
 
-export const defaultTemplateAppData = (): DocumentTemplateAppData => appDataFromValues({});
+const defaultTemplateAppData = (): DocumentTemplateAppData => appDataFromValues({});
 
 export const buildTemplateAppData = async (settings?: unknown): Promise<DocumentTemplateAppData> => {
   const snapshotData = appDataFromSettingsSnapshot(settings);
@@ -516,37 +503,33 @@ const validateDocumentLiquidTemplate = (
   return validateLiquidRoots(source, roots, label);
 };
 
-export const renderLiquidText = async (
+const renderLiquid = async (
   template: string,
   data: Record<string, unknown>,
-  maxBytes = TEMPLATE_MAX_BYTES,
+  options: { maxBytes?: number; escapeOutput?: boolean } = {},
 ): Promise<Result<string>> => {
   const valid = validateLiquidTemplate(template);
   if (!valid.ok) return valid;
   try {
-    const rendered = renderLiquidTemplate(template, data, { filters: documentLiquidFilters });
-    if (byteLength(rendered) > maxBytes) return fail(err.badInput("rendered template is too large"));
+    const rendered = renderLiquidTemplate(template, data, { filters: documentLiquidFilters, escapeOutput: options.escapeOutput });
+    if (byteLength(rendered) > (options.maxBytes ?? TEMPLATE_MAX_BYTES)) return fail(err.badInput("rendered template is too large"));
     return ok(rendered);
   } catch (error) {
     return fail(err.badInput(error instanceof Error ? error.message : "template render failed"));
   }
 };
 
+export const renderLiquidText = async (
+  template: string,
+  data: Record<string, unknown>,
+  maxBytes = TEMPLATE_MAX_BYTES,
+): Promise<Result<string>> => renderLiquid(template, data, { maxBytes });
+
 export const renderLiquidPlainText = async (
   template: string,
   data: Record<string, unknown>,
   maxBytes = TEMPLATE_MAX_BYTES,
-): Promise<Result<string>> => {
-  const valid = validateLiquidTemplate(template);
-  if (!valid.ok) return valid;
-  try {
-    const rendered = renderLiquidTemplate(template, data, { filters: documentLiquidFilters, escapeOutput: false });
-    if (byteLength(rendered) > maxBytes) return fail(err.badInput("rendered template is too large"));
-    return ok(rendered);
-  } catch (error) {
-    return fail(err.badInput(error instanceof Error ? error.message : "template render failed"));
-  }
-};
+): Promise<Result<string>> => renderLiquid(template, data, { maxBytes, escapeOutput: false });
 
 export const documentNumberFor = (params: {
   template: Partial<Pick<DocumentTemplate, "id" | "shortId" | "name" | "numberTemplate">>;
@@ -1098,12 +1081,30 @@ export const createRecordSnapshot = async (params: {
   const graph = await buildRecordSnapshotGraph(params.tableId, params.recordId, { dateConfig: params.dateConfig });
   if (!graph.ok) return graph;
 
-  const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.record_snapshots (base_id, table_id, record_id, root, graph, created_by)
-    VALUES (${params.baseId}::uuid, ${params.tableId}::uuid, ${params.recordId}::uuid, ${graph.data.root}::jsonb, ${graph.data.graph}::jsonb, ${params.actorId}::uuid)
-    RETURNING *
-  `;
-  return row ? ok(mapSnapshot(row)) : fail(err.internal("Could not create record snapshot"));
+  return sql.begin(async (tx) => {
+    const [row] = await tx<DbRow[]>`
+      INSERT INTO grids.record_snapshots (base_id, table_id, record_id, root, graph, created_by)
+      VALUES (${params.baseId}::uuid, ${params.tableId}::uuid, ${params.recordId}::uuid, ${graph.data.root}::jsonb, ${graph.data.graph}::jsonb, ${params.actorId}::uuid)
+      RETURNING *
+    `;
+    if (!row) return fail(err.internal("Could not create record snapshot"));
+    const snapshot = mapSnapshot(row);
+    await logAudit(
+      {
+        baseId: params.baseId,
+        tableId: params.tableId,
+        recordId: params.recordId,
+        userId: params.actorId,
+        action: "record_snapshot.created",
+        diff: {
+          snapshotId: { old: null, new: snapshot.id },
+          recordVersion: { old: null, new: graph.data.root.version },
+        },
+      },
+      tx,
+    );
+    return ok(snapshot);
+  });
 };
 
 export const getSnapshot = async (snapshotId: string): Promise<RecordSnapshot | null> => {
@@ -1270,7 +1271,6 @@ export const buildLiveRenderData = async (params: {
     baseId: params.table.baseId,
     tableId: params.table.id,
     recordId: params.record.id,
-    appData,
   });
   const source = await renderDocumentSource(
     params.template,
@@ -1357,7 +1357,7 @@ export const createRunForRecord = async (params: {
   });
   if (!snapshot.ok) return snapshot;
 
-  return createRun({
+  return createDocumentRun({
     template: params.template,
     snapshot: snapshot.data,
     renderData: { ...rendered.data.data, snapshot: snapshot.data },
@@ -1458,7 +1458,7 @@ export const buildDocumentRunRenderData = async (params: {
   return ok({ documentNumber: documentNumber.data, filename, tags, data });
 };
 
-export const createRun = async (params: {
+export const createDocumentRun = async (params: {
   template: DocumentTemplate;
   snapshot: RecordSnapshot;
   renderData: Record<string, unknown>;
@@ -1497,32 +1497,55 @@ export const createRun = async (params: {
         tags: params.tags,
       });
       if (!built.ok) throw built.error;
-      const [inserted] = await sql<DbRow[]>`
-        INSERT INTO grids.document_runs (
-          id, short_id, template_id, workflow_run_id, snapshot_id, base_id, table_id, record_id,
-          document_number, filename, tags, template_snapshot, render_data, generated_by, generated_at
-        )
-        VALUES (
-          ${runId}::uuid,
-          ${shortId},
-          ${params.template.id}::uuid,
-          ${params.workflowRunId ?? null}::uuid,
-          ${params.snapshot.id}::uuid,
-          ${params.snapshot.baseId}::uuid,
-          ${params.snapshot.tableId}::uuid,
-          ${params.snapshot.recordId}::uuid,
-          ${built.data.documentNumber},
-          ${built.data.filename},
-          ${sql.array(built.data.tags, "TEXT")},
-          ${templateSnapshot}::jsonb,
-          ${built.data.data}::jsonb,
-          ${params.actorId}::uuid,
-          ${generatedAt}
-        )
-        RETURNING *
-      `;
-      if (!inserted) throw new Error("insert returned no row");
-      return inserted;
+      return sql.begin(async (tx) => {
+        const [inserted] = await tx<DbRow[]>`
+          INSERT INTO grids.document_runs (
+            id, short_id, template_id, workflow_run_id, snapshot_id, base_id, table_id, record_id,
+            document_number, filename, tags, template_snapshot, render_data, generated_by, generated_at
+          )
+          VALUES (
+            ${runId}::uuid,
+            ${shortId},
+            ${params.template.id}::uuid,
+            ${params.workflowRunId ?? null}::uuid,
+            ${params.snapshot.id}::uuid,
+            ${params.snapshot.baseId}::uuid,
+            ${params.snapshot.tableId}::uuid,
+            ${params.snapshot.recordId}::uuid,
+            ${built.data.documentNumber},
+            ${built.data.filename},
+            ${tx.array(built.data.tags, "TEXT")},
+            ${templateSnapshot}::jsonb,
+            ${built.data.data}::jsonb,
+            ${params.actorId}::uuid,
+            ${generatedAt}
+          )
+          RETURNING *
+        `;
+        if (!inserted) throw new Error("insert returned no row");
+        const run = mapRun(inserted);
+        if (!params.workflowRunId) {
+          await logAudit(
+            {
+              baseId: run.baseId,
+              tableId: run.tableId,
+              recordId: run.recordId,
+              userId: params.actorId,
+              action: "document.generated",
+              diff: {
+                documentRunId: { old: null, new: run.id },
+                snapshotId: { old: null, new: run.snapshotId },
+                templateId: { old: null, new: run.templateId },
+                documentNumber: { old: null, new: run.documentNumber },
+                filename: { old: null, new: run.filename },
+                tags: { old: null, new: run.tags },
+              },
+            },
+            tx,
+          );
+        }
+        return inserted;
+      });
     }, "idx_grids_document_runs_short_id");
     return ok(mapRun(row));
   } catch (error) {
@@ -1739,26 +1762,54 @@ export const browseRunsForTemplate = async (params: {
   };
 };
 
-export const getRun = async (runId: string): Promise<DocumentRun | null> => {
+export const getDocumentRun = async (runId: string): Promise<DocumentRun | null> => {
   const [row] = await sql<DbRow[]>`SELECT * FROM grids.document_runs WHERE id = ${runId}::uuid`;
   return row ? mapRun(row) : null;
 };
 
-export const updateRunMetadata = async (runId: string, input: UpdateDocumentRunMetadataInput): Promise<Result<DocumentRun>> => {
-  const current = await getRun(runId);
-  if (!current) return fail(err.notFound("document run not found"));
-  const filename =
-    input.filename === undefined ? current.filename : safePdfFilename(input.filename, `${current.documentNumber || current.shortId}.pdf`);
-  const tags = input.tags === undefined ? current.tags : normalizeDocumentTags(input.tags);
-  const [row] = await sql<DbRow[]>`
-    UPDATE grids.document_runs
-    SET filename = ${filename}, tags = ${sql.array(tags, "TEXT")}
-    WHERE id = ${runId}::uuid
-    RETURNING *
-  `;
-  if (!row) return fail(err.notFound("document run not found"));
-  return ok(mapRun(row));
-};
+export const updateRunMetadata = async (
+  runId: string,
+  input: UpdateDocumentRunMetadataInput,
+  actorId: string | null = null,
+): Promise<Result<DocumentRun>> =>
+  sql.begin(async (tx) => {
+    const [currentRow] = await tx<DbRow[]>`
+      SELECT * FROM grids.document_runs WHERE id = ${runId}::uuid FOR UPDATE
+    `;
+    if (!currentRow) return fail(err.notFound("document run not found"));
+    const current = mapRun(currentRow);
+    const filename =
+      input.filename === undefined ? current.filename : safePdfFilename(input.filename, `${current.documentNumber || current.shortId}.pdf`);
+    const tags = input.tags === undefined ? current.tags : normalizeDocumentTags(input.tags);
+    const filenameChanged = filename !== current.filename;
+    const tagsChanged = tags.length !== current.tags.length || tags.some((tag, index) => tag !== current.tags[index]);
+    if (!filenameChanged && !tagsChanged) return ok(current);
+
+    const [row] = await tx<DbRow[]>`
+      UPDATE grids.document_runs
+      SET filename = ${filename}, tags = ${tx.array(tags, "TEXT")}
+      WHERE id = ${runId}::uuid
+      RETURNING *
+    `;
+    if (!row) return fail(err.notFound("document run not found"));
+    const updated = mapRun(row);
+    await logAudit(
+      {
+        baseId: updated.baseId,
+        tableId: updated.tableId,
+        recordId: updated.recordId,
+        userId: actorId,
+        action: "document.metadata.updated",
+        diff: {
+          documentRunId: { old: current.id, new: updated.id },
+          ...(filenameChanged ? { filename: { old: current.filename, new: updated.filename } } : {}),
+          ...(tagsChanged ? { tags: { old: current.tags, new: updated.tags } } : {}),
+        },
+      },
+      tx,
+    );
+    return ok(updated);
+  });
 
 export const listDocumentLinksForRun = async (documentRunId: string): Promise<DocumentLink[]> => {
   const rows = await sql<DbRow[]>`
@@ -1872,7 +1923,7 @@ export const resolveDocumentLinkDownload = async (token: string): Promise<Result
   `;
   if (!row) return fail(err.notFound("Document link"));
   const link = mapDocumentLink(row);
-  const run = await getRun(link.documentRunId);
+  const run = await getDocumentRun(link.documentRunId);
   if (!run) return fail(err.notFound("Document run"));
   return ok({ link, run });
 };

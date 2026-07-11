@@ -10,7 +10,7 @@ import type { Field } from "./types";
 
 type DbRow = Record<string, unknown>;
 
-export const loadBaseGqlDslViews = async (baseId: string): Promise<DslViewSource[]> => {
+const loadBaseGqlDslViews = async (baseId: string): Promise<DslViewSource[]> => {
   const rows = await sql<DbRow[]>`
     SELECT v.id, v.short_id, v.name, v.table_id, v.source
     FROM grids.views v

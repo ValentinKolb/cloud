@@ -1,10 +1,8 @@
 import { createMemo, Show } from "solid-js";
-import type { FormatSpec } from "../../../service/views";
+import type { FormatSpec } from "../../../contracts";
 import { barcodeSvgForCell, barcodeSvgForDisplay, barcodeUrl, barcodeValueText } from "./BarcodeRendering";
 
 type BarcodeFormat = Extract<FormatSpec, { kind: "barcode" }>;
-
-export { barcodeSvgForCell, barcodeSvgForDisplay, barcodeUrl, barcodeValueText, canRenderBarcode } from "./BarcodeRendering";
 
 export function BarcodeDisplay(props: { value: unknown; format: BarcodeFormat; size?: "table" | "detail"; showOpenAction?: boolean }) {
   const svg = createMemo(() => barcodeSvgForCell(props.value, props.format));
@@ -77,8 +75,4 @@ export function BarcodeDisplay(props: { value: unknown; format: BarcodeFormat; s
       {openButton()}
     </span>
   );
-}
-
-export function BarcodeCell(props: { value: unknown; format: BarcodeFormat }) {
-  return <BarcodeDisplay value={props.value} format={props.format} size="table" showOpenAction />;
 }
