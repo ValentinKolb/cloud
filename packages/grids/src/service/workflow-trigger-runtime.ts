@@ -6,7 +6,6 @@ import { job, scheduler } from "@valentinkolb/sync";
 import type { Workflow, WorkflowRun, WorkflowTriggerKind } from "../contracts";
 import * as bases from "./bases";
 import { latestMetadataEventCursor, liveMetadataEvents } from "./metadata-events";
-import type { GridsRecordEvent } from "./record-events";
 import { reclaimRecordEventDeliveries, recordEventReader } from "./record-events";
 import {
   type ExecuteBulkSelectionWorkflowParams,
@@ -24,6 +23,8 @@ import {
   type WorkflowTriggerAuthorization,
   workflowOwnerPrincipal,
 } from "./workflow-runtime";
+import { createWorkflowTriggerReaderRuntime } from "./workflow-trigger-readers";
+import { createWorkflowScheduleRuntime } from "./workflow-trigger-schedules";
 import type { RecoverableQueuedWorkflowRun } from "./workflows";
 import * as workflowStore from "./workflows";
 
@@ -31,7 +32,6 @@ const defaultLog = logger("grids:workflows");
 const defaultWorkflowScheduler = scheduler({ id: "grids:workflows" });
 const WORKFLOW_JOB_LEASE_MS = 30 * 60 * 1000;
 const WORKFLOW_JOB_MAX_RETRIES = 3;
-const RECORD_EVENT_CONSUMER_GROUP = "workflow-triggers";
 const RUNTIME_RECONCILE_INTERVAL_MS = 15_000;
 const RUNTIME_RECONCILE_DEBOUNCE_MS = 250;
 
@@ -131,17 +131,6 @@ const defaultWorkflowJob = job<WorkflowTriggerJobInput, { runId: string | null; 
   },
 });
 
-const SCHEDULE_ID_PREFIX = "grids:workflow:";
-const LEGACY_SCHEDULE_ID_PREFIX = "workflow:";
-const scheduleId = (workflowId: string): string => `${SCHEDULE_ID_PREFIX}${workflowId}`;
-const scheduleSource = (workflowId: string): string => `${SCHEDULE_ID_PREFIX}${workflowId}:schedule`;
-const isManagedScheduleId = (id: string): boolean => id.startsWith(SCHEDULE_ID_PREFIX);
-const isLegacyScheduleId = (id: string): boolean => id.startsWith(LEGACY_SCHEDULE_ID_PREFIX);
-const scheduleTriggerKey = (workflowId: string, trigger: "cron" | "manual", slotTs: number, runNumber: number): string =>
-  `schedule:${workflowId}:${trigger}:${slotTs}:${runNumber}`;
-const eventJobKey = (workflowId: string, event: GridsRecordEvent): string =>
-  `${workflowId}:${event.type}:${event.recordId}:${event.version ?? "deleted"}:${event.occurredAt}`;
-
 type WorkflowTriggerRuntimeDeps = {
   log?: typeof defaultLog;
   workflowScheduler?: typeof defaultWorkflowScheduler;
@@ -198,7 +187,6 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
   let reconcilePromise: Promise<void> | null = null;
   let reconcileInterval: ReturnType<typeof setInterval> | null = null;
   let reconcileDebounce: ReturnType<typeof setTimeout> | null = null;
-  const baseReaders = new Map<string, { record: AbortController; metadata: AbortController }>();
 
   const submitWorkflowJob = async (workflow: Workflow, run: RecoverableQueuedWorkflowRun): Promise<void> => {
     const authorization = parseStoredAuthorization(run.authorization);
@@ -270,241 +258,35 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
     }
   };
 
-  const getScheduleTimezone = async (workflow: Workflow): Promise<string> => {
-    const schedule = workflow.compiled.triggers.schedule;
-    if (schedule?.timezone) return schedule.timezone;
-    const configured = String((await settingsGetImpl<string>("app.timezone")) || "").trim();
-    return normalizeTimeZoneImpl(configured, "Europe/Berlin");
-  };
-
-  const createSchedule = async (workflow: Workflow): Promise<void> => {
-    const schedule = workflow.compiled.triggers.schedule;
-    if (!workflow.enabled || !schedule) {
-      await workflowScheduler.delete({ id: scheduleId(workflow.id) });
-      return;
-    }
-    const tz = await getScheduleTimezone(workflow);
-    const base = await getBaseImpl(workflow.baseId);
-    const source = scheduleSource(workflow.id);
-    await workflowScheduler.create({
-      id: scheduleId(workflow.id),
-      cron: schedule.cron,
-      tz,
-      meta: {
-        appId: "grids",
-        family: "grids:workflows",
-        label: workflow.name,
-        source,
-        resourceKind: "workflow",
-        resourceId: workflow.id,
-        resourceLabel: base ? `${base.name} / ${workflow.name}` : workflow.name,
-        ...(base ? { detailHref: `/app/grids/${base.shortId}/workflows/${workflow.shortId}` } : {}),
-      },
-      trace: trace.fromSyncSchedule<{ runId: string; queued: boolean; status: string }>({
-        name: "Grid workflow schedule",
-        source,
-        appId: "grids",
-        attributes: {
-          "cloud.grids.workflow_id": workflow.id,
-          "cloud.grids.base_id": workflow.baseId,
-        },
-        summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
-      }),
-      process: async ({ ctx }) => {
-        const triggerInput = { slotTs: ctx.slotTs, trigger: ctx.trigger, runNumber: ctx.runNumber };
-        const principal = await loadWorkflowPrincipal(workflow);
-        const item: PreparedWorkflowTriggerRun = {
-          workflow,
-          triggerKind: "schedule",
-          actorUserId: principal.actorUserId,
-          actorGroupIds: principal.actorGroupIds,
-          serviceAccountId: principal.serviceAccountId,
-          triggerInput,
-          resolvedInput: {},
-          authorization: { kind: "workflow" },
-        };
-        const run = await queuePreparedRun(item, {
-          triggerKey: scheduleTriggerKey(workflow.id, ctx.trigger, ctx.slotTs, ctx.runNumber),
-        });
-        return { runId: run.id, queued: run.status === "queued", status: run.status };
-      },
-      after: async ({ ctx }) => {
-        if (ctx.error && ctx.failureCount < WORKFLOW_JOB_MAX_RETRIES) {
-          ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 30_000, maxMs: 5 * 60_000 }) });
-        }
-      },
-    });
-    log.info("Workflow schedule registered", {
-      workflowId: workflow.id,
-      cron: schedule.cron,
-      timezone: tz,
-    });
-  };
-
-  const registerAll = async (): Promise<void> => {
-    const scheduled = await workflows.listScheduledEnabled();
-    const activeIds = new Set(scheduled.map((workflow) => scheduleId(workflow.id)));
-    for (const workflow of scheduled) {
-      try {
-        await createSchedule(workflow);
-      } catch (error) {
-        log.warn("Workflow schedule registration failed", {
-          workflowId: workflow.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    const registered = await workflowScheduler.list();
-    for (const item of registered) {
-      if (isLegacyScheduleId(item.id) || (isManagedScheduleId(item.id) && !activeIds.has(item.id))) {
-        await workflowScheduler.delete({ id: item.id });
-        log.info("Orphan workflow schedule removed", { scheduleId: item.id });
-      }
-    }
-  };
-
-  const dispatchRecordEvent = async (event: GridsRecordEvent): Promise<void> => {
-    const candidates = await workflows.listRecordEventEnabled(event);
-    for (const workflow of candidates) {
-      const matched = await workflows.recordMatchesWorkflowFilter(workflow, event);
-      if (!matched.ok) {
-        log.warn("Workflow recordEvent filter failed", {
-          workflowId: workflow.id,
-          tableId: event.tableId,
-          recordId: event.recordId,
-          error: matched.error.message,
-        });
-        continue;
-      }
-      if (!matched.data) continue;
-      const prepared = await prepareRecordEventImpl({
-        workflowId: workflow.id,
-        event,
-        actorUserId: event.actorId,
-      });
-      if (!prepared.ok) {
-        log.warn("Workflow recordEvent preparation failed", {
-          workflowId: workflow.id,
-          tableId: event.tableId,
-          recordId: event.recordId,
-          error: prepared.error.message,
-        });
-        continue;
-      }
-      const item = prepared.data;
-      await queuePreparedRun(
-        {
-          workflow: item.workflow,
-          triggerKind: "recordEvent",
-          actorUserId: item.actorUserId,
-          actorGroupIds: item.actorGroupIds,
-          serviceAccountId: item.serviceAccountId,
-          triggerInput: item.triggerInput,
-          resolvedInput: item.resolvedInput,
-          authorization: { kind: "workflow" },
-        },
-        {
-          triggerKey: eventJobKey(workflow.id, event),
-        },
-      );
-    }
-  };
-
-  const isAbortError = (error: unknown): boolean =>
-    error instanceof Error && (error.name === "AbortError" || error.message.toLowerCase().includes("abort"));
-
-  const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
-  const startRecordEventReader = (baseId: string, controller: AbortController): void => {
-    const reader = recordEventReaderImpl(RECORD_EVENT_CONSUMER_GROUP);
-    void (async () => {
-      while (!controller.signal.aborted) {
-        try {
-          const reclaimed = await reclaimRecordEventDeliveriesImpl(baseId, RECORD_EVENT_CONSUMER_GROUP);
-          for (const delivery of reclaimed) {
-            try {
-              await dispatchRecordEvent(delivery.data);
-              await delivery.commit();
-            } catch (error) {
-              log.warn("Reclaimed workflow record event failed", {
-                baseId,
-                recordId: delivery.data.recordId,
-                error: error instanceof Error ? error.message : String(error),
-              });
-            }
-          }
-          const delivery = await reader.recv({
-            tenantId: baseId,
-            wait: true,
-            timeoutMs: 30_000,
-            signal: controller.signal,
-          });
-          if (!delivery) continue;
-          await dispatchRecordEvent(delivery.data);
-          await delivery.commit();
-        } catch (error) {
-          if (controller.signal.aborted || isAbortError(error)) return;
-          log.warn("Workflow record event reader failed", {
-            baseId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          await wait(1_000);
-        }
-      }
-    })();
-  };
-
-  const startMetadataReader = (baseId: string, controller: AbortController): void => {
-    void (async () => {
-      while (!controller.signal.aborted) {
-        try {
-          const after = await latestMetadataEventCursorImpl(baseId);
-          for await (const event of liveMetadataEventsImpl({ baseId, after, signal: controller.signal })) {
-            if (event.data.resource.kind === "workflow" || event.data.resource.kind === "base") scheduleRuntimeReconcile();
-          }
-        } catch (error) {
-          if (controller.signal.aborted || isAbortError(error)) return;
-          log.warn("Workflow metadata reader failed", {
-            baseId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          await wait(1_000);
-        }
-      }
-    })();
-  };
-
-  const startBaseReaders = (baseId: string): void => {
-    if (baseReaders.has(baseId)) return;
-    const record = new AbortController();
-    const metadata = new AbortController();
-    baseReaders.set(baseId, { record, metadata });
-    startRecordEventReader(baseId, record);
-    startMetadataReader(baseId, metadata);
-  };
-
-  const stopBaseReaders = (baseId: string): void => {
-    const readers = baseReaders.get(baseId);
-    if (!readers) return;
-    readers.record.abort();
-    readers.metadata.abort();
-    baseReaders.delete(baseId);
-  };
-
-  const reconcileBaseReaders = async (): Promise<void> => {
-    const active = new Set(await workflows.listRecordEventBaseIds());
-    for (const baseId of baseReaders.keys()) {
-      if (!active.has(baseId)) stopBaseReaders(baseId);
-    }
-    for (const baseId of active) startBaseReaders(baseId);
-  };
+  const schedules = createWorkflowScheduleRuntime({
+    log,
+    workflowScheduler,
+    workflows,
+    loadWorkflowPrincipal,
+    getBase: getBaseImpl,
+    settingsGet: settingsGetImpl,
+    normalizeTimeZone: normalizeTimeZoneImpl,
+    queuePreparedRun,
+    maxRetries: WORKFLOW_JOB_MAX_RETRIES,
+  });
+  const readers = createWorkflowTriggerReaderRuntime({
+    log,
+    workflows,
+    prepareRecordEvent: prepareRecordEventImpl,
+    recordEventReader: recordEventReaderImpl,
+    reclaimRecordEventDeliveries: reclaimRecordEventDeliveriesImpl,
+    latestMetadataEventCursor: latestMetadataEventCursorImpl,
+    liveMetadataEvents: liveMetadataEventsImpl,
+    queuePreparedRun,
+    scheduleReconcile: scheduleRuntimeReconcile,
+  });
 
   const reconcileRuntime = async (): Promise<void> => {
     if (reconcilePromise) return reconcilePromise;
     reconcilePromise = (async () => {
       await recoverStaleQueuedRuns();
-      await registerAll();
-      await reconcileBaseReaders();
+      await schedules.registerAll();
+      await readers.reconcile();
     })().finally(() => {
       reconcilePromise = null;
     });
@@ -583,8 +365,8 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
     if (!workflow.enabled) return fail(err.badInput("workflow is disabled"));
     if (!workflow.compiled.triggers.schedule) return fail(err.badInput("workflow does not define a schedule trigger"));
     ensureStarted();
-    await createSchedule(workflow);
-    await workflowScheduler.runNow({ id: scheduleId(workflowId) });
+    await schedules.create(workflow);
+    await schedules.runNow(workflowId);
     return ok();
   };
 
@@ -619,7 +401,7 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
           });
         });
       }
-      for (const baseId of [...baseReaders.keys()]) stopBaseReaders(baseId);
+      await readers.stopAll();
       await workflowScheduler.stop();
       workflowJob.stop();
       started = false;
@@ -627,16 +409,16 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
 
     sync: async (workflow: Workflow): Promise<void> => {
       ensureStarted();
-      await createSchedule(workflow);
+      await schedules.create(workflow);
       scheduleRuntimeReconcile();
     },
 
     delete: async (workflowId: string): Promise<void> => {
-      await workflowScheduler.delete({ id: scheduleId(workflowId) });
+      await schedules.delete(workflowId);
       scheduleRuntimeReconcile();
     },
 
-    dispatchRecordEvent,
+    dispatchRecordEvent: readers.dispatchRecordEvent,
 
     queueDirectRun,
     queueDashboardRun,

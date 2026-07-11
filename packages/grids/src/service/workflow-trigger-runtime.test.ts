@@ -335,14 +335,14 @@ describe("workflow trigger runtime", () => {
     expect(schedulerState.deleted).toContain(`grids:workflow:${workflowId}`);
   });
 
-  test("removes legacy workflow schedule ids during reconcile", async () => {
+  test("removes orphaned app-scoped workflow schedule ids during reconcile", async () => {
     listScheduledResult = [scheduledWorkflow];
-    schedulerState.listed = [{ id: `workflow:${workflowId}` }, { id: `grids:workflow:${workflowId}` }];
+    schedulerState.listed = [{ id: "grids:workflow:orphaned" }, { id: `grids:workflow:${workflowId}` }];
 
     await workflowTriggerRuntime.start();
 
     expect(schedulerState.created[0]?.id).toBe(`grids:workflow:${workflowId}`);
-    expect(schedulerState.deleted).toEqual([`workflow:${workflowId}`]);
+    expect(schedulerState.deleted).toEqual(["grids:workflow:orphaned"]);
   });
 
   test("does not start record event readers for bases without enabled recordEvent workflows", async () => {
