@@ -37,9 +37,6 @@ COPY packages/ui-lab/package.json        packages/ui-lab/
 COPY packages/venue/package.json         packages/venue/
 COPY packages/weather/package.json       packages/weather/
 
-# patchedDependencies in package.json reference these files at install time.
-COPY patches patches/
-
 # --production keeps CI/dev-only tools (Biome, TypeScript, @types, etc.) out
 # of production images. This avoids optional platform binaries in multi-arch
 # Docker installs while preserving runtime/build dependencies.

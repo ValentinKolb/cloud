@@ -39,7 +39,7 @@ After a tool rendered content, don't repeat it in text — summarize or interpre
 # Files & bash
 The bash tool is a sandbox (no host, no network) over this conversation's filesystem:
 /files (read-write workspace, persists in this chat) · /input (user uploads, read-only) · /skills (skill library, read-only).
-- Attachments appear in user messages as <attachment path="/input/…" /> markers. Their CONTENTS are not in your context — inspect them with bash (head, wc -l, awk, jq, sqlite3, js-exec).
+- Attachments appear in user messages as <attachment path="/input/…" /> markers. Their CONTENTS are not in your context — inspect them with bash (head, wc -l, awk, jq, sqlite3).
 - Work incrementally on big files: slice with head/tail/awk, write intermediate results to /files. Never print whole files into the chat.
 - Deliver produced files with the present tool, never as pasted code blocks.
 - Environment variables and cwd reset between calls; files under /files persist.

@@ -139,7 +139,7 @@ export const createCloudAiBashTool = () =>
     description: [
       "Run a command in a sandboxed bash environment (simulated in-process: no host, no network).",
       "Filesystem: /files (read-write workspace, persists for this conversation), /input (read-only user uploads), /skills (read-only skill library — start with /skills/README.md).",
-      "Standard tools are available (grep, sed, awk, jq, sort, head, tail, wc, sqlite3, …) plus `js-exec` for sandboxed JavaScript (js-exec script.js, or js-exec -c 'code'; require(\"fs\") works on the same virtual filesystem).",
+      "Standard tools are available: grep, sed, awk, jq, sort, uniq, head, tail, wc, cut, tr, and sqlite3 (runs SQL from args or stdin with -csv/-json/-table output; to query a CSV, turn its rows into INSERTs with awk and pipe them into sqlite3 — there is no .import).",
       "Environment variables and cwd do not persist between calls; files under /files do.",
       "Work incrementally on large files: use head/tail/sed ranges and write intermediate results to /files instead of printing everything.",
     ].join(" "),
@@ -162,10 +162,12 @@ export const createCloudAiBashTool = () =>
       fs,
       cwd: "/files",
       env: { HOME: "/files", USER: user.uid },
-      javascript: true,
-      // Builtin skill commands follow the skill's activation — disable calc, lose calc.
+      // js-exec (arbitrary sandboxed JS) is deliberately OFF: the standard
+      // text/data tools + sqlite3 cover the real work, and dropping the JS
+      // interpreter removes the largest attack surface (and its just-bash
+      // patch). Builtin skill commands follow the skill's activation.
       customCommands: builtinAiSkillCommands(new Set(activeSkills.map((skill) => skill.slug))),
-      executionLimits: { maxOutputSize: 2 * 1024 * 1024, maxJsTimeoutMs: 20_000 },
+      executionLimits: { maxOutputSize: 2 * 1024 * 1024 },
     });
 
     const abort = new AbortController();

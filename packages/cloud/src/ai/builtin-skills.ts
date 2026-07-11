@@ -251,10 +251,16 @@ Units: days, weeks, months, years. Output is an ISO date (YYYY-MM-DD).
 
 ## Bigger jobs
 
-For multi-step number crunching over data, write JavaScript instead:
+For calculations over data in a file, use the bash tools. \`awk\` handles per-row math and simple sums:
 
 \`\`\`bash
-js-exec -c 'const rates = [0.02, 0.025, 0.03]; console.log(rates.map(r => (1000 * (1+r)**10).toFixed(2)).join("\\n"))'
+awk -F, 'NR>1 {sum+=$3} END {print sum}' /input/sales.csv
+\`\`\`
+
+For grouping, joins, or aggregation, load the rows into \`sqlite3\` by turning them into INSERTs (there is no \`.import\`):
+
+\`\`\`bash
+{ echo 'CREATE TABLE t(a,b);'; awk -F, 'NR>1{print "INSERT INTO t VALUES("$1","$2");"}' /input/data.csv; echo 'SELECT a, sum(b) FROM t GROUP BY a;'; } | sqlite3 -table :memory:
 \`\`\`
 
 ## Presenting results
