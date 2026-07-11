@@ -20,24 +20,11 @@ Pick the closest existing app shell before writing JSX. The default is to mirror
 
 If none of these rows fit, inspect `/app/ui-lab` and `packages/cloud/src/ui/` before creating local layout code.
 
-## Visual design language (dimensional)
+## Visual design language
 
-The shared utilities (`paper`, `btn-*`, `input`, badges, the input controls) carry a subtly-dimensional look driven by tokens in `packages/cloud/src/styles/global.css`. You almost never style depth by hand — use the shared classes and follow the rules below so every app stays consistent. `global.css` is built by the **core** container and served to every app, so these classes look identical everywhere; changing one utility there restyles all apps at once.
+Follow `design.md` for colour roles, surfaces, geometry, density, interaction states, responsive behaviour, dark mode, and review criteria. Shared primitives own those decisions; app code supplies domain content and meaningful data/status colours.
 
-**Surfaces are raised, fields are recessed.** This light-from-above logic is the backbone:
-
-- Cards/panels → `paper` (or `detail-section`). `paper` already carries a clip-safe inset bevel via `--theme-shadow-elevated`. Do **not** add an outer `shadow-*` to a card — a parent with `overflow:hidden`/scroll clips it; the inset bevel reads correctly everywhere. The Layout header and `sidebar` flow the same token, so they stay in sync.
-- Inputs/wells → `input` (recessed). Select/Combobox/PIN/textarea all build on it, so they inherit the well look + dark focus. Inline select/dropdown/picker **triggers** (open a menu, don't accept typing) → `btn-input-recessed` — `btn-input`'s recessed sibling (filled + inset recess, sinks on `:active`) so they read as fields. Compose with `btn-input-sm/-md`; give the value span `flex-1` so the chevron sits right.
-- Buttons → **filled** accent + soft bevel; they darken on hover and sink (inset shadow) on `:active`. `btn-primary` is a solid blue button now (not the old white-outline-that-fills-on-hover); `btn-secondary` = filled zinc, `btn-simple` = ghost. Just apply the class — press + bevel are built in (pure CSS, no markup wrapper).
-- Controls (`SegmentedControl`, `Switch`, `Slider`, the native checkbox) = recessed track + raised knob/active segment. Use the shared components; don't hand-roll toggles.
-
-**Outer shadow is only for portaled floating layers** — dialogs, popovers, dropdowns, context menus, toasts. Reach for the `popup` / `dialog-panel` utilities (they apply `var(--theme-shadow-float)`), or that token directly. Anything in normal flow uses the inset bevel instead. This split is what keeps shadows from being clipped.
-
-**Depth tokens** (consume only when you must hand-roll a one-off surface — prefer the utilities): `--theme-shadow-elevated` (card bevel), `--theme-bevel-top` / `--theme-bevel-bottom`, `--theme-recess` / `--theme-recess-sm` (fields/checkboxes), `--theme-press` (`:active`), `--theme-shadow-float` (floating). `color-scheme: light/dark` is set globally so native `<input>`/`<select>`/scrollbars render correctly in dark — don't override it.
-
-**Colour derives from shared tokens first, call-site accents second.** Prefer existing utility colours for app chrome. Badges/tags/status dots may stay call-site-coloured with soft tints when their colour is domain data — that's intentional and not something to centralize.
-
-**No lazy dividers.** Separate header/body/footer inside a card with spacing, not an internal `border-t`/`<hr>`. (Row separators in `DataTable` and key→value `detail-facts` grids are functional data dividers and are fine.)
+Do not restyle a shared shell locally. If the design system cannot express a justified app requirement, improve the core primitive and document the rule in `design.md` before adding an app-specific exception.
 
 ## Overview pages
 

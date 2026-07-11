@@ -11,7 +11,7 @@ description: >
 
 This skill covers everything you need to build a complete app. For platform overview and auth concepts, see the `cloud` skill. For deployment, see `cloud-ops`.
 
-> **Detailed references:** Cloud UI shell decisions → `references/app-ui-patterns.md` | App API keys → `references/api-keys.md` | App CLI commands → `references/cli.md` | App help review → `references/app-help-review.md` | App readiness checklist → `references/app-quality-checklist.md` | Backend patterns → `references/backend.md` | Frontend component details → `references/frontend.md`
+> **Detailed references:** Cloud visual design system → `references/design.md` | Cloud UI shell decisions → `references/app-ui-patterns.md` | App API keys → `references/api-keys.md` | App CLI commands → `references/cli.md` | App help review → `references/app-help-review.md` | App readiness checklist → `references/app-quality-checklist.md` | Backend patterns → `references/backend.md` | Frontend component details → `references/frontend.md`
 
 For app testing conventions, use the Testing Patterns section in `references/backend.md`: prefer `bun:test`, keep pure service/frontend helper tests next to the code, avoid DB/browser tests unless the boundary itself is under test, and expose `test: "bun test"` when an app has tests.
 
@@ -19,7 +19,7 @@ For app testing conventions, use the Testing Patterns section in `references/bac
 
 When building or reshaping a built-in app, copy the nearest existing Cloud shell first and customize domain content second. Do not design a new overview, workspace, settings flow, table, stat grid, or calendar pattern unless the user explicitly asks for a new platform pattern.
 
-1. Read `references/app-ui-patterns.md`.
+1. Read `references/design.md` and `references/app-ui-patterns.md`.
 2. Choose the reference app:
    - Notebooks, Spaces, or Grids for top-level resource overviews and template creation.
    - Spaces for workspace calendars and URL-backed route state.

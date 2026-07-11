@@ -1,6 +1,6 @@
 # Frontend Patterns — Detailed Reference
 
-For new built-in apps, start with `app-ui-patterns.md` before this file. This file is the detailed component/API reference; `app-ui-patterns.md` decides which Cloud shell to use and which existing app to mirror.
+For new built-in apps, start with `design.md` and `app-ui-patterns.md` before this file. `design.md` defines visual and interaction rules, `app-ui-patterns.md` selects the Cloud shell, and this file documents component APIs and implementation patterns.
 
 ## SSR Architecture
 
