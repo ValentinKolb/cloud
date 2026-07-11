@@ -177,6 +177,161 @@ const validateTriggers = (definition: WorkflowDefinition, diagnostics: WorkflowD
   validateRequiredInputsForTriggers(definition, diagnostics);
 };
 
+type StepValidationContext = {
+  inputs: Record<string, WorkflowInput>;
+  diagnostics: WorkflowDiagnostic[];
+  path: (string | number)[];
+  locals: Map<string, RefKind>;
+};
+
+const validateRecordAction = (ref: unknown, action: string, context: StepValidationContext): void =>
+  expectRefKind({
+    ref,
+    expected: "record",
+    inputs: context.inputs,
+    locals: context.locals,
+    diagnostics: context.diagnostics,
+    path: [...context.path, action, "record"],
+    label: "record",
+  });
+
+const validateSendEmailRecipients = (recipients: unknown, context: StepValidationContext): void => {
+  if (!Array.isArray(recipients)) return;
+  recipients.forEach((recipient, recipientIndex) => {
+    if (!recipient || typeof recipient !== "object" || Array.isArray(recipient)) return;
+    const keys = Object.keys(recipient);
+    if (keys.length !== 1 || (keys[0] !== "email" && keys[0] !== "user")) {
+      const recipientPath = [...context.path, "sendEmail", "to", recipientIndex];
+      context.diagnostics.push({
+        path: recipientPath,
+        message: `${compactPath(recipientPath)}: recipient must use exactly one of email or user`,
+      });
+    }
+    validateInputValueRefs(
+      (recipient as { email?: unknown; user?: unknown }).email ?? (recipient as { email?: unknown; user?: unknown }).user,
+      context.inputs,
+      context.diagnostics,
+      [...context.path, "sendEmail", "to", recipientIndex, keys[0] ?? "recipient"],
+    );
+  });
+};
+
+const validateCondition = (item: Record<string, unknown>, context: StepValidationContext): void => {
+  const condition = item.if as { equals?: unknown[]; exists?: unknown; notEquals?: unknown[] };
+  condition.equals?.forEach((value, valueIndex) =>
+    validateInputValueRefs(value, context.inputs, context.diagnostics, [...context.path, "if", "equals", valueIndex]),
+  );
+  condition.notEquals?.forEach((value, valueIndex) =>
+    validateInputValueRefs(value, context.inputs, context.diagnostics, [...context.path, "if", "notEquals", valueIndex]),
+  );
+  validateInputValueRefs(condition.exists, context.inputs, context.diagnostics, [...context.path, "if", "exists"]);
+  if (Array.isArray(item.then)) validateSteps(item.then, context.inputs, context.diagnostics, [...context.path, "then"], context.locals);
+  if (Array.isArray(item.else)) validateSteps(item.else, context.inputs, context.diagnostics, [...context.path, "else"], context.locals);
+};
+
+const validateSwitch = (item: Record<string, unknown>, context: StepValidationContext): void => {
+  validateInputValueRefs(item.switch, context.inputs, context.diagnostics, [...context.path, "switch"]);
+  if (Array.isArray(item.cases)) {
+    item.cases.forEach((caseItem, caseIndex) => {
+      if (!caseItem || typeof caseItem !== "object") return;
+      validateInputValueRefs((caseItem as { when?: unknown }).when, context.inputs, context.diagnostics, [
+        ...context.path,
+        "cases",
+        caseIndex,
+        "when",
+      ]);
+      const steps = (caseItem as { do?: unknown }).do;
+      if (Array.isArray(steps)) {
+        validateSteps(steps, context.inputs, context.diagnostics, [...context.path, "cases", caseIndex, "do"], context.locals);
+      }
+    });
+  }
+  if (Array.isArray(item.default)) {
+    validateSteps(item.default, context.inputs, context.diagnostics, [...context.path, "default"], context.locals);
+  }
+};
+
+const validateStep = (item: Record<string, unknown>, context: StepValidationContext): void => {
+  if ("updateRecord" in item) {
+    const action = item.updateRecord as { record?: unknown; set?: unknown };
+    validateRecordAction(action.record, "updateRecord", context);
+    validateInputValueRefs(action.set, context.inputs, context.diagnostics, [...context.path, "updateRecord", "set"]);
+    return;
+  }
+  if ("createRecord" in item) {
+    const action = item.createRecord as { saveAs?: unknown; values?: unknown };
+    validateInputValueRefs(action.values, context.inputs, context.diagnostics, [...context.path, "createRecord", "values"]);
+    if (typeof action.saveAs === "string") context.locals.set(action.saveAs, "record");
+    return;
+  }
+  if ("generateDocument" in item) {
+    const action = item.generateDocument as { record?: unknown; filename?: unknown; saveAs?: unknown; tags?: unknown };
+    validateRecordAction(action.record, "generateDocument", context);
+    validateInputValueRefs(action.filename, context.inputs, context.diagnostics, [...context.path, "generateDocument", "filename"]);
+    validateInputValueRefs(action.tags, context.inputs, context.diagnostics, [...context.path, "generateDocument", "tags"]);
+    if (typeof action.saveAs === "string") context.locals.set(action.saveAs, "document");
+    return;
+  }
+  if ("createDocumentLink" in item) {
+    const action = item.createDocumentLink as { comment?: unknown; document?: unknown; saveAs?: unknown };
+    expectRefKind({
+      ref: action.document,
+      expected: "document",
+      inputs: context.inputs,
+      locals: context.locals,
+      diagnostics: context.diagnostics,
+      path: [...context.path, "createDocumentLink", "document"],
+      label: "document",
+    });
+    validateInputValueRefs(action.comment, context.inputs, context.diagnostics, [...context.path, "createDocumentLink", "comment"]);
+    if (typeof action.saveAs === "string") context.locals.set(action.saveAs, "documentLink");
+    return;
+  }
+  if ("sendEmail" in item) {
+    const action = item.sendEmail as { data?: unknown; to?: unknown; saveAs?: unknown };
+    validateSendEmailRecipients(action.to, context);
+    validateInputValueRefs(action.data, context.inputs, context.diagnostics, [...context.path, "sendEmail", "data"]);
+    if (typeof action.saveAs === "string") context.locals.set(action.saveAs, "email");
+    return;
+  }
+  if ("httpRequest" in item) {
+    validateInputValueRefs((item.httpRequest as { json?: unknown }).json, context.inputs, context.diagnostics, [
+      ...context.path,
+      "httpRequest",
+      "json",
+    ]);
+    return;
+  }
+  if ("setVariable" in item) {
+    validateInputValueRefs((item.setVariable as { value?: unknown }).value, context.inputs, context.diagnostics, [
+      ...context.path,
+      "setVariable",
+      "value",
+    ]);
+    return;
+  }
+  if ("forEach" in item) {
+    expectRefKind({
+      ref: item.forEach,
+      expected: "recordList",
+      inputs: context.inputs,
+      locals: context.locals,
+      diagnostics: context.diagnostics,
+      path: [...context.path, "forEach"],
+      label: "forEach",
+    });
+    const nextLocals = new Map(context.locals);
+    if (typeof item.as === "string") nextLocals.set(item.as, "record");
+    if (Array.isArray(item.do)) validateSteps(item.do, context.inputs, context.diagnostics, [...context.path, "do"], nextLocals);
+    return;
+  }
+  if ("if" in item) {
+    validateCondition(item, context);
+    return;
+  }
+  if ("switch" in item) validateSwitch(item, context);
+};
+
 const validateSteps = (
   steps: unknown[],
   inputs: Record<string, WorkflowInput>,
@@ -184,155 +339,10 @@ const validateSteps = (
   path: (string | number)[] = ["steps"],
   locals = new Map<string, RefKind>(),
 ): void => {
-  for (let index = 0; index < steps.length; index += 1) {
-    const step = steps[index];
-    const stepPath = [...path, index];
-    if (!step || typeof step !== "object" || Array.isArray(step)) continue;
-    const item = step as Record<string, unknown>;
-
-    if ("updateRecord" in item) {
-      const action = item.updateRecord as { record?: unknown; set?: unknown };
-      expectRefKind({
-        ref: action.record,
-        expected: "record",
-        inputs,
-        locals,
-        diagnostics,
-        path: [...stepPath, "updateRecord", "record"],
-        label: "record",
-      });
-      validateInputValueRefs(action.set, inputs, diagnostics, [...stepPath, "updateRecord", "set"]);
-      continue;
-    }
-
-    if ("createRecord" in item) {
-      const action = item.createRecord as { saveAs?: unknown; values?: unknown };
-      validateInputValueRefs(action.values, inputs, diagnostics, [...stepPath, "createRecord", "values"]);
-      if (typeof action.saveAs === "string") locals.set(action.saveAs, "record");
-      continue;
-    }
-
-    if ("generateDocument" in item) {
-      const action = item.generateDocument as { record?: unknown; filename?: unknown; saveAs?: unknown; tags?: unknown };
-      expectRefKind({
-        ref: action.record,
-        expected: "record",
-        inputs,
-        locals,
-        diagnostics,
-        path: [...stepPath, "generateDocument", "record"],
-        label: "record",
-      });
-      validateInputValueRefs(action.filename, inputs, diagnostics, [...stepPath, "generateDocument", "filename"]);
-      validateInputValueRefs(action.tags, inputs, diagnostics, [...stepPath, "generateDocument", "tags"]);
-      if (typeof action.saveAs === "string") locals.set(action.saveAs, "document");
-      continue;
-    }
-
-    if ("createDocumentLink" in item) {
-      const action = item.createDocumentLink as { comment?: unknown; document?: unknown; saveAs?: unknown };
-      expectRefKind({
-        ref: action.document,
-        expected: "document",
-        inputs,
-        locals,
-        diagnostics,
-        path: [...stepPath, "createDocumentLink", "document"],
-        label: "document",
-      });
-      validateInputValueRefs(action.comment, inputs, diagnostics, [...stepPath, "createDocumentLink", "comment"]);
-      if (typeof action.saveAs === "string") locals.set(action.saveAs, "documentLink");
-      continue;
-    }
-
-    if ("sendEmail" in item) {
-      const action = item.sendEmail as { data?: unknown; to?: unknown; saveAs?: unknown };
-      if (Array.isArray(action.to)) {
-        action.to.forEach((recipient, recipientIndex) => {
-          if (!recipient || typeof recipient !== "object" || Array.isArray(recipient)) return;
-          const keys = Object.keys(recipient);
-          if (keys.length !== 1 || (keys[0] !== "email" && keys[0] !== "user")) {
-            const recipientPath = [...stepPath, "sendEmail", "to", recipientIndex];
-            diagnostics.push({
-              path: recipientPath,
-              message: `${compactPath(recipientPath)}: recipient must use exactly one of email or user`,
-            });
-          }
-          validateInputValueRefs(
-            (recipient as { email?: unknown; user?: unknown }).email ?? (recipient as { email?: unknown; user?: unknown }).user,
-            inputs,
-            diagnostics,
-            [...stepPath, "sendEmail", "to", recipientIndex, keys[0] ?? "recipient"],
-          );
-        });
-      }
-      validateInputValueRefs(action.data, inputs, diagnostics, [...stepPath, "sendEmail", "data"]);
-      if (typeof action.saveAs === "string") locals.set(action.saveAs, "email");
-      continue;
-    }
-
-    if ("httpRequest" in item) {
-      const action = item.httpRequest as { json?: unknown };
-      validateInputValueRefs(action.json, inputs, diagnostics, [...stepPath, "httpRequest", "json"]);
-      continue;
-    }
-
-    if ("setVariable" in item) {
-      const action = item.setVariable as { value?: unknown };
-      validateInputValueRefs(action.value, inputs, diagnostics, [...stepPath, "setVariable", "value"]);
-      continue;
-    }
-
-    if ("forEach" in item) {
-      expectRefKind({
-        ref: item.forEach,
-        expected: "recordList",
-        inputs,
-        locals,
-        diagnostics,
-        path: [...stepPath, "forEach"],
-        label: "forEach",
-      });
-      const nextLocals = new Map(locals);
-      if (typeof item.as === "string") nextLocals.set(item.as, "record");
-      if (Array.isArray(item.do)) validateSteps(item.do, inputs, diagnostics, [...stepPath, "do"], nextLocals);
-      continue;
-    }
-
-    if ("if" in item) {
-      const condition = item.if as { equals?: unknown[]; exists?: unknown; notEquals?: unknown[] };
-      if (Array.isArray(condition.equals)) {
-        condition.equals.forEach((value, valueIndex) =>
-          validateInputValueRefs(value, inputs, diagnostics, [...stepPath, "if", "equals", valueIndex]),
-        );
-      }
-      if (Array.isArray(condition.notEquals)) {
-        condition.notEquals.forEach((value, valueIndex) =>
-          validateInputValueRefs(value, inputs, diagnostics, [...stepPath, "if", "notEquals", valueIndex]),
-        );
-      }
-      validateInputValueRefs(condition.exists, inputs, diagnostics, [...stepPath, "if", "exists"]);
-      if (Array.isArray(item.then)) validateSteps(item.then, inputs, diagnostics, [...stepPath, "then"], locals);
-      if (Array.isArray(item.else)) validateSteps(item.else, inputs, diagnostics, [...stepPath, "else"], locals);
-      continue;
-    }
-
-    if ("switch" in item) {
-      validateInputValueRefs(item.switch, inputs, diagnostics, [...stepPath, "switch"]);
-      const cases = item.cases;
-      if (Array.isArray(cases)) {
-        cases.forEach((caseItem, caseIndex) => {
-          if (caseItem && typeof caseItem === "object") {
-            validateInputValueRefs((caseItem as { when?: unknown }).when, inputs, diagnostics, [...stepPath, "cases", caseIndex, "when"]);
-          }
-          if (caseItem && typeof caseItem === "object" && Array.isArray((caseItem as { do?: unknown }).do)) {
-            validateSteps((caseItem as { do: unknown[] }).do, inputs, diagnostics, [...stepPath, "cases", caseIndex, "do"], locals);
-          }
-        });
-      }
-      if (Array.isArray(item.default)) validateSteps(item.default, inputs, diagnostics, [...stepPath, "default"], locals);
-    }
-  }
+  steps.forEach((step, index) => {
+    if (!step || typeof step !== "object" || Array.isArray(step)) return;
+    validateStep(step as Record<string, unknown>, { inputs, diagnostics, path: [...path, index], locals });
+  });
 };
 
 export const validateWorkflowDefinition = (definition: WorkflowDefinition): WorkflowDiagnostic[] => {
