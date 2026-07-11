@@ -11,8 +11,10 @@
  */
 
 import { coreClient } from "@valentinkolb/cloud/clients/core";
-import { renderLiquidTemplate } from "@valentinkolb/cloud/shared";
+import type { AiEnrichmentOverview } from "@valentinkolb/cloud/ai";
+import { AI_PLATFORM_PROMPT_TEMPLATE, renderLiquidTemplate } from "@valentinkolb/cloud/shared";
 import {
+  CheckboxCard,
   createTemplateEditorPanesValue,
   dialogCore,
   ImageInput,
@@ -30,11 +32,13 @@ import {
   TagsInput,
   TemplateEditor,
   TemplatePreview,
+  toast,
   TemplateSampleData,
   type TemplateVariable,
   type TemplateVariableKind,
   TextInput,
 } from "@valentinkolb/cloud/ui";
+import { img } from "@valentinkolb/stdlib/browser";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import { LegacySettingsSection } from "./LegacySettingsPanel.island";
@@ -82,6 +86,9 @@ type Props = {
   showTestEmailAction?: boolean;
   showTestPdfAction?: boolean;
   showLegacySettings?: boolean;
+  aiEnrichmentOverview?: AiEnrichmentOverview | null;
+  /** Which slice of the AI settings this page shows (the AI sidebar group splits them). */
+  aiSection?: "general" | "providers" | "jobs";
 };
 
 type AiProviderId = "openai" | "openrouter" | "anthropic" | "mistral" | "gemini" | "ollama" | "vllm" | "openai-compatible";
@@ -100,6 +107,8 @@ type AiModelProfileDraft = {
   dataPolicy?: AiLegacyDataBoundary;
   /** Legacy/advanced profile field; accepted but not edited in the normal UI. */
   tags?: string[];
+  /** Small logo (data URL) shown in the admin card and the composer model picker. */
+  image?: string;
   apiKey?: string;
   /** Legacy profile field; new profiles store apiKey directly. */
   credentialSetting?: string;
@@ -118,6 +127,8 @@ const AI_GLOBAL_INSTRUCTIONS_SETTING_KEY = "ai.global_instructions";
 const AI_COMPACTION_PROMPT_SETTING_KEY = "ai.compaction_prompt";
 const AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY = "ai.max_tool_result_chars";
 const AI_FIRECRAWL_API_KEY_SETTING_KEY = "ai.firecrawl_api_key";
+const AI_BACKGROUND_MODEL_SETTING_KEY = "ai.background_model_id";
+const AI_ENRICH_CRON_SETTING_KEY = "ai.enrich_cron";
 
 const AI_SETTINGS_HANDLED_BY_PANEL = new Set<string>([
   AI_ENABLED_SETTING_KEY,
@@ -127,6 +138,8 @@ const AI_SETTINGS_HANDLED_BY_PANEL = new Set<string>([
   AI_COMPACTION_PROMPT_SETTING_KEY,
   AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY,
   AI_FIRECRAWL_API_KEY_SETTING_KEY,
+  AI_BACKGROUND_MODEL_SETTING_KEY,
+  AI_ENRICH_CRON_SETTING_KEY,
 ]);
 
 const AI_PROVIDER_OPTIONS: ReadonlyArray<{
@@ -404,8 +417,15 @@ export default function CoreSettingsForm(props: Props) {
               </>
             }
           >
-            <AiSettingsPanel entries={props.entries} valueOf={valueOf} errorFor={(key) => fieldErrors()[key]} onChange={setDraft} />
-            {renderFieldSections(genericEntries())}
+            <AiSettingsPanel
+              entries={props.entries}
+              valueOf={valueOf}
+              errorFor={(key) => fieldErrors()[key]}
+              onChange={setDraft}
+              enrichmentOverview={props.aiEnrichmentOverview ?? null}
+              section={props.aiSection ?? "general"}
+            />
+            <Show when={(props.aiSection ?? "general") === "general"}>{renderFieldSections(genericEntries())}</Show>
           </Show>
         </PanelDialog.Body>
         <PanelDialog.Footer>
@@ -754,19 +774,125 @@ const serializeAiProfiles = (profiles: AiModelProfileDraft[]) =>
     2,
   );
 
+const formatAiDuration = (ms: number | null): string => {
+  if (ms === null) return "-";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+  return `${Math.round(ms / 60_000)}m`;
+};
+
+const formatAiDate = (value: string | null): string => (value ? new Date(value).toLocaleString() : "-");
+
+const formatAiPercent = (value: number): string => `${value.toFixed(value >= 10 ? 0 : 1)}%`;
+
+function AiEnrichmentOverviewPanel(props: { overview: AiEnrichmentOverview }) {
+  const statusClass = (status: string) => (status === "ok" ? "badge-success" : status === "failed" ? "badge-danger" : "badge-neutral");
+  return (
+    <div class="flex flex-col gap-2">
+      <div class="grid gap-2 md:grid-cols-4">
+        <div class="rounded-lg border border-zinc-100 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900/70">
+          <p class="text-[10px] uppercase tracking-wider text-dimmed">Dirty chats</p>
+          <p class="mt-1 text-lg font-semibold text-primary">{props.overview.dirtyConversations}</p>
+          <p class="mt-0.5 truncate text-[11px] text-dimmed">Oldest {formatAiDate(props.overview.oldestDirtyAt)}</p>
+        </div>
+        <div class="rounded-lg border border-zinc-100 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900/70">
+          <p class="text-[10px] uppercase tracking-wider text-dimmed">Failed chats</p>
+          <p class="mt-1 text-lg font-semibold text-primary">{props.overview.failedConversations}</p>
+          <p class="mt-0.5 truncate text-[11px] text-dimmed">{props.overview.totalConversations} active total</p>
+        </div>
+        <div class="rounded-lg border border-zinc-100 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900/70">
+          <p class="text-[10px] uppercase tracking-wider text-dimmed">Error rate 24h</p>
+          <p class={`mt-1 text-lg font-semibold ${props.overview.failedRuns24h > 0 ? "text-red-600 dark:text-red-400" : "text-primary"}`}>
+            {formatAiPercent(props.overview.errorRate24h)}
+          </p>
+          <p class="mt-0.5 truncate text-[11px] text-dimmed">
+            {props.overview.failedRuns24h} / {props.overview.totalRuns24h} failed
+          </p>
+        </div>
+        <div class="rounded-lg border border-zinc-100 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900/70">
+          <p class="text-[10px] uppercase tracking-wider text-dimmed">Avg runtime</p>
+          <p class="mt-1 text-lg font-semibold text-primary">{formatAiDuration(props.overview.avgDurationMs)}</p>
+          <p class="mt-0.5 truncate text-[11px] text-dimmed">Last run {formatAiDate(props.overview.lastRunAt)}</p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <p class="text-xs text-dimmed">Runtime traces live on the generic jobs page; a manual run enriches up to 25 dirty chats.</p>
+        <div class="flex items-center gap-2">
+          <RunEnrichmentButton />
+          <a class="btn-ai btn-sm" href="/admin/observability/jobs?search=ai%3Achat">
+            <i class="ti ti-external-link" /> Open jobs
+          </a>
+        </div>
+      </div>
+
+      <Show when={props.overview.recentRuns.length > 0}>
+        <div class="overflow-hidden rounded-lg border border-zinc-100 dark:border-zinc-800">
+          {props.overview.recentRuns.map((run) => (
+            <div class="grid grid-cols-[auto_1fr_auto] items-center gap-2 border-b border-zinc-100 px-2 py-1.5 text-xs last:border-b-0 dark:border-zinc-800">
+              <span class={`badge ${statusClass(run.status)}`}>{run.status}</span>
+              <span class="min-w-0">
+                <span class="block truncate text-primary">{run.conversationTitle || run.conversationId}</span>
+                <span class="block truncate text-[11px] text-dimmed">
+                  {run.appId || "assistant"} · {run.trigger} · {formatAiDate(run.createdAt)}
+                </span>
+              </span>
+              <span class="whitespace-nowrap text-[11px] text-dimmed">{formatAiDuration(run.durationMs)}</span>
+            </div>
+          ))}
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+function RunEnrichmentButton() {
+  const [running, setRunning] = createSignal(false);
+  const run = async () => {
+    setRunning(true);
+    try {
+      const response = await fetch("/api/admin/core/settings/run-ai-enrichment", { method: "POST" });
+      const body = (await response.json().catch(() => null)) as
+        | { ok?: boolean; message?: string; summary?: { scanned: number; enriched: number; failed: number } }
+        | null;
+      if (!response.ok || !body?.ok) throw new Error(body?.message ?? "AI enrichment run failed");
+      const summary = body.summary;
+      toast.success(
+        summary ? `Enrichment done: ${summary.enriched} enriched, ${summary.failed} failed (${summary.scanned} scanned).` : "Enrichment done.",
+      );
+      // The overview numbers are server-rendered — reload to reflect the run.
+      window.location.reload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "AI enrichment run failed");
+    } finally {
+      setRunning(false);
+    }
+  };
+  return (
+    <button type="button" class="btn-secondary btn-sm" disabled={running()} onClick={() => void run()}>
+      <i class={running() ? "ti ti-loader-2 animate-spin" : "ti ti-player-play"} aria-hidden="true" />
+      Run now
+    </button>
+  );
+}
+
 function AiSettingsPanel(props: {
   entries: SettingFieldDef[];
   valueOf: (key: string) => unknown;
   errorFor: (key: string) => string | undefined;
   onChange: (key: string, value: unknown) => void;
+  enrichmentOverview: AiEnrichmentOverview | null;
+  section: "general" | "providers" | "jobs";
 }) {
   const entry = (key: string) => props.entries.find((item) => item.key === key);
+  // Secret values are redacted server-side; valueSource tells whether a stored/env key exists.
+  const firecrawlKeyConfigured = () => (entry(AI_FIRECRAWL_API_KEY_SETTING_KEY)?.valueSource ?? "default") !== "default";
   const profilesState = createMemo(() => parseAiProfiles(props.valueOf(AI_PROFILE_SETTING_KEY)));
   const profiles = () => profilesState().profiles;
   const defaultModelId = () => asString(props.valueOf(AI_DEFAULT_MODEL_SETTING_KEY));
   const maxToolResultChars = () => {
     const value = Number(props.valueOf(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY));
-    return Number.isFinite(value) && value > 0 ? value : 2000;
+    return Number.isFinite(value) && value > 0 ? value : 8000;
   };
 
   const setProfiles = (next: AiModelProfileDraft[]) => props.onChange(AI_PROFILE_SETTING_KEY, serializeAiProfiles(next));
@@ -795,7 +921,9 @@ function AiSettingsPanel(props: {
 
   const duplicateProfile = (profile: AiModelProfileDraft) => {
     const id = uniqueProfileId(`${profile.id}-copy`, profiles());
-    setProfiles([...profiles(), { ...profile, id, label: `${profile.label} Copy`, enabled: false }]);
+    // The copy keeps the enabled state — a duplicate that silently turns
+    // itself off reads as a bug, not a safety feature.
+    setProfiles([...profiles(), { ...profile, id, label: `${profile.label} Copy` }]);
   };
 
   const removeProfile = async (profile: AiModelProfileDraft) => {
@@ -860,11 +988,40 @@ function AiSettingsPanel(props: {
       { title: "Import model profiles", icon: "ti ti-file-import", size: "wide" },
     );
 
-    if (typeof result === "string") props.onChange(AI_PROFILE_SETTING_KEY, result);
+    if (typeof result !== "string") return;
+    const parsed = parseAiProfiles(result);
+    if (parsed.error) {
+      prompts.error(parsed.error);
+      return;
+    }
+    // Merge-by-id: exports never contain API keys — an import must not wipe
+    // the keys of profiles that already exist under the same id.
+    const existingById = new Map(profiles().map((profile) => [profile.id, profile]));
+    const merged = parsed.profiles.map((profile) => {
+      if (profile.apiKey || profile.credentialSetting) return profile;
+      const existing = existingById.get(profile.id);
+      if (existing?.apiKey) return { ...profile, apiKey: existing.apiKey };
+      if (existing?.credentialSetting) return { ...profile, credentialSetting: existing.credentialSetting };
+      return profile;
+    });
+    setProfiles(merged);
+  };
+
+  /** Download all profiles as JSON — API keys are never exported. */
+  const exportJson = () => {
+    const sanitized = profiles().map(({ apiKey: _apiKey, ...profile }) => profile);
+    const blob = new Blob([JSON.stringify(sanitized, null, 2)], { type: "application/json" });
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = "ai-model-profiles.json";
+    anchor.click();
+    URL.revokeObjectURL(objectUrl);
   };
 
   return (
     <div class="flex flex-col gap-2">
+      <Show when={props.section === "general"}>
       <PanelDialog.Section title="Cloud AI" subtitle="Global switch, default model, and workspace-wide instructions." icon="ti ti-sparkles">
         <div class="flex flex-col gap-2">
           <Switch
@@ -894,17 +1051,38 @@ function AiSettingsPanel(props: {
           error={() => props.errorFor(AI_DEFAULT_MODEL_SETTING_KEY)}
         />
 
-        <TextInput
-          variant="ai"
-          multiline
-          lines={3}
-          label="Global instructions"
-          description="Applied after platform guardrails for every Cloud AI conversation."
-          value={() => asString(props.valueOf(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY))}
-          onInput={(value) => props.onChange(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY, value)}
-          placeholder={entry(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY)?.placeholder ?? "Keep answers concise and follow the workspace language."}
-          error={() => props.errorFor(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY)}
-        />
+        <div class="flex flex-col gap-1.5">
+          <div>
+            <p class="text-sm font-medium text-primary">Global instructions</p>
+            <p class="text-xs text-dimmed">
+              Liquid template appended after the platform prompt in every Cloud AI conversation. Type {"{{"} for variable completions.
+            </p>
+          </div>
+          <TemplateEditor
+            value={() => asString(props.valueOf(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY))}
+            onInput={(value) => props.onChange(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY, value)}
+            variables={AI_PROMPT_TEMPLATE_VARIABLES}
+            lines={14}
+            placeholder={AI_PLATFORM_PROMPT_TEMPLATE}
+          />
+          <FieldError error={() => props.errorFor(AI_GLOBAL_INSTRUCTIONS_SETTING_KEY)} />
+        </div>
+
+        <details class="group">
+          <summary class="flex cursor-pointer select-none items-center gap-1.5 text-xs font-medium text-secondary hover:text-primary">
+            <i class="ti ti-chevron-right transition-transform group-open:rotate-90" aria-hidden="true" />
+            Show the built-in platform prompt
+          </summary>
+          <div class="mt-2 flex flex-col gap-1.5">
+            <p class="text-xs text-dimmed">
+              Every conversation starts with this Liquid template, rendered per turn with the current user, time, app, available tools, and
+              memory state. Your global instructions are appended directly after it.
+            </p>
+            <pre class="max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-50 p-2.5 font-mono text-[11px] leading-relaxed text-zinc-700 [box-shadow:var(--theme-recess)] dark:bg-zinc-900 dark:text-zinc-300">
+              {AI_PLATFORM_PROMPT_TEMPLATE}
+            </pre>
+          </div>
+        </details>
       </PanelDialog.Section>
 
       <PanelDialog.Section
@@ -917,47 +1095,104 @@ function AiSettingsPanel(props: {
           multiline
           lines={4}
           label="Compaction prompt"
-          description="Optional prompt used when old chat context is summarized before continuing long conversations."
+          description="Optional prompt used when old chat context is summarized before continuing long conversations. Leave empty for the built-in structured handoff prompt (goal, requests, decisions, facts, dead ends, open tasks, next step)."
           value={() => asString(props.valueOf(AI_COMPACTION_PROMPT_SETTING_KEY))}
           onInput={(value) => props.onChange(AI_COMPACTION_PROMPT_SETTING_KEY, value)}
           placeholder={
             entry(AI_COMPACTION_PROMPT_SETTING_KEY)?.placeholder ??
-            "Summarize the conversation so far. Keep decisions, user preferences, tool results, and unresolved tasks."
+            "Leave empty for the built-in handoff prompt (goal, user requests, decisions, facts, dead ends, open tasks, next step)."
           }
           error={() => props.errorFor(AI_COMPACTION_PROMPT_SETTING_KEY)}
         />
 
         <NumberInput
           label="Max tool result chars"
-          description="Tool results above this size are truncated before they are sent back into the model context."
+          description="Tool results above this size are truncated before they are sent back into the model context. Higher keeps more detail in long chats; lower saves context."
           value={maxToolResultChars}
-          onChange={(value) => props.onChange(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY, value ?? 2000)}
-          min={200}
+          onChange={(value) => props.onChange(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY, value ?? 8000)}
+          min={500}
           max={50000}
           showSteppers={false}
           error={() => props.errorFor(AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY)}
         />
       </PanelDialog.Section>
+      </Show>
 
+      <Show when={props.section === "jobs"}>
+      <PanelDialog.Section
+        title="Background jobs"
+        subtitle="Model and schedule for background AI work like chat summaries, keywords, and titles."
+        icon="ti ti-clock-bolt"
+      >
+        <SelectInput
+          label="Background model"
+          description="Model used for background AI jobs. Falls back to the default model when unset."
+          value={() => asString(props.valueOf(AI_BACKGROUND_MODEL_SETTING_KEY))}
+          onChange={(value) => props.onChange(AI_BACKGROUND_MODEL_SETTING_KEY, value ?? "")}
+          options={[
+            { id: "", label: "Use default model", icon: "ti ti-sparkles" },
+            ...profiles()
+              .filter((profile) => profile.enabled)
+              .map((profile) => ({
+                id: profile.id,
+                label: profile.label,
+                description: `${providerOption(profile.provider).label} · ${profile.model}`,
+                icon: "ti ti-sparkles",
+              })),
+          ]}
+          icon="ti ti-clock-bolt"
+          error={() => props.errorFor(AI_BACKGROUND_MODEL_SETTING_KEY)}
+        />
+
+        <TextInput
+          label="Chat enrichment schedule"
+          description="Cron for the job that summarizes changed chats and refreshes keywords and titles for search."
+          value={() => asString(props.valueOf(AI_ENRICH_CRON_SETTING_KEY))}
+          onInput={(value) => props.onChange(AI_ENRICH_CRON_SETTING_KEY, value)}
+          placeholder="*/10 * * * *"
+          monospace
+          error={() => props.errorFor(AI_ENRICH_CRON_SETTING_KEY)}
+        />
+
+        <Show when={props.enrichmentOverview}>
+          {(overview) => <AiEnrichmentOverviewPanel overview={overview()} />}
+        </Show>
+      </PanelDialog.Section>
+      </Show>
+
+      <Show when={props.section === "general"}>
       <PanelDialog.Section title="Web tools" subtitle="Firecrawl-backed search and page extraction for AI tools." icon="ti ti-world-search">
         <TextInput
           variant="ai"
           label="Firecrawl API key"
-          description="Enables the default web_search and web_extract tools. The key is stored encrypted and never sent to the browser after save."
+          description={
+            firecrawlKeyConfigured()
+              ? "A key is configured (stored encrypted, never sent to the browser). Leave empty to keep it; type a new key to replace it."
+              : "Enables the default web_search and web_extract tools. The key is stored encrypted and never sent to the browser after save."
+          }
           value={() => asString(props.valueOf(AI_FIRECRAWL_API_KEY_SETTING_KEY))}
           onInput={(value) => props.onChange(AI_FIRECRAWL_API_KEY_SETTING_KEY, value)}
-          placeholder={entry(AI_FIRECRAWL_API_KEY_SETTING_KEY)?.placeholder ?? "fc-..."}
+          placeholder={
+            firecrawlKeyConfigured()
+              ? "Leave empty to keep current key"
+              : (entry(AI_FIRECRAWL_API_KEY_SETTING_KEY)?.placeholder ?? "fc-...")
+          }
           password
           error={() => props.errorFor(AI_FIRECRAWL_API_KEY_SETTING_KEY)}
         />
       </PanelDialog.Section>
+      </Show>
 
+      <Show when={props.section === "providers"}>
       <PanelDialog.Section
         title="Providers"
         subtitle="Choose a provider type, then adjust model, credentials, base URL, data boundary, and capabilities."
         icon="ti ti-sparkles"
       >
         <div class="flex flex-wrap justify-end gap-2">
+          <button type="button" class="btn-secondary btn-sm" title="API keys are never exported" onClick={exportJson}>
+            <i class="ti ti-file-export" /> Export JSON
+          </button>
           <button type="button" class="btn-secondary btn-sm" onClick={() => void importJson()}>
             <i class="ti ti-file-import" /> Import JSON
           </button>
@@ -997,9 +1232,20 @@ function AiSettingsPanel(props: {
           <FieldError error={() => props.errorFor(AI_PROFILE_SETTING_KEY)} />
         </Show>
       </PanelDialog.Section>
+      </Show>
     </div>
   );
 }
+
+const AI_PROMPT_TEMPLATE_VARIABLES: readonly TemplateVariable[] = [
+  { name: "user.displayName" },
+  { name: "user.uid" },
+  { name: "user.mail", kind: "email" },
+  { name: "appId" },
+  { name: "now" },
+  { name: "today" },
+  { name: "time" },
+];
 
 function AiProfileCard(props: {
   profile: AiModelProfileDraft;
@@ -1017,6 +1263,9 @@ function AiProfileCard(props: {
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2">
+            <Show when={props.profile.image}>
+              <img src={props.profile.image} alt="" class="h-5 w-5 shrink-0 rounded" aria-hidden="true" />
+            </Show>
             <h3 class="truncate text-sm font-semibold text-primary">{props.profile.label}</h3>
             <Show when={props.isDefault()}>
               <span class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
@@ -1100,6 +1349,7 @@ async function openAiProfileDialog(input: {
       input.profile?.dataBoundary ?? defaultDataBoundary(initialProvider),
     );
     const [contextWindow, setContextWindow] = createSignal<number | null>(input.profile?.contextWindow ?? null);
+    const [image, setImage] = createSignal<string | null>(input.profile?.image ?? null);
     const [formError, setFormError] = createSignal<string | undefined>();
 
     const currentProvider = () => providerOption(provider());
@@ -1184,6 +1434,10 @@ async function openAiProfileDialog(input: {
       if (nextBaseURL) nextProfile.baseURL = nextBaseURL;
       else delete nextProfile.baseURL;
 
+      const nextImage = image();
+      if (nextImage) nextProfile.image = nextImage;
+      else delete nextProfile.image;
+
       const context = contextWindow();
       if (typeof context === "number" && context > 0) nextProfile.contextWindow = context;
       else delete nextProfile.contextWindow;
@@ -1212,6 +1466,14 @@ async function openAiProfileDialog(input: {
               subtitle="Provider type, user-visible label, stable id, and endpoint configuration."
               icon="ti ti-sparkles"
             >
+              <CheckboxCard
+                label="Profile enabled"
+                description="Disabled profiles stay configured but cannot be selected by apps or users."
+                icon="ti ti-power"
+                value={enabled}
+                onChange={setEnabled}
+              />
+
               <SelectInput
                 label="Provider"
                 description="Provider type used to create the Nessi model adapter."
@@ -1260,6 +1522,15 @@ async function openAiProfileDialog(input: {
                 onInput={setBaseURL}
                 placeholder={currentProvider().defaultBaseURL ?? "Optional provider override"}
                 type="url"
+              />
+
+              <ImageInput
+                label="Logo"
+                description="Optional small logo shown in the provider card and the model picker."
+                variant="small"
+                value={image}
+                onChange={setImage}
+                transform={(file) => img.presets.avatar(file, 64, 0.8, "webp")}
               />
             </PanelDialog.Section>
 
@@ -1319,11 +1590,6 @@ async function openAiProfileDialog(input: {
                 icon="ti ti-bolt"
                 clearable
               />
-
-              <div class="flex flex-col gap-1">
-                <Switch label={enabled() ? "Profile enabled" : "Profile disabled"} value={enabled} onChange={setEnabled} />
-                <p class="text-xs text-dimmed">Disabled profiles stay configured but cannot be selected by apps or users.</p>
-              </div>
             </PanelDialog.Section>
           </PanelDialog.Body>
           <PanelDialog.Footer>

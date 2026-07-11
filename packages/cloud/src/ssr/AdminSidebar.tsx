@@ -7,12 +7,18 @@ const settingsLinks: AdminLink[] = [
   { href: "/admin/settings?tab=general", icon: "ti-app-window", label: "General" },
   { href: "/admin/settings?tab=user", icon: "ti-users", label: "User Management" },
   { href: "/admin/settings?tab=freeipa", icon: "ti-building-fortress", label: "FreeIPA" },
-  { href: "/admin/settings?tab=ai", icon: "ti-sparkles", label: "AI" },
   { href: "/admin/settings?tab=mail", icon: "ti-mail", label: "Mail" },
   { href: "/admin/settings?tab=pdf-rendering", icon: "ti-file-type-pdf", label: "PDF Rendering" },
   { href: "/admin/settings?tab=email-templates", icon: "ti-template", label: "Email Templates" },
   { href: "/admin/settings?tab=security", icon: "ti-shield-lock", label: "Security" },
   { href: "/admin/settings?tab=legal", icon: "ti-file-text", label: "Legal" },
+];
+
+const aiLinks: AdminLink[] = [
+  { href: "/admin/settings?tab=ai-general", icon: "ti-adjustments", label: "General" },
+  { href: "/admin/settings?tab=ai-providers", icon: "ti-sparkles", label: "Providers" },
+  { href: "/admin/settings?tab=ai-skills", icon: "ti-wand", label: "Skills" },
+  { href: "/admin/settings?tab=ai-jobs", icon: "ti-activity", label: "Background Jobs" },
 ];
 
 const staticGroups: AdminGroup[] = [
@@ -36,6 +42,7 @@ const staticGroups: AdminGroup[] = [
       { href: "/admin/observability/notifications", icon: "ti-bell", label: "Notifications" },
     ],
   },
+  { label: "AI", links: aiLinks },
   { label: "Settings", links: settingsLinks },
 ];
 

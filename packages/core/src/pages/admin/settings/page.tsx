@@ -1,8 +1,10 @@
+import { aiConversationStore, type AiEnrichmentOverview } from "@valentinkolb/cloud/ai";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { settingsService } from "@valentinkolb/cloud/services";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
 import CoreLayoutHelp from "../../CoreLayoutHelp.island";
+import AdminAiSkills from "./_components/AdminAiSkills.island";
 import CoreSettingsForm, { type SettingFieldDef } from "./_components/CoreSettingsForm.island";
 import LegalSettingsForm, { type LegalInitial } from "./_components/LegalSettingsForm.island";
 
@@ -31,10 +33,31 @@ const TABS = [
     group: "freeipa" as const,
   },
   {
-    id: "ai",
-    title: "AI Settings",
-    description: "Model profiles, provider credentials, and global AI behavior.",
+    id: "ai-general",
+    title: "AI General",
+    description: "Availability, system prompt, context handling, and web tools.",
+    icon: "ti ti-adjustments",
+    group: "ai" as const,
+  },
+  {
+    id: "ai-providers",
+    title: "AI Providers",
+    description: "Model profiles, provider credentials, and capabilities.",
     icon: "ti ti-sparkles",
+    group: "ai" as const,
+  },
+  {
+    id: "ai-skills",
+    title: "AI Skills",
+    description: "Workspace skill catalog, code review queue, and audit log.",
+    icon: "ti ti-wand",
+    group: null,
+  },
+  {
+    id: "ai-jobs",
+    title: "AI Background Jobs",
+    description: "Model and schedule for background AI work like chat enrichment.",
+    icon: "ti ti-activity",
     group: "ai" as const,
   },
   { id: "mail", title: "Mail Settings", description: "SMTP delivery and sender credentials.", icon: "ti ti-mail", group: "mail" as const },
@@ -121,16 +144,22 @@ const buildLegalInitial = (entries: SettingFieldDef[]): LegalInitial => {
 
 export default ssr<AuthContext>(async (c) => {
   const rawTab = c.req.query("tab");
-  const tabId: TabId = isTabId(rawTab) ? rawTab : "general";
+  // "ai" predates the split into the AI sidebar group — keep old links working.
+  const legacyTab = rawTab === "ai" ? "ai-general" : rawTab;
+  const tabId: TabId = isTabId(legacyTab) ? legacyTab : "general";
   const tab = TABS.find((t) => t.id === tabId)!;
+
+  const aiSection = tab.id === "ai-general" ? "general" : tab.id === "ai-providers" ? "providers" : tab.id === "ai-jobs" ? "jobs" : undefined;
 
   let entries: SettingFieldDef[] = [];
   let legalInitial: LegalInitial | null = null;
+  let aiEnrichmentOverview: AiEnrichmentOverview | null = null;
 
   if (tab.group) {
     entries = await buildEntries(tab.group);
     if (tab.id === "mail") entries = entries.filter((entry) => entry.kind !== "template");
     if (tab.id === "email-templates") entries = entries.filter((entry) => entry.kind === "template");
+    if (tab.id === "ai-jobs") aiEnrichmentOverview = await aiConversationStore.getEnrichmentOverview();
   } else if (tab.id === "legal") {
     entries = await buildEntries("legal");
     legalInitial = buildLegalInitial(entries);
@@ -150,8 +179,12 @@ export default ssr<AuthContext>(async (c) => {
               showTestEmailAction={tab.id === "mail"}
               showTestPdfAction={tab.id === "pdf-rendering"}
               showLegacySettings={tab.id === "general"}
+              aiEnrichmentOverview={aiEnrichmentOverview}
+              aiSection={aiSection}
             />
           ) : null}
+
+          {tab.id === "ai-skills" ? <AdminAiSkills title={tab.title} subtitle={tab.description} icon={tab.icon} /> : null}
 
           {tab.id === "legal" && legalInitial ? (
             <LegalSettingsForm title={tab.title} subtitle={tab.description} icon={tab.icon} initial={legalInitial} entries={entries} />
