@@ -1,17 +1,19 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import { basename } from "node:path";
 import {
   arg,
   type CloudApiClient,
   type CloudCliContext,
   type CloudCliFlags,
   command,
+  confirmFlag,
   createAccessCommands,
   defineCliCommands,
   flag,
 } from "@valentinkolb/cloud/cli";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import type { ApiType } from "./api";
-import type { NamedBlockType } from "./lib/named-blocks";
+import { findNamedBlocks, type NamedBlockType, namedBlockBody } from "./lib/named-blocks";
 import {
   applyNoteEdits,
   type NoteEditBlockSummary,
@@ -92,6 +94,58 @@ type MessageResponse = {
   message: string;
 };
 
+type NoteSearchHit = {
+  note: Omit<Note, "contentMd">;
+  notebook: Pick<Notebook, "id" | "shortId" | "name" | "icon">;
+  snippet: string | null;
+};
+
+const compactSearchSnippet = (snippet: string | null): string => {
+  const compact = snippet?.replaceAll("\uE000", "").replaceAll("\uE001", "").replace(/\s+/g, " ").trim() ?? "";
+  return compact.length > 160 ? `${compact.slice(0, 159).trimEnd()}…` : compact;
+};
+
+type Attachment = {
+  id: string;
+  shortId: string;
+  notebookId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  kind: "image" | "file";
+  createdBy: string | null;
+  createdAt: string;
+};
+
+type Template = { id: string; name: string; description: string; icon: string };
+
+type ApiKey = {
+  id: string;
+  serviceAccountId: string;
+  name: string;
+  kind: "api_token";
+  status: "active" | "revoked";
+  tokenPrefix: string;
+  scopes: string[];
+  permission: "none" | "read" | "write" | "admin";
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+};
+
+type SnapshotConfig = {
+  enabled: boolean;
+  endpoint: string;
+  region: string;
+  bucket: string;
+  scheduleCron: string;
+  accessKeyIdSet: boolean;
+  secretAccessKeySet: boolean;
+  configured: boolean;
+  missing: string[];
+  target: string | null;
+};
+
 const NOTEBOOK_DEFAULT_KEY = "notebooks.notebook";
 
 const stringFlag = (flags: CloudCliFlags, ...names: string[]): string | undefined => {
@@ -104,6 +158,14 @@ const stringFlag = (flags: CloudCliFlags, ...names: string[]): string | undefine
 };
 
 const booleanFlag = (flags: CloudCliFlags, ...names: string[]): boolean => names.some((name) => flags[name] === true);
+
+const optionalBooleanFlag = (flags: CloudCliFlags, ...names: string[]): boolean | undefined => {
+  const raw = stringFlag(flags, ...names);
+  if (raw === undefined) return undefined;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  throw new Error(`--${names[0]} must be true or false.`);
+};
 
 const numberFlag = (flags: CloudCliFlags, name: string): number | undefined => {
   const value = stringFlag(flags, name);
@@ -259,6 +321,27 @@ const formatNoteCandidates = (items: Note[]): string =>
     .map((item) => `${item.title} (${item.shortId})`)
     .join(", ");
 
+const resolveNotePath = (tree: NoteTreeNode[], path: string): Note | null => {
+  const segments = path
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (segments.length === 0) return null;
+
+  let level = tree;
+  let current: NoteTreeNode | null = null;
+  for (const segment of segments) {
+    const matches = level.filter((note) => note.title === segment || note.shortId === segment);
+    if (matches.length > 1) {
+      throw new Error(`Note path "${path}" is ambiguous at "${segment}". Use a short id for that segment.`);
+    }
+    current = matches[0] ?? null;
+    if (!current) return null;
+    level = current.children;
+  }
+  return current;
+};
+
 const resolveNotebookRef = async (ctx: CloudCliContext, api: CloudApiClient<ApiType>, ref: string): Promise<Notebook> => {
   try {
     return await ctx.readJson<Notebook>(await api[":id"].$get({ param: { id: ref } }));
@@ -285,6 +368,11 @@ const resolveNoteRef = async (ctx: CloudCliContext, api: CloudApiClient<ApiType>
     return await ctx.readJson<Note>(await api[":id"].notes[":noteId"].$get({ param: { id: notebookId, noteId: ref } }));
   } catch (error) {
     if (!isHttpStatus(error, 404)) throw error;
+    if (ref.includes("/")) {
+      const tree = await ctx.readJson<NoteTreeNode[]>(await api[":id"].tree.$get({ param: { id: notebookId } }));
+      const pathMatch = resolveNotePath(tree, ref);
+      if (pathMatch) return pathMatch;
+    }
     const response = await api[":id"].notes.$get({
       param: { id: notebookId },
       query: { q: ref, per_page: "50" },
@@ -415,6 +503,73 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     return 0;
   }
 
+  if (command === "update") {
+    const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const body: Record<string, unknown> = {};
+    const name = stringFlag(ctx.flags, "name");
+    const description = stringFlag(ctx.flags, "description");
+    const icon = stringFlag(ctx.flags, "icon");
+    const homepageRef = stringFlag(ctx.flags, "homepage");
+    const scriptsEnabled = optionalBooleanFlag(ctx.flags, "scripts-enabled");
+    if (name !== undefined) body.name = name;
+    if (description !== undefined || booleanFlag(ctx.flags, "clear-description")) body.description = description ?? null;
+    if (icon !== undefined || booleanFlag(ctx.flags, "clear-icon")) body.icon = icon ?? null;
+    if (homepageRef || booleanFlag(ctx.flags, "clear-homepage")) {
+      body.homepageNoteId = homepageRef ? (await resolveNoteRef(ctx, api, notebook.shortId, homepageRef)).shortId : null;
+    }
+    if (scriptsEnabled !== undefined) body.scriptsEnabled = scriptsEnabled;
+    if (Object.keys(body).length === 0) throw new Error("No notebook updates supplied.");
+    const payload = await ctx.readJson<Notebook>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(`Updated ${payload.name} (${payload.shortId}).`);
+    return 0;
+  }
+
+  if (command === "delete") {
+    if (!booleanFlag(ctx.flags, "yes")) throw new Error("Refusing to delete a notebook without --yes.");
+    const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<MessageResponse>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}`, { method: "DELETE" }),
+    );
+    if ((await ctx.getDefault(NOTEBOOK_DEFAULT_KEY)) === notebook.shortId) await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, "");
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(payload.message);
+    return 0;
+  }
+
+  if (command === "templates") {
+    const payload = await ctx.readJson<Template[]>(await ctx.fetch("/api/notebooks/templates"));
+    printJsonOrTable(ctx, payload, payload, [
+      { key: "id", label: "ID" },
+      { key: "name", label: "NAME" },
+      { key: "description", label: "DESCRIPTION" },
+    ]);
+    return 0;
+  }
+
+  if (command === "create-from-template") {
+    const templateId = requireArg(args, 0, "template id");
+    const payload = await ctx.readJson<Notebook>(
+      await ctx.fetch(`/api/notebooks/templates/${encodeURIComponent(templateId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: stringFlag(ctx.flags, "name") }),
+      }),
+    );
+    if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, payload.shortId);
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(`Created ${payload.name} (${payload.shortId}) from ${templateId}.`);
+    return 0;
+  }
+
   if (command === "tree") {
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
@@ -428,11 +583,13 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   if (command === "notes") {
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const parentRef = stringFlag(ctx.flags, "parent", "parent-id");
+    const parent = parentRef ? await resolveNoteRef(ctx, api, notebook.shortId, parentRef) : null;
     const response = await api[":id"].notes.$get({
       param: { id: notebook.shortId },
       query: paginationQuery(ctx.flags, {
         q: stringFlag(ctx.flags, "q", "query"),
-        parentId: stringFlag(ctx.flags, "parent", "parent-id"),
+        parentId: parent?.id,
       }),
     });
     const payload = await ctx.readJson<Page<Note>>(response);
@@ -446,14 +603,54 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   }
 
   if (command === "search") {
+    const all = booleanFlag(ctx.flags, "all");
+    const commonFilters = {
+      tags: stringFlag(ctx.flags, "tags", "tag"),
+      created_after: stringFlag(ctx.flags, "created-after"),
+      created_before: stringFlag(ctx.flags, "created-before"),
+      updated_after: stringFlag(ctx.flags, "updated-after"),
+      updated_before: stringFlag(ctx.flags, "updated-before"),
+    };
+
+    if (all) {
+      const queryText = args.join(" ").trim() || stringFlag(ctx.flags, "q", "query") || "";
+      const notebookFilter = stringFlag(ctx.flags, "notebook");
+      const notebook = notebookFilter ? await resolveNotebookRef(ctx, api, notebookFilter) : null;
+      const response = await api.search.$get({
+        query: paginationQuery(ctx.flags, {
+          q: queryText || undefined,
+          notebook: notebook?.shortId,
+          ...commonFilters,
+        }),
+      });
+      const payload = await ctx.readJson<Page<NoteSearchHit>>(response);
+      printJsonOrTable(
+        ctx,
+        payload,
+        payload.data.map((hit) => ({
+          shortId: hit.note.shortId,
+          title: hit.note.title,
+          notebook: hit.notebook.name,
+          snippet: compactSearchSnippet(hit.snippet),
+          updatedAt: hit.note.updatedAt,
+        })),
+        [
+          { key: "shortId", label: "SHORT" },
+          { key: "title", label: "TITLE" },
+          { key: "notebook", label: "NOTEBOOK" },
+          { key: "snippet", label: "MATCH" },
+          { key: "updatedAt", label: "UPDATED" },
+        ],
+      );
+      return 0;
+    }
+
     const { notebookRef, rest } = await resolveNotebookArg(ctx, args, 1);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const queryText = rest.join(" ").trim() || stringFlag(ctx.flags, "q", "query");
-    if (!queryText) throw new Error("Missing search query.");
-    const query = { ...paginationQuery(ctx.flags), q: queryText };
+    const queryText = rest.join(" ").trim() || stringFlag(ctx.flags, "q", "query") || "";
     const response = await api[":id"].search.$get({
       param: { id: notebook.shortId },
-      query,
+      query: paginationQuery(ctx.flags, { q: queryText || undefined, ...commonFilters }),
     });
     const payload = await ctx.readJson<Page<Note>>(response);
     printJsonOrTable(ctx, payload, noteRows(payload.data), [
@@ -491,6 +688,43 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     if (booleanFlag(ctx.flags, "blocks")) printBlocks(ctx, blocks);
     ctx.print("");
     ctx.print(booleanFlag(ctx.flags, "number-lines", "numbered") ? formatNumberedLines(content) : content);
+    return 0;
+  }
+
+  if (command === "block") {
+    const { notebookRef, noteRef, rest } = await resolveNoteCommandArgs(ctx, args, 1);
+    const name = requireArg(rest, 0, "block name").replace(/^@/, "");
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const payload = await ctx.readJson<NoteWithContent>(
+      await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: note.shortId } }),
+    );
+    const content = payload.contentMd ?? "";
+    const type = stringFlag(ctx.flags, "type") as NamedBlockType | undefined;
+    const matches = findNamedBlocks(content, name, type);
+    const index = numberFlag(ctx.flags, "index");
+    if (matches.length === 0) throw new Error(`Named block @${name}${type ? ` (${type})` : ""} was not found.`);
+    if (index === undefined && matches.length > 1) {
+      throw new Error(`Named block @${name} is ambiguous (${matches.length} matches). Pass --index <n>.`);
+    }
+    const block = matches[index ?? 0];
+    if (!block) throw new Error(`Named block @${name} index ${index} was not found.`);
+    const body = namedBlockBody(content, block);
+    const result = {
+      notebook: { id: notebook.id, shortId: notebook.shortId, name: notebook.name },
+      note: { id: note.id, shortId: note.shortId, title: note.title, updatedAt: note.updatedAt },
+      block: {
+        name: block.name,
+        type: block.type,
+        index: index ?? 0,
+        startLine: block.startLine + 1,
+        endLine: block.endLine + 1,
+        hash: noteContentHash(body),
+        content: body,
+      },
+    };
+    if (ctx.options.output === "json") ctx.json(result);
+    else ctx.print(body);
     return 0;
   }
 
@@ -542,9 +776,10 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   if (command === "note") {
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
     const response = booleanFlag(ctx.flags, "content")
-      ? await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: noteRef } })
-      : await api[":id"].notes[":noteId"].$get({ param: { id: notebook.shortId, noteId: noteRef } });
+      ? await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: note.shortId } })
+      : await api[":id"].notes[":noteId"].$get({ param: { id: notebook.shortId, noteId: note.shortId } });
     const payload = await ctx.readJson<Note | NoteWithContent>(response);
     if (ctx.options.output === "json") ctx.json(payload);
     else {
@@ -561,10 +796,162 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   if (command === "content") {
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const response = await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: noteRef } });
+    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const response = await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: note.shortId } });
     const payload = await ctx.readJson<NoteWithContent>(response);
     if (ctx.options.output === "json") ctx.json(payload);
     else ctx.print(payload.contentMd ?? "");
+    return 0;
+  }
+
+  if (command === "update-note") {
+    const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const body: Record<string, unknown> = {};
+    const title = stringFlag(ctx.flags, "title");
+    const position = numberFlag(ctx.flags, "position");
+    const parentRef = stringFlag(ctx.flags, "parent", "parent-id");
+    if (title !== undefined) body.title = title;
+    if (position !== undefined) body.position = position;
+    if (parentRef || booleanFlag(ctx.flags, "root")) {
+      body.parentId = parentRef ? (await resolveNoteRef(ctx, api, notebook.shortId, parentRef)).id : null;
+    }
+    if (Object.keys(body).length === 0) throw new Error("No note updates supplied.");
+    const payload = await ctx.readJson<Note>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(`Updated ${payload.title} (${payload.shortId}).`);
+    return 0;
+  }
+
+  if (command === "move-note") {
+    const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const parentRef = stringFlag(ctx.flags, "parent", "parent-id");
+    const parent = parentRef ? await resolveNoteRef(ctx, api, notebook.shortId, parentRef) : null;
+    const payload = await ctx.readJson<Note>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}/move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parentId: parent?.id ?? null, position: numberFlag(ctx.flags, "position") ?? note.position }),
+      }),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(`Moved ${payload.title} (${payload.shortId}).`);
+    return 0;
+  }
+
+  if (command === "copy-note") {
+    const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const targetRef = stringFlag(ctx.flags, "target-notebook");
+    if (!targetRef) throw new Error("Missing --target-notebook.");
+    const target = await resolveNotebookRef(ctx, api, targetRef);
+    const parentRef = stringFlag(ctx.flags, "parent", "parent-id");
+    const parent = parentRef ? await resolveNoteRef(ctx, api, target.shortId, parentRef) : null;
+    const payload = await ctx.readJson<Note>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}/copy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetNotebookId: target.id, targetParentId: parent?.id ?? null }),
+      }),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(`Copied ${note.title} to ${target.name} as ${payload.shortId}.`);
+    return 0;
+  }
+
+  if (command === "delete-note") {
+    if (!booleanFlag(ctx.flags, "yes")) throw new Error("Refusing to delete a note and its children without --yes.");
+    const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const payload = await ctx.readJson<MessageResponse>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}`, {
+        method: "DELETE",
+      }),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(payload.message);
+    return 0;
+  }
+
+  if (command === "lock-note") {
+    if (!booleanFlag(ctx.flags, "yes")) throw new Error("Refusing to permanently lock a note without --yes.");
+    const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const payload = await ctx.readJson<Note>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}/lock`, {
+        method: "POST",
+      }),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(`Locked ${payload.title} (${payload.shortId}).`);
+    return 0;
+  }
+
+  if (command === "favorite" || command === "unfavorite") {
+    const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const favorite = command === "favorite";
+    const payload = await ctx.readJson<{ favorite: boolean }>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}/favorite`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ favorite }),
+      }),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(`${favorite ? "Favorited" : "Unfavorited"} ${note.title} (${note.shortId}).`);
+    return 0;
+  }
+
+  if (command === "favorites") {
+    const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<{ noteId: string; createdAt: string }[]>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/favorites`),
+    );
+    printJsonOrTable(ctx, payload, payload, [
+      { key: "noteId", label: "NOTE ID" },
+      { key: "createdAt", label: "CREATED" },
+    ]);
+    return 0;
+  }
+
+  if (command === "backlinks") {
+    const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const payload = await ctx.readJson<{ data: Array<Record<string, unknown>> }>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}/backlinks`),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else
+      ctx.table(payload.data, [
+        { key: "noteShortId", label: "SHORT" },
+        { key: "title", label: "TITLE" },
+        { key: "notebookName", label: "NOTEBOOK" },
+        { key: "updatedAt", label: "UPDATED" },
+      ]);
+    return 0;
+  }
+
+  if (command === "graph") {
+    const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<unknown>(await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/graph`));
+    ctx.json(payload);
     return 0;
   }
 
@@ -572,13 +959,16 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef, rest } = await resolveNotebookArg(ctx, args, 1);
     const title = requireArg(rest, 0, "note title");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const parentRef = stringFlag(ctx.flags, "parent", "parent-id");
+    const parent = parentRef ? await resolveNoteRef(ctx, api, notebook.shortId, parentRef) : null;
+    const content = await readInputContent(ctx, false);
     const response = await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title,
-        parentId: stringFlag(ctx.flags, "parent", "parent-id"),
-        contentMd: stringFlag(ctx.flags, "content"),
+        parentId: parent?.shortId,
+        contentMd: content || undefined,
       }),
     });
     const payload = await ctx.readJson<Note>(response);
@@ -590,8 +980,9 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   if (command === "versions") {
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
     const response = await api[":id"].notes[":noteId"].versions.$get({
-      param: { id: notebook.shortId, noteId: noteRef },
+      param: { id: notebook.shortId, noteId: note.shortId },
       query: paginationQuery(ctx.flags),
     });
     const payload = await ctx.readJson<Page<NoteVersion>>(response);
@@ -612,12 +1003,284 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef, noteRef, rest } = await resolveNoteCommandArgs(ctx, args, 1);
     const versionId = requireArg(rest, 0, "version id");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
     const response = booleanFlag(ctx.flags, "content")
       ? await api[":id"].notes[":noteId"].versions[":versionId"].content.$get({
-          param: { id: notebook.shortId, noteId: noteRef, versionId },
+          param: { id: notebook.shortId, noteId: note.shortId, versionId },
         })
-      : await api[":id"].notes[":noteId"].versions[":versionId"].$get({ param: { id: notebook.shortId, noteId: noteRef, versionId } });
+      : await api[":id"].notes[":noteId"].versions[":versionId"].$get({
+          param: { id: notebook.shortId, noteId: note.shortId, versionId },
+        });
     const payload = await ctx.readJson<unknown>(response);
+    ctx.json(payload);
+    return 0;
+  }
+
+  if (command === "restore-version") {
+    const { notebookRef, noteRef, rest } = await resolveNoteCommandArgs(ctx, args, 1);
+    const versionId = requireArg(rest, 0, "version id");
+    const targetRef = stringFlag(ctx.flags, "target");
+    if (!targetRef) throw new Error("Missing --target <empty-note>.");
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const source = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const target = await resolveNoteRef(ctx, api, notebook.shortId, targetRef);
+    const version = await ctx.readJson<{ yjsSnapshot: string; contentMd: string | null }>(
+      await api[":id"].notes[":noteId"].versions[":versionId"].content.$get({
+        param: { id: notebook.shortId, noteId: source.shortId, versionId },
+      }),
+    );
+    const payload = await ctx.readJson<Note>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(target.shortId)}/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ yjsSnapshot: version.yjsSnapshot }),
+      }),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(`Restored version ${versionId} from ${source.title} into ${target.title}.`);
+    return 0;
+  }
+
+  if (command === "tags") {
+    const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<{ tag: string; count: number }[]>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/tags`),
+    );
+    printJsonOrTable(ctx, payload, payload, [
+      { key: "tag", label: "TAG" },
+      { key: "count", label: "NOTES" },
+    ]);
+    return 0;
+  }
+
+  if (command === "tag-notes") {
+    const { notebookRef, rest } = await resolveNotebookArg(ctx, args, 1);
+    const tag = requireArg(rest, 0, "tag").replace(/^#/, "");
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<Page<Note>>(
+      await api[":id"].search.$get({
+        param: { id: notebook.shortId },
+        query: paginationQuery(ctx.flags, { tags: tag }),
+      }),
+    );
+    printJsonOrTable(ctx, payload, noteRows(payload.data), [
+      { key: "shortId", label: "SHORT" },
+      { key: "title", label: "TITLE" },
+      { key: "updatedAt", label: "UPDATED" },
+    ]);
+    return 0;
+  }
+
+  if (command === "attachments") {
+    const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<Attachment[]>(await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments`));
+    printJsonOrTable(ctx, payload, payload, [
+      { key: "shortId", label: "SHORT" },
+      { key: "filename", label: "FILE" },
+      { key: "mimeType", label: "TYPE" },
+      { key: "sizeBytes", label: "BYTES" },
+      { key: "createdAt", label: "CREATED" },
+    ]);
+    return 0;
+  }
+
+  if (command === "attachment") {
+    const { notebookRef, rest } = await resolveNotebookArg(ctx, args, 1);
+    const attachmentRef = requireArg(rest, 0, "attachment");
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<Attachment>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments/${encodeURIComponent(attachmentRef)}`),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else {
+      ctx.print(`${payload.filename} (${payload.shortId})`);
+      ctx.print(`${payload.mimeType} · ${payload.sizeBytes} bytes · ${payload.createdAt}`);
+    }
+    return 0;
+  }
+
+  if (command === "upload-attachment") {
+    const { notebookRef, rest } = await resolveNotebookArg(ctx, args, 1);
+    const path = requireArg(rest, 0, "file path");
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const form = new FormData();
+    form.append("file", Bun.file(path), basename(path));
+    const payload = await ctx.readJson<Attachment>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments`, { method: "POST", body: form }),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(`Uploaded ${payload.filename} as attach://${payload.shortId}.`);
+    return 0;
+  }
+
+  if (command === "download-attachment") {
+    const { notebookRef, rest } = await resolveNotebookArg(ctx, args, 1);
+    const attachmentRef = requireArg(rest, 0, "attachment");
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const metadata = await ctx.readJson<Attachment>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments/${encodeURIComponent(attachmentRef)}`),
+    );
+    const output = stringFlag(ctx.flags, "output-file", "out") ?? metadata.filename;
+    const response = await ctx.fetch(
+      `/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments/${encodeURIComponent(metadata.shortId)}/content`,
+    );
+    if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+    await writeFile(output, new Uint8Array(await response.arrayBuffer()));
+    if (ctx.options.output === "json") ctx.json({ attachment: metadata, output });
+    else ctx.print(`Saved ${metadata.filename} to ${output}.`);
+    return 0;
+  }
+
+  if (command === "attachment-usage") {
+    const { notebookRef, rest } = await resolveNotebookArg(ctx, args, 1);
+    const attachmentRef = requireArg(rest, 0, "attachment");
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<{ count: number }>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments/${encodeURIComponent(attachmentRef)}/usage`),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(String(payload.count));
+    return 0;
+  }
+
+  if (command === "delete-attachment") {
+    if (!booleanFlag(ctx.flags, "yes")) throw new Error("Refusing to delete an attachment without --yes.");
+    const { notebookRef, rest } = await resolveNotebookArg(ctx, args, 1);
+    const attachmentRef = requireArg(rest, 0, "attachment");
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<MessageResponse>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments/${encodeURIComponent(attachmentRef)}`, {
+        method: "DELETE",
+      }),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(payload.message);
+    return 0;
+  }
+
+  if (command === "export") {
+    const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const output = stringFlag(ctx.flags, "output-file", "out") ?? `${notebook.name.replace(/[^a-zA-Z0-9._-]+/g, "-")}.zip`;
+    const response = await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/export.zip`);
+    if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+    await writeFile(output, new Uint8Array(await response.arrayBuffer()));
+    if (ctx.options.output === "json") ctx.json({ notebook, output });
+    else ctx.print(`Exported ${notebook.name} to ${output}.`);
+    return 0;
+  }
+
+  if (command === "api-keys") {
+    const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<{ items: ApiKey[] }>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/api-keys`),
+    );
+    printJsonOrTable(ctx, payload, payload.items, [
+      { key: "id", label: "ID" },
+      { key: "name", label: "NAME" },
+      { key: "permission", label: "PERMISSION" },
+      { key: "tokenPrefix", label: "PREFIX" },
+      { key: "lastUsedAt", label: "LAST USED" },
+    ]);
+    return 0;
+  }
+
+  if (command === "create-api-key") {
+    const { notebookRef, rest } = await resolveNotebookArg(ctx, args, 1);
+    const name = requireArg(rest, 0, "API key name");
+    const permission = stringFlag(ctx.flags, "permission") ?? "read";
+    if (!new Set(["read", "write", "admin"]).has(permission)) throw new Error("--permission must be read, write, or admin.");
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<{ credential: ApiKey; token: string }>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/api-keys`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, permission, expiresAt: stringFlag(ctx.flags, "expires-at") ?? null }),
+      }),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else {
+      ctx.print(`Created ${payload.credential.name} (${payload.credential.id}).`);
+      ctx.print(payload.token);
+    }
+    return 0;
+  }
+
+  if (command === "revoke-api-key") {
+    if (!booleanFlag(ctx.flags, "yes")) throw new Error("Refusing to revoke an API key without --yes.");
+    const { notebookRef, rest } = await resolveNotebookArg(ctx, args, 1);
+    const credentialId = requireArg(rest, 0, "credential id");
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<MessageResponse>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/api-keys/${encodeURIComponent(credentialId)}`, {
+        method: "DELETE",
+      }),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else ctx.print(payload.message);
+    return 0;
+  }
+
+  if (command === "snapshot") {
+    const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<SnapshotConfig>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/snapshots/config`),
+    );
+    ctx.json(payload);
+    return 0;
+  }
+
+  if (command === "update-snapshot") {
+    const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const current = await ctx.readJson<SnapshotConfig>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/snapshots/config`),
+    );
+    const enabled = optionalBooleanFlag(ctx.flags, "enabled") ?? current.enabled;
+    const payload = await ctx.readJson<SnapshotConfig>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/snapshots/config`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled,
+          endpoint: stringFlag(ctx.flags, "endpoint"),
+          region: stringFlag(ctx.flags, "region"),
+          bucket: stringFlag(ctx.flags, "bucket"),
+          accessKeyId: stringFlag(ctx.flags, "access-key-id"),
+          secretAccessKey: stringFlag(ctx.flags, "secret-access-key"),
+        }),
+      }),
+    );
+    ctx.json(payload);
+    return 0;
+  }
+
+  if (command === "snapshot-logs") {
+    const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<Array<Record<string, unknown>>>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/snapshots/logs`),
+    );
+    if (ctx.options.output === "json") ctx.json(payload);
+    else
+      ctx.table(payload, [
+        { key: "createdAt", label: "TIME" },
+        { key: "level", label: "LEVEL" },
+        { key: "message", label: "MESSAGE" },
+      ]);
+    return 0;
+  }
+
+  if (command === "run-snapshot") {
+    const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
+    const notebook = await resolveNotebookRef(ctx, api, notebookRef);
+    const payload = await ctx.readJson<unknown>(
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/snapshots/run`, { method: "POST" }),
+    );
     ctx.json(payload);
     return 0;
   }
@@ -734,7 +1397,7 @@ const editFlags = {
 
 export default defineCliCommands({
   name: "notebooks",
-  summary: "Read, search, and create notebooks through the Notebooks REST API.",
+  summary: "Manage notebooks, notes, search, attachments, access, exports, and snapshots.",
   commands: [
     command("list", {
       summary: "List notebooks",
@@ -773,6 +1436,41 @@ export default defineCliCommands({
       },
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "create", [args.name]),
     }),
+    command("update", {
+      summary: "Update notebook settings",
+      args: notebookArgs,
+      flags: {
+        ...notebookFlag,
+        name: flag.string({ description: "Notebook name" }),
+        description: flag.string({ description: "Notebook description" }),
+        clearDescription: flag.boolean({ name: "clear-description", description: "Clear the description" }),
+        icon: flag.string({ description: "Notebook icon" }),
+        clearIcon: flag.boolean({ name: "clear-icon", description: "Clear the icon" }),
+        homepage: flag.string({ description: "Homepage note id, short id, exact title, or path" }),
+        clearHomepage: flag.boolean({ name: "clear-homepage", description: "Clear the homepage note" }),
+        scriptsEnabled: flag.string({ name: "scripts-enabled", description: "Enable or disable scripts: true|false" }),
+      },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "update", args.args),
+    }),
+    command("delete", {
+      summary: "Delete a notebook and all of its content",
+      args: notebookArgs,
+      flags: { ...notebookFlag, yes: confirmFlag("Delete this notebook") },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "delete", args.args),
+    }),
+    command("templates", {
+      summary: "List built-in notebook templates",
+      run: ({ ctx }) => runNotebooksCommand(ctx, "templates", []),
+    }),
+    command("create-from-template", {
+      summary: "Create a notebook from a built-in template",
+      args: { template: arg.required({ description: "Template id" }) },
+      flags: {
+        name: flag.string({ description: "Override the notebook name" }),
+        use: flag.boolean({ description: "Use the new notebook as default" }),
+      },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "create-from-template", [args.template]),
+    }),
     ...notebookAccessCommands,
     command("tree", {
       summary: "Show a notebook note tree",
@@ -792,13 +1490,19 @@ export default defineCliCommands({
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "notes", args.args),
     }),
     command("search", {
-      summary: "Search notes in a notebook",
+      summary: "Search notes with full-text, tag, and timestamp filters",
       args: {
         args: arg.rest({ valueLabel: "notebook-query-args", description: "Optional leading notebook and search query." }),
       },
       flags: {
         ...notebookFlag,
+        all: flag.boolean({ description: "Search every accessible notebook" }),
         q: flag.string({ aliases: ["query"], description: "Search query" }),
+        tags: flag.string({ aliases: ["tag"], description: "Comma-separated tags; all must match" }),
+        createdAfter: flag.string({ name: "created-after", description: "Created at or after this ISO timestamp" }),
+        createdBefore: flag.string({ name: "created-before", description: "Created at or before this ISO timestamp" }),
+        updatedAfter: flag.string({ name: "updated-after", description: "Updated at or after this ISO timestamp" }),
+        updatedBefore: flag.string({ name: "updated-before", description: "Updated at or before this ISO timestamp" }),
         ...paginationFlagSpecs,
       },
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "search", args.args),
@@ -813,6 +1517,19 @@ export default defineCliCommands({
         blocks: flag.boolean({ description: "Print named block summaries" }),
       },
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "read", args.args),
+    }),
+    command("block", {
+      summary: "Read one named Markdown block with stable hash metadata",
+      args: {
+        args: arg.rest({ valueLabel: "notebook-note-block", description: "Optional notebook, note, and required block name." }),
+      },
+      flags: {
+        ...notebookFlag,
+        ...noteFlag,
+        type: flag.string({ description: "Restrict named block type" }),
+        index: flag.int({ min: 0, description: "Select a duplicate block by 0-based index" }),
+      },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "block", args.args),
     }),
     command("edit", {
       summary: "Edit note markdown content",
@@ -839,13 +1556,92 @@ export default defineCliCommands({
       },
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "content", args.args),
     }),
+    command("update-note", {
+      summary: "Update a note title, parent, or position",
+      args: noteArgs,
+      flags: {
+        ...notebookFlag,
+        ...noteFlag,
+        title: flag.string({ description: "New note title" }),
+        parent: flag.string({ aliases: ["parent-id"], description: "Parent note id, short id, exact title, or path" }),
+        root: flag.boolean({ description: "Move the note to the notebook root" }),
+        position: flag.int({ min: 0, description: "0-based sibling position" }),
+      },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "update-note", args.args),
+    }),
+    command("move-note", {
+      summary: "Move a note to another parent or the notebook root",
+      args: noteArgs,
+      flags: {
+        ...notebookFlag,
+        ...noteFlag,
+        parent: flag.string({ aliases: ["parent-id"], description: "Parent note id, short id, exact title, or path" }),
+        position: flag.int({ min: 0, description: "0-based sibling position" }),
+      },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "move-note", args.args),
+    }),
+    command("copy-note", {
+      summary: "Copy a note to another notebook",
+      args: noteArgs,
+      flags: {
+        ...notebookFlag,
+        ...noteFlag,
+        targetNotebook: flag.string({ name: "target-notebook", description: "Target notebook id, short id, or exact name" }),
+        parent: flag.string({ aliases: ["parent-id"], description: "Target parent note id, short id, exact title, or path" }),
+      },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "copy-note", args.args),
+    }),
+    command("delete-note", {
+      summary: "Delete a note and all of its children",
+      args: noteArgs,
+      flags: { ...notebookFlag, ...noteFlag, yes: confirmFlag("Delete this note and its children") },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "delete-note", args.args),
+    }),
+    command("lock-note", {
+      summary: "Permanently lock a note",
+      args: noteArgs,
+      flags: { ...notebookFlag, ...noteFlag, yes: confirmFlag("Permanently lock this note") },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "lock-note", args.args),
+    }),
+    command("favorite", {
+      summary: "Favorite a note for the current user",
+      args: noteArgs,
+      flags: { ...notebookFlag, ...noteFlag },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "favorite", args.args),
+    }),
+    command("unfavorite", {
+      summary: "Remove a note from the current user's favorites",
+      args: noteArgs,
+      flags: { ...notebookFlag, ...noteFlag },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "unfavorite", args.args),
+    }),
+    command("favorites", {
+      summary: "List favorite note ids",
+      args: notebookArgs,
+      flags: notebookFlag,
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "favorites", args.args),
+    }),
+    command("backlinks", {
+      summary: "List notes linking to a note",
+      args: noteArgs,
+      flags: { ...notebookFlag, ...noteFlag },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "backlinks", args.args),
+    }),
+    command("graph", {
+      summary: "Print the notebook note-link graph as JSON",
+      args: notebookArgs,
+      flags: notebookFlag,
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "graph", args.args),
+    }),
     command("create-note", {
       summary: "Create a note",
       args: notebookArgs,
       flags: {
         ...notebookFlag,
-        parent: flag.string({ aliases: ["parent-id"], description: "Parent note id or short id" }),
+        parent: flag.string({ aliases: ["parent-id"], description: "Parent note id, short id, exact title, or path" }),
         content: flag.string({ description: "Initial markdown content" }),
+        file: flag.string({ aliases: ["f"], description: "Read initial markdown from file" }),
+        stdin: flag.boolean({ description: "Read initial markdown from stdin" }),
       },
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "create-note", args.args),
     }),
@@ -868,6 +1664,132 @@ export default defineCliCommands({
         content: flag.boolean({ description: "Show version content" }),
       },
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "version", args.args),
+    }),
+    command("restore-version", {
+      summary: "Restore a version into an existing empty note",
+      args: {
+        args: arg.rest({ valueLabel: "notebook-note-version", description: "Optional notebook, source note, and version id." }),
+      },
+      flags: {
+        ...notebookFlag,
+        ...noteFlag,
+        target: flag.string({ description: "Empty target note id, short id, exact title, or path" }),
+      },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "restore-version", args.args),
+    }),
+    command("tags", {
+      summary: "List notebook tags and usage counts",
+      args: notebookArgs,
+      flags: notebookFlag,
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "tags", args.args),
+    }),
+    command("tag-notes", {
+      summary: "List notes carrying a tag",
+      args: notebookArgs,
+      flags: { ...notebookFlag, ...paginationFlagSpecs },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "tag-notes", args.args),
+    }),
+    command("attachments", {
+      summary: "List notebook attachments",
+      args: notebookArgs,
+      flags: notebookFlag,
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "attachments", args.args),
+    }),
+    command("attachment", {
+      summary: "Show attachment metadata",
+      args: notebookArgs,
+      flags: notebookFlag,
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "attachment", args.args),
+    }),
+    command("upload-attachment", {
+      summary: "Upload a notebook attachment",
+      args: notebookArgs,
+      flags: notebookFlag,
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "upload-attachment", args.args),
+    }),
+    command("download-attachment", {
+      summary: "Download an attachment to a local file",
+      args: notebookArgs,
+      flags: {
+        ...notebookFlag,
+        outputFile: flag.string({ name: "output-file", aliases: ["out"], description: "Destination file path" }),
+      },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "download-attachment", args.args),
+    }),
+    command("attachment-usage", {
+      summary: "Count notes referencing an attachment",
+      args: notebookArgs,
+      flags: notebookFlag,
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "attachment-usage", args.args),
+    }),
+    command("delete-attachment", {
+      summary: "Delete a notebook attachment",
+      args: notebookArgs,
+      flags: { ...notebookFlag, yes: confirmFlag("Delete this attachment") },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "delete-attachment", args.args),
+    }),
+    command("export", {
+      summary: "Export a notebook as a portable ZIP archive",
+      args: notebookArgs,
+      flags: {
+        ...notebookFlag,
+        outputFile: flag.string({ name: "output-file", aliases: ["out"], description: "Destination ZIP path" }),
+      },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "export", args.args),
+    }),
+    command("api-keys", {
+      summary: "List resource-bound notebook API keys",
+      args: notebookArgs,
+      flags: notebookFlag,
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "api-keys", args.args),
+    }),
+    command("create-api-key", {
+      summary: "Create a resource-bound notebook API key",
+      args: notebookArgs,
+      flags: {
+        ...notebookFlag,
+        permission: flag.string({ description: "read, write, or admin" }),
+        expiresAt: flag.string({ name: "expires-at", description: "Optional ISO expiry timestamp" }),
+      },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "create-api-key", args.args),
+    }),
+    command("revoke-api-key", {
+      summary: "Revoke a notebook API key",
+      args: notebookArgs,
+      flags: { ...notebookFlag, yes: confirmFlag("Revoke this notebook API key") },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "revoke-api-key", args.args),
+    }),
+    command("snapshot", {
+      summary: "Show redacted S3 snapshot configuration",
+      args: notebookArgs,
+      flags: notebookFlag,
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "snapshot", args.args),
+    }),
+    command("update-snapshot", {
+      summary: "Update S3 snapshot configuration",
+      args: notebookArgs,
+      flags: {
+        ...notebookFlag,
+        enabled: flag.string({ description: "Enable or disable snapshots: true|false" }),
+        endpoint: flag.string({ description: "S3 endpoint" }),
+        region: flag.string({ description: "S3 region" }),
+        bucket: flag.string({ description: "S3 bucket" }),
+        accessKeyId: flag.string({ name: "access-key-id", description: "S3 access key id" }),
+        secretAccessKey: flag.string({ name: "secret-access-key", description: "S3 secret access key" }),
+      },
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "update-snapshot", args.args),
+    }),
+    command("snapshot-logs", {
+      summary: "List recent S3 snapshot logs",
+      args: notebookArgs,
+      flags: notebookFlag,
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "snapshot-logs", args.args),
+    }),
+    command("run-snapshot", {
+      summary: "Run an S3 snapshot now",
+      args: notebookArgs,
+      flags: notebookFlag,
+      run: ({ ctx, args }) => runNotebooksCommand(ctx, "run-snapshot", args.args),
     }),
   ],
 });

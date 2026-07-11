@@ -17,6 +17,9 @@ const snippet = (content: string | null) => {
   return compact.slice(0, 120);
 };
 
+const cleanSearchSnippet = (value: string | null): string | undefined =>
+  value ? value.replaceAll("\uE000", "").replaceAll("\uE001", "").trim() || undefined : undefined;
+
 export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
   const user = getSearchUser(input.ctx);
   const tags = new Set(input.tags);
@@ -44,10 +47,10 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
       ? notebooksService.note.searchAcross({
           userId: user.id,
           groups: user.memberofGroupIds,
-          query: input.query,
-          limit: input.limit,
+          filters: { query: input.query },
+          pagination: { page: 1, perPage: input.limit, offset: 0 },
         })
-      : Promise.resolve([]),
+      : Promise.resolve({ hits: [], total: 0 }),
   ]);
 
   const notebookItems = notebooksPage.items.map((entry) => ({
@@ -63,11 +66,11 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
     ],
   }));
 
-  const noteItems: AppSearchResult[] = noteHits.map(({ note, notebook }) => ({
+  const noteItems: AppSearchResult[] = noteHits.hits.map(({ note, notebook, snippet: matchSnippet }) => ({
     id: `note:${note.id}`,
     title: note.title,
     href: `/app/notebooks/${notebook.shortId}/notes/${note.shortId}`,
-    preview: snippet(note.contentMd),
+    preview: cleanSearchSnippet(matchSnippet) ?? snippet(note.contentMd),
     icon: "ti ti-file-text",
     priority: 8 as const,
     metadata: [

@@ -75,6 +75,54 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   await sql`ALTER TABLE notebooks.notes ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_short_id ON notebooks.notes(short_id)`.simple();
+
+  // Canonical search projection. `simple` keeps mixed-language notebooks
+  // predictable; title lexemes rank above body lexemes. This native GIN path
+  // is always available and remains the correctness baseline even when an
+  // optional BM25 ranker is installed.
+  await sql`
+    ALTER TABLE notebooks.notes
+    ADD COLUMN IF NOT EXISTS search_document tsvector
+    GENERATED ALWAYS AS (
+      setweight(to_tsvector('simple', COALESCE(title, '')), 'A') ||
+      setweight(to_tsvector('simple', COALESCE(content_md, '')), 'B')
+    ) STORED
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_notes_search_document
+    ON notebooks.notes USING GIN(search_document)
+  `.simple();
+
+  // pg_textsearch is an optional ranking accelerator. Production operators
+  // install and preload the extension; dev and older PostgreSQL versions use
+  // the native GIN index above. Failure to prepare this optional index must
+  // never prevent Notebooks from starting.
+  try {
+    const [extension] = await sql<{ available: boolean; installed: boolean; server_version: number }[]>`
+      SELECT
+        EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pg_textsearch') AS available,
+        EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_textsearch') AS installed,
+        current_setting('server_version_num')::int AS server_version
+    `;
+    let installed = extension?.installed ?? false;
+    if (!installed && extension?.available && extension.server_version >= 170000) {
+      await sql`CREATE EXTENSION IF NOT EXISTS pg_textsearch`.simple();
+      installed = true;
+    }
+    if (installed) {
+      await sql
+        .unsafe(`
+          CREATE INDEX IF NOT EXISTS notes_search_bm25_idx
+          ON notebooks.notes USING bm25 (
+            (COALESCE(title, '') || ' ' || COALESCE(title, '') || ' ' || COALESCE(content_md, ''))
+          ) WITH (text_config='simple')
+        `)
+        .simple();
+      console.log("  ✓ notebooks optional BM25 search index");
+    }
+  } catch (error) {
+    console.warn("  ! notebooks optional BM25 search index unavailable; native PostgreSQL FTS remains active", error);
+  }
   console.log("  ✓ notebooks.notes table");
 
   await sql`ALTER TABLE notebooks.notebooks ADD COLUMN IF NOT EXISTS homepage_note_id UUID`.simple();

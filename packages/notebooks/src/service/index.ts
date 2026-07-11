@@ -12,6 +12,7 @@ import * as notebooks from "./notebooks";
 import * as notes from "./notes";
 import * as presence from "./presence";
 import { reindexRuntime } from "./reindex-scheduler";
+import * as search from "./search";
 import * as tags from "./tags";
 import * as templates from "./templates";
 import * as workspaceEvents from "./workspace-events";
@@ -175,9 +176,9 @@ export const notebooksService = {
       restore: notes.restoreFromSnapshot,
     },
     copyToNotebook: notes.copyToNotebook,
-    search: notes.search,
-    /** Single-query cross-notebook search used by the global search dialog. */
-    searchAcross: notes.searchAcross,
+    search: search.searchInNotebook,
+    /** ACL-safe cross-notebook search used by app search, REST, and the CLI. */
+    searchAcross: search.searchAcross,
     recentForUser: notes.recentForUser,
     favorites: {
       listIds: favorites.listIds,

@@ -91,6 +91,19 @@ const NoteWithContentSchema = NoteSchema.extend({
   yjsSnapshot: z.string().nullable().describe("Base64-encoded Yjs snapshot"),
 });
 
+const NoteSearchSummarySchema = NoteSchema.omit({ contentMd: true });
+
+const NoteSearchHitSchema = z.object({
+  note: NoteSearchSummarySchema,
+  notebook: z.object({
+    id: z.uuid(),
+    shortId: z.string(),
+    name: z.string(),
+    icon: z.string().nullable(),
+  }),
+  snippet: z.string().nullable().describe("Plain text excerpt with U+E000/U+E001 match markers"),
+});
+
 const NamedBlockTypeSchema = z.enum(["table", "list", "data", "section", "script", "unknown"]);
 
 const NoteEditBlockFields = {
@@ -379,6 +392,29 @@ const ListNotesQuerySchema = z.object({
   parentId: z.uuid().optional(),
 });
 
+const NoteSearchQuerySchema = z.object({
+  ...PaginationQuerySchema.shape,
+  q: z.string().max(500).optional(),
+  tags: z.string().max(1000).optional().describe("Comma-separated tags; every tag must match"),
+  created_after: z.string().datetime({ offset: true }).optional(),
+  created_before: z.string().datetime({ offset: true }).optional(),
+  updated_after: z.string().datetime({ offset: true }).optional(),
+  updated_before: z.string().datetime({ offset: true }).optional(),
+});
+
+const GlobalNoteSearchQuerySchema = NoteSearchQuerySchema.extend({
+  notebook: z.string().max(100).optional().describe("Notebook UUID or short-id"),
+});
+
+const parseSearchFilters = (query: z.infer<typeof NoteSearchQuerySchema>) => ({
+  query: query.q,
+  tags: query.tags?.split(","),
+  createdAfter: query.created_after,
+  createdBefore: query.created_before,
+  updatedAfter: query.updated_after,
+  updatedBefore: query.updated_before,
+});
+
 // ==========================
 // Helpers
 // ==========================
@@ -610,6 +646,54 @@ const app = new Hono<AuthContext>()
       const user = userResult.data;
       const data = c.req.valid("json");
       return respond(c, notebooksService.notebook.create({ data, creatorId: user.id }));
+    },
+  )
+
+  // Search accessible notes across notebooks. This static route must stay
+  // before `/:id` so Hono does not interpret "search" as a notebook id.
+  .get(
+    "/search",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Search accessible notes",
+      description: "Full-text search across accessible notebooks with optional notebook, tag, and timestamp filters.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.object({ data: z.array(NoteSearchHitSchema), pagination: PaginationResponseSchema }), "Search results"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+      },
+    }),
+    v("query", GlobalNoteSearchQuerySchema),
+    async (c) => {
+      const userResult = requireUserBackedActor(c);
+      if (!userResult.ok) return respond(c, userResult);
+      const query = c.req.valid("query");
+      const pagination = parsePagination(query);
+
+      let notebookId: string | undefined;
+      if (query.notebook) {
+        const checked = await checkNotebookAccess(c, query.notebook);
+        if (checked.error) return checked.error;
+        notebookId = checked.notebook!.id;
+      }
+
+      const result = await notebooksService.note.searchAcross({
+        userId: userResult.data.id,
+        groups: userResult.data.memberofGroupIds,
+        notebookId,
+        filters: parseSearchFilters(query),
+        pagination,
+      });
+      return respond(
+        c,
+        ok({
+          data: result.hits.map(({ note, ...hit }) => {
+            const { contentMd: _contentMd, ...summary } = note;
+            return { ...hit, note: summary };
+          }),
+          pagination: createPagination(pagination, result.total),
+        }),
+      );
     },
   )
 
@@ -1310,7 +1394,7 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Notebooks"],
       summary: "Search notes",
-      description: "Search notes by title and content within a notebook with pagination.",
+      description: "Full-text search within a notebook with optional tag and timestamp filters.",
       ...requiresAuth,
       responses: {
         200: jsonResponse(
@@ -1324,7 +1408,7 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Notebook not found"),
       },
     }),
-    v("query", z.object({ q: z.string().min(1) }).merge(PaginationQuerySchema)),
+    v("query", NoteSearchQuerySchema),
     async (c) => {
       let notebookId = c.req.param("id")!;
       const query = c.req.valid("query");
@@ -1334,16 +1418,18 @@ const app = new Hono<AuthContext>()
       if (error) return error;
       notebookId = notebook!.id;
 
-      const { notes: results, total } = await notebooksService.note.search({
+      const result = await notebooksService.note.search({
         notebookId,
-        query: query.q,
+        filters: parseSearchFilters(query),
         pagination,
       });
       return respond(
         c,
         ok({
-          data: results,
-          pagination: createPagination(pagination, total),
+          // Keep the long-standing scoped response compatible. Consumers that
+          // need snippets and notebook identity use the global `/search` route.
+          data: result.hits.map((hit) => hit.note),
+          pagination: createPagination(pagination, result.total),
         }),
       );
     },

@@ -5,11 +5,13 @@ type NoteResult = {
   id: string;
   shortId: string;
   title: string;
-  contentMd: string | null;
 };
 
 type SearchResponse = {
-  data: NoteResult[];
+  data: Array<{
+    note: NoteResult;
+    snippet: string | null;
+  }>;
   pagination: {
     page: number;
     per_page: number;
@@ -21,21 +23,8 @@ type SearchResponse = {
 
 const PER_PAGE = 20;
 
-const getSnippet = (content: string | null, query: string): string | undefined => {
-  if (!content) return undefined;
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) return undefined;
-  const lower = content.toLowerCase();
-  const idx = lower.indexOf(normalizedQuery);
-  if (idx === -1) return content.replace(/\n/g, " ").trim().slice(0, 120) || undefined;
-  const start = Math.max(0, idx - 40);
-  const end = Math.min(content.length, idx + normalizedQuery.length + 80);
-  let snippet = content.slice(start, end).replace(/\n/g, " ").trim();
-  if (snippet.length === 0) return undefined;
-  if (start > 0) snippet = `...${snippet}`;
-  if (end < content.length) snippet = `${snippet}...`;
-  return snippet;
-};
+const cleanSnippet = (snippet: string | null): string | undefined =>
+  snippet?.replaceAll("\uE000", "").replaceAll("\uE001", "").replace(/\s+/g, " ").trim() || undefined;
 
 export type PickedNote = {
   id: string;
@@ -60,20 +49,19 @@ const runNotePrompt = async (notebookId: string, dressing: PromptDressing): Prom
       const trimmed = query.trim();
       if (trimmed.length === 0) return [];
 
-      const response = await apiClient[":id"].search.$get(
+      const response = await apiClient.search.$get(
         {
-          param: { id: notebookId },
-          query: { q: trimmed, page: "1", per_page: String(PER_PAGE) },
+          query: { q: trimmed, notebook: notebookId, page: "1", per_page: String(PER_PAGE) },
         },
         { init: { signal: abortSignal } },
       );
       if (!response.ok) return [];
 
       const payload = await response.json();
-      return payload.data.map((note) => ({
-        value: { id: note.id, shortId: note.shortId, title: note.title },
-        label: note.title,
-        desc: getSnippet(note.contentMd, trimmed),
+      return (payload as SearchResponse).data.map((hit) => ({
+        value: { id: hit.note.id, shortId: hit.note.shortId, title: hit.note.title },
+        label: hit.note.title,
+        desc: cleanSnippet(hit.snippet),
       }));
     },
   });

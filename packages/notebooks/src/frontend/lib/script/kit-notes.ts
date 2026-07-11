@@ -135,49 +135,41 @@ const fetchPagesUpTo = async (
   return { items: toKitNotesWithShortParents(out), truncated: true };
 };
 
-// =============================================================================
-// Search-result post-filter
-// =============================================================================
+const searchPages = async (notebookId: string, query: KitQuery, offset: number, limit: number): Promise<KitNote[]> => {
+  const startPage = Math.floor(offset / API_PER_PAGE_MAX) + 1;
+  const withinPageOffset = offset % API_PER_PAGE_MAX;
+  const needed = withinPageOffset + limit;
+  const out: ApiNote[] = [];
+  let page = startPage;
 
-/** Apply the parts of a `KitQuery` the API doesn't natively filter
- *  on — date ranges, tags. Done client-side because the
- *  notebook-scope cap (typical notebook is hundreds of notes, not
- *  millions) makes this cheap; if performance ever bites, lift to
- *  server-side query params. */
-const postFilter = (notes: KitNote[], query: KitQuery): KitNote[] => {
-  let out = notes;
-  if (query.tags && query.tags.length > 0) {
-    const wanted = new Set(query.tags.map((t) => t.toLowerCase()));
-    out = out.filter((n) => {
-      const has = new Set(n.tags);
-      for (const t of wanted) if (!has.has(t)) return false;
-      return true;
-    });
+  while (out.length < needed) {
+    const apiQuery: Record<string, string> = {
+      page: String(page),
+      // Keep page size stable so page arithmetic remains correct when offset
+      // starts beyond the first page.
+      per_page: String(API_PER_PAGE_MAX),
+    };
+    if (query.search?.trim()) apiQuery.q = query.search.trim();
+    if (query.tags?.length) apiQuery.tags = query.tags.map((tag) => tag.replace(/^#/, "")).join(",");
+    if (query.createdAfter) apiQuery.created_after = query.createdAfter;
+    if (query.createdBefore) apiQuery.created_before = query.createdBefore;
+    if (query.updatedAfter) apiQuery.updated_after = query.updatedAfter;
+    if (query.updatedBefore) apiQuery.updated_before = query.updatedBefore;
+
+    const response = await apiClient[":id"].search.$get({ param: { id: notebookId }, query: apiQuery });
+    if (!response.ok) throw new Error("nb.search: API call failed");
+    const payload = (await response.json()) as { data: ApiNote[]; pagination: { has_next?: boolean } };
+    out.push(...payload.data);
+    if (payload.data.length === 0 || !payload.pagination.has_next) break;
+    page++;
   }
-  if (query.createdAfter) out = out.filter((n) => n.createdAt >= query.createdAfter!);
-  if (query.createdBefore) out = out.filter((n) => n.createdAt <= query.createdBefore!);
-  if (query.updatedAfter) out = out.filter((n) => n.updatedAt >= query.updatedAfter!);
-  if (query.updatedBefore) out = out.filter((n) => n.updatedAt <= query.updatedBefore!);
-  return out;
+
+  return toKitNotesWithShortParents(out).slice(withinPageOffset, withinPageOffset + limit);
 };
 
 // =============================================================================
 // Factory
 // =============================================================================
-
-/** Attach a non-enumerable `__truncated` flag to a result array
- *  without altering its serialised / iterated shape. Scripts that
- *  ignore the flag see the same `KitNote[]` they always have;
- *  scripts that want to detect cap-overflow can read it. */
-const flagTruncated = (items: KitNote[]): KitNote[] => {
-  Object.defineProperty(items, "__truncated", {
-    value: true,
-    enumerable: false,
-    writable: false,
-    configurable: true,
-  });
-  return items;
-};
 
 export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
   const list = async (): Promise<KitNote[]> => {
@@ -228,51 +220,7 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
     const userLimit = Math.max(0, Math.min(q.limit ?? 50, 200));
     const userOffset = Math.max(0, q.offset ?? 0);
 
-    const hasPostFilter =
-      (q.tags && q.tags.length > 0) ||
-      q.createdAfter !== undefined ||
-      q.createdBefore !== undefined ||
-      q.updatedAfter !== undefined ||
-      q.updatedBefore !== undefined;
-
-    if (!hasPostFilter) {
-      // Fast path: API can answer this query natively. Seek to the
-      // API page containing `userOffset` rather than re-fetching
-      // every prior page (codex review on commit 40ee626: offset
-      // pagination must stay O(limit), not O(offset)). Within-
-      // page slice handles the residual when `userOffset` falls
-      // mid-page.
-      const startPage = Math.floor(userOffset / API_PER_PAGE_MAX) + 1;
-      const withinPageOffset = userOffset % API_PER_PAGE_MAX;
-      const needed = withinPageOffset + userLimit;
-      const { items } = await fetchPagesUpTo(ctx.notebookId, needed, q.search, startPage);
-      // Fast path doesn't risk silent truncation — `userLimit` is
-      // capped at 200, well under SEARCH_FETCH_CAP, and the API
-      // itself enforces the user's offset/limit so partial pages
-      // are expected when the notebook is shorter than the slice.
-      return items.slice(withinPageOffset, withinPageOffset + userLimit);
-    }
-
-    // Slow path: tags / date filters aren't server-side, so we
-    // have to fetch, filter, then paginate client-side. Walk the
-    // pages until exhausted or until the safety cap.
-    const { items: all, truncated } = await fetchPagesUpTo(ctx.notebookId, SEARCH_FETCH_CAP, q.search);
-    if (truncated) {
-      // Silent truncation here would give the wrong answer for
-      // filter-based searches — date / tag filters apply to the
-      // full notebook, but we only saw the first N notes. Warn
-      // loudly + flag the array so scripts can detect this
-      // programmatically. The result is still returned (degraded
-      // gracefully — same behaviour as before, plus a signal).
-      console.warn(
-        `nb.search: notebook has more than ${SEARCH_FETCH_CAP} notes; ` +
-          "filter-based search saw only the first page set. " +
-          "Results may be incomplete. Add a `search` term to narrow server-side.",
-      );
-    }
-    const filtered = postFilter(all, q);
-    const sliced = filtered.slice(userOffset, userOffset + userLimit);
-    return truncated ? flagTruncated(sliced) : sliced;
+    return searchPages(ctx.notebookId, q, userOffset, userLimit);
   };
 
   const searchTags = async (tags: string | string[], options?: { limit?: number; offset?: number }) => {
