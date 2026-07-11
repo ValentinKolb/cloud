@@ -15,21 +15,13 @@ import type {
   WorkflowValue,
 } from "../contracts";
 import { logAudit } from "./audit";
-import {
-  buildTemplateAppData,
-  buildTemplateBusinessData,
-  createDocumentLink,
-  createRunForRecord,
-  getTemplate,
-  publicDocumentLinkUrl,
-} from "./documents";
-import * as emailTemplates from "./email-templates";
+import { createDocumentLink, createRunForRecord, getTemplate, publicDocumentLinkUrl } from "./documents";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 import type { GridsRecordEvent } from "./record-events";
 import { create as createRecord, get as getRecord, list as listRecords, update as updateRecord } from "./records";
 import { get as getTable } from "./tables";
 import type { GridRecord, Table } from "./types";
-import { recordWorkflowEmailDelivery } from "./workflow-email-deliveries";
+import { executeWorkflowEmailAction, type WorkflowEmailAction, type WorkflowNotificationSender } from "./workflow-email-action";
 import { requestWorkflowHttp } from "./workflow-http-client";
 import {
   claimRun,
@@ -43,7 +35,6 @@ import {
   getWorkflowRun,
   heartbeatRun,
   loadWorkflowCatalog,
-  resolveWorkflowEmailTemplateRef,
   resolveWorkflowFieldRef,
   resolveWorkflowTableRef,
   resolveWorkflowTemplateRef,
@@ -75,13 +66,6 @@ type RuntimeCreateDocumentLinkAction = {
   comment?: WorkflowValue;
   saveAs?: string;
 };
-type RuntimeEmailRecipient = { email: WorkflowValue } | { user: WorkflowValue };
-type RuntimeSendEmailAction = {
-  template: string;
-  to: RuntimeEmailRecipient[];
-  data?: Record<string, WorkflowValue>;
-  saveAs?: string;
-};
 type RuntimeHttpRequestAction = {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   url: string;
@@ -92,7 +76,6 @@ type RuntimeHttpRequestAction = {
 };
 type RuntimeSetVariableAction = { name: string; value: WorkflowValue };
 type RuntimeStep = Record<string, unknown>;
-type WorkflowNotificationSender = Pick<typeof notifications, "send" | "sendToUser">;
 
 export type WorkflowRuntimeInput = Record<string, unknown>;
 
@@ -152,7 +135,6 @@ type WorkflowRunPrincipal = {
 const MAX_BULK_RECORDS = 10_000;
 const MAX_LOOP_ITEMS = MAX_BULK_RECORDS;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SCAN_CODE_PATH_RE = /(?:^|\/)scan(?:\?|$)/;
 
 type RuntimeContext = {
@@ -621,7 +603,7 @@ const saveRestoredStepOutput = (ctx: RuntimeContext, item: RuntimeStep, value: R
     return;
   }
   if ("sendEmail" in item) {
-    const action = item.sendEmail as RuntimeSendEmailAction;
+    const action = item.sendEmail as WorkflowEmailAction;
     if (action.saveAs && value !== null) ctx.variables.set(action.saveAs, value);
     return;
   }
@@ -865,142 +847,21 @@ const executeCreateDocumentLink = async (ctx: RuntimeContext, action: RuntimeCre
   return ok(output);
 };
 
-const recipientSummary = (kind: "email" | "user", value: string): string => {
-  if (kind === "user") return `user:${value}`;
-  const [name, domain] = value.split("@");
-  return domain ? `${name?.slice(0, 2) ?? ""}***@${domain}` : "***";
-};
-
-const renderEmailData = async (ctx: RuntimeContext, action: RuntimeSendEmailAction): Promise<Result<Record<string, unknown>>> => {
-  const values: Record<string, unknown> = {};
-  for (const [key, raw] of Object.entries(action.data ?? {})) {
-    const evaluated = await evaluateValue(ctx, raw);
-    if (!evaluated.ok) return evaluated;
-    values[key] = valueToPlain(evaluated.data);
-  }
-  const app = await buildTemplateAppData();
-  return ok({
-    data: values,
-    app,
-    business: await buildTemplateBusinessData(ctx.workflow.baseId, app),
-    workflow: { id: ctx.workflow.id, shortId: ctx.workflow.shortId, name: ctx.workflow.name },
-    run: { id: ctx.runId },
-    date: { iso: new Date().toISOString() },
-  });
-};
-
-const executeSendEmail = async (ctx: RuntimeContext, action: RuntimeSendEmailAction): Promise<Result<RuntimeValue>> => {
-  const workflowRunId = ctx.runId;
-  if (!workflowRunId) return fail(err.internal("sendEmail requires an active workflow run"));
-  const templateRef = resolveWorkflowEmailTemplateRef(ctx.catalog, action.template);
-  if (!templateRef) return fail(err.badInput(`unknown workflow email template "${action.template}"`));
-  const template = await emailTemplates.get(templateRef.id);
-  if (!template) return fail(err.notFound("email template"));
-  if (!template.enabled) return fail(err.badInput(`email template "${template.name}" is disabled`));
-  const data = await renderEmailData(ctx, action);
-  if (!data.ok) return data;
-  const rendered = await emailTemplates.renderEmailTemplate(template, data.data);
-  if (!rendered.ok) return rendered;
-
-  const sent: Array<{ deliveryId: string; id: string; kind: "email" | "user"; recipient: string; status: string }> = [];
-  for (const recipient of action.to) {
-    const kind = "email" in recipient ? "email" : "user";
-    const raw = "email" in recipient ? recipient.email : recipient.user;
-    const evaluated = await evaluateValue(ctx, raw);
-    if (!evaluated.ok) return evaluated;
-    if (typeof evaluated.data !== "string" || !evaluated.data.trim())
-      return fail(err.badInput(`sendEmail.${kind} recipient must resolve to text`));
-    const value = evaluated.data.trim();
-    if (kind === "email" && !EMAIL_RE.test(value)) return fail(err.badInput("sendEmail.email recipient must resolve to an email address"));
-    if (kind === "user" && !UUID_RE.test(value)) return fail(err.badInput("sendEmail.user recipient must resolve to a Cloud user id"));
-    let notificationId = "";
-    let status = "error";
-    let errorMessage: string | null = null;
-    if (kind === "email") {
-      const result = await ctx.notificationSender.send({
-        type: "email",
-        recipient: value,
-        subject: rendered.data.subject,
-        rawHtml: rendered.data.html,
-        sentBy: ctx.actorUserId ?? undefined,
-      });
-      notificationId = result.id;
-      status = result.status;
-      if (result.status === "error") errorMessage = result.error ?? "email delivery failed";
-    } else {
-      const result = await ctx.notificationSender.sendToUser({
-        userId: value,
-        subject: rendered.data.subject,
-        rawHtml: rendered.data.html,
-        sentBy: ctx.actorUserId ?? undefined,
-      });
-      if (result.ok) {
-        notificationId = result.id;
-        status = "sent";
-      } else {
-        errorMessage = result.error;
-      }
-    }
-    const summary = recipientSummary(kind, value);
-    const delivery = await sql.begin(async (tx) => {
-      const stored = await recordWorkflowEmailDelivery(
-        {
-          baseId: ctx.workflow.baseId,
-          workflowId: ctx.workflow.id,
-          workflowRunId,
-          templateId: template.id,
-          recipientKind: kind,
-          recipientSummary: summary,
-          notificationId: notificationId || null,
-          providerStatus: status,
-          status: errorMessage ? "failed" : "sent",
-          subject: rendered.data.subject,
-          error: errorMessage,
-        },
-        tx,
-      );
-      const recipientAudit = {
-        deliveryId: stored.id,
-        kind,
-        recipient: summary,
-        notificationId,
-        status,
-      };
-      await logAudit(
-        {
-          baseId: ctx.workflow.baseId,
-          userId: ctx.actorUserId,
-          action: errorMessage ? "workflow.email.failed" : "workflow.email.sent",
-          diff: {
-            workflowEmail: {
-              old: null,
-              new: errorMessage
-                ? { ...workflowAuditMeta(ctx), templateId: template.id, ...recipientAudit, error: errorMessage }
-                : {
-                    ...workflowAuditMeta(ctx),
-                    templateId: template.id,
-                    subject: rendered.data.subject,
-                    recipients: [recipientAudit],
-                  },
-            },
-          },
-        },
-        tx,
-      );
-      return stored;
-    });
-    sent.push({ deliveryId: delivery.id, id: notificationId, kind, recipient: summary, status });
-    if (errorMessage) return fail(err.badInput(errorMessage));
-  }
-
-  const output = {
-    templateId: template.id,
-    subject: rendered.data.subject,
-    recipients: sent,
-  };
-  if (action.saveAs) ctx.variables.set(action.saveAs, output);
-  return ok(output);
-};
+const executeSendEmail = (ctx: RuntimeContext, action: WorkflowEmailAction): Promise<Result<WorkflowValue>> =>
+  executeWorkflowEmailAction(
+    {
+      workflow: ctx.workflow,
+      catalog: ctx.catalog,
+      runId: ctx.runId,
+      actorUserId: ctx.actorUserId,
+      serviceAccountId: ctx.serviceAccountId,
+      notificationSender: ctx.notificationSender,
+      evaluate: (value) => evaluateValue(ctx, value),
+      toPlain: valueToPlain,
+      saveVariable: (name, value) => ctx.variables.set(name, value),
+    },
+    action,
+  );
 
 const executeHttpRequest = async (ctx: RuntimeContext, action: RuntimeHttpRequestAction): Promise<Result<RuntimeValue>> => {
   const payload = action.json === undefined ? undefined : await evaluateValue(ctx, action.json);
@@ -1096,7 +957,7 @@ const executeSteps = async (
       result = await executeGenerateDocument(ctx, item.generateDocument as RuntimeGenerateDocumentAction);
     else if ("createDocumentLink" in item)
       result = await executeCreateDocumentLink(ctx, item.createDocumentLink as RuntimeCreateDocumentLinkAction);
-    else if ("sendEmail" in item) result = await executeSendEmail(ctx, item.sendEmail as RuntimeSendEmailAction);
+    else if ("sendEmail" in item) result = await executeSendEmail(ctx, item.sendEmail as WorkflowEmailAction);
     else if ("httpRequest" in item) result = await executeHttpRequest(ctx, item.httpRequest as RuntimeHttpRequestAction);
     else if ("setVariable" in item) {
       const action = item.setVariable as RuntimeSetVariableAction;
