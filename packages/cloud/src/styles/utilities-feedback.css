@@ -127,6 +127,19 @@
   background: var(--ui-progress-danger);
 }
 
+@utility tooltip-surface {
+  position: fixed;
+  z-index: 100;
+  max-width: min(18rem, calc(100vw - 1rem));
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--ui-tooltip-border);
+  border-radius: var(--ui-tooltip-radius);
+  background: var(--ui-tooltip-surface);
+  color: var(--ui-tooltip-text);
+  box-shadow: var(--ui-tooltip-shadow);
+  @apply pointer-events-none text-[11px] leading-4 whitespace-normal;
+}
+
 @utility tag {
   @apply rounded inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium;
 }

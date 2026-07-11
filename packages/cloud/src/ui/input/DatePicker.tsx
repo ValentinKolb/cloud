@@ -1,5 +1,6 @@
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import Tooltip from "../misc/Tooltip";
 import { createInputA11y, InputWrapper } from "./util";
 
 export type DateRangeValue = {
@@ -347,19 +348,23 @@ function DatePickerPanel(props: {
 
   const moveMonth = (delta: number) => props.setVisibleMonth(dates.addMonths(props.visibleMonth(), delta, context()));
   const moveYear = (delta: number) => props.setVisibleMonth(monthDate(month().year + delta, month().month, context()));
+  const previousLabel = () => (view() === "days" ? "Previous month" : "Previous year");
+  const nextLabel = () => (view() === "days" ? "Next month" : "Next year");
 
   return (
     <div class="min-w-0 flex-1 p-2">
       <div class="mx-auto w-full max-w-64">
         <div class="mb-2 flex items-center justify-between">
-          <button
-            type="button"
-            class="icon-btn h-7 w-7"
-            onClick={() => (view() === "days" ? moveMonth(-1) : moveYear(-1))}
-            aria-label="Previous"
-          >
-            <i class="ti ti-chevron-left" />
-          </button>
+          <Tooltip content={previousLabel()}>
+            <button
+              type="button"
+              class="icon-btn h-7 w-7"
+              onClick={() => (view() === "days" ? moveMonth(-1) : moveYear(-1))}
+              aria-label={previousLabel()}
+            >
+              <i class="ti ti-chevron-left" />
+            </button>
+          </Tooltip>
           <button
             type="button"
             class="rounded-md px-2 py-1 text-sm font-semibold text-primary transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
@@ -369,9 +374,16 @@ function DatePickerPanel(props: {
               {dates.formatMonthYear(props.visibleMonth(), context())}
             </Show>
           </button>
-          <button type="button" class="icon-btn h-7 w-7" onClick={() => (view() === "days" ? moveMonth(1) : moveYear(1))} aria-label="Next">
-            <i class="ti ti-chevron-right" />
-          </button>
+          <Tooltip content={nextLabel()}>
+            <button
+              type="button"
+              class="icon-btn h-7 w-7"
+              onClick={() => (view() === "days" ? moveMonth(1) : moveYear(1))}
+              aria-label={nextLabel()}
+            >
+              <i class="ti ti-chevron-right" />
+            </button>
+          </Tooltip>
         </div>
 
         <Show

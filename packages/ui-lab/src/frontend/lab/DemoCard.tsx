@@ -1,6 +1,6 @@
-import { For, Show, type JSX } from "solid-js";
+import { DocCode, Tooltip, toast } from "@valentinkolb/cloud/ui";
 import { copyToClipboard } from "@valentinkolb/stdlib/browser";
-import { DocCode, toast } from "@valentinkolb/cloud/ui";
+import { For, type JSX, Show } from "solid-js";
 import Chip from "./Chip";
 
 /**
@@ -67,15 +67,11 @@ export default function DemoCard(props: DemoCardProps) {
             <For each={chips()}>{(c) => <Chip {...c} />}</For>
           </div>
           <div class="flex items-center gap-0.5 shrink-0">
-            <button
-              type="button"
-              class="inline-flex items-center justify-center w-7 h-7 rounded text-zinc-500 hover:text-primary hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800 transition-colors"
-              onClick={() => void copyLink()}
-              title="Copy deep link"
-              aria-label="Copy deep link"
-            >
-              <i class="ti ti-link text-sm" />
-            </button>
+            <Tooltip content="Copy deep link">
+              <button type="button" class="icon-btn h-7 w-7" onClick={() => void copyLink()} aria-label="Copy deep link">
+                <i class="ti ti-link text-sm" />
+              </button>
+            </Tooltip>
           </div>
         </div>
         <Show when={props.variant}>

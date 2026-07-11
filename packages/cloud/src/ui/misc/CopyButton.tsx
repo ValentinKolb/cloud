@@ -1,5 +1,6 @@
-import { createSignal } from "solid-js";
 import { copyToClipboard } from "@valentinkolb/stdlib/browser";
+import { createSignal } from "solid-js";
+import Tooltip from "./Tooltip";
 
 type CopyButtonProps = {
   /** Text to copy to clipboard */
@@ -19,10 +20,26 @@ export default function CopyButton(props: CopyButtonProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  return (
-    <button type="button" class={props.class ?? "btn-simple text-[10px] px-1.5 py-0.5"} onClick={handleCopy}>
+  const button = () => (
+    <button
+      type="button"
+      class={props.class ?? "btn-simple text-[10px] px-1.5 py-0.5"}
+      aria-label={props.label === undefined ? (copied() ? "Copied" : "Copy") : undefined}
+      onClick={handleCopy}
+    >
       <i class={copied() ? "ti ti-check" : "ti ti-copy"} />
       {props.label !== undefined && <span>{copied() ? "Copied" : props.label}</span>}
     </button>
+  );
+
+  return props.label === undefined ? (
+    <Tooltip content={copied() ? "Copied" : "Copy"}>
+      {button()}
+      <span class="sr-only" aria-live="polite">
+        {copied() ? "Copied" : ""}
+      </span>
+    </Tooltip>
+  ) : (
+    button()
   );
 }

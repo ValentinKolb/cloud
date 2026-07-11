@@ -103,6 +103,7 @@ Data colour belongs inside cells and charts, never in the structural table roles
 - `--ui-state-error-icon-*`: error emphasis inside that well; text and iconography still carry the meaning without colour.
 - `--ui-progress-track`, `--ui-progress-track-shadow`: the neutral progress channel.
 - `--ui-progress-primary`, `--ui-progress-success`, `--ui-progress-danger`: action and status fills kept separate from app identity.
+- `--ui-tooltip-*`: compact, high-contrast top-layer surface, boundary, type colour, radius, and depth.
 
 ## Surfaces and borders
 
@@ -241,6 +242,9 @@ Dialogs, popovers, dropdowns, tooltips, and toasts share one geometry and depth 
 - Headers and footers stay fixed only when the body scrolls.
 - Popovers align with their trigger and flip before overflowing the viewport.
 - Tooltips explain unfamiliar icon actions. They do not repeat visible labels.
+- Use `Tooltip` for short, non-interactive hints. Keep the control's accessible name on the control itself; the tooltip supplements it through `aria-describedby`.
+- Tooltips open from hover and keyboard focus, stay inside the viewport, and close on Escape, blur, pointerdown, scroll, or resize.
+- If the hint needs an action, form field, or selectable content, use a popover or dialog instead.
 - Menu triggers expose `aria-expanded`; Arrow keys, Home, and End move between menu items without entering the page tab order.
 - Escape closes the top floating layer and returns focus to its trigger.
 

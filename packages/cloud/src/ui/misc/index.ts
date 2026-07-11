@@ -145,3 +145,5 @@ export {
 } from "./SpotlightSearch";
 export type { StructuredDataPreviewMode, StructuredDataPreviewProps } from "./StructuredDataPreview";
 export { default as StructuredDataPreview } from "./StructuredDataPreview";
+export type { TooltipPlacement, TooltipProps } from "./Tooltip";
+export { default as Tooltip } from "./Tooltip";

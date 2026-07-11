@@ -54,6 +54,8 @@ body:has(.cloud-ui-soft),
   --ui-state-error-icon-border: color-mix(in srgb, var(--color-red-500) 18%, var(--ui-border));
   --ui-progress-track: var(--ui-surface-muted);
   --ui-progress-track-shadow: none;
+  --ui-tooltip-radius: var(--ui-radius-control);
+  --ui-tooltip-shadow: var(--ui-shadow-float);
   --ui-radius-frame: 0.875rem;
   --ui-radius-surface: 0.75rem;
   --ui-radius-control: 0.5rem;

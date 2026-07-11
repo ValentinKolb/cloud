@@ -10,7 +10,7 @@
  * than "page action".
  */
 
-import { ContextMenu, CopyButton, Dropdown, type DropdownItem, RemoveBtn, SegmentedControl } from "@valentinkolb/cloud/ui";
+import { ContextMenu, CopyButton, Dropdown, type DropdownItem, RemoveBtn, SegmentedControl, Tooltip } from "@valentinkolb/cloud/ui";
 import { createSignal } from "solid-js";
 import DemoCard from "./DemoCard";
 
@@ -175,22 +175,33 @@ export const ButtonInputs = () => (
 export const IconButtons = () => (
   <DemoCard
     id="icon-btn"
-    chip={{ kind: "utility", name: "icon-btn" }}
-    description="Square 32×32 icon-only button. The square footprint pairs cleanly inside toolbars and table-row action columns."
-    code={`<button class="icon-btn" aria-label="Settings">
-  <i class="ti ti-settings" />
-</button>`}
+    chip={[
+      { kind: "utility", name: "icon-btn" },
+      { kind: "component", name: "Tooltip", from: FROM_UI },
+    ]}
+    description="Square 32×32 icon-only action. Keep the accessible name on the button and use Tooltip only to make an unfamiliar icon discoverable."
+    code={`<Tooltip content="Settings">
+  <button class="icon-btn" aria-label="Settings">
+    <i class="ti ti-settings" />
+  </button>
+</Tooltip>`}
   >
     <div class="flex items-center gap-2">
-      <button type="button" class="icon-btn" aria-label="Settings">
-        <i class="ti ti-settings" />
-      </button>
-      <button type="button" class="icon-btn" aria-label="Star">
-        <i class="ti ti-star" />
-      </button>
-      <button type="button" class="icon-btn" aria-label="More">
-        <i class="ti ti-dots" />
-      </button>
+      <Tooltip content="Settings">
+        <button type="button" class="icon-btn" aria-label="Settings">
+          <i class="ti ti-settings" />
+        </button>
+      </Tooltip>
+      <Tooltip content="Add to favorites">
+        <button type="button" class="icon-btn" aria-label="Add to favorites">
+          <i class="ti ti-star" />
+        </button>
+      </Tooltip>
+      <Tooltip content="More actions">
+        <button type="button" class="icon-btn" aria-label="More actions">
+          <i class="ti ti-dots" />
+        </button>
+      </Tooltip>
     </div>
   </DemoCard>
 );

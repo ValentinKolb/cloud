@@ -56,6 +56,11 @@
   --ui-progress-primary: var(--color-blue-500);
   --ui-progress-success: var(--color-green-500);
   --ui-progress-danger: var(--color-red-500);
+  --ui-tooltip-surface: var(--color-zinc-900);
+  --ui-tooltip-border: var(--color-zinc-800);
+  --ui-tooltip-text: var(--color-white);
+  --ui-tooltip-radius: 0.375rem;
+  --ui-tooltip-shadow: var(--theme-shadow-float);
   --ui-radius-frame: 1rem;
   --ui-radius-surface: 0.5rem;
   --ui-radius-control: 0.375rem;
@@ -114,6 +119,9 @@
   --ui-progress-primary: var(--color-blue-400);
   --ui-progress-success: var(--color-green-400);
   --ui-progress-danger: var(--color-red-400);
+  --ui-tooltip-surface: var(--color-zinc-800);
+  --ui-tooltip-border: var(--color-zinc-700);
+  --ui-tooltip-text: var(--color-zinc-100);
   --ui-paper-highlighted: rgb(23 37 84 / 0.2);
 }
 
