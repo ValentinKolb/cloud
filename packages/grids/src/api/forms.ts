@@ -1,12 +1,11 @@
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, getDateConfig, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
-import { sql } from "bun";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { FormConfigSchema, ShortIdSchema, UserInputFormFieldEntrySchema } from "../contracts";
 import { gridsService } from "../service";
-import { materializeFieldDefault } from "../service/fields";
+import type { FormSubmission } from "../service/form-submission";
 import { currentActorUserId, gateAt } from "./permissions";
 
 // FormFieldEntry is a tagged union. Stored entries without a `kind`
@@ -46,31 +45,14 @@ const SubmitEnvelopeSchema = z.object({
   inlineCreates: z.record(z.string(), z.array(InlineCreateDraftSchema)).optional(),
 });
 
-type ParsedSubmit = {
-  data: Record<string, unknown>;
-  inlineCreates: Record<string, Array<z.infer<typeof InlineCreateDraftSchema>>>;
-};
-
-class SubmitFailure extends Error {
-  constructor(
-    message: string,
-    readonly status: 400 | 403 | 404 | 409 | 500 = 400,
-  ) {
-    super(message);
-  }
-}
-
-const parseSubmission = (submitted: Record<string, unknown>): ParsedSubmit | SubmitFailure => {
+const parseSubmission = (submitted: Record<string, unknown>): FormSubmission | null => {
   const envelopeLike =
     Object.prototype.hasOwnProperty.call(submitted, "data") || Object.prototype.hasOwnProperty.call(submitted, "inlineCreates");
   if (!envelopeLike) return { data: submitted, inlineCreates: {} };
   const parsed = SubmitEnvelopeSchema.safeParse(submitted);
-  if (!parsed.success) return new SubmitFailure("Invalid form submission");
+  if (!parsed.success) return null;
   return { data: parsed.data.data ?? {}, inlineCreates: parsed.data.inlineCreates ?? {} };
 };
-
-const submitFailureStatus = (status: number): SubmitFailure["status"] =>
-  status === 403 || status === 404 || status === 409 || status === 500 ? status : 400;
 
 // Public DTO returned from /forms/public/:token. Strips:
 //   - form_value entries (their `value` is server-managed, mustn't leak)
@@ -110,160 +92,11 @@ const submitFormResponse = async (
   submitted: Record<string, unknown>,
   actorId: string | null,
 ) => {
-  const parsedSubmit = parseSubmission(submitted);
-  if (parsedSubmit instanceof SubmitFailure) return c.json({ message: parsedSubmit.message }, parsedSubmit.status);
-  const { data: submittedData, inlineCreates } = parsedSubmit;
-  const formFields = form.config.fields ?? [];
-  const fields = await gridsService.field.listByTable(form.tableId);
-  const fieldsById = new Map(fields.map((field) => [field.id, field]));
+  const submission = parseSubmission(submitted);
+  if (!submission) return c.json({ message: "Invalid form submission" }, 400);
   const dateConfig = await getDateConfig(c);
-  const entriesById = new Map(formFields.map((entry) => [entry.fieldId, entry]));
-  const fieldName = (fieldId: string) => {
-    const entry = entriesById.get(fieldId);
-    if (entry?.kind === "user_input" && entry.label?.trim()) return entry.label.trim();
-    return fieldsById.get(fieldId)?.name ?? "Unknown field";
-  };
-
-  // Split entries by kind. user_input fields accept payload from the
-  // caller; form_value fields are SERVER-applied and the user's
-  // payload for those keys is rejected (so a form that locks
-  // `source = "website"` can't be subverted by a hand-crafted POST).
-  const userInputIds = new Set<string>();
-  const formValueIds = new Set<string>();
-  for (const e of formFields) {
-    if (e.kind === "user_input") userInputIds.add(e.fieldId);
-    else formValueIds.add(e.fieldId);
-  }
-
-  for (const key of Object.keys(submittedData)) {
-    if (formValueIds.has(key)) {
-      return c.json({ message: `Field "${fieldName(key)}" is server-managed and cannot be set via the form` }, 400);
-    }
-    if (!userInputIds.has(key)) {
-      return c.json({ message: `Field "${fieldName(key)}" is not part of this form` }, 400);
-    }
-  }
-
-  // Build payload: user input first, then user_input defaults for
-  // missing keys, then form_value entries (which always win — their
-  // keys are blocked from the user's payload upstream).
-  const payload: Record<string, unknown> = { ...submittedData };
-  for (const e of formFields) {
-    if (e.kind !== "user_input") continue;
-    if (payload[e.fieldId] === undefined && e.defaultValue !== undefined && e.defaultValue !== null) {
-      const field = fieldsById.get(e.fieldId);
-      payload[e.fieldId] = field ? materializeFieldDefault({ ...field, defaultValue: e.defaultValue }, { dateConfig }) : e.defaultValue;
-    }
-    if (e.required && (payload[e.fieldId] === undefined || payload[e.fieldId] === null || payload[e.fieldId] === "")) {
-      return c.json({ message: `Field "${fieldName(e.fieldId)}" is required` }, 400);
-    }
-  }
-  for (const e of formFields) {
-    if (e.kind === "form_value") {
-      const field = fieldsById.get(e.fieldId);
-      payload[e.fieldId] = field ? materializeFieldDefault({ ...field, defaultValue: e.value }, { dateConfig }) : e.value;
-    }
-  }
-
-  const createdEventIds: string[] = [];
-  try {
-    const mainRecordId = await sql.begin(async (tx) => {
-      for (const [relationFieldId, drafts] of Object.entries(inlineCreates)) {
-        if (drafts.length === 0) continue;
-        const entry = entriesById.get(relationFieldId);
-        const relationField = fieldsById.get(relationFieldId);
-        if (entry?.kind !== "user_input" || !entry.inlineCreate?.enabled || !relationField || relationField.type !== "relation") {
-          throw new SubmitFailure(`Field "${fieldName(relationFieldId)}" does not allow creating related records`);
-        }
-        const targetTableId = (relationField.config as { targetTableId?: unknown }).targetTableId;
-        if (typeof targetTableId !== "string") throw new SubmitFailure(`Field "${fieldName(relationFieldId)}" has no target table`);
-        const cardinality = (relationField.config as { cardinality?: "single" | "multiple" }).cardinality ?? "multiple";
-        const allowedInlineEntries = entry.inlineCreate.fields ?? [];
-        const allowedInlineIds = new Set(allowedInlineEntries.map((inlineEntry) => inlineEntry.fieldId));
-        const targetFields = await gridsService.field.listByTable(targetTableId);
-        const targetFieldsById = new Map(targetFields.map((field) => [field.id, field]));
-
-        for (const draft of drafts) {
-          if (!draft.tempId.startsWith("tmp_"))
-            throw new SubmitFailure(`Field "${fieldName(relationFieldId)}" has an invalid inline draft id`);
-          for (const key of Object.keys(draft.data)) {
-            if (!allowedInlineIds.has(key))
-              throw new SubmitFailure(`Field "${fieldName(relationFieldId)}" contains a field that cannot be created inline`);
-          }
-        }
-
-        const currentIds = Array.isArray(payload[relationFieldId])
-          ? (payload[relationFieldId] as unknown[]).filter((id): id is string => typeof id === "string")
-          : typeof payload[relationFieldId] === "string"
-            ? [payload[relationFieldId] as string]
-            : [];
-        const draftIds = drafts.map((draft) => draft.tempId);
-        const existingIds = currentIds.filter((id) => !draftIds.includes(id));
-        if (cardinality === "single" && (drafts.length > 1 || (drafts.length > 0 && existingIds.length > 0))) {
-          throw new SubmitFailure(`Field "${fieldName(relationFieldId)}" can link either one existing record or one new record`);
-        }
-
-        const replacement = new Map<string, string>();
-        for (const draft of drafts) {
-          const draftPayload: Record<string, unknown> = { ...draft.data };
-          for (const inlineEntry of allowedInlineEntries) {
-            const targetField = targetFieldsById.get(inlineEntry.fieldId);
-            if (!targetField) throw new SubmitFailure(`Field "${fieldName(relationFieldId)}" inline configuration is stale`);
-            if (
-              draftPayload[inlineEntry.fieldId] === undefined &&
-              inlineEntry.defaultValue !== undefined &&
-              inlineEntry.defaultValue !== null
-            ) {
-              draftPayload[inlineEntry.fieldId] = materializeFieldDefault(
-                { ...targetField, defaultValue: inlineEntry.defaultValue },
-                { dateConfig },
-              );
-            }
-            if (
-              (inlineEntry.required || targetField.required) &&
-              (draftPayload[inlineEntry.fieldId] === undefined ||
-                draftPayload[inlineEntry.fieldId] === null ||
-                draftPayload[inlineEntry.fieldId] === "")
-            ) {
-              throw new SubmitFailure(`Field "${inlineEntry.label?.trim() || targetField.name}" is required`);
-            }
-          }
-          const created = await gridsService.record.createInTransaction(tx, targetTableId, draftPayload, actorId, {
-            bypassDirectInsertCheck: true,
-            dateConfig,
-          });
-          if (!created.ok) throw new SubmitFailure(created.error.message, submitFailureStatus(created.error.status));
-          replacement.set(draft.tempId, created.data.record.id);
-          createdEventIds.push(created.data.outboxId);
-        }
-
-        const sourceIds = currentIds.length > 0 ? [...currentIds] : [...draftIds];
-        if (cardinality !== "single") {
-          for (const draftId of draftIds) {
-            if (!sourceIds.includes(draftId)) sourceIds.push(draftId);
-          }
-        }
-        const nextIds = sourceIds.map((id) => replacement.get(id) ?? id);
-        payload[relationFieldId] = nextIds;
-      }
-
-      const created = await gridsService.record.createInTransaction(tx, form.tableId, payload, actorId, {
-        bypassDirectInsertCheck: true,
-        dateConfig,
-      });
-      if (!created.ok) throw new SubmitFailure(created.error.message, submitFailureStatus(created.error.status));
-      createdEventIds.push(created.data.outboxId);
-      return created.data.record.id;
-    });
-
-    for (const outboxId of createdEventIds) gridsService.record.notifyEvent(outboxId);
-    return c.json({ recordId: mainRecordId }, 201);
-  } catch (e) {
-    if (e instanceof SubmitFailure) return c.json({ message: e.message }, e.status);
-    throw e;
-  }
+  return respond(c, () => gridsService.form.submit({ form, submission, actorId, dateConfig }), 201);
 };
-
 const toPublicForm = (f: import("../service/forms").Form): z.infer<typeof PublicFormSchema> => ({
   id: f.id,
   name: f.name,

@@ -410,5 +410,5 @@ export const aggregate = async (params: {
 export { get };
 export const listActors = listRecordActors;
 
-export { notifyRecordEventOutbox, recordEventOutboxStats } from "./record-event-outbox";
-export { create, createInTransaction, createMany, restore, softDelete, update } from "./record-write";
+export { recordEventOutboxStats } from "./record-event-outbox";
+export { create, createMany, restore, softDelete, update } from "./record-write";

@@ -9,6 +9,7 @@ import * as exporter from "./export";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
 import * as fields from "./fields";
 import * as files from "./files";
+import { submitForm } from "./form-submission";
 import * as forms from "./forms";
 import * as formulaPreview from "./formula-preview";
 import * as maintenance from "./maintenance";
@@ -66,8 +67,6 @@ export const gridsService = {
     get: records.get,
     create: records.create,
     createMany: records.createMany,
-    createInTransaction: records.createInTransaction,
-    notifyEvent: records.notifyRecordEventOutbox,
     eventOutboxStats: records.recordEventOutboxStats,
     update: records.update,
     softDelete: records.softDelete,
@@ -193,6 +192,7 @@ export const gridsService = {
     buildDefault: forms.buildDefaultForm,
     toRenderableForm: forms.toRenderableForm,
     toPublicRenderableForm: forms.toPublicRenderableForm,
+    submit: submitForm,
   },
   file: {
     listForRecordField: files.listForRecordField,
