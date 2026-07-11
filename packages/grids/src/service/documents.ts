@@ -1,5 +1,4 @@
 import { Buffer } from "node:buffer";
-import { createHash, randomBytes } from "node:crypto";
 import {
   coreSettings,
   escapeLikePattern,
@@ -15,10 +14,7 @@ import { CLOUD_LOGO_SVG } from "@valentinkolb/cloud/shared";
 import { type DateContext, err, fail, ok, type Result, type ServiceError } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type {
-  CreateDocumentLinkInput,
   CreateDocumentTemplateInput,
-  DocumentLink,
-  DocumentLinkTtl,
   DocumentProfile,
   DocumentRun,
   DocumentRunFolder,
@@ -50,7 +46,6 @@ import {
 } from "./document-liquid";
 import {
   type DocumentDbRow,
-  mapDocumentLink,
   mapDocumentRun as mapRun,
   mapRecordSnapshot as mapSnapshot,
   mapRecordSnapshotSummary as mapSnapshotSummary,
@@ -66,6 +61,17 @@ import { get as getTable } from "./tables";
 import type { Field, GridRecord, Table } from "./types";
 import { ensureRecordScanCode } from "./workflows";
 
+export {
+  createDocumentLink,
+  getDocumentLink,
+  listDocumentLinksForRun,
+  publicDocumentLinkPath,
+  publicDocumentLinkUrl,
+  publicDocumentLinkUrlForAppUrl,
+  recordDocumentLinkAccess,
+  resolveDocumentLinkDownload,
+  revokeDocumentLink,
+} from "./document-links";
 export { documentNumberFor, renderLiquidPlainText, renderLiquidText, validateLiquidRoots, validateLiquidTemplate } from "./document-liquid";
 export { summarizeDocumentRun as summarizeRun, summarizeDocumentTemplate as summarizeTemplate } from "./document-mappers";
 
@@ -104,14 +110,6 @@ const DOCUMENT_QUERY_MAX_ROWS = 10_000;
 const DOCUMENT_IMAGE_MAX_BYTES = 2_000_000;
 const DOCUMENT_IMAGE_MAX_COUNT = 12;
 const WORKFLOW_RUN_DOWNLOAD_MAX_DOCUMENTS = 1_000;
-const DOCUMENT_LINK_TOKEN_PREFIX = "gdl_";
-const DOCUMENT_LINK_TOKEN_BYTES = 32;
-const DOCUMENT_LINK_TTL_MS: Record<DocumentLinkTtl, number> = {
-  "1d": 24 * 60 * 60 * 1000,
-  "7d": 7 * 24 * 60 * 60 * 1000,
-  "30d": 30 * 24 * 60 * 60 * 1000,
-  "90d": 90 * 24 * 60 * 60 * 1000,
-};
 
 const isServiceError = (error: unknown): error is ServiceError =>
   typeof error === "object" &&
@@ -319,36 +317,6 @@ export const buildTemplateBusinessData = async (
     footerText: nullableStringValue(profile.footerText),
   };
 };
-
-const generateDocumentLinkToken = (): string =>
-  `${DOCUMENT_LINK_TOKEN_PREFIX}${randomBytes(DOCUMENT_LINK_TOKEN_BYTES).toString("base64url")}`;
-
-const hashDocumentLinkToken = (token: string): string => createHash("sha256").update(token).digest("hex");
-
-const normalizeDocumentLinkToken = (token: string): string | null => {
-  const normalized = token.trim();
-  if (!normalized.startsWith(DOCUMENT_LINK_TOKEN_PREFIX)) return null;
-  if (normalized.length < DOCUMENT_LINK_TOKEN_PREFIX.length + 32 || normalized.length > 160) return null;
-  if (!/^[A-Za-z0-9_-]+$/.test(normalized.slice(DOCUMENT_LINK_TOKEN_PREFIX.length))) return null;
-  return normalized;
-};
-
-const normalizeDocumentLinkComment = (comment: string | null | undefined): string | null => {
-  const normalized = comment?.trim() ?? "";
-  return normalized ? normalized.slice(0, 500) : null;
-};
-
-const documentLinkExpiresAt = (expiresIn: DocumentLinkTtl): Date => new Date(Date.now() + DOCUMENT_LINK_TTL_MS[expiresIn]);
-
-export const publicDocumentLinkPath = (token: string): string => `/share/grids/documents/${encodeURIComponent(token)}`;
-
-const publicDocumentLinkOrigin = (appUrl: unknown): string => publicUrlValue(appUrl).replace(/\/+$/, "") || "https://localhost:3000";
-
-export const publicDocumentLinkUrlForAppUrl = (appUrl: unknown, token: string): string =>
-  `${publicDocumentLinkOrigin(appUrl)}${publicDocumentLinkPath(token)}`;
-
-export const publicDocumentLinkUrl = async (token: string): Promise<string> =>
-  publicDocumentLinkUrlForAppUrl(await coreSettings.get<string>("app.url"), token);
 
 const diagnosticsMessage = (diagnostics: Array<{ message: string }>): string =>
   diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid GQL source";
@@ -1467,155 +1435,6 @@ export const updateRunMetadata = async (
     );
     return ok(updated);
   });
-
-export const listDocumentLinksForRun = async (documentRunId: string): Promise<DocumentLink[]> => {
-  const rows = await sql<DbRow[]>`
-    SELECT *
-    FROM grids.document_links
-    WHERE document_run_id = ${documentRunId}::uuid
-    ORDER BY created_at DESC, id DESC
-  `;
-  return rows.map(mapDocumentLink);
-};
-
-export const getDocumentLink = async (linkId: string): Promise<DocumentLink | null> => {
-  const [row] = await sql<DbRow[]>`
-    SELECT *
-    FROM grids.document_links
-    WHERE id = ${linkId}::uuid
-  `;
-  return row ? mapDocumentLink(row) : null;
-};
-
-export const createDocumentLink = async (params: {
-  run: DocumentRun;
-  input: CreateDocumentLinkInput;
-  actorId: string | null;
-  ip?: string | null;
-  userAgent?: string | null;
-}): Promise<Result<{ link: DocumentLink; token: string }>> => {
-  const token = generateDocumentLinkToken();
-  const expiresAt = documentLinkExpiresAt(params.input.expiresIn);
-  const comment = normalizeDocumentLinkComment(params.input.comment);
-  const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.document_links (
-      document_run_id, base_id, table_id, record_id, token_hash, comment, created_by, expires_at
-    )
-    VALUES (
-      ${params.run.id}::uuid,
-      ${params.run.baseId}::uuid,
-      ${params.run.tableId}::uuid,
-      ${params.run.recordId}::uuid,
-      ${hashDocumentLinkToken(token)},
-      ${comment},
-      ${params.actorId}::uuid,
-      ${expiresAt}
-    )
-    RETURNING *
-  `;
-  if (!row) return fail(err.internal("Could not create document link"));
-  const link = mapDocumentLink(row);
-  await logAudit({
-    baseId: params.run.baseId,
-    tableId: params.run.tableId,
-    recordId: params.run.recordId,
-    userId: params.actorId,
-    action: "document_link.created",
-    ip: params.ip,
-    userAgent: params.userAgent,
-    diff: {
-      documentRunId: { old: null, new: params.run.id },
-      documentLinkId: { old: null, new: link.id },
-      expiresAt: { old: null, new: link.expiresAt },
-      comment: { old: null, new: link.comment },
-    },
-  });
-  return ok({ link, token });
-};
-
-export const revokeDocumentLink = async (params: {
-  linkId: string;
-  actorId: string | null;
-  ip?: string | null;
-  userAgent?: string | null;
-}): Promise<Result<DocumentLink>> => {
-  const [row] = await sql<DbRow[]>`
-    UPDATE grids.document_links
-    SET revoked_at = now(), revoked_by = ${params.actorId}::uuid
-    WHERE id = ${params.linkId}::uuid AND revoked_at IS NULL
-    RETURNING *
-  `;
-  if (!row) {
-    const existing = await getDocumentLink(params.linkId);
-    return existing ? ok(existing) : fail(err.notFound("Document link"));
-  }
-  const link = mapDocumentLink(row);
-  await logAudit({
-    baseId: link.baseId,
-    tableId: link.tableId,
-    recordId: link.recordId,
-    userId: params.actorId,
-    action: "document_link.revoked",
-    ip: params.ip,
-    userAgent: params.userAgent,
-    diff: {
-      documentRunId: { old: link.documentRunId, new: link.documentRunId },
-      documentLinkId: { old: link.id, new: link.id },
-      revokedAt: { old: null, new: link.revokedAt },
-    },
-  });
-  return ok(link);
-};
-
-export const resolveDocumentLinkDownload = async (token: string): Promise<Result<{ link: DocumentLink; run: DocumentRun }>> => {
-  const normalizedToken = normalizeDocumentLinkToken(token);
-  if (!normalizedToken) return fail(err.notFound("Document link"));
-
-  const [row] = await sql<DbRow[]>`
-    SELECT *
-    FROM grids.document_links
-    WHERE token_hash = ${hashDocumentLinkToken(normalizedToken)}
-      AND revoked_at IS NULL
-      AND expires_at > now()
-  `;
-  if (!row) return fail(err.notFound("Document link"));
-  const link = mapDocumentLink(row);
-  const run = await getDocumentRun(link.documentRunId);
-  if (!run) return fail(err.notFound("Document run"));
-  return ok({ link, run });
-};
-
-export const recordDocumentLinkAccess = async (
-  linkId: string,
-  audit: { ip?: string | null; userAgent?: string | null } = {},
-): Promise<Result<DocumentLink>> => {
-  const [row] = await sql<DbRow[]>`
-    UPDATE grids.document_links
-    SET access_count = access_count + 1, last_accessed_at = now()
-    WHERE id = ${linkId}::uuid
-      AND revoked_at IS NULL
-      AND expires_at > now()
-    RETURNING *
-  `;
-  if (!row) return fail(err.notFound("Document link"));
-  const link = mapDocumentLink(row);
-
-  await logAudit({
-    baseId: link.baseId,
-    tableId: link.tableId,
-    recordId: link.recordId,
-    userId: null,
-    action: "document_link.accessed",
-    ip: audit.ip,
-    userAgent: audit.userAgent,
-    diff: {
-      documentRunId: { old: link.documentRunId, new: link.documentRunId },
-      documentLinkId: { old: link.id, new: link.id },
-      accessCount: { old: link.accessCount - 1, new: link.accessCount },
-    },
-  });
-  return ok(link);
-};
 
 export const renderRunPdf = async (run: DocumentRun): Promise<Result<RenderHtmlToPdfResult>> => {
   const rendered = await renderTemplatePdfPreview({
