@@ -1,8 +1,9 @@
-type ProgressBarProps = {
+export type ProgressBarProps = {
   value: number;
   size?: "xs" | "sm" | "md";
   tone?: "primary" | "success" | "danger";
   showValue?: boolean;
+  label?: string;
   class?: string;
 };
 
@@ -22,11 +23,11 @@ const heightClass = (size: ProgressBarProps["size"]) => {
 const toneClass = (tone: ProgressBarProps["tone"]) => {
   switch (tone) {
     case "success":
-      return "bg-green-500";
+      return "progress-fill-success";
     case "danger":
-      return "bg-red-500";
+      return "progress-fill-danger";
     default:
-      return "bg-blue-500";
+      return "progress-fill-primary";
   }
 };
 
@@ -39,7 +40,12 @@ export default function ProgressBar(props: ProgressBarProps) {
   return (
     <div class={`flex items-center gap-2 ${props.class ?? ""}`}>
       <div
-        class={`flex-1 min-w-0 rounded-full overflow-hidden bg-zinc-200 dark:bg-zinc-700 [box-shadow:var(--theme-recess)] ${heightClass(props.size)}`}
+        class={`progress-track min-w-0 flex-1 overflow-hidden rounded-full ${heightClass(props.size)}`}
+        role="progressbar"
+        aria-label={props.label ?? "Progress"}
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow={percent()}
       >
         <div class={`h-full transition-all duration-200 ${toneClass(props.tone)}`} style={`width: ${percent()}%`} />
       </div>

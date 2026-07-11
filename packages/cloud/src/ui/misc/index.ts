@@ -122,8 +122,9 @@ export { createPanesValue, default as Panes, normalizePanesValue } from "./Panes
 export type { PdfPreviewProps, PdfPreviewRequest } from "./PdfPreview";
 export { default as PdfPreview } from "./PdfPreview";
 export { default as PermissionEditor } from "./PermissionEditor";
-export type { PlaceholderAlign, PlaceholderProps, PlaceholderSurface } from "./Placeholder";
+export type { PlaceholderAlign, PlaceholderProps, PlaceholderState, PlaceholderSurface, PlaceholderVariant } from "./Placeholder";
 export { default as Placeholder } from "./Placeholder";
+export type { ProgressBarProps } from "./ProgressBar";
 export { default as ProgressBar } from "./ProgressBar";
 export { default as RemoveBtn } from "./RemoveBtn";
 export type { ResourceApiKey, ResourceApiKeyPermissionOption, ResourceApiKeysProps } from "./ResourceApiKeys";

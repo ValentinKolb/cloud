@@ -97,6 +97,13 @@ Inputs, autocomplete surfaces, and editors must consume the same field roles. Co
 
 Data colour belongs inside cells and charts, never in the structural table roles. Floating layers may use stronger depth than in-flow papers, but their menus and dialogs still share the same radius family and spacing rhythm.
 
+### State feedback
+
+- `--ui-state-icon-*`: the quiet icon well used by panel-sized empty, loading, and error states.
+- `--ui-state-error-icon-*`: error emphasis inside that well; text and iconography still carry the meaning without colour.
+- `--ui-progress-track`, `--ui-progress-track-shadow`: the neutral progress channel.
+- `--ui-progress-primary`, `--ui-progress-success`, `--ui-progress-danger`: action and status fills kept separate from app identity.
+
 ## Surfaces and borders
 
 Use surfaces to group content. Use borders only when they explain structure.
@@ -248,6 +255,16 @@ Visibility follows frequency and risk:
 - Destructive actions require clear wording and confirmation when reversal is not available.
 
 Hidden actions must still be discoverable through focus, tooltips, menus, or conventional placement.
+
+## Empty, loading, and error states
+
+Use `Placeholder` for state feedback instead of drawing app-local empty cards.
+
+- Compact placeholders belong inside tables, sidebars, and small sections. Panel placeholders may identify a whole work area and contain one next action.
+- Empty states explain what is absent and, when useful, what the user can do next.
+- Loading states use `state="loading"`, expose polite status semantics, and avoid replacing stable content with a large spinner during background refreshes.
+- Error states use `state="error"`, name what failed, and offer a recovery action when one exists. Colour supplements the alert icon and wording.
+- Determinate work uses `ProgressBar` with a task-specific accessible `label`; the visible percentage remains the primary measure.
 
 ## Responsive behaviour
 

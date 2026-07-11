@@ -1,4 +1,5 @@
-import { Show, type JSX } from "solid-js";
+import { type JSX, Show } from "solid-js";
+import Placeholder from "./Placeholder";
 
 export type AppOverviewProps = {
   title: string;
@@ -64,18 +65,15 @@ const AppOverviewAside = (props: AppOverviewPanelProps) => (
 );
 
 const AppOverviewEmptyState = (props: AppOverviewEmptyStateProps) => (
-  <div class={`paper flex min-h-56 flex-col items-center justify-center p-8 text-center ${props.class ?? ""}`}>
-    <Show when={props.icon}>
-      <div class="thumbnail mb-3 flex h-12 w-12 items-center justify-center bg-zinc-100 dark:bg-zinc-800">
-        <i class={`${tablerIconClass(props.icon, "ti-inbox")} text-xl text-dimmed`} />
-      </div>
-    </Show>
-    <h3 class="mb-1 text-sm font-semibold text-primary">{props.title}</h3>
-    <Show when={props.description}>
-      <p class="max-w-sm text-xs text-dimmed">{props.description}</p>
-    </Show>
-    {props.children}
-  </div>
+  <Placeholder
+    surface="paper"
+    variant="panel"
+    title={props.title}
+    description={props.description}
+    icon={props.icon ? tablerIconClass(props.icon, "ti-inbox") : undefined}
+    action={props.children}
+    class={props.class}
+  />
 );
 
 const AppOverview = ((props: AppOverviewProps) => (

@@ -48,6 +48,12 @@ body:has(.cloud-ui-soft),
   --ui-menu-border: var(--ui-border-strong);
   --ui-menu-hover: var(--ui-hover);
   --ui-menu-divider: var(--ui-border);
+  --ui-state-icon-surface: var(--ui-surface-muted);
+  --ui-state-icon-border: var(--ui-border);
+  --ui-state-error-icon-surface: color-mix(in srgb, var(--color-red-500) 8%, var(--ui-surface));
+  --ui-state-error-icon-border: color-mix(in srgb, var(--color-red-500) 18%, var(--ui-border));
+  --ui-progress-track: var(--ui-surface-muted);
+  --ui-progress-track-shadow: none;
   --ui-radius-frame: 0.875rem;
   --ui-radius-surface: 0.75rem;
   --ui-radius-control: 0.5rem;
@@ -280,6 +286,17 @@ body:has(.cloud-ui-soft) .menu-label {
   padding: 0.625rem 0.75rem 0.25rem;
   font-size: 0.625rem;
   letter-spacing: 0.06em;
+}
+
+body:has(.cloud-ui-soft) .state-placeholder[data-variant="panel"] {
+  min-height: 13rem;
+  padding: 1.5rem;
+}
+
+body:has(.cloud-ui-soft) .state-placeholder-icon-panel {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--ui-radius-control);
 }
 
 @media (max-width: 767px) {

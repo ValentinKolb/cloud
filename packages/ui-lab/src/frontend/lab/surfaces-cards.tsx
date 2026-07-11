@@ -223,10 +223,18 @@ export const PlaceholderDemo = () => (
   <DemoCard
     id="placeholder"
     chip={{ kind: "component", name: "Placeholder", from: FROM_UI }}
-    description="Compact shared empty state for admin tables, panels, and small sections."
-    code={`<Placeholder surface="paper">
-  No FAQ entries yet. Use New Entry to create the first one.
-</Placeholder>
+    description="Shared empty, loading, and error state. Compact is the default for tables and small sections; panel gives full work areas deliberate hierarchy."
+    code={`<Placeholder
+  surface="paper"
+  variant="panel"
+  icon="ti ti-notebook"
+  title="No notes yet"
+  description="Create the first note for this workspace."
+  action={<button class="btn-primary btn-sm">Create note</button>}
+/>
+
+<Placeholder state="loading" title="Loading notes…" />
+<Placeholder state="error" title="Notes could not be loaded" />
 
 <div class="paper p-3">
   <Placeholder align="left" icon="ti ti-users">
@@ -234,9 +242,20 @@ export const PlaceholderDemo = () => (
   </Placeholder>
 </div>`}
   >
-    <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-      <Placeholder surface="paper">No FAQ entries yet. Use New Entry to create the first one.</Placeholder>
-      <div class="paper p-3">
+    <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <Placeholder
+        surface="paper"
+        variant="panel"
+        icon="ti ti-notebook"
+        title="No notes yet"
+        description="Create the first note for this workspace."
+        action={<button class="btn-primary btn-sm">Create note</button>}
+      />
+      <div class="paper grid content-center gap-4 p-3">
+        <Placeholder state="loading" title="Loading notes…" description="Fetching the latest workspace content." />
+        <Placeholder state="error" title="Notes could not be loaded" description="Check your connection and try again." />
+      </div>
+      <div class="paper p-3 lg:col-span-2">
         <Placeholder align="left" icon="ti ti-users">
           No direct permissions configured.
         </Placeholder>
@@ -342,17 +361,17 @@ export const ProgressBarDemo = () => (
   <DemoCard
     id="progressbar"
     chip={{ kind: "component", name: "ProgressBar", from: FROM_UI }}
-    description="Sizes via `size` prop, tones via `tone`. Optional `showValue` to print the percent inline."
-    code={`<ProgressBar value={20} size="xs" showValue />
-<ProgressBar value={55} tone="primary" showValue />
-<ProgressBar value={90} tone="success" showValue />
-<ProgressBar value={72} tone="danger" showValue />`}
+    description="Determinate progress with native progressbar semantics. `label` names the task for assistive technology; tone communicates status without replacing the numeric value."
+    code={`<ProgressBar value={20} size="xs" label="Upload progress" showValue />
+<ProgressBar value={55} tone="primary" label="Import progress" showValue />
+<ProgressBar value={90} tone="success" label="Completed checks" showValue />
+<ProgressBar value={72} tone="danger" label="Storage used" showValue />`}
   >
     <div class="space-y-2">
-      <ProgressBar value={20} size="xs" showValue />
-      <ProgressBar value={55} tone="primary" showValue />
-      <ProgressBar value={90} tone="success" showValue />
-      <ProgressBar value={72} tone="danger" showValue />
+      <ProgressBar value={20} size="xs" label="Upload progress" showValue />
+      <ProgressBar value={55} tone="primary" label="Import progress" showValue />
+      <ProgressBar value={90} tone="success" label="Completed checks" showValue />
+      <ProgressBar value={72} tone="danger" label="Storage used" showValue />
     </div>
   </DemoCard>
 );

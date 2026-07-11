@@ -92,6 +92,41 @@
   @apply px-4 pt-3 pb-1 text-xs font-medium uppercase tracking-wider text-zinc-500;
 }
 
+@utility state-placeholder-icon {
+  @apply flex shrink-0 items-center justify-center text-zinc-400 dark:text-zinc-500;
+}
+
+@utility state-placeholder-icon-panel {
+  width: 3rem;
+  height: 3rem;
+  border: 1px solid var(--ui-state-icon-border);
+  border-radius: var(--ui-radius-surface);
+  background: var(--ui-state-icon-surface);
+}
+
+@utility state-placeholder-icon-error {
+  border-color: var(--ui-state-error-icon-border);
+  background: var(--ui-state-error-icon-surface);
+  @apply text-red-600 dark:text-red-400;
+}
+
+@utility progress-track {
+  background: var(--ui-progress-track);
+  box-shadow: var(--ui-progress-track-shadow);
+}
+
+@utility progress-fill-primary {
+  background: var(--ui-progress-primary);
+}
+
+@utility progress-fill-success {
+  background: var(--ui-progress-success);
+}
+
+@utility progress-fill-danger {
+  background: var(--ui-progress-danger);
+}
+
 @utility tag {
   @apply rounded inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium;
 }
