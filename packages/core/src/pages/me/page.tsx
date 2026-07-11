@@ -335,10 +335,6 @@ export default ssr<AuthContext>(async (c) => {
               <p class="mt-3 text-xs text-dimmed">
                 Then run <code class="font-mono text-secondary">cld login --server {cloudUrl}</code>.
               </p>
-              <a href="/cli" class="btn-secondary btn-sm mt-4">
-                <i class="ti ti-download" />
-                Download installer
-              </a>
             </section>
 
             {sessionUser.provider === "local" && (freeIpaEnabled || pendingRequest) && (
