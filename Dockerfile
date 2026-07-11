@@ -16,6 +16,7 @@ COPY packages/accounts/package.json      packages/accounts/
 COPY packages/api-docs/package.json      packages/api-docs/
 COPY packages/assistant/package.json     packages/assistant/
 COPY packages/cloud/package.json         packages/cloud/
+COPY packages/cloud-cli/package.json     packages/cloud-cli/
 COPY packages/contacts/package.json      packages/contacts/
 COPY packages/core/package.json          packages/core/
 COPY packages/dashboard/package.json     packages/dashboard/
@@ -35,6 +36,9 @@ COPY packages/tools/package.json         packages/tools/
 COPY packages/ui-lab/package.json        packages/ui-lab/
 COPY packages/venue/package.json         packages/venue/
 COPY packages/weather/package.json       packages/weather/
+
+# patchedDependencies in package.json reference these files at install time.
+COPY patches patches/
 
 # --production keeps CI/dev-only tools (Biome, TypeScript, @types, etc.) out
 # of production images. This avoids optional platform binaries in multi-arch

@@ -2,15 +2,22 @@ import { For, type JSX, Match, Show, Switch } from "solid-js";
 import { markdown } from "../../shared";
 import type { AiTurnBlock } from "../protocol";
 import { isRenderableTurnBlock } from "../protocol";
-import { AssistantMarkdownBlock, ChatUtilityDisclosure, ChatUtilityLine, PulseDots } from "./primitives";
-import { displayToolName, formatToolDetailText, isCardToolName, isRecord, isSurveyToolName, jsonPreview, toolBlockSummary } from "./message-utils";
 import { useAiMessageActions } from "./message-actions";
+import {
+  displayToolName,
+  formatToolDetailText,
+  isCardToolName,
+  isRecord,
+  isSurveyToolName,
+  jsonPreview,
+  toolBlockSummary,
+} from "./message-utils";
+import { BashToolBlock, PresentToolBlock } from "./bash-tools";
+import { AssistantMarkdownBlock, ChatUtilityDisclosure, ChatUtilityLine, PulseDots } from "./primitives";
 import { CloudCardBlock, CloudSurveyBlock, CloudSurveyResultBlock } from "./visual-tools";
+import { WebExtractToolBlock, WebSearchToolBlock } from "./web-tools";
 
 type ToolBlock = Extract<AiTurnBlock, { kind: "tool" }>;
-
-const isQuietResult = (result: unknown): boolean =>
-  isRecord(result) && (result.displayed === true || result.submitted === true || result.ok === true);
 
 // All state branches below live in reactive JSX (Show/Switch), never in the
 // component body: blocks are born empty/running and mutate in place while the
@@ -27,7 +34,7 @@ function ThinkingBlockView(props: { text: string; streaming?: boolean }) {
       }
     >
       <ChatUtilityDisclosure meta={{ icon: "ti ti-sparkles", label: "Show reasoning", tone: "ai" }}>
-        <pre class="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-100/70 p-2 text-[11px] leading-5 text-secondary dark:bg-zinc-950/70">
+        <pre class="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-100/70 p-2 text-[11px] leading-5 text-secondary [box-shadow:var(--theme-recess)] dark:bg-zinc-950/70">
           {props.text}
         </pre>
       </ChatUtilityDisclosure>
@@ -52,7 +59,7 @@ function CompactionBlockView(props: { block: Extract<AiTurnBlock, { kind: "compa
       <ChatUtilityDisclosure
         meta={{ icon: "ti ti-brain", label: "Show compaction", description: description(), tone: status() === "failed" ? "danger" : "ai" }}
       >
-        <div class="max-w-xl rounded-md bg-zinc-100/70 p-2 text-[11px] leading-5 text-secondary dark:bg-zinc-950/70">
+        <div class="max-w-xl rounded-md bg-zinc-100/70 p-2 text-[11px] leading-5 text-secondary [box-shadow:var(--theme-recess)] dark:bg-zinc-950/70">
           <Show when={props.block.result} fallback={<p>Older chat context was summarized into compact conversation memory.</p>}>
             {(compactResult) => (
               <dl class="grid grid-cols-2 gap-2">
@@ -77,7 +84,7 @@ function ToolDetailSection(props: { title: string; children: JSX.Element }) {
   return (
     <div class="min-w-0">
       <p class="mb-1 text-[10px] font-medium uppercase tracking-wide text-dimmed">{props.title}</p>
-      <pre class="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-100 p-2 text-[11px] leading-4 text-primary dark:bg-zinc-950/70">
+      <pre class="max-h-52 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-100 p-2 text-[11px] leading-4 text-primary [box-shadow:var(--theme-recess)] dark:bg-zinc-950/70">
         {props.children}
       </pre>
     </div>
@@ -116,7 +123,10 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
           <p class="font-semibold">Approve tool: {props.block.name}</p>
           <p class="mt-0.5 text-xs opacity-80">{props.block.approval?.message ?? "The assistant wants to run this tool."}</p>
         </div>
-        <Show when={pending()} fallback={<span class="text-xs font-medium opacity-80">{props.block.status === "rejected" ? "rejected" : "approved"}</span>}>
+        <Show
+          when={pending()}
+          fallback={<span class="text-xs font-medium opacity-80">{props.block.status === "rejected" ? "rejected" : "approved"}</span>}
+        >
           <div class="flex shrink-0 flex-wrap gap-1">
             <button type="button" class="btn-input btn-input-sm" onClick={() => void actions.onApproval?.(request(), { approved: false })}>
               Reject
@@ -125,7 +135,11 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
               Approve
             </button>
             <Show when={props.block.approval?.allowAlways}>
-              <button type="button" class="btn-input btn-input-sm" onClick={() => void actions.onApproval?.(request(), { approved: true, remember: "always" })}>
+              <button
+                type="button"
+                class="btn-input btn-input-sm"
+                onClick={() => void actions.onApproval?.(request(), { approved: true, remember: "always" })}
+              >
                 Always allow
               </button>
             </Show>
@@ -133,7 +147,9 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
         </Show>
       </div>
       <ChatUtilityDisclosure meta={{ icon: "ti ti-list-details", label: "Show details" }} class="mt-2">
-        <pre class="max-h-40 overflow-auto rounded-md bg-white/55 p-2 text-[11px] text-primary dark:bg-black/20">{jsonPreview(props.block.args)}</pre>
+        <pre class="max-h-40 overflow-auto rounded-md bg-white/55 p-2 text-[11px] text-primary dark:bg-black/20">
+          {jsonPreview(props.block.args)}
+        </pre>
       </ChatUtilityDisclosure>
     </div>
   );
@@ -171,6 +187,18 @@ function ToolBlockView(props: { turnId: string; block: ToolBlock }) {
       <Match when={status() === "awaiting_approval" || status() === "rejected"}>
         <ApprovalBlockView turnId={props.turnId} block={props.block} />
       </Match>
+      <Match when={props.block.name === "bash"}>
+        <BashToolBlock block={props.block} />
+      </Match>
+      <Match when={props.block.name === "present"}>
+        <PresentToolBlock block={props.block} />
+      </Match>
+      <Match when={props.block.name === "web_search" && !props.block.isError}>
+        <WebSearchToolBlock block={props.block} />
+      </Match>
+      <Match when={props.block.name === "web_extract" && !props.block.isError}>
+        <WebExtractToolBlock block={props.block} />
+      </Match>
       <Match when={isCardToolName(props.block.name)}>
         <CloudCardBlock args={props.block.args} />
       </Match>
@@ -180,7 +208,6 @@ function ToolBlockView(props: { turnId: string; block: ToolBlock }) {
       <Match when={status() === "running" || status() === "awaiting_client"}>
         <ChatUtilityLine meta={{ icon: "ti ti-tool", label: displayToolName(props.block.name) }} trailing={<PulseDots />} />
       </Match>
-      <Match when={status() === "completed" && isQuietResult(props.block.result)}>{null}</Match>
     </Switch>
   );
 }
@@ -203,5 +230,11 @@ export function AiTurnBlockView(props: { block: AiTurnBlock; turnId: string; str
 
 export function AiTurnBlockList(props: { blocks: AiTurnBlock[]; turnId: string; streaming?: boolean }) {
   const visible = () => props.blocks.filter(isRenderableTurnBlock);
-  return <For each={visible()}>{(block, index) => <AiTurnBlockView block={block} turnId={props.turnId} streaming={props.streaming && index() === visible().length - 1} />}</For>;
+  return (
+    <For each={visible()}>
+      {(block, index) => (
+        <AiTurnBlockView block={block} turnId={props.turnId} streaming={props.streaming && index() === visible().length - 1} />
+      )}
+    </For>
+  );
 }

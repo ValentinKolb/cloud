@@ -25,6 +25,66 @@ export const migrateCloudAi = async (): Promise<void> => {
 
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT 'ti ti-message'`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`.simple();
+  // Enrichment (description/keywords/title upkeep) — dirty = updated_at > enriched_at.
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS keywords TEXT[] NOT NULL DEFAULT '{}'`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS title_source TEXT NOT NULL DEFAULT 'default'`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS description_source TEXT NOT NULL DEFAULT 'default'`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS enriched_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS enrich_failed_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS enrich_fail_count INTEGER NOT NULL DEFAULT 0`.simple();
+
+  // Semantics fix: 'auto' is reserved for enrichment-set titles (which always set
+  // enriched_at in the same update). First-message snapshot titles are 'default'
+  // so enrichment may replace them freely. No-op once the code writes it that way.
+  await sql`UPDATE ai.conversations SET title_source = 'default' WHERE title_source = 'auto' AND enriched_at IS NULL`.simple();
+
+  // The AI summary moved into the user-visible description (guarded by
+  // description_source, same pattern as title_source). Migrate stored
+  // summaries into empty descriptions, then drop the column.
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'ai' AND table_name = 'conversations' AND column_name = 'summary'
+      ) THEN
+        UPDATE ai.conversations
+        SET description = LEFT(summary, 500), description_source = 'auto'
+        WHERE description = '' AND summary <> '';
+        ALTER TABLE ai.conversations DROP COLUMN summary;
+      END IF;
+    END $$
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_conversations_enrich_dirty
+    ON ai.conversations(updated_at ASC)
+    WHERE archived_at IS NULL
+  `.simple();
+
+  // Per-conversation enrichment history — user-visible in the chat settings.
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.enrichment_runs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      conversation_id UUID NOT NULL REFERENCES ai.conversations(id) ON DELETE CASCADE,
+      status TEXT NOT NULL,
+      trigger TEXT NOT NULL DEFAULT 'scheduled',
+      model_profile_id TEXT,
+      mode TEXT,
+      duration_ms INTEGER,
+      title_updated BOOLEAN NOT NULL DEFAULT FALSE,
+      keywords_count INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT ai_enrichment_runs_status_check CHECK (status IN ('ok', 'failed', 'skipped')),
+      CONSTRAINT ai_enrichment_runs_trigger_check CHECK (trigger IN ('scheduled', 'manual'))
+    )
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_enrichment_runs_conversation_created
+    ON ai.enrichment_runs(conversation_id, created_at DESC)
+  `.simple();
 
   await sql`
     CREATE INDEX IF NOT EXISTS idx_ai_conversations_app_owner_updated
@@ -229,6 +289,129 @@ export const migrateCloudAi = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_ai_tool_calls_conversation_created
     ON ai.tool_calls(conversation_id, created_at DESC)
   `.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.user_prefs (
+      user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+      instructions TEXT NOT NULL DEFAULT '',
+      memory TEXT NOT NULL DEFAULT '',
+      memory_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+
+  // Last model the user actually ran a turn with — preselected for new chats.
+  await sql`ALTER TABLE ai.user_prefs ADD COLUMN IF NOT EXISTS last_model_id TEXT NOT NULL DEFAULT ''`.simple();
+
+  // ── Conversation virtual filesystem (bash tool workspace) ──────────────
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.files (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      conversation_id UUID NOT NULL REFERENCES ai.conversations(id) ON DELETE CASCADE,
+      path TEXT NOT NULL,
+      bytes BYTEA NOT NULL,
+      media_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+      size INTEGER NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT ai_files_path_unique UNIQUE (conversation_id, path)
+    )
+  `.simple();
+  // EXTERNAL keeps bytea un-compressed in TOAST so substring() slices read
+  // only the needed chunks — head/tail on big files must not load everything.
+  await sql`ALTER TABLE ai.files ALTER COLUMN bytes SET STORAGE EXTERNAL`.simple();
+
+  // ── Skill registry (full agent-skills standard: one skill = a file tree) ─
+  // No description column: the description lives in SKILL.md frontmatter —
+  // single source of truth, parsed on read.
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.skills (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      slug TEXT NOT NULL UNIQUE,
+      owner_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      allow_code BOOLEAN NOT NULL DEFAULT FALSE,
+      code_approved_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      code_approved_at TIMESTAMPTZ,
+      code_approved_hash TEXT,
+      code_review_requested_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT ai_skills_slug_check CHECK (slug ~ '^[a-z0-9][a-z0-9-]*$')
+    )
+  `.simple();
+  await sql`ALTER TABLE ai.skills DROP COLUMN IF EXISTS description`.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.skill_files (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      skill_id UUID NOT NULL REFERENCES ai.skills(id) ON DELETE CASCADE,
+      path TEXT NOT NULL,
+      bytes BYTEA NOT NULL,
+      media_type TEXT NOT NULL DEFAULT 'text/markdown',
+      size INTEGER NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT ai_skill_files_path_unique UNIQUE (skill_id, path)
+    )
+  `.simple();
+  await sql`ALTER TABLE ai.skill_files ALTER COLUMN bytes SET STORAGE EXTERNAL`.simple();
+
+  // Per-user activation. Foreign shares default to disabled (consent) —
+  // enforced in code via the default-state rules, not in the schema.
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.skill_user_state (
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      skill_id UUID NOT NULL REFERENCES ai.skills(id) ON DELETE CASCADE,
+      state TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, skill_id),
+      CONSTRAINT ai_skill_user_state_check CHECK (state IN ('enabled', 'disabled'))
+    )
+  `.simple();
+
+  // Junction to the generic auth.access entries (standard permission system).
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.skill_access (
+      skill_id UUID NOT NULL REFERENCES ai.skills(id) ON DELETE CASCADE,
+      access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
+      PRIMARY KEY (skill_id, access_id)
+    )
+  `.simple();
+
+  // Durable audit log — security decisions must not depend on trace retention.
+  // skill_id has no FK so history survives skill deletion; slug is denormalized.
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.skill_events (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      skill_id UUID NOT NULL,
+      skill_slug TEXT NOT NULL,
+      actor_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      event TEXT NOT NULL,
+      meta JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT ai_skill_events_event_check CHECK (event IN (
+        'created', 'updated', 'deleted', 'enabled', 'disabled',
+        'shared', 'unshared', 'code_review_requested', 'code_approved', 'code_revoked'
+      ))
+    )
+  `.simple();
+
+  // Keyset pagination orders on (created_at, id); the per-skill history
+  // filters by skill_id first. The old single-column index is superseded.
+  await sql`DROP INDEX IF EXISTS ai.idx_ai_skill_events_created`.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_skill_events_created_id
+    ON ai.skill_events(created_at DESC, id DESC)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_skill_events_skill_created
+    ON ai.skill_events(skill_id, created_at DESC, id DESC)
+  `.simple();
+
+  // Builtin skills ship as prepopulated workspace skills — seeded once, then
+  // owned by admins like any other workspace skill (deletions stick).
+  // Dynamic import keeps the migration module free of store dependencies.
+  const { seedBuiltinAiSkills } = await import("./builtin-skills");
+  await seedBuiltinAiSkills();
 
   console.log("  ✓ ai conversation tables");
 };

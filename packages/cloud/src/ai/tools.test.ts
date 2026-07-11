@@ -69,8 +69,8 @@ describe("AI tools", () => {
     const withoutWeb = await createConfiguredDefaultCloudAiTools({ firecrawlApiKey: "" });
     const withWeb = await createConfiguredDefaultCloudAiTools({ firecrawlApiKey: "fc-secret" });
 
-    expect(withoutWeb.map((tool) => tool.def.name)).toEqual(["card", "survey"]);
-    expect(withWeb.map((tool) => tool.def.name)).toEqual(["card", "survey", "web_search", "web_extract"]);
+    expect(withoutWeb.map((tool) => tool.def.name)).toEqual(["card", "survey", "bash", "present"]);
+    expect(withWeb.map((tool) => tool.def.name)).toEqual(["card", "survey", "bash", "present", "web_search", "web_extract"]);
 
     const prepared = prepareAiTools({ tools: withWeb, actor });
     expect(prepared.tools.find((tool) => tool.def.name === "web_search")?.kind).toBe("server");

@@ -63,9 +63,16 @@ export const activeTurnFromSnapshot = (snapshot: AiTurnSnapshot | null): AiActiv
  */
 export const reduceProjection = (state: AiChatProjection, event: AiStreamSseEvent): AiChatProjection => {
   if (event.type === "state") {
+    // The snapshot only carries the newest window. History the client already
+    // paged in (older than the window) must survive a reconnect — losing the
+    // scrollback under the reader would be unpredictable.
+    const windowOldest = event.messages[0]?.seq;
+    const sameConversation = state.conversation?.id === event.conversation.id;
+    const preservedOlder =
+      sameConversation && windowOldest !== undefined ? state.messages.filter((message) => message.seq < windowOldest) : [];
     return {
       conversation: event.conversation,
-      messages: event.messages,
+      messages: [...preservedOlder, ...event.messages],
       activeTurn: activeTurnFromSnapshot(event.activeTurn),
     };
   }
@@ -80,7 +87,14 @@ export const reduceWireEvent = (state: AiChatProjection, event: AiWireEvent): Ai
     if (active && active.turnId === event.turnId && event.attempt < active.attempt) return state;
     return {
       ...state,
-      activeTurn: { turnId: event.turnId, attempt: event.attempt, seq: event.seq, status: "running", blocks: [], modelProfileId: event.modelProfileId },
+      activeTurn: {
+        turnId: event.turnId,
+        attempt: event.attempt,
+        seq: event.seq,
+        status: "running",
+        blocks: [],
+        modelProfileId: event.modelProfileId,
+      },
     };
   }
 

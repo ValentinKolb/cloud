@@ -34,7 +34,10 @@ const normalizeDataBoundary = (boundary: (typeof DATA_BOUNDARY_INPUTS)[number] |
 
 const isModelCapability = (value: string): value is AiModelCapability => AI_MODEL_CAPABILITIES.some((capability) => capability === value);
 
-const DEFAULT_MAX_TOOL_RESULT_CHARS = 2_000;
+// Keep in sync with the ai.max_tool_result_chars default in settings/defaults.ts.
+// Long chats live or die on tool results (web extracts, bash output) surviving
+// into context — 2k proved too aggressive a cut.
+const DEFAULT_MAX_TOOL_RESULT_CHARS = 8_000;
 
 const normalizeMaxToolResultChars = (value: unknown): number => {
   const numeric = Number(value);
@@ -58,6 +61,14 @@ const ModelProfileSchema = z.object({
   provider: z.enum(PROVIDERS),
   model: z.string().trim().min(1),
   enabled: z.boolean().default(true),
+  // Small logo shown in the admin card and the composer model picker. Hard cap:
+  // it ships to every user via the public model list (64x64 webp ≈ a few KB).
+  image: z
+    .string()
+    .trim()
+    .regex(/^data:image\//)
+    .max(28_000)
+    .optional(),
   // Legacy/advanced metadata is tolerated but no longer used for model selection.
   tags: z.array(z.string()).optional(),
   capabilities: z.array(z.string()).optional(),
@@ -80,6 +91,7 @@ const profileToPublic = (profile: AiModelProfile): AiPublicModelProfile => ({
   label: profile.label,
   provider: profile.provider,
   model: profile.model,
+  image: profile.image,
   capabilities: profile.capabilities,
   dataBoundary: profile.dataBoundary,
   contextWindow: profile.contextWindow,
@@ -237,15 +249,16 @@ export const resolveAiSettingsStateFromRaw = async (input: {
 };
 
 export const readAiSettingsState = async (): Promise<AiSettingsState> => {
-  const [enabled, defaultModelId, profilesJson, globalInstructions, compactionPrompt, maxToolResultChars, firecrawlApiKey] = await Promise.all([
-    coreSettings.get<boolean>("ai.enabled"),
-    coreSettings.get<string>("ai.default_model_id"),
-    coreSettings.get<string>("ai.model_profiles_json"),
-    coreSettings.get<string>("ai.global_instructions"),
-    coreSettings.get<string>("ai.compaction_prompt"),
-    coreSettings.get<number>("ai.max_tool_result_chars"),
-    coreSettings.get<string>(AI_FIRECRAWL_API_KEY_SETTING_KEY),
-  ]);
+  const [enabled, defaultModelId, profilesJson, globalInstructions, compactionPrompt, maxToolResultChars, firecrawlApiKey] =
+    await Promise.all([
+      coreSettings.get<boolean>("ai.enabled"),
+      coreSettings.get<string>("ai.default_model_id"),
+      coreSettings.get<string>("ai.model_profiles_json"),
+      coreSettings.get<string>("ai.global_instructions"),
+      coreSettings.get<string>("ai.compaction_prompt"),
+      coreSettings.get<number>("ai.max_tool_result_chars"),
+      coreSettings.get<string>(AI_FIRECRAWL_API_KEY_SETTING_KEY),
+    ]);
 
   return resolveAiSettingsStateFromRaw({
     enabled: Boolean(enabled),

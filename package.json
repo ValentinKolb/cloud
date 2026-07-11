@@ -93,5 +93,8 @@
     "@types/node": "^25.2.3",
     "typescript": "^5.9.3"
   },
-  "license": "AGPL-3.0-or-later"
+  "license": "AGPL-3.0-or-later",
+  "patchedDependencies": {
+    "just-bash@3.1.0": "patches/just-bash@3.1.0.patch"
+  }
 }

@@ -14,6 +14,7 @@ const toneClass = (tone: unknown) => {
 
 export function CloudCardBlock(props: { args: unknown }) {
   const card = () => (isRecord(props.args) ? props.args : null);
+  const emoji = () => (typeof card()?.emoji === "string" ? String(card()?.emoji).trim() : "");
   const title = () => String(card()?.title ?? "Card");
   const value = () => String(card()?.value ?? "");
   const caption = () => (typeof card()?.caption === "string" ? String(card()!.caption) : "");
@@ -37,9 +38,11 @@ export function CloudCardBlock(props: { args: unknown }) {
         }
       >
         <div class="flex items-start gap-2">
-          <span class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-white/60 text-cyan-700 dark:bg-white/10 dark:text-cyan-200">
-            <i class="ti ti-sparkles text-base" aria-hidden="true" />
-          </span>
+          <Show when={emoji()}>
+            <span class="shrink-0 text-2xl leading-7" aria-hidden="true">
+              {emoji()}
+            </span>
+          </Show>
           <div class="min-w-0 flex-1">
             <p class="text-sm font-semibold">{title()}</p>
             <p class="mt-2 text-3xl font-semibold tracking-normal">{value()}</p>
@@ -95,15 +98,13 @@ export function CloudSurveyBlock(props: { args: unknown; disabled?: boolean; onS
   };
 
   return (
-    <div class="max-w-xl rounded-md border border-cyan-200 bg-white/80 p-2.5 dark:border-cyan-900/70 dark:bg-zinc-900/80">
+    <div class="max-w-xl rounded-md border border-zinc-200 bg-white/80 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
       <div class="flex items-start gap-2">
-        <span class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-200">
-          <i class="ti ti-forms text-base" aria-hidden="true" />
-        </span>
+        <i class="ti ti-forms mt-0.5 shrink-0 text-base leading-none text-dimmed" aria-hidden="true" />
         <div class="min-w-0 flex-1">
-          <p class="text-sm font-semibold text-primary">{String(survey()?.title ?? "Survey")}</p>
+          <p class="text-xs font-medium text-primary">{String(survey()?.title ?? "Survey")}</p>
           <Show when={typeof survey()?.description === "string"}>
-            <p class="mt-1 text-xs text-secondary">{String(survey()?.description)}</p>
+            <p class="mt-1 text-xs text-dimmed">{String(survey()?.description)}</p>
           </Show>
 
           <div class="mt-3 space-y-3">
@@ -229,24 +230,25 @@ export function CloudSurveyResultBlock(props: { args?: unknown; result: unknown 
   };
 
   return (
-    <details class="max-w-xl rounded-md border border-cyan-200 bg-white/80 p-2.5 text-sm dark:border-cyan-900/70 dark:bg-zinc-900/80">
-      <summary class="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-primary">
-        <span class="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-200">
-          <i class="ti ti-forms text-base" aria-hidden="true" />
-        </span>
-        <span class="min-w-0 flex-1 truncate">{String(survey()?.title ?? "Survey")} submitted</span>
-        <i class="ti ti-chevron-down text-sm text-dimmed" aria-hidden="true" />
+    <details class="group min-w-0 max-w-[min(46rem,100%)] text-xs">
+      <summary class="inline-flex min-h-7 max-w-full cursor-pointer list-none items-center gap-1.5 py-1 leading-none text-dimmed transition-colors hover:text-primary">
+        <i class="ti ti-forms shrink-0 text-base leading-none" aria-hidden="true" />
+        <span class="shrink-0 font-medium">survey</span>
+        <span class="min-w-0 truncate">{String(survey()?.title ?? "Survey")} · submitted</span>
+        <i class="ti ti-chevron-right shrink-0 text-base leading-none opacity-60 transition-transform group-open:rotate-90" aria-hidden="true" />
       </summary>
-      <div class="mt-3 space-y-2">
+      <div class="mt-1 max-w-xl rounded-md bg-zinc-100/70 px-2.5 py-2 [box-shadow:var(--theme-recess)] dark:bg-zinc-950/70">
         <Show when={rows().length > 0} fallback={<p class="text-xs text-dimmed">No answers submitted.</p>}>
-          <For each={rows()}>
-            {(row) => (
-              <div class="rounded-md bg-zinc-50 px-2 py-1.5 dark:bg-zinc-950/50">
-                <p class="text-xs font-medium text-dimmed">{row.label}</p>
-                <p class="mt-0.5 whitespace-pre-wrap text-sm text-primary">{row.value}</p>
-              </div>
-            )}
-          </For>
+          <dl class="grid grid-cols-[minmax(8rem,auto)_1fr] gap-x-4 gap-y-1.5">
+            <For each={rows()}>
+              {(row) => (
+                <>
+                  <dt class="text-xs text-dimmed">{row.label}</dt>
+                  <dd class="min-w-0 whitespace-pre-wrap text-xs text-primary">{row.value}</dd>
+                </>
+              )}
+            </For>
+          </dl>
         </Show>
       </div>
     </details>

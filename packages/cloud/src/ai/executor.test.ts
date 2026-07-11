@@ -91,6 +91,38 @@ describe("nessi block event mapping", () => {
     });
   });
 
+  test("client tool action requests carry the tool's real frontend mode", () => {
+    const mapper = createEventMapper(1, []);
+    mapper.setFrontendModes(new Map([["survey", "client_interaction"]]));
+    const ops = mapper.translate({
+      ...turn,
+      type: "tool_action_request",
+      kind: "client_tool",
+      callId: "call-7",
+      name: "survey",
+      args: { title: "Feedback" },
+      message: "",
+    } as OutboundEvent);
+    // "client" here would let the frontend auto-answer the survey with a fake
+    // result before the user sees it (the "AI action request not found" bug).
+    expect(ops[0]).toMatchObject({
+      type: "block_set",
+      block: { id: toolBlockId("call-7"), status: "awaiting_client", frontendMode: "client_interaction" },
+    });
+
+    // Unknown client tools fall back to plain "client".
+    const fallback = mapper.translate({
+      ...turn,
+      type: "tool_action_request",
+      kind: "client_tool",
+      callId: "call-8",
+      name: "unknown-tool",
+      args: {},
+      message: "",
+    } as OutboundEvent);
+    expect(fallback[0]).toMatchObject({ type: "block_set", block: { frontendMode: "client" } });
+  });
+
   test("issues with a callId mark an unfinished tool block failed", () => {
     const mapper = createEventMapper(1, []);
     mapper.translate({ ...turn, type: "tool_execution_start", callId: "call-2", name: "web_extract", args: {} } as OutboundEvent);

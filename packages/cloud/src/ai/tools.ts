@@ -13,6 +13,8 @@ export const defineAiTool = <TInput extends z.ZodType, TOutput extends z.ZodType
   approval?: AiToolApprovalPolicy;
   /** Per-tool execution timeout. nessi aborts the call and reports a timeout issue. */
   timeoutMs?: number;
+  /** One-line "when to use" hint listed in the system prompt's Tools section. */
+  promptHint?: string;
 }) => {
   const def: AiToolDefinition<TInput, TOutput> = {
     name: config.name,
@@ -21,12 +23,13 @@ export const defineAiTool = <TInput extends z.ZodType, TOutput extends z.ZodType
     outputSchema: config.outputSchema,
     approval: config.approval ?? "once",
     timeoutMs: config.timeoutMs,
+    promptHint: config.promptHint,
   };
 
   return {
     def,
     server(
-      run: (input: z.infer<TInput>, ctx: ToolContext & { actor: RequestActor }) => Promise<z.infer<TOutput>>,
+      run: (input: z.infer<TInput>, ctx: ToolContext & { actor: RequestActor; conversationId?: string }) => Promise<z.infer<TOutput>>,
     ): AiToolRuntime<TInput, TOutput> {
       return { location: "server", def, run };
     },
@@ -47,13 +50,17 @@ export const isFrontendToolMode = (mode: string): mode is AiFrontendToolMode =>
 
 const isCloudAiTool = (tool: AiRuntimeTool): tool is AiToolRuntime => "location" in tool && "def" in tool;
 
+/** Collect the prompt hints of the tools actually available this turn (tools without a hint are skipped). */
+export const aiToolPromptHints = (tools: AiRuntimeTool[]): { name: string; hint: string }[] =>
+  tools.flatMap((tool) => (isCloudAiTool(tool) && tool.def.promptHint ? [{ name: tool.def.name, hint: tool.def.promptHint }] : []));
+
 export type PreparedAiTools = {
   tools: Tool[];
   approvalPolicies: Map<string, AiToolApprovalPolicy>;
   frontendModes: Map<string, AiFrontendToolMode>;
 };
 
-export const prepareAiTools = (input: { tools?: AiRuntimeTool[]; actor?: RequestActor }): PreparedAiTools => {
+export const prepareAiTools = (input: { tools?: AiRuntimeTool[]; actor?: RequestActor; conversationId?: string }): PreparedAiTools => {
   const approvalPolicies = new Map<string, AiToolApprovalPolicy>();
   const frontendModes = new Map<string, AiFrontendToolMode>();
 
@@ -74,7 +81,7 @@ export const prepareAiTools = (input: { tools?: AiRuntimeTool[]; actor?: Request
     if (tool.location === "server") {
       return nessiTool.server((toolInput, ctx) => {
         if (!input.actor) throw new Error(`AI server tool "${tool.def.name}" requires a request actor.`);
-        return tool.run(toolInput, { ...ctx, actor: input.actor });
+        return tool.run(toolInput, { ...ctx, actor: input.actor, conversationId: input.conversationId });
       });
     }
 

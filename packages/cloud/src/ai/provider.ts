@@ -52,6 +52,8 @@ export const createAiProvider = (profile: AiModelProfile, apiKey?: string): Prov
           supportsUsageInStreaming: true,
           thinkingFormat: "text",
           maxTokensField: "max_tokens",
+          // Guided decoding for nessi.structured — matches nessi's own vllm() preset.
+          structuredOutput: "vllm_structured_outputs",
         },
       });
     case "openai-compatible":

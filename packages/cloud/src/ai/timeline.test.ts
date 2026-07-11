@@ -9,6 +9,7 @@ const stored = (input: {
   message: Message;
   loopId?: string | null;
   loopAggregate?: AiStoredMessage["loopAggregate"];
+  createdAt?: string;
 }): AiStoredMessage => ({
   id: input.id,
   conversationId: "conversation-1",
@@ -24,7 +25,7 @@ const stored = (input: {
   loopDoneReason: input.loopAggregate ? "stop" : null,
   compactedAt: null,
   meta: null,
-  createdAt: new Date(0).toISOString(),
+  createdAt: input.createdAt ?? new Date(0).toISOString(),
 });
 
 describe("AI message timeline", () => {
@@ -61,12 +62,68 @@ describe("AI message timeline", () => {
     expect(group.actionEntry?.id).toBe("assistant-2");
   });
 
+  test("workedMs spans from the triggering user message to the last persisted round", () => {
+    const timeline = buildAiMessageTimeline([
+      stored({
+        id: "user-1",
+        seq: 1,
+        message: { role: "user", content: [{ type: "text", text: "go" }] },
+        loopId: "loop-1",
+        createdAt: "2026-07-09T10:00:00.000Z",
+      }),
+      stored({
+        id: "assistant-1",
+        seq: 2,
+        message: { role: "assistant", content: [{ type: "text", text: "working" }], stopReason: "tool_use" },
+        loopId: "loop-1",
+        createdAt: "2026-07-09T10:00:05.000Z",
+      }),
+      stored({
+        id: "assistant-2",
+        seq: 3,
+        message: { role: "assistant", content: [{ type: "text", text: "done" }], stopReason: "stop" },
+        loopId: "loop-1",
+        createdAt: "2026-07-09T10:00:08.000Z",
+      }),
+    ]);
+
+    const group = timeline[1];
+    if (group?.type !== "assistant") throw new Error("expected assistant group");
+    expect(group.workedMs).toBe(8_000);
+  });
+
+  test("workedMs falls back to the group's own entries for legacy loops", () => {
+    const timeline = buildAiMessageTimeline([
+      stored({ id: "user-1", seq: 1, message: { role: "user", content: [{ type: "text", text: "hi" }] } }),
+      stored({
+        id: "assistant-1",
+        seq: 2,
+        message: { role: "assistant", content: [{ type: "text", text: "hello" }], stopReason: "stop" },
+        createdAt: "2026-07-09T10:00:03.000Z",
+      }),
+    ]);
+
+    const group = timeline[1];
+    if (group?.type !== "assistant") throw new Error("expected assistant group");
+    expect(group.workedMs).toBe(0);
+  });
+
   test("splits distinct loops into separate assistant groups", () => {
     const timeline = buildAiMessageTimeline([
       stored({ id: "u1", seq: 1, message: { role: "user", content: [{ type: "text", text: "one" }] } }),
-      stored({ id: "a1", seq: 2, message: { role: "assistant", content: [{ type: "text", text: "first" }], stopReason: "stop" }, loopId: "loop-1" }),
+      stored({
+        id: "a1",
+        seq: 2,
+        message: { role: "assistant", content: [{ type: "text", text: "first" }], stopReason: "stop" },
+        loopId: "loop-1",
+      }),
       stored({ id: "u2", seq: 3, message: { role: "user", content: [{ type: "text", text: "two" }] } }),
-      stored({ id: "a2", seq: 4, message: { role: "assistant", content: [{ type: "text", text: "second" }], stopReason: "stop" }, loopId: "loop-2" }),
+      stored({
+        id: "a2",
+        seq: 4,
+        message: { role: "assistant", content: [{ type: "text", text: "second" }], stopReason: "stop" },
+        loopId: "loop-2",
+      }),
     ]);
 
     expect(timeline.map((item) => item.type)).toEqual(["user", "assistant", "user", "assistant"]);
@@ -78,7 +135,10 @@ describe("AI message timeline", () => {
 
   test("renders summary rows as their own items", () => {
     const timeline = buildAiMessageTimeline([
-      { ...stored({ id: "s1", seq: 1, message: { role: "assistant", content: [{ type: "text", text: "summary" }], stopReason: "stop" } }), kind: "summary" },
+      {
+        ...stored({ id: "s1", seq: 1, message: { role: "assistant", content: [{ type: "text", text: "summary" }], stopReason: "stop" } }),
+        kind: "summary",
+      },
       stored({ id: "u1", seq: 2, message: { role: "user", content: [{ type: "text", text: "next" }] } }),
     ]);
     expect(timeline[0]).toMatchObject({ type: "summary" });
@@ -87,8 +147,18 @@ describe("AI message timeline", () => {
 
   test("copyTextFromAssistantEntries joins visible assistant text", () => {
     const entries = [
-      stored({ id: "a1", seq: 1, message: { role: "assistant", content: [{ type: "text", text: "one" }], stopReason: "stop" }, loopId: "loop-1" }),
-      stored({ id: "a2", seq: 2, message: { role: "assistant", content: [{ type: "text", text: "two" }], stopReason: "stop" }, loopId: "loop-1" }),
+      stored({
+        id: "a1",
+        seq: 1,
+        message: { role: "assistant", content: [{ type: "text", text: "one" }], stopReason: "stop" },
+        loopId: "loop-1",
+      }),
+      stored({
+        id: "a2",
+        seq: 2,
+        message: { role: "assistant", content: [{ type: "text", text: "two" }], stopReason: "stop" },
+        loopId: "loop-1",
+      }),
     ];
     expect(copyTextFromAssistantEntries(entries)).toBe("one\n\ntwo");
   });

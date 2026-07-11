@@ -3,19 +3,16 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { Dropdown, type DropdownItem, ProgressBar, toast } from "../../ui";
 import type { AiPublicModelProfile, AiUserContentPart } from "../types";
 import {
-  FILE_INPUT_ACCEPT,
-  MAX_ATTACHMENTS,
+  type AiComposerAttachment,
   formatBytes,
   formatTokens,
   imageSrc,
-  isTextAttachmentFile,
-  readImageFile,
-  readTextFile,
-  textAttachmentContext,
-  type AiComposerAttachment,
+  MAX_ATTACHMENTS,
   type PendingAiAttachment,
   type PendingAiImage,
-  type PendingAiTextFile,
+  type PendingAiVfsFile,
+  readImageFile,
+  readVfsFile,
 } from "./message-utils";
 
 export type { AiComposerAttachment } from "./message-utils";
@@ -36,6 +33,8 @@ export type AiSlashCommand = {
 export type AiComposerSendInput = {
   message?: string;
   content?: AiUserContentPart[];
+  /** Non-image attachments — uploaded into the conversation VFS by the controller before the turn starts. */
+  files?: File[];
 };
 
 export function AiContextIndicator(props: { usage?: Usage | null; contextWindow?: number }) {
@@ -104,11 +103,7 @@ export function AiContextIndicator(props: { usage?: Usage | null; contextWindow?
   );
 }
 
-function AiSlashCommandMenu(props: {
-  commands: AiSlashCommand[];
-  selectedIndex: number;
-  onSelect: (command: AiSlashCommand) => void;
-}) {
+function AiSlashCommandMenu(props: { commands: AiSlashCommand[]; selectedIndex: number; onSelect: (command: AiSlashCommand) => void }) {
   return (
     <div class="mb-2 flex flex-col gap-0.5 overflow-hidden rounded-xl bg-white/95 p-1.5 ring-1 ring-inset ring-zinc-300/60 backdrop-blur dark:bg-zinc-950/95 dark:ring-zinc-700/60">
       <For each={props.commands}>
@@ -135,10 +130,7 @@ function AiSlashCommandMenu(props: {
   );
 }
 
-function AiAttachmentPreviewList(props: {
-  attachments: PendingAiAttachment[];
-  onRemove: (id: string) => void;
-}) {
+function AiAttachmentPreviewList(props: { attachments: PendingAiAttachment[]; onRemove: (id: string) => void }) {
   return (
     <div class="flex flex-wrap gap-2 px-3 pt-3">
       <For each={props.attachments}>
@@ -152,7 +144,7 @@ function AiAttachmentPreviewList(props: {
                   title={`${attachment.name}, ${formatBytes(attachment.size)}`}
                 >
                   <div class="min-w-0">
-                    <i class={`ti ${(attachment as PendingAiTextFile).icon} text-lg`} aria-hidden="true" />
+                    <i class={`ti ${attachment.kind === "image" ? "ti-photo" : attachment.icon} text-lg`} aria-hidden="true" />
                     <p class="mt-0.5 w-12 truncate text-[10px] leading-3 text-dimmed">{attachment.name}</p>
                   </div>
                 </div>
@@ -198,6 +190,8 @@ export type AiComposerState = {
   focusToken?: () => unknown;
   placeholder?: string;
   usage?: () => Usage | null;
+  /** Conversation VFS indicator: shows a files chip when count > 0; click opens the browser. */
+  files?: { count: () => number; onOpen: () => void };
 };
 
 export type AiComposerActions = {
@@ -207,11 +201,7 @@ export type AiComposerActions = {
   stop: () => void;
 };
 
-export function AiComposer(props: {
-  models: AiComposerModels;
-  state: AiComposerState;
-  actions: AiComposerActions;
-}) {
+export function AiComposer(props: { models: AiComposerModels; state: AiComposerState; actions: AiComposerActions }) {
   const [uncontrolledDraft, setUncontrolledDraft] = createSignal("");
   const [uncontrolledAttachments, setUncontrolledAttachments] = createSignal<PendingAiAttachment[]>([]);
   const [selectedCommandIndex, setSelectedCommandIndex] = createSignal(0);
@@ -309,10 +299,17 @@ export function AiComposer(props: {
             requestAnimationFrame(focus);
           }}
         >
-          <i
-            class={`${model.capabilities.includes("vision") ? "ti ti-photo-spark" : "ti ti-message"} text-base text-dimmed`}
-            aria-hidden="true"
-          />
+          <Show
+            when={model.image}
+            fallback={
+              <i
+                class={`${model.capabilities.includes("vision") ? "ti ti-photo-spark" : "ti ti-message"} text-base text-dimmed`}
+                aria-hidden="true"
+              />
+            }
+          >
+            <img src={model.image} alt="" class="h-5 w-5 shrink-0 rounded" aria-hidden="true" />
+          </Show>
           <span class="min-w-0 flex-1">
             <span class="block truncate text-primary">{model.label}</span>
             <span class="block truncate text-xs text-dimmed">{model.model}</span>
@@ -351,9 +348,8 @@ export function AiComposer(props: {
       }
       return readImageFile(file);
     }
-    if (isTextAttachmentFile(file)) return readTextFile(file);
-    toast.error(`${file.name} is not a supported attachment type.`, { title: "Unsupported file" });
-    return null;
+    // Everything else goes into the conversation filesystem on send.
+    return readVfsFile(file);
   };
 
   const addAttachments = async (files: FileList | File[]) => {
@@ -399,14 +395,12 @@ export function AiComposer(props: {
 
     const text = draft().trim();
     const attachments = pendingAttachments();
-    const textAttachments = attachments.filter((attachment): attachment is PendingAiTextFile => attachment.kind === "text");
     const imageAttachments = attachments.filter((attachment): attachment is PendingAiImage => attachment.kind === "image");
-    const attachmentContext = textAttachmentContext(textAttachments);
+    const vfsFiles = attachments.filter((attachment): attachment is PendingAiVfsFile => attachment.kind === "file");
     const content =
       attachments.length > 0
         ? ([
             ...(text ? [{ type: "text" as const, text }] : []),
-            ...(attachmentContext ? [{ type: "text" as const, text: attachmentContext }] : []),
             ...imageAttachments.map((image) => ({ type: "file" as const, data: image.data, mediaType: image.mediaType })),
           ] satisfies AiUserContentPart[])
         : undefined;
@@ -419,7 +413,13 @@ export function AiComposer(props: {
       focus();
     });
 
-    const sent = await Promise.resolve(props.actions.send({ message: text || undefined, content })).catch(() => false);
+    const sent = await Promise.resolve(
+      props.actions.send({
+        message: text || undefined,
+        content: content?.length ? content : undefined,
+        files: vfsFiles.length ? vfsFiles.map((pending) => pending.file) : undefined,
+      }),
+    ).catch(() => false);
     if (!sent) {
       setDraftValue(previousDraft);
       setAttachments(attachments);
@@ -539,7 +539,9 @@ export function AiComposer(props: {
               when={!modelPickerDisabled()}
               fallback={
                 <span class="inline-flex h-8 max-w-52 items-center gap-1.5 px-1.5 text-xs text-dimmed">
-                  <i class="ti ti-sparkles text-sm" aria-hidden="true" />
+                  <Show when={selectedModel()?.image} fallback={<i class="ti ti-sparkles text-sm" aria-hidden="true" />}>
+                    <img src={selectedModel()?.image} alt="" class="h-4 w-4 shrink-0 rounded" aria-hidden="true" />
+                  </Show>
                   <span class="truncate">{selectedModel()?.label ?? "Model"}</span>
                 </span>
               }
@@ -550,7 +552,9 @@ export function AiComposer(props: {
                 elements={modelDropdownItems()}
                 trigger={
                   <span class="inline-flex h-8 max-w-52 items-center gap-1.5 rounded-md px-1.5 text-xs text-secondary transition-colors hover:text-cyan-700 dark:hover:text-cyan-300">
-                    <i class="ti ti-sparkles text-sm" aria-hidden="true" />
+                    <Show when={selectedModel()?.image} fallback={<i class="ti ti-sparkles text-sm" aria-hidden="true" />}>
+                      <img src={selectedModel()?.image} alt="" class="h-4 w-4 shrink-0 rounded" aria-hidden="true" />
+                    </Show>
                     <span class="truncate">{selectedModel()?.label ?? "Model"}</span>
                     <i class="ti ti-chevron-down text-[10px] text-dimmed" aria-hidden="true" />
                   </span>
@@ -583,7 +587,6 @@ export function AiComposer(props: {
           <input
             ref={fileInputRef}
             type="file"
-            accept={FILE_INPUT_ACCEPT}
             multiple
             class="hidden"
             onChange={(event) => {
@@ -594,6 +597,18 @@ export function AiComposer(props: {
           />
 
           <div class="flex-1" />
+
+          <Show when={props.state.files && (props.state.files.count() ?? 0) > 0}>
+            <button
+              type="button"
+              class="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs tabular-nums text-dimmed outline-none hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-cyan-300 dark:hover:bg-zinc-800"
+              title="Files in this chat"
+              onClick={() => props.state.files?.onOpen()}
+            >
+              <i class="ti ti-paperclip text-sm" aria-hidden="true" />
+              <span>{props.state.files!.count()}</span>
+            </button>
+          </Show>
 
           <AiContextIndicator usage={props.state.usage?.()} contextWindow={selectedModel()?.contextWindow} />
 

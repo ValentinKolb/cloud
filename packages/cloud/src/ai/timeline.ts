@@ -11,6 +11,13 @@ export type AiAssistantTimelineItem = {
   blocks: AiTurnBlock[];
   /** The entry whose message-actions row (copy/retry/fork) is shown. */
   actionEntry: AiStoredMessage | null;
+  /**
+   * Active work duration of the loop (nessi timing: generation + tool
+   * execution, excluding approval/client waits); legacy fallback is user
+   * message submitted → last message persisted. Feeds the "Worked for Xs"
+   * collapse of finished responses.
+   */
+  workedMs: number;
 };
 
 export type AiMessageTimelineItem =
@@ -52,8 +59,15 @@ const assistantActionEntry = (entries: AiStoredMessage[]): AiStoredMessage | nul
  * assistant response groups (one per loop). Assistant groups carry a unified
  * AiTurnBlock list, identical in shape to a live turn's blocks.
  */
+const timestampMs = (value: string | undefined): number | null => {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 export const buildAiMessageTimeline = (messages: AiStoredMessage[]): AiMessageTimelineItem[] => {
   const items: AiMessageTimelineItem[] = [];
+  let lastUserEntry: AiStoredMessage | null = null;
 
   for (let index = 0; index < messages.length; ) {
     const entry = messages[index]!;
@@ -64,6 +78,7 @@ export const buildAiMessageTimeline = (messages: AiStoredMessage[]): AiMessageTi
       continue;
     }
     if (entry.message.role === "user") {
+      lastUserEntry = entry;
       items.push({ type: "user", id: entry.id, entry });
       index += 1;
       continue;
@@ -78,6 +93,15 @@ export const buildAiMessageTimeline = (messages: AiStoredMessage[]): AiMessageTi
       index += 1;
     }
 
+    // Preferred: nessi's measured timing — generation + tool execution, which
+    // deliberately excludes approval/client waits ("worked", not "waited").
+    // Fallback for legacy loops: user message submitted → last round persisted.
+    const timing = entries.findLast((candidate) => candidate.loopAggregate?.timing)?.loopAggregate?.timing;
+    const startedAt =
+      loopId && lastUserEntry?.loopId === loopId ? timestampMs(lastUserEntry.createdAt) : timestampMs(entries[0]?.createdAt);
+    const finishedAt = timestampMs(entries.at(-1)?.createdAt);
+    const workedMs = timing?.totalElapsedMs ?? (startedAt !== null && finishedAt !== null ? Math.max(0, finishedAt - startedAt) : 0);
+
     items.push({
       type: "assistant",
       id: loopId ? `assistant-loop-${loopId}` : `assistant-legacy-${entry.id}`,
@@ -85,6 +109,7 @@ export const buildAiMessageTimeline = (messages: AiStoredMessage[]): AiMessageTi
       entries,
       blocks: buildBlocksFromMessages(entries.map((stored) => ({ seq: stored.seq, message: stored.message }))),
       actionEntry: assistantActionEntry(entries),
+      workedMs,
     });
   }
 

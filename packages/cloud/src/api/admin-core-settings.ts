@@ -9,6 +9,7 @@ import { sql } from "bun";
 import { Hono } from "hono";
 import { z } from "zod";
 import { listApps } from "../_internal/registry";
+import { enrichDirtyAiConversations } from "../ai/enrich";
 import { type AuthContext, auth, v } from "../server";
 import { settingsDeleteLegacyKeys, settingsListLegacyKeys } from "../services";
 import { sendEmail } from "../services/notifications/email";
@@ -57,6 +58,15 @@ const app = new Hono<AuthContext>()
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to send test email";
       return c.json({ message }, 500);
+    }
+  })
+  .post("/run-ai-enrichment", auth.requireRole("admin"), async (c) => {
+    try {
+      // Small manual batch — the cron handles bulk; this is "kick it now".
+      const summary = await enrichDirtyAiConversations({ limit: 25 });
+      return c.json({ ok: true, summary });
+    } catch (error) {
+      return c.json({ message: error instanceof Error ? error.message : "AI enrichment run failed" }, 500);
     }
   })
   .post("/test-pdf", auth.requireRole("admin"), async (c) => {

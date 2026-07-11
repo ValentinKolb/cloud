@@ -3,8 +3,11 @@ import { compact, nessi } from "@valentinkolb/nessi";
 import type { RequestActor } from "../server";
 import { logger } from "../services/logging";
 import { type AiToolApprovalContext, aiToolAllowsAlways, aiToolApprovalScope, hasRememberedAiToolApproval } from "./approvals";
+import { listActiveAiSkillHints } from "./bash-tool";
 import { createCloudCompactFn } from "./compaction";
 import { createConfiguredDefaultCloudAiTools } from "./default-tools";
+import { createCloudAiMemoryTool } from "./memory-tool";
+import { type AiUserPrefs, aiActorUser, aiUserPrefs } from "./prefs";
 import {
   type AiTurnBlock,
   type AiWireEvent,
@@ -18,8 +21,9 @@ import { resolveAiResourceRunContext } from "./resource-runner";
 import type { resolveAiModel } from "./settings";
 import { aiConversationStore } from "./store";
 import { publishAiWireEvent } from "./stream";
+import { composeAiSystemPrompt } from "./system-prompt";
 import { aiToolAudit } from "./tool-audit";
-import { type PreparedAiTools, prepareAiTools } from "./tools";
+import { aiToolPromptHints, type PreparedAiTools, prepareAiTools } from "./tools";
 import type {
   AiChatTurnRunConfig,
   AiFrontendToolMode,
@@ -32,12 +36,6 @@ import type {
 import { validateAiTurnRequest } from "./validate";
 
 const log = logger("ai:executor");
-
-const PLATFORM_SYSTEM_PROMPT = [
-  "You are Cloud AI, an assistant running inside the user's Cloud workspace.",
-  "Follow the user's current permissions. Never claim access to data or actions that were not provided by the server context or tools.",
-  "Be concise, precise, and use the user's language unless they ask otherwise.",
-].join("\n");
 
 const AI_TURN_LEASE_MS = 45_000;
 const AI_COALESCE_MS = 25;
@@ -56,9 +54,6 @@ export type ExecutorConfig = {
 
 type ResolvedModel = Awaited<ReturnType<typeof resolveAiModel>>;
 type ValidatedTurn = { settings: Awaited<ReturnType<typeof validateAiTurnRequest>>["settings"]; resolved: ResolvedModel };
-
-const buildSystemPrompt = (globalInstructions: string, appPrompt?: string, resourceContext?: string): string =>
-  [PLATFORM_SYSTEM_PROMPT, globalInstructions.trim(), appPrompt?.trim(), resourceContext?.trim()].filter(Boolean).join("\n\n");
 
 // ---------------------------------------------------------------------------
 // Baseline rebuild — reconstruct the full active-turn view from persisted rounds
@@ -105,6 +100,14 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
   for (const block of seedBlocks) {
     if (block.kind === "tool") toolBlocks.set(block.callId, block);
   }
+  /** Real frontend mode per tool name — set once the turn's tools are prepared.
+   *  Getting this wrong is not cosmetic: the client auto-resolves plain "client"
+   *  blocks, so a mislabeled client_interaction tool (survey) would be answered
+   *  with a fake result before the user ever sees it. */
+  let frontendModes = new Map<string, AiFrontendToolMode>();
+  const setFrontendModes = (modes: Map<string, AiFrontendToolMode>) => {
+    frontendModes = modes;
+  };
   /** nessi stream block ids (turn-scoped) that belong to tool_call blocks — their deltas are raw args JSON. */
   const toolStreamIds = new Set<string>();
   /** kind per open Cloud stream block id, for delta create-if-missing. */
@@ -128,7 +131,10 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
     return { type: "block_set", block };
   };
 
-  const compaction = (status: "running" | "completed" | "failed", result?: Extract<AiTurnBlock, { kind: "compaction" }>["result"]): BlockOp => ({
+  const compaction = (
+    status: "running" | "completed" | "failed",
+    result?: Extract<AiTurnBlock, { kind: "compaction" }>["result"],
+  ): BlockOp => ({
     type: "block_set",
     block: { id: compactionBlockId, kind: "compaction", status, ...(result ? { result } : {}) },
   });
@@ -168,11 +174,19 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
             args: event.args,
             status: event.kind === "client_tool" ? "awaiting_client" : "awaiting_approval",
             approval: event.kind === "client_tool" ? undefined : { message: event.message, allowAlways: false },
-            frontendMode: event.kind === "client_tool" ? "client" : undefined,
+            frontendMode: event.kind === "client_tool" ? (frontendModes.get(event.name) ?? "client") : undefined,
           }),
         ];
       case "tool_execution_end":
-        return [setTool(event.callId, { name: event.name, status: event.isError ? "failed" : "completed", result: event.result, isError: event.isError, clearApproval: true })];
+        return [
+          setTool(event.callId, {
+            name: event.name,
+            status: event.isError ? "failed" : "completed",
+            result: event.result,
+            isError: event.isError,
+            clearApproval: true,
+          }),
+        ];
       case "issue": {
         const callId = "callId" in event.issue ? event.issue.callId : undefined;
         if (callId && toolBlocks.has(callId)) {
@@ -192,7 +206,7 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
     }
   };
 
-  return { translate, compaction };
+  return { translate, compaction, setFrontendModes };
 };
 
 // ---------------------------------------------------------------------------
@@ -213,7 +227,12 @@ const materializeChatConfig = async (config: AiChatTurnRunConfig, signal: AbortS
   const source = config.toolSource ?? { kind: "none" };
   if (source.kind === "resource") {
     if (!config.actor) throw new Error("AI resource turn is missing an actor.");
-    const resource = await resolveAiResourceRunContext({ resourceKey: source.resourceKey, params: source.params, actor: config.actor, signal });
+    const resource = await resolveAiResourceRunContext({
+      resourceKey: source.resourceKey,
+      params: source.params,
+      actor: config.actor,
+      signal,
+    });
     return {
       actor: resource.actor,
       systemPrompt: resource.systemPrompt,
@@ -312,8 +331,30 @@ export class AiTurnExecutor {
     }
     const { settings, resolved } = validated;
 
-    const prepared = prepareAiTools({ tools: resolved.profile.capabilities.includes("tools") ? material.tools : [], actor: material.actor });
-    const store = aiConversationStore.createSessionStore({ conversationId, modelProfileId: resolved.profile.id, turnId, leaseOwner: this.config.leaseOwner });
+    // User prefs (custom instructions + memory) apply to direct chats with the default toolset.
+    const user = aiActorUser(material.actor);
+    let prefs: AiUserPrefs | null = null;
+    if (user && config.toolSource?.kind === "default") {
+      prefs = await aiUserPrefs.get(user.id).catch(() => null);
+    }
+    const memoryActive = Boolean(prefs?.memoryEnabled);
+    const runtimeTools = memoryActive ? [...material.tools, createCloudAiMemoryTool()] : material.tools;
+    const activeTools = resolved.profile.capabilities.includes("tools") ? runtimeTools : [];
+
+    // Skill index for the system prompt — only active (enabled + consented) skills of the user.
+    let skillHints: { slug: string; description: string }[] = [];
+    if (user && config.toolSource?.kind === "default") {
+      skillHints = await listActiveAiSkillHints({ userId: user.id, userGroups: user.memberofGroupIds }).catch(() => []);
+    }
+
+    const prepared = prepareAiTools({ tools: activeTools, actor: material.actor, conversationId });
+    pipeline.setFrontendModes(prepared.frontendModes);
+    const store = aiConversationStore.createSessionStore({
+      conversationId,
+      modelProfileId: resolved.profile.id,
+      turnId,
+      leaseOwner: this.config.leaseOwner,
+    });
 
     const [loopMessages, pendingRecords, resolvedRecords] = await Promise.all([
       aiConversationStore.listTurnMessages({ conversationId, loopId: turnId }),
@@ -332,7 +373,18 @@ export class AiTurnExecutor {
       loopId: turnId,
       ...(isFresh ? { input: config.input } : {}),
       provider: resolved.provider,
-      systemPrompt: buildSystemPrompt(settings.globalInstructions, material.systemPrompt, material.resourceContext),
+      systemPrompt: composeAiSystemPrompt({
+        globalInstructions: settings.globalInstructions,
+        appPrompt: material.systemPrompt,
+        resourceContext: material.resourceContext,
+        user,
+        appId: material.toolApprovalContext?.appId,
+        memoryEnabled: memoryActive,
+        toolHints: aiToolPromptHints(activeTools),
+        skillHints,
+        userInstructions: prefs?.instructions,
+        memory: prefs?.memory,
+      }),
       store,
       tools: prepared.tools,
       maxTurns: prepared.tools.length > 0 ? 8 : 1,
@@ -355,7 +407,15 @@ export class AiTurnExecutor {
       if (record.resolvedEvent) loop.push(record.resolvedEvent);
     }
 
-    const outcome = await this.driveChatLoop({ loop, pipeline, conversationId, turnId, abortController, prepared, approvalContext: material.toolApprovalContext });
+    const outcome = await this.driveChatLoop({
+      loop,
+      pipeline,
+      conversationId,
+      turnId,
+      abortController,
+      prepared,
+      approvalContext: material.toolApprovalContext,
+    });
     signal.removeEventListener("abort", onSignal);
 
     if (outcome.kind === "suspended") {
@@ -406,10 +466,19 @@ export class AiTurnExecutor {
 
         if (event.type === "tool_execution_start") {
           await aiToolAudit
-            .noteToolCall({ conversationId, turnId, callId: event.callId, toolName: event.name, location: prepared.frontendModes.get(event.name) ?? "server", args: event.args })
+            .noteToolCall({
+              conversationId,
+              turnId,
+              callId: event.callId,
+              toolName: event.name,
+              location: prepared.frontendModes.get(event.name) ?? "server",
+              args: event.args,
+            })
             .catch(() => undefined);
         } else if (event.type === "tool_execution_end") {
-          await aiToolAudit.noteToolCompleted({ turnId, callId: event.callId, result: event.result, isError: event.isError }).catch(() => undefined);
+          await aiToolAudit
+            .noteToolCompleted({ turnId, callId: event.callId, result: event.result, isError: event.isError })
+            .catch(() => undefined);
         } else if (event.type === "issue") {
           lastIssueMessage = event.issue.message;
           log.warn("AI turn issue", { conversationId, turnId, kind: event.issue.kind, message: event.issue.message });
@@ -449,7 +518,8 @@ export class AiTurnExecutor {
   }): Promise<boolean> {
     const { event, loop, pipeline, conversationId, turnId, prepared, approvalContext } = input;
     const approvalPolicy = prepared.approvalPolicies.get(event.name);
-    const frontendMode: AiFrontendToolMode | undefined = event.kind === "client_tool" ? (prepared.frontendModes.get(event.name) ?? "client") : undefined;
+    const frontendMode: AiFrontendToolMode | undefined =
+      event.kind === "client_tool" ? (prepared.frontendModes.get(event.name) ?? "client") : undefined;
     const approvalScope = aiToolApprovalScope(event.name, approvalPolicy);
     const allowAlways = aiToolAllowsAlways(approvalPolicy);
 
@@ -458,7 +528,19 @@ export class AiTurnExecutor {
     if (frontendMode === "client_view") {
       await pipeline.apply(event);
       loop.push({ type: "tool_result", callId: event.callId, result: { displayed: true } });
-      await aiToolAudit.noteToolCompleted({ turnId, callId: event.callId, result: { displayed: true }, isError: false }).catch(() => undefined);
+      // Mark the block completed immediately: nessi emits no tool_execution_end
+      // for client tools, and a block stuck in awaiting_client would look like
+      // an open action request if the turn suspends for another tool later.
+      await pipeline.apply({
+        type: "tool_execution_end",
+        callId: event.callId,
+        name: event.name,
+        result: { displayed: true },
+        isError: false,
+      } as OutboundEvent);
+      await aiToolAudit
+        .noteToolCompleted({ turnId, callId: event.callId, result: { displayed: true }, isError: false })
+        .catch(() => undefined);
       return false;
     }
 
@@ -466,7 +548,9 @@ export class AiTurnExecutor {
     if (event.kind !== "client_tool" && allowAlways && approvalContext) {
       const remembered = await hasRememberedAiToolApproval(approvalContext, { toolName: event.name, approvalScope }).catch(() => false);
       if (remembered) {
-        await aiToolAudit.noteApprovalResolved({ turnId, callId: event.callId, approvalState: "approved_by_preference" }).catch(() => undefined);
+        await aiToolAudit
+          .noteApprovalResolved({ turnId, callId: event.callId, approvalState: "approved_by_preference" })
+          .catch(() => undefined);
         loop.push({ type: "approval_response", callId: event.callId, approved: true });
         return false;
       }
@@ -489,7 +573,15 @@ export class AiTurnExecutor {
 
     if (event.kind === "client_tool") {
       await aiToolAudit
-        .noteToolCall({ conversationId, turnId, callId: event.callId, toolName: event.name, location: frontendMode ?? "client", args: event.args, status: "waiting_for_frontend" })
+        .noteToolCall({
+          conversationId,
+          turnId,
+          callId: event.callId,
+          toolName: event.name,
+          location: frontendMode ?? "client",
+          args: event.args,
+          status: "waiting_for_frontend",
+        })
         .catch(() => undefined);
     } else {
       await aiToolAudit
@@ -517,7 +609,12 @@ export class AiTurnExecutor {
       if (stopped) return;
       let ok = false;
       try {
-        ok = await aiConversationStore.heartbeatTurn({ conversationId, turnId, leaseOwner: this.config.leaseOwner, leaseMs: AI_TURN_LEASE_MS });
+        ok = await aiConversationStore.heartbeatTurn({
+          conversationId,
+          turnId,
+          leaseOwner: this.config.leaseOwner,
+          leaseMs: AI_TURN_LEASE_MS,
+        });
         failures = 0;
       } catch {
         failures += 1;
@@ -560,7 +657,12 @@ export class AiTurnExecutor {
     }
     const { settings, resolved } = validated;
 
-    const store = aiConversationStore.createSessionStore({ conversationId, modelProfileId: resolved.profile.id, turnId, leaseOwner: this.config.leaseOwner });
+    const store = aiConversationStore.createSessionStore({
+      conversationId,
+      modelProfileId: resolved.profile.id,
+      turnId,
+      leaseOwner: this.config.leaseOwner,
+    });
     const loop = compact({
       agentId: "cloud",
       loopId: turnId,
@@ -630,7 +732,14 @@ class StreamPipeline {
   private snapshotDirty = false;
   private chain: Promise<void> = Promise.resolve();
 
-  constructor(input: { conversationId: string; turnId: string; attempt: number; startSeq: number; leaseOwner: string; seedBlocks: AiTurnBlock[] }) {
+  constructor(input: {
+    conversationId: string;
+    turnId: string;
+    attempt: number;
+    startSeq: number;
+    leaseOwner: string;
+    seedBlocks: AiTurnBlock[];
+  }) {
     this.conversationId = input.conversationId;
     this.turnId = input.turnId;
     this.attempt = input.attempt;
@@ -658,6 +767,10 @@ class StreamPipeline {
     this.blocks = blocks;
   }
 
+  setFrontendModes(modes: Map<string, AiFrontendToolMode>): void {
+    this.mapper.setFrontendModes(modes);
+  }
+
   async emitBaseline(): Promise<void> {
     for (const block of this.blocks) {
       const seq = this.nextSeq();
@@ -678,12 +791,17 @@ class StreamPipeline {
     await this.maybeSnapshot();
   }
 
-  async applyCompaction(status: "running" | "completed" | "failed", result?: Extract<AiTurnBlock, { kind: "compaction" }>["result"]): Promise<void> {
+  async applyCompaction(
+    status: "running" | "completed" | "failed",
+    result?: Extract<AiTurnBlock, { kind: "compaction" }>["result"],
+  ): Promise<void> {
     await this.emitOp(this.mapper.compaction(status, result));
     await this.maybeSnapshot();
   }
 
-  private async emitOp(op: { type: "block_set"; block: AiTurnBlock } | { type: "block_delta"; blockId: string; blockKind: "text" | "thinking"; delta: string }): Promise<void> {
+  private async emitOp(
+    op: { type: "block_set"; block: AiTurnBlock } | { type: "block_delta"; blockId: string; blockKind: "text" | "thinking"; delta: string },
+  ): Promise<void> {
     const seq = this.nextSeq();
     const event = this.envelope({ ...op, seq }) as AiWireEvent;
     this.blocks = applyWireEventToBlocks(this.blocks, event);
@@ -701,7 +819,13 @@ class StreamPipeline {
     this.lastSnapshotAt = Date.now();
     this.snapshotDirty = false;
     await aiConversationStore
-      .saveTurnLiveState({ conversationId: this.conversationId, turnId: this.turnId, leaseOwner: this.leaseOwner, blocks: this.blocks, seq: this.seq })
+      .saveTurnLiveState({
+        conversationId: this.conversationId,
+        turnId: this.turnId,
+        leaseOwner: this.leaseOwner,
+        blocks: this.blocks,
+        seq: this.seq,
+      })
       .catch(() => undefined);
   }
 

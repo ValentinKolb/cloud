@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createCloudAiBashTool, createCloudAiPresentTool } from "./bash-tool";
 import { createCloudAiWebExtractTool, createCloudAiWebSearchTool, isCloudAiFirecrawlConfigured } from "./firecrawl-tools";
 import { defineAiTool } from "./tools";
 import type { AiRuntimeTool } from "./types";
@@ -8,6 +9,7 @@ const ToneSchema = z.enum(["neutral", "blue", "teal", "green", "amber", "red"]);
 export const CloudAiCardInputSchema = z.object({
   title: z.string().min(1),
   value: z.string().min(1),
+  emoji: z.string().max(8).optional().describe("Optional single emoji shown next to the card content. Omit when none fits."),
   caption: z.string().optional(),
   tone: ToneSchema.default("teal"),
   trendLabel: z.string().min(1).optional(),
@@ -73,6 +75,7 @@ export const createCloudAiCardTool = () =>
     inputSchema: CloudAiCardInputSchema,
     outputSchema: CloudAiCardOutputSchema,
     approval: "never",
+    promptHint: "show one compact highlight card (metric, KPI, status) — not for tables, lists, or long text.",
   }).clientView();
 
 export const createCloudAiSurveyTool = () =>
@@ -83,15 +86,13 @@ export const createCloudAiSurveyTool = () =>
     inputSchema: CloudAiSurveyInputSchema,
     outputSchema: CloudAiSurveyOutputSchema,
     approval: "never",
+    promptHint: "collect explicit choices, ratings, or short structured answers from the user — instead of writing option lists in text.",
   }).clientInteraction();
 
 export const createDefaultCloudAiTools = () => [createCloudAiCardTool(), createCloudAiSurveyTool()];
 
-export const createConfiguredDefaultCloudAiTools = async (config?: {
-  firecrawlApiKey?: string | null;
-  fetch?: typeof fetch;
-}) => {
-  const tools: AiRuntimeTool[] = createDefaultCloudAiTools();
+export const createConfiguredDefaultCloudAiTools = async (config?: { firecrawlApiKey?: string | null; fetch?: typeof fetch }) => {
+  const tools: AiRuntimeTool[] = [...createDefaultCloudAiTools(), createCloudAiBashTool(), createCloudAiPresentTool()];
   const firecrawlConfigured =
     config && "firecrawlApiKey" in config ? Boolean(config.firecrawlApiKey?.trim()) : await isCloudAiFirecrawlConfigured();
   if (firecrawlConfigured) {

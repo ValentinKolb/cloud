@@ -192,6 +192,23 @@ export const SETTINGS: SettingDef[] = [
     group: "ai",
   },
   {
+    key: "ai.background_model_id",
+    label: "Background Model ID",
+    kind: "string",
+    default: "",
+    description: "Model profile id used for background AI jobs (chat enrichment). Empty = platform default model.",
+    placeholder: "e.g. openrouter-fast",
+    group: "ai",
+  },
+  {
+    key: "ai.enrich_cron",
+    label: "Chat Enrichment Schedule",
+    kind: "cron",
+    default: "*/10 * * * *",
+    description: "How often dirty chats get an AI-generated summary, keywords, and title refresh for search.",
+    group: "ai",
+  },
+  {
     key: "ai.model_profiles_json",
     label: "Model Profiles",
     kind: "text",
@@ -204,10 +221,12 @@ export const SETTINGS: SettingDef[] = [
   {
     key: "ai.global_instructions",
     label: "Global Instructions",
-    kind: "text",
+    kind: "template",
     default: "",
-    description: "Optional instructions applied to every Cloud AI conversation after platform guardrails.",
-    placeholder: "Keep answers concise and follow the workspace language.",
+    description:
+      "Optional instructions applied to every Cloud AI conversation after platform guardrails. Supports Liquid: {{ user.displayName }}, {{ user.uid }}, {{ user.mail }}, {{ appId }}, {{ now }}, {{ today }}, {{ time }}.",
+    placeholder: "Keep answers concise. The current user is {{ user.displayName }} and today is {{ today }}.",
+    templateVars: ["user.displayName", "user.uid", "user.mail", "appId", "now", "today", "time"],
     group: "ai",
   },
   {
@@ -215,16 +234,18 @@ export const SETTINGS: SettingDef[] = [
     label: "Compaction Prompt",
     kind: "text",
     default: "",
-    description: "Optional custom prompt used when Cloud AI summarizes old chat context before continuing a long conversation.",
-    placeholder: "Summarize the conversation so far. Keep decisions, user preferences, tool results, and unresolved tasks.",
+    description:
+      "Optional custom prompt used when Cloud AI summarizes old chat context before continuing a long conversation. Leave empty for the built-in structured handoff prompt.",
+    placeholder:
+      "Leave empty for the built-in handoff prompt (goal, user requests, decisions, facts, dead ends, open tasks, next step).",
     group: "ai",
   },
   {
     key: "ai.max_tool_result_chars",
     label: "Max Tool Result Chars",
     kind: "number",
-    default: 2000,
-    min: 200,
+    default: 8000,
+    min: 500,
     max: 50000,
     description: "Maximum characters from one tool result kept in AI context before Nessi truncates it.",
     group: "ai",

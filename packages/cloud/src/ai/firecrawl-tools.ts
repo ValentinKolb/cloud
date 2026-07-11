@@ -48,7 +48,8 @@ export const CloudAiWebExtractOutputSchema = z.object({
   truncated: z.boolean(),
 });
 
-const readFirecrawlApiKey = async (): Promise<string> => String((await coreSettings.get<string>(AI_FIRECRAWL_API_KEY_SETTING_KEY)) ?? "").trim();
+const readFirecrawlApiKey = async (): Promise<string> =>
+  String((await coreSettings.get<string>(AI_FIRECRAWL_API_KEY_SETTING_KEY)) ?? "").trim();
 
 const readMaxToolResultChars = async (): Promise<number> => {
   const value = Number(await coreSettings.get<number>("ai.max_tool_result_chars"));
@@ -206,7 +207,7 @@ export const runCloudAiWebSearch = async (
     .slice(0, FIRECRAWL_SEARCH_LIMIT)
     .map((item, index) => ({
       title: asString(item.title) || asString(isRecord(item.metadata) ? item.metadata.title : undefined) || "Untitled",
-      url: asString(item.url) || asString(isRecord(item.metadata) ? item.metadata.url ?? item.metadata.sourceURL : undefined),
+      url: asString(item.url) || asString(isRecord(item.metadata) ? (item.metadata.url ?? item.metadata.sourceURL) : undefined),
       snippet: asString(item.description) || asString(item.snippet),
       position: index + 1,
     }))
@@ -264,6 +265,7 @@ export const createCloudAiWebSearchTool = (config: FirecrawlToolConfig = {}) =>
     outputSchema: CloudAiWebSearchOutputSchema,
     approval: "never",
     timeoutMs: 90_000,
+    promptHint: "search the web for current facts, docs, and anything after your training data.",
   }).server(async (input, ctx) => runCloudAiWebSearch(input, { ...config, signal: ctx.signal }));
 
 export const createCloudAiWebExtractTool = (config: FirecrawlToolConfig = {}) =>
@@ -274,6 +276,7 @@ export const createCloudAiWebExtractTool = (config: FirecrawlToolConfig = {}) =>
     outputSchema: CloudAiWebExtractOutputSchema,
     approval: "never",
     timeoutMs: 90_000,
+    promptHint: "read one web page by URL and extract its content — usually after web_search.",
   }).server(async (input, ctx) => runCloudAiWebExtract(input, { ...config, signal: ctx.signal }));
 
 export type CloudAiWebSearchInput = z.infer<typeof CloudAiWebSearchInputSchema>;

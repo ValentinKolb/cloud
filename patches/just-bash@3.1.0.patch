@@ -1,0 +1,30 @@
+diff --git a/dist/bin/chunks/js-exec-worker.js b/dist/bin/chunks/js-exec-worker.js
+index 490c456848e50ec1d429f9757f0f6853975d85c8..46d23a14a3c5be667a84a2a09b6016e1b2f2e015 100644
+--- a/dist/bin/chunks/js-exec-worker.js
++++ b/dist/bin/chunks/js-exec-worker.js
+@@ -6,7 +6,9 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
+ });
+ 
+ // src/commands/js-exec/js-exec-worker.ts
+-import { stripTypeScriptTypes } from "node:module";
++// Patched for Bun: node:module has no stripTypeScriptTypes there — fall back to identity (plain JS works; TS stripping unavailable).
++import * as __nodeModule from "node:module";
++const stripTypeScriptTypes = typeof __nodeModule.stripTypeScriptTypes === "function" ? __nodeModule.stripTypeScriptTypes : (source) => source;
+ import { parentPort } from "node:worker_threads";
+ import {
+   getQuickJS
+diff --git a/dist/bundle/chunks/js-exec-worker.js b/dist/bundle/chunks/js-exec-worker.js
+index 490c456848e50ec1d429f9757f0f6853975d85c8..46d23a14a3c5be667a84a2a09b6016e1b2f2e015 100644
+--- a/dist/bundle/chunks/js-exec-worker.js
++++ b/dist/bundle/chunks/js-exec-worker.js
+@@ -6,7 +6,9 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
+ });
+ 
+ // src/commands/js-exec/js-exec-worker.ts
+-import { stripTypeScriptTypes } from "node:module";
++// Patched for Bun: node:module has no stripTypeScriptTypes there — fall back to identity (plain JS works; TS stripping unavailable).
++import * as __nodeModule from "node:module";
++const stripTypeScriptTypes = typeof __nodeModule.stripTypeScriptTypes === "function" ? __nodeModule.stripTypeScriptTypes : (source) => source;
+ import { parentPort } from "node:worker_threads";
+ import {
+   getQuickJS

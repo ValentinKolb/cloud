@@ -76,7 +76,10 @@ export type AiTurnSnapshot = {
 export type AiStreamState = {
   type: "state";
   conversation: AiConversation;
+  /** Newest window of the history — older messages load on demand while scrolling up. */
   messages: AiStoredMessage[];
+  /** Whether messages older than this window exist. */
+  hasMoreMessages?: boolean;
   activeTurn: AiTurnSnapshot | null;
 };
 
@@ -149,8 +152,7 @@ export const buildBlocksFromMessages = (messages: { seq: number; message: Messag
  * separators the model emits between rounds) must not occupy layout space — the
  * live view and the persisted view share this rule so they space identically.
  */
-export const isRenderableTurnBlock = (block: AiTurnBlock): boolean =>
-  !(block.kind === "text" && block.text.trim().length === 0);
+export const isRenderableTurnBlock = (block: AiTurnBlock): boolean => !(block.kind === "text" && block.text.trim().length === 0);
 
 /** Stable block id for a tool call — keyed by callId so tool blocks survive attempt bumps. */
 export const toolBlockId = (callId: string): string => `tool-${callId}`;
@@ -159,7 +161,8 @@ export const toolBlockId = (callId: string): string => `tool-${callId}`;
  * Block id for streamed text/thinking content. nessi block ids are only unique
  * within one provider turn, so they are scoped by (attempt, turnIndex).
  */
-export const streamBlockId = (attempt: number, turnIndex: number, nessiBlockId: string): string => `a${attempt}-t${turnIndex}-${nessiBlockId}`;
+export const streamBlockId = (attempt: number, turnIndex: number, nessiBlockId: string): string =>
+  `a${attempt}-t${turnIndex}-${nessiBlockId}`;
 
 /** Block id for text/thinking blocks rebuilt from a persisted message. */
 export const messageBlockId = (messageSeq: number, blockIndex: number): string => `m${messageSeq}-${blockIndex}`;

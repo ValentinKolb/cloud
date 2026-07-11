@@ -167,13 +167,15 @@ export const submitAiTurnAction = async (input: {
   toolApprovalContext?: AiToolApprovalContext;
 }): Promise<{ ok: true } | { ok: false; status: 400 | 404 | 409; message: string }> => {
   const pending = await aiConversationStore.getPendingTurnAction(input);
-  if (!pending) return { ok: false, status: 404, message: "AI action request not found." };
+  if (!pending) return { ok: false, status: 404, message: "This request has expired — the assistant already moved on." };
   if (pending.status === "resolved") {
     // Idempotent: ensure a continuation is queued and return success.
     await enqueueAiTurn({ conversationId: input.conversationId, turnId: input.turnId }).catch(() => undefined);
     return { ok: true };
   }
-  if (pending.status !== "pending") return { ok: false, status: 404, message: "AI action request not found." };
+  if (pending.status !== "pending") {
+    return { ok: false, status: 404, message: "This request has expired — the assistant already moved on." };
+  }
 
   if (input.action.type === "approval_response") {
     if (pending.kind === "client_tool") return { ok: false, status: 400, message: "Frontend tool requests require a tool result." };

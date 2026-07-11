@@ -4,6 +4,8 @@ export type ChatUtilityTone = "neutral" | "ai" | "danger";
 
 export type ChatUtilityMeta = {
   icon: string;
+  /** Custom leading element (e.g. a favicon) rendered instead of the icon class. */
+  leading?: JSX.Element;
   label: string;
   description?: string;
   tone?: ChatUtilityTone;
@@ -28,7 +30,9 @@ function ChatUtilityContent(props: { meta: ChatUtilityMeta; chevron?: boolean; t
         class={`inline-flex shrink-0 items-center text-base leading-none ${tone() === "ai" ? "text-cyan-600 dark:text-cyan-300" : ""}`}
         aria-hidden="true"
       >
-        <i class={`${props.meta.icon} leading-none`} />
+        <Show when={props.meta.leading} fallback={<i class={`${props.meta.icon} leading-none`} />}>
+          {props.meta.leading}
+        </Show>
       </span>
       <span class="shrink-0 font-medium">{props.meta.label}</span>
       <Show when={props.meta.description}>{(description) => <span class="min-w-0 truncate text-dimmed">{description()}</span>}</Show>
@@ -53,12 +57,18 @@ export function ChatUtilityLine(props: { meta: ChatUtilityMeta; trailing?: JSX.E
   );
 }
 
-export function ChatUtilityDisclosure(props: { meta: ChatUtilityMeta; defaultOpen?: boolean; class?: string; children: JSX.Element }) {
+export function ChatUtilityDisclosure(props: {
+  meta: ChatUtilityMeta;
+  defaultOpen?: boolean;
+  class?: string;
+  children: JSX.Element;
+}) {
   return (
     <details class={`${utilityBlockClass} group max-w-[min(46rem,100%)] text-xs ${props.class ?? ""}`} open={props.defaultOpen}>
       <summary class={`${utilityRowClass} cursor-pointer list-none transition-colors ${utilityToneClass(props.meta.tone ?? "neutral")}`}>
         <ChatUtilityContent meta={props.meta} chevron />
       </summary>
+      {/* Expanded details stay flush with the row label — no indentation. */}
       <div class="mt-1">{props.children}</div>
     </details>
   );

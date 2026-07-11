@@ -6,6 +6,7 @@ export {
   type CreateAiChatControllerOptions,
   createAiChatController,
 } from "./client/controller";
+export { conversationFileSource } from "./client/file-source";
 export {
   type AiActiveTurn,
   type AiChatProjection,

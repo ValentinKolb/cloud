@@ -16,11 +16,20 @@ export {
   CloudAiSurveyInputSchema,
   type CloudAiSurveyOutput,
   CloudAiSurveyOutputSchema,
-  createConfiguredDefaultCloudAiTools,
   createCloudAiCardTool,
   createCloudAiSurveyTool,
+  createConfiguredDefaultCloudAiTools,
   createDefaultCloudAiTools,
 } from "./default-tools";
+export {
+  type AiChatEnrichment,
+  AiChatEnrichmentSchema,
+  type AiEnrichmentRunSummary,
+  buildEnrichmentTranscript,
+  enrichDirtyAiConversations,
+  shouldApplyEnrichedDescription,
+  shouldApplyEnrichedTitle,
+} from "./enrich";
 export {
   AI_FIRECRAWL_API_KEY_SETTING_KEY,
   assertPublicHttpUrl,
@@ -28,16 +37,48 @@ export {
   CloudAiWebExtractInputSchema,
   type CloudAiWebExtractOutput,
   CloudAiWebExtractOutputSchema,
-  createCloudAiWebExtractTool,
-  createCloudAiWebSearchTool,
   type CloudAiWebSearchInput,
   CloudAiWebSearchInputSchema,
   type CloudAiWebSearchOutput,
   CloudAiWebSearchOutputSchema,
+  createCloudAiWebExtractTool,
+  createCloudAiWebSearchTool,
   isCloudAiFirecrawlConfigured,
   runCloudAiWebExtract,
   runCloudAiWebSearch,
 } from "./firecrawl-tools";
+export { type AiAttachmentRef, aiAttachmentMarker, formatAiFileSize, parseAiAttachmentMarkers } from "./attachments";
+export {
+  buildAiBashFs,
+  buildAiSkillsMount,
+  buildAiSkillsMountFromSkills,
+  createCloudAiBashTool,
+  createCloudAiPresentTool,
+  listActiveAiSkillHints,
+} from "./bash-tool";
+export { BUILTIN_AI_SKILLS, type BuiltinAiSkill, builtinAiSkillCommands, seedBuiltinAiSkills } from "./builtin-skills";
+export {
+  AI_FILES_MAX_CONVERSATION_BYTES_DEFAULT,
+  AI_FILES_MAX_FILE_BYTES_DEFAULT,
+  type AiFileStat,
+  aiFileStore,
+  guessAiMediaType,
+  normalizeAiFilePath,
+} from "./files-store";
+export { type AiSkillsRoutes, createAiSkillsRoutes } from "./skills-routes";
+export {
+  AI_SKILL_FILE_MAX_BYTES,
+  AI_SKILL_SLUG_RE,
+  AI_SKILL_TOTAL_MAX_BYTES,
+  type AiSkill,
+  type AiSkillEvent,
+  type AiSkillEventKind,
+  type AiSkillFileStat,
+  type AiSkillOrigin,
+  type AiSkillUserView,
+  aiSkillStore,
+  computeAiSkillContentHash,
+} from "./skills-store";
 export {
   AiApiErrorSchema,
   type AiCompactionInput,
@@ -50,6 +91,7 @@ export {
   type AiMessageRetryMode,
   AiMessageRetryModeSchema,
   AiReplayQuerySchema,
+  type AiTurnContentPart,
   type AiTurnInput,
   AiTurnInputSchema,
   AiUserContentPartSchema,
@@ -57,7 +99,34 @@ export {
   toAiActionFailureResponse,
   toAiErrorResponse,
 } from "./http";
+export { AI_ENRICH_CRON_SETTING_KEY, aiMaintenanceJobs } from "./maintenance";
+export {
+  type CloudAiMemoryInput,
+  CloudAiMemoryInputSchema,
+  type CloudAiMemoryOutput,
+  CloudAiMemoryOutputSchema,
+  createCloudAiMemoryTool,
+} from "./memory-tool";
 export { migrateCloudAi } from "./migrate";
+export {
+  AI_USER_INSTRUCTIONS_MAX_CHARS,
+  AI_USER_MEMORY_MAX_CHARS,
+  type AiUserPrefs,
+  aiActorUser,
+  aiPrefsUserId,
+  aiUserPrefs,
+} from "./prefs";
+export {
+  AI_WIRE_VERSION,
+  type AiStreamSseEvent,
+  type AiStreamState,
+  type AiToolBlockStatus,
+  type AiTurnBlock,
+  type AiTurnSnapshot,
+  type AiWireEvent,
+  applyWireEventToBlocks,
+  isNewerWireEvent,
+} from "./protocol";
 export { createAiProvider } from "./provider";
 export { type DefineAiResourceConfig, type DefinedAiResource, defineAiResource, requireAiResourceAccess } from "./resource";
 export { type AiChatRequestContext, type AiChatRoutes, type AiChatRoutesConfig, createAiChatRoutes } from "./routes";
@@ -67,28 +136,17 @@ export {
   abortAiTurn,
   isAiSettingsError,
   listPendingAiTurnActions,
+  type SubmitAiChatTurnInput,
+  type SubmitAiCompactionInput,
   startAiRuntime,
   startAiRuntimeRecovery,
   submitAiChatTurn,
   submitAiCompaction,
-  type SubmitAiChatTurnInput,
-  type SubmitAiCompactionInput,
   submitAiTurnAction,
   sweepAiRuntime,
   type ValidateAiTurnInput,
   validateAiTurnRequest,
 } from "./runtime";
-export {
-  type AiStreamSseEvent,
-  type AiStreamState,
-  type AiTurnBlock,
-  type AiTurnSnapshot,
-  type AiToolBlockStatus,
-  type AiWireEvent,
-  AI_WIRE_VERSION,
-  applyWireEventToBlocks,
-  isNewerWireEvent,
-} from "./protocol";
 export {
   listAiModels,
   readAiSettingsState,
@@ -107,6 +165,14 @@ export {
   publishAiWireEvent,
   sseHeaders,
 } from "./stream";
+export {
+  AI_BACKGROUND_MODEL_SETTING_KEY,
+  type RunAiStructuredInput,
+  type RunAiStructuredResult,
+  resolveAiBackgroundModel,
+  runAiStructured,
+} from "./structured";
+export { aiGlobalInstructionsContext, composeAiSystemPrompt, renderAiGlobalInstructions } from "./system-prompt";
 export { type AiToolApprovalState, type AiToolCallLocation, aiToolAudit } from "./tool-audit";
 export { defineAiTool, isFrontendToolMode, type PreparedAiTools, prepareAiTools } from "./tools";
 export type {
@@ -116,6 +182,13 @@ export type {
   AiConversationStore,
   AiDataBoundary,
   AiDataPolicy,
+  AiEnrichmentCandidate,
+  AiEnrichmentOverview,
+  AiEnrichmentOverviewRun,
+  AiEnrichmentRun,
+  AiEnrichmentRunStatus,
+  AiEnrichmentStatus,
+  AiEnrichmentTrigger,
   AiFrontendToolMode,
   AiModelCapability,
   AiModelPolicy,

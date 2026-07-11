@@ -2,16 +2,35 @@ import type { CompactFn, Message, StoreEntry } from "@valentinkolb/nessi";
 import { truncateMiddle } from "@valentinkolb/nessi";
 import { aiConversationStore } from "./store";
 
-const DEFAULT_COMPACTION_PROMPT = [
-  "Summarize the chat context for a future assistant turn.",
-  "Preserve user goals, preferences, constraints, decisions, important facts, tool results, pending tasks, and unresolved questions.",
-  "Do not invent details. Keep the summary compact but complete enough that the next assistant can continue correctly.",
-].join("\n");
+/**
+ * Structured handoff prompt, modeled on the compaction prompts of the big
+ * coding agents (Claude Code's numbered-section summary, Codex's
+ * "detailed but concise, for continuing the conversation"): a fixed section
+ * skeleton beats free-form prose because the summarizer can't silently drop
+ * whole categories, and the next turn knows where to look.
+ */
+const DEFAULT_COMPACTION_PROMPT = `You are compacting a long conversation into a handoff summary. A future assistant turn will see ONLY this summary plus the most recent messages — anything you omit is lost for good.
+
+Write in the language of the conversation. Be specific: keep exact names, numbers, dates, IDs, URLs, and file paths verbatim. Never invent or embellish details.
+
+Structure the summary with these sections, skipping ones that are empty:
+1. Goal & intent — what the user is trying to achieve, and why.
+2. User requests — every explicit ask, correction, and piece of feedback, condensed but complete.
+3. Decisions & preferences — agreed approaches, constraints, tone/style wishes that must persist.
+4. Key facts & results — important information gathered so far: tool results, figures, links, and files in the conversation filesystem (name them by path, e.g. /files/report.csv).
+5. Dead ends — what was tried and rejected, so it is not repeated.
+6. State & open tasks — what is done, what is in progress, what is still pending.
+7. Next step — the immediate continuation, if one is clear.
+
+Drop pleasantries and chit-chat. Compact but complete beats short.`;
 
 const COMPACTION_FILL_RATIO = 0.75;
 const COMPACTION_KEEP_RECENT_LOOPS = 2;
-const COMPACTION_MAX_SOURCE_CHARS = 24_000;
-const COMPACTION_MAX_TOOL_RESULT_CHARS = 1_200;
+// Summary quality depends on what the summarizer gets to SEE: 24k chars was
+// a third of a long chat at best. ~60k chars ≈ 15k tokens fits every model
+// profile we ship while covering far more history.
+const COMPACTION_MAX_SOURCE_CHARS = 60_000;
+const COMPACTION_MAX_TOOL_RESULT_CHARS = 2_500;
 
 const textFromAssistant = (message: Extract<Message, { role: "assistant" }>): string =>
   message.content

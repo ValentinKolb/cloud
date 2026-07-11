@@ -1,12 +1,16 @@
 import type { DoneReason, InboundEvent, LoopAggregate, Message, SessionStore, StoreEntry } from "@valentinkolb/nessi";
 import type { Usage } from "@valentinkolb/nessi/ai";
 import { sql } from "bun";
+import { toPgTextArray } from "../services/postgres";
 import type { AiTurnBlock } from "./protocol";
 import type {
   AiConversation,
   AiConversationPage,
   AiConversationResource,
   AiConversationStore,
+  AiEnrichmentOverview,
+  AiEnrichmentOverviewRun,
+  AiEnrichmentRun,
   AiFrontendToolMode,
   AiPendingTurnAction,
   AiPendingTurnActionRecord,
@@ -31,8 +35,12 @@ type ConversationRow = {
   resource_type: string | null;
   resource_id: string | null;
   title: string;
+  title_source: string | null;
   icon: string | null;
   description: string | null;
+  description_source: string | null;
+  keywords: string[] | null;
+  enrich_fail_count: number | null;
   created_by_user_id: string | null;
   created_at: Date | string;
   updated_at: Date | string;
@@ -40,6 +48,22 @@ type ConversationRow = {
 
 type CountRow = {
   total: number | string;
+};
+
+type EnrichmentRunRow = {
+  id: string;
+  conversation_id: string;
+  conversation_title?: string;
+  app_id?: string;
+  status: "ok" | "failed" | "skipped";
+  trigger: "scheduled" | "manual";
+  model_profile_id: string | null;
+  mode: string | null;
+  duration_ms: number | string | null;
+  title_updated: boolean;
+  keywords_count: number | string | null;
+  error: string | null;
+  created_at: Date | string;
 };
 
 type MessageRow = {
@@ -109,12 +133,17 @@ const parseJsonValue = <T>(value: unknown): T => {
   return value as T;
 };
 
+const fieldSource = (value: string | null): AiConversation["titleSource"] => (value === "auto" || value === "user" ? value : "default");
+
 const rowToConversation = (row: ConversationRow): AiConversation => ({
   id: row.id,
   appId: row.app_id,
   title: row.title,
+  titleSource: fieldSource(row.title_source),
   icon: row.icon?.trim() || "ti ti-message",
   description: row.description ?? "",
+  descriptionSource: fieldSource(row.description_source),
+  keywords: row.keywords ?? [],
   resource:
     row.resource_kind === "resource"
       ? {
@@ -129,6 +158,34 @@ const rowToConversation = (row: ConversationRow): AiConversation => ({
   createdAt: iso(row.created_at),
   updatedAt: iso(row.updated_at),
 });
+
+const rowToEnrichmentRun = (row: EnrichmentRunRow): AiEnrichmentRun => ({
+  id: row.id,
+  conversationId: row.conversation_id,
+  status: row.status,
+  trigger: row.trigger,
+  modelProfileId: row.model_profile_id,
+  mode: row.mode,
+  durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
+  titleUpdated: row.title_updated,
+  keywordsCount: Number(row.keywords_count ?? 0),
+  error: row.error,
+  createdAt: iso(row.created_at),
+});
+
+const rowToEnrichmentOverviewRun = (row: EnrichmentRunRow): AiEnrichmentOverviewRun => ({
+  ...rowToEnrichmentRun(row),
+  conversationTitle: row.conversation_title ?? "",
+  appId: row.app_id ?? "",
+});
+
+const numberOrNull = (value: number | string | null | undefined): number | null => {
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const intValue = (value: number | string | null | undefined): number => Math.max(0, Math.trunc(numberOrNull(value) ?? 0));
 
 const rowToMessage = (row: MessageRow): AiStoredMessage => {
   const message = parseJsonValue<Message>(row.message);
@@ -304,6 +361,9 @@ const insertMessageLocked = async (input: {
 
   const title = firstText(input.message);
   if (seq === 1 && title) {
+    // First-message snapshot title stays title_source 'default': it is a
+    // placeholder ("Hi", …) that the enrichment job may replace freely.
+    // 'auto' is reserved for enrichment-set titles.
     await sql`
       UPDATE ai.conversations
       SET title = ${title}, updated_at = now()
@@ -416,7 +476,10 @@ export const aiConversationStore: AiConversationStore = {
         AND (${resource?.appId ?? null}::text IS NULL OR resource_app_id = ${resource?.appId ?? null})
         AND (${resource?.type ?? null}::text IS NULL OR resource_type = ${resource?.type ?? null})
         AND (${resource?.id ?? null}::text IS NULL OR resource_id = ${resource?.id ?? null})
-        AND (${pattern}::text IS NULL OR LOWER(title) LIKE ${pattern} OR LOWER(description) LIKE ${pattern})
+        AND (${pattern}::text IS NULL
+          OR LOWER(title) LIKE ${pattern}
+          OR LOWER(description) LIKE ${pattern}
+          OR LOWER(array_to_string(keywords, ' ')) LIKE ${pattern})
       ORDER BY updated_at DESC, created_at DESC
       LIMIT ${limit}
     `;
@@ -437,7 +500,10 @@ export const aiConversationStore: AiConversationStore = {
         AND (${resource?.appId ?? null}::text IS NULL OR resource_app_id = ${resource?.appId ?? null})
         AND (${resource?.type ?? null}::text IS NULL OR resource_type = ${resource?.type ?? null})
         AND (${resource?.id ?? null}::text IS NULL OR resource_id = ${resource?.id ?? null})
-        AND (${pattern}::text IS NULL OR LOWER(title) LIKE ${pattern} OR LOWER(description) LIKE ${pattern})
+        AND (${pattern}::text IS NULL
+          OR LOWER(title) LIKE ${pattern}
+          OR LOWER(description) LIKE ${pattern}
+          OR LOWER(array_to_string(keywords, ' ')) LIKE ${pattern})
       ORDER BY updated_at DESC, created_at DESC
       LIMIT ${perPage}
       OFFSET ${offset}
@@ -452,7 +518,10 @@ export const aiConversationStore: AiConversationStore = {
         AND (${resource?.appId ?? null}::text IS NULL OR resource_app_id = ${resource?.appId ?? null})
         AND (${resource?.type ?? null}::text IS NULL OR resource_type = ${resource?.type ?? null})
         AND (${resource?.id ?? null}::text IS NULL OR resource_id = ${resource?.id ?? null})
-        AND (${pattern}::text IS NULL OR LOWER(title) LIKE ${pattern} OR LOWER(description) LIKE ${pattern})
+        AND (${pattern}::text IS NULL
+          OR LOWER(title) LIKE ${pattern}
+          OR LOWER(description) LIKE ${pattern}
+          OR LOWER(array_to_string(keywords, ' ')) LIKE ${pattern})
     `;
     const total = Number(countRows[0]?.total ?? 0);
     return {
@@ -489,8 +558,10 @@ export const aiConversationStore: AiConversationStore = {
     const rows = await sql<ConversationRow[]>`
       UPDATE ai.conversations
       SET title = ${title},
+          title_source = CASE WHEN title IS DISTINCT FROM ${title} THEN 'user' ELSE title_source END,
           icon = ${icon},
           description = ${description},
+          description_source = CASE WHEN description IS DISTINCT FROM ${description} THEN 'user' ELSE description_source END,
           updated_at = now()
       WHERE id = ${input.conversationId}
         AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
@@ -514,6 +585,184 @@ export const aiConversationStore: AiConversationStore = {
     return Boolean(rows[0]);
   },
 
+  listEnrichmentCandidates: async (input) => {
+    const limit = Math.min(Math.max(input.limit, 1), 100);
+    const onlyId = input.conversationId ?? null;
+    // dirty_as_of carries updated_at at full microsecond precision (::text
+    // round-trips losslessly); the ISO field is millisecond-truncated and
+    // must never be written back as enriched_at.
+    // Failure backoff: 5min * 2^fail_count, capped at 2^7 (~10.7h).
+    // A manual reindex (conversationId set) skips the dirty and backoff checks.
+    const rows = await sql<(ConversationRow & { dirty_as_of: string })[]>`
+      SELECT c.*, c.updated_at::text AS dirty_as_of
+      FROM ai.conversations c
+      WHERE c.archived_at IS NULL
+        AND (${onlyId}::uuid IS NULL OR c.id = ${onlyId}::uuid)
+        AND (
+          ${onlyId}::uuid IS NOT NULL
+          OR (
+            (c.enriched_at IS NULL OR c.updated_at > c.enriched_at)
+            AND (
+              c.enrich_failed_at IS NULL
+              OR c.enrich_failed_at + (interval '5 minutes' * pow(2, LEAST(c.enrich_fail_count, 7))) < now()
+            )
+          )
+        )
+        AND EXISTS (SELECT 1 FROM ai.messages m WHERE m.conversation_id = c.id)
+        AND NOT EXISTS (
+          SELECT 1 FROM ai.turns t
+          WHERE t.conversation_id = c.id AND t.status IN ('queued', 'running', 'waiting_for_action')
+        )
+      ORDER BY c.updated_at ASC
+      LIMIT ${limit}
+    `;
+    return rows.map((row) => ({
+      ...rowToConversation(row),
+      dirtyAsOf: row.dirty_as_of,
+      enrichFailCount: row.enrich_fail_count ?? 0,
+    }));
+  },
+
+  applyEnrichment: async (input) => {
+    const title = input.title?.trim();
+    const description = input.description?.trim();
+    await sql`
+      UPDATE ai.conversations
+      SET keywords = ${toPgTextArray(input.keywords)}::text[],
+          title = COALESCE(${title ?? null}, title),
+          title_source = CASE WHEN ${title ?? null}::text IS NOT NULL THEN 'auto' ELSE title_source END,
+          description = COALESCE(${description ?? null}, description),
+          description_source = CASE WHEN ${description ?? null}::text IS NOT NULL THEN 'auto' ELSE description_source END,
+          enriched_at = ${input.dirtyAsOf}::timestamptz,
+          enrich_failed_at = NULL,
+          enrich_fail_count = 0
+      WHERE id = ${input.conversationId}
+    `;
+  },
+
+  markEnrichmentFailed: async (input) => {
+    await sql`
+      UPDATE ai.conversations
+      SET enrich_failed_at = now(), enrich_fail_count = enrich_fail_count + 1
+      WHERE id = ${input.conversationId}
+    `;
+  },
+
+  recordEnrichmentRun: async (input) => {
+    await sql`
+      INSERT INTO ai.enrichment_runs (conversation_id, status, trigger, model_profile_id, mode, duration_ms, title_updated, keywords_count, error)
+      VALUES (
+        ${input.conversationId},
+        ${input.status},
+        ${input.trigger},
+        ${input.modelProfileId ?? null},
+        ${input.mode ?? null},
+        ${input.durationMs ?? null},
+        ${input.titleUpdated ?? false},
+        ${input.keywordsCount ?? 0},
+        ${input.error?.slice(0, 500) ?? null}
+      )
+    `;
+    // Retention: keep the newest 20 runs per conversation.
+    await sql`
+      DELETE FROM ai.enrichment_runs
+      WHERE conversation_id = ${input.conversationId}
+        AND id NOT IN (
+          SELECT id FROM ai.enrichment_runs
+          WHERE conversation_id = ${input.conversationId}
+          ORDER BY created_at DESC
+          LIMIT 20
+        )
+    `;
+  },
+
+  listEnrichmentRuns: async (input) => {
+    const limit = Math.min(Math.max(input.limit ?? 20, 1), 50);
+    const rows = await sql<EnrichmentRunRow[]>`
+      SELECT * FROM ai.enrichment_runs
+      WHERE conversation_id = ${input.conversationId}
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `;
+    return rows.map(rowToEnrichmentRun);
+  },
+
+  getEnrichmentStatus: async (input) => {
+    const rows = await sql<
+      { enriched_at: Date | string | null; dirty: boolean; enrich_fail_count: number | null; keywords: string[] | null }[]
+    >`
+      SELECT enriched_at, (enriched_at IS NULL OR updated_at > enriched_at) AS dirty, enrich_fail_count, keywords
+      FROM ai.conversations
+      WHERE id = ${input.conversationId}
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      enrichedAt: row.enriched_at ? iso(row.enriched_at) : null,
+      dirty: row.dirty,
+      enrichFailCount: row.enrich_fail_count ?? 0,
+      keywords: row.keywords ?? [],
+    };
+  },
+
+  getEnrichmentOverview: async (): Promise<AiEnrichmentOverview> => {
+    const [summary] = await sql<
+      Array<{
+        total_conversations: number | string;
+        dirty_conversations: number | string;
+        failed_conversations: number | string;
+        oldest_dirty_at: Date | string | null;
+        last_run_at: Date | string | null;
+        avg_duration_ms: number | string | null;
+        failed_runs_24h: number | string;
+        total_runs_24h: number | string;
+      }>
+    >`
+      WITH conversation_summary AS (
+        SELECT
+          count(*)::int AS total_conversations,
+          count(*) FILTER (WHERE enriched_at IS NULL OR updated_at > enriched_at)::int AS dirty_conversations,
+          count(*) FILTER (WHERE enrich_fail_count > 0)::int AS failed_conversations,
+          min(updated_at) FILTER (WHERE enriched_at IS NULL OR updated_at > enriched_at) AS oldest_dirty_at
+        FROM ai.conversations
+        WHERE archived_at IS NULL
+      ),
+      run_summary AS (
+        SELECT
+          max(created_at) AS last_run_at,
+          round(avg(duration_ms) FILTER (WHERE duration_ms IS NOT NULL))::int AS avg_duration_ms,
+          count(*) FILTER (WHERE created_at >= now() - interval '24 hours')::int AS total_runs_24h,
+          count(*) FILTER (WHERE status = 'failed' AND created_at >= now() - interval '24 hours')::int AS failed_runs_24h
+        FROM ai.enrichment_runs
+      )
+      SELECT *
+      FROM conversation_summary
+      CROSS JOIN run_summary
+    `;
+    const recentRows = await sql<EnrichmentRunRow[]>`
+      SELECT r.*, c.title AS conversation_title, c.app_id
+      FROM ai.enrichment_runs r
+      JOIN ai.conversations c ON c.id = r.conversation_id
+      WHERE c.archived_at IS NULL
+      ORDER BY r.created_at DESC
+      LIMIT 8
+    `;
+    const totalRuns24h = intValue(summary?.total_runs_24h);
+    const failedRuns24h = intValue(summary?.failed_runs_24h);
+    return {
+      totalConversations: intValue(summary?.total_conversations),
+      dirtyConversations: intValue(summary?.dirty_conversations),
+      failedConversations: intValue(summary?.failed_conversations),
+      oldestDirtyAt: summary?.oldest_dirty_at ? iso(summary.oldest_dirty_at) : null,
+      lastRunAt: summary?.last_run_at ? iso(summary.last_run_at) : null,
+      avgDurationMs: numberOrNull(summary?.avg_duration_ms),
+      failedRuns24h,
+      totalRuns24h,
+      errorRate24h: totalRuns24h > 0 ? (failedRuns24h / totalRuns24h) * 100 : 0,
+      recentRuns: recentRows.map(rowToEnrichmentOverviewRun),
+    };
+  },
+
   listMessages: async (input) => {
     // Human view: compacted messages stay visible; superseded (compacted)
     // summaries are hidden. The active summary sorts after archived rows
@@ -526,6 +775,43 @@ export const aiConversationStore: AiConversationStore = {
       ORDER BY seq ASC, (kind = 'summary')::int ASC
     `;
     return rows.map(rowToMessage);
+  },
+
+  listMessagesPage: async (input) => {
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
+    const beforeSeq = Number.isFinite(input.beforeSeq) ? (input.beforeSeq ?? null) : null;
+    // Window by DISTINCT seq: a seq group (archived rows + their compaction
+    // summary share one seq) is never split, so `beforeSeq = min(seq)` is a
+    // lossless cursor. Same visibility rules as listMessages.
+    const rows = await sql<MessageRow[]>`
+      WITH page_seqs AS (
+        SELECT DISTINCT seq
+        FROM ai.messages
+        WHERE conversation_id = ${input.conversationId}
+          AND (${beforeSeq}::int IS NULL OR seq < ${beforeSeq})
+          AND NOT (kind = 'summary' AND compacted_at IS NOT NULL)
+        ORDER BY seq DESC
+        LIMIT ${limit}
+      )
+      SELECT *
+      FROM ai.messages
+      WHERE conversation_id = ${input.conversationId}
+        AND seq IN (SELECT seq FROM page_seqs)
+        AND NOT (kind = 'summary' AND compacted_at IS NOT NULL)
+      ORDER BY seq ASC, (kind = 'summary')::int ASC
+    `;
+    const messages = rows.map(rowToMessage);
+    const oldestSeq = messages[0]?.seq;
+    if (oldestSeq === undefined) return { messages, hasMore: false };
+    const older = await sql<{ exists: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM ai.messages
+        WHERE conversation_id = ${input.conversationId}
+          AND seq < ${oldestSeq}
+          AND NOT (kind = 'summary' AND compacted_at IS NOT NULL)
+      ) AS exists
+    `;
+    return { messages, hasMore: Boolean(older[0]?.exists) };
   },
 
   listContextMessages: async (input) => {

@@ -1,5 +1,4 @@
 import type {
-  CompactResult,
   ContentPart,
   DoneReason,
   InboundEvent,
@@ -37,6 +36,8 @@ export type AiModelProfile = {
   provider: AiProviderId;
   model: string;
   enabled: boolean;
+  /** Small logo (data URL, hard-compressed) shown in the admin card and the composer model picker. */
+  image?: string;
   capabilities: AiModelCapability[];
   dataBoundary: AiDataBoundary;
   apiKey?: string;
@@ -52,7 +53,7 @@ export type AiModelProfile = {
 
 export type AiPublicModelProfile = Pick<
   AiModelProfile,
-  "id" | "label" | "provider" | "model" | "capabilities" | "dataBoundary" | "contextWindow"
+  "id" | "label" | "provider" | "model" | "image" | "capabilities" | "dataBoundary" | "contextWindow"
 >;
 
 export type AiUserContentPart = ContentPart;
@@ -121,16 +122,84 @@ export type AiResourceDescriptor = {
   title?: string;
 };
 
+export type AiConversationFieldSource = "default" | "auto" | "user";
+export type AiConversationTitleSource = AiConversationFieldSource;
+
 export type AiConversation = {
   id: string;
   appId: string;
   title: string;
+  /** Who set the current title — enrichment never overwrites a user-chosen title. */
+  titleSource: AiConversationFieldSource;
   icon: string;
+  /** User-visible description. Kept fresh by the enrichment job until the user edits it. */
   description: string;
+  /** Who wrote the current description — enrichment never overwrites a user-authored one. */
+  descriptionSource: AiConversationFieldSource;
+  /** AI-generated keywords for search. */
+  keywords: string[];
   resource: AiConversationResource;
   createdByUserId: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AiEnrichmentRunStatus = "ok" | "failed" | "skipped";
+export type AiEnrichmentTrigger = "scheduled" | "manual";
+
+/** One recorded enrichment attempt for a conversation — user-visible in chat settings. */
+export type AiEnrichmentRun = {
+  id: string;
+  conversationId: string;
+  status: AiEnrichmentRunStatus;
+  trigger: AiEnrichmentTrigger;
+  modelProfileId: string | null;
+  /** nessi structured mode of the successful call: native | fallback | repair. */
+  mode: string | null;
+  durationMs: number | null;
+  titleUpdated: boolean;
+  keywordsCount: number;
+  error: string | null;
+  createdAt: string;
+};
+
+/** Current index state of one conversation, for the chat settings UI. */
+export type AiEnrichmentStatus = {
+  enrichedAt: string | null;
+  /** Content changed since the last enrichment (or never enriched). */
+  dirty: boolean;
+  enrichFailCount: number;
+  /** Current AI-generated search keywords. */
+  keywords: string[];
+};
+
+export type AiEnrichmentOverviewRun = AiEnrichmentRun & {
+  conversationTitle: string;
+  appId: string;
+};
+
+export type AiEnrichmentOverview = {
+  totalConversations: number;
+  dirtyConversations: number;
+  failedConversations: number;
+  oldestDirtyAt: string | null;
+  lastRunAt: string | null;
+  avgDurationMs: number | null;
+  failedRuns24h: number;
+  totalRuns24h: number;
+  errorRate24h: number;
+  recentRuns: AiEnrichmentOverviewRun[];
+};
+
+export type AiEnrichmentCandidate = AiConversation & {
+  /**
+   * The conversation's updated_at exactly as stored (Postgres microsecond
+   * precision, via ::text). Written back as enriched_at — the ISO `updatedAt`
+   * field is millisecond-truncated and would leave the chat dirty forever.
+   */
+  dirtyAsOf: string;
+  /** Consecutive failed enrichment attempts (drives the retry backoff). */
+  enrichFailCount: number;
 };
 
 export type AiConversationPage = {
@@ -313,8 +382,55 @@ export type AiConversationStore = {
     description?: string;
   }): Promise<AiConversation | null>;
   archiveConversation(input: { conversationId: string; appId?: string; ownerUserId?: string }): Promise<boolean>;
+  /**
+   * Conversations whose content changed since the last enrichment (no active
+   * turn, has messages, failure backoff elapsed). Oldest first. With
+   * `conversationId` (manual reindex) the dirty and backoff checks are skipped.
+   */
+  listEnrichmentCandidates(input: { limit: number; conversationId?: string }): Promise<AiEnrichmentCandidate[]>;
+  /**
+   * Store enrichment results and clear the failure backoff. `dirtyAsOf` is the
+   * candidate's exact scan-time updated_at (microsecond precision) — enriched_at
+   * is set to it, so activity during the run keeps the chat dirty while an
+   * unchanged chat becomes exactly clean (updated_at = enriched_at).
+   * `description`/`title` are omitted when the current value is user-authored.
+   */
+  applyEnrichment(input: {
+    conversationId: string;
+    description?: string;
+    keywords: string[];
+    title?: string;
+    dirtyAsOf: string;
+  }): Promise<void>;
+  /** Record a failed enrichment attempt — the candidate query backs the chat off exponentially. */
+  markEnrichmentFailed(input: { conversationId: string }): Promise<void>;
+  /** Append one run to the user-visible enrichment history (keeps the newest 20 per conversation). */
+  recordEnrichmentRun(input: {
+    conversationId: string;
+    status: AiEnrichmentRunStatus;
+    trigger: AiEnrichmentTrigger;
+    modelProfileId?: string;
+    mode?: string;
+    durationMs?: number;
+    titleUpdated?: boolean;
+    keywordsCount?: number;
+    error?: string;
+  }): Promise<void>;
+  listEnrichmentRuns(input: { conversationId: string; limit?: number }): Promise<AiEnrichmentRun[]>;
+  getEnrichmentStatus(input: { conversationId: string }): Promise<AiEnrichmentStatus | null>;
+  getEnrichmentOverview(): Promise<AiEnrichmentOverview>;
   /** Chat history for humans: includes compacted messages, hides superseded summaries. */
   listMessages(input: { conversationId: string }): Promise<AiStoredMessage[]>;
+  /**
+   * Newest window of the human view for infinite scroll. `beforeSeq` pages
+   * older history (exclusive). Whole seq groups are always returned together
+   * (compaction can put several rows on one seq), so the cursor
+   * `min(seq) of the page` never skips rows.
+   */
+  listMessagesPage(input: { conversationId: string; beforeSeq?: number; limit?: number }): Promise<{
+    messages: AiStoredMessage[];
+    hasMore: boolean;
+  }>;
   /** Model context: only active (non-compacted) messages — what the LLM sees. */
   listContextMessages(input: { conversationId: string }): Promise<AiStoredMessage[]>;
   copyMessages(input: { sourceConversationId: string; targetConversationId: string; throughSeq: number }): Promise<void>;
@@ -445,13 +561,15 @@ export type AiToolDefinition<TInput extends z.ZodType = z.ZodType, TOutput exten
   approval: AiToolApprovalPolicy;
   /** Per-tool execution timeout enforced by nessi. */
   timeoutMs?: number;
+  /** One-line "when to use" hint listed in the system prompt's Tools section. Tools without a hint are not listed. */
+  promptHint?: string;
 };
 
 export type AiToolRuntime<TInput extends z.ZodType = z.ZodType, TOutput extends z.ZodType = z.ZodType> =
   | {
       location: "server";
       def: AiToolDefinition<TInput, TOutput>;
-      run(input: z.infer<TInput>, ctx: ToolContext & { actor: RequestActor }): Promise<z.infer<TOutput>>;
+      run(input: z.infer<TInput>, ctx: ToolContext & { actor: RequestActor; conversationId?: string }): Promise<z.infer<TOutput>>;
     }
   | {
       location: AiFrontendToolMode;

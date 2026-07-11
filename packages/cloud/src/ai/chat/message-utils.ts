@@ -1,8 +1,9 @@
 import type { Message, Usage } from "@valentinkolb/nessi";
 import { fileIcons } from "@valentinkolb/stdlib";
+import { type AiAttachmentRef, parseAiAttachmentMarkers } from "../attachments";
+import { assistantVisibleTextFromMessage } from "../timeline";
 import type { AiStoredMessage, AiUserContentPart } from "../types";
 import { AI_IMAGE_MEDIA_TYPES, isAiImageMediaType } from "../types";
-import { assistantVisibleTextFromMessage } from "../timeline";
 
 type AssistantToolResultMessage = Extract<Message, { role: "tool_result" }>;
 
@@ -32,15 +33,28 @@ export type AiComposerAttachment =
       mediaType: string;
       text: string;
       icon: string;
+    }
+  | {
+      // Any non-image file: uploaded into the conversation VFS (/input) on
+      // send, referenced by path — never inlined into the model context.
+      kind: "file";
+      id: string;
+      name: string;
+      size: number;
+      mediaType: string;
+      file: File;
+      icon: string;
     };
 
 export type PendingAiImage = Extract<AiComposerAttachment, { kind: "image" }>;
 export type PendingAiTextFile = Extract<AiComposerAttachment, { kind: "text" }>;
+export type PendingAiVfsFile = Extract<AiComposerAttachment, { kind: "file" }>;
 export type PendingAiAttachment = AiComposerAttachment;
 
 export const MAX_ATTACHMENTS = 8;
 export const IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 export const TEXT_FILE_MAX_BYTES = 256 * 1024;
+export const VFS_FILE_MAX_BYTES = 50 * 1024 * 1024;
 export const ATTACHMENT_CONTEXT_MAX_CHARS = 18_000;
 export const ATTACHMENT_CONTEXT_PREFIX = "Attached files for this message:";
 export const TEXT_ATTACHMENT_EXTENSIONS = [
@@ -84,6 +98,17 @@ export const formatBytes = (bytes: number): string => {
   return `${bytes} B`;
 };
 
+/** Seconds-granular work duration ("8s", "2m 14s") — stdlib's dates.formatDuration is deliberately minute-granular. */
+export const formatWorkedDuration = (ms: number): string => {
+  const totalSeconds = Math.max(1, Math.round(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  return `${seconds}s`;
+};
+
 export const formatTokens = (tokens: number): string => {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
   if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`;
@@ -107,17 +132,30 @@ export const userVisibleTextFromMessage = (message: Message): string => {
   if (message.role !== "user") return textFromMessage(message);
   return message.content
     .map((part) => {
-      if (typeof part === "string") return part.startsWith(ATTACHMENT_CONTEXT_PREFIX) ? "" : part;
-      if (part.type === "text") return part.text.startsWith(ATTACHMENT_CONTEXT_PREFIX) ? "" : part.text;
-      return "";
+      const text = typeof part === "string" ? part : part.type === "text" ? part.text : "";
+      if (text.startsWith(ATTACHMENT_CONTEXT_PREFIX)) return "";
+      return parseAiAttachmentMarkers(text).text;
     })
     .join("")
     .trim();
 };
 
+/** VFS attachments referenced by this user message (rendered as chips). */
+export const vfsAttachmentsFromMessage = (message: Message): (AiAttachmentRef & { name: string; icon: string })[] => {
+  if (message.role !== "user") return [];
+  return message.content.flatMap((part) => {
+    const text = typeof part === "string" ? part : part.type === "text" ? part.text : "";
+    return parseAiAttachmentMarkers(text).attachments.map((attachment) => {
+      const name = attachment.path.slice(attachment.path.lastIndexOf("/") + 1);
+      return { ...attachment, name, icon: fileIcons.getFileIcon({ name, type: "file", mimeType: attachment.mediaType }) };
+    });
+  });
+};
+
 export const isAttachmentContextPart = (part: AiUserContentPart): boolean => {
-  if (typeof part === "string") return part.startsWith(ATTACHMENT_CONTEXT_PREFIX);
-  return part.type === "text" && part.text.startsWith(ATTACHMENT_CONTEXT_PREFIX);
+  const text = typeof part === "string" ? part : part.type === "text" ? part.text : "";
+  if (text.startsWith(ATTACHMENT_CONTEXT_PREFIX)) return true;
+  return parseAiAttachmentMarkers(text).attachments.length > 0 && !parseAiAttachmentMarkers(text).text;
 };
 
 export const userContentWithEditedVisibleText = (message: Message, text: string): AiUserContentPart[] => {
@@ -208,7 +246,8 @@ export const copyTextFromMessage = (message: Message): string => {
   return textFromMessage(message);
 };
 
-export const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === "object" && !Array.isArray(value));
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === "object" && !Array.isArray(value));
 
 export const isCardToolName = (name: string) => name === "card" || name === "cloud_card";
 
@@ -240,7 +279,10 @@ export const formatToolDetailText = (toolName: string, value: unknown): string =
 
   if (toolName === "web_search" && isWebSearchResultList(value)) {
     return value
-      .map((item, index) => `${index + 1}. ${stringOf(item.title) || "Untitled"}\n   Url: ${stringOf(item.url)}\n   Snippet: ${stringOf(item.snippet)}`)
+      .map(
+        (item, index) =>
+          `${index + 1}. ${stringOf(item.title) || "Untitled"}\n   Url: ${stringOf(item.url)}\n   Snippet: ${stringOf(item.snippet)}`,
+      )
       .join("\n\n");
   }
 
@@ -267,7 +309,10 @@ export const formatToolDetailText = (toolName: string, value: unknown): string =
 export const toolBlockSummary = (result: unknown): string => {
   if (Array.isArray(result)) return `${result.length} result${result.length === 1 ? "" : "s"}`;
   if (typeof result === "string") return result.slice(0, 80);
-  if (isRecord(result)) return Object.keys(result).slice(0, 4).join(", ");
+  if (isRecord(result)) {
+    if (typeof result.message === "string" && result.message.trim()) return result.message.slice(0, 80);
+    return Object.keys(result).slice(0, 4).join(", ");
+  }
   return "";
 };
 
@@ -307,6 +352,21 @@ export const readImageFile = (file: File): Promise<PendingAiImage> => {
     };
     reader.readAsDataURL(file);
   });
+};
+
+/** Wrap any non-image file for deferred upload into the conversation VFS. */
+export const readVfsFile = (file: File): PendingAiVfsFile => {
+  if (file.size > VFS_FILE_MAX_BYTES) throw new Error(`${file.name} is larger than ${formatBytes(VFS_FILE_MAX_BYTES)}.`);
+  const mediaType = file.type || "application/octet-stream";
+  return {
+    kind: "file",
+    id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    name: cleanFileName(file.name),
+    size: file.size,
+    mediaType,
+    file,
+    icon: fileIcons.getFileIcon({ name: file.name, type: "file", mimeType: mediaType }),
+  };
 };
 
 export const readTextFile = async (file: File): Promise<PendingAiTextFile> => {

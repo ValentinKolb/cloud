@@ -2,6 +2,7 @@ import type { Input, Message } from "@valentinkolb/nessi";
 import type { Context } from "hono";
 import { z } from "zod";
 import { type AuthContext, err, fail, respond } from "../server";
+import { aiAttachmentMarker } from "./attachments";
 import { isAiSettingsError } from "./validate";
 import type { AiSettingsError, AiUserContentPart } from "./types";
 import { isAiImageMediaType } from "./types";
@@ -21,7 +22,16 @@ export const AiUserContentPartSchema = z.union([
     data: z.string().min(1).max(12_000_000),
     mediaType: z.string().trim().refine(isAiImageMediaType, "Unsupported image media type."),
   }),
+  // Non-image attachment already uploaded to the conversation VFS (/input).
+  z.object({
+    type: z.literal("attachment"),
+    path: z.string().trim().min(1).max(500),
+    mediaType: z.string().trim().max(120).default("application/octet-stream"),
+    size: z.number().int().min(0).default(0),
+  }),
 ]);
+
+export type AiTurnContentPart = z.infer<typeof AiUserContentPartSchema>;
 
 export const AiTurnInputSchema = z
   .object({
@@ -59,15 +69,24 @@ export const AiMessageForkInputSchema = z.object({
 
 export type AiMessageForkInput = z.infer<typeof AiMessageForkInputSchema>;
 
+/** Map one wire input part to a nessi content part (attachments become VFS marker text). */
+const toModelContentPart = (part: AiTurnContentPart): AiUserContentPart => {
+  if (typeof part === "string") return { type: "text", text: part };
+  if (part.type === "attachment") return { type: "text", text: aiAttachmentMarker(part) };
+  return part;
+};
+
 export const aiTurnInputToContent = (input: AiTurnInput): string | AiUserContentPart[] => {
   const message = input.message?.trim() ?? "";
   if (!input.content?.length) return message;
 
-  const content = input.content as AiUserContentPart[];
-  const hasTextPart = content.some((part) => {
+  // Attachment markers don't count as prose — a message plus attachments-only
+  // content still needs the message prepended as its text part.
+  const hasTextPart = input.content.some((part) => {
     if (typeof part === "string") return part.trim().length > 0;
     return part.type === "text" && part.text.trim().length > 0;
   });
+  const content = input.content.map(toModelContentPart);
   return message && !hasTextPart ? [{ type: "text", text: message }, ...content] : content;
 };
 
@@ -116,6 +135,11 @@ export const toAiErrorResponse = (c: Context<AuthContext>, error: unknown) => {
 
 export const toAiActionFailureResponse = (c: Context<AuthContext>, result: { ok: false; status: 400 | 404 | 409; message: string }) => {
   const failure =
-    result.status === 400 ? err.badInput(result.message) : result.status === 404 ? err.notFound(result.message) : conflict(result.message);
+    result.status === 400
+      ? err.badInput(result.message)
+      : result.status === 404
+        ? // err.notFound appends " not found" to its subject — the runtime message is already complete.
+          { code: "NOT_FOUND" as const, message: result.message, status: 404 as const }
+        : conflict(result.message);
   return respond(c, fail(failure));
 };

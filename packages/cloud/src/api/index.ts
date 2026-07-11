@@ -15,6 +15,7 @@
  */
 import { Hono } from "hono";
 import { prettyJSON } from "hono/pretty-json";
+import { createAiSkillsRoutes } from "../ai/skills-routes";
 import accountsEntitiesRoutes from "./accounts-entities";
 import adminCoreSettingsRoutes from "./admin-core-settings";
 import adminLifecycleRoutes from "./admin-lifecycle";
@@ -39,6 +40,7 @@ const buildCoreApi = () => {
     .route("/admin/core/announcements", adminAnnouncementRoutes)
     .route("/admin/core/settings", adminCoreSettingsRoutes)
     .route("/admin/lifecycle", adminLifecycleRoutes)
+    .route("/ai/skills", createAiSkillsRoutes())
     .route("/", searchRoutes);
 };
 

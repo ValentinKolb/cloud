@@ -68,15 +68,19 @@ const turnSnapshotFromActive = (active: NonNullable<Awaited<ReturnType<typeof ai
   createdAt: active.turn.createdAt,
 });
 
+/** Initial history window; older messages load on demand while scrolling up. */
+export const AI_STREAM_INITIAL_MESSAGE_LIMIT = 100;
+
 export const loadAiStreamState = async (conversation: AiConversation): Promise<Extract<AiStreamSseEvent, { type: "state" }>> => {
-  const [messages, active] = await Promise.all([
-    aiConversationStore.listMessages({ conversationId: conversation.id }),
+  const [page, active] = await Promise.all([
+    aiConversationStore.listMessagesPage({ conversationId: conversation.id, limit: AI_STREAM_INITIAL_MESSAGE_LIMIT }),
     aiConversationStore.getActiveTurn({ conversationId: conversation.id }),
   ]);
   return {
     type: "state",
     conversation,
-    messages,
+    messages: page.messages,
+    hasMoreMessages: page.hasMore,
     activeTurn: active ? turnSnapshotFromActive(active) : null,
   };
 };

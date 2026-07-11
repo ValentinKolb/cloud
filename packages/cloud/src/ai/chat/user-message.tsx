@@ -6,11 +6,13 @@ import { useAiMessageActions } from "./message-actions";
 import {
   copyTextFromMessage,
   filePartsFromMessage,
+  formatBytes,
   imageSrc,
   textAttachmentSummariesFromMessage,
   type AiRetryMessageInput,
   userContentWithEditedVisibleText,
   userVisibleTextFromMessage,
+  vfsAttachmentsFromMessage,
 } from "./message-utils";
 
 const openModifyRetryDialog = (
@@ -68,6 +70,7 @@ export function UserMessageBubble(props: { entry: AiStoredMessage }) {
   const text = () => userVisibleTextFromMessage(message());
   const images = () => filePartsFromMessage(message()).filter((part) => part.mediaType.startsWith("image/"));
   const textAttachments = () => textAttachmentSummariesFromMessage(message());
+  const vfsAttachments = () => vfsAttachmentsFromMessage(message());
   const copyText = () => copyTextFromMessage(message());
   const { copy, wasCopied } = clipboard.create(1400);
   const retryMenuItems = (
@@ -108,7 +111,7 @@ export function UserMessageBubble(props: { entry: AiStoredMessage }) {
   return (
     <div class="group flex justify-end px-3 py-2">
       <div class="flex max-w-[min(44rem,88%)] flex-col items-end gap-2">
-        <Show when={images().length > 0 || textAttachments().length > 0}>
+        <Show when={images().length > 0 || textAttachments().length > 0 || vfsAttachments().length > 0}>
           <div class="flex flex-wrap justify-end gap-2">
             <For each={images()}>
               {(part) => (
@@ -124,6 +127,19 @@ export function UserMessageBubble(props: { entry: AiStoredMessage }) {
                 <div
                   class="grid h-14 w-14 place-items-center rounded-md border border-zinc-200 bg-zinc-100 px-1 text-center dark:border-zinc-800 dark:bg-zinc-900"
                   title={`${attachment.name}${attachment.size ? `, ${attachment.size}` : ""}`}
+                >
+                  <div class="min-w-0">
+                    <i class={`ti ${attachment.icon} text-lg`} aria-hidden="true" />
+                    <p class="mt-0.5 w-12 truncate text-[10px] leading-3 text-dimmed">{attachment.name}</p>
+                  </div>
+                </div>
+              )}
+            </For>
+            <For each={vfsAttachments()}>
+              {(attachment) => (
+                <div
+                  class="grid h-14 w-14 place-items-center rounded-md border border-zinc-200 bg-zinc-100 px-1 text-center dark:border-zinc-800 dark:bg-zinc-900"
+                  title={`${attachment.path}, ${formatBytes(attachment.size)}`}
                 >
                   <div class="min-w-0">
                     <i class={`ti ${attachment.icon} text-lg`} aria-hidden="true" />

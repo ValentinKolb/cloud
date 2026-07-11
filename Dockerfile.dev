@@ -29,6 +29,9 @@ COPY packages/ui-lab/package.json packages/ui-lab/
 COPY packages/venue/package.json packages/venue/
 COPY packages/weather/package.json packages/weather/
 
+# patchedDependencies in package.json reference these files at install time.
+COPY patches patches/
+
 # --ignore-scripts: skip postinstall hooks. The base image (oven/bun:1) already
 # ships bun, but `bun-plugin-tailwind` declares `bun >=1.0.0` as a peer dep, so
 # Bun's installer pulls the npm `bun` package into the lockfile. Its postinstall
