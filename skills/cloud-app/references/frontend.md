@@ -897,6 +897,7 @@ Compound pieces:
 - `AppWorkspace`, `AppWorkspace.Main`
 - `AppWorkspace.Detail` with `open`, `width?: "sm" | "md" | "lg" | "xl"`, `widthClass?`, `viewTransitionName?`
 - `AppWorkspace.Sidebar`, `SidebarHeader`, `SidebarMobile`, `SidebarMobileItems`, `SidebarDesktop`, `SidebarBody`, `SidebarFooter`, `SidebarSection`
+- `AppWorkspace.SidebarHeader` accepts `showDesktop={false}` when its static app title is redundant on desktop but must remain as the mobile sidebar trigger.
 - `AppWorkspace.SidebarBody` and `SidebarMobileBody` accept `scrollPreserveKey?: string | false`; pass a stable app-specific key when the body is a scrollable navigation/list region.
 - `AppWorkspace.SidebarItem` with `href?`, `active?`, `activeClass?`, `icon?`, `meta?`, `tone?: "default" | "success" | "danger"`, `actionIcon?`, `actionLabel?`, `onActionClick?`, `onClick?`, and navigation props `navigation?: "enhanced" | "document"`, `onNavigate?`, `scroll?`, `replace?`.
 - `AppWorkspace.SidebarIconGrid` and `SidebarIconAction` for compact icon action groups. `SidebarIconAction` supports the same navigation props as `SidebarItem`.

@@ -54,7 +54,12 @@ export default function LocationSidebar(props: Props) {
 
   return (
     <AppWorkspace.Sidebar>
-      <AppWorkspace.SidebarHeader title="Weather" icon="ti ti-temperature-celsius" iconStyle="background-color: var(--color-cyan-500)" />
+      <AppWorkspace.SidebarHeader
+        title="Weather"
+        icon="ti ti-temperature-celsius"
+        iconStyle="background-color: var(--color-cyan-500)"
+        showDesktop={false}
+      />
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>

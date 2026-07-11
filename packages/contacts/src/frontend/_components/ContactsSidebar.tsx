@@ -1,8 +1,8 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import type { ContactBook } from "../../service";
+import ContactsSpotlightButton from "./ContactsSpotlightButton.island";
 import CreateBookButton from "./CreateBookButton.island";
 import CreateContactButton from "./CreateContactButton.island";
-import ContactsSpotlightButton from "./ContactsSpotlightButton.island";
 
 type ContactBookOption = {
   id: string;
@@ -46,7 +46,12 @@ export default function ContactsSidebar(props: Props) {
 
   return (
     <AppWorkspace.Sidebar>
-      <AppWorkspace.SidebarHeader title="Contacts" icon="ti ti-address-book" iconStyle="background-color: var(--color-blue-500)" />
+      <AppWorkspace.SidebarHeader
+        title="Contacts"
+        icon="ti ti-address-book"
+        iconStyle="background-color: var(--color-blue-500)"
+        showDesktop={false}
+      />
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>

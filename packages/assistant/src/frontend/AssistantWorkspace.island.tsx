@@ -268,7 +268,7 @@ export default function AssistantWorkspace(props: Props) {
         onConversationDeleted={deleteConversation}
       />
 
-      <AppWorkspace.Main class="bg-zinc-50/70 dark:bg-zinc-950/50">
+      <AppWorkspace.Main class="paper">
         <section class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve="assistant-messages">
           <AiMessageList
             session={{

@@ -30,6 +30,7 @@ type SidebarHeaderSlot = SidebarSlot & {
   iconViewTransitionName?: string;
   titleViewTransitionName?: string;
   action?: JSX.Element;
+  showDesktop?: boolean;
 };
 
 type SidebarMobileSlot = SidebarSlot & {
@@ -79,6 +80,7 @@ export type AppWorkspaceSidebarHeaderProps = {
   iconViewTransitionName?: string;
   titleViewTransitionName?: string;
   action?: JSX.Element;
+  showDesktop?: boolean;
 };
 
 export type AppWorkspaceSidebarMobileProps = {
@@ -351,7 +353,7 @@ const AppWorkspaceSidebar = (props: AppWorkspaceSidebarProps) => {
 
       <aside class={`sidebar-container ${props.class ?? ""}`}>
         <div class="paper flex h-full min-h-0 flex-col gap-4 p-3">
-          <Show when={header()}>
+          <Show when={header() && header()!.showDesktop !== false}>
             <div class="relative flex items-center gap-3 pr-7">
               <SidebarHeaderContent header={header()!} />
             </div>

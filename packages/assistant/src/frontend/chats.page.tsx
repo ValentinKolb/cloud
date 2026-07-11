@@ -53,7 +53,7 @@ export default ssr<AuthContext>(async (c) => {
       <AppWorkspace class="flex-1 min-h-0">
         <AssistantSidebarStandalone initialConversations={recentConversations} activeView="all" />
 
-        <AppWorkspace.Main class="bg-zinc-50/70 dark:bg-zinc-950/50">
+        <AppWorkspace.Main class="paper">
           <div class="flex min-h-0 flex-1 flex-col gap-3">
             <div class="paper flex shrink-0 flex-col gap-3 p-4" style="view-transition-name: assistant-all-chats-header">
               <div class="flex min-w-0 flex-wrap items-end justify-between gap-3">
