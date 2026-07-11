@@ -2,14 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { ssr } from "../../../config";
 import { pulseService } from "../../../service";
 import PulseQueryReferenceWindow from "../../PulseQueryReferenceWindow.island";
-
-type ReferenceTab = "overview" | "query" | "dashboard" | "inventory";
-
-const readReferenceTab = (value: string | null, includeDashboardDsl: boolean): ReferenceTab => {
-  if (value === "query" || value === "inventory" || value === "overview") return value;
-  if (value === "dashboard" && includeDashboardDsl) return value;
-  return includeDashboardDsl ? "dashboard" : "overview";
-};
+import { readReferenceTab } from "../../query-reference-tabs";
 
 export default ssr<AuthContext>(async (c) => {
   c.get("page").title = "Pulse query reference";

@@ -168,6 +168,10 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
   await sql`ALTER TABLE pulse.metric_series ADD COLUMN IF NOT EXISTS series_key TEXT`.simple();
+  await sql`ALTER TABLE pulse.metric_series ADD COLUMN IF NOT EXISTS resource_key TEXT`.simple();
+  await sql`ALTER TABLE pulse.metric_series ADD COLUMN IF NOT EXISTS resource_id TEXT`.simple();
+  await sql`ALTER TABLE pulse.metric_series ADD COLUMN IF NOT EXISTS resource_type TEXT`.simple();
+  await sql`ALTER TABLE pulse.metric_series ADD COLUMN IF NOT EXISTS resource_label TEXT`.simple();
   await sql`
     UPDATE pulse.metric_series
     SET series_key = COALESCE(source_id::text, '') || E'\x1f' || COALESCE(entity_id, '') || E'\x1f' || dimensions_hash
@@ -176,6 +180,7 @@ export const migrate = async (): Promise<void> => {
   await sql`ALTER TABLE pulse.metric_series ALTER COLUMN series_key SET NOT NULL`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_metric_series_base_metric ON pulse.metric_series(base_id, metric_id)`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_metric_series_source ON pulse.metric_series(source_id) WHERE source_id IS NOT NULL`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_metric_series_resource ON pulse.metric_series(base_id, resource_key, last_seen_at DESC) WHERE resource_key IS NOT NULL`.simple();
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_pulse_metric_series_unique_key ON pulse.metric_series(base_id, metric_id, series_key)`.simple();
 
   await sql`
@@ -238,6 +243,11 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_events_base_kind_ts ON pulse.events(base_id, kind, ts DESC)`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_events_actor_ts ON pulse.events(base_id, actor_id, ts DESC) WHERE actor_id IS NOT NULL`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_events_correlation_ts ON pulse.events(base_id, correlation_id, ts DESC) WHERE correlation_id IS NOT NULL`.simple();
+  await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS resource_key TEXT`.simple();
+  await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS resource_id TEXT`.simple();
+  await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS resource_type TEXT`.simple();
+  await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS resource_label TEXT`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_events_resource_ts ON pulse.events(base_id, resource_key, ts DESC) WHERE resource_key IS NOT NULL`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.event_dimensions (
@@ -264,6 +274,11 @@ export const migrate = async (): Promise<void> => {
       PRIMARY KEY (base_id, state_key, entity_id, dimensions_hash)
     )
   `.simple();
+  await sql`ALTER TABLE pulse.states_current ADD COLUMN IF NOT EXISTS resource_key TEXT`.simple();
+  await sql`ALTER TABLE pulse.states_current ADD COLUMN IF NOT EXISTS resource_id TEXT`.simple();
+  await sql`ALTER TABLE pulse.states_current ADD COLUMN IF NOT EXISTS resource_type TEXT`.simple();
+  await sql`ALTER TABLE pulse.states_current ADD COLUMN IF NOT EXISTS resource_label TEXT`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_states_current_resource ON pulse.states_current(base_id, resource_key, updated_at DESC) WHERE resource_key IS NOT NULL`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.state_changes (
@@ -280,7 +295,12 @@ export const migrate = async (): Promise<void> => {
       recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
+  await sql`ALTER TABLE pulse.state_changes ADD COLUMN IF NOT EXISTS resource_key TEXT`.simple();
+  await sql`ALTER TABLE pulse.state_changes ADD COLUMN IF NOT EXISTS resource_id TEXT`.simple();
+  await sql`ALTER TABLE pulse.state_changes ADD COLUMN IF NOT EXISTS resource_type TEXT`.simple();
+  await sql`ALTER TABLE pulse.state_changes ADD COLUMN IF NOT EXISTS resource_label TEXT`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_state_changes_key_ts ON pulse.state_changes(base_id, state_key, changed_at DESC)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_state_changes_resource_ts ON pulse.state_changes(base_id, resource_key, changed_at DESC) WHERE resource_key IS NOT NULL`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.dimension_metadata (
@@ -297,13 +317,31 @@ export const migrate = async (): Promise<void> => {
   `.simple();
 
   await sql`
+    CREATE TABLE IF NOT EXISTS pulse.observed_resources (
+      base_id UUID NOT NULL REFERENCES pulse.bases(id) ON DELETE CASCADE,
+      resource_key TEXT NOT NULL,
+      resource_id TEXT NOT NULL,
+      resource_type TEXT,
+      label TEXT NOT NULL,
+      source_ids UUID[] NOT NULL DEFAULT ARRAY[]::uuid[],
+      dimensions JSONB NOT NULL DEFAULT '{}'::jsonb,
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (base_id, resource_key)
+    )
+  `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_observed_resources_base_seen ON pulse.observed_resources(base_id, last_seen_at DESC)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_observed_resources_base_type ON pulse.observed_resources(base_id, resource_type, last_seen_at DESC)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_observed_resources_sources ON pulse.observed_resources USING GIN (source_ids)`.simple();
+
+  await sql`
     CREATE TABLE IF NOT EXISTS pulse.dashboards (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       base_id UUID NOT NULL REFERENCES pulse.bases(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       config JSONB NOT NULL DEFAULT '{}'::jsonb,
       public_enabled BOOLEAN NOT NULL DEFAULT false,
-      public_token TEXT UNIQUE,
+      public_token_encrypted TEXT,
       public_token_hash TEXT UNIQUE,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -311,10 +349,11 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
   await sql`ALTER TABLE pulse.dashboards ADD COLUMN IF NOT EXISTS public_enabled BOOLEAN NOT NULL DEFAULT false`.simple();
-  await sql`ALTER TABLE pulse.dashboards ADD COLUMN IF NOT EXISTS public_token TEXT UNIQUE`.simple();
+  await sql`ALTER TABLE pulse.dashboards ADD COLUMN IF NOT EXISTS public_token_encrypted TEXT`.simple();
   await sql`ALTER TABLE pulse.dashboards ADD COLUMN IF NOT EXISTS public_token_hash TEXT UNIQUE`.simple();
+  await sql`DROP INDEX IF EXISTS pulse.idx_pulse_dashboards_public_token`.simple();
+  await sql`ALTER TABLE pulse.dashboards DROP COLUMN IF EXISTS public_token`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_dashboards_base ON pulse.dashboards(base_id)`.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_dashboards_public_token ON pulse.dashboards(public_token) WHERE public_enabled = TRUE AND public_token IS NOT NULL`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_dashboards_public ON pulse.dashboards(public_token_hash) WHERE public_enabled = TRUE AND public_token_hash IS NOT NULL`.simple();
 
   await sql`

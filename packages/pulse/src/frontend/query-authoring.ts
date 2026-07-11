@@ -2,6 +2,16 @@ import type { Completion, SuggestContext, Suggestion } from "@valentinkolb/cloud
 import { AGGREGATIONS } from "../contracts";
 import type { PulseCurrentState, PulseMetricSeries, PulseMetricSummary, PulseRecordedEvent, PulseSource } from "../contracts";
 
+type PulseQueryAuthoringInventory = {
+  metrics: PulseMetricSummary[];
+  events?: PulseRecordedEvent[];
+  states?: PulseCurrentState[];
+  sources: PulseSource[];
+  series: PulseMetricSeries[];
+};
+
+type QueryStatement = "metric" | "events" | "states";
+
 const escapeHtml = (value: string): string =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -59,6 +69,128 @@ const withTriggerPrefix = (trigger: string, items: Suggestion[]): Suggestion[] =
     expansion: `${trigger}${item.expansion ?? item.text}`,
   }));
 
+const uniqueValues = (values: (string | null | undefined)[]): string[] => [...new Set(values.filter((value): value is string => !!value))];
+
+const eventKindSuggestions = (events: PulseRecordedEvent[] | undefined, query: string): Suggestion[] =>
+  ["*", ...uniqueValues((events ?? []).map((event) => event.kind))]
+    .filter((kind) => matches(kind, query))
+    .slice(0, 40)
+    .map((kind) => suggestion(kind, kind === "*" ? "all events" : "event kind", quoteQueryValue(kind)));
+
+const stateKeySuggestions = (states: PulseCurrentState[] | undefined, query: string): Suggestion[] =>
+  ["*", ...uniqueValues((states ?? []).map((state) => state.key))]
+    .filter((key) => matches(key, query))
+    .slice(0, 40)
+    .map((key) => suggestion(key, key === "*" ? "all states" : "state key", quoteQueryValue(key)));
+
+const sourceSuggestions = (sources: PulseSource[], query: string): Suggestion[] =>
+  sources
+    .filter((source) => matches(source.name, query) || matches(source.id, query))
+    .slice(0, 30)
+    .map((source) => suggestion(source.name, `${source.kind} · ${source.id.slice(0, 8)}`, source.id));
+
+const entitySuggestions = (params: PulseQueryAuthoringInventory, query: string): Suggestion[] =>
+  uniqueValues([
+    ...params.series.map((item) => item.entityId),
+    ...(params.events ?? []).map((item) => item.entityId),
+    ...(params.states ?? []).map((item) => item.entityId),
+  ])
+    .filter((value) => matches(value, query))
+    .slice(0, 40)
+    .map((value) => suggestion(value, "entity", quoteQueryValue(value)));
+
+const dimensionSuggestions = (params: PulseQueryAuthoringInventory, query: string): Suggestion[] => {
+  const dimensions = new Map<string, Set<string>>();
+  for (const item of [...params.series, ...(params.events ?? []), ...(params.states ?? [])]) {
+    for (const [key, value] of Object.entries(item.dimensions)) {
+      if (!dimensions.has(key)) dimensions.set(key, new Set());
+      dimensions.get(key)!.add(value);
+    }
+  }
+  return [...dimensions.entries()]
+    .filter(([key]) => matches(key, query))
+    .slice(0, 40)
+    .map(([key, values]) => {
+      const value = [...values][0] ?? "";
+      return suggestion(`${key}=`, `${values.size} values`, value ? `${key}=${quoteQueryValue(value)}` : `${key}=`);
+    });
+};
+
+const literalSuggestions = (items: string[], query: string, hint: string): Suggestion[] =>
+  items.filter((value) => matches(value, query)).map((value) => suggestion(value, hint));
+
+const STATEMENT_NAMES: QueryStatement[] = ["metric", "events", "states"];
+const BUCKET_LITERALS = ["1m", "5m", "15m", "1h"];
+const RANGE_LITERALS = ["1h", "6h", "24h", "7d", "30d"];
+const LIMIT_LITERALS = ["50", "100", "500", "1000"];
+
+type PreviousTokenSuggestionFactory = (params: PulseQueryAuthoringInventory, query: string) => Suggestion[];
+
+const literalSuggestionFactory =
+  (items: string[], hint: string): PreviousTokenSuggestionFactory =>
+  (_params, query) =>
+    literalSuggestions(items, query, hint);
+
+const PREVIOUS_TOKEN_SUGGESTIONS: Record<string, PreviousTokenSuggestionFactory> = {
+  metric: (params, query) => metricNameSuggestions(params.metrics, query),
+  events: (params, query) => eventKindSuggestions(params.events, query),
+  states: (params, query) => stateKeySuggestions(params.states, query),
+  source: (params, query) => sourceSuggestions(params.sources, query),
+  every: literalSuggestionFactory(BUCKET_LITERALS, "bucket"),
+  since: literalSuggestionFactory(RANGE_LITERALS, "range"),
+  limit: literalSuggestionFactory(LIMIT_LITERALS, "rows"),
+  entity: (params, query) => entitySuggestions(params, query),
+};
+
+const shouldSuggestDimensions = (ctx: SuggestContext): boolean => {
+  const beforeToken = ctx.fullText.slice(0, ctx.tokenStart).trimEnd();
+  return previousToken(ctx.fullText, ctx.tokenStart) === "where" || beforeToken.endsWith(",");
+};
+
+const suggestionsAfterPreviousToken = (params: PulseQueryAuthoringInventory, query: string, ctx: SuggestContext): Suggestion[] | null => {
+  const prev = previousToken(ctx.fullText, ctx.tokenStart);
+  const factory = PREVIOUS_TOKEN_SUGGESTIONS[prev];
+  if (factory) return factory(params, query);
+  if (shouldSuggestDimensions(ctx)) return dimensionSuggestions(params, query);
+  return null;
+};
+
+type StatementSuggestionFactory = (params: PulseQueryAuthoringInventory, query: string, text: string, tokenIndex: number) => Suggestion[];
+
+const metricStatementSuggestions: StatementSuggestionFactory = (params, query, text, tokenIndex) => {
+  if (tokenIndex === 1) return metricNameSuggestions(params.metrics, query);
+  if (tokenIndex === 2) return aggregationSuggestions(query);
+  return clauseSuggestions("metric", query, text);
+};
+
+const rowStatementSuggestions =
+  (kind: "events" | "states"): StatementSuggestionFactory =>
+  (params, query, text, tokenIndex) => {
+    const names = kind === "events" ? eventKindSuggestions(params.events, query) : stateKeySuggestions(params.states, query);
+    return tokenIndex === 1 ? names : clauseSuggestions(kind, query, text);
+  };
+
+const STATEMENT_SUGGESTIONS: Record<QueryStatement, StatementSuggestionFactory> = {
+  metric: metricStatementSuggestions,
+  events: rowStatementSuggestions("events"),
+  states: rowStatementSuggestions("states"),
+};
+
+const isStatementPrefixPosition = (query: string, tokenIndex: number): boolean =>
+  tokenIndex <= 1 && STATEMENT_NAMES.some((item) => item.startsWith(query.toLowerCase()));
+
+const suggestionsByStatement = (params: PulseQueryAuthoringInventory, query: string, ctx: SuggestContext): Suggestion[] => {
+  const before = tokensBefore(ctx.fullText, ctx.tokenStart);
+  const first = before[0]?.toLowerCase() ?? "";
+  const tokenIndex = before.length;
+  if (!first) return statementSuggestions(query);
+  if (isStatementPrefixPosition(query, tokenIndex)) return statementSuggestions(query);
+  return STATEMENT_SUGGESTIONS[first as QueryStatement]?.(params, query, ctx.fullText, tokenIndex) ?? statementSuggestions(query);
+};
+
+const suggestPulseQuery = (params: PulseQueryAuthoringInventory, query: string, ctx: SuggestContext): Suggestion[] =>
+  suggestionsAfterPreviousToken(params, query, ctx) ?? suggestionsByStatement(params, query, ctx);
+
 export const buildPulseQuery = (params: {
   metric: string;
   aggregation?: string;
@@ -90,174 +222,92 @@ export const defaultPulseQuery = (metrics: PulseMetricSummary[]): string => {
   return buildPulseQuery({ metric: metric.name, aggregation, bucket: "5m", since: "24h" });
 };
 
-export const buildPulseQueryCompletions = (params: {
-  metrics: PulseMetricSummary[];
-  events?: PulseRecordedEvent[];
-  states?: PulseCurrentState[];
-  sources: PulseSource[];
-  series: PulseMetricSeries[];
-}): Completion[] => [
+export const buildPulseQueryCompletions = (params: PulseQueryAuthoringInventory): Completion[] => [
   {
     dropdown: true,
-    suggest: (query: string, ctx: SuggestContext) => {
-      const prev = previousToken(ctx.fullText, ctx.tokenStart);
-      const before = tokensBefore(ctx.fullText, ctx.tokenStart);
-      const first = before[0]?.toLowerCase() ?? "";
-      const tokenIndex = before.length;
-      if (prev === "metric") {
-        return metricNameSuggestions(params.metrics, query);
-      }
-      if (prev === "events") {
-        const kinds = [...new Set((params.events ?? []).map((event) => event.kind))];
-        return ["*", ...kinds]
-          .filter((kind) => matches(kind, query))
-          .slice(0, 40)
-          .map((kind) => suggestion(kind, kind === "*" ? "all events" : "event kind", quoteQueryValue(kind)));
-      }
-      if (prev === "states") {
-        const keys = [...new Set((params.states ?? []).map((state) => state.key))];
-        return ["*", ...keys]
-          .filter((key) => matches(key, query))
-          .slice(0, 40)
-          .map((key) => suggestion(key, key === "*" ? "all states" : "state key", quoteQueryValue(key)));
-      }
-      if (prev === "source") {
-        return params.sources
-          .filter((source) => matches(source.name, query) || matches(source.id, query))
-          .slice(0, 30)
-          .map((source) => suggestion(source.name, `${source.kind} · ${source.id.slice(0, 8)}`, source.id));
-      }
-      if (prev === "every") return ["1m", "5m", "15m", "1h"].filter((value) => matches(value, query)).map((value) => suggestion(value, "bucket"));
-      if (prev === "since") return ["1h", "6h", "24h", "7d", "30d"].filter((value) => matches(value, query)).map((value) => suggestion(value, "range"));
-      if (prev === "limit") return ["50", "100", "500", "1000"].filter((value) => matches(value, query)).map((value) => suggestion(value, "rows"));
-      if (prev === "entity") {
-        const entities = [
-          ...new Set([
-            ...params.series.map((item) => item.entityId).filter((value): value is string => !!value),
-            ...(params.events ?? []).map((item) => item.entityId).filter((value): value is string => !!value),
-            ...(params.states ?? []).map((item) => item.entityId).filter((value): value is string => !!value),
-          ]),
-        ];
-        return entities.filter((value) => matches(value, query)).slice(0, 40).map((value) => suggestion(value, "entity", quoteQueryValue(value)));
-      }
-      if (prev === "where" || ctx.fullText.slice(0, ctx.tokenStart).trimEnd().endsWith(",")) {
-        const dimensions = new Map<string, Set<string>>();
-        for (const item of params.series) {
-          for (const [key, value] of Object.entries(item.dimensions)) {
-            if (!dimensions.has(key)) dimensions.set(key, new Set());
-            dimensions.get(key)!.add(value);
-          }
-        }
-        for (const item of [...(params.events ?? []), ...(params.states ?? [])]) {
-          for (const [key, value] of Object.entries(item.dimensions)) {
-            if (!dimensions.has(key)) dimensions.set(key, new Set());
-            dimensions.get(key)!.add(value);
-          }
-        }
-        return [...dimensions.entries()]
-          .filter(([key]) => matches(key, query))
-          .slice(0, 40)
-          .map(([key, values]) => {
-            const value = [...values][0] ?? "";
-            return suggestion(`${key}=`, `${values.size} values`, value ? `${key}=${quoteQueryValue(value)}` : `${key}=`);
-          });
-      }
-      if (!first) return statementSuggestions(query);
-      if (tokenIndex <= 1 && ["metric", "events", "states"].some((item) => item.startsWith(query.toLowerCase()))) return statementSuggestions(query);
-      if (first === "metric") {
-        if (tokenIndex === 1) return metricNameSuggestions(params.metrics, query);
-        if (tokenIndex === 2) return aggregationSuggestions(query);
-        return clauseSuggestions("metric", query, ctx.fullText);
-      }
-      if (first === "events") {
-        if (tokenIndex === 1) {
-          const kinds = [...new Set((params.events ?? []).map((event) => event.kind))];
-          return ["*", ...kinds]
-            .filter((kind) => matches(kind, query))
-            .slice(0, 40)
-            .map((kind) => suggestion(kind, kind === "*" ? "all events" : "event kind", quoteQueryValue(kind)));
-        }
-        return clauseSuggestions("events", query, ctx.fullText);
-      }
-      if (first === "states") {
-        if (tokenIndex === 1) {
-          const keys = [...new Set((params.states ?? []).map((state) => state.key))];
-          return ["*", ...keys]
-            .filter((key) => matches(key, query))
-            .slice(0, 40)
-            .map((key) => suggestion(key, key === "*" ? "all states" : "state key", quoteQueryValue(key)));
-        }
-        return clauseSuggestions("states", query, ctx.fullText);
-      }
-      return statementSuggestions(query);
-    },
+    suggest: (query: string, ctx: SuggestContext) => suggestPulseQuery(params, query, ctx),
   },
   {
     trigger: " ",
     dropdown: true,
     allowAfterWord: true,
-    suggest: (query: string, ctx: SuggestContext, signal: AbortSignal) => {
-      const result = buildPulseQueryCompletions(params)[0]!.suggest(query, ctx, signal);
-      return Array.isArray(result) ? withTriggerPrefix(" ", result) : result.then((items) => withTriggerPrefix(" ", items));
-    },
+    suggest: (query: string, ctx: SuggestContext) => withTriggerPrefix(" ", suggestPulseQuery(params, query, ctx)),
   },
 ];
 
-export const pulseQueryHighlight = (text: string): string => {
+const span = (className: string, text: string): string => `<span class="${className}">${escapeHtml(text)}</span>`;
+const stringSpan = (text: string): string => span("text-amber-700 dark:text-amber-300", text);
+const keywordSpan = (text: string): string => span("text-blue-600 dark:text-blue-300", text);
+const aggregationSpan = (text: string): string => span("text-emerald-700 dark:text-emerald-300", text);
+const literalSpan = (text: string): string => span("text-purple-700 dark:text-purple-300", text);
+
+const readQuotedEnd = (text: string, start: number): number => {
+  let end = start + 1;
+  let escaped = false;
+  while (end < text.length) {
+    const current = text[end]!;
+    if (escaped) escaped = false;
+    else if (current === "\\") escaped = true;
+    else if (current === '"') return end + 1;
+    end += 1;
+  }
+  return end;
+};
+
+const readWordEnd = (text: string, start: number, pattern: RegExp): number => {
+  let end = start + 1;
+  while (end < text.length && pattern.test(text[end]!)) end += 1;
+  return end;
+};
+
+const highlightWords = (text: string, options: { wordPattern: RegExp; token: (token: string) => string; tripleQuoted?: boolean }): string => {
   let out = "";
   let i = 0;
   while (i < text.length) {
+    if (options.tripleQuoted && text.startsWith('"""', i)) {
+      const start = i;
+      const end = text.indexOf('"""', i + 3);
+      i = end === -1 ? text.length : end + 3;
+      out += stringSpan(text.slice(start, i));
+      continue;
+    }
+
     const ch = text[i]!;
     if (ch === '"') {
-      let end = i + 1;
-      let escaped = false;
-      while (end < text.length) {
-        const current = text[end]!;
-        if (escaped) escaped = false;
-        else if (current === "\\") escaped = true;
-        else if (current === '"') {
-          end += 1;
-          break;
-        }
-        end += 1;
-      }
-      out += `<span class="text-amber-700 dark:text-amber-300">${escapeHtml(text.slice(i, end))}</span>`;
+      const end = readQuotedEnd(text, i);
+      out += stringSpan(text.slice(i, end));
       i = end;
       continue;
     }
-    if (/[A-Za-z0-9_.-]/.test(ch)) {
-      let end = i + 1;
-      while (end < text.length && /[A-Za-z0-9_.-]/.test(text[end]!)) end += 1;
-      const token = text.slice(i, end);
-      const lower = token.toLowerCase();
-      if (
-        lower === "metric" ||
-        lower === "events" ||
-        lower === "states" ||
-        lower === "every" ||
-        lower === "since" ||
-        lower === "source" ||
-        lower === "entity" ||
-        lower === "entity_type" ||
-        lower === "limit" ||
-        lower === "where"
-      ) {
-        out += `<span class="text-blue-600 dark:text-blue-300">${escapeHtml(token)}</span>`;
-      } else if (AGGREGATIONS.includes(lower as (typeof AGGREGATIONS)[number])) {
-        out += `<span class="text-emerald-700 dark:text-emerald-300">${escapeHtml(token)}</span>`;
-      } else if (/^\d+[mhd]$/.test(lower)) {
-        out += `<span class="text-purple-700 dark:text-purple-300">${escapeHtml(token)}</span>`;
-      } else {
-        out += escapeHtml(token);
-      }
+
+    if (options.wordPattern.test(ch)) {
+      const end = readWordEnd(text, i, options.wordPattern);
+      out += options.token(text.slice(i, end));
       i = end;
       continue;
     }
+
     out += escapeHtml(ch);
     i += 1;
   }
   return out;
 };
+
+const QUERY_KEYWORDS = new Set(["metric", "events", "states", "every", "since", "source", "entity", "entity_type", "limit", "where"]);
+
+const queryTokenHighlight = (token: string): string => {
+  const lower = token.toLowerCase();
+  if (QUERY_KEYWORDS.has(lower)) return keywordSpan(token);
+  if (AGGREGATIONS.includes(lower as (typeof AGGREGATIONS)[number])) return aggregationSpan(token);
+  if (/^\d+[mhd]$/.test(lower)) return literalSpan(token);
+  return escapeHtml(token);
+};
+
+export const pulseQueryHighlight = (text: string): string =>
+  highlightWords(text, {
+    wordPattern: /[A-Za-z0-9_.-]/,
+    token: queryTokenHighlight,
+  });
 
 const DASHBOARD_DSL_KEYWORDS = new Set([
   "dashboard",
@@ -286,57 +336,17 @@ const DASHBOARD_DSL_KEYWORDS = new Set([
 
 const DASHBOARD_QUERY_KEYWORDS = new Set(["metric", "events", "states", "every", "since", "where", "limit", "entity_type"]);
 
-export const pulseDashboardDslHighlight = (text: string): string => {
-  let out = "";
-  let i = 0;
-  while (i < text.length) {
-    if (text.startsWith('"""', i)) {
-      const end = text.indexOf('"""', i + 3);
-      const finish = end === -1 ? text.length : end + 3;
-      out += `<span class="text-amber-700 dark:text-amber-300">${escapeHtml(text.slice(i, finish))}</span>`;
-      i = finish;
-      continue;
-    }
-
-    const ch = text[i]!;
-    if (ch === '"') {
-      let end = i + 1;
-      let escaped = false;
-      while (end < text.length) {
-        const current = text[end]!;
-        if (escaped) escaped = false;
-        else if (current === "\\") escaped = true;
-        else if (current === '"') {
-          end += 1;
-          break;
-        }
-        end += 1;
-      }
-      out += `<span class="text-amber-700 dark:text-amber-300">${escapeHtml(text.slice(i, end))}</span>`;
-      i = end;
-      continue;
-    }
-
-    if (/[A-Za-z0-9_.$-]/.test(ch)) {
-      let end = i + 1;
-      while (end < text.length && /[A-Za-z0-9_.$-]/.test(text[end]!)) end += 1;
-      const token = text.slice(i, end);
-      const lower = token.toLowerCase();
-      if (DASHBOARD_DSL_KEYWORDS.has(token) || DASHBOARD_QUERY_KEYWORDS.has(lower)) {
-        out += `<span class="text-blue-600 dark:text-blue-300">${escapeHtml(token)}</span>`;
-      } else if (AGGREGATIONS.includes(lower as (typeof AGGREGATIONS)[number]) || lower === "latest" || lower === "increase") {
-        out += `<span class="text-emerald-700 dark:text-emerald-300">${escapeHtml(token)}</span>`;
-      } else if (/^\$?[0-9]+[mhd]?$/.test(lower) || lower.startsWith("$")) {
-        out += `<span class="text-purple-700 dark:text-purple-300">${escapeHtml(token)}</span>`;
-      } else {
-        out += escapeHtml(token);
-      }
-      i = end;
-      continue;
-    }
-
-    out += escapeHtml(ch);
-    i += 1;
-  }
-  return out;
+const dashboardTokenHighlight = (token: string): string => {
+  const lower = token.toLowerCase();
+  if (DASHBOARD_DSL_KEYWORDS.has(token) || DASHBOARD_QUERY_KEYWORDS.has(lower)) return keywordSpan(token);
+  if (AGGREGATIONS.includes(lower as (typeof AGGREGATIONS)[number]) || lower === "latest" || lower === "increase") return aggregationSpan(token);
+  if (/^\$?[0-9]+[mhd]?$/.test(lower) || lower.startsWith("$")) return literalSpan(token);
+  return escapeHtml(token);
 };
+
+export const pulseDashboardDslHighlight = (text: string): string =>
+  highlightWords(text, {
+    wordPattern: /[A-Za-z0-9_.$-]/,
+    token: dashboardTokenHighlight,
+    tripleQuoted: true,
+  });

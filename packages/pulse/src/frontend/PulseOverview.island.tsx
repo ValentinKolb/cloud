@@ -2,18 +2,13 @@ import { AppOverview, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { navigate, navigateTo } from "@valentinkolb/ssr/nav";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { PulseBase, PulseCapabilitySnapshot } from "../contracts";
+import { jsonFetch } from "./http";
 import PulseLayoutHelp from "./PulseLayoutHelp";
 
 type Props = {
   bases: PulseBase[];
   initialQuery: string;
   capabilities: PulseCapabilitySnapshot | null;
-};
-
-const readError = async (response: Response, fallback: string): Promise<string> => {
-  const body = await response.json().catch(() => null);
-  if (body && typeof body === "object" && "message" in body && typeof body.message === "string") return body.message;
-  return fallback;
 };
 
 const setQueryParam = (value: string) => {
@@ -40,32 +35,33 @@ export default function PulseOverview(props: Props) {
     setQueryParam(value);
   };
 
-  const createBase = async (starter?: { name: string; description: string }) => {
+  const createBase = async () => {
     const result = await prompts.form({
-      title: starter ? starter.name : "New Pulse base",
+      title: "New Pulse base",
       icon: "ti ti-database-plus",
       fields: {
-        name: { type: "text", label: "Name", required: true, placeholder: starter?.name ?? "Operations" },
-        description: { type: "text", label: "Description", multiline: true, placeholder: starter?.description ?? "Optional" },
+        name: { type: "text", label: "Name", required: true, placeholder: "Operations" },
+        description: { type: "text", label: "Description", multiline: true, placeholder: "Optional" },
       },
       confirmText: "Create",
     });
     if (!result) return;
 
-    const name = String(result.name ?? "").trim() || starter?.name;
+    const name = String(result.name ?? "").trim();
     if (!name) return;
     setCreating(true);
     try {
-      const response = await fetch("/api/pulse/bases", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          description: String(result.description ?? "").trim() || starter?.description || null,
-        }),
-      });
-      if (!response.ok) throw new Error(await readError(response, "Failed to create Pulse base"));
-      const base = (await response.json()) as PulseBase;
+      const base = await jsonFetch<PulseBase>(
+        "/api/pulse/bases",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            name,
+            description: String(result.description ?? "").trim() || null,
+          }),
+        },
+        "Failed to create Pulse base",
+      );
       toast.success("Pulse base created");
       navigateTo(`/app/pulse/${base.id}`);
     } catch (error) {
@@ -138,29 +134,8 @@ export default function PulseOverview(props: Props) {
           </Show>
         </AppOverview.Main>
 
-        <AppOverview.Aside
-          title="Create"
-          description="Choose the first telemetry shape. Sources and dashboards are configured inside the base."
-        >
+        <AppOverview.Aside title="Create" description="Sources and dashboards are configured inside the base.">
           <div class="grid grid-cols-1 gap-2">
-            <button
-              type="button"
-              class="paper group flex items-start gap-3 p-4 text-left transition-all hover:paper-highlighted"
-              disabled={creating()}
-              onClick={() =>
-                void createBase({ name: "Operations", description: "Services, jobs, business processes, devices, and infrastructure telemetry." })
-              }
-            >
-              <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-white shadow-[var(--theme-shadow-elevated)] dark:bg-zinc-950">
-                <i class="ti ti-server-2 text-lg text-primary" />
-              </span>
-              <span class="min-w-0 flex-1">
-                <span class="block text-sm font-semibold text-primary">Server monitoring</span>
-                <span class="line-clamp-2 block text-xs leading-snug text-dimmed">A balanced starter for services, jobs, devices, and business processes.</span>
-              </span>
-              <i class="ti ti-chevron-right mt-1 shrink-0 text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
-            </button>
-
             <button
               type="button"
               class="paper group flex items-start gap-3 p-4 text-left transition-all hover:paper-highlighted"
@@ -171,8 +146,8 @@ export default function PulseOverview(props: Props) {
                 <i class="ti ti-plus text-lg text-blue-600 dark:text-blue-400" />
               </span>
               <span class="min-w-0 flex-1">
-                <span class="block text-sm font-semibold text-primary">Blank base</span>
-                <span class="block text-xs leading-snug text-dimmed">Create an empty telemetry base for custom metrics and events.</span>
+                <span class="block text-sm font-semibold text-primary">New base</span>
+                <span class="block text-xs leading-snug text-dimmed">Create a telemetry base for metrics, states, events, and dashboards.</span>
               </span>
               <i class="ti ti-chevron-right mt-1 shrink-0 text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
             </button>

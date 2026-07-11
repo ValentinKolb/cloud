@@ -2,12 +2,13 @@ import { getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
 import { ssr } from "../config";
 import { pulseService } from "../service";
 import PublicPulseDashboard from "./PublicPulseDashboard.island";
+import { parsePublicDashboardDisplayHeight, parsePublicDashboardTheme } from "./public-dashboard-runtime";
 
 export default ssr<AuthContext>(async (c) => {
   c.header("Referrer-Policy", "no-referrer");
   const token = c.req.param("token") ?? "";
-  const theme = c.req.query("theme") === "dark" ? "dark" : "light";
-  const displayHeight = c.req.query("height") === "full" ? "full" : "scroll";
+  const theme = parsePublicDashboardTheme(c.req.query("theme"));
+  const displayHeight = parsePublicDashboardDisplayHeight(c.req.query("height"));
   c.get("page").theme = theme;
   const snapshot = await pulseService.dashboard.publicSnapshot(token);
   if (!snapshot.ok) {

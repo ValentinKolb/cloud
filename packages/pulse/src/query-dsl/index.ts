@@ -4,6 +4,14 @@ import type { Aggregation, EventQuery, MetricQuery, PulseExplorerQuery, StateQue
 
 const MAX_DURATION_MS = 90 * 24 * 60 * 60_000;
 
+type QueryTokenQuote = '"' | "'";
+
+type QueryTokenState = {
+  tokens: string[];
+  current: string;
+  quote: QueryTokenQuote | null;
+};
+
 export const intervalToMs = (input: string): number | null => {
   const match = input.trim().match(/^(\d+)(m|h|d)$/);
   if (!match) return null;
@@ -15,6 +23,7 @@ export const intervalToMs = (input: string): number | null => {
 };
 
 export const durationToInterval = (input: string): string | null => {
+  if (intervalToMs(input) === null) return null;
   const match = input.trim().match(/^(\d+)(m|h|d)$/);
   if (!match) return null;
   const unit = match[2] === "m" ? "minutes" : match[2] === "h" ? "hours" : "days";
@@ -22,39 +31,50 @@ export const durationToInterval = (input: string): string | null => {
 };
 
 export const tokenizeQueryText = (text: string): string[] => {
-  const tokens: string[] = [];
-  let current = "";
-  let quote: '"' | "'" | null = null;
+  const state: QueryTokenState = { tokens: [], current: "", quote: null };
   for (let i = 0; i < text.length; i += 1) {
-    const char = text[i]!;
-    if (quote) {
-      if (char === quote) {
-        quote = null;
-      } else if (char === "\\" && i + 1 < text.length) {
-        i += 1;
-        current += text[i]!;
-      } else {
-        current += char;
-      }
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (/\s/.test(char) || char === ",") {
-      if (current) {
-        tokens.push(current);
-        current = "";
-      }
-      if (char === ",") tokens.push(",");
-      continue;
-    }
-    current += char;
+    i = readQueryTokenChar(text, i, state);
   }
-  if (quote) return [];
-  if (current) tokens.push(current);
-  return tokens;
+  if (state.quote) return [];
+  pushCurrentQueryToken(state);
+  return state.tokens;
+};
+
+const readQueryTokenChar = (text: string, index: number, state: QueryTokenState): number => {
+  const char = text[index]!;
+  if (state.quote) return readQuotedQueryTokenChar(text, index, state);
+  if (isQueryQuote(char)) state.quote = char;
+  else if (isQueryTokenSeparator(char)) pushQueryTokenSeparator(char, state);
+  else state.current += char;
+  return index;
+};
+
+const readQuotedQueryTokenChar = (text: string, index: number, state: QueryTokenState): number => {
+  const char = text[index]!;
+  if (char === state.quote) {
+    state.quote = null;
+    return index;
+  }
+  if (char === "\\" && index + 1 < text.length) {
+    state.current += text[index + 1]!;
+    return index + 1;
+  }
+  state.current += char;
+  return index;
+};
+
+const isQueryQuote = (char: string): char is QueryTokenQuote => char === '"' || char === "'";
+const isQueryTokenSeparator = (char: string): boolean => /\s/.test(char) || char === ",";
+
+const pushQueryTokenSeparator = (char: string, state: QueryTokenState) => {
+  pushCurrentQueryToken(state);
+  if (char === ",") state.tokens.push(",");
+};
+
+const pushCurrentQueryToken = (state: QueryTokenState) => {
+  if (!state.current) return;
+  state.tokens.push(state.current);
+  state.current = "";
 };
 
 const parseDimensionFilter = (token: string): [string, string] | null => {
@@ -90,80 +110,127 @@ type SharedClauses = {
   limit: number;
 };
 
+type SharedClauseState = SharedClauses & {
+  index: number;
+};
+
+type SharedClauseReader = (tokens: string[], state: SharedClauseState) => Result<void>;
+
+type MetricTokenParts = {
+  metric: string;
+  aggregation: Aggregation;
+  bucket: string;
+  sharedTokens: string[];
+};
+
 const parseSharedQueryClauses = (
   tokens: string[],
   startIndex: number,
   defaults: { since?: string; limit?: number } = {},
 ): Result<SharedClauses> => {
-  let since = defaults.since ?? "";
-  let sourceId: string | null = null;
-  let entityId: string | null = null;
-  let entityType: string | null = null;
-  let limit = defaults.limit ?? 500;
-  const dimensions: Record<string, string> = {};
-  let index = startIndex;
-  while (index < tokens.length) {
-    const token = tokens[index]?.toLowerCase();
-    if (token === "since") {
-      since = tokens[index + 1] ?? "";
-      index += 2;
-      continue;
-    }
-    if (token === "source") {
-      sourceId = tokens[index + 1] ?? null;
-      if (!validateUuid(sourceId)) return fail(err.badInput("Source must be a valid UUID"));
-      index += 2;
-      continue;
-    }
-    if (token === "entity") {
-      entityId = tokens[index + 1] ?? null;
-      if (!entityId) return fail(err.badInput("Entity is missing"));
-      index += 2;
-      continue;
-    }
-    if (token === "entity_type") {
-      entityType = tokens[index + 1] ?? null;
-      if (!entityType) return fail(err.badInput("Entity type is missing"));
-      index += 2;
-      continue;
-    }
-    if (token === "limit") {
-      const parsed = readQueryLimit(tokens[index + 1], limit);
-      if (!parsed.ok) return fail(parsed.error);
-      limit = parsed.data;
-      index += 2;
-      continue;
-    }
-    if (token === "where") {
-      index += 1;
-      while (index < tokens.length) {
-        const filter = tokens[index];
-        if (!filter || filter === ",") {
-          index += 1;
-          continue;
-        }
-        const parsed = parseDimensionFilter(filter);
-        if (!parsed) return fail(err.badInput(`Invalid dimension filter "${filter}"`));
-        dimensions[parsed[0]] = parsed[1];
-        index += 1;
-      }
-      continue;
-    }
-    return fail(err.badInput(`Unexpected token "${tokens[index]}"`));
+  const state: SharedClauseState = {
+    since: defaults.since ?? "",
+    sourceId: null,
+    entityId: null,
+    entityType: null,
+    dimensions: {},
+    limit: defaults.limit ?? 500,
+    index: startIndex,
+  };
+  while (state.index < tokens.length) {
+    const clause = readSharedQueryClause(tokens, state);
+    if (!clause.ok) return fail(clause.error);
   }
-  return ok({ since, sourceId, entityId, entityType, dimensions, limit });
+  const { index: _index, ...clauses } = state;
+  return ok(clauses);
+};
+
+const readSharedQueryClause = (tokens: string[], state: SharedClauseState): Result<void> => {
+  const token = tokens[state.index]?.toLowerCase();
+  const reader = token ? SHARED_CLAUSE_READERS[token] : undefined;
+  if (reader) return reader(tokens, state);
+  return fail(err.badInput(`Unexpected token "${tokens[state.index]}"`));
+};
+
+const SHARED_CLAUSE_READERS: Record<string, SharedClauseReader> = {
+  since: (tokens, state) => {
+    state.since = tokens[state.index + 1] ?? "";
+    state.index += 2;
+    return ok(undefined);
+  },
+  source: (tokens, state) => {
+    state.sourceId = tokens[state.index + 1] ?? null;
+    if (!validateUuid(state.sourceId)) return fail(err.badInput("Source must be a valid UUID"));
+    state.index += 2;
+    return ok(undefined);
+  },
+  entity: (tokens, state) => {
+    state.entityId = tokens[state.index + 1] ?? null;
+    if (!state.entityId) return fail(err.badInput("Entity is missing"));
+    state.index += 2;
+    return ok(undefined);
+  },
+  entity_type: (tokens, state) => {
+    state.entityType = tokens[state.index + 1] ?? null;
+    if (!state.entityType) return fail(err.badInput("Entity type is missing"));
+    state.index += 2;
+    return ok(undefined);
+  },
+  limit: (tokens, state) => readLimitClause(tokens, state),
+  where: (tokens, state) => readWhereClause(tokens, state),
+};
+
+const readLimitClause = (tokens: string[], state: SharedClauseState): Result<void> => {
+  const parsed = readQueryLimit(tokens[state.index + 1], state.limit);
+  if (!parsed.ok) return fail(parsed.error);
+  state.limit = parsed.data;
+  state.index += 2;
+  return ok(undefined);
+};
+
+const readWhereClause = (tokens: string[], state: SharedClauseState): Result<void> => {
+  state.index += 1;
+  while (state.index < tokens.length) {
+    const filter = tokens[state.index];
+    if (!filter || filter === ",") {
+      state.index += 1;
+      continue;
+    }
+    const parsed = parseDimensionFilter(filter);
+    if (!parsed) return fail(err.badInput(`Invalid dimension filter "${filter}"`));
+    state.dimensions[parsed[0]] = parsed[1];
+    state.index += 1;
+  }
+  return ok(undefined);
 };
 
 const compileMetricQueryTokens = (baseId: string, tokens: string[]): Result<MetricQuery> => {
-  const metric = tokens[1]?.trim();
-  const aggregation = tokens[2] as Aggregation | undefined;
-  if (!metric) return fail(err.badInput("Metric query name is missing"));
-  if (!aggregation || !AGGREGATIONS.includes(aggregation)) return fail(err.badInput(`Unsupported aggregation "${aggregation ?? ""}"`));
+  const parts = readMetricTokenParts(tokens);
+  if (!parts.ok) return fail(parts.error);
+  const shared = parseSharedQueryClauses(parts.data.sharedTokens, 2, { since: "24h", limit: 1_000 });
+  if (!shared.ok) return fail(shared.error);
+  if (!intervalToMs(parts.data.bucket) || !intervalToMs(shared.data.since)) return fail(err.badInput("Use compact durations like 5m, 1h, or 7d"));
+  return ok(metricQueryFromParts(baseId, parts.data, shared.data));
+};
 
+const readMetricTokenParts = (tokens: string[]): Result<MetricTokenParts> => {
+  const metric = tokens[1]?.trim();
+  if (!metric) return fail(err.badInput("Metric query name is missing"));
+  const aggregation = readMetricAggregation(tokens[2]);
+  if (!aggregation.ok) return fail(aggregation.error);
+  const metricOptions = readMetricOptions(tokens, metric);
+  return ok({ metric, aggregation: aggregation.data, bucket: metricOptions.bucket, sharedTokens: metricOptions.sharedTokens });
+};
+
+const readMetricAggregation = (value: string | undefined): Result<Aggregation> => {
+  if (!value || !AGGREGATIONS.includes(value as Aggregation)) return fail(err.badInput(`Unsupported aggregation "${value ?? ""}"`));
+  return ok(value as Aggregation);
+};
+
+const readMetricOptions = (tokens: string[], metric: string): Pick<MetricTokenParts, "bucket" | "sharedTokens"> => {
   let bucket = "5m";
-  let since = "24h";
   let index = 3;
-  const sharedTokens = ["metric", metric, "since", since];
+  const sharedTokens = ["metric", metric, "since", "24h"];
   while (index < tokens.length) {
     const token = tokens[index]?.toLowerCase();
     if (token === "every") {
@@ -174,24 +241,21 @@ const compileMetricQueryTokens = (baseId: string, tokens: string[]): Result<Metr
     sharedTokens.push(tokens[index]!);
     index += 1;
   }
-  const shared = parseSharedQueryClauses(sharedTokens, 2, { since, limit: 1_000 });
-  if (!shared.ok) return fail(shared.error);
-  since = shared.data.since;
-
-  if (!intervalToMs(bucket) || !intervalToMs(since)) return fail(err.badInput("Use compact durations like 5m, 1h, or 7d"));
-  return ok({
-    kind: "metric",
-    baseId,
-    metric,
-    aggregation,
-    bucket,
-    since,
-    sourceId: shared.data.sourceId,
-    entityId: shared.data.entityId,
-    entityType: shared.data.entityType,
-    dimensions: shared.data.dimensions,
-  });
+  return { bucket, sharedTokens };
 };
+
+const metricQueryFromParts = (baseId: string, parts: MetricTokenParts, shared: SharedClauses): MetricQuery => ({
+  kind: "metric",
+  baseId,
+  metric: parts.metric,
+  aggregation: parts.aggregation,
+  bucket: parts.bucket,
+  since: shared.since,
+  sourceId: shared.sourceId,
+  entityId: shared.entityId,
+  entityType: shared.entityType,
+  dimensions: shared.dimensions,
+});
 
 const compileEventQueryTokens = (baseId: string, tokens: string[]): Result<EventQuery> => {
   const shared = parseSharedQueryClauses(tokens, 2, { since: "24h", limit: 500 });
@@ -228,8 +292,10 @@ const compileStateQueryTokens = (baseId: string, tokens: string[]): Result<State
 };
 
 export const compilePulseQueryText = (baseId: string, text: string): Result<PulseExplorerQuery> => {
-  const tokens = tokenizeQueryText(text.trim());
-  if (tokens.length === 0) return fail(err.badInput("Query is empty or has an unterminated quote"));
+  const trimmed = text.trim();
+  if (!trimmed) return fail(err.badInput("Query is empty"));
+  const tokens = tokenizeQueryText(trimmed);
+  if (tokens.length === 0) return fail(err.badInput("Query has an unterminated quote"));
   const kind = tokens[0]?.toLowerCase();
   if (kind === "metric") return compileMetricQueryTokens(baseId, tokens);
   if (kind === "events") return compileEventQueryTokens(baseId, tokens);

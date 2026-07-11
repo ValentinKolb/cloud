@@ -1,364 +1,26 @@
-import { Chart, DataTable, MarkdownView, type DataTableColumn } from "@valentinkolb/cloud/ui";
-import { markdown } from "@valentinkolb/cloud/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { createEffect, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
-import type {
-  MetricQueryPoint,
-  PulseDashboardCondition,
-  PulseDashboardSnapshot,
-  PulsePublicCurrentState,
-  PulsePublicDashboardEventsWidget,
-  PulsePublicDashboardMarkdownWidget,
-  PulsePublicDashboardMetricWidget,
-  PulsePublicDashboardRow,
-  PulsePublicDashboardSection,
-  PulsePublicDashboardStatesWidget,
-  PulsePublicDashboardWidget,
-  PulsePublicRecordedEvent,
-} from "../contracts";
-import {
-  compactDate,
-  compactDateWithDelta,
-  compactDay,
-  dashboardCellSpan,
-  defaultPulseDateContext,
-  formatMetricValue,
-  formatSignalValue,
-  formatValue,
-  gaugeMax,
-} from "./workspace/helpers";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import type { PulseDashboardSnapshot } from "../contracts";
+import { jsonFetch } from "./http";
+import { PublicDashboardSections } from "./PublicDashboardSections";
+import { publicDashboardRefreshDelayMs, resolvePublicDashboardRefreshSeconds, type PublicDashboardDisplayHeight } from "./public-dashboard-runtime";
+import { defaultPulseDateContext } from "./workspace/helpers";
 
 type Props = {
   token: string;
   initialSnapshot: PulseDashboardSnapshot;
   initialDateConfig?: DateContext;
-  displayHeight?: "scroll" | "full";
+  displayHeight?: PublicDashboardDisplayHeight;
 };
-
-const pointsToBars = (points: MetricQueryPoint[], dateContext: DateContext) =>
-  points.slice(-48).map((point) => ({
-    label: compactDate(point.bucket, dateContext),
-    value: point.value ?? 0,
-  }));
-
-const pointsToHistogram = (points: MetricQueryPoint[]) =>
-  points.map((point) => point.value).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-
-const pointsToHeatmap = (points: MetricQueryPoint[], dateContext: DateContext) =>
-  points.slice(-240).map((point) => {
-    const date = new Date(point.bucket);
-    return {
-      x: compactDate(date.toISOString(), dateContext).slice(0, 2),
-      y: compactDay(point.bucket, dateContext),
-      value: point.value ?? 0,
-    };
-  });
-
-const queryPointColumns = (dateContext: DateContext): DataTableColumn<MetricQueryPoint>[] => [
-  { id: "bucket", header: "Bucket", value: (point) => compactDate(point.bucket, dateContext), cellClass: "w-32 whitespace-nowrap" },
-  { id: "value", header: "Value", value: (point) => formatValue(point.value), cellClass: "w-32 whitespace-nowrap" },
-];
-
-const spanClasses: Record<number, string> = {
-  1: "lg:col-span-1",
-  2: "lg:col-span-2",
-  3: "lg:col-span-3",
-  4: "lg:col-span-4",
-  5: "lg:col-span-5",
-  6: "lg:col-span-6",
-  7: "lg:col-span-7",
-  8: "lg:col-span-8",
-  9: "lg:col-span-9",
-  10: "lg:col-span-10",
-  11: "lg:col-span-11",
-  12: "lg:col-span-12",
-};
-
-const publicEventSubject = (event: PulsePublicRecordedEvent): string => event.entityId || event.entityType || "-";
-
-const publicStateRowId = (state: PulsePublicCurrentState): string => [state.key, state.entityId, state.entityType ?? ""].join(":");
-
-const sanitizePublicMarkdown = (input: string): string =>
-  input
-    .replace(/!\[[^\]]*]\(\s*https?:\/\/[^)]+\)/gi, "")
-    .replace(/<img\b[^>]*>/gi, "");
 
 export default function PublicPulseDashboard(props: Props) {
   const [snapshot, setSnapshot] = createSignal(props.initialSnapshot);
   const dateContext = () => ({ ...defaultPulseDateContext, ...(props.initialDateConfig ?? {}) });
-  const refreshIntervalSeconds = () => {
-    const configured = snapshot().dashboard.config.refreshIntervalSeconds;
-    return configured === null ? null : (configured ?? 5);
-  };
+  const refreshIntervalSeconds = () => resolvePublicDashboardRefreshSeconds(snapshot().dashboard.config.refreshIntervalSeconds);
 
   const reload = async (signal?: AbortSignal) => {
-    const response = await fetch(`/api/pulse/public-dashboard/${props.token}`, { signal });
-    if (!response.ok) throw new Error("Could not refresh dashboard");
-    setSnapshot((await response.json()) as PulseDashboardSnapshot);
+    setSnapshot(await jsonFetch<PulseDashboardSnapshot>(`/api/pulse/public-dashboard/${props.token}`, { signal }, "Could not refresh dashboard"));
   };
-
-  const pointsFor = (widget: PulsePublicDashboardMetricWidget): MetricQueryPoint[] => snapshot().points[widget.id] ?? [];
-
-  const renderMetricWidget = (widget: PulsePublicDashboardMetricWidget) => {
-    const data = pointsFor(widget);
-    const last = data.at(-1)?.value ?? null;
-    const valueFormat = (value: number) => formatMetricValue(value, widget.unit);
-    if (widget.visual === "stat") {
-      return (
-        <Chart
-          kind="stat"
-          class="h-40 text-primary"
-          label={widget.title}
-          value={formatMetricValue(last, widget.unit)}
-          sparkline={data.map((point) => point.value ?? 0)}
-        />
-      );
-    }
-    if (widget.visual === "gauge") {
-      const value = last ?? 0;
-      return (
-        <Chart
-          kind="gauge"
-          class="h-48 text-primary"
-          value={value}
-          min={0}
-          max={gaugeMax(widget.unit ?? null, value)}
-          label={widget.title}
-          format={valueFormat}
-        />
-      );
-    }
-    if (widget.visual === "barGauge") {
-      const value = last ?? 0;
-      return (
-        <Chart
-          kind="barGauge"
-          class="h-40 text-primary"
-          data={[{ label: widget.title, value, min: 0, max: gaugeMax(widget.unit ?? null, value) }]}
-          min={0}
-          max={gaugeMax(widget.unit ?? null, value)}
-          format={valueFormat}
-        />
-      );
-    }
-    if (widget.visual === "bar") {
-      return <Chart kind="bar" class="h-56 text-dimmed" data={pointsToBars(data, dateContext())} showValues={data.length <= 16} />;
-    }
-    if (widget.visual === "histogram") {
-      return <Chart kind="histogram" class="h-56 text-dimmed" data={pointsToHistogram(data)} bins={12} yAxis={{ label: "Count" }} />;
-    }
-    if (widget.visual === "heatmap") {
-      return (
-        <Chart
-          kind="heatmap"
-          class="h-56 text-dimmed"
-          data={pointsToHeatmap(data, dateContext())}
-          format={valueFormat}
-          showValues={data.length <= 48}
-        />
-      );
-    }
-    if (widget.visual === "table") {
-      return (
-        <DataTable
-          rows={data}
-          columns={queryPointColumns(dateContext())}
-          getRowId={(point) => point.bucket}
-          density="compact"
-          class="max-h-72 overflow-auto"
-          empty="No points yet."
-        />
-      );
-    }
-    return (
-      <Chart
-        kind="line"
-        class="h-56 text-dimmed"
-        series={[{ label: widget.title, data: data.map((point) => ({ x: Date.parse(point.bucket), y: point.value ?? 0 })) }]}
-        xAxis={{ format: (value) => compactDate(new Date(value).toISOString(), dateContext()) }}
-        yAxis={{ format: valueFormat }}
-        smooth
-        area
-      />
-    );
-  };
-
-  const renderWidgetFrame = (widget: { title?: string | null; description?: string | null }, content: JSX.Element) => (
-    <article class="paper h-full p-4">
-      <Show when={widget.title || widget.description}>
-        <div class="mb-3 min-w-0">
-          <Show when={widget.title}>{(title) => <p class="truncate text-sm font-semibold text-primary">{title()}</p>}</Show>
-          <Show when={widget.description}>{(description) => <p class="mt-1 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
-        </div>
-      </Show>
-      {content}
-    </article>
-  );
-
-  const matchedMetricCondition = (widget: PulsePublicDashboardMetricWidget): PulseDashboardCondition | null => {
-    const value = pointsFor(widget).at(-1)?.value ?? null;
-    if (value === null) return null;
-    let match: PulseDashboardCondition | null = null;
-    for (const condition of widget.conditions ?? []) {
-      const target = typeof condition.value === "number" ? condition.value : Number(condition.value);
-      if (!Number.isFinite(target)) continue;
-      const matched =
-        condition.operator === ">"
-          ? value > target
-          : condition.operator === ">="
-            ? value >= target
-            : condition.operator === "<"
-              ? value < target
-              : condition.operator === "<="
-                ? value <= target
-                : condition.operator === "="
-                ? value === target
-                : value !== target;
-      if (matched) {
-        match = condition;
-        if (condition.level === "critical") break;
-      }
-    }
-    return match;
-  };
-
-  const conditionText = (condition: PulseDashboardCondition): string =>
-    condition.message?.trim() || `${condition.level === "critical" ? "Critical" : "Warning"} when value ${condition.operator} ${String(condition.value)}`;
-
-  const renderMetricWidgetFrame = (widget: PulsePublicDashboardMetricWidget) => {
-    const condition = matchedMetricCondition(widget);
-    const level = condition?.level ?? null;
-    return (
-      <article
-        class="paper h-full p-4"
-        classList={{
-          "border-yellow-300 bg-yellow-50/70 dark:border-yellow-800 dark:bg-yellow-950/30": level === "warn",
-          "border-red-300 bg-red-50/70 dark:border-red-800 dark:bg-red-950/30": level === "critical",
-        }}
-      >
-        <div class="mb-3 min-w-0">
-          <p class="truncate text-sm font-semibold text-primary">{widget.title}</p>
-          <p class="mt-1 truncate text-xs text-dimmed">
-            {widget.metric} · {widget.aggregation} / {widget.bucket}
-          </p>
-          <Show when={condition}>
-            {(matched) => (
-              <p
-                class={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                  matched().level === "critical"
-                    ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-200"
-                    : "bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-200"
-                }`}
-              >
-                <i class={`ti ${matched().level === "critical" ? "ti-alert-triangle" : "ti-alert-circle"}`} />
-                <span>{conditionText(matched())}</span>
-              </p>
-            )}
-          </Show>
-          <Show when={widget.description}>{(description) => <p class="mt-2 text-xs leading-relaxed text-dimmed">{description()}</p>}</Show>
-        </div>
-        {renderMetricWidget(widget)}
-      </article>
-    );
-  };
-
-  const renderMarkdownWidget = (widget: PulsePublicDashboardMarkdownWidget) =>
-    renderWidgetFrame(widget, <MarkdownView html={markdown.render(sanitizePublicMarkdown(widget.markdown))} smallHeadings class="text-sm" />);
-
-  const renderEventsWidget = (widget: PulsePublicDashboardEventsWidget) =>
-    renderWidgetFrame(
-      widget,
-      <DataTable
-        rows={snapshot().events[widget.id] ?? []}
-        columns={[
-          { id: "time", header: "Time", value: (event) => compactDateWithDelta(event.ts, dateContext()) },
-          { id: "event", header: "Event", value: (event) => event.kind },
-          { id: "subject", header: "Subject", value: (event) => publicEventSubject(event) },
-          { id: "value", header: "Value", value: (event) => formatSignalValue(event.value) },
-        ]}
-        getRowId={(event) => event.id}
-        density="compact"
-        class="max-h-80 overflow-auto"
-        empty="No events matched this query."
-      />,
-    );
-
-  const renderStatesWidget = (widget: PulsePublicDashboardStatesWidget) => {
-    const rows = snapshot().states[widget.id] ?? [];
-    if (widget.visual === "stat") {
-      const state = rows[0];
-      return renderWidgetFrame(
-        widget,
-        <Chart
-          kind="stat"
-          class="h-40 text-primary"
-          label={state?.key ?? widget.title}
-          value={state ? formatSignalValue(state.value) : "n/a"}
-          sparkline={[]}
-        />,
-      );
-    }
-    return renderWidgetFrame(
-      widget,
-      <DataTable
-        rows={rows}
-        columns={[
-          { id: "state", header: "State", value: (state) => state.key },
-          { id: "value", header: "Value", value: (state) => formatSignalValue(state.value) },
-          { id: "entity", header: "Entity", value: (state) => state.entityId },
-          { id: "updated", header: "Updated", value: (state) => compactDateWithDelta(state.updatedAt, dateContext()) },
-        ]}
-        getRowId={(state) => publicStateRowId(state)}
-        density="compact"
-        class="max-h-80 overflow-auto"
-        empty="No states matched this query."
-      />,
-    );
-  };
-
-  const renderCardWidget = (widget: PulsePublicDashboardWidget & { kind: "card" }) =>
-    renderWidgetFrame(
-      widget,
-      <div class="space-y-3">
-        <For each={widget.rows}>{(row) => renderDashboardRow(row)}</For>
-      </div>,
-    );
-
-  const renderDashboardWidget = (widget: PulsePublicDashboardWidget, cellCount: number) => {
-    const span = dashboardCellSpan(widget.span, cellCount);
-    return (
-      <div class={`col-span-1 h-full min-w-0 ${spanClasses[span] ?? spanClasses[12]}`}>
-        {widget.kind === "metric"
-          ? renderMetricWidgetFrame(widget)
-          : widget.kind === "markdown"
-            ? renderMarkdownWidget(widget)
-            : widget.kind === "events"
-              ? renderEventsWidget(widget)
-              : widget.kind === "states"
-                ? renderStatesWidget(widget)
-                : renderCardWidget(widget)}
-      </div>
-    );
-  };
-
-  const renderDashboardRow = (row: PulsePublicDashboardRow) => (
-    <div class="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-12">
-      <For each={row.cells}>{(widget) => renderDashboardWidget(widget, row.cells.length)}</For>
-    </div>
-  );
-
-  const renderDashboardSection = (section: PulsePublicDashboardSection) => (
-    <section class="space-y-4">
-      <div>
-        <h2 class="text-base font-semibold text-primary">{section.title}</h2>
-        <Show when={section.description}>
-          {(description) => <p class="mt-1 max-w-3xl text-sm leading-relaxed text-dimmed">{description()}</p>}
-        </Show>
-      </div>
-      <For each={section.rows}>{(row) => renderDashboardRow(row)}</For>
-      <For each={section.sections}>{(child) => <div class="border-l border-border/70 pl-4">{renderDashboardSection(child)}</div>}</For>
-    </section>
-  );
 
   const renderRefreshProgress = () => (
     <Show
@@ -396,8 +58,7 @@ export default function PublicPulseDashboard(props: Props) {
   );
 
   createEffect(() => {
-    const configuredInterval = snapshot().dashboard.config.refreshIntervalSeconds;
-    const intervalSeconds = configuredInterval === null ? null : (configuredInterval ?? 5);
+    const intervalSeconds = resolvePublicDashboardRefreshSeconds(snapshot().dashboard.config.refreshIntervalSeconds);
     if (intervalSeconds === null) return;
 
     let disposed = false;
@@ -407,10 +68,10 @@ export default function PublicPulseDashboard(props: Props) {
 
     const schedule = (delayMs: number) => {
       if (disposed) return;
-      timer = setTimeout(run, delayMs + Math.floor(Math.random() * 350));
+      timer = setTimeout(run, delayMs);
     };
 
-    const nextDelay = () => Math.min(60_000, intervalSeconds * 1000 * Math.max(1, 2 ** failures));
+    const nextDelay = () => publicDashboardRefreshDelayMs(intervalSeconds, failures, Math.random());
 
     const run = () => {
       if (disposed) return;
@@ -437,7 +98,7 @@ export default function PublicPulseDashboard(props: Props) {
         });
     };
 
-    schedule(intervalSeconds * 1000);
+    schedule(nextDelay());
     onCleanup(() => {
       disposed = true;
       if (timer) clearTimeout(timer);
@@ -467,7 +128,7 @@ export default function PublicPulseDashboard(props: Props) {
 
         <Show when={snapshot().dashboard.config.layout?.sections.length} fallback={<p class="paper p-8 text-center text-sm text-dimmed">This dashboard has no widgets.</p>}>
           <section class={`space-y-6 ${props.displayHeight === "full" ? "min-h-0 flex-1 overflow-hidden" : ""}`}>
-            <For each={snapshot().dashboard.config.layout?.sections ?? []}>{(section) => renderDashboardSection(section)}</For>
+            <PublicDashboardSections snapshot={snapshot()} dateContext={dateContext()} />
           </section>
         </Show>
       </div>

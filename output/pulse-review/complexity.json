@@ -1,0 +1,3195 @@
+{
+  "schema_version": 4,
+  "version": "2.52.0",
+  "elapsed_ms": 196,
+  "findings": [
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "PulseWorkspace",
+      "line": 151,
+      "col": 15,
+      "cyclomatic": 62,
+      "cognitive": 68,
+      "line_count": 2023,
+      "param_count": 1,
+      "exceeded": "all",
+      "severity": "critical",
+      "crap": 3906.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `PulseWorkspace` to reduce complexity (extract helper functions, simplify branching)",
+          "note": "Consider splitting into smaller functions with single responsibilities"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/ingest-writer.ts",
+      "name": "setStateInClient",
+      "line": 378,
+      "col": 25,
+      "cyclomatic": 26,
+      "cognitive": 17,
+      "line_count": 96,
+      "param_count": 1,
+      "exceeded": "all",
+      "severity": "critical",
+      "crap": 702.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `setStateInClient` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `setStateInClient` to reduce complexity (extract helper functions, simplify branching)",
+          "note": "Consider splitting into smaller functions with single responsibilities"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "loadResourceList",
+      "line": 540,
+      "col": 27,
+      "cyclomatic": 19,
+      "cognitive": 12,
+      "line_count": 32,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "critical",
+      "crap": 380.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `loadResourceList` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `loadResourceList` to reduce complexity (extract helper functions, simplify branching)",
+          "note": "Consider splitting into smaller functions with single responsibilities"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/ingest-writer.ts",
+      "name": "resolveMetricSeries",
+      "line": 130,
+      "col": 28,
+      "cyclomatic": 18,
+      "cognitive": 13,
+      "line_count": 76,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "critical",
+      "crap": 342.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `resolveMetricSeries` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `resolveMetricSeries` to reduce complexity (extract helper functions, simplify branching)",
+          "note": "Consider splitting into smaller functions with single responsibilities"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/DashboardEditorView.tsx",
+      "name": "DashboardEditorView",
+      "line": 108,
+      "col": 15,
+      "cyclomatic": 16,
+      "cognitive": 12,
+      "line_count": 277,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "critical",
+      "crap": 272.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `DashboardEditorView` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `DashboardEditorView` to reduce complexity (extract helper functions, simplify branching)",
+          "note": "Consider splitting into smaller functions with single responsibilities"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "runTextQuery",
+      "line": 1081,
+      "col": 23,
+      "cyclomatic": 12,
+      "cognitive": 16,
+      "line_count": 38,
+      "param_count": 1,
+      "exceeded": "cognitive_crap",
+      "severity": "critical",
+      "crap": 156.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `runTextQuery` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `runTextQuery` to reduce complexity (extract helper functions, simplify branching)",
+          "note": "Consider splitting into smaller functions with single responsibilities"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/DashboardEditorView.tsx",
+      "name": "<arrow>",
+      "line": 126,
+      "col": 36,
+      "cyclomatic": 11,
+      "cognitive": 10,
+      "line_count": 16,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "critical",
+      "crap": 132.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `<arrow>` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "loadFocusedRows",
+      "line": 610,
+      "col": 26,
+      "cyclomatic": 11,
+      "cognitive": 8,
+      "line_count": 36,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "critical",
+      "crap": 132.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `loadFocusedRows` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "replaceDashboardControlUrl",
+      "line": 1345,
+      "col": 37,
+      "cyclomatic": 11,
+      "cognitive": 11,
+      "line_count": 12,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "critical",
+      "crap": 132.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `replaceDashboardControlUrl` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/SourcesView.tsx",
+      "name": "renderSourceScrapeCell",
+      "line": 136,
+      "col": 33,
+      "cyclomatic": 11,
+      "cognitive": 14,
+      "line_count": 27,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "critical",
+      "crap": 132.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `renderSourceScrapeCell` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/dashboard-dsl/index.test.ts",
+      "name": "<arrow>",
+      "line": 64,
+      "col": 72,
+      "cyclomatic": 10,
+      "cognitive": 3,
+      "line_count": 19,
+      "param_count": 0,
+      "exceeded": "crap",
+      "severity": "critical",
+      "crap": 110.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `<arrow>` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/dashboard-dsl/index.test.ts",
+      "name": "<arrow>",
+      "line": 182,
+      "col": 54,
+      "cyclomatic": 10,
+      "cognitive": 4,
+      "line_count": 34,
+      "param_count": 0,
+      "exceeded": "crap",
+      "severity": "critical",
+      "crap": 110.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `<arrow>` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "refreshIntervalForView",
+      "line": 1404,
+      "col": 33,
+      "cyclomatic": 10,
+      "cognitive": 6,
+      "line_count": 16,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "critical",
+      "crap": 110.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `refreshIntervalForView` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/ingest-writer.ts",
+      "name": "validateBatch",
+      "line": 229,
+      "col": 22,
+      "cyclomatic": 10,
+      "cognitive": 12,
+      "line_count": 15,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "critical",
+      "crap": 110.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `validateBatch` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/ingest-writer.ts",
+      "name": "insertEventRow",
+      "line": 275,
+      "col": 23,
+      "cyclomatic": 10,
+      "cognitive": 5,
+      "line_count": 53,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "critical",
+      "crap": 110.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `insertEventRow` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/ResourceBrowserView.tsx",
+      "name": "renderResourceCell",
+      "line": 81,
+      "col": 29,
+      "cyclomatic": 10,
+      "cognitive": 10,
+      "line_count": 31,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "critical",
+      "crap": 110.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `renderResourceCell` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/query-execution.ts",
+      "name": "queryEventsData",
+      "line": 281,
+      "col": 31,
+      "cyclomatic": 10,
+      "cognitive": 9,
+      "line_count": 20,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "critical",
+      "crap": 110.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `queryEventsData` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/QueryExplorerResultPane.tsx",
+      "name": "QueryExplorerChart",
+      "line": 43,
+      "col": 0,
+      "cyclomatic": 9,
+      "cognitive": 8,
+      "line_count": 83,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `QueryExplorerChart` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/SourceDetailView.tsx",
+      "name": "SourceDetailView",
+      "line": 48,
+      "col": 15,
+      "cyclomatic": 9,
+      "cognitive": 8,
+      "line_count": 176,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `SourceDetailView` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/source-management.ts",
+      "name": "createSourceApiKey",
+      "line": 293,
+      "col": 34,
+      "cyclomatic": 9,
+      "cognitive": 8,
+      "line_count": 44,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `createSourceApiKey` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/resource-model.ts",
+      "name": "deriveContainerResource",
+      "line": 31,
+      "col": 32,
+      "cyclomatic": 9,
+      "cognitive": 6,
+      "line_count": 7,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `deriveContainerResource` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/resource-model.ts",
+      "name": "deriveFilesystemResource",
+      "line": 54,
+      "col": 33,
+      "cyclomatic": 9,
+      "cognitive": 5,
+      "line_count": 7,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `deriveFilesystemResource` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/dashboard-config.ts",
+      "name": "normalizeControl",
+      "line": 84,
+      "col": 25,
+      "cyclomatic": 9,
+      "cognitive": 7,
+      "line_count": 18,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `normalizeControl` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/dashboard-config.ts",
+      "name": "normalizeTableQueryBase",
+      "line": 165,
+      "col": 32,
+      "cyclomatic": 9,
+      "cognitive": 8,
+      "line_count": 7,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `normalizeTableQueryBase` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/dashboard-config.ts",
+      "name": "normalizeLayout",
+      "line": 295,
+      "col": 24,
+      "cyclomatic": 9,
+      "cognitive": 8,
+      "line_count": 15,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `normalizeLayout` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/dashboard-dsl/parser.ts",
+      "name": "readOperator",
+      "line": 443,
+      "col": 22,
+      "cyclomatic": 9,
+      "cognitive": 5,
+      "line_count": 11,
+      "param_count": 0,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `readOperator` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/dashboard-dsl/compiler.ts",
+      "name": "compileVisualWidget",
+      "line": 183,
+      "col": 28,
+      "cyclomatic": 9,
+      "cognitive": 6,
+      "line_count": 17,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `compileVisualWidget` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "loadSelectedResourceSignals",
+      "line": 573,
+      "col": 38,
+      "cyclomatic": 9,
+      "cognitive": 4,
+      "line_count": 20,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `loadSelectedResourceSignals` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "createDashboard",
+      "line": 731,
+      "col": 26,
+      "cyclomatic": 9,
+      "cognitive": 8,
+      "line_count": 40,
+      "param_count": 0,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `createDashboard` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/signal-catalog.ts",
+      "name": "listResources",
+      "line": 312,
+      "col": 29,
+      "cyclomatic": 9,
+      "cognitive": 8,
+      "line_count": 69,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `listResources` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/signal-catalog.ts",
+      "name": "listResourceMetrics",
+      "line": 382,
+      "col": 35,
+      "cyclomatic": 9,
+      "cognitive": 8,
+      "line_count": 54,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `listResourceMetrics` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/signal-catalog.ts",
+      "name": "listResourceEvents",
+      "line": 437,
+      "col": 34,
+      "cyclomatic": 9,
+      "cognitive": 8,
+      "line_count": 33,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `listResourceEvents` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/signal-catalog.ts",
+      "name": "listResourceStates",
+      "line": 471,
+      "col": 34,
+      "cyclomatic": 9,
+      "cognitive": 8,
+      "line_count": 33,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `listResourceStates` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/signal-catalog.ts",
+      "name": "ensureResource",
+      "line": 553,
+      "col": 25,
+      "cyclomatic": 9,
+      "cognitive": 8,
+      "line_count": 34,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `ensureResource` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/signal-table-cells.tsx",
+      "name": "renderMetricSeriesCell",
+      "line": 111,
+      "col": 71,
+      "cyclomatic": 9,
+      "cognitive": 10,
+      "line_count": 25,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `renderMetricSeriesCell` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/query-execution.ts",
+      "name": "sampleAggregateSql",
+      "line": 222,
+      "col": 27,
+      "cyclomatic": 9,
+      "cognitive": 1,
+      "line_count": 22,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `sampleAggregateSql` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/query-execution.ts",
+      "name": "resolveStateQueryParams",
+      "line": 309,
+      "col": 32,
+      "cyclomatic": 9,
+      "cognitive": 8,
+      "line_count": 14,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 90.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `resolveStateQueryParams` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/query-authoring.ts",
+      "name": "dashboardTokenHighlight",
+      "line": 339,
+      "col": 32,
+      "cyclomatic": 8,
+      "cognitive": 6,
+      "line_count": 7,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `dashboardTokenHighlight` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/source-management.ts",
+      "name": "createSource",
+      "line": 153,
+      "col": 28,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 40,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `createSource` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseOverview.island.tsx",
+      "name": "createBase",
+      "line": 38,
+      "col": 21,
+      "cyclomatic": 8,
+      "cognitive": 8,
+      "line_count": 35,
+      "param_count": 0,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `createBase` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/resource-model.ts",
+      "name": "deriveNetworkResource",
+      "line": 62,
+      "col": 30,
+      "cyclomatic": 8,
+      "cognitive": 5,
+      "line_count": 7,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `deriveNetworkResource` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/dashboard-config.ts",
+      "name": "normalizeSection",
+      "line": 276,
+      "col": 25,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 18,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `normalizeSection` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/dashboard-config.ts",
+      "name": "normalizeDashboardConfig",
+      "line": 311,
+      "col": 40,
+      "cyclomatic": 8,
+      "cognitive": 8,
+      "line_count": 19,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `normalizeDashboardConfig` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/dashboard-dsl/parser.ts",
+      "name": "applyControlOption",
+      "line": 167,
+      "col": 28,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 19,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `applyControlOption` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/DashboardView.tsx",
+      "name": "MetricWidgetChart",
+      "line": 80,
+      "col": 26,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 93,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `MetricWidgetChart` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/dashboard-dsl/compiler.ts",
+      "name": "normalizeMetricVisual",
+      "line": 221,
+      "col": 30,
+      "cyclomatic": 8,
+      "cognitive": 2,
+      "line_count": 2,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `normalizeMetricVisual` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/dashboard-dsl/index.test.ts",
+      "name": "metricQuery",
+      "line": 7,
+      "col": 20,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 19,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `metricQuery` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "queryFilterSuggestions",
+      "line": 409,
+      "col": 44,
+      "cyclomatic": 8,
+      "cognitive": 12,
+      "line_count": 23,
+      "param_count": 0,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `queryFilterSuggestions` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "loadActivityData",
+      "line": 521,
+      "col": 27,
+      "cyclomatic": 8,
+      "cognitive": 3,
+      "line_count": 18,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `loadActivityData` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "updateBaseSettings",
+      "line": 772,
+      "col": 29,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 30,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `updateBaseSettings` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "deleteBase",
+      "line": 835,
+      "col": 21,
+      "cyclomatic": 8,
+      "cognitive": 8,
+      "line_count": 47,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `deleteBase` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "saveDashboardDsl",
+      "line": 1199,
+      "col": 27,
+      "cyclomatic": 8,
+      "cognitive": 5,
+      "line_count": 25,
+      "param_count": 0,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `saveDashboardDsl` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/signal-catalog.ts",
+      "name": "listRecentEvents",
+      "line": 250,
+      "col": 32,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 30,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `listRecentEvents` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/signal-catalog.ts",
+      "name": "listCurrentStates",
+      "line": 281,
+      "col": 33,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 30,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `listCurrentStates` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/signal-catalog.ts",
+      "name": "listInventory",
+      "line": 505,
+      "col": 29,
+      "cyclomatic": 8,
+      "cognitive": 10,
+      "line_count": 154,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `listInventory` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/dashboard-management.ts",
+      "name": "updateDashboard",
+      "line": 69,
+      "col": 31,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 29,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `updateDashboard` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PublicDashboardSections.tsx",
+      "name": "renderMetricVisual",
+      "line": 112,
+      "col": 27,
+      "cyclomatic": 8,
+      "cognitive": 1,
+      "line_count": 38,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `renderMetricVisual` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/SourcesView.tsx",
+      "name": "renderSourceCell",
+      "line": 119,
+      "col": 27,
+      "cyclomatic": 8,
+      "cognitive": 8,
+      "line_count": 16,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `renderSourceCell` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/ingest-writer.ts",
+      "name": "ingestBatch",
+      "line": 528,
+      "col": 27,
+      "cyclomatic": 8,
+      "cognitive": 9,
+      "line_count": 28,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `ingestBatch` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/saved-query-management.ts",
+      "name": "createSavedQuery",
+      "line": 41,
+      "col": 32,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 25,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `createSavedQuery` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/SignalCatalogView.tsx",
+      "name": "renderMetricCell",
+      "line": 131,
+      "col": 27,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 15,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `renderMetricCell` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/ResourceBrowserView.tsx",
+      "name": "resourceIcon",
+      "line": 23,
+      "col": 21,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 10,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `resourceIcon` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/base-management.ts",
+      "name": "clearBaseData",
+      "line": 351,
+      "col": 29,
+      "cyclomatic": 8,
+      "cognitive": 6,
+      "line_count": 64,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `clearBaseData` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/[baseId]/page-data.ts",
+      "name": "metricWidgetQuery",
+      "line": 84,
+      "col": 26,
+      "cyclomatic": 8,
+      "cognitive": 8,
+      "line_count": 18,
+      "param_count": 4,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `metricWidgetQuery` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/[baseId]/page-data.ts",
+      "name": "publicOrigin",
+      "line": 128,
+      "col": 21,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 14,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `publicOrigin` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/dashboard-query-text.ts",
+      "name": "queryFiltersToText",
+      "line": 10,
+      "col": 27,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 9,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `queryFiltersToText` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/signal-table-cells.tsx",
+      "name": "renderEventCell",
+      "line": 53,
+      "col": 65,
+      "cyclomatic": 8,
+      "cognitive": 8,
+      "line_count": 25,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `renderEventCell` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/query-execution.ts",
+      "name": "canUseHourlyRollup",
+      "line": 103,
+      "col": 27,
+      "cyclomatic": 8,
+      "cognitive": 2,
+      "line_count": 9,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `canUseHourlyRollup` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/query-execution.ts",
+      "name": "queryMetricData",
+      "line": 260,
+      "col": 31,
+      "cyclomatic": 8,
+      "cognitive": 7,
+      "line_count": 20,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `queryMetricData` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/api/schemas.ts",
+      "name": "durationToMs",
+      "line": 10,
+      "col": 21,
+      "cyclomatic": 7,
+      "cognitive": 7,
+      "line_count": 8,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `durationToMs` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/query-authoring.ts",
+      "name": "buildPulseQuery",
+      "line": 194,
+      "col": 31,
+      "cyclomatic": 7,
+      "cognitive": 6,
+      "line_count": 23,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `buildPulseQuery` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/query-authoring.ts",
+      "name": "highlightWords",
+      "line": 263,
+      "col": 23,
+      "cyclomatic": 7,
+      "cognitive": 11,
+      "line_count": 32,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `highlightWords` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/query-browser-model.ts",
+      "name": "ensureEntity",
+      "line": 69,
+      "col": 21,
+      "cyclomatic": 7,
+      "cognitive": 6,
+      "line_count": 15,
+      "param_count": 5,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `ensureEntity` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/query-browser-model.ts",
+      "name": "buildBrowseEvents",
+      "line": 189,
+      "col": 33,
+      "cyclomatic": 7,
+      "cognitive": 5,
+      "line_count": 9,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `buildBrowseEvents` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/query-browser-model.ts",
+      "name": "buildBrowseStates",
+      "line": 202,
+      "col": 33,
+      "cyclomatic": 7,
+      "cognitive": 5,
+      "line_count": 9,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `buildBrowseStates` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/workspace-loaders.ts",
+      "name": "resourceQueryParams",
+      "line": 59,
+      "col": 28,
+      "cyclomatic": 7,
+      "cognitive": 6,
+      "line_count": 10,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `resourceQueryParams` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/query-dsl/index.ts",
+      "name": "intervalToMs",
+      "line": 15,
+      "col": 28,
+      "cyclomatic": 7,
+      "cognitive": 7,
+      "line_count": 9,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `intervalToMs` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/dashboard-config.ts",
+      "name": "normalizeControlKind",
+      "line": 70,
+      "col": 29,
+      "cyclomatic": 7,
+      "cognitive": 2,
+      "line_count": 4,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `normalizeControlKind` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/dashboard-config.ts",
+      "name": "normalizeCardWidget",
+      "line": 216,
+      "col": 28,
+      "cyclomatic": 7,
+      "cognitive": 6,
+      "line_count": 21,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `normalizeCardWidget` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/dashboard-config.ts",
+      "name": "normalizeWidget",
+      "line": 238,
+      "col": 24,
+      "cyclomatic": 7,
+      "cognitive": 6,
+      "line_count": 9,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `normalizeWidget` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/dashboard-dsl/parser.ts",
+      "name": "parse",
+      "line": 37,
+      "col": 7,
+      "cyclomatic": 7,
+      "cognitive": 6,
+      "line_count": 23,
+      "param_count": 0,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `parse` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/dashboard-dsl/parser.ts",
+      "name": "readControls",
+      "line": 118,
+      "col": 22,
+      "cyclomatic": 7,
+      "cognitive": 9,
+      "line_count": 29,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `readControls` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/dashboard-dsl/parser.ts",
+      "name": "readVisualStatement",
+      "line": 310,
+      "col": 29,
+      "cyclomatic": 7,
+      "cognitive": 7,
+      "line_count": 18,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `readVisualStatement` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/dashboard-dsl/parser.ts",
+      "name": "readCondition",
+      "line": 351,
+      "col": 23,
+      "cyclomatic": 7,
+      "cognitive": 6,
+      "line_count": 33,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `readCondition` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/dashboard-dsl/parser.ts",
+      "name": "readString",
+      "line": 455,
+      "col": 20,
+      "cyclomatic": 7,
+      "cognitive": 14,
+      "line_count": 18,
+      "param_count": 0,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `readString` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/dashboard-dsl/index.test.ts",
+      "name": "<arrow>",
+      "line": 84,
+      "col": 50,
+      "cyclomatic": 7,
+      "cognitive": 2,
+      "line_count": 25,
+      "param_count": 0,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `<arrow>` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "publicDashboardUrl",
+      "line": 1225,
+      "col": 29,
+      "cyclomatic": 7,
+      "cognitive": 6,
+      "line_count": 10,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `publicDashboardUrl` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "deleteDashboard",
+      "line": 1303,
+      "col": 26,
+      "cyclomatic": 7,
+      "cognitive": 8,
+      "line_count": 25,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `deleteDashboard` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/PulseWorkspace.island.tsx",
+      "name": "run",
+      "line": 1446,
+      "col": 16,
+      "cyclomatic": 7,
+      "cognitive": 9,
+      "line_count": 33,
+      "param_count": 0,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `run` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/signal-catalog.ts",
+      "name": "mapObservedResource",
+      "line": 99,
+      "col": 28,
+      "cyclomatic": 7,
+      "cognitive": 4,
+      "line_count": 23,
+      "param_count": 2,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `mapObservedResource` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/dashboard-management.ts",
+      "name": "createDashboard",
+      "line": 45,
+      "col": 31,
+      "cyclomatic": 7,
+      "cognitive": 6,
+      "line_count": 23,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `createDashboard` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/ingest-writer.ts",
+      "name": "countBatchItems",
+      "line": 37,
+      "col": 24,
+      "cyclomatic": 7,
+      "cognitive": 3,
+      "line_count": 2,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `countBatchItems` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/FocusedSignalView.tsx",
+      "name": "focusedSubtitle",
+      "line": 56,
+      "col": 24,
+      "cyclomatic": 7,
+      "cognitive": 4,
+      "line_count": 4,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `focusedSubtitle` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/SignalCatalogView.tsx",
+      "name": "renderEventGroupCell",
+      "line": 94,
+      "col": 31,
+      "cyclomatic": 7,
+      "cognitive": 7,
+      "line_count": 14,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `renderEventGroupCell` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/base-management.ts",
+      "name": "created",
+      "line": 157,
+      "col": 34,
+      "cyclomatic": 7,
+      "cognitive": 8,
+      "line_count": 29,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `created` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/signal-table-cells.tsx",
+      "name": "renderStateCell",
+      "line": 79,
+      "col": 64,
+      "cyclomatic": 7,
+      "cognitive": 6,
+      "line_count": 31,
+      "param_count": 3,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `renderStateCell` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/dashboard-runtime.ts",
+      "name": "metricWidgetQueryText",
+      "line": 35,
+      "col": 30,
+      "cyclomatic": 7,
+      "cognitive": 5,
+      "line_count": 16,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `metricWidgetQueryText` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/frontend/workspace/FocusedSignalDetails.tsx",
+      "name": "FocusedMetricSeriesDetail",
+      "line": 27,
+      "col": 41,
+      "cyclomatic": 7,
+      "cognitive": 5,
+      "line_count": 48,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `FocusedMetricSeriesDetail` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/metrics-scraper.ts",
+      "name": "scrapeCounts",
+      "line": 31,
+      "col": 21,
+      "cyclomatic": 7,
+      "cognitive": 3,
+      "line_count": 5,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `scrapeCounts` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "packages/pulse/src/service/metrics-scraper.ts",
+      "name": "parsePrometheusMetrics",
+      "line": 304,
+      "col": 38,
+      "cyclomatic": 7,
+      "cognitive": 12,
+      "line_count": 17,
+      "param_count": 1,
+      "exceeded": "crap",
+      "severity": "high",
+      "crap": 56.0,
+      "coverage_tier": "none",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `parsePrometheusMetrics` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "files_analyzed": 156,
+    "functions_analyzed": 2287,
+    "functions_above_threshold": 254,
+    "max_cyclomatic_threshold": 20,
+    "max_cognitive_threshold": 15,
+    "max_crap_threshold": 30.0,
+    "severity_critical_count": 17,
+    "severity_high_count": 89,
+    "severity_moderate_count": 148
+  },
+  "vital_signs": {
+    "dead_file_pct": 0.0,
+    "dead_export_pct": 0.0,
+    "avg_cyclomatic": 2.3,
+    "p90_cyclomatic": 5,
+    "maintainability_avg": 88.9,
+    "unused_dep_count": 0,
+    "circular_dep_count": 0,
+    "counts": {
+      "total_files": 156,
+      "total_exports": 568,
+      "dead_files": 0,
+      "dead_exports": 0,
+      "total_lines": 25924,
+      "files_scored": 141,
+      "total_deps": 0
+    },
+    "unit_size_profile": {
+      "low_risk": 82.5,
+      "medium_risk": 10.8,
+      "high_risk": 4.2,
+      "very_high_risk": 2.5
+    },
+    "unit_interfacing_profile": {
+      "low_risk": 94.1,
+      "medium_risk": 5.9,
+      "high_risk": 0.1,
+      "very_high_risk": 0.0
+    },
+    "p95_fan_in": 8,
+    "coupling_high_pct": 2.1,
+    "total_loc": 25924
+  },
+  "_meta": {
+    "docs": "https://docs.fallow.tools/cli/health",
+    "metrics": {
+      "cyclomatic": {
+        "name": "Cyclomatic Complexity",
+        "description": "McCabe cyclomatic complexity: 1 + number of decision points (if/else, switch cases, loops, ternary, logical operators). Measures the number of independent paths through a function.",
+        "range": "[1, ∞)",
+        "interpretation": "lower is better; default threshold: 20"
+      },
+      "cognitive": {
+        "name": "Cognitive Complexity",
+        "description": "SonarSource cognitive complexity: penalizes nesting depth and non-linear control flow (breaks, continues, early returns). Measures how hard a function is to understand when reading top-to-bottom.",
+        "range": "[0, ∞)",
+        "interpretation": "lower is better; default threshold: 15"
+      },
+      "line_count": {
+        "name": "Function Line Count",
+        "description": "Number of lines in the function body.",
+        "range": "[1, ∞)",
+        "interpretation": "context-dependent; long functions may need splitting"
+      },
+      "lines": {
+        "name": "File Line Count",
+        "description": "Total lines of code in the file (from line offsets). Provides scale context for other metrics: a file with 0.4 complexity density at 80 LOC is different from 0.4 density at 800 LOC.",
+        "range": "[1, ∞)",
+        "interpretation": "context-dependent; large files may benefit from splitting even if individual functions are small"
+      },
+      "maintainability_index": {
+        "name": "Maintainability Index",
+        "description": "Composite score: 100 - (complexity_density × 30 × dampening) - (dead_code_ratio × 20) - min(ln(fan_out+1) × 4, 15), where dampening = min(lines/50, 1.0). Clamped to [0, 100]. Higher is better.",
+        "range": "[0, 100]",
+        "interpretation": "higher is better; <40 poor, 40–70 moderate, >70 good"
+      },
+      "complexity_density": {
+        "name": "Complexity Density",
+        "description": "Total cyclomatic complexity divided by lines of code. Measures how densely complex the code is per line.",
+        "range": "[0, ∞)",
+        "interpretation": "lower is better; >1.0 indicates very dense complexity"
+      },
+      "dead_code_ratio": {
+        "name": "Dead Code Ratio",
+        "description": "Fraction of value exports (excluding type-only exports like interfaces and type aliases) with zero references across the project.",
+        "range": "[0, 1]",
+        "interpretation": "lower is better; 0 = all exports are used"
+      },
+      "fan_in": {
+        "name": "Fan-in (Importers)",
+        "description": "Number of files that import this file. High fan-in means high blast radius — changes to this file affect many dependents.",
+        "range": "[0, ∞)",
+        "interpretation": "context-dependent; high fan-in files need careful review before changes"
+      },
+      "fan_out": {
+        "name": "Fan-out (Imports)",
+        "description": "Number of files this file directly imports. High fan-out indicates high coupling and change propagation risk.",
+        "range": "[0, ∞)",
+        "interpretation": "lower is better; MI penalty caps at ~40 imports"
+      },
+      "score": {
+        "name": "Hotspot Score",
+        "description": "normalized_churn × normalized_complexity × 100, where normalization is against the project maximum. Identifies files that are both complex AND frequently changing.",
+        "range": "[0, 100]",
+        "interpretation": "higher = riskier; prioritize refactoring high-score files"
+      },
+      "weighted_commits": {
+        "name": "Weighted Commits",
+        "description": "Recency-weighted commit count using exponential decay with 90-day half-life. Recent commits contribute more than older ones.",
+        "range": "[0, ∞)",
+        "interpretation": "higher = more recent churn activity"
+      },
+      "trend": {
+        "name": "Churn Trend",
+        "description": "Compares recent vs older commit frequency within the analysis window. accelerating = recent > 1.5× older, cooling = recent < 0.67× older, stable = in between.",
+        "values": [
+          "accelerating",
+          "stable",
+          "cooling"
+        ],
+        "interpretation": "accelerating files need attention; cooling files are stabilizing"
+      },
+      "priority": {
+        "name": "Refactoring Priority",
+        "description": "Weighted score: complexity density (30%), hotspot boost (25%), dead code ratio (20%), fan-in (15%), fan-out (10%). Fan-in and fan-out normalization uses adaptive percentile-based thresholds (p95 of the project distribution). Does not use the maintainability index to avoid double-counting.",
+        "range": "[0, 100]",
+        "interpretation": "higher = more urgent to refactor"
+      },
+      "efficiency": {
+        "name": "Efficiency Score",
+        "description": "priority / effort_numeric (Low=1, Medium=2, High=3). Surfaces quick wins: high-priority, low-effort targets rank first. Default sort order.",
+        "range": "[0, 100] — effective max depends on effort: Low=100, Medium=50, High≈33",
+        "interpretation": "higher = better quick-win value; targets are sorted by efficiency descending"
+      },
+      "effort": {
+        "name": "Effort Estimate",
+        "description": "Heuristic effort estimate based on file size, function count, and fan-in. Thresholds adapt to the project’s distribution (percentile-based). Low: small file, few functions, low fan-in. High: large file, high fan-in, or many functions with high density. Medium: everything else.",
+        "values": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "interpretation": "low = quick win, high = needs planning and coordination"
+      },
+      "confidence": {
+        "name": "Confidence Level",
+        "description": "Reliability of the recommendation based on data source. High: deterministic graph/AST analysis (dead code, circular deps, complexity). Medium: heuristic thresholds (fan-in/fan-out coupling). Low: depends on git history quality (churn-based recommendations).",
+        "values": [
+          "high",
+          "medium",
+          "low"
+        ],
+        "interpretation": "high = act on it, medium = verify context, low = treat as a signal, not a directive"
+      },
+      "health_score": {
+        "name": "Health Score",
+        "description": "Project-level aggregate score computed from vital signs: dead code, complexity, maintainability, hotspots, unused dependencies, and circular dependencies. Penalties subtracted from 100. Missing metrics (from pipelines that didn't run) don't penalize. Use --score to force full pipeline for maximum accuracy.",
+        "range": "[0, 100]",
+        "interpretation": "higher is better; A (85–100), B (70–84), C (55–69), D (40–54), F (0–39)"
+      },
+      "crap_max": {
+        "name": "Untested Complexity Risk (CRAP)",
+        "description": "Change Risk Anti-Patterns score (Savoia & Evans, 2007). Formula: CC² × (1 - cov/100)³ + CC. Default model (static_estimated): estimates per-function coverage from export references — directly test-referenced exports get 85%, indirectly test-reachable functions get 40%, untested files get 0%. Provide --coverage <path> with Istanbul-format coverage-final.json (from Jest, Vitest, c8, nyc) for exact per-function CRAP scores.",
+        "range": "[1, ∞)",
+        "interpretation": "lower is better; >=30 is high-risk (CC >= 5 without test path)"
+      },
+      "bus_factor": {
+        "name": "Bus Factor",
+        "description": "Avelino truck factor: the minimum number of distinct contributors who together account for at least 50% of recency-weighted commits to this file in the analysis window. Bot authors are excluded.",
+        "range": "[1, ∞)",
+        "interpretation": "lower is higher knowledge-loss risk; 1 means a single contributor covers most of the recent history"
+      },
+      "contributor_count": {
+        "name": "Contributor Count",
+        "description": "Number of distinct authors who touched this file in the analysis window after bot-pattern filtering.",
+        "range": "[0, ∞)",
+        "interpretation": "higher generally indicates broader knowledge spread; pair with bus_factor for context"
+      },
+      "share": {
+        "name": "Contributor Share",
+        "description": "Recency-weighted share of total weighted commits attributed to a single contributor. Rounded to three decimals.",
+        "range": "[0, 1]",
+        "interpretation": "share close to 1.0 indicates dominance and pairs with low bus_factor"
+      },
+      "stale_days": {
+        "name": "Stale Days",
+        "description": "Days since this contributor last touched the file. Computed at analysis time.",
+        "range": "[0, ∞)",
+        "interpretation": "high stale_days on the top contributor often correlates with ownership drift"
+      },
+      "drift": {
+        "name": "Ownership Drift",
+        "description": "True when the file's original author (earliest first commit in the window) differs from the current top contributor, the file is at least 30 days old, and the original author's recency-weighted share is below 10%.",
+        "values": [
+          true,
+          false
+        ],
+        "interpretation": "true means the original author is no longer maintaining; route reviews to the current top contributor"
+      },
+      "unowned": {
+        "name": "Unowned (Tristate)",
+        "description": "true = a CODEOWNERS file exists but no rule matches this file; false = a rule matches; null = no CODEOWNERS file was discovered for the repository (cannot determine).",
+        "values": [
+          true,
+          false,
+          null
+        ],
+        "interpretation": "true on a hotspot is a review-bottleneck risk; null means the signal is unavailable, not absent"
+      },
+      "runtime_coverage_verdict": {
+        "name": "Runtime Coverage Verdict",
+        "description": "Overall verdict across all runtime-coverage findings. `clean` = nothing cold; `cold-code-detected` = one or more tracked functions had zero invocations; `hot-path-changes-needed` = a function modified in the current change set is on the hot path; `license-expired-grace` = analysis ran but the license is in its post-expiry grace window; `unknown` = verdict could not be computed (degenerate input).",
+        "values": [
+          "clean",
+          "hot-path-changes-needed",
+          "cold-code-detected",
+          "license-expired-grace",
+          "unknown"
+        ],
+        "interpretation": "`cold-code-detected` is the primary actionable signal; `hot-path-changes-needed` elevates code-review attention for touched hot paths"
+      },
+      "runtime_coverage_state": {
+        "name": "Runtime Coverage State",
+        "description": "Per-function observation: `called` = V8 saw at least one invocation; `never-called` = V8 tracked the function but it never ran; `coverage-unavailable` = the function was not in the V8 tracking set (e.g., lazy-parsed, worker thread, dynamic code); `unknown` = forward-compat sentinel for newer sidecar states.",
+        "values": [
+          "called",
+          "never-called",
+          "coverage-unavailable",
+          "unknown"
+        ],
+        "interpretation": "`never-called` in combination with static `unused` is the highest-confidence delete signal"
+      },
+      "runtime_coverage_confidence": {
+        "name": "Runtime Coverage Confidence",
+        "description": "Confidence in a runtime-coverage finding. `high` = tracked by V8 with a statistically meaningful observation volume; `medium` = either low observation volume or indirect evidence; `low` = minimal data; `unknown` = insufficient information to classify.",
+        "values": [
+          "high",
+          "medium",
+          "low",
+          "unknown"
+        ],
+        "interpretation": "high = act on it; medium = verify context; low = treat as a signal only"
+      },
+      "production_invocations": {
+        "name": "Production Invocations",
+        "description": "Observed invocation count for the function over the collected coverage window. For `coverage-unavailable` findings this is `0` and semantically means `null` (not tracked). Absolute counts are not directly comparable across services without normalizing by trace_count.",
+        "range": "[0, ∞)",
+        "interpretation": "0 + tracked = cold path; 0 + untracked = unknown; high + never-called cannot occur by definition"
+      },
+      "percent_dead_in_production": {
+        "name": "Percent Dead in Production",
+        "description": "Fraction of tracked functions with zero observed invocations, multiplied by 100. Computed before any `--top` truncation so the summary total is stable regardless of display limits.",
+        "range": "[0, 100]",
+        "interpretation": "lower is better; values above ~10% on a long-running service indicate a large cleanup opportunity"
+      }
+    }
+  }
+}

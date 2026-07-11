@@ -1,5 +1,5 @@
 import { DataTable, type DataTableColumn, DocCode, DocInlineCode, DocLead, DocNote, DocSection } from "@valentinkolb/cloud/ui";
-import { pulseQueryHighlight } from "../query-authoring";
+import { pulseDashboardDslHighlight } from "../query-authoring";
 import { PulseCopyCell, PulseDocPage, PulseStepList } from "./pulse-help-primitives";
 
 type DashboardStatementRow = {
@@ -207,7 +207,7 @@ export const PulseDashboardDslHelpPage = () => (
     </DocSection>
 
     <DocSection title="Smallest useful dashboard">
-      <DocCode title="Minimal dashboard" code={minimalDashboardExample} highlight={pulseQueryHighlight} copy />
+      <DocCode title="Minimal dashboard" code={minimalDashboardExample} highlight={pulseDashboardDslHighlight} copy />
       <p class="text-dimmed">
         This is enough to render a dashboard: a root document, one section, one widget, and one query. Add structure when the dashboard
         starts repeating itself.
@@ -215,7 +215,7 @@ export const PulseDashboardDslHelpPage = () => (
     </DocSection>
 
     <DocSection title="Add controls when values repeat">
-      <DocCode title="Controls and variables" code={dashboardControlExample} highlight={pulseQueryHighlight} copy />
+      <DocCode title="Controls and variables" code={dashboardControlExample} highlight={pulseDashboardDslHighlight} copy />
       <p class="text-dimmed">
         Controls create variables such as <DocInlineCode>$range</DocInlineCode> or <DocInlineCode>$entity_id</DocInlineCode>. Public
         displays use the default values, so choose defaults that make sense without interaction.
@@ -224,8 +224,8 @@ export const PulseDashboardDslHelpPage = () => (
 
     <DocSection title="Full shape">
       <div class="space-y-3">
-        <DocCode title="Shape" code={dashboardSyntax} highlight={pulseQueryHighlight} copy />
-        <DocCode title="Example" code={dashboardExample} highlight={pulseQueryHighlight} copy />
+        <DocCode title="Shape" code={dashboardSyntax} highlight={pulseDashboardDslHighlight} copy />
+        <DocCode title="Example" code={dashboardExample} highlight={pulseDashboardDslHighlight} copy />
       </div>
     </DocSection>
 

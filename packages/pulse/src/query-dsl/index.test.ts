@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { compilePulseQueryText, tokenizeQueryText } from ".";
+import { compilePulseQueryText, durationToInterval, tokenizeQueryText } from ".";
 
 const baseId = "00000000-0000-4000-8000-000000000000";
 const sourceId = "11111111-1111-4111-8111-111111111111";
@@ -50,6 +50,22 @@ describe("Pulse query DSL", () => {
     const result = compilePulseQueryText(baseId, "metric docker.container.cpu.usage avg every 1h since 365d");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain("compact durations");
+  });
+
+  test("keeps duration conversion aligned with parser duration limits", () => {
+    expect(durationToInterval("5m")).toBe("5 minutes");
+    expect(durationToInterval("0m")).toBeNull();
+    expect(durationToInterval("365d")).toBeNull();
+  });
+
+  test("reports empty and unterminated query text distinctly", () => {
+    const empty = compilePulseQueryText(baseId, "   ");
+    const unterminated = compilePulseQueryText(baseId, 'events deploy.finished where service="api');
+
+    expect(empty.ok).toBe(false);
+    if (!empty.ok) expect(empty.error.message).toBe("Query is empty");
+    expect(unterminated.ok).toBe(false);
+    if (!unterminated.ok) expect(unterminated.error.message).toBe("Query has an unterminated quote");
   });
 
   test("rejects pre-V1 entity type aliases", () => {

@@ -1,0 +1,23 @@
+{
+  "schema_version": 3,
+  "version": "2.52.0",
+  "elapsed_ms": 193,
+  "feature_flags": [],
+  "total_flags": 0,
+  "_meta": {
+    "feature_flags": {
+      "description": "Feature flag patterns detected via AST analysis",
+      "kinds": {
+        "environment_variable": "process.env.FEATURE_* pattern (high confidence)",
+        "sdk_call": "Feature flag SDK function call (high confidence)",
+        "config_object": "Config object property access matching flag keywords (low confidence, heuristic)"
+      },
+      "confidence": {
+        "high": "Unambiguous pattern match (env vars, direct SDK calls)",
+        "medium": "Pattern match with some ambiguity",
+        "low": "Heuristic match (config objects), may produce false positives"
+      },
+      "docs": "https://docs.fallow.tools/explanations/feature-flags"
+    }
+  }
+}

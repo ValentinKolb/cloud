@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { MetricQuery, PulseExplorerQuery } from "../contracts";
 import { compilePulseQueryText } from "../query-dsl";
+import { compileDashboardConfigForSave } from "../service/dashboard-config";
 import { compileDashboardDsl, parseDashboardDsl } from ".";
 
 const metricQuery = (query: string): { ok: true; data: PulseExplorerQuery } | { ok: false; message: string } => {
@@ -240,5 +241,14 @@ describe("Pulse dashboard DSL", () => {
     );
     expect(result.ok).toBe(false);
     expect(result.diagnostics[0]?.message).toContain("Only metric queries");
+  });
+
+  test("normalizes service dashboard config from DSL before saving", () => {
+    const result = compileDashboardConfigForSave("base", { dsl: solarDashboard, refreshIntervalSeconds: 10 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.refreshIntervalSeconds).toBe(10);
+    expect(result.data.layout?.sections[0]?.title).toBe("Today");
+    expect(result.data.layout?.sections[0]?.rows[0]?.cells[0]?.kind).toBe("card");
   });
 });
