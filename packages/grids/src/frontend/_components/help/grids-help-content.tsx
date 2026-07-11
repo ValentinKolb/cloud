@@ -81,13 +81,14 @@ const templateHighlight = highlight.compile(
 
 const workflowHighlight = highlight.compile(
   [
+    { kind: "placeholder", match: /\$\{\{\s*[^{}]+?\s*\}\}/ },
     {
       kind: "keyword",
       match:
         /\b(?:name|description|inputs|type|table|required|options|triggers|form|api|scanner|bulkSelection|dashboardButton|schedule|recordEvent|steps|updateRecord|createRecord|generateDocument|createDocumentLink|sendEmail|httpRequest|setVariable|succeed|fail|if|then|else|switch|cases|default|forEach|as|do|set|values|record|template|document|expiresIn|comment|to|email|user|data|method|url|headers|json|saveAs)\b/,
     },
     { kind: "string", match: /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/ },
-    { kind: "placeholder", match: /\b(?:inputs|variables)\.[A-Za-z_][A-Za-z0-9_.]*\b/ },
+    { kind: "placeholder", match: /\binputs\.[A-Za-z_][A-Za-z0-9_.]*\b/ },
     { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
     { kind: "operator", match: /[:\-[\]{}]/ },
   ],
@@ -1075,18 +1076,20 @@ steps:
       record: inputs.item
       set:
         Status: Available
-        Last scanned at: now()
+        Last scanned at: \${{ now() }}
   - createRecord:
       table: Movements
       values:
-        Item: inputs.item
+        Item: \${{ inputs.item }}
         Type: Check-in
       saveAs: movement
   - generateDocument:
       template: Item label
       record: inputs.item
-      filename: inputs.item.Name
-      tags: [label, inputs.priority]
+      filename: \${{ inputs.item.Name }}
+      tags:
+        - label
+        - \${{ inputs.priority }}
       saveAs: labelRun
   - createDocumentLink:
       document: labelRun
@@ -1096,10 +1099,10 @@ steps:
   - sendEmail:
       template: Label ready email
       to:
-        - email: inputs.recipientEmail
+        - email: \${{ inputs.recipientEmail }}
       data:
-        link: labelLink
-        document: labelRun
+        link: \${{ labelLink }}
+        document: \${{ labelRun }}
       saveAs: emailResult
   - httpRequest:
       method: POST
@@ -1108,14 +1111,14 @@ steps:
         X-App: Grids
       json:
         event: item.checked_in
-        item: inputs.item
+        item: \${{ inputs.item }}
       timeoutMs: 15000
       saveAs: hook
   - setVariable:
       name: finishedAt
-      value: now()
+      value: \${{ now() }}
   - succeed:
-      message: "{{ inputs.item.Name }} checked in."`}
+      message: "\${{ inputs.item.Name }} checked in."`}
       />
     </DocSection>
 
@@ -1128,7 +1131,9 @@ steps:
         title="Branches and loops"
         code={`steps:
   - if:
-      equals: [inputs.item.Status, Loaned]
+      equals:
+        - \${{ inputs.item.Status }}
+        - Loaned
     then:
       - updateRecord:
           record: inputs.item
@@ -1137,7 +1142,7 @@ steps:
     else:
       - fail:
           message: Item is not currently loaned out.
-  - switch: inputs.priority
+  - switch: \${{ inputs.priority }}
     cases:
       - when: High
         do:
@@ -1162,42 +1167,73 @@ steps:
       <DocRows
         items={[
           {
-            title: "Inputs",
+            title: "Literal strings",
+            icon: "ti-letter-case",
+            text: (
+              <>
+                Plain strings are always literal values. Write <DocInlineCode>Checked</DocInlineCode>, URLs, email addresses, and dotted
+                text directly when the workflow should use that exact text.
+              </>
+            ),
+          },
+          {
+            title: "Dynamic values",
             icon: "ti-input-search",
             text: (
               <>
-                Use <DocInlineCode>inputs.name</DocInlineCode> to read an input. For record inputs, append a field name such as{" "}
-                <DocInlineCode>inputs.item.Status</DocInlineCode>.
+                A dynamic value must be the whole <DocInlineCode>{"${{ ... }}"}</DocInlineCode> string. Use{" "}
+                <DocInlineCode>{"${{ inputs.name }}"}</DocInlineCode>, append a record field such as{" "}
+                <DocInlineCode>{"${{ inputs.item.Status }}"}</DocInlineCode>, read a saved value with{" "}
+                <DocInlineCode>{"${{ savedValue }}"}</DocInlineCode>, or evaluate <DocInlineCode>{"${{ now() }}"}</DocInlineCode>.
               </>
             ),
           },
           {
-            title: "Local records",
-            icon: "ti-repeat",
+            title: "Dedicated references",
+            icon: "ti-link",
             text: (
               <>
-                A <DocInlineCode>forEach</DocInlineCode> step exposes the loop variable declared with <DocInlineCode>as</DocInlineCode>. Use
-                it like any other record reference.
+                Reference-only slots stay raw: <DocInlineCode>record: inputs.item</DocInlineCode>,{" "}
+                <DocInlineCode>forEach: inputs.items</DocInlineCode>, <DocInlineCode>document: savedDocument</DocInlineCode>, and{" "}
+                <DocInlineCode>exists: inputs.item.Field</DocInlineCode>. Do not wrap these slots in expression syntax.
               </>
             ),
           },
           {
-            title: "Saved outputs",
+            title: "Scope",
             icon: "ti-variable",
             text: (
               <>
-                <DocInlineCode>saveAs</DocInlineCode> and <DocInlineCode>setVariable</DocInlineCode> store values for later steps.
-                Identifier names use letters, numbers, and underscores, and must not start with a number.
+                Inputs are available for the whole run. <DocInlineCode>saveAs</DocInlineCode> and <DocInlineCode>setVariable</DocInlineCode>{" "}
+                names are available only after their step. A <DocInlineCode>forEach</DocInlineCode> alias exists only inside its{" "}
+                <DocInlineCode>do</DocInlineCode> steps; values created inside branches and loops do not escape that scope.
               </>
             ),
           },
           {
-            title: "now()",
-            icon: "ti-clock",
-            text: "Use now() as a value when a step should write the current timestamp at execution time.",
+            title: "Result messages",
+            icon: "ti-message",
+            text: (
+              <>
+                <DocInlineCode>succeed</DocInlineCode> and <DocInlineCode>fail</DocInlineCode> messages are literal text that may embed one
+                or more expressions, for example <DocInlineCode>{"Processed ${{ inputs.item.Name }}"}</DocInlineCode>.
+              </>
+            ),
           },
         ]}
       />
+      <DocNote title="Saved output paths">
+        Saved outputs expose structured paths. Documents provide <DocInlineCode>id</DocInlineCode>, <DocInlineCode>shortId</DocInlineCode>,{" "}
+        <DocInlineCode>templateId</DocInlineCode>, <DocInlineCode>workflowRunId</DocInlineCode>, <DocInlineCode>snapshotId</DocInlineCode>,{" "}
+        <DocInlineCode>baseId</DocInlineCode>, <DocInlineCode>tableId</DocInlineCode>, <DocInlineCode>recordId</DocInlineCode>,{" "}
+        <DocInlineCode>documentNumber</DocInlineCode>, <DocInlineCode>filename</DocInlineCode>, <DocInlineCode>tags</DocInlineCode>,{" "}
+        <DocInlineCode>generatedBy</DocInlineCode>, and <DocInlineCode>generatedAt</DocInlineCode>. Document links provide{" "}
+        <DocInlineCode>url</DocInlineCode>, <DocInlineCode>expiresAt</DocInlineCode>, and <DocInlineCode>documentRunId</DocInlineCode>.
+        Email results provide <DocInlineCode>subject</DocInlineCode>, <DocInlineCode>templateId</DocInlineCode>, and{" "}
+        <DocInlineCode>recipients</DocInlineCode>. HTTP results provide <DocInlineCode>status</DocInlineCode>,{" "}
+        <DocInlineCode>ok</DocInlineCode>, and <DocInlineCode>body</DocInlineCode>. Read them with expressions such as{" "}
+        <DocInlineCode>{"${{ link.url }}"}</DocInlineCode> or <DocInlineCode>{"${{ hook.status }}"}</DocInlineCode>.
+      </DocNote>
     </DocSection>
 
     <DocSection title="Email templates">
@@ -1254,10 +1290,10 @@ steps:
   - sendEmail:
       template: Invoice email
       to:
-        - email: inputs.recipientEmail
+        - email: \${{ inputs.recipientEmail }}
       data:
-        link: invoiceLink
-        document: invoicePdf`}
+        link: \${{ invoiceLink }}
+        document: \${{ invoicePdf }}`}
       />
       <TemplateSnippet
         title="Email HTML"
@@ -1325,18 +1361,20 @@ triggers:
       field: Label code
 steps:
   - if:
-      equals: [inputs.item.Status, Loaned]
+      equals:
+        - \${{ inputs.item.Status }}
+        - Loaned
     then:
       - updateRecord:
           record: inputs.item
           set:
             Status: Available
-            Last scanned at: now()
+            Last scanned at: \${{ now() }}
       - succeed:
-          message: "{{ inputs.item.Name }} returned."
+          message: "\${{ inputs.item.Name }} returned."
     else:
       - fail:
-          message: "{{ inputs.item.Name }} is not currently loaned out."`}
+          message: "\${{ inputs.item.Name }} is not currently loaned out."`}
       />
     </DocSection>
 

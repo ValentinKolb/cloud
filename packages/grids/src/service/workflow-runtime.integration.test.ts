@@ -79,7 +79,7 @@ const bulkWorkflowDefinition = (): WorkflowDefinition => ({
         {
           updateRecord: {
             record: "item",
-            set: { Status: "item.Name" },
+            set: { Status: "${{ item.Name }}" },
           },
         },
       ],
@@ -94,7 +94,7 @@ const scannerWorkflowDefinition = (resolve?: { by: "field"; field: string }): Wo
   triggers: {
     scanner: { input: "item", ...(resolve ? { resolve } : {}) },
   },
-  steps: [{ setVariable: { name: "seen", value: "inputs.item.Name" } }],
+  steps: [{ setVariable: { name: "seen", value: "${{ inputs.item.Name }}" } }],
 });
 
 const recordEventWorkflowDefinition = (): WorkflowDefinition => ({
@@ -108,7 +108,7 @@ const recordEventWorkflowDefinition = (): WorkflowDefinition => ({
     {
       updateRecord: {
         record: "inputs.item",
-        set: { Status: "inputs.item.Name" },
+        set: { Status: "${{ inputs.item.Name }}" },
       },
     },
   ],
@@ -343,6 +343,124 @@ describe("workflow runtime integration", () => {
       expect(statuses[fixture.recordBId]).toBe("Beta");
     } finally {
       await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("resumes saved record lists with their record ids", async () => {
+    const fixture = await insertFixture("write");
+    try {
+      const resolvedInput = { records: [fixture.recordAId, fixture.recordBId] };
+      const serializationWorkflowId = await insertWorkflow(fixture.baseId, "Persist saved records", {
+        inputs: { records: { type: "recordList", table: "Items" } },
+        triggers: { form: {} },
+        steps: [{ setVariable: { name: "savedRecords", value: "${{ inputs.records }}" } }],
+      });
+      const serializationRun = await createWorkflowRun({
+        workflowId: serializationWorkflowId,
+        baseId: fixture.baseId,
+        triggerKind: "form",
+        resolvedInput,
+      });
+      const serialized = await executePreparedRun({
+        workflowId: serializationWorkflowId,
+        runId: serializationRun.id,
+        triggerKind: "form",
+        resolvedInput,
+        authorization: { kind: "workflow" },
+      });
+      expect(serialized.ok).toBe(true);
+      if (!serialized.ok) throw new Error(serialized.error.message);
+      const [serializedStep] = await sql<Array<{ output: { ok: true; value: unknown } }>>`
+        SELECT output
+        FROM grids.workflow_step_runs
+        WHERE run_id = ${serializationRun.id}::uuid AND step_path = 'steps.0'
+      `;
+      expect(serializedStep?.output.value).toEqual({
+        kind: "recordList",
+        tableId: fixture.tableId,
+        recordIds: [fixture.recordAId, fixture.recordBId],
+      });
+      if (!serializedStep) throw new Error("Expected persisted setVariable output");
+
+      const workflowId = await insertWorkflow(fixture.baseId, "Resume saved records", {
+        inputs: { records: { type: "recordList", table: "Items" } },
+        triggers: { form: {} },
+        steps: [
+          { setVariable: { name: "savedRecords", value: "${{ inputs.records }}" } },
+          {
+            forEach: "savedRecords",
+            as: "item",
+            do: [{ updateRecord: { record: "item", set: { Status: "resumed" } } }],
+          },
+        ],
+      });
+      const run = await createWorkflowRun({
+        workflowId,
+        baseId: fixture.baseId,
+        triggerKind: "form",
+        resolvedInput,
+      });
+      const completed = await createStepRun({
+        runId: run.id,
+        stepIndex: 0,
+        stepPath: "steps.0",
+        kind: "setVariable",
+        input: { kind: "setVariable" },
+      });
+      await finishStepRun(completed.id, {
+        status: "succeeded",
+        output: serializedStep.output,
+      });
+
+      const executed = await executePreparedRun({
+        workflowId,
+        runId: run.id,
+        triggerKind: "form",
+        resolvedInput,
+        authorization: { kind: "workflow" },
+      });
+      expect(executed.ok).toBe(true);
+      if (!executed.ok) throw new Error(executed.error.message);
+      const statuses = await recordStatuses(fixture);
+      expect(statuses[fixture.recordAId]).toBe("resumed");
+      expect(statuses[fixture.recordBId]).toBe("resumed");
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("record expressions require read access to their table", async () => {
+    const fixture = await insertFixture("write");
+    const accessIds: string[] = [];
+    try {
+      await sql`DELETE FROM grids.base_access WHERE access_id = ${fixture.accessIds[0]}::uuid`;
+      await sql`DELETE FROM auth.access WHERE id = ${fixture.accessIds[0]}::uuid`;
+      fixture.accessIds.length = 0;
+
+      const workflowId = await insertWorkflow(fixture.baseId, "Protected record expression", {
+        inputs: { item: { type: "record", table: "Items" } },
+        triggers: { form: {} },
+        steps: [{ succeed: { message: "${{ inputs.item.Name }}" } }],
+      });
+      const workflowAccessId = await publicAccess("write");
+      accessIds.push(workflowAccessId);
+      await sql`INSERT INTO grids.workflow_access (workflow_id, access_id) VALUES (${workflowId}::uuid, ${workflowAccessId}::uuid)`;
+      const resolvedInput = { item: fixture.recordAId };
+      const run = await createWorkflowRun({ workflowId, baseId: fixture.baseId, triggerKind: "form", resolvedInput });
+
+      const executed = await executePreparedRun({
+        workflowId,
+        runId: run.id,
+        triggerKind: "form",
+        resolvedInput,
+        authorization: { kind: "workflow" },
+      });
+      expect(executed.ok).toBe(false);
+      if (executed.ok) throw new Error("Expected record read permission denial");
+      expect(executed.error.message).toContain("does not have permission");
+    } finally {
+      await cleanupFixture(fixture);
+      for (const accessId of accessIds) await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;
     }
   });
 
@@ -670,6 +788,34 @@ describe("workflow runtime integration", () => {
       expect(duplicate.ok).toBe(false);
       if (duplicate.ok) throw new Error("Expected duplicate scanner field failure");
       expect(duplicate.error.message).toContain("matched more than one record");
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("explicit message expressions resolve optional inputs as null", async () => {
+    const fixture = await insertFixture("write");
+    try {
+      const workflowId = await insertWorkflow(fixture.baseId, "Scanner message", {
+        inputs: {
+          item: { type: "record", table: "Items" },
+          note: { type: "text" },
+        },
+        triggers: { scanner: { input: "item" } },
+        steps: [{ succeed: { message: "${{ inputs.item.Name }} / ${{ inputs.note }} / ${{ now() }}" } }],
+      });
+      const scan = await getOrCreateRecordScanCode({
+        baseId: fixture.baseId,
+        tableId: fixture.tableId,
+        recordId: fixture.recordAId,
+        code: "gsc_test_message_code",
+      });
+
+      const run = await executeScanner({ workflowId, scannedText: scan.code });
+
+      expect(run.ok).toBe(true);
+      if (!run.ok) throw new Error(run.error.message);
+      expect(run.data.resultMessage).toMatch(/^Alpha \/  \/ \d{4}-\d{2}-\d{2}T/);
     } finally {
       await cleanupFixture(fixture);
     }

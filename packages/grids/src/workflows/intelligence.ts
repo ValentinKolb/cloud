@@ -15,6 +15,12 @@ type InputRef = {
   table?: string;
 };
 
+type LocalRef = {
+  name: string;
+  kind: "record" | "recordList" | "document" | "documentLink" | "email" | "http" | "value";
+  table?: string;
+};
+
 type BuildWorkflowIntelligenceParams = {
   source: string;
   caret: number;
@@ -210,6 +216,73 @@ const looseInputs = (source: string): InputRef[] => {
   return inputs;
 };
 
+const localKindByAction: Partial<Record<string, LocalRef["kind"]>> = {
+  createRecord: "record",
+  generateDocument: "document",
+  createDocumentLink: "documentLink",
+  sendEmail: "email",
+  httpRequest: "http",
+  setVariable: "value",
+};
+
+const looseLocals = (source: string, caret: number, inputs: InputRef[]): LocalRef[] => {
+  const lines = source.slice(0, caret).split(/\n/);
+  const scopes: Array<{ id: string; indent: number }> = [];
+  const loops: Array<{ indent: number; reference: string; alias?: string }> = [];
+  const candidates: Array<LocalRef & { scopes: string[] }> = [];
+  let active: { action: string; indent: number; scopes: string[]; table?: string; name?: string } | null = null;
+  const finishActive = (): void => {
+    if (!active?.name) return;
+    const kind = localKindByAction[active.action];
+    if (kind) candidates.push({ name: active.name, kind, table: active.table, scopes: active.scopes });
+  };
+
+  lines.forEach((line, index) => {
+    if (!line.trim()) return;
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+    while (scopes.length > 0 && indent <= scopes.at(-1)!.indent) scopes.pop();
+    while (loops.length > 0 && indent <= loops.at(-1)!.indent) loops.pop();
+
+    const scope = /^(\s*)(then|else|do|default):\s*$/.exec(line);
+    if (scope) scopes.push({ id: `${index}:${scope[2]}`, indent });
+
+    const loop = /^(\s*)-\s*forEach:\s*([^\s#]+)\s*$/.exec(line);
+    if (loop) loops.push({ indent, reference: loop[2]! });
+    const alias = /^\s*as:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(line);
+    if (alias && loops.length > 0) loops.at(-1)!.alias = alias[1]!;
+
+    const action = /^(\s*)-\s*([A-Za-z][A-Za-z0-9]*):/.exec(line);
+    if (action) {
+      finishActive();
+      active = { action: action[2]!, indent, scopes: scopes.map((item) => item.id) };
+      return;
+    }
+    if (active && indent <= active.indent) {
+      finishActive();
+      active = null;
+    }
+    if (!active) return;
+
+    const table = /^\s*table:\s*(.+?)\s*$/.exec(line);
+    if (table && active.action === "createRecord") active.table = table[1]!;
+    const declaration =
+      active.action === "setVariable"
+        ? /^\s*name:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(line)
+        : /^\s*saveAs:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(line);
+    if (declaration) active.name = declaration[1]!;
+  });
+
+  const currentScopes = scopes.map((item) => item.id);
+  const visible = candidates.filter((candidate) => candidate.scopes.every((scope, index) => currentScopes[index] === scope));
+  for (const loop of loops) {
+    if (!loop.alias) continue;
+    const inputName = /^inputs\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(loop.reference)?.[1];
+    const table = inputName ? inputs.find((input) => input.name === inputName)?.table : undefined;
+    visible.push({ name: loop.alias, kind: "record", table, scopes: currentScopes });
+  }
+  return [...new Map(visible.map(({ scopes: _scopes, ...local }) => [local.name, local])).values()];
+};
+
 const inputItems = (range: DslQueryTextRange, inputs: InputRef[], type?: WorkflowInputType): DslQueryCompletionItem[] =>
   inputs
     .filter((input) => !type || input.type === type)
@@ -227,6 +300,67 @@ const inputPathItems = (range: DslQueryTextRange, inputs: InputRef[], type?: Wor
         `${input.type}${input.table ? ` · ${input.table}` : ""}`,
       ),
     );
+
+const localPathItems = (range: DslQueryTextRange, locals: LocalRef[], kind?: LocalRef["kind"]): DslQueryCompletionItem[] =>
+  locals
+    .filter((local) => !kind || local.kind === kind)
+    .map((local) => completionItem(range, "literal", local.name, local.name, `${local.kind}${local.table ? ` · ${local.table}` : ""}`));
+
+const outputPaths: Partial<Record<LocalRef["kind"], string[]>> = {
+  document: ["filename", "documentNumber", "shortId", "generatedAt"],
+  documentLink: ["url", "expiresAt", "documentRunId"],
+  email: ["subject", "templateId", "recipients"],
+  http: ["status", "ok", "body"],
+};
+
+const dynamicValueItems = (
+  range: DslQueryTextRange,
+  inputs: InputRef[],
+  locals: LocalRef[],
+  catalog: WorkflowCatalog,
+): DslQueryCompletionItem[] => {
+  const inputItems = inputs.map((input) => {
+    const reference = `inputs.${input.name}`;
+    return completionItem(
+      range,
+      "literal",
+      reference,
+      `\${{ ${reference} }}`,
+      `${input.type}${input.table ? ` · ${input.table}` : ""} · dynamic value`,
+    );
+  });
+  const fieldItems = inputs.flatMap((input) => {
+    if (input.type !== "record" || !input.table || catalog.tables.ambiguous.has(input.table)) return [];
+    const table = catalog.tables.refs.get(input.table);
+    const fields = table ? catalog.fieldsByTable.get(table.id) : undefined;
+    if (!fields) return [];
+    return uniqueEntries(fields.refs.values()).map((field) => {
+      const reference = `inputs.${input.name}.${field.name}`;
+      return completionItem(range, "field", reference, `\${{ ${reference} }}`, `${input.table} · ${field.shortId} · dynamic value`);
+    });
+  });
+  const localItems = locals.flatMap((local) => {
+    const root = completionItem(range, "literal", local.name, `\${{ ${local.name} }}`, `${local.kind} · dynamic value`);
+    const table = local.table && !catalog.tables.ambiguous.has(local.table) ? catalog.tables.refs.get(local.table) : undefined;
+    const fields = table ? catalog.fieldsByTable.get(table.id) : undefined;
+    const paths = fields
+      ? uniqueEntries(fields.refs.values()).map((field) => ({ name: field.name, detail: `${local.table} · ${field.shortId}` }))
+      : (outputPaths[local.kind] ?? []).map((name) => ({ name, detail: `${local.kind} output` }));
+    return [
+      root,
+      ...paths.map(({ name, detail }) => {
+        const reference = `${local.name}.${name}`;
+        return completionItem(range, "field", reference, `\${{ ${reference} }}`, `${detail} · dynamic value`);
+      }),
+    ];
+  });
+  return [
+    ...inputItems,
+    ...fieldItems,
+    ...localItems,
+    ...FUNCTIONS.map((fn) => completionItem(range, "function", fn, `\${{ ${fn} }}`, "Workflow function")),
+  ];
+};
 
 const keyItems = (
   source: string,
@@ -252,9 +386,10 @@ const valueItems = (params: {
   key: string;
   path: string[];
   inputs: InputRef[];
+  locals: LocalRef[];
   catalog: WorkflowCatalog;
 }): DslQueryCompletionItem[] => {
-  const { source, range, key, path, inputs, catalog } = params;
+  const { source, range, key, path, inputs, locals, catalog } = params;
   if (key === "type") return listItems(source, range, INPUT_TYPES, "Workflow input type");
   if (key === "event") return listItems(source, range, RECORD_EVENT_VALUES, "Record event");
   if (key === "method") return listItems(source, range, HTTP_METHODS, "HTTP method");
@@ -299,15 +434,18 @@ const valueItems = (params: {
     if (parent === "scanner" || parent === "recordEvent") return rankItems(source, range, inputItems(range, inputs, "record"));
     return rankItems(source, range, inputItems(range, inputs));
   }
-  if (key === "record") return rankItems(source, range, inputPathItems(range, inputs, "record"));
-  if (key === "forEach") return rankItems(source, range, inputPathItems(range, inputs, "recordList"));
+  if (key === "record")
+    return rankItems(source, range, [...inputPathItems(range, inputs, "record"), ...localPathItems(range, locals, "record")]);
+  if (key === "forEach")
+    return rankItems(source, range, [...inputPathItems(range, inputs, "recordList"), ...localPathItems(range, locals, "recordList")]);
+  if (key === "exists") return rankItems(source, range, inputPathItems(range, inputs, "record"));
   if (key === "expiresIn") return listItems(source, range, DOCUMENT_LINK_TTLS, "Document link lifetime");
-  if (key === "value" || key === "url" || key === "filename")
-    return rankItems(
-      source,
-      range,
-      FUNCTIONS.map((fn) => completionItem(range, "function", fn, fn, "Workflow function")),
-    );
+  if (["value", "filename", "comment", "email", "user", "switch", "when", "message"].includes(key)) {
+    return rankItems(source, range, dynamicValueItems(range, inputs, locals, catalog));
+  }
+  if (path.some((part) => ["set", "values", "data", "json"].includes(part))) {
+    return rankItems(source, range, dynamicValueItems(range, inputs, locals, catalog));
+  }
   return [];
 };
 
@@ -318,12 +456,13 @@ export const buildWorkflowIntelligence = ({ source, caret, catalog }: BuildWorkf
   const parsed = parseWorkflowYaml(source);
   const definition = parsed.ok ? parsed.definition : null;
   const inputs = definition ? parsedInputs(definition) : looseInputs(source);
+  const locals = looseLocals(source, clampedCaret, inputs);
   const line = lineInfoAt(source, clampedCaret);
   const path = yamlPathBeforeLine(source, clampedCaret);
   const keyMatch = /^\s*(?:-\s*)?([A-Za-z][A-Za-z0-9]*)\s*:\s*/.exec(line.before);
   if (keyMatch) {
     const range = valueRange(source, clampedCaret, line.lineStart, line.before);
-    return valueItems({ source, range, key: keyMatch[1]!, path, inputs, catalog });
+    return valueItems({ source, range, key: keyMatch[1]!, path, inputs, locals, catalog });
   }
 
   const range = tokenRange(source, clampedCaret);

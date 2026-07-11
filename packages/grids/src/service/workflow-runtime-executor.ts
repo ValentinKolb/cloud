@@ -9,6 +9,7 @@ type RuntimeRecordList = { kind: "recordList"; tableId: string; recordIds: strin
 type WorkflowStepExecutor<Value> = {
   executeAction: (item: RuntimeStep) => Promise<Result<Value | null> | null>;
   evaluateCondition: (condition: unknown) => Promise<Result<boolean>>;
+  evaluateReference: (reference: string) => Promise<Result<Value>>;
   evaluateValue: (value: WorkflowValue) => Promise<Result<Value>>;
   heartbeat: () => Promise<void>;
   isRecordList: (value: Value) => value is Value & RuntimeRecordList;
@@ -19,6 +20,7 @@ type WorkflowStepExecutor<Value> = {
   setLoopRecord: (alias: string, tableId: string, recordId: string) => void;
   stepOutputValue: (value: Value | null) => unknown;
   valuesEqual: (left: Value, right: Value) => boolean;
+  withVariableScope: <T>(run: () => Promise<T>) => Promise<T>;
 };
 
 const stepKind = (step: WorkflowStep): string => Object.keys(step as RuntimeStep)[0] ?? "unknown";
@@ -32,11 +34,13 @@ const executeIf = async <Value>(
   const matched = await executor.evaluateCondition(item.if);
   if (!matched.ok) return matched;
   const branches = item as { then?: WorkflowStep[]; else?: WorkflowStep[] };
-  return executeWorkflowSteps(
-    executor,
-    matched.data ? (branches.then ?? []) : (branches.else ?? []),
-    runId,
-    `${currentPath}.${matched.data ? "then" : "else"}`,
+  return executor.withVariableScope(() =>
+    executeWorkflowSteps(
+      executor,
+      matched.data ? (branches.then ?? []) : (branches.else ?? []),
+      runId,
+      `${currentPath}.${matched.data ? "then" : "else"}`,
+    ),
   );
 };
 
@@ -57,7 +61,9 @@ const executeSwitch = async <Value>(
       break;
     }
   }
-  return executeWorkflowSteps(executor, found?.do ?? (item as { default?: WorkflowStep[] }).default ?? [], runId, `${currentPath}.switch`);
+  return executor.withVariableScope(() =>
+    executeWorkflowSteps(executor, found?.do ?? (item as { default?: WorkflowStep[] }).default ?? [], runId, `${currentPath}.switch`),
+  );
 };
 
 const executeForEach = async <Value>(
@@ -66,7 +72,7 @@ const executeForEach = async <Value>(
   runId: string,
   currentPath: string,
 ): Promise<Result<Value | null>> => {
-  const list = await executor.evaluateValue(item.forEach as string);
+  const list = await executor.evaluateReference(item.forEach as string);
   if (!list.ok) return list;
   if (!executor.isRecordList(list.data)) return fail(err.badInput("forEach must resolve to a recordList"));
   if (list.data.recordIds.length > executor.maxLoopItems) {
@@ -74,11 +80,14 @@ const executeForEach = async <Value>(
   }
   const alias = String((item as { as?: unknown }).as ?? "");
   const body = (item as { do?: WorkflowStep[] }).do ?? [];
+  const recordList = list.data;
   let result: Result<Value | null> = ok(null);
-  for (const recordId of list.data.recordIds) {
+  for (const recordId of recordList.recordIds) {
     await executor.heartbeat();
-    executor.setLoopRecord(alias, list.data.tableId, recordId);
-    result = await executeWorkflowSteps(executor, body, runId, `${currentPath}.do.${recordId}`);
+    result = await executor.withVariableScope(() => {
+      executor.setLoopRecord(alias, recordList.tableId, recordId);
+      return executeWorkflowSteps(executor, body, runId, `${currentPath}.do.${recordId}`);
+    });
     if (!result.ok || executor.isWorkflowSucceed(result.data)) break;
   }
   return result;

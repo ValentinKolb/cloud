@@ -46,6 +46,59 @@ describe("workflow YAML intelligence", () => {
     expect(item("steps:\n  - su", "succeed")?.textEdit.text).toContain("message:");
   });
 
+  test("inserts explicit expressions for dynamic values and raw dedicated references", () => {
+    const source = `inputs:
+  item:
+    type: record
+    table: Items
+  items:
+    type: recordList
+    table: Items
+triggers:
+  api: {}
+steps:
+  - setVariable:
+      name: selected
+      value: `;
+    expect(item(source, "inputs.item")?.textEdit.text).toBe("${{ inputs.item }}");
+    expect(item(source, "inputs.item.Status")?.textEdit.text).toBe("${{ inputs.item.Status }}");
+    expect(item(source, "now()")?.textEdit.text).toBe("${{ now() }}");
+    expect(labels(source)).not.toContain("selected");
+
+    const record = source.replace("setVariable:\n      name: selected\n      value: ", "updateRecord:\n      record: ");
+    expect(item(record, "inputs.item")?.textEdit.text).toBe("inputs.item");
+
+    const loop = source.replace("setVariable:\n      name: selected\n      value: ", "forEach: ");
+    expect(item(loop, "inputs.items")?.textEdit.text).toBe("inputs.items");
+
+    const exists = source.replace("setVariable:\n      name: selected\n      value: ", "if:\n      exists: ");
+    expect(item(exists, "inputs.item")?.textEdit.text).toBe("inputs.item");
+  });
+
+  test("suggests prior outputs and active loop aliases", () => {
+    const source = `inputs:
+  items:
+    type: recordList
+    table: Items
+triggers:
+  bulkSelection:
+    input: items
+steps:
+  - httpRequest:
+      method: GET
+      url: https://example.test/status
+      saveAs: response
+  - forEach: inputs.items
+    as: item
+    do:
+      - succeed:
+          message: `;
+    expect(item(source, "response")?.textEdit.text).toBe("${{ response }}");
+    expect(item(source, "response.status")?.textEdit.text).toBe("${{ response.status }}");
+    expect(item(source, "item")?.textEdit.text).toBe("${{ item }}");
+    expect(item(source, "item.Status")?.textEdit.text).toBe("${{ item.Status }}");
+  });
+
   test("filters trigger input suggestions by declared input type", () => {
     const source = `inputs:
   item:

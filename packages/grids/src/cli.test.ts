@@ -647,7 +647,13 @@ describe("grids CLI", () => {
     });
     expect(workflows.jsonValues[0]).toMatchObject({
       yaml: expect.objectContaining({ triggers: expect.arrayContaining(["api", "scanner", "bulkSelection"]) }),
+      values: expect.objectContaining({
+        dynamic: expect.stringContaining("${{ inputs.name }}"),
+        dedicatedReferences: expect.stringContaining("record: inputs.item"),
+      }),
+      example: expect.stringContaining("value: ${{ now() }}"),
     });
+    expect((email.jsonValues[0] as { example: { step: string } }).example.step).toContain("email: ${{ inputs.email }}");
   });
 
   test("checks formulas through the backend compiler", async () => {

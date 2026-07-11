@@ -640,7 +640,7 @@ const EMAIL_TEMPLATE_REFERENCE = {
   example: {
     subject: "Loan reminder for {{ data.itemName }}",
     html: "<p>Hello {{ data.customerName }},</p><p>Please return {{ data.itemName }}.</p>",
-    step: "sendEmail:\n  template: Reminder\n  to:\n    - email: inputs.email\n  data:\n    itemName: inputs.item.Name",
+    step: "sendEmail:\n  template: Reminder\n  to:\n    - email: ${{ inputs.email }}\n  data:\n    itemName: ${{ inputs.item.Name }}",
   },
 };
 
@@ -660,11 +660,19 @@ const WORKFLOW_REFERENCE = {
       "if/then/else",
       "switch/cases/default",
       "forEach/as/do",
+      "succeed",
       "fail",
     ],
   },
+  values: {
+    literals: "Plain strings are literal values, including strings containing dots.",
+    dynamic: "Use an exact ${{ inputs.name }}, ${{ savedValue }}, or ${{ now() }} expression for dynamic WorkflowValue strings.",
+    messages: "succeed/fail messages may embed ${{ ... }} expressions inside literal text.",
+    dedicatedReferences: "record, forEach, document, and exists are reference slots and stay raw (for example, record: inputs.item).",
+    scope: "Inputs exist for the whole run; saved values exist after their step; forEach aliases exist only inside do.",
+  },
   example:
-    "inputs:\n  item:\n    type: record\n    table: Items\ntriggers:\n  api: {}\nsteps:\n  - setVariable:\n      name: ranAt\n      value: now()\n  - updateRecord:\n      record: inputs.item\n      set:\n        Status: Checked",
+    "inputs:\n  item:\n    type: record\n    table: Items\ntriggers:\n  api: {}\nsteps:\n  - setVariable:\n      name: ranAt\n      value: ${{ now() }}\n  - updateRecord:\n      record: inputs.item\n      set:\n        Status: Checked",
 };
 
 const printReference = (ctx: CloudCliContext, value: unknown, text: string) => {

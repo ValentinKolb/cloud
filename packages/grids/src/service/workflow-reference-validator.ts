@@ -1,4 +1,5 @@
 import type { WorkflowDefinition } from "../contracts";
+import { parseWorkflowValueString, workflowMessageExpressions } from "../workflows/value-expression";
 import {
   getWorkflowCatalogRef,
   type WorkflowCatalog,
@@ -49,6 +50,70 @@ const validateFieldRefs = (params: {
   }
 };
 
+const validateValueFieldRefs = (
+  value: unknown,
+  definition: WorkflowDefinition,
+  catalog: WorkflowCatalog,
+  diagnostics: string[],
+  locals: Map<string, string>,
+  label: string,
+): void => {
+  if (typeof value === "string") {
+    const parsed = parseWorkflowValueString(value);
+    if (parsed.kind !== "expression" || parsed.expression.kind !== "reference") return;
+    const reference = parsed.expression.reference;
+    const parts = reference.split(".");
+    const fieldStart = parts[0] === "inputs" ? 2 : 1;
+    if (parts.length <= fieldStart) return;
+    const tableId = tableForRecordRef(reference, definition, locals, catalog);
+    if (!tableId) return;
+    validateFieldRefs({
+      fields: catalog.fieldsByTable.get(tableId),
+      keys: [parts.slice(fieldStart).join(".")],
+      label,
+      diagnostics,
+    });
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => validateValueFieldRefs(item, definition, catalog, diagnostics, locals, `${label}.${index}`));
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      validateValueFieldRefs(item, definition, catalog, diagnostics, locals, `${label}.${key}`);
+    }
+  }
+};
+
+const recordTableForValue = (
+  value: unknown,
+  definition: WorkflowDefinition,
+  catalog: WorkflowCatalog,
+  locals: Map<string, string>,
+): string | null => {
+  if (typeof value !== "string") return null;
+  const parsed = parseWorkflowValueString(value);
+  if (parsed.kind !== "expression" || parsed.expression.kind !== "reference") return null;
+  const parts = parsed.expression.reference.split(".");
+  const fieldStart = parts[0] === "inputs" ? 2 : 1;
+  return parts.length === fieldStart ? tableForRecordRef(parsed.expression.reference, definition, locals, catalog) : null;
+};
+
+const validateMessageFieldRefs = (
+  value: unknown,
+  definition: WorkflowDefinition,
+  catalog: WorkflowCatalog,
+  diagnostics: string[],
+  locals: Map<string, string>,
+  label: string,
+): void => {
+  if (typeof value !== "string") return;
+  for (const item of workflowMessageExpressions(value)) {
+    validateValueFieldRefs(item.raw, definition, catalog, diagnostics, locals, label);
+  }
+};
+
 const validateStepReferences = (
   steps: unknown[],
   definition: WorkflowDefinition,
@@ -68,8 +133,9 @@ const validateStepReferences = (
         label: "updateRecord.set",
         diagnostics,
       });
+      validateValueFieldRefs(action.set, definition, catalog, diagnostics, locals, "updateRecord.set");
     } else if ("createRecord" in item) {
-      const action = item.createRecord as { table?: unknown; values?: Record<string, unknown> };
+      const action = item.createRecord as { table?: unknown; values?: Record<string, unknown>; saveAs?: unknown };
       const table = typeof action.table === "string" ? getWorkflowCatalogRef(catalog.tables, action.table) : null;
       if (!table) {
         diagnostics.push(
@@ -82,8 +148,10 @@ const validateStepReferences = (
         label: "createRecord.values",
         diagnostics,
       });
+      validateValueFieldRefs(action.values, definition, catalog, diagnostics, locals, "createRecord.values");
+      if (table && typeof action.saveAs === "string") locals.set(action.saveAs, table.id);
     } else if ("generateDocument" in item) {
-      const action = item.generateDocument as { template?: unknown; record?: unknown };
+      const action = item.generateDocument as { template?: unknown; record?: unknown; filename?: unknown; tags?: unknown };
       const template = typeof action.template === "string" ? getWorkflowCatalogRef(catalog.templates, action.template) : null;
       if (!template) {
         diagnostics.push(
@@ -95,8 +163,13 @@ const validateStepReferences = (
       if (template && tableId && template.tableId !== tableId) {
         diagnostics.push("generateDocument.record: record table must match the document template table");
       }
+      validateValueFieldRefs(action.filename, definition, catalog, diagnostics, locals, "generateDocument.filename");
+      validateValueFieldRefs(action.tags, definition, catalog, diagnostics, locals, "generateDocument.tags");
+    } else if ("createDocumentLink" in item) {
+      const action = item.createDocumentLink as { comment?: unknown };
+      validateValueFieldRefs(action.comment, definition, catalog, diagnostics, locals, "createDocumentLink.comment");
     } else if ("sendEmail" in item) {
-      const action = item.sendEmail as { template?: unknown };
+      const action = item.sendEmail as { template?: unknown; to?: unknown[]; data?: unknown };
       const template = typeof action.template === "string" ? getWorkflowCatalogRef(catalog.emailTemplates, action.template) : null;
       if (!template) {
         diagnostics.push(
@@ -104,23 +177,47 @@ const validateStepReferences = (
             "sendEmail.template: unknown email template",
         );
       }
+      validateValueFieldRefs(action.to, definition, catalog, diagnostics, locals, "sendEmail.to");
+      validateValueFieldRefs(action.data, definition, catalog, diagnostics, locals, "sendEmail.data");
+    } else if ("httpRequest" in item) {
+      const action = item.httpRequest as { json?: unknown };
+      validateValueFieldRefs(action.json, definition, catalog, diagnostics, locals, "httpRequest.json");
+    } else if ("setVariable" in item) {
+      const action = item.setVariable as { name?: unknown; value?: unknown };
+      validateValueFieldRefs(action.value, definition, catalog, diagnostics, locals, "setVariable.value");
+      const tableId = recordTableForValue(action.value, definition, catalog, locals);
+      if (tableId && typeof action.name === "string") locals.set(action.name, tableId);
+    } else if ("fail" in item || "succeed" in item) {
+      const kind = "fail" in item ? "fail" : "succeed";
+      const action = item[kind] as { message?: unknown };
+      validateMessageFieldRefs(action.message, definition, catalog, diagnostics, locals, `${kind}.message`);
     } else if ("forEach" in item) {
       const tableId = tableForRecordListRef(item.forEach, definition, catalog);
       const nextLocals = new Map(locals);
       if (tableId && typeof item.as === "string") nextLocals.set(item.as, tableId);
       if (Array.isArray(item.do)) validateStepReferences(item.do, definition, catalog, diagnostics, nextLocals);
     } else if ("if" in item) {
-      if (Array.isArray(item.then)) validateStepReferences(item.then, definition, catalog, diagnostics, locals);
-      if (Array.isArray(item.else)) validateStepReferences(item.else, definition, catalog, diagnostics, locals);
+      validateValueFieldRefs(item.if, definition, catalog, diagnostics, locals, "if");
+      if (Array.isArray(item.then)) validateStepReferences(item.then, definition, catalog, diagnostics, new Map(locals));
+      if (Array.isArray(item.else)) validateStepReferences(item.else, definition, catalog, diagnostics, new Map(locals));
     } else if ("switch" in item) {
+      validateValueFieldRefs(item.switch, definition, catalog, diagnostics, locals, "switch");
       if (Array.isArray(item.cases)) {
-        for (const caseItem of item.cases) {
+        for (const [caseIndex, caseItem] of item.cases.entries()) {
           if (caseItem && typeof caseItem === "object" && Array.isArray((caseItem as { do?: unknown }).do)) {
-            validateStepReferences((caseItem as { do: unknown[] }).do, definition, catalog, diagnostics, locals);
+            validateValueFieldRefs(
+              (caseItem as { when?: unknown }).when,
+              definition,
+              catalog,
+              diagnostics,
+              locals,
+              `switch.cases.${caseIndex}.when`,
+            );
+            validateStepReferences((caseItem as { do: unknown[] }).do, definition, catalog, diagnostics, new Map(locals));
           }
         }
       }
-      if (Array.isArray(item.default)) validateStepReferences(item.default, definition, catalog, diagnostics, locals);
+      if (Array.isArray(item.default)) validateStepReferences(item.default, definition, catalog, diagnostics, new Map(locals));
     }
   }
 };

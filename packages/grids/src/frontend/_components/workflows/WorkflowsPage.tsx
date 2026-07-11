@@ -71,6 +71,7 @@ type WorkflowEmailDeliveryPage = {
 
 const workflowHighlight = highlight.compile(
   [
+    { kind: "placeholder", match: /\$\{\{\s*[^{}]+?\s*\}\}/ },
     { kind: "string", match: /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/ },
     {
       kind: "keyword",
@@ -298,7 +299,7 @@ const defaultSource = (
 steps:
   - setVariable:
       name: ranAt
-      value: now()
+      value: \${{ now() }}
 `;
 
 const directRunTriggers = (workflow: Workflow): WorkflowTriggerKind[] =>

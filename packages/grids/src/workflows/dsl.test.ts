@@ -20,19 +20,21 @@ triggers:
     enabled: true
 steps:
   - if:
-      equals: [inputs.item.Status, Loaned]
+      equals:
+        - "\${{ inputs.item.Status }}"
+        - Loaned
     then:
       - updateRecord:
           record: inputs.item
           set:
             Status: Available
-            Last scanned at: now()
+            Last scanned at: \${{ now() }}
       - createRecord:
           table: Movements
           values:
-            Item: inputs.item
+            Item: \${{ inputs.item }}
             Type: Check-in
-            Timestamp: now()
+            Timestamp: \${{ now() }}
     else:
       - fail:
           message: Item is not currently loaned out.
@@ -126,7 +128,7 @@ steps:
   - httpRequest:
       url: https://example.com/hook
       json:
-        record: inputs.missing.Name
+        record: \${{ inputs.missing.Name }}
         literal: example.com.value
 `);
 
@@ -134,6 +136,183 @@ steps:
     if (result.ok) return;
     expect(result.diagnostics.map((diagnostic) => diagnostic.message)).toContain(
       'steps.0.httpRequest.json.record: references unknown input "missing"',
+    );
+  });
+
+  test("keeps every plain string literal", () => {
+    const literal = parseWorkflowYaml(`
+triggers:
+  api: {}
+steps:
+  - httpRequest:
+      url: https://example.com/hook
+      json:
+        email: person@example.com
+        dotted: example.com.value
+        referenceLike: inputs.item.Name
+        functionLike: now()
+`);
+    expect(literal.ok).toBe(true);
+  });
+
+  test("validates sequential saved values and setVariable kinds", () => {
+    const result = parseWorkflowYaml(`
+triggers:
+  api: {}
+steps:
+  - createRecord:
+      table: Items
+      values:
+        Name: Created
+      saveAs: created
+  - setVariable:
+      name: selected
+      value: "\${{ created }}"
+  - updateRecord:
+      record: selected
+      set:
+        Name: Updated
+`);
+    expect(result.ok).toBe(true);
+  });
+
+  test("validates known structured output paths", () => {
+    const valid = parseWorkflowYaml(`
+inputs:
+  item:
+    type: record
+    table: Items
+triggers:
+  api: {}
+steps:
+  - generateDocument:
+      template: Label
+      record: inputs.item
+      saveAs: pdf
+  - createDocumentLink:
+      document: pdf
+      saveAs: link
+  - httpRequest:
+      url: https://example.com/hook
+      saveAs: hook
+  - setVariable:
+      name: filename
+      value: "\${{ pdf.filename }}"
+  - setVariable:
+      name: publicUrl
+      value: "\${{ link.url }}"
+  - setVariable:
+      name: status
+      value: "\${{ hook.status }}"
+`);
+    expect(valid.ok).toBe(true);
+
+    const invalid = parseWorkflowYaml(`
+inputs:
+  item:
+    type: record
+    table: Items
+triggers:
+  api: {}
+steps:
+  - generateDocument:
+      template: Label
+      record: inputs.item
+      saveAs: pdf
+  - setVariable:
+      name: invalid
+      value: "\${{ pdf.unknown }}"
+`);
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok) {
+      expect(invalid.diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+        'steps.1.setVariable.value: unknown document value path "unknown"',
+      );
+    }
+  });
+
+  test("rejects forward, duplicate, and escaped control-flow values", () => {
+    const result = parseWorkflowYaml(`
+triggers:
+  api: {}
+steps:
+  - setVariable:
+      name: forward
+      value: "\${{ later }}"
+  - setVariable:
+      name: duplicate
+      value: first
+  - setVariable:
+      name: duplicate
+      value: second
+  - if:
+      equals: [true, true]
+    then:
+      - setVariable:
+          name: branchOnly
+          value: yes
+  - setVariable:
+      name: escaped
+      value: "\${{ branchOnly }}"
+`);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics.map((diagnostic) => diagnostic.message)).toEqual(
+      expect.arrayContaining([
+        'steps.0.setVariable.value: references unknown value "later"',
+        'steps.2: value name "duplicate" is already defined',
+        'steps.4.setVariable.value: references unknown value "branchOnly"',
+      ]),
+    );
+  });
+
+  test("keeps loop aliases local and validates message expressions", () => {
+    const result = parseWorkflowYaml(`
+inputs:
+  items:
+    type: recordList
+    table: Items
+triggers:
+  bulkSelection:
+    input: items
+steps:
+  - forEach: inputs.items
+    as: item
+    do:
+      - succeed:
+          message: "Processed \${{ item.Name }} at \${{ now() }}"
+  - setVariable:
+      name: leaked
+      value: "\${{ item }}"
+`);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+      'steps.1.setVariable.value: references unknown value "item"',
+    );
+  });
+
+  test("does not treat a record field expression as a record reference", () => {
+    const result = parseWorkflowYaml(`
+inputs:
+  item:
+    type: record
+    table: Items
+triggers:
+  api: {}
+steps:
+  - setVariable:
+      name: scalar
+      value: "\${{ inputs.item.Name }}"
+  - updateRecord:
+      record: scalar
+      set:
+        Status: done
+`);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics.map((diagnostic) => diagnostic.message)).toContain(
+      "steps.1.updateRecord.record: record references value, expected record",
     );
   });
 

@@ -95,7 +95,7 @@ steps:
   - createRecord:
       table: Movements
       values:
-        Item: inputs.item
+        Item: "\${{ inputs.item }}"
   - generateDocument:
       template: Loan contract
       record: inputs.item
@@ -234,7 +234,7 @@ steps:
       to:
         - email: "customer@example.test"
       data:
-        link: labelLink
+        link: "\${{ labelLink }}"
       saveAs: sentEmail
 `);
 
@@ -279,7 +279,7 @@ steps:
               record: item
               set:
                 Missing else field: true
-      - switch: item.Status
+      - switch: "\${{ item.Status }}"
         cases:
           - when: Available
             do:
@@ -330,5 +330,61 @@ steps:
     expect(validateWorkflowReferences(definition, catalog({ tables: [], emailTemplates: [] }))).toEqual([
       'sendEmail.template: unknown reference "Missing email"',
     ]);
+  });
+
+  test("validates dynamic record fields in nested values and messages", () => {
+    const definition = parseDefinition(`
+inputs:
+  item:
+    type: record
+    table: Items
+triggers:
+  api: {}
+steps:
+  - httpRequest:
+      url: https://example.com/hook
+      json:
+        known: "\${{ inputs.item.Name }}"
+        missing: "\${{ inputs.item.Missing }}"
+  - succeed:
+      message: "Updated \${{ inputs.item.Other missing }}"
+`);
+
+    expect(
+      validateWorkflowReferences(
+        definition,
+        catalog({
+          tables: [{ id: "table-items", shortId: "itms1", name: "Items" }],
+          fields: { "table-items": [{ id: "field-name", shortId: "name1", name: "Name" }] },
+        }),
+      ),
+    ).toEqual(['httpRequest.json.missing: unknown field "Missing"', 'succeed.message: unknown field "Other missing"']);
+  });
+
+  test("propagates created record tables into later dynamic values", () => {
+    const definition = parseDefinition(`
+triggers:
+  api: {}
+steps:
+  - createRecord:
+      table: Items
+      values:
+        Name: Created
+      saveAs: created
+  - httpRequest:
+      url: https://example.com/hook
+      json:
+        missing: "\${{ created.Missing }}"
+`);
+
+    expect(
+      validateWorkflowReferences(
+        definition,
+        catalog({
+          tables: [{ id: "table-items", shortId: "itms1", name: "Items" }],
+          fields: { "table-items": [{ id: "field-name", shortId: "name1", name: "Name" }] },
+        }),
+      ),
+    ).toEqual(['httpRequest.json.missing: unknown field "Missing"']);
   });
 });

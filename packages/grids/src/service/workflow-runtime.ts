@@ -13,6 +13,12 @@ import type {
   WorkflowTriggerKind,
   WorkflowValue,
 } from "../contracts";
+import {
+  hasInvalidWorkflowMessageExpression,
+  parseWorkflowValueString,
+  workflowMessageExpressions,
+  workflowValueExpression,
+} from "../workflows/value-expression";
 import { logAudit } from "./audit";
 import { createDocumentLink, createRunForRecord, getTemplate, publicDocumentLinkUrl } from "./documents";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
@@ -144,6 +150,7 @@ type RuntimeContext = {
   input: Map<string, RuntimeValue>;
   variables: Map<string, RuntimeValue>;
   records: Map<string, GridRecord>;
+  readableTableIds: Set<string>;
   dateConfig: DateContext;
   leaseMs?: number;
   heartbeat?: () => Promise<void>;
@@ -217,6 +224,8 @@ const isWorkflowSucceed = (value: RuntimeValue | null): value is RuntimeWorkflow
   Boolean(value && typeof value === "object" && (value as { kind?: unknown }).kind === "workflowSucceed");
 
 const readRecord = async (ctx: RuntimeContext, ref: RuntimeRecord): Promise<Result<GridRecord>> => {
+  const permission = await requireTableReadPermission(ctx, ref.tableId);
+  if (!permission.ok) return permission;
   const cached = ctx.records.get(pathKey(ref));
   if (cached) return ok(cached);
   const record = await getRecord(ref.tableId, ref.recordId, { includeRelations: true, dateConfig: ctx.dateConfig });
@@ -260,8 +269,12 @@ const requireWorkflowRunPermission = async (ctx: RuntimeContext): Promise<Result
     : fail(err.forbidden("Workflow actor cannot run this workflow."));
 };
 
-const requireTableReadPermission = async (ctx: RuntimeContext, tableId: string): Promise<Result<void>> =>
-  requirePermission(ctx, { tableId }, "read");
+const requireTableReadPermission = async (ctx: RuntimeContext, tableId: string): Promise<Result<void>> => {
+  if (ctx.readableTableIds.has(tableId)) return ok();
+  const permission = await requirePermission(ctx, { tableId }, "read");
+  if (permission.ok) ctx.readableTableIds.add(tableId);
+  return permission;
+};
 
 const triggerConfig = (definition: WorkflowDefinition, kind: WorkflowTriggerKind): unknown => {
   switch (kind) {
@@ -315,6 +328,7 @@ const createRuntimeContext = async (params: ExecuteWorkflowParams, workflow: Wor
   input: new Map(),
   variables: new Map(),
   records: new Map(),
+  readableTableIds: new Set(),
   dateConfig: await workflowDateConfig(),
   leaseMs: params.leaseMs,
   heartbeat: params.heartbeat,
@@ -423,6 +437,7 @@ const resolveInputs = (ctx: RuntimeContext, rawInput: WorkflowRuntimeInput): Res
     const raw = rawInput[name];
     if (raw === undefined || raw === null) {
       if (input.required) return fail(err.badInput(`workflow input "${name}" is required`));
+      ctx.input.set(name, null);
       continue;
     }
     if (input.type === "record" || input.type === "recordList") {
@@ -449,19 +464,30 @@ const valueToPlain = (value: RuntimeValue): unknown => {
 };
 
 const readPathValue = async (ctx: RuntimeContext, root: RuntimeValue, fieldRef: string): Promise<Result<RuntimeValue>> => {
-  if (!isRecord(root)) return fail(err.badInput(`"${fieldRef}" requires a record value`));
-  const field = resolveWorkflowFieldRef(ctx.catalog, root.tableId, fieldRef);
-  if (!field) return fail(err.badInput(`unknown workflow field "${fieldRef}"`));
-  const record = await readRecord(ctx, root);
-  if (!record.ok) return record;
-  const gridRecord = record.data;
-  return ok((gridRecord.data[field.id] ?? null) as RuntimeValue);
+  if (isRecord(root)) {
+    const field = resolveWorkflowFieldRef(ctx.catalog, root.tableId, fieldRef);
+    if (!field) return fail(err.badInput(`unknown workflow field "${fieldRef}"`));
+    const record = await readRecord(ctx, root);
+    if (!record.ok) return record;
+    return ok((record.data.data[field.id] ?? null) as RuntimeValue);
+  }
+  let current: unknown = valueToPlain(root);
+  for (const segment of fieldRef.split(".")) {
+    if (!current || typeof current !== "object" || Array.isArray(current) || !(segment in current)) {
+      return fail(err.badInput(`unknown workflow value path "${fieldRef}"`));
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return ok((current ?? null) as RuntimeValue);
 };
 
 const evaluateValue = async (ctx: RuntimeContext, value: WorkflowValue): Promise<Result<RuntimeValue>> => {
   if (typeof value === "string") {
-    if (value === "now()") return ok(new Date().toISOString());
-    const [rootName, ...path] = value.split(".");
+    const parsed = parseWorkflowValueString(value);
+    if (parsed.kind === "invalid") return fail(err.badInput(`invalid workflow value expression "${value}"`));
+    if (parsed.kind === "literal") return ok(value);
+    if (parsed.expression.kind === "now") return ok(new Date().toISOString());
+    const [rootName, ...path] = parsed.expression.reference.split(".");
     if (rootName === "inputs") {
       const inputName = path.shift() ?? "";
       const root = ctx.input.get(inputName);
@@ -469,7 +495,7 @@ const evaluateValue = async (ctx: RuntimeContext, value: WorkflowValue): Promise
       return path.length > 0 ? readPathValue(ctx, root, path.join(".")) : ok(root);
     }
     const root = ctx.variables.get(rootName ?? "");
-    if (root === undefined) return ok(value);
+    if (root === undefined) return fail(err.badInput(`workflow value references unknown value "${rootName ?? ""}"`));
     return path.length > 0 ? readPathValue(ctx, root, path.join(".")) : ok(root);
   }
   if (Array.isArray(value)) {
@@ -493,10 +519,11 @@ const evaluateValue = async (ctx: RuntimeContext, value: WorkflowValue): Promise
   return ok(value);
 };
 
+const evaluateReference = (ctx: RuntimeContext, reference: string): Promise<Result<RuntimeValue>> =>
+  evaluateValue(ctx, workflowValueExpression(reference));
+
 const valuesEqual = (left: RuntimeValue, right: RuntimeValue): boolean =>
   JSON.stringify(valueToPlain(left)) === JSON.stringify(valueToPlain(right));
-
-const MESSAGE_EXPR_RE = /\{\{\s*([^{}]+?)\s*\}\}/g;
 
 const stringifyMessageValue = (value: RuntimeValue): string => {
   const plain = valueToPlain(value);
@@ -507,34 +534,22 @@ const stringifyMessageValue = (value: RuntimeValue): string => {
 };
 
 const evaluateMessageExpression = async (ctx: RuntimeContext, expression: string): Promise<Result<string>> => {
-  if (expression === "now()") {
-    const value = await evaluateValue(ctx, expression);
-    return value.ok ? ok(stringifyMessageValue(value.data)) : value;
-  }
-  const [rootName, inputName] = expression.split(".");
-  if (!rootName) return fail(err.badInput("workflow message expression is empty"));
-  if (rootName === "inputs") {
-    if (!inputName || !ctx.input.has(inputName))
-      return fail(err.badInput(`message expression "${expression}" references an unknown input`));
-  } else if (!ctx.variables.has(rootName)) {
-    return fail(err.badInput(`message expression "${expression}" references an unknown value`));
-  }
-  const value = await evaluateValue(ctx, expression);
+  const value = await evaluateValue(ctx, `\${{ ${expression} }}`);
   return value.ok ? ok(stringifyMessageValue(value.data)) : value;
 };
 
 const renderRuntimeMessage = async (ctx: RuntimeContext, raw: unknown, fallback: string): Promise<Result<string>> => {
   const template = String(raw ?? fallback);
+  if (hasInvalidWorkflowMessageExpression(template)) return fail(err.badInput(`invalid workflow message expression in "${template}"`));
   let rendered = "";
   let cursor = 0;
-  for (const match of template.matchAll(MESSAGE_EXPR_RE)) {
-    const index = match.index ?? 0;
-    rendered += template.slice(cursor, index);
-    const expression = match[1]?.trim() ?? "";
-    const evaluated = await evaluateMessageExpression(ctx, expression);
+  for (const expression of workflowMessageExpressions(template)) {
+    rendered += template.slice(cursor, expression.index);
+    if (!expression.expression) return fail(err.badInput(`invalid workflow message expression "${expression.source}"`));
+    const evaluated = await evaluateMessageExpression(ctx, expression.source);
     if (!evaluated.ok) return evaluated;
     rendered += evaluated.data;
-    cursor = index + match[0].length;
+    cursor = expression.index + expression.raw.length;
   }
   rendered += template.slice(cursor);
   if (rendered.length > 1000) return fail(err.badInput("workflow message renders longer than 1000 characters"));
@@ -544,7 +559,7 @@ const renderRuntimeMessage = async (ctx: RuntimeContext, raw: unknown, fallback:
 const stepOutputValue = (value: RuntimeValue | null): unknown => {
   if (value === null) return null;
   if (isRecord(value)) return { kind: "record", tableId: value.tableId, recordId: value.recordId };
-  if (isRecordList(value)) return { kind: "recordList", tableId: value.tableId, count: value.recordIds.length };
+  if (isRecordList(value)) return { kind: "recordList", tableId: value.tableId, recordIds: value.recordIds };
   if (isWorkflowSucceed(value)) return value;
   if (isGridRecord(value)) return { kind: "record", tableId: value.tableId, recordId: value.id };
   if (isDocumentRun(value)) return value;
@@ -643,7 +658,7 @@ const evaluateCondition = async (ctx: RuntimeContext, condition: RuntimeConditio
     return ok(!valuesEqual(left.data, right.data));
   }
   if (condition.exists) {
-    const value = await evaluateValue(ctx, condition.exists);
+    const value = await evaluateReference(ctx, condition.exists);
     return value.ok ? ok(value.data !== null && value.data !== undefined && value.data !== "") : value;
   }
   return fail(err.badInput("workflow condition has no operator"));
@@ -672,7 +687,7 @@ const workflowAuditMeta = (ctx: RuntimeContext) => ({
 });
 
 const executeUpdateRecord = async (ctx: RuntimeContext, action: RuntimeUpdateRecordAction): Promise<Result<RuntimeValue>> => {
-  const recordValue = await evaluateValue(ctx, action.record);
+  const recordValue = await evaluateReference(ctx, action.record);
   if (!recordValue.ok) return recordValue;
   if (!isRecord(recordValue.data)) return fail(err.badInput("updateRecord.record must resolve to a record"));
   const permission = await requirePermission(ctx, { tableId: recordValue.data.tableId }, "write");
@@ -741,7 +756,7 @@ const executeCreateRecord = async (ctx: RuntimeContext, action: RuntimeCreateRec
 const executeGenerateDocument = async (ctx: RuntimeContext, action: RuntimeGenerateDocumentAction): Promise<Result<RuntimeValue>> => {
   const templateRef = resolveWorkflowTemplateRef(ctx.catalog, action.template);
   if (!templateRef) return fail(err.badInput(`unknown workflow document template "${action.template}"`));
-  const recordValue = await evaluateValue(ctx, action.record);
+  const recordValue = await evaluateReference(ctx, action.record);
   if (!recordValue.ok) return recordValue;
   if (!isRecord(recordValue.data)) return fail(err.badInput("generateDocument.record must resolve to a record"));
   const permission = await requirePermission(ctx, { tableId: templateRef.tableId, documentTemplateId: templateRef.id }, "write");
@@ -793,7 +808,7 @@ const executeGenerateDocument = async (ctx: RuntimeContext, action: RuntimeGener
 };
 
 const executeCreateDocumentLink = async (ctx: RuntimeContext, action: RuntimeCreateDocumentLinkAction): Promise<Result<RuntimeValue>> => {
-  const documentValue = await evaluateValue(ctx, action.document);
+  const documentValue = await evaluateReference(ctx, action.document);
   if (!documentValue.ok) return documentValue;
   if (!isDocumentRun(documentValue.data)) return fail(err.badInput("createDocumentLink.document must resolve to a generated document"));
   const run = documentValue.data;
@@ -918,6 +933,16 @@ const heartbeatWorkflow = async (ctx: RuntimeContext): Promise<void> => {
   await Promise.all([heartbeatRun(ctx.runId, ctx.leaseMs), ctx.heartbeat?.()]);
 };
 
+const withVariableScope = async <T>(ctx: RuntimeContext, run: () => Promise<T>): Promise<T> => {
+  const previous = new Map(ctx.variables);
+  try {
+    return await run();
+  } finally {
+    ctx.variables.clear();
+    for (const [name, value] of previous) ctx.variables.set(name, value);
+  }
+};
+
 const executeActionStep = async (ctx: RuntimeContext, item: RuntimeStep): Promise<Result<RuntimeValue | null> | null> => {
   if ("updateRecord" in item) return executeUpdateRecord(ctx, item.updateRecord as RuntimeUpdateRecordAction);
   if ("createRecord" in item) return executeCreateRecord(ctx, item.createRecord as RuntimeCreateRecordAction);
@@ -947,6 +972,7 @@ const executeSteps = (ctx: RuntimeContext, runId: string): Promise<Result<Runtim
     {
       executeAction: (item) => executeActionStep(ctx, item),
       evaluateCondition: (condition) => evaluateCondition(ctx, condition as RuntimeCondition),
+      evaluateReference: (reference) => evaluateReference(ctx, reference),
       evaluateValue: (value) => evaluateValue(ctx, value),
       heartbeat: () => heartbeatWorkflow(ctx),
       isRecordList,
@@ -957,6 +983,7 @@ const executeSteps = (ctx: RuntimeContext, runId: string): Promise<Result<Runtim
       setLoopRecord: (alias, tableId, recordId) => ctx.variables.set(alias, { kind: "record", tableId, recordId }),
       stepOutputValue,
       valuesEqual,
+      withVariableScope: (run) => withVariableScope(ctx, run),
     },
     ctx.workflow.compiled.steps,
     runId,
@@ -1096,6 +1123,7 @@ const scannerWorkflowContext = async (
     input: new Map(),
     variables: new Map(),
     records: new Map(),
+    readableTableIds: new Set(),
     dateConfig: await workflowDateConfig(),
     leaseMs: params.leaseMs,
     heartbeat: params.heartbeat,
@@ -1162,6 +1190,7 @@ const bulkWorkflowContext = async (
     input: new Map(),
     variables: new Map(),
     records: new Map(),
+    readableTableIds: new Set(),
     dateConfig: await workflowDateConfig(),
     notificationSender: params.notificationSender ?? notifications,
   };
@@ -1357,6 +1386,7 @@ export const prepareRecordEvent = async (params: ExecuteRecordEventWorkflowParam
     input: new Map(),
     variables: new Map(),
     records: new Map(),
+    readableTableIds: new Set(),
     dateConfig: await workflowDateConfig(),
     leaseMs: params.leaseMs,
     heartbeat: params.heartbeat,

@@ -1014,12 +1014,12 @@ steps:
   - sendEmail:
       template: Loan agreement ready
       to:
-        - email: inputs.loan.Requester email
+        - email: \${{ inputs.loan.Requester email }}
       data:
-        agreement: agreementLink
-        loanNumber: inputs.loan.Loan number
-        requesterName: inputs.loan.Requester name
-        dueDate: inputs.loan.Due date
+        agreement: \${{ agreementLink }}
+        loanNumber: \${{ inputs.loan.Loan number }}
+        requesterName: \${{ inputs.loan.Requester name }}
+        dueDate: \${{ inputs.loan.Due date }}
   - succeed:
       message: Loan agreement sent.`,
       enabled: true,
