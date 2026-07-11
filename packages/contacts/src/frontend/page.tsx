@@ -54,7 +54,7 @@ export default ssr<AuthContext>(async (c) => {
   const hasDesktopDetailSelection = Boolean(selectedContact);
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts" }]}>
-      <AppWorkspace>
+      <AppWorkspace class="cloud-ui-soft">
         <ContactsLayoutHelp />
         <ContactsSidebar
           books={books}
@@ -64,21 +64,19 @@ export default ssr<AuthContext>(async (c) => {
           defaultCreateBookId={writableBooks[0]?.id ?? null}
         />
 
-        <AppWorkspace.Main>
+        <AppWorkspace.Main class="gap-[var(--ui-space-section)] p-[var(--ui-space-section)]">
           <div style="view-transition-name: contacts-page-header">
             <SearchBar value={search} />
           </div>
-          <div class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2" data-scroll-preserve="contacts-main-all">
-            <div class="pt-2" style="view-transition-name: contacts-list-container">
+          <div class="flex-1 min-h-0 overflow-y-auto flex flex-col" data-scroll-preserve="contacts-main-all">
+            <div style="view-transition-name: contacts-list-container">
               <ContactsList
                 contacts={contacts}
                 initialSelectedContactId={initialSelectedContactId}
                 initialSelectedBookId={initialSelectedBookId}
               />
             </div>
-            <div class="pb-4">
-              <Pagination currentPage={contactsResult.page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
-            </div>
+            <Pagination currentPage={contactsResult.page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
           </div>
         </AppWorkspace.Main>
 

@@ -5,6 +5,7 @@ import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../../config";
 import { contactsService } from "../../../service";
 import BookSettingsForm from "../../_components/BookSettingsForm.island";
+import ContactBookUnavailable from "../../_components/ContactBookUnavailable";
 import ContactsSidebar from "../../_components/ContactsSidebar";
 import ContactsLayoutHelp from "../../_components/help/ContactsLayoutHelp.island";
 
@@ -16,12 +17,11 @@ export default ssr<AuthContext>(async (c) => {
   if (!book) {
     return () => (
       <Layout c={c} title="Not Found">
-        <div class="max-w-md mx-auto mt-16">
-          <div class="paper p-8 flex items-center justify-center text-dimmed text-xs gap-2">
-            <i class="ti ti-alert-circle text-sm" />
-            Book not found
-          </div>
-        </div>
+        <ContactBookUnavailable
+          title="Contact book not found"
+          description="The book may have been deleted or this link is no longer valid."
+          icon="ti ti-address-book-off"
+        />
       </Layout>
     );
   }
@@ -40,12 +40,11 @@ export default ssr<AuthContext>(async (c) => {
   if (!hasReadAccess) {
     return () => (
       <Layout c={c} title="Access Denied">
-        <div class="max-w-md mx-auto mt-16">
-          <div class="paper p-8 flex items-center justify-center text-dimmed text-xs gap-2">
-            <i class="ti ti-lock text-sm" />
-            You don&apos;t have access to this contact book
-          </div>
-        </div>
+        <ContactBookUnavailable
+          title="Contact book unavailable"
+          description="Ask a book administrator to grant you access."
+          icon="ti ti-lock"
+        />
       </Layout>
     );
   }
@@ -91,7 +90,7 @@ export default ssr<AuthContext>(async (c) => {
       ]}
       fullWidth
     >
-      <AppWorkspace>
+      <AppWorkspace class="cloud-ui-soft">
         <ContactsLayoutHelp />
         <ContactsSidebar
           books={books}
@@ -102,7 +101,7 @@ export default ssr<AuthContext>(async (c) => {
         />
 
         <AppWorkspace.Main>
-          <div class="flex-1 min-h-0 p-2" data-scroll-preserve={`contacts-settings-${book.id}`}>
+          <div class="flex-1 min-h-0 p-[var(--ui-space-section)]" data-scroll-preserve={`contacts-settings-${book.id}`}>
             <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col" style="view-transition-name: contacts-settings-modal">
               <BookSettingsForm
                 bookId={book.id}

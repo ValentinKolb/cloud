@@ -5,6 +5,7 @@ import { AppWorkspace, Pagination } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../config";
 import { contactsService } from "../../service";
+import ContactBookUnavailable from "../_components/ContactBookUnavailable";
 import ContactDetailPanel from "../_components/ContactDetailPanel.island";
 import ContactsList from "../_components/ContactsList.island";
 import ContactsSidebar from "../_components/ContactsSidebar";
@@ -35,12 +36,11 @@ export default ssr<AuthContext>(async (c) => {
   if (!book) {
     return () => (
       <Layout c={c} title="Not Found">
-        <div class="mx-auto mt-16 max-w-md">
-          <div class="info-block-note flex items-center justify-center gap-2 p-8 text-xs">
-            <i class="ti ti-alert-circle text-sm" />
-            Book not found
-          </div>
-        </div>
+        <ContactBookUnavailable
+          title="Contact book not found"
+          description="The book may have been deleted or this link is no longer valid."
+          icon="ti ti-address-book-off"
+        />
       </Layout>
     );
   }
@@ -53,12 +53,11 @@ export default ssr<AuthContext>(async (c) => {
   if (!hasReadAccess) {
     return () => (
       <Layout c={c} title="Access Denied">
-        <div class="mx-auto mt-16 max-w-md">
-          <div class="info-block-warning flex items-center justify-center gap-2 p-8 text-xs">
-            <i class="ti ti-lock text-sm" />
-            You don&apos;t have access to this contact book
-          </div>
-        </div>
+        <ContactBookUnavailable
+          title="Contact book unavailable"
+          description="Ask a book administrator to grant you access."
+          icon="ti ti-lock"
+        />
       </Layout>
     );
   }
@@ -88,7 +87,7 @@ export default ssr<AuthContext>(async (c) => {
   const hasDesktopDetailSelection = Boolean(selectedContact);
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts", href: "/app/contacts" }, { title: book.name }]}>
-      <AppWorkspace>
+      <AppWorkspace class="cloud-ui-soft">
         <ContactsLayoutHelp />
         <ContactsSidebar
           books={books}
@@ -98,12 +97,12 @@ export default ssr<AuthContext>(async (c) => {
           defaultCreateBookId={canWrite ? book.id : (writableBooks[0]?.id ?? null)}
         />
 
-        <AppWorkspace.Main>
+        <AppWorkspace.Main class="gap-[var(--ui-space-section)] p-[var(--ui-space-section)]">
           <div style="view-transition-name: contacts-page-header">
             <SearchBar value={search} />
           </div>
           {bookTags.length > 0 && (
-            <div class="flex flex-wrap items-center gap-1.5 pt-2">
+            <div class="flex flex-wrap items-center gap-1.5">
               <a
                 href={search.trim() ? `/app/contacts/${bookId}?search=${encodeURIComponent(search.trim())}` : `/app/contacts/${bookId}`}
                 class={`inline-flex h-6 items-center gap-1 rounded-full border px-2 text-xs font-medium transition-colors ${
@@ -128,17 +127,15 @@ export default ssr<AuthContext>(async (c) => {
               })}
             </div>
           )}
-          <div class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2" data-scroll-preserve={`contacts-main-${book.id}`}>
-            <div class="pt-2" style="view-transition-name: contacts-list-container">
+          <div class="flex-1 min-h-0 overflow-y-auto flex flex-col" data-scroll-preserve={`contacts-main-${book.id}`}>
+            <div style="view-transition-name: contacts-list-container">
               <ContactsList
                 contacts={contacts}
                 initialSelectedContactId={initialSelectedContactId}
                 initialSelectedBookId={initialSelectedBookId}
               />
             </div>
-            <div class="pb-4">
-              <Pagination currentPage={contactsResult.page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
-            </div>
+            <Pagination currentPage={contactsResult.page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
           </div>
         </AppWorkspace.Main>
 
