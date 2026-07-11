@@ -1,6 +1,7 @@
 import type { AiConversation } from "@valentinkolb/cloud/ai";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
+import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal } from "solid-js";
 import { assistantApi } from "../api/client";
 import AssistantSidebar from "./AssistantSidebar";
@@ -17,13 +18,13 @@ export default function AssistantSidebarStandalone(props: Props) {
   const refreshCurrentPage = () => {
     if (props.activeView === "all") navigateTo(window.location.pathname + window.location.search);
   };
-  const createConversation = async () => {
-    try {
-      const conversation = await assistantApi.createConversation();
-      navigateTo(`/app/assistant?conversation=${conversation.id}`);
-    } catch {
-      await prompts.error("Failed to create chat.");
-    }
+  const createConversationMutation = mutation.create<AiConversation, void>({
+    mutation: () => assistantApi.createConversation(),
+    onSuccess: (conversation) => navigateTo(`/app/assistant?conversation=${conversation.id}`),
+    onError: () => void prompts.error("Failed to create chat."),
+  });
+  const createConversation = () => {
+    if (!createConversationMutation.loading()) void createConversationMutation.mutate();
   };
 
   return (
@@ -31,6 +32,7 @@ export default function AssistantSidebarStandalone(props: Props) {
       conversations={conversations}
       activeConversationId={activeConversationId}
       activeView={props.activeView ?? "chat"}
+      creatingConversation={createConversationMutation.loading}
       onNewConversation={createConversation}
       onConversationUpdated={(updated) => {
         setConversations((prev) => prev.map((conversation) => (conversation.id === updated.id ? updated : conversation)));

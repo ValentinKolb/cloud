@@ -11,6 +11,14 @@ import {
 import type { AiStoredMessage } from "../types";
 import { AiTurnBlockList } from "./blocks";
 import { AiMessageActionsProvider, type AiMessageListActions, AssistantMessageActions } from "./message-actions";
+import {
+  captureScrollSnapshot,
+  isNearBottom,
+  isScrollRestoreCurrent,
+  keepBottomAligned,
+  restoreAfterPrepend,
+  scrollToBottom,
+} from "./message-scroll";
 import { formatWorkedDuration, isCardToolName, isSurveyToolName, textFromMessage } from "./message-utils";
 import { AssistantMessageLane, ChatUtilityDisclosure, ChatUtilityLine, PulseDots } from "./primitives";
 import { SteerMessageBubble, UserMessageBubble } from "./user-message";
@@ -18,8 +26,10 @@ import { SteerMessageBubble, UserMessageBubble } from "./user-message";
 export type { AiMessageListActions };
 
 export type AiMessageListSession = {
+  conversationId?: () => string | null;
   messages: () => AiStoredMessage[];
   activeTurn: () => AiActiveTurn | null;
+  loading?: () => boolean;
   /** Infinite scroll: older history exists above the loaded window. */
   history?: {
     hasMore: () => boolean;
@@ -37,7 +47,7 @@ const findScrollParent = (node: HTMLElement | null): HTMLElement | null => {
   let current = node?.parentElement ?? null;
   while (current) {
     const style = getComputedStyle(current);
-    if ((style.overflowY === "auto" || style.overflowY === "scroll") && current.scrollHeight > current.clientHeight) return current;
+    if (style.overflowY === "auto" || style.overflowY === "scroll") return current;
     current = current.parentElement;
   }
   return null;
@@ -99,9 +109,7 @@ function AssistantResponseGroup(props: { item: AiAssistantTimelineItem }) {
     >
       <Show when={workedBlocks().length > 0}>
         <ChatUtilityDisclosure meta={{ icon: "ti ti-route", label: `Worked for ${formatWorkedDuration(props.item.workedMs)}` }}>
-          <div class="flex flex-col gap-1">
-            <AiTurnBlockList blocks={workedBlocks()} turnId={turnId()} />
-          </div>
+          <AiTurnBlockList blocks={workedBlocks()} turnId={turnId()} compact />
         </ChatUtilityDisclosure>
       </Show>
       <AiTurnBlockList blocks={visibleBlocks()} turnId={turnId()} />
@@ -124,8 +132,13 @@ function TimelineItemView(props: { item: AiMessageTimelineItem }) {
  */
 export function AiMessageList(props: { session: AiMessageListSession; actions?: AiMessageListActions; emptyTitle?: string }) {
   let endRef: HTMLDivElement | undefined;
+  let contentRef: HTMLDivElement | undefined;
   let topSentinelRef: HTMLDivElement | undefined;
   let scrollParent: HTMLElement | null = null;
+  let followFrame: number | undefined;
+  let historyRestoreFrame: number | undefined;
+  let scrollPhaseRevision = 0;
+  let preservingHistoryPosition = false;
 
   const timelineItems = createMemo(() => buildAiMessageTimeline(props.session.messages()));
   const activeTurn = () => props.session.activeTurn();
@@ -133,20 +146,45 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
   const activeSegments = createMemo(() => splitActiveTurnBlocks(activeBlocks()));
   const streaming = () => activeTurn()?.status === "running";
   const history = () => props.session.history;
+  const loading = () => props.session.loading?.() ?? false;
+  const hasContent = () => props.session.messages().length > 0 || Boolean(activeTurn());
+  const conversationKey = () =>
+    props.session.conversationId?.() ?? props.session.messages()[0]?.conversationId ?? activeTurn()?.turnId ?? "";
 
   // Follow mode: the view only sticks to the bottom while the reader is there.
   // Scrolling up detaches it — streaming deltas must never yank the reader down.
   const [pinned, setPinned] = createSignal(true);
+  const [scrollReady, setScrollReady] = createSignal(false);
+  const [historyError, setHistoryError] = createSignal<string | null>(null);
 
   const updatePinned = () => {
     if (!scrollParent) return;
-    const distance = scrollParent.scrollHeight - scrollParent.scrollTop - scrollParent.clientHeight;
-    setPinned(distance < AUTO_FOLLOW_THRESHOLD_PX);
+    setPinned(isNearBottom(scrollParent, AUTO_FOLLOW_THRESHOLD_PX));
+  };
+
+  const alignToBottom = () => {
+    if (!scrollParent) return;
+    keepBottomAligned(scrollParent, { following: pinned(), preservingHistoryPosition });
+  };
+
+  const scheduleBottomAlignment = () => {
+    if (followFrame !== undefined) return;
+    followFrame = requestAnimationFrame(() => {
+      followFrame = undefined;
+      alignToBottom();
+    });
   };
 
   const jumpToLatest = () => {
     setPinned(true);
-    endRef?.scrollIntoView({ block: "end", behavior: "smooth" });
+    if (scrollParent) scrollToBottom(scrollParent);
+  };
+
+  const cancelHistoryRestore = () => {
+    scrollPhaseRevision += 1;
+    preservingHistoryPosition = false;
+    if (historyRestoreFrame !== undefined) cancelAnimationFrame(historyRestoreFrame);
+    historyRestoreFrame = undefined;
   };
 
   /** Load one older page and keep the reader's position stable while content grows above. */
@@ -154,12 +192,34 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
     const pager = history();
     if (!pager || !scrollParent || pager.loading() || !pager.hasMore()) return;
     const parent = scrollParent;
-    const prevHeight = parent.scrollHeight;
-    const prevTop = parent.scrollTop;
-    const prepended = await pager.loadOlder();
+    const restoreToken = { conversationKey: conversationKey(), revision: scrollPhaseRevision };
+    const snapshot = captureScrollSnapshot(parent);
+    setHistoryError(null);
+    preservingHistoryPosition = true;
+    let prepended = false;
+    try {
+      prepended = await pager.loadOlder();
+    } catch (error) {
+      if (isScrollRestoreCurrent(restoreToken, conversationKey(), scrollPhaseRevision)) {
+        setHistoryError(error instanceof Error ? error.message : "Could not load older messages");
+      }
+    } finally {
+      if (!prepended && isScrollRestoreCurrent(restoreToken, conversationKey(), scrollPhaseRevision)) {
+        preservingHistoryPosition = false;
+      }
+    }
     if (!prepended) return;
-    requestAnimationFrame(() => {
-      parent.scrollTop = parent.scrollHeight - prevHeight + prevTop;
+    if (!isScrollRestoreCurrent(restoreToken, conversationKey(), scrollPhaseRevision)) return;
+    historyRestoreFrame = requestAnimationFrame(() => {
+      historyRestoreFrame = undefined;
+      if (!isScrollRestoreCurrent(restoreToken, conversationKey(), scrollPhaseRevision)) return;
+      if (scrollParent !== parent) {
+        preservingHistoryPosition = false;
+        return;
+      }
+      restoreAfterPrepend(parent, snapshot);
+      preservingHistoryPosition = false;
+      updatePinned();
       // Short pages may leave the sentinel visible without a new intersection
       // transition — keep loading until it is out of view or history ends.
       if (topSentinelRef && parent) {
@@ -173,10 +233,17 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
   onMount(() => {
     scrollParent = findScrollParent(endRef ?? null);
     if (scrollParent) {
+      setPinned(true);
+      scrollToBottom(scrollParent);
       scrollParent.addEventListener("scroll", updatePinned, { passive: true });
       onCleanup(() => scrollParent?.removeEventListener("scroll", updatePinned));
-      updatePinned();
+      const resizeObserver = new ResizeObserver(() => scheduleBottomAlignment());
+      resizeObserver.observe(scrollParent);
+      if (contentRef) resizeObserver.observe(contentRef);
+      onCleanup(() => resizeObserver.disconnect());
     }
+    setScrollReady(true);
+    scheduleBottomAlignment();
     if (topSentinelRef) {
       const observer = new IntersectionObserver(
         (entries) => {
@@ -187,16 +254,38 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
       observer.observe(topSentinelRef);
       onCleanup(() => observer.disconnect());
     }
+    onCleanup(() => {
+      if (followFrame !== undefined) cancelAnimationFrame(followFrame);
+      cancelHistoryRestore();
+    });
   });
 
   // Opening/switching a chat always starts at the latest message.
-  let lastConversationKey: string | null = null;
+  let lastConversationPhase: string | null = null;
   createEffect(() => {
-    const conversationKey = props.session.messages()[0]?.conversationId ?? "";
-    if (conversationKey !== lastConversationKey) {
-      lastConversationKey = conversationKey;
-      setPinned(true);
+    const key = conversationKey();
+    const phase = `${key}:${loading() ? "loading" : "ready"}`;
+    if (phase === lastConversationPhase) return;
+    lastConversationPhase = phase;
+    cancelHistoryRestore();
+    setHistoryError(null);
+    const phaseRevision = scrollPhaseRevision;
+    setPinned(true);
+    if (loading()) {
+      setScrollReady(false);
+      return;
     }
+    if (!hasContent()) {
+      setScrollReady(true);
+      return;
+    }
+    setScrollReady(false);
+    queueMicrotask(() => {
+      if (!isScrollRestoreCurrent({ conversationKey: key, revision: phaseRevision }, conversationKey(), scrollPhaseRevision)) return;
+      if (scrollParent) scrollToBottom(scrollParent);
+      setScrollReady(true);
+      scheduleBottomAlignment();
+    });
   });
 
   // Sending a message or a starting turn re-attaches the view to the bottom.
@@ -217,20 +306,18 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
     const last = activeBlocks().at(-1);
     if (last && (last.kind === "text" || last.kind === "thinking")) last.text.length;
     if (!pinned()) return;
-    queueMicrotask(() => endRef?.scrollIntoView({ block: "end" }));
+    scheduleBottomAlignment();
   });
-
-  const hasContent = () => props.session.messages().length > 0 || Boolean(activeTurn());
 
   return (
     <AiMessageActionsProvider actions={props.actions}>
-      <div class="min-h-full px-2 py-4 sm:px-4">
+      <div ref={contentRef} class="min-h-full px-2 py-4 sm:px-4" classList={{ invisible: hasContent() && !scrollReady() }}>
         <Show
           when={hasContent()}
           fallback={
             <div class="flex min-h-full items-center justify-center p-4">
-              <Placeholder surface="none" icon="ti ti-sparkles">
-                {props.emptyTitle ?? "Start a conversation"}
+              <Placeholder surface="none" icon={loading() ? "ti ti-loader-2 animate-spin" : "ti ti-sparkles"}>
+                {loading() ? "Loading conversation" : (props.emptyTitle ?? "Start a conversation")}
               </Placeholder>
             </div>
           }
@@ -239,6 +326,24 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
             <div ref={topSentinelRef} aria-hidden="true" />
             <Show when={history()?.loading()}>
               <ChatUtilityLine meta={{ icon: "ti ti-history", label: "Loading older messages" }} trailing={<PulseDots />} />
+            </Show>
+            <Show when={historyError()}>
+              {(message) => (
+                <ChatUtilityLine
+                  meta={{ icon: "ti ti-alert-circle", label: "Could not load older messages", description: message(), tone: "danger" }}
+                  trailing={
+                    <button
+                      type="button"
+                      class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md hover:bg-red-100/70 focus-ui dark:hover:bg-red-950/50"
+                      title="Retry"
+                      aria-label="Retry loading older messages"
+                      onClick={() => void maybeLoadOlder()}
+                    >
+                      <i class="ti ti-refresh text-sm" aria-hidden="true" />
+                    </button>
+                  }
+                />
+              )}
             </Show>
             <For each={timelineItems()}>{(item) => <TimelineItemView item={item} />}</For>
             <Show when={activeTurn()}>

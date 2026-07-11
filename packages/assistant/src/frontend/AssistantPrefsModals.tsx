@@ -81,10 +81,12 @@ function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab;
     },
     onError: (error) => prompts.error(error.message),
   });
+  const busy = save.loading;
 
   return (
     <PanelDialog>
       <form
+        aria-busy={busy()}
         onSubmit={(event) => {
           event.preventDefault();
           void save.mutate(undefined);
@@ -95,6 +97,7 @@ function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab;
           subtitle="How the assistant addresses you, and what it remembers."
           icon="ti ti-user-cog"
           close={() => props.close()}
+          closeDisabled={busy()}
         />
         <PanelDialog.Body>
           <PanelDialog.Tabs
@@ -120,11 +123,17 @@ function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab;
                   lines={9}
                   maxLength={INSTRUCTIONS_MAX_CHARS}
                   placeholder={"I study computer science and prefer short, technical answers.\nAlways answer in German."}
+                  disabled={busy()}
                 />
                 <SystemPromptDisclosure />
               </Match>
               <Match when={tab() === "memory"}>
-                <Switch label="Let the assistant remember things about you" value={memoryEnabled} onChange={setMemoryEnabled} />
+                <Switch
+                  label="Let the assistant remember things about you"
+                  value={memoryEnabled}
+                  onChange={setMemoryEnabled}
+                  disabled={busy()}
+                />
                 <TextInput
                   label="Memories"
                   description="One memory per line, stamped with the date it was saved. The assistant reads this list in every chat and can add or remove entries."
@@ -134,6 +143,7 @@ function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab;
                   lines={9}
                   maxLength={MEMORY_MAX_CHARS}
                   placeholder={"Studies computer science at Uni Ulm.\nPrefers answers in German."}
+                  disabled={busy()}
                 />
               </Match>
             </SolidSwitch>
@@ -142,10 +152,10 @@ function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab;
         <PanelDialog.Footer>
           <span />
           <div class="flex items-center gap-2">
-            <button type="button" class="btn-secondary btn-sm" disabled={save.loading()} onClick={() => props.close()}>
+            <button type="button" class="btn-secondary btn-sm" disabled={busy()} onClick={() => props.close()}>
               Cancel
             </button>
-            <button type="submit" class="btn-primary btn-sm" disabled={save.loading() || !dirty()}>
+            <button type="submit" class="btn-primary btn-sm" disabled={busy() || !dirty()}>
               <i class={save.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} />
               Save
             </button>
@@ -164,7 +174,10 @@ export const openAssistantPrefsModal = async (initialTab: AssistantPrefsTab = "p
     await prompts.error(error instanceof Error ? error.message : "Failed to load AI preferences");
     return;
   }
-  await dialogCore.open<void>((close) => <PrefsDialog prefs={prefs} initialTab={initialTab} close={() => close()} />, panelDialogOptions);
+  await dialogCore.open<void>((close) => <PrefsDialog prefs={prefs} initialTab={initialTab} close={() => close()} />, {
+    ...panelDialogOptions,
+    cancelBehavior: "ignore",
+  });
 };
 
 /** @deprecated Use openAssistantPrefsModal — both preference areas live in one tabbed dialog now. */

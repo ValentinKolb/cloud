@@ -1,7 +1,7 @@
 import type { Message, Usage } from "@valentinkolb/nessi";
-import { clipboard } from "@valentinkolb/stdlib/solid";
-import { createContext, createSignal, For, type JSX, Show, useContext } from "solid-js";
-import { dialogCore, PanelDialog, panelDialogOptions, StatCell, StatGrid, TextInput } from "../../ui";
+import { clipboard, mutation } from "@valentinkolb/stdlib/solid";
+import { createContext, For, type JSX, Show, useContext } from "solid-js";
+import { dialogCore, PanelDialog, panelDialogOptions, prompts, StatCell, StatGrid } from "../../ui";
 import type { AiTurnBlock } from "../protocol";
 import type { AiStoredMessage } from "../types";
 import { type AiForkMessageInput, type AiRetryMessageInput, displayToolName, formatWorkedDuration } from "./message-utils";
@@ -16,6 +16,8 @@ type RetryMessageHandler = (entry: AiStoredMessage, input?: AiRetryMessageInput)
 type RetrySteerHandler = (block: Extract<AiTurnBlock, { kind: "steer_message" }>) => void | Promise<void>;
 
 export type AiMessageListActions = {
+  /** Prevents turn-continuation actions while the current turn is stopping. */
+  actionDisabled?: () => boolean;
   onApproval?: ApprovalHandler;
   onFrontendToolResult?: FrontendToolResultHandler;
   onForkMessage?: ForkMessageHandler;
@@ -206,84 +208,39 @@ const forkTitleFromText = (text: string): string => {
   return firstLine.length > 80 ? `${firstLine.slice(0, 77).trim()}...` : firstLine;
 };
 
-function ForkMessageDialog(props: {
-  entry: AiStoredMessage;
-  copyText: string;
-  close: () => void;
-  onForkMessage: (entry: AiStoredMessage, input?: AiForkMessageInput) => void | Promise<void>;
-}) {
-  const [title, setTitle] = createSignal(forkTitleFromText(props.copyText));
-  const [submitting, setSubmitting] = createSignal(false);
-
-  const submit = async () => {
-    const nextTitle = title().trim();
-    if (!nextTitle || submitting()) return;
-    setSubmitting(true);
-    try {
-      await props.onForkMessage(props.entry, { title: nextTitle });
-      props.close();
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <PanelDialog>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <PanelDialog.Header
-          title="Fork chat"
-          subtitle="Create a new chat that keeps the conversation up to this response."
-          icon="ti ti-git-fork"
-          close={props.close}
-        />
-        <PanelDialog.Body>
-          <p class="text-sm leading-6 text-secondary">
-            The new chat starts from this assistant response, so you can explore a different direction without changing the current chat.
-          </p>
-          <TextInput
-            label="New chat name"
-            value={title}
-            onInput={setTitle}
-            required
-            maxLength={120}
-            placeholder="Name for the forked chat"
-          />
-        </PanelDialog.Body>
-        <PanelDialog.Footer>
-          <span />
-          <div class="flex items-center gap-2">
-            <button type="button" class="btn-secondary btn-sm" disabled={submitting()} onClick={props.close}>
-              Cancel
-            </button>
-            <button type="submit" class="btn-primary btn-sm" disabled={submitting() || !title().trim()}>
-              <i class={submitting() ? "ti ti-loader-2 animate-spin" : "ti ti-git-fork"} />
-              Fork chat
-            </button>
-          </div>
-        </PanelDialog.Footer>
-      </form>
-    </PanelDialog>
-  );
-}
-
-const openForkMessageDialog = (
+const openForkMessageDialog = async (
   entry: AiStoredMessage,
   copyText: string,
   onForkMessage: (entry: AiStoredMessage, input?: AiForkMessageInput) => void | Promise<void>,
-) =>
-  dialogCore.open<void>(
-    (close) => <ForkMessageDialog entry={entry} copyText={copyText} onForkMessage={onForkMessage} close={() => close()} />,
-    panelDialogOptions,
-  );
+) => {
+  const result = await prompts.form({
+    title: "Fork chat",
+    icon: "ti ti-git-fork",
+    confirmText: "Fork",
+    size: "medium",
+    fields: {
+      title: {
+        type: "text",
+        label: "Chat name",
+        default: forkTitleFromText(copyText),
+        required: true,
+        maxLength: 120,
+      },
+    },
+  });
+  const title = result?.title.trim();
+  if (title) await onForkMessage(entry, { title });
+};
 
 export function AssistantMessageActions(props: { entry: AiStoredMessage; entries: AiStoredMessage[]; copyText: string }) {
   const actions = useAiMessageActions();
   const { copy, wasCopied } = clipboard.create(1400);
+  const fork = mutation.create<void, void>({
+    mutation: async () => {
+      if (actions.onForkMessage) await openForkMessageDialog(props.entry, props.copyText, actions.onForkMessage);
+    },
+  });
+  const forkFailed = () => Boolean(fork.error());
 
   return (
     <div class="pointer-events-auto flex items-center gap-0.5 text-dimmed">
@@ -307,17 +264,23 @@ export function AssistantMessageActions(props: { entry: AiStoredMessage; entries
         <i class={`ti ${wasCopied() ? "ti-check" : "ti-copy"} text-sm`} aria-hidden="true" />
       </button>
       <Show when={actions.onForkMessage}>
-        {(onForkMessage) => (
-          <button
-            type="button"
-            class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"
-            aria-label="Fork conversation"
-            title="Fork"
-            onClick={() => void openForkMessageDialog(props.entry, props.copyText, onForkMessage())}
-          >
-            <i class="ti ti-git-fork text-sm" aria-hidden="true" />
-          </button>
-        )}
+        <button
+          type="button"
+          class={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 disabled:opacity-40 dark:hover:bg-zinc-900 ${
+            forkFailed() ? "text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" : "hover:text-primary"
+          }`}
+          aria-label={forkFailed() ? "Fork failed. Try again" : "Fork conversation"}
+          title={forkFailed() ? "Fork failed. Try again" : "Fork"}
+          disabled={fork.loading()}
+          onClick={() => {
+            if (!fork.loading()) void fork.mutate();
+          }}
+        >
+          <i
+            class={`ti ${fork.loading() ? "ti-loader-2 animate-spin" : forkFailed() ? "ti-alert-circle" : "ti-git-fork"} text-sm`}
+            aria-hidden="true"
+          />
+        </button>
       </Show>
     </div>
   );

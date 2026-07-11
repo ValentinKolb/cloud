@@ -1,8 +1,8 @@
-import { clipboard } from "@valentinkolb/stdlib/solid";
+import { clipboard, mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { DialogHeader, Dropdown, type DropdownItem, dialogCore, TextInput } from "../../ui";
 import type { AiTurnBlock } from "../protocol";
-import type { AiStoredMessage } from "../types";
+import type { AiStoredMessage, AiUserContentPart } from "../types";
 import { useAiMessageActions } from "./message-actions";
 import {
   type AiRetryMessageInput,
@@ -24,12 +24,15 @@ const openModifyRetryDialog = (
     (close) => {
       const [draft, setDraft] = createSignal(userVisibleTextFromMessage(entry.message));
       const content = () => userContentWithEditedVisibleText(entry.message, draft());
-      const canRetry = () => content().length > 0;
+      const retryMutation = mutation.create<void, AiUserContentPart[]>({
+        mutation: async (nextContent) => onRetryMessage(entry, { content: nextContent }),
+        onSuccess: () => close(),
+      });
+      const canRetry = () => content().length > 0 && !retryMutation.loading();
       const retry = () => {
         const nextContent = content();
-        if (nextContent.length === 0) return;
-        close();
-        void onRetryMessage(entry, { content: nextContent });
+        if (nextContent.length === 0 || retryMutation.loading()) return;
+        void retryMutation.mutate(nextContent);
       };
 
       return (
@@ -51,9 +54,13 @@ const openModifyRetryDialog = (
               Cancel
             </button>
             <button type="button" class="btn-ai btn-sm" disabled={!canRetry()} onClick={retry}>
-              Try again
+              <i class={`ti ${retryMutation.loading() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} aria-hidden="true" />
+              {retryMutation.loading() ? "Trying again" : "Try again"}
             </button>
           </div>
+          <Show when={retryMutation.error()}>
+            <p class="px-4 pb-4 text-xs text-red-600 dark:text-red-400">Could not retry this message. Your changes are still here.</p>
+          </Show>
         </div>
       );
     },
@@ -74,26 +81,33 @@ export function UserMessageBubble(props: { entry: AiStoredMessage }) {
   const vfsAttachments = () => vfsAttachmentsFromMessage(message());
   const copyText = () => copyTextFromMessage(message());
   const { copy, wasCopied } = clipboard.create(1400);
-  const retryMenuItems = (
-    onRetryMessage: (entry: AiStoredMessage, input?: AiRetryMessageInput) => void | Promise<void>,
-  ): DropdownItem[] => [
+  const retry = mutation.create<void, AiRetryMessageInput | undefined>({
+    mutation: async (input) => {
+      if (!actions.onRetryMessage) throw new Error("Retry is unavailable.");
+      await actions.onRetryMessage(props.entry, input);
+    },
+  });
+  const submitRetry = (input?: AiRetryMessageInput) => {
+    if (!retry.loading()) void retry.mutate(input);
+  };
+  const retryMenuItems = (): DropdownItem[] => [
     {
       sectionLabel: "Try again",
       items: [
         {
           icon: "ti ti-refresh",
           label: "Try again",
-          action: () => void onRetryMessage(props.entry, { mode: "retry" }),
+          action: () => submitRetry({ mode: "retry" }),
         },
         {
           icon: "ti ti-list-details",
           label: "More detailed",
-          action: () => void onRetryMessage(props.entry, { mode: "details" }),
+          action: () => submitRetry({ mode: "details" }),
         },
         {
           icon: "ti ti-align-left",
           label: "More concise",
-          action: () => void onRetryMessage(props.entry, { mode: "concise" }),
+          action: () => submitRetry({ mode: "concise" }),
         },
       ],
     },
@@ -103,7 +117,9 @@ export function UserMessageBubble(props: { entry: AiStoredMessage }) {
         {
           icon: "ti ti-pencil",
           label: "Edit prompt",
-          action: () => openModifyRetryDialog(props.entry, onRetryMessage),
+          action: () => {
+            if (actions.onRetryMessage) openModifyRetryDialog(props.entry, actions.onRetryMessage);
+          },
         },
       ],
     },
@@ -156,7 +172,7 @@ export function UserMessageBubble(props: { entry: AiStoredMessage }) {
             <p class="whitespace-pre-wrap">{text()}</p>
           </div>
         </Show>
-        <div class="flex items-center gap-0.5 text-dimmed opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <div class="flex items-center gap-0.5 text-dimmed opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 sm:focus-within:opacity-100">
           <Show when={copyText()}>
             <button
               type="button"
@@ -170,11 +186,19 @@ export function UserMessageBubble(props: { entry: AiStoredMessage }) {
           </Show>
           {/* Compacted messages left the model context — retrying them would rewrite history the model no longer shares. */}
           <Show when={!props.entry.compactedAt ? actions.onRetryMessage : undefined}>
-            {(onRetryMessage) => (
+            <Show
+              when={!retry.loading()}
+              fallback={
+                <span class="inline-flex h-7 w-7 items-center justify-center" title="Trying again">
+                  <i class="ti ti-loader-2 animate-spin text-sm" aria-hidden="true" />
+                  <span class="sr-only">Trying again</span>
+                </span>
+              }
+            >
               <Dropdown
                 position="bottom-left"
                 width="w-56"
-                elements={retryMenuItems(onRetryMessage())}
+                elements={retryMenuItems()}
                 trigger={
                   <span
                     class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"
@@ -185,9 +209,19 @@ export function UserMessageBubble(props: { entry: AiStoredMessage }) {
                   </span>
                 }
               />
-            )}
+            </Show>
           </Show>
         </div>
+        <Show when={retry.error()}>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 text-[10px] font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+            onClick={() => void retry.retry()}
+          >
+            <i class="ti ti-refresh text-xs" aria-hidden="true" />
+            Retry failed. Try again
+          </button>
+        </Show>
       </div>
     </div>
   );

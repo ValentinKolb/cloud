@@ -1,7 +1,9 @@
-import { For, type JSX, Match, Show, Switch } from "solid-js";
+import { mutation } from "@valentinkolb/stdlib/solid";
+import { createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import { markdown } from "../../shared";
 import type { AiTurnBlock } from "../protocol";
 import { isRenderableTurnBlock } from "../protocol";
+import { BashToolBlock, PresentToolBlock } from "./bash-tools";
 import { useAiMessageActions } from "./message-actions";
 import {
   displayToolName,
@@ -12,7 +14,6 @@ import {
   jsonPreview,
   toolBlockSummary,
 } from "./message-utils";
-import { BashToolBlock, PresentToolBlock } from "./bash-tools";
 import { AssistantMarkdownBlock, ChatUtilityDisclosure, ChatUtilityLine, PulseDots } from "./primitives";
 import { CloudCardBlock, CloudSurveyBlock, CloudSurveyResultBlock } from "./visual-tools";
 import { WebExtractToolBlock, WebSearchToolBlock } from "./web-tools";
@@ -116,6 +117,18 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
   const actions = useAiMessageActions();
   const request = () => ({ turnId: props.turnId, callId: props.block.callId, name: props.block.name });
   const pending = () => props.block.status === "awaiting_approval";
+  const actionDisabled = () => actions.actionDisabled?.() ?? false;
+  const [submitted, setSubmitted] = createSignal(false);
+  const approval = mutation.create<void, { approved: boolean; remember?: "always" }>({
+    mutation: async (input) => {
+      if (!actions.onApproval) throw new Error("Approval is unavailable.");
+      await actions.onApproval(request(), input);
+    },
+    onSuccess: () => setSubmitted(true),
+  });
+  const submit = (input: { approved: boolean; remember?: "always" }) => {
+    if (!actionDisabled() && !approval.loading()) void approval.mutate(input);
+  };
   return (
     <div class="max-w-xl rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-sm text-amber-950 dark:border-amber-900/70 dark:bg-amber-950/25 dark:text-amber-100">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -127,23 +140,46 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
           when={pending()}
           fallback={<span class="text-xs font-medium opacity-80">{props.block.status === "rejected" ? "rejected" : "approved"}</span>}
         >
-          <div class="flex shrink-0 flex-wrap gap-1">
-            <button type="button" class="btn-input btn-input-sm" onClick={() => void actions.onApproval?.(request(), { approved: false })}>
-              Reject
-            </button>
-            <button type="button" class="btn-ai btn-sm" onClick={() => void actions.onApproval?.(request(), { approved: true })}>
-              Approve
-            </button>
-            <Show when={props.block.approval?.allowAlways}>
-              <button
-                type="button"
-                class="btn-input btn-input-sm"
-                onClick={() => void actions.onApproval?.(request(), { approved: true, remember: "always" })}
+          <Show when={actions.onApproval} fallback={<span class="text-xs font-medium opacity-80">Approval unavailable</span>}>
+            <div class="shrink-0">
+              <Show
+                when={!actionDisabled()}
+                fallback={
+                  <span class="inline-flex items-center gap-1 text-xs font-medium opacity-80">
+                    <i class="ti ti-player-stop" aria-hidden="true" />
+                    Stopping response
+                  </span>
+                }
               >
-                Always allow
-              </button>
-            </Show>
-          </div>
+                <Show
+                  when={!approval.loading() && !submitted()}
+                  fallback={
+                    <span class="inline-flex items-center gap-1 text-xs font-medium opacity-80">
+                      <i class={`ti ${submitted() ? "ti-check" : "ti-loader-2 animate-spin"}`} aria-hidden="true" />
+                      {submitted() ? "Submitted" : "Submitting"}
+                    </span>
+                  }
+                >
+                  <div class="flex flex-wrap gap-1">
+                    <button type="button" class="btn-input btn-input-sm" onClick={() => submit({ approved: false })}>
+                      Reject
+                    </button>
+                    <button type="button" class="btn-ai btn-sm" onClick={() => submit({ approved: true })}>
+                      Approve
+                    </button>
+                    <Show when={props.block.approval?.allowAlways}>
+                      <button type="button" class="btn-input btn-input-sm" onClick={() => submit({ approved: true, remember: "always" })}>
+                        Always allow
+                      </button>
+                    </Show>
+                  </div>
+                </Show>
+              </Show>
+              <Show when={approval.error()}>
+                <p class="mt-1 text-xs text-red-700 dark:text-red-300">Could not submit. Try again.</p>
+              </Show>
+            </div>
+          </Show>
         </Show>
       </div>
       <ChatUtilityDisclosure meta={{ icon: "ti ti-list-details", label: "Show details" }} class="mt-2">
@@ -158,12 +194,18 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
 function SurveyToolView(props: { turnId: string; block: ToolBlock }) {
   const actions = useAiMessageActions();
   const request = () => ({ turnId: props.turnId, callId: props.block.callId, name: props.block.name });
+  const submit = actions.onFrontendToolResult;
   const submittedResult = () =>
     props.block.status === "completed" && isRecord(props.block.result) && props.block.result.submitted === true ? props.block.result : null;
   return (
     <Switch fallback={<CloudSurveyBlock args={props.block.args} disabled />}>
       <Match when={props.block.status === "awaiting_client"}>
-        <CloudSurveyBlock args={props.block.args} onSubmit={(result) => actions.onFrontendToolResult?.(request(), result)} />
+        <CloudSurveyBlock
+          args={props.block.args}
+          disabled={!submit || actions.actionDisabled?.()}
+          disabledLabel={actions.actionDisabled?.() ? "Stopping response." : undefined}
+          onSubmit={submit ? (result) => submit(request(), result) : undefined}
+        />
       </Match>
       <Match when={submittedResult()}>{(result) => <CloudSurveyResultBlock args={props.block.args} result={result()} />}</Match>
     </Switch>
@@ -232,13 +274,15 @@ export function AiTurnBlockView(props: { block: AiTurnBlock; turnId: string; str
   }
 }
 
-export function AiTurnBlockList(props: { blocks: AiTurnBlock[]; turnId: string; streaming?: boolean }) {
+export function AiTurnBlockList(props: { blocks: AiTurnBlock[]; turnId: string; streaming?: boolean; compact?: boolean }) {
   const visible = () => props.blocks.filter(isRenderableTurnBlock);
   return (
-    <For each={visible()}>
-      {(block, index) => (
-        <AiTurnBlockView block={block} turnId={props.turnId} streaming={props.streaming && index() === visible().length - 1} />
-      )}
-    </For>
+    <div class={`flex flex-col ${props.compact ? "gap-1" : "gap-2"}`}>
+      <For each={visible()}>
+        {(block, index) => (
+          <AiTurnBlockView block={block} turnId={props.turnId} streaming={props.streaming && index() === visible().length - 1} />
+        )}
+      </For>
+    </div>
   );
 }

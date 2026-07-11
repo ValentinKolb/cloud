@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { LoopAggregate, Message, Usage } from "@valentinkolb/nessi";
 import type { AiStoredMessage } from "../types";
-import { latestLoopUsage, latestUsage } from "./message-utils";
+import { latestLoopUsage, latestUsage, latestUsageSnapshot } from "./message-utils";
 
 const storedAssistant = (input: { usage: Usage; aggregate?: LoopAggregate }): AiStoredMessage => {
   const message: Message = {
@@ -64,6 +64,7 @@ describe("AI usage selectors", () => {
 
     expect(latestUsage(messages)).toEqual(finalRequest);
     expect(latestLoopUsage(messages)).toEqual(loopUsage);
+    expect(latestUsageSnapshot(messages)).toEqual({ request: finalRequest, loop: loopUsage, modelProfileId: "model-1" });
   });
 
   test("falls back to stored turn usage for legacy single-turn messages", () => {

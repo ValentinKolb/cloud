@@ -1,3 +1,4 @@
+import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { isRecord, jsonPreview } from "./message-utils";
 
@@ -70,12 +71,25 @@ export function CloudCardBlock(props: { args: unknown }) {
   );
 }
 
-export function CloudSurveyBlock(props: { args: unknown; disabled?: boolean; onSubmit?: (result: unknown) => void | Promise<void> }) {
+export function CloudSurveyBlock(props: {
+  args: unknown;
+  disabled?: boolean;
+  disabledLabel?: string;
+  onSubmit?: (result: unknown) => void | Promise<void>;
+}) {
   const survey = () => (isRecord(props.args) ? props.args : null);
   const questions = () => (Array.isArray(survey()?.questions) ? (survey()!.questions as unknown[]).filter(isRecord) : []);
   const [answers, setAnswers] = createSignal<Record<string, unknown>>({});
   const [error, setError] = createSignal<string | null>(null);
   const [submitted, setSubmitted] = createSignal(false);
+  const submission = mutation.create<void, unknown>({
+    mutation: async (result) => {
+      if (!props.onSubmit) throw new Error("Survey submission is unavailable.");
+      await props.onSubmit(result);
+    },
+    onSuccess: () => setSubmitted(true),
+    onError: (submissionError) => setError(submissionError.message || "Could not submit the survey. Try again."),
+  });
 
   const setAnswer = (id: string, value: unknown) => setAnswers((prev) => ({ ...prev, [id]: value }));
   const toggleAnswer = (id: string, value: string, checked: boolean) => {
@@ -93,9 +107,9 @@ export function CloudSurveyBlock(props: { args: unknown; disabled?: boolean; onS
       return;
     }
     setError(null);
-    setSubmitted(true);
-    await props.onSubmit?.({ submitted: true, answers: answers() });
+    if (!submission.loading()) await submission.mutate({ submitted: true, answers: answers() });
   };
+  const disabled = () => Boolean(props.disabled || submitted() || submission.loading() || !props.onSubmit);
 
   return (
     <div class="max-w-xl rounded-md border border-zinc-200 bg-white/80 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
@@ -127,7 +141,7 @@ export function CloudSurveyBlock(props: { args: unknown; disabled?: boolean; onS
                             <button
                               type="button"
                               class={`btn-input btn-input-sm ${answers()[id()] === option.value ? "border-cyan-300 bg-cyan-50 text-cyan-700 dark:border-cyan-800 dark:bg-cyan-950/40 dark:text-cyan-200" : ""}`}
-                              disabled={props.disabled || submitted()}
+                              disabled={disabled()}
                               onClick={() => setAnswer(id(), option.value)}
                             >
                               {String(option.label ?? option.value ?? "")}
@@ -143,7 +157,7 @@ export function CloudSurveyBlock(props: { args: unknown; disabled?: boolean; onS
                             <label class="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 px-2 py-1 text-xs text-secondary dark:border-zinc-800">
                               <input
                                 type="checkbox"
-                                disabled={props.disabled || submitted()}
+                                disabled={disabled()}
                                 checked={Array.isArray(answers()[id()]) && (answers()[id()] as string[]).includes(String(option.value))}
                                 onChange={(event) => toggleAnswer(id(), String(option.value), event.currentTarget.checked)}
                               />
@@ -156,7 +170,7 @@ export function CloudSurveyBlock(props: { args: unknown; disabled?: boolean; onS
                     <Show when={question.type === "text"}>
                       <input
                         class="input mt-1 h-9 w-full text-sm"
-                        disabled={props.disabled || submitted()}
+                        disabled={disabled()}
                         placeholder={typeof question.placeholder === "string" ? question.placeholder : ""}
                         value={String(answers()[id()] ?? "")}
                         onInput={(event) => setAnswer(id(), event.currentTarget.value)}
@@ -166,7 +180,7 @@ export function CloudSurveyBlock(props: { args: unknown; disabled?: boolean; onS
                       <input
                         class="mt-2 w-full accent-cyan-500"
                         type="range"
-                        disabled={props.disabled || submitted()}
+                        disabled={disabled()}
                         min={typeof question.min === "number" ? question.min : 1}
                         max={typeof question.max === "number" ? question.max : 5}
                         value={Number(answers()[id()] ?? question.min ?? 1)}
@@ -183,11 +197,18 @@ export function CloudSurveyBlock(props: { args: unknown; disabled?: boolean; onS
             <p class="mt-2 text-xs text-red-600 dark:text-red-300">{error()}</p>
           </Show>
           <Show
-            when={!props.disabled && !submitted()}
-            fallback={<p class="mt-3 text-xs text-dimmed">{submitted() ? "Submitted" : "Waiting for the assistant to continue."}</p>}
+            when={!props.disabled && !submitted() && props.onSubmit}
+            fallback={
+              <p class="mt-3 text-xs text-dimmed">
+                {submitted() ? "Submitted" : (props.disabledLabel ?? "Waiting for the assistant to continue.")}
+              </p>
+            }
           >
-            <button type="button" class="btn-ai btn-sm mt-3" onClick={() => void submit()}>
-              {String(survey()?.submitLabel ?? "Submit")}
+            <button type="button" class="btn-ai btn-sm mt-3" disabled={submission.loading()} onClick={() => void submit()}>
+              <Show when={submission.loading()}>
+                <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
+              </Show>
+              {submission.loading() ? "Submitting" : String(survey()?.submitLabel ?? "Submit")}
             </button>
           </Show>
         </div>
@@ -235,7 +256,10 @@ export function CloudSurveyResultBlock(props: { args?: unknown; result: unknown 
         <i class="ti ti-forms shrink-0 text-base leading-none" aria-hidden="true" />
         <span class="shrink-0 font-medium">survey</span>
         <span class="min-w-0 truncate">{String(survey()?.title ?? "Survey")} · submitted</span>
-        <i class="ti ti-chevron-right shrink-0 text-base leading-none opacity-60 transition-transform group-open:rotate-90" aria-hidden="true" />
+        <i
+          class="ti ti-chevron-right shrink-0 text-base leading-none opacity-60 transition-transform group-open:rotate-90"
+          aria-hidden="true"
+        />
       </summary>
       <div class="mt-1 max-w-xl rounded-md bg-zinc-100/70 px-2.5 py-2 [box-shadow:var(--theme-recess)] dark:bg-zinc-950/70">
         <Show when={rows().length > 0} fallback={<p class="text-xs text-dimmed">No answers submitted.</p>}>

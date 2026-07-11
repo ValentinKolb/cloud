@@ -1,4 +1,4 @@
-import { fileIcons } from "@valentinkolb/stdlib";
+import { fileIcons, highlight } from "@valentinkolb/stdlib";
 import { Show } from "solid-js";
 import { formatAiFileSize } from "../attachments";
 import type { AiTurnBlock } from "../protocol";
@@ -18,12 +18,20 @@ const toStringArray = (value: unknown): string[] => (Array.isArray(value) ? valu
 const bashResult = (result: unknown): BashResult | null => {
   if (!isRecord(result) || typeof result.exitCode !== "number") return null;
   const files = isRecord(result.files)
-    ? { created: toStringArray(result.files.created), updated: toStringArray(result.files.updated), deleted: toStringArray(result.files.deleted) }
+    ? {
+        created: toStringArray(result.files.created),
+        updated: toStringArray(result.files.updated),
+        deleted: toStringArray(result.files.deleted),
+      }
     : undefined;
   return { stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? ""), exitCode: result.exitCode, files };
 };
 
-const firstLine = (text: string): string => text.split("\n").find((line) => line.trim())?.trim() ?? "";
+const firstLine = (text: string): string =>
+  text
+    .split("\n")
+    .find((line) => line.trim())
+    ?.trim() ?? "";
 
 /** First line that says something — skips separators like "---" or "===" (frontmatter, rules). */
 const firstMeaningfulLine = (text: string): string =>
@@ -84,12 +92,18 @@ export function BashToolBlock(props: { block: ToolBlock }) {
       >
         <div class="max-w-xl overflow-hidden rounded-md bg-zinc-950 font-mono text-[11px] leading-5 text-zinc-100 [box-shadow:var(--theme-recess)] dark:bg-black/60">
           <div class="max-h-72 overflow-auto p-2.5">
-            <pre class="whitespace-pre-wrap text-cyan-300">
-              {command()
-                .split("\n")
-                .map((line, index) => (index === 0 ? `$ ${line}` : `  ${line}`))
-                .join("\n")}
-            </pre>
+            <div class="flex">
+              <pre class="shrink-0 select-none pr-2 text-cyan-400" aria-hidden="true">
+                {command()
+                  .split("\n")
+                  .map((_, index) => (index === 0 ? "$" : ">"))
+                  .join("\n")}
+              </pre>
+              <pre
+                class="min-w-0 flex-1 whitespace-pre-wrap break-words text-cyan-300 [&_.hl-comment]:italic [&_.hl-comment]:text-zinc-500 [&_.hl-keyword]:font-medium [&_.hl-keyword]:text-violet-300 [&_.hl-number]:text-amber-300 [&_.hl-operator]:text-zinc-400 [&_.hl-string]:text-emerald-300 [&_.hl-variable]:text-amber-300"
+                innerHTML={highlight.presets.shell(command())}
+              />
+            </div>
             <Show when={result()}>
               {(bash) => (
                 <>

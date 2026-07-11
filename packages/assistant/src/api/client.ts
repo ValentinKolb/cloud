@@ -14,7 +14,7 @@ export const assistantApi = {
     if (input.q) params.set("q", input.q);
     if (input.limit) params.set("limit", String(input.limit));
     const response = await fetch(`${BASE}/conversations?${params.toString()}`, { signal: input.signal });
-    if (!response.ok) return [];
+    if (!response.ok) throw new Error(await readError(response, "Failed to search chats"));
     return (await response.json()) as AiConversation[];
   },
 

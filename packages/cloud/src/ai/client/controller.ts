@@ -3,13 +3,7 @@ import { createStore, reconcile } from "solid-js/store";
 import { type AiAttachmentRef, aiAttachmentMarker } from "../attachments";
 import { type AiStreamSseEvent, type AiTurnBlock, type AiTurnSnapshot, steerMessageBlockId } from "../protocol";
 import type { AiConversation, AiStoredMessage, AiTurn, AiTurnSteer, AiUserContentPart } from "../types";
-import {
-  type AiChatProjection,
-  activeTurnFromSnapshot,
-  emptyProjection,
-  reduceProjection,
-  visibleMessages,
-} from "./projection";
+import { type AiChatProjection, activeTurnFromSnapshot, emptyProjection, reduceProjection, visibleMessages } from "./projection";
 import { type AiStreamHandle, subscribeAiStream } from "./transport";
 
 export type AiChatRunStatus = "idle" | "streaming" | "waiting_for_action" | "stopping" | "failed";
@@ -31,12 +25,30 @@ type AiConversationDetail = {
 
 type AiMessagesPage = { messages: AiStoredMessage[]; hasMore: boolean };
 type SubmitTurnResult = { turn: AiTurn; message: AiStoredMessage };
+type AiStreamSession = { conversationId: string; generation: number };
 
 const detailToProjection = (detail: AiConversationDetail): AiChatProjection => ({
   conversation: detail.conversation,
   messages: detail.messages,
   activeTurn: activeTurnFromSnapshot(detail.activeTurn),
 });
+
+const projectionForConversationOpen = (cached: AiChatProjection | undefined, conversation: AiConversation | null): AiChatProjection =>
+  cached ?? emptyProjection(conversation);
+
+const claimFrontendCall = (handled: Set<string>, inFlight: Set<string>, key: string): boolean => {
+  if (handled.has(key) || inFlight.has(key)) return false;
+  inFlight.add(key);
+  return true;
+};
+
+const settleFrontendCall = (handled: Set<string>, inFlight: Set<string>, key: string, submitted: boolean): void => {
+  inFlight.delete(key);
+  if (submitted) handled.add(key);
+};
+
+const isCurrentStreamSession = (current: AiStreamSession | null, candidate: AiStreamSession): boolean =>
+  current?.conversationId === candidate.conversationId && current.generation === candidate.generation;
 
 export type CreateAiChatControllerOptions = {
   /** API base path, e.g. "/api/assistant". */
@@ -70,25 +82,46 @@ const failSteerBlock = (blocks: AiTurnBlock[], blockId: string): AiTurnBlock[] =
   blocks.map((block) => (block.id === blockId && block.kind === "steer_message" ? { ...block, status: "failed" } : block));
 
 export const createAiChatController = (options: CreateAiChatControllerOptions) => {
-  const [conversations, setConversations] = createSignal(options.initialConversations ?? []);
+  const [conversations, setConversationsSignal] = createSignal(options.initialConversations ?? []);
+  let conversationListRevision = 0;
+  const setConversations: typeof setConversationsSignal = (value) => {
+    conversationListRevision += 1;
+    return setConversationsSignal(value);
+  };
   const [activeConversationId, setActiveConversationIdSignal] = createSignal<string | null>(options.initialConversationId ?? null);
   const [globalError, setGlobalError] = createSignal<string | null>(options.initialError ?? null);
   const [runStatusRaw, setRunStatusRaw] = createSignal<AiChatRunStatus | null>(null);
   const [streamStatus, setStreamStatus] = createSignal<AiStreamStatus>("idle");
-  const [state, setState] = createStore<AiChatProjection>(
-    options.initialDetail ? detailToProjection(options.initialDetail) : emptyProjection(),
-  );
+  const initialProjection = options.initialDetail ? detailToProjection(options.initialDetail) : emptyProjection();
+  const [state, setState] = createStore<AiChatProjection>(initialProjection);
 
   // Cache of projections for conversations opened this session (fast switching).
   const cache = new Map<string, AiChatProjection>();
+  if (options.initialConversationId && options.initialDetail) cache.set(options.initialConversationId, initialProjection);
   // Infinite scroll state per conversation (history is windowed, oldest first).
   const [hasMoreByConversation, setHasMoreByConversation] = createSignal<Record<string, boolean>>({});
-  const [loadingOlder, setLoadingOlder] = createSignal(false);
+  const [loadingOlderConversationId, setLoadingOlderConversationId] = createSignal<string | null>(null);
+  const [loadingConversationId, setLoadingConversationId] = createSignal<string | null>(null);
   const setHasMore = (conversationId: string, hasMore: boolean) =>
     setHasMoreByConversation((current) => ({ ...current, [conversationId]: hasMore }));
   const handledFrontendCalls = new Set<string>();
+  const inFlightFrontendCalls = new Set<string>();
+  const abortRequests = new Map<string, Promise<boolean>>();
   let stream: AiStreamHandle | null = null;
-  let streamConversationId: string | null = null;
+  let streamSession: AiStreamSession | null = null;
+  let streamGeneration = 0;
+  let conversationOpenGeneration = 0;
+  let fileRefreshGeneration = 0;
+
+  const isActiveConversation = (conversationId: string) => activeConversationId() === conversationId;
+  const setConversationError = (conversationId: string, message: string) => {
+    if (isActiveConversation(conversationId)) setGlobalError(message);
+  };
+  const invalidateInactiveCache = (conversationId: string): boolean => {
+    if (isActiveConversation(conversationId)) return false;
+    cache.delete(conversationId);
+    return true;
+  };
 
   const currentParams = () => (options.params ? (isAccessor(options.params) ? options.params() : options.params) : {});
   const url = (path: string, extra?: Record<string, string>) => {
@@ -136,19 +169,20 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
    * detail refetch. The finished compaction block stays visible until the fresh
    * state replaces it in a single step.
    */
-  const foldCompaction = async (conversationId: string, event: AiStreamSseEvent) => {
-    const detail = await loadDetail(conversationId);
-    if (streamConversationId !== conversationId) return;
+  const foldCompaction = async (session: AiStreamSession, event: AiStreamSseEvent) => {
+    const detail = await loadDetail(session.conversationId, () => isCurrentStreamSession(streamSession, session));
+    if (!isCurrentStreamSession(streamSession, session)) return;
     if (detail) {
-      setProjection(detailToProjection(detail), conversationId);
-      setHasMore(conversationId, detail.hasMoreMessages ?? false);
-    } else reduceEvent(conversationId, event);
+      setProjection(detailToProjection(detail), session.conversationId);
+      setHasMore(session.conversationId, detail.hasMoreMessages ?? false);
+    } else reduceEvent(session.conversationId, event);
     setRunStatusRaw(null);
     void refreshConversations();
   };
 
-  const applyEvent = (conversationId: string, event: AiStreamSseEvent) => {
-    if (streamConversationId !== conversationId) return;
+  const applyEvent = (session: AiStreamSession, event: AiStreamSseEvent) => {
+    if (!isCurrentStreamSession(streamSession, session)) return;
+    const conversationId = session.conversationId;
 
     if (event.type === "state") setHasMore(conversationId, event.hasMoreMessages ?? false);
 
@@ -157,11 +191,12 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       state.activeTurn?.turnId === event.turnId &&
       state.activeTurn.blocks.some((block) => block.kind === "compaction")
     ) {
-      void foldCompaction(conversationId, event);
+      void foldCompaction(session, event);
       return;
     }
 
     reduceEvent(conversationId, event);
+    if (event.type === "state" && loadingConversationId() === conversationId) setLoadingConversationId(null);
     if (runStatusRaw() && runStatusRaw() !== "stopping") setRunStatusRaw(null);
 
     if (event.type === "turn_finished") {
@@ -176,26 +211,30 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   const closeStream = () => {
     stream?.close();
     stream = null;
-    streamConversationId = null;
+    streamSession = null;
     setStreamStatus("idle");
   };
 
   const openStream = (conversationId: string) => {
-    if (streamConversationId === conversationId && stream) return;
+    if (streamSession?.conversationId === conversationId && stream) return;
     closeStream();
-    streamConversationId = conversationId;
+    const session = { conversationId, generation: ++streamGeneration };
+    streamSession = session;
     stream = subscribeAiStream({
       url: url(`/conversations/${conversationId}/stream`),
-      onStatus: setStreamStatus,
-      onEvent: (event) => applyEvent(conversationId, event),
+      onStatus: (status) => {
+        if (isCurrentStreamSession(streamSession, session)) setStreamStatus(status);
+      },
+      onEvent: (event) => applyEvent(session, event),
     });
   };
 
   // ---- frontend tools ---------------------------------------------------
 
   const runFrontendTools = () => {
+    const conversationId = activeConversationId();
     const turn = state.activeTurn;
-    if (!turn || turn.status !== "waiting_for_action") return;
+    if (!conversationId || !turn || turn.status !== "waiting_for_action") return;
     for (const block of turn.blocks) {
       if (block.kind !== "tool" || block.status !== "awaiting_client") continue;
       const mode = block.frontendMode ?? "client";
@@ -204,25 +243,32 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       // submitting for either would race a request that isn't ours to answer.
       if (mode !== "client") continue;
       const key = `${turn.turnId}:${block.callId}`;
-      if (handledFrontendCalls.has(key)) continue;
-      handledFrontendCalls.add(key);
-      void executeFrontendTool(turn.turnId, block.callId, block.name, block.args);
+      if (!claimFrontendCall(handledFrontendCalls, inFlightFrontendCalls, key)) continue;
+      void executeFrontendTool(conversationId, turn.turnId, block.callId, block.name, block.args).then((submitted) => {
+        settleFrontendCall(handledFrontendCalls, inFlightFrontendCalls, key, submitted);
+      });
     }
   };
 
-  const executeFrontendTool = async (turnId: string, callId: string, name: string, args: unknown) => {
+  const executeFrontendTool = async (
+    conversationId: string,
+    turnId: string,
+    callId: string,
+    name: string,
+    args: unknown,
+  ): Promise<boolean> => {
     const handler = options.frontendTools?.[name];
     // Never fake-answer a client tool: without a registered handler the
     // request must stay pending for whatever UI renders it.
     if (!handler) {
       console.warn(`No frontend handler registered for AI tool "${name}" — leaving the action request pending.`);
-      return;
+      return false;
     }
     try {
       const result = await handler({ name, callId, args, turnId });
-      await submitTurnAction(turnId, callId, { type: "tool_result", result });
+      return submitTurnActionForConversation(conversationId, turnId, callId, { type: "tool_result", result });
     } catch (toolError) {
-      await submitTurnAction(turnId, callId, {
+      return submitTurnActionForConversation(conversationId, turnId, callId, {
         type: "tool_result",
         result: { error: toolError instanceof Error ? toolError.message : "Frontend tool failed" },
       });
@@ -232,19 +278,24 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   // ---- conversation loading --------------------------------------------
 
   const refreshConversations = async () => {
+    const revision = ++conversationListRevision;
     try {
       const list = await request<AiConversation[]>(`/conversations`, { method: "GET" }, "Failed to load conversations");
-      setConversations(list);
+      if (revision === conversationListRevision) setConversationsSignal(list);
     } catch (loadError) {
-      setGlobalError(loadError instanceof Error ? loadError.message : "Failed to load conversations");
+      if (revision === conversationListRevision) {
+        setGlobalError(loadError instanceof Error ? loadError.message : "Failed to load conversations");
+      }
     }
   };
 
-  const loadDetail = async (conversationId: string): Promise<AiConversationDetail | null> => {
+  const loadDetail = async (conversationId: string, shouldReportError: () => boolean): Promise<AiConversationDetail | null> => {
     try {
       return await request<AiConversationDetail>(`/conversations/${conversationId}`, { method: "GET" }, "Failed to open conversation");
     } catch (loadError) {
-      setGlobalError(loadError instanceof Error ? loadError.message : "Failed to open conversation");
+      if (shouldReportError()) {
+        setConversationError(conversationId, loadError instanceof Error ? loadError.message : "Failed to open conversation");
+      }
       return null;
     }
   };
@@ -255,18 +306,26 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   };
 
   const openConversation = async (conversationId: string) => {
+    if (activeConversationId() === conversationId && state.conversation?.id === conversationId) return;
+    const generation = ++conversationOpenGeneration;
     setGlobalError(null);
     setRunStatusRaw(null);
-    handledFrontendCalls.clear();
-    setActiveConversationIdSignal(conversationId);
 
     const cached = cache.get(conversationId);
-    if (cached) setState(reconcile(cached, { key: "id", merge: true }));
+    const conversation = conversations().find((item) => item.id === conversationId) ?? null;
+    setActiveConversationIdSignal(conversationId);
+    setState(reconcile(projectionForConversationOpen(cached, conversation), { key: "id", merge: true }));
+    setLoadingConversationId(cached ? null : conversationId);
 
     openStream(conversationId);
+    setVfsFileCount(0);
     void refreshFiles();
-    const detail = await loadDetail(conversationId);
-    if (detail && activeConversationId() === conversationId) {
+    const detail = await loadDetail(
+      conversationId,
+      () => activeConversationId() === conversationId && generation === conversationOpenGeneration,
+    );
+    if (detail && activeConversationId() === conversationId && generation === conversationOpenGeneration) {
+      setConversations((current) => [detail.conversation, ...current.filter((item) => item.id !== conversationId)]);
       // A cached view may hold history the fresh window doesn't — preserve it
       // (same rule as the SSE state snapshot) so the scrollback never shrinks.
       const windowOldest = detail.messages[0]?.seq;
@@ -275,22 +334,24 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       if (preservedOlder.length === 0) setHasMore(conversationId, detail.hasMoreMessages ?? false);
       runFrontendTools();
     }
+    if (generation === conversationOpenGeneration && loadingConversationId() === conversationId) setLoadingConversationId(null);
   };
 
   /** Load one older page above the current window (infinite scroll). Returns whether anything was prepended. */
   const loadOlderMessages = async (): Promise<boolean> => {
     const conversationId = activeConversationId();
-    if (!conversationId || loadingOlder()) return false;
+    if (!conversationId || loadingOlderConversationId() === conversationId) return false;
     if (!(hasMoreByConversation()[conversationId] ?? false)) return false;
     const oldest = state.messages[0]?.seq;
     if (oldest === undefined) return false;
 
-    setLoadingOlder(true);
+    setGlobalError(null);
+    setLoadingOlderConversationId(conversationId);
     try {
       const response = await fetch(url(`/conversations/${conversationId}/messages`, { before: String(oldest), limit: "50" }));
       if (!response.ok) throw new Error(await readError(response, "Failed to load older messages"));
       const page = (await response.json()) as AiMessagesPage;
-      if (activeConversationId() !== conversationId) return false;
+      if (!isActiveConversation(conversationId)) return false;
       const known = new Set(state.messages.map((message) => message.id));
       const fresh = page.messages.filter((message) => !known.has(message.id));
       if (fresh.length > 0) setState("messages", (prev) => [...fresh, ...prev]);
@@ -298,17 +359,21 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
       return fresh.length > 0;
     } catch (loadError) {
-      setGlobalError(loadError instanceof Error ? loadError.message : "Failed to load older messages");
-      return false;
+      const error = loadError instanceof Error ? loadError : new Error("Failed to load older messages");
+      setConversationError(conversationId, error.message);
+      throw error;
     } finally {
-      setLoadingOlder(false);
+      if (loadingOlderConversationId() === conversationId) setLoadingOlderConversationId(null);
     }
   };
 
   const setActiveConversationId = (conversationId: string | null) => {
     if (conversationId) void openConversation(conversationId);
     else {
+      conversationOpenGeneration += 1;
+      setGlobalError(null);
       setActiveConversationIdSignal(null);
+      setLoadingConversationId(null);
       closeStream();
       setVfsFileCount(0);
       setState(reconcile(emptyProjection(), { key: "id", merge: true }));
@@ -316,6 +381,8 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   };
 
   const createConversation = async (input: { title?: string } = {}) => {
+    const generation = ++conversationOpenGeneration;
+    setGlobalError(null);
     try {
       const conversation = await request<AiConversation>(
         `/conversations`,
@@ -323,15 +390,20 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
         "Failed to create conversation",
       );
       setConversations((prev) => [conversation, ...prev.filter((item) => item.id !== conversation.id)]);
-      setProjection(emptyProjection(conversation), conversation.id);
+      const projection = emptyProjection(conversation);
+      cache.set(conversation.id, projection);
       setHasMore(conversation.id, false);
+      if (generation !== conversationOpenGeneration) return conversation;
+      setState(reconcile(projection, { key: "id", merge: true }));
       setActiveConversationIdSignal(conversation.id);
-      handledFrontendCalls.clear();
+      setLoadingConversationId(null);
       setVfsFileCount(0);
       openStream(conversation.id);
       return conversation;
     } catch (createError) {
-      setGlobalError(createError instanceof Error ? createError.message : "Failed to create conversation");
+      if (generation === conversationOpenGeneration) {
+        setGlobalError(createError instanceof Error ? createError.message : "Failed to create conversation");
+      }
       return null;
     }
   };
@@ -355,9 +427,12 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     if (!text && !input.content?.length && !input.files?.length) return false;
     const conversationId = await ensureConversation();
     if (!conversationId) return false;
-    if (running()) return false;
+    if (isActiveConversation(conversationId) && running()) return false;
 
-    setGlobalError(null);
+    if (isActiveConversation(conversationId)) setGlobalError(null);
+    const baseProjection = isActiveConversation(conversationId)
+      ? { conversation: state.conversation, messages: [...state.messages], activeTurn: state.activeTurn }
+      : (cache.get(conversationId) ?? emptyProjection(conversations().find((item) => item.id === conversationId) ?? null));
 
     // Upload attachments first — their VFS paths become part of the message.
     let attachmentParts: { type: "attachment"; path: string; mediaType: string; size: number }[] = [];
@@ -366,7 +441,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
         const refs = await Promise.all(input.files.map((file) => uploadConversationFile(conversationId, file)));
         attachmentParts = refs.map((ref) => ({ type: "attachment" as const, ...ref }));
       } catch (uploadError) {
-        setGlobalError(uploadError instanceof Error ? uploadError.message : "Attachment upload failed");
+        setConversationError(conversationId, uploadError instanceof Error ? uploadError.message : "Attachment upload failed");
         return false;
       }
     }
@@ -382,7 +457,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     const optimistic: AiStoredMessage = {
       id: `pending-${Date.now()}`,
       conversationId,
-      seq: (state.messages.at(-1)?.seq ?? 0) + 1,
+      seq: (baseProjection.messages.at(-1)?.seq ?? 0) + 1,
       kind: "message",
       message: { role: "user", content: optimisticContent },
       loopId: null,
@@ -396,8 +471,12 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       meta: null,
       createdAt: new Date().toISOString(),
     };
-    setState("messages", (prev) => [...prev, optimistic]);
-    setRunStatusRaw("streaming");
+    const optimisticProjection = { ...baseProjection, messages: [...baseProjection.messages, optimistic] };
+    cache.set(conversationId, optimisticProjection);
+    if (isActiveConversation(conversationId)) {
+      setState("messages", (prev) => [...prev, optimistic]);
+      setRunStatusRaw("streaming");
+    }
 
     try {
       const result = await request<SubmitTurnResult>(
@@ -412,25 +491,30 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
         },
         "AI request failed",
       );
+      if (invalidateInactiveCache(conversationId)) return true;
       // Replace the optimistic message with the persisted one.
       setState("messages", (prev) => prev.map((message) => (message.id === optimistic.id ? result.message : message)));
-      setState("activeTurn", (current) =>
-        current ?? {
-          turnId: result.turn.id,
-          attempt: 0,
-          seq: 0,
-          status: "running",
-          blocks: [],
-          modelProfileId: result.turn.modelProfileId,
-        },
+      setState(
+        "activeTurn",
+        (current) =>
+          current ?? {
+            turnId: result.turn.id,
+            attempt: 0,
+            seq: 0,
+            status: "running",
+            blocks: [],
+            modelProfileId: result.turn.modelProfileId,
+          },
       );
       cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
       if (attachmentParts.length > 0) void refreshFiles();
       return true;
     } catch (sendError) {
+      if (invalidateInactiveCache(conversationId)) return false;
       setState("messages", (prev) => prev.filter((message) => message.id !== optimistic.id));
+      cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
       setRunStatusRaw("failed");
-      setGlobalError(sendError instanceof Error ? sendError.message : "AI request failed");
+      setConversationError(conversationId, sendError instanceof Error ? sendError.message : "AI request failed");
       return false;
     }
   };
@@ -446,6 +530,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
         { method: "POST", body: JSON.stringify({ message: input.text, clientRequestId: input.clientRequestId }) },
         "Failed to steer the current response",
       );
+      if (invalidateInactiveCache(conversationId)) return true;
       setState("activeTurn", (current) => {
         if (!current || current.turnId !== turn.turnId) return current;
         return { ...current, blocks: reconcileSteerBlocks(current.blocks, input.blockId, result) };
@@ -453,6 +538,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
       return true;
     } catch (steerError) {
+      if (invalidateInactiveCache(conversationId)) return true;
       setState("activeTurn", (current) =>
         current
           ? {
@@ -461,7 +547,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
             }
           : current,
       );
-      setGlobalError(steerError instanceof Error ? steerError.message : "Failed to steer the current response");
+      setConversationError(conversationId, steerError instanceof Error ? steerError.message : "Failed to steer the current response");
       return true;
     }
   };
@@ -485,6 +571,9 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
           }
         : current,
     );
+    const conversationId = activeConversationId();
+    if (conversationId)
+      cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
     return submitSteer({ text, clientRequestId, blockId });
   };
 
@@ -501,6 +590,9 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
           }
         : current,
     );
+    const conversationId = activeConversationId();
+    if (conversationId)
+      cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
     return submitSteer({ text: block.text, clientRequestId: block.steerId, blockId: block.id });
   };
 
@@ -514,30 +606,57 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   // Number of files in the conversation VFS — drives the composer's files chip.
   const [vfsFileCount, setVfsFileCount] = createSignal(0);
   const refreshFiles = async () => {
+    const generation = ++fileRefreshGeneration;
     const conversationId = activeConversationId();
     if (!conversationId) {
       setVfsFileCount(0);
       return;
     }
     try {
-      const result = await request<{ files: unknown[] }>(`/conversations/${conversationId}/files`, { method: "GET" }, "Failed to load files");
-      setVfsFileCount(result.files.length);
+      const result = await request<{ files: unknown[] }>(
+        `/conversations/${conversationId}/files`,
+        { method: "GET" },
+        "Failed to load files",
+      );
+      if (generation === fileRefreshGeneration && isActiveConversation(conversationId)) setVfsFileCount(result.files.length);
     } catch {
       // Non-critical indicator — keep the previous count on transient errors.
     }
   };
 
-  const abort = () => {
+  const abort = (): Promise<boolean> => {
     const turn = state.activeTurn;
     const conversationId = activeConversationId();
-    if (!turn || !conversationId) return;
+    if (!turn || !conversationId) return Promise.resolve(false);
+    const key = `${conversationId}:${turn.turnId}`;
+    const inFlight = abortRequests.get(key);
+    if (inFlight) return inFlight;
+
+    setGlobalError(null);
     setRunStatusRaw("stopping");
-    void request(`/conversations/${conversationId}/turns/${turn.turnId}/abort`, { method: "POST" }, "Failed to stop AI turn")
-      .then(() => void refreshConversations())
+    const requestPromise = request(
+      `/conversations/${conversationId}/turns/${turn.turnId}/abort`,
+      { method: "POST" },
+      "Failed to stop AI turn",
+    )
+      .then(() => {
+        void refreshConversations();
+        return true;
+      })
       .catch((abortError) => {
-        setRunStatusRaw("failed");
-        setGlobalError(abortError instanceof Error ? abortError.message : "Failed to stop AI turn");
+        if (isActiveConversation(conversationId) && state.activeTurn?.turnId === turn.turnId) {
+          // The server did not accept the abort, so the existing turn is still
+          // authoritative and Stop must remain available for another attempt.
+          setRunStatusRaw(null);
+          setConversationError(conversationId, abortError instanceof Error ? abortError.message : "Failed to stop AI turn");
+        }
+        return false;
+      })
+      .finally(() => {
+        abortRequests.delete(key);
       });
+    abortRequests.set(key, requestPromise);
+    return requestPromise;
   };
 
   const compactConversation = async (input: { modelProfileId?: string } = {}) => {
@@ -550,13 +669,15 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       setGlobalError("Stop the current response before compacting context.");
       return false;
     }
+    setGlobalError(null);
     setRunStatusRaw("streaming");
     try {
       await request(`/conversations/${conversationId}/compact`, { method: "POST", body: JSON.stringify(input) }, "AI compaction failed");
       return true;
     } catch (compactError) {
+      if (!isActiveConversation(conversationId)) return false;
       setRunStatusRaw("failed");
-      setGlobalError(compactError instanceof Error ? compactError.message : "AI compaction failed");
+      setConversationError(conversationId, compactError instanceof Error ? compactError.message : "AI compaction failed");
       return false;
     }
   };
@@ -578,12 +699,15 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
         },
         "AI retry failed",
       );
+      if (invalidateInactiveCache(conversationId)) return true;
       // Truncate the client view to before the retried message, then show the new one.
       setState("messages", (prev) => [...prev.filter((message) => message.seq < result.message.seq), result.message]);
+      cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
       return true;
     } catch (retryError) {
+      if (invalidateInactiveCache(conversationId)) return false;
       setRunStatusRaw("failed");
-      setGlobalError(retryError instanceof Error ? retryError.message : "AI retry failed");
+      setConversationError(conversationId, retryError instanceof Error ? retryError.message : "AI retry failed");
       return false;
     }
   };
@@ -591,6 +715,8 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   const forkMessage = async (messageId: string, input: { title?: string } = {}) => {
     const conversationId = activeConversationId();
     if (!conversationId) return null;
+    const generation = ++conversationOpenGeneration;
+    setGlobalError(null);
     try {
       const detail = await request<AiConversationDetail>(
         `/conversations/${conversationId}/messages/${messageId}/fork`,
@@ -598,24 +724,30 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
         "Failed to fork conversation",
       );
       setConversations((prev) => [detail.conversation, ...prev.filter((item) => item.id !== detail.conversation.id)]);
-      setProjection(detailToProjection(detail), detail.conversation.id);
+      const projection = detailToProjection(detail);
+      cache.set(detail.conversation.id, projection);
       setHasMore(detail.conversation.id, detail.hasMoreMessages ?? false);
+      if (!isActiveConversation(conversationId) || generation !== conversationOpenGeneration) return detail.conversation;
+      setState(reconcile(projection, { key: "id", merge: true }));
       setActiveConversationIdSignal(detail.conversation.id);
+      setLoadingConversationId(null);
+      setVfsFileCount(0);
       openStream(detail.conversation.id);
+      void refreshFiles();
       return detail.conversation;
     } catch (forkError) {
-      setGlobalError(forkError instanceof Error ? forkError.message : "Failed to fork conversation");
+      setConversationError(conversationId, forkError instanceof Error ? forkError.message : "Failed to fork conversation");
       return null;
     }
   };
 
-  const submitTurnAction = async (
+  const submitTurnActionForConversation = async (
+    conversationId: string,
     turnId: string,
     callId: string,
     action: { type: "approval_response"; approved: boolean; remember?: "always" } | { type: "tool_result"; result: unknown },
   ) => {
-    const conversationId = activeConversationId();
-    if (!conversationId) return false;
+    if (isActiveConversation(conversationId) && runStatus() === "stopping") return false;
     try {
       await request(
         `/conversations/${conversationId}/turns/${turnId}/actions/${callId}`,
@@ -624,9 +756,20 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       );
       return true;
     } catch (actionError) {
-      setGlobalError(actionError instanceof Error ? actionError.message : "Failed to continue AI turn");
+      setConversationError(conversationId, actionError instanceof Error ? actionError.message : "Failed to continue AI turn");
       return false;
     }
+  };
+
+  const submitTurnAction = (
+    turnId: string,
+    callId: string,
+    action: { type: "approval_response"; approved: boolean; remember?: "always" } | { type: "tool_result"; result: unknown },
+  ) => {
+    const conversationId = activeConversationId();
+    if (!conversationId) return Promise.resolve(false);
+    setGlobalError(null);
+    return submitTurnActionForConversation(conversationId, turnId, callId, action);
   };
 
   const respondToApproval = (request: { turnId: string; callId: string }, input: { approved: boolean; remember?: "always" }) =>
@@ -656,7 +799,8 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     messages,
     activeTurn,
     hasMoreHistory,
-    loadingOlder,
+    loadingOlder: () => loadingOlderConversationId() === activeConversationId(),
+    loadingConversation: () => loadingConversationId() === activeConversationId(),
     loadOlderMessages,
     runStatus,
     running,
@@ -684,4 +828,11 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
 
 export type AiChatController = ReturnType<typeof createAiChatController>;
 
-export const __aiControllerTest = { failSteerBlock, reconcileSteerBlocks };
+export const __aiControllerTest = {
+  claimFrontendCall,
+  failSteerBlock,
+  projectionForConversationOpen,
+  reconcileSteerBlocks,
+  isCurrentStreamSession,
+  settleFrontendCall,
+};

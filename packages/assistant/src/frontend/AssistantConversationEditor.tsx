@@ -18,8 +18,12 @@ type EditConversationResult = { action: "save"; conversation: AiConversation } |
 
 type EditConversationFormProps = {
   conversation: AiConversation;
+  deleteDisabled?: boolean;
+  deleteDisabledReason?: string;
   close: (result?: EditConversationResult) => void;
 };
+
+type EditConversationOptions = Pick<EditConversationFormProps, "deleteDisabled" | "deleteDisabledReason">;
 
 const DEFAULT_CHAT_ICON = "ti ti-message";
 
@@ -191,6 +195,7 @@ function EditConversationForm(props: EditConversationFormProps) {
 
   const remove = mutation.create<boolean, void>({
     mutation: async () => {
+      if (props.deleteDisabled) return false;
       const confirmed = await prompts.confirm(`Delete "${props.conversation.title}"?`, {
         title: "Delete chat",
         icon: "ti ti-trash",
@@ -210,19 +215,21 @@ function EditConversationForm(props: EditConversationFormProps) {
     },
     onError: (error) => prompts.error(error.message),
   });
+  const busy = () => save.loading() || remove.loading();
 
   return (
     <PanelDialog>
       <form
+        aria-busy={busy()}
         onSubmit={(event) => {
           event.preventDefault();
           void save.mutate(undefined);
         }}
       >
-        <PanelDialog.Header title="Edit chat" icon="ti ti-settings" close={() => props.close()} />
+        <PanelDialog.Header title="Edit chat" icon="ti ti-settings" close={() => props.close()} closeDisabled={busy()} />
         <PanelDialog.Body>
-          <IconInput label="Icon" value={icon} onChange={setIcon} required clearable={false} />
-          <TextInput label="Name" value={title} onInput={setTitle} required maxLength={120} />
+          <IconInput label="Icon" value={icon} onChange={setIcon} required clearable={false} disabled={busy()} />
+          <TextInput label="Name" value={title} onInput={setTitle} required maxLength={120} disabled={busy()} />
           <TextInput
             label="Description"
             value={description}
@@ -231,24 +238,31 @@ function EditConversationForm(props: EditConversationFormProps) {
             lines={3}
             maxLength={500}
             placeholder="Optional context for this chat..."
+            disabled={busy()}
           />
           <SearchIndexSection conversationId={props.conversation.id} />
         </PanelDialog.Body>
         <PanelDialog.Footer>
-          <button
-            type="button"
-            class="btn-danger btn-sm"
-            disabled={remove.loading() || save.loading()}
-            onClick={() => remove.mutate(undefined)}
-          >
-            <i class={remove.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
-            Delete
-          </button>
+          <div class="flex min-w-0 flex-col items-start gap-1">
+            <button
+              type="button"
+              class="btn-danger btn-sm shrink-0"
+              disabled={busy() || props.deleteDisabled}
+              title={props.deleteDisabledReason}
+              onClick={() => remove.mutate(undefined)}
+            >
+              <i class={remove.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
+              Delete
+            </button>
+            <Show when={props.deleteDisabledReason}>
+              {(reason) => <span class="max-w-40 text-[10px] leading-4 text-dimmed">{reason()}</span>}
+            </Show>
+          </div>
           <div class="flex items-center gap-2">
-            <button type="button" class="btn-secondary btn-sm" disabled={save.loading() || remove.loading()} onClick={() => props.close()}>
+            <button type="button" class="btn-secondary btn-sm" disabled={busy()} onClick={() => props.close()}>
               Cancel
             </button>
-            <button type="submit" class="btn-primary btn-sm" disabled={save.loading() || remove.loading() || !title().trim()}>
+            <button type="submit" class="btn-primary btn-sm" disabled={busy() || !title().trim()}>
               <i class={save.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} />
               Save
             </button>
@@ -259,8 +273,14 @@ function EditConversationForm(props: EditConversationFormProps) {
   );
 }
 
-export const openAssistantConversationEditor = (conversation: AiConversation): Promise<EditConversationResult | undefined> =>
+export const openAssistantConversationEditor = (
+  conversation: AiConversation,
+  options: EditConversationOptions = {},
+): Promise<EditConversationResult | undefined> =>
   dialogCore.open<EditConversationResult | undefined>(
-    (close) => <EditConversationForm conversation={conversation} close={close} />,
-    panelDialogOptions,
+    (close) => <EditConversationForm conversation={conversation} close={close} {...options} />,
+    {
+      ...panelDialogOptions,
+      cancelBehavior: "ignore",
+    },
   );

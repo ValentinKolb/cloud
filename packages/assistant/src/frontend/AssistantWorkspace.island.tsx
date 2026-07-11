@@ -6,15 +6,16 @@ import {
   type AiComposerSendInput,
   AiMessageList,
   type AiSlashCommand,
-  aiLatestLoopUsage,
-  aiLatestUsage,
+  aiLatestUsageSnapshot,
 } from "@valentinkolb/cloud/ai/ui";
 import { AppWorkspace, openFileBrowser, prompts } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
-import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import { navigate, navigateTo } from "@valentinkolb/ssr/nav";
+import { mutation } from "@valentinkolb/stdlib/solid";
+import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { openAssistantConversationEditor } from "./AssistantConversationEditor";
 import AssistantSidebar from "./AssistantSidebar";
+import { assistantConversationHref, assistantConversationIdFromHref } from "./assistant-navigation";
 
 type Status = {
   ok: boolean;
@@ -85,9 +86,12 @@ export default function AssistantWorkspace(props: Props) {
   const [composerAttachments, setComposerAttachments] = createSignal<Record<string, AiComposerAttachment[]>>({});
 
   const canUseComposer = createMemo(() => props.status.ok && props.status.enabled && props.models.length > 0);
-  const canSend = createMemo(() => canUseComposer() && !chat.running() && !chat.activeTurn());
-  const usage = createMemo(() => aiLatestUsage(chat.messages()));
-  const loopUsage = createMemo(() => aiLatestLoopUsage(chat.messages()));
+  const usageSnapshot = createMemo(() => aiLatestUsageSnapshot(chat.messages()));
+  const usageModel = createMemo(() => {
+    const snapshot = usageSnapshot();
+    const modelId = snapshot ? snapshot.modelProfileId : selectedModelId();
+    return props.models.find((model) => model.id === modelId) ?? null;
+  });
   const composerSessionKey = () => chat.activeConversationId() ?? "__new__";
   const composerDraft = () => composerDrafts()[composerSessionKey()] ?? "";
   const setComposerDraft = (value: string) => {
@@ -100,28 +104,58 @@ export default function AssistantWorkspace(props: Props) {
     setComposerAttachments((current) => ({ ...current, [key]: attachments }));
   };
   const focusComposer = () => setComposerFocusToken((value) => value + 1);
-  const createAndFocusConversation = async () => {
-    const conversation = await chat.createConversation();
-    if (conversation) focusComposer();
-    return conversation;
+  const commitConversationUrl = (conversationId: string, replace = false) => {
+    const href = assistantConversationHref(window.location.href, conversationId);
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (href === current) return;
+    navigate(href, { replace, scroll: "manual", viewTransition: false });
   };
+  const newConversation = mutation.create<AiConversation | null, { focus: boolean }>({
+    mutation: async ({ focus }) => {
+      const conversation = await chat.createConversation();
+      if (conversation && chat.activeConversationId() === conversation.id) {
+        commitConversationUrl(conversation.id);
+        if (focus) focusComposer();
+      }
+      return conversation;
+    },
+  });
+  const createConversation = async (focus: boolean) => {
+    if (newConversation.loading()) return null;
+    await newConversation.mutate({ focus });
+    return newConversation.data();
+  };
+  const createAndFocusConversation = () => createConversation(true);
+  const canSend = createMemo(
+    () => canUseComposer() && !newConversation.loading() && !chat.loadingConversation() && !chat.running() && !chat.activeTurn(),
+  );
   const openAndFocusConversation = async (conversationId: string) => {
     await chat.openConversation(conversationId);
-    focusComposer();
+    if (chat.activeConversationId() === conversationId) focusComposer();
   };
 
-  createEffect(() => {
-    const id = chat.activeConversationId();
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-      if (id) url.searchParams.set("conversation", id);
-      else url.searchParams.delete("conversation");
-      window.history.replaceState(null, "", url);
-    }
+  onMount(() => {
+    const initialConversationId = chat.activeConversationId();
+    if (initialConversationId) commitConversationUrl(initialConversationId, true);
+
+    const handlePopState = () => {
+      const conversationId = assistantConversationIdFromHref(window.location.href);
+      if (!conversationId) {
+        navigateTo(`${window.location.pathname}${window.location.search}${window.location.hash}`);
+        return;
+      }
+      if (conversationId !== chat.activeConversationId()) void chat.openConversation(conversationId);
+    };
+    window.addEventListener("popstate", handlePopState);
+    onCleanup(() => window.removeEventListener("popstate", handlePopState));
   });
 
   const send = async (input: AiComposerSendInput) => {
     if (!canSend()) return false;
+    if (!chat.activeConversationId()) {
+      const conversation = await createConversation(false);
+      if (!conversation || chat.activeConversationId() !== conversation.id) return false;
+    }
     return chat.send({ ...input, modelProfileId: selectedModelId() || undefined });
   };
   const steer = async (message: string) => {
@@ -168,14 +202,15 @@ export default function AssistantWorkspace(props: Props) {
       name: "fork",
       description: "Fork this conversation into a new chat",
       icon: "ti ti-git-fork",
-      action: () => {
+      action: async () => {
         if (!requireIdleConversation()) return;
         const last = chat.messages().at(-1);
         if (!last) {
           chat.setError("Nothing to fork yet.");
           return;
         }
-        void chat.forkMessage(last.id);
+        const conversation = await chat.forkMessage(last.id);
+        if (conversation && chat.activeConversationId() === conversation.id) commitConversationUrl(conversation.id);
       },
     },
     {
@@ -214,11 +249,8 @@ export default function AssistantWorkspace(props: Props) {
       description: "Delete this chat",
       icon: "ti ti-trash",
       action: async () => {
-        const conversation = activeConversation();
-        if (!conversation) {
-          chat.setError("Open a chat first.");
-          return;
-        }
+        const conversation = requireIdleConversation();
+        if (!conversation) return;
         const confirmed = await prompts.confirm(`Delete "${conversation.title}"?`, {
           title: "Delete chat",
           icon: "ti ti-trash",
@@ -267,8 +299,10 @@ export default function AssistantWorkspace(props: Props) {
         conversations={chat.conversations}
         activeConversationId={chat.activeConversationId}
         activeView="chat"
+        creatingConversation={newConversation.loading}
         onNewConversation={() => void createAndFocusConversation()}
         onOpenConversation={(conversationId) => void openAndFocusConversation(conversationId)}
+        canDeleteConversation={(conversation) => conversation.id !== chat.activeConversationId() || !chat.activeTurn()}
         onConversationUpdated={updateConversation}
         onConversationDeleted={deleteConversation}
       />
@@ -277,8 +311,10 @@ export default function AssistantWorkspace(props: Props) {
         <section class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve="assistant-messages">
           <AiMessageList
             session={{
+              conversationId: chat.activeConversationId,
               messages: chat.messages,
               activeTurn: chat.activeTurn,
+              loading: chat.loadingConversation,
               history: {
                 hasMore: chat.hasMoreHistory,
                 loading: chat.loadingOlder,
@@ -286,17 +322,21 @@ export default function AssistantWorkspace(props: Props) {
               },
             }}
             actions={{
-              onApproval: (request, input) => {
-                void chat.respondToApproval(request, input);
+              actionDisabled: () => chat.runStatus() === "stopping",
+              onApproval: async (request, input) => {
+                if (!(await chat.respondToApproval(request, input))) throw new Error("Could not submit approval.");
               },
-              onFrontendToolResult: (request, result) => {
-                void chat.submitFrontendToolResult(request, result);
+              onFrontendToolResult: async (request, result) => {
+                if (!(await chat.submitFrontendToolResult(request, result))) throw new Error("Could not submit tool response.");
               },
-              onForkMessage: (entry, input) => {
-                void chat.forkMessage(entry.id, input);
+              onForkMessage: async (entry, input) => {
+                const conversation = await chat.forkMessage(entry.id, input);
+                if (!conversation) throw new Error("Could not fork conversation.");
+                if (chat.activeConversationId() === conversation.id) commitConversationUrl(conversation.id);
               },
-              onRetryMessage: (entry, input) => {
-                void chat.retryUserMessage(entry.id, { ...input, modelProfileId: selectedModelId() || undefined });
+              onRetryMessage: async (entry, input) => {
+                const retried = await chat.retryUserMessage(entry.id, { ...input, modelProfileId: selectedModelId() || undefined });
+                if (!retried) throw new Error(chat.error() ?? "Could not retry message.");
               },
               onRetrySteer: (block) => {
                 void chat.retrySteer(block);
@@ -330,20 +370,37 @@ export default function AssistantWorkspace(props: Props) {
                 onSelect: setSelectedModelId,
               }}
               state={{
+                sessionKey: composerSessionKey,
                 draft: composerDraft,
                 onDraftChange: setComposerDraft,
                 attachments: activeComposerAttachments,
                 onAttachmentsChange: setActiveComposerAttachments,
-                disabled: () => !canUseComposer(),
+                restoreSession: (sessionKey, state) => {
+                  const draft = state.draft;
+                  if (draft !== undefined) {
+                    setComposerDrafts((current) => ({ ...current, [sessionKey]: draft }));
+                  }
+                  const attachments = state.attachments;
+                  if (attachments !== undefined) {
+                    setComposerAttachments((current) => ({ ...current, [sessionKey]: attachments }));
+                  }
+                },
+                disabled: () => !canUseComposer() || newConversation.loading() || chat.loadingConversation(),
                 running: chat.running,
+                canStop: () => Boolean(chat.activeTurn()),
+                stopping: () => chat.runStatus() === "stopping",
                 focusToken: composerFocusToken,
                 placeholder: props.status.enabled
-                  ? chat.running()
-                    ? "Steer the current response"
-                    : "Ask Assistant anything or type / ..."
+                  ? chat.runStatus() === "stopping"
+                    ? "Stopping response"
+                    : chat.running()
+                      ? "Steer the current response"
+                      : "Ask Assistant anything or type / ..."
                   : "AI is not configured",
-                usage,
-                loopUsage,
+                usage: () => usageSnapshot()?.request ?? null,
+                loopUsage: () => usageSnapshot()?.loop ?? null,
+                contextWindow: () => usageModel()?.contextWindow,
+                contextModelLabel: () => usageModel()?.label,
                 files: {
                   count: chat.vfsFileCount,
                   onOpen: () => {

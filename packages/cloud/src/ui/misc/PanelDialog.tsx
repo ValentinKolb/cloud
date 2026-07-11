@@ -15,6 +15,7 @@ export type PanelDialogHeaderProps = {
   icon: string;
   actions?: JSX.Element;
   close?: () => void;
+  closeDisabled?: boolean;
 };
 
 export type PanelDialogBodyProps = {
@@ -108,7 +109,13 @@ function PanelDialogHeader(props: PanelDialogHeaderProps) {
       </div>
       {props.actions && <div class="flex shrink-0 items-center gap-2">{props.actions}</div>}
       {props.close && (
-        <button type="button" onClick={props.close} class="icon-btn shrink-0" aria-label="close dialog">
+        <button
+          type="button"
+          onClick={props.close}
+          disabled={props.closeDisabled}
+          class="icon-btn shrink-0 disabled:cursor-wait disabled:opacity-40"
+          aria-label="close dialog"
+        >
           <i class="ti ti-x" />
         </button>
       )}

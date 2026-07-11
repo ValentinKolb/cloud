@@ -8,11 +8,12 @@ import {
   SpotlightButton,
   type SpotlightButtonVariant,
 } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/ssr/nav";
+import { type LinkNavigateEvent, navigate, navigateTo } from "@valentinkolb/ssr/nav";
 import { type Accessor, For, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { conversationIcon, openAssistantConversationEditor } from "./AssistantConversationEditor";
 import { openAssistantPrefsModal } from "./AssistantPrefsModals";
+import { assistantConversationHref } from "./assistant-navigation";
 
 type ConversationGroup = {
   title: string;
@@ -23,8 +24,10 @@ type AssistantSidebarProps = {
   conversations: Accessor<AiConversation[]>;
   activeConversationId?: Accessor<string | null>;
   activeView?: "chat" | "all";
+  creatingConversation?: Accessor<boolean>;
   onNewConversation?: () => void | Promise<void>;
   onOpenConversation?: (conversationId: string) => void | Promise<void>;
+  canDeleteConversation?: (conversation: AiConversation) => boolean;
   onConversationUpdated?: (conversation: AiConversation) => void;
   onConversationDeleted?: (conversation: AiConversation) => void;
 };
@@ -65,7 +68,11 @@ const groupRecentConversations = (conversations: AiConversation[]): Conversation
   return groups.filter((group) => group.items.length > 0);
 };
 
-function AssistantSpotlightButton(props: { variant?: SpotlightButtonVariant; registerShortcut?: boolean }) {
+function AssistantSpotlightButton(props: {
+  variant?: SpotlightButtonVariant;
+  registerShortcut?: boolean;
+  openConversation?: (conversation: AiConversation) => void;
+}) {
   const openSearch = async () => {
     const selected = await openSpotlightSearch<AiConversation>({
       title: "Search chats",
@@ -87,7 +94,9 @@ function AssistantSpotlightButton(props: { variant?: SpotlightButtonVariant; reg
       },
     });
 
-    if (selected?.value) navigateTo(`/app/assistant?conversation=${selected.value.id}`);
+    if (!selected?.value) return;
+    if (props.openConversation) props.openConversation(selected.value);
+    else navigateTo(assistantConversationHref("/app/assistant", selected.value.id));
   };
 
   onMount(() => {
@@ -116,14 +125,24 @@ function AssistantSpotlightButton(props: { variant?: SpotlightButtonVariant; reg
 function ConversationSidebarItem(props: {
   conversation: AiConversation;
   active: boolean;
-  open: (conversation: AiConversation) => void;
+  open?: (conversation: AiConversation) => void | Promise<void>;
   edit: (conversation: AiConversation) => void;
 }) {
+  const href = () => assistantConversationHref("/app/assistant", props.conversation.id);
+  const handleNavigate = (nav: LinkNavigateEvent) => {
+    if (props.active || !props.open) return;
+    void props.open(props.conversation);
+    nav.push(undefined, { scroll: "manual" });
+  };
+
   return (
     <AppWorkspace.SidebarItem
+      href={href()}
+      navigation={props.open ? "enhanced" : "document"}
+      scroll="manual"
+      onNavigate={props.open ? handleNavigate : undefined}
       icon={conversationIcon(props.conversation)}
       active={props.active}
-      onClick={() => props.open(props.conversation)}
       title={props.conversation.title}
       actionIcon="ti ti-settings"
       actionLabel={`Edit ${props.conversation.title}`}
@@ -137,19 +156,27 @@ function ConversationSidebarItem(props: {
 export default function AssistantSidebar(props: AssistantSidebarProps) {
   const activeConversationId = () => props.activeConversationId?.() ?? null;
   const activeView = () => props.activeView ?? "chat";
+  const creatingConversation = () => props.creatingConversation?.() ?? false;
   const groups = () => groupRecentConversations(props.conversations());
   const hasConversations = () => props.conversations().length > 0;
 
-  const openConversation = (conversation: AiConversation) => {
+  const openConversationFromCommand = (conversation: AiConversation) => {
+    if (conversation.id === activeConversationId()) return;
+    const href = assistantConversationHref("/app/assistant", conversation.id);
     if (props.onOpenConversation) {
       void props.onOpenConversation(conversation.id);
+      navigate(href, { scroll: "manual" });
       return;
     }
-    navigateTo(`/app/assistant?conversation=${conversation.id}`);
+    navigateTo(href);
   };
 
   const openEditor = async (conversation: AiConversation) => {
-    const result = await openAssistantConversationEditor(conversation);
+    const canDelete = props.canDeleteConversation?.(conversation) ?? true;
+    const result = await openAssistantConversationEditor(conversation, {
+      deleteDisabled: !canDelete,
+      deleteDisabledReason: canDelete ? undefined : "Stop the current response before deleting this chat.",
+    });
     if (!result) return;
     if (result.action === "save") props.onConversationUpdated?.(result.conversation);
     else props.onConversationDeleted?.(result.conversation);
@@ -162,13 +189,14 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>
           <AppWorkspace.SidebarItem
-            icon="ti ti-message-plus"
+            icon={creatingConversation() ? "ti ti-loader-2 animate-spin" : "ti ti-message-plus"}
             active={!activeConversationId()}
+            disabled={creatingConversation()}
             onClick={() => void props.onNewConversation?.()}
           >
-            New Chat
+            {creatingConversation() ? "Creating Chat" : "New Chat"}
           </AppWorkspace.SidebarItem>
-          <AssistantSpotlightButton variant="sidebar-mobile" />
+          <AssistantSpotlightButton variant="sidebar-mobile" openConversation={openConversationFromCommand} />
           <AppWorkspace.SidebarItem icon="ti ti-user-cog" onClick={() => void openAssistantPrefsModal()}>
             Personalize
           </AppWorkspace.SidebarItem>
@@ -187,7 +215,7 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
                       <ConversationSidebarItem
                         conversation={conversation}
                         active={conversation.id === activeConversationId()}
-                        open={openConversation}
+                        open={props.onOpenConversation ? (item) => props.onOpenConversation?.(item.id) : undefined}
                         edit={(item) => void openEditor(item)}
                       />
                     )}
@@ -214,13 +242,14 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
         <AppWorkspace.SidebarSection title="Actions">
           <AppWorkspace.SidebarIconGrid columns={2}>
             <AppWorkspace.SidebarIconAction
-              icon="ti ti-message-plus"
-              label="New Chat"
+              icon={creatingConversation() ? "ti ti-loader-2 animate-spin" : "ti ti-message-plus"}
+              label={creatingConversation() ? "Creating Chat" : "New Chat"}
               active={!activeConversationId() && activeView() === "chat"}
+              disabled={creatingConversation()}
               tone="success"
               onClick={() => void props.onNewConversation?.()}
             />
-            <AssistantSpotlightButton variant="icon" registerShortcut />
+            <AssistantSpotlightButton variant="icon" registerShortcut openConversation={openConversationFromCommand} />
             <AppWorkspace.SidebarIconAction icon="ti ti-user-cog" label="Personalize" onClick={() => void openAssistantPrefsModal()} />
             <AppWorkspace.SidebarIconAction icon="ti ti-wand" label="Skills" onClick={() => void openAiSkillsManager()} />
           </AppWorkspace.SidebarIconGrid>
@@ -236,7 +265,7 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
                       <ConversationSidebarItem
                         conversation={conversation}
                         active={conversation.id === activeConversationId()}
-                        open={openConversation}
+                        open={props.onOpenConversation ? (item) => props.onOpenConversation?.(item.id) : undefined}
                         edit={(item) => void openEditor(item)}
                       />
                     )}

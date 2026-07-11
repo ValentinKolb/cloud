@@ -1,4 +1,4 @@
-import { latestLoopUsage, latestUsage, textFromMessage } from "./chat/message-utils";
+import { latestLoopUsage, latestUsage, latestUsageSnapshot, textFromMessage } from "./chat/message-utils";
 
 export {
   AiComposer,
@@ -16,4 +16,5 @@ export type { AiComposerAttachment, AiForkMessageInput, AiRetryMessageInput } fr
 
 export const aiLatestUsage = latestUsage;
 export const aiLatestLoopUsage = latestLoopUsage;
+export const aiLatestUsageSnapshot = latestUsageSnapshot;
 export const aiMessageText = textFromMessage;

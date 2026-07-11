@@ -37,7 +37,7 @@ export type AiComposerSendInput = {
   files?: File[];
 };
 
-export function AiContextIndicator(props: { usage?: Usage | null; loopUsage?: Usage | null; contextWindow?: number }) {
+export function AiContextIndicator(props: { usage?: Usage | null; loopUsage?: Usage | null; contextWindow?: number; modelLabel?: string }) {
   const total = () => props.usage?.total ?? 0;
   const windowSize = () => props.contextWindow;
   const percent = () => {
@@ -83,6 +83,12 @@ export function AiContextIndicator(props: { usage?: Usage | null; loopUsage?: Us
           </div>
         </Show>
         <div class="mt-2 space-y-1">
+          <Show when={props.modelLabel}>
+            <p class="flex justify-between gap-3">
+              <span>Model</span>
+              <span class="truncate text-primary">{props.modelLabel}</span>
+            </p>
+          </Show>
           <p class="flex justify-between gap-3">
             <span>Input</span>
             <span class="tabular-nums text-primary">{props.usage?.input?.toLocaleString() ?? "Unknown"}</span>
@@ -144,7 +150,7 @@ function AiSlashCommandMenu(props: { commands: AiSlashCommand[]; selectedIndex: 
   );
 }
 
-function AiAttachmentPreviewList(props: { attachments: PendingAiAttachment[]; onRemove: (id: string) => void }) {
+function AiAttachmentPreviewList(props: { attachments: PendingAiAttachment[]; disabled?: boolean; onRemove: (id: string) => void }) {
   return (
     <div class="flex flex-wrap gap-2 px-3 pt-3">
       <For each={props.attachments}>
@@ -172,7 +178,8 @@ function AiAttachmentPreviewList(props: { attachments: PendingAiAttachment[]; on
             </Show>
             <button
               type="button"
-              class="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-zinc-950 text-white opacity-0 shadow transition-opacity group-hover:opacity-100 dark:bg-white dark:text-zinc-950"
+              class="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-zinc-950 text-white opacity-100 shadow transition-opacity focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-0 sm:opacity-0 sm:group-hover:opacity-100 dark:bg-white dark:text-zinc-950"
+              disabled={props.disabled}
               onClick={() => props.onRemove(attachment.id)}
               aria-label={`Remove ${attachment.name}`}
             >
@@ -195,16 +202,22 @@ export type AiComposerModels = {
 };
 
 export type AiComposerState = {
+  sessionKey?: () => string;
   draft?: () => string;
   onDraftChange?: (value: string) => void;
   attachments?: () => AiComposerAttachment[];
   onAttachmentsChange?: (attachments: AiComposerAttachment[]) => void;
+  restoreSession?: (sessionKey: string, state: { draft?: string; attachments?: AiComposerAttachment[] }) => void;
   disabled: () => boolean;
   running: () => boolean;
+  canStop?: () => boolean;
+  stopping?: () => boolean;
   focusToken?: () => unknown;
   placeholder?: string;
   usage?: () => Usage | null;
   loopUsage?: () => Usage | null;
+  contextWindow?: () => number | undefined;
+  contextModelLabel?: () => string | undefined;
   /** Conversation VFS indicator: shows a files chip when count > 0; click opens the browser. */
   files?: { count: () => number; onOpen: () => void };
 };
@@ -214,7 +227,7 @@ export type AiComposerActions = {
   onNewConversation?: () => void | Promise<void>;
   send: (input: AiComposerSendInput) => boolean | Promise<boolean>;
   steer: (message: string) => boolean | Promise<boolean>;
-  stop: () => void;
+  stop: () => boolean | Promise<boolean>;
 };
 
 export function AiComposer(props: { models: AiComposerModels; state: AiComposerState; actions: AiComposerActions }) {
@@ -222,6 +235,8 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
   const [uncontrolledAttachments, setUncontrolledAttachments] = createSignal<PendingAiAttachment[]>([]);
   const [selectedCommandIndex, setSelectedCommandIndex] = createSignal(0);
   const [dragActive, setDragActive] = createSignal(false);
+  const [readingAttachments, setReadingAttachments] = createSignal(false);
+  const [submitting, setSubmitting] = createSignal(false);
   let composerRef: HTMLDivElement | undefined;
   let textareaRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
@@ -241,11 +256,12 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
 
   const selectedModel = createMemo(() => props.models.profiles().find((model) => model.id === props.models.selectedId()) ?? null);
   const supportsVision = () => Boolean(selectedModel()?.capabilities.includes("vision"));
+  const composerDisabled = () => props.state.disabled() || props.state.stopping?.() || readingAttachments() || submitting();
   const canSubmit = () =>
-    !props.state.disabled() &&
+    !composerDisabled() &&
     (props.state.running() ? draft().trim().length > 0 : draft().trim().length > 0 || pendingAttachments().length > 0);
   const slashCommands = () => props.actions.slashCommands?.() ?? [];
-  const modelPickerDisabled = () => props.state.disabled() || props.state.running() || props.models.profiles().length === 0;
+  const modelPickerDisabled = () => composerDisabled() || props.state.running() || props.models.profiles().length === 0;
   const slashMatches = createMemo(() => {
     const value = draft();
     if (!value.startsWith("/") || /\s/.test(value)) return [];
@@ -372,34 +388,46 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
 
   const addAttachments = async (files: FileList | File[]) => {
     const selected = Array.from(files);
-    if (!selected.length) return;
+    if (!selected.length || readingAttachments() || submitting()) return;
+    setReadingAttachments(true);
 
-    const remainingSlots = MAX_ATTACHMENTS - pendingAttachments().length;
-    if (remainingSlots <= 0) {
-      toast.error(`Remove an attachment before adding more. Assistant supports up to ${MAX_ATTACHMENTS} files.`, {
-        title: "Attachment limit reached",
-      });
-      return;
-    }
-
-    const candidates = selected.slice(0, remainingSlots);
-    const discarded = selected.length - candidates.length;
-    if (discarded > 0) {
-      toast.error(`${discarded} attachment${discarded === 1 ? "" : "s"} discarded. Assistant supports up to ${MAX_ATTACHMENTS} files.`, {
-        title: "Attachment limit reached",
-      });
-    }
-
-    const next: PendingAiAttachment[] = [];
-    for (const file of candidates) {
-      try {
-        const attachment = await readAttachment(file);
-        if (attachment) next.push(attachment);
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : `Could not attach ${file.name}.`, { title: "Attachment failed" });
+    try {
+      const sessionKey = props.state.sessionKey?.();
+      const initialAttachments = pendingAttachments();
+      const remainingSlots = MAX_ATTACHMENTS - initialAttachments.length;
+      if (remainingSlots <= 0) {
+        toast.error(`Remove an attachment before adding more. Assistant supports up to ${MAX_ATTACHMENTS} files.`, {
+          title: "Attachment limit reached",
+        });
+        return;
       }
+
+      const candidates = selected.slice(0, remainingSlots);
+      const discarded = selected.length - candidates.length;
+      if (discarded > 0) {
+        toast.error(`${discarded} attachment${discarded === 1 ? "" : "s"} discarded. Assistant supports up to ${MAX_ATTACHMENTS} files.`, {
+          title: "Attachment limit reached",
+        });
+      }
+
+      const next: PendingAiAttachment[] = [];
+      for (const file of candidates) {
+        try {
+          const attachment = await readAttachment(file);
+          if (attachment) next.push(attachment);
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : `Could not attach ${file.name}.`, { title: "Attachment failed" });
+        }
+      }
+      if (!next.length) return;
+      if (sessionKey && props.state.sessionKey?.() !== sessionKey) {
+        props.state.restoreSession?.(sessionKey, { attachments: [...initialAttachments, ...next] });
+        return;
+      }
+      setAttachments((current) => [...current, ...next]);
+    } finally {
+      setReadingAttachments(false);
     }
-    if (next.length) setAttachments((current) => [...current, ...next]);
   };
 
   const removeAttachment = (id: string) => setAttachments((current) => current.filter((attachment) => attachment.id !== id));
@@ -413,6 +441,7 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
         return;
       }
       const previousDraft = draft();
+      const sessionKey = props.state.sessionKey?.();
       setDraftValue("");
       requestAnimationFrame(() => {
         autoResize();
@@ -420,7 +449,8 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
       });
       const steered = await Promise.resolve(props.actions.steer(text)).catch(() => false);
       if (!steered) {
-        setDraftValue(previousDraft);
+        if (sessionKey && props.state.sessionKey?.() !== sessionKey) props.state.restoreSession?.(sessionKey, { draft: previousDraft });
+        else setDraftValue(previousDraft);
         requestAnimationFrame(() => {
           autoResize();
           focus();
@@ -443,6 +473,7 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
         : undefined;
 
     const previousDraft = draft();
+    const sessionKey = props.state.sessionKey?.();
     setDraftValue("");
     setAttachments([]);
     requestAnimationFrame(() => {
@@ -450,16 +481,23 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
       focus();
     });
 
+    setSubmitting(true);
     const sent = await Promise.resolve(
       props.actions.send({
         message: text || undefined,
         content: content?.length ? content : undefined,
         files: vfsFiles.length ? vfsFiles.map((pending) => pending.file) : undefined,
       }),
-    ).catch(() => false);
+    )
+      .catch(() => false)
+      .finally(() => setSubmitting(false));
     if (!sent) {
-      setDraftValue(previousDraft);
-      setAttachments(attachments);
+      if (sessionKey && props.state.sessionKey?.() !== sessionKey) {
+        props.state.restoreSession?.(sessionKey, { draft: previousDraft, attachments });
+      } else {
+        setDraftValue(previousDraft);
+        setAttachments(attachments);
+      }
       requestAnimationFrame(() => {
         autoResize();
         focus();
@@ -511,7 +549,7 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
   const onDrop = (event: DragEvent) => {
     event.preventDefault();
     setDragActive(false);
-    if (props.state.running()) return;
+    if (props.state.running() || composerDisabled()) return;
     const files = event.dataTransfer?.files;
     if (files?.length) void addAttachments(files);
   };
@@ -535,12 +573,12 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
             : "border-cyan-300/80 dark:border-cyan-800/80"
         }`}
         onDragEnter={(event) => {
-          if (!event.dataTransfer?.types.includes("Files")) return;
+          if (composerDisabled() || !event.dataTransfer?.types.includes("Files")) return;
           event.preventDefault();
           setDragActive(true);
         }}
         onDragOver={(event) => {
-          if (!event.dataTransfer?.types.includes("Files")) return;
+          if (composerDisabled() || !event.dataTransfer?.types.includes("Files")) return;
           event.preventDefault();
           setDragActive(true);
         }}
@@ -554,7 +592,7 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
         </Show>
 
         <Show when={pendingAttachments().length > 0}>
-          <AiAttachmentPreviewList attachments={pendingAttachments()} onRemove={removeAttachment} />
+          <AiAttachmentPreviewList attachments={pendingAttachments()} disabled={composerDisabled()} onRemove={removeAttachment} />
         </Show>
 
         <textarea
@@ -562,7 +600,7 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
           class="block min-h-14 max-h-36 w-full resize-none bg-transparent px-3 pt-3 text-base leading-6 text-primary outline-none placeholder:text-dimmed disabled:cursor-not-allowed disabled:opacity-60 md:text-sm"
           rows={1}
           value={draft()}
-          disabled={props.state.disabled()}
+          disabled={composerDisabled()}
           placeholder={props.state.placeholder ?? "Ask Assistant anything or type / ..."}
           onInput={(event) => {
             setDraftValue(event.currentTarget.value);
@@ -602,7 +640,7 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
           </Show>
 
           <Show
-            when={!props.state.disabled() && !props.state.running()}
+            when={!composerDisabled() && !props.state.running()}
             fallback={
               <span class="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-300 dark:text-zinc-700">
                 <i class="ti ti-plus text-base" aria-hidden="true" />
@@ -651,29 +689,36 @@ export function AiComposer(props: { models: AiComposerModels; state: AiComposerS
           <AiContextIndicator
             usage={props.state.usage?.()}
             loopUsage={props.state.loopUsage?.()}
-            contextWindow={selectedModel()?.contextWindow}
+            contextWindow={props.state.contextWindow?.()}
+            modelLabel={props.state.contextModelLabel?.()}
           />
 
-          <Show when={props.state.running()}>
+          <Show when={props.state.running() && (props.state.canStop?.() ?? true)}>
             <button
               type="button"
-              class="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:text-red-600 focus-ui dark:text-zinc-500 dark:hover:text-red-300"
-              title="Stop"
-              aria-label="Stop"
-              onClick={() => props.actions.stop()}
+              class="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:text-red-600 focus-ui disabled:cursor-wait disabled:opacity-60 dark:text-zinc-500 dark:hover:text-red-300"
+              title={props.state.stopping?.() ? "Stopping" : "Stop"}
+              aria-label={props.state.stopping?.() ? "Stopping" : "Stop"}
+              disabled={props.state.stopping?.()}
+              onClick={() => void Promise.resolve(props.actions.stop())}
             >
-              <i class="ti ti-player-stop text-base" aria-hidden="true" />
+              <i class={`ti ${props.state.stopping?.() ? "ti-loader-2 animate-spin" : "ti-player-stop"} text-base`} aria-hidden="true" />
             </button>
           </Show>
           <button
             type="button"
             class="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:text-cyan-600 focus-ui disabled:cursor-not-allowed disabled:opacity-35 dark:text-zinc-500 dark:hover:text-cyan-300"
             disabled={!canSubmit()}
-            title={props.state.running() ? "Steer response" : "Send"}
-            aria-label={props.state.running() ? "Steer response" : "Send"}
+            title={readingAttachments() ? "Adding files" : submitting() ? "Sending" : props.state.running() ? "Steer response" : "Send"}
+            aria-label={
+              readingAttachments() ? "Adding files" : submitting() ? "Sending" : props.state.running() ? "Steer response" : "Send"
+            }
             onClick={() => void submit()}
           >
-            <i class={`ti ${props.state.running() ? "ti-route" : "ti-arrow-up"} text-base`} aria-hidden="true" />
+            <i
+              class={`ti ${readingAttachments() || submitting() ? "ti-loader-2 animate-spin" : props.state.running() ? "ti-route" : "ti-arrow-up"} text-base`}
+              aria-hidden="true"
+            />
           </button>
         </div>
       </div>

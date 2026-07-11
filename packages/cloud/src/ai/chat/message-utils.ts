@@ -232,22 +232,30 @@ export const textAttachmentSummariesFromMessage = (message: Message) => {
   });
 };
 
-export const latestUsage = (messages: AiStoredMessage[]): Usage | null => {
+export type AiLatestUsageSnapshot = {
+  request: Usage;
+  loop: Usage;
+  modelProfileId: string | null;
+};
+
+export const latestUsageSnapshot = (messages: AiStoredMessage[]): AiLatestUsageSnapshot | null => {
   for (let i = messages.length - 1; i >= 0; i--) {
     const entry = messages[i];
-    const usage = entry?.loopAggregate?.turns.findLast((turn) => Boolean(turn.usage))?.usage ?? entry?.usage;
-    if (usage) return usage;
+    const request = entry?.loopAggregate?.turns.findLast((turn) => Boolean(turn.usage))?.usage ?? entry?.usage;
+    if (request) {
+      return {
+        request,
+        loop: entry?.loopAggregate?.usage ?? entry?.usage ?? request,
+        modelProfileId: entry?.modelProfileId ?? null,
+      };
+    }
   }
   return null;
 };
 
-export const latestLoopUsage = (messages: AiStoredMessage[]): Usage | null => {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const usage = messages[i]?.loopAggregate?.usage ?? messages[i]?.usage;
-    if (usage) return usage;
-  }
-  return null;
-};
+export const latestUsage = (messages: AiStoredMessage[]): Usage | null => latestUsageSnapshot(messages)?.request ?? null;
+
+export const latestLoopUsage = (messages: AiStoredMessage[]): Usage | null => latestUsageSnapshot(messages)?.loop ?? null;
 
 export const copyTextFromMessage = (message: Message): string => {
   if (message.role === "user") return userVisibleTextFromMessage(message);

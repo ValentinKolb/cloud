@@ -57,12 +57,7 @@ export function ChatUtilityLine(props: { meta: ChatUtilityMeta; trailing?: JSX.E
   );
 }
 
-export function ChatUtilityDisclosure(props: {
-  meta: ChatUtilityMeta;
-  defaultOpen?: boolean;
-  class?: string;
-  children: JSX.Element;
-}) {
+export function ChatUtilityDisclosure(props: { meta: ChatUtilityMeta; defaultOpen?: boolean; class?: string; children: JSX.Element }) {
   return (
     <details class={`${utilityBlockClass} group max-w-[min(46rem,100%)] text-xs ${props.class ?? ""}`} open={props.defaultOpen}>
       <summary class={`${utilityRowClass} cursor-pointer list-none transition-colors ${utilityToneClass(props.meta.tone ?? "neutral")}`}>
@@ -90,9 +85,9 @@ export function AssistantMessageLane(props: { children: JSX.Element; actions?: J
   return (
     <div class="group/assistant-message px-3 py-2">
       <div class="relative max-w-[min(46rem,100%)] text-sm leading-6 text-primary">
-        <div class="flex flex-col gap-1">{props.children}</div>
+        <div class="flex flex-col gap-2">{props.children}</div>
         <Show when={props.actions}>
-          <div class="pointer-events-none absolute left-0 top-full z-10 mt-1 opacity-0 transition-opacity group-focus-within/assistant-message:opacity-100 group-hover/assistant-message:opacity-100">
+          <div class="pointer-events-auto mt-1 opacity-100 sm:pointer-events-none sm:absolute sm:left-0 sm:top-full sm:z-10 sm:opacity-0 sm:transition-opacity sm:group-focus-within/assistant-message:opacity-100 sm:group-hover/assistant-message:opacity-100">
             {props.actions}
           </div>
         </Show>

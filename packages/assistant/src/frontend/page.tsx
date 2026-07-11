@@ -4,6 +4,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
 import AssistantLayoutHelp from "./AssistantLayoutHelp.island";
 import AssistantWorkspace from "./AssistantWorkspace.island";
+import { resolveInitialConversation } from "./initial-conversation";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
@@ -16,10 +17,18 @@ export default ssr<AuthContext>(async (c) => {
     aiUserPrefs.get(user.id),
   ]);
 
-  const activeConversation =
-    requestedConversationId && conversations.some((conversation) => conversation.id === requestedConversationId)
-      ? conversations.find((conversation) => conversation.id === requestedConversationId)!
-      : (conversations[0] ?? null);
+  const initial = await resolveInitialConversation({
+    requestedConversationId,
+    conversations,
+    loadConversation: (conversationId) => aiConversationStore.getConversation({ conversationId, appId: "assistant", ownerUserId: user.id }),
+  });
+  const activeConversation = initial.activeConversation;
+  if (requestedConversationId && activeConversation?.id !== requestedConversationId) {
+    return c.redirect(
+      activeConversation ? `/app/assistant?conversation=${encodeURIComponent(activeConversation.id)}` : "/app/assistant",
+      302,
+    );
+  }
   const initialDetail = activeConversation ? await loadAiStreamState(activeConversation) : null;
 
   return () => (
@@ -29,7 +38,7 @@ export default ssr<AuthContext>(async (c) => {
         status={status}
         models={models}
         lastModelId={prefs.lastModelId}
-        initialConversations={conversations}
+        initialConversations={initial.conversations}
         initialConversationId={activeConversation?.id ?? null}
         initialDetail={
           initialDetail

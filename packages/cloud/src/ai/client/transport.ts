@@ -1,6 +1,7 @@
 import type { AiStreamSseEvent } from "../protocol";
 
 export type AiStreamHandle = { close: () => void };
+export type AiStreamFetch = (url: string, init: RequestInit) => Promise<Response>;
 
 const RECONNECT_BASE_MS = 500;
 const RECONNECT_MAX_MS = 5_000;
@@ -41,8 +42,10 @@ export const subscribeAiStream = (input: {
   url: string;
   onEvent: (event: AiStreamSseEvent) => void;
   onStatus?: (status: "connecting" | "open" | "reconnecting") => void;
+  fetch?: AiStreamFetch;
 }): AiStreamHandle => {
   const controller = new AbortController();
+  const fetchStream: AiStreamFetch = input.fetch ?? fetch;
   let reconnectDelay = RECONNECT_BASE_MS;
   let stopped = false;
 
@@ -50,7 +53,8 @@ export const subscribeAiStream = (input: {
     while (!stopped) {
       try {
         input.onStatus?.(reconnectDelay === RECONNECT_BASE_MS ? "connecting" : "reconnecting");
-        const response = await fetch(input.url, { signal: controller.signal, headers: { Accept: "text/event-stream" } });
+        const response = await fetchStream(input.url, { signal: controller.signal, headers: { Accept: "text/event-stream" } });
+        if (stopped) return;
         if (!response.ok || !response.body) throw new Error(`AI stream failed: ${response.status}`);
         input.onStatus?.("open");
         reconnectDelay = RECONNECT_BASE_MS;

@@ -33,19 +33,29 @@ describe("AI chat primitives", () => {
     expect(toneSection).toContain("hover:text-red-700");
   });
 
-  test("keeps assistant markdown and actions out of the message stack layout", () => {
+  test("keeps assistant markdown stable and message actions responsive", () => {
     const primitiveSource = readFileSync(resolve(import.meta.dir, "primitives.tsx"), "utf8");
+    const blocksSource = readFileSync(resolve(import.meta.dir, "blocks.tsx"), "utf8");
     const actionsSource = readFileSync(resolve(import.meta.dir, "message-actions.tsx"), "utf8");
+    const composerSource = readFileSync(resolve(import.meta.dir, "composer.tsx"), "utf8");
     const messageListSource = readFileSync(resolve(import.meta.dir, "message-list.tsx"), "utf8");
+    const userMessageSource = readFileSync(resolve(import.meta.dir, "user-message.tsx"), "utf8");
     const effectsSource = readFileSync(resolve(import.meta.dir, "../../styles/effects.css"), "utf8");
 
     expect(primitiveSource).toContain("export function AssistantMarkdownBlock");
     expect(primitiveSource).toContain("assistant-markdown-block");
     expect(primitiveSource).toContain("actions?: JSX.Element");
-    expect(primitiveSource).toContain("absolute left-0 top-full");
+    expect(primitiveSource).toContain("pointer-events-auto mt-1 opacity-100");
+    expect(primitiveSource).toContain("sm:absolute sm:left-0 sm:top-full");
+    expect(primitiveSource).toContain("sm:opacity-0");
+    expect(composerSource).toContain("opacity-100 shadow transition-opacity");
+    expect(composerSource).toContain("sm:opacity-0 sm:group-hover:opacity-100");
+    expect(userMessageSource).toContain("opacity-100 sm:opacity-0");
     expect(actionsSource).not.toContain("invisible flex h-7");
     expect(messageListSource).not.toContain("MarkdownView");
     expect(messageListSource).not.toContain("assistantDraftMessage");
+    expect(blocksSource).toContain('props.compact ? "gap-1" : "gap-2"');
+    expect(messageListSource).toContain("turnId={turnId()} compact");
     // The unified render stack renders persisted messages and the live turn through
     // one block list; no separate draft/detached-block merge remains.
     expect(messageListSource).not.toContain("buildAssistantRenderBlocks");
