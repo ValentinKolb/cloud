@@ -16,8 +16,10 @@ button[disabled],
 
 /* Global Checkbox Styling */
 input[type="checkbox"] {
-  @apply appearance-none w-4 h-4 bg-white dark:bg-black border border-zinc-300 dark:border-zinc-700 cursor-pointer transition-all duration-200 inline-flex items-center justify-center m-0 align-middle rounded;
-  box-shadow: var(--theme-recess-sm);
+  @apply appearance-none w-4 h-4 border cursor-pointer transition-all duration-200 inline-flex items-center justify-center m-0 align-middle rounded;
+  border-color: var(--ui-check-border);
+  background: var(--ui-check-surface);
+  box-shadow: var(--ui-check-shadow);
 }
 
 input[type="checkbox"]::before {
@@ -36,7 +38,7 @@ input[type="checkbox"]:checked::before {
 }
 
 input[type="checkbox"]:hover {
-  @apply scale-105;
+  transform: var(--ui-check-hover-transform);
 }
 
 input[type="checkbox"]:focus {
@@ -52,5 +54,5 @@ input[type="checkbox"]:disabled {
 }
 
 input[type="checkbox"]:disabled:hover {
-  @apply scale-100;
+  transform: none;
 }

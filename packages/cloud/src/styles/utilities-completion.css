@@ -49,35 +49,43 @@
 
 .ac-editor {
   position: relative;
-  @apply rounded-md border;
-  @apply bg-zinc-100 border-zinc-100;
-  @apply hover:bg-zinc-200/70 hover:border-zinc-200/70;
-  @apply dark:bg-zinc-800 dark:border-zinc-800;
-  @apply dark:hover:bg-zinc-700 dark:hover:border-zinc-700;
+  border: 1px solid var(--ui-field-border);
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-field);
   @apply transition-colors;
   @apply overflow-hidden;
   /* Recessed well — same inset as the `input` utility (this editor mirrors its
      colours, so it gets its depth too). The recess persists on focus. */
-  box-shadow: var(--theme-recess);
+  box-shadow: var(--ui-control-recess);
+}
+
+.ac-editor:hover {
+  border-color: var(--ui-field-hover-border);
+  background: var(--ui-field-hover);
 }
 
 .ac-editor:focus-within {
-  @apply bg-white border-blue-400;
-  @apply dark:bg-zinc-900 dark:border-blue-400;
+  border-color: var(--ui-field-focus-border);
+  background: var(--ui-field-focus);
+  box-shadow: var(--ui-control-recess);
 }
 
 .ac-editor[data-variant="paper"] {
-  @apply rounded-lg;
-  @apply bg-white border-zinc-100;
-  @apply hover:bg-white hover:border-zinc-100;
-  @apply dark:bg-zinc-900 dark:border-zinc-800;
-  @apply dark:hover:bg-zinc-900 dark:hover:border-zinc-800;
-  box-shadow: var(--theme-shadow-elevated);
+  border-color: var(--ui-border);
+  border-radius: var(--ui-radius-surface);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-surface);
+}
+
+.ac-editor[data-variant="paper"]:hover {
+  border-color: var(--ui-border);
+  background: var(--ui-surface);
 }
 
 .ac-editor[data-variant="paper"]:focus-within {
-  @apply bg-white border-blue-400;
-  @apply dark:bg-zinc-900 dark:border-blue-400;
+  border-color: var(--ui-field-focus-border);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-surface);
 }
 
 .ac-editor[data-disabled="true"] {

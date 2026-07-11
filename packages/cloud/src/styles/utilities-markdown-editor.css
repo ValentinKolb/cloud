@@ -15,43 +15,57 @@
 
 .md-editor {
   position: relative;
-  @apply rounded-md border;
-  @apply bg-zinc-100 border-zinc-100;
-  @apply hover:bg-zinc-200/70 hover:border-zinc-200/70;
-  @apply dark:bg-zinc-800 dark:border-zinc-800;
-  /* Dark mode hovers DARKEN (like light mode does) — a lighter hover reads washed-out. */
-  @apply dark:hover:bg-zinc-900/60 dark:hover:border-zinc-800;
+  border: 1px solid var(--ui-field-border);
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-field);
   @apply transition-colors;
   @apply overflow-hidden;
   /* Recessed well — matches the `input` utility (default variant is field-shaped).
      The `paper` variant below overrides this with a card bevel instead. */
-  box-shadow: var(--theme-recess);
+  box-shadow: var(--ui-control-recess);
+}
+
+.dark .md-editor {
+  /* Preserve the legacy non-preview dark hover until the soft tokens become
+     the global defaults. The scoped preview resets these aliases below. */
+  --md-editor-hover: rgb(24 24 27 / 0.6);
+  --md-editor-hover-border: var(--color-zinc-800);
+}
+
+.md-editor:hover {
+  border-color: var(--md-editor-hover-border, var(--ui-field-hover-border));
+  background: var(--md-editor-hover, var(--ui-field-hover));
 }
 
 .md-editor:focus-within {
-  @apply bg-white border-blue-400;
-  @apply dark:bg-zinc-900 dark:border-blue-400;
+  border-color: var(--ui-field-focus-border);
+  background: var(--ui-field-focus);
+  box-shadow: var(--ui-control-recess);
 }
 
 .md-editor[data-variant="paper"] {
-  @apply rounded-lg;
-  @apply bg-white border-zinc-100;
-  @apply hover:bg-white hover:border-zinc-100;
-  @apply dark:bg-zinc-900 dark:border-zinc-800;
-  @apply dark:hover:bg-zinc-900 dark:hover:border-zinc-800;
+  border-color: var(--ui-border);
+  border-radius: var(--ui-radius-surface);
+  background: var(--ui-surface);
   /* Paper variant = a document surface, so it gets the card bevel (raised),
      not the recess of the field variant. */
-  box-shadow: var(--theme-shadow-elevated);
+  box-shadow: var(--ui-shadow-surface);
+}
+
+.md-editor[data-variant="paper"]:hover {
+  border-color: var(--ui-border);
+  background: var(--ui-surface);
 }
 
 .md-editor[data-variant="paper"]:focus-within {
-  @apply bg-white border-blue-400;
-  @apply dark:bg-zinc-900 dark:border-blue-400;
+  border-color: var(--ui-field-focus-border);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-surface);
 }
 
 .md-editor[data-variant="paper"] .md-editor-toolbar {
-  @apply bg-white border-zinc-100;
-  @apply dark:bg-zinc-900 dark:border-zinc-800;
+  border-color: var(--ui-border);
+  background: var(--ui-surface);
 }
 
 .md-editor[data-variant="paper"] .md-editor-tool {
@@ -76,11 +90,11 @@
 .md-editor-toolbar {
   @apply flex items-center gap-0.5 flex-wrap;
   @apply px-1.5 py-1;
-  @apply border-b border-zinc-200 dark:border-zinc-700;
+  border-bottom: 1px solid var(--ui-divider);
 }
 
 .md-editor:focus-within .md-editor-toolbar {
-  @apply border-zinc-200 dark:border-zinc-700;
+  border-color: var(--ui-divider);
 }
 
 .md-editor-tool {

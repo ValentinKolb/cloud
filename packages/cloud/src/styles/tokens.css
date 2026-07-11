@@ -13,6 +13,18 @@
   --ui-active: var(--color-zinc-200);
   --ui-selected: var(--color-zinc-100);
   --ui-focus: var(--theme-focus-ring);
+  --ui-field: var(--color-zinc-100);
+  --ui-field-border: var(--color-zinc-100);
+  --ui-field-hover: rgb(228 228 231 / 0.7);
+  --ui-field-hover-border: rgb(228 228 231 / 0.7);
+  --ui-field-focus: var(--color-white);
+  --ui-field-focus-border: var(--color-blue-400);
+  --ui-divider: var(--color-zinc-200);
+  --ui-control-recess: var(--theme-recess);
+  --ui-check-surface: var(--color-white);
+  --ui-check-border: var(--color-zinc-300);
+  --ui-check-shadow: var(--theme-recess-sm);
+  --ui-check-hover-transform: scale(1.05);
   --ui-radius-frame: 1rem;
   --ui-radius-surface: 0.5rem;
   --ui-radius-control: 0.375rem;
@@ -37,6 +49,15 @@
   --ui-hover: rgb(30 30 33);
   --ui-active: var(--color-zinc-700);
   --ui-selected: var(--color-zinc-800);
+  --ui-field: var(--color-zinc-800);
+  --ui-field-border: var(--color-zinc-800);
+  --ui-field-hover: var(--color-zinc-700);
+  --ui-field-hover-border: var(--color-zinc-700);
+  --ui-field-focus: var(--color-zinc-900);
+  --ui-field-focus-border: var(--color-blue-400);
+  --ui-divider: var(--color-zinc-700);
+  --ui-check-surface: var(--color-black);
+  --ui-check-border: var(--color-zinc-700);
   --ui-paper-highlighted: rgb(23 37 84 / 0.2);
 }
 

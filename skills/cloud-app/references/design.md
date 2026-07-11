@@ -76,6 +76,17 @@ Use one radius family. A child may use the same radius as its parent only when t
 - `--ui-shadow-surface`: subtle in-flow depth.
 - `--ui-shadow-float`: dialogs, popovers, menus, and toasts.
 
+### Fields and compact controls
+
+- `--ui-field`, `--ui-field-border`: resting field well.
+- `--ui-field-hover`, `--ui-field-hover-border`: pointer hover without implying focus.
+- `--ui-field-focus`, `--ui-field-focus-border`: focused editing surface; combine with `--ui-focus` for keyboard visibility.
+- `--ui-divider`: functional separators inside compound controls such as editor toolbars.
+- `--ui-control-recess`: shared field depth; the soft system may set it to `none`.
+- `--ui-check-*`: checkbox surface, boundary, depth, and hover movement.
+
+Inputs, autocomplete surfaces, and editors must consume the same field roles. Component-specific error, syntax, AI, and checked states may layer meaning on top; they must not redefine the resting neutral state.
+
 ## Surfaces and borders
 
 Use surfaces to group content. Use borders only when they explain structure.

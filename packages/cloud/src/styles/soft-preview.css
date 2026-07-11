@@ -14,6 +14,18 @@ body:has(.cloud-ui-soft),
   --ui-hover: rgb(238 242 239 / 0.82);
   --ui-active: rgb(225 230 226 / 0.9);
   --ui-selected: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 8%, var(--ui-surface));
+  --ui-field: var(--ui-surface-muted);
+  --ui-field-border: transparent;
+  --ui-field-hover: var(--ui-hover);
+  --ui-field-hover-border: var(--ui-border);
+  --ui-field-focus: var(--ui-surface);
+  --ui-field-focus-border: var(--color-blue-400);
+  --ui-divider: var(--ui-border);
+  --ui-control-recess: none;
+  --ui-check-surface: var(--ui-field);
+  --ui-check-border: var(--ui-border-strong);
+  --ui-check-shadow: none;
+  --ui-check-hover-transform: none;
   --ui-radius-frame: 0.875rem;
   --ui-radius-surface: 0.75rem;
   --ui-radius-control: 0.5rem;
@@ -50,6 +62,18 @@ body:has(.cloud-ui-soft),
   --ui-hover: rgb(32 38 34 / 0.82);
   --ui-active: rgb(48 57 51 / 0.9);
   --ui-selected: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 13%, var(--ui-surface));
+  --ui-field: var(--ui-surface-muted);
+  --ui-field-border: transparent;
+  --ui-field-hover: var(--ui-hover);
+  --ui-field-hover-border: var(--ui-border);
+  --ui-field-focus: var(--ui-surface);
+  --ui-field-focus-border: var(--color-blue-400);
+  --ui-divider: var(--ui-border);
+  --ui-control-recess: none;
+  --ui-check-surface: var(--ui-field);
+  --ui-check-border: var(--ui-border-strong);
+  --ui-check-shadow: none;
+  --ui-check-hover-transform: none;
   --ui-shadow-surface: 0 20px 48px -30px rgb(0 0 0 / 0.72), 0 2px 10px rgb(0 0 0 / 0.18);
   --ui-shadow-float: 0 22px 54px -18px rgb(0 0 0 / 0.72), 0 6px 18px rgb(0 0 0 / 0.3);
   --theme-press: inset 0 1px 3px rgb(0 0 0 / 0.48);
@@ -159,9 +183,12 @@ body:has(.cloud-ui-soft) :is(.btn-secondary, .btn-input, .btn-input-recessed) {
 }
 
 body:has(.cloud-ui-soft) .input {
-  border-color: transparent;
-  background: var(--ui-surface-muted);
   box-shadow: none;
+}
+
+body:has(.cloud-ui-soft) .md-editor {
+  --md-editor-hover: var(--ui-field-hover);
+  --md-editor-hover-border: var(--ui-field-hover-border);
 }
 
 body:has(.cloud-ui-soft) .input:hover {
@@ -172,6 +199,14 @@ body:has(.cloud-ui-soft) .input:hover {
 body:has(.cloud-ui-soft) .input:focus,
 body:has(.cloud-ui-soft) .input:focus-within {
   box-shadow: var(--ui-focus);
+}
+
+body:has(.cloud-ui-soft) :is(.ac-editor, .md-editor):focus-within {
+  box-shadow: var(--ui-focus);
+}
+
+body:has(.cloud-ui-soft) :is(.ac-editor, .md-editor)[data-variant="paper"]:focus-within {
+  box-shadow: var(--ui-shadow-surface), var(--ui-focus);
 }
 
 /* Data stays dense; only functional separators remain. */
