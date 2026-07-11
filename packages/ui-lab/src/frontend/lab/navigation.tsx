@@ -1,7 +1,7 @@
 /**
  * Navigation tab — app workspace layouts, pagination, filter chips.
  *
- * Pagination today is HREF-based; the demo intercepts clicks so that
+ * Pagination is HREF-based; the demo intercepts clicks so that
  * scrolling around the lab doesn't trigger a navigation. Behaviour
  * note also added to the description so consumers know what to expect.
  */
@@ -44,18 +44,18 @@ export const PaginationDemo = () => {
     <DemoCard
       id="pagination"
       chip={{ kind: "component", name: "Pagination", from: FROM_UI }}
-      description="HREF-based — clicks navigate. The demo intercepts clicks so scrolling around the lab doesn't trigger a real page change."
+      description="HREF-based with previous/next links and compact first/current/last mobile disclosure. The current page is context, not a redundant link."
       code={`<Pagination currentPage={3} totalPages={8} baseUrl="/items?page=" />`}
     >
       {/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: Demo wrapper intercepts anchor navigation while the nested Pagination anchors keep their own keyboard semantics. */}
       <div
         onClick={(e) => {
-          // Demo-only: stop the anchor from navigating; parse the page
-          // number from the visible target instead.
+          // Demo-only: stop the anchor from navigating and read the page
+          // number from the otherwise-real target URL.
           const a = (e.target as HTMLElement).closest("a");
           if (a) {
             e.preventDefault();
-            const n = parseInt(a.textContent ?? "", 10);
+            const n = parseInt(a.getAttribute("href")?.match(/#page-(\d+)/)?.[1] ?? "", 10);
             if (Number.isFinite(n)) setPage(n);
           }
         }}

@@ -56,7 +56,7 @@ export {
 export { default as MarkdownEditor, type MarkdownEditorProps } from "./markdown/MarkdownEditor";
 export { default as NumberInput } from "./NumberInput";
 export { default as PinInput } from "./PinInput";
-export { default as SegmentedControl } from "./SegmentedControl";
+export { default as SegmentedControl, type SegmentedControlProps, type SegmentOption } from "./SegmentedControl";
 export { Select, SelectInput } from "./Select";
 export { default as SelectChip } from "./SelectChip";
 export { default as Slider } from "./Slider";

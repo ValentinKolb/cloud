@@ -380,7 +380,7 @@ export const SegmentedControlDemo = () => {
     <DemoCard
       id="segmentedcontrol"
       chip={{ kind: "component", name: "SegmentedControl", from: FROM_UI }}
-      description="A row of mutually-exclusive options styled like a single button. Use for view-mode switches and toolbar mode toggles where a `<Select>` would feel heavyweight."
+      description="A compact radiogroup for mutually-exclusive view or mode switches. Arrow keys wrap through options; Home and End move selection and focus together."
       code={`<SegmentedControl<"list" | "board" | "calendar">
   options={[
     { value: "list", label: "List", icon: "ti ti-list" },

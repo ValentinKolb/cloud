@@ -1,4 +1,82 @@
 /* Navigation and list interaction utilities — flat, solid surfaces */
+@utility segmented-control {
+  border: 1px solid var(--ui-segment-border);
+  border-radius: var(--ui-radius-surface);
+  background: var(--ui-segment-surface);
+  box-shadow: var(--ui-segment-shadow);
+  @apply inline-flex w-full items-stretch p-0.5;
+}
+
+@utility segmented-control-item {
+  min-height: var(--ui-control-sm);
+  border-radius: var(--ui-segment-item-radius);
+  color: var(--ui-segment-inactive-text);
+  @apply relative z-0 flex min-w-0 flex-1 items-center justify-center gap-1 px-2 py-1 text-xs leading-4 outline-none;
+  @apply transition-[background-color,color,box-shadow] duration-150;
+  @apply focus-ui disabled:cursor-not-allowed;
+
+  &:hover {
+    background: var(--ui-segment-hover);
+    color: var(--ui-segment-hover-text);
+  }
+
+  &[aria-checked="true"] {
+    z-index: 10;
+    border-radius: var(--ui-segment-active-radius);
+    background: var(--ui-segment-active-surface);
+    color: var(--ui-segment-active-text);
+    box-shadow: var(--ui-segment-active-shadow);
+  }
+
+  &[data-divider="true"]::after {
+    content: "";
+    position: absolute;
+    top: 0.25rem;
+    right: 0;
+    bottom: 0.25rem;
+    width: 1px;
+    background: var(--ui-segment-divider);
+  }
+}
+
+@utility pagination-item {
+  width: var(--ui-control-sm);
+  height: var(--ui-control-sm);
+  border-radius: var(--ui-radius-control);
+  @apply inline-flex shrink-0 items-center justify-center text-xs tabular-nums text-dimmed;
+  @apply transition-[background-color,color,border-color] duration-150 hover:text-primary;
+  @apply focus-ui;
+
+  &:hover {
+    background: var(--ui-pagination-hover);
+  }
+}
+
+@utility pagination-item-current {
+  border: 1px solid var(--ui-pagination-current-border);
+  background: var(--ui-pagination-current-surface);
+  color: var(--ui-pagination-current-text);
+  @apply font-medium;
+}
+
+@utility pagination-ellipsis {
+  width: var(--ui-control-sm);
+  height: var(--ui-control-sm);
+  @apply shrink-0 items-center justify-center text-xs text-dimmed select-none;
+}
+
+@media (max-width: 767px) {
+  .segmented-control-item,
+  .pagination-item {
+    min-height: 2.5rem;
+  }
+
+  .pagination-item {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+}
+
 @utility list-item {
   display: flex !important;
   padding: var(--theme-list-padding);

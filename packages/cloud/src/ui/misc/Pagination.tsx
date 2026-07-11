@@ -1,70 +1,105 @@
-import type { JSX } from "solid-js";
 import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
+import { createMemo, For, type JSX, Show } from "solid-js";
 
-type PaginationProps = {
+export type PaginationProps = {
   currentPage: number;
   totalPages: number;
   baseUrl: string;
   onNavigate?: (event: LinkNavigateEvent) => void | Promise<void>;
 };
 
-/**
- * Renders pagination controls with ellipsis for large page counts.
- * Shows first, last, and pages adjacent to current page.
- */
+type PaginationLinkProps = {
+  href: string;
+  label: string;
+  rel?: "prev" | "next";
+  class?: string;
+  onNavigate?: PaginationProps["onNavigate"];
+  children: JSX.Element;
+};
+
+const PaginationLink = (props: PaginationLinkProps) =>
+  props.onNavigate ? (
+    <Link
+      href={props.href}
+      rel={props.rel}
+      scroll="top"
+      onNavigate={props.onNavigate}
+      class={`pagination-item ${props.class ?? ""}`}
+      aria-label={props.label}
+    >
+      {props.children}
+    </Link>
+  ) : (
+    <a href={props.href} rel={props.rel} class={`pagination-item ${props.class ?? ""}`} aria-label={props.label}>
+      {props.children}
+    </a>
+  );
+
+/** Link-based pagination with directional navigation and compact mobile disclosure. */
 export const Pagination = (props: PaginationProps): null | JSX.Element => {
   if (props.totalPages <= 1) return null;
 
-  const visiblePages = Array.from({ length: props.totalPages }, (_, i) => i + 1).filter(
-    (p) => p === 1 || p === props.totalPages || Math.abs(p - props.currentPage) <= 1,
+  const href = (page: number) => `${props.baseUrl}${page}`;
+  const visiblePages = createMemo(() =>
+    Array.from({ length: props.totalPages }, (_, index) => index + 1).filter(
+      (page) => page === 1 || page === props.totalPages || Math.abs(page - props.currentPage) <= 1,
+    ),
   );
 
   return (
-    <nav class="flex items-center justify-center gap-0.5 pt-3" aria-label="Pagination">
-      {visiblePages.map((page, idx) => {
-        const prevPage = visiblePages[idx - 1];
-        const shouldShowEllipsis = prevPage && page - prevPage > 1;
-        const isActive = page === props.currentPage;
+    <nav class="max-w-full overflow-x-auto pt-3" aria-label="Pagination">
+      <span class="sr-only">
+        Page {props.currentPage} of {props.totalPages}
+      </span>
+      <div class="mx-auto flex w-max items-center gap-1">
+        <Show when={props.currentPage > 1}>
+          <PaginationLink href={href(props.currentPage - 1)} rel="prev" label="Previous page" onNavigate={props.onNavigate}>
+            <i class="ti ti-chevron-left" aria-hidden="true" />
+          </PaginationLink>
+        </Show>
 
-        return (
-          <>
-            {shouldShowEllipsis && (
-              <span class="flex h-7 w-7 items-center justify-center text-dimmed text-xs select-none" aria-hidden="true">
-                ...
-              </span>
-            )}
-            {props.onNavigate ? (
-              <Link
-                href={`${props.baseUrl}${page}`}
-                scroll="top"
-                onNavigate={props.onNavigate}
-                class={`flex h-7 w-7 items-center justify-center rounded-lg text-xs tabular-nums transition-colors ${
-                  isActive
-                    ? "border-blue-500/35 bg-blue-50 text-blue-700 font-medium dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
-                    : "text-dimmed hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                }`}
-                aria-current={isActive ? "page" : undefined}
-                aria-label={`Page ${page}`}
-              >
-                {page}
-              </Link>
-            ) : (
-              <a
-                href={`${props.baseUrl}${page}`}
-                class={`flex h-7 w-7 items-center justify-center rounded-lg text-xs tabular-nums transition-colors ${
-                  isActive
-                    ? "border-blue-500/35 bg-blue-50 text-blue-700 font-medium dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
-                    : "text-dimmed hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                }`}
-                aria-current={isActive ? "page" : undefined}
-                aria-label={`Page ${page}`}
-              >
-                {page}
-              </a>
-            )}
-          </>
-        );
-      })}
+        <For each={visiblePages()}>
+          {(page, index) => {
+            const previousPage = () => visiblePages()[index() - 1];
+            const hasGap = () => previousPage() !== undefined && page - previousPage()! > 1;
+            const isCurrent = () => page === props.currentPage;
+            const mobileVisible = () => page === 1 || page === props.totalPages || isCurrent();
+
+            return (
+              <>
+                <Show when={hasGap()}>
+                  <span class="pagination-ellipsis hidden sm:flex" aria-hidden="true">
+                    …
+                  </span>
+                </Show>
+                <Show
+                  when={isCurrent()}
+                  fallback={
+                    <PaginationLink
+                      href={href(page)}
+                      label={`Page ${page}`}
+                      class={mobileVisible() ? "" : "hidden sm:inline-flex"}
+                      onNavigate={props.onNavigate}
+                    >
+                      {page}
+                    </PaginationLink>
+                  }
+                >
+                  <span class="pagination-item pagination-item-current" aria-current="page">
+                    {page}
+                  </span>
+                </Show>
+              </>
+            );
+          }}
+        </For>
+
+        <Show when={props.currentPage < props.totalPages}>
+          <PaginationLink href={href(props.currentPage + 1)} rel="next" label="Next page" onNavigate={props.onNavigate}>
+            <i class="ti ti-chevron-right" aria-hidden="true" />
+          </PaginationLink>
+        </Show>
+      </div>
     </nav>
   );
 };

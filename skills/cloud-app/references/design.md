@@ -105,6 +105,13 @@ Data colour belongs inside cells and charts, never in the structural table roles
 - `--ui-progress-primary`, `--ui-progress-success`, `--ui-progress-danger`: action and status fills kept separate from app identity.
 - `--ui-tooltip-*`: compact, high-contrast top-layer surface, boundary, type colour, radius, and depth.
 
+### Compact navigation
+
+- `--ui-segment-*`: grouped radio surface, internal divider, hover, active surface, radius, and depth.
+- `--ui-pagination-*`: page hover and current-page surface, border, and text roles.
+
+Segmented controls and pagination share density and focus rhythm, not semantics. A segmented control changes one local mode; pagination navigates to another resource page.
+
 ## Surfaces and borders
 
 Use surfaces to group content. Use borders only when they explain structure.
@@ -259,6 +266,13 @@ Visibility follows frequency and risk:
 - Destructive actions require clear wording and confirmation when reversal is not available.
 
 Hidden actions must still be discoverable through focus, tooltips, menus, or conventional placement.
+
+## Compact navigation
+
+- Use `SegmentedControl` for a small set of mutually exclusive local modes. Arrow keys wrap; Home and End move both selection and focus.
+- Use `Pagination` for server-backed result pages. The current page is not a link; previous and next remain explicit navigation targets.
+- Desktop may show neighbouring pages and ellipses. Mobile keeps previous, first, current, last, and next so touch targets remain usable without squeezing.
+- Keep pagination inside its own overflow boundary as a final safeguard; it must never widen the page.
 
 ## Empty, loading, and error states
 

@@ -90,7 +90,7 @@ export { default as LinkCard } from "./LinkCard";
 export type { LogTableEntry } from "./LogEntriesTable";
 export { default as LogEntriesTable } from "./LogEntriesTable";
 export { default as MarkdownView } from "./MarkdownView";
-export { Pagination } from "./Pagination";
+export { Pagination, type PaginationProps } from "./Pagination";
 export type {
   PanelDialogBodyProps,
   PanelDialogFooterProps,
