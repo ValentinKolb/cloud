@@ -11,14 +11,46 @@ import {
   UpdateDashboardSchema,
   WidgetSchema,
   WorkflowRunSchema,
+  WorkflowStepRunSchema,
 } from "../contracts";
+import { toWorkflowRunEventSummary, toWorkflowRunStepSummary } from "../lib/workflow-run-events";
 import { gridsService } from "../service";
 import { resolveWidgetData } from "../service/dashboard-widget-data";
 import { hasAtLeast, hasGrantsForResource } from "../service/permission-resolver";
+import { getWorkflowRun, getWorkflowRunScope, listStepRuns } from "../service/workflows";
 import { currentActorUser, currentActorUserId, currentActorViewer, gateAt, resolveWithGrants } from "./permissions";
 
 const DashboardWorkflowScannerRunSchema = z.object({
   code: z.string().trim().min(1).max(500),
+});
+
+const DashboardWorkflowRunStatusSchema = z.object({
+  run: WorkflowRunSchema.pick({
+    id: true,
+    workflowId: true,
+    baseId: true,
+    triggerKind: true,
+    status: true,
+    error: true,
+    resultMessage: true,
+    createdAt: true,
+    startedAt: true,
+    finishedAt: true,
+  }),
+  steps: z.array(
+    WorkflowStepRunSchema.pick({
+      id: true,
+      runId: true,
+      stepIndex: true,
+      stepPath: true,
+      kind: true,
+      status: true,
+      error: true,
+      durationMs: true,
+      startedAt: true,
+      finishedAt: true,
+    }),
+  ),
 });
 
 // =============================================================================
@@ -58,6 +90,9 @@ export const createDashboardsApi = (
     workflowTriggerRuntime?: typeof gridsService.workflowTriggerRuntime;
     getDashboard?: typeof gridsService.dashboard.get;
     getWorkflow?: typeof gridsService.workflow.get;
+    getWorkflowRun?: typeof gridsService.workflow.getRun;
+    getWorkflowRunScope?: typeof gridsService.workflow.getRunScope;
+    listWorkflowStepRuns?: typeof gridsService.workflow.listStepRuns;
     canReadDashboard?: typeof canReadDashboardForRequest;
   } = {},
 ) => {
@@ -65,6 +100,9 @@ export const createDashboardsApi = (
   const workflowTriggerRuntime = deps.workflowTriggerRuntime ?? gridsService.workflowTriggerRuntime;
   const getDashboard = deps.getDashboard ?? gridsService.dashboard.get;
   const getWorkflow = deps.getWorkflow ?? gridsService.workflow.get;
+  const getWorkflowRunImpl = deps.getWorkflowRun ?? getWorkflowRun;
+  const getWorkflowRunScopeImpl = deps.getWorkflowRunScope ?? getWorkflowRunScope;
+  const listWorkflowStepRuns = deps.listWorkflowStepRuns ?? listStepRuns;
   const canReadDashboard = deps.canReadDashboard ?? canReadDashboardForRequest;
 
   return new Hono<AuthContext>()
@@ -273,6 +311,41 @@ export const createDashboardsApi = (
             dashboardWidgetId: widget.id,
           }),
         );
+      },
+    )
+
+    .get(
+      "/:dashboardId/widgets/:widgetId/runs/:runId",
+      describeRoute({
+        tags: ["Grids:Dashboard"],
+        summary: "Get a dashboard workflow run and its steps",
+        responses: {
+          200: jsonResponse(DashboardWorkflowRunStatusSchema, "Run status"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
+        },
+      }),
+      async (c) => {
+        const dashboardId = c.req.param("dashboardId")!;
+        const widgetId = c.req.param("widgetId")!;
+        const runId = c.req.param("runId")!;
+        const dashboard = await getDashboard(dashboardId);
+        if (!dashboard || !(await canReadDashboard(c, dashboard))) return c.json({ message: "Dashboard not found" }, 404);
+        const widget = dashboard.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === widgetId);
+        if (!widget || widget.kind !== "workflow-button") return c.json({ message: "Widget not found" }, 404);
+        const [run, scope] = await Promise.all([getWorkflowRunImpl(runId), getWorkflowRunScopeImpl(runId)]);
+        if (
+          !run ||
+          run.workflowId !== widget.workflowId ||
+          scope?.kind !== "dashboard-widget" ||
+          scope.dashboardId !== dashboard.id ||
+          scope.dashboardWidgetId !== widget.id
+        ) {
+          return c.json({ message: "Workflow run not found" }, 404);
+        }
+        return c.json({
+          run: toWorkflowRunEventSummary(run),
+          steps: (await listWorkflowStepRuns(run.id)).map(toWorkflowRunStepSummary),
+        });
       },
     )
 

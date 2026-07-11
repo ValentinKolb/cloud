@@ -16,6 +16,7 @@ import type {
   WorkflowTriggerKind,
 } from "../contracts";
 import { WorkflowDefinitionSchema } from "../contracts";
+import type { WorkflowRunEventScope } from "../lib/workflow-run-events";
 import { parseWorkflowYaml } from "../workflows/dsl";
 import { logAudit, type SqlClient } from "./audit";
 import { listByTable as listFields } from "./fields";
@@ -24,6 +25,7 @@ import { parseJsonbRow } from "./jsonb";
 import { emitMetadataEvent } from "./metadata-events";
 import type { GridsRecordEvent } from "./record-events";
 import { insertWithShortId } from "./short-id";
+import { notifyWorkflowRunEvent } from "./workflow-run-events";
 import { validateSchedule } from "./workflow-validators";
 
 type DbRow = Record<string, unknown>;
@@ -42,6 +44,16 @@ type CreateRunInput = {
 };
 
 type StoredWorkflowAuthorization = { kind: "workflow" } | { kind: "dashboard-widget"; dashboardId: string; dashboardWidgetId: string };
+
+const workflowRunEventScope = (value: unknown): WorkflowRunEventScope => {
+  if (!value || typeof value !== "object") return { kind: "workflow" };
+  const authorization = value as Record<string, unknown>;
+  return authorization.kind === "dashboard-widget" &&
+    typeof authorization.dashboardId === "string" &&
+    typeof authorization.dashboardWidgetId === "string"
+    ? { kind: "dashboard-widget", dashboardId: authorization.dashboardId, dashboardWidgetId: authorization.dashboardWidgetId }
+    : { kind: "workflow" };
+};
 
 export type RecoverableQueuedWorkflowRun = WorkflowRun & {
   actorGroupIds: string[];
@@ -890,7 +902,9 @@ export const createWorkflowRun = async (input: CreateRunInput, client: SqlClient
               created_at, started_at, finished_at
   `;
   if (!row) throw err.internal("workflow run insert failed");
-  return mapRecoverableRunRow(row);
+  const run = mapRecoverableRunRow(row);
+  await notifyWorkflowRunEvent(run, [], workflowRunEventScope(run.authorization));
+  return run;
 };
 
 export const claimStaleQueuedRuns = async (staleMs = 30_000, limit = 100): Promise<RecoverableQueuedWorkflowRun[]> => {
@@ -934,7 +948,7 @@ export const failQueuedRunAttempt = async (
     WHERE id = ${runId}::uuid
       AND status = 'queued'
       AND queue_attempts = ${queueAttempt}
-    RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_kind, trigger_input,
+    RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_authorization, trigger_kind, trigger_input,
               resolved_input, status, error, result_message, created_at, started_at, finished_at
   `;
   if (!row) return null;
@@ -957,7 +971,9 @@ export const failQueuedRunAttempt = async (
     },
     client,
   );
-  return mapRunRow(row);
+  const run = mapRunRow(row);
+  await notifyWorkflowRunEvent(run, [], workflowRunEventScope(parseJsonbRow(row.trigger_authorization, null)));
+  return run;
 };
 
 export const claimRun = async (runId: string, client: SqlClient = sql, leaseMs = DEFAULT_RUN_LEASE_MS): Promise<ClaimedWorkflowRun> => {
@@ -972,7 +988,7 @@ export const claimRun = async (runId: string, client: SqlClient = sql, leaseMs =
         status = 'queued'
         OR (status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at < now())
       )
-    RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_kind, trigger_input,
+    RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_authorization, trigger_kind, trigger_input,
               resolved_input, status, error, result_message, created_at, started_at, finished_at
   `;
   if (!row) {
@@ -999,7 +1015,9 @@ export const claimRun = async (runId: string, client: SqlClient = sql, leaseMs =
     },
     client,
   );
-  return { run: mapRunRow(row), claimed: true };
+  const run = mapRunRow(row);
+  await notifyWorkflowRunEvent(run, [], workflowRunEventScope(parseJsonbRow(row.trigger_authorization, null)));
+  return { run, claimed: true };
 };
 
 export const heartbeatRun = async (runId: string, leaseMs = DEFAULT_RUN_LEASE_MS, client: SqlClient = sql): Promise<void> => {
@@ -1020,7 +1038,7 @@ export const finishRun = async (runId: string, input: FinishRunInput, client: Sq
         lease_expires_at = NULL,
         finished_at = now()
     WHERE id = ${runId}::uuid
-    RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_kind, trigger_input,
+    RETURNING id, workflow_id, base_id, actor_user_id, service_account_id, trigger_authorization, trigger_kind, trigger_input,
               resolved_input, status, error, result_message, created_at, started_at, finished_at
   `;
   if (!row) throw err.notFound("workflow run");
@@ -1043,7 +1061,13 @@ export const finishRun = async (runId: string, input: FinishRunInput, client: Sq
     },
     client,
   );
-  return mapRunRow(row);
+  const run = mapRunRow(row);
+  await notifyWorkflowRunEvent(
+    run,
+    await listStepRunsWithClient(run.id, client),
+    workflowRunEventScope(parseJsonbRow(row.trigger_authorization, null)),
+  );
+  return run;
 };
 
 export const listRuns = async (workflowId: string, limit = 50): Promise<WorkflowRun[]> => {
@@ -1302,6 +1326,15 @@ export const getWorkflowRun = async (runId: string): Promise<WorkflowRun | null>
   return row ? mapRunRow(row) : null;
 };
 
+export const getWorkflowRunScope = async (runId: string): Promise<WorkflowRunEventScope | null> => {
+  const [row] = await sql<Array<{ trigger_authorization: unknown }>>`
+    SELECT trigger_authorization
+    FROM grids.workflow_runs
+    WHERE id = ${runId}::uuid
+  `;
+  return row ? workflowRunEventScope(parseJsonbRow(row.trigger_authorization, null)) : null;
+};
+
 export const createStepRun = async (input: CreateStepRunInput, client: SqlClient = sql): Promise<WorkflowStepRun> => {
   const [row] = await client<DbRow[]>`
     INSERT INTO grids.workflow_step_runs (run_id, step_index, step_path, resume_key, kind, status, input, started_at)
@@ -1346,8 +1379,8 @@ export const finishStepRun = async (stepRunId: string, input: FinishStepRunInput
   return mapStepRunRow(row);
 };
 
-export const listStepRuns = async (runId: string): Promise<WorkflowStepRun[]> => {
-  const rows = await sql<DbRow[]>`
+const listStepRunsWithClient = async (runId: string, client: SqlClient): Promise<WorkflowStepRun[]> => {
+  const rows = await client<DbRow[]>`
     SELECT id, run_id, step_index, step_path, kind, status, input, output, error, duration_ms, started_at, finished_at
     FROM grids.workflow_step_runs
     WHERE run_id = ${runId}::uuid
@@ -1355,6 +1388,8 @@ export const listStepRuns = async (runId: string): Promise<WorkflowStepRun[]> =>
   `;
   return rows.map(mapStepRunRow);
 };
+
+export const listStepRuns = async (runId: string): Promise<WorkflowStepRun[]> => listStepRunsWithClient(runId, sql);
 
 export const getOrCreateRecordScanCode = async (params: {
   baseId: string;

@@ -12,6 +12,11 @@ export const gridsWorkspace = {
     metadataEvent: "grids.metadata.event",
     metadataError: "grids.metadata.error",
     metadataRevoked: "grids.metadata.revoked",
+    workflowRunsSubscribe: "grids.workflow-runs.subscribe",
+    workflowRunsReady: "grids.workflow-runs.ready",
+    workflowRunsEvent: "grids.workflow-runs.event",
+    workflowRunsError: "grids.workflow-runs.error",
+    workflowRunsRevoked: "grids.workflow-runs.revoked",
   },
   streamCursorPattern: GRIDS_STREAM_CURSOR_PATTERN,
 } as const;

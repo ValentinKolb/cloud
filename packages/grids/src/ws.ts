@@ -5,11 +5,13 @@ import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { z } from "zod";
+import { isWorkflowRunEventVisible } from "./lib/workflow-run-events";
 import { gridsWorkspace } from "./lib/workspace-events";
 import { gridsService } from "./service";
 import { canReadDashboardIncludedData } from "./service/dashboard-included-access";
 import { latestMetadataEventCursor, liveMetadataEvents } from "./service/metadata-events";
 import { latestRecordEventCursor, liveRecordEvents } from "./service/record-events";
+import { latestWorkflowRunEventCursor, liveWorkflowRunEvents } from "./service/workflow-run-events";
 
 const log = logger("grids:ws");
 const WS_TYPE = gridsWorkspace.wsType;
@@ -36,9 +38,28 @@ const SubscribeMetadataMessageSchema = z.object({
   }),
 });
 
-const ClientMessageSchema = z.discriminatedUnion("type", [SubscribeMessageSchema, SubscribeMetadataMessageSchema]);
+const SubscribeWorkflowRunsMessageSchema = z
+  .object({
+    type: z.literal(WS_TYPE.workflowRunsSubscribe),
+    payload: z.object({
+      workflowId: z.string().uuid(),
+      dashboardId: z.string().uuid().optional(),
+      dashboardWidgetId: z.string().min(1).max(200).optional(),
+      sessionToken: z.string().min(1).optional(),
+      fromCursor: z.string().regex(gridsWorkspace.streamCursorPattern).nullable().optional(),
+    }),
+  })
+  .refine(
+    ({ payload }) => Boolean(payload.dashboardId) === Boolean(payload.dashboardWidgetId),
+    "dashboardId and dashboardWidgetId must be provided together",
+  );
+
+const ClientMessageSchema = z.union([SubscribeMessageSchema, SubscribeMetadataMessageSchema, SubscribeWorkflowRunsMessageSchema]);
 type WsPhase = "open" | "subscribed" | "closing";
-type Subscription = { kind: "records"; baseId: string; tableId: string; dashboardId?: string } | { kind: "metadata"; baseId: string };
+type Subscription =
+  | { kind: "records"; baseId: string; tableId: string; dashboardId?: string }
+  | { kind: "metadata"; baseId: string }
+  | { kind: "workflow-runs"; baseId: string; workflowId: string; dashboardId?: string; dashboardWidgetId?: string };
 
 type WsContext = {
   socket: ServerWebSocket<unknown>;
@@ -51,7 +72,7 @@ type WsContext = {
 };
 
 type AccessResult =
-  | { ok: true; user: User; baseId: string; tableId: string }
+  | { ok: true; user: User; baseId: string; tableId?: string; workflowId?: string }
   | { ok: false; code: string; message: string; tableId?: string };
 
 const createContext = (socket: ServerWebSocket<unknown>, sessionToken: string | null): WsContext => ({
@@ -64,15 +85,23 @@ const createContext = (socket: ServerWebSocket<unknown>, sessionToken: string | 
   accessRefreshTimeout: null,
 });
 
-const send = (socket: ServerWebSocket<unknown>, type: string, payload?: unknown) => {
+export const sendWorkspaceMessage = (socket: ServerWebSocket<unknown>, type: string, payload?: unknown): boolean => {
   try {
-    socket.send(JSON.stringify({ type, payload }));
+    return socket.send(JSON.stringify({ type, payload })) > 0;
   } catch {
     // Closed sockets are normal during tab/navigation churn.
+    return false;
   }
 };
 
-const errorTypeFor = (ctx: WsContext): string => (ctx.subscription?.kind === "metadata" ? WS_TYPE.metadataError : WS_TYPE.recordsError);
+const send = sendWorkspaceMessage;
+
+const errorTypeFor = (ctx: WsContext): string =>
+  ctx.subscription?.kind === "metadata"
+    ? WS_TYPE.metadataError
+    : ctx.subscription?.kind === "workflow-runs"
+      ? WS_TYPE.workflowRunsError
+      : WS_TYPE.recordsError;
 
 const stopStream = (ctx: WsContext) => {
   if (ctx.streamAbort) ctx.streamAbort.abort();
@@ -164,7 +193,44 @@ const evaluateBaseAccess = async (baseId: string, sessionToken: string | null): 
     return { ok: false, code: "access_denied", message: "Access denied" };
   }
 
-  return { ok: true, user, baseId: base.id, tableId: "" };
+  return { ok: true, user, baseId: base.id };
+};
+
+const evaluateWorkflowAccess = async (
+  workflowId: string,
+  sessionToken: string | null,
+  dashboard?: { id: string; widgetId: string },
+): Promise<AccessResult> => {
+  const user = await resolveSessionUser(sessionToken);
+  if (!user) return { ok: false, code: "login_required", message: "Login required" };
+
+  const workflow = await gridsService.workflow.get(workflowId);
+  if (!workflow) return { ok: false, code: "not_found", message: "Workflow not found" };
+
+  if (dashboard) {
+    const item = await gridsService.dashboard.get(dashboard.id);
+    if (!item || item.baseId !== workflow.baseId) return { ok: false, code: "not_found", message: "Dashboard not found" };
+    const widget = item.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === dashboard.widgetId);
+    if (!widget || widget.kind !== "workflow-button" || widget.workflowId !== workflow.id) {
+      return { ok: false, code: "not_found", message: "Workflow widget not found" };
+    }
+    if (!(await canReadDashboardIncludedData(item, { userId: user.id, userGroups: user.memberofGroupIds }))) {
+      return { ok: false, code: "access_denied", message: "Access denied" };
+    }
+  } else {
+    const grants = await gridsService.permission.loadGrants({
+      userId: user.id,
+      userGroups: user.memberofGroupIds,
+      baseId: workflow.baseId,
+      workflowId: workflow.id,
+    });
+    const level = gridsService.permission.resolve(grants, { baseId: workflow.baseId, workflowId: workflow.id });
+    if (!gridsService.permission.hasAtLeast(level, "read")) {
+      return { ok: false, code: "access_denied", message: "Access denied" };
+    }
+  }
+
+  return { ok: true, user, baseId: workflow.baseId, workflowId: workflow.id };
 };
 
 const startStream = (ctx: WsContext, afterCursor: string | null) => {
@@ -184,7 +250,7 @@ const startStream = (ctx: WsContext, afterCursor: string | null) => {
         for await (const event of liveRecordEvents({ baseId, after: afterCursor, signal: abort.signal })) {
           if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.subscription !== subscription) break;
           if (event.data.tableId !== tableId) continue;
-          send(
+          const sent = send(
             ctx.socket,
             WS_TYPE.recordsEvent,
             subscription.dashboardId
@@ -198,16 +264,46 @@ const startStream = (ctx: WsContext, afterCursor: string | null) => {
                   event: event.data,
                 },
           );
+          if (!sent) {
+            closeWithError(ctx, "backpressure", "Live updates exceeded the connection capacity", tableId);
+            break;
+          }
         }
-      } else {
+      } else if (subscription.kind === "metadata") {
         send(ctx.socket, WS_TYPE.metadataReady, { baseId });
         for await (const event of liveMetadataEvents({ baseId, after: afterCursor, signal: abort.signal })) {
           if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.subscription !== subscription) break;
-          send(ctx.socket, WS_TYPE.metadataEvent, {
+          const sent = send(ctx.socket, WS_TYPE.metadataEvent, {
             baseId,
             cursor: event.cursor,
             event: event.data,
           });
+          if (!sent) {
+            closeWithError(ctx, "backpressure", "Live updates exceeded the connection capacity");
+            break;
+          }
+        }
+      } else {
+        const workflowId = subscription.workflowId;
+        send(ctx.socket, WS_TYPE.workflowRunsReady, { workflowId });
+        for await (const event of liveWorkflowRunEvents({ baseId, workflowId, after: afterCursor, signal: abort.signal })) {
+          if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.subscription !== subscription) break;
+          const dashboardScope =
+            subscription.dashboardId && subscription.dashboardWidgetId
+              ? { id: subscription.dashboardId, widgetId: subscription.dashboardWidgetId }
+              : undefined;
+          if (!isWorkflowRunEventVisible(event.data, dashboardScope)) {
+            continue;
+          }
+          const sent = send(ctx.socket, WS_TYPE.workflowRunsEvent, {
+            workflowId,
+            cursor: event.cursor,
+            event: event.data,
+          });
+          if (!sent) {
+            closeWithError(ctx, "backpressure", "Workflow updates exceeded the connection capacity");
+            break;
+          }
         }
       }
     } catch (error) {
@@ -217,12 +313,20 @@ const startStream = (ctx: WsContext, afterCursor: string | null) => {
         kind: subscription.kind,
         error: error instanceof Error ? error.message : String(error),
       });
-      send(ctx.socket, subscription.kind === "records" ? WS_TYPE.recordsError : WS_TYPE.metadataError, {
-        code: "stream_failed",
-        message: "Workspace event stream failed",
-        baseId,
-        tableId: subscription.kind === "records" ? subscription.tableId : undefined,
-      });
+      send(
+        ctx.socket,
+        subscription.kind === "records"
+          ? WS_TYPE.recordsError
+          : subscription.kind === "metadata"
+            ? WS_TYPE.metadataError
+            : WS_TYPE.workflowRunsError,
+        {
+          code: "stream_failed",
+          message: "Workspace event stream failed",
+          baseId,
+          tableId: subscription.kind === "records" ? subscription.tableId : undefined,
+        },
+      );
       stopAccessRefresh(ctx);
       ctx.phase = "closing";
       ctx.socket.close(CLOSE_SERVICE_RESTART, "stream_failed");
@@ -245,15 +349,31 @@ const startAccessRefresh = (ctx: WsContext) => {
           ? subscription.dashboardId
             ? await evaluateDashboardRecordAccess(subscription.dashboardId, subscription.tableId, ctx.sessionToken)
             : await evaluateTableAccess(subscription.tableId, ctx.sessionToken)
-          : await evaluateBaseAccess(subscription.baseId, ctx.sessionToken);
+          : subscription.kind === "metadata"
+            ? await evaluateBaseAccess(subscription.baseId, ctx.sessionToken)
+            : await evaluateWorkflowAccess(
+                subscription.workflowId,
+                ctx.sessionToken,
+                subscription.dashboardId && subscription.dashboardWidgetId
+                  ? { id: subscription.dashboardId, widgetId: subscription.dashboardWidgetId }
+                  : undefined,
+              );
       if (!access.ok) {
         stopStream(ctx);
-        send(ctx.socket, subscription.kind === "records" ? WS_TYPE.recordsRevoked : WS_TYPE.metadataRevoked, {
-          code: access.code,
-          message: access.code === "access_denied" ? "Access was revoked" : access.message,
-          baseId: subscription.baseId,
-          tableId: subscription.kind === "records" ? subscription.tableId : undefined,
-        });
+        send(
+          ctx.socket,
+          subscription.kind === "records"
+            ? WS_TYPE.recordsRevoked
+            : subscription.kind === "metadata"
+              ? WS_TYPE.metadataRevoked
+              : WS_TYPE.workflowRunsRevoked,
+          {
+            code: access.code,
+            message: access.code === "access_denied" ? "Access was revoked" : access.message,
+            baseId: subscription.baseId,
+            tableId: subscription.kind === "records" ? subscription.tableId : undefined,
+          },
+        );
         ctx.socket.close(1008, access.code);
         ctx.phase = "closing";
         return;
@@ -280,7 +400,11 @@ const handleSubscribe = async (ctx: WsContext, payload: z.infer<typeof Subscribe
   const access = payload.dashboardId
     ? await evaluateDashboardRecordAccess(payload.dashboardId, payload.tableId, sessionToken)
     : await evaluateTableAccess(payload.tableId, sessionToken);
-  if (!access.ok) {
+  if (!access.ok || !access.tableId) {
+    if (access.ok) {
+      closeWithError(ctx, "not_found", "Table not found", payload.tableId);
+      return;
+    }
     closeWithError(ctx, access.code, access.message, access.tableId ?? payload.tableId);
     return;
   }
@@ -313,6 +437,32 @@ const handleMetadataSubscribe = async (ctx: WsContext, payload: z.infer<typeof S
   startAccessRefresh(ctx);
 };
 
+const handleWorkflowRunsSubscribe = async (ctx: WsContext, payload: z.infer<typeof SubscribeWorkflowRunsMessageSchema>["payload"]) => {
+  const sessionToken = payload.sessionToken ?? ctx.sessionToken;
+  const dashboard =
+    payload.dashboardId && payload.dashboardWidgetId ? { id: payload.dashboardId, widgetId: payload.dashboardWidgetId } : undefined;
+  const access = await evaluateWorkflowAccess(payload.workflowId, sessionToken, dashboard);
+  if (!access.ok || !access.workflowId) {
+    closeWithError(ctx, access.ok ? "not_found" : access.code, access.ok ? "Workflow not found" : access.message);
+    return;
+  }
+
+  const baselineCursor = payload.fromCursor ?? (await latestWorkflowRunEventCursor(access.baseId, access.workflowId)) ?? "0-0";
+
+  ctx.phase = "subscribed";
+  ctx.sessionToken = sessionToken;
+  ctx.user = access.user;
+  ctx.subscription = {
+    kind: "workflow-runs",
+    baseId: access.baseId,
+    workflowId: access.workflowId,
+    dashboardId: payload.dashboardId,
+    dashboardWidgetId: payload.dashboardWidgetId,
+  };
+  startStream(ctx, baselineCursor);
+  startAccessRefresh(ctx);
+};
+
 const handleClientMessage = async (ctx: WsContext, raw: string): Promise<void> => {
   let parsed: unknown;
   try {
@@ -332,6 +482,8 @@ const handleClientMessage = async (ctx: WsContext, raw: string): Promise<void> =
     await handleSubscribe(ctx, message.data.payload);
   } else if (message.data.type === WS_TYPE.metadataSubscribe) {
     await handleMetadataSubscribe(ctx, message.data.payload);
+  } else if (message.data.type === WS_TYPE.workflowRunsSubscribe) {
+    await handleWorkflowRunsSubscribe(ctx, message.data.payload);
   }
 };
 

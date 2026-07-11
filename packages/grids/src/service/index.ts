@@ -216,6 +216,7 @@ export const gridsService = {
     listEmailDeliveriesPage: workflows.listEmailDeliveriesPage,
     runStats: workflows.runStats,
     getRun: workflows.getWorkflowRun,
+    getRunScope: workflows.getWorkflowRunScope,
     listStepRuns: workflows.listStepRuns,
     getOrCreateRecordScanCode: workflows.getOrCreateRecordScanCode,
     ensureRecordScanCode: workflows.ensureRecordScanCode,

@@ -1,9 +1,11 @@
 import { dialogCore, PanelDialog, panelDialogOptions, TextInput } from "@valentinkolb/cloud/ui";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { WorkflowRun, WorkflowStepRun } from "../../../contracts";
+import type { WorkflowRunEventSummary, WorkflowRunStepSummary } from "../../../lib/workflow-run-events";
 import { errorMessage } from "../utils/api-helpers";
 import { createScannerEngine, type ScannerDetection, type ScannerEngine } from "./scanner-engine";
+import { createWorkflowRunEventBuffer } from "./workflow-run-event-buffer";
+import { createWorkflowRunEventsProvider } from "./workflow-run-events-provider";
 
 export type WorkflowScannerState = {
   baseShortId: string;
@@ -25,8 +27,8 @@ type ScanLogItem = {
   format: string | null;
   status: ScanStatus;
   message: string;
-  run: WorkflowRun | null;
-  steps: WorkflowStepRun[];
+  run: WorkflowRunEventSummary | null;
+  steps: WorkflowRunStepSummary[];
   createdAt: number;
 };
 
@@ -39,8 +41,8 @@ type VideoBox = { x: number; y: number; width: number; height: number };
 
 const MAX_ACTIVE_SCAN_RUNS = 8;
 
-const isTerminal = (run: WorkflowRun): boolean => run.status === "succeeded" || run.status === "failed" || run.status === "canceled";
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const isTerminal = (run: WorkflowRunEventSummary): boolean =>
+  run.status === "succeeded" || run.status === "failed" || run.status === "canceled";
 
 const statusClass = (status: ScanStatus) =>
   status === "succeeded"
@@ -127,6 +129,10 @@ export default function WorkflowScannerSurface(props: Props) {
   let disposed = false;
   let decoding = false;
   let initialCodeSubmitted = false;
+  let fallbackTimer: ReturnType<typeof setInterval> | null = null;
+  let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  let streamReady = false;
+  const pendingRunEvents = createWorkflowRunEventBuffer();
 
   const [cameraRunning, setCameraRunning] = createSignal(false);
   const [cameraError, setCameraError] = createSignal<string | null>(null);
@@ -157,29 +163,98 @@ export default function WorkflowScannerSurface(props: Props) {
     return payload.items;
   };
 
-  const pollRun = async (logId: string, runId: string) => {
-    while (!disposed) {
-      await sleep(650);
-      const res = await apiClient.workflows.runs[":runId"].$get({ param: { runId } });
-      if (!res.ok) throw new Error(await errorMessage(res, "Request failed"));
-      const run = await res.json();
-      const status: ScanStatus =
-        run.status === "succeeded" ? "succeeded" : run.status === "failed" || run.status === "canceled" ? "failed" : "running";
-      updateLog(logId, {
-        run,
-        status,
-        message: run.resultMessage ?? run.error ?? (status === "succeeded" ? "Succeeded" : status === "failed" ? "Failed" : "Running"),
+  const applyRun = (logId: string, run: WorkflowRunEventSummary, steps?: WorkflowRunStepSummary[]) => {
+    const status: ScanStatus =
+      run.status === "succeeded" ? "succeeded" : run.status === "failed" || run.status === "canceled" ? "failed" : "running";
+    updateLog(logId, {
+      run,
+      status,
+      message: run.resultMessage ?? run.error ?? (status === "succeeded" ? "Succeeded" : status === "failed" ? "Failed" : "Running"),
+      ...(steps ? { steps } : {}),
+    });
+  };
+
+  const refreshRun = async (logId: string, runId: string) => {
+    if (props.state.dashboardId && props.state.dashboardWidgetId) {
+      const res = await apiClient.dashboards[":dashboardId"].widgets[":widgetId"].runs[":runId"].$get({
+        param: { dashboardId: props.state.dashboardId, widgetId: props.state.dashboardWidgetId, runId },
       });
-      if (isTerminal(run)) {
-        try {
-          updateLog(logId, { steps: await fetchSteps(run.id) });
-        } catch {
-          // Step details are useful but not required for the scan row itself.
-        }
-        break;
+      if (!res.ok) throw new Error(await errorMessage(res, "Request failed"));
+      const payload = await res.json();
+      applyRun(logId, payload.run, payload.steps);
+      return;
+    }
+    const res = await apiClient.workflows.runs[":runId"].$get({ param: { runId } });
+    if (!res.ok) throw new Error(await errorMessage(res, "Request failed"));
+    const run = await res.json();
+    let steps: WorkflowRunStepSummary[] | undefined;
+    if (isTerminal(run)) {
+      try {
+        steps = await fetchSteps(run.id);
+      } catch {
+        // The run result remains useful when optional step details cannot be loaded.
       }
     }
+    applyRun(logId, run, steps);
   };
+
+  const refreshActiveRuns = async () => {
+    const active = logs().filter((item) => item.run && (item.status === "queued" || item.status === "running"));
+    await Promise.all(active.map((item) => refreshRun(item.id, item.run!.id).catch(() => undefined)));
+  };
+
+  const stopFallback = () => {
+    if (fallbackTimer) clearInterval(fallbackTimer);
+    fallbackTimer = null;
+  };
+
+  const stopWatchdog = () => {
+    if (watchdogTimer) clearInterval(watchdogTimer);
+    watchdogTimer = null;
+  };
+
+  const startFallback = () => {
+    if (fallbackTimer || disposed) return;
+    fallbackTimer = setInterval(() => void refreshActiveRuns(), 2500);
+  };
+
+  const runEvents = createWorkflowRunEventsProvider({
+    workflowId: props.state.workflowId,
+    dashboardId: props.state.dashboardId,
+    dashboardWidgetId: props.state.dashboardWidgetId,
+    onReady: () => {
+      streamReady = true;
+      stopFallback();
+      void refreshActiveRuns();
+    },
+    onEvent: (event) => {
+      const item = logs().find((candidate) => candidate.run?.id === event.run.id);
+      if (item) {
+        applyRun(item.id, event.run, event.steps);
+        return;
+      }
+      pendingRunEvents.push(event);
+    },
+    onError: () => {
+      streamReady = false;
+      startFallback();
+    },
+    onRevoked: (error) => {
+      streamReady = false;
+      stopFallback();
+      stopWatchdog();
+      setCameraError(error.message);
+      setLogs((items) =>
+        items.map((item) =>
+          item.status === "queued" || item.status === "running" ? { ...item, status: "failed", message: error.message } : item,
+        ),
+      );
+    },
+    onFatal: () => {
+      streamReady = false;
+      startFallback();
+    },
+  });
 
   const runScan = async (code: string, format: string | null) => {
     const trimmed = code.trim();
@@ -225,13 +300,12 @@ export default function WorkflowScannerSurface(props: Props) {
             });
       if (!res.ok) throw new Error(await errorMessage(res, "Scanner workflow could not be started"));
       const run = await res.json();
-      updateLog(id, { run, status: run.status === "queued" ? "queued" : "running", message: "Queued" });
-      void pollRun(id, run.id).catch((error) => {
-        updateLog(id, {
-          status: "failed",
-          message: error instanceof Error ? error.message : "Could not poll workflow run",
-        });
-      });
+      const pending = pendingRunEvents.take(run.id);
+      if (pending) applyRun(id, pending.run, pending.steps);
+      else updateLog(id, { run, status: run.status === "queued" ? "queued" : "running", message: "Queued" });
+      setTimeout(() => {
+        if (!disposed) void refreshRun(id, run.id).catch(() => !streamReady && startFallback());
+      }, 1500);
     } catch (error) {
       updateLog(id, {
         status: "failed",
@@ -332,6 +406,8 @@ export default function WorkflowScannerSurface(props: Props) {
 
   onMount(() => {
     window.addEventListener("resize", updateVideoBox);
+    runEvents.connect();
+    watchdogTimer = setInterval(() => void refreshActiveRuns(), 10_000);
     submitInitialCode();
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraError("Camera scanning is not supported in this browser.");
@@ -343,6 +419,10 @@ export default function WorkflowScannerSurface(props: Props) {
   onCleanup(() => {
     disposed = true;
     window.removeEventListener("resize", updateVideoBox);
+    stopFallback();
+    stopWatchdog();
+    pendingRunEvents.clear();
+    runEvents.dispose();
     stopCamera();
   });
 
