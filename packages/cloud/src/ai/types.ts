@@ -563,6 +563,8 @@ export type AiToolDefinition<TInput extends z.ZodType = z.ZodType, TOutput exten
   timeoutMs?: number;
   /** One-line "when to use" hint listed in the system prompt's Tools section. Tools without a hint are not listed. */
   promptHint?: string;
+  /** Optional compact representation sent to providers in later loops. The full result remains persisted and visible. */
+  toHistoricalResult?: (context: { input: z.infer<TInput>; output: z.infer<TOutput>; callId: string }) => unknown | Promise<unknown>;
 };
 
 export type AiToolRuntime<TInput extends z.ZodType = z.ZodType, TOutput extends z.ZodType = z.ZodType> =

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   assertPublicHttpUrl,
+  createCloudAiWebExtractTool,
+  createCloudAiWebSearchTool,
   runCloudAiWebExtract,
   runCloudAiWebSearch,
 } from "./firecrawl-tools";
@@ -81,5 +83,46 @@ describe("Firecrawl AI tools", () => {
     });
     expect(JSON.stringify(result)).not.toContain("fc-secret");
     expect(JSON.stringify(result)).not.toContain("creditsUsed");
+  });
+
+  test("keeps all sources in historical search results while bounding snippets", async () => {
+    const tool = createCloudAiWebSearchTool({ apiKey: "fc-secret" });
+    const output = Array.from({ length: 5 }, (_, index) => ({
+      title: `Source ${index + 1}`,
+      url: `https://example.com/${index + 1}`,
+      snippet: `start-${index}-${"x".repeat(800)}-end-${index}`,
+      position: index + 1,
+    }));
+
+    const historical = await tool.def.toHistoricalResult?.({ input: { query: "context retention" }, output, callId: "search-1" });
+    expect(historical).toHaveLength(5);
+    expect(JSON.stringify(historical)).toContain("https://example.com/5");
+    expect(JSON.stringify(historical).length).toBeLessThan(JSON.stringify(output).length);
+  });
+
+  test("keeps substantial source content in historical extracts", async () => {
+    const tool = createCloudAiWebExtractTool({ apiKey: "fc-secret" });
+    const content = `opening evidence\n${"detail ".repeat(1_200)}\nclosing evidence`;
+    const historical = await tool.def.toHistoricalResult?.({
+      input: { url: "https://example.com/report" },
+      output: {
+        url: "https://example.com/report",
+        title: "Report",
+        description: "Primary source",
+        content,
+        truncated: false,
+      },
+      callId: "extract-1",
+    });
+
+    expect(historical).toMatchObject({
+      url: "https://example.com/report",
+      title: "Report",
+      description: "Primary source",
+      truncated: true,
+    });
+    expect(JSON.stringify(historical)).toContain("opening evidence");
+    expect(JSON.stringify(historical)).toContain("closing evidence");
+    expect((historical as { content: string }).content.length).toBeGreaterThanOrEqual(4_000);
   });
 });

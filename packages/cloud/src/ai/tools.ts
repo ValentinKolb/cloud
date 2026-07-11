@@ -15,6 +15,8 @@ export const defineAiTool = <TInput extends z.ZodType, TOutput extends z.ZodType
   timeoutMs?: number;
   /** One-line "when to use" hint listed in the system prompt's Tools section. */
   promptHint?: string;
+  /** Optional compact representation sent to providers in later loops. */
+  toHistoricalResult?: (context: { input: z.infer<TInput>; output: z.infer<TOutput>; callId: string }) => unknown | Promise<unknown>;
 }) => {
   const def: AiToolDefinition<TInput, TOutput> = {
     name: config.name,
@@ -24,6 +26,7 @@ export const defineAiTool = <TInput extends z.ZodType, TOutput extends z.ZodType
     approval: config.approval ?? "once",
     timeoutMs: config.timeoutMs,
     promptHint: config.promptHint,
+    toHistoricalResult: config.toHistoricalResult,
   };
 
   return {
@@ -76,6 +79,7 @@ export const prepareAiTools = (input: { tools?: AiRuntimeTool[]; actor?: Request
       outputSchema: tool.def.outputSchema,
       needsApproval: tool.location === "server" && aiToolNeedsApproval(tool.def.approval),
       timeoutMs: tool.def.timeoutMs,
+      toHistoricalResult: tool.def.toHistoricalResult,
     });
 
     if (tool.location === "server") {

@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { z } from "zod";
+import type { OutboundEvent, ProviderRequest, StoreEntry } from "@valentinkolb/nessi";
 import { nessi } from "@valentinkolb/nessi";
-import type { OutboundEvent, StoreEntry } from "@valentinkolb/nessi";
 import type { Provider } from "@valentinkolb/nessi/ai";
+import { z } from "zod";
 import type { RequestActor } from "../server";
 import { aiToolAllowsAlways, aiToolApprovalScope, aiToolNeedsApproval } from "./approvals";
+import { createCloudAiBashTool } from "./bash-tool";
 import { CloudAiCardInputSchema, createConfiguredDefaultCloudAiTools, createDefaultCloudAiTools } from "./default-tools";
 import { AiTurnActionSchema } from "./runtime";
 import { defineAiTool, prepareAiTools } from "./tools";
@@ -34,6 +35,130 @@ describe("AI tools", () => {
     expect(prepared.tools[0]?.kind).toBe("server");
     expect(prepared.tools[0]?.def.needsApproval).toBe(true);
     expect(prepared.approvalPolicies.get("create_record")).toBe("once");
+  });
+
+  test("forwards optional historical result projectors to Nessi", async () => {
+    const tool = defineAiTool({
+      name: "read_report",
+      description: "Read a report",
+      inputSchema: z.object({ reportId: z.string() }),
+      outputSchema: z.object({ rows: z.array(z.string()) }),
+      approval: "never",
+      toHistoricalResult: ({ input, output }) => ({ reportId: input.reportId, rowCount: output.rows.length }),
+    }).server(async () => ({ rows: ["a", "b"] }));
+
+    const prepared = prepareAiTools({ tools: [tool], actor });
+    const historical = await prepared.tools[0]?.def.toHistoricalResult?.({
+      input: { reportId: "r1" },
+      output: { rows: ["a", "b"] },
+      callId: "call-1",
+    });
+
+    expect(historical).toEqual({ reportId: "r1", rowCount: 2 });
+  });
+
+  test("keeps useful bash context while bounding historical output", async () => {
+    const tool = createCloudAiBashTool();
+    const lines = Array.from({ length: 80 }, (_, index) => `line-${index + 1}`).join("\n");
+    const historical = await tool.def.toHistoricalResult?.({
+      input: { command: "build-report" },
+      output: {
+        stdout: lines,
+        stderr: "warning",
+        exitCode: 0,
+        files: { created: ["/files/report.csv"], updated: [], deleted: [] },
+      },
+      callId: "bash-1",
+    });
+
+    expect(historical).toMatchObject({
+      exitCode: 0,
+      files: { created: ["/files/report.csv"] },
+      stderr: "warning",
+    });
+    expect(JSON.stringify(historical)).toContain("line-1");
+    expect(JSON.stringify(historical)).toContain("line-80");
+    expect(JSON.stringify(historical)).toContain("lines omitted");
+  });
+
+  test("persists full results for the origin loop and projects them in a later Cloud loop", async () => {
+    const entries: StoreEntry[] = [];
+    const requests: ProviderRequest[] = [];
+    let providerCall = 0;
+    const provider: Provider = {
+      name: "historical-test",
+      family: "openai-compatible",
+      model: "historical-test",
+      capabilities: { streaming: true, tools: true, images: false, thinking: false, usage: true },
+      async *stream(request) {
+        requests.push(request);
+        if (providerCall++ === 0) {
+          yield { type: "block_start", blockId: "tool-block", index: 0, kind: "tool_call", callId: "report-1", name: "read_report" };
+          yield {
+            type: "block_end",
+            blockId: "tool-block",
+            index: 0,
+            block: { type: "tool_call", id: "report-1", name: "read_report", args: { reportId: "r1" } },
+          };
+          yield { type: "usage", usage: { input: 100, output: 20, total: 120 }, finishReason: "tool_use" };
+          return;
+        }
+        yield { type: "block_start", blockId: `text-${providerCall}`, index: 0, kind: "text" };
+        yield { type: "block_delta", blockId: `text-${providerCall}`, delta: "Done" };
+        yield { type: "block_end", blockId: `text-${providerCall}`, index: 0, block: { type: "text", text: "Done" } };
+        yield { type: "usage", usage: { input: 120, output: 5, total: 125 }, finishReason: "stop" };
+      },
+      async complete() {
+        throw new Error("complete should not be used");
+      },
+    };
+    const tool = defineAiTool({
+      name: "read_report",
+      description: "Read a report",
+      inputSchema: z.object({ reportId: z.string() }),
+      outputSchema: z.object({ rows: z.array(z.string()) }),
+      approval: "never",
+      toHistoricalResult: ({ input, output }) => ({ reportId: input.reportId, rowCount: output.rows.length }),
+    }).server(async () => ({ rows: ["full", "report", "rows"] }));
+    const prepared = prepareAiTools({ tools: [tool], actor });
+    const store = {
+      append: async (message: StoreEntry["message"]) => {
+        entries.push({ seq: entries.length + 1, kind: "message" as const, message });
+      },
+      load: async () => entries,
+    };
+
+    for await (const _event of nessi({
+      loopId: "origin-loop",
+      provider,
+      systemPrompt: "test",
+      store,
+      tools: prepared.tools,
+      input: "Read the report",
+    })) {
+      // drain
+    }
+    for await (const _event of nessi({
+      loopId: "later-loop",
+      provider,
+      systemPrompt: "test",
+      store,
+      tools: prepared.tools,
+      input: "What did the report contain?",
+    })) {
+      // drain
+    }
+
+    const storedResult = entries.find((entry) => entry.message.role === "tool_result")?.message;
+    expect(storedResult?.role === "tool_result" ? storedResult.result : undefined).toEqual({ rows: ["full", "report", "rows"] });
+    expect(storedResult?.role === "tool_result" ? storedResult.historicalResult?.value : undefined).toEqual({
+      reportId: "r1",
+      rowCount: 3,
+    });
+    const originResult = requests[1]?.messages.find((message) => message.role === "tool_result");
+    const laterResult = requests[2]?.messages.find((message) => message.role === "tool_result");
+    expect(originResult?.role === "tool_result" ? originResult.result : undefined).toEqual({ rows: ["full", "report", "rows"] });
+    expect(laterResult?.role === "tool_result" ? laterResult.result : undefined).toEqual({ reportId: "r1", rowCount: 3 });
   });
 
   test("maps frontend interaction tools to Nessi client tools with mode metadata", () => {

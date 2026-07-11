@@ -55,7 +55,7 @@
     "@simplewebauthn/server": "^13.3.1",
     "@tabler/icons-webfont": "^3.36.1",
     "@tailwindcss/typography": "^0.5.19",
-    "@valentinkolb/nessi": "^0.7.0",
+    "@valentinkolb/nessi": "^0.9.1",
     "@valentinkolb/ssr": "0.10.0",
     "@valentinkolb/stdlib": "0.12.0",
     "@valentinkolb/sync": "^5.5.2",

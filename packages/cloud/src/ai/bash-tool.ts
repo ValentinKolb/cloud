@@ -1,13 +1,17 @@
+import { truncateMiddle } from "@valentinkolb/nessi";
 import { Bash, MountableFs } from "just-bash";
 import { z } from "zod";
 import { PgConversationFs, type SkillFsFile, SkillsFs } from "./bash-fs";
 import { builtinAiSkillCommands } from "./builtin-skills";
 import { aiFileStore } from "./files-store";
-import { aiSkillStore, type AiSkillUserView } from "./skills-store";
+import { type AiSkillUserView, aiSkillStore } from "./skills-store";
 import { defineAiTool } from "./tools";
 
 const BASH_TIMEOUT_MS = 60_000;
 const BASH_MAX_RESULT_CHARS = 30_000;
+const BASH_HISTORY_STDOUT_CHARS = 4_000;
+const BASH_HISTORY_STDERR_CHARS = 2_000;
+const BASH_HISTORY_EDGE_LINES = 12;
 
 /** Skill files that may execute: only mounted when the skill's code is admin-approved. */
 const isExecutableSkillFile = (path: string): boolean => /\.(js|mjs|cjs|ts|py|sh)$/.test(path) || path.includes("/scripts/");
@@ -16,6 +20,19 @@ const truncate = (text: string, label: string): string =>
   text.length <= BASH_MAX_RESULT_CHARS
     ? text
     : `${text.slice(0, BASH_MAX_RESULT_CHARS)}\n[${label} truncated: ${text.length} chars total — write to a file under /files and read it in slices instead]`;
+
+const historicalOutputExcerpt = (text: string, maxChars: number): string => {
+  const lines = text.split("\n");
+  if (text.length <= maxChars && lines.length <= BASH_HISTORY_EDGE_LINES * 2) return text;
+
+  const omittedLines = Math.max(0, lines.length - BASH_HISTORY_EDGE_LINES * 2);
+  const excerpt = [
+    ...lines.slice(0, BASH_HISTORY_EDGE_LINES),
+    `[... ${omittedLines} lines omitted from historical tool result ...]`,
+    ...lines.slice(-BASH_HISTORY_EDGE_LINES),
+  ].join("\n");
+  return truncateMiddle(excerpt, maxChars);
+};
 
 /**
  * Materialize the /skills mount for one user: every active (enabled +
@@ -149,6 +166,12 @@ export const createCloudAiBashTool = () =>
     timeoutMs: BASH_TIMEOUT_MS + 5_000,
     promptHint:
       "run sandboxed bash over the conversation files (/files rw, /input uploads ro, /skills library ro) — for inspecting, transforming, and generating files.",
+    toHistoricalResult: ({ output }) => {
+      const stdout = historicalOutputExcerpt(output.stdout, BASH_HISTORY_STDOUT_CHARS);
+      const stderr = historicalOutputExcerpt(output.stderr, BASH_HISTORY_STDERR_CHARS);
+      if (stdout === output.stdout && stderr === output.stderr) return output;
+      return { ...output, stdout, stderr };
+    },
   }).server(async (input, ctx) => {
     if (!ctx.conversationId) throw new Error("The bash tool needs a conversation context.");
     if (ctx.actor.kind !== "user") throw new Error("The bash tool is only available to signed-in users.");

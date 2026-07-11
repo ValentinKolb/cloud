@@ -1,4 +1,5 @@
 import { isIP } from "node:net";
+import { truncateMiddle } from "@valentinkolb/nessi";
 import { z } from "zod";
 import { coreSettings } from "../services";
 import { defineAiTool } from "./tools";
@@ -10,6 +11,8 @@ const FIRECRAWL_SEARCH_LIMIT = 5;
 const FIRECRAWL_TIMEOUT_MS = 30_000;
 const FIRECRAWL_CACHE_MAX_AGE_MS = 172_800_000;
 const DEFAULT_MAX_TOOL_RESULT_CHARS = 2_000;
+const WEB_SEARCH_HISTORY_SNIPPET_CHARS = 120;
+const WEB_EXTRACT_HISTORY_CONTENT_CHARS = 4_000;
 
 type FirecrawlFetch = typeof fetch;
 
@@ -128,6 +131,11 @@ const firecrawlPost = async (input: {
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const asString = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+
+const truncateSnippet = (text: string): string => {
+  if (text.length <= WEB_SEARCH_HISTORY_SNIPPET_CHARS) return text;
+  return `${text.slice(0, WEB_SEARCH_HISTORY_SNIPPET_CHARS - 3).trimEnd()}...`;
+};
 
 const truncate = (text: string, maxChars: number): { text: string; truncated: boolean } => {
   if (text.length <= maxChars) return { text, truncated: false };
@@ -266,6 +274,11 @@ export const createCloudAiWebSearchTool = (config: FirecrawlToolConfig = {}) =>
     approval: "never",
     timeoutMs: 90_000,
     promptHint: "search the web for current facts, docs, and anything after your training data.",
+    toHistoricalResult: ({ output }) =>
+      output.map((result) => ({
+        ...result,
+        snippet: truncateSnippet(result.snippet),
+      })),
   }).server(async (input, ctx) => runCloudAiWebSearch(input, { ...config, signal: ctx.signal }));
 
 export const createCloudAiWebExtractTool = (config: FirecrawlToolConfig = {}) =>
@@ -277,6 +290,16 @@ export const createCloudAiWebExtractTool = (config: FirecrawlToolConfig = {}) =>
     approval: "never",
     timeoutMs: 90_000,
     promptHint: "read one web page by URL and extract its content — usually after web_search.",
+    toHistoricalResult: ({ output }) => {
+      const content = truncateMiddle(output.content, WEB_EXTRACT_HISTORY_CONTENT_CHARS);
+      return {
+        url: output.url,
+        title: output.title,
+        description: output.description,
+        content,
+        truncated: output.truncated || content !== output.content,
+      };
+    },
   }).server(async (input, ctx) => runCloudAiWebExtract(input, { ...config, signal: ctx.signal }));
 
 export type CloudAiWebSearchInput = z.infer<typeof CloudAiWebSearchInputSchema>;
