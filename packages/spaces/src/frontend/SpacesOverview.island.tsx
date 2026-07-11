@@ -1,7 +1,7 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
 import { AppOverview, ColorInput, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Space } from "@/contracts";
 import { setLastSpaceId } from "./[id]/_components/settings/SpaceSettingsStore";
@@ -178,7 +178,12 @@ export default function SpacesOverview(props: Props) {
   };
 
   return (
-    <AppOverview title="Spaces" subtitle="Organize tasks, events, calendars, and lightweight project workflows." icon="ti ti-layout-kanban">
+    <AppOverview
+      class="cloud-ui-soft"
+      title="Spaces"
+      subtitle="Organize tasks, events, calendars, and lightweight project workflows."
+      icon="ti ti-layout-kanban"
+    >
       <AppOverview.Main
         title="Your spaces"
         description={

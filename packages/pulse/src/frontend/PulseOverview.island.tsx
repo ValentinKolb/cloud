@@ -74,7 +74,12 @@ export default function PulseOverview(props: Props) {
   return (
     <>
       <PulseLayoutHelp />
-      <AppOverview title="Pulse" subtitle="Metrics, events, states, and realtime dashboards." icon="ti ti-activity-heartbeat">
+      <AppOverview
+        class="cloud-ui-soft"
+        title="Pulse"
+        subtitle="Metrics, events, states, and realtime dashboards."
+        icon="ti ti-activity-heartbeat"
+      >
         <AppOverview.Main
           title="Your Pulse bases"
           description={
@@ -147,7 +152,9 @@ export default function PulseOverview(props: Props) {
               </span>
               <span class="min-w-0 flex-1">
                 <span class="block text-sm font-semibold text-primary">New base</span>
-                <span class="block text-xs leading-snug text-dimmed">Create a telemetry base for metrics, states, events, and dashboards.</span>
+                <span class="block text-xs leading-snug text-dimmed">
+                  Create a telemetry base for metrics, states, events, and dashboards.
+                </span>
               </span>
               <i class="ti ti-chevron-right mt-1 shrink-0 text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
             </button>

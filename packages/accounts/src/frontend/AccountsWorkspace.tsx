@@ -13,7 +13,7 @@ type Props = {
 
 export default function AccountsWorkspace(props: Props) {
   return (
-    <AppWorkspace class="h-full">
+    <AppWorkspace class="cloud-ui-soft h-full">
       <AccountsLayoutHelp />
       <AccountsNavSidebar active={props.active} isAdmin={props.isAdmin} pendingRequests={props.pendingRequests} />
       <AppWorkspace.Main>

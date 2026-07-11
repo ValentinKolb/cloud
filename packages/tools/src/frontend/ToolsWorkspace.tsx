@@ -1,7 +1,7 @@
-import type { JSX } from "solid-js";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import type { JSX } from "solid-js";
 import ToolSearchButton from "./ToolSearchButton.island";
-import { categoryOrder, categories, tools } from "./tools/registry";
+import { categories, categoryOrder, tools } from "./tools/registry";
 
 type ToolsWorkspaceProps = {
   activeToolId?: string;
@@ -39,7 +39,7 @@ export const ToolsWorkspace = (props: ToolsWorkspaceProps) => {
   );
 
   return (
-    <AppWorkspace class="flex-1 min-h-0">
+    <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
       <AppWorkspace.Sidebar>
         <AppWorkspace.SidebarHeader
           title="Tools"

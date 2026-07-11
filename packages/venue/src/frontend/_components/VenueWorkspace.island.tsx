@@ -281,7 +281,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
   });
 
   return (
-    <AppWorkspace>
+    <AppWorkspace class="cloud-ui-soft">
       <AppWorkspace.Sidebar>
         <AppWorkspace.SidebarHeader
           title={venue().name}

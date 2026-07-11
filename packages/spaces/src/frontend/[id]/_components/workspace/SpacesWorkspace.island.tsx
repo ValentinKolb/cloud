@@ -283,7 +283,7 @@ export default function SpacesWorkspace(props: Props) {
   });
 
   return (
-    <AppWorkspace class="flex-1 min-h-0">
+    <AppWorkspace class="cloud-ui-soft flex-1 min-h-0">
       <SpaceSidebar ctx={spaceContext()} onNavigate={handleNavigate} onOpenSettings={openSettingsRoute} dateConfig={props.dateConfig} />
 
       <AppWorkspace.Main>

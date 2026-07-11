@@ -2,13 +2,9 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { navigate } from "@valentinkolb/ssr/nav";
 import { createSignal, For } from "solid-js";
 import type { PulseCurrentState, PulseMetricSeries, PulseMetricSummary, PulseRecordedEvent, PulseSource } from "../contracts";
-import {
-  PulseDashboardDslHelpPage,
-  PulseQueryDslHelpPage,
-  PulseReferenceOverviewPage,
-} from "./help/pulse-help-content";
+import { PulseDashboardDslHelpPage, PulseQueryDslHelpPage, PulseReferenceOverviewPage } from "./help/pulse-help-content";
 import { PulseQueryReferenceInventory } from "./PulseQueryReferenceInventory";
-import { defaultReferenceTab, isAvailableReferenceTab, referenceTabs, type ReferenceTab } from "./query-reference-tabs";
+import { defaultReferenceTab, isAvailableReferenceTab, type ReferenceTab, referenceTabs } from "./query-reference-tabs";
 
 type Props = {
   baseName: string;
@@ -70,7 +66,7 @@ export default function PulseQueryReferenceWindow(props: Props) {
   );
 
   return (
-    <AppWorkspace class="h-screen bg-zinc-50 p-3 dark:bg-zinc-950 md:p-4">
+    <AppWorkspace class="cloud-ui-soft h-screen">
       <AppWorkspace.Sidebar>
         <AppWorkspace.SidebarHeader title="Pulse reference" subtitle={props.baseName} icon="ti ti-book" />
         <AppWorkspace.SidebarMobile>
