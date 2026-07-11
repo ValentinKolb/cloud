@@ -1,0 +1,216 @@
+/* Scoped Cloud visual-system preview.
+
+   UI Lab places `.cloud-ui-soft` inside the shared canvas. `:has()` lifts the
+   preview tokens to the canvas and body so shell siblings and portaled layers
+   share one visual system without a Layout prop, app flag, or client script. */
+body:has(.cloud-ui-soft),
+.cloud-app-canvas:has(.cloud-ui-soft) {
+  --ui-surface: rgb(255 255 255 / 0.96);
+  --ui-surface-subtle: rgb(247 249 248 / 0.94);
+  --ui-surface-muted: rgb(238 242 239 / 0.9);
+  --ui-surface-raised: rgb(255 255 255 / 0.99);
+  --ui-border: rgb(209 216 211 / 0.5);
+  --ui-border-strong: rgb(209 216 211 / 0.78);
+  --ui-hover: rgb(238 242 239 / 0.82);
+  --ui-active: rgb(225 230 226 / 0.9);
+  --ui-selected: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 8%, var(--ui-surface));
+  --ui-radius-frame: 0.875rem;
+  --ui-radius-surface: 0.75rem;
+  --ui-radius-control: 0.5rem;
+  --ui-control-sm: 2rem;
+  --ui-control-md: 2.375rem;
+  --ui-space-shell: 0.5rem;
+  --ui-space-section: 0.75rem;
+  --ui-space-control: 0.375rem;
+  --ui-shadow-surface: 0 18px 42px -32px rgb(22 38 29 / 0.36), 0 2px 10px rgb(22 38 29 / 0.045);
+  --ui-shadow-float: 0 18px 46px -18px rgb(22 38 29 / 0.26), 0 5px 16px rgb(22 38 29 / 0.09);
+  --ui-paper-highlighted: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 5%, var(--ui-surface));
+  --theme-bevel-top: none;
+  --theme-bevel-bottom: none;
+  --theme-recess: none;
+  --theme-recess-sm: none;
+  --theme-press: inset 0 1px 2px rgb(22 38 29 / 0.12);
+  --theme-shadow-elevated: var(--ui-shadow-surface);
+  --theme-shadow-hover: 0 12px 28px -24px rgb(22 38 29 / 0.28), 0 3px 12px rgb(22 38 29 / 0.06);
+  --theme-shadow-float: var(--ui-shadow-float);
+  --theme-list-active-bg: var(--ui-selected);
+  --theme-list-hover-bg: var(--ui-hover);
+  --theme-tab-active-bg: var(--ui-selected);
+  --theme-tab-hover-bg: var(--ui-hover);
+}
+
+.dark body:has(.cloud-ui-soft),
+.dark .cloud-app-canvas:has(.cloud-ui-soft) {
+  --ui-surface: rgb(19 23 21 / 0.97);
+  --ui-surface-subtle: rgb(24 29 26 / 0.96);
+  --ui-surface-muted: rgb(32 38 34 / 0.94);
+  --ui-surface-raised: rgb(25 30 27 / 0.99);
+  --ui-border: rgb(57 67 61 / 0.55);
+  --ui-border-strong: rgb(57 67 61 / 0.82);
+  --ui-hover: rgb(32 38 34 / 0.82);
+  --ui-active: rgb(48 57 51 / 0.9);
+  --ui-selected: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 13%, var(--ui-surface));
+  --ui-shadow-surface: 0 20px 48px -30px rgb(0 0 0 / 0.72), 0 2px 10px rgb(0 0 0 / 0.18);
+  --ui-shadow-float: 0 22px 54px -18px rgb(0 0 0 / 0.72), 0 6px 18px rgb(0 0 0 / 0.3);
+  --theme-press: inset 0 1px 3px rgb(0 0 0 / 0.48);
+  --theme-shadow-hover: 0 14px 32px -24px rgb(0 0 0 / 0.8), 0 3px 12px rgb(0 0 0 / 0.22);
+}
+
+/* The rail is part of the canvas, not a separately tinted column. */
+.cloud-app-canvas:has(.cloud-ui-soft) > [class*="bg-white/20"],
+.dark .cloud-app-canvas:has(.cloud-ui-soft) > [class*="dark:bg-zinc-950/20"] {
+  width: 2.5rem;
+  background: transparent;
+}
+
+/* Compact breadcrumb paper with optical balance against the narrow rail. */
+@media (min-width: 768px) {
+  .cloud-app-canvas:has(.cloud-ui-soft) > header.paper {
+    min-height: 2.875rem;
+    margin: 0.25rem 0.5rem 0 0;
+    padding: 0.375rem 0.75rem 0.375rem 1.125rem;
+    border-color: transparent;
+    border-radius: var(--ui-radius-surface);
+  }
+}
+
+/* Major workspace regions use one surface/gap/radius language. */
+.cloud-ui-soft.sidebar-container,
+.cloud-ui-soft .sidebar-container {
+  width: 12.625rem;
+}
+
+.cloud-ui-soft .sidebar-container > .paper {
+  gap: var(--ui-space-section);
+  padding: 0.625rem;
+  border-color: transparent;
+  background: var(--ui-surface-subtle);
+}
+
+.cloud-ui-soft > main {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-surface);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-surface);
+}
+
+/* Resource identity stays visible without a large solid app tile. */
+.cloud-ui-soft .sidebar-header-icon {
+  width: 1.4375rem;
+  height: 1.4375rem;
+  border-radius: 0.4375rem;
+  background: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 9%, transparent);
+  color: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 80%, black);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 16%, transparent);
+}
+
+.dark .cloud-ui-soft .sidebar-header-icon {
+  color: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 58%, white);
+}
+
+.cloud-ui-soft .sidebar-header-title {
+  font-size: 0.75rem;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+}
+
+.cloud-ui-soft .sidebar-header-subtitle {
+  font-size: 0.6875rem;
+}
+
+.cloud-ui-soft .sidebar-section-title {
+  margin-inline: 0.375rem;
+  color: color-mix(in srgb, currentColor 72%, transparent);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cloud-ui-soft .sidebar-item {
+  min-height: 1.9375rem;
+  padding: 0.375rem 0.5625rem;
+}
+
+.cloud-ui-soft .sidebar-icon-action {
+  height: 2.75rem;
+  border-radius: var(--ui-radius-surface);
+  background: var(--ui-surface-muted);
+  box-shadow: none;
+}
+
+.cloud-ui-soft .sidebar-icon-action-active {
+  color: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 78%, black);
+  background: var(--ui-selected);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 20%, transparent);
+}
+
+/* Controls are precise and quiet; state comes from colour and focus, not gloss. */
+body:has(.cloud-ui-soft) :is(.btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-input, .btn-input-recessed) {
+  box-shadow: none;
+}
+
+body:has(.cloud-ui-soft) :is(.btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-input, .btn-input-recessed):active {
+  box-shadow: var(--theme-press);
+}
+
+body:has(.cloud-ui-soft) :is(.btn-secondary, .btn-input, .btn-input-recessed) {
+  border-color: transparent;
+}
+
+body:has(.cloud-ui-soft) .input {
+  border-color: transparent;
+  background: var(--ui-surface-muted);
+  box-shadow: none;
+}
+
+body:has(.cloud-ui-soft) .input:hover {
+  border-color: var(--ui-border);
+  background: var(--ui-hover);
+}
+
+body:has(.cloud-ui-soft) .input:focus,
+body:has(.cloud-ui-soft) .input:focus-within {
+  box-shadow: var(--ui-focus);
+}
+
+/* Data stays dense; only functional separators remain. */
+.cloud-ui-soft [aria-label="Data table"] {
+  border-color: transparent;
+}
+
+.cloud-ui-soft [aria-label="Data table"] thead,
+.cloud-ui-soft [aria-label="Data table"] tfoot {
+  background: var(--ui-surface-subtle);
+}
+
+.cloud-ui-soft [aria-label="Data table"] tbody tr:hover {
+  background: var(--ui-hover);
+}
+
+.cloud-ui-soft :is(.sidebar-item-active, .list-item-active) {
+  box-shadow: none;
+}
+
+/* Floating layers follow the same geometry even when portaled under body. */
+body:has(.cloud-ui-soft) :is(.popup, .dialog-panel) {
+  border-color: var(--ui-border-strong);
+  border-radius: var(--ui-radius-surface);
+  background: var(--ui-surface-raised);
+  box-shadow: var(--ui-shadow-float);
+}
+
+@media (max-width: 767px) {
+  .cloud-ui-soft > main {
+    min-height: calc(100dvh - 4.25rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body:has(.cloud-ui-soft) *,
+  body:has(.cloud-ui-soft) *::before,
+  body:has(.cloud-ui-soft) *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

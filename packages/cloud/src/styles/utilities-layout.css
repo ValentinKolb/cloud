@@ -16,33 +16,35 @@
 }
 
 @utility paper {
-  @apply rounded-lg transition-colors duration-150;
-  @apply bg-white border border-zinc-100;
-  @apply dark:bg-zinc-900 dark:border-zinc-800;
+  @apply transition-colors duration-150;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-surface);
+  background: var(--ui-surface);
   /* Gentle inset bevel (clip-safe). Flows through the token so the Layout
      header's inline `box-shadow: var(--theme-shadow-elevated)` stays consistent. */
-  box-shadow: var(--theme-shadow-elevated);
+  box-shadow: var(--ui-shadow-surface);
 }
 
 @utility dialog-panel {
   @apply fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2;
   @apply w-full max-w-md max-h-[90vh] p-4 overflow-x-hidden overflow-y-auto;
   @apply backdrop:bg-black/40;
-  @apply rounded-lg bg-white dark:bg-zinc-900;
-  @apply border border-zinc-200 dark:border-zinc-800;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-surface);
+  background: var(--ui-surface);
   /* Floating dialog (portaled) — outer shadow is fine here. */
-  box-shadow: var(--theme-shadow-float);
+  box-shadow: var(--ui-shadow-float);
 }
 
 @utility paper-highlighted {
   @apply paper;
-  background: linear-gradient(90deg, rgb(239 246 255 / 0.34), rgb(255 255 255 / 0.82)), var(--color-white);
+  background: var(--ui-paper-highlighted);
 }
 
 .dark .paper-highlighted,
 .dark .hover\:paper-highlighted:hover {
-  background: rgb(23 37 84 / 0.2);
-  box-shadow: var(--theme-shadow-elevated);
+  background: var(--ui-paper-highlighted);
+  box-shadow: var(--ui-shadow-surface);
 }
 
 @utility no-scrollbar {
@@ -99,7 +101,10 @@
 }
 
 @utility app-cols {
-  @apply flex flex-col gap-2 lg:flex-row lg:items-stretch lg:gap-2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-shell);
+  @apply lg:flex-row lg:items-stretch;
 }
 
 @utility app-rows {

@@ -3,7 +3,8 @@
   display: flex !important;
   padding: var(--theme-list-padding);
   border-left: var(--theme-list-inactive-border);
-  @apply rounded-lg items-center gap-2 text-sm leading-none cursor-pointer text-dimmed;
+  border-radius: var(--ui-radius-surface);
+  @apply items-center gap-2 text-sm leading-none cursor-pointer text-dimmed;
   @apply transition-[background-color,color] duration-150 ease-out hover:text-secondary;
 
   & + .list-item {
@@ -17,10 +18,12 @@
 
 /* Sidebar layout primitives */
 @utility sidebar {
-  @apply flex h-full min-h-0 flex-col gap-3 rounded-lg border border-zinc-200 bg-white;
-  @apply dark:border-zinc-800 dark:bg-zinc-900;
+  @apply flex h-full min-h-0 flex-col gap-3;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-surface);
+  background: var(--ui-surface);
   /* Same gentle inset bevel as `paper` so the sidebar reads as a dimensional surface. */
-  box-shadow: var(--theme-shadow-elevated);
+  box-shadow: var(--ui-shadow-surface);
 }
 
 @utility sidebar-container {
@@ -28,7 +31,10 @@
 }
 
 @utility sidebar-header-icon {
-  @apply w-6 h-6 rounded flex items-center justify-center text-white shrink-0;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--ui-radius-control);
+  @apply flex items-center justify-center text-white shrink-0;
 }
 
 @utility sidebar-header-text {
@@ -137,7 +143,8 @@
 /* Sidebar item primitives */
 @utility sidebar-item {
   display: flex !important;
-  @apply min-h-8 items-center gap-2 rounded-lg px-2 py-1.5 text-xs leading-none text-dimmed;
+  border-radius: var(--ui-radius-surface);
+  @apply min-h-8 items-center gap-2 px-2 py-1.5 text-xs leading-none text-dimmed;
   @apply transition-[background-color,color] duration-150 ease-out hover:text-secondary;
   @apply focus-ui;
 
@@ -198,7 +205,8 @@
 @utility sidebar-tree-row {
   display: flex !important;
   padding-left: calc(var(--sidebar-level, 0) * 0.75rem + 0.625rem);
-  @apply min-h-8 items-center gap-2 rounded-lg py-1 pr-2 text-xs text-dimmed;
+  border-radius: var(--ui-radius-surface);
+  @apply min-h-8 items-center gap-2 py-1 pr-2 text-xs text-dimmed;
   @apply transition-[background-color,color] duration-150 ease-out hover:text-secondary;
 
   &:hover {
@@ -247,7 +255,8 @@
 
 @utility rail-item {
   border-right: var(--theme-rail-item-inactive-border-r);
-  @apply w-8 h-8 rounded-lg;
+  border-radius: var(--ui-radius-surface);
+  @apply w-8 h-8;
   @apply flex items-center justify-center text-dimmed;
   @apply transition-[background-color,color] duration-150 ease-out;
 
@@ -259,7 +268,7 @@
 
 @utility rail-item-active {
   border: 1px solid color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 52%, transparent);
-  @apply rounded-lg;
+  border-radius: var(--ui-radius-surface);
   color: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 78%, black);
   background: transparent;
   box-shadow: none;

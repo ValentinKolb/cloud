@@ -8,20 +8,21 @@
 }
 
 @utility btn-base {
-  @apply inline-flex cursor-pointer items-center justify-center gap-1.5 select-none rounded-md font-medium border;
+  border-radius: var(--ui-radius-control);
+  @apply inline-flex cursor-pointer items-center justify-center gap-1.5 select-none font-medium border;
   @apply transition-[background-color,color,border-color,box-shadow,opacity] duration-150 ease-out;
   @apply focus-ui;
   @apply disabled:cursor-not-allowed disabled:opacity-40 disabled:transition-none disabled:shadow-none;
 }
 
 @utility btn-sm {
-  min-height: calc((var(--theme-input-py) * 2) + 1.25rem);
+  min-height: var(--ui-control-sm);
   padding: var(--theme-input-py) 0.75rem;
   @apply text-xs;
 }
 
 @utility btn-md {
-  min-height: calc((var(--theme-input-py) * 2) + 1.25rem + 0.55rem);
+  min-height: var(--ui-control-md);
   @apply px-4 py-2 text-sm;
 }
 
@@ -120,7 +121,8 @@
 }
 
 @utility btn-input {
-  @apply inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium leading-5 select-none cursor-pointer;
+  border-radius: var(--ui-radius-control);
+  @apply inline-flex items-center justify-center gap-1.5 px-2.5 py-1 text-xs font-medium leading-5 select-none cursor-pointer;
   @apply transition-[background-color,color,border-color,box-shadow] duration-150 border;
   @apply bg-zinc-100 text-zinc-600 border-zinc-100;
   @apply hover:bg-zinc-200/70 hover:text-zinc-800 hover:border-zinc-200/70;
@@ -158,7 +160,7 @@
 }
 
 @utility btn-input-sm {
-  min-height: calc((var(--theme-input-py) * 2) + 1.25rem);
+  min-height: var(--ui-control-sm);
   padding: var(--theme-input-py) 0.75rem;
   @apply text-xs;
 }
@@ -254,7 +256,8 @@
 /* Input: grey bg + matching border unfocused, white bg + blue border on focus */
 @utility input {
   padding: var(--theme-input-py) var(--theme-input-px);
-  @apply rounded-md border text-sm leading-5 focus-visible:outline-none;
+  border-radius: var(--ui-radius-control);
+  @apply border text-sm leading-5 focus-visible:outline-none;
   @apply bg-zinc-100 text-zinc-800 border-zinc-100;
   @apply hover:bg-zinc-200/70 hover:border-zinc-200/70;
   @apply focus:!bg-white focus:!border-blue-400 focus-within:!bg-white focus-within:!border-blue-400;
@@ -310,7 +313,8 @@
 }
 
 @utility icon-btn {
-  @apply inline-flex h-8 w-8 items-center justify-center p-1 rounded-md;
+  border-radius: var(--ui-radius-control);
+  @apply inline-flex h-8 w-8 items-center justify-center p-1;
   @apply text-zinc-400 dark:text-zinc-500;
   @apply transition-[color,background-color] duration-150 ease-out;
   @apply bg-transparent border-0 shadow-none;
