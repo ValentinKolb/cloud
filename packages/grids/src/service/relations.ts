@@ -1,11 +1,5 @@
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import type { ComputedColumnSpec } from "../contracts";
-import { evaluate, renderResult } from "../formula/evaluator";
-import type { FormulaRuntimeContext } from "../formula/functions";
-import { collectFieldRefs, parseFormula } from "../formula/parser";
-import { formulaError } from "../formula/types";
-import { normalizeRefKey } from "../ref-syntax";
 import type { SqlClient } from "./audit";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
@@ -13,6 +7,8 @@ import { liveRecordParentJoinSql } from "./parent-checks";
 import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 import { get as getTable } from "./tables";
 import type { Field, GridRecord } from "./types";
+
+export { enrichRecordsWithComputedColumns, enrichRecordsWithFormulas } from "./relation-formulas";
 
 type DbRow = Record<string, unknown>;
 const LABEL_TEXT_TYPES = new Set(["text"]);
@@ -170,194 +166,6 @@ export const hydrateRelationsFromLinks = async (records: GridRecord[], fields: F
       rec.data[rf.id] = perRec?.get(rf.id) ?? [];
     }
   }
-};
-
-// Lookup/rollup values are computed in the main records query as
-// correlated subqueries over record_links (see
-// `service/computed-projections.ts`). Single source of truth (SQL),
-// single round-trip per page, and one path for filter/sort/group
-// semantics.
-
-/**
- * Topologically orders formula fields by their inter-formula references.
- * A formula that depends on another formula's value evaluates AFTER its
- * dependency. Cycles are detected and surfaced as a #CYCLE error written
- * into every member's cell rather than crashing the read.
- */
-const orderFormulasByDeps = (
-  formulaFields: Field[],
-  slugToId: Record<string, string>,
-): {
-  ordered: Array<{
-    field: Field;
-    ast: ReturnType<typeof parseFormula> extends infer R ? (R extends { ok: true; ast: infer A } ? A : never) : never;
-  }>;
-  cycle: Set<string>;
-} => {
-  // Stored formulas can contain UUID refs ({uuid}) or slug refs
-  // (#slug). Normalise both to UUIDs via the slug-map so the dependency
-  // graph stays UUID-keyed.
-  const resolveRef = (ref: string): string => slugToId[ref] ?? slugToId[normalizeRefKey(ref)] ?? ref;
-
-  const compiled = formulaFields
-    .map((f) => {
-      const expr = (f.config as { expression?: string }).expression;
-      if (!expr) return null;
-      const parsed = parseFormula(expr);
-      if (!parsed.ok) return null;
-      const refs = new Set([...collectFieldRefs(parsed.ast)].map(resolveRef));
-      return { field: f, ast: parsed.ast, refs };
-    })
-    .filter((c): c is NonNullable<typeof c> => c !== null);
-
-  const idSet = new Set(compiled.map((c) => c.field.id));
-  const byId = new Map(compiled.map((c) => [c.field.id, c]));
-
-  // DFS-based topological sort with cycle detection. Tracks the active
-  // stack as an ordered array (not just a Set) so that when we re-enter
-  // a node we can mark every member from that re-entry point onward —
-  // not just the re-entered node and the immediate unwinder. Previously
-  // a cycle A→B→C→A only marked {A, C} (B silently rendered as the
-  // last-iteration value, chunk 6 critical).
-  const ordered: typeof compiled = [];
-  const visited = new Set<string>();
-  const stack: string[] = [];
-  const onStack = new Set<string>();
-  const cycle = new Set<string>();
-
-  const visit = (id: string): void => {
-    if (visited.has(id)) return;
-    if (onStack.has(id)) {
-      // Found a back-edge. Mark every stack frame from the first
-      // occurrence of `id` onward — these are the cycle members.
-      const startIdx = stack.indexOf(id);
-      for (let i = startIdx; i < stack.length; i++) cycle.add(stack[i]!);
-      return;
-    }
-    const node = byId.get(id);
-    if (!node) return;
-    stack.push(id);
-    onStack.add(id);
-    for (const ref of node.refs) {
-      if (idSet.has(ref)) visit(ref);
-    }
-    stack.pop();
-    onStack.delete(id);
-    visited.add(id);
-    ordered.push(node);
-  };
-  for (const c of compiled) visit(c.field.id);
-
-  return { ordered, cycle };
-};
-
-/**
- * Evaluates every formula field for the visible records and writes the
- * rendered display value into each record's data. Formulas run AFTER
- * lookup/rollup so a formula can reference computed fields too.
- * Inter-formula references evaluate in dependency order; cycles surface
- * as #CYCLE rather than silent wrong values.
- */
-export const enrichRecordsWithFormulas = (
-  records: GridRecord[],
-  fields: Field[],
-  options: FormulaRuntimeContext & { skipFormulaFieldIds?: ReadonlySet<string> } = {},
-): GridRecord[] => {
-  const formulaFields = fields.filter((f) => !f.deletedAt && f.type === "formula" && !options.skipFormulaFieldIds?.has(f.id));
-  if (formulaFields.length === 0) return records;
-
-  // slug → fieldId map for #slug references in formula expressions.
-  // Built across ALL alive fields (not just formulas) since a formula
-  // can reference any field by slug.
-  const slugToId: Record<string, string> = {};
-  for (const f of fields) {
-    if (f.deletedAt) continue;
-    if (f.shortId) {
-      slugToId[f.shortId] = f.id;
-      slugToId[normalizeRefKey(f.shortId)] = f.id;
-    }
-    slugToId[normalizeRefKey(f.name)] = f.id;
-  }
-
-  const { ordered, cycle } = orderFormulasByDeps(formulaFields, slugToId);
-
-  for (const rec of records) {
-    // Two-pass evaluation. Previously we wrote the RENDERED display
-    // string into rec.data[fid] after each formula, so a downstream
-    // formula referencing the errored one saw "#DIV_ZERO" as a plain
-    // string and either nulled or concatenated it (chunk 6 critical).
-    //
-    // Now: build a scratch lookup that overlays raw evaluator results
-    // (FormulaError sentinels included) on top of rec.data. The
-    // evaluator still gets a plain Record<string, unknown>; isFormulaError
-    // checks in downstream formulas now hit the raw error. Render to
-    // display strings only after every formula has been evaluated.
-    const scratch: Record<string, unknown> = { ...rec.data };
-    for (const id of cycle) {
-      scratch[id] = formulaError("CYCLE");
-    }
-    for (const { field, ast } of ordered) {
-      if (cycle.has(field.id)) continue;
-      const value = evaluate(ast, { fields: scratch, slugToId, dateConfig: options.dateConfig, now: options.now });
-      scratch[field.id] = value;
-    }
-    // Render once at the end — every formula's display string is now
-    // computed against the final raw values, errors propagated honestly.
-    for (const { field } of ordered) {
-      rec.data[field.id] = renderResult(scratch[field.id]);
-    }
-    for (const id of cycle) {
-      rec.data[id] = renderResult(scratch[id]);
-    }
-  }
-  return records;
-};
-
-/**
- * Evaluates view-only computed columns for visible records. These are
- * intentionally not Fields and never persist into records.data in the
- * database; they are derived cells owned by a saved/ad-hoc RecordQuery.
- */
-export const enrichRecordsWithComputedColumns = (
-  records: GridRecord[],
-  fields: Field[],
-  columns: ComputedColumnSpec[] | undefined,
-  options: FormulaRuntimeContext & { skipColumnIds?: ReadonlySet<string> } = {},
-): GridRecord[] => {
-  // Columns already projected in SQL (the common arithmetic/text case) are
-  // skipped here so the two engines never both write the same cell — SQL is
-  // the source of truth, JS only fills the non-projectable remainder.
-  const computedColumns = (columns ?? []).filter((column) => column.expression.trim().length > 0 && !options.skipColumnIds?.has(column.id));
-  if (computedColumns.length === 0 || records.length === 0) return records;
-
-  const slugToId: Record<string, string> = {};
-  for (const field of fields) {
-    if (field.deletedAt) continue;
-    if (field.shortId) {
-      slugToId[field.shortId] = field.id;
-      slugToId[normalizeRefKey(field.shortId)] = field.id;
-    }
-    slugToId[normalizeRefKey(field.name)] = field.id;
-  }
-
-  const compiled = computedColumns.map((column) => {
-    const parsed = parseFormula(column.expression);
-    return { column, parsed };
-  });
-
-  for (const record of records) {
-    const scratch: Record<string, unknown> = { ...record.data };
-    for (const { column, parsed } of compiled) {
-      if (!parsed.ok) {
-        record.data[column.id] = renderResult(formulaError("ERROR"));
-        continue;
-      }
-      const value = evaluate(parsed.ast, { fields: scratch, slugToId, dateConfig: options.dateConfig, now: options.now });
-      scratch[column.id] = value;
-      record.data[column.id] = renderResult(value);
-    }
-  }
-  return records;
 };
 
 /**
