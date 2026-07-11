@@ -1,0 +1,343 @@
+import type { WorkflowDefinition, WorkflowInput, WorkflowInputType, WorkflowTriggerKind } from "../contracts";
+import type { WorkflowDiagnostic } from "./dsl";
+
+type RefKind = WorkflowInputType | "record" | "document" | "documentLink" | "email";
+
+const compactPath = (path: (string | number)[]): string => (path.length === 0 ? "workflow" : path.map(String).join("."));
+
+const inputKind = (inputs: Record<string, WorkflowInput>, name: string): WorkflowInputType | null => inputs[name]?.type ?? null;
+
+const activeTriggerKinds = (definition: WorkflowDefinition): WorkflowTriggerKind[] => {
+  const triggers = definition.triggers;
+  const entries: Array<[WorkflowTriggerKind, unknown]> = [
+    ["form", triggers.form],
+    ["api", triggers.api],
+    ["scanner", triggers.scanner],
+    ["bulkSelection", triggers.bulkSelection],
+    ["dashboardButton", triggers.dashboardButton],
+    ["schedule", triggers.schedule],
+    ["recordEvent", triggers.recordEvent],
+  ];
+  return entries
+    .filter(([, trigger]) => {
+      if (!trigger) return false;
+      return !(typeof trigger === "object" && trigger !== null && (trigger as { enabled?: unknown }).enabled === false);
+    })
+    .map(([kind]) => kind);
+};
+
+const providedInputsForTrigger = (definition: WorkflowDefinition, kind: WorkflowTriggerKind): Set<string> | "all" => {
+  switch (kind) {
+    case "form":
+    case "api":
+      return "all";
+    case "scanner":
+      return new Set([definition.triggers.scanner?.input].filter((input): input is string => Boolean(input)));
+    case "bulkSelection":
+      return new Set([definition.triggers.bulkSelection?.input].filter((input): input is string => Boolean(input)));
+    case "recordEvent":
+      return new Set([definition.triggers.recordEvent?.input].filter((input): input is string => Boolean(input)));
+    case "dashboardButton":
+    case "schedule":
+      return new Set();
+  }
+};
+
+const validateRequiredInputsForTriggers = (definition: WorkflowDefinition, diagnostics: WorkflowDiagnostic[]): void => {
+  const requiredInputs = Object.entries(definition.inputs ?? {})
+    .filter(([, input]) => input.required === true)
+    .map(([name]) => name);
+  if (requiredInputs.length === 0) return;
+
+  for (const triggerKind of activeTriggerKinds(definition)) {
+    const provided = providedInputsForTrigger(definition, triggerKind);
+    if (provided === "all") continue;
+    for (const inputName of requiredInputs) {
+      if (provided.has(inputName)) continue;
+      diagnostics.push({
+        path: ["triggers", triggerKind],
+        message: `triggers.${triggerKind}: required input "${inputName}" cannot be provided by this trigger`,
+      });
+    }
+  }
+};
+
+const resolveRefKind = (ref: unknown, inputs: Record<string, WorkflowInput>, locals: Map<string, RefKind>): RefKind | null => {
+  if (typeof ref !== "string") return null;
+  const parts = ref.split(".");
+  const first = parts[0];
+  if (!first) return null;
+  if (first === "inputs") {
+    const inputName = parts[1];
+    return inputName ? inputKind(inputs, inputName) : null;
+  }
+  return locals.get(first) ?? null;
+};
+
+const expectRefKind = (params: {
+  ref: unknown;
+  expected: RefKind;
+  inputs: Record<string, WorkflowInput>;
+  locals: Map<string, RefKind>;
+  path: (string | number)[];
+  diagnostics: WorkflowDiagnostic[];
+  label: string;
+}): void => {
+  const actual = resolveRefKind(params.ref, params.inputs, params.locals);
+  if (actual === params.expected) return;
+  params.diagnostics.push({
+    path: params.path,
+    message:
+      actual === null
+        ? `${compactPath(params.path)}: ${params.label} must reference a known ${params.expected}`
+        : `${compactPath(params.path)}: ${params.label} references ${actual}, expected ${params.expected}`,
+  });
+};
+
+const inputValueRefName = (value: string): string | null => {
+  if (value === "inputs") return "";
+  if (!value.startsWith("inputs.")) return null;
+  return value.split(".")[1] ?? "";
+};
+
+const validateInputValueRefs = (
+  value: unknown,
+  inputs: Record<string, WorkflowInput>,
+  diagnostics: WorkflowDiagnostic[],
+  path: (string | number)[],
+): void => {
+  if (typeof value === "string") {
+    const inputName = inputValueRefName(value);
+    if (inputName !== null && !inputs[inputName]) {
+      diagnostics.push({
+        path,
+        message: `${compactPath(path)}: references unknown input "${inputName}"`,
+      });
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => validateInputValueRefs(item, inputs, diagnostics, [...path, index]));
+    return;
+  }
+
+  if (value && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      validateInputValueRefs(item, inputs, diagnostics, [...path, key]);
+    }
+  }
+};
+
+const validateTriggers = (definition: WorkflowDefinition, diagnostics: WorkflowDiagnostic[]): void => {
+  const inputs = definition.inputs ?? {};
+  const scannerInput = definition.triggers.scanner?.input;
+  if (scannerInput) {
+    const input = inputs[scannerInput];
+    if (!input) {
+      diagnostics.push({ path: ["triggers", "scanner", "input"], message: `triggers.scanner.input: unknown input "${scannerInput}"` });
+    } else if (input.type !== "record") {
+      diagnostics.push({ path: ["triggers", "scanner", "input"], message: "triggers.scanner.input must reference a record input" });
+    }
+    const resolve = definition.triggers.scanner?.resolve;
+    if (resolve?.by === "field" && !resolve.field) {
+      diagnostics.push({ path: ["triggers", "scanner", "resolve", "field"], message: "scanner resolve by field requires field" });
+    }
+  }
+
+  const bulkInput = definition.triggers.bulkSelection?.input;
+  if (bulkInput) {
+    const input = inputs[bulkInput];
+    if (!input) {
+      diagnostics.push({
+        path: ["triggers", "bulkSelection", "input"],
+        message: `triggers.bulkSelection.input: unknown input "${bulkInput}"`,
+      });
+    } else if (input.type !== "recordList") {
+      diagnostics.push({
+        path: ["triggers", "bulkSelection", "input"],
+        message: "triggers.bulkSelection.input must reference a recordList input",
+      });
+    }
+  }
+
+  const recordEventInput = definition.triggers.recordEvent?.input;
+  if (recordEventInput) {
+    const input = inputs[recordEventInput];
+    if (!input) {
+      diagnostics.push({
+        path: ["triggers", "recordEvent", "input"],
+        message: `triggers.recordEvent.input: unknown input "${recordEventInput}"`,
+      });
+    } else if (input.type !== "record") {
+      diagnostics.push({ path: ["triggers", "recordEvent", "input"], message: "triggers.recordEvent.input must reference a record input" });
+    }
+  }
+
+  validateRequiredInputsForTriggers(definition, diagnostics);
+};
+
+const validateSteps = (
+  steps: unknown[],
+  inputs: Record<string, WorkflowInput>,
+  diagnostics: WorkflowDiagnostic[],
+  path: (string | number)[] = ["steps"],
+  locals = new Map<string, RefKind>(),
+): void => {
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index];
+    const stepPath = [...path, index];
+    if (!step || typeof step !== "object" || Array.isArray(step)) continue;
+    const item = step as Record<string, unknown>;
+
+    if ("updateRecord" in item) {
+      const action = item.updateRecord as { record?: unknown; set?: unknown };
+      expectRefKind({
+        ref: action.record,
+        expected: "record",
+        inputs,
+        locals,
+        diagnostics,
+        path: [...stepPath, "updateRecord", "record"],
+        label: "record",
+      });
+      validateInputValueRefs(action.set, inputs, diagnostics, [...stepPath, "updateRecord", "set"]);
+      continue;
+    }
+
+    if ("createRecord" in item) {
+      const action = item.createRecord as { saveAs?: unknown; values?: unknown };
+      validateInputValueRefs(action.values, inputs, diagnostics, [...stepPath, "createRecord", "values"]);
+      if (typeof action.saveAs === "string") locals.set(action.saveAs, "record");
+      continue;
+    }
+
+    if ("generateDocument" in item) {
+      const action = item.generateDocument as { record?: unknown; filename?: unknown; saveAs?: unknown; tags?: unknown };
+      expectRefKind({
+        ref: action.record,
+        expected: "record",
+        inputs,
+        locals,
+        diagnostics,
+        path: [...stepPath, "generateDocument", "record"],
+        label: "record",
+      });
+      validateInputValueRefs(action.filename, inputs, diagnostics, [...stepPath, "generateDocument", "filename"]);
+      validateInputValueRefs(action.tags, inputs, diagnostics, [...stepPath, "generateDocument", "tags"]);
+      if (typeof action.saveAs === "string") locals.set(action.saveAs, "document");
+      continue;
+    }
+
+    if ("createDocumentLink" in item) {
+      const action = item.createDocumentLink as { comment?: unknown; document?: unknown; saveAs?: unknown };
+      expectRefKind({
+        ref: action.document,
+        expected: "document",
+        inputs,
+        locals,
+        diagnostics,
+        path: [...stepPath, "createDocumentLink", "document"],
+        label: "document",
+      });
+      validateInputValueRefs(action.comment, inputs, diagnostics, [...stepPath, "createDocumentLink", "comment"]);
+      if (typeof action.saveAs === "string") locals.set(action.saveAs, "documentLink");
+      continue;
+    }
+
+    if ("sendEmail" in item) {
+      const action = item.sendEmail as { data?: unknown; to?: unknown; saveAs?: unknown };
+      if (Array.isArray(action.to)) {
+        action.to.forEach((recipient, recipientIndex) => {
+          if (!recipient || typeof recipient !== "object" || Array.isArray(recipient)) return;
+          const keys = Object.keys(recipient);
+          if (keys.length !== 1 || (keys[0] !== "email" && keys[0] !== "user")) {
+            const recipientPath = [...stepPath, "sendEmail", "to", recipientIndex];
+            diagnostics.push({
+              path: recipientPath,
+              message: `${compactPath(recipientPath)}: recipient must use exactly one of email or user`,
+            });
+          }
+          validateInputValueRefs(
+            (recipient as { email?: unknown; user?: unknown }).email ?? (recipient as { email?: unknown; user?: unknown }).user,
+            inputs,
+            diagnostics,
+            [...stepPath, "sendEmail", "to", recipientIndex, keys[0] ?? "recipient"],
+          );
+        });
+      }
+      validateInputValueRefs(action.data, inputs, diagnostics, [...stepPath, "sendEmail", "data"]);
+      if (typeof action.saveAs === "string") locals.set(action.saveAs, "email");
+      continue;
+    }
+
+    if ("httpRequest" in item) {
+      const action = item.httpRequest as { json?: unknown };
+      validateInputValueRefs(action.json, inputs, diagnostics, [...stepPath, "httpRequest", "json"]);
+      continue;
+    }
+
+    if ("setVariable" in item) {
+      const action = item.setVariable as { value?: unknown };
+      validateInputValueRefs(action.value, inputs, diagnostics, [...stepPath, "setVariable", "value"]);
+      continue;
+    }
+
+    if ("forEach" in item) {
+      expectRefKind({
+        ref: item.forEach,
+        expected: "recordList",
+        inputs,
+        locals,
+        diagnostics,
+        path: [...stepPath, "forEach"],
+        label: "forEach",
+      });
+      const nextLocals = new Map(locals);
+      if (typeof item.as === "string") nextLocals.set(item.as, "record");
+      if (Array.isArray(item.do)) validateSteps(item.do, inputs, diagnostics, [...stepPath, "do"], nextLocals);
+      continue;
+    }
+
+    if ("if" in item) {
+      const condition = item.if as { equals?: unknown[]; exists?: unknown; notEquals?: unknown[] };
+      if (Array.isArray(condition.equals)) {
+        condition.equals.forEach((value, valueIndex) =>
+          validateInputValueRefs(value, inputs, diagnostics, [...stepPath, "if", "equals", valueIndex]),
+        );
+      }
+      if (Array.isArray(condition.notEquals)) {
+        condition.notEquals.forEach((value, valueIndex) =>
+          validateInputValueRefs(value, inputs, diagnostics, [...stepPath, "if", "notEquals", valueIndex]),
+        );
+      }
+      validateInputValueRefs(condition.exists, inputs, diagnostics, [...stepPath, "if", "exists"]);
+      if (Array.isArray(item.then)) validateSteps(item.then, inputs, diagnostics, [...stepPath, "then"], locals);
+      if (Array.isArray(item.else)) validateSteps(item.else, inputs, diagnostics, [...stepPath, "else"], locals);
+      continue;
+    }
+
+    if ("switch" in item) {
+      validateInputValueRefs(item.switch, inputs, diagnostics, [...stepPath, "switch"]);
+      const cases = item.cases;
+      if (Array.isArray(cases)) {
+        cases.forEach((caseItem, caseIndex) => {
+          if (caseItem && typeof caseItem === "object") {
+            validateInputValueRefs((caseItem as { when?: unknown }).when, inputs, diagnostics, [...stepPath, "cases", caseIndex, "when"]);
+          }
+          if (caseItem && typeof caseItem === "object" && Array.isArray((caseItem as { do?: unknown }).do)) {
+            validateSteps((caseItem as { do: unknown[] }).do, inputs, diagnostics, [...stepPath, "cases", caseIndex, "do"], locals);
+          }
+        });
+      }
+      if (Array.isArray(item.default)) validateSteps(item.default, inputs, diagnostics, [...stepPath, "default"], locals);
+    }
+  }
+};
+
+export const validateWorkflowDefinition = (definition: WorkflowDefinition): WorkflowDiagnostic[] => {
+  const diagnostics: WorkflowDiagnostic[] = [];
+  validateTriggers(definition, diagnostics);
+  validateSteps(definition.steps, definition.inputs ?? {}, diagnostics);
+  return diagnostics;
+};
