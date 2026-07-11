@@ -42,6 +42,8 @@ export type AiMessageListSession = {
 /** Distance from the bottom (px) within which the view auto-follows new content. */
 const AUTO_FOLLOW_THRESHOLD_PX = 96;
 
+const AI_PENDING_TURN_LABEL = "Generating response";
+
 /** The nearest ancestor that actually scrolls — the message list does not own its scroll container. */
 const findScrollParent = (node: HTMLElement | null): HTMLElement | null => {
   let current = node?.parentElement ?? null;
@@ -352,7 +354,7 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
                   when={activeSegments().length > 0}
                   fallback={
                     <AssistantMessageLane>
-                      <ChatUtilityLine meta={{ icon: "ti ti-sparkles", label: "Thinking", tone: "ai" }} trailing={<PulseDots />} />
+                      <ChatUtilityLine meta={{ icon: "ti ti-sparkles", label: AI_PENDING_TURN_LABEL, tone: "ai" }} trailing={<PulseDots />} />
                     </AssistantMessageLane>
                   }
                 >

@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { type AiTurnBlock, splitActiveTurnBlocks } from "../protocol";
+
+test("distinguishes a pending response from model reasoning", () => {
+  const messageListSource = readFileSync(resolve(import.meta.dir, "message-list.tsx"), "utf8");
+  const blocksSource = readFileSync(resolve(import.meta.dir, "blocks.tsx"), "utf8");
+
+  expect(messageListSource).toContain('const AI_PENDING_TURN_LABEL = "Generating response"');
+  expect(blocksSource).toContain('label: "Thinking"');
+  expect(blocksSource).toContain('label: "Show reasoning"');
+});
 
 describe("active turn message segmentation", () => {
   test("keeps the optimistic steer bubble between pre-steer work and the applied marker", () => {
