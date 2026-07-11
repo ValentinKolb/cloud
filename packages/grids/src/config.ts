@@ -27,7 +27,15 @@ export const app = defineApp({
       label: "Allow Private HTTP Requests",
       default: false,
       description:
-        "Allow Grids workflows to call private, loopback, and link-local HTTP targets. Keep disabled unless this deployment intentionally integrates with internal services.",
+        "Allow Grids workflows to call private, loopback, and link-local HTTP targets listed in Allowed Workflow HTTP Hosts. A non-empty host allowlist is always required for private targets.",
+    },
+    "grids.http_request_allowed_hosts": {
+      kind: "string_list",
+      label: "Allowed Workflow HTTP Hosts",
+      default: [],
+      description:
+        "Optional outbound host allowlist for workflow HTTP requests. Leave empty to allow any public host. Use exact hosts or wildcard subdomains such as *.example.com.",
+      placeholder: "api.example.com",
     },
   },
   openapi: "/api/grids/openapi.json",

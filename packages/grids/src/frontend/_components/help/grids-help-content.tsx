@@ -1059,7 +1059,7 @@ steps:
           {
             title: "httpRequest",
             icon: "ti-world",
-            text: "Sends one JSON HTTP request. Methods: GET, POST, PUT, PATCH, DELETE. Optional fields: headers, json, timeoutMs, saveAs.",
+            text: "Sends one JSON HTTP request. Methods: GET, POST, PUT, PATCH, DELETE. Optional fields: headers, json, timeoutMs, saveAs. Redirects are returned, not followed.",
           },
           {
             title: "setVariable, succeed, and fail",
@@ -1299,7 +1299,7 @@ steps:
           {
             title: "HTTP guardrails",
             icon: "ti-world",
-            text: "httpRequest accepts JSON payloads, follows no redirects automatically, limits response size, enforces timeouts, and blocks unsafe private targets unless explicitly allowed in settings.",
+            text: "httpRequest pins the validated DNS address for the socket connection, limits request and response bodies to 64 KiB, applies the timeout to DNS and transfer, and blocks private or reserved targets by default. Administrators can restrict requests to an exact or wildcard host allowlist. Private-network requests require both the private-network setting and a matching non-empty host allowlist.",
           },
           {
             title: "Bulk size",

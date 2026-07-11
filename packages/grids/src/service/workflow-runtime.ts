@@ -29,7 +29,7 @@ import type { GridsRecordEvent } from "./record-events";
 import { create as createRecord, get as getRecord, list as listRecords, update as updateRecord } from "./records";
 import { get as getTable } from "./tables";
 import type { GridRecord, Table } from "./types";
-import { validateHttpRequestTarget } from "./workflow-validators";
+import { requestWorkflowHttp } from "./workflow-http-client";
 import {
   claimRun,
   createStepRun,
@@ -148,9 +148,6 @@ type WorkflowRunPrincipal = {
 
 const MAX_BULK_RECORDS = 10_000;
 const MAX_LOOP_ITEMS = MAX_BULK_RECORDS;
-const MAX_HTTP_RESPONSE_BYTES = 64 * 1024;
-const DEFAULT_HTTP_TIMEOUT_MS = 15_000;
-const MAX_HTTP_TIMEOUT_MS = 60_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SCAN_CODE_PATH_RE = /(?:^|\/)scan(?:\?|$)/;
@@ -206,8 +203,6 @@ export const workflowOwnerPrincipal = async (workflow: Pick<Workflow, "ownerUser
   actorGroupIds: await loadUserGroupIds(workflow.ownerUserId),
   serviceAccountId: null,
 });
-
-const byteLength = (value: string): number => new TextEncoder().encode(value).byteLength;
 
 const pathKey = (value: RuntimeRecord): string => `${value.tableId}:${value.recordId}`;
 
@@ -982,65 +977,18 @@ const executeSendEmail = async (ctx: RuntimeContext, action: RuntimeSendEmailAct
 };
 
 const executeHttpRequest = async (ctx: RuntimeContext, action: RuntimeHttpRequestAction): Promise<Result<RuntimeValue>> => {
-  const target = await validateHttpRequestTarget(action.url);
-  if (!target.ok) return target;
-  const timeoutMs = Math.min(action.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS, MAX_HTTP_TIMEOUT_MS);
   const payload = action.json === undefined ? undefined : await evaluateValue(ctx, action.json);
   if (payload && !payload.ok) return payload;
   const started = Date.now();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(target.data.href, {
-      method: action.method,
-      headers: { "content-type": "application/json", ...(action.headers ?? {}) },
-      body: payload ? JSON.stringify(valueToPlain(payload.data)) : undefined,
-      redirect: "manual",
-      signal: controller.signal,
-    });
-    const text = await response.text();
-    if (byteLength(text) > MAX_HTTP_RESPONSE_BYTES) {
-      await logAudit({
-        baseId: ctx.workflow.baseId,
-        userId: ctx.actorUserId,
-        action: "workflow.http.failed",
-        diff: {
-          httpRequest: {
-            old: null,
-            new: {
-              ...workflowAuditMeta(ctx),
-              method: action.method,
-              host: target.data.host,
-              status: response.status,
-              durationMs: Date.now() - started,
-              error: "response too large",
-            },
-          },
-        },
-      });
-      return fail(err.badInput("httpRequest response is too large"));
-    }
-    const output = { status: response.status, ok: response.ok, body: text };
-    await logAudit({
-      baseId: ctx.workflow.baseId,
-      userId: ctx.actorUserId,
-      action: response.ok ? "workflow.http.sent" : "workflow.http.failed",
-      diff: {
-        httpRequest: {
-          old: null,
-          new: {
-            ...workflowAuditMeta(ctx),
-            method: action.method,
-            host: target.data.host,
-            status: response.status,
-            durationMs: Date.now() - started,
-          },
-        },
-      },
-    });
-    if (action.saveAs) ctx.variables.set(action.saveAs, output);
-    return response.ok ? ok(output) : fail(err.badInput(`httpRequest returned HTTP ${response.status}`));
-  } catch (error) {
+  const host = new URL(action.url).host;
+  const response = await requestWorkflowHttp({
+    url: action.url,
+    method: action.method,
+    headers: action.headers,
+    body: payload ? JSON.stringify(valueToPlain(payload.data)) : undefined,
+    timeoutMs: action.timeoutMs,
+  });
+  if (!response.ok) {
     await logAudit({
       baseId: ctx.workflow.baseId,
       userId: ctx.actorUserId,
@@ -1051,17 +999,35 @@ const executeHttpRequest = async (ctx: RuntimeContext, action: RuntimeHttpReques
           new: {
             ...workflowAuditMeta(ctx),
             method: action.method,
-            host: target.data.host,
+            host,
             durationMs: Date.now() - started,
-            error: "request failed",
+            error: response.error.message,
           },
         },
       },
     });
-    return fail(err.badInput(error instanceof Error && error.name === "AbortError" ? "httpRequest timed out" : "httpRequest failed"));
-  } finally {
-    clearTimeout(timer);
+    return response;
   }
+  const output = { status: response.data.status, ok: response.data.ok, body: response.data.body };
+  await logAudit({
+    baseId: ctx.workflow.baseId,
+    userId: ctx.actorUserId,
+    action: response.data.ok ? "workflow.http.sent" : "workflow.http.failed",
+    diff: {
+      httpRequest: {
+        old: null,
+        new: {
+          ...workflowAuditMeta(ctx),
+          method: action.method,
+          host: response.data.host,
+          status: response.data.status,
+          durationMs: Date.now() - started,
+        },
+      },
+    },
+  });
+  if (action.saveAs) ctx.variables.set(action.saveAs, output);
+  return response.data.ok ? ok(output) : fail(err.badInput(`httpRequest returned HTTP ${response.data.status}`));
 };
 
 const stepKind = (step: WorkflowStep): string => Object.keys(step as RuntimeStep)[0] ?? "unknown";

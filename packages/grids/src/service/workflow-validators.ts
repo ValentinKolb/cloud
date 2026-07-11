@@ -1,9 +1,4 @@
-import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
-import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-
-const PRIVATE_HTTP_SETTING = "grids.http_request_allow_private_networks";
 
 type ScheduleLike = {
   kind: "schedule";
@@ -55,66 +50,4 @@ export const validateSchedule = (trigger: ScheduleLike): Result<void> => {
     }
   }
   return ok();
-};
-
-const ipv4ToNumber = (ip: string): number => ip.split(".").reduce((acc, part) => (acc << 8) + Number(part), 0) >>> 0;
-
-const ipv4InRange = (ip: string, base: string, bits: number): boolean => {
-  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
-  return (ipv4ToNumber(ip) & mask) === (ipv4ToNumber(base) & mask);
-};
-
-const isUnsafeHttpAddress = (address: string): boolean => {
-  if (isIP(address) === 4) {
-    return (
-      ipv4InRange(address, "0.0.0.0", 8) ||
-      ipv4InRange(address, "10.0.0.0", 8) ||
-      ipv4InRange(address, "127.0.0.0", 8) ||
-      ipv4InRange(address, "169.254.0.0", 16) ||
-      ipv4InRange(address, "172.16.0.0", 12) ||
-      ipv4InRange(address, "192.168.0.0", 16)
-    );
-  }
-  const lower = address.toLowerCase();
-  if (lower.startsWith("::ffff:")) return isUnsafeHttpAddress(lower.slice("::ffff:".length));
-  return lower === "::" || lower === "::1" || lower.startsWith("fe80:") || lower.startsWith("fc") || lower.startsWith("fd");
-};
-
-const isUnsafeHttpHost = (hostname: string): boolean => {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  return (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host === "metadata.google.internal" ||
-    host.endsWith(".internal") ||
-    (isIP(host) !== 0 && isUnsafeHttpAddress(host))
-  );
-};
-
-export const validateHttpRequestTarget = async (rawUrl: string): Promise<Result<URL>> => {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    return fail(err.badInput("HTTP request URL is invalid"));
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    return fail(err.badInput("HTTP request URL must use http or https"));
-  }
-
-  const allowPrivate = Boolean(await settingsGet<boolean>(PRIVATE_HTTP_SETTING));
-  if (allowPrivate) return ok(url);
-  if (isUnsafeHttpHost(url.hostname)) {
-    return fail(err.badInput("HTTP request target is not allowed"));
-  }
-
-  try {
-    const addresses = await lookup(url.hostname, { all: true, verbatim: true });
-    if (addresses.some((entry) => isUnsafeHttpAddress(entry.address))) {
-      return fail(err.badInput("HTTP request target is not allowed"));
-    }
-  } catch {
-    // DNS failures are normal delivery failures; fetch records them.
-  }
-  return ok(url);
 };
