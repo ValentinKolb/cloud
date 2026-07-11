@@ -243,9 +243,8 @@ function PickerShell<T>(props: {
           <div
             ref={triggerRef}
             id={a11y.inputId}
-            class={`input w-full pl-9 pr-8 ${isOpen() ? "!border-blue-500 !bg-white dark:!border-blue-400 dark:!bg-zinc-900" : ""} ${
-              disabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"
-            }`}
+            class={`input w-full pl-9 pr-8 ${disabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+            data-state={isOpen() ? "open" : "closed"}
             onClick={() => toggle(!isOpen())}
             onKeyDown={handleKeyDown}
             tabIndex={disabled() ? -1 : 0}

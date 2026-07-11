@@ -1,6 +1,6 @@
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { mutation, timed } from "@valentinkolb/stdlib/solid";
-import { InputWrapper, createInputA11y } from "./util";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createInputA11y, InputWrapper } from "./util";
 
 type SelectOption =
   | string
@@ -302,9 +302,8 @@ const SelectInput = (props: SelectInputProps) => {
           <div
             ref={triggerRef}
             id={a11y.inputId}
-            class={`input w-full pl-9 pr-8 ${
-              isOpen() ? "!border-blue-500 !bg-white dark:!border-blue-400 dark:!bg-zinc-900" : ""
-            } ${disabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+            class={`input w-full pl-9 pr-8 ${disabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+            data-state={isOpen() ? "open" : "closed"}
             onClick={() => toggleDropdown(!isOpen())}
             onKeyDown={handleKeyDown}
             tabIndex={disabled() ? -1 : 0}

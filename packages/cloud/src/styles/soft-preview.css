@@ -13,7 +13,7 @@ body:has(.cloud-ui-soft),
   --ui-border-strong: rgb(209 216 211 / 0.78);
   --ui-hover: rgb(238 242 239 / 0.82);
   --ui-active: rgb(225 230 226 / 0.9);
-  --ui-selected: color-mix(in srgb, var(--app-accent, var(--color-blue-500)) 8%, var(--ui-surface));
+  --ui-selected: color-mix(in srgb, var(--color-blue-500) 7%, var(--ui-surface));
   --ui-action-primary-surface: var(--color-zinc-900);
   --ui-action-primary-hover: var(--color-black);
   --ui-action-primary-active: var(--color-zinc-800);
@@ -111,7 +111,7 @@ body:has(.cloud-ui-soft),
   --ui-border-strong: rgb(57 67 61 / 0.82);
   --ui-hover: rgb(32 38 34 / 0.82);
   --ui-active: rgb(48 57 51 / 0.9);
-  --ui-selected: color-mix(in srgb, var(--app-accent, var(--color-blue-400)) 13%, var(--ui-surface));
+  --ui-selected: color-mix(in srgb, var(--color-blue-400) 12%, var(--ui-surface));
   --ui-action-primary-surface: var(--color-zinc-100);
   --ui-action-primary-hover: var(--color-white);
   --ui-action-primary-active: var(--color-zinc-200);
@@ -386,9 +386,61 @@ body:has(.cloud-ui-soft) .input:hover {
 }
 
 body:has(.cloud-ui-soft) .input:focus,
-body:has(.cloud-ui-soft) .input:focus-within {
+body:has(.cloud-ui-soft) .input:focus-within,
+body:has(.cloud-ui-soft) .input[data-state="open"] {
   border-color: var(--ui-field-focus-border) !important;
+  background: var(--ui-field-focus) !important;
   box-shadow: var(--ui-focus);
+}
+
+body:has(.cloud-ui-soft) .checkbox-card {
+  border-color: transparent;
+  background: var(--ui-field);
+}
+
+body:has(.cloud-ui-soft) .checkbox-card:hover {
+  border-color: var(--ui-field-hover-border);
+  background: var(--ui-field-hover);
+}
+
+body:has(.cloud-ui-soft) .checkbox-card[data-state="checked"] {
+  border-color: transparent;
+  background: var(--ui-selected);
+}
+
+body:has(.cloud-ui-soft) .checkbox-card[data-state="invalid"] {
+  border-color: color-mix(in srgb, var(--color-red-500) 28%, transparent);
+  background: color-mix(in srgb, var(--color-red-500) 7%, var(--ui-surface));
+}
+
+body:has(.cloud-ui-soft) .file-dropzone {
+  border-color: transparent;
+  background: var(--ui-field);
+}
+
+body:has(.cloud-ui-soft) .file-dropzone:hover {
+  border-color: var(--ui-field-hover-border);
+  background: var(--ui-field-hover);
+}
+
+body:has(.cloud-ui-soft) .file-dropzone[data-state="dragging"] {
+  border-color: color-mix(in srgb, var(--color-blue-500) 32%, transparent);
+  background: color-mix(in srgb, var(--color-blue-500) 7%, var(--ui-surface));
+}
+
+body:has(.cloud-ui-soft) .file-dropzone[data-state="invalid"] {
+  border-color: color-mix(in srgb, var(--color-red-500) 32%, transparent);
+  background: color-mix(in srgb, var(--color-red-500) 7%, var(--ui-surface));
+}
+
+body:has(.cloud-ui-soft) .file-dropzone-icon {
+  background: var(--ui-surface-raised);
+  color: var(--color-zinc-600);
+  box-shadow: none;
+}
+
+.dark body:has(.cloud-ui-soft) .file-dropzone-icon {
+  color: var(--color-zinc-300);
 }
 
 body:has(.cloud-ui-soft) :is(.ac-editor, .md-editor):focus-within {

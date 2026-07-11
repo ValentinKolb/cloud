@@ -231,9 +231,8 @@ const Combobox = (props: ComboboxProps) => {
         <input
           ref={inputRef}
           type="text"
-          class={`input w-full pl-9 pr-8 ${
-            isOpen() ? "!border-blue-500 dark:!border-blue-400" : ""
-          } ${props.disabled ? "cursor-not-allowed opacity-50" : ""}`}
+          class={`input w-full pl-9 pr-8 ${props.disabled ? "cursor-not-allowed opacity-50" : ""}`}
+          data-state={isOpen() ? "open" : "closed"}
           placeholder={props.placeholder ?? "Search..."}
           value={query()}
           // anchor-name lets the popover position itself relative to

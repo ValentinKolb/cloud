@@ -274,8 +274,9 @@ const MultiSelectInput = (props: MultiSelectInputProps) => {
             ref={triggerRef}
             id={a11y.inputId}
             class={`input relative flex h-8 w-full items-center gap-1.5 overflow-hidden py-1.5 pl-9 pr-8 ${
-              isOpen() ? "!border-blue-500 !bg-white dark:!border-blue-400 dark:!bg-zinc-900" : ""
-            } ${disabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+              disabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+            }`}
+            data-state={isOpen() ? "open" : "closed"}
             onClick={() => toggleDropdown(!isOpen())}
             onKeyDown={handleKeyDown}
             tabIndex={disabled() ? -1 : 0}

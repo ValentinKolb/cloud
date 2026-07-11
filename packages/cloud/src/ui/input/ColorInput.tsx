@@ -1,6 +1,6 @@
-import { createSignal, Show } from "solid-js";
-import { InputWrapper, createInputA11y } from "./util";
+import { Show } from "solid-js";
 import type { ColorInputProps } from "./types";
+import { createInputA11y, InputWrapper } from "./util";
 
 /**
  * Color input component using native color picker
@@ -8,7 +8,6 @@ import type { ColorInputProps } from "./types";
 const ColorInput = (props: ColorInputProps) => {
   const disabled = () => props.disabled ?? false;
   const compact = () => props.compact ?? !props.label;
-  const [isFocused, setIsFocused] = createSignal(false);
   const inputId = crypto.randomUUID();
   const a11y = createInputA11y({ description: props.description, error: props.error });
 
@@ -54,7 +53,7 @@ const ColorInput = (props: ColorInputProps) => {
     >
       <div class="relative">
         <div
-          class={`input flex items-center gap-2 transition-all ${isFocused() ? "border-blue-500 bg-white dark:border-blue-400 dark:bg-zinc-900" : ""} ${
+          class={`input flex items-center gap-2 transition-all ${
             disabled() || isTransparent() ? "cursor-not-allowed opacity-50" : "cursor-pointer"
           }`}
           onClick={() => {
@@ -107,8 +106,6 @@ const ColorInput = (props: ColorInputProps) => {
             value={currentColor()}
             onInput={(e) => props.onChange?.(e.currentTarget.value)}
             onChange={(e) => props.onChange?.(e.currentTarget.value)}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
             disabled={disabled() || isTransparent()}
             aria-describedby={a11y.ariaDescribedBy()}
             aria-invalid={!!props.error?.()}

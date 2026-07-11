@@ -42,7 +42,7 @@ export default function FileDropzone(props: FileDropzoneProps) {
 
   const zoneClass = () => {
     const base =
-      "group relative flex min-h-28 w-full flex-col items-center justify-center gap-2 rounded-lg border px-4 py-5 text-center text-sm transition-[background-color,border-color,box-shadow,color] duration-150 focus-ui";
+      "file-dropzone group relative flex min-h-28 w-full flex-col items-center justify-center gap-2 rounded-lg border px-4 py-5 text-center text-sm transition-[background-color,border-color,box-shadow,color] duration-150 focus-ui";
     const enabled = disabled() ? "cursor-not-allowed opacity-60" : "cursor-pointer";
     const state = dz.invalidDrag()
       ? "border-red-400 bg-red-50/80 text-red-700 dark:border-red-500/70 dark:bg-red-950/35 dark:text-red-200"
@@ -83,9 +83,10 @@ export default function FileDropzone(props: FileDropzoneProps) {
         disabled={disabled()}
         aria-label={props.ariaLabel ?? (typeof props.label === "string" ? props.label : props.title)}
         aria-describedby={a11y.ariaDescribedBy()}
+        data-state={dz.invalidDrag() ? "invalid" : dz.isDragging() ? "dragging" : "idle"}
         {...dz.handlers}
       >
-        <span class="flex h-10 w-10 items-center justify-center rounded-lg bg-white text-lg text-blue-600 shadow-[var(--theme-shadow-elevated)] transition-colors group-hover:text-blue-700 dark:bg-zinc-950 dark:text-blue-300">
+        <span class="file-dropzone-icon flex h-10 w-10 items-center justify-center rounded-lg bg-white text-lg text-blue-600 shadow-[var(--theme-shadow-elevated)] transition-colors group-hover:text-blue-700 dark:bg-zinc-950 dark:text-blue-300">
           <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : (props.icon ?? "ti-cloud-upload")}`} aria-hidden="true" />
         </span>
         <span class="flex flex-col gap-0.5">

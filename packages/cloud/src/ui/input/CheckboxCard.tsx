@@ -33,7 +33,7 @@ const CheckboxCard = ({
   return (
     <label
       for={inputId}
-      class={`grid cursor-pointer select-none grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-lg border p-3 text-left transition-colors ${
+      class={`checkbox-card grid cursor-pointer select-none grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-lg border p-3 text-left transition-colors ${
         variant === "input"
           ? "border-zinc-100 bg-zinc-100 hover:border-zinc-200/70 hover:bg-zinc-200/70 dark:border-zinc-800 dark:bg-zinc-800 dark:hover:border-zinc-700 dark:hover:bg-zinc-700"
           : "border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-900"
@@ -44,6 +44,7 @@ const CheckboxCard = ({
         "border-red-500 bg-red-50/70 dark:border-red-500 dark:bg-red-950/20": !!error?.(),
         "cursor-not-allowed opacity-60": disabled,
       }}
+      data-state={error?.() ? "invalid" : checked() ? "checked" : "idle"}
     >
       <input
         id={inputId}
