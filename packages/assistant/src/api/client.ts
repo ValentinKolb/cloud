@@ -1,4 +1,4 @@
-import type { AiConversation } from "@valentinkolb/cloud/ai";
+import type { AiConversation, AiEnrichmentRun, AiEnrichmentStatus, AiUserPrefs } from "@valentinkolb/cloud/ai";
 
 const BASE = "/api/assistant";
 
@@ -28,7 +28,10 @@ export const assistantApi = {
     return (await response.json()) as AiConversation;
   },
 
-  updateConversation: async (conversationId: string, input: { title: string; icon?: string; description?: string }): Promise<AiConversation> => {
+  updateConversation: async (
+    conversationId: string,
+    input: { title: string; icon?: string; description?: string },
+  ): Promise<AiConversation> => {
     const response = await fetch(`${BASE}/conversations/${conversationId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -38,8 +41,41 @@ export const assistantApi = {
     return (await response.json()) as AiConversation;
   },
 
+  getSystemPromptPreview: async (): Promise<{ prompt: string; renderedAt: string }> => {
+    const response = await fetch(`${BASE}/prefs/system-prompt`);
+    if (!response.ok) throw new Error(await readError(response, "Failed to load system prompt"));
+    return (await response.json()) as { prompt: string; renderedAt: string };
+  },
+
+  getPrefs: async (): Promise<AiUserPrefs> => {
+    const response = await fetch(`${BASE}/prefs`);
+    if (!response.ok) throw new Error(await readError(response, "Failed to load AI preferences"));
+    return (await response.json()) as AiUserPrefs;
+  },
+
+  updatePrefs: async (input: { instructions?: string; memory?: string; memoryEnabled?: boolean }): Promise<AiUserPrefs> => {
+    const response = await fetch(`${BASE}/prefs`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) throw new Error(await readError(response, "Failed to save AI preferences"));
+    return (await response.json()) as AiUserPrefs;
+  },
+
   deleteConversation: async (conversationId: string): Promise<void> => {
     const response = await fetch(`${BASE}/conversations/${conversationId}`, { method: "DELETE" });
     if (!response.ok) throw new Error(await readError(response, "Failed to delete chat"));
+  },
+
+  getEnrichment: async (conversationId: string): Promise<{ status: AiEnrichmentStatus | null; runs: AiEnrichmentRun[] }> => {
+    const response = await fetch(`${BASE}/conversations/${conversationId}/enrichment`);
+    if (!response.ok) throw new Error(await readError(response, "Failed to load index status"));
+    return (await response.json()) as { status: AiEnrichmentStatus | null; runs: AiEnrichmentRun[] };
+  },
+
+  reindexConversation: async (conversationId: string): Promise<void> => {
+    const response = await fetch(`${BASE}/conversations/${conversationId}/reindex`, { method: "POST" });
+    if (!response.ok) throw new Error(await readError(response, "Failed to queue reindex"));
   },
 };

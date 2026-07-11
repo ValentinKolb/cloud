@@ -1,5 +1,5 @@
 import type { AiConversation, AiPublicModelProfile, AiSettingsError, AiStoredMessage } from "@valentinkolb/cloud/ai";
-import { createAiChatController } from "@valentinkolb/cloud/ai/solid";
+import { conversationFileSource, createAiChatController } from "@valentinkolb/cloud/ai/solid";
 import {
   AiComposer,
   type AiComposerAttachment,
@@ -8,7 +8,7 @@ import {
   type AiSlashCommand,
   aiLatestUsage,
 } from "@valentinkolb/cloud/ai/ui";
-import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, openFileBrowser, prompts } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { assistantApi } from "../api/client";
@@ -23,21 +23,26 @@ type Status = {
   models: AiPublicModelProfile[];
 };
 
-type InitialDetail = { conversation: AiConversation; messages: AiStoredMessage[]; activeTurn: import("@valentinkolb/cloud/ai").AiTurnSnapshot | null };
+type InitialDetail = {
+  conversation: AiConversation;
+  messages: AiStoredMessage[];
+  hasMoreMessages?: boolean;
+  activeTurn: import("@valentinkolb/cloud/ai").AiTurnSnapshot | null;
+};
 
 type Props = {
   status: Status;
   models: AiPublicModelProfile[];
+  /** Model of the user's most recent turn (any chat) — preselected for new chats. */
+  lastModelId: string;
   initialConversations: AiConversation[];
   initialConversationId: string | null;
   initialDetail: InitialDetail | null;
 };
 
 export default function AssistantWorkspace(props: Props) {
-  const initialSelectedModelId = () => {
-    if (props.models.some((model) => model.id === props.status.defaultModelId)) return props.status.defaultModelId;
-    return props.models[0]?.id ?? "";
-  };
+  const isSelectable = (modelId: string | null | undefined): modelId is string =>
+    Boolean(modelId && props.models.some((model) => model.id === modelId));
 
   const chat = createAiChatController({
     baseUrl: "/api/assistant",
@@ -46,7 +51,34 @@ export default function AssistantWorkspace(props: Props) {
     initialDetail: props.initialDetail,
     initialError: props.status.error?.message ?? null,
   });
-  const [selectedModelId, setSelectedModelId] = createSignal(initialSelectedModelId());
+
+  // Model selection is per chat: an explicit pick only applies to the chat it
+  // was made in. Without a pick, a chat shows the model of its own last
+  // assistant turn; new chats start on the user's last-used model.
+  const [modelChoices, setModelChoices] = createSignal<Record<string, string>>({});
+  const modelSessionKey = () => chat.activeConversationId() ?? "__new__";
+  const modelOfActiveChat = createMemo(() => {
+    if (!chat.activeConversationId()) return null;
+    const entry = chat
+      .messages()
+      .findLast((message) => message.kind === "message" && message.message.role === "assistant" && isSelectable(message.modelProfileId));
+    return entry?.modelProfileId ?? null;
+  });
+  const fallbackModelId = () => {
+    if (isSelectable(props.lastModelId)) return props.lastModelId;
+    if (isSelectable(props.status.defaultModelId)) return props.status.defaultModelId;
+    return props.models[0]?.id ?? "";
+  };
+  const selectedModelId = createMemo(() => {
+    const explicit = modelChoices()[modelSessionKey()];
+    if (isSelectable(explicit)) return explicit;
+    return modelOfActiveChat() ?? fallbackModelId();
+  });
+  const setSelectedModelId = (modelId: string) => {
+    const key = modelSessionKey();
+    setModelChoices((current) => ({ ...current, [key]: modelId }));
+  };
+
   const [composerFocusToken, setComposerFocusToken] = createSignal(0);
   const [composerDrafts, setComposerDrafts] = createSignal<Record<string, string>>({});
   const [composerAttachments, setComposerAttachments] = createSignal<Record<string, AiComposerAttachment[]>>({});
@@ -76,11 +108,6 @@ export default function AssistantWorkspace(props: Props) {
     await chat.openConversation(conversationId);
     focusComposer();
   };
-
-  createEffect(() => {
-    if (selectedModelId() && props.models.some((model) => model.id === selectedModelId())) return;
-    setSelectedModelId(initialSelectedModelId());
-  });
 
   createEffect(() => {
     const id = chat.activeConversationId();
@@ -221,6 +248,11 @@ export default function AssistantWorkspace(props: Props) {
       delete next[deleted.id];
       return next;
     });
+    setModelChoices((current) => {
+      const next = { ...current };
+      delete next[deleted.id];
+      return next;
+    });
     if (deleted.id === chat.activeConversationId()) navigateTo("/app/assistant");
   };
 
@@ -242,6 +274,11 @@ export default function AssistantWorkspace(props: Props) {
             session={{
               messages: chat.messages,
               activeTurn: chat.activeTurn,
+              history: {
+                hasMore: chat.hasMoreHistory,
+                loading: chat.loadingOlder,
+                loadOlder: chat.loadOlderMessages,
+              },
             }}
             actions={{
               onApproval: (request, input) => {
@@ -256,6 +293,7 @@ export default function AssistantWorkspace(props: Props) {
               onRetryMessage: (entry, input) => {
                 void chat.retryUserMessage(entry.id, { ...input, modelProfileId: selectedModelId() || undefined });
               },
+              fileUrl: chat.fileContentUrl,
             }}
             emptyTitle={props.status.enabled ? "Start a conversation" : "AI is disabled"}
           />
@@ -293,6 +331,19 @@ export default function AssistantWorkspace(props: Props) {
                 focusToken: composerFocusToken,
                 placeholder: props.status.enabled ? "Ask Assistant anything or type / ..." : "AI is not configured",
                 usage,
+                files: {
+                  count: chat.vfsFileCount,
+                  onOpen: () => {
+                    const conversationId = chat.activeConversationId();
+                    if (!conversationId) return;
+                    void openFileBrowser({
+                      source: conversationFileSource("/api/assistant", conversationId),
+                      title: "Chat files",
+                      subtitle: "Uploads (read-only) and the assistant's workspace files for this chat.",
+                      icon: "ti ti-paperclip",
+                    }).then(() => void chat.refreshFiles());
+                  },
+                },
               }}
               actions={{
                 onNewConversation: () => void createAndFocusConversation(),

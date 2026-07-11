@@ -1,4 +1,4 @@
-import { migrateCloudAi, startAiRuntime } from "@valentinkolb/cloud/ai";
+import { aiMaintenanceJobs, migrateCloudAi, startAiRuntime } from "@valentinkolb/cloud/ai";
 import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import apiRoutes from "./api";
@@ -22,10 +22,12 @@ export default await app.start({
     },
     start: async () => {
       stopAiRuntime = startAiRuntime();
+      await aiMaintenanceJobs.start();
     },
     stop: async () => {
       stopAiRuntime?.();
       stopAiRuntime = undefined;
+      await aiMaintenanceJobs.stop();
     },
   },
 });

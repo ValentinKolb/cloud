@@ -1,4 +1,4 @@
-import { aiConversationStore, listAiModels, loadAiStreamState, toPublicAiSettingsState } from "@valentinkolb/cloud/ai";
+import { aiConversationStore, aiUserPrefs, listAiModels, loadAiStreamState, toPublicAiSettingsState } from "@valentinkolb/cloud/ai";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
@@ -9,10 +9,11 @@ export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
   const url = new URL(c.req.raw.url);
   const requestedConversationId = url.searchParams.get("conversation") ?? undefined;
-  const [status, models, conversations] = await Promise.all([
+  const [status, models, conversations, prefs] = await Promise.all([
     toPublicAiSettingsState(),
     listAiModels({ kind: "selectable", requiredCapabilities: ["streaming"] }),
     aiConversationStore.listConversations({ appId: "assistant", ownerUserId: user.id }),
+    aiUserPrefs.get(user.id),
   ]);
 
   const activeConversation =
@@ -27,9 +28,19 @@ export default ssr<AuthContext>(async (c) => {
       <AssistantWorkspace
         status={status}
         models={models}
+        lastModelId={prefs.lastModelId}
         initialConversations={conversations}
         initialConversationId={activeConversation?.id ?? null}
-        initialDetail={initialDetail ? { conversation: initialDetail.conversation, messages: initialDetail.messages, activeTurn: initialDetail.activeTurn } : null}
+        initialDetail={
+          initialDetail
+            ? {
+                conversation: initialDetail.conversation,
+                messages: initialDetail.messages,
+                hasMoreMessages: initialDetail.hasMoreMessages ?? false,
+                activeTurn: initialDetail.activeTurn,
+              }
+            : null
+        }
       />
     </Layout>
   );
