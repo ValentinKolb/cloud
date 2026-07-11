@@ -250,6 +250,72 @@ steps:
     ).toEqual([]);
   });
 
+  test("validates loop-scoped records through nested control-flow branches", () => {
+    const definition = parseDefinition(`
+inputs:
+  items:
+    type: recordList
+    table: Items
+triggers:
+  bulkSelection:
+    input: items
+steps:
+  - forEach: inputs.items
+    as: item
+    do:
+      - updateRecord:
+          record: item
+          set:
+            Missing loop field: true
+      - if:
+          exists: item.Name
+        then:
+          - updateRecord:
+              record: item
+              set:
+                Missing then field: true
+        else:
+          - updateRecord:
+              record: item
+              set:
+                Missing else field: true
+      - switch: item.Status
+        cases:
+          - when: Available
+            do:
+              - updateRecord:
+                  record: item
+                  set:
+                    Missing case field: true
+        default:
+          - updateRecord:
+              record: item
+              set:
+                Missing default field: true
+`);
+
+    expect(
+      validateWorkflowReferences(
+        definition,
+        catalog({
+          tables: [{ id: "table-items", shortId: "itms1", name: "Items" }],
+          fields: {
+            "table-items": [
+              { id: "field-name", shortId: "name1", name: "Name" },
+              { id: "field-status", shortId: "stat1", name: "Status" },
+            ],
+          },
+        }),
+      ),
+    ).toEqual([
+      'updateRecord.set: unknown field "Missing loop field"',
+      'updateRecord.set: unknown field "Missing then field"',
+      'updateRecord.set: unknown field "Missing else field"',
+      'updateRecord.set: unknown field "Missing case field"',
+      'updateRecord.set: unknown field "Missing default field"',
+    ]);
+  });
+
   test("rejects unknown workflow email templates", () => {
     const definition = parseDefinition(`
 triggers:
