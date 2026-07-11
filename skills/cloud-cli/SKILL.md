@@ -1,6 +1,6 @@
 ---
 name: cloud-cli
-description: Use the Cloud CLI (`cld`) to work with a user's Cloud content from a terminal. Use this skill whenever an agent needs to use installed Cloud app commands, sign in or select a Cloud profile, choose safe CLI input/output, or complete Contacts or Tools workflows for the user.
+description: Use the Cloud CLI (`cld`) to work with a user's Cloud content from a terminal. Use this skill whenever an agent needs to use installed Cloud app commands, sign in or select a Cloud profile, choose safe CLI input/output, or complete Contacts, Pulse, or Tools workflows for the user.
 ---
 
 # Cloud CLI
@@ -26,6 +26,7 @@ Use `cld` to work with the user's Cloud content from a terminal. It handles sign
 
 - Read [Account](references/account.md) to manage the signed-in user's profile, personal API keys, SSH keys, and account extension.
 - Read [Contacts](references/contacts.md) for contact books, contacts, tags, notes, exports, and access grants.
+- Read [Pulse](references/pulse.md) to explore telemetry, run queries, create DSL dashboards, manage sources, and share public displays.
 - Read [Spaces](references/spaces.md) for spaces, items, comments, calendars, and access grants.
 - Read [Tools](references/tools.md) for local password, encoding, QR, encryption, and speedtest utilities.
 - Read [Venue](references/venue.md) to operate venues, opening rules, public sections, shifts, and venue access.
