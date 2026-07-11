@@ -891,34 +891,48 @@ export const createTemplate = async (
   const numberTemplate = input.numberTemplate?.trim() || DEFAULT_NUMBER_TEMPLATE;
   const filenameTemplate = input.filenameTemplate?.trim() || DEFAULT_FILENAME_TEMPLATE;
 
-  const row = await insertWithShortId<DbRow>(async (shortId) => {
-    const [inserted] = await sql<DbRow[]>`
-      INSERT INTO grids.document_templates (
-        short_id, table_id, name, description, source, html, header_html, footer_html, page_css, number_template, filename_template,
-        enabled, position, created_by, updated_by
-      )
-      VALUES (
-        ${shortId},
-        ${tableId}::uuid,
-        ${name},
-        ${input.description ?? null},
-        ${source},
-        ${html},
-        ${headerHtml},
-        ${footerHtml},
-        ${pageCss},
-        ${numberTemplate},
-        ${filenameTemplate},
-        ${input.enabled ?? true},
-        COALESCE((SELECT MAX(position) + 1 FROM grids.document_templates WHERE table_id = ${tableId}::uuid), 0),
-        ${actorId}::uuid,
-        ${actorId}::uuid
-      )
-      RETURNING *
-    `;
-    if (!inserted) throw new Error("insert returned no row");
-    return inserted;
-  }, "idx_grids_document_templates_short_id");
+  const row = await insertWithShortId<DbRow>(
+    async (shortId) =>
+      sql.begin(async (tx) => {
+        const [created] = await tx<DbRow[]>`
+        INSERT INTO grids.document_templates (
+          short_id, table_id, name, description, source, html, header_html, footer_html, page_css, number_template, filename_template,
+          enabled, position, created_by, updated_by
+        )
+        VALUES (
+          ${shortId},
+          ${tableId}::uuid,
+          ${name},
+          ${input.description ?? null},
+          ${source},
+          ${html},
+          ${headerHtml},
+          ${footerHtml},
+          ${pageCss},
+          ${numberTemplate},
+          ${filenameTemplate},
+          ${input.enabled ?? true},
+          COALESCE((SELECT MAX(position) + 1 FROM grids.document_templates WHERE table_id = ${tableId}::uuid), 0),
+          ${actorId}::uuid,
+          ${actorId}::uuid
+        )
+        RETURNING *
+      `;
+        if (!created) throw new Error("insert returned no row");
+        await logAudit(
+          {
+            baseId: table.baseId,
+            tableId,
+            userId: actorId,
+            action: "document_template.created",
+            diff: { documentTemplate: { old: null, new: { id: created.id, name, enabled: input.enabled ?? true } } },
+          },
+          tx,
+        );
+        return created;
+      }),
+    "idx_grids_document_templates_short_id",
+  );
   return ok(mapTemplate(row));
 };
 

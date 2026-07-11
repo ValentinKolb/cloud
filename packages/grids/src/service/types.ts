@@ -61,6 +61,7 @@ export type AuditAction =
   | "email_template.created"
   | "email_template.updated"
   | "email_template.deleted"
+  | "document_template.created"
   | "document_link.created"
   | "document_link.revoked"
   | "document_link.accessed";

@@ -2,9 +2,12 @@ import { logger } from "@valentinkolb/cloud/services";
 import { parseDataUrl } from "@valentinkolb/cloud/shared";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import { documentTemplateStarterById } from "../document-template-starters";
 import { type GridTemplate, getTemplate, type TemplateDateExpression, type TemplateRef, templates } from "../templates";
 import * as bases from "./bases";
 import * as dashboards from "./dashboards";
+import * as documents from "./documents";
+import * as emailTemplates from "./email-templates";
 import * as fields from "./fields";
 import * as files from "./files";
 import type { FormConfig } from "./forms";
@@ -13,6 +16,7 @@ import * as records from "./records";
 import * as tables from "./tables";
 import type { Base, Field } from "./types";
 import * as views from "./views";
+import * as workflows from "./workflows";
 
 const log = logger("grids:templates");
 
@@ -355,6 +359,73 @@ const createDashboards = async (template: GridTemplate, baseId: string, actorId:
   }
 };
 
+const createDocumentTemplates = async (template: GridTemplate, actorId: string | null, ctx: TemplateContext) => {
+  for (const definition of template.documentTemplates ?? []) {
+    const tableId = ctx.tables.get(definition.table);
+    if (!tableId) throw new TemplateError(err.badInput(`template table not found: ${definition.table}`));
+    const starter = documentTemplateStarterById(definition.starterId);
+    if (!starter) throw new TemplateError(err.badInput(`document template starter not found: ${definition.starterId}`));
+    const source = definition.source === undefined ? starter.source(tableId) : resolveGqlValue(definition.source, ctx);
+    if (typeof source !== "string" || !source.trim()) {
+      throw new TemplateError(err.badInput(`document template "${definition.key}" must provide a GQL source`));
+    }
+
+    requireResult(
+      await documents.createTemplate(
+        tableId,
+        {
+          name: definition.name?.trim() || starter.name,
+          description: definition.description === undefined ? starter.description : definition.description,
+          source: source.trim(),
+          html: starter.html,
+          headerHtml: starter.headerHtml,
+          footerHtml: starter.footerHtml,
+          pageCss: starter.pageCss,
+          numberTemplate: starter.numberTemplate,
+          filenameTemplate: starter.filenameTemplate,
+          enabled: definition.enabled,
+        },
+        actorId,
+      ),
+    );
+  }
+};
+
+const createEmailTemplates = async (template: GridTemplate, baseId: string, actorId: string | null) => {
+  for (const definition of template.emailTemplates ?? []) {
+    requireResult(
+      await emailTemplates.create(
+        baseId,
+        {
+          name: definition.name,
+          description: definition.description,
+          subject: definition.subject,
+          html: definition.html,
+          enabled: definition.enabled,
+        },
+        actorId,
+      ),
+    );
+  }
+};
+
+const createWorkflows = async (template: GridTemplate, baseId: string, actorId: string | null) => {
+  for (const definition of template.workflows ?? []) {
+    requireResult(
+      await workflows.create(
+        baseId,
+        {
+          name: definition.name,
+          description: definition.description,
+          source: definition.source,
+          enabled: definition.enabled,
+        },
+        actorId,
+      ),
+    );
+  }
+};
+
 export const instantiate = async (templateId: string, input: InstantiateTemplateInput, actorId: string | null): Promise<Result<Base>> => {
   const template = getTemplate(templateId);
   if (!template) return fail(err.notFound("Template"));
@@ -390,15 +461,19 @@ export const instantiate = async (templateId: string, input: InstantiateTemplate
     await createForms(template, actorId, ctx);
     await createDashboards(template, base.id, actorId, ctx);
 
+    let resultBase = base;
     if (template.defaultDashboard) {
       const dashboardId = ctx.dashboards.get(template.defaultDashboard);
       if (!dashboardId) {
         throw new TemplateError(err.badInput(`template dashboard not found: ${template.defaultDashboard}`));
       }
-      return bases.update(base.id, { defaultDashboardId: dashboardId }, actorId);
+      resultBase = requireResult(await bases.update(base.id, { defaultDashboardId: dashboardId }, actorId));
     }
 
-    return ok(base);
+    await createDocumentTemplates(template, actorId, ctx);
+    await createEmailTemplates(template, base.id, actorId);
+    await createWorkflows(template, base.id, actorId);
+    return ok(resultBase);
   } catch (error) {
     await sql`DELETE FROM grids.bases WHERE id = ${base.id}::uuid`.catch(() => {});
     log.error("Template instantiation failed", {

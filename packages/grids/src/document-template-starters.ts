@@ -227,7 +227,8 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
     icon: "ti ti-file-certificate",
     category: "Contract",
     bestFor: "Equipment loans, borrower handovers, and signed internal agreements.",
-    expectedData: "One selected loan or asset record; extend GQL for related items.",
+    expectedData:
+      "One selected loan record. Alias borrower_name, borrower_organization, borrower_email, loan_start, and return_due for populated party and date blocks.",
     page: "A4 portrait",
     source: recordSource,
     headerHtml: businessHeader,
@@ -239,12 +240,19 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
 .condition-item { display: flex; align-items: center; gap: 2.5mm; }
 .initial-box { border: 1px solid #94a3b8; min-height: 12mm; padding: 2.5mm; }`,
     html: `<main>
+  {% assign hasLoan = false %}
+  {% if rows.size > 0 %}{% assign loan = rows[0] %}{% assign hasLoan = true %}{% endif %}
+  {% assign borrowerNameColumns = columns | where: "key", "borrower_name" %}
+  {% assign borrowerOrganizationColumns = columns | where: "key", "borrower_organization" %}
+  {% assign borrowerEmailColumns = columns | where: "key", "borrower_email" %}
+  {% assign loanStartColumns = columns | where: "key", "loan_start" %}
+  {% assign returnDueColumns = columns | where: "key", "return_due" %}
   <section class="letter-layout avoid-break">
     <div>
       <div class="letter-sender">{{ business.senderLine | default: business.legalName | default: app.name }}</div>
       <div class="recipient-window">
-        <p class="strong">Borrower name / organization</p>
-        <p>Borrower address<br>Contact person<br>City, country</p>
+        <p class="strong">{% if hasLoan and borrowerNameColumns.size > 0 %}{{ loan[borrowerNameColumns[0].key] }}{% else %}Borrower name{% endif %}</p>
+        <p>{% if hasLoan and borrowerOrganizationColumns.size > 0 %}{{ loan[borrowerOrganizationColumns[0].key] }}{% else %}Borrower organization{% endif %}{% if hasLoan and borrowerEmailColumns.size > 0 %}<br>{{ loan[borrowerEmailColumns[0].key] }}{% endif %}</p>
       </div>
     </div>
     <aside class="stamp-box">Internal loan document<br>Return required</aside>
@@ -270,15 +278,15 @@ export const DOCUMENT_TEMPLATE_STARTERS: DocumentTemplateStarter[] = [
     </div>
     <div class="box">
       <div class="document-kicker">Borrower</div>
-      <p class="strong">Borrower name / organization</p>
-      <p>Borrower address<br>Contact details</p>
+      <p class="strong">{% if hasLoan and borrowerNameColumns.size > 0 %}{{ loan[borrowerNameColumns[0].key] }}{% else %}Borrower name{% endif %}</p>
+      <p>{% if hasLoan and borrowerOrganizationColumns.size > 0 %}{{ loan[borrowerOrganizationColumns[0].key] }}{% else %}Borrower organization{% endif %}{% if hasLoan and borrowerEmailColumns.size > 0 %}<br>{{ loan[borrowerEmailColumns[0].key] }}{% endif %}</p>
       <p class="small muted">Identification checked before handover.</p>
     </div>
   </section>
 
   <section class="compact-grid avoid-break">
-    <div class="soft-box"><div class="document-kicker">Loan starts</div><p class="strong"><span class="form-line"></span></p></div>
-    <div class="soft-box"><div class="document-kicker">Return due</div><p class="strong"><span class="form-line"></span></p></div>
+    <div class="soft-box"><div class="document-kicker">Loan starts</div><p class="strong">{% if hasLoan and loanStartColumns.size > 0 %}{{ loan[loanStartColumns[0].key] }}{% else %}To be agreed{% endif %}</p></div>
+    <div class="soft-box"><div class="document-kicker">Return due</div><p class="strong">{% if hasLoan and returnDueColumns.size > 0 %}{{ loan[returnDueColumns[0].key] }}{% else %}To be agreed{% endif %}</p></div>
     <div class="soft-box"><div class="document-kicker">Return condition</div><p class="strong">As issued</p></div>
   </section>
 

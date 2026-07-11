@@ -3,18 +3,26 @@ import { parseDataUrl } from "@valentinkolb/cloud/shared";
 import {
   CreateBaseSchema,
   CreateDashboardSchema,
+  CreateDocumentTemplateSchema,
+  CreateEmailTemplateSchema,
   CreateFieldSchema,
   CreateTableSchema,
   CreateViewSchema,
+  CreateWorkflowSchema,
   DashboardConfigSchema,
   FormConfigSchema,
   RecordDisplayConfigSchema,
   ViewUiSettingsSchema,
 } from "../contracts";
+import { documentTemplateStarterById } from "../document-template-starters";
 import { fieldTypeRegistry, getRecordWritableFieldType } from "../field-types";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { type DslResolverContext, resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
+import { renderDocumentHtml, renderDocumentSource, validateTemplateWrite } from "../service/documents";
+import { validateEmailTemplateWrite } from "../service/email-templates";
 import type { Field } from "../service/types";
+import { buildWorkflowCatalog, validateWorkflowReferences } from "../service/workflows";
+import { parseWorkflowYaml } from "../workflows/dsl";
 import { templates } from ".";
 import type { GridTemplate, TemplateDateExpression, TemplateField, TemplateRef } from "./types";
 import { field, formula } from "./types";
@@ -436,6 +444,19 @@ describe("built-in grid templates", () => {
       if (template.defaultDashboard) {
         expect(index.dashboards.has(template.defaultDashboard), `${template.id} defaultDashboard`).toBe(true);
       }
+
+      assertUnique(
+        (template.documentTemplates ?? []).map((documentTemplate) => documentTemplate.key),
+        `${template.id} document template keys`,
+      );
+      assertUnique(
+        (template.emailTemplates ?? []).map((emailTemplate) => emailTemplate.key),
+        `${template.id} email template keys`,
+      );
+      assertUnique(
+        (template.workflows ?? []).map((workflow) => workflow.key),
+        `${template.id} workflow keys`,
+      );
     }
   });
 
@@ -486,7 +507,7 @@ describe("built-in grid templates", () => {
     }
   });
 
-  test("template resources pass the same write schemas used during creation", () => {
+  test("template resources pass the same write schemas used during creation", async () => {
     for (const template of templates) {
       const ctx = templateTestContext(template);
 
@@ -580,6 +601,124 @@ describe("built-in grid templates", () => {
           `${template.id}.${dashboard.key} dashboard payload`,
         ).toBe(true);
         expect(DashboardConfigSchema.safeParse(config).success, `${template.id}.${dashboard.key} dashboard config`).toBe(true);
+      }
+
+      const documentTemplateEntries: Array<{ id: string; shortId: string; tableId: string; name: string }> = [];
+      for (const [index, documentTemplate] of (template.documentTemplates ?? []).entries()) {
+        const tableId = ctx.tables.get(documentTemplate.table);
+        const starter = documentTemplateStarterById(documentTemplate.starterId);
+        expect(tableId, `${template.id}.${documentTemplate.key} table`).toBeDefined();
+        expect(starter, `${template.id}.${documentTemplate.key} starter`).toBeDefined();
+        if (!tableId || !starter) throw new Error(`invalid document template ${template.id}.${documentTemplate.key}`);
+        const sourceValue = resolveTemplateGqlValue(documentTemplate.source ?? starter.source(tableId), templateNamesForGql(template));
+        expect(typeof sourceValue, `${template.id}.${documentTemplate.key} document source`).toBe("string");
+        if (typeof sourceValue !== "string") throw new Error(`invalid document source ${template.id}.${documentTemplate.key}`);
+        const source = sourceValue;
+        const payload = {
+          name: documentTemplate.name ?? starter.name,
+          description: documentTemplate.description === undefined ? starter.description : documentTemplate.description,
+          source,
+          html: starter.html,
+          headerHtml: starter.headerHtml,
+          footerHtml: starter.footerHtml,
+          pageCss: starter.pageCss,
+          numberTemplate: starter.numberTemplate,
+          filenameTemplate: starter.filenameTemplate,
+          enabled: documentTemplate.enabled,
+        };
+        expect(CreateDocumentTemplateSchema.safeParse(payload).success, `${template.id}.${documentTemplate.key} document payload`).toBe(
+          true,
+        );
+        expect(validateTemplateWrite(payload).ok, `${template.id}.${documentTemplate.key} document Liquid`).toBe(true);
+        if (documentTemplate.starterId === "loan-agreement") {
+          const rendered = await renderDocumentHtml(
+            { html: starter.html, pageCss: starter.pageCss },
+            {
+              app: { name: "Cloud" },
+              business: { legalName: "Example Operations", senderLine: "Example Operations", address: "Example Street 1" },
+              document: { number: "LN-2026-001" },
+              rows: [
+                {
+                  borrower_name: "Mara Example",
+                  borrower_organization: "Example Studio",
+                  borrower_email: "mara@example.test",
+                  loan_start: "2026-07-10",
+                  return_due: "2026-07-17",
+                },
+              ],
+              columns: [
+                { key: "borrower_name", label: "Borrower name" },
+                { key: "borrower_organization", label: "Borrower organization" },
+                { key: "borrower_email", label: "Borrower email" },
+                { key: "loan_start", label: "Loan starts" },
+                { key: "return_due", label: "Return due" },
+              ],
+            },
+          );
+          expect(
+            rendered.ok,
+            `${template.id}.${documentTemplate.key} renders contract data: ${rendered.ok ? "" : rendered.error.message}`,
+          ).toBe(true);
+          if (!rendered.ok) throw new Error(rendered.error.message);
+          expect(rendered.data).toContain("Mara Example");
+          expect(rendered.data).toContain("Example Studio");
+          expect(rendered.data).toContain("2026-07-10");
+          expect(rendered.data).toContain("2026-07-17");
+        }
+        expect(String(source), `${template.id}.${documentTemplate.key} should use readable GQL refs`).not.toMatch(
+          /\{[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\}/i,
+        );
+        const renderedSource = await renderDocumentSource({ source }, { record: { id: testUuid(30_000 + index) } });
+        expect(renderedSource.ok, `${template.id}.${documentTemplate.key} renders document GQL`).toBe(true);
+        if (!renderedSource.ok) throw new Error(renderedSource.error.message);
+        const parsed = parseGridsQueryDsl(renderedSource.data);
+        expect(parsed.ok, `${template.id}.${documentTemplate.key} parses as GQL`).toBe(true);
+        if (parsed.ok) {
+          const resolved = resolveDslQueryToQueryPlan(parsed.ast, templateResolverContext(template, documentTemplate.table, ctx));
+          expect(
+            resolved.ok,
+            `${template.id}.${documentTemplate.key} resolves as GQL: ${resolved.ok ? "" : resolved.diagnostics.map((diagnostic) => diagnostic.message).join("; ")}`,
+          ).toBe(true);
+        }
+        documentTemplateEntries.push({
+          id: testUuid(10_000 + index),
+          shortId: documentTemplate.key,
+          tableId,
+          name: payload.name,
+        });
+      }
+
+      const emailTemplateEntries = (template.emailTemplates ?? []).map((emailTemplate, index) => {
+        expect(CreateEmailTemplateSchema.safeParse(emailTemplate).success, `${template.id}.${emailTemplate.key} email payload`).toBe(true);
+        expect(validateEmailTemplateWrite(emailTemplate).ok, `${template.id}.${emailTemplate.key} email Liquid`).toBe(true);
+        return {
+          id: testUuid(20_000 + index),
+          shortId: emailTemplate.key,
+          name: emailTemplate.name,
+        };
+      });
+
+      const workflowCatalog = buildWorkflowCatalog({
+        tables: template.tables.map((table) => ({ id: ctx.tables.get(table.key) ?? "", shortId: table.key, name: table.name })),
+        fieldsByTable: new Map(
+          template.tables.map((table) => [
+            ctx.tables.get(table.key) ?? "",
+            table.fields.map((templateField) => ({
+              id: ctx.fields.get(`${table.key}.${templateField.key}`) ?? "",
+              shortId: templateField.key,
+              name: templateField.name,
+            })),
+          ]),
+        ),
+        templates: documentTemplateEntries,
+        emailTemplates: emailTemplateEntries,
+      });
+      for (const workflow of template.workflows ?? []) {
+        expect(CreateWorkflowSchema.safeParse(workflow).success, `${template.id}.${workflow.key} workflow payload`).toBe(true);
+        const parsed = parseWorkflowYaml(workflow.source);
+        expect(parsed.ok, `${template.id}.${workflow.key} workflow YAML`).toBe(true);
+        if (!parsed.ok) continue;
+        expect(validateWorkflowReferences(parsed.definition, workflowCatalog), `${template.id}.${workflow.key} workflow refs`).toEqual([]);
       }
     }
   });

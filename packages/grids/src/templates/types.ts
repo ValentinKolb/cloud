@@ -87,6 +87,33 @@ export type TemplateDashboard = {
   config: unknown;
 };
 
+type TemplateDocumentTemplate = {
+  key: string;
+  table: string;
+  starterId: string;
+  name?: string;
+  description?: string | null;
+  source?: unknown;
+  enabled?: boolean;
+};
+
+type TemplateEmailTemplate = {
+  key: string;
+  name: string;
+  description?: string | null;
+  subject: string;
+  html: string;
+  enabled?: boolean;
+};
+
+type TemplateWorkflow = {
+  key: string;
+  name: string;
+  description?: string | null;
+  source: string;
+  enabled?: boolean;
+};
+
 export type GridTemplate = {
   id: string;
   name: string;
@@ -99,6 +126,9 @@ export type GridTemplate = {
   views?: TemplateView[];
   forms?: TemplateForm[];
   dashboards?: TemplateDashboard[];
+  documentTemplates?: TemplateDocumentTemplate[];
+  emailTemplates?: TemplateEmailTemplate[];
+  workflows?: TemplateWorkflow[];
   defaultDashboard?: string;
 };
 

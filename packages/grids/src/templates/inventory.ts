@@ -935,5 +935,95 @@ export const inventoryTemplate: GridTemplate = {
       },
     },
   ],
+  documentTemplates: [
+    {
+      key: "loan_agreement",
+      table: "loans",
+      starterId: "loan-agreement",
+      name: "Loan agreement",
+      description: "Printable loan agreement for one inventory loan.",
+      source: formula(
+        "from table ",
+        table("loans"),
+        "\nselect ",
+        field("loans.loan_no"),
+        " as loan_number",
+        ", ",
+        field("loans.requester_name"),
+        " as borrower_name",
+        ", ",
+        field("loans.requester_email"),
+        " as borrower_email",
+        ", ",
+        field("loans.organization"),
+        " as borrower_organization",
+        ", ",
+        field("loans.kits"),
+        ", ",
+        field("loans.start_date"),
+        " as loan_start",
+        ", ",
+        field("loans.due_date"),
+        " as return_due",
+        ", ",
+        field("loans.purpose"),
+        "\nwhere record.id = '{{ record.id }}'\nlimit 1",
+      ),
+      enabled: true,
+    },
+  ],
+  emailTemplates: [
+    {
+      key: "loan_agreement_ready",
+      name: "Loan agreement ready",
+      description: "Sends a private download link for a generated loan agreement.",
+      subject: "Loan agreement {{ data.loanNumber | default: 'ready' }}",
+      html: `<main style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:640px;margin:0 auto;padding:32px;">
+  <h1 style="font-size:24px;margin:0 0 16px;">Your loan agreement is ready</h1>
+  <p>Hello {{ data.requesterName | default: "there" }},</p>
+  <p>Your agreement{% if data.loanNumber %} for loan <strong>{{ data.loanNumber }}</strong>{% endif %} has been prepared.{% if data.dueDate %} The planned return date is <strong>{{ data.dueDate }}</strong>.{% endif %}</p>
+  <p style="margin:24px 0;"><a href="{{ data.agreement.url }}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 18px;border-radius:6px;">Download agreement</a></p>
+  <p style="color:#6b7280;font-size:14px;">This private link expires automatically.</p>
+</main>`,
+      enabled: true,
+    },
+  ],
+  workflows: [
+    {
+      key: "send_loan_agreement",
+      name: "Send loan agreement",
+      description: "Generates a loan agreement, creates a private download link, and emails it to the requester.",
+      source: `inputs:
+  loan:
+    type: record
+    table: Loans
+    label: Loan
+    required: true
+triggers:
+  form: {}
+  api: {}
+steps:
+  - generateDocument:
+      template: Loan agreement
+      record: inputs.loan
+      saveAs: agreementPdf
+  - createDocumentLink:
+      document: agreementPdf
+      expiresIn: 30d
+      saveAs: agreementLink
+  - sendEmail:
+      template: Loan agreement ready
+      to:
+        - email: inputs.loan.Requester email
+      data:
+        agreement: agreementLink
+        loanNumber: inputs.loan.Loan number
+        requesterName: inputs.loan.Requester name
+        dueDate: inputs.loan.Due date
+  - succeed:
+      message: Loan agreement sent.`,
+      enabled: true,
+    },
+  ],
   defaultDashboard: "overview",
 };
