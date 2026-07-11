@@ -61,6 +61,37 @@
   box-shadow: var(--ui-shadow-float);
 }
 
+@utility context-menu-surface {
+  border: 1px solid var(--ui-menu-border);
+  border-radius: var(--ui-context-menu-radius);
+  background: var(--ui-context-menu-surface);
+  box-shadow: var(--ui-context-menu-shadow);
+}
+
+@utility dropdown-menu-surface {
+  border: 1px solid var(--ui-menu-border);
+  border-radius: var(--ui-dropdown-menu-radius);
+  background: var(--ui-dropdown-menu-surface);
+  box-shadow: var(--ui-dropdown-menu-shadow);
+}
+
+@utility menu-item {
+  @apply flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--ui-menu-hover);
+  }
+}
+
+@utility menu-divider {
+  border-color: var(--ui-menu-divider);
+}
+
+@utility menu-label {
+  @apply px-4 pt-3 pb-1 text-xs font-medium uppercase tracking-wider text-zinc-500;
+}
+
 @utility tag {
   @apply rounded inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium;
 }

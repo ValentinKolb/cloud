@@ -87,6 +87,16 @@ Use one radius family. A child may use the same radius as its parent only when t
 
 Inputs, autocomplete surfaces, and editors must consume the same field roles. Component-specific error, syntax, AI, and checked states may layer meaning on top; they must not redefine the resting neutral state.
 
+### Data and floating layers
+
+- `--ui-data-header`, `--ui-data-divider`, `--ui-data-row-divider`: table structure without decorative grid chrome.
+- `--ui-data-row-hover`, `--ui-data-row-selected`, `--ui-data-column-hover`: independent interactive states; selection must remain distinguishable while scanning.
+- `--ui-dialog-*`: panel surface, boundary, internal divider, section well, icon well, and frame radius.
+- `--ui-context-menu-*`, `--ui-dropdown-menu-*`: floating menu surface, geometry, and depth.
+- `--ui-menu-border`, `--ui-menu-hover`, `--ui-menu-divider`: shared menu interaction and grouping roles.
+
+Data colour belongs inside cells and charts, never in the structural table roles. Floating layers may use stronger depth than in-flow papers, but their menus and dialogs still share the same radius family and spacing rhythm.
+
 ## Surfaces and borders
 
 Use surfaces to group content. Use borders only when they explain structure.
@@ -224,6 +234,7 @@ Dialogs, popovers, dropdowns, tooltips, and toasts share one geometry and depth 
 - Headers and footers stay fixed only when the body scrolls.
 - Popovers align with their trigger and flip before overflowing the viewport.
 - Tooltips explain unfamiliar icon actions. They do not repeat visible labels.
+- Menu triggers expose `aria-expanded`; Arrow keys, Home, and End move between menu items without entering the page tab order.
 - Escape closes the top floating layer and returns focus to its trigger.
 
 ## Progressive disclosure

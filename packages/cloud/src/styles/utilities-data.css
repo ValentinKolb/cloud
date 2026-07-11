@@ -1,0 +1,28 @@
+/* Dense data surfaces. Colour roles stay separate from domain status and
+   category colours so tables remain scannable across app themes. */
+
+@utility data-table-header {
+  background: var(--ui-data-header);
+}
+
+@utility data-table-divider {
+  border-color: var(--ui-data-divider);
+}
+
+@utility data-table-row-divider {
+  border-color: var(--ui-data-row-divider);
+}
+
+@utility data-table-row-hover {
+  &:hover {
+    background: var(--ui-data-row-hover);
+  }
+}
+
+@utility data-table-row-selected {
+  background: var(--ui-data-row-selected);
+}
+
+@utility data-table-column-hover {
+  background: var(--ui-data-column-hover);
+}

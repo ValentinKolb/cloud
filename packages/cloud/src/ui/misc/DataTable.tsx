@@ -87,7 +87,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
     props.verticalAlign === "top" ? "align-top" : props.verticalAlign === "bottom" ? "align-bottom" : "align-middle";
   const tableClass = () => props.tableClass ?? `w-full text-xs ${props.fillHeight ? "h-full" : ""}`;
   const columnHoverClass = (index: number) =>
-    props.highlightColumns !== false && shouldHoverRows() && hoveredColumn() === index ? "bg-zinc-950/[0.015] dark:bg-black/[0.12]" : "";
+    props.highlightColumns !== false && shouldHoverRows() && hoveredColumn() === index ? "data-table-column-hover" : "";
   const setHoveredColumnIfEnabled = (index: number) => {
     if (shouldHoverRows()) setHoveredColumn(index);
   };
@@ -164,8 +164,8 @@ export default function DataTable<T>(props: DataTableProps<T>) {
         onMouseLeave={() => setHoveredColumn(null)}
       >
         <table class={tableClass()}>
-          <thead class={props.stickyHeader === false ? undefined : "sticky top-0 z-10 bg-zinc-50 dark:bg-zinc-950"}>
-            <tr class="border-b border-zinc-100 dark:border-zinc-800">
+          <thead class={props.stickyHeader === false ? undefined : "data-table-header sticky top-0 z-10"}>
+            <tr class="data-table-divider border-b">
               <For each={props.columns}>
                 {(col, index) => (
                   <th
@@ -180,8 +180,8 @@ export default function DataTable<T>(props: DataTableProps<T>) {
           </thead>
           <Show when={props.footer}>
             {(footer) => (
-              <tfoot class="sticky bottom-0 z-10 bg-zinc-50 dark:bg-zinc-950">
-                <tr class="border-t border-zinc-100 dark:border-zinc-800">
+              <tfoot class="data-table-header sticky bottom-0 z-10">
+                <tr class="data-table-divider border-t">
                   <For each={props.columns}>
                     {(col, index) => {
                       const value = () => footer().values?.[col.id];
@@ -218,11 +218,9 @@ export default function DataTable<T>(props: DataTableProps<T>) {
                   const isSelected = () => props.selectedRowId && id() === props.selectedRowId;
                   return (
                     <tr
-                      class={`border-b border-zinc-100 dark:border-zinc-800/60 last:border-0 ${
-                        shouldHoverRows()
-                          ? `${isInteractive() ? "cursor-pointer" : ""} hover:bg-blue-500/[0.08] dark:hover:bg-blue-400/[0.12]`
-                          : ""
-                      } ${isSelected() ? "bg-blue-50 dark:bg-blue-900/20" : ""} ${rowClass(row)}`}
+                      class={`data-table-row-divider border-b last:border-0 ${
+                        shouldHoverRows() ? `${isInteractive() ? "cursor-pointer" : ""} data-table-row-hover` : ""
+                      } ${isSelected() ? "data-table-row-selected" : ""} ${rowClass(row)}`}
                       tabIndex={isInteractive() ? 0 : undefined}
                       onClick={() => props.onRowClick?.(row)}
                       onDblClick={() => props.onRowDoubleClick?.(row)}

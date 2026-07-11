@@ -60,7 +60,7 @@ const PanelDialogSurfaceContext = createContext<PanelDialogSurface>("contained")
 const usePanelDialogSurface = () => useContext(PanelDialogSurfaceContext);
 
 const panelDialogBasePanelClass =
-  "fixed left-1/2 top-1/2 m-0 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-none backdrop:bg-black/45 backdrop:backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:backdrop:bg-black/35";
+  "panel-dialog-shell fixed left-1/2 top-1/2 m-0 -translate-x-1/2 -translate-y-1/2 overflow-hidden p-0 text-zinc-900 shadow-none backdrop:bg-black/45 backdrop:backdrop-blur-sm dark:text-zinc-100 dark:backdrop:bg-black/35";
 
 export const panelDialogPanelClass = `${panelDialogBasePanelClass} max-h-[86vh] w-[min(96vw,48rem)]`;
 
@@ -98,7 +98,7 @@ function PanelDialogHeader(props: PanelDialogHeaderProps) {
       class={
         surface === "floating"
           ? "paper flex min-h-16 shrink-0 items-center gap-4 px-5"
-          : "flex min-h-16 shrink-0 items-center gap-4 border-b border-zinc-200 px-5 dark:border-zinc-800"
+          : "panel-dialog-divider flex min-h-16 shrink-0 items-center gap-4 border-b px-5"
       }
     >
       <i class={`${props.icon} shrink-0`} />
@@ -124,7 +124,7 @@ function PanelDialogBody(props: PanelDialogBodyProps) {
       class={
         surface === "floating"
           ? "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-0"
-          : "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4"
+          : "panel-dialog-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4"
       }
     >
       {props.children}
@@ -139,7 +139,7 @@ function PanelDialogFooter(props: PanelDialogFooterProps) {
       class={
         surface === "floating"
           ? "paper flex shrink-0 items-center justify-between gap-2 p-4"
-          : "flex shrink-0 items-center justify-between gap-2 border-t border-zinc-200 p-4 dark:border-zinc-800"
+          : "panel-dialog-divider flex shrink-0 items-center justify-between gap-2 border-t p-4"
       }
     >
       {props.children}
@@ -150,11 +150,9 @@ function PanelDialogFooter(props: PanelDialogFooterProps) {
 function PanelDialogSection(props: PanelDialogSectionProps) {
   const surface = usePanelDialogSurface();
   return (
-    <section
-      class={surface === "floating" ? "paper p-4" : "paper border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/70"}
-    >
+    <section class={surface === "floating" ? "paper p-4" : "panel-dialog-section paper p-4"}>
       <header class="mb-2 flex items-start gap-2">
-        <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
+        <span class="panel-dialog-section-icon mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] text-dimmed">
           <i class={`${props.icon} text-sm`} />
         </span>
         <div class="min-w-0 flex-1">
@@ -189,7 +187,7 @@ function PanelDialogTabs<T extends string>(props: PanelDialogTabsProps<T>) {
               type="button"
               role="tab"
               aria-selected={active()}
-              class={`flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors ${
+              class={`flex h-8 shrink-0 items-center gap-1.5 rounded-[var(--ui-radius-control)] px-2.5 text-xs font-medium transition-colors ${
                 active()
                   ? "bg-blue-50 text-blue-700 dark:bg-blue-950/35 dark:text-blue-200"
                   : "text-dimmed hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-900"

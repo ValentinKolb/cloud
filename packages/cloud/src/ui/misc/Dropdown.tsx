@@ -1,4 +1,4 @@
-import type { JSX } from "solid-js";
+import { createSignal, type JSX, onCleanup, onMount } from "solid-js";
 
 // ==========================
 // Types
@@ -67,7 +67,7 @@ const POSITION_STYLES: Record<string, string> = {
     "position-try: --flip-block-down-left { top: anchor(bottom); bottom: auto; margin-bottom: 0; margin-top: 4px; };",
 };
 
-const ITEM_BASE_CLASSES = "flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-white/10";
+const ITEM_BASE_CLASSES = "menu-item";
 
 // ==========================
 // Component
@@ -77,11 +77,65 @@ const ITEM_BASE_CLASSES = "flex w-full items-center gap-3 px-4 py-2 text-sm tran
 export default function Dropdown(props: DropdownProps) {
   const width = props.width ?? "w-48";
   const anchor = `--dd-${crypto.randomUUID()}`;
-  let triggerRef!: HTMLButtonElement;
+  const menuId = `dropdown-${crypto.randomUUID()}`;
+  const [isOpen, setIsOpen] = createSignal(false);
+  let triggerRef!: HTMLSpanElement;
   let popoverRef!: HTMLDivElement;
-  let isOpen = false;
 
-  const close = (): void => popoverRef?.hidePopover();
+  const triggerFocusTarget = () =>
+    triggerRef.querySelector<HTMLElement>("button, a[href], input, select, textarea, [role='button'], [tabindex]:not([tabindex='-1'])") ??
+    triggerRef;
+
+  const syncTriggerAria = (open: boolean) => {
+    const target = triggerFocusTarget();
+    if (target === triggerRef) {
+      target.setAttribute("role", "button");
+      target.tabIndex = 0;
+    } else if (!target.hasAttribute("tabindex") && target.getAttribute("role") === "button") {
+      target.tabIndex = 0;
+    }
+    target.setAttribute("aria-haspopup", "menu");
+    target.setAttribute("aria-expanded", String(open));
+    target.setAttribute("aria-controls", menuId);
+  };
+
+  onMount(() => {
+    const target = triggerFocusTarget();
+    const handleClick = (event: MouseEvent) => {
+      event.stopPropagation();
+      if (isOpen()) close(false);
+      else open();
+    };
+
+    syncTriggerAria(false);
+    target.addEventListener("click", handleClick);
+    target.addEventListener("keydown", handleTriggerKeyDown);
+
+    onCleanup(() => {
+      target.removeEventListener("click", handleClick);
+      target.removeEventListener("keydown", handleTriggerKeyDown);
+    });
+  });
+
+  const menuItems = () => Array.from(popoverRef?.querySelectorAll<HTMLElement>("[role='menuitem'], button:not([disabled]), a[href]") ?? []);
+
+  const prepareMenuItems = () => {
+    for (const item of menuItems()) {
+      if (!item.hasAttribute("role")) item.setAttribute("role", "menuitem");
+      item.tabIndex = -1;
+    }
+  };
+
+  const focusItem = (index: number) => {
+    const items = menuItems();
+    if (items.length === 0) return;
+    items[Math.max(0, Math.min(index, items.length - 1))]?.focus();
+  };
+
+  const close = (restoreFocus = true): void => {
+    if (popoverRef?.matches(":popover-open")) popoverRef.hidePopover();
+    if (restoreFocus) queueMicrotask(() => triggerFocusTarget().focus());
+  };
 
   const getPositionStyle = (): string => {
     const pos = typeof props.position === "function" ? props.position() : (props.position ?? "bottom-right");
@@ -90,6 +144,57 @@ export default function Dropdown(props: DropdownProps) {
 
   const getVariantClasses = (variant?: "danger"): string =>
     variant === "danger" ? "text-red-600 dark:text-red-400" : "text-zinc-700 dark:text-zinc-300";
+
+  const open = (focus: "first" | "last" = "first") => {
+    const base = `position-anchor: ${anchor}; position: fixed; inset: unset; margin: 0; scrollbar-gutter: auto;`;
+    popoverRef.setAttribute("style", props.className ? base : `${base} ${getPositionStyle()}`);
+    popoverRef.showPopover();
+    queueMicrotask(() => {
+      prepareMenuItems();
+      focusItem(focus === "first" ? 0 : menuItems().length - 1);
+    });
+  };
+
+  const handleTriggerKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " " && event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (isOpen()) {
+      focusItem(event.key === "ArrowUp" ? menuItems().length - 1 : 0);
+      return;
+    }
+    open(event.key === "ArrowUp" ? "last" : "first");
+  };
+
+  const handleMenuKeyDown = (event: KeyboardEvent) => {
+    const items = menuItems();
+    const currentIndex = items.findIndex((item) => item === document.activeElement);
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault();
+        focusItem(currentIndex >= items.length - 1 ? 0 : currentIndex + 1);
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        focusItem(currentIndex <= 0 ? items.length - 1 : currentIndex - 1);
+        break;
+      case "Home":
+        event.preventDefault();
+        focusItem(0);
+        break;
+      case "End":
+        event.preventDefault();
+        focusItem(items.length - 1);
+        break;
+      case "Escape":
+        event.preventDefault();
+        close();
+        break;
+      case "Tab":
+        close(false);
+        break;
+    }
+  };
 
   const renderItem = (item: DropdownAction | DropdownElement): JSX.Element => {
     if ("element" in item) {
@@ -111,8 +216,10 @@ export default function Dropdown(props: DropdownProps) {
           href={item.href}
           target={item.external ? "_blank" : undefined}
           rel={item.external ? "noopener noreferrer" : undefined}
+          role="menuitem"
+          tabIndex={-1}
           class={classes}
-          onClick={close}
+          onClick={() => close()}
         >
           {content}
         </a>
@@ -123,6 +230,8 @@ export default function Dropdown(props: DropdownProps) {
     return (
       <button
         type="button"
+        role="menuitem"
+        tabIndex={-1}
         class={classes}
         onClick={(e) => {
           e.stopPropagation();
@@ -138,50 +247,36 @@ export default function Dropdown(props: DropdownProps) {
 
   return (
     <>
-      <button
-        type="button"
-        class="inline-flex"
-        ref={triggerRef}
-        style={`anchor-name: ${anchor}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (isOpen) {
-            popoverRef.hidePopover();
-          } else {
-            const base = `position-anchor: ${anchor}; position: fixed; inset: unset; margin: 0; scrollbar-gutter: auto;`;
-            popoverRef.setAttribute("style", props.className ? base : `${base} ${getPositionStyle()}`);
-            popoverRef.showPopover();
-          }
-        }}
-      >
+      <span class="inline-flex" ref={triggerRef} style={`anchor-name: ${anchor}`}>
         {props.trigger}
-      </button>
+      </span>
 
       <div
         ref={(el) => {
           popoverRef = el;
           el.addEventListener("toggle", (e) => {
             const newState = (e as ToggleEvent).newState;
-            const wasOpen = isOpen;
-            isOpen = newState === "open";
+            const wasOpen = isOpen();
+            setIsOpen(newState === "open");
+            syncTriggerAria(newState === "open");
             // Call onClose when transitioning from open to closed
-            if (wasOpen && !isOpen && props.onClose) {
+            if (wasOpen && newState === "closed" && props.onClose) {
               props.onClose();
             }
           });
         }}
         popover="auto"
+        id={menuId}
         role="menu"
         aria-label="Dropdown menu"
-        class={`${width} overflow-y-auto max-h-[min(24rem,80dvh)] paper [box-shadow:var(--theme-shadow-float)]! p-0 border! border-zinc-300/60! dark:border-zinc-600/50! ${props.className ?? ""}`}
+        onKeyDown={handleMenuKeyDown}
+        class={`${width} dropdown-menu-surface max-h-[min(24rem,80dvh)] overflow-y-auto p-0 ${props.className ?? ""}`}
       >
         {props.elements.map((item, i) =>
           "items" in item ? (
             <>
-              {i > 0 && <hr class="border-white/20 dark:border-zinc-700/25" />}
-              {item.sectionLabel && (
-                <div class="px-4 pt-3 pb-1 text-xs uppercase tracking-wider font-medium text-zinc-500">{item.sectionLabel}</div>
-              )}
+              {i > 0 && <hr class="menu-divider" />}
+              {item.sectionLabel && <div class="menu-label">{item.sectionLabel}</div>}
               {item.items.map(renderItem)}
             </>
           ) : (

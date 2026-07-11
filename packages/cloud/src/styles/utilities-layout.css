@@ -36,6 +36,25 @@
   box-shadow: var(--ui-shadow-float);
 }
 
+@utility panel-dialog-shell {
+  border: 1px solid var(--ui-dialog-border);
+  border-radius: var(--ui-dialog-radius);
+  background: var(--ui-dialog-surface);
+}
+
+@utility panel-dialog-divider {
+  border-color: var(--ui-dialog-divider);
+}
+
+@utility panel-dialog-section {
+  border-color: var(--ui-dialog-section-border);
+  background: var(--ui-dialog-section);
+}
+
+@utility panel-dialog-section-icon {
+  background: var(--ui-dialog-section-icon);
+}
+
 @utility paper-highlighted {
   @apply paper;
   background: var(--ui-paper-highlighted);

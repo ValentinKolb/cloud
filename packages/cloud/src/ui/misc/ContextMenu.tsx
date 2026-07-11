@@ -1,5 +1,5 @@
-import type { ParentProps, JSX } from "solid-js";
-import { Show, children as resolveChildren, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import type { JSX, ParentProps } from "solid-js";
+import { createMemo, createSignal, onCleanup, onMount, children as resolveChildren, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { DropdownItem } from "./Dropdown";
 
@@ -19,7 +19,7 @@ export type ContextMenuProps = ParentProps<{
   id?: string;
 }>;
 
-const ITEM_BASE_CLASSES = "flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-white/10";
+const ITEM_BASE_CLASSES = "menu-item";
 
 const getVariantClasses = (variant?: "danger") =>
   variant === "danger" ? "text-red-600 dark:text-red-400" : "text-zinc-700 dark:text-zinc-300";
@@ -172,7 +172,7 @@ export default function ContextMenu(props: ContextMenuProps) {
             ref={menuRef}
             role="menu"
             aria-label="Context menu"
-            class="fixed z-50 w-52 max-w-[min(22rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-zinc-300/60 bg-white/95 p-0 text-zinc-900 [box-shadow:var(--theme-shadow-float)] ring-1 ring-black/5 backdrop-blur-sm dark:border-zinc-600/50 dark:bg-zinc-950/95 dark:text-zinc-100"
+            class="context-menu-surface fixed z-50 w-52 max-w-[min(22rem,calc(100vw-1rem))] overflow-y-auto p-0 text-zinc-900 backdrop-blur-sm dark:text-zinc-100"
             style={{
               left: `${Math.min(coords().x, window.innerWidth - 220)}px`,
               top: `${Math.min(coords().y, window.innerHeight - 320)}px`,
@@ -181,9 +181,9 @@ export default function ContextMenu(props: ContextMenuProps) {
             {props.elements.map((item, index) =>
               isSection(item) ? (
                 <>
-                  {index > 0 && <hr class="border-white/20 dark:border-zinc-700/25" />}
+                  {index > 0 && <hr class="menu-divider" />}
                   <Show when={item.sectionLabel}>
-                    <div class="px-4 pt-3 pb-1 text-xs font-medium uppercase tracking-wider text-zinc-500">{item.sectionLabel}</div>
+                    <div class="menu-label">{item.sectionLabel}</div>
                   </Show>
                   {item.items.map((sectionItem) =>
                     isElement(sectionItem)
