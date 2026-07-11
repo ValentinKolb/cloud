@@ -8,6 +8,7 @@ import type { LayoutBreadcrumb } from "../ui/layout";
 import Avatar from "../ui/misc/Avatar";
 import AppLaunchpad, { type AppLaunchpadApp } from "./AppLaunchpad.island";
 import { appAccentStyle, appAppearanceStyle, resolveCurrentApp } from "./app-appearance";
+import { visibleNavigationApps } from "./app-navigation";
 import Footer from "./Footer.island";
 import GlobalAnnouncements from "./GlobalAnnouncements.island";
 import type { GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
@@ -51,34 +52,18 @@ function active(pathname: string, match: string): string {
 const jsonScript = (value: unknown): string => JSON.stringify(value).replace(/</g, "\\u003c");
 
 function buildNavLinks(apps: RuntimeContext["apps"], user: User | undefined): { primary: AppLink[]; more: AppLink[] } {
-  const links = apps
-    .filter((app) => !!app.nav && app.nav.section !== "hidden")
-    .filter((app) => {
-      if (app.nav?.requiresAuth && !user) return false;
-      if (
-        app.nav?.requiresRoles &&
-        (!user ||
-          !app.nav.requiresRoles.some((role) => {
-            if (role === "guest") return user.profile === "guest";
-            return hasRole(user, role);
-          }))
-      ) {
-        return false;
-      }
-      return true;
-    })
-    .map((app) => ({
-      section: app.nav!.section,
-      link: {
-        iconClass: app.icon,
-        id: app.id,
-        label: app.name,
-        href: app.nav!.href,
-        match: resolveNavMatch(app) ?? app.nav!.href.split("?")[0] ?? app.nav!.href,
-        description: app.description,
-        accent: app.appearance?.accent,
-      } satisfies AppLink,
-    }));
+  const links = visibleNavigationApps(apps, user).map((app) => ({
+    section: app.nav.section,
+    link: {
+      iconClass: app.icon,
+      id: app.id,
+      label: app.name,
+      href: app.nav.href,
+      match: resolveNavMatch(app) ?? app.nav.href.split("?")[0] ?? app.nav.href,
+      description: app.description,
+      accent: app.appearance?.accent,
+    } satisfies AppLink,
+  }));
   const primary = links.filter((entry) => entry.section === "primary").map((entry) => entry.link);
   const more = links.filter((entry) => entry.section === "more").map((entry) => entry.link);
   if (user && hasRole(user, "admin")) {
@@ -213,7 +198,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
     : `grid-cols-1 ${!fullPage ? "grid-rows-[auto_1fr_auto]" : "grid-rows-[auto_1fr]"}`;
   return (
     <div
-      class={`cloud-app-canvas grid min-h-screen w-screen relative md:h-screen md:overflow-hidden ${gridClass}`}
+      class={`cloud-app-canvas relative grid w-screen ${fullPage ? "h-dvh overflow-hidden" : "min-h-screen"} md:h-screen md:overflow-hidden ${gridClass}`}
       style={appAppearanceStyle(currentApp?.appearance)}
     >
       <TimezoneCookie />
@@ -327,7 +312,9 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
           />
         )}{" "}
         {user && <ProfileWarnings user={user} />} {user && <ExpiryWarnings user={user} />}{" "}
-        <main class={`flex-1 min-h-0 ${contentPadding} ${fullPage || fullWidth ? "md:overflow-hidden flex flex-col" : "md:overflow-auto"}`}>
+        <main
+          class={`min-h-0 flex-1 ${contentPadding} ${fullPage ? "flex flex-col overflow-hidden" : fullWidth ? "flex flex-col md:overflow-hidden" : "md:overflow-auto"}`}
+        >
           {" "}
           {children}{" "}
         </main>{" "}
