@@ -4,6 +4,38 @@ import { type GridsRecordEvent, publishRecordEvent, reclaimRecordEventDeliveries
 const redisTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
 
 describe("record event topic recovery", () => {
+  redisTest("distributes one event to only one replica reader in the consumer group", async () => {
+    const baseId = Bun.randomUUIDv7();
+    const group = `replicas-${Bun.randomUUIDv7()}`;
+    const event: GridsRecordEvent = {
+      v: 1,
+      type: "record.updated",
+      baseId,
+      tableId: Bun.randomUUIDv7(),
+      recordId: Bun.randomUUIDv7(),
+      version: 1,
+      changedFieldIds: [],
+      actorId: null,
+      occurredAt: new Date().toISOString(),
+    };
+    const streamKey = `cloud:grids:events:${baseId}:records:stream`;
+    const idempotencyKey = `cloud:grids:events:${baseId}:records:idempotency:${event.type}:${event.recordId}:${event.version}:${event.occurredAt}`;
+    try {
+      await publishRecordEvent(event);
+      const [first, second] = await Promise.all([
+        recordEventReader(group).recv({ tenantId: baseId, wait: false }),
+        recordEventReader(group).recv({ tenantId: baseId, wait: false }),
+      ]);
+      const deliveries = [first, second].filter((delivery) => delivery !== null);
+
+      expect(deliveries).toHaveLength(1);
+      expect(deliveries[0]?.data).toEqual(event);
+      expect(await deliveries[0]?.commit()).toBe(true);
+    } finally {
+      await Bun.redis.send("DEL", [streamKey, idempotencyKey]);
+    }
+  });
+
   redisTest("reclaims an abandoned consumer-group delivery", async () => {
     const baseId = Bun.randomUUIDv7();
     const group = `reclaim-${Bun.randomUUIDv7()}`;

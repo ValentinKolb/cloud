@@ -651,12 +651,16 @@ export const listScheduledEnabled = async (): Promise<Workflow[]> => {
 
 // Consumed through the injected workflow store namespace in workflow-trigger-runtime.
 // fallow-ignore-next-line unused-export
-export const listRuntimeBaseIds = async (): Promise<string[]> => {
+export const listRecordEventBaseIds = async (): Promise<string[]> => {
   const rows = await sql<Array<{ id: string }>>`
-    SELECT id::text AS id
-    FROM grids.bases
-    WHERE deleted_at IS NULL
-    ORDER BY created_at, id
+    SELECT DISTINCT w.base_id::text AS id
+    FROM grids.workflows w
+    JOIN grids.bases b ON b.id = w.base_id AND b.deleted_at IS NULL
+    WHERE w.deleted_at IS NULL
+      AND w.enabled = TRUE
+      AND w.compiled->'triggers' ? 'recordEvent'
+      AND w.record_event_active_since IS NOT NULL
+    ORDER BY id
   `;
   return rows.map((row) => row.id);
 };
@@ -688,7 +692,22 @@ const recordEventTableId = (workflow: Workflow, catalog: WorkflowCatalog): strin
 export const listRecordEventEnabled = async (event: GridsRecordEvent): Promise<Workflow[]> => {
   const eventName = workflowRecordEventName(event);
   if (!eventName) return [];
-  const workflows = await listEnabledForBase(event.baseId);
+  const occurredAt = Date.parse(event.occurredAt);
+  if (!Number.isFinite(occurredAt)) return [];
+  const rows = await sql<DbRow[]>`
+    SELECT w.id, w.short_id, w.base_id, w.name, w.description, w.source, w.compiled, w.enabled, w.position,
+           w.owner_user_id, w.deleted_at, w.created_at, w.updated_at, w.record_event_active_since
+    FROM grids.workflows w
+    JOIN grids.bases b ON b.id = w.base_id AND b.deleted_at IS NULL
+    WHERE w.base_id = ${event.baseId}::uuid
+      AND w.deleted_at IS NULL
+      AND w.enabled = TRUE
+      AND w.compiled->'triggers' ? 'recordEvent'
+      AND w.record_event_active_since IS NOT NULL
+      AND w.record_event_active_since <= ${event.occurredAt}::timestamptz
+    ORDER BY w.position, w.created_at, w.id
+  `;
+  const workflows = rows.map(mapWorkflowRow);
   const catalog = await loadWorkflowCatalog(event.baseId);
   return workflows.filter((workflow) => {
     const trigger = workflow.compiled.triggers.recordEvent;
@@ -724,11 +743,14 @@ export const recordMatchesWorkflowFilter = async (workflow: Workflow, event: Gri
 export const create = async (baseId: string, input: CreateWorkflowInput, actorId: string | null): Promise<Result<Workflow>> => {
   const compiled = await compileSource(baseId, input.source);
   if (!compiled.ok) return compiled;
+  const recordEventActive = Boolean(input.enabled && compiled.data.triggers.recordEvent);
 
   const workflow = await sql.begin(async (tx): Promise<Workflow> => {
     const row = await insertWithShortId(async (shortId) => {
       const [inserted] = await tx<DbRow[]>`
-          INSERT INTO grids.workflows (short_id, base_id, name, description, source, compiled, enabled, position, owner_user_id)
+          INSERT INTO grids.workflows (
+            short_id, base_id, name, description, source, compiled, enabled, position, owner_user_id, record_event_active_since
+          )
           VALUES (
             ${shortId},
             ${baseId}::uuid,
@@ -738,7 +760,8 @@ export const create = async (baseId: string, input: CreateWorkflowInput, actorId
             ${compiled.data}::jsonb,
             ${input.enabled ?? false},
             ${input.position ?? 0},
-            ${actorId}::uuid
+            ${actorId}::uuid,
+            ${recordEventActive ? sql`now()` : null}
           )
           RETURNING id, short_id, base_id, name, description, source, compiled, enabled, position, owner_user_id, deleted_at, created_at, updated_at
         `;
@@ -767,6 +790,12 @@ export const update = async (id: string, input: UpdateWorkflowInput, actorId: st
   const nextSource = input.source ?? existing.source;
   const compiled = input.source === undefined ? ok(existing.compiled) : await compileSource(existing.baseId, nextSource);
   if (!compiled.ok) return compiled;
+  const nextEnabled = input.enabled ?? existing.enabled;
+  const existingRecordEvent = existing.compiled.triggers.recordEvent ?? null;
+  const nextRecordEvent = compiled.data.triggers.recordEvent ?? null;
+  const recordEventChanged = JSON.stringify(existingRecordEvent) !== JSON.stringify(nextRecordEvent);
+  const activateRecordEvent = Boolean(nextEnabled && nextRecordEvent && (!existing.enabled || !existingRecordEvent || recordEventChanged));
+  const deactivateRecordEvent = !nextEnabled || !nextRecordEvent;
 
   const workflow = await sql.begin(async (tx): Promise<Workflow> => {
     const [row] = await tx<DbRow[]>`
@@ -775,8 +804,13 @@ export const update = async (id: string, input: UpdateWorkflowInput, actorId: st
           description = ${input.description === undefined ? existing.description : input.description},
           source = ${nextSource},
           compiled = ${compiled.data}::jsonb,
-          enabled = ${input.enabled ?? existing.enabled},
+          enabled = ${nextEnabled},
           position = ${input.position ?? existing.position},
+          record_event_active_since = CASE
+            WHEN ${deactivateRecordEvent} THEN NULL
+            WHEN ${activateRecordEvent} THEN now()
+            ELSE record_event_active_since
+          END,
           updated_at = now()
       WHERE id = ${id}::uuid AND deleted_at IS NULL
       RETURNING id, short_id, base_id, name, description, source, compiled, enabled, position, owner_user_id, deleted_at, created_at, updated_at

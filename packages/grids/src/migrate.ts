@@ -853,6 +853,22 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_grids_workflows_enabled_live
     ON grids.workflows(base_id, enabled) WHERE deleted_at IS NULL
   `.simple();
+  await sql`ALTER TABLE grids.workflows ADD COLUMN IF NOT EXISTS record_event_active_since TIMESTAMPTZ`.simple();
+  await sql`
+    UPDATE grids.workflows
+    SET record_event_active_since = now()
+    WHERE record_event_active_since IS NULL
+      AND deleted_at IS NULL
+      AND enabled = TRUE
+      AND compiled->'triggers' ? 'recordEvent'
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_workflows_record_event_active
+    ON grids.workflows(base_id, record_event_active_since)
+    WHERE deleted_at IS NULL
+      AND enabled = TRUE
+      AND compiled->'triggers' ? 'recordEvent'
+  `.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_workflows_short_id
     ON grids.workflows(base_id, short_id) WHERE deleted_at IS NULL

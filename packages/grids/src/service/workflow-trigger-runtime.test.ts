@@ -102,6 +102,9 @@ let staleQueuedRuns: RecoverableQueuedWorkflowRun[] = [];
 let failQueuedAttemptAllowed = true;
 let currentRunResult: WorkflowRun | null = workflowRun;
 let finishedRuns: Array<{ runId: string; status: "succeeded" | "failed" | "canceled"; error?: string | null }> = [];
+let recordEventBaseIds: string[] = [];
+let recordEventReadersStarted = 0;
+let recordEventReadersAborted = 0;
 let workflowTriggerRuntime: ReturnType<typeof createWorkflowTriggerRuntime>;
 
 const createTestRuntime = () =>
@@ -188,7 +191,7 @@ const createTestRuntime = () =>
         return { ...workflowRun, id, status: "failed", error, finishedAt: "2026-07-08T00:00:01.000Z" };
       },
       getWorkflowRun: async () => currentRunResult,
-      listRuntimeBaseIds: async () => [],
+      listRecordEventBaseIds: async () => recordEventBaseIds,
       listScheduledEnabled: async () => listScheduledResult,
       listRecordEventEnabled: async () => [],
       recordMatchesWorkflowFilter: async () => ({ ok: true, data: false }),
@@ -234,9 +237,34 @@ const createTestRuntime = () =>
     }),
     settingsGet: async <T>() => "Europe/Berlin" as T,
     normalizeTimeZone: (value: string | null | undefined, fallback = "Europe/Berlin") => value || fallback,
-    recordEventReader: () => ({ recv: async () => null }) as never,
+    recordEventReader: () => {
+      recordEventReadersStarted += 1;
+      return {
+        recv: ({ signal }: { signal: AbortSignal }) =>
+          new Promise<null>((resolve) => {
+            if (signal.aborted) {
+              recordEventReadersAborted += 1;
+              resolve(null);
+              return;
+            }
+            signal.addEventListener(
+              "abort",
+              () => {
+                recordEventReadersAborted += 1;
+                resolve(null);
+              },
+              { once: true },
+            );
+          }),
+      } as never;
+    },
     latestMetadataEventCursor: async () => null,
-    liveMetadataEvents: async function* () {},
+    liveMetadataEvents: async function* ({ signal }) {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) resolve();
+        else signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+    },
   });
 
 beforeEach(async () => {
@@ -257,6 +285,9 @@ beforeEach(async () => {
   failQueuedAttemptAllowed = true;
   currentRunResult = workflowRun;
   finishedRuns = [];
+  recordEventBaseIds = [];
+  recordEventReadersStarted = 0;
+  recordEventReadersAborted = 0;
   workflowTriggerRuntime = createTestRuntime();
 });
 
@@ -312,6 +343,34 @@ describe("workflow trigger runtime", () => {
 
     expect(schedulerState.created[0]?.id).toBe(`grids:workflow:${workflowId}`);
     expect(schedulerState.deleted).toEqual([`workflow:${workflowId}`]);
+  });
+
+  test("does not start record event readers for bases without enabled recordEvent workflows", async () => {
+    await workflowTriggerRuntime.start();
+
+    expect(recordEventReadersStarted).toBe(0);
+  });
+
+  test("discovers the first enabled recordEvent workflow without restarting", async () => {
+    await workflowTriggerRuntime.start();
+    recordEventBaseIds = [baseId];
+
+    await workflowTriggerRuntime.sync(scheduledWorkflow);
+    await Bun.sleep(300);
+
+    expect(recordEventReadersStarted).toBe(1);
+  });
+
+  test("stops readers after the last enabled recordEvent workflow is disabled", async () => {
+    recordEventBaseIds = [baseId];
+    await workflowTriggerRuntime.start();
+    expect(recordEventReadersStarted).toBe(1);
+
+    recordEventBaseIds = [];
+    await workflowTriggerRuntime.sync(scheduledWorkflow);
+    await Bun.sleep(300);
+
+    expect(recordEventReadersAborted).toBe(1);
   });
 
   test("runScheduledNow uses scheduler.runNow for the app-scoped id", async () => {

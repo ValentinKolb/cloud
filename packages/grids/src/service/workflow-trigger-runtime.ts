@@ -154,7 +154,7 @@ type WorkflowTriggerRuntimeDeps = {
     | "failQueuedRunAttempt"
     | "get"
     | "getWorkflowRun"
-    | "listRuntimeBaseIds"
+    | "listRecordEventBaseIds"
     | "listRecordEventEnabled"
     | "listScheduledEnabled"
     | "recordMatchesWorkflowFilter"
@@ -492,7 +492,7 @@ export const createWorkflowTriggerRuntime = (deps: WorkflowTriggerRuntimeDeps = 
   };
 
   const reconcileBaseReaders = async (): Promise<void> => {
-    const active = new Set(await workflows.listRuntimeBaseIds());
+    const active = new Set(await workflows.listRecordEventBaseIds());
     for (const baseId of baseReaders.keys()) {
       if (!active.has(baseId)) stopBaseReaders(baseId);
     }

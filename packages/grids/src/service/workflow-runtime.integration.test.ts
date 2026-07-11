@@ -10,6 +10,9 @@ import {
   failQueuedRunAttempt,
   finishStepRun,
   getOrCreateRecordScanCode,
+  listRecordEventBaseIds,
+  listRecordEventEnabled,
+  update as updateWorkflow,
 } from "./workflows";
 
 const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
@@ -118,8 +121,13 @@ const insertWorkflow = async (
 ): Promise<string> => {
   const workflowId = uuid();
   await sql`
-    INSERT INTO grids.workflows (id, short_id, base_id, name, source, compiled, enabled, position, owner_user_id)
-    VALUES (${workflowId}::uuid, ${shortId("W")}, ${baseId}::uuid, ${name}, ${name}, ${definition}::jsonb, TRUE, 0, ${ownerUserId}::uuid)
+    INSERT INTO grids.workflows (
+      id, short_id, base_id, name, source, compiled, enabled, position, owner_user_id, record_event_active_since
+    )
+    VALUES (
+      ${workflowId}::uuid, ${shortId("W")}, ${baseId}::uuid, ${name}, ${name}, ${definition}::jsonb, TRUE, 0,
+      ${ownerUserId}::uuid, CASE WHEN ${Boolean(definition.triggers.recordEvent)} THEN now() ELSE NULL END
+    )
   `;
   return workflowId;
 };
@@ -196,6 +204,38 @@ beforeAll(async () => {
 });
 
 describe("workflow runtime integration", () => {
+  postgresTest("discovers only bases with enabled recordEvent workflows", async () => {
+    const fixture = await insertFixture();
+    try {
+      expect(await listRecordEventBaseIds()).not.toContain(fixture.baseId);
+
+      const recordEventWorkflowId = await insertWorkflow(fixture.baseId, "On update", recordEventWorkflowDefinition());
+      expect(await listRecordEventBaseIds()).toContain(fixture.baseId);
+      const oldEvent = {
+        v: 1 as const,
+        type: "record.updated" as const,
+        baseId: fixture.baseId,
+        tableId: fixture.tableId,
+        recordId: fixture.recordAId,
+        version: 1,
+        changedFieldIds: [],
+        actorId: null,
+        occurredAt: "2020-01-01T00:00:00.000Z",
+      };
+      expect(await listRecordEventEnabled(oldEvent)).toHaveLength(0);
+      expect(await listRecordEventEnabled({ ...oldEvent, occurredAt: new Date(Date.now() + 1000).toISOString() })).toHaveLength(1);
+
+      expect((await updateWorkflow(recordEventWorkflowId, { enabled: false }, null)).ok).toBe(true);
+      expect(await listRecordEventBaseIds()).not.toContain(fixture.baseId);
+      const disabledEventAt = new Date().toISOString();
+      expect((await updateWorkflow(recordEventWorkflowId, { enabled: true }, null)).ok).toBe(true);
+      expect(await listRecordEventEnabled({ ...oldEvent, occurredAt: disabledEventAt })).toHaveLength(0);
+      expect(await listRecordEventEnabled({ ...oldEvent, occurredAt: new Date(Date.now() + 1000).toISOString() })).toHaveLength(1);
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
   postgresTest("leases an orphaned queued run to only one reconciler", async () => {
     const fixture = await insertFixture();
     try {
