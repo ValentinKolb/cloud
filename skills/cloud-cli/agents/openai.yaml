@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cloud CLI"
+  short_description: "Use Cloud apps from the terminal"
+  default_prompt: "Use the Cloud CLI to inspect or update Cloud app data."

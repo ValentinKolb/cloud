@@ -9,7 +9,7 @@ type Violation = {
 const workspaceRoot = join(import.meta.dir, "..");
 const skillsRoot = join(workspaceRoot, "skills");
 
-const expectedSkills = ["cloud", "cloud-app", "cloud-desktop-app", "cloud-ops"] as const;
+const expectedSkills = ["cloud", "cloud-app", "cloud-cli", "cloud-desktop-app", "cloud-ops"] as const;
 
 const isDirectory = (path: string): boolean => existsSync(path) && statSync(path).isDirectory();
 
