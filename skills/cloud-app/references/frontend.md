@@ -326,6 +326,36 @@ The legacy `notifications.send({ type: "email", ... })` and
 but are deprecated and emit a warning on every call. New code must use typed app
 definitions.
 
+Notification channels are deployment infrastructure, not app features. A
+deployment package can add a channel by augmenting the channel registry and
+registering one `NotificationChannelDriver` during startup:
+
+```typescript
+import { registerNotificationChannel, type NotificationChannelDriver } from "@valentinkolb/cloud/services";
+import { loadMobileDevices, sendMobilePush } from "./mobile-provider";
+
+declare module "@valentinkolb/cloud/contracts/notifications" {
+  interface NotificationChannelRegistry {
+    mobile: true;
+  }
+}
+
+const mobileDriver: NotificationChannelDriver = {
+  id: "mobile",
+  resolveDestinations: async (recipient) => loadMobileDevices(recipient.userId),
+  createPayload: ({ presentation, destination, event }) => ({ presentation, destination: destination.context, event }),
+  deliver: sendMobilePush,
+};
+
+const unregister = registerNotificationChannel(mobileDriver);
+```
+
+The driver resolves a recipient's devices, creates the provider payload, and
+delivers it. The platform encrypts persisted payloads and keeps retry and
+delivery history generic. Register the driver once per process and call the
+returned cleanup function during shutdown. Apps can then use `"mobile"` in
+`recommended` or `required` without importing the provider integration.
+
 ### Global Search
 
 The platform provides a spotlight-style search dialog (triggered via `Cmd+K` / `Ctrl+K`). Each app registers search capabilities in `app.start()`:

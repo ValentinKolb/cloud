@@ -3,6 +3,12 @@ import { z } from "zod";
 import { defineApp } from "../_internal/define-app";
 import { type AnyBoundNotificationDefinition, type NotificationSendInput, notification } from "./notification-types";
 
+declare module "@valentinkolb/cloud/contracts/notifications" {
+  interface NotificationChannelRegistry {
+    mobileTest: true;
+  }
+}
+
 const NOTIFICATIONS = {
   turnCompleted: notification({
     recipient: "user",
@@ -22,6 +28,14 @@ const NOTIFICATIONS = {
     delivery: { required: ["email"] },
     data: z.object({ token: z.string() }),
     render: () => ({ title: "Sign in" }),
+  }),
+  mobileReady: notification({
+    recipient: "user",
+    label: "Mobile test",
+    description: "Compile-time coverage for deployment-defined channels.",
+    delivery: { recommended: ["mobileTest"] },
+    data: z.object({}),
+    render: () => ({ title: "Mobile test" }),
   }),
 };
 
