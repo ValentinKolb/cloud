@@ -34,9 +34,9 @@ export default function LinkCard(props: LinkCardProps) {
   return (
     <a
       href={props.href}
-      class={`paper group p-4 flex items-center gap-4 transition-all hover:paper-highlighted ${hoverClasses[props.color]}`}
+      class={`link-card paper group p-4 flex items-center gap-4 transition-all hover:paper-highlighted ${hoverClasses[props.color]}`}
     >
-      <div class={`flex items-center justify-center h-10 w-10 shrink-0 rounded ${colorClasses[props.color]}`}>
+      <div class={`link-card-icon flex items-center justify-center h-10 w-10 shrink-0 rounded ${colorClasses[props.color]}`}>
         <i class={`${props.icon} text-xl`} />
       </div>
       <div class="flex-1 min-w-0">

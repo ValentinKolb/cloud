@@ -1,6 +1,6 @@
-import { createSignal, createEffect, Show } from "solid-js";
-import Dropdown from "../misc/Dropdown";
+import { createEffect, createSignal, Show } from "solid-js";
 import type { DropdownItem } from "../misc/Dropdown";
+import Dropdown from "../misc/Dropdown";
 
 // =============================================================================
 // Types
@@ -178,7 +178,8 @@ export default function FilterChip(props: FilterChipProps) {
 
   const trigger = (
     <div
-      class={`btn-input btn-input-sm ${props.iconOnly ? "h-8 w-8 justify-center px-0" : ""} ${isActive() ? "btn-input-active" : ""}`}
+      data-state={isActive() ? "active" : "idle"}
+      class={`filter-chip-trigger btn-input btn-input-sm ${props.iconOnly ? "h-8 w-8 justify-center px-0" : ""} ${isActive() ? "btn-input-active" : ""}`}
       role="button"
       aria-label={props.label}
       title={props.iconOnly ? props.label : undefined}
