@@ -1,5 +1,6 @@
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import type { SqlClient } from "./audit";
 
 /**
  * Live-parent invariant helpers. The grids service contract is:
@@ -18,16 +19,25 @@ import { sql } from "bun";
  * trashed (the API layer translates conflict to 409).
  */
 
-/** Verify the table is alive AND its base is alive. */
-export const requireTableAlive = async (tableId: string): Promise<Result<void>> => {
-  const [row] = await sql<{ exists: boolean }[]>`
-    SELECT EXISTS(
-      SELECT 1 FROM grids.tables t
-      JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-      WHERE t.id = ${tableId}::uuid AND t.deleted_at IS NULL
-    ) AS exists
+/**
+ * Verify the table and base are alive. Inside a transaction, the row locks
+ * keep both parents alive until the caller's write commits.
+ */
+export const requireTableAlive = async (tableId: string, client: SqlClient = sql): Promise<Result<void>> => {
+  const [row] = await client<{ id: string }[]>`
+    SELECT t.id::text AS id
+    FROM grids.tables t
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE t.id = ${tableId}::uuid AND t.deleted_at IS NULL
+    FOR SHARE OF t, b
   `;
-  return row?.exists ? ok() : fail(err.conflict("parent table or base is trashed; restore the parent first"));
+  return row
+    ? ok()
+    : fail({
+        code: "CONFLICT",
+        message: "Parent table or base is trashed; restore the parent first",
+        status: 409,
+      });
 };
 
 /**

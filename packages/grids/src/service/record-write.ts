@@ -151,7 +151,7 @@ export const createInTransaction = async (
     dateConfig?: DateContext;
   } = {},
 ): Promise<Result<CreateRecordInTransactionResult>> => {
-  const parentAlive = await requireTableAlive(tableId);
+  const parentAlive = await requireTableAlive(tableId, client);
   if (!parentAlive.ok) return parentAlive;
 
   if (!opts.bypassDirectInsertCheck) {
@@ -436,12 +436,6 @@ export const softDelete = async (tableId: string, recordId: string, actorId: str
 };
 
 export const restore = async (tableId: string, recordId: string, actorId: string | null): Promise<Result<void>> => {
-  // Top-down restore: the parent table + base must be alive. Refusing
-  // the restore here is more honest than UPDATEing a record that the
-  // user can't read afterward (live-parent invariant).
-  const parentAlive = await requireTableAlive(tableId);
-  if (!parentAlive.ok) return parentAlive;
-
   const eventPayload = {
     v: 1,
     type: "record.restored",
@@ -450,18 +444,20 @@ export const restore = async (tableId: string, recordId: string, actorId: string
     actorId,
     occurredAt: new Date().toISOString(),
   };
-  const outboxId = await sql.begin(async (tx) => {
+  const restored = await sql.begin(async (tx): Promise<Result<string>> => {
+    const parentAlive = await requireTableAlive(tableId, tx);
+    if (!parentAlive.ok) return parentAlive;
     const [row] = await tx<Array<{ outbox_id: string }>>`
       UPDATE grids.records
       SET deleted_at = NULL, updated_by = ${actorId}::uuid, updated_at = now()
       WHERE id = ${recordId}::uuid AND table_id = ${tableId}::uuid AND deleted_at IS NOT NULL
       RETURNING grids.enqueue_record_event(${tableId}::uuid, ${recordId}::uuid, ${eventPayload}::jsonb)::text AS outbox_id
     `;
-    if (!row) return null;
+    if (!row) return fail(err.notFound("Record"));
     await logAudit({ tableId, recordId, userId: actorId, action: "restored" }, tx);
-    return row.outbox_id;
+    return ok(row.outbox_id);
   });
-  if (!outboxId) return fail(err.notFound("Record"));
-  notifyRecordEventOutbox(outboxId);
+  if (!restored.ok) return restored;
+  notifyRecordEventOutbox(restored.data);
   return ok();
 };
