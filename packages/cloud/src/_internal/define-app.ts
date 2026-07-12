@@ -11,6 +11,7 @@ import { createSSRHandler, routes } from "@valentinkolb/ssr/hono";
 import { Hono } from "hono";
 import { generateSpecs } from "hono-openapi";
 import type { AppAppearance, AppCapabilities, AppLifecycle, AppMeta, AppSearchContext, CloudContext } from "../contracts/app";
+import { type BoundNotificationMap, bindNotificationDefinitions, type NotificationDefinitionMap } from "../contracts/notification-types";
 import type { AppRegistryEntry } from "../contracts/registry";
 import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
 import type { Role } from "../contracts/shared";
@@ -45,8 +46,8 @@ type PageOptions = {
  * Apps that omit `settings` get S = {} (no own settings — only core's are
  * available in their snapshot, populated by core's own defineApp.settings).
  */
-export type AppOptions<S extends AppSettingsMap = {}> = {
-  id: string;
+export type AppOptions<S extends AppSettingsMap = {}, N extends NotificationDefinitionMap = {}, AppId extends string = string> = {
+  id: AppId;
   name: string;
   icon: string;
   description: string;
@@ -75,6 +76,8 @@ export type AppOptions<S extends AppSettingsMap = {}> = {
    * this map automatically on `defineApp()` call.
    */
   settings?: S;
+  /** Notification kinds owned by this app, conventionally imported from `src/notifications.ts`. */
+  notifications?: N;
   /**
    * Legal/info links contributed by this app — aggregated app-wide via
    * `listLegalLinks()` and rendered in login footer, app Footer, rail more
@@ -173,7 +176,7 @@ export type StartResult = {
   fetch: Hono["fetch"];
 };
 
-export type AppDefinition<S extends AppSettingsMap = {}> = {
+export type AppDefinition<S extends AppSettingsMap = {}, N extends NotificationDefinitionMap = {}, AppId extends string = string> = {
   // Bind the generic explicitly — without it, ssr collapses to the constraint
   // `object` and apps lose the typed `c.get("page")` (title/description/theme).
   ssr: ReturnType<typeof createSSRHandler<PageOptions>>;
@@ -197,12 +200,21 @@ export type AppDefinition<S extends AppSettingsMap = {}> = {
    * frozen for the duration of the request).
    */
   readonly settings: SettingsAPI<{ [K in keyof S]: KindToType<S[K]["kind"]> }>;
+  /** Typed notification descriptors declared by this app. */
+  readonly notifications: BoundNotificationMap<AppId, N>;
 };
 
 // ── Implementation ──────────────────────────────────────────────────────────
 
-export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<S>): AppDefinition<S> => {
+export const defineApp = <
+  const S extends AppSettingsMap = {},
+  const N extends NotificationDefinitionMap = {},
+  const AppId extends string = string,
+>(
+  opts: AppOptions<S, N, AppId>,
+): AppDefinition<S, N, AppId> => {
   const isDevelopment = process.env.NODE_ENV === "development";
+  const notifications = bindNotificationDefinitions(opts.id, opts.notifications);
 
   // ── 0. Register declared settings into the runtime registry ──────────
   // SETTINGS_MAP is the single source of truth for validation in store.ts
@@ -451,5 +463,6 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     // Phantom — see AppDefinition._settings doc. Do not read at runtime.
     _settings: undefined as unknown as S,
     settings: createSettingsAPI<S>(),
+    notifications,
   };
 };
