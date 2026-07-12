@@ -1,5 +1,36 @@
 import { describe, expect, test } from "bun:test";
-import { parseWorkspaceHref } from "./workspace";
+import type { User } from "@valentinkolb/cloud/contracts";
+import type { AuthContext } from "@valentinkolb/cloud/server";
+import { err, fail } from "@valentinkolb/stdlib";
+import type { MiddlewareHandler } from "hono";
+import { createWorkspaceApi, parseWorkspaceHref } from "./workspace";
+
+const user: User = {
+  id: "11111111-1111-4111-8111-111111111111",
+  uid: "workspace-user",
+  roles: ["user"],
+  provider: "local",
+  profile: "user",
+  givenname: "Workspace",
+  sn: "User",
+  displayName: "Workspace User",
+  mail: null,
+  avatarHash: null,
+  accountExpires: null,
+  lastLoginLocal: null,
+  memberofGroup: [],
+  memberofGroupIds: [],
+  manages: [],
+  managesGroupIds: [],
+  ipa: null,
+};
+
+const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
+  c.set("actor", { kind: "user", user });
+  c.set("accessSubject", { type: "user", userId: user.id });
+  c.set("user", user);
+  await next();
+};
 
 describe("parseWorkspaceHref", () => {
   test("accepts the base and query workspace routes", () => {
@@ -86,5 +117,41 @@ describe("parseWorkspaceHref", () => {
     expect(parseWorkspaceHref("/app/grids/hNTsc/query/extra")).toBeNull();
     expect(parseWorkspaceHref("/app/grids/hNTsc/reference")).toBeNull();
     expect(parseWorkspaceHref("/app/notebooks/hNTsc")).toBeNull();
+  });
+});
+
+describe("Grids workspace route", () => {
+  test("checks base access before loading workspace state without revealing base existence", async () => {
+    let loadCalls = 0;
+    const deniedApp = createWorkspaceApi({
+      requireAuthenticated: authenticated,
+      getBaseByShortId: async () => ({ id: "22222222-2222-4222-8222-222222222222" }) as never,
+      gate: async () => fail(err.forbidden("Base access denied")),
+      loadState: async () => {
+        loadCalls += 1;
+        return {} as never;
+      },
+    });
+    const missingApp = createWorkspaceApi({
+      requireAuthenticated: authenticated,
+      getBaseByShortId: async () => null,
+      gate: async () => {
+        throw new Error("Gate must not run for a missing base");
+      },
+      loadState: async () => {
+        loadCalls += 1;
+        return {} as never;
+      },
+    });
+
+    const href = encodeURIComponent("/app/grids/hNTsc");
+    const deniedResponse = await deniedApp.request(`/route?href=${href}`);
+    const missingResponse = await missingApp.request(`/route?href=${href}`);
+
+    expect(deniedResponse.status).toBe(404);
+    expect(await deniedResponse.json()).toEqual({ message: "Base not found" });
+    expect(missingResponse.status).toBe(404);
+    expect(await missingResponse.json()).toEqual({ message: "Base not found" });
+    expect(loadCalls).toBe(0);
   });
 });

@@ -55,6 +55,7 @@ export const listVisible = async (params: {
   userId: string | null;
   userGroups: string[];
   serviceAccountId?: string | null;
+  baseId?: string;
   query?: string;
   limit?: number;
   offset?: number;
@@ -63,6 +64,7 @@ export const listVisible = async (params: {
   const offset = Math.max(params.offset ?? 0, 0);
   const query = params.query?.trim().toLowerCase();
   const conditions: any[] = [sql`b.deleted_at IS NULL`];
+  if (params.baseId) conditions.push(sql`b.id = ${params.baseId}::uuid`);
   if (query) {
     const pattern = `%${escapeLikePattern(query)}%`;
     conditions.push(sql`(

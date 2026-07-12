@@ -1,9 +1,10 @@
 import { type AuthContext, auth, getDateConfig, v } from "@valentinkolb/cloud/server";
-import { Hono } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { loadGridsWorkspaceState } from "../frontend/_components/workspace/workspace-state";
+import { gridsService } from "../service";
 import { SHORT_ID_REGEX } from "../service/short-id";
-import { currentActorUser } from "./permissions";
+import { currentActorUser, gateAt } from "./permissions";
 import { withInitialQueryPreview } from "./workspace-query-preview";
 
 type WorkspaceRouteTarget = {
@@ -65,20 +66,39 @@ export const parseWorkspaceHref = (href: string): WorkspaceRouteTarget | null =>
   return routeParsers[parts[3] ?? ""]?.(baseShortId, parts) ?? null;
 };
 
-const app = new Hono<AuthContext>()
-  .use(auth.requireRole("authenticated"))
-  .get("/route", v("query", z.object({ href: z.string().min(1).max(3000) })), async (c) => {
-    const target = parseWorkspaceHref(c.req.valid("query").href);
-    if (!target) return c.json({ message: "Unsupported workspace route" }, 400);
-    const user = currentActorUser(c);
-    if (!user) return c.json({ message: "Sign in to open this workspace." }, 403);
-    const state = await loadGridsWorkspaceState({
-      user,
-      href: c.req.valid("query").href,
-      dateConfig: await getDateConfig(c),
-      ...target,
-    });
-    return c.json(await withInitialQueryPreview(c, state));
-  });
+export const createWorkspaceApi = (
+  deps: {
+    requireAuthenticated?: MiddlewareHandler<AuthContext>;
+    getBaseByShortId?: typeof gridsService.base.getByShortId;
+    gate?: typeof gateAt;
+    loadState?: typeof loadGridsWorkspaceState;
+    withPreview?: typeof withInitialQueryPreview;
+  } = {},
+) => {
+  const getBaseByShortId = deps.getBaseByShortId ?? gridsService.base.getByShortId;
+  const gateAtTarget = deps.gate ?? gateAt;
+  const loadState = deps.loadState ?? loadGridsWorkspaceState;
+  const withPreview = deps.withPreview ?? withInitialQueryPreview;
 
-export default app;
+  return new Hono<AuthContext>()
+    .use(deps.requireAuthenticated ?? auth.requireRole("authenticated"))
+    .get("/route", v("query", z.object({ href: z.string().min(1).max(3000) })), async (c) => {
+      const target = parseWorkspaceHref(c.req.valid("query").href);
+      if (!target) return c.json({ message: "Unsupported workspace route" }, 400);
+      const base = await getBaseByShortId(target.baseShortId);
+      if (!base) return c.json({ message: "Base not found" }, 404);
+      const gate = await gateAtTarget(c, { baseId: base.id }, "read");
+      if (!gate.ok) return c.json({ message: "Base not found" }, 404);
+      const user = currentActorUser(c);
+      if (!user) return c.json({ message: "Sign in to open this workspace." }, 403);
+      const state = await loadState({
+        user,
+        href: c.req.valid("query").href,
+        dateConfig: await getDateConfig(c),
+        ...target,
+      });
+      return c.json(await withPreview(c, state));
+    });
+};
+
+export default createWorkspaceApi();

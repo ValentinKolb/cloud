@@ -5,7 +5,14 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { BaseListSchema, BaseSchema, CreateBaseSchema, DashboardSchema, FieldSchema, TableSchema, UpdateBaseSchema } from "../contracts";
 import { gridsService } from "../service";
-import { currentActorUser, currentActorUserId, currentActorViewer, gateAt } from "./permissions";
+import {
+  currentActorUser,
+  currentActorUserId,
+  currentActorViewer,
+  currentResourceBoundBaseId,
+  gateAt,
+  gateCredentialScope,
+} from "./permissions";
 
 const TrashResponseSchema = z.object({
   tables: z.array(TableSchema),
@@ -40,10 +47,15 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         }),
       ),
       async (c) => {
+        const scopeGate = await gateCredentialScope(c, "read");
+        if (!scopeGate.ok) return respond(c, () => Promise.resolve(scopeGate));
+        const boundBaseId = currentResourceBoundBaseId(c);
+        if (boundBaseId === null) return c.json({ message: "This API credential is not bound to a Grids base." }, 403);
         const viewer = currentActorViewer(c);
         const { q, limit, offset } = c.req.valid("query");
         const result = await gridsService.base.listVisible({
           ...viewer,
+          ...(boundBaseId ? { baseId: boundBaseId } : {}),
           query: q,
           limit,
           offset,
@@ -64,11 +76,12 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
       }),
       v("json", CreateBaseSchema),
       async (c) => {
+        const scopeGate = await gateCredentialScope(c, "write", { allowResourceBound: false });
+        if (!scopeGate.ok) return respond(c, () => Promise.resolve(scopeGate));
         const user = currentActorUser(c);
         if (!user) return c.json({ message: "Sign in to create a base." }, 403);
-        // Anyone authenticated can create a base; they become its admin via
-        // the auto-grant in the service (added in Phase 1C ACL UI). For now,
-        // creator owns the base implicitly via created_by.
+        // User-backed actors with write-capable credentials become the base
+        // admin through the access entry created by the service.
         const body = c.req.valid("json");
         return respond(c, () => gridsService.base.create({ name: body.name, description: body.description ?? null }, user.id), 201);
       },

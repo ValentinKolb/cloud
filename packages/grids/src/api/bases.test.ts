@@ -45,6 +45,48 @@ const requireAuthenticated: MiddlewareHandler<AuthContext> = async (c, next) => 
   await next();
 };
 
+const resourceServiceAccount = {
+  id: "33333333-3333-4333-8333-333333333333",
+  name: "Grids base API",
+  kind: "resource_bound" as const,
+  status: "active" as const,
+  delegatedUserId: null,
+  appId: "grids",
+  resourceType: "base",
+  resourceId: "44444444-4444-4444-8444-444444444444",
+  createdBy: null,
+  createdAt: "2026-01-01T00:00:00.000Z",
+};
+
+const requireServiceAccount =
+  (scopes: string[]): MiddlewareHandler<AuthContext> =>
+  async (c, next) => {
+    c.set("actor", { kind: "service_account", serviceAccount: resourceServiceAccount, delegatedUser: null, scopes });
+    c.set("accessSubject", { type: "service_account", serviceAccountId: resourceServiceAccount.id });
+    await next();
+  };
+
+const requireDelegatedServiceAccount =
+  (scopes: string[]): MiddlewareHandler<AuthContext> =>
+  async (c, next) => {
+    c.set("actor", {
+      kind: "service_account",
+      serviceAccount: {
+        ...resourceServiceAccount,
+        kind: "user_delegated",
+        delegatedUserId: user.id,
+        appId: null,
+        resourceType: null,
+        resourceId: null,
+      },
+      delegatedUser: user,
+      scopes,
+    });
+    c.set("accessSubject", { type: "user", userId: user.id });
+    c.set("user", user);
+    await next();
+  };
+
 describe("Grids bases API", () => {
   beforeEach(() => {
     listVisibleParams = null;
@@ -66,5 +108,41 @@ describe("Grids bases API", () => {
       limit: 25,
       offset: 50,
     });
+  });
+
+  test("limits resource-bound API listings to their bound base", async () => {
+    const app = createBasesApi({ requireAuthenticated: requireServiceAccount(["grids:read"]) });
+
+    const response = await app.request("/");
+
+    expect(response.status).toBe(200);
+    expect(listVisibleParams).toMatchObject({
+      userId: null,
+      userGroups: [],
+      serviceAccountId: resourceServiceAccount.id,
+      baseId: resourceServiceAccount.resourceId,
+    });
+  });
+
+  test("rejects base listings when the credential lacks read scope", async () => {
+    const app = createBasesApi({ requireAuthenticated: requireServiceAccount([]) });
+
+    const response = await app.request("/");
+
+    expect(response.status).toBe(403);
+    expect(listVisibleParams).toBeNull();
+  });
+
+  test("rejects base creation from read-only and resource-bound credentials", async () => {
+    const request = {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Forbidden base" }),
+    };
+
+    expect((await createBasesApi({ requireAuthenticated: requireDelegatedServiceAccount(["read"]) }).request("/", request)).status).toBe(
+      403,
+    );
+    expect((await createBasesApi({ requireAuthenticated: requireServiceAccount(["grids:*"]) }).request("/", request)).status).toBe(403);
   });
 });
