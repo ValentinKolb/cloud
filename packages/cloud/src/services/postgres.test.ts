@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { toPgTextArray, toPgUuidArray } from "./postgres";
+import { isUniqueViolation, toPgTextArray, toPgUuidArray } from "./postgres";
 
 describe("Postgres array helpers", () => {
   test("serializes UUID arrays and treats non-arrays as empty arrays", () => {
@@ -16,5 +16,17 @@ describe("Postgres array helpers", () => {
     );
     expect(toPgTextArray([])).toBe("{}");
     expect(toPgTextArray("{}" as unknown as string[])).toBe("{}");
+  });
+});
+
+describe("isUniqueViolation", () => {
+  test("matches Bun SQL and postgres.js error shapes", () => {
+    expect(isUniqueViolation({ errno: "23505", constraint: "live_name" }, "live_name")).toBe(true);
+    expect(isUniqueViolation({ code: "23505", constraint_name: "live_name" }, "live_name")).toBe(true);
+  });
+
+  test("rejects different constraints and SQL states", () => {
+    expect(isUniqueViolation({ errno: "23505", constraint: "other" }, "live_name")).toBe(false);
+    expect(isUniqueViolation({ errno: "23503", constraint: "live_name" }, "live_name")).toBe(false);
   });
 });

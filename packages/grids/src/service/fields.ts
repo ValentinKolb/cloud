@@ -16,6 +16,7 @@ import {
 import { get, mapFieldRow } from "./field-read";
 import { materializeFieldDefault, validateDefaultValue, validateFieldConfig, validateLinkOrComputedConfig } from "./field-validation";
 import { emitTableMetadataEvent } from "./metadata-events";
+import { namedResourceConflict, writeNamedResource } from "./named-resource-conflict";
 import { rewriteFieldNameReferences } from "./reference-renames";
 import { insertWithShortId } from "./short-id";
 import type { CreateFieldInput, Field, UpdateFieldInput } from "./types";
@@ -64,10 +65,8 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   const cfgValidation = validateFieldConfig(input.type, rawConfig);
   if (!cfgValidation.ok) return cfgValidation;
   const config = cfgValidation.data as Record<string, unknown>;
-  // DB-context validation: same-base relation + cross-table consistency.
-  // Runs after Zod (so we know the shape's right) but before any DB
-  // writes. Closes chunk 5 critical "Relation configs can point across
-  // base boundaries".
+  // Relation and computed configs reference persisted resources, so their
+  // cross-table invariants require database context after shape validation.
   const linkValidation = await validateLinkOrComputedConfig(input.type, config, input.tableId);
   if (!linkValidation.ok) return linkValidation;
 
@@ -85,8 +84,10 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   const defaultValueJsonb = defaultValue === undefined || defaultValue === null ? null : JSON.stringify(defaultValue);
   const uniqueConstraint = input.type === "id" ? true : (input.uniqueConstraint ?? false);
 
-  const row = await insertWithShortId<DbRow>(async (shortId) => {
-    const [r] = await sql<DbRow[]>`
+  const inserted = await writeNamedResource(
+    () =>
+      insertWithShortId<DbRow>(async (shortId) => {
+        const [r] = await sql<DbRow[]>`
       INSERT INTO grids.fields (
         short_id, table_id, name, description, icon, type, config, position, required,
         presentable, hide_in_table, default_value, indexed, unique_constraint
@@ -110,11 +111,15 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
         ${uniqueConstraint}
       )
       RETURNING *
-    `;
-    if (!r) throw new Error("insert returned no row");
-    return r;
-  }, "idx_grids_fields_short_id");
-  const field = mapFieldRow(row);
+      `;
+        if (!r) throw new Error("insert returned no row");
+        return r;
+      }, "idx_grids_fields_short_id"),
+    "idx_grids_fields_live_name",
+    "field name must be unique within this table",
+  );
+  if (!inserted.ok) return inserted;
+  const field = mapFieldRow(inserted.data);
 
   await logAudit({
     tableId: input.tableId,
@@ -297,6 +302,8 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
       if (typeof e === "object" && e !== null && "ok" in e && (e as { ok?: unknown }).ok === false) {
         return e as Result<Field>;
       }
+      const conflict = namedResourceConflict<Field>(e, "idx_grids_fields_live_name", "field name must be unique within this table");
+      if (conflict) return conflict;
       return fail(err.internal(`field update failed: ${(e as Error).message}`));
     });
   if (!txResult.ok) return txResult;
@@ -373,7 +380,14 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   const existing = await get(id);
   if (!existing) return fail(err.notFound("Field"));
   if (existing.deletedAt === null) return ok(existing);
-  await sql`UPDATE grids.fields SET deleted_at = NULL, updated_at = now() WHERE id = ${id}::uuid`;
+  const restored = await writeNamedResource(
+    async () => {
+      await sql`UPDATE grids.fields SET deleted_at = NULL, updated_at = now() WHERE id = ${id}::uuid`;
+    },
+    "idx_grids_fields_live_name",
+    "field name must be unique within this table",
+  );
+  if (!restored.ok) return restored;
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "restored" });
   await emitTableMetadataEvent(existing.tableId, {
     type: "field.restored",

@@ -4,6 +4,7 @@ import { FieldColumnSpecSchema, RecordDisplayConfigSchema } from "../contracts";
 import { normalizeRefKey } from "../ref-syntax";
 import { logAudit } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
+import { writeNamedResource } from "./named-resource-conflict";
 import { insertWithShortId } from "./short-id";
 import type { CreateTableInput, Table, UpdateTableInput } from "./types";
 
@@ -162,25 +163,31 @@ export const create = async (input: CreateTableInput, actorId: string | null): P
   const displayConfigParsed = RecordDisplayConfigSchema.safeParse(input.displayConfig ?? { mode: "table" });
   if (!displayConfigParsed.success) return fail(err.badInput("invalid table display config"));
 
-  const row = await insertWithShortId<DbRow>(async (shortId) => {
-    const [r] = await sql<DbRow[]>`
-      INSERT INTO grids.tables (short_id, base_id, name, description, icon, columns, display_config, position)
-      VALUES (
-        ${shortId},
-        ${input.baseId}::uuid,
-        ${name},
-        ${input.description ?? null},
-        ${input.icon ?? null},
-        ${columnsParsed.data}::jsonb,
-        ${displayConfigParsed.data}::jsonb,
-        COALESCE((SELECT MAX(position) + 1 FROM grids.tables WHERE base_id = ${input.baseId}::uuid AND deleted_at IS NULL), 0)
-      )
-      RETURNING ${COLS}
-    `;
-    if (!r) throw new Error("insert returned no row");
-    return r;
-  }, "idx_grids_tables_short_id");
-  const table = mapRow(row);
+  const inserted = await writeNamedResource(
+    () =>
+      insertWithShortId<DbRow>(async (shortId) => {
+        const [r] = await sql<DbRow[]>`
+        INSERT INTO grids.tables (short_id, base_id, name, description, icon, columns, display_config, position)
+        VALUES (
+          ${shortId},
+          ${input.baseId}::uuid,
+          ${name},
+          ${input.description ?? null},
+          ${input.icon ?? null},
+          ${columnsParsed.data}::jsonb,
+          ${displayConfigParsed.data}::jsonb,
+          COALESCE((SELECT MAX(position) + 1 FROM grids.tables WHERE base_id = ${input.baseId}::uuid AND deleted_at IS NULL), 0)
+        )
+        RETURNING ${COLS}
+      `;
+        if (!r) throw new Error("insert returned no row");
+        return r;
+      }, "idx_grids_tables_short_id"),
+    "idx_grids_tables_live_name",
+    "table name must be unique within this grid",
+  );
+  if (!inserted.ok) return inserted;
+  const table = mapRow(inserted.data);
   await logAudit({ baseId: input.baseId, tableId: table.id, userId: actorId, action: "created" });
   await emitMetadataEvent({
     type: "table.created",
@@ -213,18 +220,27 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
   const displayConfigParsed = RecordDisplayConfigSchema.safeParse(next.displayConfig);
   if (!displayConfigParsed.success) return fail(err.badInput("invalid table display config"));
 
-  const [row] = await sql<DbRow[]>`
-    UPDATE grids.tables
-    SET name = ${next.name},
-        description = ${next.description},
-        icon = ${next.icon},
-        columns = ${columnsParsed.data}::jsonb,
-        display_config = ${displayConfigParsed.data}::jsonb,
-        disable_direct_insert = ${next.disableDirectInsert},
-        updated_at = now()
-    WHERE id = ${id}::uuid AND deleted_at IS NULL
-    RETURNING ${COLS}
-  `;
+  const updated = await writeNamedResource(
+    async () => {
+      const [row] = await sql<DbRow[]>`
+        UPDATE grids.tables
+        SET name = ${next.name},
+            description = ${next.description},
+            icon = ${next.icon},
+            columns = ${columnsParsed.data}::jsonb,
+            display_config = ${displayConfigParsed.data}::jsonb,
+            disable_direct_insert = ${next.disableDirectInsert},
+            updated_at = now()
+        WHERE id = ${id}::uuid AND deleted_at IS NULL
+        RETURNING ${COLS}
+      `;
+      return row;
+    },
+    "idx_grids_tables_live_name",
+    "table name must be unique within this grid",
+  );
+  if (!updated.ok) return updated;
+  const row = updated.data;
   if (!row) return fail(err.internal("update failed"));
   const table = mapRow(row);
 
@@ -281,11 +297,20 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   const existing = await get(id, { includeDeleted: true });
   if (!existing) return fail(err.notFound("Table"));
   if (existing.deletedAt === null) return ok(existing);
-  const [row] = await sql<DbRow[]>`
-    UPDATE grids.tables SET deleted_at = NULL, updated_at = now()
-    WHERE id = ${id}::uuid
-    RETURNING ${COLS}
-  `;
+  const restored = await writeNamedResource(
+    async () => {
+      const [row] = await sql<DbRow[]>`
+        UPDATE grids.tables SET deleted_at = NULL, updated_at = now()
+        WHERE id = ${id}::uuid
+        RETURNING ${COLS}
+      `;
+      return row;
+    },
+    "idx_grids_tables_live_name",
+    "table name must be unique within this grid",
+  );
+  if (!restored.ok) return restored;
+  const row = restored.data;
   if (!row) return fail(err.internal("restore failed"));
   const table = mapRow(row);
   await logAudit({ baseId: existing.baseId, tableId: id, userId: actorId, action: "restored" });

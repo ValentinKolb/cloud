@@ -44,21 +44,115 @@ describe("grids schema migration", () => {
         expect(row?.tableCount).toBe(28);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
         expect(String(cast?.value)).toBe("12.5");
+
+        const indexes = await database<Array<{ indexName: string }>>`
+          SELECT indexname AS "indexName"
+          FROM pg_indexes
+          WHERE schemaname = 'grids'
+            AND indexname IN (
+              'idx_grids_tables_live_name',
+              'idx_grids_fields_live_name',
+              'idx_grids_views_live_name'
+            )
+          ORDER BY indexname
+        `;
+        expect(indexes.map((index) => index.indexName)).toEqual([
+          "idx_grids_fields_live_name",
+          "idx_grids_tables_live_name",
+          "idx_grids_views_live_name",
+        ]);
       });
     },
-    15_000,
+    30_000,
   );
 
-  postgresTest("removes intentional alpha-only schema surfaces", async () => {
-    await migrate();
-    await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS query JSONB`.simple();
-    await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS display_config JSONB`.simple();
-    await sql`CREATE TABLE IF NOT EXISTS grids.gql_queries (id UUID PRIMARY KEY)`.simple();
-    await sql`ALTER TABLE grids.email_templates ADD COLUMN IF NOT EXISTS text TEXT`.simple();
+  postgresTest(
+    "derives a view base id and enforces base-wide live names",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        await migrate(database);
+        const baseId = uuid();
+        const firstTableId = uuid();
+        const secondTableId = uuid();
 
-    await migrate();
+        await database`
+          INSERT INTO grids.bases (id, short_id, name)
+          VALUES (${baseId}::uuid, ${shortId("B")}, 'View names')
+        `;
+        await database`
+          INSERT INTO grids.tables (id, short_id, base_id, name)
+          VALUES
+            (${firstTableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'First'),
+            (${secondTableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Second')
+        `;
+        const [view] = await database<Array<{ baseId: string }>>`
+          INSERT INTO grids.views (short_id, table_id, name, source)
+          VALUES (${shortId("V")}, ${firstTableId}::uuid, 'Open items', 'from table First')
+          RETURNING base_id::text AS "baseId"
+        `;
+        expect(view?.baseId).toBe(baseId);
 
-    const legacyColumns = await sql`
+        let conflict: unknown;
+        try {
+          await database`
+            INSERT INTO grids.views (short_id, table_id, name, source)
+            VALUES (${shortId("V")}, ${secondTableId}::uuid, ' open ITEMS ', 'from table Second')
+          `;
+        } catch (error) {
+          conflict = error;
+        }
+        const pgError = conflict as { errno?: string; constraint?: string };
+        expect(pgError.errno).toBe("23505");
+        expect(pgError.constraint).toBe("idx_grids_views_live_name");
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
+    "fails clearly when legacy data already contains ambiguous names",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        await migrate(database);
+        const baseId = uuid();
+        await database`DROP INDEX grids.idx_grids_tables_live_name`.simple();
+        await database`
+          INSERT INTO grids.bases (id, short_id, name)
+          VALUES (${baseId}::uuid, ${shortId("B")}, 'Legacy duplicates')
+        `;
+        await database`
+          INSERT INTO grids.tables (short_id, base_id, name)
+          VALUES
+            ('TD001', ${baseId}::uuid, 'Orders'),
+            ('TD002', ${baseId}::uuid, ' orders ')
+        `;
+
+        let migrationError: unknown;
+        try {
+          await migrate(database);
+        } catch (error) {
+          migrationError = error;
+        }
+        expect((migrationError as Error).message).toContain(
+          `cannot enforce unique table names: grid ${baseId} contains multiple live tables named "orders"`,
+        );
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
+    "removes intentional alpha-only schema surfaces",
+    async () => {
+      await migrate();
+      await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS query JSONB`.simple();
+      await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS display_config JSONB`.simple();
+      await sql`CREATE TABLE IF NOT EXISTS grids.gql_queries (id UUID PRIMARY KEY)`.simple();
+      await sql`ALTER TABLE grids.email_templates ADD COLUMN IF NOT EXISTS text TEXT`.simple();
+
+      await migrate();
+
+      const legacyColumns = await sql`
       SELECT table_name, column_name
       FROM information_schema.columns
       WHERE table_schema = 'grids'
@@ -67,45 +161,51 @@ describe("grids schema migration", () => {
           OR (table_name = 'email_templates' AND column_name = 'text')
         )
     `;
-    const [legacyTable] = await sql<Array<{ tableName: string | null }>>`
+      const [legacyTable] = await sql<Array<{ tableName: string | null }>>`
       SELECT to_regclass('grids.gql_queries')::text AS "tableName"
     `;
-    expect(legacyColumns).toHaveLength(0);
-    expect(legacyTable?.tableName).toBeNull();
-  });
+      expect(legacyColumns).toHaveLength(0);
+      expect(legacyTable?.tableName).toBeNull();
+    },
+    30_000,
+  );
 
-  postgresTest("normalizes legacy number scale config to decimalPlaces", async () => {
-    await migrate();
+  postgresTest(
+    "normalizes legacy number scale config to decimalPlaces",
+    async () => {
+      await migrate();
 
-    const baseId = uuid();
-    const tableId = uuid();
-    const fieldId = uuid();
+      const baseId = uuid();
+      const tableId = uuid();
+      const fieldId = uuid();
 
-    try {
-      await sql`
+      try {
+        await sql`
         INSERT INTO grids.bases (id, short_id, name)
         VALUES (${baseId}::uuid, ${shortId("B")}, 'Migration integration')
       `;
-      await sql`
+        await sql`
         INSERT INTO grids.tables (id, short_id, base_id, name, position)
         VALUES (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Numbers', 0)
       `;
-      await sql`
+        await sql`
         INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
         VALUES (${fieldId}::uuid, 'NUM01', ${tableId}::uuid, 'Amount', 'number', '{"scale":2}'::jsonb, 0)
       `;
 
-      await migrate();
+        await migrate();
 
-      const [row] = await sql<Array<{ config: { decimalPlaces?: number; scale?: number } }>>`
+        const [row] = await sql<Array<{ config: { decimalPlaces?: number; scale?: number } }>>`
         SELECT config
         FROM grids.fields
         WHERE id = ${fieldId}::uuid
       `;
 
-      expect(row?.config).toEqual({ decimalPlaces: 2 });
-    } finally {
-      await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
-    }
-  });
+        expect(row?.config).toEqual({ decimalPlaces: 2 });
+      } finally {
+        await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+      }
+    },
+    30_000,
+  );
 });

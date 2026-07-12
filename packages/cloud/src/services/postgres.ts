@@ -40,8 +40,8 @@ export const parsePgJsonRecord = (value: unknown): Record<string, unknown> | nul
  * up raw DB errors to API clients.
  *
  * Two driver shapes coexist in this repo:
- *   - postgres.js: `e.code = "23505"` (the SQLSTATE directly)
- *   - bun.sql:     `e.code = "ERR_POSTGRES_SERVER_ERROR"`, SQLSTATE on `e.errno`
+ *   - postgres.js: SQLSTATE on `code`, constraint name on `constraint_name`
+ *   - bun.sql: SQLSTATE on `errno`, constraint name on `constraint`
  *
  * Checking only `e.code` silently fails on Bun (the Wave-1.1 migration
  * idempotence bug had the same root cause). Treat either field carrying
@@ -51,6 +51,7 @@ export const parsePgJsonRecord = (value: unknown): Record<string, unknown> | nul
 export type PgError = {
   code?: string;
   errno?: string;
+  constraint?: string;
   constraint_name?: string;
   detail?: string;
   message?: string;
@@ -62,5 +63,5 @@ export const isUniqueViolation = (error: unknown, constraintName?: string): bool
   const sqlstate = e.code === "23505" || e.errno === "23505";
   if (!sqlstate) return false;
   if (!constraintName) return true;
-  return e.constraint_name === constraintName;
+  return e.constraint === constraintName || e.constraint_name === constraintName;
 };

@@ -29,6 +29,12 @@ const expectConflict = (result: { ok: boolean; error?: { code?: string; message?
   if (!result.ok) expect(result.error?.code).toBe("CONFLICT");
 };
 
+const expectSingleConcurrentConflict = (results: Array<{ ok: boolean; error?: { code?: string } }>) => {
+  expect(results.filter((result) => result.ok)).toHaveLength(1);
+  const [conflict] = results.filter((result) => !result.ok);
+  expectConflict(conflict ?? { ok: true });
+};
+
 const readJsonb = <T>(raw: unknown): T => {
   if (typeof raw === "string") return JSON.parse(raw) as T;
   return raw as T;
@@ -63,6 +69,82 @@ describe("named refs Postgres integration", () => {
       expect(openOrders.ok).toBe(true);
       if (!openOrders.ok) throw new Error(openOrders.error.message);
       expectConflict(await views.create({ tableId: archive.data.id, name: " open orders " }, null));
+    } finally {
+      await cleanupBase(baseId);
+    }
+  });
+
+  postgresTest("keeps named references unambiguous under concurrent creates", async () => {
+    const baseId = await createBase();
+    try {
+      const tableResults = await Promise.all([
+        tables.create({ baseId, name: "Concurrent orders" }, null),
+        tables.create({ baseId, name: " concurrent ORDERS " }, null),
+      ]);
+      expectSingleConcurrentConflict(tableResults);
+      const table = tableResults.find((result) => result.ok);
+      if (!table?.ok) throw new Error("table setup failed");
+
+      const fieldResults = await Promise.all([
+        fields.create({ tableId: table.data.id, name: "Amount", type: "number" }, null),
+        fields.create({ tableId: table.data.id, name: " amount ", type: "number" }, null),
+      ]);
+      expectSingleConcurrentConflict(fieldResults);
+
+      const otherTable = await tables.create({ baseId, name: "Concurrent archive" }, null);
+      if (!otherTable.ok) throw new Error(otherTable.error.message);
+      const viewResults = await Promise.all([
+        views.create({ tableId: table.data.id, name: "Current items" }, null),
+        views.create({ tableId: otherTable.data.id, name: " current ITEMS " }, null),
+      ]);
+      expectSingleConcurrentConflict(viewResults);
+    } finally {
+      await cleanupBase(baseId);
+    }
+  });
+
+  postgresTest("reuses soft-deleted names and reports restore collisions", async () => {
+    const baseId = await createBase();
+    try {
+      const originalTable = await tables.create({ baseId, name: "Reusable" }, null);
+      if (!originalTable.ok) throw new Error(originalTable.error.message);
+      expect((await tables.remove(originalTable.data.id, null)).ok).toBe(true);
+      const replacementTable = await tables.create({ baseId, name: " reusable " }, null);
+      expect(replacementTable.ok).toBe(true);
+      expectConflict(await tables.restore(originalTable.data.id, null));
+
+      if (!replacementTable.ok) throw new Error(replacementTable.error.message);
+      const originalField = await fields.create({ tableId: replacementTable.data.id, name: "Reference", type: "text" }, null);
+      if (!originalField.ok) throw new Error(originalField.error.message);
+      expect((await fields.softDelete(originalField.data.id, null)).ok).toBe(true);
+      expect((await fields.create({ tableId: replacementTable.data.id, name: " REFERENCE ", type: "text" }, null)).ok).toBe(true);
+      expectConflict(await fields.restore(originalField.data.id, null));
+
+      const otherTable = await tables.create({ baseId, name: "View source" }, null);
+      if (!otherTable.ok) throw new Error(otherTable.error.message);
+      const originalView = await views.create({ tableId: replacementTable.data.id, name: "Reusable view" }, null);
+      if (!originalView.ok) throw new Error(originalView.error.message);
+      expect((await views.remove(originalView.data.id, null)).ok).toBe(true);
+      expect((await views.create({ tableId: otherTable.data.id, name: " reusable VIEW " }, null)).ok).toBe(true);
+      expectConflict(await views.restore(originalView.data.id, null));
+    } finally {
+      await cleanupBase(baseId);
+    }
+  });
+
+  postgresTest("reserves view names while their parent table is in the trash", async () => {
+    const baseId = await createBase();
+    try {
+      const source = await tables.create({ baseId, name: "Source" }, null);
+      const target = await tables.create({ baseId, name: "Target" }, null);
+      if (!source.ok || !target.ok) throw new Error("table setup failed");
+      const view = await views.create({ tableId: source.data.id, name: "Restorable view" }, null);
+      if (!view.ok) throw new Error(view.error.message);
+
+      expect((await tables.remove(source.data.id, null)).ok).toBe(true);
+      expectConflict(await views.create({ tableId: target.data.id, name: " restorable VIEW " }, null));
+      expect((await tables.restore(source.data.id, null)).ok).toBe(true);
+      expect((await views.get(view.data.id))?.name).toBe("Restorable view");
     } finally {
       await cleanupBase(baseId);
     }

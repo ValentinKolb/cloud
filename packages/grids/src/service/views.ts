@@ -6,6 +6,7 @@ import { normalizeRefKey } from "../ref-syntax";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
 import { emitTableMetadataEvent } from "./metadata-events";
+import { writeNamedResource } from "./named-resource-conflict";
 import { insertWithShortId } from "./short-id";
 
 type DbRow = Record<string, unknown>;
@@ -215,7 +216,7 @@ const ensureUniqueViewName = async (tableId: string, name: string, exceptViewId:
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM grids.views v
-    JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
+    JOIN grids.tables t ON t.id = v.table_id
     WHERE t.base_id = (
         SELECT base_id FROM grids.tables WHERE id = ${tableId}::uuid AND deleted_at IS NULL
       )
@@ -249,26 +250,33 @@ export const create = async (input: CreateViewServiceInput, actorId: string | nu
   const uiParsed = ViewUiSettingsSchema.safeParse(input.ui ?? {});
   if (!uiParsed.success) return fail(err.badInput("invalid view UI settings"));
 
-  const row = await insertWithShortId<DbRow>(async (shortId) => {
-    const [r] = await sql<DbRow[]>`
-      INSERT INTO grids.views (short_id, table_id, name, description, icon, source, ui, owner_user_id, position)
-      VALUES (
-        ${shortId},
-        ${input.tableId}::uuid,
-        ${name},
-        ${input.description ?? null},
-        ${input.icon ?? null},
-        ${source},
-        ${uiParsed.data}::jsonb,
-        ${input.ownerUserId ?? null}::uuid,
-        COALESCE((SELECT MAX(position) + 1 FROM grids.views WHERE table_id = ${input.tableId}::uuid), 0)
-      )
-      RETURNING id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
-    `;
-    if (!r) throw new Error("insert returned no row");
-    return r;
-  }, "idx_grids_views_short_id");
-  const view = mapRow(row);
+  const inserted = await writeNamedResource(
+    () =>
+      insertWithShortId<DbRow>(async (shortId) => {
+        const [r] = await sql<DbRow[]>`
+        INSERT INTO grids.views (short_id, table_id, base_id, name, description, icon, source, ui, owner_user_id, position)
+        VALUES (
+          ${shortId},
+          ${input.tableId}::uuid,
+          (SELECT base_id FROM grids.tables WHERE id = ${input.tableId}::uuid),
+          ${name},
+          ${input.description ?? null},
+          ${input.icon ?? null},
+          ${source},
+          ${uiParsed.data}::jsonb,
+          ${input.ownerUserId ?? null}::uuid,
+          COALESCE((SELECT MAX(position) + 1 FROM grids.views WHERE table_id = ${input.tableId}::uuid), 0)
+        )
+        RETURNING id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
+      `;
+        if (!r) throw new Error("insert returned no row");
+        return r;
+      }, "idx_grids_views_short_id"),
+    "idx_grids_views_live_name",
+    "view name must be unique within this grid",
+  );
+  if (!inserted.ok) return inserted;
+  const view = mapRow(inserted.data);
   await logAudit({
     tableId: input.tableId,
     userId: actorId,
@@ -321,19 +329,28 @@ export const update = async (id: string, input: UpdateViewServiceInput, actorId:
     position: input.position ?? existing.position,
   };
 
-  const [row] = await sql<DbRow[]>`
-    UPDATE grids.views
-    SET name = ${next.name},
-        description = ${next.description},
-        icon = ${next.icon},
-        source = ${next.source},
-        ui = ${next.ui}::jsonb,
-        position = ${next.position},
-        owner_user_id = ${ownerUserId}::uuid,
-        updated_at = now()
-    WHERE id = ${id}::uuid AND deleted_at IS NULL
-    RETURNING id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
-  `;
+  const updated = await writeNamedResource(
+    async () => {
+      const [row] = await sql<DbRow[]>`
+        UPDATE grids.views
+        SET name = ${next.name},
+            description = ${next.description},
+            icon = ${next.icon},
+            source = ${next.source},
+            ui = ${next.ui}::jsonb,
+            position = ${next.position},
+            owner_user_id = ${ownerUserId}::uuid,
+            updated_at = now()
+        WHERE id = ${id}::uuid AND deleted_at IS NULL
+        RETURNING id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
+      `;
+      return row;
+    },
+    "idx_grids_views_live_name",
+    "view name must be unique within this grid",
+  );
+  if (!updated.ok) return updated;
+  const row = updated.data;
   if (!row) return fail(err.internal("update failed"));
   const view = mapRow(row);
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "updated", diff: { view: { old: existing.name, new: view.name } } });
@@ -366,11 +383,20 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   const existing = await get(id, { includeDeleted: true });
   if (!existing) return fail(err.notFound("View"));
   if (existing.deletedAt === null) return ok(existing);
-  const [row] = await sql<DbRow[]>`
-    UPDATE grids.views SET deleted_at = NULL, updated_at = now()
-    WHERE id = ${id}::uuid
-    RETURNING id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
-  `;
+  const restored = await writeNamedResource(
+    async () => {
+      const [row] = await sql<DbRow[]>`
+        UPDATE grids.views SET deleted_at = NULL, updated_at = now()
+        WHERE id = ${id}::uuid
+        RETURNING id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
+      `;
+      return row;
+    },
+    "idx_grids_views_live_name",
+    "view name must be unique within this grid",
+  );
+  if (!restored.ok) return restored;
+  const row = restored.data;
   if (!row) return fail(err.internal("restore failed"));
   const view = mapRow(row);
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "restored" });

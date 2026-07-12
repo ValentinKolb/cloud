@@ -127,6 +127,24 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
   `.simple();
   // Hot-path index: list live tables of a base in order.
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_tables_base_live ON grids.tables(base_id, position) WHERE deleted_at IS NULL`.simple();
+  const [duplicateTableName] = await sql<Array<{ baseId: string; name: string }>>`
+    SELECT base_id::text AS "baseId", lower(btrim(name)) AS name
+    FROM grids.tables
+    WHERE deleted_at IS NULL
+    GROUP BY base_id, lower(btrim(name))
+    HAVING count(*) > 1
+    LIMIT 1
+  `;
+  if (duplicateTableName) {
+    throw new Error(
+      `cannot enforce unique table names: grid ${duplicateTableName.baseId} contains multiple live tables named "${duplicateTableName.name}"`,
+    );
+  }
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_tables_live_name
+    ON grids.tables(base_id, lower(btrim(name)))
+    WHERE deleted_at IS NULL
+  `.simple();
   console.log("  ✓ grids.tables");
 
   await sql`
@@ -169,6 +187,24 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
     )
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_fields_table ON grids.fields(table_id, position) WHERE deleted_at IS NULL`.simple();
+  const [duplicateFieldName] = await sql<Array<{ tableId: string; name: string }>>`
+    SELECT table_id::text AS "tableId", lower(btrim(name)) AS name
+    FROM grids.fields
+    WHERE deleted_at IS NULL
+    GROUP BY table_id, lower(btrim(name))
+    HAVING count(*) > 1
+    LIMIT 1
+  `;
+  if (duplicateFieldName) {
+    throw new Error(
+      `cannot enforce unique field names: table ${duplicateFieldName.tableId} contains multiple live fields named "${duplicateFieldName.name}"`,
+    );
+  }
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_fields_live_name
+    ON grids.fields(table_id, lower(btrim(name)))
+    WHERE deleted_at IS NULL
+  `.simple();
   // Alpha cleanup: number precision used to persist as `scale`. Normalize once
   // so runtime and UI only have one decimal-place config key.
   await sql`
@@ -278,6 +314,7 @@ const migrateViews = async (sql: SQL): Promise<void> => {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       short_id TEXT NOT NULL,
       table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
+      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT,
       icon TEXT,
@@ -292,9 +329,52 @@ const migrateViews = async (sql: SQL): Promise<void> => {
       CONSTRAINT views_source_length_chk CHECK (length(source) BETWEEN 1 AND 20000)
     )
   `.simple();
+  await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS base_id UUID REFERENCES grids.bases(id) ON DELETE CASCADE`.simple();
+  await sql`
+    CREATE OR REPLACE FUNCTION grids.sync_view_base_id() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+    BEGIN
+      SELECT base_id INTO NEW.base_id
+      FROM grids.tables
+      WHERE id = NEW.table_id;
+      RETURN NEW;
+    END
+    $$
+  `.simple();
+  await sql`
+    CREATE OR REPLACE TRIGGER grids_views_sync_base_id
+    BEFORE INSERT OR UPDATE OF table_id, base_id ON grids.views
+    FOR EACH ROW EXECUTE FUNCTION grids.sync_view_base_id()
+  `.simple();
+  await sql`
+    UPDATE grids.views v
+    SET base_id = t.base_id
+    FROM grids.tables t
+    WHERE t.id = v.table_id
+      AND v.base_id IS DISTINCT FROM t.base_id
+  `.simple();
+  await sql`ALTER TABLE grids.views ALTER COLUMN base_id SET NOT NULL`.simple();
   await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS description TEXT`.simple();
   await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS ui JSONB NOT NULL DEFAULT '{}'::jsonb`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_views_table_live ON grids.views(table_id, position) WHERE deleted_at IS NULL`.simple();
+  const [duplicateViewName] = await sql<Array<{ baseId: string; name: string }>>`
+    SELECT base_id::text AS "baseId", lower(btrim(name)) AS name
+    FROM grids.views
+    WHERE deleted_at IS NULL
+    GROUP BY base_id, lower(btrim(name))
+    HAVING count(*) > 1
+    LIMIT 1
+  `;
+  if (duplicateViewName) {
+    throw new Error(
+      `cannot enforce unique view names: grid ${duplicateViewName.baseId} contains multiple live views named "${duplicateViewName.name}"`,
+    );
+  }
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_views_live_name
+    ON grids.views(base_id, lower(btrim(name)))
+    WHERE deleted_at IS NULL
+  `.simple();
   console.log("  ✓ grids.views");
 
   await sql`

@@ -49,6 +49,6 @@ describe("built-in template instantiation", () => {
         await sql`DELETE FROM grids.bases WHERE id = ${created.data.id}::uuid`;
       }
     },
-    10_000,
+    30_000,
   );
 });
