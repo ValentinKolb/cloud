@@ -1,12 +1,11 @@
 import { redis, sql } from "bun";
-import { accounts } from "../accounts";
-import { notifications } from "../notifications";
-import { providers } from "../providers";
-import * as settings from "../settings";
-import { renderTemplate } from "../settings/templates";
 import type { User } from "../../contracts/shared";
 import { createAuthLoginUrl } from "../../shared/redirect";
+import { accounts } from "../accounts";
 import { logger } from "../logging";
+import { providers } from "../providers";
+import * as settings from "../settings";
+import type { AuthNotificationSender } from "./notification-sender";
 
 const log = logger("auth:magic-link");
 const IPA_HINT_COOLDOWN_SECONDS = 300;
@@ -36,35 +35,23 @@ const claimIpaHintCooldown = async (email: string): Promise<boolean> => {
   return result === "OK";
 };
 
-const sendIpaEmailLoginHint = async (params: { email: string; redirectTo?: string }): Promise<void> => {
+const sendIpaEmailLoginHint = async (
+  params: { email: string; redirectTo?: string },
+  notificationSender: AuthNotificationSender,
+): Promise<void> => {
   const appUrl = await getAppUrl();
   const loginUrl = createAuthLoginUrl(appUrl, {
     method: "ipa",
     redirectTo: params.redirectTo,
   });
-  const [appName, contactEmail, template] = await Promise.all([
-    settings.get<string>("app.name"),
-    settings.get<string>("app.contact_email"),
-    settings.get<string>("mail.ipa_email_login_hint"),
-  ]);
-
-  await notifications.send({
-    type: "email",
-    recipient: params.email,
-    subject: `${appName} FreeIPA Sign In`,
-    rawHtml: renderTemplate(template, {
-      EMAIL: params.email,
-      LOGIN_URL: loginUrl,
-      APP_NAME: appName,
-      CONTACT_EMAIL: contactEmail?.trim() ?? "",
-    }),
-  });
+  const result = await notificationSender.sendIpaLoginHint({ email: params.email, loginUrl });
+  if (result.status === "error") log.error("FreeIPA login hint delivery failed", { notificationId: result.id });
 };
 
-export const request = async (params: {
-  email: string;
-  redirectTo?: string;
-}): Promise<{ ok: true } | { ok: false; status: 400; message: string }> => {
+export const request = async (
+  params: { email: string; redirectTo?: string },
+  notificationSender: AuthNotificationSender,
+): Promise<{ ok: true } | { ok: false; status: 400; message: string }> => {
   const email = normalizeEmail(params.email);
   const hasIpaUser = await hasIpaAccountForEmail(email);
   const userRows = hasIpaUser ? [] : await sql`SELECT uid, provider FROM auth.users WHERE lower(btrim(mail)) = ${email}`;
@@ -73,7 +60,7 @@ export const request = async (params: {
 
   if (hasIpaUser) {
     if (await claimIpaHintCooldown(email)) {
-      void sendIpaEmailLoginHint({ email, redirectTo: params.redirectTo }).catch((error) => {
+      void sendIpaEmailLoginHint({ email, redirectTo: params.redirectTo }, notificationSender).catch((error) => {
         log.warn("Failed to send FreeIPA email-login hint", {
           email,
           error: error instanceof Error ? error.message : String(error),
@@ -91,19 +78,16 @@ export const request = async (params: {
   const appUrl = await getAppUrl();
   const magicLink = createAuthLoginUrl(appUrl, { token, redirectTo: params.redirectTo });
 
-  const appName = await settings.get<string>("app.name");
-  const template = await settings.get<string>("mail.magic_link_login");
-
-  await notifications.send({
-    type: "email",
-    recipient: email,
-    subject: `${appName} Login Code`,
-    rawHtml: renderTemplate(template, {
-      TOKEN: token,
-      MAGIC_LINK: magicLink,
-      APP_NAME: appName,
-    }),
-  });
+  try {
+    const result = await notificationSender.sendMagicLink({ email, token, magicLink });
+    if (result.status === "error") log.error("Magic link delivery failed", { notificationId: result.id });
+  } catch (error) {
+    // Keep the response generic to prevent account enumeration. The durable
+    // sender records accepted delivery failures; pre-persistence failures land here.
+    log.error("Magic link notification could not be accepted", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   return { ok: true };
 };

@@ -1,15 +1,14 @@
 import { redis, sql } from "bun";
-import { notifications } from "../notifications";
+import type { User } from "../../contracts/shared";
+import { createAuthPasswordResetUrl } from "../../shared/redirect";
+import { getFreeIpaConfig } from "../freeipa-config";
+import { getServiceIpaSession } from "../ipa/service-account";
+import { logger } from "../logging";
 import { providers } from "../providers";
 import { session } from "../session";
 import * as settings from "../settings";
-import { renderTemplate } from "../settings/templates";
-import { logger } from "../logging";
-import { getServiceIpaSession } from "../ipa/service-account";
-import { getFreeIpaConfig } from "../freeipa-config";
-import type { User } from "../../contracts/shared";
-import { createAuthPasswordResetUrl } from "../../shared/redirect";
 import * as ipaFlow from "./ipa";
+import type { AuthNotificationDeliveryResult, AuthNotificationSender } from "./notification-sender";
 
 const log = logger("auth:password-reset");
 
@@ -102,7 +101,10 @@ const resolveResetTargetForToken = async (params: { userId: string; email: strin
   return rows.length === 1 ? buildTarget(rows[0]!) : null;
 };
 
-const sendResetEmail = async (params: ResetTarget & { redirectTo?: string }): Promise<void> => {
+const sendResetEmail = async (
+  params: ResetTarget & { redirectTo?: string },
+  notificationSender: AuthNotificationSender,
+): Promise<AuthNotificationDeliveryResult> => {
   const token = await providers.local.auth.createPasswordResetToken({
     userId: params.userId,
     uid: params.uid,
@@ -115,22 +117,7 @@ const sendResetEmail = async (params: ResetTarget & { redirectTo?: string }): Pr
     token,
     redirectTo: params.redirectTo,
   });
-  const [appName, contactEmail, template] = await Promise.all([
-    settings.get<string>("app.name"),
-    settings.get<string>("app.contact_email"),
-    settings.get<string>("mail.password_reset"),
-  ]);
-
-  await notifications.send({
-    type: "email",
-    recipient: params.email,
-    subject: `${appName} Password Reset`,
-    rawHtml: renderTemplate(template, {
-      RESET_LINK: resetLink,
-      APP_NAME: appName,
-      CONTACT_EMAIL: contactEmail?.trim() ?? "",
-    }),
-  });
+  return notificationSender.sendPasswordReset({ email: params.email, resetLink });
 };
 
 const changeTemporaryPassword = async (params: {
@@ -173,7 +160,10 @@ const changeTemporaryPassword = async (params: {
   };
 };
 
-export const request = async (params: { email: string; redirectTo?: string }): Promise<{ ok: true; message: string }> => {
+export const request = async (
+  params: { email: string; redirectTo?: string },
+  notificationSender: AuthNotificationSender,
+): Promise<{ ok: true; message: string }> => {
   const email = normalizeEmail(params.email);
   if (await isInCooldown(email)) {
     log.info("Password reset request ignored during cooldown");
@@ -192,8 +182,16 @@ export const request = async (params: { email: string; redirectTo?: string }): P
     return { ok: true, message: GENERIC_MESSAGE };
   }
 
-  await sendResetEmail({ ...target, redirectTo: params.redirectTo });
-  log.info("Password reset email sent", { uid: target.uid });
+  try {
+    const result = await sendResetEmail({ ...target, redirectTo: params.redirectTo }, notificationSender);
+    if (result.status === "error") log.error("Password reset delivery failed", { notificationId: result.id, uid: target.uid });
+    else log.info("Password reset notification accepted", { notificationId: result.id, uid: target.uid, status: result.status });
+  } catch (error) {
+    log.error("Password reset notification could not be accepted", {
+      uid: target.uid,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   return { ok: true, message: GENERIC_MESSAGE };
 };
 

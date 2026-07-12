@@ -20,7 +20,7 @@ import accountsEntitiesRoutes from "./accounts-entities";
 import adminCoreSettingsRoutes from "./admin-core-settings";
 import adminLifecycleRoutes from "./admin-lifecycle";
 import { adminAnnouncementRoutes, announcementRoutes } from "./announcements";
-import authRoutes from "./auth";
+import { createAuthRoutes } from "./auth";
 import meRoutes from "./me";
 import { createSearchRoutes } from "./search";
 
@@ -29,11 +29,15 @@ import { createSearchRoutes } from "./search";
  * input/output. Splitting into `new Hono()` + `.route(...)` calls would erase
  * the typed shape for the client.
  */
-const buildCoreApi = () => {
+export type CoreApiOptions = {
+  notifications: import("../services/auth-flows/notification-sender").AuthNotificationSender;
+};
+
+const buildCoreApi = (options: CoreApiOptions) => {
   const searchRoutes = createSearchRoutes();
   return new Hono()
     .use(prettyJSON())
-    .route("/auth", authRoutes)
+    .route("/auth", createAuthRoutes(options.notifications))
     .route("/me", meRoutes)
     .route("/accounts", accountsEntitiesRoutes)
     .route("/announcements", announcementRoutes)
@@ -51,8 +55,8 @@ export type CoreApiType = ReturnType<typeof buildCoreApi>;
  * Build the core router. The core-app calls this and mounts the returned
  * router under `/api`.
  */
-export const createCoreApiRouter = () => {
-  const api = buildCoreApi();
+export const createCoreApiRouter = (options: CoreApiOptions) => {
+  const api = buildCoreApi(options);
   api.all("/*", (c) => c.json({ message: "API route not found" }, 404));
   return { api };
 };

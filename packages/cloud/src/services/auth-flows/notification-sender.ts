@@ -1,0 +1,10 @@
+export type AuthNotificationDeliveryResult = {
+  id: string;
+  status: "queued" | "delivered" | "suppressed" | "error";
+};
+
+export type AuthNotificationSender = {
+  sendMagicLink: (input: { email: string; token: string; magicLink: string }) => Promise<AuthNotificationDeliveryResult>;
+  sendIpaLoginHint: (input: { email: string; loginUrl: string }) => Promise<AuthNotificationDeliveryResult>;
+  sendPasswordReset: (input: { email: string; resetLink: string }) => Promise<AuthNotificationDeliveryResult>;
+};

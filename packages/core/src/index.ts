@@ -4,17 +4,19 @@
  * `@valentinkolb/cloud/api` so other apps can import its typed client without
  * cross-app imports.
  */
-import { app } from "./config";
-import { Hono } from "hono";
-import { middleware, type AppContext, type AuthContext } from "@valentinkolb/cloud/server";
+
 import { createCoreApiRouter } from "@valentinkolb/cloud/api";
+import { type AppContext, type AuthContext, middleware } from "@valentinkolb/cloud/server";
+import { Hono } from "hono";
+import { app } from "./config";
+import { createCoreNotificationSender } from "./notifications";
 import { createPagesRouter } from "./pages/create";
 import { runCoreSetup, startCoreServices, stopCoreServices } from "./runtime-helpers";
 
 /** Per-app Hono context: AuthContext + typed core settings snapshot. */
 export type CoreAppContext = AppContext<typeof app>;
 
-const { api } = createCoreApiRouter();
+const { api } = createCoreApiRouter({ notifications: createCoreNotificationSender(app.notifications) });
 const pages = createPagesRouter();
 
 const coreApi = new Hono().route("/", api);
