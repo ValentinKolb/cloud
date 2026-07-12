@@ -1,4 +1,4 @@
-import { sql } from "bun";
+import { sql as defaultSql, type SQL } from "bun";
 import { backfillWorkflowEmailDeliveries } from "./workflow-email-delivery-backfill";
 
 /**
@@ -14,10 +14,12 @@ import { backfillWorkflowEmailDeliveries } from "./workflow-email-delivery-backf
  * junction table. Base grants are the broad scope; table/view/form/document
  * template/dashboard/workflow grants can narrow or expose specific surfaces.
  */
-export const migrate = async (): Promise<void> => {
+const migrateSchema = async (sql: SQL): Promise<void> => {
   await sql`CREATE SCHEMA IF NOT EXISTS grids`.simple();
   console.log("  ✓ grids schema");
+};
 
+const migrateSafeCastHelpers = async (sql: SQL): Promise<void> => {
   // ──────────────────────────────────────────────────────────────────
   // Safe-cast helpers
   // ──────────────────────────────────────────────────────────────────
@@ -68,7 +70,9 @@ export const migrate = async (): Promise<void> => {
     BEGIN RETURN t::boolean; EXCEPTION WHEN others THEN RETURN NULL; END $$
   `.simple();
   console.log("  ✓ grids.try_* safe-cast helpers");
+};
 
+const migrateCoreRecords = async (sql: SQL): Promise<void> => {
   // ──────────────────────────────────────────────────────────────────
   // bases
   // ──────────────────────────────────────────────────────────────────
@@ -260,7 +264,9 @@ export const migrate = async (): Promise<void> => {
   // Reverse read: "all records linking to X via field F".
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_record_links_reverse ON grids.record_links(to_record_id, from_field_id)`.simple();
   console.log("  ✓ grids.record_links");
+};
 
+const migrateViews = async (sql: SQL): Promise<void> => {
   // ──────────────────────────────────────────────────────────────────
   // views
   // ──────────────────────────────────────────────────────────────────
@@ -288,8 +294,6 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS description TEXT`.simple();
   await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS ui JSONB NOT NULL DEFAULT '{}'::jsonb`.simple();
-  await sql`ALTER TABLE grids.views DROP COLUMN IF EXISTS query`.simple();
-  await sql`ALTER TABLE grids.views DROP COLUMN IF EXISTS display_config`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_views_table_live ON grids.views(table_id, position) WHERE deleted_at IS NULL`.simple();
   console.log("  ✓ grids.views");
 
@@ -302,9 +306,9 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_view_access_access ON grids.view_access(access_id)`.simple();
   console.log("  ✓ grids.view_access");
+};
 
-  await sql`DROP TABLE IF EXISTS grids.gql_queries CASCADE`.simple();
-
+const migrateDocumentTemplates = async (sql: SQL): Promise<void> => {
   // ──────────────────────────────────────────────────────────────────
   // document templates / snapshots / runs
   // ──────────────────────────────────────────────────────────────────
@@ -448,8 +452,6 @@ export const migrate = async (): Promise<void> => {
       CONSTRAINT email_templates_html_length_chk CHECK (length(html) BETWEEN 1 AND 200000)
     )
   `.simple();
-  await sql`ALTER TABLE grids.email_templates DROP CONSTRAINT IF EXISTS email_templates_text_length_chk`.simple();
-  await sql`ALTER TABLE grids.email_templates DROP COLUMN IF EXISTS text`.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_email_templates_base_live
     ON grids.email_templates(base_id, position) WHERE deleted_at IS NULL
@@ -459,7 +461,9 @@ export const migrate = async (): Promise<void> => {
     ON grids.email_templates(base_id, short_id) WHERE deleted_at IS NULL
   `.simple();
   console.log("  ✓ grids.email_templates");
+};
 
+const migrateDocumentArtifacts = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.record_snapshots (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -596,7 +600,21 @@ export const migrate = async (): Promise<void> => {
     WHERE revoked_at IS NULL
   `.simple();
   console.log("  ✓ grids.document_links");
+};
 
+// Intentional alpha hard cut: these surfaces predate canonical GQL views and
+// HTML-only workflow email templates. They are removed instead of migrated so
+// the runtime has one query and one email-template representation.
+const cleanupAlphaSchema = async (sql: SQL): Promise<void> => {
+  await sql`ALTER TABLE grids.views DROP COLUMN IF EXISTS query`.simple();
+  await sql`ALTER TABLE grids.views DROP COLUMN IF EXISTS display_config`.simple();
+  await sql`DROP TABLE IF EXISTS grids.gql_queries CASCADE`.simple();
+  await sql`ALTER TABLE grids.email_templates DROP CONSTRAINT IF EXISTS email_templates_text_length_chk`.simple();
+  await sql`ALTER TABLE grids.email_templates DROP COLUMN IF EXISTS text`.simple();
+  console.log("  ✓ grids alpha schema cleanup");
+};
+
+const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
   // ──────────────────────────────────────────────────────────────────
   // forms — record-entry surface for internal users + optional public URLs
   // ──────────────────────────────────────────────────────────────────
@@ -768,7 +786,9 @@ export const migrate = async (): Promise<void> => {
     ON grids.views(table_id, short_id) WHERE deleted_at IS NULL
   `.simple();
   console.log("  ✓ grids.{bases,tables,fields,forms,views}.short_id + unique indexes");
+};
 
+const migrateDashboards = async (sql: SQL): Promise<void> => {
   // ──────────────────────────────────────────────────────────────────
   // dashboards
   // ──────────────────────────────────────────────────────────────────
@@ -821,7 +841,9 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_dashboard_access_access ON grids.dashboard_access(access_id)`.simple();
   console.log("  ✓ grids.dashboard_access");
+};
 
+const migrateWorkflowCatalog = async (sql: SQL): Promise<void> => {
   // ──────────────────────────────────────────────────────────────────
   // workflows — YAML-authored base-level runtime definitions
   // ──────────────────────────────────────────────────────────────────
@@ -885,7 +907,9 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_workflow_access_access ON grids.workflow_access(access_id)`.simple();
   console.log("  ✓ grids.workflow_access");
+};
 
+const migrateWorkflowRuns = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.workflow_runs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -985,7 +1009,9 @@ export const migrate = async (): Promise<void> => {
     END $$;
   `.simple();
   console.log("  ✓ grids.workflow_runs");
+};
 
+const migrateWorkflowDeliveries = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.workflow_email_deliveries (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1045,7 +1071,7 @@ export const migrate = async (): Promise<void> => {
     ON grids.workflow_email_deliveries(source_audit_id, recipient_index)
     WHERE source_audit_id IS NOT NULL AND recipient_index IS NOT NULL
   `.simple();
-  await backfillWorkflowEmailDeliveries();
+  await backfillWorkflowEmailDeliveries(sql);
   console.log("  ✓ grids.workflow_email_deliveries");
 
   await sql`
@@ -1076,7 +1102,9 @@ export const migrate = async (): Promise<void> => {
     WHERE resume_key IS NOT NULL
   `.simple();
   console.log("  ✓ grids.workflow_step_runs");
+};
 
+const migrateRecordScanCodes = async (sql: SQL): Promise<void> => {
   // Opaque scan codes are lazy-generated record lookup keys. A code does not
   // grant access; scanner workflows still resolve and run through permissions.
   await sql`
@@ -1105,6 +1133,21 @@ export const migrate = async (): Promise<void> => {
     ON grids.record_scan_codes(table_id, record_id) WHERE active = TRUE
   `.simple();
   console.log("  ✓ grids.record_scan_codes");
+};
 
+export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
+  await migrateSchema(sql);
+  await migrateSafeCastHelpers(sql);
+  await migrateCoreRecords(sql);
+  await migrateViews(sql);
+  await migrateDocumentTemplates(sql);
+  await migrateDocumentArtifacts(sql);
+  await cleanupAlphaSchema(sql);
+  await migrateFormsAndEvents(sql);
+  await migrateDashboards(sql);
+  await migrateWorkflowCatalog(sql);
+  await migrateWorkflowRuns(sql);
+  await migrateWorkflowDeliveries(sql);
+  await migrateRecordScanCodes(sql);
   console.log("  ✓ grids schema ready");
 };

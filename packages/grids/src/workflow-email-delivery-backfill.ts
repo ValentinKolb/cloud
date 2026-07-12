@@ -1,6 +1,6 @@
-import { sql } from "bun";
+import { sql as defaultSql, type SQL } from "bun";
 
-export const backfillWorkflowEmailDeliveries = async (): Promise<void> => {
+export const backfillWorkflowEmailDeliveries = async (sql: SQL = defaultSql): Promise<void> => {
   await sql`
     WITH legacy AS (
       SELECT
