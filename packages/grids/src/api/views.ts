@@ -1,6 +1,6 @@
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
-import { Hono } from "hono";
+import { type AuthContext, auth, jsonResponse, type PermissionLevel, respond, v } from "@valentinkolb/cloud/server";
+import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { CreateViewSchema, UpdateViewSchema, ViewListSchema, ViewSchema } from "../contracts";
 import { gridsService } from "../service";
@@ -9,6 +9,35 @@ import { currentActorUser, currentActorUserId, currentActorViewer, gateAt, hasEx
 
 const gqlDiagnosticMessage = (diagnostics: Array<{ message: string }>): string =>
   diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid GQL source";
+
+export const canAdministerView = (params: { level: PermissionLevel; isOwner: boolean; hasDirectViewGrant: boolean }): boolean =>
+  gridsService.permission.hasAtLeast(params.level, "admin") ||
+  (params.isOwner && !params.hasDirectViewGrant && gridsService.permission.hasAtLeast(params.level, "read"));
+
+export const changesViewSharing = (shared: boolean | undefined, ownerUserId: string | null): boolean =>
+  shared !== undefined && shared !== (ownerUserId === null);
+
+const canAdministerViewForRequest = async (
+  c: Context<AuthContext>,
+  view: { id: string; tableId: string; ownerUserId: string | null },
+  baseId: string,
+): Promise<boolean> => {
+  const { level, grants } = await resolveWithGrants(c, {
+    baseId,
+    tableId: view.tableId,
+    viewId: view.id,
+  });
+  return canAdministerView({
+    level,
+    isOwner: view.ownerUserId === currentActorViewer(c).userId,
+    hasDirectViewGrant: grants.some(
+      (grant) =>
+        grant.resourceType === "view" &&
+        grant.resourceId === view.id &&
+        (grant.principalTier === "user" || grant.principalTier === "serviceAccount"),
+    ),
+  });
+};
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
@@ -149,23 +178,19 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const body = c.req.valid("json");
       if (body.shared === false && !currentActorUser(c)) return c.json({ message: "Sign in to make this view personal." }, 403);
-      const isOwner = view.ownerUserId === currentActorViewer(c).userId;
-
-      const gate = isOwner
-        ? await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "read")
-        : await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "admin");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      if (!isOwner && !gridsService.permission.hasAtLeast(gate.data, "admin")) {
+      if (!(await canAdministerViewForRequest(c, view, table.baseId))) {
         return c.json({ message: "Only view admins can update this view" }, 403);
       }
-      const tableReadGate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read");
+      if (changesViewSharing(body.shared, view.ownerUserId)) {
+        const shareGate = await gateAt(c, { baseId: table.baseId }, "admin");
+        if (!shareGate.ok) return respond(c, () => Promise.resolve(shareGate));
+      }
 
       const compiled =
         body.source !== undefined
           ? await compileGqlViewWrite(c, {
               baseId: table.baseId,
               tableId: view.tableId,
-              trustedAllSources: !tableReadGate.ok,
               ...(body.source !== undefined ? { source: body.source } : {}),
             })
           : null;
@@ -200,12 +225,7 @@ const app = new Hono<AuthContext>()
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const isOwner = view.ownerUserId === currentActorViewer(c).userId;
-      const gate = isOwner
-        ? await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "read")
-        : await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "admin");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      if (!isOwner && !gridsService.permission.hasAtLeast(gate.data, "admin")) {
+      if (!(await canAdministerViewForRequest(c, view, table.baseId))) {
         return c.json({ message: "Only view admins can delete this view" }, 403);
       }
       const result = await gridsService.view.remove(viewId, currentActorUserId(c));
@@ -230,12 +250,7 @@ const app = new Hono<AuthContext>()
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const isOwner = view.ownerUserId === currentActorViewer(c).userId;
-      const gate = isOwner
-        ? await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "read")
-        : await gateAt(c, { baseId: table.baseId, tableId: table.id, viewId: view.id }, "admin");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      if (!isOwner && !gridsService.permission.hasAtLeast(gate.data, "admin")) {
+      if (!(await canAdministerViewForRequest(c, view, table.baseId))) {
         return c.json({ message: "Only view admins can restore this view" }, 403);
       }
       return respond(c, () => gridsService.view.restore(viewId, currentActorUserId(c)));

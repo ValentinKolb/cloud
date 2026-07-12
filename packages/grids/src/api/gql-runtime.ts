@@ -229,7 +229,7 @@ export const executeGqlSource = async (
 
 export const compileGqlViewWrite = async (
   c: Context<AuthContext>,
-  params: { baseId: string; tableId: string; source?: string; trustedAllSources?: boolean },
+  params: { baseId: string; tableId: string; source?: string },
 ): Promise<{ ok: true; source: string } | { ok: false; diagnostics: DslQueryPreviewDiagnostic[] }> => {
   const source = params.source?.trim() || `from table {${params.tableId}}`;
 
@@ -237,9 +237,7 @@ export const compileGqlViewWrite = async (
   if (!parsed.ok) return { ok: false, diagnostics: parsed.diagnostics };
 
   const currentSource: DslCurrentSource = { kind: "table", tableId: params.tableId };
-  const ctx = await buildPermissionedGqlResolverContext(c, params.baseId, params.tableId, currentSource, parsed.ast, {
-    trustedAllSources: params.trustedAllSources,
-  });
+  const ctx = await buildPermissionedGqlResolverContext(c, params.baseId, params.tableId, currentSource, parsed.ast);
   const ast = sourceAst(parsed.ast, currentSource, ctx);
   const canonical = canonicalizeDslQuery(ast, ctx);
   if (!canonical.ok) return { ok: false, diagnostics: canonical.diagnostics };

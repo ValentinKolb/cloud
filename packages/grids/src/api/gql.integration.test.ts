@@ -5,6 +5,7 @@ import { sql } from "bun";
 import { Hono, type MiddlewareHandler } from "hono";
 import { migrate } from "../migrate";
 import { createGqlApi } from "./gql";
+import { compileGqlViewWrite } from "./gql-runtime";
 import apiRoutes from "./index";
 
 const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
@@ -75,6 +76,17 @@ const authenticateAs =
   };
 
 const apiFor = (user: User) => new Hono<AuthContext>().route("/gql", createGqlApi({ requireAuthenticated: authenticateAs(user) }));
+
+const viewWriteCompilerFor = (user: User) =>
+  new Hono<AuthContext>().use(authenticateAs(user)).post("/:baseId/:tableId", async (c) =>
+    c.json(
+      await compileGqlViewWrite(c, {
+        baseId: c.req.param("baseId"),
+        tableId: c.req.param("tableId"),
+        source: (await c.req.json<{ source: string }>()).source,
+      }),
+    ),
+  );
 
 const jsonRequest = (method: "POST" | "PATCH", body: unknown): RequestInit => ({
   method,
@@ -150,6 +162,8 @@ const insertAutocompletePermissionFixture = async (
 ): Promise<{
   baseId: string;
   accessIds: string[];
+  publicTableId: string;
+  secretTableId: string;
 }> => {
   const baseId = uuid();
   const publicTableId = uuid();
@@ -193,7 +207,7 @@ const insertAutocompletePermissionFixture = async (
   await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${baseAccess.id}::uuid)`;
   await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${secretTableId}::uuid, ${secretDeny.id}::uuid)`;
 
-  return { baseId, accessIds: [baseAccess.id, secretDeny.id] };
+  return { baseId, accessIds: [baseAccess.id, secretDeny.id], publicTableId, secretTableId };
 };
 
 const insertRelationFixture = async (userId: string): Promise<GqlRelationApiFixture> => {
@@ -320,6 +334,18 @@ describe("GQL API route contract", () => {
       const denied = (await deniedResponse.json()) as AutocompleteResponse;
       expect(denied.diagnostics.map((diagnostic) => diagnostic.message)).toContain('source "SecretDeals" is not available');
       expect(JSON.stringify(denied.items)).not.toContain("SecretCode");
+
+      const hiddenJoinResponse = await viewWriteCompilerFor(testUser({ id: userId, roles: ["user"] })).request(
+        `/${fixture.baseId}/${fixture.publicTableId}`,
+        jsonRequest("POST", {
+          source: `from table {${fixture.publicTableId}} as visible\njoin table {${fixture.secretTableId}} as hidden on visible.id = hidden.id`,
+        }),
+      );
+      expect(hiddenJoinResponse.status).toBe(200);
+      const hiddenJoin = (await hiddenJoinResponse.json()) as CompileViewResponse;
+      expect(hiddenJoin.ok).toBe(false);
+      if (hiddenJoin.ok) throw new Error("expected hidden join diagnostics");
+      expect(hiddenJoin.diagnostics.some((diagnostic) => diagnostic.message.includes(fixture.secretTableId))).toBe(true);
     } finally {
       await cleanupAutocompletePermissionFixture(fixture.baseId, fixture.accessIds);
     }
