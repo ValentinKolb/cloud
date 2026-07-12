@@ -1,12 +1,13 @@
 import { listApps } from "@valentinkolb/cloud";
-import type { AuthContext } from "@valentinkolb/cloud/server";
 import type { NotificationDeliveryStatus, UserNotificationHistoryItem } from "@valentinkolb/cloud/contracts";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { notifications } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { DataTable, type DataTableColumn, Pagination, Placeholder } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { ssr } from "../../config";
 import CoreLayoutHelp from "../CoreLayoutHelp.island";
+import BrowserNotificationSetup from "./BrowserNotificationSetup.island";
 import NotificationHistoryFilters from "./NotificationHistoryFilters.island";
 import NotificationPreferences, { type NotificationAppMeta } from "./NotificationPreferences.island";
 import { notificationChannelMeta, notificationStatusMeta } from "./notification-ui";
@@ -51,6 +52,8 @@ export default ssr<AuthContext>(async (c) => {
           </h1>
           <p class="mt-1 text-sm text-dimmed">Delivery preferences and recent notification outcomes.</p>
         </header>
+
+        <BrowserNotificationSetup />
 
         <NotificationPreferences initial={preferences} apps={apps} />
 

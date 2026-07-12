@@ -21,6 +21,7 @@ export type NotificationChannelDriver = {
     presentation: NotificationPresentation;
     email?: EmailNotificationPresentation;
     destination: NotificationDestination;
+    event: { id: string; definitionId: string };
   }) => unknown;
   deliver: (payload: unknown) => Promise<void>;
 };

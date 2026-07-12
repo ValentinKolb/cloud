@@ -56,3 +56,28 @@ export const UserNotificationHistoryResponseSchema = z.object({
   totalPages: z.number().int().nonnegative(),
 });
 export type UserNotificationHistoryResponse = z.infer<typeof UserNotificationHistoryResponseSchema>;
+
+export const BrowserPushSubscriptionSchema = z.object({
+  endpoint: z
+    .url()
+    .max(4_000)
+    .refine((value) => value.startsWith("https://"), "Push endpoint must use HTTPS"),
+  expirationTime: z.number().nonnegative().nullable().optional(),
+  keys: z.object({
+    p256dh: z.string().min(20).max(500),
+    auth: z.string().min(8).max(200),
+  }),
+});
+export type BrowserPushSubscription = z.infer<typeof BrowserPushSubscriptionSchema>;
+
+export const BrowserNotificationConfigurationSchema = z.object({ publicKey: z.string().min(1) });
+export type BrowserNotificationConfiguration = z.infer<typeof BrowserNotificationConfigurationSchema>;
+
+export const BrowserNotificationEndpointSchema = z.object({ id: z.uuid(), label: z.string() });
+export type BrowserNotificationEndpoint = z.infer<typeof BrowserNotificationEndpointSchema>;
+
+export const RegisterBrowserNotificationEndpointSchema = z.object({
+  subscription: BrowserPushSubscriptionSchema,
+  label: z.string().trim().min(1).max(120).default("This browser"),
+});
+export type RegisterBrowserNotificationEndpoint = z.infer<typeof RegisterBrowserNotificationEndpointSchema>;

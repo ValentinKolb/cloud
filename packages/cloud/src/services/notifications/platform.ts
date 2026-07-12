@@ -107,6 +107,7 @@ const prepareChannel = async (input: {
   emailPresentation?: { subject: string; content?: string; rawHtml?: string };
   required: boolean;
   routePriority: number | null;
+  event: { id: string; definitionId: string };
 }): Promise<PreparedDelivery[]> => {
   const driver = getNotificationChannel(input.channel);
   if (!driver) {
@@ -151,7 +152,7 @@ const prepareChannel = async (input: {
       destinationKey: destination.key,
       destinationLabel: destination.label,
       payloadEncrypted: await encryptSecret(
-        driver.createPayload({ presentation: input.presentation, email: input.emailPresentation, destination }),
+        driver.createPayload({ presentation: input.presentation, email: input.emailPresentation, destination, event: input.event }),
       ),
       required: input.required,
       routePriority: input.routePriority,
@@ -208,6 +209,7 @@ export const sendTypedNotification = async <
   const presentation = validatePresentation(await definition.render(data));
   const emailPresentation = definition.email ? await definition.email(data) : undefined;
   const resolved = await resolveRecipient(input.recipient);
+  const event = { id: crypto.randomUUID(), definitionId: definition.id };
   await ensureNotificationDefinition(definition);
 
   const requiredChannels = unique([...(definition.delivery?.required ?? [])]);
@@ -225,6 +227,7 @@ export const sendTypedNotification = async <
           emailPresentation,
           required: true,
           routePriority: null,
+          event,
         }),
       ),
     )
@@ -239,6 +242,7 @@ export const sendTypedNotification = async <
           emailPresentation,
           required: false,
           routePriority,
+          event,
         }),
       ),
     )
@@ -273,10 +277,10 @@ export const sendTypedNotification = async <
   const inserted = await sql.begin(async (tx) => {
     const eventRows = await tx<{ id: string }[]>`
       INSERT INTO notifications.events (
-        definition_id, recipient_user_id, recipient_email, recipient_key,
+        id, definition_id, recipient_user_id, recipient_email, recipient_key,
         idempotency_key, title, target_href, sent_by
       ) VALUES (
-        ${definition.id}, ${resolved.recipient.userId}, ${resolved.recipient.userId ? null : resolved.recipient.email},
+        ${event.id}::uuid, ${definition.id}, ${resolved.recipient.userId}, ${resolved.recipient.userId ? null : resolved.recipient.email},
         ${resolved.recipientKey}, ${idempotencyKey}, ${presentation.title}, ${presentation.targetHref ?? null}, ${input.sentBy ?? null}
       )
       ON CONFLICT (definition_id, recipient_key, idempotency_key) DO NOTHING

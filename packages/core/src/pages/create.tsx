@@ -2,6 +2,8 @@ import { join } from "node:path";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { authFlows, coreSettings } from "@valentinkolb/cloud/services";
 import { Hono } from "hono";
+import cliInstaller from "../../../cloud-cli/scripts/install.sh" with { type: "text" };
+import browserNotificationServiceWorker from "../browser-notifications/service-worker.js" with { type: "text" };
 import announcementsAdminPage from "./admin/announcements/page";
 import adminPage from "./admin/page";
 import settingsPage from "./admin/settings/page";
@@ -9,10 +11,9 @@ import newPasswordPage from "./auth/new-password/page";
 import loginPage from "./auth/page";
 import passwordResetPage from "./auth/password-reset/page";
 import { makeLegalPage } from "./legal/page-handler";
-import profilePage from "./me/page";
 import notificationsPage from "./me/notifications.page";
+import profilePage from "./me/page";
 import notFoundPage from "./NotFound";
-import cliInstaller from "../../../cloud-cli/scripts/install.sh" with { type: "text" };
 
 /**
  * Creates the SSR pages router.
@@ -35,6 +36,13 @@ export const createPagesRouter = (options?: { brandingPublicDir?: string }): Hon
     // Serve the installer from the currently deployed Core bundle, rather than
     // piping a mutable branch artifact into a user's shell.
     .get("/cli", (c) => c.body(cliInstaller, 200, { "Content-Type": "text/x-shellscript; charset=utf-8" }))
+    .get("/service-worker.js", (c) =>
+      c.body(browserNotificationServiceWorker, 200, {
+        "Content-Type": "application/javascript; charset=utf-8",
+        "Cache-Control": "no-cache",
+        "Service-Worker-Allowed": "/",
+      }),
+    )
     // Profile
     .get("/me", auth.requireRole("authenticated", auth.redirectToLogin), ...profilePage)
     .get("/me/notifications", auth.requireRole("authenticated", auth.redirectToLogin), ...notificationsPage)

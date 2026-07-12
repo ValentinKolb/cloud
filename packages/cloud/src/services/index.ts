@@ -42,6 +42,7 @@ export type { GatewayRouteSnapshot, GatewayRouteSnapshotInput, GatewayRouteWarni
 export { notificationBatches, notifications } from "./notifications";
 export { registerNotificationChannel } from "./notifications/channels";
 export { startNotificationRuntime, stopNotificationRuntime } from "./notifications/runtime";
+export { browserNotifications } from "./notifications/browser";
 export type {
   NotificationBatch,
   NotificationBatchPreview,

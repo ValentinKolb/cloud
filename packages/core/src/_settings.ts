@@ -374,6 +374,21 @@ export const CORE_SETTINGS = {
     description: "How many days reminder history is kept before cleanup (0 = keep forever)",
   },
 
+  // Internal Web Push identity. Generated once and encrypted with all other
+  // settings; intentionally not exposed as an editable admin settings tab.
+  "notifications.web_push_public_key": {
+    kind: "string",
+    label: "Web Push Public Key",
+    default: "",
+    description: "Generated VAPID public key for browser notification subscriptions.",
+  },
+  "notifications.web_push_private_key": {
+    kind: "secret",
+    label: "Web Push Private Key",
+    default: "",
+    description: "Generated VAPID private key for browser notification delivery.",
+  },
+
   // ── Mail (templates + SMTP) ─────────────────────────────────────────────
   "mail.user_welcome_freeipa": {
     kind: "template",

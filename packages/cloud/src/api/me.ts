@@ -11,6 +11,9 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import {
   AccountActivityListResponseSchema,
+  BrowserNotificationConfigurationSchema,
+  BrowserNotificationEndpointSchema,
+  BrowserPushSubscriptionSchema,
   ChangePasswordSchema,
   CreateAccountRequestSchema,
   CreateUserApiKeyResponseSchema,
@@ -20,11 +23,12 @@ import {
   ListWebAuthnPasskeysResponseSchema,
   MessageResponseSchema,
   NotificationDeliveryStatusSchema,
+  RegisterBrowserNotificationEndpointSchema,
   ServiceAccountCredentialSchema,
-  UpdateUserNotificationPreferenceSchema,
   UpdateAvatarResponseSchema,
   UpdateAvatarSchema,
   UpdateProfileSchema,
+  UpdateUserNotificationPreferenceSchema,
   UserNotificationHistoryResponseSchema,
   UserNotificationPreferenceSchema,
   UserNotificationPreferencesResponseSchema,
@@ -36,6 +40,7 @@ import {
   accountLifecycle,
   accountsAppService as accountsService,
   audit,
+  browserNotifications,
   notifications,
   serviceAccountCredentials,
   webauthn,
@@ -80,6 +85,7 @@ const AccountActivityQuerySchema = z.object({
 });
 
 const NotificationDefinitionParamSchema = z.object({ definitionId: z.string().min(1).max(200) });
+const DisableBrowserNotificationEndpointSchema = z.object({ subscription: BrowserPushSubscriptionSchema });
 const NotificationHistoryQuerySchema = z.object({
   page: z.coerce.number().int().positive().optional().default(1),
   perPage: z.coerce.number().int().min(1).max(100).optional().default(25),
@@ -112,6 +118,73 @@ const app = new Hono<AuthContext>()
           pagination: { page: 1, perPage: 50 },
         });
         return ok({ items: page.items });
+      }),
+  )
+
+  .get(
+    "/notifications/browser/configuration",
+    describeRoute({
+      tags: ["Me"],
+      summary: "Get browser notification configuration",
+      description: "Return the public Web Push application key for this Cloud deployment.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(BrowserNotificationConfigurationSchema, "Browser notification configuration"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+      },
+    }),
+    async (c) => respond(c, async () => ok(await browserNotifications.configuration())),
+  )
+
+  .post(
+    "/notifications/browser/endpoints",
+    describeRoute({
+      tags: ["Me"],
+      summary: "Register browser notification endpoint",
+      description: "Register or refresh a Web Push subscription for the authenticated account.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(BrowserNotificationEndpointSchema, "Registered browser notification endpoint"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid browser subscription"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+      },
+    }),
+    v("json", RegisterBrowserNotificationEndpointSchema),
+    async (c) => {
+      const data = c.req.valid("json");
+      return respond(c, async () =>
+        ok(
+          await browserNotifications.registerEndpoint({
+            userId: c.get("user").id,
+            subscription: data.subscription,
+            label: data.label,
+          }),
+        ),
+      );
+    },
+  )
+
+  .delete(
+    "/notifications/browser/endpoints",
+    describeRoute({
+      tags: ["Me"],
+      summary: "Disable browser notification endpoint",
+      description: "Disable a Web Push subscription owned by the authenticated account.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Browser notification endpoint disabled"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid browser subscription"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+      },
+    }),
+    v("json", DisableBrowserNotificationEndpointSchema),
+    async (c) =>
+      respond(c, async () => {
+        await browserNotifications.disableEndpoint({
+          userId: c.get("user").id,
+          subscription: c.req.valid("json").subscription,
+        });
+        return ok({ message: "Browser notification endpoint disabled." });
       }),
   )
 

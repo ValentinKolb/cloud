@@ -24,6 +24,7 @@
     "./desktop/solid": "./src/desktop/solid.tsx",
     "./server": "./src/server/index.ts",
     "./browser": "./src/server/api-client.ts",
+    "./browser/notifications": "./src/browser/notifications.ts",
     "./cli": "./src/cli/index.ts",
     "./cli/access": "./src/cli/access.ts",
     "./cli/account": "./src/cli/account.ts",
@@ -73,6 +74,7 @@
     "seroval": "^1.5.4",
     "solid-js": "^1.9.10",
     "tailwindcss": "^4.1.18",
+    "web-push": "^3.6.7",
     "zod": "^4.3.4"
   },
   "devDependencies": {
@@ -81,6 +83,7 @@
     "@types/bun": "1.3.9",
     "@types/nodemailer": "^7.0.5",
     "@types/sanitize-html": "^2.16.0",
+    "@types/web-push": "^3.6.4",
     "babel-preset-solid": "^1.9.10",
     "typescript": "^5.9.3"
   }

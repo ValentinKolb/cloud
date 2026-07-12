@@ -1,9 +1,10 @@
-import { createSignal, Show } from "solid-js";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
-import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
+import { browserNotificationClient } from "@valentinkolb/cloud/browser/notifications";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
+import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
 import { getCurrentThemePreference, setThemePreference } from "@valentinkolb/cloud/shared";
+import { prompts, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal, Show } from "solid-js";
 import { PasswordSetupFields } from "../auth/PasswordSetupFields";
 
 type Props = {
@@ -201,6 +202,7 @@ export default function ProfileSettings(props: Props) {
   };
 
   const handleLogout = async () => {
+    await browserNotificationClient.disable().catch(() => undefined);
     await apiClient.auth.logout.$post();
     window.location.href = "/auth/login";
   };

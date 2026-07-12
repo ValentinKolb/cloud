@@ -3,7 +3,13 @@
  * Migrations, background jobs — nothing generic here.
  */
 
-import { lifecycleJobs, migrateWeather, startNotificationRuntime, stopNotificationRuntime } from "@valentinkolb/cloud/services";
+import {
+  browserNotifications,
+  lifecycleJobs,
+  migrateWeather,
+  startNotificationRuntime,
+  stopNotificationRuntime,
+} from "@valentinkolb/cloud/services";
 import { migrate as migrateAnnouncements } from "./migrate/core/announcements";
 import { migrate as migrateAudit } from "./migrate/core/audit";
 import { migrate as migrateAuth } from "./migrate/core/auth";
@@ -31,14 +37,29 @@ export const runCoreSetup = async (): Promise<void> => {
 
 /** Start core background services (account lifecycle jobs). */
 export const startCoreServices = async (notificationSender: CoreNotificationSender): Promise<void> => {
-  await lifecycleJobs.start({ notificationSender });
-  await startNotificationRuntime();
+  await browserNotifications.start();
+  try {
+    await startNotificationRuntime();
+    await lifecycleJobs.start({ notificationSender });
+  } catch (error) {
+    await lifecycleJobs.stop().catch(() => undefined);
+    await stopNotificationRuntime().catch(() => undefined);
+    browserNotifications.stop();
+    throw error;
+  }
 };
 
 /** Stop core background services. */
 export const stopCoreServices = async (): Promise<void> => {
-  await stopNotificationRuntime();
-  await lifecycleJobs.stop();
+  try {
+    await lifecycleJobs.stop();
+  } finally {
+    try {
+      await stopNotificationRuntime();
+    } finally {
+      browserNotifications.stop();
+    }
+  }
 };
 
 /** Boot the full core runtime: setup, start services, register shutdown hooks. */

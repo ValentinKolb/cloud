@@ -134,6 +134,23 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_notification_deliveries_event
     ON notifications.deliveries(event_id, required, route_priority, status)
   `.simple();
+  await sql`
+    WITH ranked AS (
+      SELECT id,
+             row_number() OVER (PARTITION BY channel, endpoint_hash ORDER BY last_seen_at DESC, created_at DESC, id DESC) AS rank
+      FROM notifications.endpoints
+      WHERE disabled_at IS NULL
+    )
+    UPDATE notifications.endpoints e
+    SET disabled_at = now(), updated_at = now()
+    FROM ranked r
+    WHERE e.id = r.id AND r.rank > 1
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_notification_endpoints_active_destination
+    ON notifications.endpoints(channel, endpoint_hash)
+    WHERE disabled_at IS NULL
+  `.simple();
   console.log("  ✓ end-user notification tables");
 
   await sql`

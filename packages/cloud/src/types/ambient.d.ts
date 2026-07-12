@@ -12,6 +12,11 @@ declare module "*.sh" {
   export default content;
 }
 
+declare module "*service-worker.js" {
+  const content: string;
+  export default content;
+}
+
 declare module "@babel/core" {
   export const types: typeof import("@babel/types");
 

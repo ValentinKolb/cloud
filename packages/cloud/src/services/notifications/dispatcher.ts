@@ -95,7 +95,8 @@ export const processNotificationDelivery = async (deliveryId: string): Promise<D
   } catch (error) {
     const message = error instanceof Error ? error.message : "Notification delivery failed";
     const code = error && typeof error === "object" && "code" in error ? String(error.code) : "provider_error";
-    if (delivery.attempt_count < MAX_DELIVERY_ATTEMPTS) {
+    const retryable = !(error && typeof error === "object" && "retryable" in error && error.retryable === false);
+    if (retryable && delivery.attempt_count < MAX_DELIVERY_ATTEMPTS) {
       const retryAfterMs = retryDelay(delivery.attempt_count);
       await sql`
         UPDATE notifications.deliveries

@@ -5,6 +5,7 @@ import type { PaginationParams } from "../../contracts/shared";
 import { logger } from "../logging";
 import { escapeLikePattern } from "../postgres";
 import { sendEmail } from "./email";
+import "./browser";
 import { sendTypedNotification, type TypedNotificationSendResult } from "./platform";
 import { userNotifications } from "./user";
 

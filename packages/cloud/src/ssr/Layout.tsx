@@ -9,6 +9,7 @@ import Avatar from "../ui/misc/Avatar";
 import AppLaunchpad, { type AppLaunchpadApp } from "./AppLaunchpad.island";
 import { appAccentStyle, appAppearanceStyle, resolveCurrentApp } from "./app-appearance";
 import { visibleNavigationApps } from "./app-navigation";
+import BrowserNotifications from "./BrowserNotifications.island";
 import Footer from "./Footer.island";
 import GlobalAnnouncements from "./GlobalAnnouncements.island";
 import type { GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
@@ -202,6 +203,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
       style={appAppearanceStyle(currentApp?.appearance)}
     >
       <TimezoneCookie />
+      {user && <BrowserNotifications />}
       {showRail && <AppLaunchpad apps={launchpadApps} legalLinks={legalLinks} />}
       {showRail && (
         <script id="cloud-app-launchpad-data" type="application/json">
