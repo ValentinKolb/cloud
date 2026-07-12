@@ -20,6 +20,123 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ notifications.messages table");
 
   await sql`
+    CREATE TABLE IF NOT EXISTS notifications.definitions (
+      id TEXT PRIMARY KEY,
+      app_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      label TEXT NOT NULL,
+      description TEXT NOT NULL,
+      recipient_kind TEXT NOT NULL,
+      recommended_channels TEXT[] NOT NULL DEFAULT '{}',
+      required_channels TEXT[] NOT NULL DEFAULT '{}',
+      active BOOLEAN NOT NULL DEFAULT true,
+      first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT notification_definitions_recipient_kind_check
+        CHECK (recipient_kind IN ('user', 'email')),
+      UNIQUE (app_id, kind)
+    )
+  `.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS notifications.preferences (
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      definition_id TEXT NOT NULL REFERENCES notifications.definitions(id) ON DELETE CASCADE,
+      channels TEXT[] NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, definition_id)
+    )
+  `.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS notifications.endpoints (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      channel TEXT NOT NULL,
+      endpoint_hash TEXT NOT NULL,
+      label TEXT NOT NULL,
+      secret_encrypted TEXT NOT NULL,
+      verified_at TIMESTAMPTZ,
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      disabled_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (user_id, channel, endpoint_hash)
+    )
+  `.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS notifications.events (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      definition_id TEXT NOT NULL REFERENCES notifications.definitions(id),
+      recipient_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+      recipient_email TEXT,
+      recipient_key TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      title TEXT NOT NULL,
+      target_href TEXT,
+      sent_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT notification_events_recipient_check CHECK (
+        (recipient_user_id IS NOT NULL AND recipient_email IS NULL)
+        OR (recipient_user_id IS NULL AND recipient_email IS NOT NULL)
+      ),
+      CONSTRAINT notification_events_target_href_check CHECK (
+        target_href IS NULL OR (left(target_href, 1) = '/' AND left(target_href, 2) <> '//')
+      ),
+      UNIQUE (definition_id, recipient_key, idempotency_key)
+    )
+  `.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS notifications.deliveries (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      event_id UUID NOT NULL REFERENCES notifications.events(id) ON DELETE CASCADE,
+      channel TEXT NOT NULL,
+      endpoint_id UUID REFERENCES notifications.endpoints(id) ON DELETE SET NULL,
+      destination_key TEXT NOT NULL,
+      destination_label TEXT NOT NULL,
+      payload_encrypted TEXT NOT NULL,
+      required BOOLEAN NOT NULL DEFAULT false,
+      route_priority INTEGER,
+      status TEXT NOT NULL DEFAULT 'deferred',
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TIMESTAMPTZ,
+      last_attempt_at TIMESTAMPTZ,
+      delivered_at TIMESTAMPTZ,
+      error_code TEXT,
+      error_message TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT notification_deliveries_status_check CHECK (
+        status IN ('deferred', 'pending', 'sending', 'delivered', 'suppressed', 'failed')
+      ),
+      CONSTRAINT notification_deliveries_attempt_count_check CHECK (attempt_count >= 0),
+      UNIQUE (event_id, channel, destination_key)
+    )
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_notification_definitions_app
+    ON notifications.definitions(app_id, active, id)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_notification_events_recipient
+    ON notifications.events(recipient_user_id, created_at DESC)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_notification_deliveries_dispatch
+    ON notifications.deliveries(status, next_attempt_at, created_at)
+    WHERE status IN ('pending', 'sending')
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_notification_deliveries_event
+    ON notifications.deliveries(event_id, required, route_priority, status)
+  `.simple();
+  console.log("  ✓ end-user notification tables");
+
+  await sql`
     CREATE TABLE IF NOT EXISTS notifications.batches (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       subject TEXT NOT NULL,

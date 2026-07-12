@@ -40,6 +40,8 @@ export {
 export type { GatewayRouteSnapshot, GatewayRouteSnapshotInput, GatewayRouteWarning, GatewayTelemetryEvent } from "./gateway";
 
 export { notificationBatches, notifications } from "./notifications";
+export { registerNotificationChannel } from "./notifications/channels";
+export { startNotificationRuntime, stopNotificationRuntime } from "./notifications/runtime";
 export type {
   NotificationBatch,
   NotificationBatchPreview,
@@ -53,6 +55,8 @@ export type {
   SendToUserParams,
   NotificationMessage,
 } from "./notifications";
+export type { NotificationChannelDriver } from "./notifications/channels";
+export type { TypedNotificationDeliveryStatus, TypedNotificationSendResult } from "./notifications/platform";
 export { announcements } from "./announcements";
 export type { AnnouncementsService } from "./announcements";
 

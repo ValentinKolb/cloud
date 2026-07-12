@@ -1,0 +1,135 @@
+import { sql } from "bun";
+import { decryptSecret } from "../secrets";
+import { getNotificationChannel } from "./channels";
+
+const MAX_DELIVERY_ATTEMPTS = 5;
+const BASE_RETRY_MS = 2_000;
+const MAX_RETRY_MS = 5 * 60_000;
+
+type DeliveryRow = {
+  id: string;
+  event_id: string;
+  channel: string;
+  payload_encrypted: string;
+  required: boolean;
+  route_priority: number | null;
+  attempt_count: number;
+};
+
+export type DeliveryAttemptResult =
+  | { status: "skipped" | "delivered" | "failed" }
+  | { status: "retry"; retryAfterMs: number; error: string };
+
+const retryDelay = (attempt: number): number => Math.min(BASE_RETRY_MS * 2 ** Math.max(0, attempt - 1), MAX_RETRY_MS);
+
+const activateNextFallback = async (eventId: string): Promise<string[]> => {
+  const delivered = await sql<{ exists: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM notifications.deliveries
+      WHERE event_id = ${eventId}::uuid AND required = false AND status = 'delivered'
+    ) AS exists
+  `;
+  if (delivered[0]?.exists) {
+    await sql`
+      UPDATE notifications.deliveries
+      SET status = 'suppressed', error_code = 'fallback_not_needed',
+          error_message = 'A preferred channel was delivered.', updated_at = now()
+      WHERE event_id = ${eventId}::uuid AND required = false AND status = 'deferred'
+    `;
+    return [];
+  }
+
+  const active = await sql<{ exists: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM notifications.deliveries
+      WHERE event_id = ${eventId}::uuid AND required = false AND status IN ('pending', 'sending')
+    ) AS exists
+  `;
+  if (active[0]?.exists) return [];
+
+  const rows = await sql<{ id: string }[]>`
+    WITH next_route AS (
+      SELECT MIN(route_priority) AS priority
+      FROM notifications.deliveries
+      WHERE event_id = ${eventId}::uuid AND required = false AND status = 'deferred'
+    )
+    UPDATE notifications.deliveries d
+    SET status = 'pending', next_attempt_at = now(), updated_at = now()
+    FROM next_route
+    WHERE d.event_id = ${eventId}::uuid
+      AND d.required = false
+      AND d.status = 'deferred'
+      AND d.route_priority = next_route.priority
+    RETURNING d.id
+  `;
+  return rows.map((row) => row.id);
+};
+
+export const processNotificationDelivery = async (deliveryId: string): Promise<DeliveryAttemptResult & { activatedIds?: string[] }> => {
+  const rows = await sql<DeliveryRow[]>`
+    UPDATE notifications.deliveries
+    SET status = 'sending', attempt_count = attempt_count + 1,
+        last_attempt_at = now(), updated_at = now()
+    WHERE id = ${deliveryId}::uuid
+      AND status = 'pending'
+      AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+    RETURNING id, event_id, channel, payload_encrypted, required, route_priority, attempt_count
+  `;
+  const delivery = rows[0];
+  if (!delivery) return { status: "skipped" };
+
+  try {
+    const driver = getNotificationChannel(delivery.channel);
+    if (!driver)
+      throw Object.assign(new Error(`Notification channel "${delivery.channel}" is unavailable`), { code: "channel_unavailable" });
+    const payload = await decryptSecret(delivery.payload_encrypted);
+    await driver.deliver(payload);
+    await sql`
+      UPDATE notifications.deliveries
+      SET status = 'delivered', delivered_at = now(), next_attempt_at = NULL,
+          error_code = NULL, error_message = NULL, updated_at = now()
+      WHERE id = ${delivery.id}::uuid
+    `;
+    const activatedIds = delivery.required ? [] : await activateNextFallback(delivery.event_id);
+    return { status: "delivered", activatedIds };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Notification delivery failed";
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "provider_error";
+    if (delivery.attempt_count < MAX_DELIVERY_ATTEMPTS) {
+      const retryAfterMs = retryDelay(delivery.attempt_count);
+      await sql`
+        UPDATE notifications.deliveries
+        SET status = 'pending', next_attempt_at = now() + (${retryAfterMs}::int * INTERVAL '1 millisecond'),
+            error_code = ${code}, error_message = ${message}, updated_at = now()
+        WHERE id = ${delivery.id}::uuid
+      `;
+      return { status: "retry", retryAfterMs, error: message };
+    }
+
+    await sql`
+      UPDATE notifications.deliveries
+      SET status = 'failed', next_attempt_at = NULL, error_code = ${code},
+          error_message = ${message}, updated_at = now()
+      WHERE id = ${delivery.id}::uuid
+    `;
+    const activatedIds = delivery.required ? [] : await activateNextFallback(delivery.event_id);
+    return { status: "failed", activatedIds };
+  }
+};
+
+export const recoverNotificationDeliveries = async (): Promise<string[]> => {
+  await sql`
+    UPDATE notifications.deliveries
+    SET status = 'pending', next_attempt_at = now(), error_code = 'lease_recovered',
+        error_message = 'Recovered an interrupted delivery attempt.', updated_at = now()
+    WHERE status = 'sending' AND last_attempt_at < now() - INTERVAL '5 minutes'
+  `;
+  const rows = await sql<{ id: string }[]>`
+    SELECT id
+    FROM notifications.deliveries
+    WHERE status = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+    ORDER BY next_attempt_at NULLS FIRST, created_at
+    LIMIT 500
+  `;
+  return rows.map((row) => row.id);
+};

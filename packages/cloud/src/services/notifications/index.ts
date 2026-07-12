@@ -1,8 +1,11 @@
 import { sql } from "bun";
+import type { ZodType } from "zod";
+import type { BoundNotificationDefinition, NotificationRecipientKind, NotificationSendInput } from "../../contracts/notification-types";
 import type { PaginationParams } from "../../contracts/shared";
 import { logger } from "../logging";
 import { escapeLikePattern } from "../postgres";
 import { sendEmail } from "./email";
+import { sendTypedNotification, type TypedNotificationSendResult } from "./platform";
 
 const log = logger("notifications");
 
@@ -93,7 +96,7 @@ type DbNotificationRow = {
 /**
  * Send a notification. Persists to DB, attempts delivery (if autoSend=true), updates sent_at/error.
  */
-export const send = async (params: SendNotificationParams): Promise<SendNotificationResult> => {
+const sendLegacy = async (params: SendNotificationParams): Promise<SendNotificationResult> => {
   const { type, recipient, subject, content, rawHtml, autoSend = true, sentBy } = params;
 
   // Persist to DB
@@ -125,6 +128,20 @@ export const send = async (params: SendNotificationParams): Promise<SendNotifica
     return { id, status: "error", error };
   }
 };
+
+export function send<AppId extends string, Key extends string, R extends NotificationRecipientKind, S extends ZodType>(
+  definition: BoundNotificationDefinition<AppId, Key, R, S>,
+  input: NotificationSendInput<BoundNotificationDefinition<AppId, Key, R, S>>,
+): Promise<TypedNotificationSendResult>;
+export function send(params: SendNotificationParams): Promise<SendNotificationResult>;
+export function send<AppId extends string, Key extends string, R extends NotificationRecipientKind, S extends ZodType>(
+  definitionOrParams: SendNotificationParams | BoundNotificationDefinition<AppId, Key, R, S>,
+  input?: NotificationSendInput<BoundNotificationDefinition<AppId, Key, R, S>>,
+): Promise<SendNotificationResult | TypedNotificationSendResult> {
+  if ("type" in definitionOrParams) return sendLegacy(definitionOrParams);
+  if (!input) throw new Error("Typed notification send input is required");
+  return sendTypedNotification(definitionOrParams, input);
+}
 
 /**
  * Send a notification to a user by their database ID.
@@ -575,7 +592,6 @@ export const notifications = {
   getSearchSummary,
 };
 
-export { notificationBatches } from "./batches";
 export type {
   NotificationBatch,
   NotificationBatchPreview,
@@ -584,3 +600,4 @@ export type {
   NotificationBatchSelection,
   NotificationBatchStatus,
 } from "./batches";
+export { notificationBatches } from "./batches";

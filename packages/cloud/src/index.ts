@@ -10,6 +10,7 @@ export type {
   BoundNotificationMap,
   EmailNotificationPresentation,
   NotificationChannelId,
+  NotificationChannelRegistry,
   NotificationDefinition,
   NotificationDefinitionInput,
   NotificationDefinitionMap,

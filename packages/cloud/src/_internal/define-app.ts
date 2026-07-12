@@ -17,6 +17,7 @@ import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
 import type { Role } from "../contracts/shared";
 import { auth } from "../server/middleware/auth";
 import { logger } from "../services/logging";
+import { registerNotificationDefinitions } from "../services/notifications/catalog";
 import { get, loadCache as loadSettingsCache, set } from "../services/settings";
 import { createSettingsAPI, type SettingsAPI } from "../services/settings/api";
 import { registerSettings, type SettingDef } from "../services/settings/defaults";
@@ -426,6 +427,8 @@ export const defineApp = <
       log.info(`Setup: ${meta.id}`);
       await startOpts.lifecycle.setup(cloudCtx);
     }
+
+    await registerNotificationDefinitions(notifications);
 
     await loadSettingsCache();
 

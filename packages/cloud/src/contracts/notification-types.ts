@@ -1,7 +1,14 @@
 import type { output, ZodType } from "zod";
 
 export type NotificationRecipientKind = "user" | "email";
-export type NotificationChannelId = "email" | "browser";
+
+/** Deployment channel packages extend this registry through module augmentation. */
+export interface NotificationChannelRegistry {
+  email: true;
+  browser: true;
+}
+
+export type NotificationChannelId = Extract<keyof NotificationChannelRegistry, string>;
 
 export type NotificationPresentation = {
   title: string;

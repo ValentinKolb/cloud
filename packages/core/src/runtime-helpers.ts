@@ -3,7 +3,7 @@
  * Migrations, background jobs — nothing generic here.
  */
 
-import { lifecycleJobs, migrateWeather } from "@valentinkolb/cloud/services";
+import { lifecycleJobs, migrateWeather, startNotificationRuntime, stopNotificationRuntime } from "@valentinkolb/cloud/services";
 import { migrate as migrateAnnouncements } from "./migrate/core/announcements";
 import { migrate as migrateAudit } from "./migrate/core/audit";
 import { migrate as migrateAuth } from "./migrate/core/auth";
@@ -31,10 +31,12 @@ export const runCoreSetup = async (): Promise<void> => {
 /** Start core background services (account lifecycle jobs). */
 export const startCoreServices = async (): Promise<void> => {
   await lifecycleJobs.start();
+  await startNotificationRuntime();
 };
 
 /** Stop core background services. */
 export const stopCoreServices = async (): Promise<void> => {
+  await stopNotificationRuntime();
   await lifecycleJobs.stop();
 };
 
