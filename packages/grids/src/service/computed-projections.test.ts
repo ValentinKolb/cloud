@@ -93,3 +93,39 @@ describe("buildComputedColumnSqlProjections", () => {
     expect(record.data.computed_j3rz0Y3fwW).toBe("12");
   });
 });
+
+describe("applyComputedProjections", () => {
+  test("normalizes database scalar values for the record JSON contract", () => {
+    const record = { data: {} as Record<string, unknown> };
+    const projections = [
+      { fieldId: "numeric", alias: "n", outputType: "numeric", fragment: null },
+      { fieldId: "date", alias: "d", outputType: "date", fragment: null },
+      { fieldId: "datetime", alias: "dt", outputType: "timestamptz", fragment: null },
+      { fieldId: "boolean_true", alias: "bt", outputType: "boolean", fragment: null },
+      { fieldId: "boolean_invalid", alias: "bi", outputType: "boolean", fragment: null },
+    ] as const;
+
+    applyComputedProjections(
+      [
+        {
+          id: "record_1",
+          n: "42.5",
+          d: new Date("2026-07-12T14:30:00.000Z"),
+          dt: new Date("2026-07-12T14:30:00.000Z"),
+          bt: "true",
+          bi: "not-a-boolean",
+        },
+      ],
+      new Map([["record_1", record]]),
+      [...projections],
+    );
+
+    expect(record.data).toEqual({
+      numeric: 42.5,
+      date: "2026-07-12",
+      datetime: "2026-07-12T14:30:00.000Z",
+      boolean_true: true,
+      boolean_invalid: null,
+    });
+  });
+});

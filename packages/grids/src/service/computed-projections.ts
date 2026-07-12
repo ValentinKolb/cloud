@@ -12,12 +12,10 @@ import type { Field } from "./types";
 /**
  * Per-row SELECT-list projections for lookup and rollup fields.
  *
- * v3 (Slice 4) moves these computed values from a read-time JS pass to
- * the main records query as correlated subqueries over the
- * `record_links` junction. Wins:
+ * These values are part of the main records query as correlated subqueries
+ * over the `record_links` junction:
  *
- *  - One query per page instead of N + 1 (one per lookup/rollup field
- *    via the old JS enrichment pipeline).
+ *  - One query per page instead of per-field follow-up queries.
  *  - Single source of truth — no JS/SQL drift between filter scope and
  *    enrichment scope.
  *  - Filter / sort / group on lookup-rollup values becomes a tractable
@@ -51,18 +49,24 @@ export type ComputedProjection = {
 
 /** Maps a projection output type onto the formula-compiler's SQL type system so
  *  GQL can treat lookup/rollup values like any other typed expression. */
-const computedOutputToFormulaType = (output: ComputedProjectionOutputType): FormulaSqlType =>
-  output === "numeric" || output === "decimal" || output === "int"
-    ? "numeric"
-    : output === "date"
-      ? "date"
-      : output === "timestamptz"
-        ? "datetime"
-        : output === "boolean"
-          ? "boolean"
-          : output === "json"
-            ? "unknown"
-            : "text";
+const computedOutputToFormulaType = (output: ComputedProjectionOutputType): FormulaSqlType => {
+  switch (output) {
+    case "numeric":
+    case "decimal":
+    case "int":
+      return "numeric";
+    case "date":
+      return "date";
+    case "timestamptz":
+      return "datetime";
+    case "boolean":
+      return "boolean";
+    case "json":
+      return "unknown";
+    default:
+      return "text";
+  }
+};
 
 const lookupAlias = (fieldId: string): string => `lkp_${fieldId.replace(/-/g, "")}`;
 const rollupAlias = (fieldId: string): string => `rlp_${fieldId.replace(/-/g, "")}`;
@@ -99,6 +103,135 @@ const decimalProjectionValue = (raw: unknown): string | null => {
   return decimalStringToCanonical(value) ?? value;
 };
 
+type RelationComputedConfig = {
+  relationFieldId?: string;
+  targetFieldId?: string;
+  agg?: "count" | "sum" | "avg" | "min" | "max";
+};
+
+type TargetFieldResolver = (id: string) => Promise<Field | null>;
+
+const createTargetFieldResolver = (fieldsById: Map<string, Field>): TargetFieldResolver => {
+  const cache = new Map<string, Field | null>();
+  return async (id) => {
+    const local = fieldsById.get(id);
+    if (local) return local;
+    if (cache.has(id)) return cache.get(id) ?? null;
+    const field = await getField(id);
+    cache.set(id, field);
+    return field;
+  };
+};
+
+const lookupOutputType = (field: Field): ComputedProjectionOutputType => {
+  const kind = storageOf(field).kind;
+  if (kind === "numeric") return "numeric";
+  if (kind === "date") return (field.config as { includeTime?: boolean }).includeTime ? "timestamptz" : "date";
+  if (kind === "datetime") return "timestamptz";
+  if (kind === "boolean") return "boolean";
+  if (kind === "jsonbArray" || kind === "json") return "json";
+  return "text";
+};
+
+const buildLookupProjection = async (options: {
+  config: RelationComputedConfig;
+  field: Field;
+  recordAlias: string;
+  resolveTargetField: TargetFieldResolver;
+}): Promise<ComputedProjection | null> => {
+  const { config, field, recordAlias, resolveTargetField } = options;
+  if (!config.relationFieldId || !config.targetFieldId) return null;
+  const targetField = await resolveTargetField(config.targetFieldId);
+  if (!targetField || targetField.deletedAt) return null;
+
+  const descriptor = storageOf(targetField);
+  const projected =
+    descriptor.kind === "jsonbArray" || descriptor.kind === "json"
+      ? sql`t.data->${config.targetFieldId}`
+      : descriptor.project(targetField, "t");
+  if (!projected) return null;
+
+  const expr = sql`
+      (SELECT ${projected}
+       FROM grids.record_links rl
+       JOIN grids.records t ON t.id = rl.to_record_id
+       ${liveRecordParentJoinSql("t", "tt", "tb")}
+       WHERE rl.from_record_id = ${sql.unsafe(recordAlias)}.id
+         AND rl.from_field_id = ${config.relationFieldId}::uuid
+         AND t.deleted_at IS NULL
+         AND t.data->${config.targetFieldId} IS NOT NULL
+       ORDER BY rl.position
+       LIMIT 1)`;
+  const alias = lookupAlias(field.id);
+  return {
+    fieldId: field.id,
+    alias,
+    outputType: lookupOutputType(targetField),
+    expr,
+    fragment: sql`${expr} AS ${sql.unsafe(alias)}`,
+  };
+};
+
+const rollupAggregateSql = (agg: RelationComputedConfig["agg"]): unknown | null => {
+  if (agg === "sum") return sql`SUM`;
+  if (agg === "avg") return sql`AVG`;
+  if (agg === "min") return sql`MIN`;
+  if (agg === "max") return sql`MAX`;
+  return null;
+};
+
+const buildRollupProjection = async (options: {
+  config: RelationComputedConfig;
+  field: Field;
+  recordAlias: string;
+  resolveTargetField: TargetFieldResolver;
+}): Promise<ComputedProjection | null> => {
+  const { config, field, recordAlias, resolveTargetField } = options;
+  if (!config.relationFieldId) return null;
+  const alias = rollupAlias(field.id);
+  if (config.agg === "count") {
+    const expr = sql`
+        (SELECT count(*)::bigint
+         FROM grids.record_links rl
+         JOIN grids.records t ON t.id = rl.to_record_id
+         ${liveRecordParentJoinSql("t", "tt", "tb")}
+         WHERE rl.from_record_id = ${sql.unsafe(recordAlias)}.id
+           AND rl.from_field_id = ${config.relationFieldId}::uuid
+           AND t.deleted_at IS NULL)`;
+    return {
+      fieldId: field.id,
+      alias,
+      outputType: "int",
+      expr,
+      fragment: sql`${expr} AS ${sql.unsafe(alias)}`,
+    };
+  }
+
+  if (!config.targetFieldId) return null;
+  const aggregate = rollupAggregateSql(config.agg);
+  if (!aggregate) return null;
+  const targetField = await resolveTargetField(config.targetFieldId);
+  if (!targetField || targetField.deletedAt) return null;
+  const targetProjection = storageOf(targetField).project(targetField, "t");
+  if (!targetProjection) return null;
+
+  const expr = sql`
+      (SELECT ${aggregate}(${targetProjection})
+       FROM grids.record_links rl
+       JOIN grids.records t ON t.id = rl.to_record_id
+       ${liveRecordParentJoinSql("t", "tt", "tb")}
+       WHERE rl.from_record_id = ${sql.unsafe(recordAlias)}.id
+         AND rl.from_field_id = ${config.relationFieldId}::uuid
+         AND t.deleted_at IS NULL)`;
+  return {
+    fieldId: field.id,
+    alias,
+    outputType: "numeric",
+    expr,
+    fragment: sql`${expr} AS ${sql.unsafe(alias)}`,
+  };
+};
+
 /**
  * Walks the fields list and emits a projection per lookup/rollup that
  * has a complete config. Incomplete fields (config missing
@@ -119,136 +252,21 @@ export const buildComputedProjections = async (fields: Field[], options: { recor
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
   const out: ComputedProjection[] = [];
   const recordAlias = assertSqlIdentifier(options.recordAlias ?? "r");
-
-  const targetFieldCache = new Map<string, Field | null>();
-  const resolveTargetField = async (id: string): Promise<Field | null> => {
-    if (fieldsById.has(id)) return fieldsById.get(id)!;
-    if (targetFieldCache.has(id)) return targetFieldCache.get(id)!;
-    const f = await getField(id);
-    targetFieldCache.set(id, f);
-    return f;
-  };
+  const resolveTargetField = createTargetFieldResolver(fieldsById);
 
   for (const field of fields) {
     if (field.deletedAt) continue;
     if (field.type !== "lookup" && field.type !== "rollup") continue;
-    const cfg = field.config as {
-      relationFieldId?: string;
-      targetFieldId?: string;
-      agg?: "count" | "sum" | "avg" | "min" | "max";
-    };
+    const cfg = field.config as RelationComputedConfig;
     if (!cfg.relationFieldId) continue;
 
     const relationField = fieldsById.get(cfg.relationFieldId);
     if (!relationField || relationField.type !== "relation") continue;
-
-    if (field.type === "lookup") {
-      if (!cfg.targetFieldId) continue;
-      const targetField = await resolveTargetField(cfg.targetFieldId);
-      if (!targetField || targetField.deletedAt) continue;
-      const descriptor = storageOf(targetField);
-      const projected =
-        descriptor.kind === "jsonbArray" || descriptor.kind === "json"
-          ? sql`t.data->${cfg.targetFieldId}`
-          : descriptor.project(targetField, "t");
-      if (!projected) continue;
-      const outputType =
-        descriptor.kind === "numeric"
-          ? "numeric"
-          : descriptor.kind === "date"
-            ? (targetField.config as { includeTime?: boolean }).includeTime
-              ? "timestamptz"
-              : "date"
-            : descriptor.kind === "datetime"
-              ? "timestamptz"
-              : descriptor.kind === "boolean"
-                ? "boolean"
-                : descriptor.kind === "jsonbArray" || descriptor.kind === "json"
-                  ? "json"
-                  : "text";
-
-      // First non-null projected value, in link-position order. The target
-      // field drives the SQL projection so lookup values keep their real
-      // shape (number/date/select/json) instead of being flattened to text.
-      const lookupExpr = sql`
-          (SELECT ${projected}
-           FROM grids.record_links rl
-           JOIN grids.records t ON t.id = rl.to_record_id
-           ${liveRecordParentJoinSql("t", "tt", "tb")}
-           WHERE rl.from_record_id = ${sql.unsafe(recordAlias)}.id
-             AND rl.from_field_id = ${cfg.relationFieldId}::uuid
-             AND t.deleted_at IS NULL
-             AND t.data->${cfg.targetFieldId} IS NOT NULL
-           ORDER BY rl.position
-           LIMIT 1)`;
-      out.push({
-        fieldId: field.id,
-        alias: lookupAlias(field.id),
-        outputType,
-        expr: lookupExpr,
-        fragment: sql`${lookupExpr} AS ${sql.unsafe(lookupAlias(field.id))}`,
-      });
-      continue;
-    }
-
-    // rollup
-    if (cfg.agg === "count") {
-      // count(*) over linked records — no target-field projection needed,
-      // and rollup-count works even when targetFieldId is unset.
-      const countExpr = sql`
-          (SELECT count(*)::bigint
-           FROM grids.record_links rl
-           JOIN grids.records t ON t.id = rl.to_record_id
-           ${liveRecordParentJoinSql("t", "tt", "tb")}
-           WHERE rl.from_record_id = ${sql.unsafe(recordAlias)}.id
-             AND rl.from_field_id = ${cfg.relationFieldId}::uuid
-             AND t.deleted_at IS NULL)`;
-      out.push({
-        fieldId: field.id,
-        alias: rollupAlias(field.id),
-        outputType: "int",
-        expr: countExpr,
-        fragment: sql`${countExpr} AS ${sql.unsafe(rollupAlias(field.id))}`,
-      });
-      continue;
-    }
-
-    if (!cfg.targetFieldId || !cfg.agg) continue;
-
-    // sum / avg / min / max — numeric only. Resolve the target field's
-    // storage descriptor so rollups use the same typed projection as
-    // filters, sorts, groups, and aggregates.
-    const aggFn =
-      cfg.agg === "sum" ? sql`SUM` : cfg.agg === "avg" ? sql`AVG` : cfg.agg === "min" ? sql`MIN` : cfg.agg === "max" ? sql`MAX` : null;
-    if (!aggFn) continue;
-
-    const targetField = await resolveTargetField(cfg.targetFieldId);
-    if (!targetField || targetField.deletedAt) continue;
-    const targetProjection = storageOf(targetField).project(targetField, "t");
-    if (!targetProjection) {
-      // Target type is non-projectable (relation/lookup/rollup/formula/
-      // select/json/system-without-numeric). Skip silently — the
-      // UI's lookup/rollup config editor should validate this at
-      // save-time. A partial or nonsensical config produces no rollup
-      // column rather than a crash.
-      continue;
-    }
-
-    const rollupExpr = sql`
-        (SELECT ${aggFn}(${targetProjection})
-         FROM grids.record_links rl
-         JOIN grids.records t ON t.id = rl.to_record_id
-         ${liveRecordParentJoinSql("t", "tt", "tb")}
-         WHERE rl.from_record_id = ${sql.unsafe(recordAlias)}.id
-           AND rl.from_field_id = ${cfg.relationFieldId}::uuid
-           AND t.deleted_at IS NULL)`;
-    out.push({
-      fieldId: field.id,
-      alias: rollupAlias(field.id),
-      outputType: "numeric",
-      expr: rollupExpr,
-      fragment: sql`${rollupExpr} AS ${sql.unsafe(rollupAlias(field.id))}`,
-    });
+    const projection =
+      field.type === "lookup"
+        ? await buildLookupProjection({ config: cfg, field, recordAlias, resolveTargetField })
+        : await buildRollupProjection({ config: cfg, field, recordAlias, resolveTargetField });
+    if (projection) out.push(projection);
   }
 
   return out;
@@ -343,11 +361,33 @@ export const buildComputedColumnSqlProjections = (
   return { projections, sqlColumnIds };
 };
 
+const normalizeProjectionValue = (outputType: ComputedProjectionOutputType, raw: unknown): unknown => {
+  switch (outputType) {
+    case "decimal":
+      return decimalProjectionValue(raw);
+    case "numeric":
+    case "int": {
+      const value = typeof raw === "number" ? raw : Number(raw as string);
+      return Number.isFinite(value) ? value : null;
+    }
+    case "date":
+      return raw instanceof Date ? raw.toISOString().slice(0, 10) : raw;
+    case "timestamptz":
+      return raw instanceof Date ? raw.toISOString() : raw;
+    case "boolean":
+      if (typeof raw === "boolean") return raw;
+      if (raw === "true") return true;
+      if (raw === "false") return false;
+      return null;
+    default:
+      return raw;
+  }
+};
+
 /**
  * Reads the computed-column values from a result row and merges them
  * into `record.data` under the lookup/rollup field's id. After this,
- * downstream code can treat the value as if it lived in JSONB —
- * exactly the contract the JS-based enrichment used to provide.
+ * downstream code can treat the value as if it lived in JSONB.
  */
 export const applyComputedProjections = (
   rows: Array<Record<string, unknown>>,
@@ -365,31 +405,7 @@ export const applyComputedProjections = (
         rec.data[p.fieldId] = null;
         continue;
       }
-      // bun-sql returns numeric/bigint values as JS numbers or strings
-      // depending on size. Coerce to number for output-types we know
-      // are numeric so the JSON payload is consistent.
-      if (p.outputType === "decimal") {
-        rec.data[p.fieldId] = decimalProjectionValue(raw);
-        continue;
-      }
-      if (p.outputType === "numeric" || p.outputType === "int") {
-        const n = typeof raw === "number" ? raw : Number(raw as string);
-        rec.data[p.fieldId] = Number.isFinite(n) ? n : null;
-        continue;
-      }
-      if (p.outputType === "date") {
-        rec.data[p.fieldId] = raw instanceof Date ? raw.toISOString().slice(0, 10) : raw;
-        continue;
-      }
-      if (p.outputType === "timestamptz") {
-        rec.data[p.fieldId] = raw instanceof Date ? raw.toISOString() : raw;
-        continue;
-      }
-      if (p.outputType === "boolean") {
-        rec.data[p.fieldId] = typeof raw === "boolean" ? raw : raw === "true" ? true : raw === "false" ? false : null;
-        continue;
-      }
-      rec.data[p.fieldId] = raw;
+      rec.data[p.fieldId] = normalizeProjectionValue(p.outputType, raw);
     }
   }
 };
