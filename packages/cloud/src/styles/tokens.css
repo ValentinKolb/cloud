@@ -92,6 +92,7 @@
   --ui-space-section: 0.75rem;
   --ui-space-control: 0.375rem;
   --ui-shadow-surface: var(--theme-shadow-elevated);
+  --ui-shadow-frame: var(--ui-shadow-surface);
   --ui-shadow-float: var(--theme-shadow-float);
   --ui-paper-highlighted: linear-gradient(90deg, rgb(239 246 255 / 0.34), rgb(255 255 255 / 0.82)), var(--color-white);
 }

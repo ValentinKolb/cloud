@@ -1,4 +1,5 @@
 import { Show } from "solid-js";
+import Tooltip from "../misc/Tooltip";
 import type { ColorInputProps } from "./types";
 import { createInputA11y, InputWrapper } from "./util";
 
@@ -84,21 +85,24 @@ const ColorInput = (props: ColorInputProps) => {
           </Show>
           <span class="flex-1 font-mono text-sm uppercase leading-tight">{isTransparent() ? "transparent" : currentColor()}</span>
           {props.transparent && (
-            <button
-              type="button"
-              class={`shrink-0 flex items-center justify-center p-0.5 transition-colors rounded ${
-                isTransparent()
-                  ? "bg-zinc-200 dark:bg-zinc-700 text-primary font-medium"
-                  : "text-dimmed hover:text-secondary hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              }`}
-              onClick={(e) => {
-                e.stopPropagation();
-                props.onTransparentChange?.(!isTransparent());
-              }}
-              aria-label="Toggle transparent"
-            >
-              <i class="ti ti-grid-dots text-sm leading-none" />
-            </button>
+            <Tooltip content={isTransparent() ? "Use a color" : "Use transparent"} class="shrink-0">
+              <button
+                type="button"
+                class={`focus-ui flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors ${
+                  isTransparent()
+                    ? "bg-zinc-200 font-medium text-primary dark:bg-zinc-700"
+                    : "text-dimmed hover:bg-zinc-100 hover:text-secondary dark:hover:bg-zinc-800"
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  props.onTransparentChange?.(!isTransparent());
+                }}
+                aria-label={isTransparent() ? "Use a color" : "Use transparent"}
+                aria-pressed={isTransparent()}
+              >
+                <i class="ti ti-grid-dots text-sm leading-none" />
+              </button>
+            </Tooltip>
           )}
           <input
             id={a11y.inputId}

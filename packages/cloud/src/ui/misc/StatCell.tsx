@@ -131,8 +131,8 @@ const Body = (props: StatCellProps & { cellIsLink: boolean }): JSX.Element => {
   const gridSize = useStatGridSize();
   const size = () => props.size ?? gridSize;
   const valueSizeClass = () => (size() === "sm" ? "text-base" : "text-xl");
-  const labelSizeClass = () => (size() === "sm" ? "text-[9px]" : "text-[10px]");
-  const subSizeClass = () => (size() === "sm" ? "text-[9px]" : "text-[10px]");
+  const labelSizeClass = () => (size() === "sm" ? "text-[10px]" : "text-[11px]");
+  const subSizeClass = () => (size() === "sm" ? "text-[10px]" : "text-[11px]");
   return (
     <>
       <span class={`${labelSizeClass()} uppercase tracking-wider text-dimmed truncate`}>{props.label}</span>
@@ -177,12 +177,12 @@ const Body = (props: StatCellProps & { cellIsLink: boolean }): JSX.Element => {
                   href={props.accent.href}
                   class={`tag shrink-0 transition-colors ${ACCENT_PILL_CLASSES[props.accent.tone]} ${ACCENT_PILL_HOVER_CLASSES[props.accent.tone]}`}
                 >
-                  <i class={`${props.accent.icon} text-[9px]`} />
+                  <i class={`${props.accent.icon} text-[10px]`} />
                   {props.accent.text}
                 </a>
               ) : (
                 <span class={`tag shrink-0 ${ACCENT_PILL_CLASSES[props.accent.tone]}`}>
-                  <i class={`${props.accent.icon} text-[9px]`} />
+                  <i class={`${props.accent.icon} text-[10px]`} />
                   {props.accent.text}
                 </span>
               )

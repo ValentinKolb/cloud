@@ -6,6 +6,7 @@ import { prompts } from "../prompts";
 import Avatar from "./Avatar";
 import Dropdown from "./Dropdown";
 import Placeholder from "./Placeholder";
+import Tooltip from "./Tooltip";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Public API
@@ -371,7 +372,7 @@ function AccessEntryRow(props: {
   const isInteractive = () => props.canEdit && !props.singlePicker;
 
   const badgeClass =
-    "flex items-center gap-1 rounded-full border border-transparent bg-[var(--ui-surface-muted)] px-2 py-0.5 text-xs text-secondary";
+    "flex min-h-7 items-center gap-1 rounded-full border border-transparent bg-[var(--ui-surface-muted)] px-2.5 py-1 text-xs text-secondary";
 
   const badgeContent = (
     <>
@@ -384,7 +385,7 @@ function AccessEntryRow(props: {
   );
 
   return (
-    <div class="flex items-center gap-2 py-1.5">
+    <div class="group/access-row flex items-center gap-2 py-1.5">
       <Show
         when={props.entry.principal.type === "user"}
         fallback={
@@ -434,8 +435,8 @@ function AccessEntryRow(props: {
                     if (!isCurrent()) props.onUpdatePermission(option.level);
                     close();
                   }}
-                  class="flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                  classList={{ "bg-zinc-50 dark:bg-zinc-700/50": isCurrent() }}
+                  class="menu-item text-sm"
+                  classList={{ "bg-[var(--ui-selected)]": isCurrent() }}
                 >
                   <i class={`ti ${option.icon} text-dimmed`} />
                   <span class="flex-1 text-left">{option.label}</span>
@@ -449,18 +450,22 @@ function AccessEntryRow(props: {
         />
       </Show>
 
-      {/* Delete button — always visible when editable, dimmed by default
-          (no longer hover-only). The last entry IS deletable; parent ACL
-          covers the gap. */}
+      {/* Destructive row actions stay quiet until the row is engaged. They
+          remain keyboard reachable and stay visible on touch-sized layouts. */}
       <Show when={props.canEdit}>
-        <button
-          type="button"
-          onClick={props.onRevoke}
-          aria-label={`Remove ${getEntryDisplayName(props.entry)}`}
-          class="flex h-6 w-6 items-center justify-center text-zinc-400 transition-colors hover:text-red-500"
+        <Tooltip
+          content={`Remove ${getEntryDisplayName(props.entry)}`}
+          class="shrink-0 opacity-100 transition-opacity sm:opacity-0 sm:group-hover/access-row:opacity-100 sm:group-focus-within/access-row:opacity-100"
         >
-          <i class="ti ti-x text-sm" />
-        </button>
+          <button
+            type="button"
+            onClick={props.onRevoke}
+            aria-label={`Remove ${getEntryDisplayName(props.entry)}`}
+            class="focus-ui flex h-7 w-7 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-red-500/[0.08] hover:text-red-600 focus:opacity-100 dark:hover:text-red-400"
+          >
+            <i class="ti ti-x text-sm" />
+          </button>
+        </Tooltip>
       </Show>
     </div>
   );

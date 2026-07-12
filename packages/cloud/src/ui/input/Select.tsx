@@ -328,9 +328,8 @@ const SelectInput = (props: SelectInputProps) => {
           <Show when={clearable() && selectedOption() && !disabled()}>
             <button
               type="button"
-              class="absolute inset-y-0 right-2 flex items-center px-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+              class="focus-ui absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded text-zinc-400 hover:bg-black/5 hover:text-zinc-600 dark:hover:bg-white/5 dark:hover:text-zinc-300"
               onClick={clearValue}
-              tabIndex={-1}
               aria-label="Clear selection"
             >
               <i class="ti ti-x text-sm" />

@@ -1,4 +1,5 @@
 import { createSignal, type JSX, Show } from "solid-js";
+import Tooltip from "../misc/Tooltip";
 import MarkdownEditor, { type Completion } from "./markdown/MarkdownEditor";
 import { createInputA11y, InputWrapper } from "./util";
 
@@ -266,25 +267,30 @@ const TextInput = (props: TextInputProps) => {
                 {props.suffix}
               </span>
             </Show>
-            <button
-              type="button"
-              class="absolute inset-y-0 right-3 flex items-center text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
-              onClick={handleClear}
-              aria-label={props.clearLabel ?? "Clear input"}
-            >
-              <i class="ti ti-x" />
-            </button>
+            <Tooltip content={props.clearLabel ?? "Clear input"} class="absolute inset-y-0 right-0 z-10 items-center">
+              <button
+                type="button"
+                class="focus-ui flex h-full w-9 items-center justify-center rounded-r-[var(--ui-radius-control)] text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+                onClick={handleClear}
+                aria-label={props.clearLabel ?? "Clear input"}
+              >
+                <i class="ti ti-x" />
+              </button>
+            </Tooltip>
           </>
         )}
         {props.password && !multiline() && (
-          <button
-            type="button"
-            class="absolute inset-y-0 right-3 flex items-center text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
-            onClick={() => setShowPassword(!showPassword())}
-            tabIndex={-1}
-          >
-            <i class={showPassword() ? "ti ti-eye-off" : "ti ti-eye"} />
-          </button>
+          <Tooltip content={showPassword() ? "Hide password" : "Show password"} class="absolute inset-y-0 right-0 z-10 items-center">
+            <button
+              type="button"
+              class="focus-ui flex h-full w-9 items-center justify-center rounded-r-[var(--ui-radius-control)] text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              onClick={() => setShowPassword(!showPassword())}
+              aria-label={showPassword() ? "Hide password" : "Show password"}
+              aria-pressed={showPassword()}
+            >
+              <i class={showPassword() ? "ti ti-eye-off" : "ti ti-eye"} />
+            </button>
+          </Tooltip>
         )}
       </div>
     </InputWrapper>

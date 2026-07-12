@@ -50,17 +50,21 @@ export default function StructuredDataPreview(props: StructuredDataPreviewProps)
       <Show
         when={!showRaw()}
         fallback={
-          <div class="relative rounded-lg bg-zinc-100 px-3 py-2 text-secondary dark:bg-zinc-900/80">
+          <div class="structured-data-surface group relative rounded-lg bg-zinc-100 px-3 py-2 text-secondary dark:bg-zinc-900/80">
             <pre class="max-h-72 overflow-auto whitespace-pre-wrap break-all pr-16 font-mono text-[11px] leading-relaxed">{raw()}</pre>
             <Show when={props.copy !== false}>
-              <div class="absolute right-2 top-2">
-                <CopyButton text={raw()} label="Copy" class="text-[11px] text-dimmed transition-colors hover:text-secondary" />
+              <div class="absolute right-2 top-2 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                <CopyButton
+                  text={raw()}
+                  label="Copy"
+                  class="focus-ui inline-flex min-h-7 items-center gap-1 rounded px-2 text-[11px] text-dimmed transition-colors hover:bg-[var(--ui-hover)] hover:text-secondary"
+                />
               </div>
             </Show>
           </div>
         }
       >
-        <div class="rounded-lg bg-zinc-100 px-3 py-2 dark:bg-zinc-900/80">
+        <div class="structured-data-surface rounded-lg bg-zinc-100 px-3 py-2 dark:bg-zinc-900/80">
           <Show when={hasData()} fallback={<p class="text-xs text-dimmed">{props.empty ?? "No data."}</p>}>
             <div class="grid grid-cols-[minmax(7rem,auto)_1fr] gap-x-4 gap-y-1.5 text-xs">
               <For each={visibleRows()}>
@@ -92,7 +96,7 @@ export default function StructuredDataPreview(props: StructuredDataPreviewProps)
         <Show when={hasData()}>
           <button
             type="button"
-            class="text-[11px] text-dimmed transition-colors hover:text-secondary"
+            class="focus-ui inline-flex min-h-7 items-center rounded px-1.5 text-[11px] text-dimmed transition-colors hover:bg-[var(--ui-hover)] hover:text-secondary"
             onClick={() => setMode(showRaw() ? "formatted" : "raw")}
           >
             {showRaw() ? "View formatted" : "View raw"}

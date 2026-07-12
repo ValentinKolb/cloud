@@ -416,10 +416,9 @@ const NumberInput = (props: NumberInputProps) => {
           <Show when={canClear()}>
             <button
               type="button"
-              class="shrink-0 flex items-center text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              class="focus-ui flex h-7 w-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-black/5 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-white/5 dark:hover:text-zinc-300"
               onClick={handleClear}
               aria-label={props.clearLabel ?? "Clear input"}
-              tabIndex={-1}
             >
               <i class="ti ti-x" />
             </button>

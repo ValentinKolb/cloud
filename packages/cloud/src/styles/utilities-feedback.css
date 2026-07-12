@@ -141,7 +141,7 @@
 }
 
 @utility tag {
-  @apply rounded inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium;
+  @apply rounded-full inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] leading-4 font-medium;
 }
 
 /* Stat cards are component-owned by StatGrid/StatCell. See

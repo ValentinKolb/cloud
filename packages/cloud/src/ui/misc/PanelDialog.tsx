@@ -98,8 +98,8 @@ function PanelDialogHeader(props: PanelDialogHeaderProps) {
     <header
       class={
         surface === "floating"
-          ? "paper flex min-h-16 shrink-0 items-center gap-4 px-5"
-          : "panel-dialog-divider flex min-h-16 shrink-0 items-center gap-4 border-b px-5"
+          ? "panel-dialog-header paper flex min-h-16 shrink-0 items-center gap-4 px-5"
+          : "panel-dialog-header panel-dialog-divider flex min-h-16 shrink-0 items-center gap-4 border-b px-5"
       }
     >
       <i class={`${props.icon} shrink-0`} />
@@ -130,7 +130,7 @@ function PanelDialogBody(props: PanelDialogBodyProps) {
       data-scroll-preserve={props.scrollPreserveKey}
       class={
         surface === "floating"
-          ? "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-0"
+          ? "panel-dialog-body flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-0"
           : "panel-dialog-body flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4"
       }
     >
@@ -145,8 +145,8 @@ function PanelDialogFooter(props: PanelDialogFooterProps) {
     <footer
       class={
         surface === "floating"
-          ? "paper flex shrink-0 items-center justify-between gap-2 p-4"
-          : "panel-dialog-divider flex shrink-0 items-center justify-between gap-2 border-t p-4"
+          ? "panel-dialog-footer paper flex shrink-0 items-center justify-between gap-2 p-4"
+          : "panel-dialog-footer panel-dialog-divider flex shrink-0 items-center justify-between gap-2 border-t p-4"
       }
     >
       {props.children}
@@ -157,13 +157,13 @@ function PanelDialogFooter(props: PanelDialogFooterProps) {
 function PanelDialogSection(props: PanelDialogSectionProps) {
   const surface = usePanelDialogSurface();
   return (
-    <section class={surface === "floating" ? "paper p-4" : "panel-dialog-section paper p-4"}>
+    <section class="panel-dialog-section paper p-4">
       <header class="mb-2 flex items-start gap-2">
         <span class="panel-dialog-section-icon mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--ui-radius-control)] text-dimmed">
           <i class={`${props.icon} text-sm`} />
         </span>
         <div class="min-w-0 flex-1">
-          <h3 class="text-xs font-semibold uppercase tracking-[0.12em] text-secondary">{props.title}</h3>
+          <h3 class="text-xs font-semibold text-secondary">{props.title}</h3>
           {props.subtitle && <p class="mt-0.5 text-[11px] leading-snug text-dimmed">{props.subtitle}</p>}
         </div>
         {props.actions && <div class="flex shrink-0 items-center gap-2">{props.actions}</div>}
@@ -218,10 +218,11 @@ const PanelDialog = ((props: PanelDialogProps) => {
       {/* As a flex child (dialog content / page shell), min-h-0 + flex-1 lets the
           parent's height/max-height cap this root — Body then scrolls inside. */}
       <div
+        data-surface={surface}
         class={
           surface === "floating"
-            ? "flex min-h-0 w-full flex-1 flex-col gap-2 overflow-hidden"
-            : "flex min-h-0 w-full flex-1 flex-col overflow-hidden"
+            ? "panel-dialog-layout flex min-h-0 w-full flex-1 flex-col gap-2 overflow-hidden"
+            : "panel-dialog-layout flex min-h-0 w-full flex-1 flex-col overflow-hidden"
         }
       >
         {props.children}

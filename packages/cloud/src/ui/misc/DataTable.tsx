@@ -9,6 +9,8 @@ export type DataTableColumn<T> = {
   class?: string;
   headerClass?: string;
   cellClass?: string;
+  /** Defaults to right for numeric values and left for everything else. */
+  align?: "left" | "center" | "right";
 };
 
 export type DataTableRenderCell<T> = (ctx: {
@@ -109,11 +111,31 @@ export default function DataTable<T>(props: DataTableProps<T>) {
     return undefined;
   };
 
+  const columnAlign = (col: DataTableColumn<T>) => {
+    if (col.align) return col.align;
+    for (const row of props.rows) {
+      const value = valueOf(row, col);
+      if (value === null || value === undefined || value === "") continue;
+      return typeof value === "number" || typeof value === "bigint" ? "right" : "left";
+    }
+    return "left";
+  };
+
+  const alignmentClass = (col: DataTableColumn<T>) => {
+    const align = columnAlign(col);
+    return align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
+  };
+
+  const headerAlignmentClass = (col: DataTableColumn<T>) => {
+    const align = columnAlign(col);
+    return align === "right" ? "items-end text-right" : align === "center" ? "items-center text-center" : "items-start text-left";
+  };
+
   const renderHeaderDefault = (col: DataTableColumn<T>): JSX.Element => (
-    <div class="flex flex-col gap-0.5 leading-tight">
+    <div class={`flex flex-col gap-0.5 leading-tight ${headerAlignmentClass(col)}`}>
       <span class="text-primary font-semibold">{renderColumnPart(col.header, col)}</span>
       <Show when={col.subtitle !== undefined}>
-        <span class="text-[10px] text-dimmed font-normal">{renderColumnPart(col.subtitle, col)}</span>
+        <span class="text-[11px] text-dimmed font-normal">{renderColumnPart(col.subtitle, col)}</span>
       </Show>
     </div>
   );
@@ -169,7 +191,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
               <For each={props.columns}>
                 {(col, index) => (
                   <th
-                    class={`${headerPadding()} text-left ${columnHoverClass(index())} ${col.headerClass ?? ""} ${col.class ?? ""}`}
+                    class={`${headerPadding()} ${alignmentClass(col)} ${columnHoverClass(index())} ${col.headerClass ?? ""} ${col.class ?? ""}`}
                     onMouseEnter={() => setHoveredColumnIfEnabled(index())}
                   >
                     {props.renderHeader ? props.renderHeader({ col, render: () => renderHeaderDefault(col) }) : renderHeaderDefault(col)}
@@ -187,7 +209,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
                       const value = () => footer().values?.[col.id];
                       return (
                         <td
-                          class={`px-3 py-1.5 text-[11px] text-dimmed ${columnHoverClass(index())}`}
+                          class={`px-3 py-1.5 text-[11px] text-dimmed ${alignmentClass(col)} ${columnHoverClass(index())}`}
                           onMouseEnter={() => setHoveredColumnIfEnabled(index())}
                         >
                           {footer().renderCell
@@ -231,7 +253,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
                           const value = () => valueOf(row, col);
                           return (
                             <td
-                              class={`${cellPadding()} ${cellVerticalAlignClass()} max-w-[260px] ${columnHoverClass(index())} ${col.cellClass ?? ""} ${col.class ?? ""}`}
+                              class={`${cellPadding()} ${cellVerticalAlignClass()} ${alignmentClass(col)} max-w-[260px] ${columnHoverClass(index())} ${col.cellClass ?? ""} ${col.class ?? ""}`}
                               onMouseEnter={() => setHoveredColumnIfEnabled(index())}
                             >
                               <div class={cellContentClass()}>

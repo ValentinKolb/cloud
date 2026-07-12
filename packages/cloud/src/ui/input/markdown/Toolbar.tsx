@@ -1,8 +1,8 @@
 /**
- * Toolbar button strip for the markdown editor. Mouse-only by design:
- * each button has `tabIndex=-1` so Tab navigates AROUND the editor's
- * toolbar straight to the textarea body. Keyboard users get the same
- * actions via `Cmd/Ctrl + B/I/E/K` and the shift-digit shortcuts.
+ * Toolbar button strip for the markdown editor. It uses a single Tab stop and
+ * arrow-key navigation so the editor stays efficient without making pointer
+ * controls unavailable to keyboard users. Formatting shortcuts remain the
+ * fastest path for experienced editors.
  *
  * Buttons display in an active state (blue tint + faint background)
  * when `activeFormats` contains their `id` — feedback that the caret
@@ -52,10 +52,34 @@ const TOOLS: Tool[] = [
 ];
 
 export default function Toolbar(props: ToolbarProps) {
+  let toolbarRef!: HTMLDivElement;
+
+  const moveFocus = (event: KeyboardEvent) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const actions = Array.from(toolbarRef.querySelectorAll<HTMLButtonElement>(".md-editor-tool:not(:disabled)"));
+    if (actions.length === 0) return;
+    const current = Math.max(
+      0,
+      actions.findIndex((action) => action === document.activeElement),
+    );
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? actions.length - 1
+          : event.key === "ArrowLeft"
+            ? (current - 1 + actions.length) % actions.length
+            : (current + 1) % actions.length;
+    event.preventDefault();
+    for (const action of actions) action.tabIndex = -1;
+    actions[next]!.tabIndex = 0;
+    actions[next]!.focus();
+  };
+
   return (
-    <div class="md-editor-toolbar" role="toolbar" aria-label="Markdown formatting">
+    <div ref={toolbarRef} class="md-editor-toolbar" role="toolbar" aria-label="Markdown formatting" onKeyDown={moveFocus}>
       <For each={TOOLS}>
-        {(tool) =>
+        {(tool, index) =>
           tool.kind === "sep" ? (
             <span class="md-editor-tool-sep" aria-hidden="true" />
           ) : (
@@ -66,11 +90,7 @@ export default function Toolbar(props: ToolbarProps) {
               aria-label={tool.title}
               aria-pressed={props.activeFormats?.().has(tool.id) ? "true" : undefined}
               disabled={props.disabled}
-              // tabIndex=-1 so Tab doesn't land on 10 formatting buttons
-              // before reaching the editor body. Keyboard users have all
-              // the same actions available via Cmd/Ctrl shortcuts; the
-              // toolbar stays a mouse-friendly affordance.
-              tabIndex={-1}
+              tabIndex={index() === 0 ? 0 : -1}
               // Prevent the button from stealing focus from the textarea —
               // we want the textarea to stay focused so the cursor stays
               // visible during action.

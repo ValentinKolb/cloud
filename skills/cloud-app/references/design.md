@@ -75,6 +75,7 @@ Use one radius family. A child may use the same radius as its parent only when t
 - `--ui-selected`: selected-row or active-tab tint.
 - `--ui-focus`: visible keyboard focus ring.
 - `--ui-shadow-surface`: subtle in-flow depth.
+- `--ui-shadow-frame`: restrained depth reserved for unified workspace frames.
 - `--ui-shadow-float`: dialogs, popovers, menus, and toasts.
 
 ### Actions, fields, and compact controls
@@ -125,7 +126,7 @@ Use surfaces to group content. Use borders only when they explain structure.
 - Floating layers use one outer shadow and a boundary that remains visible in dark mode.
 - Data-table row separators and key-value dividers are functional and may remain visible.
 
-Do not stack papers to manufacture hierarchy. Do not add a border and shadow when either one already separates the surface. Do not place a full-page paper inside another full-page paper.
+Do not stack papers to manufacture hierarchy. In-flow papers use a boundary without an outer shadow; reserve frame depth for unified workspaces and floating depth for overlays. Do not add a border and shadow when either one already separates the surface. Do not place a full-page paper inside another full-page paper.
 
 ## Spacing and density
 

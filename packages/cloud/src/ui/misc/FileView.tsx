@@ -114,7 +114,12 @@ function OverlayPanel(props: { actions?: JSX.Element; children: JSX.Element }) {
 const downloadAction = (props: FileViewRendererProps): JSX.Element => (
   <Show when={props.downloadHref}>
     {(href) => (
-      <OverlayAction icon="ti-download" title="Download" href={href()} download={props.file.path.slice(props.file.path.lastIndexOf("/") + 1)} />
+      <OverlayAction
+        icon="ti-download"
+        title="Download"
+        href={href()}
+        download={props.file.path.slice(props.file.path.lastIndexOf("/") + 1)}
+      />
     )}
   </Show>
 );
@@ -216,7 +221,6 @@ function TextRenderer(props: FileViewRendererProps) {
                     download={props.file.path.slice(props.file.path.lastIndexOf("/") + 1)}
                     title="Download"
                     aria-label="Download"
-                    tabIndex={-1}
                   >
                     <i class="ti ti-download" />
                   </a>
@@ -291,7 +295,11 @@ function BinaryRenderer(props: FileViewRendererProps) {
 
 const BUILTIN_RENDERERS: FileViewRenderer[] = [
   { id: "markdown", match: isMarkdown, component: MarkdownRenderer, editable: true },
-  { id: "image", match: (_file, content) => content.mediaType.startsWith("image/") && content.mediaType !== "image/svg+xml", component: ImageRenderer },
+  {
+    id: "image",
+    match: (_file, content) => content.mediaType.startsWith("image/") && content.mediaType !== "image/svg+xml",
+    component: ImageRenderer,
+  },
   { id: "pdf", match: (_file, content) => content.mediaType === "application/pdf", component: PdfRenderer },
   { id: "text", match: (_file, content) => content.encoding === "utf8", component: TextRenderer, editable: true },
   { id: "binary", match: () => true, component: BinaryRenderer },

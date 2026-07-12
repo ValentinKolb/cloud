@@ -23,7 +23,7 @@ export default function CopyButton(props: CopyButtonProps) {
   const button = () => (
     <button
       type="button"
-      class={props.class ?? "btn-simple text-[10px] px-1.5 py-0.5"}
+      class={props.class ?? "btn-simple min-h-7 px-2 py-1 text-[11px]"}
       aria-label={props.label === undefined ? (copied() ? "Copied" : "Copy") : undefined}
       onClick={handleCopy}
     >

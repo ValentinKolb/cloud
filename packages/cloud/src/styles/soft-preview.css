@@ -6,13 +6,13 @@
 body:has(.cloud-ui-soft),
 .cloud-app-canvas:has(.cloud-ui-soft) {
   --ui-surface: rgb(255 255 255 / 0.96);
-  --ui-surface-subtle: rgb(247 249 248 / 0.94);
-  --ui-surface-muted: rgb(238 242 239 / 0.9);
+  --ui-surface-subtle: rgb(248 248 248 / 0.96);
+  --ui-surface-muted: rgb(243 244 243 / 0.96);
   --ui-surface-raised: rgb(255 255 255 / 0.99);
-  --ui-border: rgb(209 216 211 / 0.5);
-  --ui-border-strong: rgb(209 216 211 / 0.78);
-  --ui-hover: rgb(238 242 239 / 0.82);
-  --ui-active: rgb(225 230 226 / 0.9);
+  --ui-border: rgb(218 220 219 / 0.68);
+  --ui-border-strong: rgb(207 210 208 / 0.9);
+  --ui-hover: rgb(239 240 239 / 0.9);
+  --ui-active: rgb(229 231 230 / 0.94);
   --ui-selected: color-mix(in srgb, var(--color-blue-500) 7%, var(--ui-surface));
   --ui-action-primary-surface: var(--color-zinc-900);
   --ui-action-primary-hover: var(--color-black);
@@ -84,8 +84,9 @@ body:has(.cloud-ui-soft),
   --ui-space-shell: 0.5rem;
   --ui-space-section: 0.75rem;
   --ui-space-control: 0.375rem;
-  --ui-shadow-surface: 0 18px 42px -32px rgb(22 38 29 / 0.36), 0 2px 10px rgb(22 38 29 / 0.045);
-  --ui-shadow-float: 0 18px 46px -18px rgb(22 38 29 / 0.26), 0 5px 16px rgb(22 38 29 / 0.09);
+  --ui-shadow-surface: none;
+  --ui-shadow-frame: 0 18px 44px -34px rgb(15 23 19 / 0.3), 0 2px 8px rgb(15 23 19 / 0.04);
+  --ui-shadow-float: 0 18px 46px -18px rgb(0 0 0 / 0.22), 0 5px 16px rgb(0 0 0 / 0.08);
   --ui-paper-highlighted: var(--ui-surface-subtle);
   --theme-bevel-top: none;
   --theme-bevel-bottom: none;
@@ -103,14 +104,14 @@ body:has(.cloud-ui-soft),
 
 .dark body:has(.cloud-ui-soft),
 .dark .cloud-app-canvas:has(.cloud-ui-soft) {
-  --ui-surface: rgb(19 23 21 / 0.97);
-  --ui-surface-subtle: rgb(24 29 26 / 0.96);
-  --ui-surface-muted: rgb(32 38 34 / 0.94);
-  --ui-surface-raised: rgb(25 30 27 / 0.99);
-  --ui-border: rgb(57 67 61 / 0.55);
-  --ui-border-strong: rgb(57 67 61 / 0.82);
-  --ui-hover: rgb(32 38 34 / 0.82);
-  --ui-active: rgb(48 57 51 / 0.9);
+  --ui-surface: rgb(20 21 21 / 0.98);
+  --ui-surface-subtle: rgb(24 25 25 / 0.97);
+  --ui-surface-muted: rgb(32 33 33 / 0.96);
+  --ui-surface-raised: rgb(26 27 27 / 0.99);
+  --ui-border: rgb(63 67 65 / 0.6);
+  --ui-border-strong: rgb(72 76 74 / 0.82);
+  --ui-hover: rgb(37 39 38 / 0.9);
+  --ui-active: rgb(48 51 49 / 0.94);
   --ui-selected: color-mix(in srgb, var(--color-blue-400) 12%, var(--ui-surface));
   --ui-action-primary-surface: var(--color-zinc-100);
   --ui-action-primary-hover: var(--color-white);
@@ -132,7 +133,8 @@ body:has(.cloud-ui-soft),
   --ui-check-border: var(--ui-border-strong);
   --ui-check-shadow: none;
   --ui-check-hover-transform: none;
-  --ui-shadow-surface: 0 20px 48px -30px rgb(0 0 0 / 0.72), 0 2px 10px rgb(0 0 0 / 0.18);
+  --ui-shadow-surface: none;
+  --ui-shadow-frame: 0 20px 48px -30px rgb(0 0 0 / 0.72), 0 2px 10px rgb(0 0 0 / 0.18);
   --ui-shadow-float: 0 22px 54px -18px rgb(0 0 0 / 0.72), 0 6px 18px rgb(0 0 0 / 0.3);
   --theme-press: inset 0 1px 3px rgb(0 0 0 / 0.48);
   --theme-shadow-hover: 0 14px 32px -24px rgb(0 0 0 / 0.8), 0 3px 12px rgb(0 0 0 / 0.22);
@@ -180,7 +182,7 @@ body:has(.cloud-ui-soft),
   border: 0;
   border-radius: var(--ui-radius-frame);
   background: var(--ui-surface);
-  box-shadow: var(--ui-shadow-surface);
+  box-shadow: var(--ui-shadow-frame);
 }
 
 .cloud-ui-soft.app-workspace > .workspace-sidebar {
@@ -359,6 +361,99 @@ body:has(.cloud-ui-soft) :is(.btn-primary, .btn-secondary, .btn-success, .btn-da
   box-shadow: none;
 }
 
+/* AI is an interaction role, not a decorative gradient. Keep it recognisable
+   through a cool tint and sparkle icon while retaining product-level restraint. */
+body:has(.cloud-ui-soft) .btn-ai {
+  border-color: color-mix(in srgb, var(--color-cyan-500) 20%, var(--ui-border));
+  background: color-mix(in srgb, var(--color-cyan-500) 8%, var(--ui-surface));
+  background-image: none;
+  color: color-mix(in srgb, var(--color-cyan-700) 78%, var(--color-blue-700));
+  box-shadow: none;
+  filter: none;
+}
+
+body:has(.cloud-ui-soft) .btn-ai:hover {
+  border-color: color-mix(in srgb, var(--color-cyan-500) 30%, var(--ui-border));
+  background: color-mix(in srgb, var(--color-cyan-500) 12%, var(--ui-surface));
+  background-image: none;
+  color: var(--color-cyan-800);
+  filter: none;
+}
+
+body:has(.cloud-ui-soft) .btn-input-ai {
+  border-color: color-mix(in srgb, var(--color-cyan-500) 18%, var(--ui-border));
+  background: color-mix(in srgb, var(--color-cyan-500) 7%, var(--ui-surface));
+  background-image: none;
+  color: color-mix(in srgb, var(--color-cyan-700) 78%, var(--color-blue-700));
+  box-shadow: none;
+}
+
+body:has(.cloud-ui-soft) .btn-input-ai:hover {
+  border-color: color-mix(in srgb, var(--color-cyan-500) 26%, var(--ui-border));
+  background: color-mix(in srgb, var(--color-cyan-500) 11%, var(--ui-surface));
+  background-image: none;
+  color: var(--color-cyan-800);
+}
+
+body:has(.cloud-ui-soft) .input-ai {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--color-cyan-500) 6%, var(--ui-field));
+  background-image: none;
+  box-shadow: none;
+}
+
+body:has(.cloud-ui-soft) .input-ai:hover {
+  border-color: var(--ui-border);
+  background: color-mix(in srgb, var(--color-cyan-500) 8%, var(--ui-field-hover));
+  background-image: none;
+}
+
+body:has(.cloud-ui-soft) .input-ai:focus,
+body:has(.cloud-ui-soft) .input-ai:focus-within {
+  border-color: transparent !important;
+  background: color-mix(in srgb, var(--color-cyan-500) 5%, var(--ui-field-focus)) !important;
+  background-image: none !important;
+  box-shadow: var(--ui-focus) !important;
+}
+
+.dark body:has(.cloud-ui-soft) .btn-ai {
+  border-color: color-mix(in srgb, var(--color-cyan-400) 24%, var(--ui-border));
+  background: color-mix(in srgb, var(--color-cyan-400) 11%, var(--ui-surface));
+  color: var(--color-cyan-200);
+}
+
+.dark body:has(.cloud-ui-soft) .btn-ai:hover {
+  border-color: color-mix(in srgb, var(--color-cyan-400) 34%, var(--ui-border));
+  background: color-mix(in srgb, var(--color-cyan-400) 16%, var(--ui-surface));
+  color: var(--color-cyan-100);
+}
+
+.dark body:has(.cloud-ui-soft) .btn-input-ai {
+  border-color: color-mix(in srgb, var(--color-cyan-400) 22%, var(--ui-border));
+  background: color-mix(in srgb, var(--color-cyan-400) 9%, var(--ui-surface));
+  background-image: none;
+  color: var(--color-cyan-200);
+}
+
+.dark body:has(.cloud-ui-soft) .btn-input-ai:hover {
+  border-color: color-mix(in srgb, var(--color-cyan-400) 30%, var(--ui-border));
+  background: color-mix(in srgb, var(--color-cyan-400) 13%, var(--ui-surface));
+  background-image: none;
+  color: var(--color-cyan-100);
+}
+
+.dark body:has(.cloud-ui-soft) .input-ai {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--color-cyan-400) 8%, var(--ui-field));
+  background-image: none;
+}
+
+.dark body:has(.cloud-ui-soft) .input-ai:hover {
+  border-color: var(--ui-border);
+  background: color-mix(in srgb, var(--color-cyan-400) 11%, var(--ui-field-hover));
+  background-image: none;
+}
+
 body:has(.cloud-ui-soft) :is(.btn-primary, .btn-secondary, .btn-success, .btn-danger, .btn-input, .btn-input-recessed):active {
   box-shadow: var(--theme-press);
 }
@@ -414,7 +509,7 @@ body:has(.cloud-ui-soft) .checkbox-card[data-state="invalid"] {
 }
 
 body:has(.cloud-ui-soft) .file-dropzone {
-  border-color: transparent;
+  border-color: var(--ui-border);
   background: var(--ui-field);
 }
 
@@ -495,7 +590,7 @@ body:has(.cloud-ui-soft) :is(.ac-editor, .md-editor)[data-variant="paper"]:focus
 
 /* Data stays dense; only functional separators remain. */
 .cloud-ui-soft [aria-label="Data table"] {
-  border-color: transparent;
+  border-color: var(--ui-border);
 }
 
 .cloud-ui-soft :is(.sidebar-item-active, .list-item-active) {
@@ -508,7 +603,7 @@ body:has(.cloud-ui-soft) :is(.ac-editor, .md-editor)[data-variant="paper"]:focus
   overflow: hidden;
   border-radius: var(--ui-radius-frame);
   background: var(--ui-surface);
-  box-shadow: var(--ui-shadow-surface);
+  box-shadow: var(--ui-shadow-frame);
 }
 
 .cloud-ui-soft .settings-modal-header {
@@ -685,9 +780,14 @@ body:has(.cloud-ui-soft) :is(.ac-editor, .md-editor)[data-variant="paper"]:focus
 .cloud-ui-soft .link-card,
 .cloud-ui-soft .widget-surface,
 .cloud-ui-soft .widget-card {
-  border-color: transparent;
+  border-color: var(--ui-border);
   background: var(--ui-surface);
   box-shadow: none;
+}
+
+.cloud-ui-soft .sidebar-item-action {
+  width: 1.75rem;
+  height: 1.75rem;
 }
 
 .cloud-ui-soft .link-card:hover {
@@ -731,6 +831,29 @@ body:has(.cloud-ui-soft) .panel-dialog-shell {
   box-shadow: var(--ui-shadow-float);
 }
 
+body:has(.cloud-ui-soft) .panel-dialog-layout[data-surface="floating"] {
+  gap: 0;
+  border: 1px solid var(--ui-dialog-border);
+  border-radius: var(--ui-dialog-radius);
+  background: var(--ui-dialog-surface);
+}
+
+body:has(.cloud-ui-soft) .panel-dialog-layout[data-surface="floating"] > .panel-dialog-header {
+  border: 0;
+  border-bottom: 1px solid var(--ui-dialog-divider);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+body:has(.cloud-ui-soft) .panel-dialog-layout[data-surface="floating"] > .panel-dialog-footer {
+  border: 0;
+  border-top: 1px solid var(--ui-dialog-divider);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 body:has(.cloud-ui-soft) .panel-dialog-shell header.panel-dialog-divider {
   min-height: 3.25rem;
   padding-inline: 1rem;
@@ -747,6 +870,14 @@ body:has(.cloud-ui-soft) .panel-dialog-body {
 
 body:has(.cloud-ui-soft) .panel-dialog-section {
   padding: 0.75rem;
+  border-color: transparent;
+  background: var(--ui-dialog-section);
+  box-shadow: none;
+}
+
+body:has(.cloud-ui-soft) .settings-save-bar {
+  border-color: var(--ui-divider);
+  background: var(--ui-surface-raised);
 }
 
 body:has(.cloud-ui-soft) .panel-dialog-tabs {
@@ -833,6 +964,10 @@ body:has(.cloud-ui-soft) .prompt-search-surface > label:focus-within {
 body:has(.cloud-ui-soft) .code-display {
   background: var(--ui-surface-subtle);
   box-shadow: 0 0 0 1px var(--ui-border);
+}
+
+body:has(.cloud-ui-soft) .structured-data-surface {
+  background: var(--ui-surface-subtle) !important;
 }
 
 body:has(.cloud-ui-soft) .ai-skill-origin-badge {

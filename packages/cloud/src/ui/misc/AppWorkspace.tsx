@@ -356,7 +356,7 @@ const AppWorkspaceSidebar = (props: AppWorkspaceSidebarProps) => {
       <aside class={`workspace-sidebar sidebar-container ${props.class ?? ""}`}>
         <div class="workspace-sidebar-surface paper flex h-full min-h-0 flex-col gap-4 p-3">
           <Show when={header() && header()!.showDesktop !== false}>
-            <div class="workspace-sidebar-header relative flex items-center gap-3 pr-7">
+            <div class="workspace-sidebar-header relative flex items-center gap-3">
               <SidebarHeaderContent header={header()!} />
             </div>
           </Show>

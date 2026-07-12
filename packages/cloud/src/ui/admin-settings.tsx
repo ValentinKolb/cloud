@@ -52,20 +52,21 @@ export type SettingsFieldProps = {
  * Single-row field wrapper for settings forms.
  *
  * Renders label + description on top, the input below, an inline error message
- * underneath, and a soft amber background + a small dot when the value has
- * unsaved changes. Mirrors the per-row UX of `/admin/settings`.
+ * underneath, and an explicit "Unsaved" marker when the value differs from
+ * its initial state. Mirrors the per-row UX of `/admin/settings` without
+ * relying on colour alone.
  *
  * Uses a `<div>` (not a `<label>`) — the actual `<input>` inside `children`
  * has its own a11y attributes; this is purely a visual heading.
  */
 export function SettingsField(props: SettingsFieldProps) {
   return (
-    <div class="flex flex-col gap-1.5 px-3 py-3" classList={{ "bg-amber-50/50 dark:bg-amber-950/20": props.changed?.() ?? false }}>
+    <div class="flex flex-col gap-1.5 px-3 py-3">
       <div class="flex flex-col gap-0.5">
         <div class="flex items-center gap-2">
           <div class="text-sm font-medium text-primary">{props.label}</div>
           <Show when={props.changed?.()}>
-            <span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500" title="Unsaved change" />
+            <span class="text-[11px] font-medium text-amber-700 dark:text-amber-300">Unsaved</span>
           </Show>
         </div>
         <p class="text-xs text-dimmed">{props.description}</p>
@@ -101,7 +102,7 @@ export type SettingsSaveBarProps = {
 export function SettingsSaveBar(props: SettingsSaveBarProps) {
   return (
     <Show when={props.changeCount() > 0}>
-      <div class="sticky bottom-0 z-10 border-t border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 flex items-center justify-between gap-3">
+      <div class="settings-save-bar sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t border-zinc-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
         <p class="text-xs text-dimmed">
           <span class="font-medium text-primary">{props.changeCount()}</span> unsaved change{props.changeCount() > 1 ? "s" : ""}
         </p>
