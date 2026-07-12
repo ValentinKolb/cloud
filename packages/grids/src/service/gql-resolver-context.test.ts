@@ -1,6 +1,7 @@
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
+import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
 const ordersTableId = "22222222-2222-4222-8222-222222222222";
@@ -44,28 +45,26 @@ const field = (tableId: string, id: string, shortId: string, name: string) => ({
   updatedAt: "2026-01-01T00:00:00.000Z",
 });
 
-mock.module("./tables", () => ({
-  listByBase: async (requestedBaseId: string) =>
-    requestedBaseId === baseId ? [table(ordersTableId, "Orders", "Orders"), table(hiddenTableId, "Hidden", "Hidden")] : [],
-}));
-
-mock.module("./fields", () => ({
-  listByTable: async (tableId: string) => (tableId === hiddenTableId ? [field(hiddenTableId, hiddenFieldId, "Secret", "Secret")] : []),
-}));
-
-const { buildTrustedGqlResolverContext } = await import("./gql-resolver-context");
-
 describe("buildTrustedGqlResolverContext", () => {
   test("exposes all base tables for service-level document and dashboard renderers", async () => {
     const parsed = parseGridsQueryDsl("from table Hidden\nselect Secret");
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
 
-    const ctx = await buildTrustedGqlResolverContext({
-      baseId,
-      ast: parsed.ast,
-      purpose: "document-template-render",
-    });
+    const ctx = await buildTrustedGqlResolverContext(
+      {
+        baseId,
+        ast: parsed.ast,
+        purpose: "document-template-render",
+      },
+      {
+        listTablesByBase: async (requestedBaseId: string) =>
+          requestedBaseId === baseId ? [table(ordersTableId, "Orders", "Orders"), table(hiddenTableId, "Hidden", "Hidden")] : [],
+        listFieldsByTable: async (tableId: string) =>
+          tableId === hiddenTableId ? [field(hiddenTableId, hiddenFieldId, "Secret", "Secret")] : [],
+        listViewsByBase: async () => [],
+      },
+    );
     const resolved = resolveDslQueryToQueryPlan(parsed.ast, ctx);
 
     expect(ctx.tables.map((source) => source.name)).toEqual(["Orders", "Hidden"]);

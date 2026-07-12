@@ -156,8 +156,12 @@ describe("named refs Postgres integration", () => {
         ],
         fieldsByTableId: { [table.data.id]: tableFields },
       });
+      if (!resolved.ok) {
+        throw new Error(
+          `${resolved.diagnostics.map((d) => d.message).join("\n")}\nfields: ${tableFields.map((field) => field.name).join(", ")}`,
+        );
+      }
       expect(resolved.ok).toBe(true);
-      if (!resolved.ok) throw new Error(resolved.diagnostics.map((d) => d.message).join("\n"));
       expect(resolved.plan.source.name).toBe("Invoices");
       expect(resolved.plan.outputColumns?.[0]).toEqual({ kind: "field", fieldId: price.data.id });
     } finally {
