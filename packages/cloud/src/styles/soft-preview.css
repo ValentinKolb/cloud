@@ -502,6 +502,120 @@ body:has(.cloud-ui-soft) :is(.ac-editor, .md-editor)[data-variant="paper"]:focus
   box-shadow: none;
 }
 
+/* Settings and data views read as one composed tool, not piles of cards. */
+.cloud-ui-soft .settings-modal {
+  gap: 0;
+  overflow: hidden;
+  border-radius: var(--ui-radius-frame);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-surface);
+}
+
+.cloud-ui-soft .settings-modal-header {
+  border: 0;
+  border-bottom: 1px solid var(--ui-divider);
+  border-radius: 0;
+  background: var(--ui-surface);
+  box-shadow: none;
+}
+
+.cloud-ui-soft .settings-modal-identity {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-surface-muted) !important;
+  color: var(--color-zinc-700) !important;
+}
+
+.dark .cloud-ui-soft .settings-modal-identity {
+  color: var(--color-zinc-200) !important;
+}
+
+.cloud-ui-soft .settings-modal-workspace {
+  gap: 0;
+}
+
+.cloud-ui-soft .settings-modal-nav {
+  border: 0;
+  border-radius: 0;
+  background: var(--ui-surface-subtle);
+  box-shadow: none;
+}
+
+@media (min-width: 768px) {
+  .cloud-ui-soft .settings-modal-nav {
+    border-right: 1px solid var(--ui-divider);
+  }
+}
+
+.cloud-ui-soft .settings-modal-nav > button {
+  border-radius: var(--ui-radius-control);
+  color: var(--color-zinc-600);
+  background: transparent;
+}
+
+.dark .cloud-ui-soft .settings-modal-nav > button {
+  color: var(--color-zinc-400);
+}
+
+.cloud-ui-soft .settings-modal-nav > button:hover {
+  color: var(--color-zinc-900);
+  background: var(--ui-hover);
+}
+
+.dark .cloud-ui-soft .settings-modal-nav > button:hover {
+  color: var(--color-zinc-100);
+}
+
+.cloud-ui-soft .settings-modal-nav > button[data-state="active"] {
+  color: var(--color-zinc-950);
+  background: var(--ui-surface-raised);
+  box-shadow: 0 0 0 1px var(--ui-border);
+}
+
+.dark .cloud-ui-soft .settings-modal-nav > button[data-state="active"] {
+  color: var(--color-zinc-50);
+}
+
+.cloud-ui-soft .settings-modal-nav > button[data-tone="danger"]:not([data-state="active"]) {
+  color: var(--color-red-600);
+}
+
+.cloud-ui-soft .settings-modal-main {
+  border: 0;
+  border-radius: 0;
+  background: var(--ui-surface);
+  box-shadow: none;
+}
+
+.cloud-ui-soft .settings-modal-main > section[data-tone="danger"] {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.cloud-ui-soft .settings-modal-section-icon {
+  background: var(--ui-surface-muted) !important;
+  color: var(--color-zinc-600) !important;
+}
+
+.cloud-ui-soft [aria-label="Data table"],
+.cloud-ui-soft .stat-grid {
+  box-shadow: none;
+}
+
+.cloud-ui-soft .stat-grid-header {
+  border-color: var(--ui-divider);
+  background: var(--ui-surface-subtle);
+}
+
+.cloud-ui-soft .stat-grid-body {
+  background: var(--ui-divider);
+}
+
+.cloud-ui-soft .stat-cell {
+  background: var(--ui-surface);
+}
+
 /* Floating layers follow the same geometry even when portaled under body. */
 body:has(.cloud-ui-soft) :is(.popup, .dialog-panel) {
   border-color: var(--ui-border-strong);

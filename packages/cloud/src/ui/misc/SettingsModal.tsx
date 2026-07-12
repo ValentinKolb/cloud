@@ -68,10 +68,10 @@ const SettingsModal = ((props: SettingsModalProps) => {
   };
 
   return (
-    <div class={`flex h-full min-h-0 flex-col gap-2 overflow-hidden ${props.class ?? ""}`}>
-      <section class="paper shrink-0 p-4">
+    <div class={`settings-modal flex h-full min-h-0 flex-col gap-2 overflow-hidden ${props.class ?? ""}`}>
+      <section class="settings-modal-header paper shrink-0 p-4">
         <div class="flex min-h-9 items-center gap-4">
-          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500 text-white">
+          <span class="settings-modal-identity flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500 text-white">
             <i class={`${tablerIconClass(props.icon, "ti-settings")} text-sm`} />
           </span>
           <div class="min-w-0">
@@ -88,12 +88,17 @@ const SettingsModal = ((props: SettingsModalProps) => {
         </div>
       </section>
 
-      <div class="grid min-h-0 flex-1 gap-3 md:grid-cols-[14rem_1fr]">
-        <nav class="paper flex gap-1 overflow-x-auto p-2 md:min-h-0 md:flex-col md:overflow-visible" aria-label={`${props.title} sections`}>
+      <div class="settings-modal-workspace grid min-h-0 flex-1 gap-3 md:grid-cols-[14rem_1fr]">
+        <nav
+          class="settings-modal-nav paper flex gap-1 overflow-x-auto p-2 md:min-h-0 md:flex-col md:overflow-visible"
+          aria-label={`${props.title} sections`}
+        >
           <For each={tabs()}>
             {(tab) => (
               <button
                 type="button"
+                data-state={activeTabId() === tab.id ? "active" : "idle"}
+                data-tone={tab.tone ?? "default"}
                 class={`flex min-w-40 shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors md:w-full md:min-w-0 ${
                   activeTabId() === tab.id
                     ? "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-200"
@@ -112,15 +117,16 @@ const SettingsModal = ((props: SettingsModalProps) => {
           </For>
         </nav>
 
-        <main class="paper min-h-0 overflow-hidden">
+        <main class="settings-modal-main paper min-h-0 overflow-hidden">
           <Show when={activeTab()}>
             {(tab) => (
               <section
+                data-tone={tab().tone ?? "default"}
                 class={`h-full overflow-y-auto px-5 py-5 ${tab().tone === "danger" ? "rounded-lg ring-1 ring-red-200 dark:ring-red-900/50" : ""}`}
               >
                 <div class="mb-4 flex items-start gap-3">
                   <span
-                    class={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                    class={`settings-modal-section-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
                       tab().tone === "danger"
                         ? "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-300"
                         : "bg-zinc-100 text-dimmed dark:bg-zinc-900"

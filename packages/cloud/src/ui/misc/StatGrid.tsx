@@ -133,12 +133,12 @@ const StatGrid = (props: StatGridProps): JSX.Element => {
 
   return (
     <div
-      class={`paper overflow-hidden flex flex-col ${
+      class={`stat-grid paper overflow-hidden flex flex-col ${
         surface() === "muted" ? "border-zinc-200 bg-zinc-50/70 dark:border-zinc-800 dark:bg-zinc-900/70" : ""
       } ${props.class ?? ""}`}
     >
       <Show when={props.title}>
-        <header class="px-3 py-2 flex items-center justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800/60">
+        <header class="stat-grid-header px-3 py-2 flex items-center justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800/60">
           <span class="text-xs font-semibold text-primary truncate">{props.title}</span>
           <Show when={props.action}>
             {(action) => (
@@ -157,7 +157,7 @@ const StatGrid = (props: StatGridProps): JSX.Element => {
           paper when the caller passes a sizing class like `h-full`. */}
       <StatGridSizeContext.Provider value={props.size ?? "md"}>
         <StatGridSurfaceContext.Provider value={surface()}>
-          <div class={`grid ${gridCols()} gap-px bg-zinc-100 dark:bg-zinc-800 flex-1`}>{props.children}</div>
+          <div class={`stat-grid-body grid ${gridCols()} gap-px bg-zinc-100 dark:bg-zinc-800 flex-1`}>{props.children}</div>
         </StatGridSurfaceContext.Provider>
       </StatGridSizeContext.Provider>
     </div>

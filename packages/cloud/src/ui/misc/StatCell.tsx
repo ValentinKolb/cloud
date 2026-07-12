@@ -206,7 +206,7 @@ const StatCell = (props: StatCellProps): JSX.Element => {
   const gridSurface = useStatGridSurface();
   const size = () => props.size ?? gridSize;
   const surfaceClass = () => (gridSurface === "muted" ? "bg-zinc-50 dark:bg-zinc-900" : "bg-white dark:bg-zinc-900");
-  const baseClass = () => `${surfaceClass()} flex flex-col gap-0.5 min-w-0 ${size() === "sm" ? "px-3 py-2.5" : "px-4 py-4"}`;
+  const baseClass = () => `stat-cell ${surfaceClass()} flex flex-col gap-0.5 min-w-0 ${size() === "sm" ? "px-3 py-2.5" : "px-4 py-4"}`;
   if (props.href) {
     // Link variant: adds a subtle top-right `external-link` icon as
     // an affordance — sits in dimmed zinc by default, shifts to the
