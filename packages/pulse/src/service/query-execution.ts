@@ -18,6 +18,7 @@ import {
   mapCurrentState,
   mapRecordedEvent,
   normalizeDimensions,
+  parseJsonObject,
 } from "./telemetry-values";
 
 const MAX_METRIC_BUCKETS = 2_000;
@@ -297,6 +298,73 @@ export const queryEventsData = async (query: EventQuery): Promise<Result<PulseRe
     LIMIT ${query.limit}
   `;
   return ok(rows.map(mapRecordedEvent));
+};
+
+type EventAggregateRow = {
+  bucket: Date | string;
+  value: number | string | null;
+  group_data: unknown;
+};
+
+const eventAggregateExpression = (aggregation: NonNullable<EventQuery["aggregation"]>) => {
+  switch (aggregation) {
+    case "count":
+      return sql`COUNT(*)::double precision`;
+    case "sum":
+      return sql`SUM(value)::double precision`;
+    case "unique_actor":
+      return sql`COUNT(DISTINCT actor_id)::double precision`;
+    case "unique_session":
+      return sql`COUNT(DISTINCT session_id)::double precision`;
+    default:
+      throw new Error("Rows are not an event aggregation");
+  }
+};
+
+export const queryEventAggregateData = async (query: EventQuery): Promise<Result<MetricQueryPoint[]>> => {
+  const aggregation = query.aggregation ?? "rows";
+  if (aggregation === "rows") return fail(err.badInput("Event aggregation is required"));
+  const sinceMs = intervalToMs(query.since);
+  const bucketInterval = query.bucket ? durationToInterval(query.bucket) : null;
+  if (!sinceMs || !bucketInterval) return fail(err.badInput("Use compact durations like 5m, 1h, or 7d"));
+  const groupBy = query.groupBy ?? [];
+  if (groupBy.length > 4) return fail(err.badInput("Group by cannot exceed 4 dimension keys"));
+
+  const dimensions = jsonbObject(normalizeDimensions(query.dimensions));
+  const since = new Date(Date.now() - sinceMs);
+  const rows = await sql<EventAggregateRow[]>`
+    WITH scoped AS (
+      SELECT
+        date_bin(${bucketInterval}::interval, event.ts, '1970-01-01'::timestamptz) AS bucket,
+        event.value,
+        event.actor_id,
+        event.session_id,
+        COALESCE((
+          SELECT jsonb_object_agg(group_key, event.dimensions -> group_key)
+          FROM unnest(${sql.array(groupBy, "TEXT")}) AS group_key
+        ), '{}'::jsonb) AS group_data
+      FROM pulse.events event
+      WHERE event.base_id = ${query.baseId}::uuid
+        AND (${query.event ?? null}::text IS NULL OR event.kind = ${query.event ?? null})
+        AND (${query.sourceId ?? null}::uuid IS NULL OR event.source_id = ${query.sourceId ?? null}::uuid)
+        AND (${query.entityId ?? null}::text IS NULL OR event.entity_id = ${query.entityId ?? null})
+        AND (${query.entityType ?? null}::text IS NULL OR event.entity_type = ${query.entityType ?? null})
+        AND event.dimensions @> (${dimensions}::jsonb #>> '{}')::jsonb
+        AND event.ts >= ${since}
+    )
+    SELECT bucket, ${eventAggregateExpression(aggregation)} AS value, group_data
+    FROM scoped
+    GROUP BY bucket, group_data
+    ORDER BY bucket ASC, group_data::text ASC
+    LIMIT 1000
+  `;
+  return ok(
+    rows.map((row) => ({
+      bucket: iso(row.bucket),
+      value: row.value === null ? null : Number(row.value),
+      group: normalizeDimensions(parseJsonObject(row.group_data)),
+    })),
+  );
 };
 
 export const queryStatesData = async (query: StateQuery): Promise<Result<PulseCurrentState[]>> => {

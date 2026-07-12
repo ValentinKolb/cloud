@@ -116,6 +116,15 @@ describe("Pulse query authoring", () => {
     );
   });
 
+  test("suggests event aggregations and grouping keys", async () => {
+    const aggregation = await suggest("", { fullText: "events deploy.finished ", caret: 23, tokenStart: 23 });
+    expect(aggregation.map((item) => item.label)).toContain("count");
+    expect(aggregation.map((item) => item.label)).toContain("unique");
+
+    const identity = await suggest("", { fullText: "events deploy.finished unique ", caret: 30, tokenStart: 30 });
+    expect(identity.map((item) => item.label)).toEqual(["actor", "session"]);
+  });
+
   test("highlights query DSL and escapes user text", () => {
     const html = pulseQueryHighlight('metric system.cpu.usage avg every 5m where host="a<b"');
 

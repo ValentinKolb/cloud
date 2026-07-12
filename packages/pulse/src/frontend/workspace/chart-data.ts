@@ -25,5 +25,10 @@ export const pointsToHeatmap = (points: MetricQueryPoint[], context?: DateContex
 
 export const queryPointColumns: DataTableColumn<MetricQueryPoint>[] = [
   { id: "bucket", header: "Bucket", value: (point) => compactDateWithDelta(point.bucket), cellClass: "w-48 whitespace-nowrap" },
+  {
+    id: "group",
+    header: "Group",
+    value: (point) => Object.entries(point.group ?? {}).map(([key, value]) => `${key}=${value || "(none)"}`).join(" · ") || "-",
+  },
   { id: "value", header: "Value", value: (point) => formatValue(point.value), cellClass: "w-32 whitespace-nowrap" },
 ];

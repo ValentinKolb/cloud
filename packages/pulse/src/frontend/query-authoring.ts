@@ -57,7 +57,15 @@ const clauseSuggestions = (kind: "metric" | "events" | "states", query: string, 
   const clauses =
     kind === "metric"
       ? ["every", "since", "source", ...(hasWhere(text) ? [] : ["where"])]
-      : ["since", "source", "entity", "entity_type", "limit", ...(hasWhere(text) ? [] : ["where"])];
+      : [
+          ...(kind === "events" && /\bevents\s+\S+\s+(?:count|sum|unique\s+(?:actor|session))\b/i.test(text) ? ["every", "group"] : []),
+          "since",
+          "source",
+          "entity",
+          "entity_type",
+          "limit",
+          ...(hasWhere(text) ? [] : ["where"]),
+        ];
   return clauses.filter((item) => item.startsWith(query.toLowerCase())).map((item) => suggestion(item, "clause"));
 };
 
@@ -116,6 +124,14 @@ const dimensionSuggestions = (params: PulseQueryAuthoringInventory, query: strin
     });
 };
 
+const dimensionKeySuggestions = (params: PulseQueryAuthoringInventory, query: string): Suggestion[] =>
+  uniqueValues(
+    [...params.series, ...(params.events ?? []), ...(params.states ?? [])].flatMap((item) => Object.keys(item.dimensions)),
+  )
+    .filter((key) => matches(key, query))
+    .slice(0, 40)
+    .map((key) => suggestion(key, "dimension key"));
+
 const literalSuggestions = (items: string[], query: string, hint: string): Suggestion[] =>
   items.filter((value) => matches(value, query)).map((value) => suggestion(value, hint));
 
@@ -140,6 +156,9 @@ const PREVIOUS_TOKEN_SUGGESTIONS: Record<string, PreviousTokenSuggestionFactory>
   since: literalSuggestionFactory(RANGE_LITERALS, "range"),
   limit: literalSuggestionFactory(LIMIT_LITERALS, "rows"),
   entity: (params, query) => entitySuggestions(params, query),
+  unique: (_params, query) => literalSuggestions(["actor", "session"], query, "identity"),
+  group: (_params, query) => literalSuggestions(["by"], query, "clause"),
+  by: (params, query) => dimensionKeySuggestions(params, query),
 };
 
 const shouldSuggestDimensions = (ctx: SuggestContext): boolean => {
@@ -167,7 +186,13 @@ const rowStatementSuggestions =
   (kind: "events" | "states"): StatementSuggestionFactory =>
   (params, query, text, tokenIndex) => {
     const names = kind === "events" ? eventKindSuggestions(params.events, query) : stateKeySuggestions(params.states, query);
-    return tokenIndex === 1 ? names : clauseSuggestions(kind, query, text);
+    if (tokenIndex === 1) return names;
+    if (kind === "events" && tokenIndex === 2)
+      return [
+        ...literalSuggestions(["count", "sum", "unique"], query, "event aggregation"),
+        ...clauseSuggestions(kind, query, text),
+      ];
+    return clauseSuggestions(kind, query, text);
   };
 
 const STATEMENT_SUGGESTIONS: Record<QueryStatement, StatementSuggestionFactory> = {
@@ -293,11 +318,25 @@ const highlightWords = (text: string, options: { wordPattern: RegExp; token: (to
   return out;
 };
 
-const QUERY_KEYWORDS = new Set(["metric", "events", "states", "every", "since", "source", "entity", "entity_type", "limit", "where"]);
+const QUERY_KEYWORDS = new Set([
+  "metric",
+  "events",
+  "states",
+  "every",
+  "since",
+  "source",
+  "entity",
+  "entity_type",
+  "limit",
+  "where",
+  "group",
+  "by",
+]);
 
 const queryTokenHighlight = (token: string): string => {
   const lower = token.toLowerCase();
   if (QUERY_KEYWORDS.has(lower)) return keywordSpan(token);
+  if (["unique", "actor", "session"].includes(lower)) return aggregationSpan(token);
   if (AGGREGATIONS.includes(lower as (typeof AGGREGATIONS)[number])) return aggregationSpan(token);
   if (/^\d+[mhd]$/.test(lower)) return literalSpan(token);
   return escapeHtml(token);

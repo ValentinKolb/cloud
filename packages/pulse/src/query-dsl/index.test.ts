@@ -53,6 +53,30 @@ describe("Pulse query DSL", () => {
       });
   });
 
+  test("compiles SQL event aggregations with bounded grouping", () => {
+    expect(compilePulseQueryText(baseId, "events page.viewed count every 1h since 7d where channel=qr group by campaign, country")).toEqual({
+      ok: true,
+      data: {
+        kind: "events",
+        baseId,
+        event: "page.viewed",
+        since: "7d",
+        sourceId: null,
+        entityId: null,
+        entityType: null,
+        dimensions: { channel: "qr" },
+        aggregation: "count",
+        bucket: "1h",
+        groupBy: ["campaign", "country"],
+        limit: 500,
+      },
+    });
+    expect(compilePulseQueryText(baseId, "events page.viewed unique actor every 1d since 30d")).toMatchObject({
+      ok: true,
+      data: { aggregation: "unique_actor", bucket: "1d" },
+    });
+  });
+
   test("rejects excessive lookback windows", () => {
     const result = compilePulseQueryText(baseId, "metric docker.container.cpu.usage avg every 1h since 365d");
     expect(result.ok).toBe(false);
@@ -104,5 +128,16 @@ describe("Pulse query DSL", () => {
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.message).toBe(message);
     }
+  });
+
+  test("rejects duplicate event aggregation options and oversized groups", () => {
+    expect(compilePulseQueryText(baseId, "events page.viewed count every 1h every 5m")).toMatchObject({
+      ok: false,
+      error: { message: 'Clause "every" may only be used once' },
+    });
+    expect(compilePulseQueryText(baseId, "events page.viewed count group by a, b, c, d, e")).toMatchObject({
+      ok: false,
+      error: { message: "Group by cannot exceed 4 dimension keys" },
+    });
   });
 });

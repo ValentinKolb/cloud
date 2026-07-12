@@ -7,6 +7,9 @@ export type MetricType = (typeof METRIC_TYPES)[number];
 export const AGGREGATIONS = ["avg", "sum", "min", "max", "count", "latest", "rate", "increase", "p50", "p90", "p95", "p99"] as const;
 export type Aggregation = (typeof AGGREGATIONS)[number];
 
+export const EVENT_AGGREGATIONS = ["rows", "count", "sum", "unique_actor", "unique_session"] as const;
+export type EventAggregation = (typeof EVENT_AGGREGATIONS)[number];
+
 export const PANEL_VISUALS = ["line", "bar", "stat", "gauge", "barGauge", "histogram", "heatmap", "table"] as const;
 export type PanelVisual = (typeof PANEL_VISUALS)[number];
 
@@ -458,8 +461,13 @@ export type EventQuery = {
   entityId?: string | null;
   entityType?: string | null;
   dimensions?: Record<string, string | number | boolean | null>;
+  aggregation?: EventAggregation;
+  bucket?: string | null;
+  groupBy?: string[];
   limit: number;
 };
+
+export const isEventAggregateQuery = (query: EventQuery): boolean => (query.aggregation ?? "rows") !== "rows";
 
 export type StateQuery = {
   kind: "states";
@@ -478,6 +486,7 @@ export type PulseExplorerQuery = MetricQuery | EventQuery | StateQuery;
 export type MetricQueryPoint = {
   bucket: string;
   value: number | null;
+  group?: Record<string, string>;
 };
 
 type PulseQueryDiagnostic = {

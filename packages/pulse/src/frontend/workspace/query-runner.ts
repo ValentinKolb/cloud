@@ -1,4 +1,4 @@
-import type { Aggregation, PulseExplorerQuery, PulseQueryCompileResult } from "../../contracts";
+import { isEventAggregateQuery, type Aggregation, type PulseExplorerQuery, type PulseQueryCompileResult } from "../../contracts";
 import { jsonFetch } from "./helpers";
 import type { ExplorerResultView, MetricTextQueryResult } from "./types";
 
@@ -28,7 +28,7 @@ export const metricControlsFromQuery = (compiled: PulseExplorerQuery): MetricQue
 };
 
 export const explorerResultViewAfterQuery = (currentView: ExplorerResultView, compiled: PulseExplorerQuery): ExplorerResultView => {
-  if (compiled.kind === "metric") return currentView;
+  if (compiled.kind === "metric" || (compiled.kind === "events" && isEventAggregateQuery(compiled))) return currentView;
   return currentView === "chart" ? "table" : currentView;
 };
 

@@ -11,7 +11,7 @@ import type {
   StateQuery,
 } from "../contracts";
 import { requireBaseAccess, type UserScope } from "./access-control";
-import { queryEventsData, queryMetricData, queryStatesData } from "./query-execution";
+import { queryEventAggregateData, queryEventsData, queryMetricData, queryStatesData } from "./query-execution";
 
 type MetricExplorerQuery = Extract<PulseExplorerQuery, { kind: "metric" }>;
 type EventsExplorerQuery = Extract<PulseExplorerQuery, { kind: "events" }>;
@@ -48,6 +48,13 @@ const runMetricExplorerQuery = async (query: MetricExplorerQuery, user: UserScop
 };
 
 const runEventsExplorerQuery = async (query: EventsExplorerQuery, user: UserScope): Promise<Result<ExplorerQueryResult>> => {
+  if ((query.aggregation ?? "rows") !== "rows") {
+    const access = await requireBaseAccess(query.baseId, user, "read");
+    if (!access.ok) return fail(access.error);
+    const points = await queryEventAggregateData(query);
+    if (!points.ok) return fail(points.error);
+    return ok({ compiled: query, points: points.data, events: [], states: [] });
+  }
   const events = await queryEvents(query, user);
   if (!events.ok) return fail(events.error);
   return ok({ compiled: query, points: [], events: events.data, states: [] });

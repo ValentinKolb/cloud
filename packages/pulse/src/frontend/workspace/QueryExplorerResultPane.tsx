@@ -1,6 +1,13 @@
 import { Chart, DataTable, SelectInput, StructuredDataPreview, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { Show, type Accessor, type JSX, type Setter } from "solid-js";
-import type { MetricQueryPoint, PanelVisual, PulseCurrentState, PulseExplorerQuery, PulseRecordedEvent } from "../../contracts";
+import {
+  isEventAggregateQuery,
+  type MetricQueryPoint,
+  type PanelVisual,
+  type PulseCurrentState,
+  type PulseExplorerQuery,
+  type PulseRecordedEvent,
+} from "../../contracts";
 import type { ExplorerResultView } from "./types";
 import {
   compactDate,
@@ -188,13 +195,14 @@ const renderNonMetricChartFallback = (): JSX.Element => (
 );
 
 const renderChartResult = (props: QueryExplorerResultPaneProps, compiled: PulseExplorerQuery | null): JSX.Element => {
-  if (compiled && compiled.kind !== "metric") return renderNonMetricChartFallback();
+  if (compiled && compiled.kind !== "metric" && !(compiled.kind === "events" && isEventAggregateQuery(compiled)))
+    return renderNonMetricChartFallback();
   if (props.points().length === 0) return renderEmptyMetricResult(props.queryWasRun());
   return renderMetricChartResult(props);
 };
 
 const renderDataResult = (props: QueryExplorerResultPaneProps, compiled: PulseExplorerQuery | null): JSX.Element => {
-  if (compiled?.kind === "events") return renderEventsResult(props);
+  if (compiled?.kind === "events" && !isEventAggregateQuery(compiled)) return renderEventsResult(props);
   if (compiled?.kind === "states") return renderStatesResult(props);
   if (props.resultView() === "table") return renderMetricTableResult(props);
   return renderChartResult(props, compiled);
@@ -215,7 +223,13 @@ export default function QueryExplorerResultPane(props: QueryExplorerResultPanePr
             icon="ti ti-layout"
             value={props.resultView}
             onChange={(value) =>
-              props.setResultView(props.compiled()?.kind !== "metric" && value === "chart" ? "table" : (value as ExplorerResultView))
+              props.setResultView(
+                props.compiled()?.kind !== "metric" &&
+                  !(props.compiled()?.kind === "events" && isEventAggregateQuery(props.compiled() as Extract<PulseExplorerQuery, { kind: "events" }>)) &&
+                  value === "chart"
+                  ? "table"
+                  : (value as ExplorerResultView),
+              )
             }
             options={RESULT_VIEW_OPTIONS}
           />
@@ -240,7 +254,7 @@ export default function QueryExplorerResultPane(props: QueryExplorerResultPanePr
           <i class="ti ti-copy" /> Copy widget
         </button>
         <span class="ml-auto text-xs text-dimmed">
-          {props.compiled()?.kind === "events"
+          {props.compiled()?.kind === "events" && !isEventAggregateQuery(props.compiled() as Extract<PulseExplorerQuery, { kind: "events" }>)
             ? `${props.events().length} events`
             : props.compiled()?.kind === "states"
               ? `${props.states().length} states`

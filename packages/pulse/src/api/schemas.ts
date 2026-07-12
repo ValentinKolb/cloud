@@ -1,6 +1,6 @@
 import { PermissionLevelSchema, PrincipalSchema, ServiceAccountCredentialSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
-import { AGGREGATIONS, METRIC_TYPES, PANEL_VISUALS, SOURCE_KINDS } from "../contracts";
+import { AGGREGATIONS, EVENT_AGGREGATIONS, METRIC_TYPES, PANEL_VISUALS, SOURCE_KINDS } from "../contracts";
 import { PULSE_EXTERNAL_INGEST_BATCH_LIMIT, PULSE_EXTERNAL_INGEST_COLLECTION_LIMIT } from "../ingest-limits";
 import {
   jsonBytes,
@@ -385,6 +385,9 @@ const EventQuerySchema = z.object({
   entityId: z.string().nullable().optional(),
   entityType: z.string().nullable().optional(),
   dimensions: DimensionsSchema,
+  aggregation: z.enum(EVENT_AGGREGATIONS).optional(),
+  bucket: DurationSchema.nullable().optional(),
+  groupBy: z.array(z.string().trim().min(1).max(80)).max(4).optional(),
   limit: z.number().int().positive().max(1_000),
 });
 
@@ -543,7 +546,11 @@ export const DashboardSchema = z.object({
   updatedAt: z.string(),
 });
 
-const StreamPointSchema = z.object({ bucket: z.string(), value: z.number().nullable() });
+const StreamPointSchema = z.object({
+  bucket: z.string(),
+  value: z.number().nullable(),
+  group: z.record(z.string(), z.string()).optional(),
+});
 
 const PublicDashboardSchema = z.object({
   id: z.string(),

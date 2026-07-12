@@ -1,6 +1,7 @@
 import { err, fail, ok, type Result } from "@valentinkolb/cloud/server";
-import type { Aggregation, EventQuery, MetricQuery, PulseExplorerQuery, StateQuery } from "../contracts";
+import type { Aggregation, EventAggregation, EventQuery, MetricQuery, PulseExplorerQuery, StateQuery } from "../contracts";
 import { AGGREGATIONS } from "../contracts";
+import { PULSE_DIMENSION_KEY_LIMIT } from "../telemetry-contract";
 
 const MAX_DURATION_MS = 90 * 24 * 60 * 60_000;
 
@@ -207,6 +208,8 @@ const readWhereClause = (tokens: string[], state: SharedClauseState): Result<voi
     if (SHARED_CLAUSE_READERS[filter.toLowerCase()]) break;
     const parsed = parseDimensionFilter(filter);
     if (!parsed) return fail(err.badInput(`Invalid dimension filter "${filter}"`));
+    if (!(parsed[0] in state.dimensions) && Object.keys(state.dimensions).length >= PULSE_DIMENSION_KEY_LIMIT)
+      return fail(err.badInput(`Where cannot exceed ${PULSE_DIMENSION_KEY_LIMIT} dimension filters`));
     state.dimensions[parsed[0]] = parsed[1];
     filters += 1;
     state.index += 1;
@@ -276,9 +279,12 @@ const metricQueryFromParts = (baseId: string, parts: MetricTokenParts, shared: S
 });
 
 const compileEventQueryTokens = (baseId: string, tokens: string[]): Result<EventQuery> => {
-  const shared = parseSharedQueryClauses(tokens, 2, { since: "24h", limit: 500 });
+  const options = readEventOptions(tokens);
+  if (!options.ok) return fail(options.error);
+  const shared = parseSharedQueryClauses(options.data.sharedTokens, 0, { since: "24h", limit: 500 });
   if (!shared.ok) return fail(shared.error);
   if (!intervalToMs(shared.data.since)) return fail(err.badInput("Use compact durations like 5m, 1h, or 7d"));
+  if (options.data.bucket && !intervalToMs(options.data.bucket)) return fail(err.badInput("Use compact durations like 5m, 1h, or 7d"));
   return ok({
     kind: "events",
     baseId,
@@ -288,8 +294,79 @@ const compileEventQueryTokens = (baseId: string, tokens: string[]): Result<Event
     entityId: shared.data.entityId,
     entityType: shared.data.entityType,
     dimensions: shared.data.dimensions,
+    aggregation: options.data.aggregation,
+    bucket: options.data.bucket,
+    groupBy: options.data.groupBy,
     limit: shared.data.limit,
   });
+};
+
+type EventOptions = {
+  aggregation: EventAggregation;
+  bucket: string | null;
+  groupBy: string[];
+  sharedTokens: string[];
+};
+
+const EVENT_AGGREGATION_TOKENS = new Set(["count", "sum", "unique"]);
+const EVENT_OPTION_TOKENS = new Set(["every", "group"]);
+const EVENT_CLAUSE_TOKENS = new Set([...Object.keys(SHARED_CLAUSE_READERS), ...EVENT_OPTION_TOKENS]);
+
+const readEventOptions = (tokens: string[]): Result<EventOptions> => {
+  let index = 2;
+  let aggregation: EventAggregation = "rows";
+  const first = tokens[index]?.toLowerCase();
+  if (first && EVENT_AGGREGATION_TOKENS.has(first)) {
+    if (first === "unique") {
+      const identity = tokens[index + 1]?.toLowerCase();
+      if (identity !== "actor" && identity !== "session") return fail(err.badInput('Unique must be followed by "actor" or "session"'));
+      aggregation = identity === "actor" ? "unique_actor" : "unique_session";
+      index += 2;
+    } else {
+      aggregation = first as Extract<EventAggregation, "count" | "sum">;
+      index += 1;
+    }
+  }
+
+  let bucket: string | null = aggregation === "rows" ? null : "1h";
+  const groupBy: string[] = [];
+  const sharedTokens: string[] = [];
+  let everySeen = false;
+  let groupSeen = false;
+  while (index < tokens.length) {
+    const token = tokens[index]?.toLowerCase();
+    if (token === "every") {
+      if (aggregation === "rows") return fail(err.badInput("Every requires an event aggregation"));
+      if (everySeen) return fail(err.badInput('Clause "every" may only be used once'));
+      const value = tokens[index + 1];
+      if (!value) return fail(err.badInput("Every duration is missing"));
+      everySeen = true;
+      bucket = value;
+      index += 2;
+      continue;
+    }
+    if (token === "group") {
+      if (aggregation === "rows") return fail(err.badInput("Group by requires an event aggregation"));
+      if (groupSeen) return fail(err.badInput('Clause "group by" may only be used once'));
+      if (tokens[index + 1]?.toLowerCase() !== "by") return fail(err.badInput('Group must be followed by "by"'));
+      groupSeen = true;
+      index += 2;
+      while (index < tokens.length && !EVENT_CLAUSE_TOKENS.has(tokens[index]!.toLowerCase())) {
+        const key = tokens[index]!;
+        index += 1;
+        if (key === ",") continue;
+        if (!/^[a-zA-Z_][a-zA-Z0-9_.-]*$/.test(key)) return fail(err.badInput(`Invalid group key "${key}"`));
+        if (groupBy.includes(key)) return fail(err.badInput(`Duplicate group key "${key}"`));
+        groupBy.push(key);
+      }
+      if (groupBy.length === 0) return fail(err.badInput("Group by requires at least one dimension key"));
+      if (groupBy.length > 4) return fail(err.badInput("Group by cannot exceed 4 dimension keys"));
+      continue;
+    }
+    sharedTokens.push(tokens[index]!);
+    index += 1;
+  }
+  return ok({ aggregation, bucket, groupBy, sharedTokens });
 };
 
 const compileStateQueryTokens = (baseId: string, tokens: string[]): Result<StateQuery> => {

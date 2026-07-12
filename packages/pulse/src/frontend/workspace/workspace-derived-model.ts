@@ -1,5 +1,5 @@
 import { createMemo } from "solid-js";
-import type { MetricQuery, PulseSource } from "../../contracts";
+import type { MetricQuery, MetricQueryPoint, PulseSource } from "../../contracts";
 import { buildPulseQuery, buildPulseQueryCompletions } from "../query-authoring";
 import { buildActivityEventGroups, buildActivityStateGroups } from "./activity-groups";
 import { defaultPulseDateContext, signalResourceKey, stateRowId } from "./helpers";
@@ -132,9 +132,20 @@ export const createWorkspaceDerivedModel = (props: PulseWorkspaceProps, state: W
       [source.name, source.kind, source.endpointUrl ?? "", source.lastError ?? ""].some((value) => value.toLowerCase().includes(q)),
     );
   });
-  const previewSeries = createMemo(() => [
-    { label: selectedMetric() || "metric", data: points().map((point) => ({ x: Date.parse(point.bucket), y: point.value ?? 0 })) },
-  ]);
+  const previewSeries = createMemo(() => {
+    const grouped = new Map<string, MetricQueryPoint[]>();
+    for (const point of points()) {
+      const label = Object.entries(point.group ?? {})
+        .map(([key, value]) => `${key}=${value || "(none)"}`)
+        .join(", ");
+      const seriesLabel = label || selectedMetric() || "value";
+      grouped.set(seriesLabel, [...(grouped.get(seriesLabel) ?? []), point]);
+    }
+    return [...grouped.entries()].map(([label, seriesPoints]) => ({
+      label,
+      data: seriesPoints.map((point) => ({ x: Date.parse(point.bucket), y: point.value ?? 0 })),
+    }));
+  });
   const queryCompletions = createMemo(() =>
     buildPulseQueryCompletions({
       metrics: metrics(),

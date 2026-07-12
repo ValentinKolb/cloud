@@ -46,6 +46,21 @@ describe("Pulse text query runner helpers", () => {
     expect(explorerResultViewAfterQuery("compiled", eventsQuery)).toBe("compiled");
   });
 
+  test("keeps chart output for aggregated event queries", () => {
+    expect(
+      explorerResultViewAfterQuery("chart", {
+        kind: "events",
+        baseId: "base",
+        event: "page.viewed",
+        since: "7d",
+        aggregation: "count",
+        bucket: "1h",
+        groupBy: ["campaign"],
+        limit: 500,
+      }),
+    ).toBe("chart");
+  });
+
   test("creates successful query diagnostics", () => {
     expect(validQueryDiagnostics(metricQuery)).toEqual({
       ok: true,
