@@ -68,7 +68,7 @@ jobs:
           binary="packages/cloud-cli/release/cld_${{ matrix.target }}"
           "$binary" --version
           "$binary" help
-          "$binary" update --version "${GITHUB_REF_NAME}" --yes --no-verify
+          "$binary" update --version "${GITHUB_REF_NAME}" --yes --no-verify --no-skills
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -97,8 +97,9 @@ jobs:
         working-directory: release
         run: |
           set -euo pipefail
+          tar -czf cloud-cli-skill.tar.gz -C ../skills cloud-cli
           chmod 755 cld_*
-          find . -maxdepth 1 -type f -regextype posix-extended -regex './cld_(darwin|linux)_(arm64|x64)' -printf '%f\n' | sort | while read -r file; do
+          find . -maxdepth 1 -type f -regextype posix-extended -regex './(cld_(darwin|linux)_(arm64|x64)|cloud-cli-skill\.tar\.gz)' -printf '%f\n' | sort | while read -r file; do
             sha256sum "$file"
           done > checksums.txt
           cosign sign-blob --yes \
@@ -112,7 +113,7 @@ jobs:
         working-directory: release
         run: |
           set -euo pipefail
-          assets=(cld_* checksums.txt checksums.txt.sig checksums.txt.pem)
+          assets=(cld_* cloud-cli-skill.tar.gz checksums.txt checksums.txt.sig checksums.txt.pem)
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             draft=$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq .isDraft)
             [ "$draft" = "true" ] || {

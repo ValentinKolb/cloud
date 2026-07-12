@@ -4,7 +4,8 @@
 
 ## Install
 
-Install the standalone binary from any Cloud instance:
+Install the standalone binary and, when prompted, the Cloud CLI agent skill from
+any Cloud instance:
 
 ```bash
 curl -fsSL https://cloud.example.com/cli | sh
@@ -12,8 +13,18 @@ cld login --server https://cloud.example.com
 ```
 
 The installer places `cld` in `~/.local/bin`, verifies SHA-256 checksums, and
-uses Cosign when it is available. Run `cld update` to install the latest CLI
-release without changing profiles or OAuth credentials.
+uses Cosign when it is available. It can also install the `cloud-cli` skill into
+`~/.agents/skills` and optionally symlink it into `~/.claude/skills/cloud-cli`.
+Run `cld update` to install the latest CLI release and refresh the skill without
+changing profiles or OAuth credentials.
+
+Useful installer flags:
+
+```bash
+curl -fsSL https://cloud.example.com/cli | sh -s -- --yes
+curl -fsSL https://cloud.example.com/cli | sh -s -- --no-skills
+curl -fsSL https://cloud.example.com/cli | sh -s -- --claude-symlink
+```
 
 Run it from the workspace without installing a binary:
 

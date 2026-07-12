@@ -28,7 +28,7 @@ import toolsCliModule from "@valentinkolb/cloud-app-tools/cli";
 import venueCliModule from "@valentinkolb/cloud-app-venue/cli";
 import type { Hono } from "hono";
 import { hc } from "hono/client";
-import { updateCli } from "./release";
+import { defaultCloudCliSkillsDir, updateCli } from "./release";
 
 declare const __CLD_VERSION__: string;
 declare const __CLD_COMMIT__: string;
@@ -747,12 +747,15 @@ Usage:
 const updateHelp = (): string => `cld update
 
 Usage:
-  cld update [--version <version>] [--yes] [--no-verify]
+  cld update [--version <version>] [--yes] [--no-verify] [--no-skills] [--skills-dir <dir>] [--claude-symlink]
 
 Options:
   --version <version>  Install cli-vX.Y.Z or X.Y.Z (default: latest CLI release)
   --yes                Skip the confirmation prompt
   --no-verify          Skip optional Cosign verification; SHA-256 is always verified
+  --no-skills          Skip updating the Cloud CLI agent skill
+  --skills-dir <dir>   Skill install base directory (default: ${defaultCloudCliSkillsDir()})
+  --claude-symlink     Link the installed skill into ~/.claude/skills/cloud-cli
 `;
 
 const confirmCliUpdate = async (message: string): Promise<boolean> => {
@@ -772,17 +775,41 @@ const runUpdateCommand = async (args: string[]): Promise<number> => {
     console.log(updateHelp());
     return 0;
   }
-  if (parsed.args.length > 0) throw new CliError("Usage: cld update [--version <version>] [--yes] [--no-verify]");
-  const allowedFlags = new Set(["version", "yes", "y", "no-verify"]);
+  if (parsed.args.length > 0)
+    throw new CliError("Usage: cld update [--version <version>] [--yes] [--no-verify] [--no-skills] [--skills-dir <dir>] [--claude-symlink]");
+  const allowedFlags = new Set(["version", "yes", "y", "no-verify", "no-skills", "skills-dir", "claude-symlink"]);
   const unsupportedFlag = Object.keys(parsed.flags).find((flag) => !allowedFlags.has(flag));
   if (unsupportedFlag) throw new CliError(`Unknown update option "--${unsupportedFlag}".`);
   if (parsed.flags.version === true) throw new CliError("--version requires a value.");
+  if (parsed.flags["skills-dir"] === true) throw new CliError("--skills-dir requires a value.");
   const version = takeStringFlag(parsed.flags, "version");
   const yes = takeBooleanFlag(parsed.flags, "yes", "y");
   const noVerify = takeBooleanFlag(parsed.flags, "no-verify");
-  const result = await updateCli({ version, verifyCosign: !noVerify, confirm: yes ? undefined : confirmCliUpdate });
+  const noSkills = takeBooleanFlag(parsed.flags, "no-skills");
+  const claudeSymlink = takeBooleanFlag(parsed.flags, "claude-symlink");
+  const skillsDir = takeStringFlag(parsed.flags, "skills-dir");
+  const result = await updateCli({
+    version,
+    verifyCosign: !noVerify,
+    installSkill: !noSkills,
+    skillsDir,
+    claudeSymlink,
+    confirm: yes ? undefined : confirmCliUpdate,
+  });
+  const claude =
+    result.claudeSymlink === "created"
+      ? "; Claude Code symlink created"
+      : result.claudeSymlink === "exists"
+        ? "; Claude Code symlink already linked"
+        : result.claudeSymlink === "blocked"
+          ? "; Claude Code symlink skipped because the target already exists"
+          : "";
   if (result.release.version === cliVersion) {
-    console.log(`cld ${cliVersion} is already up to date.`);
+    console.log(
+      result.skill === "installed"
+        ? `cld ${cliVersion} is up to date; Cloud CLI skill updated${claude}.`
+        : `cld ${cliVersion} is already up to date${claude}.`,
+    );
     return 0;
   }
   const verification =
@@ -791,7 +818,8 @@ const runUpdateCommand = async (args: string[]): Promise<number> => {
       : result.cosign === "unavailable"
         ? "SHA-256 verified; Cosign unavailable"
         : "SHA-256 verified";
-  console.log(`Updated cld to ${result.release.version} (${verification}).`);
+  const skill = result.skill === "installed" ? "; Cloud CLI skill updated" : "";
+  console.log(`Updated cld to ${result.release.version} (${verification}${skill}${claude}).`);
   return 0;
 };
 
