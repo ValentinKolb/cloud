@@ -169,7 +169,7 @@ export default function ContactNotesSection(props: Props) {
 
   return (
     <div ref={sectionRoot} class="flex flex-col gap-3">
-      <div class="flex items-center justify-between gap-2">
+      <div class="flex flex-wrap items-center justify-between gap-2">
         <h3 class="detail-section-label mb-0">Notes</h3>
         <div class="flex items-center gap-2">
           <span class="inline-flex items-center rounded-md bg-[var(--ui-surface-subtle)] px-2 py-0.5 text-[11px] font-medium text-secondary">
@@ -185,7 +185,7 @@ export default function ContactNotesSection(props: Props) {
 
       <Show when={props.canWrite && composerOpen()}>
         <form
-          class="flex flex-col gap-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] p-2"
+          class="flex flex-col gap-2"
           onSubmit={(event) => {
             event.preventDefault();
             submitDraft();
@@ -226,14 +226,14 @@ export default function ContactNotesSection(props: Props) {
           </Placeholder>
         }
       >
-        <ol class="flex flex-col gap-3">
+        <ol class="divide-y divide-[var(--ui-divider)]">
           <For each={notes()}>
             {(note) => {
               const isOwn = () => note.authorUserId === props.currentUserId;
               const isEditing = () => editingId() === note.id;
               return (
-                <li class="group flex flex-col gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/50">
-                  <div class="flex items-center gap-2">
+                <li class="group flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
+                  <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <Avatar username={note.authorDisplayName} userId={note.authorUserId} avatarHash={note.authorAvatarHash} size="xs" />
                     <span class="truncate text-xs font-medium text-primary">{note.authorDisplayName}</span>
                     <span class="text-[11px] text-dimmed" title={dates.formatDateTime(note.createdAt)}>
@@ -245,7 +245,7 @@ export default function ContactNotesSection(props: Props) {
                       </span>
                     </Show>
                     <Show when={props.canWrite && !isEditing() && (isOwn() || props.isBookAdmin)}>
-                      <div class="ml-auto flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <div class="ml-auto flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                         <Show when={isOwn()}>
                           <button
                             type="button"
@@ -280,18 +280,18 @@ export default function ContactNotesSection(props: Props) {
                         disabled={updateMutation.loading()}
                         onSubmit={() => submitEdit(note.id)}
                       />
-                      <div class="flex items-center gap-2">
+                      <div class="flex flex-wrap items-center justify-end gap-2">
+                        <button type="button" onClick={cancelEdit} class="btn-secondary btn-sm">
+                          Cancel
+                        </button>
                         <button
                           type="button"
                           onClick={() => submitEdit(note.id)}
                           disabled={updateMutation.loading() || !editingContent().trim()}
-                          class="inline-flex items-center gap-1.5 px-3 py-1 text-xs text-blue-500 hover:text-blue-600 disabled:opacity-50"
+                          class="btn-primary btn-sm"
                         >
                           {updateMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-check" />}
                           Save
-                        </button>
-                        <button type="button" onClick={cancelEdit} class="btn-simple btn-sm text-xs text-dimmed hover:text-primary">
-                          Cancel
                         </button>
                       </div>
                     </div>

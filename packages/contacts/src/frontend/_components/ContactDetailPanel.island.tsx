@@ -191,7 +191,7 @@ export default function ContactDetailPanel(props: Props) {
                       </div>
                     </Show>
 
-                    <div class="mt-3 flex flex-wrap items-center justify-center gap-2">
+                    <div class="mt-3 mb-2 flex flex-wrap items-center justify-center gap-2">
                       <Show when={c().emails[0]}>
                         {(email) => (
                           <a href={`mailto:${email().email}`} class="btn-secondary btn-sm">
@@ -231,10 +231,14 @@ export default function ContactDetailPanel(props: Props) {
                         <dl class="detail-facts">
                           <dt class="detail-fact-key">Name</dt>
                           <dd>{[c().firstName, c().lastName].filter(Boolean).join(" ") || resolveContactName(c())}</dd>
-                          <dt class="detail-fact-key">Company</dt>
-                          <dd>{c().companyName || <span class="text-dimmed">Not set</span>}</dd>
-                          <dt class="detail-fact-key">Job title</dt>
-                          <dd>{c().jobTitle || <span class="text-dimmed">Not set</span>}</dd>
+                          <Show when={c().companyName}>
+                            <dt class="detail-fact-key">Company</dt>
+                            <dd>{c().companyName}</dd>
+                          </Show>
+                          <Show when={c().jobTitle}>
+                            <dt class="detail-fact-key">Job title</dt>
+                            <dd>{c().jobTitle}</dd>
+                          </Show>
                           <dt class="detail-fact-key">Book</dt>
                           <dd>{props.bookNames[c().bookId] ?? c().bookId}</dd>
                         </dl>
@@ -432,45 +436,43 @@ export default function ContactDetailPanel(props: Props) {
                       <h3 class="detail-section-label">Organization</h3>
                       <div class="flex flex-col gap-2">
                         <Show when={c().parent || hasOrgTree()}>
-                          <div class="flex flex-col gap-2 rounded-md bg-[var(--ui-surface-subtle)] p-2 text-xs text-dimmed">
-                            <div class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
-                              <span>{props.bookNames[c().bookId] ?? c().bookId}</span>
-                              <Show when={c().parent}>
-                                {(parent) => (
-                                  <>
-                                    <span aria-hidden="true">·</span>
-                                    <span>part of</span>
-                                    <button
-                                      type="button"
-                                      class="min-w-0 truncate text-left font-medium text-primary transition-colors hover:underline"
-                                      onClick={() =>
-                                        setSelectedContactInUrl({
-                                          contactId: parent().id,
-                                          bookId: c().bookId,
-                                          contact: null,
-                                        })
-                                      }
-                                      title={`Open ${resolveContactName(parent())}`}
-                                    >
-                                      {resolveContactName(parent())}
-                                    </button>
-                                  </>
-                                )}
-                              </Show>
-                              <Show when={hasOrgTree()}>
-                                <button
-                                  type="button"
-                                  class="btn-simple btn-sm ml-auto shrink-0"
-                                  aria-label="Show org tree"
-                                  title="Show org tree"
-                                  disabled={actions.orgTreeLoading()}
-                                  onClick={() => actions.openOrgTree(c())}
-                                >
-                                  {actions.orgTreeLoading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-hierarchy" />}
-                                  Tree
-                                </button>
-                              </Show>
-                            </div>
+                          <div class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-dimmed">
+                            <span>{props.bookNames[c().bookId] ?? c().bookId}</span>
+                            <Show when={c().parent}>
+                              {(parent) => (
+                                <>
+                                  <span aria-hidden="true">·</span>
+                                  <span>part of</span>
+                                  <button
+                                    type="button"
+                                    class="min-w-0 truncate text-left font-medium text-primary transition-colors hover:underline"
+                                    onClick={() =>
+                                      setSelectedContactInUrl({
+                                        contactId: parent().id,
+                                        bookId: c().bookId,
+                                        contact: null,
+                                      })
+                                    }
+                                    title={`Open ${resolveContactName(parent())}`}
+                                  >
+                                    {resolveContactName(parent())}
+                                  </button>
+                                </>
+                              )}
+                            </Show>
+                            <Show when={hasOrgTree()}>
+                              <button
+                                type="button"
+                                class="btn-simple btn-sm ml-auto shrink-0"
+                                aria-label="Show org tree"
+                                title="Show org tree"
+                                disabled={actions.orgTreeLoading()}
+                                onClick={() => actions.openOrgTree(c())}
+                              >
+                                {actions.orgTreeLoading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-hierarchy" />}
+                                Tree
+                              </button>
+                            </Show>
                           </div>
                         </Show>
                         <Show when={c().members.length > 0}>

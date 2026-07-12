@@ -20,7 +20,7 @@ function ContactOrgTreeNode(props: {
 }) {
   const selected = () => props.node.id === props.selectedId;
   const hasChildren = () => props.node.children.length > 0;
-  const lineColor = "border-zinc-300 dark:border-zinc-700";
+  const lineColor = "border-[var(--ui-divider)]";
 
   return (
     <li class="relative">
@@ -38,20 +38,12 @@ function ContactOrgTreeNode(props: {
         <button
           type="button"
           class={`group relative flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
-            selected()
-              ? "bg-blue-50/80 text-blue-700 dark:bg-blue-950/35 dark:text-blue-300"
-              : "text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            selected() ? "bg-[var(--ui-selected)] text-primary" : "text-primary hover:bg-[var(--ui-hover)]"
           }`}
           onClick={() => props.onSelect(props.node)}
           aria-current={selected() ? "true" : undefined}
         >
-          <span
-            class={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-              selected()
-                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-200"
-                : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200"
-            }`}
-          >
+          <span class="contact-avatar flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold">
             {(resolveContactName(props.node) || "?").charAt(0).toUpperCase()}
           </span>
           <span class="min-w-0 flex-1">
@@ -63,7 +55,7 @@ function ContactOrgTreeNode(props: {
           <Show when={hasChildren()}>
             <span
               class={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                selected() ? "bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-200" : "bg-zinc-100 text-dimmed dark:bg-zinc-800"
+                selected() ? "bg-[var(--ui-active)] text-primary" : "bg-[var(--ui-surface-subtle)] text-dimmed"
               }`}
               title={`${props.node.children.length} direct report${props.node.children.length === 1 ? "" : "s"}`}
             >
@@ -97,8 +89,8 @@ function ContactOrgTreeNode(props: {
 
 export default function ContactOrgTreeView(props: Props) {
   return (
-    <div class="detail-stack">
-      <section class="detail-section" style="view-transition-name: contacts-org-tree-panel">
+    <div class="flex h-full min-h-0 flex-col" style="view-transition-name: contacts-org-tree-panel">
+      <header class="detail-header">
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0">
             <h2 class="truncate text-lg font-semibold leading-tight text-primary">Org Tree</h2>
@@ -108,19 +100,21 @@ export default function ContactOrgTreeView(props: Props) {
             <i class="ti ti-arrow-left" /> Details
           </button>
         </div>
-      </section>
-      <section class="detail-section">
-        <ul class="flex flex-col gap-1">
-          <ContactOrgTreeNode
-            node={props.tree.root}
-            selectedId={props.tree.selectedId}
-            depth={0}
-            isFirst={true}
-            isLast={true}
-            onSelect={props.onSelect}
-          />
-        </ul>
-      </section>
+      </header>
+      <div class="detail-stack">
+        <section class="detail-section">
+          <ul class="flex flex-col gap-1">
+            <ContactOrgTreeNode
+              node={props.tree.root}
+              selectedId={props.tree.selectedId}
+              depth={0}
+              isFirst={true}
+              isLast={true}
+              onSelect={props.onSelect}
+            />
+          </ul>
+        </section>
+      </div>
     </div>
   );
 }

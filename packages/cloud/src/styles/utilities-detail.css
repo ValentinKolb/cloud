@@ -65,7 +65,7 @@
      separated by a hairline so the eye can follow key → value across the gap. */
   @apply grid grid-cols-[8rem_1fr] gap-x-4 text-xs text-primary;
   & > * {
-    @apply py-1.5 border-b border-zinc-100 dark:border-zinc-900;
+    @apply py-1.5 border-b border-[var(--ui-divider)];
   }
   & > *:nth-last-child(-n + 2) {
     @apply border-b-0 pb-0;
