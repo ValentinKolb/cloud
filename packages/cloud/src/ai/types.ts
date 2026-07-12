@@ -268,6 +268,13 @@ export type AiTurnSteerEnqueueResult = { ok: true; steer: AiTurnSteer } | { ok: 
 
 export type AiTurnCompletionResult = "completed" | "pending_steering" | "lost";
 
+export type AiTurnFinalizedEvent = {
+  conversationId: string;
+  turnId: string;
+  status: "completed" | "failed" | "aborted";
+  kind: AiTurnRunConfig["kind"] | null;
+};
+
 export type AiTurn = {
   id: string;
   conversationId: string;

@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import apiRoutes from "./api";
 import { app } from "./config";
 import pageRoutes from "./frontend";
+import { createAssistantNotificationService } from "./notifications";
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
@@ -12,6 +13,7 @@ const router = new Hono<AuthContext>()
   .route("/app/assistant", pageRoutes);
 
 let stopAiRuntime: (() => void) | undefined;
+const assistantNotifications = createAssistantNotificationService(app.notifications);
 
 export default await app.start({
   fetch: router.fetch,
@@ -21,13 +23,30 @@ export default await app.start({
       await migrateCloudAi();
     },
     start: async () => {
-      stopAiRuntime = startAiRuntime();
-      await aiMaintenanceJobs.start();
+      await assistantNotifications.start();
+      try {
+        stopAiRuntime = startAiRuntime({
+          onTurnFinalized: async ({ turnId, status, kind }) => {
+            if (status === "completed" && kind === "chat") await assistantNotifications.notifyTurnCompleted(turnId);
+          },
+        });
+        await aiMaintenanceJobs.start();
+      } catch (error) {
+        stopAiRuntime?.();
+        stopAiRuntime = undefined;
+        await aiMaintenanceJobs.stop().catch(() => undefined);
+        await assistantNotifications.stop().catch(() => undefined);
+        throw error;
+      }
     },
     stop: async () => {
       stopAiRuntime?.();
       stopAiRuntime = undefined;
-      await aiMaintenanceJobs.stop();
+      try {
+        await aiMaintenanceJobs.stop();
+      } finally {
+        await assistantNotifications.stop();
+      }
     },
   },
 });

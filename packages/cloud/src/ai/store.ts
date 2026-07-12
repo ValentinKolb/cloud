@@ -1108,7 +1108,7 @@ export const aiConversationStore: AiConversationStore = {
         ${input.conversationId},
         ${input.modelProfileId},
         'queued',
-        ${input.runConfig ? JSON.stringify(input.runConfig) : null}::jsonb
+        (${input.runConfig ? JSON.stringify(input.runConfig) : null}::text)::jsonb
       )
       RETURNING *
     `;
@@ -1137,7 +1137,7 @@ export const aiConversationStore: AiConversationStore = {
           ${input.conversationId},
           ${input.modelProfileId},
           'queued',
-          ${JSON.stringify(input.runConfig)}::jsonb
+          (${JSON.stringify(input.runConfig)}::text)::jsonb
         )
         RETURNING *
       `;

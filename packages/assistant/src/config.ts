@@ -1,4 +1,5 @@
 import { defineApp } from "@valentinkolb/cloud";
+import { NOTIFICATIONS } from "./notifications";
 
 export const app = defineApp({
   id: "assistant",
@@ -15,6 +16,7 @@ export const app = defineApp({
   },
   basePath: "/app/assistant",
   baseUrl: "http://app-assistant:3000",
+  notifications: NOTIFICATIONS,
   nav: {
     href: "/app/assistant",
     match: "/app/assistant",

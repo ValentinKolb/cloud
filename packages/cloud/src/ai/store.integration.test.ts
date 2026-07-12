@@ -164,6 +164,12 @@ describe("AI conversation store integration", () => {
       expect(submitted.message.message.role).toBe("user");
       expect(submitted.message.loopId).toBe(submitted.turn.id);
       expect(submitted.message.seq).toBe(1);
+      const [storedConfig] = await sql<{ kind: string | null; json_type: string | null }[]>`
+        SELECT run_config->>'kind' AS kind, jsonb_typeof(run_config) AS json_type
+        FROM ai.turns
+        WHERE id = ${submitted.turn.id}::uuid
+      `;
+      expect(storedConfig).toEqual({ kind: "chat", json_type: "object" });
 
       // Conversation title derives from the first user message.
       const detail = await aiConversationStore.getConversation({ conversationId: conversation.id });

@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@valentinkolb/cloud": "workspace:*",
+    "@valentinkolb/sync": "^5.5.2",
     "hono": "^4.11.1",
     "hono-openapi": "^1.1.2",
     "solid-js": "^1.9.10",

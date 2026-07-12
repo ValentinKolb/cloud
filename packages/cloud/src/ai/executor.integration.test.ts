@@ -7,7 +7,7 @@ import type { AiWireEvent } from "./protocol";
 import { createAiProvider } from "./provider";
 import { aiConversationStore } from "./store";
 import { aiStreamTopic } from "./stream";
-import type { AiModelProfile } from "./types";
+import type { AiModelProfile, AiTurnFinalizedEvent } from "./types";
 import type { validateAiTurnRequest } from "./validate";
 
 /**
@@ -137,8 +137,14 @@ const collectWire = async (conversationId: string, until: (event: AiWireEvent) =
 
 const userMessage = (text: string): Message => ({ role: "user", content: [{ type: "text", text }] });
 
-const createExecutor = (leaseOwner: string) =>
-  new AiTurnExecutor({ leaseOwner, heartbeatMs: 5_000, enqueueContinuation: async () => {}, validateTurn: fakeValidateTurn });
+const createExecutor = (leaseOwner: string, onTurnFinalized?: (event: AiTurnFinalizedEvent) => Promise<void>) =>
+  new AiTurnExecutor({
+    leaseOwner,
+    heartbeatMs: 5_000,
+    enqueueContinuation: async () => {},
+    validateTurn: fakeValidateTurn,
+    onTurnFinalized,
+  });
 
 describe("AI executor integration", () => {
   test("runs a chat turn end to end: claim, stream, persist, finish", async () => {
@@ -172,7 +178,10 @@ describe("AI executor integration", () => {
       });
       expect(claim).not.toBeNull();
 
-      await createExecutor("exec-test").run({ conversationId: conversation.id, turnId: turn.id, claim: claim!, signal: new AbortController().signal });
+      const finalizedEvents: AiTurnFinalizedEvent[] = [];
+      await createExecutor("exec-test", async (event) => {
+        finalizedEvents.push(event);
+      }).run({ conversationId: conversation.id, turnId: turn.id, claim: claim!, signal: new AbortController().signal });
 
       const events = await collecting;
       const types = events.map((event) => event.type);
@@ -184,6 +193,7 @@ describe("AI executor integration", () => {
       // The turn is completed and the assistant message is persisted with loop id = turn id.
       const finalTurn = await aiConversationStore.getTurn({ conversationId: conversation.id, turnId: turn.id });
       expect(finalTurn?.status).toBe("completed");
+      expect(finalizedEvents).toEqual([{ conversationId: conversation.id, turnId: turn.id, status: "completed", kind: "chat" }]);
 
       const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
       expect(messages).toHaveLength(2);

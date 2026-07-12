@@ -180,6 +180,11 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`ALTER TABLE ai.turns ADD COLUMN IF NOT EXISTS live_seq BIGINT NOT NULL DEFAULT 0`.simple();
   await sql`ALTER TABLE ai.turns ADD COLUMN IF NOT EXISTS deadline TIMESTAMPTZ`.simple();
   await sql`ALTER TABLE ai.turns ALTER COLUMN status SET DEFAULT 'queued'`.simple();
+  await sql`
+    UPDATE ai.turns
+    SET run_config = (run_config #>> '{}')::jsonb
+    WHERE jsonb_typeof(run_config) = 'string'
+  `.simple();
 
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_turns_one_active_per_conversation
@@ -190,6 +195,12 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_ai_turns_conversation_created
     ON ai.turns(conversation_id, created_at DESC)
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_turns_completed_chat
+    ON ai.turns(completed_at, id)
+    WHERE status = 'completed' AND run_config->>'kind' = 'chat'
   `.simple();
 
   await sql`

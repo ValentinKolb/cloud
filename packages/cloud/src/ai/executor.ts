@@ -33,6 +33,7 @@ import type {
   AiRuntimeTool,
   AiStoredMessage,
   AiTurnClaim,
+  AiTurnFinalizedEvent,
   AiTurnRunConfig,
   AiTurnSteer,
 } from "./types";
@@ -53,6 +54,8 @@ export type ExecutorConfig = {
   enqueueContinuation: (input: { conversationId: string; turnId: string }) => Promise<void>;
   /** Settings/model resolution seam — tests inject a fake so they never touch shared settings. */
   validateTurn?: typeof validateAiTurnRequest;
+  /** Runs after the durable turn state and final wire event are flushed. */
+  onTurnFinalized?: (event: AiTurnFinalizedEvent) => Promise<void>;
 };
 
 type ResolvedModel = Awaited<ReturnType<typeof resolveAiModel>>;
@@ -296,7 +299,7 @@ export class AiTurnExecutor {
 
     const runConfig = claim.runConfig;
     if (!runConfig) {
-      await this.finalize(conversationId, turnId, pipeline, "failed", "AI turn is missing its run configuration.");
+      await this.finalize(conversationId, turnId, pipeline, "failed", "AI turn is missing its run configuration.", null);
       return;
     }
 
@@ -313,11 +316,22 @@ export class AiTurnExecutor {
     pipeline: StreamPipeline,
     status: "completed" | "failed" | "aborted",
     error: string | null,
+    kind: AiTurnRunConfig["kind"] | null,
   ) {
     if (status === "failed" && error) log.error("AI turn failed", { conversationId, turnId, error });
     const finalized = await aiConversationStore.completeTurn({ conversationId, turnId, status, error, leaseOwner: this.config.leaseOwner });
     if (finalized === "completed") await pipeline.emitTurnFinished(status, error);
     await pipeline.flush().catch(() => undefined);
+    if (finalized === "completed" && this.config.onTurnFinalized) {
+      await this.config.onTurnFinalized({ conversationId, turnId, status, kind }).catch((hookError) => {
+        log.warn("AI turn finalized hook failed", {
+          conversationId,
+          turnId,
+          status,
+          error: hookError instanceof Error ? hookError.message : "AI turn finalized hook failed",
+        });
+      });
+    }
     return finalized;
   }
 
@@ -347,7 +361,7 @@ export class AiTurnExecutor {
       });
     } catch (error) {
       signal.removeEventListener("abort", onSignal);
-      await this.finalize(conversationId, turnId, pipeline, "failed", error instanceof Error ? error.message : "AI turn failed");
+      await this.finalize(conversationId, turnId, pipeline, "failed", error instanceof Error ? error.message : "AI turn failed", "chat");
       return;
     }
     const { settings, resolved } = validated;
@@ -460,7 +474,7 @@ export class AiTurnExecutor {
       return;
     }
 
-    const finalized = await this.finalize(conversationId, turnId, pipeline, outcome.status, outcome.error);
+    const finalized = await this.finalize(conversationId, turnId, pipeline, outcome.status, outcome.error, "chat");
     if (finalized === "pending_steering" && outcome.status === "completed" && !signal.aborted) {
       await this.runChat(conversationId, turnId, claim, config, pipeline, signal, true);
       return;
@@ -697,7 +711,14 @@ export class AiTurnExecutor {
       });
     } catch (error) {
       signal.removeEventListener("abort", onSignal);
-      await this.finalize(conversationId, turnId, pipeline, "failed", error instanceof Error ? error.message : "AI compaction failed");
+      await this.finalize(
+        conversationId,
+        turnId,
+        pipeline,
+        "failed",
+        error instanceof Error ? error.message : "AI compaction failed",
+        "compact",
+      );
       return;
     }
     const { settings, resolved } = validated;
@@ -754,7 +775,7 @@ export class AiTurnExecutor {
       signal.removeEventListener("abort", onSignal);
     }
 
-    await this.finalize(conversationId, turnId, pipeline, status, error);
+    await this.finalize(conversationId, turnId, pipeline, status, error, "compact");
   }
 }
 

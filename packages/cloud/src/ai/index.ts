@@ -209,6 +209,7 @@ export type {
   AiToolDefinition,
   AiToolRuntime,
   AiTurn,
+  AiTurnFinalizedEvent,
   AiTurnStatus,
   AiUserContentPart,
 } from "./types";

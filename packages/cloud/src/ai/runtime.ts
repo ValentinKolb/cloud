@@ -16,6 +16,7 @@ import type {
   AiStoredMessage,
   AiTurn,
   AiTurnFinalizedAction,
+  AiTurnFinalizedEvent,
   AiTurnToolSource,
 } from "./types";
 import { validateAiTurnRequest } from "./validate";
@@ -214,7 +215,12 @@ export const submitAiTurnAction = async (input: {
 // Worker + sweep lifecycle
 // ---------------------------------------------------------------------------
 
-const runClaimedTurn = async (job: AiTurnJob, signal: AbortSignal, leaseOwner: string): Promise<void> => {
+const runClaimedTurn = async (
+  job: AiTurnJob,
+  signal: AbortSignal,
+  leaseOwner: string,
+  onTurnFinalized?: (event: AiTurnFinalizedEvent) => Promise<void>,
+): Promise<void> => {
   const claim =
     (await aiConversationStore.claimTurn({ ...job, leaseOwner, leaseMs: AI_TURN_LEASE_MS, from: "queue", maxAttempts: AI_TURN_MAX_ATTEMPTS, runBudgetMs: AI_TURN_RUN_BUDGET_MS })) ??
     (await aiConversationStore.claimTurn({ ...job, leaseOwner, leaseMs: AI_TURN_LEASE_MS, from: "waiting", maxAttempts: AI_TURN_MAX_ATTEMPTS, runBudgetMs: AI_TURN_RUN_BUDGET_MS }));
@@ -225,16 +231,21 @@ const runClaimedTurn = async (job: AiTurnJob, signal: AbortSignal, leaseOwner: s
     leaseOwner,
     heartbeatMs: AI_TURN_HEARTBEAT_MS,
     enqueueContinuation: (input) => enqueueAiTurn(input).then(() => undefined),
+    onTurnFinalized,
   });
   await executor.run({ conversationId: job.conversationId, turnId: job.turnId, claim, signal });
 };
 
-const processMessage = async (message: QueueReceived<AiTurnJob>, signal: AbortSignal): Promise<void> => {
+const processMessage = async (
+  message: QueueReceived<AiTurnJob>,
+  signal: AbortSignal,
+  onTurnFinalized?: (event: AiTurnFinalizedEvent) => Promise<void>,
+): Promise<void> => {
   const leaseOwner = `${AI_WORKER_ID}:${message.deliveryId}`;
   const touch = setInterval(() => void message.touch({ leaseMs: AI_TURN_LEASE_MS }).catch(() => undefined), AI_TURN_HEARTBEAT_MS);
   if (typeof touch === "object" && "unref" in touch) touch.unref();
   try {
-    await runClaimedTurn(message.data, signal, leaseOwner);
+    await runClaimedTurn(message.data, signal, leaseOwner, onTurnFinalized);
   } catch (error) {
     log.error("AI turn worker error", {
       conversationId: message.data.conversationId,
@@ -272,21 +283,34 @@ export const sweepAiRuntime = async (): Promise<void> => {
   }
 };
 
-let running: (() => void) | null = null;
+type AiRuntimeState = {
+  listeners: Set<(event: AiTurnFinalizedEvent) => Promise<void>>;
+  stop: () => void;
+};
+
+let running: AiRuntimeState | null = null;
 let refCount = 0;
 
-export const startAiRuntime = (input: { concurrency?: number } = {}): (() => void) => {
+export const startAiRuntime = (
+  input: { concurrency?: number; onTurnFinalized?: (event: AiTurnFinalizedEvent) => Promise<void> } = {},
+): (() => void) => {
+  const listener = input.onTurnFinalized ? (event: AiTurnFinalizedEvent) => input.onTurnFinalized!(event) : null;
   if (running) {
     refCount += 1;
-    return () => {
-      refCount = Math.max(0, refCount - 1);
-      if (refCount === 0) running?.();
-    };
+    if (listener) running.listeners.add(listener);
+    return releaseAiRuntime(listener);
   }
 
   const concurrency = Math.min(Math.max(Math.floor(input.concurrency ?? AI_TURN_WORKER_CONCURRENCY), 1), 64);
   const controller = new AbortController();
+  const listeners = new Set<(event: AiTurnFinalizedEvent) => Promise<void>>();
+  if (listener) listeners.add(listener);
   refCount = 1;
+  const dispatchTurnFinalized = async (event: AiTurnFinalizedEvent): Promise<void> => {
+    const results = await Promise.allSettled([...listeners].map((notify) => notify(event)));
+    const errors = results.filter((result): result is PromiseRejectedResult => result.status === "rejected").map((result) => result.reason);
+    if (errors.length > 0) throw new AggregateError(errors, `${errors.length} AI turn finalized listener(s) failed`);
+  };
 
   for (let index = 0; index < concurrency; index += 1) {
     const reader = aiTurnQueue.reader();
@@ -297,7 +321,7 @@ export const startAiRuntime = (input: { concurrency?: number } = {}): (() => voi
           await message.nack({ delayMs: 1_000, reason: "worker_stopped" }).catch(() => undefined);
           continue;
         }
-        await processMessage(message, controller.signal);
+        await processMessage(message, controller.signal, dispatchTurnFinalized);
       }
     })().catch((error) => {
       if (!controller.signal.aborted) {
@@ -311,14 +335,33 @@ export const startAiRuntime = (input: { concurrency?: number } = {}): (() => voi
   const sweepTimer = setInterval(runSweep, AI_SWEEP_INTERVAL_MS);
   if (typeof sweepTimer === "object" && "unref" in sweepTimer) sweepTimer.unref();
 
-  running = () => {
-    controller.abort();
-    clearInterval(sweepTimer);
-    running = null;
-    refCount = 0;
+  const state: AiRuntimeState = {
+    listeners,
+    stop: () => {
+      if (running !== state) return;
+      controller.abort();
+      clearInterval(sweepTimer);
+      listeners.clear();
+      running = null;
+      refCount = 0;
+    },
   };
+  running = state;
   log.info("AI runtime started", { workerId: AI_WORKER_ID, concurrency });
-  return running;
+  return releaseAiRuntime(listener);
+};
+
+const releaseAiRuntime = (listener: ((event: AiTurnFinalizedEvent) => Promise<void>) | null): (() => void) => {
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const state = running;
+    if (!state) return;
+    if (listener) state.listeners.delete(listener);
+    refCount = Math.max(0, refCount - 1);
+    if (refCount === 0) state.stop();
+  };
 };
 
 /** @deprecated Compatibility shim for the previous recovery API; use startAiRuntime. */
