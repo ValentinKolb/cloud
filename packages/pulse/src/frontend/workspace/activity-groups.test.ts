@@ -11,6 +11,7 @@ const event = (overrides: Partial<PulseRecordedEvent>): PulseRecordedEvent => ({
   entityId: "service:api",
   entityType: "service",
   dimensions: {},
+  attributes: {},
   payload: {},
   recordedAt: "2026-07-10T10:00:00.000Z",
   ...overrides,

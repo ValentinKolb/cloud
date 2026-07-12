@@ -24,6 +24,7 @@ const suggest = async (query: string, ctx: SuggestContext): Promise<Suggestion[]
         entityId: "service:api",
         entityType: "service",
         dimensions: { host: "macbook", region: "eu" },
+        attributes: {},
         payload: {},
         recordedAt: "2026-01-01T00:00:00.000Z",
       },

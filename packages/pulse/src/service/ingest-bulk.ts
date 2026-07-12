@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { sql } from "bun";
 import type { PulseIngestBatch } from "../contracts";
-import { derivePulseResource } from "../resource-model";
+import { derivePulseResource, explicitPulseResource, type PulseResourceIdentity } from "../resource-model";
 import { normalizeDimensions } from "./telemetry-values";
 
 export type PulseSqlClient = typeof sql;
@@ -41,6 +41,7 @@ type PreparedEvent = PreparedResourceFields & {
   correlationId: string | null;
   dimensionsHash: string;
   dimensions: Record<string, string>;
+  attributes: Record<string, unknown>;
   payload: Record<string, unknown>;
 };
 
@@ -93,9 +94,10 @@ export const prepareIngestBatch = (batch: PulseIngestBatch, sourceId?: string | 
     entityType: string | null | undefined,
     dimensions: Record<string, string>,
     seenAt: string,
+    explicitResource?: PulseResourceIdentity | null,
   ) => {
     for (const key of Object.keys(dimensions)) dimensionKeys.set(`${scope}\u001f${key}`, { scope, key });
-    const resource = derivePulseResource({ signalName, sourceId, entityId, entityType, dimensions });
+    const resource = explicitResource === undefined ? derivePulseResource({ signalName, sourceId, entityId, entityType, dimensions }) : explicitResource;
     if (!resource) return null;
     const current = resources.get(resource.key);
     resources.set(resource.key, {
@@ -134,7 +136,7 @@ export const prepareIngestBatch = (batch: PulseIngestBatch, sourceId?: string | 
     const dimensions = normalizeDimensions(event.dimensions);
     const hash = dimensionsHash(dimensions);
     const ts = isoTime(event.ts);
-    const resource = observe("event", event.kind, event.entityId, event.entityType, dimensions, ts);
+    const resource = observe("event", event.kind, event.entityId, event.entityType, dimensions, ts, explicitPulseResource(event.resource));
     return {
       id: randomUUID(),
       kind: event.kind,
@@ -147,6 +149,7 @@ export const prepareIngestBatch = (batch: PulseIngestBatch, sourceId?: string | 
       correlationId: event.correlationId ?? null,
       dimensionsHash: hash,
       dimensions,
+      attributes: event.attributes ?? {},
       payload: event.payload ?? {},
       ...resourceFields(resource),
     };
@@ -253,24 +256,16 @@ const writeEvents = async (baseId: string, sourceId: string | null | undefined, 
       SELECT * FROM jsonb_to_recordset((${input}::jsonb #>> '{}')::jsonb) AS row(
         id uuid, kind text, ts timestamptz, value double precision, "entityId" text, "entityType" text,
         "actorId" text, "sessionId" text, "correlationId" text, "dimensionsHash" text, dimensions jsonb,
-        payload jsonb, "resourceKey" text, "resourceId" text, "resourceType" text, "resourceLabel" text
+        attributes jsonb, payload jsonb, "resourceKey" text, "resourceId" text, "resourceType" text, "resourceLabel" text
       )
     )
     INSERT INTO pulse.events (
       id, base_id, source_id, ts, kind, value, entity_id, entity_type, actor_id, session_id,
-      correlation_id, dimensions_hash, dimensions, payload, resource_key, resource_id, resource_type, resource_label
+      correlation_id, dimensions_hash, dimensions, attributes, payload, resource_key, resource_id, resource_type, resource_label
     )
     SELECT id, ${baseId}::uuid, ${sourceId ?? null}::uuid, ts, kind, value, "entityId", "entityType", "actorId",
-      "sessionId", "correlationId", "dimensionsHash", dimensions, payload, "resourceKey", "resourceId", "resourceType", "resourceLabel"
+      "sessionId", "correlationId", "dimensionsHash", dimensions, attributes, payload, "resourceKey", "resourceId", "resourceType", "resourceLabel"
     FROM input
-  `;
-  await db`
-    WITH input AS (
-      SELECT * FROM jsonb_to_recordset((${input}::jsonb #>> '{}')::jsonb) AS row(id uuid, dimensions jsonb)
-    )
-    INSERT INTO pulse.event_dimensions (event_id, base_id, key, value)
-    SELECT i.id, ${baseId}::uuid, dimension.key, dimension.value
-    FROM input i CROSS JOIN LATERAL jsonb_each_text(i.dimensions) dimension
   `;
 };
 

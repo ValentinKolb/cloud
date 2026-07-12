@@ -1,3 +1,5 @@
+import type { PulseResourceRef } from "./contracts";
+
 export type PulseResourceIdentity = {
   key: string;
   id: string;
@@ -23,6 +25,11 @@ const identity = (type: string, id: string, label = id): PulseResourceIdentity =
   label,
   type,
 });
+
+export const explicitPulseResource = (resource: PulseResourceRef | null | undefined): PulseResourceIdentity | null => {
+  if (!resource) return null;
+  return identity(resource.type.trim(), resource.id.trim(), resource.label?.trim() || resource.id.trim());
+};
 
 const signalStartsWith = (input: ResourceInput, prefix: string): boolean => (input.signalName ?? "").startsWith(prefix);
 

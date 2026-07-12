@@ -2,6 +2,13 @@ import { PermissionLevelSchema, PrincipalSchema, ServiceAccountCredentialSchema 
 import { z } from "zod";
 import { AGGREGATIONS, METRIC_TYPES, PANEL_VISUALS, SOURCE_KINDS } from "../contracts";
 import { PULSE_EXTERNAL_INGEST_BATCH_LIMIT, PULSE_EXTERNAL_INGEST_COLLECTION_LIMIT } from "../ingest-limits";
+import {
+  jsonBytes,
+  PULSE_EXTERNAL_INGEST_MAX_BYTES,
+  validateDimensions,
+  validateEventAttributes,
+  validateEventPayload,
+} from "../telemetry-contract";
 
 const durationToMs = (value: string): number | null => {
   const match = value.match(/^(\d+)(m|h|d)$/);
@@ -19,7 +26,29 @@ const DurationSchema = z
   .refine((value) => durationToMs(value) !== null, "Duration must be 90d or shorter");
 
 const DimensionValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
-const DimensionsSchema = z.record(z.string(), DimensionValueSchema).optional();
+const DimensionsSchema = z
+  .record(z.string(), DimensionValueSchema)
+  .superRefine((value, context) => {
+    const message = validateDimensions(value);
+    if (message) context.addIssue({ code: "custom", message });
+  })
+  .optional();
+
+const EventAttributesSchema = z
+  .record(z.string(), z.unknown())
+  .superRefine((value, context) => {
+    const message = validateEventAttributes(value);
+    if (message) context.addIssue({ code: "custom", message });
+  })
+  .optional();
+
+const EventPayloadSchema = z
+  .record(z.string(), z.unknown())
+  .superRefine((value, context) => {
+    const message = validateEventPayload(value);
+    if (message) context.addIssue({ code: "custom", message });
+  })
+  .optional();
 
 const MetricSchema = z.object({
   name: z.string().trim().min(1),
@@ -43,8 +72,17 @@ const EventSchema = z.object({
   actorId: z.string().trim().min(1).nullable().optional(),
   sessionId: z.string().trim().min(1).nullable().optional(),
   correlationId: z.string().trim().min(1).nullable().optional(),
+  resource: z
+    .object({
+      type: z.string().trim().min(1).max(80),
+      id: z.string().trim().min(1).max(500),
+      label: z.string().trim().min(1).max(240).nullable().optional(),
+    })
+    .nullable()
+    .optional(),
   dimensions: DimensionsSchema,
-  payload: z.record(z.string(), z.unknown()).optional(),
+  attributes: EventAttributesSchema,
+  payload: EventPayloadSchema,
 });
 
 const StateSchema = z.object({
@@ -67,7 +105,13 @@ export const IngestBatchSchema = z
     (batch) =>
       (batch.metrics?.length ?? 0) + (batch.events?.length ?? 0) + (batch.states?.length ?? 0) <= PULSE_EXTERNAL_INGEST_BATCH_LIMIT,
     { message: `Ingest batch exceeds ${PULSE_EXTERNAL_INGEST_BATCH_LIMIT} total items` },
-  );
+  )
+  .superRefine((batch, context) => {
+    const bytes = jsonBytes(batch);
+    if (bytes === null) context.addIssue({ code: "custom", message: "Ingest batch must be valid JSON" });
+    else if (bytes > PULSE_EXTERNAL_INGEST_MAX_BYTES)
+      context.addIssue({ code: "custom", message: `Ingest batch cannot exceed ${PULSE_EXTERNAL_INGEST_MAX_BYTES} bytes` });
+  });
 
 export const CreateBaseSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -607,6 +651,7 @@ export const RecordedEventSchema = z.object({
   entityId: z.string().nullable(),
   entityType: z.string().nullable(),
   dimensions: z.record(z.string(), z.string()),
+  attributes: z.record(z.string(), z.unknown()),
   payload: z.record(z.string(), z.unknown()),
   recordedAt: z.string(),
 });

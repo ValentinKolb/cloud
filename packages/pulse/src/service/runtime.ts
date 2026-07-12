@@ -22,7 +22,6 @@ type RetentionResult = {
   phase: string;
   metricSamples: number;
   metricRollups: number;
-  eventDimensions: number;
   events: number;
   stateChanges: number;
   idempotencyRecords: number;
@@ -116,37 +115,11 @@ const deleteExpiredMetricRollupsChunk = async (baseId?: string): Promise<number>
   return result.count ?? 0;
 };
 
-const deleteExpiredEventDimensionsChunk = async (baseId?: string): Promise<number> => {
-  const scopedBaseId = baseId ?? null;
-  const result = await sql`
-    WITH victim AS (
-      SELECT dims.event_id, dims.key
-      FROM pulse.event_dimensions dims
-      JOIN pulse.events e ON e.id = dims.event_id
-      JOIN pulse.bases b ON b.id = e.base_id
-      WHERE e.ts < now() - (b.retention_days * interval '1 day')
-        AND b.deletion_started_at IS NULL
-        AND (
-          b.data_clear_started_at IS NULL
-          OR b.data_clear_completed_at IS NOT NULL
-          OR b.data_clear_failed_at IS NOT NULL
-        )
-        AND (${scopedBaseId}::uuid IS NULL OR b.id = ${scopedBaseId}::uuid)
-      LIMIT ${RETENTION_DELETE_BATCH_SIZE}
-    )
-    DELETE FROM pulse.event_dimensions item
-    USING victim
-    WHERE item.event_id = victim.event_id
-      AND item.key = victim.key
-  `;
-  return result.count ?? 0;
-};
-
 const deleteExpiredEventsChunk = async (baseId?: string): Promise<number> => {
   const scopedBaseId = baseId ?? null;
   const result = await sql`
     WITH victim AS (
-      SELECT e.id
+      SELECT e.id, e.ts
       FROM pulse.events e
       JOIN pulse.bases b ON b.id = e.base_id
       WHERE e.ts < now() - (b.retention_days * interval '1 day')
@@ -162,6 +135,7 @@ const deleteExpiredEventsChunk = async (baseId?: string): Promise<number> => {
     DELETE FROM pulse.events item
     USING victim
     WHERE item.id = victim.id
+      AND item.ts = victim.ts
   `;
   return result.count ?? 0;
 };
@@ -216,7 +190,6 @@ export const runRetentionBatch = async (baseId?: string): Promise<RetentionResul
       phase: "metric_samples",
       metricSamples,
       metricRollups: 0,
-      eventDimensions: 0,
       events: 0,
       stateChanges: 0,
       idempotencyRecords: 0,
@@ -230,21 +203,6 @@ export const runRetentionBatch = async (baseId?: string): Promise<RetentionResul
       phase: "metric_rollups_hourly",
       metricSamples: 0,
       metricRollups,
-      eventDimensions: 0,
-      events: 0,
-      stateChanges: 0,
-      idempotencyRecords: 0,
-      done: false,
-    };
-  }
-
-  const eventDimensions = await deleteExpiredEventDimensionsChunk(baseId);
-  if (eventDimensions > 0) {
-    return {
-      phase: "event_dimensions",
-      metricSamples: 0,
-      metricRollups: 0,
-      eventDimensions,
       events: 0,
       stateChanges: 0,
       idempotencyRecords: 0,
@@ -258,7 +216,6 @@ export const runRetentionBatch = async (baseId?: string): Promise<RetentionResul
       phase: "events",
       metricSamples: 0,
       metricRollups: 0,
-      eventDimensions: 0,
       events,
       stateChanges: 0,
       idempotencyRecords: 0,
@@ -272,7 +229,6 @@ export const runRetentionBatch = async (baseId?: string): Promise<RetentionResul
       phase: "state_changes",
       metricSamples: 0,
       metricRollups: 0,
-      eventDimensions: 0,
       events: 0,
       stateChanges,
       idempotencyRecords: 0,
@@ -286,7 +242,6 @@ export const runRetentionBatch = async (baseId?: string): Promise<RetentionResul
       phase: "ingest_idempotency",
       metricSamples: 0,
       metricRollups: 0,
-      eventDimensions: 0,
       events: 0,
       stateChanges: 0,
       idempotencyRecords,
@@ -298,7 +253,6 @@ export const runRetentionBatch = async (baseId?: string): Promise<RetentionResul
     phase: "done",
     metricSamples: 0,
     metricRollups: 0,
-    eventDimensions: 0,
     events: 0,
     stateChanges: 0,
     idempotencyRecords: 0,

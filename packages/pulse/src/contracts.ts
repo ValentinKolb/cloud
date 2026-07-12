@@ -70,6 +70,12 @@ export type PulseMetric = {
   dimensions?: Record<string, string | number | boolean | null>;
 };
 
+export type PulseResourceRef = {
+  type: string;
+  id: string;
+  label?: string | null;
+};
+
 export type PulseEvent = {
   kind: string;
   ts?: string;
@@ -80,7 +86,9 @@ export type PulseEvent = {
   actorId?: string | null;
   sessionId?: string | null;
   correlationId?: string | null;
+  resource?: PulseResourceRef | null;
   dimensions?: Record<string, string | number | boolean | null>;
+  attributes?: Record<string, unknown>;
   payload?: Record<string, unknown>;
 };
 
@@ -109,6 +117,7 @@ export type PulseRecordedEvent = {
   entityId: string | null;
   entityType: string | null;
   dimensions: Record<string, string>;
+  attributes: Record<string, unknown>;
   payload: Record<string, unknown>;
   recordedAt: string;
 };

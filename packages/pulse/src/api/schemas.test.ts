@@ -17,4 +17,24 @@ describe("Pulse ingest API limits", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  test("accepts high-cardinality event attributes without treating them as dimensions", () => {
+    const result = IngestBatchSchema.safeParse({
+      events: [
+        {
+          kind: "page.viewed",
+          actorId: "visitor:unique",
+          sessionId: "session:unique",
+          dimensions: { campaign: "summer", country: "DE" },
+          attributes: {
+            url: "https://example.com/pricing?request=unique",
+            ip_hash: "high-cardinality-value",
+            geo: { city: "Berlin", asn: 680 },
+          },
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
 });

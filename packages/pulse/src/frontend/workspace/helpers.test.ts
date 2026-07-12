@@ -177,6 +177,7 @@ describe("Pulse workspace dashboard snippets", () => {
         entityId: "container:api",
         entityType: "container",
         dimensions: { collector: "docker", message: "context deadline exceeded", ignored: "still included" },
+        attributes: {},
         payload: {},
         recordedAt: "2026-01-01T00:00:00.000Z",
       }),

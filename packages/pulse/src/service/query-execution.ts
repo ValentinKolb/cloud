@@ -284,7 +284,7 @@ export const queryEventsData = async (query: EventQuery): Promise<Result<PulseRe
   const since = new Date(Date.now() - sinceMs);
   const dimensions = normalizeDimensions(query.dimensions);
   const rows = await sql<RecordedEventRow[]>`
-    SELECT id, kind, ts, value, source_id, entity_id, entity_type, dimensions, payload, recorded_at
+    SELECT id, kind, ts, value, source_id, entity_id, entity_type, dimensions, attributes, payload, recorded_at
     FROM pulse.events
     WHERE base_id = ${query.baseId}::uuid
       AND (${query.event ?? null}::text IS NULL OR kind = ${query.event ?? null})

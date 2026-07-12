@@ -16,7 +16,16 @@ describe("Pulse bulk ingest preparation", () => {
             dimensions: { host: "alpha" },
           },
         ],
-        events: [{ kind: "deploy.finished", sourceId: null, entityId: "host:alpha", entityType: "host" }],
+        events: [
+          {
+            kind: "deploy.finished",
+            sourceId: null,
+            entityId: "host:alpha",
+            entityType: "host",
+            resource: { type: "host", id: "host:alpha", label: "alpha" },
+            attributes: { request_id: "request-1", location: { city: "Berlin" } },
+          },
+        ],
         states: [
           {
             key: "system.online",
@@ -33,6 +42,28 @@ describe("Pulse bulk ingest preparation", () => {
     expect(prepared.metrics[0]?.seriesKey.startsWith(`${sourceId}\u001f`)).toBe(true);
     expect(prepared.resources).toHaveLength(1);
     expect(prepared.resources[0]?.key).toBe("host:host:alpha");
+    expect(prepared.events[0]?.attributes).toEqual({ request_id: "request-1", location: { city: "Berlin" } });
+  });
+
+  test("does not materialize event identities as resources without an explicit resource", () => {
+    const prepared = prepareIngestBatch(
+      {
+        events: [
+          {
+            kind: "page.viewed",
+            actorId: "visitor:high-cardinality",
+            sessionId: "session:high-cardinality",
+            entityId: "page:/pricing",
+            entityType: "page",
+            attributes: { url: "https://example.com/pricing?request=unique" },
+          },
+        ],
+      },
+      "11111111-1111-4111-8111-111111111111",
+    );
+
+    expect(prepared.resources).toEqual([]);
+    expect(prepared.events[0]?.resourceKey).toBeNull();
   });
 
   test("deduplicates resource and dimension metadata for large set-based writes", () => {

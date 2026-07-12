@@ -9,6 +9,7 @@ export type RecordedEventRow = {
   entity_id: string | null;
   entity_type: string | null;
   dimensions: unknown;
+  attributes: unknown;
   payload: unknown;
   recorded_at: Date | string;
 };
@@ -61,6 +62,7 @@ export const mapRecordedEvent = (row: RecordedEventRow): PulseRecordedEvent => (
   entityId: row.entity_id,
   entityType: row.entity_type,
   dimensions: normalizeDimensions(parseJsonObject(row.dimensions)),
+  attributes: parseJsonObject(row.attributes),
   payload: parseJsonObject(row.payload),
   recordedAt: iso(row.recorded_at),
 });

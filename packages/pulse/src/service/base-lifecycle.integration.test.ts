@@ -134,10 +134,6 @@ const insertTelemetryFixture = async (baseId: string, sourceId: string, options?
     )
   `;
   await sql`
-    INSERT INTO pulse.event_dimensions (event_id, base_id, key, value)
-    VALUES (${eventId}::uuid, ${baseId}::uuid, 'host', 'lifecycle-smoke')
-  `;
-  await sql`
     INSERT INTO pulse.states_current (
       base_id,
       state_key,
@@ -271,7 +267,6 @@ const expectBaseTelemetryCleared = async (baseId: string) => {
   await expect(countRows("pulse.metric_samples", baseId)).resolves.toBe(0);
   await expect(countRows("pulse.metric_rollups_hourly", baseId)).resolves.toBe(0);
   await expect(countRows("pulse.state_changes", baseId)).resolves.toBe(0);
-  await expect(countRows("pulse.event_dimensions", baseId)).resolves.toBe(0);
   await expect(countRows("pulse.events", baseId)).resolves.toBe(0);
   await expect(countRows("pulse.states_current", baseId)).resolves.toBe(0);
   await expect(countMetricSeriesDimensions(baseId)).resolves.toBe(0);
@@ -361,7 +356,6 @@ describe("Pulse lifecycle Postgres smoke", () => {
       await expect(countRows("pulse.metric_samples", baseId)).resolves.toBe(1);
       await expect(countRows("pulse.metric_rollups_hourly", baseId)).resolves.toBe(1);
       await expect(countRows("pulse.state_changes", baseId)).resolves.toBe(1);
-      await expect(countRows("pulse.event_dimensions", baseId)).resolves.toBe(1);
       await expect(countRows("pulse.events", baseId)).resolves.toBe(1);
       await expect(countRows("pulse.states_current", baseId)).resolves.toBe(2);
     } finally {

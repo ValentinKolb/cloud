@@ -8,7 +8,7 @@ export const migrate = async (): Promise<void> => {
 
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.bases (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      id UUID NOT NULL DEFAULT gen_random_uuid(),
       name TEXT NOT NULL,
       description TEXT,
       retention_days INTEGER NOT NULL DEFAULT 30,
@@ -253,31 +253,42 @@ export const migrate = async (): Promise<void> => {
       correlation_id TEXT,
       dimensions_hash TEXT NOT NULL,
       dimensions JSONB NOT NULL DEFAULT '{}'::jsonb,
+      attributes JSONB NOT NULL DEFAULT '{}'::jsonb,
       payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-      recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (id, ts)
     )
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_events_base_kind_ts ON pulse.events(base_id, kind, ts DESC)`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_events_actor_ts ON pulse.events(base_id, actor_id, ts DESC) WHERE actor_id IS NOT NULL`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_events_correlation_ts ON pulse.events(base_id, correlation_id, ts DESC) WHERE correlation_id IS NOT NULL`.simple();
+  await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS attributes JSONB NOT NULL DEFAULT '{}'::jsonb`.simple();
+  await sql`DROP TABLE IF EXISTS pulse.event_dimensions`.simple();
+  await sql`
+    DO $$
+    DECLARE primary_key_definition text;
+    BEGIN
+      SELECT pg_get_constraintdef(constraint_row.oid)
+      INTO primary_key_definition
+      FROM pg_constraint constraint_row
+      JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid
+      JOIN pg_namespace schema_row ON schema_row.oid = table_row.relnamespace
+      WHERE schema_row.nspname = 'pulse'
+        AND table_row.relname = 'events'
+        AND constraint_row.contype = 'p';
+
+      IF primary_key_definition = 'PRIMARY KEY (id)' THEN
+        ALTER TABLE pulse.events DROP CONSTRAINT events_pkey;
+        ALTER TABLE pulse.events ADD CONSTRAINT events_pkey PRIMARY KEY (id, ts);
+      END IF;
+    END $$
+  `.simple();
   await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS resource_key TEXT`.simple();
   await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS resource_id TEXT`.simple();
   await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS resource_type TEXT`.simple();
   await sql`ALTER TABLE pulse.events ADD COLUMN IF NOT EXISTS resource_label TEXT`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_events_resource_ts ON pulse.events(base_id, resource_key, ts DESC) WHERE resource_key IS NOT NULL`.simple();
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS pulse.event_dimensions (
-      event_id UUID NOT NULL REFERENCES pulse.events(id) ON DELETE CASCADE,
-      base_id UUID NOT NULL REFERENCES pulse.bases(id) ON DELETE CASCADE,
-      key TEXT NOT NULL,
-      value TEXT NOT NULL,
-      PRIMARY KEY (event_id, key)
-    )
-  `.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_event_dimensions_lookup ON pulse.event_dimensions(base_id, key, value, event_id)`.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_event_dimensions_key_search ON pulse.event_dimensions USING GIN (key gin_trgm_ops)`.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_event_dimensions_value_search ON pulse.event_dimensions USING GIN (value gin_trgm_ops)`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_events_ts_brin ON pulse.events USING BRIN (ts) WITH (autosummarize = on)`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.states_current (
@@ -458,6 +469,7 @@ export const migrate = async (): Promise<void> => {
       IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
         PERFORM create_hypertable('pulse.metric_samples', 'ts', if_not_exists => TRUE, migrate_data => TRUE);
         PERFORM create_hypertable('pulse.metric_rollups_hourly', 'bucket', if_not_exists => TRUE, migrate_data => TRUE);
+        PERFORM create_hypertable('pulse.events', 'ts', if_not_exists => TRUE, migrate_data => TRUE);
       END IF;
     EXCEPTION
       WHEN undefined_function THEN NULL;

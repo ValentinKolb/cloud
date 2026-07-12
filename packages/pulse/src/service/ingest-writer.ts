@@ -9,7 +9,8 @@ import {
   PULSE_INGEST_IDEMPOTENCY_TTL_HOURS,
   PULSE_INTERNAL_INGEST_BATCH_LIMIT,
 } from "../ingest-limits";
-import { derivePulseResource, type PulseResourceIdentity } from "../resource-model";
+import { derivePulseResource, explicitPulseResource, type PulseResourceIdentity } from "../resource-model";
+import { validateDimensions, validateEventAttributes, validateEventPayload } from "../telemetry-contract";
 import { requireBaseActive } from "./access-control";
 import { type PulseSqlClient, prepareIngestBatch, writePreparedIngestBatch } from "./ingest-bulk";
 import { PULSE_INGEST_SCOPE, resolveIngestSourceForServiceAccount } from "./source-management";
@@ -215,6 +216,8 @@ const validateMetric = (metric: PulseMetric): Result<void> => {
   if (!Number.isFinite(metric.value)) return fail(err.badInput("Metric value must be finite"));
   const ts = parseTime(metric.ts);
   if (!ts.ok) return fail(ts.error);
+  const dimensionsError = validateDimensions(metric.dimensions);
+  if (dimensionsError) return fail(err.badInput(dimensionsError));
   return ok();
 };
 
@@ -222,6 +225,12 @@ const validateEvent = (event: PulseEvent): Result<void> => {
   if (!event.kind.trim()) return fail(err.badInput("Event kind is required"));
   const ts = parseTime(event.ts);
   if (!ts.ok) return fail(ts.error);
+  const dimensionsError = validateDimensions(event.dimensions);
+  if (dimensionsError) return fail(err.badInput(dimensionsError));
+  const attributesError = validateEventAttributes(event.attributes);
+  if (attributesError) return fail(err.badInput(attributesError));
+  const payloadError = validateEventPayload(event.payload);
+  if (payloadError) return fail(err.badInput(payloadError));
   return ok();
 };
 
@@ -229,6 +238,8 @@ const validateState = (state: PulseState): Result<void> => {
   if (!state.key.trim()) return fail(err.badInput("State key is required"));
   const changedAt = parseTime(state.ts);
   if (!changedAt.ok) return fail(changedAt.error);
+  const dimensionsError = validateDimensions(state.dimensions);
+  if (dimensionsError) return fail(err.badInput(dimensionsError));
   return ok();
 };
 
@@ -314,6 +325,7 @@ const insertEventRow = async (params: {
       correlation_id,
       dimensions_hash,
       dimensions,
+      attributes,
       payload,
       resource_key,
       resource_id,
@@ -333,6 +345,7 @@ const insertEventRow = async (params: {
       ${nullable(params.event.correlationId)},
       ${params.dimensionsHash},
       (${jsonbObject(params.dimensions)}::jsonb #>> '{}')::jsonb,
+      (${jsonbObject(objectOrEmpty(params.event.attributes))}::jsonb #>> '{}')::jsonb,
       (${jsonbObject(objectOrEmpty(params.event.payload))}::jsonb #>> '{}')::jsonb,
       ${params.resource?.key ?? null},
       ${params.resource?.id ?? null},
@@ -342,20 +355,6 @@ const insertEventRow = async (params: {
     RETURNING id
   `;
   return eventRow ? ok(eventRow.id) : fail(err.internal("Failed to record event"));
-};
-
-const insertEventDimensionRows = async (params: {
-  eventId: string;
-  baseId: string;
-  dimensions: Record<string, string>;
-  db: SqlClient;
-}): Promise<void> => {
-  for (const [key, value] of Object.entries(params.dimensions)) {
-    await params.db`
-      INSERT INTO pulse.event_dimensions (event_id, base_id, key, value)
-      VALUES (${params.eventId}::uuid, ${params.baseId}::uuid, ${key}, ${value})
-    `;
-  }
 };
 
 const recordEventInClient = async (params: {
@@ -371,13 +370,7 @@ const recordEventInClient = async (params: {
   const dimensions = normalizeDimensions(params.event.dimensions);
   const hash = dimensionsHash(dimensions);
   const db = params.db ?? sql;
-  const resource = deriveResourceForSignal({
-    signalName: params.event.kind,
-    sourceId: params.sourceId,
-    entityId: params.event.entityId,
-    entityType: params.event.entityType,
-    dimensions,
-  });
+  const resource = explicitPulseResource(params.event.resource);
   const eventRow = await insertEventRow({
     baseId: params.baseId,
     sourceId: params.sourceId,
@@ -389,7 +382,6 @@ const recordEventInClient = async (params: {
     db,
   });
   if (!eventRow.ok) return fail(eventRow.error);
-  await insertEventDimensionRows({ eventId: eventRow.data, baseId: params.baseId, dimensions, db });
   await upsertObservedResource({ baseId: params.baseId, sourceId: params.sourceId, resource, dimensions, seenAt: ts.data, db });
   await upsertDimensionMetadata({ baseId: params.baseId, sourceId: params.sourceId, scope: "event", dimensions, db });
   return ok();

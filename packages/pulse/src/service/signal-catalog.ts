@@ -271,7 +271,7 @@ export const listRecentEvents = async (
   const limit = Math.min(500, Math.max(1, params.limit ?? 500));
   const offset = Math.max(0, params.offset ?? 0);
   const rows = await sql<RecordedEventRow[]>`
-    SELECT id, kind, ts, value, source_id, entity_id, entity_type, dimensions, payload, recorded_at
+    SELECT id, kind, ts, value, source_id, entity_id, entity_type, dimensions, attributes, payload, recorded_at
     FROM pulse.events
     WHERE base_id = ${baseId}::uuid
       AND (${params.kind ?? null}::text IS NULL OR kind = ${params.kind ?? null})
@@ -283,11 +283,7 @@ export const listRecentEvents = async (
         OR kind ILIKE ${pattern} ESCAPE '\\'
         OR entity_id ILIKE ${pattern} ESCAPE '\\'
         OR entity_type ILIKE ${pattern} ESCAPE '\\'
-        OR EXISTS (
-          SELECT 1 FROM pulse.event_dimensions dimension
-          WHERE dimension.event_id = pulse.events.id
-            AND (dimension.key ILIKE ${pattern} ESCAPE '\\' OR dimension.value ILIKE ${pattern} ESCAPE '\\')
-        )
+        OR dimensions::text ILIKE ${pattern} ESCAPE '\\'
         OR payload::text ILIKE ${pattern} ESCAPE '\\'
       )
     ORDER BY ts DESC, recorded_at DESC
@@ -473,7 +469,7 @@ export const listResourceEvents = async (
   const limit = Math.min(500, Math.max(1, params.limit ?? 100));
   const offset = Math.max(0, params.offset ?? 0);
   const rows = await sql<RecordedEventRow[]>`
-    SELECT id, kind, ts, value, source_id, entity_id, entity_type, dimensions, payload, recorded_at
+    SELECT id, kind, ts, value, source_id, entity_id, entity_type, dimensions, attributes, payload, recorded_at
     FROM pulse.events
     WHERE base_id = ${baseId}::uuid
       AND resource_key = ${resourceKey}
@@ -567,7 +563,7 @@ export const listInventory = async (baseId: string, user: UserScope): Promise<Re
       LIMIT 5000
     `,
     sql<RecordedEventRow[]>`
-      SELECT id, kind, ts, value, source_id, entity_id, entity_type, dimensions, payload, recorded_at
+      SELECT id, kind, ts, value, source_id, entity_id, entity_type, dimensions, attributes, payload, recorded_at
       FROM pulse.events
       WHERE base_id = ${baseId}::uuid
         AND resource_key = ANY(${sql.array(resourceKeys, "TEXT")})

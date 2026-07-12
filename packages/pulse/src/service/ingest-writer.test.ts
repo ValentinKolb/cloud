@@ -49,4 +49,28 @@ describe("Pulse ingest writer", () => {
     expect(activeChecks).toBe(0);
     expect(beginCalls).toBe(0);
   });
+
+  test("rejects excessive event dimensions before opening a transaction", async () => {
+    beginCalls = 0;
+    activeChecks = 0;
+
+    const result = await ingestBatch({
+      baseId: "103546c5-be8f-47e3-9239-a27c70b47abc",
+      sourceId: "6c18f8db-e778-41a5-8517-7cd89cb552d6",
+      batch: {
+        events: [
+          {
+            kind: "page.viewed",
+            dimensions: Object.fromEntries(Array.from({ length: 33 }, (_, index) => [`key_${index}`, `value_${index}`])),
+          },
+        ],
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.message).toBe("Dimensions cannot exceed 32 keys");
+    expect(activeChecks).toBe(0);
+    expect(beginCalls).toBe(0);
+  });
 });
