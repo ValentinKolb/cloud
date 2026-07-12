@@ -10,6 +10,7 @@ import { migrate as migrateAuth } from "./migrate/core/auth";
 import { migrate as migrateLogging } from "./migrate/core/logging";
 import { migrate as migrateNotifications } from "./migrate/core/notifications";
 import { migrate as migrateSettings } from "./migrate/core/settings";
+import type { CoreNotificationSender } from "./notifications";
 
 /** Run all core database migrations (auth, notifications, settings, logging). */
 export const runCoreSetup = async (): Promise<void> => {
@@ -29,8 +30,8 @@ export const runCoreSetup = async (): Promise<void> => {
 };
 
 /** Start core background services (account lifecycle jobs). */
-export const startCoreServices = async (): Promise<void> => {
-  await lifecycleJobs.start();
+export const startCoreServices = async (notificationSender: CoreNotificationSender): Promise<void> => {
+  await lifecycleJobs.start({ notificationSender });
   await startNotificationRuntime();
 };
 
@@ -44,13 +45,14 @@ export const stopCoreServices = async (): Promise<void> => {
 export const bootRuntime = async (options: {
   runtime: unknown;
   skipSetup: boolean;
+  notificationSender: CoreNotificationSender;
   shutdownTimeoutMs?: number;
   onShutdown?: () => Promise<void>;
 }): Promise<void> => {
   if (!options.skipSetup) {
     await runCoreSetup();
   }
-  await startCoreServices();
+  await startCoreServices(options.notificationSender);
 
   const shutdown = async () => {
     console.log("[shutdown] stopping core services…");

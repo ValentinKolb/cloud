@@ -79,6 +79,7 @@ export type { WebAuthnRp } from "./webauthn";
 
 export { accountLifecycle } from "./account-lifecycle";
 export type { AccountLifecycleService } from "./account-lifecycle";
+export type { AccountLifecycleNotificationSender } from "./account-lifecycle/notification-sender";
 export { lifecycleJobs } from "./account-lifecycle/scheduler";
 
 export { settings } from "./settings/namespace";

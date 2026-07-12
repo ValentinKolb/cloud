@@ -3,6 +3,7 @@ import { logger, logging, trace } from "../logging";
 import { providers } from "../providers";
 import { get as getSetting } from "../settings";
 import { accountLifecycle } from "./index";
+import type { AccountLifecycleNotificationSender } from "./notification-sender";
 
 const log = logger("auth:lifecycle:scheduler");
 const ipaSyncLog = logger("auth:ipa:sync");
@@ -15,6 +16,7 @@ const localUserBackfillLog = logger("auth:local-user:backfill");
 const guestBackfillLog = logger("auth:guest:backfill");
 const logCleanupLog = logger("logging");
 const DEFAULT_IPA_SYNC_CRON = "*/5 * * * *";
+let notificationSender: AccountLifecycleNotificationSender | null = null;
 
 type JobSummary = {
   scanned: number;
@@ -131,7 +133,8 @@ const reminderJob = job<void, JobSummary>({
   }),
   process: async ({ ctx }) => {
     if (ctx.signal.aborted) return abortedSummary();
-    const summary = await accountLifecycle.sendExpiryReminders();
+    if (!notificationSender) throw new Error("Account lifecycle notification sender is not configured");
+    const summary = await accountLifecycle.sendExpiryReminders(notificationSender);
     reminderLog.info("Reminder run complete", toReminderLog(summary));
     return summary;
   },
@@ -431,7 +434,8 @@ const ensureRegistered = async (): Promise<void> => {
 };
 
 export const lifecycleJobs = {
-  start: async (): Promise<void> => {
+  start: async (config: { notificationSender: AccountLifecycleNotificationSender }): Promise<void> => {
+    notificationSender = config.notificationSender;
     if (!started) {
       lifecycleScheduler.start();
       started = true;
@@ -440,11 +444,15 @@ export const lifecycleJobs = {
   },
 
   stop: async (): Promise<void> => {
-    if (!started) return;
+    if (!started) {
+      notificationSender = null;
+      return;
+    }
     await lifecycleScheduler.stop();
     started = false;
     registered = false;
     registerPromise = null;
+    notificationSender = null;
   },
 
   // Manual-only backfill triggers. Scheduled jobs are run through schedulerControl.

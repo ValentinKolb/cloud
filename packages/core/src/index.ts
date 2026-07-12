@@ -16,7 +16,8 @@ import { runCoreSetup, startCoreServices, stopCoreServices } from "./runtime-hel
 /** Per-app Hono context: AuthContext + typed core settings snapshot. */
 export type CoreAppContext = AppContext<typeof app>;
 
-const { api } = createCoreApiRouter({ notifications: createCoreNotificationSender(app.notifications) });
+const notificationSender = createCoreNotificationSender(app.notifications);
+const { api } = createCoreApiRouter({ notifications: notificationSender });
 const pages = createPagesRouter();
 
 const coreApi = new Hono().route("/", api);
@@ -35,7 +36,7 @@ export default await app.start({
       await runCoreSetup();
     },
     start: async () => {
-      await startCoreServices();
+      await startCoreServices(notificationSender);
     },
     stop: async () => {
       await stopCoreServices();

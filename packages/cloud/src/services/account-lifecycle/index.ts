@@ -1,11 +1,9 @@
 import { sql } from "bun";
 import type { User } from "../../contracts/shared";
 import { logger } from "../logging";
-import { notifications } from "../notifications";
 import { applyIpaAccountTransitionPolicy } from "../accounts/switching";
 import { audit } from "../audit";
 import { get as getSetting } from "../settings";
-import { renderTemplate } from "../settings/templates";
 import { session } from "../session";
 import { getConfiguredExpiryDays, parseIpaAccountTransitionPolicy } from "../account-model";
 import { getFreeIpaConfig } from "../freeipa-config";
@@ -16,6 +14,7 @@ import { parsePgJsonRecord } from "../postgres";
 import { dates } from "../../shared";
 import { err, fail, freeipa, ok, type Result } from "../../server/services";
 import { writeDeletedAccountAudit } from "./audit";
+import type { AccountLifecycleNotificationSender } from "./notification-sender";
 import { getIpaUrl } from "../ipa/guard";
 
 const log = logger("auth:lifecycle");
@@ -223,14 +222,6 @@ const deleteFromFreeIpa = async (ipaSession: string, uid: string): Promise<{ ok:
   if (isNotFound) return { ok: true };
 
   return { ok: false, error: response.error.message };
-};
-
-const resolveExtendUrl = async (): Promise<string> => {
-  const appUrl = await getSetting<string>("app.url");
-  const base = appUrl && appUrl.length > 0 ? appUrl : "";
-  if (base.startsWith("http://") || base.startsWith("https://")) return `${base.replace(/\/+$/, "")}/auth/extend`;
-  if (base.length > 0) return `https://${base.replace(/\/+$/, "")}/auth/extend`;
-  return "/auth/extend";
 };
 
 const listReminderCandidates = async (thresholdDays: number): Promise<ReminderCandidate[]> => {
@@ -503,16 +494,11 @@ export const accountLifecycle = {
     return summary;
   },
 
-  sendExpiryReminders: async (): Promise<LifecycleSummary> => {
+  sendExpiryReminders: async (notificationSender: AccountLifecycleNotificationSender): Promise<LifecycleSummary> => {
     const days = await parseReminderDays();
     if (days.length === 0) {
       return { scanned: 0, changed: 0, skipped: 0, failed: 0 };
     }
-
-    const template = await getSetting<string>("mail.account_expiry_reminder");
-    const appName = (await getSetting<string>("app.name")) || "Cloud";
-    const contactEmail = (await getSetting<string>("app.contact_email")) || "";
-    const extendUrl = await resolveExtendUrl();
 
     let scanned = 0;
     let changed = 0;
@@ -539,33 +525,22 @@ export const accountLifecycle = {
           continue;
         }
 
-        const expiryText = dates.formatDate(candidate.expiresAt);
-
-        const subject = `${appName} account expires soon`;
-        const html = renderTemplate(template, {
-          FIRST_NAME: candidate.givenName || candidate.displayName || candidate.uid,
-          DISPLAY_NAME: candidate.displayName || candidate.uid,
-          EXPIRY: expiryText,
-          EXTEND_URL: extendUrl,
-          APP_NAME: appName,
-          CONTACT_EMAIL: contactEmail,
-          ACCOUNT_KIND: candidate.accountKind,
-        });
-
         try {
-          const notification = await notifications.send({
-            type: "email",
-            recipient: candidate.mail,
-            subject,
-            rawHtml: html,
-            autoSend: true,
+          const notification = await notificationSender.sendExpiryReminder({
+            reminderId: attempt.id,
+            userId: candidate.userId,
+            firstName: candidate.givenName || candidate.displayName || candidate.uid,
+            displayName: candidate.displayName || candidate.uid,
+            expiresAt: candidate.expiresAt.toISOString(),
+            accountKind: candidate.accountKind,
           });
-          if (notification.status === "error") {
-            await markReminderError(attempt.id, notification.error ?? "Notification delivery failed");
+          if (notification.status === "error" || notification.status === "suppressed") {
+            await markReminderError(attempt.id, "Notification delivery was not accepted");
             failed += 1;
             continue;
           }
 
+          // Queued means the durable notification runtime owns subsequent retries.
           await markReminderSuccess(attempt.id);
           changed += 1;
         } catch (error) {
