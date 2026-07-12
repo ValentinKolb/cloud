@@ -187,7 +187,6 @@ export const listScheduledEnabled = async (): Promise<Workflow[]> => {
 };
 
 // Consumed through the injected workflow store namespace in workflow-trigger-runtime.
-// fallow-ignore-next-line unused-export
 export const listRecordEventBaseIds = async (): Promise<string[]> => {
   const rows = await sql<Array<{ id: string }>>`
     SELECT DISTINCT w.base_id::text AS id
