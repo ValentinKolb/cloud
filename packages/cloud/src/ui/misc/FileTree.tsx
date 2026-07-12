@@ -219,7 +219,7 @@ export default function FileTree(props: FileTreeProps) {
   return (
     // biome-ignore lint/a11y/useSemanticElements: composite tree widget with roving selection.
     <ul
-      class={`flex min-w-0 flex-col gap-0.5 outline-none ${dropTarget() === "/" ? "rounded-md bg-zinc-200/40 dark:bg-zinc-800/40" : ""} ${props.class ?? ""}`}
+      class={`file-tree flex min-w-0 flex-col gap-0.5 outline-none ${dropTarget() === "/" ? "rounded-md bg-zinc-200/40 dark:bg-zinc-800/40" : ""} ${props.class ?? ""}`}
       role="tree"
       tabIndex={0}
       onKeyDown={onKeyDown}
@@ -242,7 +242,8 @@ export default function FileTree(props: FileTreeProps) {
               ? expanded().has(node.entry.path)
                 ? "ti-folder-open"
                 : "ti-folder"
-              : (node.entry.icon ?? fileIcons.getFileIcon({ name: node.name, type: "file", mimeType: node.entry.mediaType ?? "text/plain" }));
+              : (node.entry.icon ??
+                fileIcons.getFileIcon({ name: node.name, type: "file", mimeType: node.entry.mediaType ?? "text/plain" }));
           const items = menuItems(node);
           const row = (
             <li
@@ -255,6 +256,7 @@ export default function FileTree(props: FileTreeProps) {
                 when={renamingPath() === node.entry.path}
                 fallback={
                   <div
+                    data-state={isSelected() ? "selected" : isDropTarget() ? "drop-target" : "idle"}
                     class={`flex min-w-0 items-center rounded-md transition-colors ${
                       isSelected()
                         ? "bg-white font-medium text-primary [box-shadow:var(--theme-bevel)] dark:bg-zinc-800"

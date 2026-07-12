@@ -616,6 +616,56 @@ body:has(.cloud-ui-soft) :is(.ac-editor, .md-editor)[data-variant="paper"]:focus
   background: var(--ui-surface);
 }
 
+.cloud-ui-soft .panes-tab-strip {
+  gap: 0.125rem;
+  padding: 0.125rem;
+  border-radius: var(--ui-radius-control);
+  background: var(--ui-surface-muted);
+}
+
+.cloud-ui-soft .panes-tab {
+  border-color: transparent !important;
+  border-radius: calc(var(--ui-radius-control) - 0.125rem);
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.cloud-ui-soft .panes-tab:hover {
+  color: var(--color-zinc-900);
+  background: var(--ui-hover) !important;
+}
+
+.dark .cloud-ui-soft .panes-tab:hover {
+  color: var(--color-zinc-100);
+}
+
+.cloud-ui-soft .panes-tab-active {
+  color: var(--color-zinc-950) !important;
+  background: var(--ui-surface-raised) !important;
+  box-shadow: 0 0 0 1px var(--ui-border) !important;
+}
+
+.dark .cloud-ui-soft .panes-tab-active {
+  color: var(--color-zinc-50) !important;
+}
+
+.cloud-ui-soft .panes-tab [data-panes-drag-handle]:hover {
+  color: var(--color-zinc-600);
+}
+
+.cloud-ui-soft .file-tree > li > div[data-state="selected"] {
+  background: var(--ui-selected) !important;
+  box-shadow: none !important;
+}
+
+.cloud-ui-soft .file-tree > li > div[data-state="drop-target"] {
+  background: color-mix(in srgb, var(--color-blue-500) 8%, var(--ui-surface)) !important;
+}
+
+.cloud-ui-soft .calendar-surface {
+  box-shadow: none;
+}
+
 /* Floating layers follow the same geometry even when portaled under body. */
 body:has(.cloud-ui-soft) :is(.popup, .dialog-panel) {
   border-color: var(--ui-border-strong);

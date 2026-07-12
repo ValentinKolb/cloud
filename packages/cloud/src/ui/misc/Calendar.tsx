@@ -1248,7 +1248,7 @@ const Calendar = (props: CalendarProps): JSX.Element => {
   };
 
   return (
-    <section class={`paper flex min-h-0 flex-col overflow-hidden ${props.class ?? ""}`}>
+    <section class={`calendar-surface paper flex min-h-0 flex-col overflow-hidden ${props.class ?? ""}`}>
       <CalendarHeader date={date()} view={view()} labels={mergedLabels()} owner={props} />
       <Show
         when={view() !== "month"}
