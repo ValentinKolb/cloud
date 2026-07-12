@@ -1,21 +1,13 @@
-import { renderLiquidTemplate } from "@valentinkolb/cloud/shared";
 import {
   AutocompleteEditor,
   CheckboxCard,
-  CodeDisplay,
-  createTemplateEditorPanesValue,
   dialogCore,
   FilterChip,
   type FilterChipSection,
   PanelDialog,
-  Panes,
   Placeholder,
   panelDialogWorkspaceOptions,
   prompts,
-  TemplateEditor,
-  TemplatePreview,
-  TemplateSampleData,
-  type TemplateVariable,
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
@@ -24,23 +16,25 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, lazy, onCleanup, onMount, Show, Suspense } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type {
-  DocumentRunSummary,
   DslQueryPreviewDiagnostic,
-  EmailTemplate,
   Workflow,
   WorkflowEmailDelivery,
   WorkflowRun,
   WorkflowRunStats,
   WorkflowRunStatsWindow,
-  WorkflowStepRun,
   WorkflowTriggerKind,
 } from "../../../contracts";
 import type { Table } from "../../../service";
-import { downloadPdfResponse } from "../documents/document-download";
-import { requestDocumentRunDownload, requestWorkflowDocumentsDownload } from "../documents/document-transfer-client";
 import { errorMessage } from "../utils/api-helpers";
+import { EmailTemplateManager } from "./WorkflowEmailTemplates";
 import type { WorkflowScannerState } from "./WorkflowScannerSurface.island";
 import { buildBackendWorkflowCompletions } from "./workflow-autocomplete";
+import {
+  formatWorkflowRunDate as formatDate,
+  formatWorkflowRunDuration as formatDuration,
+  workflowRunStatusClass as statusClass,
+  triggerLabels,
+} from "./workflow-display";
 
 const WorkflowScannerSurface = lazy(() => import("./WorkflowScannerSurface.island"));
 
@@ -87,16 +81,6 @@ const workflowHighlight = highlight.compile(
   { classPrefix: "doc-token-" },
 );
 
-const triggerLabels: Record<WorkflowTriggerKind, string> = {
-  form: "Form",
-  api: "API",
-  scanner: "Scanner",
-  bulkSelection: "Bulk",
-  dashboardButton: "Dashboard",
-  schedule: "Schedule",
-  recordEvent: "Record event",
-};
-
 const statsWindowLabels: Record<WorkflowRunStatsWindow, string> = {
   "10m": "10 min",
   "1h": "1 hour",
@@ -141,133 +125,11 @@ const runTriggerOptions: FilterChipSection[] = [
 type RunStatusFilter = "all" | WorkflowRun["status"];
 type RunTriggerFilter = "all" | WorkflowTriggerKind;
 
-const EMAIL_TEMPLATE_VARIABLES: TemplateVariable[] = [
-  { name: "data", kind: "object" },
-  { name: "data.link.url", kind: "url" },
-  { name: "data.link.expiresAt", kind: "string" },
-  { name: "data.document.filename", kind: "string" },
-  { name: "app.name", kind: "string" },
-  { name: "app.logoSvgDataUrl", kind: "url" },
-  { name: "business.legalName", kind: "string" },
-  { name: "business.senderLine", kind: "string" },
-  { name: "workflow.name", kind: "string" },
-  { name: "run.id", kind: "string" },
-  { name: "date.iso", kind: "string" },
-];
-
-const DEFAULT_EMAIL_SUBJECT = "{{ workflow.name }}";
-const DEFAULT_EMAIL_HTML = `<p>Hello,</p>
-<p>A Grids workflow created an update for you.</p>
-{% if data.link.url != blank %}
-  <p><a href="{{ data.link.url }}">Open document</a></p>
-{% endif %}
-<p>{{ business.legalName | default: app.name }}</p>`;
-
-const EMAIL_TEMPLATE_SAMPLE_VARIABLES = EMAIL_TEMPLATE_VARIABLES.filter((variable) => variable.kind !== "object");
-
-const EMAIL_TEMPLATE_SAMPLE_VALUES: Record<string, string> = {
-  "data.link.url": "https://cloud.example.org/documents/download/example",
-  "data.link.expiresAt": "31 Dec 2026",
-  "data.document.filename": "invoice-2026-001.pdf",
-  "app.name": "Cloud",
-  "app.logoSvgDataUrl": "https://cloud.example.org/logo.svg",
-  "business.legalName": "ACME Operations GmbH",
-  "business.senderLine": "ACME Operations GmbH · Friedrichstrasse 120 · 10117 Berlin",
-  "workflow.name": "Send signed document",
-  "run.id": "run_01J2EXAMPLE",
-  "date.iso": "2026-07-07",
-};
-
-const emailTemplateSampleValue = (name: string): string => EMAIL_TEMPLATE_SAMPLE_VALUES[name] ?? name;
-
-const createEmailTemplateSampleData = (): Record<string, string> =>
-  Object.fromEntries(EMAIL_TEMPLATE_SAMPLE_VARIABLES.map((variable) => [variable.name, emailTemplateSampleValue(variable.name)]));
-
-const setNestedTemplateValue = (target: Record<string, unknown>, path: string[], value: string) => {
-  let cursor: Record<string, unknown> = target;
-  for (let index = 0; index < path.length - 1; index += 1) {
-    const key = path[index]!;
-    const next = cursor[key];
-    if (!next || typeof next !== "object" || Array.isArray(next)) {
-      const child: Record<string, unknown> = {};
-      cursor[key] = child;
-      cursor = child;
-    } else {
-      cursor = next as Record<string, unknown>;
-    }
-  }
-  cursor[path[path.length - 1]!] = value;
-};
-
-const emailTemplateContext = (sampleData: Record<string, string>): Record<string, unknown> => {
-  const context: Record<string, unknown> = {};
-  for (const variable of EMAIL_TEMPLATE_SAMPLE_VARIABLES) {
-    setNestedTemplateValue(context, variable.name.split("."), sampleData[variable.name] ?? emailTemplateSampleValue(variable.name));
-  }
-  return context;
-};
-
-const escapePreviewText = (value: string): string =>
-  value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-const buildEmailPreviewHtml = (content: string, appName: string) => `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin:0;padding:0;background:#f4f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
-    <tr><td align="center">
-      <table width="100%" style="max-width:520px;" cellpadding="0" cellspacing="0">
-        <tr><td style="background:#ffffff;padding:20px 24px;border-radius:12px 12px 0 0;border:1px solid #e4e4e7;border-bottom:none;">
-          <span style="font-size:16px;font-weight:600;color:#18181b;">${escapePreviewText(appName)}</span>
-        </td></tr>
-        <tr><td style="background:#ffffff;padding:28px 24px;border-left:1px solid #e4e4e7;border-right:1px solid #e4e4e7;">
-          <div style="font-size:14px;line-height:1.6;color:#27272a;">
-            ${content}
-          </div>
-        </td></tr>
-        <tr><td style="background:#fafafa;padding:16px 24px;border-radius:0 0 12px 12px;border:1px solid #e4e4e7;border-top:none;">
-          <p style="margin:0;font-size:11px;color:#a1a1aa;text-align:center;">
-            This message was sent automatically. Please do not reply to this email.
-          </p>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>
-`;
-
-const renderEmailTemplatePreview = (template: string, sampleData: Record<string, string>): string => {
-  try {
-    return buildEmailPreviewHtml(renderLiquidTemplate(template, emailTemplateContext(sampleData)), sampleData["app.name"] ?? "Cloud");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Template preview failed";
-    return buildEmailPreviewHtml(`<p style="color:#b91c1c;">${escapePreviewText(message)}</p>`, sampleData["app.name"] ?? "Cloud");
-  }
-};
-
 const workflowReferenceHref = (baseShortId: string) => `/app/grids/${encodeURIComponent(baseShortId)}/reference/workflows`;
 
 const openWorkflowReferenceWindow = (baseShortId: string) => {
   if (typeof window === "undefined") return;
   window.open(workflowReferenceHref(baseShortId), "grids-workflow-reference", "popup,width=1120,height=820,resizable=yes,scrollbars=yes");
-};
-
-const statusClass = (status: WorkflowRun["status"]) =>
-  status === "succeeded" ? "badge-success" : status === "failed" || status === "canceled" ? "badge-danger" : "badge-neutral";
-
-const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");
-
-const formatDuration = (run: WorkflowRun): string => {
-  if (!run.startedAt || !run.finishedAt) return "-";
-  const ms = new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime();
-  if (!Number.isFinite(ms) || ms < 0) return "-";
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
 };
 
 const formatMetricDuration = (ms: number | null): string => {
@@ -539,259 +401,6 @@ function WorkflowEditor(props: Props & { workflow?: Workflow; onSaved: () => voi
   );
 }
 
-function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; onSaved: () => void; onClose: () => void }) {
-  const [name, setName] = createSignal(props.template?.name ?? "");
-  const [description, setDescription] = createSignal(props.template?.description ?? "");
-  const [subject, setSubject] = createSignal(props.template?.subject ?? DEFAULT_EMAIL_SUBJECT);
-  const [html, setHtml] = createSignal(props.template?.html ?? DEFAULT_EMAIL_HTML);
-  const [enabled, setEnabled] = createSignal(props.template?.enabled ?? true);
-  const [panes, setPanes] = createSignal(createTemplateEditorPanesValue());
-  const [sampleData, setSampleData] = createSignal<Record<string, string>>(createEmailTemplateSampleData());
-  const renderedPreview = createMemo(() => renderEmailTemplatePreview(html(), sampleData()));
-  const setSampleValue = (name: string, value: string) => {
-    setSampleData((current) => ({ ...current, [name]: value }));
-  };
-
-  const saveMut = mutations.create<EmailTemplate, void>({
-    mutation: async (_, { abortSignal }) => {
-      const payload = {
-        name: name().trim(),
-        description: description().trim() || null,
-        subject: subject().trim(),
-        html: html().trim(),
-        enabled: enabled(),
-      };
-      if (!payload.name) throw new Error("Name is required.");
-      if (!payload.subject) throw new Error("Subject is required.");
-      if (!payload.html) throw new Error("HTML is required.");
-      const res = props.template
-        ? await apiClient["email-templates"][":templateId"].$patch(
-            { param: { templateId: props.template.id }, json: payload },
-            { init: { signal: abortSignal } },
-          )
-        : await apiClient["email-templates"]["by-base"][":baseId"].$post(
-            { param: { baseId: props.baseId }, json: payload },
-            { init: { signal: abortSignal } },
-          );
-      if (!res.ok) throw new Error(await errorMessage(res, "Could not save email template."));
-      return res.json();
-    },
-    onSuccess: (saved) => {
-      toast.success(`Saved "${saved.name}"`);
-      props.onSaved();
-      props.onClose();
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const canSave = () => name().trim().length > 0 && subject().trim().length > 0 && html().trim().length > 0 && !saveMut.loading();
-
-  return (
-    <PanelDialog>
-      <PanelDialog.Header
-        title={props.template ? `Email template — ${props.template.name}` : "New email template"}
-        subtitle="Reusable Liquid email for workflow sendEmail steps."
-        icon="ti ti-mail"
-        close={props.onClose}
-      />
-      <PanelDialog.Body scrollPreserveKey={`grids-email-template-editor-${props.template?.id ?? "new"}`}>
-        <div class="flex min-h-[42rem] flex-1 flex-col gap-2">
-          <div class="grid shrink-0 gap-2 md:grid-cols-2">
-            <TextInput label="Name" value={name} onInput={setName} required icon="ti ti-mail" placeholder="Invoice email" />
-            <TextInput label="Description" value={description} onInput={setDescription} icon="ti ti-align-left" placeholder="Optional" />
-            <TextInput
-              label="Subject"
-              value={subject}
-              onInput={setSubject}
-              required
-              icon="ti ti-text-caption"
-              placeholder="{{ workflow.name }}"
-              monospace
-            />
-            <div class="md:col-span-2">
-              <CheckboxCard
-                label="Enabled"
-                description="Enabled email templates can be used by workflow sendEmail steps."
-                icon="ti ti-mail-check"
-                value={enabled}
-                onChange={setEnabled}
-              />
-            </div>
-          </div>
-
-          <p class="shrink-0 text-xs text-dimmed">
-            Type {"{{"} for values, {"{%"} for Liquid logic, or {"<"} for HTML snippets. Use sample data to change preview values.
-          </p>
-
-          <div class="min-h-[30rem] min-w-0 flex-1 overflow-hidden rounded-lg bg-zinc-100 p-2 dark:bg-zinc-900">
-            <Panes.Root value={panes()} onChange={setPanes} class="h-full w-full" allowResize={false}>
-              <Panes.Element id="html" title="HTML" icon="ti ti-code">
-                <div class="h-full min-h-0 overflow-auto">
-                  <TemplateEditor
-                    value={html}
-                    onInput={setHtml}
-                    variables={EMAIL_TEMPLATE_VARIABLES}
-                    fill
-                    placeholder="<p>Hello {{ business.legalName | default: app.name }}</p>"
-                  />
-                </div>
-              </Panes.Element>
-              <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
-                <TemplatePreview html={renderedPreview} />
-              </Panes.Element>
-              <Panes.Element id="sample-data" title="Sample data" icon="ti ti-database">
-                <TemplateSampleData variables={EMAIL_TEMPLATE_SAMPLE_VARIABLES} values={sampleData} onChange={setSampleValue} />
-              </Panes.Element>
-            </Panes.Root>
-          </div>
-        </div>
-      </PanelDialog.Body>
-      <PanelDialog.Footer>
-        <div />
-        <div class="flex items-center gap-2">
-          <button type="button" class="btn-input btn-sm" onClick={props.onClose}>
-            Cancel
-          </button>
-          <button type="button" class="btn-primary btn-sm" disabled={!canSave()} onClick={() => saveMut.mutate()}>
-            <i class={saveMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-device-floppy"} /> Save email template
-          </button>
-        </div>
-      </PanelDialog.Footer>
-    </PanelDialog>
-  );
-}
-
-function EmailTemplateManager(props: { baseId: string; onChanged: () => void; onClose: () => void }) {
-  const [templates, setTemplates] = createSignal<EmailTemplate[]>([]);
-  const sortedTemplates = createMemo(() =>
-    [...templates()].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
-  );
-
-  const loadMut = mutations.create<void, void>({
-    mutation: async (_, { abortSignal }) => {
-      const res = await apiClient["email-templates"]["by-base"][":baseId"].$get(
-        { param: { baseId: props.baseId } },
-        { init: { signal: abortSignal } },
-      );
-      if (!res.ok) throw new Error(await errorMessage(res, "Could not load email templates."));
-      setTemplates(await res.json());
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const deleteMut = mutations.create<{ deleted: boolean }, EmailTemplate>({
-    mutation: async (template, { abortSignal }) => {
-      const confirmed = await prompts.confirm(`Delete "${template.name}"?`, {
-        title: "Delete email template",
-        icon: "ti ti-trash",
-        confirmText: "Delete template",
-        variant: "danger",
-      });
-      if (!confirmed) return { deleted: false };
-      const res = await apiClient["email-templates"][":templateId"].$delete(
-        { param: { templateId: template.id } },
-        { init: { signal: abortSignal } },
-      );
-      if (!res.ok) throw new Error(await errorMessage(res, "Could not delete email template."));
-      return { deleted: true };
-    },
-    onSuccess: (result) => {
-      if (!result.deleted) return;
-      toast.success("Email template deleted");
-      props.onChanged();
-      loadMut.mutate();
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  onMount(() => loadMut.mutate());
-
-  const openEditor = async (template?: EmailTemplate) => {
-    await dialogCore.open<void>(
-      (close) => (
-        <EmailTemplateEditor
-          baseId={props.baseId}
-          template={template}
-          onSaved={() => {
-            props.onChanged();
-            loadMut.mutate();
-          }}
-          onClose={close}
-        />
-      ),
-      panelDialogWorkspaceOptions,
-    );
-  };
-
-  return (
-    <PanelDialog>
-      <PanelDialog.Header
-        title="Email templates"
-        subtitle="Reusable Liquid emails for workflow sendEmail steps."
-        icon="ti ti-mail"
-        actions={
-          <button type="button" class="btn-primary btn-sm" onClick={() => void openEditor()}>
-            <i class="ti ti-plus" /> Add email template
-          </button>
-        }
-        close={props.onClose}
-      />
-      <PanelDialog.Body scrollPreserveKey="grids-email-template-manager">
-        <section class="paper overflow-hidden">
-          <For
-            each={sortedTemplates()}
-            fallback={
-              <Placeholder align="left" class="py-8">
-                {loadMut.loading() ? "Loading email templates..." : "No email templates yet."}
-              </Placeholder>
-            }
-          >
-            {(template) => (
-              <article class="grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-zinc-100 px-3 py-2 last:border-b-0 dark:border-zinc-800">
-                <span class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-secondary dark:bg-zinc-900">
-                  <i class="ti ti-mail" />
-                </span>
-                <button type="button" class="min-w-0 text-left" onClick={() => void openEditor(template)}>
-                  <span class="flex min-w-0 items-center gap-2">
-                    <span class="truncate text-sm font-semibold text-primary">{template.name}</span>
-                    <span class={`badge ${template.enabled ? "badge-success" : "badge-neutral"}`}>
-                      {template.enabled ? "enabled" : "disabled"}
-                    </span>
-                  </span>
-                  <span class="mt-0.5 block truncate text-xs text-dimmed">{template.subject}</span>
-                  <Show when={template.description}>
-                    {(description) => <span class="mt-1 block truncate text-xs text-dimmed">{description()}</span>}
-                  </Show>
-                </button>
-                <div class="flex items-center gap-1">
-                  <button type="button" class="icon-btn" title="Edit email template" onClick={() => void openEditor(template)}>
-                    <i class="ti ti-pencil" />
-                  </button>
-                  <button
-                    type="button"
-                    class="icon-btn text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                    title="Delete email template"
-                    disabled={deleteMut.loading()}
-                    onClick={() => deleteMut.mutate(template)}
-                  >
-                    <i class={deleteMut.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
-                  </button>
-                </div>
-              </article>
-            )}
-          </For>
-        </section>
-      </PanelDialog.Body>
-      <PanelDialog.Footer>
-        <div />
-        <button type="button" class="btn-input btn-sm" onClick={props.onClose}>
-          Close
-        </button>
-      </PanelDialog.Footer>
-    </PanelDialog>
-  );
-}
-
 function StatCard(props: { label: string; value: number | string; icon: string; tone?: "default" | "danger" | "success" }) {
   const toneClass = () =>
     props.tone === "danger"
@@ -990,182 +599,6 @@ function EmailDeliveryTable(props: {
         </div>
       </Show>
     </section>
-  );
-}
-
-export function WorkflowRunDetailPanel(props: { runId: string; onClose: () => void }) {
-  const [run, setRun] = createSignal<WorkflowRun | null>(null);
-  const [steps, setSteps] = createSignal<WorkflowStepRun[]>([]);
-  const [documents, setDocuments] = createSignal<{ items: DocumentRunSummary[]; total: number; hasMore: boolean }>({
-    items: [],
-    total: 0,
-    hasMore: false,
-  });
-  const [downloadingDocumentId, setDownloadingDocumentId] = createSignal<string | null>(null);
-  const [downloadingAll, setDownloadingAll] = createSignal(false);
-
-  const loadMut = mutations.create<void, string>({
-    mutation: async (runId, { abortSignal }) => {
-      const [runRes, stepsRes, documentsRes] = await Promise.all([
-        apiClient.workflows.runs[":runId"].$get({ param: { runId } }, { init: { signal: abortSignal } }),
-        apiClient.workflows.runs[":runId"].steps.$get({ param: { runId } }, { init: { signal: abortSignal } }),
-        apiClient.workflows.runs[":runId"].documents.$get({ param: { runId }, query: { limit: "100" } }, { init: { signal: abortSignal } }),
-      ]);
-      if (!runRes.ok) throw new Error(await errorMessage(runRes, "Could not load workflow run."));
-      if (!stepsRes.ok) throw new Error(await errorMessage(stepsRes, "Could not load workflow run steps."));
-      if (!documentsRes.ok) throw new Error(await errorMessage(documentsRes, "Could not load generated documents."));
-      setRun(await runRes.json());
-      setSteps((await stepsRes.json()).items);
-      const documentPage = await documentsRes.json();
-      setDocuments({
-        items: documentPage.items,
-        total: documentPage.total ?? documentPage.items.length,
-        hasMore: documentPage.hasMore ?? false,
-      });
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  createEffect(() => loadMut.mutate(props.runId));
-
-  const downloadDocument = async (document: DocumentRunSummary) => {
-    setDownloadingDocumentId(document.id);
-    try {
-      const res = await requestDocumentRunDownload(document.id);
-      await downloadPdfResponse(res, document.filename);
-    } catch (error) {
-      prompts.error(error instanceof Error ? error.message : "Could not download document.");
-    } finally {
-      setDownloadingDocumentId(null);
-    }
-  };
-
-  const downloadAllDocuments = async () => {
-    setDownloadingAll(true);
-    try {
-      const res = await requestWorkflowDocumentsDownload(props.runId);
-      await downloadPdfResponse(res, `workflow-run-${props.runId.slice(0, 8)}.pdf`);
-    } catch (error) {
-      prompts.error(error instanceof Error ? error.message : "Could not download generated documents.");
-    } finally {
-      setDownloadingAll(false);
-    }
-  };
-
-  return (
-    <>
-      <section class="detail-section">
-        <div class="flex items-start gap-3">
-          <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-secondary dark:bg-zinc-900">
-            <i class="ti ti-activity" />
-          </span>
-          <div class="min-w-0 flex-1">
-            <div class="flex min-w-0 items-center gap-2">
-              <h2 class="truncate text-sm font-semibold text-primary">Workflow run</h2>
-              <Show when={run()}>{(current) => <span class={`badge ${statusClass(current().status)}`}>{current().status}</span>}</Show>
-            </div>
-            <p class="mt-0.5 text-xs text-dimmed">{run() ? formatDate(run()!.createdAt) : "Loading..."}</p>
-          </div>
-          <button type="button" class="icon-btn" onClick={props.onClose} title="Close run details" aria-label="Close run details">
-            <i class="ti ti-x" />
-          </button>
-        </div>
-      </section>
-
-      <section class="detail-section">
-        <h3 class="detail-section-label">Execution</h3>
-        <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-xs">
-          <span class="text-dimmed">Trigger</span>
-          <span class="text-primary">{run() ? (triggerLabels[run()!.triggerKind] ?? run()!.triggerKind) : "-"}</span>
-          <span class="text-dimmed">Started</span>
-          <span class="text-primary">{run() ? formatDate(run()!.startedAt) : "-"}</span>
-          <span class="text-dimmed">Finished</span>
-          <span class="text-primary">{run() ? formatDate(run()!.finishedAt) : "-"}</span>
-          <span class="text-dimmed">Duration</span>
-          <span class="text-primary">{run() ? formatDuration(run()!) : "-"}</span>
-        </div>
-        <Show when={run()?.error}>
-          {(error) => (
-            <p class="mt-3 rounded-md bg-red-50 px-2 py-1 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300">{error()}</p>
-          )}
-        </Show>
-        <Show when={run()?.resultMessage}>
-          {(message) => (
-            <p class="mt-3 rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-              {message()}
-            </p>
-          )}
-        </Show>
-      </section>
-
-      <section class="detail-section">
-        <h3 class="detail-section-label">Input</h3>
-        <CodeDisplay language="text" code={JSON.stringify(run()?.resolvedInput ?? run()?.triggerInput ?? {}, null, 2)} copy />
-      </section>
-
-      <section class="detail-section">
-        <h3 class="detail-section-label">Steps</h3>
-        <For
-          each={steps()}
-          fallback={
-            <Placeholder align="left" class="py-3">
-              {loadMut.loading() ? "Loading steps..." : "No step details."}
-            </Placeholder>
-          }
-        >
-          {(step) => (
-            <div class="grid grid-cols-[auto_1fr_auto] gap-2 border-b border-zinc-100 py-2 text-xs last:border-b-0 dark:border-zinc-800">
-              <span class={`badge ${statusClass(step.status)}`}>{step.status}</span>
-              <span class="min-w-0 truncate text-primary">
-                {step.stepPath} · {step.kind}
-              </span>
-              <span class="text-dimmed">{step.durationMs == null ? "-" : `${step.durationMs}ms`}</span>
-              <Show when={step.error}>
-                <p class="col-span-3 text-red-600 dark:text-red-400">{step.error}</p>
-              </Show>
-            </div>
-          )}
-        </For>
-      </section>
-
-      <section class="detail-section">
-        <div class="flex items-center justify-between gap-2">
-          <h3 class="detail-section-label mb-0">Generated documents</h3>
-          <Show when={documents().total > 0}>
-            <button type="button" class="btn-simple btn-sm" onClick={() => void downloadAllDocuments()} disabled={downloadingAll()}>
-              <i class={downloadingAll() ? "ti ti-loader-2 animate-spin" : "ti ti-download"} /> All
-            </button>
-          </Show>
-        </div>
-        <For
-          each={documents().items}
-          fallback={
-            <Placeholder align="left" class="py-3">
-              No documents generated by this run.
-            </Placeholder>
-          }
-        >
-          {(document) => (
-            <div class="grid grid-cols-[auto_1fr_auto] items-center gap-2 border-b border-zinc-100 py-2 text-xs last:border-b-0 dark:border-zinc-800">
-              <i class="ti ti-file-type-pdf text-dimmed" />
-              <span class="min-w-0">
-                <span class="block truncate text-primary">{document.filename}</span>
-                <span class="block truncate text-dimmed">{document.documentNumber}</span>
-              </span>
-              <button
-                type="button"
-                class="btn-simple btn-sm"
-                title="Download document"
-                onClick={() => void downloadDocument(document)}
-                disabled={downloadingDocumentId() === document.id}
-              >
-                {downloadingDocumentId() === document.id ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
-              </button>
-            </div>
-          )}
-        </For>
-      </section>
-    </>
   );
 }
 

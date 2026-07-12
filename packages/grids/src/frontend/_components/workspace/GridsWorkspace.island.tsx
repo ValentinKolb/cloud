@@ -12,7 +12,8 @@ import CreateDashboardButton from "../sidebar/CreateDashboardButton";
 import CreateTableButton from "../sidebar/CreateTableButton";
 import FormSidebarEntry from "../sidebar/FormSidebarEntry";
 import RememberGridsPath from "../sidebar/RememberGridsPath";
-import WorkflowsPage, { WorkflowRunDetailPanel } from "../workflows/WorkflowsPage";
+import { WorkflowRunDetailPanel } from "../workflows/WorkflowRunDetailPanel";
+import WorkflowsPage from "../workflows/WorkflowsPage";
 import { useWorkspaceLiveUpdates } from "./workspace-live-updates";
 import type {
   GridsWorkspaceState,
