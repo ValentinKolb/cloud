@@ -181,9 +181,9 @@ function PanelDialogTabs<T extends string>(props: PanelDialogTabsProps<T>) {
       aria-label={props.ariaLabel ?? "Dialog tabs"}
       class={
         surface === "floating"
-          ? "paper flex shrink-0 items-center gap-1 overflow-x-auto p-1.5"
+          ? "panel-dialog-tabs paper flex shrink-0 items-center gap-1 overflow-x-auto p-1.5"
           : // No divider line — the active-tab tint and spacing carry the separation.
-            "flex shrink-0 items-center gap-1 overflow-x-auto px-2 py-1.5"
+            "panel-dialog-tabs flex shrink-0 items-center gap-1 overflow-x-auto px-2 py-1.5"
       }
     >
       <For each={props.options}>

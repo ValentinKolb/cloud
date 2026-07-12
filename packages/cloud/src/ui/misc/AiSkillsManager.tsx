@@ -15,7 +15,7 @@ import { dialogCore } from "../dialog-core";
 import { Switch, TextInput } from "../input";
 import { prompts } from "../prompts";
 import { toast } from "../toast";
-import { type FileSource, FileBrowserPanel } from "./FileBrowser";
+import { FileBrowserPanel, type FileSource } from "./FileBrowser";
 import PanelDialog, { panelDialogOptions } from "./PanelDialog";
 import PermissionEditor from "./PermissionEditor";
 import Placeholder from "./Placeholder";
@@ -113,9 +113,14 @@ const eventCursorQuery = (before?: AiSkillEventCursor, extra?: Record<string, st
 // ── Shared bits ────────────────────────────────────────────────────────────
 
 const originBadge = (origin: AiSkillUserView["origin"]): { label: string; class: string } => {
-  if (origin === "own") return { label: "Yours", class: "bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300" };
-  if (origin === "workspace") return { label: "Workspace", class: "bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400" };
-  return { label: "Shared with you", class: "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300" };
+  if (origin === "own")
+    return { label: "Yours", class: "ai-skill-origin-badge bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300" };
+  if (origin === "workspace")
+    return { label: "Workspace", class: "ai-skill-origin-badge bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400" };
+  return {
+    label: "Shared with you",
+    class: "ai-skill-origin-badge bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
+  };
 };
 
 function CodeStatusBadge(props: { skill: AiSkill }) {
@@ -272,7 +277,10 @@ const skillFileSource = (skillId: string, options: { canEdit: boolean; onChanged
 // ── Skill detail dialog ────────────────────────────────────────────────────
 
 function SkillDetailDialog(props: { skillId: string; isAdmin: boolean; close: () => void; onChanged: () => void }) {
-  const [detail, { refetch }] = createResource(() => props.skillId, (skillId) => aiSkillsApi.detail(skillId));
+  const [detail, { refetch }] = createResource(
+    () => props.skillId,
+    (skillId) => aiSkillsApi.detail(skillId),
+  );
   const [tab, setTab] = createSignal<"files" | "settings" | "sharing" | "history">("files");
   const skill = () => detail()?.skill ?? null;
   const canManage = () => detail()?.canManage ?? false;
@@ -332,12 +340,7 @@ function SkillDetailDialog(props: { skillId: string; isAdmin: boolean; close: ()
 
   return (
     <PanelDialog>
-      <PanelDialog.Header
-        title={skill()?.slug ?? "Skill"}
-        subtitle={skill()?.description}
-        icon="ti ti-wand"
-        close={props.close}
-      />
+      <PanelDialog.Header title={skill()?.slug ?? "Skill"} subtitle={skill()?.description} icon="ti ti-wand" close={props.close} />
       <PanelDialog.Body>
         <Show when={skill()} fallback={<Placeholder icon="ti ti-loader-2" title="Loading skill…" />}>
           {(current) => (
@@ -403,109 +406,110 @@ function SkillDetailDialog(props: { skillId: string; isAdmin: boolean; close: ()
 
               {/* Fixed-height content region: switching tabs must never resize the dialog. */}
               <div class="flex h-[min(55vh,30rem)] min-h-0 flex-col overflow-y-auto">
-              <SolidSwitch>
-                <Match when={tab() === "files"}>
-                  {/* Content changes revoke code approval server-side — refetch keeps the badge honest. */}
-                  <FileBrowserPanel
-                    source={skillFileSource(props.skillId, { canEdit: canManage(), onChanged: notifyAndRefetch })}
-                    initialPath="/SKILL.md"
-                    class="h-full"
-                  />
-                </Match>
+                <SolidSwitch>
+                  <Match when={tab() === "files"}>
+                    {/* Content changes revoke code approval server-side — refetch keeps the badge honest. */}
+                    <FileBrowserPanel
+                      source={skillFileSource(props.skillId, { canEdit: canManage(), onChanged: notifyAndRefetch })}
+                      initialPath="/SKILL.md"
+                      class="h-full"
+                    />
+                  </Match>
 
-                <Match when={tab() === "settings"}>
-                  <div class="flex flex-col gap-4">
-                    <Show when={view()}>
-                      {(userView) => (
-                        <p class="text-xs leading-5 text-dimmed">
-                          {userView().origin === "shared"
-                            ? "Shared skills stay off until you turn them on — nothing enters your chats without your consent."
-                            : "The Active toggle above controls whether the assistant sees this skill in your chats."}
-                        </p>
-                      )}
-                    </Show>
-
-
-                    <div class="flex flex-col gap-2 rounded-lg bg-zinc-50 p-3 [box-shadow:var(--theme-recess)] dark:bg-zinc-900/60">
-                      <p class="text-sm font-medium text-primary">Executable code</p>
-                      <Show
-                        when={isWorkspaceSkill()}
-                        fallback={
+                  <Match when={tab() === "settings"}>
+                    <div class="flex flex-col gap-4">
+                      <Show when={view()}>
+                        {(userView) => (
                           <p class="text-xs leading-5 text-dimmed">
-                            Personal skills are content-only: markdown, references, and assets. Scripts inside personal skills are never
-                            executed — only workspace skills can run code, after an admin review.
+                            {userView().origin === "shared"
+                              ? "Shared skills stay off until you turn them on — nothing enters your chats without your consent."
+                              : "The Active toggle above controls whether the assistant sees this skill in your chats."}
                           </p>
-                        }
-                      >
-                        <p class="text-xs leading-5 text-dimmed">
-                          Scripts in this skill run inside the sandboxed JavaScript runtime once an admin approves the exact file contents.
-                          Any file change revokes the approval automatically.
-                        </p>
-                        <div class="flex flex-wrap items-center gap-2">
-                          <CodeStatusBadge skill={current()} />
-                          <span class="flex-1" />
-                          <Show when={canManage() && !current().allowCode && !current().codeReviewRequestedAt}>
-                            <button type="button" class="btn-input btn-input-sm" onClick={() => void codeAction("request")}>
-                              <i class="ti ti-shield-question" aria-hidden="true" />
-                              Request code review
-                            </button>
-                          </Show>
-                          <Show when={props.isAdmin && !current().allowCode && current().codeReviewRequestedAt}>
-                            <button type="button" class="btn-primary btn-sm" onClick={() => void codeAction("approve")}>
-                              <i class="ti ti-shield-check" aria-hidden="true" />
-                              Approve code
-                            </button>
-                          </Show>
-                          <Show when={props.isAdmin && current().allowCode}>
-                            <button type="button" class="btn-input btn-input-sm" onClick={() => void codeAction("revoke")}>
-                              <i class="ti ti-shield-off" aria-hidden="true" />
-                              Revoke approval
-                            </button>
-                          </Show>
+                        )}
+                      </Show>
+
+                      <div class="flex flex-col gap-2 rounded-lg bg-zinc-50 p-3 [box-shadow:var(--theme-recess)] dark:bg-zinc-900/60">
+                        <p class="text-sm font-medium text-primary">Executable code</p>
+                        <Show
+                          when={isWorkspaceSkill()}
+                          fallback={
+                            <p class="text-xs leading-5 text-dimmed">
+                              Personal skills are content-only: markdown, references, and assets. Scripts inside personal skills are never
+                              executed — only workspace skills can run code, after an admin review.
+                            </p>
+                          }
+                        >
+                          <p class="text-xs leading-5 text-dimmed">
+                            Scripts in this skill run inside the sandboxed JavaScript runtime once an admin approves the exact file
+                            contents. Any file change revokes the approval automatically.
+                          </p>
+                          <div class="flex flex-wrap items-center gap-2">
+                            <CodeStatusBadge skill={current()} />
+                            <span class="flex-1" />
+                            <Show when={canManage() && !current().allowCode && !current().codeReviewRequestedAt}>
+                              <button type="button" class="btn-input btn-input-sm" onClick={() => void codeAction("request")}>
+                                <i class="ti ti-shield-question" aria-hidden="true" />
+                                Request code review
+                              </button>
+                            </Show>
+                            <Show when={props.isAdmin && !current().allowCode && current().codeReviewRequestedAt}>
+                              <button type="button" class="btn-primary btn-sm" onClick={() => void codeAction("approve")}>
+                                <i class="ti ti-shield-check" aria-hidden="true" />
+                                Approve code
+                              </button>
+                            </Show>
+                            <Show when={props.isAdmin && current().allowCode}>
+                              <button type="button" class="btn-input btn-input-sm" onClick={() => void codeAction("revoke")}>
+                                <i class="ti ti-shield-off" aria-hidden="true" />
+                                Revoke approval
+                              </button>
+                            </Show>
+                          </div>
+                        </Show>
+                      </div>
+
+                      <Show when={canManage()}>
+                        <div class="flex justify-end">
+                          <button type="button" class="btn-danger btn-sm" onClick={() => void deleteSkill()}>
+                            <i class="ti ti-trash" aria-hidden="true" />
+                            Delete skill
+                          </button>
                         </div>
                       </Show>
                     </div>
+                  </Match>
 
-                    <Show when={canManage()}>
-                      <div class="flex justify-end">
-                        <button type="button" class="btn-danger btn-sm" onClick={() => void deleteSkill()}>
-                          <i class="ti ti-trash" aria-hidden="true" />
-                          Delete skill
-                        </button>
-                      </div>
-                    </Show>
-                  </div>
-                </Match>
+                  <Match when={tab() === "sharing"}>
+                    <div class="flex flex-col gap-2">
+                      <p class="text-xs leading-5 text-dimmed">
+                        Sharing offers this skill to other people — it shows up in their catalog but stays inactive until they enable it
+                        themselves.
+                      </p>
+                      <Show when={accessEntries()} fallback={<Placeholder icon="ti ti-loader-2" title="Loading sharing…" />}>
+                        {(entries) => (
+                          <PermissionEditor
+                            initialEntries={entries()}
+                            canEdit
+                            allowedLevels={[{ level: "read", label: "Use", icon: "ti-wand" }]}
+                            grantAccess={async (principal, permission) =>
+                              (await aiSkillsApi.grantAccess(props.skillId, principal, permission)).entry
+                            }
+                            updateAccess={async (accessId, permission) => {
+                              await aiSkillsApi.updateAccess(props.skillId, accessId, permission);
+                            }}
+                            revokeAccess={async (accessId) => {
+                              await aiSkillsApi.revokeAccess(props.skillId, accessId);
+                            }}
+                          />
+                        )}
+                      </Show>
+                    </div>
+                  </Match>
 
-                <Match when={tab() === "sharing"}>
-                  <div class="flex flex-col gap-2">
-                    <p class="text-xs leading-5 text-dimmed">
-                      Sharing offers this skill to other people — it shows up in their catalog but stays inactive until they enable it
-                      themselves.
-                    </p>
-                    <Show when={accessEntries()} fallback={<Placeholder icon="ti ti-loader-2" title="Loading sharing…" />}>
-                      {(entries) => (
-                        <PermissionEditor
-                          initialEntries={entries()}
-                          canEdit
-                          allowedLevels={[{ level: "read", label: "Use", icon: "ti-wand" }]}
-                          grantAccess={async (principal, permission) => (await aiSkillsApi.grantAccess(props.skillId, principal, permission)).entry}
-                          updateAccess={async (accessId, permission) => {
-                            await aiSkillsApi.updateAccess(props.skillId, accessId, permission);
-                          }}
-                          revokeAccess={async (accessId) => {
-                            await aiSkillsApi.revokeAccess(props.skillId, accessId);
-                          }}
-                        />
-                      )}
-                    </Show>
-                  </div>
-                </Match>
-
-                <Match when={tab() === "history"}>
-                  <PagedEventList load={(before) => aiSkillsApi.events(props.skillId, { before })} />
-                </Match>
-              </SolidSwitch>
+                  <Match when={tab() === "history"}>
+                    <PagedEventList load={(before) => aiSkillsApi.events(props.skillId, { before })} />
+                  </Match>
+                </SolidSwitch>
               </div>
             </div>
           )}
@@ -615,7 +619,12 @@ function CreateSkillDialog(props: { isAdmin: boolean; close: (created?: AiSkill)
           void create.mutate(undefined);
         }}
       >
-        <PanelDialog.Header title="New skill" subtitle="A folder of instructions the assistant reads on demand." icon="ti ti-wand" close={() => props.close()} />
+        <PanelDialog.Header
+          title="New skill"
+          subtitle="A folder of instructions the assistant reads on demand."
+          icon="ti ti-wand"
+          close={() => props.close()}
+        />
         <PanelDialog.Body>
           <TextInput
             label="Name"
@@ -679,13 +688,21 @@ function SkillRow(props: {
         <div class="min-w-0 flex-1">
           <p class="flex items-center gap-2 truncate text-sm font-medium text-primary">
             {props.skill.slug}
-            <Show when={badge()}>{(value) => <span class={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${value().class}`}>{value().label}</span>}</Show>
+            <Show when={badge()}>
+              {(value) => <span class={`rounded-md px-1.5 py-0.5 text-[10px] font-medium ${value().class}`}>{value().label}</span>}
+            </Show>
             <CodeStatusBadge skill={props.skill} />
           </p>
           <p class="truncate text-xs text-dimmed">{props.skill.description}</p>
         </div>
       </button>
-      <span title={props.mode === "admin" ? "Disabled skills disappear from everyone's catalog" : "Whether the assistant may use this skill in your chats"}>
+      <span
+        title={
+          props.mode === "admin"
+            ? "Disabled skills disappear from everyone's catalog"
+            : "Whether the assistant may use this skill in your chats"
+        }
+      >
         <Switch
           value={() => (props.mode === "admin" ? props.skill.enabled : props.skill.userState === "enabled")}
           onChange={(state) => void props.onToggle(state)}
@@ -788,13 +805,15 @@ export function AiSkillsManagerBody(props: AiSkillsManagerBodyProps) {
   };
 
   const openCreate = () => {
-    void dialogCore.open<AiSkill | undefined>(
-      (close) => <CreateSkillDialog isAdmin={props.isAdmin} close={(created) => close(created)} />,
-      panelDialogOptions,
-    ).then((created) => {
-      reload();
-      if (created) openDetail(created.id);
-    });
+    void dialogCore
+      .open<AiSkill | undefined>(
+        (close) => <CreateSkillDialog isAdmin={props.isAdmin} close={(created) => close(created)} />,
+        panelDialogOptions,
+      )
+      .then((created) => {
+        reload();
+        if (created) openDetail(created.id);
+      });
   };
 
   const toggle = async (skill: AiSkill, state: boolean) => {
@@ -842,13 +861,7 @@ export function AiSkillsManagerBody(props: AiSkillsManagerBodyProps) {
         <SolidSwitch>
           <Match when={tab() === "catalog"}>
             <div class="flex flex-col gap-4">
-              <TextInput
-                icon="ti ti-search"
-                placeholder="Search skills…"
-                value={query}
-                onInput={onQueryInput}
-                aria-label="Search skills"
-              />
+              <TextInput icon="ti ti-search" placeholder="Search skills…" value={query} onInput={onQueryInput} aria-label="Search skills" />
               <Show
                 when={groups().length > 0}
                 fallback={
@@ -904,7 +917,12 @@ export function AiSkillsManagerBody(props: AiSkillsManagerBodyProps) {
                   <i class="ti ti-plus" aria-hidden="true" />
                   New skill
                 </button>
-                <button type="button" class="btn-secondary btn-sm" disabled={Boolean(importProgress())} onClick={() => importInputRef?.click()}>
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  disabled={Boolean(importProgress())}
+                  onClick={() => importInputRef?.click()}
+                >
                   <i class={importProgress() ? "ti ti-loader-2 animate-spin" : "ti ti-upload"} aria-hidden="true" />
                   <Show when={importProgress()} fallback={<>Import</>}>
                     {(progress) => (
@@ -932,7 +950,9 @@ export function AiSkillsManagerBody(props: AiSkillsManagerBodyProps) {
           <Match when={tab() === "review"}>
             <Show
               when={(reviewQueue() ?? []).length > 0}
-              fallback={<Placeholder icon="ti ti-shield-check" title="Nothing to review" description="No skill is waiting for a code review." />}
+              fallback={
+                <Placeholder icon="ti ti-shield-check" title="Nothing to review" description="No skill is waiting for a code review." />
+              }
             >
               <ul class="flex flex-col gap-1.5">
                 <For each={reviewQueue()}>
@@ -997,4 +1017,4 @@ function SkillsManagerDialog(props: { isAdmin: boolean; close: () => void }) {
 export const openAiSkillsManager = (options?: { isAdmin?: boolean }): Promise<void> =>
   dialogCore.open<void>((close) => <SkillsManagerDialog isAdmin={options?.isAdmin ?? false} close={() => close()} />, panelDialogOptions);
 
-export { SkillsManagerDialog as AiSkillsManagerDialog, SkillDetailDialog as AiSkillDetailDialog };
+export { SkillDetailDialog as AiSkillDetailDialog, SkillsManagerDialog as AiSkillsManagerDialog };

@@ -270,9 +270,9 @@ const getSizeClassName = (size: DialogOptions["size"] = "medium") => {
 };
 
 const getVariantClassName = (variant?: DialogOptions["variant"]) => {
-  if (variant === "danger") return "ring-red-500/45 dark:ring-red-500/35";
-  if (variant === "success") return "ring-green-500/45 dark:ring-green-500/35";
-  return "ring-zinc-300/60 dark:ring-zinc-700/60";
+  if (variant === "danger") return "prompt-panel-danger ring-red-500/45 dark:ring-red-500/35";
+  if (variant === "success") return "prompt-panel-success ring-green-500/45 dark:ring-green-500/35";
+  return "prompt-panel-default ring-zinc-300/60 dark:ring-zinc-700/60";
 };
 
 const getPanelClassName = (options?: Pick<DialogOptions, "variant" | "size" | "surface">) => {
@@ -281,7 +281,7 @@ const getPanelClassName = (options?: Pick<DialogOptions, "variant" | "size" | "s
     return `fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 m-0 ${sizeClass} overflow-visible border-0 bg-transparent p-0 text-zinc-900 shadow-none backdrop:bg-black/45 dark:backdrop:bg-black/35 backdrop:backdrop-blur-sm dark:text-zinc-100`;
   }
   const variantClass = getVariantClassName(options?.variant);
-  return `fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 m-0 ${sizeClass} overflow-x-hidden overflow-y-auto rounded-2xl border-0 bg-white/95 p-4 text-zinc-900 shadow-none ring-1 ring-inset ${variantClass} backdrop:bg-black/45 dark:backdrop:bg-black/35 backdrop:backdrop-blur-sm dark:bg-zinc-950/95 dark:text-zinc-100`;
+  return `prompt-panel fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 m-0 ${sizeClass} overflow-x-hidden overflow-y-auto rounded-2xl border-0 bg-white/95 p-4 text-zinc-900 shadow-none ring-1 ring-inset ${variantClass} backdrop:bg-black/45 dark:backdrop:bg-black/35 backdrop:backdrop-blur-sm dark:bg-zinc-950/95 dark:text-zinc-100`;
 };
 
 const getContentClassName = (surface?: DialogOptions["surface"]) => (surface === "bare" ? "" : undefined);
@@ -414,7 +414,7 @@ const openSearchPrompt = <T = unknown>(
             {(title) => <p class="px-1 text-base font-semibold text-white dark:text-zinc-100">{title()}</p>}
           </Show>
 
-          <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-white/95 text-zinc-900 shadow-none ring-1 ring-inset ring-zinc-300/60 dark:bg-zinc-950/95 dark:text-zinc-100 dark:ring-zinc-700/60">
+          <div class="prompt-search-surface flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-white/95 text-zinc-900 shadow-none ring-1 ring-inset ring-zinc-300/60 dark:bg-zinc-950/95 dark:text-zinc-100 dark:ring-zinc-700/60">
             <label class="flex items-center gap-2 px-3 py-2.5">
               <i class={`${options?.icon ?? "ti ti-search"} text-dimmed`} />
               <input
