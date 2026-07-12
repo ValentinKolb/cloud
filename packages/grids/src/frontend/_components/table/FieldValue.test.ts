@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Field, GridRecord } from "../../../service";
+import { resolveFieldDisplay } from "./field-display";
 import { fieldDisplayFormat, formatFieldValueText, relationIds } from "./field-value-format";
 
 const field = (overrides: Partial<Field> & Pick<Field, "id" | "name" | "type">): Field => ({
@@ -89,6 +90,83 @@ describe("FieldValue helpers", () => {
       kind: "decimal",
       precision: 2,
       thousandsSeparator: true,
+    });
+  });
+
+  test("returns explicit empty and markdown display intents", () => {
+    const notes = field({ id: "notes", name: "Notes", type: "longtext", config: { markdown: true } });
+
+    expect(resolveFieldDisplay({ field: notes, value: null })).toEqual({ kind: "empty" });
+    expect(resolveFieldDisplay({ field: notes, value: "**Ready**" })).toEqual({ kind: "markdown", text: "**Ready**" });
+  });
+
+  test("preserves select metadata for badge renderers", () => {
+    const status = field({
+      id: "status",
+      name: "Status",
+      type: "select",
+      config: { options: [{ id: "ready", label: "Ready", color: "#16a34a" }] },
+    });
+
+    expect(resolveFieldDisplay({ field: status, value: ["ready", "missing"] })).toEqual({
+      kind: "select",
+      text: "Ready, missing",
+      items: [
+        { id: "ready", label: "Ready", color: "#16a34a", known: true },
+        { id: "missing", label: "missing", known: false },
+      ],
+    });
+    expect(formatFieldValueText({ field: status, value: 42 })).toBe("42");
+  });
+
+  test("returns relation link metadata or label-only values by context", () => {
+    const relation = field({
+      id: "rel",
+      name: "Author",
+      type: "relation",
+      config: { targetTableId: "authors" },
+    });
+
+    expect(resolveFieldDisplay({ field: relation, value: "a1", relationLabels: { a1: "Ada" } })).toEqual({
+      kind: "relation",
+      items: [{ id: "a1", label: "Ada", linkable: true }],
+      targetTableId: "authors",
+    });
+    expect(resolveFieldDisplay({ field: relation, value: "Ada", relationValueMode: "labels" })).toEqual({
+      kind: "relation",
+      items: [{ id: "Ada", label: "Ada", linkable: false }],
+    });
+  });
+
+  test("normalizes date, barcode, and progress display semantics", () => {
+    const due = field({ id: "due", name: "Due", type: "date" });
+    const code = field({ id: "code", name: "Code", type: "text" });
+    const completion = field({ id: "completion", name: "Completion", type: "percent" });
+
+    expect(resolveFieldDisplay({ field: due, value: "2026-07-12T14:30:00.000Z" })).toEqual({
+      kind: "text",
+      text: "2026-07-12",
+    });
+    expect(resolveFieldDisplay({ field: code, value: "ITEM-42", format: { kind: "barcode", bcid: "code128" } })).toEqual({
+      kind: "barcode",
+      value: "ITEM-42",
+      format: { kind: "barcode", bcid: "code128" },
+    });
+    expect(resolveFieldDisplay({ field: completion, value: 75, format: { kind: "progress", label: "percent" } })).toEqual({
+      kind: "progress",
+      ratio: 0.75,
+      label: "75%",
+      text: "75%",
+      format: { kind: "progress", label: "percent" },
+    });
+  });
+
+  test("keeps structured file values available as deterministic text", () => {
+    const attachment = field({ id: "attachment", name: "Attachment", type: "file" });
+
+    expect(resolveFieldDisplay({ field: attachment, value: { name: "invoice.pdf", size: 42 } })).toEqual({
+      kind: "text",
+      text: '{"name":"invoice.pdf","size":42}',
     });
   });
 });

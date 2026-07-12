@@ -1,14 +1,11 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import { MarkdownView, ProgressBar } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { For, type JSX, Show } from "solid-js";
+import { createMemo, For, type JSX, Show } from "solid-js";
 import type { FormatSpec } from "../../../contracts";
-import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field, GridRecord } from "../../../service";
 import { BarcodeDisplay } from "./BarcodeCell";
-import { canRenderBarcode } from "./BarcodeRendering";
-import { expandedRecordLabel, fieldDisplayFormat, isMarkdownLongtext, relationIds, valueToLabelPart } from "./field-value-format";
-import { formatCell, progressRatio } from "./format-cell";
+import { type FieldDisplayIntent, type RelationDisplayItem, relationIds, resolveFieldDisplay } from "./field-display";
 import { RecordLink } from "./RecordLink";
 import { SelectValueBadges } from "./select-badges";
 
@@ -38,9 +35,6 @@ const defaultEmpty = (field: Field, mode: FieldValueMode): JSX.Element | string 
   return "—";
 };
 
-const relationLabel = (id: string, props: Pick<FieldValueProps, "record" | "relationLabels">): string =>
-  props.relationLabels?.[id] ?? expandedRecordLabel(props.record?.expanded?.[id]);
-
 const lookupTarget = (props: FieldValueProps): { relationField: Field; targetId: string; targetTableId?: string } | null => {
   if (!props.record || !props.allFields) return null;
   const relationFieldId = (props.field.config as { relationFieldId?: string }).relationFieldId;
@@ -54,50 +48,39 @@ const lookupTarget = (props: FieldValueProps): { relationField: Field; targetId:
   return { relationField, targetId, targetTableId: (relationField.config as { targetTableId?: string }).targetTableId };
 };
 
-function RelationValue(props: FieldValueProps & { ids: string[]; emptyValue: JSX.Element | string }) {
-  const targetTableId = () => (props.field.config as { targetTableId?: string }).targetTableId;
+function RelationValue(
+  props: FieldValueProps & { items: RelationDisplayItem[]; targetTableId?: string; emptyValue: JSX.Element | string },
+) {
   return (
-    <Show when={props.ids.length > 0} fallback={props.emptyValue}>
+    <Show when={props.items.length > 0} fallback={props.emptyValue}>
       <span class="inline-flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <For each={props.ids}>
-          {(id, index) => (
-            <RecordLink
-              label={relationLabel(id, props)}
-              targetTableId={targetTableId()}
-              targetTableShortId={targetTableId() ? props.tableShortIds?.[targetTableId()!] : undefined}
-              targetRecordId={id}
-              baseId={props.baseId}
-              comma={index() < props.ids.length - 1}
-            />
-          )}
+        <For each={props.items}>
+          {(item, index) =>
+            item.linkable ? (
+              <RecordLink
+                label={item.label}
+                targetTableId={props.targetTableId}
+                targetTableShortId={props.targetTableId ? props.tableShortIds?.[props.targetTableId] : undefined}
+                targetRecordId={item.id}
+                baseId={props.baseId}
+                comma={index() < props.items.length - 1}
+              />
+            ) : (
+              <span>{item.label}</span>
+            )
+          }
         </For>
       </span>
     </Show>
   );
 }
 
-function RelationLabelValue(props: FieldValueProps & { emptyValue: JSX.Element | string }) {
-  const text = () => valueToLabelPart(props.value);
-  return (
-    <Show when={text()} fallback={props.emptyValue}>
-      {(label) => <span>{label()}</span>}
-    </Show>
-  );
-}
-
-function ProgressValue(props: FieldValueProps & { format: Extract<FormatSpec, { kind: "progress" }> }) {
-  const ratio = () => progressRatio(props.value, props.field.type, props.field.config);
-  const percent = () => Math.round(ratio() * 100);
-  const label = () =>
-    props.format.label === "none"
-      ? ""
-      : props.format.label === "value"
-        ? formatCell(props.value, props.field.type, props.field.config, undefined, props.dateConfig)
-        : `${percent()}%`;
+function ProgressValue(props: { intent: Extract<FieldDisplayIntent, { kind: "progress" }> }) {
+  const percent = () => Math.round(props.intent.ratio * 100);
   return (
     <span class="flex min-w-36 items-center gap-3">
       <ProgressBar value={percent()} size="sm" class="w-32 shrink-0" />
-      <Show when={label()}>{(text) => <span class="whitespace-nowrap tabular-nums text-primary">{text()}</span>}</Show>
+      <Show when={props.intent.label}>{(text) => <span class="whitespace-nowrap tabular-nums text-primary">{text()}</span>}</Show>
     </span>
   );
 }
@@ -105,49 +88,51 @@ function ProgressValue(props: FieldValueProps & { format: Extract<FormatSpec, { 
 export function FieldValue(props: FieldValueProps) {
   const mode = () => props.mode ?? "table";
   const emptyValue = () => props.empty ?? defaultEmpty(props.field, mode());
-  const displayField = () => (props.field.type === "lookup" ? effectiveDisplayField(props.field, props.fieldsByTable) : props.field);
-  const format = () => fieldDisplayFormat(props.field, props.format);
-  const isEmpty = () => props.value === null || props.value === undefined || props.value === "";
+  const display = createMemo(() =>
+    resolveFieldDisplay({
+      field: props.field,
+      value: props.value,
+      record: props.record,
+      fieldsByTable: props.fieldsByTable,
+      relationLabels: props.relationLabels,
+      dateConfig: props.dateConfig,
+      format: props.format,
+      relationValueMode: props.relationValueMode,
+    }),
+  );
 
   const renderRawValue = () => {
-    const fmt = format();
-    const field = displayField();
-    if (isEmpty()) return emptyValue();
-    if (props.field.type === "relation") {
-      return props.relationValueMode === "labels" ? (
-        <RelationLabelValue {...props} emptyValue={emptyValue()} />
-      ) : (
-        <RelationValue {...props} ids={relationIds(props.value)} emptyValue={emptyValue()} />
-      );
+    const intent = display();
+    if (intent.kind === "empty") return emptyValue();
+    if (intent.kind === "relation") {
+      return <RelationValue {...props} items={intent.items} targetTableId={intent.targetTableId} emptyValue={emptyValue()} />;
     }
-    if (field.type === "select")
-      return <SelectValueBadges value={props.value} type={field.type} fieldConfig={field.config} empty={emptyValue()} />;
-    if (isMarkdownLongtext(field)) {
-      return typeof props.value === "string" && props.value.trim() ? (
-        <MarkdownView html={markdown.render(props.value)} smallHeadings class={props.markdownClass ?? "text-sm"} />
+    if (intent.kind === "select") return <SelectValueBadges items={intent.items} empty={emptyValue()} />;
+    if (intent.kind === "markdown") {
+      return intent.text.trim() ? (
+        <MarkdownView html={markdown.render(intent.text)} smallHeadings class={props.markdownClass ?? "text-sm"} />
       ) : (
         emptyValue()
       );
     }
-    if (fmt?.kind === "barcode" && canRenderBarcode(field.type)) {
+    if (intent.kind === "barcode") {
       return (
         <BarcodeDisplay
-          value={props.value}
-          format={fmt}
+          value={intent.value}
+          format={intent.format}
           size={mode() === "detail" ? "detail" : "table"}
           showOpenAction={props.showBarcodeOpenAction}
         />
       );
     }
-    if (fmt?.kind === "progress" && (field.type === "percent" || field.type === "formula")) {
-      return <ProgressValue {...props} field={field} format={fmt} />;
-    }
-    return formatCell(props.value, field.type, field.config, fmt, props.dateConfig) || emptyValue();
+    if (intent.kind === "progress") return <ProgressValue intent={intent} />;
+    return intent.text || emptyValue();
   };
 
   const renderLookup = () => {
     const value = renderRawValue();
-    if (!props.linkLookup || props.field.type !== "lookup" || format()?.kind === "barcode" || isEmpty()) return value;
+    const intent = display();
+    if (!props.linkLookup || props.field.type !== "lookup" || intent.kind === "barcode" || intent.kind === "empty") return value;
     const target = lookupTarget(props);
     if (!target?.targetTableId || !props.baseId) return value;
     if (typeof value === "string") {

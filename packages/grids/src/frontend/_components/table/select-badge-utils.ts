@@ -5,7 +5,7 @@ type SelectOption = {
   description?: string;
 };
 
-type SelectBadgeItem = {
+export type SelectBadgeItem = {
   id: string;
   label: string;
   color?: string;
