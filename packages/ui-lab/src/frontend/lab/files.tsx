@@ -4,7 +4,7 @@
  * files modal and the skill explorer; a future Files app only brings its
  * own FileSource + custom renderers.
  */
-import { FileBrowserPanel, type FileSource } from "@valentinkolb/cloud/ui";
+import { FileBrowserPanel, type FileSource, openFileBrowser } from "@valentinkolb/cloud/ui";
 import DemoCard from "./DemoCard";
 
 const FROM_UI = "@valentinkolb/cloud/ui";
@@ -37,8 +37,7 @@ const createMemorySource = (options: { readOnly?: boolean } = {}): FileSource =>
   ]);
   const mediaType = (path: string) => (path.endsWith(".md") ? "text/markdown" : path.endsWith(".ts") ? "text/typescript" : "text/plain");
   const source: FileSource = {
-    list: async () =>
-      [...files.entries()].map(([path, content]) => ({ path, size: content.length, mediaType: mediaType(path) })),
+    list: async () => [...files.entries()].map(([path, content]) => ({ path, size: content.length, mediaType: mediaType(path) })),
     read: async (path) => ({ encoding: "utf8", content: files.get(path) ?? "", mediaType: mediaType(path) }),
   };
   if (options.readOnly) return source;
@@ -89,3 +88,38 @@ export const FileBrowserReadOnlyDemo = () => (
     <FileBrowserPanel source={createMemorySource({ readOnly: true })} initialPath="/README.md" class="h-80" />
   </DemoCard>
 );
+
+export const FileBrowserDialogDemo = () => {
+  const source = createMemorySource();
+
+  return (
+    <DemoCard
+      id="file-browser-dialog"
+      chip={{ kind: "component", name: "openFileBrowser", from: FROM_UI }}
+      variant="dialog launcher"
+      description="The launcher uses the same FileBrowserPanel inside the shared dialog system. Use it when files are a secondary workflow instead of the page's primary workspace."
+      code={`await openFileBrowser({
+  source,
+  title: "Project files",
+  subtitle: "Browse and edit the in-memory demo files.",
+  icon: "ti ti-folder",
+});`}
+    >
+      <button
+        type="button"
+        class="btn-primary btn-sm"
+        onClick={() =>
+          void openFileBrowser({
+            source,
+            title: "Project files",
+            subtitle: "Browse and edit the in-memory demo files.",
+            icon: "ti ti-folder",
+          })
+        }
+      >
+        <i class="ti ti-folder-open" aria-hidden="true" />
+        Open file browser
+      </button>
+    </DemoCard>
+  );
+};

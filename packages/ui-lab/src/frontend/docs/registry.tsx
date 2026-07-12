@@ -1,6 +1,7 @@
 import type { DockWorkspaceState } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
 import { AiChatBlocksDemo, AiComposerDemo } from "../lab/ai";
+import { AiSkillsManagerDemo } from "../lab/ai-skills";
 import {
   ActionHierarchy,
   AiButtonMarkers,
@@ -44,7 +45,6 @@ import {
   StructuredDataPreviewDemo,
 } from "../lab/content";
 import { DocCodeDemo, DocComponentsDemo } from "../lab/docs-components";
-import { FileBrowserDemo, FileBrowserReadOnlyDemo } from "../lab/files";
 import {
   BadgesDemo,
   ChipsDemo,
@@ -64,6 +64,7 @@ import {
   TagsDemo,
   ToastDemo,
 } from "../lab/feedback";
+import { FileBrowserDemo, FileBrowserDialogDemo, FileBrowserReadOnlyDemo } from "../lab/files";
 import {
   AutocompleteEditorAsync,
   AutocompleteEditorFormula,
@@ -863,11 +864,25 @@ export const uiLabDocs: UiLabDocSection[] = [
         "File Browser",
         "ti ti-folder",
         "Path-first FileTree + FileView over a FileSource adapter — editable and read-only.",
-        ["file-browser", "file-browser-readonly"],
+        ["file-browser", "file-browser-readonly", "file-browser-dialog"],
         () => (
           <DemoGrid columns="one">
             <FileBrowserDemo />
             <FileBrowserReadOnlyDemo />
+            <FileBrowserDialogDemo />
+          </DemoGrid>
+        ),
+      ),
+      page(
+        "content",
+        "ai-skills",
+        "AI Skills",
+        "ti ti-wand",
+        "Catalog, manager dialog, and detail flow for reusable assistant skills.",
+        ["ai-skills-manager"],
+        () => (
+          <DemoGrid columns="one">
+            <AiSkillsManagerDemo />
           </DemoGrid>
         ),
       ),
@@ -953,12 +968,14 @@ export const allMappedDemoIds = (): string[] => allDocPages.flatMap((page) => pa
 
 export const hiddenUiLabExports = [
   { name: "LAYOUT_UPDATE_EVENT", reason: "Internal layout event constant used by the layout helper." },
+  { name: "aiSkillsApi", reason: "API client behind the AI Skills demos, not a visual component." },
   { name: "clampImageCropRect", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "confirmDiscardIfDirty", reason: "Small PanelDialog workflow helper documented through PanelDialog usage." },
   { name: "createAvatarDataUrlFromFile", reason: "Low-level avatar upload helper; account avatar UX is intentionally app-owned." },
   { name: "createCroppedImageCanvas", reason: "Low-level ImageCropper export helper for app-specific upload pipelines." },
   { name: "createDialogCore", reason: "Factory behind the shared dialogCore singleton; app code normally uses dialogCore directly." },
   { name: "createFormState", reason: "Prompt implementation helper, not a standalone visual component." },
+  { name: "formatFileViewSize", reason: "Formatting helper covered by the FileView examples." },
   { name: "getInitialImageCropRect", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "imageCropRectToPixels", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "normalizeDockWorkspaceState", reason: "State normalization helper covered by DockWorkspace behavior." },
@@ -969,6 +986,7 @@ export const hiddenUiLabExports = [
   { name: "panelDialogWorkspacePanelClass", reason: "Class constant behind panelDialogWorkspaceOptions." },
   { name: "pickAvatarDataUrl", reason: "Low-level file picker helper behind account avatar upload." },
   { name: "readSettingsError", reason: "Settings API error parser, not a visual UI element." },
+  { name: "registerFileViewRenderer", reason: "Renderer extension API exercised by FileView; it has no standalone visual state." },
   { name: "resizeImageCropAroundCenter", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "rotateImageCropRight", reason: "Low-level ImageCropper math helper covered by the ImageCropper demo." },
   { name: "sameSettingValue", reason: "Settings dirty-state equality helper, demonstrated conceptually by Settings helpers." },
