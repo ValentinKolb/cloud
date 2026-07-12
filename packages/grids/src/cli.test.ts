@@ -4,6 +4,34 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CloudCliContext, CloudCliFlags } from "@valentinkolb/cloud/cli";
 import gridsCli from "./cli";
+import { accessCommands } from "./cli/access";
+import { baseCrudCommands } from "./cli/bases";
+import { documentCommands, documentTemplateCommands } from "./cli/documents";
+import { dashboardCommands, formCommands } from "./cli/forms-dashboards";
+import { recordCommands, snapshotCommands } from "./cli/records";
+import { fieldCommands, tableCommands } from "./cli/schema";
+import { formulaCommands, gqlCommands, viewCommands } from "./cli/views-gql";
+import { emailTemplateCommands, workflowCommands, workflowEmailCommands, workflowRunCommands } from "./cli/workflows";
+
+const commandGroups = [
+  baseCrudCommands,
+  accessCommands,
+  gqlCommands,
+  formulaCommands,
+  tableCommands,
+  fieldCommands,
+  recordCommands,
+  viewCommands,
+  formCommands,
+  dashboardCommands,
+  documentTemplateCommands,
+  documentCommands,
+  snapshotCommands,
+  emailTemplateCommands,
+  workflowCommands,
+  workflowRunCommands,
+  workflowEmailCommands,
+] as const;
 
 type FetchCall = {
   path: string;
@@ -315,6 +343,20 @@ const accessEntry = {
 };
 
 describe("grids CLI", () => {
+  test("registers every command exported by its domain modules", async () => {
+    const commands = commandGroups.flat();
+    const paths = commands.map((item) => item.path.join(" "));
+
+    expect(commands).toHaveLength(120);
+    expect(new Set(paths).size).toBe(paths.length);
+
+    for (const path of paths) {
+      const { ctx, lines } = createContext([...path.split(" "), "help"]);
+      expect(await gridsCli.run(ctx)).toBe(0);
+      expect(lines[0]).toStartWith(`cld grids ${path}`);
+    }
+  });
+
   test("sets and reads the default base by short id", async () => {
     const { ctx, calls, defaults, lines } = createContext(["use", "bk001"], {}, [
       jsonResponse({ items: [base], total: 1, limit: 500, offset: 0 }),
