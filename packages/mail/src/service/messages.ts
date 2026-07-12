@@ -503,12 +503,10 @@ export const createAttachmentStream = (params: {
         controller.error(new Error("Attachment blob is incomplete"));
         return;
       }
-      let bytes = chunk.bytes;
-      if (chunk.position === firstPosition) bytes = bytes.subarray(params.start - firstPosition * params.chunkSize);
-      if (chunk.position === lastPosition) {
-        const endInChunk = params.endExclusive - lastPosition * params.chunkSize;
-        bytes = bytes.subarray(0, endInChunk);
-      }
+      const chunkStart = chunk.position * params.chunkSize;
+      const startInChunk = Math.max(0, params.start - chunkStart);
+      const endInChunk = Math.min(chunk.bytes.byteLength, params.endExclusive - chunkStart);
+      const bytes = chunk.bytes.subarray(startInChunk, endInChunk);
       nextPosition += 1;
       controller.enqueue(bytes);
     },

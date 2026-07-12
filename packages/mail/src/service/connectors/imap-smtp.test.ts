@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { selectUidBatch } from "./imap-smtp";
+import { parseReferences, selectUidBatch } from "./imap-smtp";
 
 const sparseSearch = (uids: number[], probes: Array<[number, number]>) => async (lowUid: number, highUid: number) => {
   probes.push([lowUid, highUid]);
@@ -37,5 +37,18 @@ describe("IMAP envelope UID batching", () => {
     });
     expect(result.uids).toEqual(Array.from({ length: 200 }, (_, index) => index + 801));
     expect(result.nextHighUid).toBe(800);
+  });
+});
+
+describe("IMAP References parsing", () => {
+  test("completes for an empty header block", async () => {
+    expect(await parseReferences(Buffer.from("\r\n"))).toEqual([]);
+  });
+
+  test("returns every referenced Message-ID", async () => {
+    expect(await parseReferences(Buffer.from("References: <first@example.com> <second@example.com>\r\n\r\n"))).toEqual([
+      "<first@example.com>",
+      "<second@example.com>",
+    ]);
   });
 });

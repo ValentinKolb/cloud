@@ -1,4 +1,4 @@
-import { audit } from "@valentinkolb/cloud/services";
+import { audit, logger, toPgTextArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { ConnectorVerification, ProviderBinding, ProviderConnection, RemoteFolder, RemoteNamespace } from "../contracts";
@@ -6,9 +6,12 @@ import { requireMailboxPermission } from "./access";
 import { auditActorFromRequest, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
 import { imapSmtpConnector } from "./connectors";
+import { logDatabaseFailure } from "./database-errors";
 import { getProviderConnection, type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 
 type SqlClient = typeof sql;
+
+const log = logger("mail:bindings");
 
 type FolderEvidence = {
   relativePath: string;
@@ -258,7 +261,7 @@ const projectFolders = async (params: {
             highest_modseq: folder.highestModseq,
             uid_next: folder.uidNext,
             subscribed: folder.subscribed,
-            effective_rights: folder.rights,
+            effective_rights: toPgTextArray(folder.rights),
             rights_source: "select",
             last_verified_at: new Date(),
           },
@@ -580,6 +583,7 @@ export const attachProviderBinding = async (params: {
     });
   } catch (error) {
     if ((error as { code?: string } | null)?.code === "23505") return fail(err.conflict("Provider binding"));
+    logDatabaseFailure(log.error, "attach", "provider binding", error);
     return fail(err.internal("Failed to attach provider binding"));
   }
 };
@@ -700,7 +704,8 @@ export const confirmProviderBinding = async (params: {
       );
       return ok(mapBinding(updated));
     });
-  } catch {
+  } catch (error) {
+    logDatabaseFailure(log.error, "confirm", "provider binding", error);
     return fail(err.internal("Failed to confirm provider binding"));
   }
 };

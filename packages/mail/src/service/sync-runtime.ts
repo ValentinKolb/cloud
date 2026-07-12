@@ -246,60 +246,70 @@ export const ingestEnvelope = async (params: {
     uid: params.message.remoteRef.uid,
   });
   const normalizedSubject = normalizeSubject(params.message.subject);
-  const [messageRow] = await params.db<{ id: string }[]>`
-    INSERT INTO mail.message_contents (
-      mailbox_id,
-      message_id,
-      in_reply_to,
-      reference_ids,
-      provider_thread_id,
-      subject,
-      normalized_subject,
-      internal_date,
-      sent_at,
-      size_bytes,
-      mime_structure,
-      content_hash,
-      hydration_status
-    )
-    VALUES (
-      ${params.mailboxId}::uuid,
-      ${params.message.messageId},
-      ${params.message.inReplyTo},
-      ${toPgTextArray(params.message.references)}::text[],
-      ${params.message.providerThreadId},
-      ${params.message.subject},
-      ${normalizedSubject},
-      ${params.message.internalDate},
-      ${params.message.sentAt},
-      ${params.message.sizeBytes},
-      ${params.message.mimeStructure}::jsonb,
-      ${contentHash},
-      'envelope'
-    )
-    ON CONFLICT (mailbox_id, content_hash) DO UPDATE SET
-      message_id = EXCLUDED.message_id,
-      in_reply_to = EXCLUDED.in_reply_to,
-      reference_ids = EXCLUDED.reference_ids,
-      provider_thread_id = EXCLUDED.provider_thread_id,
-      subject = EXCLUDED.subject,
-      normalized_subject = EXCLUDED.normalized_subject,
-      internal_date = EXCLUDED.internal_date,
-      sent_at = EXCLUDED.sent_at,
-      size_bytes = EXCLUDED.size_bytes,
-      mime_structure = EXCLUDED.mime_structure
-    RETURNING id
+  const [knownRemoteRef] = await params.db<{ message_id: string }[]>`
+    SELECT message_id
+    FROM mail.remote_message_refs
+    WHERE folder_id = ${params.folderId}::uuid
+      AND uid_validity = ${params.message.remoteRef.uidValidity}::numeric
+      AND uid = ${params.message.remoteRef.uid}::numeric
   `;
-  if (!messageRow) throw new Error("Message envelope insert returned no row");
-  await upsertAddresses(params.db, messageRow.id, params.message);
+  let messageContentId = knownRemoteRef?.message_id;
+  if (!messageContentId) {
+    const [messageRow] = await params.db<{ id: string }[]>`
+      INSERT INTO mail.message_contents (
+        mailbox_id,
+        message_id,
+        in_reply_to,
+        reference_ids,
+        provider_thread_id,
+        subject,
+        normalized_subject,
+        internal_date,
+        sent_at,
+        size_bytes,
+        mime_structure,
+        content_hash,
+        hydration_status
+      )
+      VALUES (
+        ${params.mailboxId}::uuid,
+        ${params.message.messageId},
+        ${params.message.inReplyTo},
+        ${toPgTextArray(params.message.references)}::text[],
+        ${params.message.providerThreadId},
+        ${params.message.subject},
+        ${normalizedSubject},
+        ${params.message.internalDate},
+        ${params.message.sentAt},
+        ${params.message.sizeBytes},
+        ${params.message.mimeStructure}::jsonb,
+        ${contentHash},
+        'envelope'
+      )
+      ON CONFLICT (mailbox_id, content_hash) DO UPDATE SET
+        message_id = EXCLUDED.message_id,
+        in_reply_to = EXCLUDED.in_reply_to,
+        reference_ids = EXCLUDED.reference_ids,
+        provider_thread_id = EXCLUDED.provider_thread_id,
+        subject = EXCLUDED.subject,
+        normalized_subject = EXCLUDED.normalized_subject,
+        internal_date = EXCLUDED.internal_date,
+        sent_at = EXCLUDED.sent_at,
+        size_bytes = EXCLUDED.size_bytes,
+        mime_structure = EXCLUDED.mime_structure
+      RETURNING id
+    `;
+    if (!messageRow) throw new Error("Message envelope insert returned no row");
+    messageContentId = messageRow.id;
+  }
 
-  const [remoteRef] = await params.db<{ id: string }[]>`
+  const [remoteRef] = await params.db<{ id: string; message_id: string }[]>`
     INSERT INTO mail.remote_message_refs (
       folder_id, message_id, uid_validity, uid, modseq, connector_ref, last_seen_at, stale_at
     )
     VALUES (
       ${params.folderId}::uuid,
-      ${messageRow.id}::uuid,
+      ${messageContentId}::uuid,
       ${params.message.remoteRef.uidValidity}::numeric,
       ${params.message.remoteRef.uid}::numeric,
       ${params.message.remoteRef.modseq}::numeric,
@@ -308,14 +318,38 @@ export const ingestEnvelope = async (params: {
       NULL
     )
     ON CONFLICT (folder_id, uid_validity, uid) DO UPDATE SET
-      message_id = EXCLUDED.message_id,
       modseq = EXCLUDED.modseq,
       connector_ref = EXCLUDED.connector_ref,
       last_seen_at = now(),
       stale_at = NULL
-    RETURNING id
+    RETURNING id, message_id
   `;
   if (!remoteRef) throw new Error("Remote message reference insert returned no row");
+  if (remoteRef.message_id !== messageContentId) {
+    await params.db`
+      DELETE FROM mail.message_contents candidate
+      WHERE candidate.id = ${messageContentId}::uuid
+        AND NOT EXISTS (SELECT 1 FROM mail.remote_message_refs ref WHERE ref.message_id = candidate.id)
+        AND NOT EXISTS (SELECT 1 FROM mail.conversation_messages link WHERE link.message_id = candidate.id)
+    `;
+    messageContentId = remoteRef.message_id;
+  }
+  await params.db`
+    UPDATE mail.message_contents
+    SET
+      message_id = ${params.message.messageId},
+      in_reply_to = ${params.message.inReplyTo},
+      reference_ids = ${toPgTextArray(params.message.references)}::text[],
+      provider_thread_id = ${params.message.providerThreadId},
+      subject = ${params.message.subject},
+      normalized_subject = ${normalizedSubject},
+      internal_date = ${params.message.internalDate},
+      sent_at = ${params.message.sentAt},
+      size_bytes = ${params.message.sizeBytes},
+      mime_structure = ${params.message.mimeStructure}::jsonb
+    WHERE id = ${messageContentId}::uuid
+  `;
+  await upsertAddresses(params.db, messageContentId, params.message);
   await params.db`
     INSERT INTO mail.message_placements (
       remote_message_ref_id, folder_id, message_id, flags, keywords, deleted_at
@@ -323,7 +357,7 @@ export const ingestEnvelope = async (params: {
     VALUES (
       ${remoteRef.id}::uuid,
       ${params.folderId}::uuid,
-      ${messageRow.id}::uuid,
+      ${messageContentId}::uuid,
       ${toPgTextArray(params.message.flags)}::text[],
       ${toPgTextArray(params.message.labels)}::text[],
       NULL
@@ -340,14 +374,14 @@ export const ingestEnvelope = async (params: {
   const [existingConversation] = await params.db<{ conversation_id: string }[]>`
     SELECT conversation_id
     FROM mail.conversation_messages
-    WHERE message_id = ${messageRow.id}::uuid
+    WHERE message_id = ${messageContentId}::uuid
   `;
-  if (existingConversation) return messageRow.id;
+  if (existingConversation) return messageContentId;
 
   let conversationId = await findConversation({
     db: params.db,
     mailboxId: params.mailboxId,
-    messageId: messageRow.id,
+    messageId: messageContentId,
     message: params.message,
     normalizedSubject,
   });
@@ -390,14 +424,14 @@ export const ingestEnvelope = async (params: {
     INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by)
     VALUES (
       ${conversationId}::uuid,
-      ${messageRow.id}::uuid,
+      ${messageContentId}::uuid,
       ${params.message.internalDate.getTime()},
       ${params.message.providerThreadId ? "provider" : params.message.inReplyTo || params.message.references.length ? "headers" : "heuristic"}
     )
     ON CONFLICT (message_id) DO NOTHING
     RETURNING message_id
   `;
-  if (!linked) return messageRow.id;
+  if (!linked) return messageContentId;
   await params.db`
     UPDATE mail.conversations
     SET
@@ -419,7 +453,7 @@ export const ingestEnvelope = async (params: {
       revision = revision + 1
     WHERE id = ${conversationId}::uuid
   `;
-  return messageRow.id;
+  return messageContentId;
 };
 
 const applyFlagChanges = async (params: {

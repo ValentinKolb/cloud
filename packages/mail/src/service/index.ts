@@ -1,6 +1,6 @@
 import * as mailboxAccess from "./access";
 import * as bindings from "./bindings";
-import { cancelOutboxSubmission, commandRuntime } from "./command-runtime";
+import { cancelSendCommand, commandRuntime } from "./command-runtime";
 import * as commands from "./commands";
 import * as drafts from "./drafts";
 import * as execution from "./execution";
@@ -15,7 +15,7 @@ import { enqueueMailboxSync, mailRuntime } from "./sync-runtime";
 export type { MailRequestContext } from "./auth";
 export {
   bindings,
-  cancelOutboxSubmission,
+  cancelSendCommand,
   commandRuntime,
   commands,
   drafts,

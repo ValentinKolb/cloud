@@ -4,7 +4,7 @@ import { sql } from "bun";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, revokeMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
-import { cancelOutboxSubmission, executeMutationCommand, executeOutboxSubmission } from "./command-runtime";
+import { cancelSendCommand, executeMutationCommand, executeOutboxSubmission } from "./command-runtime";
 import { createActorCommand } from "./commands";
 import type { ConnectorEnvelope } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
@@ -14,7 +14,7 @@ import { createMailbox, updateMailbox } from "./mailboxes";
 import { deleteOrphanedBlobs, storeReadableBlob } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
 import { createAttachmentStream, openAttachment } from "./messages";
-import { listProviderConnections, replaceProviderConnection } from "./provider-connections";
+import { createProviderConnection, listProviderConnections, replaceProviderConnection } from "./provider-connections";
 import { searchMessages } from "./search";
 import { ingestEnvelope } from "./sync-runtime";
 
@@ -240,6 +240,50 @@ suite("mail PostgreSQL foundation", () => {
         (SELECT COUNT(*)::int FROM mail.conversation_messages WHERE message_id = ${latestInboundId}::uuid) AS link_count
     `;
     expect(conversationReplay).toEqual({ conversation_count: conversationCountBeforeReplay!.count, link_count: 1 });
+    const [copyFolder] = await sql<{ id: string }[]>`
+      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${resource!.id}::uuid, 'copy-fixture', 'Copy target', 'other', 'current')
+      RETURNING id
+    `;
+    const [projectedCopyRef] = await sql<{ id: string }[]>`
+      INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid, connector_ref)
+      VALUES (
+        ${copyFolder!.id}::uuid,
+        ${latestInboundId}::uuid,
+        1,
+        1,
+        ${{ source: "command" }}::jsonb
+      )
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id, flags, keywords)
+      VALUES (
+        ${projectedCopyRef!.id}::uuid,
+        ${copyFolder!.id}::uuid,
+        ${latestInboundId}::uuid,
+        ARRAY[]::text[],
+        ARRAY[]::text[]
+      )
+    `;
+    const copiedMessageId = await ingestEnvelope({
+      db: sql,
+      mailboxId: mailbox.data.id,
+      remoteResourceId: resource!.id,
+      folderId: copyFolder!.id,
+      message: {
+        ...orderingEnvelope({ uid: 1, messageId: "<ordering-inbound@example.com>", internalDate: latestInboundAt, outbound: false }),
+        remoteRef: { folderStableKey: copyFolder!.id, uidValidity: "1", uid: "1", modseq: "2" },
+      },
+    });
+    expect(copiedMessageId).toBe(latestInboundId);
+    const [copyProjection] = await sql<{ content_count: number; placement_count: number; link_count: number }[]>`
+      SELECT
+        (SELECT COUNT(*)::int FROM mail.message_contents WHERE mailbox_id = ${mailbox.data.id}::uuid AND lower(message_id) = '<ordering-inbound@example.com>') AS content_count,
+        (SELECT COUNT(*)::int FROM mail.message_placements WHERE message_id = ${latestInboundId}::uuid AND deleted_at IS NULL) AS placement_count,
+        (SELECT COUNT(*)::int FROM mail.conversation_messages WHERE message_id = ${latestInboundId}::uuid) AS link_count
+    `;
+    expect(copyProjection).toEqual({ content_count: 1, placement_count: 2, link_count: 1 });
     await ingestEnvelope({
       db: sql,
       mailboxId: mailbox.data.id,
@@ -390,7 +434,7 @@ suite("mail PostgreSQL foundation", () => {
     expect(outbox?.state).toBe("undo_window");
     const snapshot = typeof outbox?.draft_snapshot === "string" ? JSON.parse(outbox.draft_snapshot) : outbox?.draft_snapshot;
     expect(snapshot?.subject).toBe("Integration subject");
-    const cancelled = await cancelOutboxSubmission({ context, mailboxId: mailbox.data.id, outboxId: outbox!.id });
+    const cancelled = await cancelSendCommand({ context, mailboxId: mailbox.data.id, commandId: command.data.id });
     expect(cancelled.ok).toBe(true);
 
     const [message] = await sql<{ id: string }[]>`
@@ -494,6 +538,20 @@ suite("mail PostgreSQL foundation", () => {
       ).arrayBuffer(),
     );
     expect(rangedDownload.equals(attachmentBytes.subarray(rangeStart, rangeEnd))).toBe(true);
+    const sameChunkStart = 11;
+    const sameChunkEnd = 21;
+    const sameChunkDownload = Buffer.from(
+      await new Response(
+        createAttachmentStream({
+          blobId: openedAttachment.data.blobId,
+          chunkSize: openedAttachment.data.chunkSize,
+          chunkCount: openedAttachment.data.chunkCount,
+          start: sameChunkStart,
+          endExclusive: sameChunkEnd,
+        }),
+      ).arrayBuffer(),
+    );
+    expect(sameChunkDownload.equals(attachmentBytes.subarray(sameChunkStart, sameChunkEnd))).toBe(true);
 
     const longBody = Array.from({ length: 110_000 }, (_, index) => `longtoken${index}`)
       .reduce<string[]>((lines, token, index) => {
@@ -908,6 +966,20 @@ suite("mail PostgreSQL foundation", () => {
       accounts: [{ id: "sender@example.com", name: "Fixture", locator: {}, namespaces: [] }],
     });
     try {
+      const created = await createProviderConnection({
+        context,
+        owner: { type: "mailbox", mailboxId: mailbox.data.id },
+        input: {
+          name: `Created fixture ${suffix}`,
+          email: "created@example.com",
+          username: "created@example.com",
+          imap: { host: "imap.example.com", port: 993, tlsMode: "implicit" },
+          smtp: { host: "smtp.example.com", port: 587, tlsMode: "starttls" },
+          secret: { kind: "password", password: "created-secret" },
+        },
+      });
+      expect(created.ok).toBe(true);
+
       const replaced = await replaceProviderConnection({
         context,
         connectionId: connection!.id,

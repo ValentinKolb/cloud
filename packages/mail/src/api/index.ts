@@ -15,7 +15,7 @@ import {
 } from "../contracts";
 import {
   bindings,
-  cancelOutboxSubmission,
+  cancelSendCommand,
   commands,
   drafts,
   enqueueMailboxSync,
@@ -314,9 +314,9 @@ const api = new Hono<AuthContext>()
     const params = c.req.valid("param") as { mailboxId: string; commandId: string };
     return respond(c, commands.getCommand(requestContext(c), params.mailboxId, params.commandId));
   })
-  .post("/mailboxes/:mailboxId/outbox/:outboxId/cancel", v("param", mailboxAndIdParamSchema("outboxId")), async (c) => {
-    const params = c.req.valid("param") as { mailboxId: string; outboxId: string };
-    return respond(c, cancelOutboxSubmission({ context: requestContext(c), ...params }));
+  .post("/mailboxes/:mailboxId/commands/:commandId/cancel", v("param", mailboxAndIdParamSchema("commandId")), async (c) => {
+    const params = c.req.valid("param") as { mailboxId: string; commandId: string };
+    return respond(c, cancelSendCommand({ context: requestContext(c), ...params }));
   });
 
 export default api;

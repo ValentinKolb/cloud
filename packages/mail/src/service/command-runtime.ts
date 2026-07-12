@@ -1632,10 +1632,10 @@ const executeOutboxSubmissionWithHeartbeat = async (
 
 export const executeOutboxSubmission = async (outboxId: string): Promise<string | null> => executeOutboxSubmissionWithHeartbeat(outboxId);
 
-export const cancelOutboxSubmission = async (params: {
+export const cancelSendCommand = async (params: {
   context: MailRequestContext;
   mailboxId: string;
-  outboxId: string;
+  commandId: string;
 }): Promise<Result<void>> => {
   const permission = await requireMailboxPermission(params.context, params.mailboxId, "write");
   if (!permission.ok) return permission;
@@ -1643,20 +1643,20 @@ export const cancelOutboxSubmission = async (params: {
     return await sql.begin(async (tx) => {
       const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
       if (!allowed.ok) return allowed;
-      const [outbox] = await tx<{ command_id: string; draft_id: string; state: string }[]>`
-        SELECT command_id, draft_id, state
+      const [outbox] = await tx<{ id: string; command_id: string; draft_id: string; state: string }[]>`
+        SELECT id, command_id, draft_id, state
         FROM mail.outbox_submissions
-        WHERE id = ${params.outboxId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+        WHERE command_id = ${params.commandId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
         FOR UPDATE
       `;
-      if (!outbox) return fail(err.notFound("Outbox submission"));
+      if (!outbox) return fail(err.notFound("Scheduled send"));
       if (!["scheduled", "undo_window"].includes(outbox.state)) {
         return fail(err.conflict("Outbox submission is already being processed"));
       }
       await tx`
         UPDATE mail.outbox_submissions
         SET state = 'cancelled', last_error_code = NULL, last_error_message = NULL
-        WHERE id = ${params.outboxId}::uuid
+        WHERE id = ${outbox.id}::uuid
       `;
       await tx`
         UPDATE mail.commands

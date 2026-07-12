@@ -8,7 +8,7 @@ import {
   type MessageAddressObject,
   type MessageStructureObject,
 } from "imapflow";
-import { MailParser } from "mailparser";
+import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
 import type SMTPTransport from "nodemailer/lib/smtp-transport";
 import type {
@@ -267,20 +267,14 @@ const structureToJson = (structure: MessageStructureObject | undefined): Record<
   };
 };
 
-const parseReferences = async (headers: Buffer | undefined): Promise<string[]> => {
+export const parseReferences = async (headers: Buffer | undefined): Promise<string[]> => {
   if (!headers?.length) return [];
-  return await new Promise<string[]>((resolve, reject) => {
-    const parser = new MailParser({ skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true });
-    let references: string[] = [];
-    parser.once("headers", (value) => {
-      const parsed = value.get("references");
-      if (Array.isArray(parsed)) references = parsed.map(String).filter(Boolean);
-      else if (typeof parsed === "string") references = parsed.match(/<[^>]+>/g) ?? parsed.split(/\s+/).filter(Boolean);
-    });
-    parser.once("error", reject);
-    parser.once("end", () => resolve(references));
-    parser.end(headers);
-  });
+  const parsed = await simpleParser(headers, { skipHtmlToText: true, skipTextToHtml: true, skipImageLinks: true });
+  if (Array.isArray(parsed.references)) return parsed.references.map(String).filter(Boolean);
+  if (typeof parsed.references === "string") {
+    return parsed.references.match(/<[^>]+>/g) ?? parsed.references.split(/\s+/).filter(Boolean);
+  }
+  return [];
 };
 
 const mapFetchedEnvelope = async (message: FetchMessageObject, request: EnvelopeBatchRequest): Promise<ConnectorEnvelope> => {

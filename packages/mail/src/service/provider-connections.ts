@@ -1,4 +1,4 @@
-import { audit, decryptSecret, encryptSecret } from "@valentinkolb/cloud/services";
+import { audit, decryptSecret, encryptSecret, logger } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result, type ServiceError } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { ConnectionOwner, ConnectorVerification, ProviderConnection, ProviderConnectionInput, ProviderSecret } from "../contracts";
@@ -7,8 +7,11 @@ import { requireMailboxPermission } from "./access";
 import { auditActorFromRequest, type MailRequestContext, permissionFromScopes } from "./auth";
 import { imapSmtpConnector } from "./connectors";
 import { EndpointPolicyError } from "./connectors/endpoint-policy";
+import { logDatabaseFailure } from "./database-errors";
 
 type SqlClient = typeof sql;
+
+const log = logger("mail:provider-connections");
 
 type DbProviderConnection = {
   id: string;
@@ -198,7 +201,7 @@ export const createProviderConnection = async (params: {
       }
 
       const [row] = await tx<DbProviderConnection[]>`
-        INSERT INTO mail.provider_connections (
+        INSERT INTO mail.provider_connections AS pc (
           owner_user_id,
           owner_service_account_id,
           owner_mailbox_id,
@@ -266,6 +269,7 @@ export const createProviderConnection = async (params: {
     });
   } catch (error) {
     if ((error as { code?: string } | null)?.code === "23505") return fail(err.conflict("Provider connection name"));
+    logDatabaseFailure(log.error, "store", "provider connection", error);
     return fail(err.internal("Failed to store provider connection"));
   }
 };
@@ -473,6 +477,7 @@ export const replaceProviderConnection = async (params: {
     });
   } catch (error) {
     if ((error as { code?: string } | null)?.code === "23505") return fail(err.conflict("Provider connection name"));
+    logDatabaseFailure(log.error, "replace", "provider connection", error);
     return fail(err.internal("Failed to replace provider connection"));
   }
 };
