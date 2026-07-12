@@ -134,6 +134,7 @@ export default function MyIsland(props: { items: Item[]; userId: string }) {
 - `mutation` handles loading/error state automatically — never create manual loading/error signals
 - Props must be serializable (no functions, no class instances)
 - Islands hydrate independently — they don't share state
+- An island must not import another `.island.tsx` or `.client.tsx` component; nested hydration boundaries are unsupported. Child components that live inside one owning island use plain `.tsx` files, even when they contain signals, effects, or mutation helpers.
 - Use SolidJS primitives: `createSignal`, `createMemo`, `createEffect`, `For`, `Show`, `Switch/Match`
 
 ## Platform Shell & Service Discovery
@@ -864,10 +865,11 @@ Only put `scrollbar-gutter: stable` on the element that actually owns page scrol
 
 Do not add gaps, margins, borders, radii, or shadows between `AppWorkspace.Sidebar`, `AppWorkspace.Main`, and `AppWorkspace.Detail`. They are internal regions of the unified frame. Sidebar and detail use the quiet surface role; main remains neutral.
 
-Detail panels are quiet structured stacks: compose small `detail-section`
-groups inside a `detail-stack` wrapper. Avoid wrapping the whole detail panel
-in one large `paper`; within the unified frame, section tone and spacing provide
-grouping without repeated outer shadows.
+Detail panels have two hierarchy layers. Put the record identity, close action,
+and primary actions in a flat `detail-header` at the panel edge. Put the
+scrollable content groups below it in a `detail-stack`. Avoid wrapping the whole
+detail panel or its orientation header in `paper`; within the unified frame,
+section tone and spacing provide grouping without repeated outer shadows.
 
 ```jsx
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
@@ -884,9 +886,11 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
     </AppWorkspace.SidebarDesktop>
   </AppWorkspace.Sidebar>
   <AppWorkspace.Main>{children}</AppWorkspace.Main>
-  <AppWorkspace.Detail open={Boolean(selectedId())} width="md" class="detail-stack">
-    <section class="detail-section">{detailHeader}</section>
-    <section class="detail-section">{detailBody}</section>
+  <AppWorkspace.Detail open={Boolean(selectedId())} width="md">
+    <header class="detail-header">{detailHeader}</header>
+    <div class="detail-stack">
+      <section class="detail-section">{detailBody}</section>
+    </div>
   </AppWorkspace.Detail>
 </AppWorkspace>
 ```
@@ -995,7 +999,8 @@ return () => (
 
 ```tsx
 // frontend/_components/NotesWorkspace.island.tsx
-import { AppWorkspace, TextInput, navigateTo } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, TextInput } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 import { createSignal, For, Show } from "solid-js";
 
 export default function NotesWorkspace(props: {
@@ -1050,10 +1055,11 @@ export default function NotesWorkspace(props: {
 }
 ```
 
-For actions inside the detail panel, keep writes in `mutation.create()`. Use `navigateTo(...)` when the result selects a different URL, and `refreshCurrentPath()` when the current SSR page should reload with fresh server data. Source: `packages/cloud/src/ui/navigation.ts`.
+For actions inside the detail panel, keep writes in `mutation.create()`. Use `navigateTo(...)` when the result selects a different URL, and `refreshCurrentPath()` when the current SSR page should reload with fresh server data. Source: `@valentinkolb/ssr/nav`.
 
 ```typescript
-import { refreshCurrentPath, prompts, toast } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation } from "@valentinkolb/stdlib/solid";
 
 const archiveSelected = mutation.create<string | null, string | null>({
@@ -1402,17 +1408,16 @@ Navigation utilities are owned by `packages/cloud/src/styles/utilities-navigatio
 ### Detail panels (read view)
 
 Info-dense detail surfaces (right side of a list/detail layout, non-modal)
-use the `detail-*` utility family. The pattern is **flow of per-section
-paper cards** on a page-bg canvas — never nested papers, never the
-old `paper`-around-`divide-y` stat-card pattern.
+use the `detail-*` utility family. The pattern is a **flat orientation header
+followed by a flow of per-section paper cards** on a page-bg canvas — never
+nested papers, never the old `paper`-around-`divide-y` stat-card pattern.
 
 Live reference: `packages/contacts/src/frontend/_components/ContactDetailPanel.island.tsx`.
 
 ```html
-<div class="detail-stack">
-
-  <section class="detail-section">
-    <!-- Header section: title + chips + close. No detail-section-label here. -->
+<div class="flex h-full min-h-0 flex-col">
+  <header class="detail-header">
+    <!-- Full-width orientation layer: title + identity + close/actions. -->
     <div class="flex items-start justify-between gap-2">
       <div class="min-w-0 flex-1">
         <h2 class="text-lg font-semibold leading-tight text-primary">…name…</h2>
@@ -1422,36 +1427,29 @@ Live reference: `packages/contacts/src/frontend/_components/ContactDetailPanel.i
       </div>
       <button class="btn-simple btn-sm">…close icon…</button>
     </div>
-  </section>
+  </header>
 
-  <section class="detail-section">
-    <h3 class="detail-section-label">Reach</h3>
-    <a href="mailto:…" class="detail-row hover:text-blue-500">
-      <i class="ti ti-mail detail-row-icon text-blue-500 dark:text-blue-400" />
-      <span class="detail-row-label">work</span>
-      <span class="break-all">foo@example.com</span>
-    </a>
-    <!-- repeat per row -->
-  </section>
+  <div class="detail-stack">
+    <section class="detail-section">
+      <h3 class="detail-section-label">Reach</h3>
+      <a href="mailto:…" class="detail-row hover:text-primary">
+        <i class="ti ti-mail detail-row-icon text-dimmed" />
+        <span class="detail-row-label">work</span>
+        <span class="break-all">foo@example.com</span>
+      </a>
+    </section>
 
-  <section class="detail-section">
-    <h3 class="detail-section-label">Work</h3>
-    <dl class="detail-facts">
-      <dt class="detail-fact-key">Company</dt>
-      <dd>Acme GmbH</dd>
-      <dt class="detail-fact-key">VAT ID</dt>
-      <dd class="font-mono break-all">DE123456789</dd>
-    </dl>
-  </section>
-
+    <section class="detail-section">…more content…</section>
+  </div>
 </div>
 ```
 
 | Class | Purpose |
 |---|---|
-| `detail-stack` | Scrolling detail-panel stack. Owns `flex h-full min-h-0 flex-1 flex-col gap-2 overflow-y-auto`; use it as the parent for section cards. |
+| `detail-header` | Flat, non-scrolling orientation layer at the full panel edge. Owns compact panel padding; do not add `paper` or an independent radius. |
+| `detail-stack` | Scrolling detail-panel body. Owns `flex h-full min-h-0 flex-1 flex-col gap-2 overflow-y-auto`; use it as the parent for section cards below `detail-header`. |
 | `detail-section` | Section card. Auto-applies `paper p-4`. The first content child sitting flush below the label gets `pt-0 mt-0` so the gap to the label is exactly the label's `mb-3`, regardless of which content type follows. |
-| `detail-section-compact` | Compact section card for headers/tool surfaces that intentionally need `paper p-3`. Use sparingly and explicitly. |
+| `detail-section-compact` | Compact content section that intentionally needs `paper p-3`. It is not a substitute for `detail-header`. |
 | `detail-section-label` | Section heading: `mb-3 text-xs font-semibold uppercase tracking-wider text-secondary`. Use for "REACH", "WORK", "PERSONAL", … |
 | `detail-row` | Single-line row for emails / phones / websites / simple facts. Layout: leading icon column + optional small label slot + value. Composes with `detail-row-icon` and `detail-row-label`. |
 | `detail-row-icon` | Fixed-width icon slot for `detail-row` (keeps values aligned). Add a color utility (`text-blue-500`, `text-amber-500`, …) to colorize per data type. |
@@ -1461,18 +1459,21 @@ Live reference: `packages/contacts/src/frontend/_components/ContactDetailPanel.i
 
 **Rules:**
 - Outer panel container has **no** `paper` — just structural classes (flex,
-  height, scroll). The page bg becomes the canvas, sections are the cards.
+  height). The header is flat; the body stack scrolls; content sections are cards.
+- The orientation header must not be an inset rounded card. That shape creates a
+  conflicting corner where a straight main/detail boundary meets the card.
 - Empty sections must not render (`<Show when={hasReach()}>`). Sparse records
   show fewer cards, never empty shells.
-- The panel's wrapper provides no horizontal padding; sections fill the panel
-  edge-to-edge.
+- For record workflows, put frequent fields in an explicit inline quick editor
+  with save/cancel. Keep the complete editor available for uncommon or complex
+  fields, and open empty composers only on request.
 
 ### Editor / form panels (write view)
 
 Editors that live **inside a modal** flip the rule: the modal frame IS the
 single surface, so sections inside are FLAT — `detail-section-label` for the
 heading, generous `mt-8` between sections, no inner papers. Live reference:
-`packages/contacts/src/frontend/_components/ContactUpsertForm.island.tsx`.
+`packages/contacts/src/frontend/_components/ContactUpsertForm.tsx`.
 
 For paired side-by-side `TextInput` fields, **either both have a `description`
 or neither** — mismatched description heights create vertical asymmetry that
@@ -2065,7 +2066,7 @@ and islands only initiate browser navigation.
 
 Source:
 
-- `packages/cloud/src/ui/navigation.ts`
+- `@valentinkolb/ssr/nav`
 - `packages/spaces/src/frontend/[id]/_components/filter/FilterBar.tsx`
 - `packages/spaces/src/frontend/[id]/_components/workspace/SpacesWorkspace.island.tsx`
 - `packages/cloud/src/ssr/islands/SearchBar.island.tsx`
@@ -2078,10 +2079,10 @@ const search = url.searchParams.get("search") ?? "";
 const page = Number(url.searchParams.get("page") ?? 1);
 ```
 
-**In islands** — import the shared navigation helpers from `@valentinkolb/cloud/ui`:
+**In islands** — import the shared navigation helpers from `@valentinkolb/ssr/nav`:
 
 ```typescript
-import { currentPathWithQuery, navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { currentPathWithQuery, navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 
 navigateTo("/app/my-app/123");   // full document navigation, adds history entry
 refreshCurrentPath();             // window.location.assign(currentPathWithQuery()) — full SSR re-render
@@ -2092,7 +2093,8 @@ does not patch the DOM in place or preserve scroll position; the SSR pass
 re-runs from scratch. Use it after mutations where the server owns the updated
 view. Use `navigateTo(href)` when the next page or query state is known.
 
-**For search/filter bars** — use `SearchBar` from `@valentinkolb/cloud/ssr/islands`:
+**For submit-driven search/filter bars** — use `SearchBar` from
+`@valentinkolb/cloud/ssr/islands`:
 
 ```typescript
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
@@ -2100,6 +2102,11 @@ import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 // Reads the initial value from the URL; submit/clear updates the URL and navigates.
 <SearchBar action="/app/my-app" param="search" placeholder="Search items..." />
 ```
+
+`SearchBar` intentionally commits on submit. When nearby search surfaces in the
+same product already update while typing, do not make users learn a second
+interaction model: use the enhanced route-state pattern below with a local
+input value and a debounced server request.
 
 **For complex filters** — define typed filter builders per app:
 
@@ -2146,6 +2153,15 @@ is the preferred default for enhanced route-state search. If the route commit
 is async, show a subtle trailing spinner in the input via `TextInput`'s
 `suffix` slot while the debounce/request is pending.
 
+For a focused result island, it is valid to call an existing typed list/search
+endpoint instead of adding a whole-workspace route-state endpoint when that API
+enforces the same authorization and query semantics as SSR. Update the visible
+result state first, then commit the canonical URL with
+`navigate(href, { replace: true, scroll: "preserve" })`. On request failure,
+fall back to `documentNavigate(href, { replace: true })`; progressive
+enhancement must never be the only correct route. Reloading or sharing the URL
+must produce the same SSR result.
+
 Filter chips should commit on click, not on dropdown close. This keeps
 multi-select filters, sort chips, and group chips aligned with the immediately
 visible URL state. Use `replace` for these filter updates so typing and chip
@@ -2165,11 +2181,9 @@ refresh helper.
 
 ### Enhanced Link Navigation
 
-`packages/cloud/src/ui/navigation.ts` exposes a small enhanced navigation layer:
+`@valentinkolb/ssr/nav` exposes a small enhanced navigation layer:
 `navigate`, `documentNavigate`, `captureScroll`, `restoreScroll`, and
-`startViewTransition`. `packages/cloud/src/ui/NavigationLink.tsx` exposes
-`Link`. These helpers are browser-side only and are re-exported from
-`@valentinkolb/cloud/ui`.
+`startViewTransition`, plus `Link`. These helpers are browser-side only.
 
 Enhanced navigation preserves real anchor behavior: modifier clicks, new tabs,
 downloads, and external links fall back to normal browser navigation. For normal
@@ -2177,7 +2191,7 @@ SSR route changes, use `navigateTo(...)` or `navigation="document"` on
 `AppWorkspace.SidebarItem`.
 
 ```tsx
-import { Link } from "@valentinkolb/cloud/ui";
+import { Link } from "@valentinkolb/ssr/nav";
 
 <Link
   href="/app/my-app/items/beta"
@@ -2446,7 +2460,7 @@ Source:
 - `packages/notebooks/src/frontend/[id]/_components/sidebar/NoteTree.island.tsx`
 
 ```typescript
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 
 export const SOFT_NAV_REQUEST_EVENT = "my-app:soft-nav-request";
 

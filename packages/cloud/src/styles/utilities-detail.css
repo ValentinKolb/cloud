@@ -11,6 +11,12 @@
   @apply flex h-full min-h-0 flex-1 flex-col overflow-y-auto;
 }
 
+@utility detail-header {
+  /* Orientation and primary actions belong to the panel edge, not inside an
+     inset card. The body below owns scrolling and section surfaces. */
+  @apply shrink-0 px-4 py-3;
+}
+
 @utility detail-section {
   /* Each section is its own surface card. The parent `detail-stack` owns
      section-to-section spacing so callers do not mix margins and flex gaps. */
@@ -61,10 +67,10 @@
   & > * {
     @apply py-1.5 border-b border-zinc-100 dark:border-zinc-900;
   }
-  & > *:nth-last-child(-n+2) {
+  & > *:nth-last-child(-n + 2) {
     @apply border-b-0 pb-0;
   }
-  & > *:nth-child(-n+2) {
+  & > *:nth-child(-n + 2) {
     @apply pt-0;
   }
 }

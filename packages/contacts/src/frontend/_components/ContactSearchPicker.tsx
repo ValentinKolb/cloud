@@ -1,5 +1,5 @@
 import { TextInput } from "@valentinkolb/cloud/ui";
-import { timed } from "@valentinkolb/stdlib/solid";
+import { mutation as mutations, timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact } from "../../service";
@@ -27,37 +27,40 @@ type Props = {
 export default function ContactSearchPicker(props: Props) {
   const [query, setQuery] = createSignal("");
   const [results, setResults] = createSignal<Contact[]>([]);
-  const [loading, setLoading] = createSignal(false);
 
-  const fetchResults = async (q: string) => {
-    setLoading(true);
-    try {
-      const res = await apiClient.books[":bookId"].contacts.$get({
-        param: { bookId: props.bookId },
-        query: { q: q || undefined, per_page: String(props.perPage ?? 20) },
-      });
-      if (!res.ok) {
-        setResults([]);
-        return;
-      }
+  const searchMutation = mutations.create<Contact[], string>({
+    mutation: async (q, ctx) => {
+      const res = await apiClient.books[":bookId"].contacts.$get(
+        {
+          param: { bookId: props.bookId },
+          query: { q: q || undefined, per_page: String(props.perPage ?? 20) },
+        },
+        { init: { signal: ctx.abortSignal } },
+      );
+      if (!res.ok) throw new Error("Could not search contacts");
       const payload = await res.json();
       const items = payload.data;
       const excludeSet = new Set(props.excludeIds ?? []);
-      setResults(items.filter((c) => !excludeSet.has(c.id)));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const { debouncedFn: debouncedFetch } = timed.debounce(fetchResults, 200);
-
-  onMount(() => {
-    void fetchResults("");
+      return items.filter((c) => !excludeSet.has(c.id));
+    },
+    onSuccess: setResults,
+    onError: () => setResults([]),
   });
 
+  const { debouncedFn: debouncedFetch } = timed.debounce((q: string) => searchMutation.mutate(q), 200);
+
+  onMount(() => {
+    searchMutation.mutate("");
+  });
+
+  let firstEffect = true;
   createEffect(() => {
     const q = query();
-    void debouncedFetch(q);
+    if (firstEffect) {
+      firstEffect = false;
+      return;
+    }
+    debouncedFetch(q);
   });
 
   const subtitle = (contact: Contact) => {
@@ -77,7 +80,7 @@ export default function ContactSearchPicker(props: Props) {
       <div class="-mx-1 flex max-h-72 flex-col overflow-y-auto px-1">
         <Show
           when={results().length > 0}
-          fallback={<p class="px-2 py-6 text-center text-xs text-dimmed">{loading() ? "Searching…" : "No matches"}</p>}
+          fallback={<p class="px-2 py-6 text-center text-xs text-dimmed">{searchMutation.loading() ? "Searching…" : "No matches"}</p>}
         >
           <For each={results()}>
             {(contact) => (

@@ -2,10 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { Contact } from "../../service";
 import {
   buildContactPayload,
+  type ContactUpsertDraft,
+  contactToUpsertDraft,
   initialAddressRows,
   initialBankAccountRows,
   initialEmailRows,
-  type ContactUpsertDraft,
 } from "./ContactUpsertForm.model";
 
 const baseContact: Contact = {
@@ -149,19 +150,70 @@ describe("ContactUpsertForm model", () => {
     expect(initialBankAccountRows(baseContact)).toEqual([]);
   });
 
+  test("preserves non-quick-edit fields when converting an existing contact", () => {
+    const contact: Contact = {
+      ...baseContact,
+      department: "Research",
+      birthday: "1815-12-10",
+      parentContactId: "parent-1",
+      parent: baseDraft.parentRef,
+      tags: [
+        {
+          id: "tag-1",
+          bookId: "book-1",
+          name: "VIP",
+          color: "#16a34a",
+          createdAt: baseContact.createdAt,
+          updatedAt: baseContact.updatedAt,
+        },
+      ],
+      websites: [
+        {
+          id: "website-1",
+          contactId: baseContact.id,
+          label: "Portfolio",
+          url: "https://example.test",
+          position: 0,
+          createdAt: baseContact.createdAt,
+          updatedAt: baseContact.updatedAt,
+        },
+      ],
+    };
+
+    const payload = buildContactPayload({
+      ...contactToUpsertDraft(contact),
+      companyName: "Analytical Engines",
+    });
+
+    expect(payload.department).toBe("Research");
+    expect(payload.birthday).toBe("1815-12-10");
+    expect(payload.parentContactId).toBe("parent-1");
+    expect(payload.tagIds).toEqual(["tag-1"]);
+    expect(payload.websites).toEqual([{ label: "Portfolio", url: "https://example.test" }]);
+  });
+
   test("validates partial address, bank account, and birthday values", () => {
-    expect(() => buildContactPayload({ ...baseDraft, addresses: [{ ...baseDraft.addresses[0]!, city: "" }] })).toThrow(
-      "Addresses need line1, postal code, and city",
-    );
-    expect(() => buildContactPayload({ ...baseDraft, bankAccounts: [{ ...baseDraft.bankAccounts[0]!, iban: "" }] })).toThrow(
-      "Bank details need account holder name and IBAN",
-    );
+    expect(() =>
+      buildContactPayload({
+        ...baseDraft,
+        addresses: [{ ...baseDraft.addresses[0]!, city: "" }],
+      }),
+    ).toThrow("Addresses need line1, postal code, and city");
+    expect(() =>
+      buildContactPayload({
+        ...baseDraft,
+        bankAccounts: [{ ...baseDraft.bankAccounts[0]!, iban: "" }],
+      }),
+    ).toThrow("Bank details need account holder name and IBAN");
     expect(() => buildContactPayload({ ...baseDraft, birthday: "12/10/1815" })).toThrow("Birthday must use format YYYY-MM-DD");
   });
 
   test("rejects unsafe website URLs", () => {
-    expect(() => buildContactPayload({ ...baseDraft, websites: [{ label: "Website", url: "javascript:alert(1)" }] })).toThrow(
-      "Website URL must start with http:// or https://",
-    );
+    expect(() =>
+      buildContactPayload({
+        ...baseDraft,
+        websites: [{ label: "Website", url: "javascript:alert(1)" }],
+      }),
+    ).toThrow("Website URL must start with http:// or https://");
   });
 });

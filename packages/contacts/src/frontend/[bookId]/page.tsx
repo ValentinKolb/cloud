@@ -10,14 +10,7 @@ import ContactsSidebar from "../_components/ContactsSidebar";
 import ContactsWorkspaceMain from "../_components/ContactsWorkspaceMain";
 import DesktopDetailLayoutSync from "../_components/DesktopDetailLayoutSync.island";
 import ContactsLayoutHelp from "../_components/help/ContactsLayoutHelp.island";
-import {
-  buildContactsPaginationBaseUrl,
-  CONTACTS_PER_PAGE,
-  loadContactBookPermissions,
-  parseContactsPage,
-  permissionForBook,
-  resolveSelectedContact,
-} from "../page-data";
+import { CONTACTS_PER_PAGE, loadContactBookPermissions, parseContactsPage, permissionForBook, resolveSelectedContact } from "../page-data";
 
 export default ssr<AuthContext>(async (c) => {
   const user = expectUserBackedActor(c);
@@ -29,7 +22,10 @@ export default ssr<AuthContext>(async (c) => {
   const activeTagId = c.req.query("tag_id") ?? null;
   const [book, booksResult] = await Promise.all([
     contactsService.book.get({ id: bookId }),
-    contactsService.book.list({ userId: user.id, groups: user.memberofGroupIds }),
+    contactsService.book.list({
+      userId: user.id,
+      groups: user.memberofGroupIds,
+    }),
   ]);
   if (!book) {
     return () => (
@@ -75,11 +71,22 @@ export default ssr<AuthContext>(async (c) => {
     contactsService.tag.list({ bookId }),
   ]);
   const contacts = contactsResult.items;
-  const selectedContact = await resolveSelectedContact({ contacts, contactId: selectedContactIdFromUrl, bookId, user });
-  const initialNotes = selectedContact ? await contactsService.contact.notes.list({ bookId, contactId: selectedContact.id }) : [];
+  const selectedContact = await resolveSelectedContact({
+    contacts,
+    contactId: selectedContactIdFromUrl,
+    bookId,
+    user,
+  });
+  const initialNotes = selectedContact
+    ? await contactsService.contact.notes.list({
+        bookId,
+        contactId: selectedContact.id,
+      })
+    : [];
   const bookNames = Object.fromEntries(books.map((entry) => [entry.id, entry.name]));
   const totalPages = Math.max(1, Math.ceil(contactsResult.total / perPage));
-  const paginationBaseUrl = buildContactsPaginationBaseUrl({ basePath: `/app/contacts/${bookId}`, search, tagId: activeTagId });
+  const requestUrl = new URL(c.req.raw.url);
+  const resultHref = `${requestUrl.pathname}${requestUrl.search}`;
   const initialSelectedContactId = selectedContact?.id ?? selectedContactIdFromUrl ?? null;
   const initialSelectedBookId = selectedContact ? bookId : selectedContactIdFromUrl ? bookId : null;
   const hasDesktopDetailSelection = Boolean(selectedContact);
@@ -87,20 +94,16 @@ export default ssr<AuthContext>(async (c) => {
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts", href: "/app/contacts" }, { title: book.name }]}>
       <AppWorkspace class="cloud-ui-soft">
         <ContactsLayoutHelp />
-        <ContactsSidebar
-          books={books}
-          active={book.id}
-          adminBookIds={adminBookIds}
-          writableBooks={writableBooks}
-          defaultCreateBookId={canWrite ? book.id : (writableBooks[0]?.id ?? null)}
-        />
+        <ContactsSidebar books={books} active={book.id} adminBookIds={adminBookIds} />
 
         <ContactsWorkspaceMain
           title={book.name}
           description={book.description ?? (book.isSystem ? "Company directory" : "Shared contact book")}
           total={contactsResult.total}
           search={search}
-          searchAction={activeTagId ? `/app/contacts/${bookId}?tag_id=${encodeURIComponent(activeTagId)}` : `/app/contacts/${bookId}`}
+          resultHref={resultHref}
+          bookId={bookId}
+          perPage={perPage}
           searchPlaceholder={`Filter ${book.name}...`}
           contacts={contacts}
           bookNames={bookNames}
@@ -111,7 +114,6 @@ export default ssr<AuthContext>(async (c) => {
           chooseBookOnCreate={!canWrite}
           currentPage={contactsResult.page}
           totalPages={totalPages}
-          paginationBaseUrl={paginationBaseUrl}
           tags={bookTags}
           activeTagId={activeTagId}
           filtersBasePath={`/app/contacts/${bookId}`}

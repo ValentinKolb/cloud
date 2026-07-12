@@ -3,7 +3,14 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Contact } from "../../service";
 import { resolveContactInitials, resolveContactName } from "../../shared";
 import ContactTagChip from "./ContactTagChip";
-import { CONTACT_DETAIL_EVENT, type ContactDetailPayload, getSelectedContactFromUrl, setSelectedContactInUrl } from "./context";
+import { buildContactDetailHref } from "./contacts-search";
+import {
+  CONTACT_DETAIL_EVENT,
+  type ContactDetailPayload,
+  getSelectedContactFromUrl,
+  setSelectedContactInUrl,
+  shouldHandleContactDetailClick,
+} from "./context";
 
 type Props = {
   contacts: Contact[];
@@ -13,6 +20,7 @@ type Props = {
   initialSelectedBookId: string | null;
   emptyTitle?: string;
   emptyDescription?: string;
+  detailBaseHref: string;
 };
 
 const contactKey = (contactId: string | null, bookId: string | null) => (contactId && bookId ? `${bookId}:${contactId}` : null);
@@ -80,13 +88,17 @@ export default function ContactsList(props: Props) {
 
             return (
               <li class="group/contact relative">
-                <button
-                  type="button"
+                <a
+                  href={buildContactDetailHref(props.detailBaseHref, contact.id, contact.bookId)}
                   class="flex w-full min-w-0 items-center gap-3 border-l-2 border-l-transparent px-3 py-2.5 pr-20 text-left transition-colors hover:bg-[var(--ui-data-row-hover)] focus-ui sm:px-4 sm:pr-24"
                   classList={{ "border-l-[var(--app-accent)] bg-[var(--ui-data-row-selected)]": isSelected() }}
                   aria-label={`Open ${name()}`}
-                  aria-pressed={isSelected()}
-                  onClick={() => selectContact(contact)}
+                  aria-current={isSelected() ? "true" : undefined}
+                  onClick={(event) => {
+                    if (!shouldHandleContactDetailClick(event)) return;
+                    event.preventDefault();
+                    selectContact(contact);
+                  }}
                 >
                   <span
                     class="contact-avatar flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
@@ -136,7 +148,7 @@ export default function ContactsList(props: Props) {
                       </span>
                     </Show>
                   </span>
-                </button>
+                </a>
 
                 <Show when={email() || phone()}>
                   <span class="absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 opacity-100 transition-opacity sm:right-4 sm:opacity-0 sm:group-hover/contact:opacity-100 sm:group-focus-within/contact:opacity-100">

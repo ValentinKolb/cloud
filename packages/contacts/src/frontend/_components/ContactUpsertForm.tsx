@@ -6,8 +6,8 @@ import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
 import { resolveContactName } from "../../shared";
 import { readErrorMessage } from "./api";
-import ContactSearchPicker from "./ContactSearchPicker.island";
-import ContactTagsPicker from "./ContactTagsPicker.island";
+import ContactSearchPicker from "./ContactSearchPicker";
+import ContactTagsPicker from "./ContactTagsPicker";
 import { AddressFields, BankAccountFields, ReachFields } from "./ContactUpsertForm.fields";
 import {
   buildContactPayload,

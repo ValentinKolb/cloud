@@ -4,9 +4,9 @@ import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
 import { resolveContactName } from "../../shared";
-import ContactSearchPicker from "./ContactSearchPicker.island";
-import ContactUpsertForm from "./ContactUpsertForm.island";
 import { readErrorMessage } from "./api";
+import ContactSearchPicker from "./ContactSearchPicker";
+import ContactUpsertForm from "./ContactUpsertForm";
 
 type Props = {
   parent: Contact;

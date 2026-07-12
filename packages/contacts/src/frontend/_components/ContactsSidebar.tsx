@@ -2,19 +2,11 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import type { ContactBook } from "../../service";
 import ContactsSpotlightButton from "./ContactsSpotlightButton.island";
 import CreateBookButton from "./CreateBookButton.island";
-import CreateContactButton from "./CreateContactButton.island";
-
-type ContactBookOption = {
-  id: string;
-  name: string;
-};
 
 type Props = {
   books: ContactBook[];
   active: "all" | string;
   adminBookIds?: string[];
-  writableBooks: ContactBookOption[];
-  defaultCreateBookId?: string | null;
 };
 
 /**
@@ -80,14 +72,7 @@ export default function ContactsSidebar(props: Props) {
       </AppWorkspace.SidebarMobile>
 
       <AppWorkspace.SidebarDesktop>
-        <div class="flex flex-col gap-2" style={`view-transition-name:${vt("primary-actions-desktop")}`}>
-          <CreateContactButton
-            writableBooks={props.writableBooks}
-            defaultBookId={props.defaultCreateBookId ?? null}
-            chooseBook={props.active === "all" || !props.defaultCreateBookId}
-            buttonClass="btn-primary btn-sm w-full justify-start"
-            label="New contact"
-          />
+        <div style={`view-transition-name:${vt("primary-actions-desktop")}`}>
           <ContactsSpotlightButton variant="sidebar" registerShortcut />
         </div>
 

@@ -5,9 +5,9 @@ import type { Accessor, Setter } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef, ContactTree, ContactTreeNode } from "../../service";
 import { resolveContactName } from "../../shared";
-import AddMemberDialog from "./AddMemberDialog.island";
-import ContactUpsertForm from "./ContactUpsertForm.island";
+import AddMemberDialog from "./AddMemberDialog";
 import { readErrorMessage } from "./api";
+import ContactUpsertForm from "./ContactUpsertForm";
 import { setSelectedContactInUrl } from "./context";
 
 export const createContactDetailActions = (config: {

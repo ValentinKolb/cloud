@@ -45,6 +45,32 @@ export type ContactUpsertDraft = {
   bankAccounts: EditableBankAccount[];
 };
 
+/**
+ * Builds the editable form shape without dropping values that are outside a
+ * compact editor. This lets focused editors patch a few common fields while
+ * still sending the complete contact payload expected by the API.
+ */
+export const contactToUpsertDraft = (contact: Contact): ContactUpsertDraft => ({
+  label: contact.label ?? "",
+  firstName: contact.firstName ?? "",
+  lastName: contact.lastName ?? "",
+  companyName: contact.companyName ?? "",
+  department: contact.department ?? "",
+  jobTitle: contact.jobTitle ?? "",
+  vatId: contact.vatId ?? "",
+  birthday: contact.birthday ?? "",
+  salutation: contact.salutation ?? "",
+  pronouns: contact.pronouns ?? "",
+  preferredLanguage: contact.preferredLanguage ?? "",
+  parentRef: contact.parent,
+  tagIds: contact.tags.map((tag) => tag.id),
+  emails: initialEmailRows(contact),
+  phones: initialPhoneRows(contact),
+  addresses: initialAddressRows(contact),
+  websites: initialWebsiteRows(contact),
+  bankAccounts: initialBankAccountRows(contact),
+});
+
 const DEFAULT_EMAIL_LABEL = "Email";
 const DEFAULT_PHONE_LABEL = "Telephone";
 const DEFAULT_WEBSITE_LABEL = "Website";

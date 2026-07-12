@@ -73,9 +73,6 @@ export default ssr<AuthContext>(async (c) => {
       permission: await contactsService.book.permission.get({ bookId: entry.id, userId: user.id, userGroups: user.memberofGroupIds }),
     })),
   );
-  const writableBooks = permissionEntries
-    .filter((entry) => entry.permission === "write" || entry.permission === "admin")
-    .map((entry) => ({ id: entry.book.id, name: entry.book.name }));
   const adminBookIds = permissionEntries.filter((entry) => entry.permission === "admin").map((entry) => entry.book.id);
   const accessEntries = accessEntriesResult.items;
 
@@ -92,13 +89,7 @@ export default ssr<AuthContext>(async (c) => {
     >
       <AppWorkspace class="cloud-ui-soft">
         <ContactsLayoutHelp />
-        <ContactsSidebar
-          books={books}
-          active={book.id}
-          adminBookIds={adminBookIds}
-          writableBooks={writableBooks}
-          defaultCreateBookId={writableBooks.some((entry) => entry.id === book.id) ? book.id : (writableBooks[0]?.id ?? null)}
-        />
+        <ContactsSidebar books={books} active={book.id} adminBookIds={adminBookIds} />
 
         <AppWorkspace.Main>
           <div class="flex-1 min-h-0 p-[var(--ui-space-section)]" data-scroll-preserve={`contacts-settings-${book.id}`}>

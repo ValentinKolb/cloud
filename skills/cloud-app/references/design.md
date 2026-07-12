@@ -121,7 +121,7 @@ Use surfaces to group content. Use borders only when they explain structure.
 
 - `paper` is the default in-flow surface.
 - A workspace is one clipped workbench frame. Sidebar, main, and detail are internal sibling regions, not three adjacent papers.
-- Detail panels use a transparent `detail-stack` containing separate `detail-section` papers.
+- Detail panels start with a flat, full-width orientation layer. A transparent `detail-stack` below it contains separate `detail-section` papers.
 - Inputs are quiet wells. They need a clear focus state, not a permanently strong outline.
 - Floating layers use one outer shadow and a boundary that remains visible in dark mode.
 - Data-table row separators and key-value dividers are functional and may remain visible.
@@ -243,8 +243,10 @@ Use `DataTable` for tabular data.
 ### Detail panels
 
 - Render only sections that contain data.
-- Put identity and primary actions in the first section.
+- Put identity, close, and primary record actions in a flat full-width header at the panel edge. Do not inset that orientation layer in a rounded card where main and detail meet.
 - Group contact rows, facts, activity, and metadata into separate sections.
+- Offer a focused inline editor for frequently changed fields with explicit save and cancel. Keep uncommon, multi-value, or high-risk fields in the complete editor.
+- Keep empty composers and secondary workflows collapsed until the user asks for them. Existing content remains visible and scannable.
 - Inside the unified workspace, detail sections separate through surface tone and spacing rather than repeated outer shadows.
 - Use `StructuredDataPreview` for small JSON-like values.
 - Close controls and contextual actions stay reachable on mobile.

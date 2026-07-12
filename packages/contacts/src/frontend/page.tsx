@@ -9,13 +9,7 @@ import ContactsSidebar from "./_components/ContactsSidebar";
 import ContactsWorkspaceMain from "./_components/ContactsWorkspaceMain";
 import DesktopDetailLayoutSync from "./_components/DesktopDetailLayoutSync.island";
 import ContactsLayoutHelp from "./_components/help/ContactsLayoutHelp.island";
-import {
-  buildContactsPaginationBaseUrl,
-  CONTACTS_PER_PAGE,
-  loadContactBookPermissions,
-  parseContactsPage,
-  resolveSelectedContact,
-} from "./page-data";
+import { CONTACTS_PER_PAGE, loadContactBookPermissions, parseContactsPage, resolveSelectedContact } from "./page-data";
 
 export default ssr<AuthContext>(async (c) => {
   const user = expectUserBackedActor(c);
@@ -25,7 +19,10 @@ export default ssr<AuthContext>(async (c) => {
   const selectedContactIdFromUrl = c.req.query("contact") ?? null;
   const selectedBookIdFromUrl = c.req.query("contactBook") ?? null;
   const [booksResult, contactsResult] = await Promise.all([
-    contactsService.book.list({ userId: user.id, groups: user.memberofGroupIds }),
+    contactsService.book.list({
+      userId: user.id,
+      groups: user.memberofGroupIds,
+    }),
     contactsService.contact.search({
       userId: user.id,
       groups: user.memberofGroupIds,
@@ -41,13 +38,20 @@ export default ssr<AuthContext>(async (c) => {
     bookId: selectedBookIdFromUrl,
     user,
   });
-  const { adminBookIds, writableBooks } = await loadContactBookPermissions({ books, user });
+  const { adminBookIds, writableBooks } = await loadContactBookPermissions({
+    books,
+    user,
+  });
   const initialNotes = selectedContact
-    ? await contactsService.contact.notes.list({ bookId: selectedContact.bookId, contactId: selectedContact.id })
+    ? await contactsService.contact.notes.list({
+        bookId: selectedContact.bookId,
+        contactId: selectedContact.id,
+      })
     : [];
   const bookNames = Object.fromEntries(books.map((book) => [book.id, book.name]));
   const totalPages = Math.max(1, Math.ceil(contactsResult.total / perPage));
-  const paginationBaseUrl = buildContactsPaginationBaseUrl({ basePath: "/app/contacts", search });
+  const requestUrl = new URL(c.req.raw.url);
+  const resultHref = `${requestUrl.pathname}${requestUrl.search}`;
   const initialSelectedContactId = selectedContact?.id ?? selectedContactIdFromUrl;
   const initialSelectedBookId = selectedContact?.bookId ?? selectedBookIdFromUrl;
   const hasDesktopDetailSelection = Boolean(selectedContact);
@@ -55,20 +59,15 @@ export default ssr<AuthContext>(async (c) => {
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts" }]}>
       <AppWorkspace class="cloud-ui-soft">
         <ContactsLayoutHelp />
-        <ContactsSidebar
-          books={books}
-          active="all"
-          adminBookIds={adminBookIds}
-          writableBooks={writableBooks}
-          defaultCreateBookId={writableBooks[0]?.id ?? null}
-        />
+        <ContactsSidebar books={books} active="all" adminBookIds={adminBookIds} />
 
         <ContactsWorkspaceMain
           title="All contacts"
           description="Across your manual contact books"
           total={contactsResult.total}
           search={search}
-          searchAction="/app/contacts"
+          resultHref={resultHref}
+          perPage={perPage}
           searchPlaceholder="Filter by name, company, email, or phone..."
           contacts={contacts}
           bookNames={bookNames}
@@ -80,7 +79,6 @@ export default ssr<AuthContext>(async (c) => {
           chooseBookOnCreate
           currentPage={contactsResult.page}
           totalPages={totalPages}
-          paginationBaseUrl={paginationBaseUrl}
         />
 
         <AppWorkspace.Detail

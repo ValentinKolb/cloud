@@ -1,4 +1,5 @@
 import { Dropdown, type DropdownItem } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactTag } from "../../service";
@@ -33,17 +34,20 @@ export default function ContactTagsPicker(props: Props) {
   // would clear the contact's tags on save.
   const [loaded, setLoaded] = createSignal(false);
 
-  const refresh = async () => {
-    const res = await apiClient.books[":bookId"].tags.$get({ param: { bookId: props.bookId } });
-    if (res.ok) {
-      const data = await res.json();
-      setAvailable(data);
+  const loadMutation = mutations.create<ContactTag[], void>({
+    mutation: async (_input, ctx) => {
+      const res = await apiClient.books[":bookId"].tags.$get({ param: { bookId: props.bookId } }, { init: { signal: ctx.abortSignal } });
+      if (!res.ok) throw new Error("Could not load contact tags");
+      return await res.json();
+    },
+    onSuccess: (tags) => {
+      setAvailable(tags);
       setLoaded(true);
-    }
-  };
+    },
+  });
 
   onMount(() => {
-    void refresh();
+    loadMutation.mutate(undefined);
   });
 
   const selected = () => available().filter((t) => local().includes(t.id));
