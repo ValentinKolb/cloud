@@ -33,9 +33,7 @@ import RecordDetailPanel from "../records/RecordDetailPanel";
 import DatabaseTable from "../table/DatabaseTable";
 import GroupDetailPanel from "../table/GroupDetailPanel";
 import GroupedTable, { type GroupBucket } from "../table/GroupedTable";
-import type { AggKindUI, AggregationRow } from "../toolbar/AggregationsPanel";
 import { CardSizeDropdown } from "../toolbar/CardSizeDropdown";
-import type { FilterLeaf } from "../toolbar/FilterPanel";
 import GridToolbar from "../toolbar/GridToolbar";
 // These were once-islands but are now plain components rendered inside
 // RecordsView's island. Nested islands break SSR (Seroval can't serialize
@@ -58,31 +56,13 @@ import { buildRecordsUrl, type CardSize, parseRecordsState, type RecordsState } 
 import { RecordCalendarView } from "./RecordCalendarView";
 import { RecordCardsView } from "./RecordCardsView";
 import { cleanRecordMetaQuery, openRecordMetadataDialog, recordMetaActiveCount } from "./RecordMetadataDialog";
+import { RecordsAdminToolbar } from "./RecordsAdminToolbar";
 import { createRecordsViewColumnController, isFieldColumn } from "./records-view-columns";
-import { applyToolbarQueryPatch, type ToolbarQueryPatch } from "./toolbar-query";
+import { aggregationRowsFromQuery, applyToolbarQueryPatch, filterRowsFromQuery, type ToolbarQueryPatch } from "./toolbar-query";
 
-/** UI-supported agg kinds — narrower than the contract's AggregateKind
- *  (which also has median/earliest/latest, currently SQL-only). When a
- *  saved view stores one of those, the toolbar simply won't render it
- *  as an editable row. */
-const UI_AGG_KINDS: ReadonlySet<AggKindUI> = new Set(["count", "countEmpty", "countUnique", "sum", "avg", "min", "max"]);
-
-const ADMIN_BUTTON_CLASS = "btn-input-success btn-input-sm";
 const QUERY_PANEL_DIALOG_OPTIONS = {
   ...panelDialogOptions,
   panelClassName: panelDialogOptions.panelClassName.replace("w-[min(96vw,48rem)]", "w-[min(98vw,76rem)]"),
-};
-
-const toAggregationRows = (specs: AggregationSpec[] | undefined): AggregationRow[] =>
-  (specs ?? [])
-    .filter((s): s is AggregationSpec & { agg: AggKindUI } => UI_AGG_KINDS.has(s.agg as AggKindUI))
-    .map((s) => ({ fieldId: s.fieldId, agg: s.agg, label: s.label }));
-
-const filterRowsFromQuery = (filter: RecordQuery["filter"]): FilterLeaf[] => {
-  if (!filter || typeof filter !== "object" || (filter as { op?: string }).op !== "AND") return [];
-  const filters = (filter as { filters?: unknown[] }).filters;
-  if (!Array.isArray(filters)) return [];
-  return filters.filter((l): l is FilterLeaf => typeof l === "object" && l !== null && "fieldId" in l && "op" in l);
 };
 
 /**
@@ -231,7 +211,7 @@ export default function RecordsView(props: Props) {
   const toolbarFilterRows = createMemo(() => filterRowsFromQuery(query().filter));
   const toolbarSortRows = createMemo(() => query().sort ?? []);
   const toolbarGroupByRows = createMemo(() => groupBy());
-  const toolbarAggregationRows = createMemo(() => toAggregationRows(aggregations()));
+  const toolbarAggregationRows = createMemo(() => aggregationRowsFromQuery(aggregations()));
   const activeRecordMetaCount = createMemo(() => recordMetaActiveCount(query().recordMeta));
   const isGrouped = () => groupBy().length > 0;
   const customForms = () => forms().filter((form) => !form.isDefault);
@@ -1332,46 +1312,20 @@ export default function RecordsView(props: Props) {
         </Show>
 
         <Show when={canUseEditMode() && adminMode()}>
-          <div class="flex flex-wrap items-center gap-2 shrink-0">
-            <Show
-              when={isSavedView()}
-              fallback={
-                <>
-                  <button type="button" class={ADMIN_BUTTON_CLASS} onClick={openTableSettings}>
-                    <i class="ti ti-settings" /> General
-                  </button>
-                  <button type="button" class="btn-input-success btn-input-sm" onClick={openAddField}>
-                    <i class="ti ti-plus" /> Add field
-                  </button>
-                  <button type="button" class={ADMIN_BUTTON_CLASS} onClick={() => openForms()}>
-                    <i class="ti ti-forms" /> {formsButtonLabel()}
-                  </button>
-                  <button type="button" class={ADMIN_BUTTON_CLASS} onClick={openTemplates}>
-                    <i class="ti ti-file-type-pdf" /> Templates
-                  </button>
-                </>
-              }
-            >
-              <>
-                <button
-                  type="button"
-                  class={ADMIN_BUTTON_CLASS}
-                  onClick={openViewSettings}
-                  disabled={!props.activeView || !props.canEditActiveView}
-                >
-                  <i class="ti ti-table-spark" /> View
-                </button>
-                <Show when={hiddenViewColumnCount() > 0}>
-                  <button type="button" class="btn-input-success btn-input-sm" onClick={openAddViewColumnDialog}>
-                    <i class="ti ti-plus" /> Add column
-                  </button>
-                </Show>
-              </>
-            </Show>
-            <button type="button" class="btn-simple btn-sm ml-auto" onClick={() => setAdminModeAndUrl(false)}>
-              Done
-            </button>
-          </div>
+          <RecordsAdminToolbar
+            savedView={isSavedView()}
+            activeViewAvailable={!!props.activeView}
+            canEditActiveView={!!props.canEditActiveView}
+            hiddenViewColumnCount={hiddenViewColumnCount()}
+            formsButtonLabel={formsButtonLabel()}
+            onOpenTableSettings={openTableSettings}
+            onAddField={() => void openAddField()}
+            onOpenForms={openForms}
+            onOpenTemplates={openTemplates}
+            onOpenViewSettings={openViewSettings}
+            onAddViewColumn={openAddViewColumnDialog}
+            onDone={() => setAdminModeAndUrl(false)}
+          />
         </Show>
 
         {/* Body layout column — pure flex-col, NO overflow. The
