@@ -103,6 +103,7 @@ export const gridsService = {
     updateLevel: access.updateAccessLevel,
     revoke: access.revokeAccess,
     resolveBinding: access.resolveAccessBinding,
+    resolveResource: access.resolveResourceBinding,
   },
   view: {
     listForTable: views.listForTable,

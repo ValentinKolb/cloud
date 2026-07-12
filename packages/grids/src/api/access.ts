@@ -1,38 +1,17 @@
 import { AccessEntrySchema, ErrorResponseSchema, GrantAccessSchema, PermissionLevelSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
-import { sql } from "bun";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { gridsService } from "../service";
+import { type AccessResourceType, validateAccessPermission } from "../service/access";
 import { currentActorUserId, gateAt } from "./permissions";
 
 const AccessListSchema = z.array(AccessEntrySchema);
 const UpdateLevelSchema = z.object({ permission: PermissionLevelSchema });
 
-export const validateAccessLevelForResource = (resourceType: string, permission: string): string | null => {
-  if (resourceType === "table" && permission === "admin") return "Table grants only accept 'read' / 'write' / 'none'";
-  if (resourceType === "view" && permission !== "read" && permission !== "admin" && permission !== "none") {
-    return "View grants only accept 'read', 'admin', or 'none'";
-  }
-  if (resourceType === "form" && permission !== "write" && permission !== "none") return "Form grants only accept 'write' or 'none'";
-  if (
-    resourceType === "documentTemplate" &&
-    permission !== "read" &&
-    permission !== "write" &&
-    permission !== "admin" &&
-    permission !== "none"
-  ) {
-    return "Document template grants only accept 'read', 'write', 'admin', or 'none'";
-  }
-  if (resourceType === "dashboard" && permission !== "read" && permission !== "none") {
-    return "Dashboard grants only accept 'read' or 'none'";
-  }
-  if (resourceType === "workflow" && permission !== "read" && permission !== "write" && permission !== "admin" && permission !== "none") {
-    return "Workflow grants only accept 'read', 'write', 'admin', or 'none'";
-  }
-  return null;
-};
+export const validateAccessLevelForResource = (resourceType: AccessResourceType, permission: string): string | null =>
+  validateAccessPermission(resourceType, permission);
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
@@ -118,9 +97,8 @@ const app = new Hono<AuthContext>()
       const body = c.req.valid("json");
       // Tables only carry read/write/none — structural ops such as field CRUD,
       // table delete, ACL management, and form CRUD live at base-admin.
-      if (body.permission === "admin") {
-        return c.json({ message: "Table grants only accept 'read' / 'write' / 'none'" }, 400);
-      }
+      const validationError = validateAccessLevelForResource("table", body.permission);
+      if (validationError) return c.json({ message: validationError }, 400);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(
@@ -154,14 +132,9 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const viewId = c.req.param("viewId")!;
-      const [viewRow] = await sql<{ table_id: string; base_id: string }[]>`
-        SELECT v.table_id, t.base_id
-        FROM grids.views v
-        JOIN grids.tables t ON t.id = v.table_id
-        WHERE v.id = ${viewId}::uuid
-      `;
-      if (!viewRow) return c.json({ message: "View not found" }, 404);
-      const gate = await gateAt(c, { baseId: viewRow.base_id }, "admin");
+      const binding = await gridsService.access.resolveResource("view", viewId);
+      if (!binding) return c.json({ message: "View not found" }, 404);
+      const gate = await gateAt(c, { baseId: binding.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const entries = await gridsService.access.listForView(viewId);
       return c.json(entries);
@@ -182,18 +155,11 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const viewId = c.req.param("viewId")!;
       const body = c.req.valid("json");
-      if (body.permission !== "read" && body.permission !== "admin" && body.permission !== "none") {
-        return c.json({ message: "View ACL only accepts 'read', 'admin', or 'none'" }, 400);
-      }
-      // Resolve view → table → base for the gate.
-      const [viewRow] = await sql<{ table_id: string; base_id: string }[]>`
-        SELECT v.table_id, t.base_id
-        FROM grids.views v
-        JOIN grids.tables t ON t.id = v.table_id
-        WHERE v.id = ${viewId}::uuid
-      `;
-      if (!viewRow) return c.json({ message: "View not found" }, 404);
-      const gate = await gateAt(c, { baseId: viewRow.base_id }, "admin");
+      const validationError = validateAccessLevelForResource("view", body.permission);
+      if (validationError) return c.json({ message: validationError }, 400);
+      const binding = await gridsService.access.resolveResource("view", viewId);
+      if (!binding) return c.json({ message: "View not found" }, 404);
+      const gate = await gateAt(c, { baseId: binding.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(
         c,
@@ -229,14 +195,9 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const formId = c.req.param("formId")!;
-      const [formRow] = await sql<{ table_id: string; base_id: string }[]>`
-        SELECT f.table_id, t.base_id
-        FROM grids.forms f
-        JOIN grids.tables t ON t.id = f.table_id
-        WHERE f.id = ${formId}::uuid
-      `;
-      if (!formRow) return c.json({ message: "Form not found" }, 404);
-      const gate = await gateAt(c, { baseId: formRow.base_id }, "admin");
+      const binding = await gridsService.access.resolveResource("form", formId);
+      if (!binding) return c.json({ message: "Form not found" }, 404);
+      const gate = await gateAt(c, { baseId: binding.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const entries = await gridsService.access.listForForm(formId);
       return c.json(entries);
@@ -257,17 +218,11 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const formId = c.req.param("formId")!;
       const body = c.req.valid("json");
-      if (body.permission !== "write" && body.permission !== "none") {
-        return c.json({ message: "Form ACL only accepts 'write' or 'none'" }, 400);
-      }
-      const [formRow] = await sql<{ table_id: string; base_id: string }[]>`
-        SELECT f.table_id, t.base_id
-        FROM grids.forms f
-        JOIN grids.tables t ON t.id = f.table_id
-        WHERE f.id = ${formId}::uuid
-      `;
-      if (!formRow) return c.json({ message: "Form not found" }, 404);
-      const gate = await gateAt(c, { baseId: formRow.base_id }, "admin");
+      const validationError = validateAccessLevelForResource("form", body.permission);
+      if (validationError) return c.json({ message: validationError }, 400);
+      const binding = await gridsService.access.resolveResource("form", formId);
+      if (!binding) return c.json({ message: "Form not found" }, 404);
+      const gate = await gateAt(c, { baseId: binding.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(
         c,
@@ -301,14 +256,9 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const templateId = c.req.param("templateId")!;
-      const [templateRow] = await sql<{ table_id: string; base_id: string }[]>`
-        SELECT dt.table_id, t.base_id
-        FROM grids.document_templates dt
-        JOIN grids.tables t ON t.id = dt.table_id
-        WHERE dt.id = ${templateId}::uuid AND dt.deleted_at IS NULL
-      `;
-      if (!templateRow) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateAt(c, { baseId: templateRow.base_id }, "admin");
+      const binding = await gridsService.access.resolveResource("documentTemplate", templateId, { includeDeleted: false });
+      if (!binding) return c.json({ message: "Document template not found" }, 404);
+      const gate = await gateAt(c, { baseId: binding.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const entries = await gridsService.access.listForDocumentTemplate(templateId);
       return c.json(entries);
@@ -329,17 +279,11 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const templateId = c.req.param("templateId")!;
       const body = c.req.valid("json");
-      if (body.permission !== "read" && body.permission !== "write" && body.permission !== "admin" && body.permission !== "none") {
-        return c.json({ message: "Document template ACL only accepts 'read', 'write', 'admin', or 'none'" }, 400);
-      }
-      const [templateRow] = await sql<{ table_id: string; base_id: string }[]>`
-        SELECT dt.table_id, t.base_id
-        FROM grids.document_templates dt
-        JOIN grids.tables t ON t.id = dt.table_id
-        WHERE dt.id = ${templateId}::uuid AND dt.deleted_at IS NULL
-      `;
-      if (!templateRow) return c.json({ message: "Document template not found" }, 404);
-      const gate = await gateAt(c, { baseId: templateRow.base_id }, "admin");
+      const validationError = validateAccessLevelForResource("documentTemplate", body.permission);
+      if (validationError) return c.json({ message: validationError }, 400);
+      const binding = await gridsService.access.resolveResource("documentTemplate", templateId, { includeDeleted: false });
+      if (!binding) return c.json({ message: "Document template not found" }, 404);
+      const gate = await gateAt(c, { baseId: binding.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(
         c,
@@ -373,11 +317,9 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const dashboardId = c.req.param("dashboardId")!;
-      const [row] = await sql<{ base_id: string }[]>`
-        SELECT base_id FROM grids.dashboards WHERE id = ${dashboardId}::uuid
-      `;
-      if (!row) return c.json({ message: "Dashboard not found" }, 404);
-      const gate = await gateAt(c, { baseId: row.base_id }, "admin");
+      const binding = await gridsService.access.resolveResource("dashboard", dashboardId);
+      if (!binding) return c.json({ message: "Dashboard not found" }, 404);
+      const gate = await gateAt(c, { baseId: binding.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const entries = await gridsService.access.listForDashboard(dashboardId);
       return c.json(entries);
@@ -398,14 +340,11 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const dashboardId = c.req.param("dashboardId")!;
       const body = c.req.valid("json");
-      if (body.permission !== "read" && body.permission !== "none") {
-        return c.json({ message: "Dashboard ACL only accepts 'read' or 'none'" }, 400);
-      }
-      const [row] = await sql<{ base_id: string }[]>`
-        SELECT base_id FROM grids.dashboards WHERE id = ${dashboardId}::uuid
-      `;
-      if (!row) return c.json({ message: "Dashboard not found" }, 404);
-      const gate = await gateAt(c, { baseId: row.base_id }, "admin");
+      const validationError = validateAccessLevelForResource("dashboard", body.permission);
+      if (validationError) return c.json({ message: validationError }, 400);
+      const binding = await gridsService.access.resolveResource("dashboard", dashboardId);
+      if (!binding) return c.json({ message: "Dashboard not found" }, 404);
+      const gate = await gateAt(c, { baseId: binding.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(
         c,

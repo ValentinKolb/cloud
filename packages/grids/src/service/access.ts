@@ -4,14 +4,70 @@ import { sql } from "bun";
 import { logAudit, type SqlClient } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
 
-const TABLE_BY_RESOURCE = {
-  base: "grids.base_access",
-  table: "grids.table_access",
-  view: "grids.view_access",
-  form: "grids.form_access",
-  documentTemplate: "grids.document_template_access",
-  dashboard: "grids.dashboard_access",
-  workflow: "grids.workflow_access",
+const ACCESS_RESOURCES = {
+  base: {
+    junctionTable: "grids.base_access",
+    junctionResourceColumn: "base_id",
+    resourceTable: "grids.bases",
+    scope: "base",
+    bindingIdKey: "baseId",
+    allowedPermissions: ["read", "write", "admin", "none"],
+    invalidPermissionMessage: "Base grants only accept 'read', 'write', 'admin', or 'none'",
+  },
+  table: {
+    junctionTable: "grids.table_access",
+    junctionResourceColumn: "table_id",
+    resourceTable: "grids.tables",
+    scope: "table",
+    bindingIdKey: "tableId",
+    allowedPermissions: ["read", "write", "none"],
+    invalidPermissionMessage: "Table grants only accept 'read' / 'write' / 'none'",
+  },
+  view: {
+    junctionTable: "grids.view_access",
+    junctionResourceColumn: "view_id",
+    resourceTable: "grids.views",
+    scope: "tableChild",
+    bindingIdKey: "viewId",
+    allowedPermissions: ["read", "admin", "none"],
+    invalidPermissionMessage: "View grants only accept 'read', 'admin', or 'none'",
+  },
+  form: {
+    junctionTable: "grids.form_access",
+    junctionResourceColumn: "form_id",
+    resourceTable: "grids.forms",
+    scope: "tableChild",
+    bindingIdKey: "formId",
+    allowedPermissions: ["write", "none"],
+    invalidPermissionMessage: "Form grants only accept 'write' or 'none'",
+  },
+  documentTemplate: {
+    junctionTable: "grids.document_template_access",
+    junctionResourceColumn: "template_id",
+    resourceTable: "grids.document_templates",
+    scope: "tableChild",
+    bindingIdKey: "documentTemplateId",
+    allowedPermissions: ["read", "write", "admin", "none"],
+    invalidPermissionMessage: "Document template grants only accept 'read', 'write', 'admin', or 'none'",
+  },
+  dashboard: {
+    junctionTable: "grids.dashboard_access",
+    junctionResourceColumn: "dashboard_id",
+    resourceTable: "grids.dashboards",
+    scope: "baseChild",
+    bindingIdKey: "dashboardId",
+    allowedPermissions: ["read", "none"],
+    invalidPermissionMessage: "Dashboard grants only accept 'read' or 'none'",
+  },
+  workflow: {
+    junctionTable: "grids.workflow_access",
+    junctionResourceColumn: "workflow_id",
+    resourceTable: "grids.workflows",
+    scope: "baseChild",
+    bindingIdKey: "workflowId",
+    allowedPermissions: ["read", "write", "admin", "none"],
+    invalidPermissionMessage: "Workflow grants only accept 'read', 'write', 'admin', or 'none'",
+  },
 } as const;
 
 type DbAccessRow = {
@@ -34,7 +90,13 @@ type DbAccessSnapshot = {
   permission: PermissionLevel;
 };
 
-type AccessResourceType = keyof typeof TABLE_BY_RESOURCE;
+export type AccessResourceType = keyof typeof ACCESS_RESOURCES;
+type AccessResourceDefinition = (typeof ACCESS_RESOURCES)[AccessResourceType];
+
+export const validateAccessPermission = (resourceType: AccessResourceType, permission: string): string | null => {
+  const definition = ACCESS_RESOURCES[resourceType];
+  return (definition.allowedPermissions as readonly string[]).includes(permission) ? null : definition.invalidPermissionMessage;
+};
 
 type AccessAuditSnapshot = {
   id: string;
@@ -100,13 +162,8 @@ const mapScopedAccessRow = (
 });
 
 const resourceIdFromBinding = (binding: AccessBinding): string => {
-  if (binding.resourceType === "base") return binding.baseId;
-  if (binding.resourceType === "table") return binding.tableId;
-  if (binding.resourceType === "view") return binding.viewId;
-  if (binding.resourceType === "form") return binding.formId;
-  if (binding.resourceType === "documentTemplate") return binding.documentTemplateId;
-  if (binding.resourceType === "dashboard") return binding.dashboardId;
-  return binding.workflowId;
+  const definition = ACCESS_RESOURCES[binding.resourceType];
+  return (binding as unknown as Record<string, string>)[definition.bindingIdKey]!;
 };
 
 const auditScopeFromBinding = (binding: AccessBinding): { baseId: string; tableId: string | null } => ({
@@ -197,23 +254,11 @@ const insertAccessBinding = async (
   accessId: string,
   client: SqlClient,
 ): Promise<void> => {
-  // Bun's `sql` template tag doesn't support identifier interpolation; we hand-pick
-  // the table+column name from the literal map above to keep the path safe.
-  if (resourceType === "base") {
-    await client`INSERT INTO grids.base_access (base_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
-  } else if (resourceType === "table") {
-    await client`INSERT INTO grids.table_access (table_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
-  } else if (resourceType === "view") {
-    await client`INSERT INTO grids.view_access (view_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
-  } else if (resourceType === "form") {
-    await client`INSERT INTO grids.form_access (form_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
-  } else if (resourceType === "documentTemplate") {
-    await client`INSERT INTO grids.document_template_access (template_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
-  } else if (resourceType === "workflow") {
-    await client`INSERT INTO grids.workflow_access (workflow_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
-  } else {
-    await client`INSERT INTO grids.dashboard_access (dashboard_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
-  }
+  const definition = ACCESS_RESOURCES[resourceType];
+  await client`
+    INSERT INTO ${client.unsafe(definition.junctionTable)} (${client.unsafe(definition.junctionResourceColumn)}, access_id)
+    VALUES (${resourceId}::uuid, ${accessId}::uuid)
+  `;
 };
 
 const logAccessAudit = async (params: {
@@ -272,105 +317,20 @@ export const grantAccess = async (params: {
   return createdAccess;
 };
 
-const listAccess = async (resourceType: keyof typeof TABLE_BY_RESOURCE, resourceId: string): Promise<AccessEntry[]> => {
-  // SELECT joining the matching junction table to auth.access. We left-join
-  // auth.users / auth.groups to project a display name, falling back to the
-  // raw uid/group name for anonymous principals.
-  // Resource-type → junction column is hand-picked so SQL identifiers stay
-  // out of user input.
-  let rows: DbAccessRow[];
-  if (resourceType === "base") {
-    rows = await sql<DbAccessRow[]>`
-      SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
-             a.permission, a.created_at,
-             COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
-      FROM grids.base_access ba
-      JOIN auth.access a ON a.id = ba.access_id
-      LEFT JOIN auth.users u ON u.id = a.user_id
-      LEFT JOIN auth.groups g ON g.id = a.group_id
-      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
-      WHERE ba.base_id = ${resourceId}::uuid
-      ORDER BY a.created_at
-    `;
-  } else if (resourceType === "table") {
-    rows = await sql<DbAccessRow[]>`
-      SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
-             a.permission, a.created_at,
-             COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
-      FROM grids.table_access ta
-      JOIN auth.access a ON a.id = ta.access_id
-      LEFT JOIN auth.users u ON u.id = a.user_id
-      LEFT JOIN auth.groups g ON g.id = a.group_id
-      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
-      WHERE ta.table_id = ${resourceId}::uuid
-      ORDER BY a.created_at
-    `;
-  } else if (resourceType === "view") {
-    rows = await sql<DbAccessRow[]>`
-      SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
-             a.permission, a.created_at,
-             COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
-      FROM grids.view_access va
-      JOIN auth.access a ON a.id = va.access_id
-      LEFT JOIN auth.users u ON u.id = a.user_id
-      LEFT JOIN auth.groups g ON g.id = a.group_id
-      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
-      WHERE va.view_id = ${resourceId}::uuid
-      ORDER BY a.created_at
-    `;
-  } else if (resourceType === "form") {
-    rows = await sql<DbAccessRow[]>`
-      SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
-             a.permission, a.created_at,
-             COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
-      FROM grids.form_access fa
-      JOIN auth.access a ON a.id = fa.access_id
-      LEFT JOIN auth.users u ON u.id = a.user_id
-      LEFT JOIN auth.groups g ON g.id = a.group_id
-      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
-      WHERE fa.form_id = ${resourceId}::uuid
-      ORDER BY a.created_at
-    `;
-  } else if (resourceType === "documentTemplate") {
-    rows = await sql<DbAccessRow[]>`
-      SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
-             a.permission, a.created_at,
-             COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
-      FROM grids.document_template_access dta
-      JOIN auth.access a ON a.id = dta.access_id
-      LEFT JOIN auth.users u ON u.id = a.user_id
-      LEFT JOIN auth.groups g ON g.id = a.group_id
-      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
-      WHERE dta.template_id = ${resourceId}::uuid
-      ORDER BY a.created_at
-    `;
-  } else if (resourceType === "workflow") {
-    rows = await sql<DbAccessRow[]>`
-      SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
-             a.permission, a.created_at,
-             COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
-      FROM grids.workflow_access wa
-      JOIN auth.access a ON a.id = wa.access_id
-      LEFT JOIN auth.users u ON u.id = a.user_id
-      LEFT JOIN auth.groups g ON g.id = a.group_id
-      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
-      WHERE wa.workflow_id = ${resourceId}::uuid
-      ORDER BY a.created_at
-    `;
-  } else {
-    rows = await sql<DbAccessRow[]>`
-      SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
-             a.permission, a.created_at,
-             COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
-      FROM grids.dashboard_access da
-      JOIN auth.access a ON a.id = da.access_id
-      LEFT JOIN auth.users u ON u.id = a.user_id
-      LEFT JOIN auth.groups g ON g.id = a.group_id
-      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
-      WHERE da.dashboard_id = ${resourceId}::uuid
-      ORDER BY a.created_at
-    `;
-  }
+const listAccess = async (resourceType: AccessResourceType, resourceId: string): Promise<AccessEntry[]> => {
+  const definition = ACCESS_RESOURCES[resourceType];
+  const rows = await sql<DbAccessRow[]>`
+    SELECT a.id AS access_id, a.user_id, a.group_id, a.service_account_id, a.authenticated_only,
+           a.permission, a.created_at,
+           COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
+    FROM ${sql.unsafe(definition.junctionTable)} binding
+    JOIN auth.access a ON a.id = binding.access_id
+    LEFT JOIN auth.users u ON u.id = a.user_id
+    LEFT JOIN auth.groups g ON g.id = a.group_id
+    LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
+    WHERE ${sql.unsafe(`binding.${definition.junctionResourceColumn}`)} = ${resourceId}::uuid
+    ORDER BY a.created_at
+  `;
   return rows.map(mapAccessRow);
 };
 
@@ -382,7 +342,58 @@ export const listDocumentTemplateAccess = (templateId: string) => listAccess("do
 export const listDashboardAccess = (dashboardId: string) => listAccess("dashboard", dashboardId);
 export const listWorkflowAccess = (workflowId: string) => listAccess("workflow", workflowId);
 
+const accessResourceEntries = Object.entries(ACCESS_RESOURCES) as [AccessResourceType, AccessResourceDefinition][];
+
+const joinUnionAll = (parts: unknown[], client: SqlClient): unknown =>
+  parts.slice(1).reduce((query, part) => client`${query} UNION ALL ${part}`, parts[0]);
+
+const resourceScopeSql = (definition: AccessResourceDefinition) => ({
+  tableJoin: definition.scope === "tableChild" ? "JOIN grids.tables parent_table ON parent_table.id = resource.table_id" : "",
+  baseIdExpression:
+    definition.scope === "base" ? "resource.id" : definition.scope === "tableChild" ? "parent_table.base_id" : "resource.base_id",
+  tableIdExpression: definition.scope === "table" ? "resource.id" : definition.scope === "tableChild" ? "parent_table.id" : "NULL::uuid",
+  tableNameExpression:
+    definition.scope === "table" ? "resource.name" : definition.scope === "tableChild" ? "parent_table.name" : "NULL::text",
+});
+
+const baseTreeSelect = (resourceType: AccessResourceType, definition: AccessResourceDefinition, sortOrder: number, baseId: string) => {
+  const { tableJoin, baseIdExpression, tableIdExpression, tableNameExpression } = resourceScopeSql(definition);
+  const parentAlive = definition.scope === "tableChild" ? "AND parent_table.deleted_at IS NULL" : "";
+
+  return sql`
+    SELECT
+      ${sortOrder}::int AS sort_order,
+      ${resourceType}::text AS resource_type,
+      resource.id AS resource_id,
+      resource.name AS resource_name,
+      ${sql.unsafe(tableIdExpression)} AS table_id,
+      ${sql.unsafe(tableNameExpression)} AS table_name,
+      a.id AS access_id,
+      a.user_id,
+      a.group_id,
+      a.service_account_id,
+      a.authenticated_only,
+      a.permission,
+      a.created_at,
+      COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
+    FROM ${sql.unsafe(definition.junctionTable)} binding
+    JOIN ${sql.unsafe(`${definition.resourceTable} resource`)} ON resource.id = ${sql.unsafe(`binding.${definition.junctionResourceColumn}`)}
+    ${sql.unsafe(tableJoin)}
+    JOIN auth.access a ON a.id = binding.access_id
+    LEFT JOIN auth.users u ON u.id = a.user_id
+    LEFT JOIN auth.groups g ON g.id = a.group_id
+    LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
+    WHERE ${sql.unsafe(baseIdExpression)} = ${baseId}::uuid
+      AND resource.deleted_at IS NULL
+      ${sql.unsafe(parentAlive)}
+  `;
+};
+
 export const listAccessForBaseTree = async (baseId: string): Promise<ScopedAccessEntry[]> => {
+  const union = joinUnionAll(
+    accessResourceEntries.map(([resourceType, definition], index) => baseTreeSelect(resourceType, definition, index, baseId)),
+    sql,
+  );
   const rows = await sql<
     (DbAccessRow & {
       resource_type: AccessResourceType;
@@ -392,189 +403,8 @@ export const listAccessForBaseTree = async (baseId: string): Promise<ScopedAcces
       table_name: string | null;
     })[]
   >`
-    SELECT *
-    FROM (
-      SELECT
-        'base' AS resource_type,
-        b.id AS resource_id,
-        b.name AS resource_name,
-        NULL::uuid AS table_id,
-        NULL::text AS table_name,
-        a.id AS access_id,
-        a.user_id,
-        a.group_id,
-        a.service_account_id,
-        a.authenticated_only,
-        a.permission,
-        a.created_at,
-        COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
-      FROM grids.base_access ba
-      JOIN grids.bases b ON b.id = ba.base_id
-      JOIN auth.access a ON a.id = ba.access_id
-      LEFT JOIN auth.users u ON u.id = a.user_id
-      LEFT JOIN auth.groups g ON g.id = a.group_id
-      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
-      WHERE b.id = ${baseId}::uuid AND b.deleted_at IS NULL
-
-      UNION ALL
-
-      SELECT
-        'table' AS resource_type,
-        t.id AS resource_id,
-        t.name AS resource_name,
-        t.id AS table_id,
-        t.name AS table_name,
-        a.id AS access_id,
-        a.user_id,
-        a.group_id,
-        a.service_account_id,
-        a.authenticated_only,
-        a.permission,
-        a.created_at,
-        COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
-      FROM grids.table_access ta
-      JOIN grids.tables t ON t.id = ta.table_id
-      JOIN auth.access a ON a.id = ta.access_id
-      LEFT JOIN auth.users u ON u.id = a.user_id
-      LEFT JOIN auth.groups g ON g.id = a.group_id
-      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
-      WHERE t.base_id = ${baseId}::uuid AND t.deleted_at IS NULL
-
-      UNION ALL
-
-      SELECT
-        'view' AS resource_type,
-        v.id AS resource_id,
-        v.name AS resource_name,
-        t.id AS table_id,
-        t.name AS table_name,
-        a.id AS access_id,
-        a.user_id,
-        a.group_id,
-        a.service_account_id,
-        a.authenticated_only,
-        a.permission,
-        a.created_at,
-        COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
-      FROM grids.view_access va
-      JOIN grids.views v ON v.id = va.view_id
-      JOIN grids.tables t ON t.id = v.table_id
-      JOIN auth.access a ON a.id = va.access_id
-      LEFT JOIN auth.users u ON u.id = a.user_id
-      LEFT JOIN auth.groups g ON g.id = a.group_id
-      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
-      WHERE t.base_id = ${baseId}::uuid AND t.deleted_at IS NULL AND v.deleted_at IS NULL
-
-      UNION ALL
-
-      SELECT
-        'form' AS resource_type,
-        f.id AS resource_id,
-        f.name AS resource_name,
-        t.id AS table_id,
-        t.name AS table_name,
-        a.id AS access_id,
-        a.user_id,
-        a.group_id,
-        a.service_account_id,
-        a.authenticated_only,
-        a.permission,
-        a.created_at,
-        COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
-      FROM grids.form_access fa
-      JOIN grids.forms f ON f.id = fa.form_id
-      JOIN grids.tables t ON t.id = f.table_id
-      JOIN auth.access a ON a.id = fa.access_id
-      LEFT JOIN auth.users u ON u.id = a.user_id
-      LEFT JOIN auth.groups g ON g.id = a.group_id
-      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
-      WHERE t.base_id = ${baseId}::uuid AND t.deleted_at IS NULL AND f.deleted_at IS NULL
-
-      UNION ALL
-
-      SELECT
-        'documentTemplate' AS resource_type,
-        dt.id AS resource_id,
-        dt.name AS resource_name,
-        t.id AS table_id,
-        t.name AS table_name,
-        a.id AS access_id,
-        a.user_id,
-        a.group_id,
-        a.service_account_id,
-        a.authenticated_only,
-        a.permission,
-        a.created_at,
-        COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
-      FROM grids.document_template_access dta
-      JOIN grids.document_templates dt ON dt.id = dta.template_id
-      JOIN grids.tables t ON t.id = dt.table_id
-      JOIN auth.access a ON a.id = dta.access_id
-      LEFT JOIN auth.users u ON u.id = a.user_id
-      LEFT JOIN auth.groups g ON g.id = a.group_id
-      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
-      WHERE t.base_id = ${baseId}::uuid AND t.deleted_at IS NULL AND dt.deleted_at IS NULL
-
-      UNION ALL
-
-      SELECT
-        'dashboard' AS resource_type,
-        d.id AS resource_id,
-        d.name AS resource_name,
-        NULL::uuid AS table_id,
-        NULL::text AS table_name,
-        a.id AS access_id,
-        a.user_id,
-        a.group_id,
-        a.service_account_id,
-        a.authenticated_only,
-        a.permission,
-        a.created_at,
-        COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
-      FROM grids.dashboard_access da
-      JOIN grids.dashboards d ON d.id = da.dashboard_id
-      JOIN auth.access a ON a.id = da.access_id
-      LEFT JOIN auth.users u ON u.id = a.user_id
-      LEFT JOIN auth.groups g ON g.id = a.group_id
-      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
-      WHERE d.base_id = ${baseId}::uuid AND d.deleted_at IS NULL
-
-      UNION ALL
-
-      SELECT
-        'workflow' AS resource_type,
-        w.id AS resource_id,
-        w.name AS resource_name,
-        NULL::uuid AS table_id,
-        NULL::text AS table_name,
-        a.id AS access_id,
-        a.user_id,
-        a.group_id,
-        a.service_account_id,
-        a.authenticated_only,
-        a.permission,
-        a.created_at,
-        COALESCE(u.uid, g.name, sa.name, NULL) AS display_name
-      FROM grids.workflow_access wa
-      JOIN grids.workflows w ON w.id = wa.workflow_id
-      JOIN auth.access a ON a.id = wa.access_id
-      LEFT JOIN auth.users u ON u.id = a.user_id
-      LEFT JOIN auth.groups g ON g.id = a.group_id
-      LEFT JOIN auth.service_accounts sa ON sa.id = a.service_account_id
-      WHERE w.base_id = ${baseId}::uuid AND w.deleted_at IS NULL
-    ) entries
-    ORDER BY
-      CASE resource_type
-        WHEN 'base' THEN 0
-        WHEN 'table' THEN 1
-        WHEN 'view' THEN 2
-        WHEN 'form' THEN 3
-        WHEN 'documentTemplate' THEN 4
-        WHEN 'dashboard' THEN 5
-        ELSE 6
-      END,
-      resource_name,
-      created_at
+    SELECT * FROM (${union}) entries
+    ORDER BY sort_order, resource_name, created_at
   `;
   return rows.map(mapScopedAccessRow);
 };
@@ -658,97 +488,78 @@ export type AccessBinding =
   | { resourceType: "dashboard"; baseId: string; dashboardId: string }
   | { resourceType: "workflow"; baseId: string; workflowId: string };
 
+type DbAccessBinding = {
+  sort_order?: number;
+  resource_type: AccessResourceType;
+  resource_id: string;
+  base_id: string;
+  table_id: string | null;
+};
+
+const bindingSelect = (
+  resourceType: AccessResourceType,
+  definition: AccessResourceDefinition,
+  sortOrder: number,
+  accessId: string,
+  client: SqlClient,
+) => {
+  const { tableJoin, baseIdExpression, tableIdExpression } = resourceScopeSql(definition);
+
+  return client`
+    SELECT
+      ${sortOrder}::int AS sort_order,
+      ${resourceType}::text AS resource_type,
+      resource.id AS resource_id,
+      ${client.unsafe(baseIdExpression)} AS base_id,
+      ${client.unsafe(tableIdExpression)} AS table_id
+    FROM ${client.unsafe(definition.junctionTable)} binding
+    JOIN ${client.unsafe(`${definition.resourceTable} resource`)} ON resource.id = ${client.unsafe(`binding.${definition.junctionResourceColumn}`)}
+    ${client.unsafe(tableJoin)}
+    WHERE binding.access_id = ${accessId}::uuid
+  `;
+};
+
+const mapAccessBinding = (row: DbAccessBinding): AccessBinding => {
+  const definition = ACCESS_RESOURCES[row.resource_type];
+  const base = { resourceType: row.resource_type, baseId: row.base_id };
+  if (definition.scope === "base") return base as AccessBinding;
+  if (definition.scope === "table") return { ...base, tableId: row.resource_id } as AccessBinding;
+  if (definition.scope === "tableChild") {
+    return { ...base, tableId: row.table_id, [definition.bindingIdKey]: row.resource_id } as AccessBinding;
+  }
+  return { ...base, [definition.bindingIdKey]: row.resource_id } as AccessBinding;
+};
+
+export const resolveResourceBinding = async (
+  resourceType: AccessResourceType,
+  resourceId: string,
+  options: { includeDeleted?: boolean; client?: SqlClient } = {},
+): Promise<AccessBinding | null> => {
+  const client = options.client ?? sql;
+  const definition = ACCESS_RESOURCES[resourceType];
+  const { tableJoin, baseIdExpression, tableIdExpression } = resourceScopeSql(definition);
+  const alive = options.includeDeleted === false ? "AND resource.deleted_at IS NULL" : "";
+  const parentAlive = options.includeDeleted === false && definition.scope === "tableChild" ? "AND parent_table.deleted_at IS NULL" : "";
+  const [row] = await client<DbAccessBinding[]>`
+    SELECT
+      ${resourceType}::text AS resource_type,
+      resource.id AS resource_id,
+      ${client.unsafe(baseIdExpression)} AS base_id,
+      ${client.unsafe(tableIdExpression)} AS table_id
+    FROM ${client.unsafe(`${definition.resourceTable} resource`)}
+    ${client.unsafe(tableJoin)}
+    WHERE resource.id = ${resourceId}::uuid
+      ${client.unsafe(alive)}
+      ${client.unsafe(parentAlive)}
+  `;
+  return row ? mapAccessBinding(row) : null;
+};
+
 export const resolveAccessBinding = async (accessId: string, client: SqlClient = sql): Promise<AccessBinding | null> => {
-  const [baseRow] = await client<{ base_id: string }[]>`
-    SELECT base_id FROM grids.base_access WHERE access_id = ${accessId}::uuid
-  `;
-  if (baseRow) return { resourceType: "base", baseId: baseRow.base_id };
-
-  const [tableRow] = await client<{ table_id: string; base_id: string }[]>`
-    SELECT ta.table_id, t.base_id
-    FROM grids.table_access ta
-    JOIN grids.tables t ON t.id = ta.table_id
-    WHERE ta.access_id = ${accessId}::uuid
-  `;
-  if (tableRow) {
-    return { resourceType: "table", baseId: tableRow.base_id, tableId: tableRow.table_id };
-  }
-
-  const [viewRow] = await client<{ view_id: string; table_id: string; base_id: string }[]>`
-    SELECT va.view_id, v.table_id, t.base_id
-    FROM grids.view_access va
-    JOIN grids.views v ON v.id = va.view_id
-    JOIN grids.tables t ON t.id = v.table_id
-    WHERE va.access_id = ${accessId}::uuid
-  `;
-  if (viewRow) {
-    return {
-      resourceType: "view",
-      baseId: viewRow.base_id,
-      tableId: viewRow.table_id,
-      viewId: viewRow.view_id,
-    };
-  }
-
-  const [formRow] = await client<{ form_id: string; table_id: string; base_id: string }[]>`
-    SELECT fa.form_id, f.table_id, t.base_id
-    FROM grids.form_access fa
-    JOIN grids.forms f ON f.id = fa.form_id
-    JOIN grids.tables t ON t.id = f.table_id
-    WHERE fa.access_id = ${accessId}::uuid
-  `;
-  if (formRow) {
-    return {
-      resourceType: "form",
-      baseId: formRow.base_id,
-      tableId: formRow.table_id,
-      formId: formRow.form_id,
-    };
-  }
-
-  const [documentTemplateRow] = await client<{ template_id: string; table_id: string; base_id: string }[]>`
-    SELECT dta.template_id, dt.table_id, t.base_id
-    FROM grids.document_template_access dta
-    JOIN grids.document_templates dt ON dt.id = dta.template_id
-    JOIN grids.tables t ON t.id = dt.table_id
-    WHERE dta.access_id = ${accessId}::uuid
-  `;
-  if (documentTemplateRow) {
-    return {
-      resourceType: "documentTemplate",
-      baseId: documentTemplateRow.base_id,
-      tableId: documentTemplateRow.table_id,
-      documentTemplateId: documentTemplateRow.template_id,
-    };
-  }
-
-  const [dashboardRow] = await client<{ dashboard_id: string; base_id: string }[]>`
-    SELECT da.dashboard_id, d.base_id
-    FROM grids.dashboard_access da
-    JOIN grids.dashboards d ON d.id = da.dashboard_id
-    WHERE da.access_id = ${accessId}::uuid
-  `;
-  if (dashboardRow) {
-    return {
-      resourceType: "dashboard",
-      baseId: dashboardRow.base_id,
-      dashboardId: dashboardRow.dashboard_id,
-    };
-  }
-
-  const [workflowRow] = await client<{ workflow_id: string; base_id: string }[]>`
-    SELECT wa.workflow_id, w.base_id
-    FROM grids.workflow_access wa
-    JOIN grids.workflows w ON w.id = wa.workflow_id
-    WHERE wa.access_id = ${accessId}::uuid
-  `;
-  if (workflowRow) {
-    return {
-      resourceType: "workflow",
-      baseId: workflowRow.base_id,
-      workflowId: workflowRow.workflow_id,
-    };
-  }
-
-  return null;
+  const union = joinUnionAll(
+    accessResourceEntries.map(([resourceType, definition], index) => bindingSelect(resourceType, definition, index, accessId, client)),
+    client,
+  );
+  const [row] = await client<DbAccessBinding[]>`${union} ORDER BY sort_order LIMIT 1`;
+  return row ? mapAccessBinding(row) : null;
 };
