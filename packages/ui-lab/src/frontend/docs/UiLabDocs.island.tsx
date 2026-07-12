@@ -1,11 +1,12 @@
+import { type CloudTheme, getCurrentThemePreference, setThemePreference } from "@valentinkolb/cloud/shared";
 import type { DockWorkspaceState } from "@valentinkolb/cloud/ui";
 import {
   AppWorkspace,
   isSpotlightShortcut,
   layout,
   openSpotlightSearch,
-  SpotlightButton,
   SPOTLIGHT_SHORTCUT_TITLE,
+  SpotlightButton,
 } from "@valentinkolb/cloud/ui";
 import { fuzzy } from "@valentinkolb/stdlib";
 import { createSignal, onCleanup, onMount } from "solid-js";
@@ -26,6 +27,7 @@ const isPlainLeftClick = (event: MouseEvent): boolean =>
 
 export default function UiLabDocs(props: UiLabDocsProps) {
   const [route, setRoute] = createSignal({ section: props.section, slug: props.slug });
+  const [theme, setTheme] = createSignal<CloudTheme>("light");
   let mainScroll: HTMLDivElement | undefined;
   const current = () => findDocPage(route().section, route().slug);
   const currentSectionTitle = () => uiLabDocs.find((group) => group.id === current()?.section)?.title;
@@ -106,6 +108,7 @@ export default function UiLabDocs(props: UiLabDocsProps) {
   };
 
   onMount(() => {
+    setTheme(getCurrentThemePreference());
     const onKeyDown = (event: KeyboardEvent) => {
       if (isSpotlightShortcut(event)) {
         event.preventDefault();
@@ -152,13 +155,24 @@ export default function UiLabDocs(props: UiLabDocsProps) {
               {current() ? (
                 <>
                   <header class="flex flex-col gap-1">
-                    <div class="min-w-0">
-                      <div class="flex items-center gap-2 text-xs text-dimmed">
-                        <i class={`${current()!.icon} text-sm`} />
-                        <span>{currentSectionTitle()}</span>
+                    <div class="flex min-w-0 items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <div class="flex items-center gap-2 text-xs text-dimmed">
+                          <i class={`${current()!.icon} text-sm`} />
+                          <span>{currentSectionTitle()}</span>
+                        </div>
+                        <h1 class="text-xl font-semibold text-primary">{current()!.title}</h1>
+                        <p class="max-w-3xl text-sm text-dimmed">{current()!.summary}</p>
                       </div>
-                      <h1 class="text-xl font-semibold text-primary">{current()!.title}</h1>
-                      <p class="max-w-3xl text-sm text-dimmed">{current()!.summary}</p>
+                      <button
+                        type="button"
+                        class="icon-btn h-8 w-8 shrink-0"
+                        aria-label={theme() === "light" ? "Switch UI Lab to dark mode" : "Switch UI Lab to light mode"}
+                        title={theme() === "light" ? "Dark mode" : "Light mode"}
+                        onClick={() => setTheme(setThemePreference(theme() === "light" ? "dark" : "light"))}
+                      >
+                        <i class={`ti ${theme() === "light" ? "ti-moon" : "ti-sun-high"}`} aria-hidden="true" />
+                      </button>
                     </div>
                   </header>
 
