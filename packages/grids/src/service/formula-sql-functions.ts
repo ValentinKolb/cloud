@@ -5,13 +5,17 @@ import type { Expr } from "../formula/types";
 import {
   type FormulaSqlCompileResult,
   type FormulaSqlExpression,
+  type FormulaSqlType,
+  formulaSqlAnyError,
   formulaSqlAsBoolean,
   formulaSqlAsDate,
   formulaSqlAsNumeric,
   formulaSqlAsText,
   formulaSqlAsTimestamp,
+  formulaSqlError,
   formulaSqlFail,
   formulaSqlOk,
+  formulaSqlOrErrors,
   joinFormulaSql,
 } from "./formula-sql-values";
 
@@ -66,6 +70,7 @@ const FORMULA_ARITY = {
 } as const satisfies Record<string, { min: number; max: number }>;
 
 type FormulaFunctionName = keyof typeof FORMULA_ARITY;
+const SHORT_CIRCUIT_FUNCTIONS = new Set<FormulaFunctionName>(["IF", "IFEMPTY", "IFERROR", "AND", "OR"]);
 type FunctionCompileContext = { dateConfig?: DateContext; now: Date };
 type FormulaFunctionContext = {
   sourceArgs: Expr[];
@@ -84,6 +89,39 @@ const INSTANT_LITERAL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?
 
 const literalString = (expression: Expr): string | null =>
   expression.kind === "literal" && typeof expression.value === "string" ? expression.value.toLowerCase() : null;
+
+const conditionalType = (
+  fn: string,
+  left: FormulaSqlExpression,
+  right: FormulaSqlExpression,
+): { ok: true; type: FormulaSqlType } | { ok: false; error: string } => {
+  if (left.type === right.type) return { ok: true, type: left.type };
+  if (left.type === "unknown") return { ok: true, type: right.type };
+  if (right.type === "unknown") return { ok: true, type: left.type };
+  return { ok: false, error: `${fn} branches must have the same type or use null; got ${left.type} and ${right.type}` };
+};
+
+const conditionalResult = (
+  fn: string,
+  left: FormulaSqlExpression,
+  right: FormulaSqlExpression,
+  sqlFragment: unknown,
+  errorSql: unknown | undefined,
+): FormulaSqlCompileResult => {
+  const result = conditionalType(fn, left, right);
+  return result.ok ? formulaSqlOk(sqlFragment, result.type, errorSql) : formulaSqlFail(result.error);
+};
+
+const shortCircuitErrors = (args: FormulaSqlExpression[], continueWhen: boolean): unknown | undefined => {
+  let reached = sql`true`;
+  const errors: unknown[] = [];
+  for (const arg of args) {
+    if (arg.errorSql !== undefined) errors.push(sql`(${reached} AND ${arg.errorSql})`);
+    const truthy = formulaSqlAsBoolean(arg);
+    reached = sql`(${reached} AND ${continueWhen ? truthy : sql`NOT ${truthy}`})`;
+  }
+  return errors.length === 0 ? undefined : sql`(${joinFormulaSql(errors, sql` OR `)})`;
+};
 
 const formulaDateKind = (source: Expr, compiled: FormulaSqlExpression): FormulaDateKind | null => {
   if (compiled.type === "date" || compiled.type === "datetime") return compiled.type;
@@ -189,9 +227,16 @@ const FORMULA_FUNCTION_COMPILERS = {
   ROUND: ({ numericArg }) => formulaSqlOk(sql`ROUND(${numericArg(0)}, COALESCE(FLOOR(${numericArg(1)})::int, 0))`, "numeric"),
   FLOOR: ({ numericArg }) => formulaSqlOk(sql`FLOOR(${numericArg(0)})`, "numeric"),
   CEIL: ({ numericArg }) => formulaSqlOk(sql`CEIL(${numericArg(0)})`, "numeric"),
-  SQRT: ({ numericArg }) => formulaSqlOk(sql`CASE WHEN ${numericArg(0)} < 0 THEN NULL ELSE SQRT(${numericArg(0)}) END`, "numeric"),
+  SQRT: ({ numericArg }) => {
+    const value = numericArg(0);
+    return formulaSqlOk(sql`CASE WHEN ${value} < 0 THEN NULL ELSE SQRT(${value}) END`, "numeric", sql`(${value} < 0)`);
+  },
   POW: ({ numericArg }) => formulaSqlOk(sql`POWER(${numericArg(0)}, ${numericArg(1)})`, "numeric"),
-  MOD: ({ numericArg }) => formulaSqlOk(sql`MOD(${numericArg(0)}, NULLIF(${numericArg(1)}, 0))`, "numeric"),
+  MOD: ({ numericArg }) => {
+    const dividend = numericArg(0);
+    const divisor = numericArg(1);
+    return formulaSqlOk(sql`MOD(${dividend}, NULLIF(${divisor}, 0))`, "numeric", sql`(${dividend} IS NOT NULL AND ${divisor} = 0)`);
+  },
   SUM: ({ compiled }) => formulaSqlOk(numericValues(compiled, "SUM"), "numeric"),
   AVG: ({ compiled }) => formulaSqlOk(numericValues(compiled, "AVG"), "numeric"),
   MEAN: ({ compiled }) => formulaSqlOk(numericValues(compiled, "AVG"), "numeric"),
@@ -205,7 +250,11 @@ const FORMULA_FUNCTION_COMPILERS = {
     );
     return formulaSqlOk(sql`(${joinFormulaSql(parts, sql` + `)})::numeric`, "numeric");
   },
-  PERCENT: ({ numericArg }) => formulaSqlOk(sql`(${numericArg(0)} / NULLIF(${numericArg(1)}, 0) * 100)`, "numeric"),
+  PERCENT: ({ numericArg }) => {
+    const part = numericArg(0);
+    const total = numericArg(1);
+    return formulaSqlOk(sql`(${part} / NULLIF(${total}, 0) * 100)`, "numeric", sql`(${part} IS NOT NULL AND ${total} = 0)`);
+  },
   CONCAT: ({ compiled }) =>
     formulaSqlOk(compiled.length === 0 ? sql`''::text` : sql`CONCAT(${joinFormulaSql(compiled.map(formulaSqlAsText), sql`, `)})`, "text"),
   LEN: ({ textArg }) => formulaSqlOk(sql`CHAR_LENGTH(${textArg(0)})::numeric`, "numeric"),
@@ -221,20 +270,39 @@ const FORMULA_FUNCTION_COMPILERS = {
     ),
   REPLACE: ({ textArg }) => formulaSqlOk(sql`REPLACE(${textArg(0)}, ${textArg(1)}, ${textArg(2)})`, "text"),
   IF: ({ arg, boolArg }) => {
-    const thenType = arg(1).type;
-    const elseType = arg(2).type;
-    return formulaSqlOk(
-      sql`CASE WHEN ${boolArg(0)} THEN ${arg(1).sql} ELSE ${arg(2).sql} END`,
-      thenType === elseType ? thenType : "unknown",
-    );
+    const condition = boolArg(0);
+    const errorSql =
+      arg(0).errorSql === undefined && arg(1).errorSql === undefined && arg(2).errorSql === undefined
+        ? undefined
+        : sql`(${formulaSqlError(arg(0))} OR CASE WHEN ${condition} THEN ${formulaSqlError(arg(1))} ELSE ${formulaSqlError(arg(2))} END)`;
+    return conditionalResult("IF", arg(1), arg(2), sql`CASE WHEN ${condition} THEN ${arg(1).sql} ELSE ${arg(2).sql} END`, errorSql);
   },
-  IFEMPTY: ({ arg }) =>
-    formulaSqlOk(sql`CASE WHEN ${arg(0).sql} IS NULL OR (${arg(0).sql})::text = '' THEN ${arg(1).sql} ELSE ${arg(0).sql} END`, arg(0).type),
-  IFERROR: ({ arg }) => formulaSqlOk(sql`COALESCE(${arg(0).sql}, ${arg(1).sql})`, arg(0).type === arg(1).type ? arg(0).type : "unknown"),
+  IFEMPTY: ({ arg }) => {
+    const empty = sql`(${arg(0).sql} IS NULL OR (${arg(0).sql})::text = '')`;
+    const errorSql =
+      arg(0).errorSql === undefined && arg(1).errorSql === undefined
+        ? undefined
+        : sql`(${formulaSqlError(arg(0))} OR (${empty} AND ${formulaSqlError(arg(1))}))`;
+    return conditionalResult("IFEMPTY", arg(0), arg(1), sql`CASE WHEN ${empty} THEN ${arg(1).sql} ELSE ${arg(0).sql} END`, errorSql);
+  },
+  IFERROR: ({ arg }) => {
+    const sourceError = formulaSqlError(arg(0));
+    const errorSql =
+      arg(0).errorSql === undefined || arg(1).errorSql === undefined ? undefined : sql`(${sourceError} AND ${arg(1).errorSql})`;
+    return conditionalResult("IFERROR", arg(0), arg(1), sql`CASE WHEN ${sourceError} THEN ${arg(1).sql} ELSE ${arg(0).sql} END`, errorSql);
+  },
   AND: ({ compiled }) =>
-    formulaSqlOk(compiled.length === 0 ? sql`true` : sql`(${joinFormulaSql(compiled.map(formulaSqlAsBoolean), sql` AND `)})`, "boolean"),
+    formulaSqlOk(
+      compiled.length === 0 ? sql`true` : sql`(${joinFormulaSql(compiled.map(formulaSqlAsBoolean), sql` AND `)})`,
+      "boolean",
+      shortCircuitErrors(compiled, true),
+    ),
   OR: ({ compiled }) =>
-    formulaSqlOk(compiled.length === 0 ? sql`false` : sql`(${joinFormulaSql(compiled.map(formulaSqlAsBoolean), sql` OR `)})`, "boolean"),
+    formulaSqlOk(
+      compiled.length === 0 ? sql`false` : sql`(${joinFormulaSql(compiled.map(formulaSqlAsBoolean), sql` OR `)})`,
+      "boolean",
+      shortCircuitErrors(compiled, false),
+    ),
   NOT: ({ boolArg }) => formulaSqlOk(sql`NOT ${boolArg(0)}`, "boolean"),
   ISBLANK: ({ arg }) => formulaSqlOk(sql`(${arg(0).sql} IS NULL OR (${arg(0).sql})::text = '')`, "boolean"),
   CONTAINS: ({ textArg }) => formulaSqlOk(sql`POSITION(${textArg(1)} IN ${textArg(0)}) > 0`, "boolean"),
@@ -291,7 +359,7 @@ export const compileFormulaFunction = (
   const arg = (index: number): FormulaSqlExpression => compiled[index] ?? { sql: sql`NULL`, type: "unknown" };
   const compiler = FORMULA_FUNCTION_COMPILERS[upper as FormulaFunctionName] as FormulaFunctionCompiler | undefined;
   if (!compiler) return formulaSqlFail(`Unsupported formula function ${fn}`);
-  return compiler({
+  const result = compiler({
     sourceArgs: args,
     compiled,
     compileContext,
@@ -300,4 +368,10 @@ export const compileFormulaFunction = (
     textArg: (index) => formulaSqlAsText(arg(index)),
     boolArg: (index) => formulaSqlAsBoolean(arg(index)),
   });
+  if (!result.ok || SHORT_CIRCUIT_FUNCTIONS.has(upper as FormulaFunctionName)) return result;
+  return formulaSqlOk(
+    result.expression.sql,
+    result.expression.type,
+    formulaSqlOrErrors([formulaSqlAnyError(compiled), result.expression.errorSql]),
+  );
 };

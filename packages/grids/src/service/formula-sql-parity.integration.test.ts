@@ -3,6 +3,7 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { evaluate } from "../formula/evaluator";
 import { parseFormula } from "../formula/parser";
+import { isFormulaError } from "../formula/types";
 import { migrate } from "../migrate";
 import { normalizeRefKey } from "../ref-syntax";
 import { compileFormulaSourceToSql, type FormulaSqlType } from "./formula-sql-compiler";
@@ -67,12 +68,18 @@ const expectParity = async (
   });
   expect(compiled.ok).toBe(true);
   if (!compiled.ok) return;
+  const errorSql = compiled.expression.errorSql ?? sql`false`;
   const [row] = options.fields
-    ? await sql<Array<{ value: unknown }>>`
-        SELECT ${compiled.expression.sql} AS value
+    ? await sql<Array<{ error: boolean; value: unknown }>>`
+        SELECT ${compiled.expression.sql} AS value, ${errorSql} AS error
         FROM (SELECT ${options.values ?? {}}::jsonb AS data) r
       `
-    : await sql<Array<{ value: unknown }>>`SELECT ${compiled.expression.sql} AS value`;
+    : await sql<Array<{ error: boolean; value: unknown }>>`SELECT ${compiled.expression.sql} AS value, ${errorSql} AS error`;
+  expect(Boolean(row?.error)).toBe(isFormulaError(evaluated));
+  if (isFormulaError(evaluated)) {
+    expect(row?.value).toBeNull();
+    return;
+  }
   expect(normalize(row?.value, compiled.expression.type)).toEqual(normalize(evaluated, compiled.expression.type));
 };
 
@@ -126,5 +133,23 @@ describe("formula evaluator and PostgreSQL parity", () => {
     await expectParity("DATEDIFF('2026-03-29T00:30:00.000Z', '2026-03-29T02:30:00.000Z', 'hours')", {
       dateConfig: berlin,
     });
+  });
+
+  postgresTest("keeps conditional nulls separate from formula errors", async () => {
+    await expectParity("IF(true, null, 7)");
+    await expectParity("IF(false, null, 7)");
+    await expectParity("IF(false, 1 / 0, 7)");
+    await expectParity("IF(true, 1 / 0, 7)");
+    await expectParity("IFEMPTY(null, 'fallback')");
+    await expectParity("IFEMPTY(5, 1 / 0)");
+    await expectParity("IFEMPTY(1 / 0, 5)");
+    await expectParity("IFERROR(null, 7)");
+    await expectParity("IFERROR(1 / 0, 7)");
+    await expectParity("IFERROR(SQRT(-1), 9)");
+    await expectParity("IFERROR(1 / 0, 2 / 0)");
+    await expectParity("AND(false, 1 / 0)");
+    await expectParity("AND(true, 1 / 0)");
+    await expectParity("OR(true, 1 / 0)");
+    await expectParity("CONCAT(1 / 0, 'x')");
   });
 });

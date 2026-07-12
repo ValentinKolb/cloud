@@ -107,8 +107,10 @@ test("IF returns then-branch when truthy", () => {
 test("IFEMPTY and IFERROR", () => {
   expect(run("IFEMPTY({x}, 'fallback')", { x: "" })).toBe("fallback");
   expect(run("IFEMPTY({x}, 'fallback')", { x: "value" })).toBe("value");
+  expect(run("IFEMPTY(5, 1 / 0)")).toBe(5);
   expect(run("IFERROR(1 / 0, 'fallback')")).toBe("fallback");
   expect(run("IFERROR(2 + 2, 'fallback')")).toBe(4);
+  expect(run("IFERROR(null, 'fallback')")).toBeNull();
   expect(renderResult(run("IFERROR(1 / 0)"))).toBe("#IFERROR_BAD_ARGS");
 });
 test("ISBLANK", () => {

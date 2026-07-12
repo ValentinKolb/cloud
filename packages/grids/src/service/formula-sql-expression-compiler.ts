@@ -8,14 +8,17 @@ import {
   type FormulaSqlCompileResult,
   type FormulaSqlExpression,
   type FormulaSqlType,
+  formulaSqlAnyError,
   formulaSqlAsBoolean,
   formulaSqlAsDate,
   formulaSqlAsNumeric,
   formulaSqlAsText,
   formulaSqlAsTimestamp,
+  formulaSqlError,
   formulaSqlFail,
   formulaSqlLiteral,
   formulaSqlOk,
+  formulaSqlOrErrors,
 } from "./formula-sql-values";
 import type { Field } from "./types";
 
@@ -90,34 +93,48 @@ const comparisonOperands = (left: FormulaSqlExpression, right: FormulaSqlExpress
 
 const compileComparison = (op: ComparisonOperator, left: FormulaSqlExpression, right: FormulaSqlExpression): FormulaSqlCompileResult => {
   const operands = comparisonOperands(left, right);
+  const errorSql = formulaSqlAnyError([left, right]);
   if (op === "=" || op === "!=") {
     const equal = sql`(${operands.leftSql} IS NOT DISTINCT FROM ${operands.rightSql})`;
-    return formulaSqlOk(op === "=" ? equal : sql`NOT ${equal}`, "boolean");
+    return formulaSqlOk(op === "=" ? equal : sql`NOT ${equal}`, "boolean", errorSql);
   }
-  if (op === "<") return formulaSqlOk(sql`(${operands.leftSql} < ${operands.rightSql})`, "boolean");
-  if (op === "<=") return formulaSqlOk(sql`(${operands.leftSql} <= ${operands.rightSql})`, "boolean");
-  if (op === ">") return formulaSqlOk(sql`(${operands.leftSql} > ${operands.rightSql})`, "boolean");
-  return formulaSqlOk(sql`(${operands.leftSql} >= ${operands.rightSql})`, "boolean");
+  if (op === "<") return formulaSqlOk(sql`(${operands.leftSql} < ${operands.rightSql})`, "boolean", errorSql);
+  if (op === "<=") return formulaSqlOk(sql`(${operands.leftSql} <= ${operands.rightSql})`, "boolean", errorSql);
+  if (op === ">") return formulaSqlOk(sql`(${operands.leftSql} > ${operands.rightSql})`, "boolean", errorSql);
+  return formulaSqlOk(sql`(${operands.leftSql} >= ${operands.rightSql})`, "boolean", errorSql);
 };
 
 const compileArithmetic = (op: ArithmeticOperator, left: FormulaSqlExpression, right: FormulaSqlExpression): FormulaSqlCompileResult => {
+  const inheritedError = formulaSqlAnyError([left, right]);
   if (op === "+") {
     if (left.type === "text" && right.type === "text") {
-      return formulaSqlOk(sql`(${formulaSqlAsText(left)} || ${formulaSqlAsText(right)})`, "text");
+      return formulaSqlOk(sql`(${formulaSqlAsText(left)} || ${formulaSqlAsText(right)})`, "text", inheritedError);
     }
-    return formulaSqlOk(sql`(${formulaSqlAsNumeric(left)} + ${formulaSqlAsNumeric(right)})`, "numeric");
+    return formulaSqlOk(sql`(${formulaSqlAsNumeric(left)} + ${formulaSqlAsNumeric(right)})`, "numeric", inheritedError);
   }
-  if (op === "-") return formulaSqlOk(sql`(${formulaSqlAsNumeric(left)} - ${formulaSqlAsNumeric(right)})`, "numeric");
-  if (op === "*") return formulaSqlOk(sql`(${formulaSqlAsNumeric(left)} * ${formulaSqlAsNumeric(right)})`, "numeric");
+  if (op === "-") return formulaSqlOk(sql`(${formulaSqlAsNumeric(left)} - ${formulaSqlAsNumeric(right)})`, "numeric", inheritedError);
+  if (op === "*") return formulaSqlOk(sql`(${formulaSqlAsNumeric(left)} * ${formulaSqlAsNumeric(right)})`, "numeric", inheritedError);
+  const leftSql = formulaSqlAsNumeric(left);
+  const rightSql = formulaSqlAsNumeric(right);
+  const ownError = sql`(${leftSql} IS NOT NULL AND ${rightSql} = 0)`;
+  const errorSql = formulaSqlOrErrors([inheritedError, ownError]);
   if (op === "/") {
-    return formulaSqlOk(sql`(${formulaSqlAsNumeric(left)} / NULLIF(${formulaSqlAsNumeric(right)}, 0))`, "numeric");
+    return formulaSqlOk(sql`(${leftSql} / NULLIF(${rightSql}, 0))`, "numeric", errorSql);
   }
-  return formulaSqlOk(sql`MOD(${formulaSqlAsNumeric(left)}, NULLIF(${formulaSqlAsNumeric(right)}, 0))`, "numeric");
+  return formulaSqlOk(sql`MOD(${leftSql}, NULLIF(${rightSql}, 0))`, "numeric", errorSql);
 };
 
 const compileBinaryOperator = (op: BinOp, left: FormulaSqlExpression, right: FormulaSqlExpression): FormulaSqlCompileResult => {
-  if (op === "&&") return formulaSqlOk(sql`(${formulaSqlAsBoolean(left)} AND ${formulaSqlAsBoolean(right)})`, "boolean");
-  if (op === "||") return formulaSqlOk(sql`(${formulaSqlAsBoolean(left)} OR ${formulaSqlAsBoolean(right)})`, "boolean");
+  if (op === "&&" || op === "||") {
+    const leftSql = formulaSqlAsBoolean(left);
+    const rightSql = formulaSqlAsBoolean(right);
+    const evaluateRight = op === "&&" ? leftSql : sql`NOT ${leftSql}`;
+    const errorSql =
+      left.errorSql === undefined && right.errorSql === undefined
+        ? undefined
+        : sql`(${formulaSqlError(left)} OR (${evaluateRight} AND ${formulaSqlError(right)}))`;
+    return formulaSqlOk(op === "&&" ? sql`(${leftSql} AND ${rightSql})` : sql`(${leftSql} OR ${rightSql})`, "boolean", errorSql);
+  }
   if (op === "=" || op === "!=" || op === "<" || op === "<=" || op === ">" || op === ">=") {
     return compileComparison(op, left, right);
   }
@@ -141,13 +158,13 @@ const inlineFormulaField = (field: Field, context: CompileContext): FormulaSqlCo
 const compileFieldExpression = (expression: Extract<Expr, { kind: "field" }>, context: CompileContext): FormulaSqlCompileResult => {
   const custom = context.resolveField?.(expression.fieldId);
   if (typeof custom === "string") return formulaSqlFail(custom);
-  if (custom) return formulaSqlOk(custom.sql, custom.type);
+  if (custom) return formulaSqlOk(custom.sql, custom.type, custom.errorSql);
   const field = fieldByRef(context.fieldsByRef, expression.fieldId);
   if (typeof field === "string") return formulaSqlFail(field);
   if (field.type === "formula") return inlineFormulaField(field, context);
   if (field.type === "lookup" || field.type === "rollup") {
     const computed = context.computedFieldSql?.get(field.id);
-    if (computed) return formulaSqlOk(computed.sql, computed.type);
+    if (computed) return formulaSqlOk(computed.sql, computed.type, computed.errorSql);
   }
   const projection = storageOf(field).project(field, context.recordAlias);
   if (projection === null) return formulaSqlFail(`Field ${field.name} (${field.type}) cannot be compiled into SQL formulas yet`);
@@ -157,8 +174,10 @@ const compileFieldExpression = (expression: Extract<Expr, { kind: "field" }>, co
 const compileUnaryExpression = (expression: Extract<Expr, { kind: "unop" }>, context: CompileContext): FormulaSqlCompileResult => {
   const operand = compileExpression(expression.operand, context);
   if (!operand.ok) return operand;
-  if (expression.op === "-") return formulaSqlOk(sql`(-${formulaSqlAsNumeric(operand.expression)})`, "numeric");
-  return formulaSqlOk(sql`NOT ${formulaSqlAsBoolean(operand.expression)}`, "boolean");
+  if (expression.op === "-") {
+    return formulaSqlOk(sql`(-${formulaSqlAsNumeric(operand.expression)})`, "numeric", operand.expression.errorSql);
+  }
+  return formulaSqlOk(sql`NOT ${formulaSqlAsBoolean(operand.expression)}`, "boolean", operand.expression.errorSql);
 };
 
 const compileBinaryExpression = (expression: Extract<Expr, { kind: "binop" }>, context: CompileContext): FormulaSqlCompileResult => {

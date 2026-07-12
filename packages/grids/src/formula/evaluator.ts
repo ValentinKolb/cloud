@@ -150,31 +150,44 @@ const evalBinary = (ast: Extract<Expr, { kind: "binop" }>, ctx: EvalContext): un
   return wantExact ? evalExactArithmetic(op, left, right) : evalNumberArithmetic(op, left, right);
 };
 
-const evalShortCircuitCall = (ast: Extract<Expr, { kind: "call" }>, ctx: EvalContext): unknown | undefined => {
-  // IF short-circuits: only the selected branch evaluates. A guard
-  // like `IF({den}=0, null, {num}/{den})` would otherwise still hit
-  // DIV_ZERO from the unused branch.
-  if (ast.fn === "IF" && ast.args.length === 3) {
-    const cond = evaluate(ast.args[0]!, ctx);
-    if (isFormulaError(cond)) return cond;
-    return evaluate(ast.args[truthy(cond) ? 1 : 2]!, ctx);
-  }
+type CallExpr = Extract<Expr, { kind: "call" }>;
 
-  if (ast.fn === "IFERROR") {
-    if (ast.args.length !== 2) return formulaError("IFERROR_BAD_ARGS");
-    const value = evaluate(ast.args[0]!, ctx);
-    return isFormulaError(value) ? evaluate(ast.args[1]!, ctx) : value;
-  }
+const evalIfCall = (args: Expr[], ctx: EvalContext): unknown | undefined => {
+  if (args.length !== 3) return undefined;
+  const condition = evaluate(args[0]!, ctx);
+  if (isFormulaError(condition)) return condition;
+  return evaluate(args[truthy(condition) ? 1 : 2]!, ctx);
+};
 
-  // AND / OR also short-circuit, mirroring the `&&` and `||` operators.
-  if (ast.fn !== "AND" && ast.fn !== "OR") return undefined;
-  for (const arg of ast.args) {
+const evalIfErrorCall = (args: Expr[], ctx: EvalContext): unknown => {
+  if (args.length !== 2) return formulaError("IFERROR_BAD_ARGS");
+  const value = evaluate(args[0]!, ctx);
+  return isFormulaError(value) ? evaluate(args[1]!, ctx) : value;
+};
+
+const evalIfEmptyCall = (args: Expr[], ctx: EvalContext): unknown => {
+  if (args.length !== 2) return formulaError("IFEMPTY_BAD_ARGS");
+  const value = evaluate(args[0]!, ctx);
+  if (isFormulaError(value)) return value;
+  return isNullish(value) || value === "" ? evaluate(args[1]!, ctx) : value;
+};
+
+const evalLogicalCall = (fn: "AND" | "OR", args: Expr[], ctx: EvalContext): unknown => {
+  for (const arg of args) {
     const value = evaluate(arg, ctx);
     if (isFormulaError(value)) return value;
-    if (ast.fn === "AND" && !truthy(value)) return false;
-    if (ast.fn === "OR" && truthy(value)) return true;
+    if (fn === "AND" && !truthy(value)) return false;
+    if (fn === "OR" && truthy(value)) return true;
   }
-  return ast.fn === "AND";
+  return fn === "AND";
+};
+
+const evalShortCircuitCall = (ast: CallExpr, ctx: EvalContext): unknown | undefined => {
+  if (ast.fn === "IF") return evalIfCall(ast.args, ctx);
+  if (ast.fn === "IFERROR") return evalIfErrorCall(ast.args, ctx);
+  if (ast.fn === "IFEMPTY") return evalIfEmptyCall(ast.args, ctx);
+  if (ast.fn === "AND" || ast.fn === "OR") return evalLogicalCall(ast.fn, ast.args, ctx);
+  return undefined;
 };
 
 const evalCallArgs = (args: Expr[], ctx: EvalContext): unknown[] | ReturnType<typeof formulaError> => {

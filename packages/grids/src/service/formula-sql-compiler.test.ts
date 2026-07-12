@@ -73,6 +73,19 @@ describe("compileFormulaSourceToSql", () => {
     if (result.ok) expect(result.expression.type).toBe("text");
   });
 
+  test("unifies null conditional branches and rejects incompatible types", () => {
+    for (const source of ["IF(true, null, 1)", "IFEMPTY(null, 'fallback')", "IFERROR(1 / 0, 7)"]) {
+      const result = compileFormulaSourceToSql(source, { fields });
+      expect(result.ok, source).toBe(true);
+    }
+
+    for (const source of ["IF(true, 1, 'text')", "IFEMPTY('text', 2)", "IFERROR(1 / 0, 'bad')"]) {
+      const result = compileFormulaSourceToSql(source, { fields });
+      expect(result.ok, source).toBe(false);
+      if (!result.ok) expect(result.error).toContain("must have the same type or use null");
+    }
+  });
+
   test("compiles date helpers with stable TODAY", () => {
     const result = compileFormulaSourceToSql("DATEDIFF(TODAY(), Due, 'days')", {
       fields,
@@ -234,7 +247,7 @@ describe("compileFormulaSourceToSql", () => {
       "REPLACE(#name, 'a', 'b')",
       "IF(#paid, 'yes', 'no')",
       "IFEMPTY(#name, 'missing')",
-      "IFERROR(#price / 0, 'bad')",
+      "IFERROR(#price / 0, 0)",
       "AND(#paid, #price > 0)",
       "OR(#paid, #price > 0)",
       "NOT(#paid)",

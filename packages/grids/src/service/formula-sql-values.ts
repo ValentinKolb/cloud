@@ -6,14 +6,16 @@ export type FormulaSqlType = "numeric" | "text" | "boolean" | "date" | "datetime
 export type FormulaSqlExpression = {
   sql: unknown;
   type: FormulaSqlType;
+  /** True when evaluating this expression produced a formula error rather than a legitimate NULL. */
+  errorSql?: unknown;
 };
 
 export type FormulaSqlCompileResult = { ok: true; expression: FormulaSqlExpression } | { ok: false; error: string };
 
-export const formulaSqlOk = (sqlFragment: unknown, type: FormulaSqlType): FormulaSqlCompileResult => ({
-  ok: true,
-  expression: { sql: sqlFragment, type },
-});
+export const formulaSqlOk = (sqlFragment: unknown, type: FormulaSqlType, errorSql?: unknown): FormulaSqlCompileResult => {
+  const valueSql = errorSql === undefined ? sqlFragment : sql`CASE WHEN ${errorSql} THEN NULL ELSE ${sqlFragment} END`;
+  return { ok: true, expression: { sql: valueSql, type, ...(errorSql === undefined ? {} : { errorSql }) } };
+};
 
 export const formulaSqlFail = (error: string): FormulaSqlCompileResult => ({ ok: false, error });
 
@@ -21,6 +23,17 @@ export const joinFormulaSql = (parts: unknown[], separator: unknown): unknown =>
   if (parts.length === 0) return sql``;
   return parts.slice(1).reduce((acc, part) => sql`${acc}${separator}${part}`, parts[0]!);
 };
+
+export const formulaSqlError = (expression: FormulaSqlExpression): unknown => expression.errorSql ?? sql`false`;
+
+export const formulaSqlOrErrors = (errors: Array<unknown | undefined>): unknown | undefined => {
+  const present = errors.filter((error): error is unknown => error !== undefined);
+  if (present.length === 0) return undefined;
+  return present.length === 1 ? present[0] : sql`(${joinFormulaSql(present, sql` OR `)})`;
+};
+
+export const formulaSqlAnyError = (expressions: FormulaSqlExpression[]): unknown | undefined =>
+  formulaSqlOrErrors(expressions.map((expression) => expression.errorSql));
 
 export const formulaSqlLiteral = (value: Literal): FormulaSqlExpression => {
   if (value === null) return { sql: sql`NULL`, type: "unknown" };
