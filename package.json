@@ -18,6 +18,7 @@
     "packages/gateway-ops",
     "packages/grids",
     "packages/ipa-hosts",
+    "packages/mail",
     "packages/notebooks",
     "packages/oauth",
     "packages/pulse",

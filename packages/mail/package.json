@@ -1,0 +1,36 @@
+{
+  "name": "@valentinkolb/cloud-app-mail",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "module": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./cli": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.typecheck.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@valentinkolb/cloud": "workspace:*",
+    "@valentinkolb/ssr": "0.10.0",
+    "@valentinkolb/stdlib": "0.12.0",
+    "@valentinkolb/sync": "^5.5.2",
+    "hono": "^4.11.1",
+    "imapflow": "^1.4.6",
+    "mailparser": "^3.9.14",
+    "nodemailer": "^8.0.10",
+    "sanitize-html": "^2.17.4",
+    "solid-js": "^1.9.10",
+    "zod": "^4.3.4"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.9",
+    "@types/mailparser": "^3.4.6",
+    "@types/nodemailer": "^7.0.11",
+    "@types/sanitize-html": "^2.16.1",
+    "typescript": "^5.9.3"
+  },
+  "license": "AGPL-3.0-or-later"
+}

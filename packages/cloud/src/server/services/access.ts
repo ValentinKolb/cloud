@@ -2,6 +2,8 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { toPgUuidArray } from "../../services/postgres";
 
+export type AccessDb = typeof sql;
+
 // ==========================
 // Permission Levels
 // ==========================
@@ -129,7 +131,10 @@ const mapToAccessEntry = (row: DbAccess): AccessEntry => ({
  * Create a new access entry.
  * Returns the created entry ID.
  */
-export const createAccess = async (params: { principal: Principal; permission: PermissionLevel }): Promise<Result<{ id: string }>> => {
+export const createAccess = async (
+  params: { principal: Principal; permission: PermissionLevel },
+  db: AccessDb = sql,
+): Promise<Result<{ id: string }>> => {
   const { principal, permission } = params;
 
   let userId: string | null = null;
@@ -140,7 +145,7 @@ export const createAccess = async (params: { principal: Principal; permission: P
   if (principal.type === "user") {
     userId = principal.userId;
     // Verify user exists
-    const [user] = await sql<{ id: string }[]>`
+    const [user] = await db<{ id: string }[]>`
       SELECT id FROM auth.users WHERE id = ${userId}::uuid
     `;
     if (!user) {
@@ -149,7 +154,7 @@ export const createAccess = async (params: { principal: Principal; permission: P
   } else if (principal.type === "group") {
     groupId = principal.groupId;
     // Verify group exists
-    const [group] = await sql<{ id: string }[]>`
+    const [group] = await db<{ id: string }[]>`
       SELECT id FROM auth.groups WHERE id = ${groupId}::uuid
     `;
     if (!group) {
@@ -157,7 +162,7 @@ export const createAccess = async (params: { principal: Principal; permission: P
     }
   } else if (principal.type === "service_account") {
     serviceAccountId = principal.serviceAccountId;
-    const [serviceAccount] = await sql<{ id: string }[]>`
+    const [serviceAccount] = await db<{ id: string }[]>`
       SELECT id FROM auth.service_accounts WHERE id = ${serviceAccountId}::uuid AND status = 'active'
     `;
     if (!serviceAccount) {
@@ -168,7 +173,7 @@ export const createAccess = async (params: { principal: Principal; permission: P
   }
   // public: user/group null, authenticated_only false
 
-  const [row] = await sql<{ id: string }[]>`
+  const [row] = await db<{ id: string }[]>`
     INSERT INTO auth.access (user_id, group_id, service_account_id, authenticated_only, permission)
     VALUES (${userId}::uuid, ${groupId}::uuid, ${serviceAccountId}::uuid, ${authenticatedOnly}, ${permission}::auth.permission_level)
     RETURNING id
@@ -184,8 +189,8 @@ export const createAccess = async (params: { principal: Principal; permission: P
 /**
  * Get an access entry by ID.
  */
-export const getAccess = async (params: { id: string }): Promise<AccessEntry | null> => {
-  const [row] = await sql<DbAccess[]>`
+export const getAccess = async (params: { id: string }, db: AccessDb = sql): Promise<AccessEntry | null> => {
+  const [row] = await db<DbAccess[]>`
     SELECT id, user_id, group_id, service_account_id, authenticated_only, permission, created_at
     FROM auth.access
     WHERE id = ${params.id}::uuid
@@ -196,8 +201,8 @@ export const getAccess = async (params: { id: string }): Promise<AccessEntry | n
 /**
  * Update an access entry's permission level.
  */
-export const updateAccess = async (params: { id: string; permission: PermissionLevel }): Promise<Result<void>> => {
-  const result = await sql`
+export const updateAccess = async (params: { id: string; permission: PermissionLevel }, db: AccessDb = sql): Promise<Result<void>> => {
+  const result = await db`
     UPDATE auth.access
     SET permission = ${params.permission}::auth.permission_level
     WHERE id = ${params.id}::uuid
@@ -213,8 +218,8 @@ export const updateAccess = async (params: { id: string; permission: PermissionL
 /**
  * Delete an access entry.
  */
-export const deleteAccess = async (params: { id: string }): Promise<Result<void>> => {
-  const result = await sql`
+export const deleteAccess = async (params: { id: string }, db: AccessDb = sql): Promise<Result<void>> => {
+  const result = await db`
     DELETE FROM auth.access
     WHERE id = ${params.id}::uuid
   `;

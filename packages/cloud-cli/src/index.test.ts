@@ -142,7 +142,7 @@ describe("cloud CLI OAuth session handling", () => {
     expect(result.stderr).toContain("--version requires a value.");
   });
 
-  test("top-level help includes the Grids module", async () => {
+  test("top-level help includes the built-in app modules", async () => {
     const dir = await createTempDir();
     const configPath = join(dir, "config.json");
 
@@ -152,6 +152,8 @@ describe("cloud CLI OAuth session handling", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("grids");
     expect(result.stdout).toContain("Manage Grids bases");
+    expect(result.stdout).toContain("mail");
+    expect(result.stdout).toContain("Search, read, configure, and operate Cloud Mail");
   });
 
   test("nested module help does not require a configured server", async () => {

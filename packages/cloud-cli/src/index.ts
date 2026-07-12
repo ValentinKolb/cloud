@@ -19,6 +19,7 @@ import accountsCliModule from "@valentinkolb/cloud-app-accounts/cli";
 import contactsCliModule from "@valentinkolb/cloud-app-contacts/cli";
 import gridsCliModule from "@valentinkolb/cloud-app-grids/cli";
 import ipaHostsCliModule from "@valentinkolb/cloud-app-ipa-hosts/cli";
+import mailCliModule from "@valentinkolb/cloud-app-mail/cli";
 import notebooksCliModule from "@valentinkolb/cloud-app-notebooks/cli";
 import oauthCliModule from "@valentinkolb/cloud-app-oauth/cli";
 import pulseCliModule from "@valentinkolb/cloud-app-pulse/cli";
@@ -106,6 +107,7 @@ const modules: CloudCliModule[] = [
   contactsCliModule,
   gridsCliModule,
   ipaHostsCliModule,
+  mailCliModule,
   notebooksCliModule,
   oauthCliModule,
   pulseCliModule,

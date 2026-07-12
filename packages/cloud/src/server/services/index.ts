@@ -1,6 +1,7 @@
 // Cloud-specific server services
 
 export type {
+  AccessDb,
   AccessEntry,
   AccessSubject,
   AccessUser,
