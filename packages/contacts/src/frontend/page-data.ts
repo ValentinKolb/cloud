@@ -10,9 +10,10 @@ export const parseContactsPage = (value: string | undefined): number => {
   return parsed;
 };
 
-export const buildContactsPaginationBaseUrl = (config: { basePath: string; search: string }): string => {
+export const buildContactsPaginationBaseUrl = (config: { basePath: string; search: string; tagId?: string | null }): string => {
   const params = new URLSearchParams();
   if (config.search.trim()) params.set("search", config.search.trim());
+  if (config.tagId) params.set("tag_id", config.tagId);
   const query = params.toString();
   return query ? `${config.basePath}?${query}&page=` : `${config.basePath}?page=`;
 };

@@ -4,3 +4,12 @@
 @import "tailwindcss/utilities.css" layer(utilities);
 @source "../**/*.{ts,tsx}";
 @custom-variant dark (&:where(.dark, .dark *));
+
+.contact-avatar {
+  background: color-mix(in srgb, var(--app-accent) 10%, var(--ui-surface-muted));
+  color: color-mix(in srgb, var(--app-accent) 76%, var(--color-zinc-900));
+}
+
+.dark .contact-avatar {
+  color: color-mix(in srgb, var(--app-accent) 56%, white);
+}

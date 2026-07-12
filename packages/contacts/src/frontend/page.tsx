@@ -1,13 +1,12 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { AppWorkspace, Pagination } from "@valentinkolb/cloud/ui";
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../config";
 import { contactsService } from "../service";
 import ContactDetailPanel from "./_components/ContactDetailPanel.island";
-import ContactsList from "./_components/ContactsList.island";
 import ContactsSidebar from "./_components/ContactsSidebar";
+import ContactsWorkspaceMain from "./_components/ContactsWorkspaceMain";
 import DesktopDetailLayoutSync from "./_components/DesktopDetailLayoutSync.island";
 import ContactsLayoutHelp from "./_components/help/ContactsLayoutHelp.island";
 import {
@@ -64,21 +63,25 @@ export default ssr<AuthContext>(async (c) => {
           defaultCreateBookId={writableBooks[0]?.id ?? null}
         />
 
-        <AppWorkspace.Main class="gap-[var(--ui-space-section)] p-[var(--ui-space-section)]">
-          <div style="view-transition-name: contacts-page-header">
-            <SearchBar value={search} />
-          </div>
-          <div class="flex-1 min-h-0 overflow-y-auto flex flex-col" data-scroll-preserve="contacts-main-all">
-            <div style="view-transition-name: contacts-list-container">
-              <ContactsList
-                contacts={contacts}
-                initialSelectedContactId={initialSelectedContactId}
-                initialSelectedBookId={initialSelectedBookId}
-              />
-            </div>
-            <Pagination currentPage={contactsResult.page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
-          </div>
-        </AppWorkspace.Main>
+        <ContactsWorkspaceMain
+          title="All contacts"
+          description="Across your manual contact books"
+          total={contactsResult.total}
+          search={search}
+          searchAction="/app/contacts"
+          searchPlaceholder="Filter by name, company, email, or phone..."
+          contacts={contacts}
+          bookNames={bookNames}
+          showBookNames
+          initialSelectedContactId={initialSelectedContactId}
+          initialSelectedBookId={initialSelectedBookId}
+          writableBooks={writableBooks}
+          defaultCreateBookId={writableBooks[0]?.id ?? null}
+          chooseBookOnCreate
+          currentPage={contactsResult.page}
+          totalPages={totalPages}
+          paginationBaseUrl={paginationBaseUrl}
+        />
 
         <AppWorkspace.Detail
           id="contacts-detail-panel"

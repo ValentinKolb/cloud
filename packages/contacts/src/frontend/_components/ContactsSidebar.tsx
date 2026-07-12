@@ -28,7 +28,7 @@ export default function ContactsSidebar(props: Props) {
   const renderBookItem = (book: ContactBook, mode: "mobile" | "desktop") => {
     const href = `/app/contacts/${book.id}`;
     const isActive = props.active === book.id;
-    const icon = "ti ti-cube";
+    const icon = book.isSystem ? "ti ti-building-community" : "ti ti-address-book";
 
     return (
       <AppWorkspace.SidebarItem
@@ -49,20 +49,14 @@ export default function ContactsSidebar(props: Props) {
       <AppWorkspace.SidebarHeader
         title="Contacts"
         icon="ti ti-address-book"
-        iconStyle="background-color: var(--color-blue-500)"
+        iconStyle="background-color: var(--app-accent)"
         showDesktop={false}
       />
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>
           <ContactsSpotlightButton variant="sidebar-mobile" />
-          <CreateContactButton
-            writableBooks={props.writableBooks}
-            defaultBookId={props.defaultCreateBookId ?? null}
-            buttonClass="sidebar-item-mobile btn-success btn-sm"
-            label="Create Contact"
-          />
-          <CreateBookButton buttonClass="sidebar-item-mobile" label="New Book" />
+          <CreateBookButton buttonClass="sidebar-item-mobile" label="New book" />
         </AppWorkspace.SidebarMobileItems>
         <AppWorkspace.SidebarMobileBody scrollPreserveKey="contacts-sidebar-mobile">
           <AppWorkspace.SidebarSection>
@@ -73,36 +67,32 @@ export default function ContactsSidebar(props: Props) {
               active={props.active === "all"}
               viewTransitionName={vt("all-mobile")}
             >
-              All Contacts
+              All contacts
             </AppWorkspace.SidebarItem>
+          </AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection title="Books">
             {manualBooks.map((book) => renderBookItem(book, "mobile"))}
+          </AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection title="Directory">
             {systemBooks.map((book) => renderBookItem(book, "mobile"))}
           </AppWorkspace.SidebarSection>
         </AppWorkspace.SidebarMobileBody>
       </AppWorkspace.SidebarMobile>
 
       <AppWorkspace.SidebarDesktop>
-        <div class="flex flex-col gap-3">
-          <AppWorkspace.SidebarSection title="Actions">
-            <AppWorkspace.SidebarIconGrid columns={2}>
-              <div style={`view-transition-name:${vt("create-contact-desktop")}`}>
-                <CreateContactButton
-                  writableBooks={props.writableBooks}
-                  defaultBookId={props.defaultCreateBookId ?? null}
-                  label="Create Contact"
-                  variant="icon"
-                />
-              </div>
-              <div style={`view-transition-name:${vt("create-book-desktop")}`}>
-                <CreateBookButton label="New Book" variant="icon" />
-              </div>
-            </AppWorkspace.SidebarIconGrid>
-          </AppWorkspace.SidebarSection>
+        <div class="flex flex-col gap-2" style={`view-transition-name:${vt("primary-actions-desktop")}`}>
+          <CreateContactButton
+            writableBooks={props.writableBooks}
+            defaultBookId={props.defaultCreateBookId ?? null}
+            chooseBook={props.active === "all" || !props.defaultCreateBookId}
+            buttonClass="btn-primary btn-sm w-full justify-start"
+            label="New contact"
+          />
+          <ContactsSpotlightButton variant="sidebar" registerShortcut />
         </div>
 
         <AppWorkspace.SidebarBody scrollPreserveKey="contacts-sidebar">
-          <AppWorkspace.SidebarSection title="Contacts">
-            <ContactsSpotlightButton variant="sidebar" registerShortcut />
+          <AppWorkspace.SidebarSection>
             <AppWorkspace.SidebarItem
               href="/app/contacts"
               navigation="document"
@@ -110,9 +100,11 @@ export default function ContactsSidebar(props: Props) {
               active={props.active === "all"}
               viewTransitionName={vt("all-desktop")}
             >
-              All Contacts
+              All contacts
             </AppWorkspace.SidebarItem>
+          </AppWorkspace.SidebarSection>
 
+          <AppWorkspace.SidebarSection title="Books">
             {manualBooks.map((book) => {
               const href = `/app/contacts/${book.id}`;
               const isActive = props.active === book.id;
@@ -123,7 +115,7 @@ export default function ContactsSidebar(props: Props) {
                   style={`view-transition-name:${vt(`book-${book.id}-desktop`)}`}
                 >
                   <a href={href} class="flex min-w-0 flex-1 items-center gap-2" aria-current={isActive ? "page" : undefined}>
-                    <i class="ti ti-cube text-sm" />
+                    <i class="ti ti-address-book text-sm" />
                     <span class="truncate">{book.name}</span>
                   </a>
                   {canManage && (
@@ -139,10 +131,16 @@ export default function ContactsSidebar(props: Props) {
                 </div>
               );
             })}
+          </AppWorkspace.SidebarSection>
 
+          <AppWorkspace.SidebarSection title="Directory">
             {systemBooks.map((book) => renderBookItem(book, "desktop"))}
           </AppWorkspace.SidebarSection>
         </AppWorkspace.SidebarBody>
+
+        <AppWorkspace.SidebarFooter class="border-t border-[var(--ui-divider)] pt-2">
+          <CreateBookButton buttonClass="btn-simple btn-sm w-full justify-start text-dimmed" label="New book" />
+        </AppWorkspace.SidebarFooter>
       </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>
   );

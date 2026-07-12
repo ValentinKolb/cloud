@@ -1,7 +1,7 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { Placeholder } from "@valentinkolb/cloud/ui";
+import { Dropdown, Placeholder, Tooltip } from "@valentinkolb/cloud/ui";
 import type { Contact, ContactNote, ContactRef, ContactTree } from "../../service";
-import { resolveContactName, safeWebsiteHref } from "../../shared";
+import { resolveContactInitials, resolveContactName, safeWebsiteHref } from "../../shared";
 import ContactNotesSection from "./ContactNotesSection.island";
 import { createContactDetailActions } from "./ContactDetailPanel.actions";
 import ContactTagChip from "./ContactTagChip";
@@ -121,8 +121,14 @@ export default function ContactDetailPanel(props: Props) {
               <div class="flex h-full min-h-0 flex-col">
                 <div class="detail-stack">
                   <section class="detail-section-compact" style="view-transition-name: contacts-detail-panel">
-                    <div class="flex items-start justify-between gap-3">
-                      <div class="min-w-0 flex-1 space-y-1">
+                    <div class="flex flex-wrap items-start gap-3">
+                      <span
+                        class="contact-avatar flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
+                        aria-hidden="true"
+                      >
+                        {resolveContactInitials(c())}
+                      </span>
+                      <div class="min-w-36 flex-1 space-y-1 pt-0.5">
                         <h2 class="truncate text-base font-semibold leading-5 text-primary">{resolveContactName(c())}</h2>
                         <div class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-5 text-dimmed">
                           <Show when={c().jobTitle}>
@@ -134,44 +140,70 @@ export default function ContactDetailPanel(props: Props) {
                           <Show when={c().companyName}>
                             <span class="truncate">{c().companyName}</span>
                           </Show>
+                          <Show when={props.bookNames[c().bookId]}>
+                            <span aria-hidden="true">·</span>
+                            <span class="truncate">{props.bookNames[c().bookId]}</span>
+                          </Show>
                         </div>
                       </div>
-                      <div class="flex shrink-0 items-center gap-1">
+                      <div class="ml-auto flex shrink-0 items-center gap-1">
                         <Show when={actions.canEdit()}>
-                          <button
-                            type="button"
-                            class="btn-simple btn-sm text-dimmed hover:text-primary"
-                            aria-label="Edit contact"
-                            onClick={() => actions.openEditDialog(c())}
-                          >
-                            <i class="ti ti-pencil" />
+                          <button type="button" class="btn-secondary btn-sm" onClick={() => actions.openEditDialog(c())}>
+                            <i class="ti ti-pencil" /> Edit
                           </button>
                         </Show>
                         <Show when={actions.canMove()}>
+                          <Dropdown
+                            trigger={
+                              <button type="button" class="icon-btn" aria-label="More contact actions">
+                                <i class="ti ti-dots" />
+                              </button>
+                            }
+                            elements={[
+                              {
+                                label: "Move to another book",
+                                icon: "ti ti-folder-symlink",
+                                action: () => actions.moveToBook(c()),
+                              },
+                            ]}
+                            position="bottom-left"
+                          />
+                        </Show>
+                        <Tooltip content="Close details">
                           <button
                             type="button"
-                            class="btn-simple btn-sm text-dimmed hover:text-primary"
-                            aria-label="Move contact to another book"
-                            title="Move to another book"
-                            onClick={() => actions.moveToBook(c())}
+                            class="icon-btn"
+                            aria-label="Close contact detail panel"
+                            onClick={() => clearSelectedContactInUrl()}
                           >
-                            <i class="ti ti-folder-symlink" />
+                            <i class="ti ti-x" />
                           </button>
-                        </Show>
-                        <button
-                          type="button"
-                          class="btn-simple btn-sm text-dimmed hover:text-primary"
-                          aria-label="Close contact detail panel"
-                          onClick={() => clearSelectedContactInUrl()}
-                        >
-                          <i class="ti ti-x" />
-                        </button>
+                        </Tooltip>
                       </div>
                     </div>
 
                     <Show when={c().tags.length > 0}>
                       <div class="mt-3 flex flex-wrap items-center gap-1.5">
                         <For each={c().tags}>{(tag) => <ContactTagChip name={tag.name} color={tag.color} size="sm" />}</For>
+                      </div>
+                    </Show>
+
+                    <Show when={c().emails[0] || c().phones[0]}>
+                      <div class="mt-3 flex flex-wrap items-center gap-2">
+                        <Show when={c().emails[0]}>
+                          {(email) => (
+                            <a href={`mailto:${email().email}`} class="btn-secondary btn-sm">
+                              <i class="ti ti-mail" /> Email
+                            </a>
+                          )}
+                        </Show>
+                        <Show when={c().phones[0]}>
+                          {(phone) => (
+                            <a href={`tel:${phone().phone}`} class="btn-secondary btn-sm">
+                              <i class="ti ti-phone" /> Call
+                            </a>
+                          )}
+                        </Show>
                       </div>
                     </Show>
                   </section>
@@ -181,8 +213,8 @@ export default function ContactDetailPanel(props: Props) {
                       <h3 class="detail-section-label">Reach</h3>
                       <For each={c().emails}>
                         {(email) => (
-                          <a href={`mailto:${email.email}`} class="detail-row hover:text-blue-500">
-                            <i class="ti ti-mail detail-row-icon text-blue-500 dark:text-blue-400" />
+                          <a href={`mailto:${email.email}`} class="detail-row hover:text-primary">
+                            <i class="ti ti-mail detail-row-icon text-dimmed" />
                             <Show when={email.label}>
                               <span class="detail-row-label">{email.label}</span>
                             </Show>
@@ -192,8 +224,8 @@ export default function ContactDetailPanel(props: Props) {
                       </For>
                       <For each={c().phones}>
                         {(phone) => (
-                          <a href={`tel:${phone.phone}`} class="detail-row hover:text-green-600">
-                            <i class="ti ti-phone detail-row-icon text-green-600 dark:text-green-400" />
+                          <a href={`tel:${phone.phone}`} class="detail-row hover:text-primary">
+                            <i class="ti ti-phone detail-row-icon text-dimmed" />
                             <Show when={phone.label}>
                               <span class="detail-row-label">{phone.label}</span>
                             </Show>
@@ -207,7 +239,7 @@ export default function ContactDetailPanel(props: Props) {
                             when={safeWebsiteHref(website.url)}
                             fallback={
                               <div class="detail-row">
-                                <i class="ti ti-world detail-row-icon text-purple-600 dark:text-purple-400" />
+                                <i class="ti ti-world detail-row-icon text-dimmed" />
                                 <Show when={website.label}>
                                   <span class="detail-row-label">{website.label}</span>
                                 </Show>
@@ -216,8 +248,8 @@ export default function ContactDetailPanel(props: Props) {
                             }
                           >
                             {(href) => (
-                              <a href={href()} target="_blank" rel="noopener noreferrer" class="detail-row hover:text-purple-600">
-                                <i class="ti ti-world detail-row-icon text-purple-600 dark:text-purple-400" />
+                              <a href={href()} target="_blank" rel="noopener noreferrer" class="detail-row hover:text-primary">
+                                <i class="ti ti-world detail-row-icon text-dimmed" />
                                 <Show when={website.label}>
                                   <span class="detail-row-label">{website.label}</span>
                                 </Show>
@@ -236,7 +268,7 @@ export default function ContactDetailPanel(props: Props) {
                       <For each={c().addresses}>
                         {(address) => (
                           <div class="mb-3 last:mb-0 flex gap-1.5 text-xs text-primary">
-                            <i class="ti ti-map-pin detail-row-icon mt-0.5 self-start text-amber-600 dark:text-amber-400" />
+                            <i class="ti ti-map-pin detail-row-icon mt-0.5 self-start text-dimmed" />
                             <div class="min-w-0 flex-1">
                               <Show when={address.label}>
                                 <p class="text-dimmed">{address.label}</p>
@@ -251,11 +283,11 @@ export default function ContactDetailPanel(props: Props) {
 
                   <Show when={c().bankAccounts.length > 0}>
                     <section class="detail-section">
-                      <h3 class="detail-section-label">Bank Details</h3>
+                      <h3 class="detail-section-label">Bank details</h3>
                       <For each={c().bankAccounts}>
                         {(account) => (
                           <div class="mb-3 last:mb-0 flex gap-1.5 text-xs text-primary">
-                            <i class="ti ti-building-bank detail-row-icon mt-0.5 self-start text-emerald-600 dark:text-emerald-400" />
+                            <i class="ti ti-building-bank detail-row-icon mt-0.5 self-start text-dimmed" />
                             <div class="min-w-0 flex-1">
                               <Show when={account.label}>
                                 <p class="text-dimmed">{account.label}</p>
@@ -333,10 +365,10 @@ export default function ContactDetailPanel(props: Props) {
 
                   <Show when={c().parent || hasOrgTree() || c().members.length > 0 || actions.canEdit()}>
                     <section class="detail-section">
-                      <h3 class="detail-section-label">Members</h3>
+                      <h3 class="detail-section-label">Organization</h3>
                       <div class="flex flex-col gap-2">
                         <Show when={c().parent || hasOrgTree()}>
-                          <div class="flex flex-col gap-2 rounded-md bg-zinc-50 p-2 text-xs text-dimmed dark:bg-zinc-900/60">
+                          <div class="flex flex-col gap-2 rounded-md bg-[var(--ui-surface-subtle)] p-2 text-xs text-dimmed">
                             <div class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                               <span>{props.bookNames[c().bookId] ?? c().bookId}</span>
                               <Show when={c().parent}>
@@ -346,7 +378,7 @@ export default function ContactDetailPanel(props: Props) {
                                     <span>part of</span>
                                     <button
                                       type="button"
-                                      class="min-w-0 truncate text-left font-medium text-primary transition-colors hover:text-blue-600 dark:hover:text-blue-300"
+                                      class="min-w-0 truncate text-left font-medium text-primary transition-colors hover:underline"
                                       onClick={() => setSelectedContactInUrl({ contactId: parent().id, bookId: c().bookId, contact: null })}
                                       title={`Open ${resolveContactName(parent())}`}
                                     >
@@ -358,7 +390,7 @@ export default function ContactDetailPanel(props: Props) {
                               <Show when={hasOrgTree()}>
                                 <button
                                   type="button"
-                                  class="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-medium text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40"
+                                  class="btn-simple btn-sm ml-auto shrink-0"
                                   aria-label="Show org tree"
                                   title="Show org tree"
                                   disabled={actions.orgTreeLoading()}
@@ -379,9 +411,9 @@ export default function ContactDetailPanel(props: Props) {
                                   <button
                                     type="button"
                                     onClick={() => setSelectedContactInUrl({ contactId: member.id, bookId: c().bookId, contact: null })}
-                                    class="flex flex-1 items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                                    class="flex flex-1 items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--ui-hover)]"
                                   >
-                                    <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs font-medium dark:bg-zinc-700">
+                                    <div class="contact-avatar flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium">
                                       {(resolveContactName(member as ContactRef) || "?").charAt(0).toUpperCase()}
                                     </div>
                                     <div class="min-w-0 flex-1">
@@ -397,7 +429,7 @@ export default function ContactDetailPanel(props: Props) {
                                     <button
                                       type="button"
                                       onClick={() => actions.unlinkMember(member, c())}
-                                      class="shrink-0 p-1 text-dimmed opacity-0 transition-all hover:text-red-500 group-hover:opacity-100"
+                                      class="focus-ui flex h-7 w-7 shrink-0 items-center justify-center rounded text-dimmed opacity-100 transition-all hover:bg-red-500/[0.08] hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
                                       aria-label={`Remove ${resolveContactName(member as ContactRef)} from members`}
                                       title="Remove from members"
                                     >

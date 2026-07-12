@@ -1,15 +1,13 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { AppWorkspace, Pagination } from "@valentinkolb/cloud/ui";
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { expectUserBackedActor } from "@/actor";
 import { ssr } from "../../config";
 import { contactsService } from "../../service";
 import ContactBookUnavailable from "../_components/ContactBookUnavailable";
 import ContactDetailPanel from "../_components/ContactDetailPanel.island";
-import ContactsList from "../_components/ContactsList.island";
 import ContactsSidebar from "../_components/ContactsSidebar";
-import ContactTagChip from "../_components/ContactTagChip";
+import ContactsWorkspaceMain from "../_components/ContactsWorkspaceMain";
 import DesktopDetailLayoutSync from "../_components/DesktopDetailLayoutSync.island";
 import ContactsLayoutHelp from "../_components/help/ContactsLayoutHelp.island";
 import {
@@ -81,7 +79,7 @@ export default ssr<AuthContext>(async (c) => {
   const initialNotes = selectedContact ? await contactsService.contact.notes.list({ bookId, contactId: selectedContact.id }) : [];
   const bookNames = Object.fromEntries(books.map((entry) => [entry.id, entry.name]));
   const totalPages = Math.max(1, Math.ceil(contactsResult.total / perPage));
-  const paginationBaseUrl = buildContactsPaginationBaseUrl({ basePath: `/app/contacts/${bookId}`, search });
+  const paginationBaseUrl = buildContactsPaginationBaseUrl({ basePath: `/app/contacts/${bookId}`, search, tagId: activeTagId });
   const initialSelectedContactId = selectedContact?.id ?? selectedContactIdFromUrl ?? null;
   const initialSelectedBookId = selectedContact ? bookId : selectedContactIdFromUrl ? bookId : null;
   const hasDesktopDetailSelection = Boolean(selectedContact);
@@ -97,47 +95,27 @@ export default ssr<AuthContext>(async (c) => {
           defaultCreateBookId={canWrite ? book.id : (writableBooks[0]?.id ?? null)}
         />
 
-        <AppWorkspace.Main class="gap-[var(--ui-space-section)] p-[var(--ui-space-section)]">
-          <div style="view-transition-name: contacts-page-header">
-            <SearchBar value={search} />
-          </div>
-          {bookTags.length > 0 && (
-            <div class="flex flex-wrap items-center gap-1.5">
-              <a
-                href={search.trim() ? `/app/contacts/${bookId}?search=${encodeURIComponent(search.trim())}` : `/app/contacts/${bookId}`}
-                class={`inline-flex h-6 items-center gap-1 rounded-full border px-2 text-xs font-medium transition-colors ${
-                  activeTagId
-                    ? "border-zinc-200 bg-zinc-100/80 text-zinc-600 hover:bg-zinc-200/80 hover:text-primary dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                    : "border-blue-300/70 bg-blue-500/12 text-blue-700 dark:border-blue-700/70 dark:bg-blue-500/18 dark:text-blue-300"
-                }`}
-              >
-                All
-              </a>
-              {bookTags.map((tag) => {
-                const active = activeTagId === tag.id;
-                const params = new URLSearchParams();
-                if (search.trim()) params.set("search", search.trim());
-                params.set("tag_id", tag.id);
-                const href = `/app/contacts/${bookId}?${params.toString()}`;
-                return (
-                  <a href={href} class="inline-flex transition-opacity hover:opacity-85">
-                    <ContactTagChip name={tag.name} color={tag.color} active={active} size="sm" />
-                  </a>
-                );
-              })}
-            </div>
-          )}
-          <div class="flex-1 min-h-0 overflow-y-auto flex flex-col" data-scroll-preserve={`contacts-main-${book.id}`}>
-            <div style="view-transition-name: contacts-list-container">
-              <ContactsList
-                contacts={contacts}
-                initialSelectedContactId={initialSelectedContactId}
-                initialSelectedBookId={initialSelectedBookId}
-              />
-            </div>
-            <Pagination currentPage={contactsResult.page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
-          </div>
-        </AppWorkspace.Main>
+        <ContactsWorkspaceMain
+          title={book.name}
+          description={book.description ?? (book.isSystem ? "Company directory" : "Shared contact book")}
+          total={contactsResult.total}
+          search={search}
+          searchAction={activeTagId ? `/app/contacts/${bookId}?tag_id=${encodeURIComponent(activeTagId)}` : `/app/contacts/${bookId}`}
+          searchPlaceholder={`Filter ${book.name}...`}
+          contacts={contacts}
+          bookNames={bookNames}
+          initialSelectedContactId={initialSelectedContactId}
+          initialSelectedBookId={initialSelectedBookId}
+          writableBooks={writableBooks}
+          defaultCreateBookId={canWrite ? book.id : (writableBooks[0]?.id ?? null)}
+          chooseBookOnCreate={!canWrite}
+          currentPage={contactsResult.page}
+          totalPages={totalPages}
+          paginationBaseUrl={paginationBaseUrl}
+          tags={bookTags}
+          activeTagId={activeTagId}
+          filtersBasePath={`/app/contacts/${bookId}`}
+        />
 
         <AppWorkspace.Detail
           id="contacts-detail-panel"

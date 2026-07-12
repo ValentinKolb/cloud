@@ -28,6 +28,16 @@ export const resolveStoredContactLabel = (contact: NameLike): string | null => {
   return trimOrNull(contact.label);
 };
 
+export const resolveContactInitials = (contact: NameLike): string => {
+  const nameParts = [trimOrNull(contact.firstName), trimOrNull(contact.lastName)].filter(Boolean) as string[];
+  if (nameParts.length > 0)
+    return nameParts
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("");
+  return resolveContactName(contact).slice(0, 2).toUpperCase();
+};
+
 export const safeWebsiteHref = (value: string): string | null => {
   const trimmed = value.trim();
   try {

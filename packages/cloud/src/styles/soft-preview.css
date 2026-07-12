@@ -140,10 +140,18 @@ body:has(.cloud-ui-soft),
   --theme-shadow-hover: 0 14px 32px -24px rgb(0 0 0 / 0.8), 0 3px 12px rgb(0 0 0 / 0.22);
 }
 
+/* Keep the opt-in canvas inside the layout viewport on scrolling mobile pages.
+   `w-screen` includes the browser scrollbar and otherwise creates x-overflow. */
+.cloud-app-canvas:has(.cloud-ui-soft) {
+  width: 100%;
+  max-width: 100%;
+}
+
 /* The rail is part of the canvas, not a separately tinted column. */
 .cloud-app-canvas:has(.cloud-ui-soft) > .layout-rail {
   width: 2.5rem;
-  background: transparent;
+  background-color: transparent !important;
+  background-image: none !important;
 }
 
 .cloud-app-canvas:has(.cloud-ui-soft) > .layout-rail-navigation {

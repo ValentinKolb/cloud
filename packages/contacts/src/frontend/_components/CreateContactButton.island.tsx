@@ -14,6 +14,7 @@ type Props = {
   buttonClass?: string;
   label?: string;
   variant?: "button" | "icon";
+  chooseBook?: boolean;
 };
 
 export default function CreateContactButton(props: Props) {
@@ -31,34 +32,38 @@ export default function CreateContactButton(props: Props) {
         ? props.defaultBookId
         : props.writableBooks[0]!.id;
 
-    const result = await prompts.form({
-      title: "Create Contact",
-      icon: "ti ti-user-plus",
-      confirmText: "Continue",
-      fields: {
-        bookId: {
-          type: "select",
-          label: "In which book do you want to create the contact?",
-          required: true,
-          default: defaultBookId,
-          options: props.writableBooks.map((book) => ({
-            id: book.id,
-            label: book.name,
-            icon: "ti ti-cube",
-          })),
+    let selectedBookId = defaultBookId;
+    if (props.chooseBook) {
+      const result = await prompts.form({
+        title: "Choose contact book",
+        icon: "ti ti-address-book",
+        confirmText: "Continue",
+        fields: {
+          bookId: {
+            type: "select",
+            label: "Contact book",
+            description: "Choose where the new contact should be stored.",
+            required: true,
+            default: defaultBookId,
+            options: props.writableBooks.map((book) => ({
+              id: book.id,
+              label: book.name,
+              icon: "ti ti-address-book",
+            })),
+          },
         },
-      },
-    });
+      });
+      if (!result) return;
+      selectedBookId = result.bookId;
+    }
 
-    if (!result) return;
-
-    const selectedBook = props.writableBooks.find((book) => book.id === result.bookId);
+    const selectedBook = props.writableBooks.find((book) => book.id === selectedBookId);
     const created = await dialogCore.open<Contact | undefined>(
       (close) => (
         <ContactUpsertForm
           mode="create"
-          bookId={result.bookId}
-          title={selectedBook ? `New Contact in ${selectedBook.name}` : "New Contact"}
+          bookId={selectedBookId}
+          title={selectedBook ? `New contact in ${selectedBook.name}` : "New contact"}
           icon="ti ti-user-plus"
           onCancel={() => close(undefined)}
           onSaved={(contact) => close(contact)}
@@ -68,11 +73,10 @@ export default function CreateContactButton(props: Props) {
     );
 
     if (!created) return;
-    navigateTo(`/app/contacts/${result.bookId}?contact=${created.id}&contactBook=${result.bookId}`);
+    navigateTo(`/app/contacts/${selectedBookId}?contact=${created.id}&contactBook=${selectedBookId}`);
   };
   const isIcon = () => props.variant === "icon";
-  const buttonClass = () =>
-    props.buttonClass ?? (isIcon() ? "sidebar-icon-action sidebar-icon-action-success" : "btn-success btn-sm w-full");
+  const buttonClass = () => props.buttonClass ?? (isIcon() ? "sidebar-icon-action" : "btn-primary btn-sm w-full");
 
   return (
     <button
@@ -80,10 +84,10 @@ export default function CreateContactButton(props: Props) {
       class={buttonClass()}
       onClick={handleCreateContact}
       aria-label="Create new contact"
-      title={props.label ?? "Create Contact"}
+      title={props.label ?? "New contact"}
     >
       <i class="ti ti-user-plus" />
-      {!isIcon() && (props.label ?? "Create Contact")}
+      {!isIcon() && (props.label ?? "New contact")}
     </button>
   );
 }

@@ -9,7 +9,7 @@ type ContactTagChipProps = {
 };
 
 export default function ContactTagChip(props: ContactTagChipProps) {
-  const sizeClass = () => (props.size === "sm" ? "h-6 px-2 text-xs" : "h-5 px-1.5 text-[10px]");
+  const sizeClass = () => (props.size === "sm" ? "h-6 px-2 text-xs" : "h-5 px-1.5 text-[11px]");
   const color = () => safeTagColor(props.color);
 
   return (
