@@ -99,7 +99,7 @@ export type DslDerivedViewAggregation = {
   joinAlias?: string;
 };
 
-export type DslDerivedViewGroupSort = {
+type DslDerivedViewGroupSort = {
   key: string;
   direction: "asc" | "desc";
   nullsFirst?: boolean;

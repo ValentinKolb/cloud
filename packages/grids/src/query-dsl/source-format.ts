@@ -1,6 +1,6 @@
 import type { Literal } from "../formula/types";
 
-export type GqlSourceKind = "table" | "view";
+type GqlSourceKind = "table" | "view";
 
 const GQL_ALIAS_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const GQL_RESERVED_ALIASES = new Set([

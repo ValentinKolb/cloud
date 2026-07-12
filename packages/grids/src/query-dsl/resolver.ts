@@ -33,7 +33,7 @@ import { isDerivedViewSource, resolveSource, validateViewSource, viewSourceNeeds
 import { type DslWherePredicate, mergeRecordMeta, resolveWhere } from "./resolver-where";
 import type { DslQueryAst } from "./types";
 
-export type { DslFormulaAggregation, DslFormulaHavingPredicate, DslResolvedSqlAggregation } from "./resolver-aggregates";
+export type { DslFormulaAggregation, DslResolvedSqlAggregation } from "./resolver-aggregates";
 export type { DslResolverContext, DslTableSource, DslViewSource } from "./resolver-context";
 export type { DslDerivedViewColumn } from "./resolver-derived-columns";
 export { derivedViewColumns } from "./resolver-derived-columns";

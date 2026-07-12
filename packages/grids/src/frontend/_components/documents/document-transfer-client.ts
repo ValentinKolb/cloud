@@ -9,7 +9,7 @@ type GenerateDocumentTemplateInput = PreviewDocumentTemplateInput & {
   tags?: string[];
 };
 
-export type DocumentTemplateDraftPreviewInput = {
+type DocumentTemplateDraftPreviewInput = {
   source: string;
   html: string;
   headerHtml?: string | null;

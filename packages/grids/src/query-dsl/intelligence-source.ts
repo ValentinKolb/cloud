@@ -8,20 +8,20 @@ import { type CompletionPurpose, type CompletionRequest, completionItem, isDiagn
 import { QUALIFIED_REF_RE, SOURCE_REF_RE } from "./intelligence-grammar";
 import { type DslDerivedViewColumn, type DslResolverContext, type DslViewSource, derivedViewColumns } from "./resolver";
 
-export type SourceScope = {
+type SourceScope = {
   alias?: string;
   tableId: string;
   fields: Field[];
   derivedColumns?: DslDerivedViewColumn[];
 };
 
-export type JoinScope = {
+type JoinScope = {
   alias: string;
   tableId: string;
   fields: Field[];
 };
 
-export type ResolvedSource = SourceScope & {
+type ResolvedSource = SourceScope & {
   sourceKind: "table" | "view" | "current";
 };
 
@@ -29,12 +29,12 @@ const aliveFields = (fields: Field[]): Field[] => fields.filter((field) => !fiel
 
 export const parseSourceReference = (raw: string): string | null => parseIdentifierRef(raw.trim());
 
-export const sourceMatches = (source: { id: string; shortId: string; name: string }, ref: string): boolean => {
+const sourceMatches = (source: { id: string; shortId: string; name: string }, ref: string): boolean => {
   const key = normalizeRefKey(ref);
   return normalizeRefKey(source.id) === key || normalizeRefKey(source.shortId) === key || normalizeRefKey(source.name) === key;
 };
 
-export const resolveView = (ctx: DslResolverContext, ref: string): DslViewSource | undefined =>
+const resolveView = (ctx: DslResolverContext, ref: string): DslViewSource | undefined =>
   (ctx.views ?? []).find((view) => sourceMatches(view, ref));
 
 const viewIsDerived = (view: DslViewSource): boolean => (view.query.groupBy?.length ?? 0) > 0 || (view.query.aggregations?.length ?? 0) > 0;
@@ -87,7 +87,7 @@ const sourceFromCurrentSource = (
   return undefined;
 };
 
-export const resolveSource = (
+const resolveSource = (
   ctx: DslResolverContext,
   query: string,
   currentSource: CompletionRequest["currentSource"],
@@ -125,7 +125,7 @@ export const resolveSource = (
   };
 };
 
-export const collectJoinScopes = (ctx: DslResolverContext, query: string): JoinScope[] => {
+const collectJoinScopes = (ctx: DslResolverContext, query: string): JoinScope[] => {
   const re = new RegExp(String.raw`\b(?:left\s+)?join\s+table\s+(${SOURCE_REF_RE})\s+as\s+([A-Za-z_][A-Za-z0-9_]*)`, "gi");
   const joins: JoinScope[] = [];
   const seen = new Set<string>();

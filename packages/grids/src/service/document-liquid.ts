@@ -10,7 +10,7 @@ import type { DocumentTemplate } from "../contracts";
 export const DEFAULT_DOCUMENT_NUMBER_TEMPLATE = "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}";
 const TEMPLATE_MAX_BYTES = 200_000;
 
-export const DOCUMENT_TEMPLATE_ROOTS = new Set([
+const DOCUMENT_TEMPLATE_ROOTS = new Set([
   "record",
   "table",
   "rows",

@@ -5,7 +5,7 @@ import { apiClient } from "../../../api/client";
 import type { CreateDocumentLinkResponse, DocumentLink, DocumentLinkTtl, DocumentRunSummary } from "../../../contracts";
 import { errorMessage } from "../utils/api-helpers";
 
-export type DocumentLinkDialogArgs = {
+type DocumentLinkDialogArgs = {
   run: DocumentRunSummary;
   onCreated: (link: DocumentLink) => void | Promise<void>;
 };

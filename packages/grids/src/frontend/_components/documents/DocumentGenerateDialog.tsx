@@ -7,7 +7,7 @@ import RecordPicker from "../records/RecordPicker";
 import { downloadPdfResponse } from "./document-download";
 import { isPdfResponse, requestDocumentTemplateGeneration, requestDocumentTemplatePreview } from "./document-transfer-client";
 
-export type DocumentGenerateDialogArgs = {
+type DocumentGenerateDialogArgs = {
   table: Table;
   template: DocumentTemplateSummary;
   initialRecordId: string | null;

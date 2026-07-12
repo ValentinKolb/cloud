@@ -113,7 +113,7 @@ export const notifyRecordEventOutbox = (outboxId: string): void => {
   void submission.finally(() => pendingSubmissions.delete(submission));
 };
 
-export const reconcileRecordEventOutbox = async (): Promise<number> => {
+const reconcileRecordEventOutbox = async (): Promise<number> => {
   await sql`
     DELETE FROM grids.record_event_outbox
     WHERE status = 'delivered' AND delivered_at < now() - (${DELIVERED_RETENTION_DAYS} * interval '1 day')

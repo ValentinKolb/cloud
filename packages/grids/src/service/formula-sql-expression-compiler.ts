@@ -19,8 +19,6 @@ import {
 } from "./formula-sql-values";
 import type { Field } from "./types";
 
-export type { FormulaSqlCompileResult, FormulaSqlExpression, FormulaSqlType } from "./formula-sql-values";
-
 const SQL_ALIAS = /^[a-z_][a-z0-9_]*$/i;
 const MAX_FORMULA_INLINE_DEPTH = 8;
 

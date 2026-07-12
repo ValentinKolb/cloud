@@ -91,7 +91,7 @@ export type WorkspaceDashboardRoute = {
   dashboardWorkflows: Workflow[];
 };
 
-export type WorkspaceEmptyRoute = {
+type WorkspaceEmptyRoute = {
   kind: "empty";
 };
 

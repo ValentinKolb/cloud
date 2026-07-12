@@ -8,7 +8,7 @@ import { errorMessage } from "../utils/api-helpers";
 import { openDocumentLinkDialog } from "./DocumentLinkDialog";
 import { documentIconActionClass, formatDocumentDateTime, formatDocumentRelativeTime } from "./document-workspace-utils";
 
-export type DocumentRunDetailsDialogArgs = {
+type DocumentRunDetailsDialogArgs = {
   run: DocumentRunSummary;
   canWrite: boolean;
   dateConfig?: DateContext;

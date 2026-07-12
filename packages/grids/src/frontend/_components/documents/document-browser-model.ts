@@ -2,9 +2,9 @@ import type { DocumentRunFolder, DocumentRunSummary } from "../../../contracts";
 import type { GridsDocumentViewMode } from "../sidebar/GridsSettingsStore";
 
 export type DocumentViewMode = GridsDocumentViewMode | "custom";
-export type DocumentBrowserMode = "list" | "folders";
-export type DocumentBrowserKey = { templateId: string; search: string; mode: DocumentBrowserMode; path: string[] };
-export type DocumentBrowserPageState = {
+type DocumentBrowserMode = "list" | "folders";
+type DocumentBrowserKey = { templateId: string; search: string; mode: DocumentBrowserMode; path: string[] };
+type DocumentBrowserPageState = {
   runs: DocumentRunSummary[];
   folders: DocumentRunFolder[];
   total: number;

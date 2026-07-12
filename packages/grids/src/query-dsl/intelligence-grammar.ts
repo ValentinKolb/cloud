@@ -2,7 +2,7 @@ import type { DslQueryCompletionItem, DslQueryTextRange } from "../contracts";
 import type { AggregateKind } from "../service/aggregate-capabilities";
 import { keywordItems } from "./intelligence-core";
 
-export const TOP_LEVEL_KEYWORDS: Array<{ label: string; insertText: string; detail: string; singleton?: string }> = [
+const TOP_LEVEL_KEYWORDS: Array<{ label: string; insertText: string; detail: string; singleton?: string }> = [
   { label: "from table", insertText: "from table ", detail: "Choose a base table", singleton: "source" },
   { label: "from view", insertText: "from view ", detail: "Use a saved view as source", singleton: "source" },
   { label: "select", insertText: "select ", detail: "Pick output fields" },
@@ -20,12 +20,12 @@ export const TOP_LEVEL_KEYWORDS: Array<{ label: string; insertText: string; deta
   { label: "deleted only", insertText: "deleted only", detail: "Only trashed records", singleton: "deleted" },
 ];
 
-export const SOURCE_KIND_KEYWORDS = [
+const SOURCE_KIND_KEYWORDS = [
   { label: "table", insertText: "table ", detail: "Base table" },
   { label: "view", insertText: "view ", detail: "Saved view" },
 ];
 
-export const JOIN_KIND_KEYWORDS = [{ label: "table", insertText: "table ", detail: "Join target table" }];
+const JOIN_KIND_KEYWORDS = [{ label: "table", insertText: "table ", detail: "Join target table" }];
 export const SORT_DIRECTIONS = ["asc", "desc"];
 export const NULL_MODIFIERS = ["nulls first", "nulls last"];
 export const NULL_PLACEMENTS = ["first", "last"];

@@ -22,7 +22,7 @@ export type DslWherePredicate =
   /** Boolean SQL formula — cross-field / arithmetic / scalar-function predicate. */
   | { kind: "formula"; expression: Expr };
 
-export type WhereResolution =
+type WhereResolution =
   | { kind: "filter"; tree?: FilterTree; recordMeta?: RecordMetaQuery }
   | { kind: "predicate"; node: DslWherePredicate }
   | { kind: "error"; diagnostic: DslResolverDiagnostic };

@@ -4,7 +4,7 @@ import type { DocumentRun, DocumentRunFolder, DocumentRunSummaryList } from "../
 import { type DocumentDbRow, mapDocumentRun, summarizeDocumentRun } from "./document-mappers";
 import { decodeDocumentRunCursor, encodeDocumentRunCursor, normalizeDocumentTags } from "./document-run-values";
 
-export type DocumentRunPage = {
+type DocumentRunPage = {
   items: DocumentRun[];
   total: number;
   limit: number;
@@ -14,7 +14,7 @@ export type DocumentRunPage = {
   nextCursor: string | null;
 };
 
-export type DocumentRunBrowsePage = {
+type DocumentRunBrowsePage = {
   path: string[];
   folders: DocumentRunFolder[];
   items: DocumentRun[];

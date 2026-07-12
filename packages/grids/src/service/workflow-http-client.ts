@@ -30,7 +30,7 @@ type WorkflowHttpRequestInput = {
   timeoutMs?: number;
 };
 
-export type WorkflowHttpResponse = {
+type WorkflowHttpResponse = {
   status: number;
   ok: boolean;
   body: string;

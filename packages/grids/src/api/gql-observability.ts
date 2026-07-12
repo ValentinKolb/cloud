@@ -5,8 +5,8 @@ import type { DslResolvedSqlQueryPlan } from "../query-dsl/resolver";
 type GqlTraceCurrentSource = DslQueryPreviewBody["currentSource"];
 
 export type GqlRuntimeOperation = "execute" | "initial-preview" | "preview";
-export type GqlRuntimeOutcome = "diagnostic" | "error" | "success";
-export type GqlRuntimeStage = "execute" | "parse" | "resolve" | "runtime";
+type GqlRuntimeOutcome = "diagnostic" | "error" | "success";
+type GqlRuntimeStage = "execute" | "parse" | "resolve" | "runtime";
 
 export type GqlRuntimeTraceStart = {
   baseId: string;
@@ -26,7 +26,7 @@ export type GqlRuntimeTraceEnd = {
   error?: unknown;
 };
 
-export type GqlRuntimeTraceHandle = {
+type GqlRuntimeTraceHandle = {
   end: (event: GqlRuntimeTraceEnd) => Promise<void>;
 };
 

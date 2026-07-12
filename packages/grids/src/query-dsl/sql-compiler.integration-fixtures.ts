@@ -9,9 +9,9 @@ import { type DslResolverContext, resolveDslQueryToQueryPlan } from "./resolver"
 export const postgresTest = process.env.GRIDS_QUERY_DSL_DB_TEST === "1" ? test : test.skip;
 
 export const uuid = () => Bun.randomUUIDv7();
-export const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
+const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
 
-export type DslDbFixture = {
+type DslDbFixture = {
   baseId: string;
   orders: { kind: "table"; id: string; shortId: string; name: string };
   customers: { kind: "table"; id: string; shortId: string; name: string };

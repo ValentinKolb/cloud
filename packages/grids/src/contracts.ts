@@ -543,7 +543,7 @@ const DslQueryCurrentSourceSchema = z
   ])
   .optional();
 
-export const DslQuerySurfaceSchema = z
+const DslQuerySurfaceSchema = z
   .enum(["api", "cli", "dashboard", "document", "query-explorer", "records-view", "ssr", "workflow"])
   .optional();
 export type DslQuerySurface = z.infer<typeof DslQuerySurfaceSchema>;

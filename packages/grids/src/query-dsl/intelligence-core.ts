@@ -13,9 +13,9 @@ export type CompletionRequest = {
 export const isDiagnostic = (value: unknown): value is { message: string } =>
   typeof value === "object" && value !== null && "message" in value;
 
-export const rangeText = (query: string, range: DslQueryTextRange): string => query.slice(range.start, range.end);
+const rangeText = (query: string, range: DslQueryTextRange): string => query.slice(range.start, range.end);
 
-export const tokenNeedle = (query: string, range: DslQueryTextRange): string =>
+const tokenNeedle = (query: string, range: DslQueryTextRange): string =>
   rangeText(query, range).replace(/^[{"]/, "").replace(/[}"]$/, "").toLowerCase();
 
 export const matchesNeedle = (query: string, range: DslQueryTextRange, values: string[]): boolean => {
@@ -150,7 +150,7 @@ export const isInsideSingleQuotedString = (segment: string): boolean => {
   return quote;
 };
 
-export const normalizeClauseSegment = (segment: string): string => segment.trimStart().toLowerCase();
+const normalizeClauseSegment = (segment: string): string => segment.trimStart().toLowerCase();
 
 export const clauseKind = (segment: string): string => {
   const lower = normalizeClauseSegment(segment);

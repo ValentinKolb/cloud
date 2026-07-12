@@ -39,14 +39,14 @@ export const paidFieldId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6";
 export const customerLinkFieldId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa7";
 export const attachmentFieldId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa8";
 export const createdAtFieldId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa9";
-export const createdByFieldId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa10";
+const createdByFieldId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa10";
 export const customerNameFieldId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1";
 export const customerRegionFieldId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2";
 export const customerScoreFieldId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3";
-export const regionNameFieldId = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1";
-export const regionCityFieldId = "cccccccc-cccc-4ccc-8ccc-ccccccccccc2";
-export const cityCountryFieldId = "dddddddd-dddd-4ddd-8ddd-ddddddddddd1";
-export const countryNameFieldId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1";
+const regionNameFieldId = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1";
+const regionCityFieldId = "cccccccc-cccc-4ccc-8ccc-ccccccccccc2";
+const cityCountryFieldId = "dddddddd-dddd-4ddd-8ddd-ddddddddddd1";
+const countryNameFieldId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1";
 
 export const fields: Field[] = [
   field({ id: customerFieldId, shortId: "customer", name: "Customer", type: "text", position: 1 }),
@@ -82,7 +82,7 @@ export const customerFields: Field[] = [
   field({ id: customerScoreFieldId, tableId: customers.id, shortId: "score", name: "Score", type: "number", position: 3 }),
 ];
 
-export const regionFields: Field[] = [
+const regionFields: Field[] = [
   field({ id: regionNameFieldId, tableId: regions.id, shortId: "name", name: "Name", type: "text", position: 1 }),
   field({
     id: regionCityFieldId,
@@ -95,7 +95,7 @@ export const regionFields: Field[] = [
   }),
 ];
 
-export const cityFields: Field[] = [
+const cityFields: Field[] = [
   field({
     id: cityCountryFieldId,
     tableId: cities.id,
@@ -107,7 +107,7 @@ export const cityFields: Field[] = [
   }),
 ];
 
-export const countryFields: Field[] = [
+const countryFields: Field[] = [
   field({ id: countryNameFieldId, tableId: countries.id, shortId: "name", name: "Name", type: "text", position: 1 }),
 ];
 

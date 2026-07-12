@@ -55,7 +55,7 @@ export type DslSqlGroupOutputColumn =
       sqlType: FormulaSqlType;
     };
 
-export type DslSqlCompiledGroupQuery = {
+type DslSqlCompiledGroupQuery = {
   sql: unknown;
   columns: DslSqlGroupOutputColumn[];
   limit: number;
@@ -73,7 +73,7 @@ export type DslSqlAggregateOutputColumn = {
   sqlType: FormulaSqlType;
 };
 
-export type DslSqlCompiledAggregateQuery = {
+type DslSqlCompiledAggregateQuery = {
   sql: unknown;
   columns: DslSqlAggregateOutputColumn[];
   limit: 1;

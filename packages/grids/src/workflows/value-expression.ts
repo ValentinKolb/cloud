@@ -2,9 +2,9 @@ const EXACT_EXPRESSION = /^\$\{\{\s*([^{}]+?)\s*\}\}$/;
 const EMBEDDED_EXPRESSION = /\$\{\{\s*([^{}]+?)\s*\}\}/g;
 const REFERENCE = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[^{}]+)?$/;
 
-export type WorkflowValueExpression = { kind: "now" } | { kind: "reference"; reference: string };
+type WorkflowValueExpression = { kind: "now" } | { kind: "reference"; reference: string };
 
-export type WorkflowValueString = { kind: "literal" } | { kind: "invalid" } | { kind: "expression"; expression: WorkflowValueExpression };
+type WorkflowValueString = { kind: "literal" } | { kind: "invalid" } | { kind: "expression"; expression: WorkflowValueExpression };
 
 const parseExpression = (source: string): WorkflowValueExpression | null => {
   const expression = source.trim();

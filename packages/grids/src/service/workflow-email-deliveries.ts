@@ -44,7 +44,7 @@ type DeliveryRow = {
   cursor_token: string;
 };
 
-export type WorkflowEmailDeliveryRow = {
+type WorkflowEmailDeliveryRow = {
   delivery: WorkflowEmailDelivery;
   cursor: string;
 };
