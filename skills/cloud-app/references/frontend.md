@@ -331,6 +331,12 @@ browser handling. A visible Cloud page receives quiet in-app feedback over an
 authenticated live stream without requiring notification permission. Hidden or
 closed pages use Web Push when the user enabled it on that device.
 
+Admins inspect typed delivery attempts and the durable app definition catalog
+at `/admin/observability/notifications`. This observability surface stores and
+shows titles, routing metadata, statuses, attempts, and provider errors, but no
+notification body or encrypted provider payload. The separate Legacy view is
+only for entries created through the deprecated email-only API.
+
 The legacy `notifications.send({ type: "email", ... })` and
 `notifications.sendToUser(...)` APIs remain operational for third-party apps,
 but are deprecated and emit a warning on every call. New code must use typed app
@@ -362,9 +368,10 @@ const unregister = registerNotificationChannel(mobileDriver);
 
 The driver resolves a recipient's devices, creates the provider payload, and
 delivers it. The platform encrypts persisted payloads and keeps retry and
-delivery history generic. Register the same deployment driver once in every app
-process that can create notifications and in Core's delivery process; call the
-returned cleanup function during shutdown. Apps can then use `"mobile"` in
+delivery history generic. Channel ids are stable lowercase identifiers using
+letters, digits, `_`, or `-`. Register the same deployment driver once in every
+app process that can create notifications and in Core's delivery process; call
+the returned cleanup function during shutdown. Apps can then use `"mobile"` in
 `recommended` or `required` without importing the provider integration.
 
 ### Global Search

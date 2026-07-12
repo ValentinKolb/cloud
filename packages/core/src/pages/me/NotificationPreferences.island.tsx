@@ -5,7 +5,12 @@ import type { UserNotificationPreference, UserNotificationPreferencesResponse } 
 import { Checkbox, Placeholder, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { notificationChannelAvailability, notificationChannelMeta, subscribeBrowserNotificationState } from "./notification-ui";
+import {
+  notificationChannelAvailability,
+  notificationChannelMeta,
+  subscribeBrowserNotificationState,
+  unavailableBrowserNotificationState,
+} from "./notification-ui";
 
 export type NotificationAppMeta = { id: string; name: string; icon: string };
 
@@ -151,14 +156,7 @@ export default function NotificationPreferences(props: { initial: UserNotificati
     void browserNotificationClient
       .state()
       .then(setBrowserState)
-      .catch(() =>
-        setBrowserState({
-          supported: false,
-          permission: "denied",
-          enabled: false,
-          reason: "Browser notification status could not be checked.",
-        }),
-      );
+      .catch(() => setBrowserState(unavailableBrowserNotificationState()));
     onCleanup(unsubscribe);
   });
 

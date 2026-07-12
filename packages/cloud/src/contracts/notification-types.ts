@@ -126,6 +126,10 @@ export const notification = <const R extends NotificationRecipientKind, const S 
   if (hasDuplicates(recommended) || hasDuplicates(required)) {
     throw new Error(`Notification "${label}" contains duplicate delivery channels`);
   }
+  const overlappingChannel = recommended.find((channel) => required.includes(channel));
+  if (overlappingChannel) {
+    throw new Error(`Notification "${label}" cannot recommend and require the "${overlappingChannel}" channel`);
+  }
   if (input.recipient === "email" && !required.includes("email")) {
     throw new Error(`Email-recipient notification "${label}" must require the email channel`);
   }

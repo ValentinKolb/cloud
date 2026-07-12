@@ -9,6 +9,13 @@ export type NotificationChannelAvailability = {
   warning?: string;
 };
 
+export const unavailableBrowserNotificationState = (): BrowserNotificationState => ({
+  supported: false,
+  permission: "default",
+  enabled: false,
+  reason: "Browser notification status could not be checked. Reload this page to try again.",
+});
+
 export const notificationChannelAvailability = (
   channel: string,
   registered: boolean,

@@ -78,6 +78,12 @@ describe("notification migration", () => {
         ) AS trigger_exists
       `;
       expect(guards).toEqual({ payload_constraint_validated: true, target_constraint_validated: true, trigger_exists: true });
+      const [indexes] = await sql<{ delivery_created: boolean; event_definition_created: boolean }[]>`
+        SELECT
+          to_regclass('notifications.idx_notification_deliveries_created') IS NOT NULL AS delivery_created,
+          to_regclass('notifications.idx_notification_events_definition_created') IS NOT NULL AS event_definition_created
+      `;
+      expect(indexes).toEqual({ delivery_created: true, event_definition_created: true });
     } finally {
       await sql`DELETE FROM auth.users WHERE id = ${user!.id}::uuid`;
       await sql`DELETE FROM notifications.definitions WHERE id = ${definitionId}`;

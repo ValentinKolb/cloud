@@ -1,7 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { notificationChannelAvailability } from "./notification-ui";
+import { notificationChannelAvailability, unavailableBrowserNotificationState } from "./notification-ui";
 
 describe("notification channel availability", () => {
+  test("provides a terminal fallback when browser inspection fails", () => {
+    const state = unavailableBrowserNotificationState();
+    expect(state).toEqual({
+      supported: false,
+      permission: "default",
+      enabled: false,
+      reason: "Browser notification status could not be checked. Reload this page to try again.",
+    });
+    expect(notificationChannelAvailability("browser", true, state)).toEqual({
+      enabled: false,
+      description: state.reason,
+      warning: "Browser notifications are unavailable on this device.",
+    });
+  });
+
   test("keeps browser preferences disabled while device state is unknown or off", () => {
     expect(notificationChannelAvailability("browser", true, null)).toEqual({
       enabled: false,

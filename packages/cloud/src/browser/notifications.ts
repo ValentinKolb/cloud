@@ -1,9 +1,11 @@
 import { notifications as nativeNotifications } from "@valentinkolb/stdlib/browser";
 import { apiClient } from "../clients/core";
 import type { BrowserPushSubscription } from "../contracts";
+import { withNotificationTimeout } from "./notification-timeout";
 
 const SERVICE_WORKER_PATH = "/service-worker.js";
 const SERVICE_WORKER_SCOPE = "/";
+const STATE_CHECK_TIMEOUT_MS = 5_000;
 
 export type BrowserNotificationState = {
   supported: boolean;
@@ -100,13 +102,19 @@ const currentState = async (registration?: ServiceWorkerRegistration): Promise<B
   if (!capability.supported) {
     return { supported: false, permission: "denied", enabled: false, reason: capability.reason };
   }
-  const activeRegistration = registration ?? (await navigator.serviceWorker.getRegistration(SERVICE_WORKER_SCOPE));
-  const subscription = await activeRegistration?.pushManager.getSubscription();
-  return {
-    supported: true,
-    permission: Notification.permission,
-    enabled: Notification.permission === "granted" && !!subscription,
-  };
+  return withNotificationTimeout(
+    (async () => {
+      const activeRegistration = registration ?? (await navigator.serviceWorker.getRegistration(SERVICE_WORKER_SCOPE));
+      const subscription = await activeRegistration?.pushManager.getSubscription();
+      return {
+        supported: true,
+        permission: Notification.permission,
+        enabled: Notification.permission === "granted" && !!subscription,
+      };
+    })(),
+    STATE_CHECK_TIMEOUT_MS,
+    "Browser notification status check timed out.",
+  );
 };
 
 export const browserNotificationClient = {

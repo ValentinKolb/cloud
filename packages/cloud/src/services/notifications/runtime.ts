@@ -5,13 +5,22 @@ import { processNotificationDelivery, recoverNotificationDeliveries } from "./di
 type DeliveryMessage = { deliveryId: string };
 
 const log = logger("notifications:delivery");
+const ENQUEUE_DEDUPLICATION_WINDOW_MS = 60_000;
 const deliveryQueue = queue<DeliveryMessage>({
   id: "cloud-notification-deliveries",
   delivery: { defaultLeaseMs: 60_000, maxDeliveries: 20 },
 });
 
 export const enqueueNotificationDelivery = async (deliveryId: string, delayMs?: number): Promise<void> => {
-  await deliveryQueue.send({ data: { deliveryId }, ...(delayMs ? { delayMs } : {}) });
+  const bucket = Math.floor(Date.now() / ENQUEUE_DEDUPLICATION_WINDOW_MS);
+  await deliveryQueue.send({
+    data: { deliveryId },
+    ...(delayMs ? { delayMs } : {}),
+    // Recovery scans are intentionally repetitive. A time bucket suppresses
+    // queue noise without permanently blocking a later recovery attempt.
+    idempotencyKey: `delivery:${deliveryId}:${bucket}`,
+    idempotencyTtlMs: ENQUEUE_DEDUPLICATION_WINDOW_MS * 2,
+  });
 };
 
 export const enqueueNotificationDeliveries = async (deliveryIds: readonly string[]): Promise<void> => {

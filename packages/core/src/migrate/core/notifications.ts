@@ -218,6 +218,10 @@ export const migrate = async (): Promise<void> => {
     ON notifications.events(recipient_user_id, created_at DESC)
   `.simple();
   await sql`
+    CREATE INDEX IF NOT EXISTS idx_notification_events_definition_created
+    ON notifications.events(definition_id, created_at DESC)
+  `.simple();
+  await sql`
     CREATE INDEX IF NOT EXISTS idx_notification_deliveries_dispatch
     ON notifications.deliveries(status, next_attempt_at, created_at)
     WHERE status IN ('pending', 'sending')
@@ -225,6 +229,10 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_notification_deliveries_event
     ON notifications.deliveries(event_id, required, route_priority, status)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_notification_deliveries_created
+    ON notifications.deliveries(created_at DESC, id DESC)
   `.simple();
   await sql`
     WITH ranked AS (

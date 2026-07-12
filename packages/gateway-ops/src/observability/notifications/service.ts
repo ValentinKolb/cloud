@@ -21,6 +21,9 @@ const mapSendToUserError = (message: string) => {
 };
 
 export const notificationsService = {
+  delivery: notifications.observability.deliveries,
+  registry: notifications.observability.registry,
+  facets: notifications.observability.facets,
   notification: {
     list: async (config: {
       pagination?: PageParams;

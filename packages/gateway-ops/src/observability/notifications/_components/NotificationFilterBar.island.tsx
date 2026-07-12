@@ -1,9 +1,10 @@
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { navigateTo } from "@valentinkolb/ssr/nav";
+import { buildLegacyNotificationsUrl, type LegacyNotificationStatusFilter, NOTIFICATION_ADMIN_BASE_URL } from "./filter-state";
 import SendAllPending from "./SendAllPending.island";
 
-export type NotificationStatusFilter = "all" | "sent" | "pending" | "error";
+export type NotificationStatusFilter = LegacyNotificationStatusFilter;
 
 type Props = {
   search: string;
@@ -21,14 +22,8 @@ const STATUS_OPTIONS: FilterChipSection[] = [
   },
 ];
 
-const baseUrl = "/admin/observability/notifications";
-
 const buildNotificationsUrl = (filter: { search?: string; status?: NotificationStatusFilter }) => {
-  const params = new URLSearchParams();
-  if (filter.search) params.set("search", filter.search);
-  if (filter.status && filter.status !== "all") params.set("status", filter.status);
-  const query = params.toString();
-  return query ? `${baseUrl}?${query}` : baseUrl;
+  return buildLegacyNotificationsUrl({ search: filter.search ?? "", status: filter.status ?? "all" });
 };
 
 export default function NotificationFilterBar(props: Props) {
@@ -56,7 +51,7 @@ export default function NotificationFilterBar(props: Props) {
         />
         {hasFilters && (
           <a
-            href={baseUrl}
+            href={`${NOTIFICATION_ADMIN_BASE_URL}?view=legacy`}
             class="hidden text-[10px] tabular-nums text-red-500 sm:inline"
             aria-label="Clear all filters"
             title="Clear filters"

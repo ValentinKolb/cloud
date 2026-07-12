@@ -29,7 +29,9 @@ export type NotificationChannelDriver = {
 const drivers = new Map<string, NotificationChannelDriver>();
 
 export const registerNotificationChannel = (driver: NotificationChannelDriver): (() => void) => {
-  if (!driver.id.trim()) throw new Error("Notification channel id is required");
+  if (!/^[a-z][a-z0-9_-]{0,79}$/.test(driver.id)) {
+    throw new Error("Notification channel id must be a lowercase identifier of at most 80 characters");
+  }
   const existing = drivers.get(driver.id);
   if (existing && existing !== driver) throw new Error(`Notification channel "${driver.id}" is already registered`);
   drivers.set(driver.id, driver);

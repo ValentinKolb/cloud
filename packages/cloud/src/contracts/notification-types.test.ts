@@ -97,6 +97,19 @@ describe("notification definitions", () => {
     ).toThrow("must require the email channel");
   });
 
+  test("rejects a channel that is both recommended and required", () => {
+    expect(() =>
+      notification({
+        recipient: "user",
+        label: "Conflicting policy",
+        description: "Invalid delivery policy fixture.",
+        delivery: { recommended: ["browser"], required: ["browser"] },
+        data: z.object({}),
+        render: () => ({ title: "Conflict" }),
+      }),
+    ).toThrow('cannot recommend and require the "browser" channel');
+  });
+
   test("accepts only canonical same-origin notification targets", () => {
     expect(isSafeNotificationTargetHref("/app/assistant?conversation=one")).toBe(true);
     expect(isSafeNotificationTargetHref("//evil.example")).toBe(false);

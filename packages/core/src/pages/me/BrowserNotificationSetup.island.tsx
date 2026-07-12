@@ -2,7 +2,7 @@ import type { BrowserNotificationState } from "@valentinkolb/cloud/browser/notif
 import { browserNotificationClient } from "@valentinkolb/cloud/browser/notifications";
 import { toast } from "@valentinkolb/cloud/ui";
 import { createSignal, onMount, Show } from "solid-js";
-import { announceBrowserNotificationState } from "./notification-ui";
+import { announceBrowserNotificationState, unavailableBrowserNotificationState } from "./notification-ui";
 
 const statusMeta = (state: BrowserNotificationState | null) => {
   if (!state) return { label: "Checking", class: "tag-neutral" };
@@ -25,8 +25,8 @@ export default function BrowserNotificationSetup() {
   onMount(async () => {
     try {
       applyState(await browserNotificationClient.state());
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to inspect browser notification support.");
+    } catch {
+      applyState(unavailableBrowserNotificationState());
     }
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getNotificationChannel } from "./channels";
+import { getNotificationChannel, registerNotificationChannel } from "./channels";
 
 describe("notification channel drivers", () => {
   test("derives a stable provider key for repeated email attempts", async () => {
@@ -14,5 +14,16 @@ describe("notification channel drivers", () => {
 
     expect(first).toEqual(expect.objectContaining({ messageId: `<cloud-notification-${event.id}@cloud.invalid>` }));
     expect(second).toEqual(first);
+  });
+
+  test("rejects channel ids that cannot be used as stable registry keys", () => {
+    expect(() =>
+      registerNotificationChannel({
+        id: " Browser ",
+        resolveDestinations: async () => [],
+        createPayload: () => ({}),
+        deliver: async () => undefined,
+      }),
+    ).toThrow("lowercase identifier");
   });
 });
