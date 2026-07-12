@@ -1,6 +1,6 @@
 import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
 import type { FilterTree, RecordDisplayConfig } from "../../../contracts";
-import type { Field, GridRecord } from "../../../service";
+import type { Field } from "../../../service";
 import type { RecordsState } from "./query-url";
 
 export type GridsCalendarView = RecordsState["calendar"]["view"];
@@ -85,18 +85,6 @@ export const removeCalendarQueryFilter = (args: {
   if (filters.length === args.queryFilter.filters.length) return args.queryFilter;
   if (filters.length === 0) return undefined;
   return filters.length === 1 ? filters[0] : { op: "AND", filters };
-};
-
-export const displayRecordTitle = (record: GridRecord, fields: Field[]): string => {
-  const candidates = fields.filter((field) => field.presentable && !field.deletedAt);
-  const fallback =
-    candidates.length > 0 ? candidates : fields.filter((field) => !field.deletedAt && ["text", "id", "select"].includes(field.type));
-  for (const field of fallback) {
-    const value = record.data[field.id];
-    if (typeof value === "string" && value.trim()) return value.trim();
-    if (typeof value === "number" || typeof value === "boolean") return String(value);
-  }
-  return record.id.slice(0, 8);
 };
 
 export const visibleCardFields = (fields: Field[], displayConfig: RecordDisplayConfig): Field[] => {

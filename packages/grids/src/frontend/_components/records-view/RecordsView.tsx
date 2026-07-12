@@ -1441,6 +1441,7 @@ export default function RecordsView(props: Props) {
                       selectedRecordId={selectedRecordId()}
                       onRecordClick={onSelectRecord}
                       dateConfig={props.dateConfig}
+                      fieldsByTable={{ ...(props.fieldsByTable ?? {}), [props.tableId]: fields() }}
                     />
                   </Show>
                 }

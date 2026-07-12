@@ -10,8 +10,9 @@ import { errorMessage } from "../utils/api-helpers";
 import RecordDocumentsSection from "./RecordDocumentsSection";
 import RecordFileField from "./RecordFileField";
 import RecordHistorySection from "./RecordHistorySection";
-import RecordReadView, { recordDisplayTitle } from "./RecordReadView";
+import RecordReadView from "./RecordReadView";
 import { openRecordUpsertDialog } from "./RecordUpsertDialog";
+import { recordDisplayTitle } from "./record-display";
 
 type Props = {
   baseId: string;

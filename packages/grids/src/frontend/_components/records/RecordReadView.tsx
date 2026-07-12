@@ -6,7 +6,7 @@ import { effectiveDisplayField } from "../../../lookup-display";
 import type { Field, GridRecord } from "../../../service";
 import { barcodeValueText, canRenderBarcode } from "../table/BarcodeRendering";
 import { FieldValue } from "../table/FieldValue";
-import { fieldDisplayFormat, formatFieldValueText } from "../table/field-value-format";
+import { fieldDisplayFormatForView, recordDisplayTitle, recordTitleField } from "./record-display";
 
 type RecordReadViewMode = "live" | "trash" | "snapshot";
 
@@ -27,47 +27,17 @@ type RecordReadViewProps = {
   renderFileField?: (field: Field, record: GridRecord) => JSX.Element;
 };
 
-type RecordTitleInput = Pick<RecordReadViewProps, "fields" | "record" | "fieldsByTable" | "relationLabels" | "dateConfig" | "viewColumns">;
-
 const visibleFieldsFor = (fields: Field[]) => fields.filter((field) => !field.deletedAt);
-
-const titleFieldFor = (fields: Field[]) =>
-  fields.find((field) => field.presentable && !["longtext", "json", "file", "relation"].includes(field.type)) ??
-  fields.find((field) => field.type === "text");
-
-const formatFor = (field: Field, viewColumns?: ColumnSpec[]): FormatSpec | undefined => {
-  const column = viewColumns?.find((item) => !("kind" in item) && item.fieldId === field.id);
-  return fieldDisplayFormat(field, column?.format);
-};
-
-export const recordDisplayTitle = (input: RecordTitleInput): string => {
-  const titleField = titleFieldFor(visibleFieldsFor(input.fields));
-  if (titleField) {
-    const value = input.record.data[titleField.id];
-    if (typeof value === "string" && value.length > 0) return value;
-    const formatted = formatFieldValueText({
-      field: titleField,
-      value,
-      record: input.record,
-      fieldsByTable: input.fieldsByTable,
-      relationLabels: input.relationLabels,
-      dateConfig: input.dateConfig,
-      format: formatFor(titleField, input.viewColumns),
-    });
-    if (formatted) return formatted;
-  }
-  return "Untitled record";
-};
 
 export default function RecordReadView(props: RecordReadViewProps) {
   const mode = () => props.mode ?? "live";
   const visibleFields = () => visibleFieldsFor(props.fields);
-  const titleField = () => titleFieldFor(visibleFields());
+  const titleField = () => recordTitleField(visibleFields());
   const bodyFields = () => {
     const titleId = titleField()?.id;
     return visibleFields().filter((field) => field.id !== titleId);
   };
-  const fieldFormat = (field: Field): FormatSpec | undefined => formatFor(field, props.viewColumns);
+  const fieldFormat = (field: Field): FormatSpec | undefined => fieldDisplayFormatForView(field, props.viewColumns);
   const fieldBarcodeFormat = (field: Field): Extract<FormatSpec, { kind: "barcode" }> | undefined => {
     const format = fieldFormat(field);
     return format?.kind === "barcode" ? format : undefined;

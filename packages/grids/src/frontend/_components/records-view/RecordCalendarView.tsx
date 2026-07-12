@@ -3,7 +3,8 @@ import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
 import { createMemo, Show } from "solid-js";
 import type { RecordDisplayConfig } from "../../../contracts";
 import type { Field, GridRecord } from "../../../service";
-import { displayRecordTitle, type GridsCalendarView } from "./display-mode";
+import { recordDisplayTitle } from "../records/record-display";
+import type { GridsCalendarView } from "./display-mode";
 
 export function RecordCalendarView(props: {
   items: GridRecord[];
@@ -14,6 +15,7 @@ export function RecordCalendarView(props: {
   selectedRecordId?: string | null;
   onRecordClick: (record: GridRecord) => void;
   dateConfig?: DateContext;
+  fieldsByTable?: Record<string, Field[]>;
 }) {
   const dateField = () => {
     const fieldId = props.displayConfig.calendar?.dateFieldId;
@@ -29,7 +31,12 @@ export function RecordCalendarView(props: {
       return [
         {
           id: record.id,
-          title: displayRecordTitle(record, props.fields),
+          title: recordDisplayTitle({
+            fields: props.fields,
+            record,
+            fieldsByTable: props.fieldsByTable,
+            dateConfig: props.dateConfig,
+          }),
           start: raw,
           allDay: !includeTime(),
           color: "blue",

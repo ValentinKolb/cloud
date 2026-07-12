@@ -3,9 +3,10 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show } from "solid-js";
 import type { RecordDisplayConfig } from "../../../contracts";
 import type { Field, GridFilePreview, GridRecord } from "../../../service";
+import { recordDisplayTitle } from "../records/record-display";
 import { FieldValue } from "../table/FieldValue";
 import { fieldDisplayFormat, formatFieldValueText } from "../table/field-value-format";
-import { displayRecordTitle, visibleCardFields } from "./display-mode";
+import { visibleCardFields } from "./display-mode";
 import type { CardSize } from "./query-url";
 
 const cardGridClass: Record<CardSize, string> = {
@@ -47,9 +48,10 @@ export function RecordCardsView(props: {
 }) {
   const size = () => props.cardSize ?? "medium";
   const cardFields = () => visibleCardFields(props.fields, props.displayConfig);
+  const title = (record: GridRecord) =>
+    recordDisplayTitle({ fields: props.fields, record, fieldsByTable: props.fieldsByTable, dateConfig: props.dateConfig });
   const displayFields = (record: GridRecord) => {
-    const title = displayRecordTitle(record, props.fields);
-    const titleKey = title.trim().toLowerCase();
+    const titleKey = title(record).trim().toLowerCase();
     return cardFields().filter((field) => {
       if (field.type === "file") return false;
       const value = plainCardValue(record, field, props.fieldsByTable, props.dateConfig).trim().toLowerCase();
@@ -111,7 +113,7 @@ export function RecordCardsView(props: {
                           selected() ? "text-blue-600 dark:text-blue-400" : "text-primary"
                         }`}
                       >
-                        {displayRecordTitle(record, props.fields)}
+                        {title(record)}
                       </div>
                       <Show when={subtitle(record)}>
                         {(text) => <div class="mt-1 truncate text-xs leading-snug text-dimmed">{text()}</div>}
