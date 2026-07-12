@@ -1,3 +1,4 @@
+import { isAggregateKind } from "../aggregate-catalog";
 import { parseFormula } from "../formula/parser";
 import type { Expr } from "../formula/types";
 import { parseIdentifierRef, parseQualifiedIdentifierRef, QUERY_RESERVED_WORDS, splitTrailingKeywordOutsideQuotes } from "../ref-syntax";
@@ -18,18 +19,6 @@ import type {
 
 const ALIAS_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const GROUP_GRANULARITIES = new Set(["day", "week", "month", "quarter", "year"]);
-const AGGREGATE_FNS = new Set<DslAggregateFn>([
-  "count",
-  "countEmpty",
-  "countUnique",
-  "sum",
-  "avg",
-  "min",
-  "max",
-  "median",
-  "earliest",
-  "latest",
-]);
 const RESERVED_ALIASES = QUERY_RESERVED_WORDS;
 const emptyAst = (): DslQueryAst => ({
   joins: [],
@@ -425,15 +414,26 @@ const parseExpression = (
   line: number,
   column: number,
 ): { ok: true; expression: Expr; source: string } | { ok: false; diagnostic: DslParseDiagnostic } => {
+  const leadingWhitespace = source.length - source.trimStart().length;
   const expressionSource = source.trim();
+  const expressionColumn = column + leadingWhitespace;
   if (!expressionSource) return { ok: false, diagnostic: error(line, "missing expression") };
   const issue = gqlExpressionSyntaxIssue(expressionSource);
-  if (issue) return { ok: false, diagnostic: error(line, issue.message, column + issue.offset, issue.length) };
+  if (issue) return { ok: false, diagnostic: error(line, issue.message, expressionColumn + issue.offset, issue.length) };
   const parsed = parseFormula(expressionSource, { scopedRefs: true });
-  if (!parsed.ok) return { ok: false, diagnostic: error(line, parsed.error) };
+  if (!parsed.ok) {
+    const { span } = parsed.diagnostic;
+    return {
+      ok: false,
+      diagnostic: error(line, parsed.error, expressionColumn + span.start, Math.max(span.end - span.start, 1)),
+    };
+  }
   const logicalCallIssue = gqlLogicalCallIssue(parsed.ast);
   if (logicalCallIssue) {
-    return { ok: false, diagnostic: error(line, logicalCallIssue.message, column + logicalCallIssue.offset, logicalCallIssue.length) };
+    return {
+      ok: false,
+      diagnostic: error(line, logicalCallIssue.message, expressionColumn + logicalCallIssue.offset, logicalCallIssue.length),
+    };
   }
   return { ok: true, expression: parsed.ast, source: expressionSource };
 };
@@ -442,8 +442,7 @@ const normalizeAggregateFn = (fn: string): DslAggregateFn | null => {
   const lower = fn.toLowerCase();
   if (lower === "countempty") return "countEmpty";
   if (lower === "countunique") return "countUnique";
-  if (AGGREGATE_FNS.has(lower as DslAggregateFn)) return lower as DslAggregateFn;
-  return null;
+  return isAggregateKind(lower) ? lower : null;
 };
 
 const parseSelectItem = (input: string, line: number, column: number): { item?: DslSelectItem; diagnostic?: DslParseDiagnostic } => {

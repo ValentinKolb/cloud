@@ -1,4 +1,5 @@
 import { normalizeRefKey } from "../ref-syntax";
+import { formulaFunctionArity, formulaFunctionForName } from "./function-catalog";
 import { FN_LIBRARY, type FormulaRuntimeContext, isFormulaError } from "./functions";
 import { formulaComparisonTimestamp, isFormulaComparisonDate } from "./functions-date";
 import { decimalToString, isExactShaped, isNullish, toDecimalValue, toNumber } from "./numeric";
@@ -236,6 +237,11 @@ const evalCallArgs = (args: Expr[], ctx: EvalContext): unknown[] | ReturnType<ty
 };
 
 const evalCall = (ast: Extract<Expr, { kind: "call" }>, ctx: EvalContext): unknown => {
+  const spec = formulaFunctionForName(ast.fn);
+  if (!spec) return formulaError(`UNKNOWN_FN:${ast.fn}`);
+  const arity = formulaFunctionArity(spec);
+  if (ast.args.length < arity.min || ast.args.length > arity.max) return formulaError(`${ast.fn}_BAD_ARGS`);
+
   const shortCircuit = evalShortCircuitCall(ast, ctx);
   if (shortCircuit !== undefined) return shortCircuit;
 

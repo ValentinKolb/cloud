@@ -4,6 +4,27 @@ import { parseGridsQueryDsl } from "./parser";
 const withoutSpans = <T>(value: T): T => JSON.parse(JSON.stringify(value, (key, item) => (key === "span" ? undefined : item)));
 
 describe("parseGridsQueryDsl", () => {
+  test.each([
+    ["where IF(true, SUM(1, ), false)", 23],
+    ["select formula(IF(true, SUM(1, ), 0)) as broken", 32],
+    ["aggregate sum(formula(IF(true, SUM(1, ), 0))) as broken", 39],
+    ["having IF(true, SUM(1, ), false)", 24],
+  ])("maps nested formula diagnostics through the GQL clause offset: %s", (source, column) => {
+    const result = parseGridsQueryDsl(source);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.diagnostics).toEqual([
+        {
+          line: 1,
+          column,
+          length: 1,
+          message: "unexpected token rparen",
+        },
+      ]);
+    }
+  });
+
   test("parses the first table query slice into typed AST data only", () => {
     const result = parseGridsQueryDsl(`
       from table Orders

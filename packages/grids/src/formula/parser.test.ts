@@ -109,6 +109,32 @@ test("rejects trailing tokens", () => {
   expect(parseFormula("1 + 2 3").ok).toBe(false);
 });
 
+test("reports the offending token inside nested formulas", () => {
+  const result = parseFormula("IF(true, SUM(1, ), 0)");
+
+  expect(result.ok).toBe(false);
+  if (!result.ok) {
+    expect(result.diagnostic).toEqual({
+      message: "unexpected token rparen",
+      span: { start: 16, end: 17 },
+    });
+  }
+});
+
+test("keeps diagnostic spans relative to the original spreadsheet-style source", () => {
+  const result = parseFormula("  =  IF(true, SUM(1, ), 0)");
+
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.diagnostic.span).toEqual({ start: 21, end: 22 });
+});
+
+test("reports the complete unterminated reference span", () => {
+  const result = parseFormula("{missing");
+
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.diagnostic.span).toEqual({ start: 0, end: 8 });
+});
+
 test("collectFieldRefs walks nested expression", () => {
   const r = parseFormula("IF({fld_a} > 0, {fld_b} * 2, {fld_c})");
   expect(r.ok).toBe(true);

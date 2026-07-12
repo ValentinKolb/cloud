@@ -1,5 +1,5 @@
+import { AGGREGATE_KINDS } from "../aggregate-catalog";
 import type { DslQueryCompletionItem, DslQueryTextRange } from "../contracts";
-import type { AggregateKind } from "../service/aggregate-capabilities";
 import { keywordItems } from "./intelligence-core";
 
 const TOP_LEVEL_KEYWORDS: Array<{ label: string; insertText: string; detail: string; singleton?: string }> = [
@@ -30,18 +30,7 @@ export const SORT_DIRECTIONS = ["asc", "desc"];
 export const NULL_MODIFIERS = ["nulls first", "nulls last"];
 export const NULL_PLACEMENTS = ["first", "last"];
 export const GROUP_GRANULARITIES = ["day", "week", "month", "quarter", "year"];
-export const AGGREGATE_FUNCTIONS: AggregateKind[] = [
-  "count",
-  "countEmpty",
-  "countUnique",
-  "sum",
-  "avg",
-  "min",
-  "max",
-  "median",
-  "earliest",
-  "latest",
-];
+export const AGGREGATE_FUNCTIONS = AGGREGATE_KINDS;
 export const PREDICATE_FUNCTIONS = [
   { label: "oneof", insertText: "oneof(", detail: "Membership: field equals one listed value" },
   { label: "noneof", insertText: "noneof(", detail: "Membership: field equals none of the listed values" },

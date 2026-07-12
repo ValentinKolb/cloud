@@ -179,6 +179,13 @@ test("renderResult passes literals through, errors as #CODE", () => {
   expect(renderResult(run("1/0"))).toBe("#DIV_ZERO");
 });
 
+test("function arity matches the SQL compiler catalog", () => {
+  expect(renderResult(run("ROUND()"))).toBe("#ROUND_BAD_ARGS");
+  expect(renderResult(run("ROUND(1, 2, 3)"))).toBe("#ROUND_BAD_ARGS");
+  expect(renderResult(run("IF(true, 'yes')"))).toBe("#IF_BAD_ARGS");
+  expect(renderResult(run("AND()"))).toBe("#AND_BAD_ARGS");
+});
+
 // ── Decimal precision ─────────────────────────────────────────────
 //
 // Decimal-safe number cells store their value as a string ("24.50") to dodge JS

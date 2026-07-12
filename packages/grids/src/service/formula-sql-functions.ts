@@ -1,6 +1,7 @@
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { sql } from "bun";
+import { type FormulaFunctionName, formulaFunctionArity, formulaFunctionForName } from "../formula/function-catalog";
 import type { Expr } from "../formula/types";
 import {
   type FormulaSqlCompileResult,
@@ -22,54 +23,6 @@ import {
 const DATE_UNITS = new Set(["day", "days", "month", "months", "year", "years", "hour", "hours", "minute", "minutes"]);
 const DIFF_UNITS = new Set(["day", "days", "hour", "hours", "minute", "minutes", "second", "seconds"]);
 
-const FORMULA_ARITY = {
-  ABS: { min: 1, max: 1 },
-  ROUND: { min: 1, max: 2 },
-  FLOOR: { min: 1, max: 1 },
-  CEIL: { min: 1, max: 1 },
-  SQRT: { min: 1, max: 1 },
-  POW: { min: 2, max: 2 },
-  MOD: { min: 2, max: 2 },
-  SUM: { min: 1, max: Number.POSITIVE_INFINITY },
-  AVG: { min: 1, max: Number.POSITIVE_INFINITY },
-  MEAN: { min: 1, max: Number.POSITIVE_INFINITY },
-  MEDIAN: { min: 1, max: Number.POSITIVE_INFINITY },
-  MIN: { min: 1, max: Number.POSITIVE_INFINITY },
-  MAX: { min: 1, max: Number.POSITIVE_INFINITY },
-  COUNT: { min: 1, max: Number.POSITIVE_INFINITY },
-  PERCENT: { min: 2, max: 2 },
-  CONCAT: { min: 1, max: Number.POSITIVE_INFINITY },
-  LEN: { min: 1, max: 1 },
-  LOWER: { min: 1, max: 1 },
-  UPPER: { min: 1, max: 1 },
-  TRIM: { min: 1, max: 1 },
-  LEFT: { min: 2, max: 2 },
-  RIGHT: { min: 2, max: 2 },
-  SUBSTRING: { min: 3, max: 3 },
-  REPLACE: { min: 3, max: 3 },
-  IF: { min: 3, max: 3 },
-  IFEMPTY: { min: 2, max: 2 },
-  IFERROR: { min: 2, max: 2 },
-  AND: { min: 1, max: Number.POSITIVE_INFINITY },
-  OR: { min: 1, max: Number.POSITIVE_INFINITY },
-  NOT: { min: 1, max: 1 },
-  ISBLANK: { min: 1, max: 1 },
-  CONTAINS: { min: 2, max: 2 },
-  STARTSWITH: { min: 2, max: 2 },
-  ENDSWITH: { min: 2, max: 2 },
-  ICONTAINS: { min: 2, max: 2 },
-  ISTARTSWITH: { min: 2, max: 2 },
-  IENDSWITH: { min: 2, max: 2 },
-  TODAY: { min: 0, max: 0 },
-  NOW: { min: 0, max: 0 },
-  YEAR: { min: 1, max: 1 },
-  MONTH: { min: 1, max: 1 },
-  DAY: { min: 1, max: 1 },
-  DATEADD: { min: 2, max: 3 },
-  DATEDIFF: { min: 2, max: 3 },
-} as const satisfies Record<string, { min: number; max: number }>;
-
-type FormulaFunctionName = keyof typeof FORMULA_ARITY;
 const SHORT_CIRCUIT_FUNCTIONS = new Set<FormulaFunctionName>(["IF", "IFEMPTY", "IFERROR", "AND", "OR"]);
 type FunctionCompileContext = { dateConfig?: DateContext; now: Date };
 type FormulaFunctionContext = {
@@ -348,8 +301,10 @@ export const compileFormulaFunction = (
   compileArgs: (args: Expr[]) => FormulaSqlCompileResult[],
 ): FormulaSqlCompileResult => {
   const upper = fn.toUpperCase();
-  const arity = FORMULA_ARITY[upper as FormulaFunctionName];
-  if (arity && (args.length < arity.min || args.length > arity.max)) {
+  const spec = formulaFunctionForName(upper);
+  if (!spec) return formulaSqlFail(`Unsupported formula function ${fn}`);
+  const arity = formulaFunctionArity(spec);
+  if (args.length < arity.min || args.length > arity.max) {
     return formulaSqlFail(`${upper} needs ${formatArity(arity)}; got ${args.length}`);
   }
   const results = compileArgs(args);

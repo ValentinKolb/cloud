@@ -1,28 +1,14 @@
+export { type AggregateKind, isAggregateKind } from "../aggregate-catalog";
+
+import type { AggregateKind } from "../aggregate-catalog";
 import { scalarSqlTypeForField, storageOf } from "./field-storage";
 import type { FormulaSqlType } from "./formula-sql-compiler";
 import type { Field } from "./types";
-
-export type AggregateKind = "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max" | "median" | "earliest" | "latest";
 
 const COUNT_AGGS: ReadonlySet<AggregateKind> = new Set(["count", "countEmpty", "countUnique"]);
 const NUMERIC_AGGS: ReadonlySet<AggregateKind> = new Set(["sum", "avg", "median"]);
 const MIN_MAX_AGGS: ReadonlySet<AggregateKind> = new Set(["min", "max"]);
 const DATE_EDGE_AGGS: ReadonlySet<AggregateKind> = new Set(["earliest", "latest"]);
-
-const GROUP_AGGREGATE_KINDS: ReadonlySet<AggregateKind> = new Set([
-  "count",
-  "countEmpty",
-  "countUnique",
-  "sum",
-  "avg",
-  "min",
-  "max",
-  "median",
-  "earliest",
-  "latest",
-]);
-
-export const isAggregateKind = (agg: string): agg is AggregateKind => GROUP_AGGREGATE_KINDS.has(agg as AggregateKind);
 
 export const aggregateOutputKey = (fieldId: string | "*", agg: string): string => `${fieldId}__${agg}`;
 

@@ -1,3 +1,4 @@
+import type { AggregateKind } from "../aggregate-catalog";
 import type { Expr } from "../formula/types";
 
 export type DslSourceSpan = {
@@ -62,7 +63,7 @@ export type DslGroupItem = {
   span?: DslSourceSpan;
 };
 
-export type DslAggregateFn = "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max" | "median" | "earliest" | "latest";
+export type DslAggregateFn = AggregateKind;
 
 export type DslAggregateItem = {
   fn: DslAggregateFn;

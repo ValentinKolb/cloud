@@ -1,3 +1,4 @@
+import { AGGREGATE_KINDS } from "../aggregate-catalog";
 import type { Base } from "../contracts";
 import { GRID_FORMULA_FUNCTIONS } from "../formula/function-catalog";
 import { formatIdentifierRef } from "../ref-syntax";
@@ -24,6 +25,7 @@ const ref = (value: string): string => formatIdentifierRef(value);
 const sourceRef = (kind: "table" | "view", name: string): string => `from ${kind} ${ref(name)}`;
 
 const formulaFunctionLines = (): string[] => GRID_FORMULA_FUNCTIONS.map((fn) => `- ${code(fn.signature)}: ${mdEscape(fn.description)}`);
+const aggregateNames = (): string => AGGREGATE_KINDS.map(code).join(", ");
 
 const visibleTablesById = (ctx: DslResolverContext): Map<string, DslTableSource> => new Map(ctx.tables.map((table) => [table.id, table]));
 
@@ -210,7 +212,7 @@ export const renderGqlAssistantSkill = (): string =>
     "- Filter rows with `where`, text predicates, membership predicates, comparisons, boolean operators, and formula expressions.",
     "- Search across readable searchable fields with `search 'text'`, or constrain search with `search 'text' in Field, alias.Field`.",
     "- Group by groupable fields, including date buckets with `by day|week|month|quarter|year`.",
-    "- Aggregate with `count`, `countEmpty`, `countUnique`, `sum`, `avg`, `min`, `max`, `median`, `earliest`, and `latest`.",
+    `- Aggregate with ${aggregateNames()}.`,
     "- Filter grouped output with `having`, sort fields or aliases with `sort`, and page results with `limit` and `offset`.",
     "- Include trashed rows explicitly with `include deleted` or return only trashed rows with `deleted only`.",
     "- Use all supported formula functions listed below inside GQL expression positions.",
@@ -260,7 +262,7 @@ export const renderGqlAssistantSkill = (): string =>
     "- Membership: `oneof(Field, 'a', 'b')`, `noneof(Field, 'a', 'b')`.",
     "- Multi-value containment: `containsall(Field, 'a', 'b')`.",
     "- Text helpers: `contains`, `startswith`, `endswith`, `icontains`, `istartswith`, `iendswith`.",
-    "- Aggregates: `count`, `countEmpty`, `countUnique`, `sum`, `avg`, `min`, `max`, `median`, `earliest`, `latest`.",
+    `- Aggregates: ${aggregateNames()}.`,
     "- Dates can be grouped by `day`, `week`, `month`, `quarter`, or `year`.",
     "- Sort defaults to ascending with nulls last; use `desc`, `nulls first`, or `nulls last` when needed.",
     "",

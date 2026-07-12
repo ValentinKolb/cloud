@@ -9,17 +9,27 @@ export type FormulaFunction = {
   name: string;
   signature: string;
   description: string;
-  args: FormulaArg[];
+  args: readonly FormulaArg[];
   returnType: FormulaValueType;
+  variadic?: true;
+  optionalArgs?: number;
 };
 
-export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
+type FormulaFunctionArity = { min: number; max: number };
+
+export const formulaFunctionArity = (fn: FormulaFunction): FormulaFunctionArity => ({
+  min: fn.args.length - (fn.optionalArgs ?? 0),
+  max: fn.variadic ? Number.POSITIVE_INFINITY : fn.args.length,
+});
+
+const FORMULA_FUNCTION_DEFINITIONS = [
   {
     name: "SUM",
     signature: "SUM(value, ...)",
     description: "Add numeric values.",
     args: [{ label: "value", type: "number" }],
     returnType: "number",
+    variadic: true,
   },
   {
     name: "AVG",
@@ -27,6 +37,7 @@ export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
     description: "Average numeric values.",
     args: [{ label: "value", type: "number" }],
     returnType: "number",
+    variadic: true,
   },
   {
     name: "MEAN",
@@ -34,6 +45,7 @@ export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
     description: "Alias for AVG.",
     args: [{ label: "value", type: "number" }],
     returnType: "number",
+    variadic: true,
   },
   {
     name: "COUNT",
@@ -41,6 +53,7 @@ export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
     description: "Count non-empty values.",
     args: [{ label: "value", type: "any" }],
     returnType: "number",
+    variadic: true,
   },
   {
     name: "MIN",
@@ -48,6 +61,7 @@ export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
     description: "Smallest numeric value.",
     args: [{ label: "value", type: "number" }],
     returnType: "number",
+    variadic: true,
   },
   {
     name: "MAX",
@@ -55,6 +69,7 @@ export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
     description: "Largest numeric value.",
     args: [{ label: "value", type: "number" }],
     returnType: "number",
+    variadic: true,
   },
   {
     name: "MEDIAN",
@@ -62,6 +77,7 @@ export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
     description: "Middle numeric value.",
     args: [{ label: "value", type: "number" }],
     returnType: "number",
+    variadic: true,
   },
   {
     name: "ABS",
@@ -79,6 +95,7 @@ export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
       { label: "digits", type: "number" },
     ],
     returnType: "number",
+    optionalArgs: 1,
   },
   {
     name: "FLOOR",
@@ -162,6 +179,7 @@ export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
     description: "All values are truthy. In GQL where/having, prefer the `and` operator.",
     args: [{ label: "value", type: "any" }],
     returnType: "boolean",
+    variadic: true,
   },
   {
     name: "OR",
@@ -169,6 +187,7 @@ export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
     description: "Any value is truthy. In GQL where/having, prefer the `or` operator.",
     args: [{ label: "value", type: "any" }],
     returnType: "boolean",
+    variadic: true,
   },
   {
     name: "NOT",
@@ -250,6 +269,7 @@ export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
     description: "Join values as text.",
     args: [{ label: "value", type: "any" }],
     returnType: "text",
+    variadic: true,
   },
   { name: "LEN", signature: "LEN(text)", description: "Text length.", args: [{ label: "text", type: "text" }], returnType: "number" },
   { name: "LOWER", signature: "LOWER(text)", description: "Lowercase text.", args: [{ label: "text", type: "text" }], returnType: "text" },
@@ -304,24 +324,33 @@ export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
   { name: "DAY", signature: "DAY(date)", description: "Day number.", args: [{ label: "date", type: "date" }], returnType: "number" },
   {
     name: "DATEADD",
-    signature: "DATEADD(date, count, 'days')",
-    description: "Add time to a date.",
+    signature: "DATEADD(date, count, unit?)",
+    description: "Add time to a date; the unit defaults to days.",
     args: [
       { label: "date", type: "date" },
       { label: "count", type: "number" },
       { label: "unit", type: "text" },
     ],
     returnType: "date",
+    optionalArgs: 1,
   },
   {
     name: "DATEDIFF",
-    signature: "DATEDIFF(from, to, 'days')",
-    description: "Difference between dates.",
+    signature: "DATEDIFF(from, to, unit?)",
+    description: "Difference between dates; the unit defaults to days.",
     args: [
       { label: "from", type: "date" },
       { label: "to", type: "date" },
       { label: "unit", type: "text" },
     ],
     returnType: "number",
+    optionalArgs: 1,
   },
-];
+] as const satisfies readonly FormulaFunction[];
+
+export type FormulaFunctionName = (typeof FORMULA_FUNCTION_DEFINITIONS)[number]["name"];
+export const GRID_FORMULA_FUNCTIONS: readonly FormulaFunction[] = FORMULA_FUNCTION_DEFINITIONS;
+const FORMULA_FUNCTION_BY_NAME: ReadonlyMap<string, FormulaFunction> = new Map(GRID_FORMULA_FUNCTIONS.map((fn) => [fn.name, fn]));
+
+export const formulaFunctionForName = (name: string): FormulaFunction | undefined => FORMULA_FUNCTION_BY_NAME.get(name.toUpperCase());
+export const formulaFunctionPattern = (): RegExp => new RegExp(`\\b(?:${GRID_FORMULA_FUNCTIONS.map((fn) => fn.name).join("|")})\\b`, "i");

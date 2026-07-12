@@ -14,6 +14,7 @@ import { highlight } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import { aggregateKindPattern } from "../../../aggregate-catalog";
 import type { DocumentPreviewResponse, DocumentTemplate } from "../../../contracts";
 import type { DocumentTemplateStarter } from "../../../document-template-starters";
 import { requestDocumentTemplateDraftPreview } from "../documents/document-transfer-client";
@@ -50,7 +51,7 @@ const documentGqlHighlight = highlight.compile(
       match:
         /\b(?:from|table|view|select|join|left|as|on|where|formula|group|by|aggregate|having|sort|search|include|deleted|only|nulls|first|last|limit|offset|asc|desc|and|or|not)\b/i,
     },
-    { kind: "function", match: /\b(?:count|countEmpty|countUnique|sum|avg|min|max|median|earliest|latest)\b/i },
+    { kind: "function", match: aggregateKindPattern() },
     { kind: "placeholder", match: /\{[A-Za-z0-9_-]{1,200}\}/i },
     { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
     { kind: "operator", match: /<=|>=|!=|=|<|>|\+|-|\*|\/|%|,|\(|\)/ },

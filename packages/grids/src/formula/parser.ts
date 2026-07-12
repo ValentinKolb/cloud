@@ -22,6 +22,24 @@ type RawToken =
 type Token = RawToken & { span: SourceSpan };
 type ParseFormulaOptions = { scopedRefs?: boolean };
 
+type FormulaParseDiagnostic = {
+  message: string;
+  span: SourceSpan;
+};
+
+class FormulaSyntaxError extends Error {
+  constructor(
+    message: string,
+    readonly span: SourceSpan,
+  ) {
+    super(message);
+    this.name = "FormulaSyntaxError";
+  }
+}
+
+const syntaxError = (message: string, start: number, end = start + 1): FormulaSyntaxError =>
+  new FormulaSyntaxError(message, { start, end });
+
 const SINGLE_CHAR_OPS = new Set(["+", "-", "*", "/", "%"]);
 const TWO_CHAR_OPS = new Set(["<=", ">=", "!=", "&&", "||"]);
 const SINGLE_CHAR_OPERATORS = new Set([...SINGLE_CHAR_OPS, "<", ">", "=", "!"]);
@@ -59,7 +77,7 @@ const readNumberEnd = (src: string, i: number): number => {
   if (src[integerEnd] !== ".") return integerEnd;
   const fractionStart = integerEnd + 1;
   if (fractionStart >= src.length || !isDigit(src[fractionStart]!)) {
-    throw new Error(`invalid number literal at offset ${i}`);
+    throw syntaxError("invalid number literal", i, fractionStart);
   }
   return readDigits(src, fractionStart);
 };
@@ -68,7 +86,7 @@ const scanNumber: Scanner = (src, i) => {
   if (!isDigit(src[i]!)) return null;
   const j = readNumberEnd(src, i);
   const num = Number(src.slice(i, j));
-  if (!Number.isFinite(num)) throw new Error(`invalid number literal at offset ${i}`);
+  if (!Number.isFinite(num)) throw syntaxError("invalid number literal", i, j);
   return { token: { kind: "num", value: num }, next: j };
 };
 
@@ -91,7 +109,7 @@ const scanString: Scanner = (src, i) => {
       j++;
     }
   }
-  if (j >= src.length) throw new Error("unterminated string literal");
+  if (j >= src.length) throw syntaxError("unterminated string literal", i, src.length);
   return { token: { kind: "str", value }, next: j + 1 };
 };
 
@@ -107,22 +125,22 @@ const scanQuotedField: Scanner = (src, i) => {
     }
     if (src[j] === `"`) {
       const value = unquoteIdentifierBody(raw).trim();
-      if (!value) throw new Error("empty quoted field reference");
+      if (!value) throw syntaxError("empty quoted field reference", i, j + 1);
       return { token: { kind: "field", value }, next: j + 1 };
     }
     raw += src[j];
     j++;
   }
-  throw new Error("unterminated quoted field reference");
+  throw syntaxError("unterminated quoted field reference", i, src.length);
 };
 
 const scanBracedField: Scanner = (src, i) => {
   if (src[i] !== "{") return null;
   const j = src.indexOf("}", i + 1);
-  if (j === -1) throw new Error("unclosed field reference");
+  if (j === -1) throw syntaxError("unclosed field reference", i, src.length);
   const value = src.slice(i + 1, j).trim();
-  if (value.length === 0) throw new Error("empty field reference");
-  if (!FIELD_REF_RE.test(value)) throw new Error("invalid field reference");
+  if (value.length === 0) throw syntaxError("empty field reference", i, j + 1);
+  if (!FIELD_REF_RE.test(value)) throw syntaxError("invalid field reference", i, j + 1);
   return { token: { kind: "field", value }, next: j + 1 };
 };
 
@@ -135,16 +153,16 @@ const readQuotedFieldEnd = (src: string, i: number): number | null => {
     }
     if (src[j] === `"`) return j + 1;
   }
-  throw new Error("unterminated quoted field reference");
+  throw syntaxError("unterminated quoted field reference", i, src.length);
 };
 
 const readBracedFieldEnd = (src: string, i: number): number | null => {
   if (src[i] !== "{") return null;
   const end = src.indexOf("}", i + 1);
-  if (end === -1) throw new Error("unclosed field reference");
+  if (end === -1) throw syntaxError("unclosed field reference", i, src.length);
   const value = src.slice(i + 1, end).trim();
-  if (value.length === 0) throw new Error("empty field reference");
-  if (!FIELD_REF_RE.test(value)) throw new Error("invalid field reference");
+  if (value.length === 0) throw syntaxError("empty field reference", i, end + 1);
+  if (!FIELD_REF_RE.test(value)) throw syntaxError("invalid field reference", i, end + 1);
   return end + 1;
 };
 
@@ -156,7 +174,7 @@ const scanScopedField: Scanner = (src, i) => {
   let refEnd: number | null = null;
   if (isIdentStart(src[refStart]!)) refEnd = readIdentEnd(src, refStart);
   else refEnd = readQuotedFieldEnd(src, refStart) ?? readBracedFieldEnd(src, refStart);
-  if (!refEnd || refEnd === refStart) throw new Error(`invalid scoped field reference at offset ${i}`);
+  if (!refEnd || refEnd === refStart) throw syntaxError("invalid scoped field reference", refStart);
   return { token: { kind: "field", value: src.slice(i, refEnd) }, next: refEnd };
 };
 
@@ -164,7 +182,7 @@ const scanSlugField: Scanner = (src, i) => {
   if (src[i] !== "#") return null;
   let j = i + 1;
   while (j < src.length && isSlugPart(src[j]!)) j++;
-  if (j === i + 1) throw new Error("empty slug reference after #");
+  if (j === i + 1) throw syntaxError("empty slug reference after #", i);
   return { token: { kind: "field", value: src.slice(i + 1, j) }, next: j };
 };
 
@@ -225,8 +243,14 @@ const scanToken = (src: string, i: number, options: ParseFormulaOptions = {}): S
     const result = scanner(src, i);
     if (result) return result;
   }
-  throw new Error(`unexpected character "${src[i]}" at position ${i}`);
+  throw syntaxError(`unexpected character "${src[i]}"`, i);
 };
+
+const offsetSyntaxError = (error: FormulaSyntaxError, offset: number): FormulaSyntaxError =>
+  new FormulaSyntaxError(error.message, {
+    start: error.span.start + offset,
+    end: error.span.end + offset,
+  });
 
 const tokenize = (src: string, offset = 0, options: ParseFormulaOptions = {}): Token[] => {
   const tokens: Token[] = [];
@@ -237,7 +261,13 @@ const tokenize = (src: string, offset = 0, options: ParseFormulaOptions = {}): T
       i++;
       continue;
     }
-    const result = scanToken(src, i, options);
+    let result: ScanResult;
+    try {
+      result = scanToken(src, i, options);
+    } catch (error) {
+      if (error instanceof FormulaSyntaxError) throw offsetSyntaxError(error, offset);
+      throw error;
+    }
     tokens.push({ ...result.token, span: { start: offset + i, end: offset + result.next } } as Token);
     i = result.next;
   }
@@ -322,7 +352,7 @@ class Parser {
         return withSpan({ kind: "field", fieldId: t.value }, t.span);
       case "lparen": {
         const inner = this.parseExpr(0);
-        if (this.peek().kind !== "rparen") throw new Error("expected ')'");
+        if (this.peek().kind !== "rparen") throw new FormulaSyntaxError("expected ')'", this.peek().span);
         const rparen = this.next();
         return withSpan(inner, { start: t.span.start, end: rparen.span.end });
       }
@@ -335,7 +365,7 @@ class Parser {
           const operand = this.parseExpr(70);
           return withSpan({ kind: "unop", op: "!", operand }, mergeSpans(t.span, operand.span));
         }
-        throw new Error(`unexpected operator ${t.value}`);
+        throw new FormulaSyntaxError(`unexpected operator ${t.value}`, t.span);
       case "ident": {
         if (t.value.toLowerCase() === "not" && (this.peek().kind !== "lparen" || this.peek().span.start > t.span.end)) {
           const operand = this.parseExpr(70);
@@ -353,12 +383,12 @@ class Parser {
             args.push(this.parseExpr(0));
           }
         }
-        if (this.peek().kind !== "rparen") throw new Error("expected ')'");
+        if (this.peek().kind !== "rparen") throw new FormulaSyntaxError("expected ')'", this.peek().span);
         const rparen = this.next();
         return withSpan({ kind: "call", fn: t.value.toUpperCase(), args }, { start: t.span.start, end: rparen.span.end });
       }
       default:
-        throw new Error(`unexpected token ${t.kind}`);
+        throw new FormulaSyntaxError(`unexpected token ${t.kind}`, t.span);
     }
   }
 }
@@ -376,7 +406,7 @@ const withSpan = <T extends Expr>(expr: T, span: SourceSpan | undefined): T => {
 const mergeSpans = (a: SourceSpan | undefined, b: SourceSpan | undefined): SourceSpan | undefined =>
   a && b ? { start: a.start, end: b.end } : (a ?? b);
 
-type ParseResult = { ok: true; ast: Expr } | { ok: false; error: string };
+type ParseFormulaResult = { ok: true; ast: Expr } | { ok: false; error: string; diagnostic: FormulaParseDiagnostic };
 
 const normalizeFormulaSource = (source: string): { source: string; offset: number } => {
   const trimmed = source.trim();
@@ -390,18 +420,24 @@ const normalizeFormulaSource = (source: string): { source: string; offset: numbe
   };
 };
 
-export const parseFormula = (source: string, options: ParseFormulaOptions = {}): ParseResult => {
+export const parseFormula = (source: string, options: ParseFormulaOptions = {}): ParseFormulaResult => {
   try {
     const normalized = normalizeFormulaSource(source);
     const tokens = tokenize(normalized.source, normalized.offset, options);
     const parser = new Parser(tokens);
     const ast = parser.parseExpr(0);
     if (parser.peek().kind !== "eof") {
-      return { ok: false, error: "trailing tokens after expression" };
+      const diagnostic = { message: "trailing tokens after expression", span: parser.peek().span };
+      return { ok: false, error: diagnostic.message, diagnostic };
     }
     return { ok: true, ast };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    const message = e instanceof Error ? e.message : String(e);
+    const diagnostic = {
+      message,
+      span: e instanceof FormulaSyntaxError ? e.span : { start: 0, end: Math.max(source.length, 1) },
+    };
+    return { ok: false, error: message, diagnostic };
   }
 };
 

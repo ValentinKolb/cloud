@@ -2,6 +2,7 @@ import { AutocompleteEditor, DataTable, type DataTableColumn, Panes, type PanesV
 import { highlight } from "@valentinkolb/stdlib";
 import { mutation as mutations, timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { aggregateKindPattern } from "../../../aggregate-catalog";
 import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewDiagnostic, DslQueryPreviewResponse } from "../../../contracts";
 import { formatIdentifierRef } from "../../../ref-syntax";
@@ -91,7 +92,7 @@ const queryHighlight = highlight.compile(
       match:
         /\b(?:from|table|view|select|join|left|as|on|where|formula|group|by|aggregate|having|sort|search|include|deleted|only|nulls|first|last|limit|offset|asc|desc|and|or|not)\b/i,
     },
-    { kind: "function", match: /\b(?:count|countEmpty|countUnique|sum|avg|min|max|median|earliest|latest)\b/i },
+    { kind: "function", match: aggregateKindPattern() },
     { kind: "placeholder", match: /\{[A-Za-z0-9_-]{1,200}\}/i },
     { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
     { kind: "operator", match: /<=|>=|!=|=|<|>|\+|-|\*|\/|%|,|\(|\)/ },

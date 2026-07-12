@@ -1,6 +1,9 @@
 import { DocInlineCode, DocLead, DocRows, DocSection } from "@valentinkolb/cloud/ui";
 import { Show } from "solid-js";
+import { AGGREGATE_KINDS } from "../../../aggregate-catalog";
 import { GridsDocPage, QuerySnippet } from "./grids-help-content";
+
+const aggregateNames = AGGREGATE_KINDS.join(", ");
 
 const assistantFileHref = (baseId: string, file: "SKILL.md" | "context.md") =>
   `/api/grids/gql/by-base/${encodeURIComponent(baseId)}/assistant/${file}`;
@@ -167,7 +170,7 @@ include deleted | deleted only`}
           {
             title: "aggregate",
             icon: "ti-sum",
-            text: "Calculate count, countEmpty, countUnique, sum, avg, min, max, median, earliest, or latest.",
+            text: `Calculate ${aggregateNames}.`,
           },
           { title: "having", icon: "ti-filter-cog", text: "Filter grouped rows after aggregation." },
           {

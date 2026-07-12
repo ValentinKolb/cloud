@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AGGREGATE_KINDS } from "./aggregate-catalog";
 
 /**
  * Persisted slug for grids resources: 5-character base62 alphanumeric.
@@ -344,8 +345,7 @@ const GroupBySpecSchema = z.object({
 });
 export type GroupBySpec = z.infer<typeof GroupBySpecSchema>;
 
-const AggregateKindSchema = z.enum(["count", "countEmpty", "countUnique", "sum", "avg", "min", "max", "median", "earliest", "latest"]);
-const GroupAggregateKindSchema = z.enum(["count", "countEmpty", "countUnique", "sum", "avg", "min", "max", "median", "earliest", "latest"]);
+const AggregateKindSchema = z.enum(AGGREGATE_KINDS);
 
 const AggregationSpecSchema = z.object({
   /** "*" is shorthand for COUNT(*) — count of records in the group. */
@@ -358,7 +358,7 @@ export type AggregationSpec = z.infer<typeof AggregationSpecSchema>;
 
 const GroupSortSpecSchema = z.object({
   fieldId: z.union([z.string().uuid(), z.literal("*")]),
-  agg: GroupAggregateKindSchema,
+  agg: AggregateKindSchema,
   direction: z.enum(["asc", "desc"]).optional(),
   nullsFirst: z.boolean().optional(),
 });

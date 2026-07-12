@@ -13,7 +13,8 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { highlight } from "@valentinkolb/stdlib";
 import { For, type JSX } from "solid-js";
-import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
+import { aggregateKindPattern } from "../../../aggregate-catalog";
+import { formulaFunctionPattern, GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
 
 type Step = {
   title: string;
@@ -38,11 +39,7 @@ type FunctionRow = {
 const formulaHighlight = highlight.compile(
   [
     { kind: "string", match: /'(?:\\[\s\S]|[^'\\])*'/ },
-    {
-      kind: "function",
-      match:
-        /\b(?:ABS|AND|AVG|CEIL|CONCAT|CONTAINS|COUNT|DATEDIFF|FLOOR|IF|IFEMPTY|IFERROR|LEFT|LEN|LOWER|MAX|MEDIAN|MIN|NOT|OR|POW|RIGHT|ROUND|SQRT|SUBSTRING|SUM|TODAY|UPPER)\b/,
-    },
+    { kind: "function", match: formulaFunctionPattern() },
     { kind: "identifier", match: /"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_]*/ },
     { kind: "placeholder", match: /#[A-Za-z0-9_-]+/ },
     { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
@@ -59,7 +56,7 @@ const queryHighlight = highlight.compile(
       match:
         /\b(?:from|table|view|select|join|left|inner|as|on|where|search|formula|group|by|aggregate|having|sort|nulls|first|last|limit|offset|skip|asc|ascending|desc|descending|include|deleted|only)\b/i,
     },
-    { kind: "function", match: /\b(?:count|countEmpty|countUnique|sum|avg|min|max|median|earliest|latest)\b/i },
+    { kind: "function", match: aggregateKindPattern() },
     { kind: "identifier", match: /"(?:[^"]|"")*"|\{[0-9a-f-]{36}\}/i },
     { kind: "placeholder", match: /#[A-Za-z0-9_-]+/ },
     { kind: "number", match: /\b\d+(?:\.\d+)?\b/ },
