@@ -1,7 +1,7 @@
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { navigate } from "@valentinkolb/ssr/nav";
 import { createSignal, For } from "solid-js";
-import type { PulseCurrentState, PulseMetricSeries, PulseMetricSummary, PulseRecordedEvent, PulseSource } from "../contracts";
+import type { PulseCurrentState, PulseMetricSeries, PulseMetricSummary, PulseRecordedEvent, PulseSignalField, PulseSource } from "../contracts";
 import { PulseDashboardDslHelpPage, PulseQueryDslHelpPage, PulseReferenceOverviewPage } from "./help/pulse-help-content";
 import { PulseQueryReferenceInventory } from "./PulseQueryReferenceInventory";
 import { defaultReferenceTab, isAvailableReferenceTab, type ReferenceTab, referenceTabs } from "./query-reference-tabs";
@@ -15,6 +15,7 @@ type Props = {
   states: PulseCurrentState[];
   sources: PulseSource[];
   series: PulseMetricSeries[];
+  fields: PulseSignalField[];
 };
 
 const readInitialTab = (includeDashboardDsl: boolean, initialTab?: ReferenceTab): ReferenceTab => {
@@ -62,6 +63,7 @@ export default function PulseQueryReferenceWindow(props: Props) {
       states={props.states}
       sources={props.sources}
       series={props.series}
+      fields={props.fields}
     />
   );
 

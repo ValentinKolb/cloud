@@ -148,6 +148,19 @@ const inventory = {
     },
   ],
   events: [],
+  fields: [
+    {
+      sourceId,
+      scope: "event",
+      signalName: "page.viewed",
+      role: "attribute",
+      key: "request_id",
+      valueType: "string",
+      observedCount: 42,
+      firstSeenAt: "2026-07-07T11:00:00.000Z",
+      lastSeenAt: "2026-07-07T12:00:00.000Z",
+    },
+  ],
 };
 
 describe("pulse CLI", () => {
@@ -334,6 +347,34 @@ describe("pulse CLI", () => {
         type: "gauge",
         unit: "percent",
         series: 1,
+        lastSeenAt: "2026-07-07T12:00:00.000Z",
+      },
+    ]);
+  });
+
+  test("lists bounded field definitions by source and role", async () => {
+    const { ctx, calls, tables } = createContext(
+      ["fields", "list", baseId],
+      { source: "docker", role: "attribute", q: "request" },
+      [jsonResponse(base), jsonResponse([source]), jsonResponse(inventory.fields)],
+    );
+
+    await pulseCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual([
+      `/api/pulse/bases/${baseId}`,
+      `/api/pulse/bases/${baseId}/sources`,
+      `/api/pulse/bases/${baseId}/fields?q=request&sourceId=${sourceId}&role=attribute&limit=100`,
+    ]);
+    expect(tables[0]).toEqual([
+      {
+        scope: "event",
+        signal: "page.viewed",
+        role: "attribute",
+        field: "request_id",
+        type: "string",
+        source: "11111111",
+        observations: 42,
         lastSeenAt: "2026-07-07T12:00:00.000Z",
       },
     ]);
@@ -639,6 +680,7 @@ describe("pulse CLI", () => {
       metricSeries: 1,
       events: 0,
       states: 1,
+      fields: 1,
     });
     expect(payload.topResources).toHaveLength(1);
   });

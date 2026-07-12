@@ -202,15 +202,15 @@ const deleteMetricDefsChunk = async (baseId: string): Promise<number> => {
   return result.count ?? 0;
 };
 
-const deleteDimensionMetadataChunk = async (baseId: string): Promise<number> => {
+const deleteSignalFieldsChunk = async (baseId: string): Promise<number> => {
   const result = await sql`
     WITH victim AS (
       SELECT ctid
-      FROM pulse.dimension_metadata
+      FROM pulse.signal_fields
       WHERE base_id = ${baseId}::uuid
       LIMIT ${BASE_DELETE_BATCH_SIZE}
     )
-    DELETE FROM pulse.dimension_metadata item
+    DELETE FROM pulse.signal_fields item
     USING victim
     WHERE item.ctid = victim.ctid
   `;
@@ -303,7 +303,7 @@ const BASE_DELETE_STEPS: Array<{ phase: string; run: (baseId: string) => Promise
   { phase: "ingest_idempotency", run: deleteIngestIdempotencyChunk },
   { phase: "metric_series", run: deleteMetricSeriesChunk },
   { phase: "metric_defs", run: deleteMetricDefsChunk },
-  { phase: "dimension_metadata", run: deleteDimensionMetadataChunk },
+  { phase: "signal_fields", run: deleteSignalFieldsChunk },
   { phase: "observed_resources", run: deleteObservedResourcesChunk },
   { phase: "saved_queries", run: deleteSavedQueriesChunk },
   { phase: "dashboards", run: deleteDashboardsChunk },
@@ -322,7 +322,7 @@ const BASE_DATA_CLEAR_STEPS: Array<{ phase: string; run: (baseId: string) => Pro
   { phase: "ingest_idempotency", run: deleteIngestIdempotencyChunk },
   { phase: "metric_series", run: deleteMetricSeriesChunk },
   { phase: "metric_defs", run: deleteMetricDefsChunk },
-  { phase: "dimension_metadata", run: deleteDimensionMetadataChunk },
+  { phase: "signal_fields", run: deleteSignalFieldsChunk },
   { phase: "observed_resources", run: deleteObservedResourcesChunk },
 ];
 

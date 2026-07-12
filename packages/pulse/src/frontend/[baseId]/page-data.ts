@@ -103,7 +103,7 @@ const metricWidgetQuery = (baseId: string, dashboard: PulseDashboard, widget: Pu
 const widgetQueryText = (widget: PulseDashboardEventsWidget | PulseDashboardStatesWidget, dashboard: PulseDashboard, controlValues: DashboardControlValues): string =>
   resolveDashboardQueryText(widget.queryText, dashboard.config, controlValues);
 
-const emptyInventory = (): PulseInventory => ({ resources: [], metrics: [], events: [], states: [] });
+const emptyInventory = (): PulseInventory => ({ resources: [], metrics: [], events: [], states: [], fields: [] });
 
 const dataOr = <T,>(result: { ok: boolean; data?: T }, fallback: T): T => (result.ok ? (result.data as T) : fallback);
 
@@ -290,6 +290,7 @@ const loadResourceInitialData = async (
 
     return {
       inventory: {
+        ...emptyInventory(),
         resources,
         metrics: dataOr<PulseResourceMetric[]>(metricsResult, []),
         states: dataOr<PulseCurrentState[]>(statesResult, []),

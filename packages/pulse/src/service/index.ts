@@ -52,6 +52,7 @@ import {
   listResourceMetrics,
   listResourceStates,
   listResources,
+  listSignalFields,
 } from "./signal-catalog";
 import {
   createSource,
@@ -185,6 +186,7 @@ export const pulseService = {
     series: listMetricSeries,
     recentEvents: listRecentEvents,
     currentStates: listCurrentStates,
+    fields: listSignalFields,
     inventory: listInventory,
     resources: listResources,
     resourceMetrics: listResourceMetrics,

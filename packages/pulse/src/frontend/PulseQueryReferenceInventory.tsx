@@ -1,6 +1,13 @@
 import { CopyButton, DataTable, TextInput, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { createMemo, createSignal, For } from "solid-js";
-import type { PulseCurrentState, PulseMetricSeries, PulseMetricSummary, PulseRecordedEvent, PulseSource } from "../contracts";
+import type {
+  PulseCurrentState,
+  PulseMetricSeries,
+  PulseMetricSummary,
+  PulseRecordedEvent,
+  PulseSignalField,
+  PulseSource,
+} from "../contracts";
 import { PulseInventoryReferenceIntro } from "./help/pulse-help-content";
 import {
   buildReferenceEntityChips,
@@ -23,6 +30,7 @@ type Props = {
   states: PulseCurrentState[];
   sources: PulseSource[];
   series: PulseMetricSeries[];
+  fields: PulseSignalField[];
 };
 
 const copyCell = (value: string) => <CopyButton text={value} class="icon-btn h-8 w-8 text-dimmed hover:text-primary" />;
@@ -67,6 +75,7 @@ export function PulseQueryReferenceInventory(props: Props) {
   const [metricQuery, setMetricQuery] = createSignal("");
   const [eventQuery, setEventQuery] = createSignal("");
   const [stateQuery, setStateQuery] = createSignal("");
+  const [fieldQuery, setFieldQuery] = createSignal("");
   const [selectedSourceId, setSelectedSourceId] = createSignal("");
   const [selectedEntityId, setSelectedEntityId] = createSignal("");
 
@@ -96,6 +105,14 @@ export function PulseQueryReferenceInventory(props: Props) {
   const stateRows = createMemo(() =>
     buildReferenceStateRows({ states: props.states, sourcesById: sourcesById(), filters: filters(), query: stateQuery() }),
   );
+
+  const fieldRows = createMemo(() => {
+    const q = fieldQuery().trim().toLowerCase();
+    return props.fields.filter((field) => {
+      if (selectedSourceId() && field.sourceId !== selectedSourceId()) return false;
+      return !q || `${field.signalName} ${field.key} ${field.scope} ${field.role} ${field.valueType}`.toLowerCase().includes(q);
+    });
+  });
 
   const metricColumns: DataTableColumn<ReferenceMetricRow>[] = [
     { id: "name", header: "Metric", value: "name" },
@@ -131,6 +148,28 @@ export function PulseQueryReferenceInventory(props: Props) {
       value: (row) => buildReferenceStateQuery(row, filters(), selectedEntityType()),
       headerClass: "w-12",
       cellClass: "w-12",
+    },
+  ];
+
+  const fieldColumns: DataTableColumn<PulseSignalField>[] = [
+    { id: "scope", header: "Scope", value: "scope", headerClass: "w-24", cellClass: "w-24 whitespace-nowrap" },
+    { id: "signal", header: "Signal", value: "signalName" },
+    { id: "role", header: "Role", value: "role", headerClass: "w-28", cellClass: "w-28 whitespace-nowrap" },
+    { id: "field", header: "Field", value: "key" },
+    { id: "type", header: "Type", value: "valueType", headerClass: "w-24", cellClass: "w-24 whitespace-nowrap" },
+    {
+      id: "source",
+      header: "Source",
+      value: (row) => sourcesById().get(row.sourceId)?.name ?? row.sourceId.slice(0, 8),
+      headerClass: "w-36",
+      cellClass: "w-36 whitespace-nowrap",
+    },
+    {
+      id: "observed",
+      header: "Observed",
+      value: "observedCount",
+      headerClass: "w-28",
+      cellClass: "w-28 whitespace-nowrap",
     },
   ];
 
@@ -212,6 +251,31 @@ export function PulseQueryReferenceInventory(props: Props) {
           />
         </section>
       </div>
+
+      <section class="flex min-h-0 flex-col gap-2">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="flex items-center gap-2 text-sm font-semibold text-secondary">
+              <i class="ti ti-list-details" /> Fields <span class="text-dimmed">{fieldRows().length}</span>
+            </h2>
+            <p class="mt-1 text-xs text-dimmed">Dimensions are query filters and groups. Attributes retain high-cardinality event context.</p>
+          </div>
+          <div class="w-full sm:w-72">
+            <TextInput value={fieldQuery} onInput={setFieldQuery} icon="ti ti-search" placeholder="Search fields..." clearable />
+          </div>
+        </div>
+        <DataTable
+          rows={fieldRows()}
+          columns={fieldColumns}
+          getRowId={(row) => `${row.sourceId}:${row.scope}:${row.signalName}:${row.role}:${row.key}`}
+          class="paper max-h-[420px] min-h-64 overflow-auto"
+          empty="No matching fields"
+          renderCell={({ col, value }) => {
+            if (col.id === "signal" || col.id === "field") return <code class="font-mono text-secondary">{String(value)}</code>;
+            return <span class="text-dimmed">{String(value ?? "-")}</span>;
+          }}
+        />
+      </section>
     </>
   );
 }

@@ -10,7 +10,7 @@ import {
   PULSE_INTERNAL_INGEST_BATCH_LIMIT,
 } from "../ingest-limits";
 import { derivePulseResource, explicitPulseResource, type PulseResourceIdentity } from "../resource-model";
-import { validateDimensions, validateEventAttributes, validateEventPayload } from "../telemetry-contract";
+import { telemetryValueKind, validateDimensions, validateEventAttributes, validateEventPayload } from "../telemetry-contract";
 import { requireBaseActive } from "./access-control";
 import { type PulseSqlClient, prepareIngestBatch, writePreparedIngestBatch } from "./ingest-bulk";
 import { PULSE_INGEST_SCOPE, resolveIngestSourceForServiceAccount } from "./source-management";
@@ -115,21 +115,31 @@ const upsertObservedResource = async (params: {
   `;
 };
 
-const upsertDimensionMetadata = async (params: {
+const upsertSignalFields = async (params: {
   baseId: string;
   sourceId?: string | null;
   scope: "metric" | "event" | "state";
-  dimensions: Record<string, string>;
+  signalName: string;
+  role: "dimension" | "attribute";
+  values: Record<string, unknown>;
+  seenAt: Date;
   db?: SqlClient;
 }): Promise<void> => {
   if (!params.sourceId) return;
   const db = params.db ?? sql;
-  for (const key of Object.keys(params.dimensions)) {
+  for (const [key, value] of Object.entries(params.values)) {
     await db`
-      INSERT INTO pulse.dimension_metadata (base_id, source_id, scope, key, observed_cardinality, last_seen_at)
-      VALUES (${params.baseId}::uuid, ${params.sourceId ?? null}::uuid, ${params.scope}, ${key}, 1, now())
-      ON CONFLICT (base_id, source_id, scope, key)
-      DO UPDATE SET last_seen_at = now()
+      INSERT INTO pulse.signal_fields (
+        base_id, source_id, scope, signal_name, role, key, value_type, observed_count, first_seen_at, last_seen_at
+      ) VALUES (
+        ${params.baseId}::uuid, ${params.sourceId}::uuid, ${params.scope}, ${params.signalName}, ${params.role}, ${key},
+        ${telemetryValueKind(value)}, 1, ${params.seenAt}, ${params.seenAt}
+      )
+      ON CONFLICT (base_id, source_id, scope, signal_name, role, key) DO UPDATE SET
+        value_type = CASE WHEN pulse.signal_fields.value_type = EXCLUDED.value_type THEN EXCLUDED.value_type ELSE 'mixed' END,
+        observed_count = pulse.signal_fields.observed_count + 1,
+        first_seen_at = LEAST(pulse.signal_fields.first_seen_at, EXCLUDED.first_seen_at),
+        last_seen_at = GREATEST(pulse.signal_fields.last_seen_at, EXCLUDED.last_seen_at)
     `;
   }
 };
@@ -294,7 +304,16 @@ const recordMetricInClient = async (params: {
     ON CONFLICT (series_id, ts) DO UPDATE SET value = EXCLUDED.value, recorded_at = now()
   `;
   await upsertObservedResource({ baseId: params.baseId, sourceId: params.sourceId, resource, dimensions, seenAt: ts.data, db });
-  await upsertDimensionMetadata({ baseId: params.baseId, sourceId: params.sourceId, scope: "metric", dimensions, db });
+  await upsertSignalFields({
+    baseId: params.baseId,
+    sourceId: params.sourceId,
+    scope: "metric",
+    signalName: params.metric.name,
+    role: "dimension",
+    values: dimensions,
+    seenAt: ts.data,
+    db,
+  });
   return ok();
 };
 
@@ -383,7 +402,26 @@ const recordEventInClient = async (params: {
   });
   if (!eventRow.ok) return fail(eventRow.error);
   await upsertObservedResource({ baseId: params.baseId, sourceId: params.sourceId, resource, dimensions, seenAt: ts.data, db });
-  await upsertDimensionMetadata({ baseId: params.baseId, sourceId: params.sourceId, scope: "event", dimensions, db });
+  await upsertSignalFields({
+    baseId: params.baseId,
+    sourceId: params.sourceId,
+    scope: "event",
+    signalName: params.event.kind,
+    role: "dimension",
+    values: dimensions,
+    seenAt: ts.data,
+    db,
+  });
+  await upsertSignalFields({
+    baseId: params.baseId,
+    sourceId: params.sourceId,
+    scope: "event",
+    signalName: params.event.kind,
+    role: "attribute",
+    values: params.event.attributes ?? {},
+    seenAt: ts.data,
+    db,
+  });
   return ok();
 };
 
@@ -488,7 +526,16 @@ const setStateInClient = async (params: {
     )
   `;
   await upsertObservedResource({ baseId: params.baseId, sourceId: params.sourceId, resource, dimensions, seenAt: changedAt.data, db });
-  await upsertDimensionMetadata({ baseId: params.baseId, sourceId: params.sourceId, scope: "state", dimensions, db });
+  await upsertSignalFields({
+    baseId: params.baseId,
+    sourceId: params.sourceId,
+    scope: "state",
+    signalName: params.state.key,
+    role: "dimension",
+    values: dimensions,
+    seenAt: changedAt.data,
+    db,
+  });
   return ok();
 };
 

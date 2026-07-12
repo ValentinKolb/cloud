@@ -20,11 +20,12 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
-  const [metricsResult, eventsResult, statesResult, sourcesResult] = await Promise.all([
+  const [metricsResult, eventsResult, statesResult, sourcesResult, fieldsResult] = await Promise.all([
     pulseService.query.metrics(baseResult.data.id, user, {}),
     pulseService.query.recentEvents(baseResult.data.id, user, {}),
     pulseService.query.currentStates(baseResult.data.id, user, {}),
     pulseService.source.list(baseResult.data.id, user),
+    pulseService.query.fields(baseResult.data.id, user, { limit: 500 }),
   ]);
   const metrics = metricsResult.ok ? metricsResult.data : [];
   const seriesResults = await Promise.all(metrics.map((metric) => pulseService.query.series(baseResult.data.id, user, { metric: metric.name })));
@@ -40,6 +41,7 @@ export default ssr<AuthContext>(async (c) => {
       states={statesResult.ok ? statesResult.data : []}
       sources={sourcesResult.ok ? sourcesResult.data : []}
       series={series}
+      fields={fieldsResult.ok ? fieldsResult.data : []}
     />
   );
 });

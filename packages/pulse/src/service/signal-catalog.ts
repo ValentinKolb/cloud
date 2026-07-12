@@ -9,6 +9,7 @@ import type {
   PulseRecordedEvent,
   PulseResourceMetric,
   PulseResourceSummary,
+  PulseSignalField,
 } from "../contracts";
 import { requireBaseAccess, type UserScope } from "./access-control";
 import {
@@ -60,6 +61,27 @@ type ResourceMetricRow = InventoryMetricRow & {
   resource_key: string;
   resource_id: string;
   resource_type: string | null;
+};
+
+type SignalFieldRow = {
+  source_id: string;
+  scope: PulseSignalField["scope"];
+  signal_name: string;
+  role: PulseSignalField["role"];
+  key: string;
+  value_type: PulseSignalField["valueType"];
+  observed_count: number;
+  first_seen_at: Date | string;
+  last_seen_at: Date | string;
+};
+
+type SignalFieldListParams = {
+  q?: string | null;
+  sourceId?: string | null;
+  scope?: PulseSignalField["scope"] | null;
+  role?: PulseSignalField["role"] | null;
+  limit?: number;
+  offset?: number;
 };
 
 const escapeLikePattern = (value: string): string => value.replace(/([\\%_])/g, "\\$1");
@@ -117,6 +139,45 @@ const mapResourceMetric = (row: ResourceMetricRow): PulseResourceMetric => ({
   latestValue: row.latest_value,
   latestSampleAt: isoNullable(row.latest_sample_at),
 });
+
+const querySignalFields = async (baseId: string, params: SignalFieldListParams = {}): Promise<PulseSignalField[]> => {
+  const pattern = searchPattern(params.q);
+  const limit = Math.min(5000, Math.max(1, params.limit ?? 500));
+  const offset = Math.max(0, params.offset ?? 0);
+  const rows = await sql<SignalFieldRow[]>`
+    SELECT source_id, scope, signal_name, role, key, value_type, observed_count, first_seen_at, last_seen_at
+    FROM pulse.signal_fields
+    WHERE base_id = ${baseId}::uuid
+      AND (${params.sourceId ?? null}::uuid IS NULL OR source_id = ${params.sourceId ?? null}::uuid)
+      AND (${params.scope ?? null}::text IS NULL OR scope = ${params.scope ?? null})
+      AND (${params.role ?? null}::text IS NULL OR role = ${params.role ?? null})
+      AND (${pattern}::text IS NULL OR signal_name ILIKE ${pattern} ESCAPE '\\' OR key ILIKE ${pattern} ESCAPE '\\')
+    ORDER BY scope, signal_name, role, key, source_id
+    LIMIT ${limit}
+    OFFSET ${offset}
+  `;
+  return rows.map((row) => ({
+    sourceId: row.source_id,
+    scope: row.scope,
+    signalName: row.signal_name,
+    role: row.role,
+    key: row.key,
+    valueType: row.value_type,
+    observedCount: Number(row.observed_count),
+    firstSeenAt: new Date(row.first_seen_at).toISOString(),
+    lastSeenAt: new Date(row.last_seen_at).toISOString(),
+  }));
+};
+
+export const listSignalFields = async (
+  baseId: string,
+  user: UserScope,
+  params: SignalFieldListParams = {},
+): Promise<Result<PulseSignalField[]>> => {
+  const access = await requireBaseAccess(baseId, user, "read");
+  if (!access.ok) return fail(access.error);
+  return ok(await querySignalFields(baseId, params));
+};
 
 export const listMetrics = async (
   baseId: string,
@@ -529,7 +590,8 @@ export const listInventory = async (baseId: string, user: UserScope): Promise<Re
   if (!resourceResult.ok) return fail(resourceResult.error);
   const resources = resourceResult.data;
   const resourceKeys = resources.map((resource) => resource.key);
-  if (resourceKeys.length === 0) return ok({ resources: [], metrics: [], events: [], states: [] });
+  const fields = await querySignalFields(baseId, { limit: 5000 });
+  if (resourceKeys.length === 0) return ok({ resources: [], metrics: [], events: [], states: [], fields });
 
   const [metricRows, eventRows, stateRows] = await Promise.all([
     sql<ResourceMetricRow[]>`
@@ -585,5 +647,6 @@ export const listInventory = async (baseId: string, user: UserScope): Promise<Re
     metrics: metricRows.map(mapResourceMetric),
     events: eventRows.map(mapRecordedEvent),
     states: stateRows.map(mapCurrentState),
+    fields,
   });
 };

@@ -184,11 +184,24 @@ export type PulseResourceMetric = {
   latestSampleAt: string | null;
 };
 
+export type PulseSignalField = {
+  sourceId: string;
+  scope: "metric" | "event" | "state";
+  signalName: string;
+  role: "dimension" | "attribute";
+  key: string;
+  valueType: "null" | "string" | "number" | "boolean" | "object" | "array" | "mixed";
+  observedCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+};
+
 export type PulseInventory = {
   resources: PulseResourceSummary[];
   metrics: PulseResourceMetric[];
   events: PulseRecordedEvent[];
   states: PulseCurrentState[];
+  fields: PulseSignalField[];
 };
 
 export type PulseCapabilitySnapshot = {

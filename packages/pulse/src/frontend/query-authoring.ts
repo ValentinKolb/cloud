@@ -1,6 +1,13 @@
 import type { Completion, SuggestContext, Suggestion } from "@valentinkolb/cloud/ui";
 import { AGGREGATIONS } from "../contracts";
-import type { PulseCurrentState, PulseMetricSeries, PulseMetricSummary, PulseRecordedEvent, PulseSource } from "../contracts";
+import type {
+  PulseCurrentState,
+  PulseMetricSeries,
+  PulseMetricSummary,
+  PulseRecordedEvent,
+  PulseSignalField,
+  PulseSource,
+} from "../contracts";
 
 type PulseQueryAuthoringInventory = {
   metrics: PulseMetricSummary[];
@@ -8,6 +15,7 @@ type PulseQueryAuthoringInventory = {
   states?: PulseCurrentState[];
   sources: PulseSource[];
   series: PulseMetricSeries[];
+  fields?: PulseSignalField[];
 };
 
 type QueryStatement = "metric" | "events" | "states";
@@ -79,14 +87,20 @@ const withTriggerPrefix = (trigger: string, items: Suggestion[]): Suggestion[] =
 
 const uniqueValues = (values: (string | null | undefined)[]): string[] => [...new Set(values.filter((value): value is string => !!value))];
 
-const eventKindSuggestions = (events: PulseRecordedEvent[] | undefined, query: string): Suggestion[] =>
-  ["*", ...uniqueValues((events ?? []).map((event) => event.kind))]
+const signalNames = (
+  params: PulseQueryAuthoringInventory,
+  scope: PulseSignalField["scope"],
+  loadedNames: string[],
+): string[] => uniqueValues([...loadedNames, ...(params.fields ?? []).filter((field) => field.scope === scope).map((field) => field.signalName)]);
+
+const eventKindSuggestions = (params: PulseQueryAuthoringInventory, query: string): Suggestion[] =>
+  ["*", ...signalNames(params, "event", (params.events ?? []).map((event) => event.kind))]
     .filter((kind) => matches(kind, query))
     .slice(0, 40)
     .map((kind) => suggestion(kind, kind === "*" ? "all events" : "event kind", quoteQueryValue(kind)));
 
-const stateKeySuggestions = (states: PulseCurrentState[] | undefined, query: string): Suggestion[] =>
-  ["*", ...uniqueValues((states ?? []).map((state) => state.key))]
+const stateKeySuggestions = (params: PulseQueryAuthoringInventory, query: string): Suggestion[] =>
+  ["*", ...signalNames(params, "state", (params.states ?? []).map((state) => state.key))]
     .filter((key) => matches(key, query))
     .slice(0, 40)
     .map((key) => suggestion(key, key === "*" ? "all states" : "state key", quoteQueryValue(key)));
@@ -109,6 +123,9 @@ const entitySuggestions = (params: PulseQueryAuthoringInventory, query: string):
 
 const dimensionSuggestions = (params: PulseQueryAuthoringInventory, query: string): Suggestion[] => {
   const dimensions = new Map<string, Set<string>>();
+  for (const field of params.fields ?? []) {
+    if (field.role === "dimension" && !dimensions.has(field.key)) dimensions.set(field.key, new Set());
+  }
   for (const item of [...params.series, ...(params.events ?? []), ...(params.states ?? [])]) {
     for (const [key, value] of Object.entries(item.dimensions)) {
       if (!dimensions.has(key)) dimensions.set(key, new Set());
@@ -120,13 +137,16 @@ const dimensionSuggestions = (params: PulseQueryAuthoringInventory, query: strin
     .slice(0, 40)
     .map(([key, values]) => {
       const value = [...values][0] ?? "";
-      return suggestion(`${key}=`, `${values.size} values`, value ? `${key}=${quoteQueryValue(value)}` : `${key}=`);
+      return suggestion(`${key}=`, values.size ? `${values.size} values` : "dimension", value ? `${key}=${quoteQueryValue(value)}` : `${key}=`);
     });
 };
 
 const dimensionKeySuggestions = (params: PulseQueryAuthoringInventory, query: string): Suggestion[] =>
   uniqueValues(
-    [...params.series, ...(params.events ?? []), ...(params.states ?? [])].flatMap((item) => Object.keys(item.dimensions)),
+    [
+      ...(params.fields ?? []).filter((field) => field.role === "dimension").map((field) => field.key),
+      ...[...params.series, ...(params.events ?? []), ...(params.states ?? [])].flatMap((item) => Object.keys(item.dimensions)),
+    ],
   )
     .filter((key) => matches(key, query))
     .slice(0, 40)
@@ -149,8 +169,8 @@ const literalSuggestionFactory =
 
 const PREVIOUS_TOKEN_SUGGESTIONS: Record<string, PreviousTokenSuggestionFactory> = {
   metric: (params, query) => metricNameSuggestions(params.metrics, query),
-  events: (params, query) => eventKindSuggestions(params.events, query),
-  states: (params, query) => stateKeySuggestions(params.states, query),
+  events: (params, query) => eventKindSuggestions(params, query),
+  states: (params, query) => stateKeySuggestions(params, query),
   source: (params, query) => sourceSuggestions(params.sources, query),
   every: literalSuggestionFactory(BUCKET_LITERALS, "bucket"),
   since: literalSuggestionFactory(RANGE_LITERALS, "range"),
@@ -185,7 +205,7 @@ const metricStatementSuggestions: StatementSuggestionFactory = (params, query, t
 const rowStatementSuggestions =
   (kind: "events" | "states"): StatementSuggestionFactory =>
   (params, query, text, tokenIndex) => {
-    const names = kind === "events" ? eventKindSuggestions(params.events, query) : stateKeySuggestions(params.states, query);
+    const names = kind === "events" ? eventKindSuggestions(params, query) : stateKeySuggestions(params, query);
     if (tokenIndex === 1) return names;
     if (kind === "events" && tokenIndex === 2)
       return [

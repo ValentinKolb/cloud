@@ -153,6 +153,7 @@ export const createWorkspaceDerivedModel = (props: PulseWorkspaceProps, state: W
       states: currentStates(),
       sources: sources(),
       series: series(),
+      fields: inventory().fields,
     }),
   );
   const metricScopeByName = createMemo(() => {

@@ -18,6 +18,8 @@ import {
   ResourceMetricSchema,
   ResourceStateQuerySchema,
   ResourceSummarySchema,
+  SignalFieldQuerySchema,
+  SignalFieldSchema,
 } from "../schemas";
 import { requireUuidParam } from "../shared";
 
@@ -39,6 +41,20 @@ const routes = new Hono<AuthContext>()
       const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
       if (!baseId.ok) return respond(c, baseId.result);
       return respond(c, pulseService.query.resources(baseId.value, c.get("user"), c.req.valid("query")));
+    },
+  )
+  .get(
+    "/bases/:baseId/fields",
+    describeRoute({
+      tags: ["Pulse"],
+      summary: "List observed Pulse telemetry fields",
+      responses: { 200: jsonResponse(z.array(SignalFieldSchema), "Observed telemetry fields") },
+    }),
+    v("query", SignalFieldQuerySchema),
+    async (c) => {
+      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      if (!baseId.ok) return respond(c, baseId.result);
+      return respond(c, pulseService.query.fields(baseId.value, c.get("user"), c.req.valid("query")));
     },
   )
   .get(

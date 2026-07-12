@@ -6,6 +6,7 @@ import type {
   PulseMetricSeries,
   PulseMetricSummary,
   PulseRecordedEvent,
+  PulseSignalField,
   PulseSource,
 } from "../contracts";
 import { compactId, formatDate, formatValue } from "./shared";
@@ -224,6 +225,18 @@ export const eventRows = (events: PulseRecordedEvent[]) =>
     ts: event.ts,
   }));
 
+export const signalFieldRows = (fields: PulseSignalField[]) =>
+  fields.map((field) => ({
+    scope: field.scope,
+    signal: field.signalName,
+    role: field.role,
+    field: field.key,
+    type: field.valueType,
+    source: compactId(field.sourceId),
+    observations: field.observedCount,
+    lastSeenAt: formatDate(field.lastSeenAt),
+  }));
+
 const resourceMatchesScope = (resource: InventoryResource, filters: ResourceFilters): boolean => {
   if (filters.type && resource.type !== filters.type) return false;
   if (filters.source && !resource.sourceIds.includes(filters.source)) return false;
@@ -279,6 +292,7 @@ export const overviewRows = (base: PulseBase, inventory: PulseInventory, sources
       metricSeries: inventory.metrics.length,
       events: inventory.events.length,
       states: inventory.states.length,
+      fields: inventory.fields.length,
     },
   ];
 };

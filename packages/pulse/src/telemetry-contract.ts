@@ -17,6 +17,25 @@ export const jsonBytes = (value: unknown): number | null => {
   }
 };
 
+export type PulseTelemetryValueKind = "null" | "string" | "number" | "boolean" | "object" | "array";
+
+export const telemetryValueKind = (value: unknown): PulseTelemetryValueKind => {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  switch (typeof value) {
+    case "string":
+      return "string";
+    case "number":
+      return "number";
+    case "boolean":
+      return "boolean";
+    case "object":
+      return "object";
+    default:
+      throw new TypeError("Telemetry values must be JSON compatible");
+  }
+};
+
 const objectDepth = (value: unknown, depth = 0): number => {
   if (value === null || typeof value !== "object") return depth;
   const children = Array.isArray(value) ? value : Object.values(value);

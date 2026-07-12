@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { sql } from "bun";
 import type { PulseIngestBatch } from "../contracts";
 import { derivePulseResource, explicitPulseResource, type PulseResourceIdentity } from "../resource-model";
+import { telemetryValueKind, type PulseTelemetryValueKind } from "../telemetry-contract";
 import { normalizeDimensions } from "./telemetry-values";
 
 export type PulseSqlClient = typeof sql;
@@ -68,7 +69,18 @@ type PreparedIngestBatch = {
   events: PreparedEvent[];
   states: PreparedState[];
   resources: PreparedResource[];
-  dimensionKeys: Array<{ scope: "metric" | "event" | "state"; key: string }>;
+  fields: PreparedField[];
+};
+
+type PreparedField = {
+  scope: "metric" | "event" | "state";
+  signalName: string;
+  role: "dimension" | "attribute";
+  key: string;
+  valueType: PulseTelemetryValueKind | "mixed";
+  observedCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
 };
 
 const dimensionsHash = (dimensions: Record<string, string>): string =>
@@ -85,7 +97,31 @@ const isoTime = (value?: string): string => (value ? new Date(value) : new Date(
 
 export const prepareIngestBatch = (batch: PulseIngestBatch, sourceId?: string | null): PreparedIngestBatch => {
   const resources = new Map<string, PreparedResource>();
-  const dimensionKeys = new Map<string, { scope: "metric" | "event" | "state"; key: string }>();
+  const fields = new Map<string, PreparedField>();
+
+  const observeFields = (
+    scope: PreparedField["scope"],
+    signalName: string,
+    role: PreparedField["role"],
+    values: Record<string, unknown>,
+    seenAt: string,
+  ) => {
+    for (const [key, value] of Object.entries(values)) {
+      const fieldKey = `${scope}\u001f${signalName}\u001f${role}\u001f${key}`;
+      const current = fields.get(fieldKey);
+      const nextType = telemetryValueKind(value);
+      fields.set(fieldKey, {
+        scope,
+        signalName,
+        role,
+        key,
+        valueType: current && current.valueType !== nextType ? "mixed" : nextType,
+        observedCount: (current?.observedCount ?? 0) + 1,
+        firstSeenAt: current && Date.parse(current.firstSeenAt) < Date.parse(seenAt) ? current.firstSeenAt : seenAt,
+        lastSeenAt: current && Date.parse(current.lastSeenAt) > Date.parse(seenAt) ? current.lastSeenAt : seenAt,
+      });
+    }
+  };
 
   const observe = (
     scope: "metric" | "event" | "state",
@@ -96,7 +132,7 @@ export const prepareIngestBatch = (batch: PulseIngestBatch, sourceId?: string | 
     seenAt: string,
     explicitResource?: PulseResourceIdentity | null,
   ) => {
-    for (const key of Object.keys(dimensions)) dimensionKeys.set(`${scope}\u001f${key}`, { scope, key });
+    observeFields(scope, signalName, "dimension", dimensions, seenAt);
     const resource = explicitResource === undefined ? derivePulseResource({ signalName, sourceId, entityId, entityType, dimensions }) : explicitResource;
     if (!resource) return null;
     const current = resources.get(resource.key);
@@ -137,6 +173,7 @@ export const prepareIngestBatch = (batch: PulseIngestBatch, sourceId?: string | 
     const hash = dimensionsHash(dimensions);
     const ts = isoTime(event.ts);
     const resource = observe("event", event.kind, event.entityId, event.entityType, dimensions, ts, explicitPulseResource(event.resource));
+    observeFields("event", event.kind, "attribute", event.attributes ?? {}, ts);
     return {
       id: randomUUID(),
       kind: event.kind,
@@ -173,7 +210,7 @@ export const prepareIngestBatch = (batch: PulseIngestBatch, sourceId?: string | 
     };
   });
 
-  return { metrics, events, states, resources: [...resources.values()], dimensionKeys: [...dimensionKeys.values()] };
+  return { metrics, events, states, resources: [...resources.values()], fields: [...fields.values()] };
 };
 
 const json = (value: unknown): string => JSON.stringify(value);
@@ -337,20 +374,30 @@ const writeResources = async (baseId: string, sourceId: string | null | undefine
   `;
 };
 
-const writeDimensionMetadata = async (
+const writeFieldMetadata = async (
   baseId: string,
   sourceId: string | null | undefined,
-  keys: PreparedIngestBatch["dimensionKeys"],
+  fields: PreparedIngestBatch["fields"],
   db: PulseSqlClient,
 ) => {
-  if (!sourceId || keys.length === 0) return;
+  if (!sourceId || fields.length === 0) return;
   await db`
     WITH input AS (
-      SELECT * FROM jsonb_to_recordset((${json(keys)}::jsonb #>> '{}')::jsonb) AS row(scope text, key text)
+      SELECT * FROM jsonb_to_recordset((${json(fields)}::jsonb #>> '{}')::jsonb) AS row(
+        scope text, "signalName" text, role text, key text, "valueType" text,
+        "observedCount" bigint, "firstSeenAt" timestamptz, "lastSeenAt" timestamptz
+      )
     )
-    INSERT INTO pulse.dimension_metadata (base_id, source_id, scope, key, observed_cardinality, last_seen_at)
-    SELECT ${baseId}::uuid, ${sourceId}::uuid, scope, key, 1, now() FROM input
-    ON CONFLICT (base_id, source_id, scope, key) DO UPDATE SET last_seen_at = now()
+    INSERT INTO pulse.signal_fields (
+      base_id, source_id, scope, signal_name, role, key, value_type, observed_count, first_seen_at, last_seen_at
+    )
+    SELECT ${baseId}::uuid, ${sourceId}::uuid, scope, "signalName", role, key, "valueType", "observedCount", "firstSeenAt", "lastSeenAt"
+    FROM input
+    ON CONFLICT (base_id, source_id, scope, signal_name, role, key) DO UPDATE SET
+      value_type = CASE WHEN pulse.signal_fields.value_type = EXCLUDED.value_type THEN EXCLUDED.value_type ELSE 'mixed' END,
+      observed_count = pulse.signal_fields.observed_count + EXCLUDED.observed_count,
+      first_seen_at = LEAST(pulse.signal_fields.first_seen_at, EXCLUDED.first_seen_at),
+      last_seen_at = GREATEST(pulse.signal_fields.last_seen_at, EXCLUDED.last_seen_at)
   `;
 };
 
@@ -364,5 +411,5 @@ export const writePreparedIngestBatch = async (params: {
   await writeEvents(params.baseId, params.sourceId, params.batch.events, params.db);
   await writeStates(params.baseId, params.sourceId, params.batch.states, params.db);
   await writeResources(params.baseId, params.sourceId, params.batch.resources, params.db);
-  await writeDimensionMetadata(params.baseId, params.sourceId, params.batch.dimensionKeys, params.db);
+  await writeFieldMetadata(params.baseId, params.sourceId, params.batch.fields, params.db);
 };

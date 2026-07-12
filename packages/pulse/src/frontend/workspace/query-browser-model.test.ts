@@ -105,6 +105,7 @@ const inventory = (overrides: Partial<PulseInventory> = {}): PulseInventory => (
   metrics: [],
   events: [],
   states: [],
+  fields: [],
   ...overrides,
 });
 

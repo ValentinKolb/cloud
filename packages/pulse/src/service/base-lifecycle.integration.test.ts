@@ -184,12 +184,15 @@ const insertTelemetryFixture = async (baseId: string, sourceId: string, options?
     )
   `;
   await sql`
-    INSERT INTO pulse.dimension_metadata (base_id, source_id, scope, key, observed_cardinality, last_seen_at)
-    VALUES (${baseId}::uuid, ${sourceId}::uuid, 'metric', 'host', 1, ${ts}::timestamptz)
-    ON CONFLICT (base_id, source_id, scope, key)
-    DO UPDATE SET
-      observed_cardinality = pulse.dimension_metadata.observed_cardinality + 1,
-      last_seen_at = GREATEST(pulse.dimension_metadata.last_seen_at, EXCLUDED.last_seen_at)
+    INSERT INTO pulse.signal_fields (
+      base_id, source_id, scope, signal_name, role, key, value_type, observed_count, first_seen_at, last_seen_at
+    ) VALUES (
+      ${baseId}::uuid, ${sourceId}::uuid, 'metric', 'lifecycle.metric', 'dimension', 'host', 'string', 1,
+      ${ts}::timestamptz, ${ts}::timestamptz
+    )
+    ON CONFLICT (base_id, source_id, scope, signal_name, role, key) DO UPDATE SET
+      observed_count = pulse.signal_fields.observed_count + 1,
+      last_seen_at = GREATEST(pulse.signal_fields.last_seen_at, EXCLUDED.last_seen_at)
   `;
   await sql`
     INSERT INTO pulse.source_scrapes (
@@ -273,7 +276,7 @@ const expectBaseTelemetryCleared = async (baseId: string) => {
   await expect(countRows("pulse.source_scrapes", baseId)).resolves.toBe(0);
   await expect(countRows("pulse.metric_series", baseId)).resolves.toBe(0);
   await expect(countRows("pulse.metric_defs", baseId)).resolves.toBe(0);
-  await expect(countRows("pulse.dimension_metadata", baseId)).resolves.toBe(0);
+  await expect(countRows("pulse.signal_fields", baseId)).resolves.toBe(0);
 };
 
 beforeAll(async () => {

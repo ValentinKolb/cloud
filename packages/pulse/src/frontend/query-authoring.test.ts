@@ -70,6 +70,30 @@ const suggest = async (query: string, ctx: SuggestContext): Promise<Suggestion[]
         latestSampleAt: null,
       },
     ],
+    fields: [
+      {
+        sourceId: "source-a",
+        scope: "event",
+        signalName: "page.viewed",
+        role: "dimension",
+        key: "campaign",
+        valueType: "string",
+        observedCount: 100,
+        firstSeenAt: "2026-01-01T00:00:00.000Z",
+        lastSeenAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        sourceId: "source-a",
+        scope: "state",
+        signalName: "campaign.active",
+        role: "dimension",
+        key: "campaign",
+        valueType: "string",
+        observedCount: 1,
+        firstSeenAt: "2026-01-01T00:00:00.000Z",
+        lastSeenAt: "2026-01-01T00:00:00.000Z",
+      },
+    ],
   })[0]!;
 
   return Promise.resolve(completion.suggest(query, ctx, new AbortController().signal));
@@ -113,6 +137,12 @@ describe("Pulse query authoring", () => {
     );
     await expect(suggest("ho", { fullText: "metric system.cpu.usage avg where ho", caret: 36, tokenStart: 34 })).resolves.toContainEqual(
       expect.objectContaining({ text: "host=", hint: "1 values", expansion: "host=macbook" }),
+    );
+    await expect(suggest("page", { fullText: "events page", caret: 11, tokenStart: 7 })).resolves.toContainEqual(
+      expect.objectContaining({ text: "page.viewed", hint: "event kind" }),
+    );
+    await expect(suggest("camp", { fullText: "events page.viewed where camp", caret: 29, tokenStart: 25 })).resolves.toContainEqual(
+      expect.objectContaining({ text: "campaign=", hint: "dimension" }),
     );
   });
 

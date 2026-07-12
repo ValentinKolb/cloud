@@ -457,6 +457,15 @@ export const ResourceListQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).max(1_000_000).optional(),
 });
 
+export const SignalFieldQuerySchema = z.object({
+  q: z.string().trim().max(200).optional(),
+  sourceId: z.string().uuid().optional(),
+  scope: z.enum(["metric", "event", "state"]).optional(),
+  role: z.enum(["dimension", "attribute"]).optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
+  offset: z.coerce.number().int().min(0).max(1_000_000).optional(),
+});
+
 export const ResourceMetricQuerySchema = z.object({
   resourceKey: z.string().trim().min(1).max(500),
   q: z.string().trim().max(200).optional(),
@@ -673,11 +682,24 @@ export const CurrentStateSchema = z.object({
   updatedAt: z.string(),
 });
 
+export const SignalFieldSchema = z.object({
+  sourceId: z.string(),
+  scope: z.enum(["metric", "event", "state"]),
+  signalName: z.string(),
+  role: z.enum(["dimension", "attribute"]),
+  key: z.string(),
+  valueType: z.enum(["null", "string", "number", "boolean", "object", "array", "mixed"]),
+  observedCount: z.number(),
+  firstSeenAt: z.string(),
+  lastSeenAt: z.string(),
+});
+
 export const InventorySchema = z.object({
   resources: z.array(ResourceSummarySchema),
   metrics: z.array(ResourceMetricSchema),
   events: z.array(RecordedEventSchema),
   states: z.array(CurrentStateSchema),
+  fields: z.array(SignalFieldSchema),
 });
 
 export const MetricQueryResultSchema = z.object({

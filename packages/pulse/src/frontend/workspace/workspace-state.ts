@@ -45,7 +45,7 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
   const [sourceSearch, setSourceSearch] = createSignal("");
   const [metrics, setMetrics] = createSignal<PulseMetricSummary[]>(props.initialMetrics ?? []);
   const [inventory, setInventory] = createSignal<PulseInventory>(
-    props.initialInventory ?? { resources: [], metrics: [], events: [], states: [] },
+    props.initialInventory ?? { resources: [], metrics: [], events: [], states: [], fields: [] },
   );
   const [resourceSearch, setResourceSearch] = createSignal(initialResourceQuery.q);
   const [resourceSourceFilter, setResourceSourceFilter] = createSignal(initialResourceQuery.sourceId);

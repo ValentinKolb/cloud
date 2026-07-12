@@ -66,7 +66,37 @@ describe("Pulse bulk ingest preparation", () => {
     expect(prepared.events[0]?.resourceKey).toBeNull();
   });
 
-  test("deduplicates resource and dimension metadata for large set-based writes", () => {
+  test("catalogs event dimensions and attributes without storing their values", () => {
+    const prepared = prepareIngestBatch(
+      {
+        events: [
+          {
+            kind: "page.viewed",
+            dimensions: { campaign: "summer" },
+            attributes: { request_id: "request-1", geo: { city: "Berlin" } },
+          },
+          {
+            kind: "page.viewed",
+            dimensions: { campaign: "winter" },
+            attributes: { request_id: "request-2", geo: { city: "Hamburg" } },
+          },
+        ],
+      },
+      "11111111-1111-4111-8111-111111111111",
+    );
+
+    expect(prepared.fields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "dimension", key: "campaign", valueType: "string", observedCount: 2 }),
+        expect.objectContaining({ role: "attribute", key: "request_id", valueType: "string", observedCount: 2 }),
+        expect.objectContaining({ role: "attribute", key: "geo", valueType: "object", observedCount: 2 }),
+      ]),
+    );
+    expect(JSON.stringify(prepared.fields)).not.toContain("request-1");
+    expect(JSON.stringify(prepared.fields)).not.toContain("Berlin");
+  });
+
+  test("deduplicates resource and field metadata for large set-based writes", () => {
     const prepared = prepareIngestBatch(
       {
         metrics: Array.from({ length: 1_000 }, (_, index) => ({
@@ -82,9 +112,15 @@ describe("Pulse bulk ingest preparation", () => {
 
     expect(prepared.metrics).toHaveLength(1_000);
     expect(prepared.resources).toHaveLength(1);
-    expect(prepared.dimensionKeys).toEqual([
-      { scope: "metric", key: "host" },
-      { scope: "metric", key: "region" },
-    ]);
+    expect(prepared.fields).toHaveLength(20);
+    expect(prepared.fields).toContainEqual(
+      expect.objectContaining({
+        scope: "metric",
+        signalName: "system.metric.0",
+        role: "dimension",
+        key: "host",
+        observedCount: 100,
+      }),
+    );
   });
 });

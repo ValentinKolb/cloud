@@ -332,19 +332,23 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_state_changes_key_ts ON pulse.state_changes(base_id, state_key, changed_at DESC)`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_state_changes_resource_ts ON pulse.state_changes(base_id, resource_key, changed_at DESC) WHERE resource_key IS NOT NULL`.simple();
 
+  await sql`DROP TABLE IF EXISTS pulse.dimension_metadata`.simple();
   await sql`
-    CREATE TABLE IF NOT EXISTS pulse.dimension_metadata (
+    CREATE TABLE IF NOT EXISTS pulse.signal_fields (
       base_id UUID NOT NULL REFERENCES pulse.bases(id) ON DELETE CASCADE,
-      source_id UUID REFERENCES pulse.sources(id) ON DELETE CASCADE,
+      source_id UUID NOT NULL REFERENCES pulse.sources(id) ON DELETE CASCADE,
       scope TEXT NOT NULL CHECK (scope IN ('metric', 'event', 'state')),
+      signal_name TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('dimension', 'attribute')),
       key TEXT NOT NULL,
-      observed_cardinality INTEGER NOT NULL DEFAULT 0,
-      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      query_count INTEGER NOT NULL DEFAULT 0,
-      index_status TEXT NOT NULL DEFAULT 'generic' CHECK (index_status IN ('generic', 'hot', 'high_cardinality')),
-      PRIMARY KEY (base_id, source_id, scope, key)
+      value_type TEXT NOT NULL CHECK (value_type IN ('null', 'string', 'number', 'boolean', 'object', 'array', 'mixed')),
+      observed_count BIGINT NOT NULL DEFAULT 0,
+      first_seen_at TIMESTAMPTZ NOT NULL,
+      last_seen_at TIMESTAMPTZ NOT NULL,
+      PRIMARY KEY (base_id, source_id, scope, signal_name, role, key)
     )
   `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_pulse_signal_fields_catalog ON pulse.signal_fields(base_id, scope, signal_name, role, key)`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.observed_resources (

@@ -94,7 +94,7 @@ export const createBaseController = (deps: BaseControllerDeps) => {
       deps.setMetrics([]);
       deps.setSeries([]);
       deps.setSourceScrapes({});
-      deps.setInventory({ resources: [], metrics: [], events: [], states: [] });
+      deps.setInventory({ resources: [], metrics: [], events: [], states: [], fields: [] });
       deps.setSources((items) => items.map((item) => ({ ...item, lastSeenAt: null, lastError: null, lastErrorAt: null })));
       toast.success("Pulse data clear started");
     } catch (error) {
@@ -135,7 +135,7 @@ export const createBaseController = (deps: BaseControllerDeps) => {
       } else {
         deps.setSources([]);
         deps.setMetrics([]);
-        deps.setInventory({ resources: [], metrics: [], events: [], states: [] });
+        deps.setInventory({ resources: [], metrics: [], events: [], states: [], fields: [] });
         deps.setDashboards([]);
         deps.setSavedQueries([]);
         deps.navigateToBase("");

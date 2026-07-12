@@ -24,6 +24,7 @@ import {
   resourceDetailRows,
   resourceRows,
   resourceSummaryRows,
+  signalFieldRows,
   stateRows,
 } from "./inventory";
 import { dashboardRows, sourceRows } from "./rows";
@@ -89,13 +90,50 @@ export const inventoryCommands = [
         metrics: inventory.metrics.length,
         events: inventory.events.length,
         states: inventory.states.length,
+        fields: inventory.fields.length,
       };
       printJsonOrTable(
         ctx,
         { summary, inventory },
         [summary],
-        [{ key: "resources" }, { key: "metrics" }, { key: "events" }, { key: "states" }],
+        [{ key: "resources" }, { key: "metrics" }, { key: "events" }, { key: "states" }, { key: "fields" }],
       );
+    },
+  }),
+  command("fields list", {
+    summary: "List observed telemetry fields",
+    flags: {
+      ...baseFlag,
+      ...sourceFilterFlags,
+      q: flag.string({ description: "Search signal and field names" }),
+      scope: flag.enum(["metric", "event", "state"] as const, { description: "Signal scope" }),
+      role: flag.enum(["dimension", "attribute"] as const, { description: "Field role" }),
+      limit: flag.int({ min: 1, max: 500, description: "Maximum rows" }),
+    },
+    args: { args: arg.rest({ valueLabel: "base" }) },
+    async run({ ctx, args, flags }) {
+      const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
+      const sourceId = await resolveSourceFilter(ctx, base.id, flags);
+      const fields = await readApi<PulseInventory["fields"]>(
+        ctx,
+        `/bases/${encodeURIComponent(base.id)}/fields${queryString({
+          q: flags.q,
+          sourceId,
+          scope: flags.scope,
+          role: flags.role,
+          limit: flags.limit ?? 100,
+        })}`,
+      );
+      printJsonOrTable(ctx, { fields }, signalFieldRows(fields), [
+        { key: "scope" },
+        { key: "signal" },
+        { key: "role" },
+        { key: "field" },
+        { key: "type" },
+        { key: "source" },
+        { key: "observations" },
+        { key: "lastSeenAt" },
+      ]);
     },
   }),
   command("resources list", {
@@ -264,6 +302,7 @@ export const inventoryCommands = [
         { key: "metricSeries" },
         { key: "events" },
         { key: "states" },
+        { key: "fields" },
       ]);
       if (topResources.length) {
         ctx.print("");
