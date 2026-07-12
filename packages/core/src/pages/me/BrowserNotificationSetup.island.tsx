@@ -2,6 +2,7 @@ import type { BrowserNotificationState } from "@valentinkolb/cloud/browser/notif
 import { browserNotificationClient } from "@valentinkolb/cloud/browser/notifications";
 import { toast } from "@valentinkolb/cloud/ui";
 import { createSignal, onMount, Show } from "solid-js";
+import { announceBrowserNotificationState } from "./notification-ui";
 
 const statusMeta = (state: BrowserNotificationState | null) => {
   if (!state) return { label: "Checking", class: "tag-neutral" };
@@ -16,9 +17,14 @@ export default function BrowserNotificationSetup() {
   const [pending, setPending] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
+  const applyState = (next: BrowserNotificationState) => {
+    setState(next);
+    announceBrowserNotificationState(next);
+  };
+
   onMount(async () => {
     try {
-      setState(await browserNotificationClient.state());
+      applyState(await browserNotificationClient.state());
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to inspect browser notification support.");
     }
@@ -29,7 +35,7 @@ export default function BrowserNotificationSetup() {
     setError(null);
     try {
       const next = await browserNotificationClient.enable();
-      setState(next);
+      applyState(next);
       if (next.enabled) toast.success("Browser notifications enabled.");
       else if (next.permission === "denied") setError("Permission is blocked. Allow notifications in your browser settings to continue.");
     } catch (cause) {
@@ -43,7 +49,7 @@ export default function BrowserNotificationSetup() {
     setPending(true);
     setError(null);
     try {
-      setState(await browserNotificationClient.disable());
+      applyState(await browserNotificationClient.disable());
       toast.success("Browser notifications disabled on this device.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to disable browser notifications.");

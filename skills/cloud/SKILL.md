@@ -248,17 +248,42 @@ and uses `source` to join SQL trace stats. Do not add app-specific admin
 
 ### Notifications
 
+Declare end-user notifications in the app's `src/notifications.ts`, register
+them through `defineApp({ notifications })`, and send only through the bound
+definition. Recipient and payload types are inferred without casts.
+
+```typescript
+// src/notifications.ts
+import { notification } from "@valentinkolb/cloud";
+import { z } from "zod";
+
+export const NOTIFICATIONS = {
+  exportReady: notification({
+    recipient: "user",
+    label: "Completed exports",
+    description: "A notification when an export is ready.",
+    delivery: { recommended: ["browser"] },
+    data: z.object({ exportId: z.uuid() }),
+    render: ({ exportId }) => ({ title: "Export ready", targetHref: `/app/my-app/exports/${exportId}` }),
+  }),
+};
+```
+
 ```typescript
 import { notifications } from "@valentinkolb/cloud/services";
+import { app } from "./config";
 
-await notifications.send({
-  type: "email",
-  recipient: "user@example.com",
-  subject: "Welcome",
-  rawHtml: "<h1>Hello</h1>",
-  autoSend: true,
+await notifications.send(app.notifications.exportReady, {
+  recipient: { userId },
+  data: { exportId },
+  idempotencyKey: `export:${exportId}`,
 });
 ```
+
+The legacy email-only overload and `notifications.sendToUser()` remain for
+third-party compatibility but are deprecated and must not be used in new Cloud
+code. See `skills/cloud-app/references/frontend.md` for delivery policy,
+idempotency, browser behavior, and channel-driver details.
 
 ### Settings
 

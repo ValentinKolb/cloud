@@ -1,4 +1,71 @@
+import type { BrowserNotificationState } from "@valentinkolb/cloud/browser/notifications";
 import type { NotificationDeliveryStatus } from "@valentinkolb/cloud/contracts";
+
+export const BROWSER_NOTIFICATION_STATE_EVENT = "cloud:browser-notification-state";
+
+export type NotificationChannelAvailability = {
+  enabled: boolean;
+  description?: string;
+  warning?: string;
+};
+
+export const notificationChannelAvailability = (
+  channel: string,
+  registered: boolean,
+  browserState: BrowserNotificationState | null,
+): NotificationChannelAvailability => {
+  if (!registered) return { enabled: false, description: "This channel is currently unavailable." };
+  if (channel !== "browser") return { enabled: true };
+  if (!browserState) return { enabled: false, description: "Checking browser notification status..." };
+  if (browserState.enabled) return { enabled: true };
+  if (!browserState.supported) {
+    return {
+      enabled: false,
+      description: browserState.reason ?? "Browser notifications are not supported on this device.",
+      warning: "Browser notifications are unavailable on this device.",
+    };
+  }
+  if (browserState.permission === "denied") {
+    return {
+      enabled: false,
+      description: "Allow notifications in your browser settings before selecting this channel.",
+      warning: "Browser notifications are blocked in this browser.",
+    };
+  }
+  return {
+    enabled: false,
+    description: "Enable browser notifications on this device above before selecting this channel.",
+    warning: "Browser notifications are disabled on this device.",
+  };
+};
+
+export const announceBrowserNotificationState = (state: BrowserNotificationState): void => {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<BrowserNotificationState>(BROWSER_NOTIFICATION_STATE_EVENT, { detail: state }));
+};
+
+const isBrowserNotificationState = (value: unknown): value is BrowserNotificationState => {
+  if (!value || typeof value !== "object") return false;
+  return (
+    "supported" in value &&
+    typeof value.supported === "boolean" &&
+    "permission" in value &&
+    (value.permission === "default" || value.permission === "denied" || value.permission === "granted") &&
+    "enabled" in value &&
+    typeof value.enabled === "boolean" &&
+    (!("reason" in value) || value.reason === undefined || typeof value.reason === "string")
+  );
+};
+
+export const subscribeBrowserNotificationState = (listener: (state: BrowserNotificationState) => void): (() => void) => {
+  const receive = (event: Event) => {
+    if (!(event instanceof CustomEvent)) return;
+    const state: unknown = event.detail;
+    if (isBrowserNotificationState(state)) listener(state);
+  };
+  window.addEventListener(BROWSER_NOTIFICATION_STATE_EVENT, receive);
+  return () => window.removeEventListener(BROWSER_NOTIFICATION_STATE_EVENT, receive);
+};
 
 const CHANNELS: Record<string, { label: string; icon: string }> = {
   email: { label: "Email", icon: "ti ti-mail" },
