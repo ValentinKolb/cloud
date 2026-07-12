@@ -1,7 +1,6 @@
-import { showFileDialog } from "@valentinkolb/stdlib/browser";
-import { img } from "@valentinkolb/stdlib/browser";
+import { img, showFileDialog } from "@valentinkolb/stdlib/browser";
 import { Show } from "solid-js";
-import { InputWrapper, createInputA11y } from "./util";
+import { createInputA11y, InputWrapper } from "./util";
 
 type ImageInputProps = {
   label?: string;
@@ -133,14 +132,14 @@ const ImageInput = (props: ImageInputProps) => {
     >
       <div class="flex flex-col items-center gap-1" role="group" aria-labelledby={a11y.inputId} aria-describedby={a11y.ariaDescribedBy()}>
         <div
-          class={`h-30 w-30 self-center overflow-hidden border-2 border-zinc-200 md:h-50 md:w-50 dark:border-zinc-700 ${
+          class={`image-input-preview h-30 w-30 self-center overflow-hidden border-2 border-zinc-200 md:h-50 md:w-50 dark:border-zinc-700 ${
             props.round ? "rounded-full" : "rounded-2xl"
           }`}
         >
           <Show
             when={value()}
             fallback={
-              <div class="flex h-full w-full items-center justify-center bg-zinc-100 dark:bg-zinc-800">
+              <div class="image-input-placeholder flex h-full w-full items-center justify-center bg-zinc-100 dark:bg-zinc-800">
                 <i class="ti ti-photo-off text-2xl text-zinc-400 dark:text-zinc-600" aria-hidden="true" />
               </div>
             }

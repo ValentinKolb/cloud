@@ -443,6 +443,48 @@ body:has(.cloud-ui-soft) .file-dropzone-icon {
   color: var(--color-zinc-300);
 }
 
+body:has(.cloud-ui-soft) .color-input-swatch {
+  border-color: var(--ui-border-strong);
+  box-shadow: none;
+}
+
+body:has(.cloud-ui-soft) .ui-switch-track {
+  background: var(--ui-field);
+  box-shadow: none;
+}
+
+body:has(.cloud-ui-soft) .ui-switch-track[data-state="checked"] {
+  background: var(--color-blue-500);
+}
+
+body:has(.cloud-ui-soft) .slider-track-colors {
+  --slider-fill: var(--color-blue-500);
+  --slider-track: var(--ui-field);
+}
+
+.dark body:has(.cloud-ui-soft) .slider-track-colors {
+  --slider-fill: var(--color-blue-400);
+}
+
+body:has(.cloud-ui-soft) .ui-slider {
+  box-shadow: none;
+}
+
+body:has(.cloud-ui-soft) .image-input-preview,
+body:has(.cloud-ui-soft) .image-cropper-stage {
+  border-color: transparent;
+  background: var(--ui-field);
+}
+
+body:has(.cloud-ui-soft) .image-input-placeholder,
+body:has(.cloud-ui-soft) .image-cropper-frame {
+  background: var(--ui-surface-subtle);
+}
+
+body:has(.cloud-ui-soft) .image-cropper-frame {
+  box-shadow: none;
+}
+
 body:has(.cloud-ui-soft) :is(.ac-editor, .md-editor):focus-within {
   box-shadow: var(--ui-focus);
 }

@@ -322,13 +322,13 @@ export default function ImageCropper(props: ImageCropperProps) {
 
   return (
     <div class="flex min-w-0 flex-col gap-3">
-      <div class="flex min-h-56 items-center justify-center rounded-lg border border-zinc-200/80 bg-zinc-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-900/55">
+      <div class="image-cropper-stage flex min-h-56 items-center justify-center rounded-lg border border-zinc-200/80 bg-zinc-50/80 p-3 dark:border-zinc-800 dark:bg-zinc-900/55">
         <Show when={!loading()} fallback={<span class="text-xs text-dimmed">Preparing image...</span>}>
           <Show when={!error()} fallback={<span class="text-xs text-red-500">{error()}</span>}>
             <Show when={preview() && crop()}>
               <div
                 ref={frameRef}
-                class="relative max-h-[min(58vh,24rem)] w-full max-w-full overflow-hidden rounded-lg bg-zinc-100 shadow-[var(--theme-shadow-elevated)] touch-none select-none dark:bg-zinc-950"
+                class="image-cropper-frame relative max-h-[min(58vh,24rem)] w-full max-w-full overflow-hidden rounded-lg bg-zinc-100 shadow-[var(--theme-shadow-elevated)] touch-none select-none dark:bg-zinc-950"
                 style={previewFrameStyle()}
               >
                 <img

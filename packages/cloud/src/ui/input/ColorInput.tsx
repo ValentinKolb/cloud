@@ -20,12 +20,13 @@ const ColorInput = (props: ColorInputProps) => {
       <div class="relative inline-flex">
         <button
           type="button"
-          class={`w-7 h-7 border border-zinc-300 dark:border-zinc-600 rounded ${
+          class={`color-input-swatch focus-ui h-7 w-7 rounded border border-zinc-300 dark:border-zinc-600 ${
             disabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-500"
           }`}
           style={`background-color: ${currentColor()}`}
           onClick={() => document.getElementById(inputId)?.click()}
           disabled={disabled()}
+          aria-label={typeof props.label === "string" ? props.label : "Choose color"}
         />
         <input
           id={inputId}

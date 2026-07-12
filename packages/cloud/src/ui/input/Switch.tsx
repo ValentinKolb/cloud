@@ -22,8 +22,9 @@ const Switch = ({ label, value, onChange, disabled = false }: SwitchInputProps) 
       />
       {/* Visual switch track */}
       <span
+        data-state={value?.() ? "checked" : "idle"}
         class={`
- relative transition-colors
+ ui-switch-track relative transition-colors
  w-9 h-5 rounded-full
  [box-shadow:var(--theme-recess)]
 

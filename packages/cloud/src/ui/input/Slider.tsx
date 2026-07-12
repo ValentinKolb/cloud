@@ -73,7 +73,7 @@ const Slider = (props: SliderProps) => {
         onDblClick={() => props.onChange(resetValue())}
         disabled={disabled()}
         aria-describedby={descId()}
-        class="w-full h-1.5 appearance-none cursor-pointer
+        class="ui-slider w-full h-1.5 appearance-none cursor-pointer
  rounded-full [box-shadow:var(--theme-recess)]
  [&::-webkit-slider-thumb]:appearance-none
  [&::-webkit-slider-thumb]:w-3.5
