@@ -143,17 +143,9 @@ export const dropFieldIndex = async (fieldId: string): Promise<void> => {
   }
 };
 
-// =============================================================================
-// Unique-constraint enforcement (Slice 7 bug fix)
-// =============================================================================
-// Pre-v3, `fields.unique_constraint` was stored on the row but never
-// enforced — toggling it had no effect. v3 backs the toggle with a
-// real partial unique index over the JSONB-projected value, scoped to
-// live records of the table.
-//
-// Select / relation field types are explicitly rejected at the
-// API boundary because their value isn't a scalar — uniqueness over
-// a JSONB array doesn't have a well-defined semantic.
+// Unique field constraints use partial expression indexes over live records.
+// Select and relation fields are excluded because array uniqueness has no
+// single useful record-level meaning.
 
 const UNIQUE_SUPPORTED_TYPES = new Set(["text", "longtext", "number", "percent", "date", "boolean", "id"]);
 

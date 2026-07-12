@@ -1,4 +1,4 @@
-import { toPgUuidArray } from "@valentinkolb/cloud/services";
+import { isUniqueViolation, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { isKnownFieldType } from "../field-types";
@@ -380,14 +380,34 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   const existing = await get(id);
   if (!existing) return fail(err.notFound("Field"));
   if (existing.deletedAt === null) return ok(existing);
-  const restored = await writeNamedResource(
-    async () => {
-      await sql`UPDATE grids.fields SET deleted_at = NULL, updated_at = now() WHERE id = ${id}::uuid`;
-    },
-    "idx_grids_fields_live_name",
-    "field name must be unique within this table",
-  );
-  if (!restored.ok) return restored;
+  const restoreUniqueIndex = existing.uniqueConstraint && isUniqueable(existing.type);
+  if (restoreUniqueIndex) {
+    try {
+      await ensureFieldUniqueIndex(id, existing.type, existing.tableId);
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        return fail(err.conflict("field cannot be restored because its existing values are not unique"));
+      }
+      return fail(err.internal(`field restore failed while rebuilding its unique index: ${(error as Error).message}`));
+    }
+  }
+  let restored: Result<void>;
+  try {
+    restored = await writeNamedResource(
+      async () => {
+        await sql`UPDATE grids.fields SET deleted_at = NULL, updated_at = now() WHERE id = ${id}::uuid`;
+      },
+      "idx_grids_fields_live_name",
+      "field name must be unique within this table",
+    );
+  } catch (error) {
+    if (restoreUniqueIndex) await dropFieldUniqueIndex(id);
+    throw error;
+  }
+  if (!restored.ok) {
+    if (restoreUniqueIndex) await dropFieldUniqueIndex(id);
+    return restored;
+  }
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "restored" });
   await emitTableMetadataEvent(existing.tableId, {
     type: "field.restored",
@@ -426,7 +446,7 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
   `;
   // Drop any expression index since the field is gone.
   if (existing.indexed) void dropFieldIndex(id);
-  if (existing.uniqueConstraint) void dropFieldUniqueIndex(id);
+  if (existing.uniqueConstraint) await dropFieldUniqueIndex(id);
   if (existing.type === "id") void dropGeneratedIdSequences(id);
   await emitTableMetadataEvent(existing.tableId, {
     type: "field.deleted",
