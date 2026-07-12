@@ -14,6 +14,10 @@ import {
   parsePagination,
 } from "@/contracts";
 import { expectUserBackedActor, toAccountsActor } from "@/shared/actor";
+import { app as accountsApp } from "@/config";
+import { createAccountsNotificationSender } from "@/notifications";
+
+const notificationSender = createAccountsNotificationSender(accountsApp.notifications);
 
 const DenyRequestSchema = z.object({
   reason: z.string().max(2_000).optional().describe("Reason for denial (triggers email if provided)"),
@@ -146,6 +150,7 @@ const app = new Hono<AuthContext>()
           id,
           reason,
           actor: toAccountsActor(user),
+          notificationSender,
         });
         if (!result.ok) return result;
         return ok({ message: "Request denied" });

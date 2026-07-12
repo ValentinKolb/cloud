@@ -4,16 +4,15 @@ import { freeipa } from "../../server/services";
 import { createAuthLoginUrl } from "../../shared/redirect";
 import { getFreeIpaConfig } from "../freeipa-config";
 import { getServiceIpaSession } from "../ipa/service-account";
-import { notifications } from "../notifications";
 import { toPgTextArray, toPgUuidArray } from "../postgres";
 import { providers } from "../providers";
 import { session } from "../session";
 import * as settings from "../settings";
-import { renderTemplate } from "../settings/templates";
 import { buildRoles } from "./authz";
 import { buildBaseUser, resolveProviderProfile } from "./base-user";
 import { managedGroupIdsSubquery, managedGroupsNamesSubquery, recursiveGroupIdsSubquery, recursiveGroupNamesSubquery } from "./group-sql";
 import { buildIpaUserData, emptyIpaUserData, userIpaDataColumns, userIpaDataJoin } from "./ipa-data";
+import type { AccountsNotificationSender } from "./notification-sender";
 import {
   canPersistStoredAdmin,
   getDefaultAccountExpiry,
@@ -57,27 +56,6 @@ type UpdateUserData = {
     };
     sshPublicKeys?: string[];
   };
-};
-
-const sendMagicLinkEmail = async (email: string): Promise<void> => {
-  const token = await providers.local.auth.createMagicLinkToken({ email, ttlSeconds: 300 });
-  const rawAppUrl = await settings.get<string>("app.url");
-  const appUrl = rawAppUrl.startsWith("http") ? rawAppUrl : `https://${rawAppUrl}`;
-  const magicLink = createAuthLoginUrl(appUrl, { token });
-  const appName = await settings.get<string>("app.name");
-  const template = await settings.get<string>("mail.magic_link_login");
-
-  await notifications.send({
-    type: "email",
-    recipient: email,
-    subject: `${appName} Login Code`,
-    rawHtml: renderTemplate(template, {
-      TOKEN: token,
-      MAGIC_LINK: magicLink,
-      APP_NAME: appName,
-    }),
-    autoSend: true,
-  });
 };
 
 const buildUserMutationTarget = (row: DbRow): UserMutationTarget => ({
@@ -591,7 +569,10 @@ export const setExpiry = async (params: {
   });
 };
 
-export const sendLoginLink = async (params: { id: string }): Promise<MutationResult<void>> => {
+export const sendLoginLink = async (params: {
+  id: string;
+  notificationSender: AccountsNotificationSender;
+}): Promise<MutationResult<void>> => {
   const user = await getMinimal({ id: params.id });
   if (!user) return { ok: false, error: "User not found", status: 404 };
   if (user.provider !== "local") {
@@ -599,8 +580,20 @@ export const sendLoginLink = async (params: { id: string }): Promise<MutationRes
   }
   if (!user.mail) return { ok: false, error: "A local account requires an email address to receive a login link", status: 400 };
 
-  await sendMagicLinkEmail(user.mail);
-  return { ok: true, data: undefined };
+  const token = await providers.local.auth.createMagicLinkToken({ email: user.mail, ttlSeconds: 300 });
+  const rawAppUrl = await settings.get<string>("app.url");
+  const appUrl = rawAppUrl.startsWith("http") ? rawAppUrl : `https://${rawAppUrl}`;
+  try {
+    const delivery = await params.notificationSender.sendLoginLink({
+      userId: user.id,
+      token,
+      magicLink: createAuthLoginUrl(appUrl, { token }),
+    });
+    if (delivery.status !== "error" && delivery.status !== "suppressed") return { ok: true, data: undefined };
+  } catch {
+    // Keep the service contract result-based even when rendering or persistence fails.
+  }
+  return { ok: false, error: "The login link could not be delivered", status: 500 };
 };
 
 export const createLoginToken = async (params: {

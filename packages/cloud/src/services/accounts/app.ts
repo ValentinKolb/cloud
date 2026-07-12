@@ -3,16 +3,14 @@ import { accountLifecycle } from "../account-lifecycle";
 import { audit, type AuditActor, type AuditTarget } from "../audit";
 import { lifecycleJobs } from "../account-lifecycle/scheduler";
 import { logger, logging, type LogEntry } from "../logging";
-import { notifications } from "../notifications";
 import { getFreeIpaConfig } from "../freeipa-config";
-import * as settings from "../settings";
-import { renderTemplate } from "../settings/templates";
 import { isUniqueViolation } from "../postgres";
 import { providers } from "../providers";
 import * as users from "./users";
 import * as groups from "./groups";
 import * as entities from "./entities";
 import { canMutateManagedGroup, hasOnlySelfUpdateFields, isAdminActor, isSelfTarget, type AccountsActor } from "./authz";
+import type { AccountsNotificationSender } from "./notification-sender";
 import type {
   BaseGroup,
   BaseUser,
@@ -24,7 +22,6 @@ import type {
   UserProfile,
   UserProvider,
 } from "../../contracts/shared";
-import { dates } from "../../shared";
 import {
   err,
   fail,
@@ -130,41 +127,6 @@ const toServiceError = (status: MutationErrorStatus, message: string): ServiceEr
 const fromMutationResult = <T>(result: MutationResult<T>): Result<T> => {
   if (result.ok) return ok(result.data);
   return fail(toServiceError(result.status, result.error));
-};
-
-const buildFreeipaWelcomeEmailHtml = async (config: { uid: string; temporaryPassword: string; accountExpires: string | null }) => {
-  const template = await settings.get<string>("mail.user_welcome_freeipa");
-  const contactEmail = await settings.get<string>("app.contact_email");
-  const rawAppUrl = await settings.get<string>("app.url");
-  const baseUrl = /^https?:\/\//.test(rawAppUrl) ? rawAppUrl : `https://${rawAppUrl}`;
-  const loginUrl = `${baseUrl}/auth/login?method=ipa&ipa-uid=${encodeURIComponent(config.uid)}`;
-  const expiry = config.accountExpires ? dates.formatDate(config.accountExpires) : "";
-
-  return renderTemplate(template, {
-    USERNAME: config.uid,
-    PASSWORD: config.temporaryPassword,
-    EXPIRY: expiry,
-    LOGIN_URL: loginUrl,
-    CONTACT_EMAIL: contactEmail,
-    APP_NAME: await settings.get<string>("app.name"),
-  });
-};
-
-const buildLocalWelcomeEmailHtml = async (config: { email: string; accountExpires: string | null }) => {
-  const template = await settings.get<string>("mail.user_welcome_local");
-  const contactEmail = await settings.get<string>("app.contact_email");
-  const rawAppUrl = await settings.get<string>("app.url");
-  const baseUrl = /^https?:\/\//.test(rawAppUrl) ? rawAppUrl : `https://${rawAppUrl}`;
-  const loginUrl = `${baseUrl}/auth/login`;
-  const expiry = config.accountExpires ? dates.formatDate(config.accountExpires) : "";
-
-  return renderTemplate(template, {
-    EMAIL: config.email,
-    EXPIRY: expiry,
-    LOGIN_URL: loginUrl,
-    CONTACT_EMAIL: contactEmail,
-    APP_NAME: await settings.get<string>("app.name"),
-  });
 };
 
 const mapAccountRequestRow = (row: DbRow): AccountRequest => ({
@@ -441,7 +403,12 @@ export const accountsAppService = {
           recursive: config.recursive,
         }),
     },
-    create: async (config: { actor: AccountsActor; data: CreateUserInput; processedBy: string }): Promise<Result<CreateUserResult>> => {
+    create: async (config: {
+      actor: AccountsActor;
+      data: CreateUserInput;
+      processedBy: string;
+      notificationSender: AccountsNotificationSender;
+    }): Promise<Result<CreateUserResult>> => {
       const adminError = await requireAdminActor<{ id: string; uid: string; accountExpires: string | null; notificationSent: boolean }>({
         actor: config.actor,
         action: "accounts.user.create",
@@ -534,31 +501,38 @@ export const accountsAppService = {
       const created = createResult.data;
 
       const autoSend = config.data.autoSendNotification ?? true;
+      let notificationSent = false;
       if (autoSend && created.user.mail) {
-        if (config.data.provider === "ipa" && created.temporaryPassword) {
-          const appName = await settings.get<string>("app.name");
-          await notifications.send({
-            type: "email",
-            recipient: created.user.mail,
-            subject: `Welcome to ${appName}`,
-            rawHtml: await buildFreeipaWelcomeEmailHtml({
-              uid: created.user.uid,
-              temporaryPassword: created.temporaryPassword,
-              accountExpires: created.user.accountExpires,
-            }),
-            autoSend,
-          });
-        } else if (config.data.provider === "local") {
-          const appName = await settings.get<string>("app.name");
-          await notifications.send({
-            type: "email",
-            recipient: created.user.mail,
-            subject: `Welcome to ${appName}`,
-            rawHtml: await buildLocalWelcomeEmailHtml({
-              email: created.user.mail,
-              accountExpires: created.user.accountExpires,
-            }),
-            autoSend,
+        try {
+          const delivery =
+            config.data.provider === "ipa" && created.temporaryPassword
+              ? await config.notificationSender.sendFreeIpaWelcome({
+                  userId: created.user.id,
+                  uid: created.user.uid,
+                  temporaryPassword: created.temporaryPassword,
+                  accountExpires: created.user.accountExpires,
+                })
+              : config.data.provider === "local"
+                ? await config.notificationSender.sendLocalWelcome({
+                    userId: created.user.id,
+                    email: created.user.mail,
+                    accountExpires: created.user.accountExpires,
+                  })
+                : null;
+          notificationSent = delivery?.status === "delivered" || delivery?.status === "queued";
+          if (delivery && !notificationSent) {
+            appLog.warn("Account welcome notification was not accepted", {
+              userId: created.user.id,
+              provider: config.data.provider,
+              notificationEventId: delivery.id,
+              notificationStatus: delivery.status,
+            });
+          }
+        } catch (error) {
+          appLog.error("Account welcome notification failed", {
+            userId: created.user.id,
+            provider: config.data.provider,
+            error: error instanceof Error ? error.message : String(error),
           });
         }
       }
@@ -570,14 +544,14 @@ export const accountsAppService = {
         metadata: {
           provider: config.data.provider,
           requestId: config.data.requestId ?? null,
-          notificationSent: autoSend,
+          notificationSent,
           requestCompletionFailed,
         },
         result: ok({
           id: created.user.id,
           uid: created.user.uid,
           accountExpires: created.user.accountExpires,
-          notificationSent: autoSend,
+          notificationSent,
         }),
       });
     },
@@ -736,7 +710,7 @@ export const accountsAppService = {
         result,
       });
     },
-    sendLoginLink: async (config: { actor: AccountsActor; id: string }) => {
+    sendLoginLink: async (config: { actor: AccountsActor; id: string; notificationSender: AccountsNotificationSender }) => {
       const target = await users.getMinimal({ id: config.id });
       const adminError = await requireAdminActor<void>({
         actor: config.actor,
@@ -1416,7 +1390,7 @@ export const accountsAppService = {
         result,
       });
     },
-    deny: async (config: { id: string; reason?: string; actor: AccountsActor }) => {
+    deny: async (config: { id: string; reason?: string; actor: AccountsActor; notificationSender: AccountsNotificationSender }) => {
       const adminError = await requireAdminActor<void>({
         actor: config.actor,
         action: "accounts.request.deny",
@@ -1457,31 +1431,38 @@ export const accountsAppService = {
 
       const request = rows[0]!;
 
+      let notificationStatus: string | null = null;
       if (config.reason) {
-        const template = await settings.get<string>("mail.account_request_denial");
-        const contactEmail = await settings.get<string>("app.contact_email");
-        const appName = await settings.get<string>("app.name");
-
-        await notifications.send({
-          type: "email",
-          recipient: request.email as string,
-          subject: "Account Request Update",
-          rawHtml: renderTemplate(template, {
-            FIRST_NAME: request.first_name as string,
-            REASON: config.reason,
-            CONTACT_EMAIL: contactEmail,
-            APP_NAME: appName,
-          }),
-          autoSend: true,
-          sentBy: config.actor.userId,
-        });
+        try {
+          const delivery = await config.notificationSender.sendRequestDenied({
+            requestId: config.id,
+            userId: request.user_id as string,
+            firstName: request.first_name as string,
+            reason: config.reason,
+            sentBy: config.actor.userId,
+          });
+          notificationStatus = delivery.status;
+          if (delivery.status === "error" || delivery.status === "suppressed") {
+            appLog.warn("Account request denial notification was not accepted", {
+              requestId: config.id,
+              notificationEventId: delivery.id,
+              notificationStatus: delivery.status,
+            });
+          }
+        } catch (error) {
+          notificationStatus = "error";
+          appLog.error("Account request denial notification failed", {
+            requestId: config.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
 
       return audit.recordResultAfterSideEffect({
         action: "accounts.request.deny",
         actor: auditActor(config.actor),
         target: { type: "account_request", id: config.id, label: request.email as string },
-        metadata: { hasReason: !!config.reason },
+        metadata: { hasReason: !!config.reason, notificationStatus },
         result: ok(),
       });
     },

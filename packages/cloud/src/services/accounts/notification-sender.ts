@@ -1,0 +1,28 @@
+import type { TypedNotificationSendResult } from "../notifications/platform";
+
+export type AccountNotificationDeliveryResult = Pick<TypedNotificationSendResult, "id" | "status">;
+
+export type AccountsNotificationSender = {
+  sendLoginLink: (input: { userId: string; token: string; magicLink: string }) => Promise<AccountNotificationDeliveryResult>;
+  sendFreeIpaWelcome: (input: {
+    userId: string;
+    uid: string;
+    temporaryPassword: string;
+    accountExpires: string | null;
+  }) => Promise<AccountNotificationDeliveryResult>;
+  sendLocalWelcome: (input: { userId: string; email: string; accountExpires: string | null }) => Promise<AccountNotificationDeliveryResult>;
+  sendRequestDenied: (input: {
+    requestId: string;
+    userId: string;
+    firstName: string;
+    reason: string;
+    sentBy: string;
+  }) => Promise<AccountNotificationDeliveryResult>;
+  sendAdministrativeMessage: (input: {
+    idempotencyKey: string;
+    userId: string;
+    subject: string;
+    rawHtml: string;
+    sentBy: string;
+  }) => Promise<AccountNotificationDeliveryResult>;
+};

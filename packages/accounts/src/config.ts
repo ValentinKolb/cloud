@@ -1,4 +1,5 @@
 import { defineApp } from "@valentinkolb/cloud";
+import { NOTIFICATIONS } from "./notifications";
 
 export const app = defineApp({
   id: "accounts",
@@ -8,6 +9,7 @@ export const app = defineApp({
   appearance: { accent: "#4f46e5", background: { from: "#6366f1" } },
   basePath: "/app/accounts",
   baseUrl: "http://app-accounts:3000",
+  notifications: NOTIFICATIONS,
   nav: {
     href: "/app/accounts",
     match: "/app/accounts",

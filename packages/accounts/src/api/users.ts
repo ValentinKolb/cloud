@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { IpaProfileFieldsSchema, UpdateAvatarResponseSchema, UpdateAvatarSchema, UserSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, requiresAdmin, respond, v } from "@valentinkolb/cloud/server";
-import { accountsAppService as accountsService, logger, notifications } from "@valentinkolb/cloud/services";
+import { accountsAppService as accountsService, logger } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
@@ -18,8 +19,11 @@ import {
   SearchQuerySchema,
 } from "@/contracts";
 import { expectUserBackedActor, getUserBackedActor, toAccountsActor } from "@/shared/actor";
+import { app as accountsApp } from "@/config";
+import { createAccountsNotificationSender } from "@/notifications";
 
 const log = logger("accounts:admin:users");
+const notificationSender = createAccountsNotificationSender(accountsApp.notifications);
 const UserIdParamSchema = z.object({ id: z.uuid() });
 
 // Admin PATCH accepts the same profile fields plus `mail`. Defined standalone
@@ -236,6 +240,7 @@ const app = new Hono<AuthContext>()
             actor: toAccountsActor(adminUser),
             data,
             processedBy: adminUser.id,
+            notificationSender,
           });
           if (!result.ok) return result;
           if (data.provider === "local" && data.profile === "user" && data.admin) {
@@ -594,13 +599,16 @@ const app = new Hono<AuthContext>()
       const actor = expectUserBackedActor(c);
       const { subject, rawHtml } = c.req.valid("json");
       return respond(c, async () => {
-        const result = await notifications.sendToUser({
+        const result = await notificationSender.sendAdministrativeMessage({
+          idempotencyKey: `admin-message:${randomUUID()}`,
           userId: id,
           subject,
           rawHtml,
           sentBy: actor.id,
         });
-        if (!result.ok) return fail(err.badInput(result.error));
+        if (result.status === "error" || result.status === "suppressed") {
+          return fail(err.badInput("The notification could not be delivered"));
+        }
         return ok({ message: "Notification sent." });
       });
     },
@@ -623,7 +631,11 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const { id } = c.req.valid("param");
       return respond(c, async () => {
-        const result = await accountsService.user.sendLoginLink({ actor: toAccountsActor(expectUserBackedActor(c)), id });
+        const result = await accountsService.user.sendLoginLink({
+          actor: toAccountsActor(expectUserBackedActor(c)),
+          id,
+          notificationSender,
+        });
         if (!result.ok) return result;
         return ok({ message: "Login link sent." });
       });

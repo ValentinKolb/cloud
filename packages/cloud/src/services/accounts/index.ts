@@ -10,5 +10,6 @@ import { accountsAppService } from "./app";
 
 export { model, authz, users, groups, entities, localGroups, switching, lifecycle };
 export { accountsAppService };
+export type { AccountNotificationDeliveryResult, AccountsNotificationSender } from "./notification-sender";
 
 export const accounts = { model, authz, users, groups, entities, localGroups, switching, lifecycle, app: accountsAppService } as const;
