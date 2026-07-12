@@ -17,7 +17,10 @@ export type WorkflowEmailAction = {
   saveAs?: string;
 };
 
-export type WorkflowNotificationSender = Pick<typeof notifications, "send" | "sendToUser">;
+export type WorkflowNotificationSender = {
+  send: (params: Parameters<typeof notifications.send>[0]) => ReturnType<typeof notifications.send>;
+  sendToUser: typeof notifications.sendToUser;
+};
 
 type WorkflowEmailActionContext = {
   workflow: Workflow;
