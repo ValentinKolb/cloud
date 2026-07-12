@@ -180,6 +180,7 @@ export type {
   AiConversation,
   AiConversationResource,
   AiConversationStore,
+  AiConversationTimelineEntry,
   AiDataBoundary,
   AiDataPolicy,
   AiEnrichmentCandidate,

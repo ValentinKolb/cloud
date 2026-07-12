@@ -233,6 +233,20 @@ export type AiStoredMessage = {
   createdAt: string;
 };
 
+/** Lightweight navigation anchor for one user message in a long conversation. */
+export type AiConversationTimelineEntry = {
+  id: string;
+  seq: number;
+  loopId: string | null;
+  userPreview: string;
+  assistantPreview: string;
+  isSteer: boolean;
+  inputFileCount: number;
+  outputFileCount: number;
+  toolCount: number;
+  createdAt: string;
+};
+
 export type AiTurnStatus = "queued" | "running" | "waiting_for_action" | "completed" | "failed" | "aborted";
 
 export type AiTurnSteerStatus = "pending" | "consumed" | "discarded";
@@ -450,6 +464,8 @@ export type AiConversationStore = {
     messages: AiStoredMessage[];
     hasMore: boolean;
   }>;
+  /** Compact full-conversation index used by the long-chat turn navigator. */
+  listConversationTimeline(input: { conversationId: string }): Promise<AiConversationTimelineEntry[]>;
   /** Model context: only active (non-compacted) messages — what the LLM sees. */
   listContextMessages(input: { conversationId: string }): Promise<AiStoredMessage[]>;
   copyMessages(input: { sourceConversationId: string; targetConversationId: string; throughSeq: number }): Promise<void>;

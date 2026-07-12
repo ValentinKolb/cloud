@@ -100,8 +100,17 @@ const rememberLastUsedModel = (actor: RequestActor, modelProfileId: string | nul
 };
 
 const conversationDetail = async (conversation: AiConversation) => {
-  const state = await loadAiStreamState(conversation);
-  return { conversation, messages: state.messages, hasMoreMessages: state.hasMoreMessages ?? false, activeTurn: state.activeTurn };
+  const [state, timeline] = await Promise.all([
+    loadAiStreamState(conversation),
+    aiConversationStore.listConversationTimeline({ conversationId: conversation.id }),
+  ]);
+  return {
+    conversation,
+    messages: state.messages,
+    hasMoreMessages: state.hasMoreMessages ?? false,
+    activeTurn: state.activeTurn,
+    timeline,
+  };
 };
 
 /**
@@ -222,6 +231,13 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         limit: query.limit ?? 50,
       });
       return respond(c, ok(page));
+    })
+    .get("/conversations/:conversationId/timeline", async (c) => {
+      const ctx = await config.resolveContext(c);
+      if (ctx instanceof Response) return ctx;
+      const conversation = await loadConversation(c, ctx);
+      if (!conversation) return notFound(c);
+      return respond(c, ok(await aiConversationStore.listConversationTimeline({ conversationId: conversation.id })));
     })
     .patch("/conversations/:conversationId", v("json", ConversationMetadataInputSchema), async (c) => {
       if (!config.allowConversationManagement) return notFound(c);

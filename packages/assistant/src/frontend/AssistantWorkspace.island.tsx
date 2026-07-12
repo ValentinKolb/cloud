@@ -1,4 +1,10 @@
-import type { AiConversation, AiPublicModelProfile, AiSettingsError, AiStoredMessage } from "@valentinkolb/cloud/ai";
+import type {
+  AiConversation,
+  AiConversationTimelineEntry,
+  AiPublicModelProfile,
+  AiSettingsError,
+  AiStoredMessage,
+} from "@valentinkolb/cloud/ai";
 import { conversationFileSource, createAiChatController } from "@valentinkolb/cloud/ai/solid";
 import {
   AiComposer,
@@ -30,6 +36,7 @@ type InitialDetail = {
   messages: AiStoredMessage[];
   hasMoreMessages?: boolean;
   activeTurn: import("@valentinkolb/cloud/ai").AiTurnSnapshot | null;
+  timeline?: AiConversationTimelineEntry[];
 };
 
 type Props = {
@@ -51,6 +58,7 @@ export default function AssistantWorkspace(props: Props) {
     initialConversations: props.initialConversations,
     initialConversationId: props.initialConversationId,
     initialDetail: props.initialDetail,
+    initialTimeline: props.initialDetail?.timeline,
     initialError: props.status.error?.message ?? null,
   });
 
@@ -319,6 +327,11 @@ export default function AssistantWorkspace(props: Props) {
                 hasMore: chat.hasMoreHistory,
                 loading: chat.loadingOlder,
                 loadOlder: chat.loadOlderMessages,
+              },
+              timeline: {
+                entries: chat.timeline,
+                loading: chat.timelineLoading,
+                loadThrough: chat.loadHistoryThroughSeq,
               },
             }}
             actions={{

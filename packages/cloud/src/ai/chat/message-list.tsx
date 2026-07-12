@@ -8,7 +8,7 @@ import {
   buildAiMessageTimeline,
   copyTextFromAssistantEntries,
 } from "../timeline";
-import type { AiStoredMessage } from "../types";
+import type { AiConversationTimelineEntry, AiStoredMessage } from "../types";
 import { AiTurnBlockList } from "./blocks";
 import { AiMessageActionsProvider, type AiMessageListActions, AssistantMessageActions } from "./message-actions";
 import {
@@ -21,6 +21,8 @@ import {
 } from "./message-scroll";
 import { formatWorkedDuration, isCardToolName, isSurveyToolName, textFromMessage } from "./message-utils";
 import { AssistantMessageLane, ChatUtilityDisclosure, ChatUtilityLine, PulseDots } from "./primitives";
+import { TurnNavigator } from "./turn-navigator";
+import { activeTimelineSeq } from "./turn-navigator-utils";
 import { SteerMessageBubble, UserMessageBubble } from "./user-message";
 
 export type { AiMessageListActions };
@@ -36,6 +38,11 @@ export type AiMessageListSession = {
     loading: () => boolean;
     /** Load one older page; resolves after the messages were prepended. */
     loadOlder: () => Promise<boolean>;
+  };
+  timeline?: {
+    entries: () => AiConversationTimelineEntry[];
+    loading: () => boolean;
+    loadThrough: (seq: number) => Promise<boolean>;
   };
 };
 
@@ -139,7 +146,9 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
   let scrollParent: HTMLElement | null = null;
   let followFrame: number | undefined;
   let historyRestoreFrame: number | undefined;
+  let timelineFrame: number | undefined;
   let scrollPhaseRevision = 0;
+  let timelineNavigationRevision = 0;
   let preservingHistoryPosition = false;
 
   const timelineItems = createMemo(() => buildAiMessageTimeline(props.session.messages()));
@@ -148,6 +157,8 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
   const activeSegments = createMemo(() => splitActiveTurnBlocks(activeBlocks()));
   const streaming = () => activeTurn()?.status === "running";
   const history = () => props.session.history;
+  const timeline = () => props.session.timeline;
+  const timelineEntries = () => timeline()?.entries() ?? [];
   const loading = () => props.session.loading?.() ?? false;
   const hasContent = () => props.session.messages().length > 0 || Boolean(activeTurn());
   const conversationKey = () =>
@@ -158,10 +169,44 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
   const [pinned, setPinned] = createSignal(true);
   const [scrollReady, setScrollReady] = createSignal(false);
   const [historyError, setHistoryError] = createSignal<string | null>(null);
+  const [viewportHeight, setViewportHeight] = createSignal(0);
+  const [activeTimelineSeqValue, setActiveTimelineSeqValue] = createSignal<number | null>(null);
+  const [loadingTimelineSeq, setLoadingTimelineSeq] = createSignal<number | null>(null);
+
+  const findTimelineAnchor = (seq: number): HTMLElement | null =>
+    contentRef?.querySelector<HTMLElement>(`[data-ai-turn-seq="${seq}"]`) ?? null;
+
+  const updateActiveTimeline = () => {
+    if (!scrollParent || !contentRef) return;
+    const entries = timelineEntries();
+    if (entries.length === 0) {
+      setActiveTimelineSeqValue(null);
+      return;
+    }
+    if (isNearBottom(scrollParent, 8)) {
+      setActiveTimelineSeqValue(entries.at(-1)?.seq ?? null);
+      return;
+    }
+    const anchors = Array.from(contentRef.querySelectorAll<HTMLElement>("[data-ai-turn-seq]")).flatMap((node) => {
+      const seq = Number(node.dataset.aiTurnSeq);
+      return Number.isFinite(seq) ? [{ seq, top: node.getBoundingClientRect().top }] : [];
+    });
+    const rect = scrollParent.getBoundingClientRect();
+    setActiveTimelineSeqValue(activeTimelineSeq(anchors, rect.top, rect.height));
+  };
+
+  const scheduleTimelineUpdate = () => {
+    if (timelineFrame !== undefined) return;
+    timelineFrame = requestAnimationFrame(() => {
+      timelineFrame = undefined;
+      updateActiveTimeline();
+    });
+  };
 
   const updatePinned = () => {
     if (!scrollParent) return;
     setPinned(isNearBottom(scrollParent, AUTO_FOLLOW_THRESHOLD_PX));
+    scheduleTimelineUpdate();
   };
 
   const alignToBottom = () => {
@@ -180,6 +225,29 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
   const jumpToLatest = () => {
     setPinned(true);
     if (scrollParent) scrollToBottom(scrollParent);
+  };
+
+  const jumpToTimelineEntry = async (entry: AiConversationTimelineEntry) => {
+    const revision = ++timelineNavigationRevision;
+    setPinned(false);
+    let anchor = findTimelineAnchor(entry.seq);
+    if (!anchor) {
+      setLoadingTimelineSeq(entry.seq);
+      const loaded = await timeline()?.loadThrough(entry.seq);
+      if (revision !== timelineNavigationRevision) return;
+      if (!loaded) {
+        setLoadingTimelineSeq(null);
+        return;
+      }
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      anchor = findTimelineAnchor(entry.seq);
+    }
+    if (revision !== timelineNavigationRevision || !anchor || !scrollParent) return;
+    const parentRect = scrollParent.getBoundingClientRect();
+    const top = scrollParent.scrollTop + anchor.getBoundingClientRect().top - parentRect.top - 16;
+    scrollParent.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    setActiveTimelineSeqValue(entry.seq);
+    setLoadingTimelineSeq(null);
   };
 
   const cancelHistoryRestore = () => {
@@ -235,11 +303,16 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
   onMount(() => {
     scrollParent = findScrollParent(endRef ?? null);
     if (scrollParent) {
+      setViewportHeight(scrollParent.clientHeight);
       setPinned(true);
       scrollToBottom(scrollParent);
       scrollParent.addEventListener("scroll", updatePinned, { passive: true });
       onCleanup(() => scrollParent?.removeEventListener("scroll", updatePinned));
-      const resizeObserver = new ResizeObserver(() => scheduleBottomAlignment());
+      const resizeObserver = new ResizeObserver(() => {
+        if (scrollParent) setViewportHeight(scrollParent.clientHeight);
+        scheduleBottomAlignment();
+        scheduleTimelineUpdate();
+      });
       resizeObserver.observe(scrollParent);
       if (contentRef) resizeObserver.observe(contentRef);
       onCleanup(() => resizeObserver.disconnect());
@@ -258,6 +331,7 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
     }
     onCleanup(() => {
       if (followFrame !== undefined) cancelAnimationFrame(followFrame);
+      if (timelineFrame !== undefined) cancelAnimationFrame(timelineFrame);
       cancelHistoryRestore();
     });
   });
@@ -269,6 +343,9 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
     const phase = `${key}:${loading() ? "loading" : "ready"}`;
     if (phase === lastConversationPhase) return;
     lastConversationPhase = phase;
+    timelineNavigationRevision += 1;
+    setLoadingTimelineSeq(null);
+    setActiveTimelineSeqValue(null);
     cancelHistoryRestore();
     setHistoryError(null);
     const phaseRevision = scrollPhaseRevision;
@@ -303,17 +380,32 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
 
   createEffect(() => {
     timelineItems().length;
+    timelineEntries().length;
     activeBlocks().length;
     // Track the last block's text length so streaming deltas keep the view pinned.
     const last = activeBlocks().at(-1);
     if (last && (last.kind === "text" || last.kind === "thinking")) last.text.length;
     if (!pinned()) return;
     scheduleBottomAlignment();
+    scheduleTimelineUpdate();
   });
 
   return (
     <AiMessageActionsProvider actions={props.actions}>
-      <div ref={contentRef} class="min-h-full px-2 py-4 sm:px-4" classList={{ invisible: hasContent() && !scrollReady() }}>
+      <div ref={contentRef} class="relative min-h-full px-2 py-4 sm:px-4" classList={{ invisible: hasContent() && !scrollReady() }}>
+        <Show when={timelineEntries().length >= 5 && viewportHeight() > 0 && !loading()}>
+          <div class="pointer-events-none sticky top-0 z-20 hidden h-0 md:block">
+            <div class="absolute top-0" style={{ left: "max(0.5rem, calc(50% - 31rem))" }}>
+              <TurnNavigator
+                entries={timelineEntries()}
+                activeSeq={activeTimelineSeqValue()}
+                loadingSeq={loadingTimelineSeq()}
+                height={Math.max(120, viewportHeight() - 16)}
+                onSelect={(entry) => void jumpToTimelineEntry(entry)}
+              />
+            </div>
+          </div>
+        </Show>
         <Show
           when={hasContent()}
           fallback={
@@ -354,7 +446,10 @@ export function AiMessageList(props: { session: AiMessageListSession; actions?: 
                   when={activeSegments().length > 0}
                   fallback={
                     <AssistantMessageLane>
-                      <ChatUtilityLine meta={{ icon: "ti ti-sparkles", label: AI_PENDING_TURN_LABEL, tone: "ai" }} trailing={<PulseDots />} />
+                      <ChatUtilityLine
+                        meta={{ icon: "ti ti-sparkles", label: AI_PENDING_TURN_LABEL, tone: "ai" }}
+                        trailing={<PulseDots />}
+                      />
                     </AssistantMessageLane>
                   }
                 >

@@ -45,15 +45,20 @@ const insertMessage = async (input: {
   text: string;
   compacted?: boolean;
   kind?: "message" | "summary";
+  loopId?: string;
+  meta?: unknown;
+  content?: unknown[];
 }) => {
   await sql`
-    INSERT INTO ai.messages (conversation_id, seq, kind, role, message, compacted_at)
+    INSERT INTO ai.messages (conversation_id, seq, kind, role, message, loop_id, meta, compacted_at)
     VALUES (
       ${input.conversationId},
       ${input.seq},
       ${input.kind ?? "message"},
       ${input.role},
-      ${JSON.stringify({ role: input.role, content: [{ type: "text", text: input.text }] })}::jsonb,
+      ${JSON.stringify({ role: input.role, content: input.content ?? [{ type: "text", text: input.text }] })}::jsonb,
+      ${input.loopId ?? null},
+      ${input.meta ? JSON.stringify(input.meta) : null}::jsonb,
       ${input.compacted ? new Date().toISOString() : null}
     )
   `;
@@ -121,6 +126,71 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
       const full = await aiConversationStore.listMessages({ conversationId: conversation.id });
       const paged = await aiConversationStore.listMessagesPage({ conversationId: conversation.id, limit: 100 });
       expect(paged.messages.map((message) => message.id)).toEqual(full.map((message) => message.id));
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
+    }
+  });
+
+  test("builds a compact full-conversation turn index", async () => {
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+    try {
+      const conversation = await aiConversationStore.createConversation({ appId: "ai-page-test", ownerUserId: userId });
+      conversationIds.push(conversation.id);
+      const turnId = crypto.randomUUID();
+      await sql`
+        INSERT INTO ai.turns (id, conversation_id, status, model_profile_id, completed_at)
+        VALUES (${turnId}::uuid, ${conversation.id}::uuid, 'completed', 'test-model', now())
+      `;
+      await insertMessage({
+        conversationId: conversation.id,
+        seq: 1,
+        role: "user",
+        text: "Create a report",
+        loopId: turnId,
+        content: [
+          { type: "text", text: "Create a report" },
+          { type: "text", text: '<attachment path="/input/data.csv" media-type="text/csv" size="12" />' },
+        ],
+      });
+      await insertMessage({ conversationId: conversation.id, seq: 2, role: "assistant", text: "I created the report.", loopId: turnId });
+      await insertMessage({
+        conversationId: conversation.id,
+        seq: 3,
+        role: "user",
+        text: "Make it shorter",
+        loopId: turnId,
+        meta: { steerId: "steer-1" },
+      });
+      await insertMessage({
+        conversationId: conversation.id,
+        seq: 4,
+        role: "assistant",
+        text: "Here is the shorter version.",
+        loopId: turnId,
+      });
+      await sql`
+        INSERT INTO ai.tool_calls (turn_id, conversation_id, call_id, tool_name, status, approval_state)
+        VALUES (${turnId}::uuid, ${conversation.id}::uuid, 'present-1', 'present', 'completed', 'not_required')
+      `;
+
+      const timeline = await aiConversationStore.listConversationTimeline({ conversationId: conversation.id });
+      expect(timeline).toHaveLength(2);
+      expect(timeline[0]).toMatchObject({
+        seq: 1,
+        userPreview: "Create a report",
+        assistantPreview: "I created the report.",
+        isSteer: false,
+        inputFileCount: 1,
+        outputFileCount: 1,
+        toolCount: 1,
+      });
+      expect(timeline[1]).toMatchObject({
+        seq: 3,
+        userPreview: "Make it shorter",
+        assistantPreview: "Here is the shorter version.",
+        isSteer: true,
+      });
     } finally {
       await cleanupFixture({ userId, conversationIds });
     }

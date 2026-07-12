@@ -2,7 +2,7 @@ import { type Accessor, createMemo, createSignal, onCleanup } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { type AiAttachmentRef, aiAttachmentMarker } from "../attachments";
 import { type AiStreamSseEvent, type AiTurnBlock, type AiTurnSnapshot, steerMessageBlockId } from "../protocol";
-import type { AiConversation, AiStoredMessage, AiTurn, AiTurnSteer, AiUserContentPart } from "../types";
+import type { AiConversation, AiConversationTimelineEntry, AiStoredMessage, AiTurn, AiTurnSteer, AiUserContentPart } from "../types";
 import { type AiChatProjection, activeTurnFromSnapshot, emptyProjection, reduceProjection, visibleMessages } from "./projection";
 import { type AiStreamHandle, subscribeAiStream } from "./transport";
 
@@ -21,6 +21,7 @@ type AiConversationDetail = {
   messages: AiStoredMessage[];
   hasMoreMessages?: boolean;
   activeTurn: AiTurnSnapshot | null;
+  timeline?: AiConversationTimelineEntry[];
 };
 
 type AiMessagesPage = { messages: AiStoredMessage[]; hasMore: boolean };
@@ -57,6 +58,7 @@ export type CreateAiChatControllerOptions = {
   initialConversations?: AiConversation[];
   initialConversationId?: string | null;
   initialDetail?: AiConversationDetail | null;
+  initialTimeline?: AiConversationTimelineEntry[];
   initialError?: string | null;
   frontendTools?: Record<string, AiFrontendToolHandler>;
 };
@@ -102,6 +104,10 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   const [hasMoreByConversation, setHasMoreByConversation] = createSignal<Record<string, boolean>>({});
   const [loadingOlderConversationId, setLoadingOlderConversationId] = createSignal<string | null>(null);
   const [loadingConversationId, setLoadingConversationId] = createSignal<string | null>(null);
+  const [timelineByConversation, setTimelineByConversation] = createSignal<Record<string, AiConversationTimelineEntry[]>>(
+    options.initialConversationId && options.initialTimeline ? { [options.initialConversationId]: options.initialTimeline } : {},
+  );
+  const [loadingTimelineConversationId, setLoadingTimelineConversationId] = createSignal<string | null>(null);
   const setHasMore = (conversationId: string, hasMore: boolean) =>
     setHasMoreByConversation((current) => ({ ...current, [conversationId]: hasMore }));
   const handledFrontendCalls = new Set<string>();
@@ -112,8 +118,16 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   let streamGeneration = 0;
   let conversationOpenGeneration = 0;
   let fileRefreshGeneration = 0;
+  let historyTargetSeq: number | null = null;
+  let historyLoadPromise: Promise<boolean> | null = null;
 
   const isActiveConversation = (conversationId: string) => activeConversationId() === conversationId;
+  const timeline = () => {
+    const conversationId = activeConversationId();
+    return conversationId ? (timelineByConversation()[conversationId] ?? []) : [];
+  };
+  const setTimeline = (conversationId: string, entries: AiConversationTimelineEntry[]) =>
+    setTimelineByConversation((current) => ({ ...current, [conversationId]: entries }));
   const setConversationError = (conversationId: string, message: string) => {
     if (isActiveConversation(conversationId)) setGlobalError(message);
   };
@@ -175,6 +189,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     if (detail) {
       setProjection(detailToProjection(detail), session.conversationId);
       setHasMore(session.conversationId, detail.hasMoreMessages ?? false);
+      if (detail.timeline) setTimeline(session.conversationId, detail.timeline);
     } else reduceEvent(session.conversationId, event);
     setRunStatusRaw(null);
     void refreshConversations();
@@ -202,6 +217,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     if (event.type === "turn_finished") {
       setRunStatusRaw(null);
       void refreshConversations();
+      void refreshTimeline(conversationId);
       // The turn may have created or deleted VFS files (bash, present).
       void refreshFiles();
     }
@@ -300,6 +316,23 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     }
   };
 
+  const refreshTimeline = async (conversationId = activeConversationId()): Promise<void> => {
+    if (!conversationId) return;
+    setLoadingTimelineConversationId(conversationId);
+    try {
+      const entries = await request<AiConversationTimelineEntry[]>(
+        `/conversations/${conversationId}/timeline`,
+        { method: "GET" },
+        "Failed to load conversation timeline",
+      );
+      if (isActiveConversation(conversationId)) setTimeline(conversationId, entries);
+    } catch {
+      // The navigator is optional; transcript navigation remains fully usable.
+    } finally {
+      if (loadingTimelineConversationId() === conversationId) setLoadingTimelineConversationId(null);
+    }
+  };
+
   const setProjection = (projection: AiChatProjection, conversationId: string) => {
     cache.set(conversationId, projection);
     setState(reconcile(projection, { key: "id", merge: true }));
@@ -332,32 +365,43 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       const preservedOlder = cached && windowOldest !== undefined ? cached.messages.filter((message) => message.seq < windowOldest) : [];
       setProjection({ ...detailToProjection(detail), messages: [...preservedOlder, ...detail.messages] }, conversationId);
       if (preservedOlder.length === 0) setHasMore(conversationId, detail.hasMoreMessages ?? false);
+      if (detail.timeline) setTimeline(conversationId, detail.timeline);
       runFrontendTools();
     }
     if (generation === conversationOpenGeneration && loadingConversationId() === conversationId) setLoadingConversationId(null);
   };
 
-  /** Load one older page above the current window (infinite scroll). Returns whether anything was prepended. */
-  const loadOlderMessages = async (): Promise<boolean> => {
-    const conversationId = activeConversationId();
-    if (!conversationId || loadingOlderConversationId() === conversationId) return false;
+  const requestMessagesPage = async (conversationId: string, before: number, limit: number): Promise<AiMessagesPage> => {
+    const response = await fetch(url(`/conversations/${conversationId}/messages`, { before: String(before), limit: String(limit) }));
+    if (!response.ok) throw new Error(await readError(response, "Failed to load older messages"));
+    return (await response.json()) as AiMessagesPage;
+  };
+
+  const mergeOlderMessages = (conversationId: string, page: AiMessagesPage): boolean => {
+    if (!isActiveConversation(conversationId)) return false;
+    const known = new Set(state.messages.map((message) => message.id));
+    const fresh = page.messages.filter((message) => !known.has(message.id));
+    if (fresh.length > 0) setState("messages", (prev) => [...fresh, ...prev]);
+    setHasMore(conversationId, page.hasMore);
+    cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
+    return fresh.length > 0;
+  };
+
+  const fetchOlderMessagesPage = async (conversationId: string, limit: number): Promise<boolean> => {
     if (!(hasMoreByConversation()[conversationId] ?? false)) return false;
     const oldest = state.messages[0]?.seq;
     if (oldest === undefined) return false;
+    return mergeOlderMessages(conversationId, await requestMessagesPage(conversationId, oldest, limit));
+  };
 
+  /** Load one older page above the current window (infinite scroll). Returns whether anything was prepended. */
+  const loadOlderMessages = async (): Promise<boolean> => {
+    const conversationId = activeConversationId();
+    if (!conversationId || loadingOlderConversationId() === conversationId || historyLoadPromise) return false;
     setGlobalError(null);
     setLoadingOlderConversationId(conversationId);
     try {
-      const response = await fetch(url(`/conversations/${conversationId}/messages`, { before: String(oldest), limit: "50" }));
-      if (!response.ok) throw new Error(await readError(response, "Failed to load older messages"));
-      const page = (await response.json()) as AiMessagesPage;
-      if (!isActiveConversation(conversationId)) return false;
-      const known = new Set(state.messages.map((message) => message.id));
-      const fresh = page.messages.filter((message) => !known.has(message.id));
-      if (fresh.length > 0) setState("messages", (prev) => [...fresh, ...prev]);
-      setHasMore(conversationId, page.hasMore);
-      cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
-      return fresh.length > 0;
+      return await fetchOlderMessagesPage(conversationId, 50);
     } catch (loadError) {
       const error = loadError instanceof Error ? loadError : new Error("Failed to load older messages");
       setConversationError(conversationId, error.message);
@@ -367,12 +411,55 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     }
   };
 
+  /** Ensure history stays contiguous while revealing a timeline target. */
+  const loadHistoryThroughSeq = (targetSeq: number): Promise<boolean> => {
+    const conversationId = activeConversationId();
+    if (!conversationId) return Promise.resolve(false);
+    historyTargetSeq = historyTargetSeq === null ? targetSeq : Math.min(historyTargetSeq, targetSeq);
+    if (state.messages.some((message) => message.seq <= targetSeq)) return Promise.resolve(true);
+    if (historyLoadPromise) return historyLoadPromise.then((reached) => reached || loadHistoryThroughSeq(targetSeq));
+
+    historyLoadPromise = (async () => {
+      setGlobalError(null);
+      setLoadingOlderConversationId(conversationId);
+      try {
+        let before = state.messages[0]?.seq;
+        let hasMore = hasMoreByConversation()[conversationId] ?? false;
+        let accumulated: AiStoredMessage[] = [];
+        while (isActiveConversation(conversationId) && before !== undefined) {
+          const target = historyTargetSeq;
+          if (target === null || before <= target) break;
+          if (!hasMore) return false;
+          const page = await requestMessagesPage(conversationId, before, 200);
+          if (page.messages.length === 0) return false;
+          accumulated = [...page.messages, ...accumulated];
+          before = page.messages[0]?.seq;
+          hasMore = page.hasMore;
+        }
+        if (!isActiveConversation(conversationId)) return false;
+        if (accumulated.length > 0) mergeOlderMessages(conversationId, { messages: accumulated, hasMore });
+        const target = historyTargetSeq;
+        return target !== null && state.messages.some((message) => message.seq <= target);
+      } catch (loadError) {
+        const error = loadError instanceof Error ? loadError : new Error("Failed to load conversation history");
+        setConversationError(conversationId, error.message);
+        return false;
+      } finally {
+        historyTargetSeq = null;
+        historyLoadPromise = null;
+        if (loadingOlderConversationId() === conversationId) setLoadingOlderConversationId(null);
+      }
+    })();
+    return historyLoadPromise;
+  };
+
   const setActiveConversationId = (conversationId: string | null) => {
     if (conversationId) void openConversation(conversationId);
     else {
       conversationOpenGeneration += 1;
       setGlobalError(null);
       setActiveConversationIdSignal(null);
+      historyTargetSeq = null;
       setLoadingConversationId(null);
       closeStream();
       setVfsFileCount(0);
@@ -507,6 +594,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
           },
       );
       cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
+      void refreshTimeline(conversationId);
       if (attachmentParts.length > 0) void refreshFiles();
       return true;
     } catch (sendError) {
@@ -536,6 +624,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
         return { ...current, blocks: reconcileSteerBlocks(current.blocks, input.blockId, result) };
       });
       cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
+      void refreshTimeline(conversationId);
       return true;
     } catch (steerError) {
       if (invalidateInactiveCache(conversationId)) return true;
@@ -703,6 +792,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       // Truncate the client view to before the retried message, then show the new one.
       setState("messages", (prev) => [...prev.filter((message) => message.seq < result.message.seq), result.message]);
       cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
+      void refreshTimeline(conversationId);
       return true;
     } catch (retryError) {
       if (invalidateInactiveCache(conversationId)) return false;
@@ -727,6 +817,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       const projection = detailToProjection(detail);
       cache.set(detail.conversation.id, projection);
       setHasMore(detail.conversation.id, detail.hasMoreMessages ?? false);
+      if (detail.timeline) setTimeline(detail.conversation.id, detail.timeline);
       if (!isActiveConversation(conversationId) || generation !== conversationOpenGeneration) return detail.conversation;
       setState(reconcile(projection, { key: "id", merge: true }));
       setActiveConversationIdSignal(detail.conversation.id);
@@ -802,6 +893,10 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     loadingOlder: () => loadingOlderConversationId() === activeConversationId(),
     loadingConversation: () => loadingConversationId() === activeConversationId(),
     loadOlderMessages,
+    loadHistoryThroughSeq,
+    timeline,
+    timelineLoading: () => loadingTimelineConversationId() === activeConversationId(),
+    refreshTimeline,
     runStatus,
     running,
     streamStatus,

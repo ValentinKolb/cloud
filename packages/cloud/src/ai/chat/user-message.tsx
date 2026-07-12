@@ -126,7 +126,7 @@ export function UserMessageBubble(props: { entry: AiStoredMessage }) {
   ];
 
   return (
-    <div class="group flex justify-end px-3 py-2">
+    <div class="group flex justify-end px-3 py-2" data-ai-turn-seq={props.entry.seq}>
       <div class="flex max-w-[min(44rem,88%)] flex-col items-end gap-2">
         <Show when={images().length > 0 || textAttachments().length > 0 || vfsAttachments().length > 0}>
           <div class="flex flex-wrap justify-end gap-2">

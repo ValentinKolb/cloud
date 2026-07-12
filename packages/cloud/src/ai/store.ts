@@ -8,6 +8,7 @@ import type {
   AiConversationPage,
   AiConversationResource,
   AiConversationStore,
+  AiConversationTimelineEntry,
   AiEnrichmentOverview,
   AiEnrichmentOverviewRun,
   AiEnrichmentRun,
@@ -127,6 +128,19 @@ type TurnSteerRow = {
   message_id: string | null;
   created_at: Date | string;
   consumed_at: Date | string | null;
+};
+
+type TimelineRow = {
+  id: string;
+  seq: number;
+  loop_id: string | null;
+  user_preview: string | null;
+  assistant_preview: string | null;
+  is_steer: boolean;
+  input_file_count: number | string | null;
+  output_file_count: number | string | null;
+  tool_count: number | string | null;
+  created_at: Date | string;
 };
 
 const iso = (value: Date | string): string => (value instanceof Date ? value.toISOString() : new Date(value).toISOString());
@@ -839,6 +853,105 @@ export const aiConversationStore: AiConversationStore = {
       ) AS exists
     `;
     return { messages, hasMore: Boolean(older[0]?.exists) };
+  },
+
+  listConversationTimeline: async (input): Promise<AiConversationTimelineEntry[]> => {
+    const rows = await sql<TimelineRow[]>`
+      WITH normalized AS (
+        SELECT
+          id,
+          seq,
+          role,
+          loop_id,
+          created_at,
+          CASE
+            WHEN jsonb_typeof(message) = 'string' THEN (message #>> '{}')::jsonb
+            ELSE message
+          END AS payload,
+          CASE
+            WHEN meta IS NULL THEN NULL
+            WHEN jsonb_typeof(meta) = 'string' THEN (meta #>> '{}')::jsonb
+            ELSE meta
+          END AS meta_payload
+        FROM ai.messages
+        WHERE conversation_id = ${input.conversationId}
+          AND kind = 'message'
+          AND role IN ('user', 'assistant')
+      ),
+      message_text AS (
+        SELECT
+          normalized.*,
+          COALESCE((
+            SELECT string_agg(part ->> 'text', '' ORDER BY ordinal)
+            FROM jsonb_array_elements(COALESCE(payload -> 'content', '[]'::jsonb)) WITH ORDINALITY AS content(part, ordinal)
+            WHERE part ->> 'type' = 'text'
+              AND NOT starts_with(COALESCE(part ->> 'text', ''), 'Attached files for this message:')
+          ), '') AS visible_text,
+          COALESCE((
+            SELECT count(*) FILTER (WHERE part ->> 'type' = 'file')
+              + sum(regexp_count(COALESCE(part ->> 'text', ''), '<attachment path='))
+              + sum(regexp_count(COALESCE(part ->> 'text', ''), '--- file: '))
+            FROM jsonb_array_elements(COALESCE(payload -> 'content', '[]'::jsonb)) AS content(part)
+          ), 0) AS input_file_count
+        FROM normalized
+      ),
+      user_rows AS (
+        SELECT
+          message_text.*,
+          lead(seq) OVER (ORDER BY seq ASC) AS next_user_seq
+        FROM message_text
+        WHERE role = 'user'
+      ),
+      tool_summary AS (
+        SELECT
+          turn_id::text AS loop_id,
+          count(*)::int AS tool_count,
+          count(*) FILTER (WHERE tool_name = 'present' AND status = 'completed')::int AS output_file_count
+        FROM ai.tool_calls
+        WHERE conversation_id = ${input.conversationId}
+        GROUP BY turn_id
+      )
+      SELECT
+        users.id,
+        users.seq,
+        users.loop_id,
+        left(
+          regexp_replace(
+            regexp_replace(users.visible_text, '<attachment path="[^"]+" media-type="[^"]*" size="[0-9]+" />', '', 'g'),
+            '\\s+',
+            ' ',
+            'g'
+          ),
+          240
+        ) AS user_preview,
+        left(COALESCE((
+          SELECT string_agg(regexp_replace(assistant.visible_text, '\\s+', ' ', 'g'), ' ' ORDER BY assistant.seq)
+          FROM message_text assistant
+          WHERE assistant.role = 'assistant'
+            AND assistant.seq > users.seq
+            AND (users.next_user_seq IS NULL OR assistant.seq < users.next_user_seq)
+        ), ''), 320) AS assistant_preview,
+        COALESCE(users.meta_payload ? 'steerId', false) AS is_steer,
+        users.input_file_count,
+        COALESCE(tools.output_file_count, 0) AS output_file_count,
+        COALESCE(tools.tool_count, 0) AS tool_count,
+        users.created_at
+      FROM user_rows users
+      LEFT JOIN tool_summary tools ON tools.loop_id = users.loop_id
+      ORDER BY users.seq ASC
+    `;
+    return rows.map((row) => ({
+      id: row.id,
+      seq: Number(row.seq),
+      loopId: row.loop_id,
+      userPreview: row.user_preview?.trim() || "Message",
+      assistantPreview: row.assistant_preview?.trim() || "",
+      isSteer: Boolean(row.is_steer),
+      inputFileCount: Number(row.input_file_count ?? 0),
+      outputFileCount: Number(row.output_file_count ?? 0),
+      toolCount: Number(row.tool_count ?? 0),
+      createdAt: iso(row.created_at),
+    }));
   },
 
   listContextMessages: async (input) => {

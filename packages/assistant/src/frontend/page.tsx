@@ -29,7 +29,12 @@ export default ssr<AuthContext>(async (c) => {
       302,
     );
   }
-  const initialDetail = activeConversation ? await loadAiStreamState(activeConversation) : null;
+  const [initialDetail, initialTimeline] = activeConversation
+    ? await Promise.all([
+        loadAiStreamState(activeConversation),
+        aiConversationStore.listConversationTimeline({ conversationId: activeConversation.id }),
+      ])
+    : [null, []];
 
   return () => (
     <Layout c={c} fullPage title={[{ title: "Start", href: "/" }, { title: "Assistant" }]}>
@@ -47,6 +52,7 @@ export default ssr<AuthContext>(async (c) => {
                 messages: initialDetail.messages,
                 hasMoreMessages: initialDetail.hasMoreMessages ?? false,
                 activeTurn: initialDetail.activeTurn,
+                timeline: initialTimeline,
               }
             : null
         }
