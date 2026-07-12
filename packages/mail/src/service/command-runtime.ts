@@ -7,9 +7,11 @@ import { sql } from "bun";
 import { z } from "zod";
 import type { CommandState, MailCommand } from "../contracts";
 import { requireMailboxPermission } from "./access";
+import { commandStillAuthorized } from "./command-authorization";
 import type { MailRequestContext } from "./auth";
 import { imapSmtpConnector, type RemoteMutationTarget } from "./connectors";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
+import { enqueueMaintenanceCommand, stopMaintenanceRuntime, submitDueMaintenanceCommands } from "./maintenance-runtime";
 import { storeReadableBlob } from "./message-blobs";
 import { buildMimeSource, outboundDraftSnapshotSchema, outboundRecipients } from "./outbound-mime";
 import { type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
@@ -80,104 +82,6 @@ const normalizeCode = (error: unknown, fallback: string): string => {
 const errorMessage = (error: unknown, fallback: string): string => {
   const message = error instanceof Error ? error.message : fallback;
   return message.slice(0, 1_000);
-};
-
-const permissionRank = (permission: string | null | undefined): number => {
-  if (permission === "admin") return 3;
-  if (permission === "write") return 2;
-  if (permission === "read") return 1;
-  return 0;
-};
-
-const scopeRank = (scopes: readonly string[]): number => {
-  if (scopes.includes("admin") || scopes.includes("mail:admin") || scopes.includes("mail:*")) return 3;
-  if (scopes.includes("write") || scopes.includes("mail:write")) return 2;
-  if (scopes.includes("read") || scopes.includes("mail:read")) return 1;
-  return 0;
-};
-
-const serviceAccountActorAllowed = async (command: DbCommandExecution): Promise<boolean> => {
-  if (command.actor_kind !== "service_account") return true;
-  if (!command.actor_id || scopeRank(command.credential_scopes ?? []) < 2) return false;
-  const [serviceAccount] = await sql<
-    {
-      status: string;
-      kind: string;
-      app_id: string | null;
-      resource_type: string | null;
-      resource_id: string | null;
-    }[]
-  >`
-    SELECT status, kind, app_id, resource_type, resource_id
-    FROM auth.service_accounts
-    WHERE id = ${command.actor_id}::uuid
-  `;
-  if (!serviceAccount || serviceAccount.status !== "active") return false;
-  if (serviceAccount.kind !== "resource_bound") return true;
-  return (
-    serviceAccount.app_id === "mail" && serviceAccount.resource_type === "mailbox" && serviceAccount.resource_id === command.mailbox_id
-  );
-};
-
-const loadAccessSubjectState = async (command: DbCommandExecution): Promise<{ active: boolean; admin: boolean }> => {
-  if (!command.access_subject_id) return { active: false, admin: false };
-  if (command.access_subject_kind === "user") {
-    const [user] = await sql<{ admin: boolean }[]>`
-      SELECT admin
-      FROM auth.users
-      WHERE id = ${command.access_subject_id}::uuid
-        AND (account_expires IS NULL OR account_expires > now())
-    `;
-    return { active: Boolean(user), admin: user?.admin === true };
-  }
-  const [serviceAccount] = await sql<{ status: string }[]>`
-    SELECT status FROM auth.service_accounts WHERE id = ${command.access_subject_id}::uuid
-  `;
-  return { active: serviceAccount?.status === "active", admin: false };
-};
-
-const hasCurrentMailboxWriteGrant = async (command: DbCommandExecution): Promise<boolean> => {
-  const userId = command.access_subject_kind === "user" ? command.access_subject_id : null;
-  const serviceAccountId = command.access_subject_kind === "service_account" ? command.access_subject_id : null;
-  const [grant] = await sql<{ permission: string }[]>`
-    WITH RECURSIVE subject_groups(group_id, path) AS (
-      SELECT ug.group_id, ARRAY[ug.group_id]::uuid[]
-      FROM auth.user_groups_v2 ug
-      WHERE ug.user_id = ${userId}::uuid
-
-      UNION ALL
-
-      SELECT gg.parent_group_id, sg.path || gg.parent_group_id
-      FROM auth.group_groups_v2 gg
-      JOIN subject_groups sg ON sg.group_id = gg.child_group_id
-      WHERE NOT gg.parent_group_id = ANY(sg.path)
-    )
-    SELECT a.permission
-    FROM mail.mailbox_access ma
-    JOIN auth.access a ON a.id = ma.access_id
-    WHERE ma.mailbox_id = ${command.mailbox_id}::uuid
-      AND (
-        a.user_id = ${userId}::uuid
-        OR a.service_account_id = ${serviceAccountId}::uuid
-        OR a.group_id IN (SELECT group_id FROM subject_groups)
-      )
-    ORDER BY CASE a.permission
-      WHEN 'admin' THEN 3
-      WHEN 'write' THEN 2
-      WHEN 'read' THEN 1
-      ELSE 0
-    END DESC
-    LIMIT 1
-  `;
-  return permissionRank(grant?.permission) >= 2;
-};
-
-const commandStillAuthorized = async (command: DbCommandExecution): Promise<boolean> => {
-  if (command.access_subject_kind === "system") return command.actor_kind === "system";
-  if (!(await serviceAccountActorAllowed(command))) return false;
-  const subject = await loadAccessSubjectState(command);
-  if (!subject.active) return false;
-  return subject.admin || hasCurrentMailboxWriteGrant(command);
 };
 
 const loadPinnedBinding = async (command: DbCommandExecution): Promise<DbPinnedBinding> => {
@@ -637,7 +541,7 @@ const executeTransferMutation = async (params: {
     throw Object.assign(new Error("Unsupported actor command kind"), { code: "UNSUPPORTED_COMMAND" });
   }
   if (!target.destinationFolderId) throw Object.assign(new Error("Destination folder is missing"), { code: "INVALID_COMMAND_TARGET" });
-  requireRights(source.effective_rights, command.kind === "move" ? ["read", "write_flags"] : ["read"]);
+  requireRights(source.effective_rights, command.kind === "move" ? ["read", "move"] : ["read"]);
   const destination = await loadDestinationFolder(command, target.destinationFolderId);
   requireRights(destination.effective_rights, ["insert"]);
 
@@ -674,7 +578,7 @@ const executeTransferMutation = async (params: {
 };
 
 const executeFreshMutation = async (command: DbCommandExecution, assertLeaseActive: LeaseAssertion): Promise<void> => {
-  if (!(await commandStillAuthorized(command))) {
+  if (!(await commandStillAuthorized(command, "write"))) {
     await commandState(
       command,
       "failed",
@@ -796,7 +700,7 @@ const reconcileTransferMutation = async (params: {
 };
 
 const reconcileMutation = async (command: DbCommandExecution): Promise<void> => {
-  if (!(await commandStillAuthorized(command))) {
+  if (!(await commandStillAuthorized(command, "write"))) {
     await commandState(
       command,
       "needs_attention",
@@ -1494,7 +1398,7 @@ const executeFreshOutbox = async (
   command: DbCommandExecution,
   assertLeaseActive: LeaseAssertion,
 ): Promise<void> => {
-  if (!(await commandStillAuthorized(command))) {
+  if (!(await commandStillAuthorized(command, "write"))) {
     await finishOutbox({
       outbox,
       command,
@@ -1828,11 +1732,16 @@ export const enqueueMailCommand = async (commandId: string, kind: MailCommand["k
   }
   if (["set_flags", "move", "copy", "delete"].includes(kind)) {
     await mutationJob.submit({ key: `command:${commandId}`, input: { commandId } });
+    return;
+  }
+  if (["sync_mailbox", "sync_folder", "discover_folders", "verify_binding", "rebuild_folder", "hydrate_missing"].includes(kind)) {
+    await enqueueMaintenanceCommand(commandId);
   }
 };
 
-const submitDueCommands = async (): Promise<{ commands: number; outbox: number; recovered: number }> => {
+const submitDueCommands = async (): Promise<{ commands: number; maintenance: number; outbox: number; recovered: number }> => {
   const recovered = await recoverStaleExecutions();
+  const maintenance = await submitDueMaintenanceCommands();
   const commands = await sql<{ id: string; kind: MailCommand["kind"] }[]>`
     SELECT id, kind
     FROM mail.commands
@@ -1857,7 +1766,12 @@ const submitDueCommands = async (): Promise<{ commands: number; outbox: number; 
   for (const outbox of outboxes) {
     await outboxJob.submit({ key: `outbox:${outbox.id}`, input: { outboxId: outbox.id } });
   }
-  return { commands: commands.length, outbox: outboxes.length, recovered };
+  return {
+    commands: commands.length,
+    maintenance: maintenance.queued,
+    outbox: outboxes.length,
+    recovered: recovered + maintenance.recovered,
+  };
 };
 
 const commandScheduler = scheduler({ id: "mail-commands" });
@@ -1877,8 +1791,8 @@ export const commandRuntime = {
     commandRuntimeStarted = true;
   },
   stop: async (): Promise<void> => {
-    if (!commandRuntimeStarted) return;
-    await commandScheduler.stop();
+    if (commandRuntimeStarted) await commandScheduler.stop();
+    stopMaintenanceRuntime();
     mutationJob.stop();
     outboxJob.stop();
     commandRuntimeStarted = false;

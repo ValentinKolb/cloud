@@ -850,6 +850,45 @@ const addCommandWorkerHeartbeats = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const addLifecycleControlPlane = async (db: SqlClient): Promise<void> => {
+  await db`
+    ALTER TABLE mail.folders
+    ADD COLUMN discovery_state TEXT NOT NULL DEFAULT 'active'
+      CHECK (discovery_state IN ('active', 'missing', 'ambiguous')),
+    ADD COLUMN missing_since TIMESTAMPTZ
+  `;
+  await db`
+    ALTER TABLE mail.binding_folder_refs
+    ADD COLUMN last_seen_generation BIGINT NOT NULL DEFAULT 0 CHECK (last_seen_generation >= 0),
+    ADD COLUMN missing_since TIMESTAMPTZ
+  `;
+  await db`
+    UPDATE mail.binding_folder_refs ref
+    SET last_seen_generation = folder.discovery_generation
+    FROM mail.folders folder
+    WHERE folder.id = ref.folder_id
+  `;
+  await db`
+    ALTER TABLE mail.commands
+    ADD COLUMN result JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(result) = 'object'),
+    DROP CONSTRAINT commands_kind_check,
+    ADD CONSTRAINT commands_kind_check CHECK (
+      kind IN (
+        'set_flags', 'move', 'copy', 'delete', 'send',
+        'sync_mailbox', 'sync_folder', 'discover_folders', 'verify_binding', 'rebuild_folder', 'hydrate_missing'
+      )
+    )
+  `;
+  await db`
+    CREATE INDEX binding_folder_refs_discovery_idx
+    ON mail.binding_folder_refs (binding_id, last_seen_generation, folder_id)
+  `;
+  await db`
+    CREATE INDEX folders_discovery_state_idx
+    ON mail.folders (remote_resource_id, discovery_state, role, id)
+  `;
+};
+
 const migrations = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -863,6 +902,7 @@ const migrations = [
   { version: 10, name: "search_backend_modes", run: addSearchBackendModes },
   { version: 11, name: "credential_revision_bindings", run: addCredentialRevisionBindings },
   { version: 12, name: "command_worker_heartbeats", run: addCommandWorkerHeartbeats },
+  { version: 13, name: "lifecycle_control_plane", run: addLifecycleControlPlane },
 ] as const;
 
 export const migrate = async (): Promise<void> => {

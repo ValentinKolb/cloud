@@ -16,6 +16,7 @@ import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/clou
 import {
   type Mailbox,
   type MailboxHealth,
+  type MailboxOperationalHealth,
   type MailCommand,
   type MailDraft,
   type MailSearchExpression,
@@ -499,22 +500,24 @@ export default defineCliCommands({
       },
     }),
     command("status", {
-      summary: "Show mailbox health and bindings",
+      summary: "Show operational mailbox health",
       flags: mailboxFlag,
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const bindings = await readApi<ProviderBinding[]>(ctx, `/mailboxes/${mailbox.id}/bindings`);
-        if (ctx.options.output === "json") ctx.json({ mailbox, bindings });
+        const health = await readApi<MailboxOperationalHealth>(ctx, `/mailboxes/${mailbox.id}/health`);
+        if (ctx.options.output === "json") ctx.json(health);
         else {
-          ctx.print(`${mailbox.name}: ${mailbox.health}${mailbox.healthReason ? ` - ${mailbox.healthReason}` : ""}`);
-          ctx.table(
-            bindings.map((binding) => ({ state: binding.state, principal: binding.authenticatedPrincipal ?? "", id: binding.id })),
-            [
-              { key: "state", label: "STATE" },
-              { key: "principal", label: "PRINCIPAL" },
-              { key: "id", label: "BINDING ID" },
-            ],
+          ctx.print(`${mailbox.name}: ${health.health}${health.healthReason ? ` - ${health.healthReason}` : ""}`);
+          ctx.print(
+            `Bindings: ${health.bindings.active}/${health.bindings.total} active, ${health.bindings.degraded} degraded, ${health.bindings.pending} pending`,
           );
+          ctx.print(
+            `Folders: ${health.discovery.activeFolders} active, ${health.discovery.missingFolders} missing, ${health.discovery.ambiguousFolders} ambiguous`,
+          );
+          ctx.print(
+            `Sync: ${health.sync.runningRuns} running, ${health.sync.failedRuns} failed; hydration ${health.hydration.pending} pending/${health.hydration.failed} failed`,
+          );
+          ctx.print(`Commands: ${health.commands.maintenanceQueued} maintenance pending; search ${health.search.configuredBackend}`);
         }
       },
     }),
@@ -530,16 +533,20 @@ export default defineCliCommands({
           folders.map((folder) => ({
             name: folder.name,
             role: folder.role,
+            namespace: folder.namespaceKinds.join(","),
             total: folder.total,
             unread: folder.unread,
+            discovery: folder.discoveryState,
             status: folder.syncStatus,
             id: folder.id,
           })),
           [
             { key: "name", label: "NAME" },
             { key: "role", label: "ROLE" },
+            { key: "namespace", label: "NAMESPACE" },
             { key: "total", label: "TOTAL" },
             { key: "unread", label: "UNREAD" },
+            { key: "discovery", label: "DISCOVERY" },
             { key: "status", label: "SYNC" },
             { key: "id", label: "ID" },
           ],
@@ -547,13 +554,134 @@ export default defineCliCommands({
       },
     }),
     command("sync", {
-      summary: "Queue synchronization for a mailbox",
-      flags: mailboxFlag,
+      summary: "Queue durable synchronization for a mailbox",
+      flags: {
+        ...mutationFlags,
+        wait: flag.boolean({ description: "Wait for the queueing command to finish" }),
+        ...waitFlags,
+      },
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const result = await readApi<{ queuedFolders: number }>(ctx, `/mailboxes/${mailbox.id}/sync`, { method: "POST" });
+        const command = await readApi<MailCommand>(
+          ctx,
+          `/mailboxes/${mailbox.id}/commands`,
+          jsonRequest("POST", {
+            kind: "sync_mailbox",
+            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+            correlationId: flags.correlationId,
+          }),
+        );
+        const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
         if (ctx.options.output === "json") ctx.json(result);
-        else ctx.print(`Queued ${result.queuedFolders} folder(s).`);
+        else ctx.print(`Mailbox sync ${result.state} (${result.id}).`);
+      },
+    }),
+    command("sync folder", {
+      summary: "Queue durable synchronization for one folder",
+      args: { folderId: arg.required({ description: "Canonical folder id" }) },
+      flags: { ...mutationFlags, wait: flag.boolean(), ...waitFlags },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const command = await readApi<MailCommand>(
+          ctx,
+          `/mailboxes/${mailbox.id}/commands`,
+          jsonRequest("POST", {
+            kind: "sync_folder",
+            folderId: args.folderId,
+            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+            correlationId: flags.correlationId,
+          }),
+        );
+        const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
+        if (ctx.options.output === "json") ctx.json(result);
+        else ctx.print(`Folder sync ${result.state} (${result.id}).`);
+      },
+    }),
+    command("rediscover", {
+      summary: "Rediscover folders, subscriptions, and effective rights",
+      flags: {
+        ...mutationFlags,
+        binding: flag.string({ description: "Optional provider binding id; defaults to every active binding" }),
+        wait: flag.boolean(),
+        ...waitFlags,
+      },
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const command = await readApi<MailCommand>(
+          ctx,
+          `/mailboxes/${mailbox.id}/commands`,
+          jsonRequest("POST", {
+            kind: "discover_folders",
+            bindingId: flags.binding,
+            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+            correlationId: flags.correlationId,
+          }),
+        );
+        const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
+        if (ctx.options.output === "json") ctx.json(result);
+        else ctx.print(`Rediscovery ${result.state} (${result.id}).`);
+      },
+    }),
+    command("binding verify", {
+      summary: "Reverify one binding after provider credentials changed",
+      args: { bindingId: arg.required({ description: "Provider binding id" }) },
+      flags: { ...mutationFlags, wait: flag.boolean(), ...waitFlags },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const command = await readApi<MailCommand>(
+          ctx,
+          `/mailboxes/${mailbox.id}/commands`,
+          jsonRequest("POST", {
+            kind: "verify_binding",
+            bindingId: args.bindingId,
+            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+            correlationId: flags.correlationId,
+          }),
+        );
+        const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
+        if (ctx.options.output === "json") ctx.json(result);
+        else ctx.print(`Binding verification ${result.state} (${result.id}).`);
+      },
+    }),
+    command("repair folder", {
+      summary: "Rebuild one folder after remote UID identity changed",
+      args: { folderId: arg.required({ description: "Canonical folder id" }) },
+      flags: { ...mutationFlags, yes: confirmFlag("Confirm the local folder rebuild"), wait: flag.boolean(), ...waitFlags },
+      run: async ({ ctx, args, flags }) => {
+        if (!flags.yes) throw new Error("Pass --yes to rebuild the folder projection.");
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const command = await readApi<MailCommand>(
+          ctx,
+          `/mailboxes/${mailbox.id}/commands`,
+          jsonRequest("POST", {
+            kind: "rebuild_folder",
+            folderId: args.folderId,
+            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+            correlationId: flags.correlationId,
+          }),
+        );
+        const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
+        if (ctx.options.output === "json") ctx.json(result);
+        else ctx.print(`Folder rebuild ${result.state} (${result.id}).`);
+      },
+    }),
+    command("repair hydration", {
+      summary: "Retry failed or missing message hydration",
+      flags: { ...mutationFlags, wait: flag.boolean(), ...waitFlags },
+      run: async ({ ctx, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const command = await readApi<MailCommand>(
+          ctx,
+          `/mailboxes/${mailbox.id}/commands`,
+          jsonRequest("POST", {
+            kind: "hydrate_missing",
+            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
+            correlationId: flags.correlationId,
+          }),
+        );
+        const result = flags.wait ? await waitForCommand(ctx, mailbox.id, command.id, flags.timeoutSeconds) : command;
+        if (ctx.options.output === "json") ctx.json(result);
+        else ctx.print(`Hydration retry ${result.state} (${result.id}).`);
       },
     }),
     command("search", {
@@ -1155,6 +1283,7 @@ export default defineCliCommands({
           if (result.transportMetadata.expungePending === true) {
             ctx.print("The source is safely marked \\Deleted; this provider cannot expunge only that UID.");
           }
+          if (Object.keys(result.result).length > 0) ctx.print(JSON.stringify(result.result, null, 2));
         }
       },
     }),

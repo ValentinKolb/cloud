@@ -144,7 +144,7 @@ suite("mail PostgreSQL foundation", () => {
         binding_id, folder_id, remote_path, uid_validity, uid_next, effective_rights, last_verified_at
       ) VALUES (
         ${binding!.id}::uuid, ${folder!.id}::uuid, 'INBOX', 1, 2,
-        ARRAY['read', 'write_flags', 'insert', 'delete_messages']::text[], now()
+        ARRAY['read', 'write_flags', 'insert', 'move', 'delete_messages']::text[], now()
       )
     `;
     const [identity] = await sql<{ id: string }[]>`

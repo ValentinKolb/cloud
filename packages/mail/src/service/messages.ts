@@ -37,6 +37,9 @@ export type MailFolderView = {
   name: string;
   role: string;
   selectable: boolean;
+  namespaceKinds: Array<"personal" | "other_users" | "shared">;
+  discoveryState: "active" | "missing" | "ambiguous";
+  missingSince: string | null;
   syncStatus: string;
   total: number;
   unread: number;
@@ -52,6 +55,9 @@ export const listFolders = async (context: MailRequestContext, mailboxId: string
       name: string;
       role: string;
       selectable: boolean;
+      namespace_kinds: MailFolderView["namespaceKinds"];
+      discovery_state: MailFolderView["discoveryState"];
+      missing_since: Date | string | null;
       sync_status: string;
       total: number;
       unread: number;
@@ -63,6 +69,14 @@ export const listFolders = async (context: MailRequestContext, mailboxId: string
       f.name,
       f.role,
       f.selectable,
+      ARRAY(
+        SELECT DISTINCT ref.namespace_kind
+        FROM mail.binding_folder_refs ref
+        WHERE ref.folder_id = f.id AND ref.missing_since IS NULL AND ref.namespace_kind IS NOT NULL
+        ORDER BY ref.namespace_kind
+      ) AS namespace_kinds,
+      f.discovery_state,
+      f.missing_since,
       f.sync_status,
       COUNT(mp.remote_message_ref_id) FILTER (WHERE mp.deleted_at IS NULL)::int AS total,
       COUNT(mp.remote_message_ref_id) FILTER (
@@ -93,6 +107,9 @@ export const listFolders = async (context: MailRequestContext, mailboxId: string
       name: row.name,
       role: row.role,
       selectable: row.selectable,
+      namespaceKinds: row.namespace_kinds,
+      discoveryState: row.discovery_state,
+      missingSince: row.missing_since ? toIso(row.missing_since) : null,
       syncStatus: row.sync_status,
       total: row.total,
       unread: row.unread,

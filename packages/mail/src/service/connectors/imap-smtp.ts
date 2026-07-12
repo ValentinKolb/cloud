@@ -38,6 +38,7 @@ import type {
   SourceDownloadRequest,
 } from "./contract";
 import { createPinnedLookup, type ResolvedEndpoint, resolvePublicEndpoint } from "./endpoint-policy";
+import { readImapAclRights, selectFallbackRights } from "./imap-acl";
 
 type NamespaceEntry = { prefix: string; delimiter: string | null };
 type ImapFlowNamespaces = {
@@ -234,6 +235,7 @@ const mapFolder = (entry: ListResponse): RemoteFolder => ({
   uidNext: entry.status?.uidNext?.toString() ?? null,
   highestModseq: entry.status?.highestModseq?.toString() ?? null,
   rights: [],
+  rightsSource: "unknown",
 });
 
 const normalizeRoot = (rootPath: string | null | undefined): string | null => {
@@ -361,6 +363,7 @@ const discoverFolders = async (config: ProviderConnectionInput, rootPath?: strin
       statusQuery: { messages: true, uidNext: true, uidValidity: true, unseen: true, highestModseq: true },
     });
     const selected = folders.filter((folder) => !root || isWithinRoot(folder, root));
+    const capabilities = mapCapabilities(client);
     const result: RemoteFolder[] = [];
     for (const entry of selected) {
       const folder = mapFolder(entry);
@@ -368,18 +371,26 @@ const discoverFolders = async (config: ProviderConnectionInput, rootPath?: strin
         result.push(folder);
         continue;
       }
+      const aclRights = await readImapAclRights(client, entry.path, capabilities);
+      if (aclRights) {
+        folder.rights = aclRights.rights;
+        folder.rightsSource = aclRights.source;
+        result.push(folder);
+        continue;
+      }
       try {
         const lock = await client.getMailboxLock(entry.path, { readOnly: false });
         try {
           const readOnly = !client.mailbox || client.mailbox.readOnly === true;
-          folder.rights = readOnly
-            ? ["read"]
-            : ["read", "write_flags", "insert", "copy", "move", ...(capability(client, "UIDPLUS") ? ["delete_messages"] : [])];
+          const fallback = selectFallbackRights(readOnly, capabilities);
+          folder.rights = fallback.rights;
+          folder.rightsSource = fallback.source;
         } finally {
           lock.release();
         }
       } catch {
         folder.rights = [];
+        folder.rightsSource = "unknown";
       }
       result.push(folder);
     }

@@ -218,7 +218,16 @@ export const updateMailbox = async (params: {
             description = CASE WHEN ${params.description !== undefined} THEN ${description} ELSE description END,
             sync_enabled = COALESCE(${params.syncEnabled ?? null}, sync_enabled),
             search_backend = COALESCE(${params.searchBackend ?? null}, search_backend),
-            health = CASE WHEN ${params.syncEnabled === false} THEN 'paused' ELSE health END
+            health = CASE
+              WHEN ${params.syncEnabled === false} THEN 'paused'
+              WHEN ${params.syncEnabled === true} AND health = 'paused' THEN 'bootstrapping'
+              ELSE health
+            END,
+            health_reason = CASE
+              WHEN ${params.syncEnabled === false} THEN 'Synchronization paused by a mailbox administrator'
+              WHEN ${params.syncEnabled === true} AND health = 'paused' THEN 'Synchronization resumed; provider reconciliation pending'
+              ELSE health_reason
+            END
           WHERE id = ${params.mailboxId}::uuid
           RETURNING id, name, description, connection_policy, health, health_reason, sync_enabled, search_backend, created_at, updated_at
         `;

@@ -1,14 +1,14 @@
 import { GrantAccessSchema, UpdateAccessSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, rateLimit, respond, v } from "@valentinkolb/cloud/server";
-import { err, fail, ok } from "@valentinkolb/stdlib";
+import { err, fail } from "@valentinkolb/stdlib";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import {
-  actorCommandInputSchema,
   connectionOwnerSchema,
   createMailboxInputSchema,
   createSenderIdentityInputSchema,
   draftContentInputSchema,
+  mailCommandInputSchema,
   providerConnectionInputSchema,
   searchBackendSchema,
   searchRequestSchema,
@@ -18,7 +18,7 @@ import {
   cancelSendCommand,
   commands,
   drafts,
-  enqueueMailboxSync,
+  health,
   type MailRequestContext,
   mailboxAccess,
   mailboxes,
@@ -93,6 +93,9 @@ const api = new Hono<AuthContext>()
   )
   .get("/mailboxes/:mailboxId", v("param", uuidParamSchema), async (c) =>
     respond(c, mailboxes.getMailbox(requestContext(c), c.req.valid("param").mailboxId)),
+  )
+  .get("/mailboxes/:mailboxId/health", v("param", uuidParamSchema), async (c) =>
+    respond(c, health.getMailboxOperationalHealth(requestContext(c), c.req.valid("param").mailboxId)),
   )
   .patch("/mailboxes/:mailboxId", v("param", uuidParamSchema), v("json", updateMailboxSchema), async (c) =>
     respond(c, mailboxes.updateMailbox({ context: requestContext(c), mailboxId: c.req.valid("param").mailboxId, ...c.req.valid("json") })),
@@ -173,9 +176,17 @@ const api = new Hono<AuthContext>()
   })
   .post("/mailboxes/:mailboxId/sync", v("param", uuidParamSchema), async (c) => {
     const mailboxId = c.req.valid("param").mailboxId;
-    const mailbox = await mailboxes.getMailbox(requestContext(c), mailboxId);
-    if (!mailbox.ok) return respond(c, mailbox);
-    return respond(c, ok({ queuedFolders: await enqueueMailboxSync(mailboxId) }));
+    return respond(
+      c,
+      commands.createMaintenanceCommand({
+        context: requestContext(c),
+        mailboxId,
+        input: {
+          kind: "sync_mailbox",
+          idempotencyKey: c.req.header("idempotency-key")?.trim() || `manual-sync:${crypto.randomUUID()}`,
+        },
+      }),
+    );
   })
   .get("/mailboxes/:mailboxId/folders", v("param", uuidParamSchema), async (c) =>
     respond(c, messages.listFolders(requestContext(c), c.req.valid("param").mailboxId)),
@@ -301,10 +312,10 @@ const api = new Hono<AuthContext>()
       drafts.updateDraft({ context: requestContext(c), ...params, expectedRevision: input.expectedRevision, input: input.draft }),
     );
   })
-  .post("/mailboxes/:mailboxId/commands", v("param", uuidParamSchema), v("json", actorCommandInputSchema), async (c) =>
+  .post("/mailboxes/:mailboxId/commands", v("param", uuidParamSchema), v("json", mailCommandInputSchema), async (c) =>
     respond(
       c,
-      commands.createActorCommand({ context: requestContext(c), mailboxId: c.req.valid("param").mailboxId, input: c.req.valid("json") }),
+      commands.createMailCommand({ context: requestContext(c), mailboxId: c.req.valid("param").mailboxId, input: c.req.valid("json") }),
     ),
   )
   .get("/mailboxes/:mailboxId/commands", v("param", uuidParamSchema), v("query", limitQuerySchema), async (c) =>

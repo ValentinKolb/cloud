@@ -7,6 +7,7 @@ import { auditActorFromRequest, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
 import { imapSmtpConnector } from "./connectors";
 import { logDatabaseFailure } from "./database-errors";
+import { isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
 import { getProviderConnection, type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 
 type SqlClient = typeof sql;
@@ -26,6 +27,8 @@ type FolderEvidence = {
   uidNext: string | null;
   highestModseq: string | null;
   rights: string[];
+  rightsSource: RemoteFolder["rightsSource"];
+  namespaceKind?: RemoteNamespace["kind"] | null;
   samples: string[];
 };
 
@@ -101,12 +104,18 @@ const messageSampleFingerprint = (message: Awaited<ReturnType<typeof imapSmtpCon
     from: message.addresses.from.map((item) => item.address),
   });
 
+const namespaceKindForPath = (path: string, namespaces: RemoteNamespace[]): RemoteNamespace["kind"] | null =>
+  namespaces
+    .filter((namespace) => namespace.prefix === "" || path.startsWith(namespace.prefix))
+    .sort((left, right) => right.prefix.length - left.prefix.length)[0]?.kind ?? null;
+
 const buildScopeEvidence = async (params: {
   verification: ConnectorVerification;
   folders: RemoteFolder[];
   rootPath: string;
   runtime: Awaited<ReturnType<typeof loadProviderConnectionRuntime>>;
 }): Promise<ScopeEvidence> => {
+  const namespaces = params.verification.accounts[0]?.namespaces ?? [];
   const snapshots: FolderEvidence[] = params.folders.map((folder) => ({
     relativePath: relativePathFor(folder, params.rootPath),
     parentRelativePath: parentRelativePathFor(folder, params.rootPath),
@@ -120,6 +129,8 @@ const buildScopeEvidence = async (params: {
     uidNext: folder.uidNext,
     highestModseq: folder.highestModseq,
     rights: [...folder.rights].sort(),
+    rightsSource: folder.rightsSource,
+    namespaceKind: namespaceKindForPath(folder.path, namespaces),
     samples: [],
   }));
 
@@ -153,7 +164,7 @@ const buildScopeEvidence = async (params: {
       serverInfo: params.verification.serverIdentity["serverInfo"] ?? {},
     }),
     rootPath: params.rootPath,
-    namespaces: params.verification.accounts[0]?.namespaces ?? [],
+    namespaces,
     folders: snapshots.sort((left, right) => left.relativePath.localeCompare(right.relativePath)),
   };
 };
@@ -165,7 +176,20 @@ const compareEvidence = (expected: ScopeEvidence, candidate: ScopeEvidence): Evi
   const expectedFolders = new Map(
     expected.folders.filter((item) => item.uidValidity).map((item) => [`${item.relativePath}\n${item.uidValidity}`, item]),
   );
-  const folderMatches = candidate.folders.filter((item) => expectedFolders.has(`${item.relativePath}\n${item.uidValidity}`));
+  const exactFolderMatches = candidate.folders.filter((item) => expectedFolders.has(`${item.relativePath}\n${item.uidValidity}`));
+  const expectedUidCounts = new Map<string, number>();
+  const candidateUidCounts = new Map<string, number>();
+  for (const folder of expected.folders) {
+    if (folder.uidValidity) expectedUidCounts.set(folder.uidValidity, (expectedUidCounts.get(folder.uidValidity) ?? 0) + 1);
+  }
+  for (const folder of candidate.folders) {
+    if (folder.uidValidity) candidateUidCounts.set(folder.uidValidity, (candidateUidCounts.get(folder.uidValidity) ?? 0) + 1);
+  }
+  const uniqueIdentityMatches = candidate.folders.filter(
+    (item) =>
+      item.uidValidity && expectedUidCounts.get(item.uidValidity) === 1 && candidateUidCounts.get(item.uidValidity) === 1,
+  );
+  const folderMatches = exactFolderMatches.length > 0 ? exactFolderMatches : uniqueIdentityMatches;
   if (folderMatches.length === 0) return { state: "different", reason: "No matching folder identity was found" };
 
   const expectedSamples = new Set(expected.folders.flatMap((folder) => folder.samples));
@@ -181,121 +205,748 @@ const compareEvidence = (expected: ScopeEvidence, candidate: ScopeEvidence): Evi
 
 const canonicalFolderKey = (relativePath: string): string => sha256({ version: 1, relativePath });
 
+type FolderProjectionStats = {
+  discovered: number;
+  missing: number;
+  ambiguous: number;
+  renamed: number;
+};
+
+export type BindingRediscoveryResult = FolderProjectionStats & {
+  bindingId: string;
+  discoveryGeneration: number;
+  state: ProviderBinding["state"];
+  rightsSources: Record<RemoteFolder["rightsSource"], number>;
+};
+
+type ExistingFolderProjection = {
+  folder_id: string;
+  stable_key: string;
+  role: RemoteFolder["role"];
+  remote_path: string | null;
+  uid_validity: string | number | null;
+};
+
+type FolderProjectionMatch = {
+  folder: ExistingFolderProjection | null;
+  ambiguousFolderIds: string[];
+  renamed: boolean;
+  skip: boolean;
+};
+
+const matchFolderProjection = (params: {
+  folder: FolderEvidence;
+  stableKey: string;
+  byStableKey: Map<string, ExistingFolderProjection>;
+  byRemotePath: Map<string, ExistingFolderProjection>;
+  byUidValidity: Map<string, ExistingFolderProjection[]>;
+  discoveredUidCounts: Map<string, number>;
+  usedFolderIds: Set<string>;
+}): FolderProjectionMatch => {
+  const pathCandidate = params.byRemotePath.get(params.folder.remotePath) ?? null;
+  const stableCandidate = params.byStableKey.get(params.stableKey) ?? null;
+  const pathMatch = pathCandidate && !params.usedFolderIds.has(pathCandidate.folder_id) ? pathCandidate : null;
+  const stableMatch = stableCandidate && !params.usedFolderIds.has(stableCandidate.folder_id) ? stableCandidate : null;
+  if (pathMatch && stableMatch && pathMatch.folder_id !== stableMatch.folder_id) {
+    return {
+      folder: null,
+      ambiguousFolderIds: [pathMatch.folder_id, stableMatch.folder_id],
+      renamed: false,
+      skip: true,
+    };
+  }
+  const exactMatch = pathMatch ?? stableMatch;
+  if (!params.folder.uidValidity) {
+    return { folder: exactMatch, ambiguousFolderIds: [], renamed: false, skip: false };
+  }
+  const identityMatches = (params.byUidValidity.get(params.folder.uidValidity) ?? []).filter(
+    (candidate) => candidate.role === params.folder.role && !params.usedFolderIds.has(candidate.folder_id),
+  );
+  const uniqueIdentity = identityMatches.length === 1 && params.discoveredUidCounts.get(params.folder.uidValidity) === 1;
+  if (!uniqueIdentity) {
+    if (exactMatch) return { folder: exactMatch, ambiguousFolderIds: [], renamed: false, skip: false };
+    return identityMatches.length === 0
+      ? { folder: null, ambiguousFolderIds: [], renamed: false, skip: false }
+      : { folder: null, ambiguousFolderIds: identityMatches.map((candidate) => candidate.folder_id), renamed: false, skip: true };
+  }
+  const identityMatch = identityMatches[0]!;
+  if (exactMatch && exactMatch.folder_id !== identityMatch.folder_id) {
+    return {
+      folder: null,
+      ambiguousFolderIds: [exactMatch.folder_id, identityMatch.folder_id],
+      renamed: false,
+      skip: true,
+    };
+  }
+  return {
+    folder: identityMatch,
+    ambiguousFolderIds: [],
+    renamed: Boolean(identityMatch.remote_path && identityMatch.remote_path !== params.folder.remotePath),
+    skip: false,
+  };
+};
+
+type FolderProjectionIndexes = {
+  byStableKey: Map<string, ExistingFolderProjection>;
+  byRemotePath: Map<string, ExistingFolderProjection>;
+  byUidValidity: Map<string, ExistingFolderProjection[]>;
+  discoveredUidCounts: Map<string, number>;
+};
+
+const buildFolderProjectionIndexes = (existing: ExistingFolderProjection[], evidence: ScopeEvidence): FolderProjectionIndexes => {
+  const byStableKey = new Map(existing.map((folder) => [folder.stable_key, folder]));
+  const byRemotePath = new Map(existing.filter((folder) => folder.remote_path).map((folder) => [folder.remote_path!, folder]));
+  const byUidValidity = new Map<string, ExistingFolderProjection[]>();
+  for (const folder of existing) {
+    if (folder.uid_validity == null) continue;
+    const key = String(folder.uid_validity);
+    byUidValidity.set(key, [...(byUidValidity.get(key) ?? []), folder]);
+  }
+  const discoveredUidCounts = new Map<string, number>();
+  for (const folder of evidence.folders) {
+    if (!folder.uidValidity) continue;
+    discoveredUidCounts.set(folder.uidValidity, (discoveredUidCounts.get(folder.uidValidity) ?? 0) + 1);
+  }
+  return { byStableKey, byRemotePath, byUidValidity, discoveredUidCounts };
+};
+
+const folderProjectionPriority = (folder: FolderEvidence, indexes: FolderProjectionIndexes): number => {
+  if (!folder.uidValidity || indexes.discoveredUidCounts.get(folder.uidValidity) !== 1) return 1;
+  const matches = (indexes.byUidValidity.get(folder.uidValidity) ?? []).filter((candidate) => candidate.role === folder.role);
+  return matches.length === 1 && matches[0]?.remote_path && matches[0].remote_path !== folder.remotePath ? 0 : 1;
+};
+
+const rememberProjectedFolder = (params: {
+  indexes: FolderProjectionIndexes;
+  previous: ExistingFolderProjection | null;
+  folderId: string;
+  stableKey: string;
+  folder: FolderEvidence;
+}): void => {
+  if (params.previous) {
+    if (params.indexes.byStableKey.get(params.previous.stable_key)?.folder_id === params.previous.folder_id) {
+      params.indexes.byStableKey.delete(params.previous.stable_key);
+    }
+    if (
+      params.previous.remote_path &&
+      params.indexes.byRemotePath.get(params.previous.remote_path)?.folder_id === params.previous.folder_id
+    ) {
+      params.indexes.byRemotePath.delete(params.previous.remote_path);
+    }
+    if (params.previous.uid_validity != null) {
+      const key = String(params.previous.uid_validity);
+      const remaining = (params.indexes.byUidValidity.get(key) ?? []).filter((item) => item.folder_id !== params.previous!.folder_id);
+      if (remaining.length > 0) params.indexes.byUidValidity.set(key, remaining);
+      else params.indexes.byUidValidity.delete(key);
+    }
+  }
+  const projected: ExistingFolderProjection = {
+    folder_id: params.folderId,
+    stable_key: params.stableKey,
+    role: params.folder.role,
+    remote_path: params.folder.remotePath,
+    uid_validity: params.folder.uidValidity,
+  };
+  params.indexes.byStableKey.set(params.stableKey, projected);
+  params.indexes.byRemotePath.set(params.folder.remotePath, projected);
+  if (params.folder.uidValidity) {
+    params.indexes.byUidValidity.set(params.folder.uidValidity, [
+      ...(params.indexes.byUidValidity.get(params.folder.uidValidity) ?? []),
+      projected,
+    ]);
+  }
+};
+
+const upsertProjectedFolder = async (params: {
+  db: SqlClient;
+  remoteResourceId: string;
+  discoveryGeneration: number;
+  stableKey: string;
+  folder: FolderEvidence;
+  existing: ExistingFolderProjection | null;
+}): Promise<string> => {
+  if (params.existing) {
+    const [updated] = await params.db<{ id: string }[]>`
+      UPDATE mail.folders
+      SET
+        stable_key = ${params.stableKey},
+        name = ${params.folder.name},
+        role = ${params.folder.role},
+        selectable = ${params.folder.selectable},
+        discovery_generation = ${params.discoveryGeneration},
+        discovery_state = 'active',
+        missing_since = NULL
+      WHERE id = ${params.existing.folder_id}::uuid
+      RETURNING id
+    `;
+    if (!updated) throw new Error("Discovered folder disappeared during projection");
+    return updated.id;
+  }
+  const readable = params.folder.selectable && params.folder.rights.includes("read");
+  const [created] = await params.db<{ id: string }[]>`
+    INSERT INTO mail.folders (
+      remote_resource_id, stable_key, name, role, selectable, selected_for_sync,
+      discovery_generation, discovery_state, sync_status
+    )
+    VALUES (
+      ${params.remoteResourceId}::uuid,
+      ${params.stableKey},
+      ${params.folder.name},
+      ${params.folder.role},
+      ${params.folder.selectable},
+      ${readable},
+      ${params.discoveryGeneration},
+      'active',
+      ${readable ? "pending" : "excluded"}
+    )
+    RETURNING id
+  `;
+  if (!created) throw new Error("Discovered folder insert returned no row");
+  return created.id;
+};
+
+const upsertProjectedFolderRef = async (params: {
+  db: SqlClient;
+  bindingId: string;
+  folderId: string;
+  discoveryGeneration: number;
+  folder: FolderEvidence;
+}): Promise<void> => {
+  await params.db`
+    INSERT INTO mail.binding_folder_refs (
+      binding_id, folder_id, remote_path, delimiter, namespace_kind, uid_validity,
+      highest_modseq, uid_next, subscribed, effective_rights, rights_source,
+      last_seen_generation, missing_since, last_verified_at
+    )
+    VALUES (
+      ${params.bindingId}::uuid,
+      ${params.folderId}::uuid,
+      ${params.folder.remotePath},
+      ${params.folder.delimiter},
+      ${params.folder.namespaceKind ?? null},
+      ${params.folder.uidValidity},
+      ${params.folder.highestModseq},
+      ${params.folder.uidNext},
+      ${params.folder.subscribed},
+      ${toPgTextArray(params.folder.rights)}::text[],
+      ${params.folder.rightsSource ?? "unknown"},
+      ${params.discoveryGeneration},
+      NULL,
+      now()
+    )
+    ON CONFLICT (binding_id, folder_id) DO UPDATE SET
+      remote_path = EXCLUDED.remote_path,
+      delimiter = EXCLUDED.delimiter,
+      namespace_kind = EXCLUDED.namespace_kind,
+      uid_validity = EXCLUDED.uid_validity,
+      highest_modseq = EXCLUDED.highest_modseq,
+      uid_next = EXCLUDED.uid_next,
+      subscribed = EXCLUDED.subscribed,
+      effective_rights = EXCLUDED.effective_rights,
+      rights_source = EXCLUDED.rights_source,
+      last_seen_generation = EXCLUDED.last_seen_generation,
+      missing_since = NULL,
+      last_verified_at = EXCLUDED.last_verified_at
+  `;
+};
+
+const updateProjectedFolderParents = async (
+  db: SqlClient,
+  folders: FolderEvidence[],
+  folderIds: Map<string, string>,
+): Promise<void> => {
+  for (const folder of folders) {
+    const folderId = folderIds.get(folder.relativePath);
+    if (!folderId) continue;
+    const parentId = folder.parentRelativePath ? (folderIds.get(folder.parentRelativePath) ?? null) : null;
+    await db`UPDATE mail.folders SET parent_id = ${parentId}::uuid WHERE id = ${folderId}::uuid`;
+  }
+};
+
+const finalizeFolderProjection = async (params: {
+  db: SqlClient;
+  bindingId: string;
+  remoteResourceId: string;
+  discoveryGeneration: number;
+  ambiguousFolderIds: Set<string>;
+}): Promise<{ missing: number; ambiguous: number }> => {
+  await params.db`
+    UPDATE mail.binding_folder_refs
+    SET
+      missing_since = COALESCE(missing_since, now()),
+      effective_rights = ARRAY[]::text[],
+      rights_source = 'unknown',
+      last_verified_at = now()
+    WHERE binding_id = ${params.bindingId}::uuid
+      AND last_seen_generation < ${params.discoveryGeneration}
+  `;
+  await params.db`
+    WITH folder_availability AS MATERIALIZED (
+      SELECT
+        folder.id,
+        EXISTS (
+          SELECT 1
+          FROM mail.binding_folder_refs ref
+          JOIN mail.provider_bindings binding ON binding.id = ref.binding_id
+          WHERE ref.folder_id = folder.id AND ref.missing_since IS NULL AND binding.state = 'active'
+        ) AS available,
+        EXISTS (
+          SELECT 1
+          FROM mail.binding_folder_refs ref
+          JOIN mail.provider_bindings binding ON binding.id = ref.binding_id
+          WHERE ref.folder_id = folder.id
+            AND ref.missing_since IS NULL
+            AND binding.state = 'active'
+            AND 'read' = ANY(ref.effective_rights)
+        ) AS readable
+      FROM mail.folders folder
+      WHERE folder.remote_resource_id = ${params.remoteResourceId}::uuid
+    )
+    UPDATE mail.folders folder
+    SET
+      discovery_state = CASE WHEN availability.available THEN 'active' ELSE 'missing' END,
+      missing_since = CASE WHEN availability.available THEN NULL ELSE COALESCE(folder.missing_since, now()) END,
+      sync_status = CASE
+        WHEN NOT availability.available OR NOT availability.readable THEN 'excluded'
+        WHEN folder.sync_status = 'excluded' THEN 'pending'
+        ELSE folder.sync_status
+      END
+    FROM folder_availability availability
+    WHERE folder.id = availability.id
+  `;
+  if (params.ambiguousFolderIds.size > 0) {
+    await params.db`
+      UPDATE mail.folders
+      SET discovery_state = 'ambiguous', missing_since = COALESCE(missing_since, now())
+      WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(${[...params.ambiguousFolderIds]}::jsonb))
+        AND discovery_state = 'missing'
+    `;
+  }
+  const [stats] = await params.db<{ missing: number; ambiguous: number }[]>`
+    SELECT
+      COUNT(*) FILTER (WHERE discovery_state = 'missing')::int AS missing,
+      COUNT(*) FILTER (WHERE discovery_state = 'ambiguous')::int AS ambiguous
+    FROM mail.folders
+    WHERE remote_resource_id = ${params.remoteResourceId}::uuid
+  `;
+  return { missing: stats?.missing ?? 0, ambiguous: stats?.ambiguous ?? 0 };
+};
+
 const projectFolders = async (params: {
   db: SqlClient;
   remoteResourceId: string;
   bindingId: string;
   discoveryGeneration: number;
   evidence: ScopeEvidence;
-}): Promise<void> => {
-  const rows = params.evidence.folders.map((folder) => ({
-    remote_resource_id: params.remoteResourceId,
-    stable_key: canonicalFolderKey(folder.relativePath),
-    name: folder.name,
-    role: folder.role,
-    selectable: folder.selectable,
-    selected_for_sync: folder.selectable && folder.rights.includes("read"),
-    discovery_generation: params.discoveryGeneration,
-    sync_status: folder.selectable && folder.rights.includes("read") ? "pending" : "excluded",
-  }));
-  if (rows.length === 0) return;
-  await params.db`
-    INSERT INTO mail.folders ${sql(
-      rows,
-      "remote_resource_id",
-      "stable_key",
-      "name",
-      "role",
-      "selectable",
-      "selected_for_sync",
-      "discovery_generation",
-      "sync_status",
-    )}
-    ON CONFLICT (remote_resource_id, stable_key) DO UPDATE SET
-      name = EXCLUDED.name,
-      role = EXCLUDED.role,
-      selectable = EXCLUDED.selectable,
-      selected_for_sync = EXCLUDED.selected_for_sync,
-      discovery_generation = EXCLUDED.discovery_generation,
-      sync_status = CASE WHEN mail.folders.sync_status = 'current' THEN mail.folders.sync_status ELSE EXCLUDED.sync_status END
+}): Promise<FolderProjectionStats> => {
+  const existing = await params.db<ExistingFolderProjection[]>`
+    SELECT
+      folder.id AS folder_id,
+      folder.stable_key,
+      folder.role,
+      ref.remote_path,
+      ref.uid_validity
+    FROM mail.folders folder
+    LEFT JOIN mail.binding_folder_refs ref
+      ON ref.folder_id = folder.id
+     AND ref.binding_id = ${params.bindingId}::uuid
+    WHERE folder.remote_resource_id = ${params.remoteResourceId}::uuid
+    ORDER BY folder.id
+    FOR UPDATE OF folder
   `;
+  const indexes = buildFolderProjectionIndexes(existing, params.evidence);
 
-  const parentMapping = params.evidence.folders
-    .filter((folder) => folder.parentRelativePath)
-    .map((folder) => ({
-      child_key: canonicalFolderKey(folder.relativePath),
-      parent_key: canonicalFolderKey(folder.parentRelativePath ?? ""),
-    }));
-  if (parentMapping.length > 0) {
-    await params.db`
-      WITH mapping AS (
-        SELECT child_key, parent_key
-        FROM jsonb_to_recordset(${parentMapping}::jsonb) AS x(child_key TEXT, parent_key TEXT)
-      )
-      UPDATE mail.folders child
-      SET parent_id = parent.id
-      FROM mapping
-      JOIN mail.folders parent
-        ON parent.remote_resource_id = ${params.remoteResourceId}::uuid
-       AND parent.stable_key = mapping.parent_key
-      WHERE child.remote_resource_id = ${params.remoteResourceId}::uuid
-        AND child.stable_key = mapping.child_key
-    `;
+  const usedFolderIds = new Set<string>();
+  const ambiguousFolderIds = new Set<string>();
+  const folderIds = new Map<string, string>();
+  let renamed = 0;
+
+  const projectionOrder = params.evidence.folders
+    .map((folder, index) => ({ folder, index, priority: folderProjectionPriority(folder, indexes) }))
+    .sort((left, right) => left.priority - right.priority || left.index - right.index)
+    .map((item) => item.folder);
+  for (const folder of projectionOrder) {
+    const stableKey = canonicalFolderKey(folder.relativePath);
+    const match = matchFolderProjection({
+      folder,
+      stableKey,
+      ...indexes,
+      usedFolderIds,
+    });
+    for (const folderId of match.ambiguousFolderIds) ambiguousFolderIds.add(folderId);
+    if (match.skip) continue;
+    if (match.renamed) renamed += 1;
+    const folderId = await upsertProjectedFolder({
+      db: params.db,
+      remoteResourceId: params.remoteResourceId,
+      discoveryGeneration: params.discoveryGeneration,
+      stableKey,
+      folder,
+      existing: match.folder,
+    });
+    rememberProjectedFolder({ indexes, previous: match.folder, folderId, stableKey, folder });
+    usedFolderIds.add(folderId);
+    folderIds.set(folder.relativePath, folderId);
+    await upsertProjectedFolderRef({
+      db: params.db,
+      bindingId: params.bindingId,
+      folderId,
+      discoveryGeneration: params.discoveryGeneration,
+      folder,
+    });
   }
 
-  const folderRows = await params.db<{ id: string; stable_key: string }[]>`
-    SELECT id, stable_key FROM mail.folders WHERE remote_resource_id = ${params.remoteResourceId}::uuid
-  `;
-  const folderIds = new Map(folderRows.map((folder) => [folder.stable_key, folder.id]));
-  const refs = params.evidence.folders.flatMap((folder) => {
-    const folderId = folderIds.get(canonicalFolderKey(folder.relativePath));
-    return folderId
-      ? [
-          {
-            binding_id: params.bindingId,
-            folder_id: folderId,
-            remote_path: folder.remotePath,
-            delimiter: folder.delimiter,
-            namespace_kind: null,
-            uid_validity: folder.uidValidity,
-            highest_modseq: folder.highestModseq,
-            uid_next: folder.uidNext,
-            subscribed: folder.subscribed,
-            effective_rights: toPgTextArray(folder.rights),
-            rights_source: "select",
-            last_verified_at: new Date(),
-          },
-        ]
-      : [];
+  await updateProjectedFolderParents(params.db, params.evidence.folders, folderIds);
+  const stats = await finalizeFolderProjection({
+    db: params.db,
+    bindingId: params.bindingId,
+    remoteResourceId: params.remoteResourceId,
+    discoveryGeneration: params.discoveryGeneration,
+    ambiguousFolderIds,
   });
-  if (refs.length > 0) {
-    await params.db`
-      INSERT INTO mail.binding_folder_refs ${sql(
-        refs,
-        "binding_id",
-        "folder_id",
-        "remote_path",
-        "delimiter",
-        "namespace_kind",
-        "uid_validity",
-        "highest_modseq",
-        "uid_next",
-        "subscribed",
-        "effective_rights",
-        "rights_source",
-        "last_verified_at",
-      )}
-      ON CONFLICT (binding_id, folder_id) DO UPDATE SET
-        remote_path = EXCLUDED.remote_path,
-        delimiter = EXCLUDED.delimiter,
-        uid_validity = EXCLUDED.uid_validity,
-        highest_modseq = EXCLUDED.highest_modseq,
-        uid_next = EXCLUDED.uid_next,
-        subscribed = EXCLUDED.subscribed,
-        effective_rights = EXCLUDED.effective_rights,
-        rights_source = EXCLUDED.rights_source,
-        last_verified_at = EXCLUDED.last_verified_at
+  return {
+    discovered: params.evidence.folders.length,
+    missing: stats.missing,
+    ambiguous: stats.ambiguous,
+    renamed,
+  };
+};
+
+const updateMailboxBindingHealth = async (mailboxId: string, failure?: { code: string; message: string }): Promise<void> => {
+  const [state] = await sql<{ active: number; degraded: number; ambiguous: number }[]>`
+    SELECT
+      COUNT(*) FILTER (
+        WHERE binding.state = 'active'
+          AND binding.verified_scope_fingerprint = resource.scope_fingerprint
+          AND binding.verified_secret_revision = connection.secret_revision
+          AND connection.status = 'active'
+          AND connection.encrypted_secret IS NOT NULL
+      )::int AS active,
+      COUNT(*) FILTER (
+        WHERE binding.state = 'degraded'
+          OR connection.status = 'degraded'
+          OR (
+            binding.state = 'active'
+            AND (
+              binding.verified_scope_fingerprint IS DISTINCT FROM resource.scope_fingerprint
+              OR binding.verified_secret_revision <> connection.secret_revision
+              OR connection.encrypted_secret IS NULL
+            )
+          )
+      )::int AS degraded,
+      (
+        SELECT COUNT(*)::int
+        FROM mail.folders folder
+        JOIN mail.remote_resources folder_resource ON folder_resource.id = folder.remote_resource_id
+        WHERE folder_resource.mailbox_id = ${mailboxId}::uuid AND folder.discovery_state = 'ambiguous'
+      ) AS ambiguous
+    FROM mail.provider_bindings binding
+    JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
+    JOIN mail.provider_connections connection ON connection.id = binding.connection_id
+    WHERE resource.mailbox_id = ${mailboxId}::uuid
+  `;
+  if ((state?.active ?? 0) > 0) {
+    await sql`
+      UPDATE mail.mailboxes
+      SET
+        health = CASE
+          WHEN sync_enabled = false THEN 'paused'
+          WHEN ${state?.degraded ?? 0} > 0 OR ${state?.ambiguous ?? 0} > 0 THEN 'degraded'
+          WHEN health IN ('auth_required', 'connection_required', 'degraded', 'reconnecting') THEN 'bootstrapping'
+          ELSE health
+        END,
+        health_reason = CASE
+          WHEN sync_enabled = false THEN 'Synchronization paused by a mailbox administrator'
+          WHEN ${state?.degraded ?? 0} > 0 THEN 'One or more provider bindings require attention'
+          WHEN ${state?.ambiguous ?? 0} > 0 THEN 'One or more remote folders require identity review'
+          WHEN health IN ('auth_required', 'connection_required', 'degraded', 'reconnecting') THEN 'Provider access restored; synchronization pending'
+          ELSE health_reason
+        END
+      WHERE id = ${mailboxId}::uuid AND deleted_at IS NULL
     `;
+    return;
+  }
+  const authFailure = failure ? isProviderAuthenticationFailure(failure, failure.code) : false;
+  await sql`
+    UPDATE mail.mailboxes
+    SET
+      health = CASE WHEN sync_enabled = false THEN 'paused' ELSE ${authFailure ? "auth_required" : "connection_required"} END,
+      health_reason = CASE
+        WHEN sync_enabled = false THEN 'Synchronization paused by a mailbox administrator'
+        ELSE ${failure?.message ?? "No active provider binding is available"}
+      END
+    WHERE id = ${mailboxId}::uuid AND deleted_at IS NULL
+  `;
+};
+
+const markRediscoveryFailure = async (
+  bindingId: string,
+  connectionId: string,
+  expectedSecretRevision: number,
+  error: unknown,
+): Promise<void> => {
+  const code = providerErrorCode(error, "PROVIDER_REDISCOVERY_FAILED");
+  const message = providerErrorMessage(error, "Provider rediscovery failed");
+  const authFailure = isProviderAuthenticationFailure(error, code);
+  const affected = authFailure
+    ? await sql.begin(async (tx) => {
+        const [connection] = await tx<{ id: string }[]>`
+          UPDATE mail.provider_connections
+          SET status = 'degraded', last_error_code = ${code}, last_error_message = ${message}
+          WHERE id = ${connectionId}::uuid
+            AND secret_revision = ${expectedSecretRevision}
+            AND status IN ('active', 'degraded')
+          RETURNING id
+        `;
+        if (!connection) return [];
+        return tx<{ mailbox_id: string }[]>`
+          UPDATE mail.provider_bindings binding
+          SET state = 'degraded', last_error_code = ${code}, last_error_message = ${message}
+          FROM mail.remote_resources resource
+          WHERE binding.connection_id = ${connectionId}::uuid
+            AND binding.verified_secret_revision = ${expectedSecretRevision}
+            AND binding.state IN ('active', 'degraded')
+            AND resource.id = binding.remote_resource_id
+          RETURNING resource.mailbox_id
+        `;
+      })
+    : await sql<{ mailbox_id: string }[]>`
+        UPDATE mail.provider_bindings binding
+        SET state = 'degraded', last_error_code = ${code}, last_error_message = ${message}
+        FROM mail.remote_resources resource
+        WHERE binding.id = ${bindingId}::uuid
+          AND binding.state IN ('active', 'degraded')
+          AND resource.id = binding.remote_resource_id
+        RETURNING resource.mailbox_id
+      `;
+  for (const mailboxId of new Set(affected.map((row) => row.mailbox_id))) {
+    await updateMailboxBindingHealth(mailboxId, { code, message });
+  }
+};
+
+const REDISCOVERY_SUPERSEDED_CODES = new Set([
+  "BINDING_CONFIGURATION_CHANGED",
+  "BINDING_STATE_CHANGED",
+  "BINDING_UNAVAILABLE",
+  "CONNECTION_UNAVAILABLE",
+  "CREDENTIAL_REVISION_CHANGED",
+]);
+
+export const rediscoverProviderBinding = async (params: {
+  bindingId: string;
+  allowCredentialRevision?: boolean;
+}): Promise<BindingRediscoveryResult> => {
+  const [current] = await sql<
+    {
+      binding_id: string;
+      mailbox_id: string;
+      remote_resource_id: string;
+      connection_id: string;
+      binding_state: ProviderBinding["state"];
+      remote_locator: Record<string, unknown> | string;
+      verification_evidence: ScopeEvidence | string;
+      verified_secret_revision: number;
+      secret_revision: number;
+      scope_fingerprint: string;
+    }[]
+  >`
+    SELECT
+      binding.id AS binding_id,
+      resource.mailbox_id,
+      resource.id AS remote_resource_id,
+      binding.connection_id,
+      binding.state AS binding_state,
+      binding.remote_locator,
+      binding.verification_evidence,
+      binding.verified_secret_revision,
+      connection.secret_revision,
+      resource.scope_fingerprint
+    FROM mail.provider_bindings binding
+    JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
+    JOIN mail.provider_connections connection ON connection.id = binding.connection_id
+    JOIN mail.mailboxes mailbox ON mailbox.id = resource.mailbox_id
+    WHERE binding.id = ${params.bindingId}::uuid
+      AND (
+        binding.state IN ('active', 'degraded')
+        OR (${params.allowCredentialRevision === true} AND binding.state = 'pending')
+      )
+      AND connection.status IN ('active', 'degraded')
+      AND connection.encrypted_secret IS NOT NULL
+      AND mailbox.deleted_at IS NULL
+  `;
+  if (!current) throw Object.assign(new Error("Provider binding is unavailable for rediscovery"), { code: "BINDING_UNAVAILABLE" });
+  if (current.verified_secret_revision !== current.secret_revision && !params.allowCredentialRevision) {
+    throw Object.assign(new Error("Provider credentials changed; explicit binding verification is required"), {
+      code: "CREDENTIAL_REVERIFY_REQUIRED",
+    });
+  }
+  const locator = parseRecord(current.remote_locator);
+  const rootPath = typeof locator["rootPath"] === "string" ? locator["rootPath"] : "";
+
+  try {
+    const snapshot = await loadProviderConnectionRuntimeSnapshot(current.connection_id);
+    if (snapshot.secretRevision !== current.secret_revision) {
+      throw Object.assign(new Error("Provider credentials changed during rediscovery"), { code: "CREDENTIAL_REVISION_CHANGED" });
+    }
+    const [verification, folders] = await Promise.all([
+      imapSmtpConnector.verify(snapshot.runtime),
+      imapSmtpConnector.discoverFolders(snapshot.runtime, rootPath),
+    ]);
+    if (folders.length === 0) throw Object.assign(new Error("The remote root contains no visible folders"), { code: "REMOTE_ROOT_EMPTY" });
+    const evidence = await buildScopeEvidence({ verification, folders, rootPath, runtime: snapshot.runtime });
+    const previousEvidence =
+      typeof current.verification_evidence === "string"
+        ? (JSON.parse(current.verification_evidence) as ScopeEvidence)
+        : current.verification_evidence;
+    const comparison = compareEvidence(previousEvidence, evidence);
+    if (comparison.state === "different") {
+      throw Object.assign(new Error(comparison.reason), { code: "REMOTE_RESOURCE_CHANGED" });
+    }
+    const credentialChanged = current.verified_secret_revision !== current.secret_revision;
+    const requiresConfirmation = credentialChanged && comparison.state === "ambiguous";
+
+    const result = await sql.begin(async (tx) => {
+      const [locked] = await tx<
+        {
+          mailbox_id: string;
+          remote_resource_id: string;
+          binding_state: ProviderBinding["state"];
+          remote_locator: Record<string, unknown> | string;
+          scope_fingerprint: string;
+          secret_revision: number;
+          connection_status: string;
+          has_secret: boolean;
+          discovery_generation: string | number;
+        }[]
+      >`
+        SELECT
+          resource.mailbox_id,
+          resource.id AS remote_resource_id,
+          binding.state AS binding_state,
+          binding.remote_locator,
+          resource.scope_fingerprint,
+          connection.secret_revision,
+          connection.status AS connection_status,
+          connection.encrypted_secret IS NOT NULL AS has_secret,
+          resource.discovery_generation
+        FROM mail.provider_bindings binding
+        JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
+        JOIN mail.provider_connections connection ON connection.id = binding.connection_id
+        WHERE binding.id = ${params.bindingId}::uuid
+        FOR UPDATE OF binding, resource, connection
+      `;
+      if (!locked) throw Object.assign(new Error("Provider binding disappeared during rediscovery"), { code: "BINDING_UNAVAILABLE" });
+      if (locked.secret_revision !== snapshot.secretRevision) {
+        throw Object.assign(new Error("Provider credentials changed during rediscovery"), { code: "CREDENTIAL_REVISION_CHANGED" });
+      }
+      const bindingStateAllowed =
+        locked.binding_state === "active" ||
+        locked.binding_state === "degraded" ||
+        (params.allowCredentialRevision === true && locked.binding_state === "pending");
+      if (!bindingStateAllowed) {
+        throw Object.assign(new Error("Provider binding state changed during rediscovery"), { code: "BINDING_STATE_CHANGED" });
+      }
+      if (locked.connection_status === "revoked" || !locked.has_secret) {
+        throw Object.assign(new Error("Provider connection was revoked during rediscovery"), { code: "CONNECTION_UNAVAILABLE" });
+      }
+      if (locked.scope_fingerprint !== current.scope_fingerprint) {
+        throw Object.assign(new Error("Remote resource scope changed during rediscovery"), { code: "BINDING_CONFIGURATION_CHANGED" });
+      }
+      const lockedLocator = parseRecord(locked.remote_locator);
+      const lockedRootPath = typeof lockedLocator["rootPath"] === "string" ? lockedLocator["rootPath"] : "";
+      if (lockedRootPath !== rootPath) {
+        throw Object.assign(new Error("Provider binding root changed during rediscovery"), { code: "BINDING_CONFIGURATION_CHANGED" });
+      }
+      const [generation] = await tx<{ discovery_generation: string | number }[]>`
+        UPDATE mail.remote_resources
+        SET discovery_generation = discovery_generation + 1, last_discovery_at = now()
+        WHERE id = ${locked.remote_resource_id}::uuid
+        RETURNING discovery_generation
+      `;
+      if (!generation) throw new Error("Remote discovery generation update returned no row");
+      const discoveryGeneration = Number(generation.discovery_generation);
+      const nextState: ProviderBinding["state"] = requiresConfirmation ? "pending" : "active";
+      await tx`
+        UPDATE mail.provider_bindings
+        SET
+          state = ${nextState},
+          authenticated_principal = ${verification.authenticatedPrincipal},
+          capabilities = ${verification.capabilities}::jsonb,
+          verification_evidence = ${{ ...evidence, comparisonReason: comparison.reason }}::jsonb,
+          verified_scope_fingerprint = ${requiresConfirmation ? null : locked.scope_fingerprint},
+          verified_secret_revision = ${snapshot.secretRevision},
+          last_verified_at = now(),
+          last_error_code = NULL,
+          last_error_message = NULL
+        WHERE id = ${params.bindingId}::uuid
+      `;
+      await tx`
+        UPDATE mail.provider_connections
+        SET
+          status = 'active',
+          authenticated_principal = ${verification.authenticatedPrincipal},
+          capabilities = ${verification.capabilities}::jsonb,
+          server_identity = ${verification.serverIdentity}::jsonb,
+          last_verified_at = now(),
+          last_error_code = NULL,
+          last_error_message = NULL
+        WHERE id = ${current.connection_id}::uuid
+          AND secret_revision = ${snapshot.secretRevision}
+          AND status <> 'revoked'
+      `;
+      if (requiresConfirmation) {
+        return {
+          bindingId: params.bindingId,
+          discoveryGeneration,
+          state: nextState,
+          discovered: 0,
+          missing: 0,
+          ambiguous: folders.length,
+          renamed: 0,
+          rightsSources: { acl: 0, select: 0, probe: 0, unknown: folders.length },
+        } satisfies BindingRediscoveryResult;
+      }
+      const projection = await projectFolders({
+        db: tx,
+        remoteResourceId: locked.remote_resource_id,
+        bindingId: params.bindingId,
+        discoveryGeneration,
+        evidence,
+      });
+      await tx`DELETE FROM mail.remote_namespaces WHERE binding_id = ${params.bindingId}::uuid`;
+      if (evidence.namespaces.length > 0) {
+        const namespaceRows = evidence.namespaces.map((namespace) => ({
+          binding_id: params.bindingId,
+          kind: namespace.kind,
+          prefix: namespace.prefix,
+          delimiter: namespace.delimiter,
+        }));
+        await tx`
+          INSERT INTO mail.remote_namespaces ${sql(namespaceRows, "binding_id", "kind", "prefix", "delimiter")}
+        `;
+      }
+      await tx`
+        UPDATE mail.remote_resources
+        SET status = 'active', last_error_code = NULL, last_error_message = NULL
+        WHERE id = ${locked.remote_resource_id}::uuid
+      `;
+      const rightsSources: BindingRediscoveryResult["rightsSources"] = { acl: 0, select: 0, probe: 0, unknown: 0 };
+      for (const folder of folders) rightsSources[folder.rightsSource] += 1;
+      return {
+        bindingId: params.bindingId,
+        discoveryGeneration,
+        state: nextState,
+        ...projection,
+        rightsSources,
+      } satisfies BindingRediscoveryResult;
+    });
+    await updateMailboxBindingHealth(current.mailbox_id);
+    return result;
+  } catch (error) {
+    if (!REDISCOVERY_SUPERSEDED_CODES.has(providerErrorCode(error, "PROVIDER_REDISCOVERY_FAILED"))) {
+      await markRediscoveryFailure(params.bindingId, current.connection_id, current.secret_revision, error);
+    }
+    throw error;
   }
 };
 
@@ -528,7 +1179,6 @@ export const attachProviderBinding = async (params: {
       `;
       if (!binding) throw new Error("Provider binding insert returned no row");
       await tx`DELETE FROM mail.remote_namespaces WHERE binding_id = ${binding.id}::uuid`;
-      await tx`DELETE FROM mail.binding_folder_refs WHERE binding_id = ${binding.id}::uuid`;
 
       if (!requiresConfirmation) {
         await projectFolders({
@@ -644,6 +1294,24 @@ export const confirmProviderBinding = async (params: {
         typeof row.verification_evidence === "string"
           ? (JSON.parse(row.verification_evidence) as ScopeEvidence)
           : row.verification_evidence;
+      const [updated] = await tx<DbBinding[]>`
+        UPDATE mail.provider_bindings pb
+        SET state = 'active', verified_scope_fingerprint = ${row.scope_fingerprint}, last_verified_at = now()
+        WHERE pb.id = ${row.id}::uuid
+        RETURNING
+          pb.id,
+          ${params.mailboxId}::uuid AS mailbox_id,
+          pb.connection_id,
+          pb.state,
+          pb.authenticated_principal,
+          pb.remote_locator,
+          pb.capabilities,
+          pb.last_verified_at,
+          pb.last_error_message,
+          pb.created_at,
+          pb.updated_at
+      `;
+      if (!updated) throw new Error("Provider binding update returned no row");
       await projectFolders({
         db: tx,
         remoteResourceId: row.remote_resource_id,
@@ -663,24 +1331,6 @@ export const confirmProviderBinding = async (params: {
           ON CONFLICT (binding_id, kind, prefix) DO UPDATE SET delimiter = EXCLUDED.delimiter, discovered_at = now()
         `;
       }
-      const [updated] = await tx<DbBinding[]>`
-        UPDATE mail.provider_bindings pb
-        SET state = 'active', verified_scope_fingerprint = ${row.scope_fingerprint}, last_verified_at = now()
-        WHERE pb.id = ${row.id}::uuid
-        RETURNING
-          pb.id,
-          ${params.mailboxId}::uuid AS mailbox_id,
-          pb.connection_id,
-          pb.state,
-          pb.authenticated_principal,
-          pb.remote_locator,
-          pb.capabilities,
-          pb.last_verified_at,
-          pb.last_error_message,
-          pb.created_at,
-          pb.updated_at
-      `;
-      if (!updated) throw new Error("Provider binding update returned no row");
       await tx`
         UPDATE mail.remote_resources
         SET status = 'active', last_error_code = NULL, last_error_message = NULL

@@ -1,0 +1,116 @@
+import { sql } from "bun";
+
+export type StoredCommandAuthorization = {
+  mailbox_id: string;
+  actor_kind: "user" | "service_account" | "workflow" | "system";
+  actor_id: string | null;
+  access_subject_kind: "user" | "service_account" | "system";
+  access_subject_id: string | null;
+  credential_scopes: string[] | null;
+};
+
+const permissionRank = (permission: string | null | undefined): number => {
+  if (permission === "admin") return 3;
+  if (permission === "write") return 2;
+  if (permission === "read") return 1;
+  return 0;
+};
+
+const requiredRank = (permission: "write" | "admin"): number => (permission === "admin" ? 3 : 2);
+
+const scopeRank = (scopes: readonly string[]): number => {
+  if (scopes.includes("admin") || scopes.includes("mail:admin") || scopes.includes("mail:*")) return 3;
+  if (scopes.includes("write") || scopes.includes("mail:write")) return 2;
+  if (scopes.includes("read") || scopes.includes("mail:read")) return 1;
+  return 0;
+};
+
+const serviceAccountActorAllowed = async (
+  command: StoredCommandAuthorization,
+  permission: "write" | "admin",
+): Promise<boolean> => {
+  if (command.actor_kind !== "service_account") return true;
+  if (!command.actor_id || scopeRank(command.credential_scopes ?? []) < requiredRank(permission)) return false;
+  const [serviceAccount] = await sql<
+    {
+      status: string;
+      kind: string;
+      app_id: string | null;
+      resource_type: string | null;
+      resource_id: string | null;
+    }[]
+  >`
+    SELECT status, kind, app_id, resource_type, resource_id
+    FROM auth.service_accounts
+    WHERE id = ${command.actor_id}::uuid
+  `;
+  if (!serviceAccount || serviceAccount.status !== "active") return false;
+  if (serviceAccount.kind !== "resource_bound") return true;
+  return (
+    serviceAccount.app_id === "mail" && serviceAccount.resource_type === "mailbox" && serviceAccount.resource_id === command.mailbox_id
+  );
+};
+
+const loadAccessSubjectState = async (command: StoredCommandAuthorization): Promise<{ active: boolean; admin: boolean }> => {
+  if (!command.access_subject_id) return { active: false, admin: false };
+  if (command.access_subject_kind === "user") {
+    const [user] = await sql<{ admin: boolean }[]>`
+      SELECT admin
+      FROM auth.users
+      WHERE id = ${command.access_subject_id}::uuid
+        AND (account_expires IS NULL OR account_expires > now())
+    `;
+    return { active: Boolean(user), admin: user?.admin === true };
+  }
+  const [serviceAccount] = await sql<{ status: string }[]>`
+    SELECT status FROM auth.service_accounts WHERE id = ${command.access_subject_id}::uuid
+  `;
+  return { active: serviceAccount?.status === "active", admin: false };
+};
+
+const loadMailboxGrant = async (command: StoredCommandAuthorization): Promise<string | null> => {
+  const userId = command.access_subject_kind === "user" ? command.access_subject_id : null;
+  const serviceAccountId = command.access_subject_kind === "service_account" ? command.access_subject_id : null;
+  const [grant] = await sql<{ permission: string }[]>`
+    WITH RECURSIVE subject_groups(group_id, path) AS (
+      SELECT ug.group_id, ARRAY[ug.group_id]::uuid[]
+      FROM auth.user_groups_v2 ug
+      WHERE ug.user_id = ${userId}::uuid
+
+      UNION ALL
+
+      SELECT gg.parent_group_id, sg.path || gg.parent_group_id
+      FROM auth.group_groups_v2 gg
+      JOIN subject_groups sg ON sg.group_id = gg.child_group_id
+      WHERE NOT gg.parent_group_id = ANY(sg.path)
+    )
+    SELECT a.permission
+    FROM mail.mailbox_access ma
+    JOIN auth.access a ON a.id = ma.access_id
+    WHERE ma.mailbox_id = ${command.mailbox_id}::uuid
+      AND (
+        a.user_id = ${userId}::uuid
+        OR a.service_account_id = ${serviceAccountId}::uuid
+        OR a.group_id IN (SELECT group_id FROM subject_groups)
+      )
+    ORDER BY CASE a.permission
+      WHEN 'admin' THEN 3
+      WHEN 'write' THEN 2
+      WHEN 'read' THEN 1
+      ELSE 0
+    END DESC
+    LIMIT 1
+  `;
+  return grant?.permission ?? null;
+};
+
+export const commandStillAuthorized = async (
+  command: StoredCommandAuthorization,
+  permission: "write" | "admin",
+): Promise<boolean> => {
+  if (command.access_subject_kind === "system") return command.actor_kind === "system";
+  if (!(await serviceAccountActorAllowed(command, permission))) return false;
+  const subject = await loadAccessSubjectState(command);
+  if (!subject.active) return false;
+  return subject.admin || permissionRank(await loadMailboxGrant(command)) >= requiredRank(permission);
+};

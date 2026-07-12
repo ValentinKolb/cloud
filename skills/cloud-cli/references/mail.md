@@ -8,7 +8,7 @@ Use `cld mail` to configure Cloud mailboxes and operate mirrored IMAP mail throu
 - Use `--json` when a later command needs an id or cursor.
 - Pass provider credentials with `--secret-stdin` or `--secret-file`. Credentials are write-only and are never returned by the API.
 - Read a message and its folder ids before changing flags, moving, copying, or deleting it.
-- `sync` queues work. It does not prove that the queued sync finished. Wait for the expected message or mailbox health instead.
+- `sync`, `rediscover`, and `repair` create durable maintenance commands. A confirmed maintenance command proves that work was accepted or the repair transaction completed; folder sync progress remains visible through `status` and `mailbox wait`.
 - Do not delete remote messages, revoke credentials, or delete mailbox resources without an explicit user request.
 
 ## Configure a mailbox
@@ -57,6 +57,12 @@ cld --json mail mailbox wait --health active --timeout-seconds 300
 cld --json mail folders
 ```
 
+Inspect the aggregate backend state, including bindings, discovery generations, missing folders, sync runs, hydration, commands, outbox, and search health:
+
+```bash
+cld --json mail status
+```
+
 Create and verify a sender identity. Verification submits a real message to the recipient:
 
 ```bash
@@ -69,10 +75,10 @@ Pass `--provider-saves-sent` during verification only when the provider stores S
 
 ## Read and search mail
 
-Queue a sync, then wait for a unique expected message:
+Queue a durable sync command, then wait for a unique expected message:
 
 ```bash
-cld mail sync
+cld --json mail sync --wait
 cld --json mail message wait \
   --subject "cloud-smoke-<unique-id>" \
   --match exact \
@@ -171,6 +177,40 @@ cld --json mail command wait <command-id> --timeout-seconds 180
 ```
 
 ## Provider-backed operations
+
+Rediscover namespaces, subscriptions, and effective folder rights for every active binding, or target one binding:
+
+```bash
+cld --json mail rediscover --wait --timeout-seconds 300
+cld --json mail rediscover --binding <binding-id> --wait --timeout-seconds 300
+```
+
+After replacing provider credentials, explicitly reverify the pending binding. An ambiguous resource match remains pending until `binding confirm` is called:
+
+```bash
+cld --json mail binding verify <binding-id> --wait --timeout-seconds 300
+cld --json mail binding confirm <binding-id>
+```
+
+Queue one canonical folder without synchronizing the entire mailbox:
+
+```bash
+cld --json mail sync folder <folder-id> --wait
+```
+
+Rebuild a folder only after a confirmed `UIDVALIDITY` or remote identity change. The command retains message content but invalidates stale remote placements before resynchronizing:
+
+```bash
+cld --json mail repair folder <folder-id> --yes --wait --timeout-seconds 300
+```
+
+Retry messages whose body or attachment hydration exhausted its normal retry budget:
+
+```bash
+cld --json mail repair hydration --wait
+```
+
+Maintenance commands require mailbox `admin`. Use `--idempotency-key` when an external script may retry the same request.
 
 Use `remoteMessageRefId` and `folderId` from `message get` or `conversation messages`:
 

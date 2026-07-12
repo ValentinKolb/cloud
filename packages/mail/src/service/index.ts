@@ -4,6 +4,7 @@ import { cancelSendCommand, commandRuntime } from "./command-runtime";
 import * as commands from "./commands";
 import * as drafts from "./drafts";
 import * as execution from "./execution";
+import * as health from "./health";
 import * as mailboxes from "./mailboxes";
 import * as hydration from "./message-hydration";
 import * as messages from "./messages";
@@ -20,6 +21,7 @@ export {
   commands,
   drafts,
   enqueueMailboxSync,
+  health,
   mailboxAccess,
   mailboxes,
   mailRuntime,
@@ -35,6 +37,7 @@ export const mailService = {
   commands,
   drafts,
   execution,
+  health,
   hydration,
   mailboxes,
   messages,

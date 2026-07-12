@@ -93,6 +93,55 @@ export const mailboxSchema = z.object({
 });
 export type Mailbox = z.infer<typeof mailboxSchema>;
 
+const lifecycleCountsSchema = z.record(z.string(), z.number().int().nonnegative());
+
+export const mailboxOperationalHealthSchema = z.object({
+  mailboxId: z.string().uuid(),
+  health: mailboxHealthSchema,
+  healthReason: z.string().nullable(),
+  syncEnabled: z.boolean(),
+  bindings: z.object({
+    total: z.number().int().nonnegative(),
+    active: z.number().int().nonnegative(),
+    degraded: z.number().int().nonnegative(),
+    pending: z.number().int().nonnegative(),
+    revoked: z.number().int().nonnegative(),
+    lastVerifiedAt: z.string().datetime().nullable(),
+    rightsSources: lifecycleCountsSchema,
+  }),
+  discovery: z.object({
+    generation: z.number().int().nonnegative(),
+    lastAt: z.string().datetime().nullable(),
+    activeFolders: z.number().int().nonnegative(),
+    missingFolders: z.number().int().nonnegative(),
+    ambiguousFolders: z.number().int().nonnegative(),
+    subscribedFolders: z.number().int().nonnegative(),
+  }),
+  sync: z.object({
+    lastAt: z.string().datetime().nullable(),
+    lagSeconds: z.number().int().nonnegative().nullable(),
+    runningRuns: z.number().int().nonnegative(),
+    failedRuns: z.number().int().nonnegative(),
+    folderStates: lifecycleCountsSchema,
+  }),
+  hydration: z.object({
+    complete: z.number().int().nonnegative(),
+    pending: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+  }),
+  commands: z.object({
+    states: lifecycleCountsSchema,
+    maintenanceQueued: z.number().int().nonnegative(),
+  }),
+  outbox: z.object({ states: lifecycleCountsSchema }),
+  search: z.object({
+    configuredBackend: searchBackendSchema,
+    pgTextsearchInstalled: z.boolean(),
+    bm25Ready: z.boolean(),
+  }),
+});
+export type MailboxOperationalHealth = z.infer<typeof mailboxOperationalHealthSchema>;
+
 export const createMailboxInputSchema = z.object({
   name: z.string().trim().min(1).max(160),
   description: z.string().trim().max(2_000).nullable().optional(),
@@ -120,6 +169,9 @@ export type ProviderBinding = z.infer<typeof providerBindingSchema>;
 
 export const folderRoleSchema = z.enum(["inbox", "sent", "drafts", "trash", "archive", "junk", "all", "other"]);
 export type FolderRole = z.infer<typeof folderRoleSchema>;
+
+export const folderRightsSourceSchema = z.enum(["acl", "select", "probe", "unknown"]);
+export type FolderRightsSource = z.infer<typeof folderRightsSourceSchema>;
 
 export const addressRoleSchema = z.enum(["from", "reply_to", "to", "cc", "bcc"]);
 export type AddressRole = z.infer<typeof addressRoleSchema>;
@@ -159,7 +211,19 @@ export type SearchRequest = z.infer<typeof searchRequestSchema>;
 export const mailExecutionOperationSchema = z.enum(["backgroundSync", "actorRead", "actorMutation", "actorSend", "automation"]);
 export type MailExecutionOperation = z.infer<typeof mailExecutionOperationSchema>;
 
-export const commandKindSchema = z.enum(["set_flags", "move", "copy", "delete", "send", "sync_folder", "discover_folders"]);
+export const commandKindSchema = z.enum([
+  "set_flags",
+  "move",
+  "copy",
+  "delete",
+  "send",
+  "sync_mailbox",
+  "sync_folder",
+  "discover_folders",
+  "verify_binding",
+  "rebuild_folder",
+  "hydrate_missing",
+]);
 export type CommandKind = z.infer<typeof commandKindSchema>;
 
 export const commandStateSchema = z.enum([
@@ -213,6 +277,19 @@ export const actorCommandInputSchema = z.discriminatedUnion("kind", [
 ]);
 export type ActorCommandInput = z.infer<typeof actorCommandInputSchema>;
 
+export const maintenanceCommandInputSchema = z.discriminatedUnion("kind", [
+  actorCommandBaseSchema.extend({ kind: z.literal("sync_mailbox") }),
+  actorCommandBaseSchema.extend({ kind: z.literal("sync_folder"), folderId: z.string().uuid() }),
+  actorCommandBaseSchema.extend({ kind: z.literal("discover_folders"), bindingId: z.string().uuid().optional() }),
+  actorCommandBaseSchema.extend({ kind: z.literal("verify_binding"), bindingId: z.string().uuid() }),
+  actorCommandBaseSchema.extend({ kind: z.literal("rebuild_folder"), folderId: z.string().uuid() }),
+  actorCommandBaseSchema.extend({ kind: z.literal("hydrate_missing") }),
+]);
+export type MaintenanceCommandInput = z.infer<typeof maintenanceCommandInputSchema>;
+
+export const mailCommandInputSchema = z.union([actorCommandInputSchema, maintenanceCommandInputSchema]);
+export type MailCommandInput = z.infer<typeof mailCommandInputSchema>;
+
 export const mailCommandSchema = z.object({
   id: z.string().uuid(),
   mailboxId: z.string().uuid(),
@@ -226,6 +303,7 @@ export const mailCommandSchema = z.object({
   selectedBindingId: z.string().uuid().nullable(),
   rightsSnapshot: z.record(z.string(), z.unknown()).nullable(),
   transportMetadata: z.record(z.string(), z.unknown()),
+  result: z.record(z.string(), z.unknown()),
   attempt: z.number().int().nonnegative(),
   lastError: z.string().nullable(),
   createdAt: z.string().datetime(),
@@ -341,6 +419,7 @@ export type RemoteFolder = {
   uidNext: string | null;
   highestModseq: string | null;
   rights: string[];
+  rightsSource: FolderRightsSource;
 };
 
 export type RemoteMessageRef = {

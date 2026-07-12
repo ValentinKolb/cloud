@@ -1,7 +1,16 @@
 import { audit, toPgTextArray } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { type ActorCommandInput, type ActorRef, actorCommandInputSchema, type MailCommand } from "../contracts";
+import {
+  type ActorCommandInput,
+  type ActorRef,
+  actorCommandInputSchema,
+  type MailCommand,
+  type MailCommandInput,
+  type MaintenanceCommandInput,
+  maintenanceCommandInputSchema,
+} from "../contracts";
+import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
 import { enqueueMailCommand } from "./command-runtime";
@@ -23,6 +32,7 @@ type DbCommand = {
   selected_binding_id: string | null;
   rights_snapshot: Record<string, unknown> | string | null;
   transport_metadata: Record<string, unknown> | string;
+  result: Record<string, unknown> | string;
   attempt: number;
   last_error_message: string | null;
   created_at: Date | string;
@@ -45,6 +55,7 @@ const commandColumns = sql`
   c.selected_binding_id,
   c.rights_snapshot,
   c.transport_metadata,
+  c.result,
   c.attempt,
   c.last_error_message,
   c.created_at,
@@ -76,6 +87,7 @@ const mapCommand = (row: DbCommand): MailCommand => ({
   selectedBindingId: row.selected_binding_id,
   rightsSnapshot: row.rights_snapshot ? parseRecord(row.rights_snapshot) : null,
   transportMetadata: parseRecord(row.transport_metadata),
+  result: parseRecord(row.result),
   attempt: row.attempt,
   lastError: row.last_error_message,
   createdAt: (row.created_at instanceof Date ? row.created_at : new Date(row.created_at)).toISOString(),
@@ -157,7 +169,7 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
       },
       payload: {},
       folderRequirements: [
-        { folderId: input.sourceFolderId, rights: input.kind === "move" ? ["read", "write_flags"] : ["read"] },
+        { folderId: input.sourceFolderId, rights: input.kind === "move" ? ["read", "move"] : ["read"] },
         { folderId: input.destinationFolderId, rights: ["insert"] },
       ],
       remoteMessageRefId: input.remoteMessageRefId,
@@ -460,6 +472,167 @@ export const createActorCommand = async (params: {
 };
 
 const stableTargetKey = (target: Record<string, unknown>): string => sha256Json(target);
+
+const prepareMaintenanceCommand = (
+  input: MaintenanceCommandInput,
+): { target: Record<string, unknown>; payload: Record<string, unknown> } => {
+  if (input.kind === "sync_folder" || input.kind === "rebuild_folder") {
+    return { target: { folderId: input.folderId }, payload: {} };
+  }
+  if (input.kind === "verify_binding") return { target: { bindingId: input.bindingId }, payload: { allowCredentialRevision: true } };
+  if (input.kind === "discover_folders") return { target: { bindingId: input.bindingId ?? null }, payload: {} };
+  return { target: {}, payload: {} };
+};
+
+const validateMaintenanceTarget = async (params: {
+  db: typeof sql;
+  mailboxId: string;
+  input: MaintenanceCommandInput;
+}): Promise<Result<void>> => {
+  if (params.input.kind === "sync_folder" || params.input.kind === "rebuild_folder") {
+    const [folder] = await params.db<{ selected_for_sync: boolean; discovery_state: string }[]>`
+      SELECT folder.selected_for_sync, folder.discovery_state
+      FROM mail.folders folder
+      JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
+      WHERE folder.id = ${params.input.folderId}::uuid
+        AND resource.mailbox_id = ${params.mailboxId}::uuid
+    `;
+    if (!folder) return fail(err.notFound("Mail folder"));
+    if (folder.discovery_state !== "active") return fail(err.badInput("Only an active remote folder can be synchronized or rebuilt"));
+    if (params.input.kind === "sync_folder" && !folder.selected_for_sync) {
+      return fail(err.badInput("The folder is excluded from synchronization"));
+    }
+  }
+  const bindingId =
+    params.input.kind === "verify_binding" || (params.input.kind === "discover_folders" && params.input.bindingId)
+      ? params.input.bindingId
+      : null;
+  if (bindingId) {
+    const [binding] = await params.db<{ id: string }[]>`
+      SELECT binding.id
+      FROM mail.provider_bindings binding
+      JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
+      WHERE binding.id = ${bindingId}::uuid
+        AND resource.mailbox_id = ${params.mailboxId}::uuid
+        AND (
+          binding.state IN ('active', 'degraded')
+          OR (${params.input.kind === "verify_binding"} AND binding.state = 'pending')
+        )
+    `;
+    if (!binding) return fail(err.notFound("Provider binding"));
+  }
+  return ok();
+};
+
+export const createMaintenanceCommand = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  input: MaintenanceCommandInput;
+  enqueue?: boolean;
+}): Promise<Result<MailCommand>> => {
+  const parsed = maintenanceCommandInputSchema.safeParse(params.input);
+  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid mail maintenance command"));
+  const input = parsed.data;
+  const prepared = prepareMaintenanceCommand(input);
+  const requestHash = sha256Json({ kind: input.kind, target: prepared.target, payload: prepared.payload });
+  const actor = actorRefFromRequest(params.context);
+
+  try {
+    const result = await sql.begin(async (tx) => {
+      const [mailbox] = await tx<{ id: string }[]>`
+        SELECT id FROM mail.mailboxes WHERE id = ${params.mailboxId}::uuid AND deleted_at IS NULL FOR UPDATE
+      `;
+      if (!mailbox) return fail(err.notFound("Mailbox"));
+      const permission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
+      if (!permission.ok) return permission;
+
+      const [existing] = await tx<DbCommand[]>`
+        SELECT ${commandColumns}
+        FROM mail.commands c
+        WHERE c.mailbox_id = ${params.mailboxId}::uuid AND c.idempotency_key = ${input.idempotencyKey.trim()}
+        FOR UPDATE
+      `;
+      if (existing) {
+        return existing.request_hash === requestHash
+          ? ok(mapCommand(existing))
+          : fail(err.conflict("Idempotency key with a different mail command"));
+      }
+      const target = await validateMaintenanceTarget({ db: tx, mailboxId: params.mailboxId, input });
+      if (!target.ok) return target;
+
+      const [row] = await tx<DbCommand[]>`
+        INSERT INTO mail.commands AS c (
+          mailbox_id, kind, actor_kind, actor_id, delegated_user_id, idempotency_key,
+          request_hash, correlation_id, target, payload, transport_metadata,
+          access_subject_kind, access_subject_id, credential_scopes
+        )
+        VALUES (
+          ${params.mailboxId}::uuid,
+          ${input.kind},
+          ${actor.kind},
+          ${actorDatabaseId(actor)}::uuid,
+          ${actor.kind === "service_account" ? actor.delegatedUserId : null}::uuid,
+          ${input.idempotencyKey.trim()},
+          ${requestHash},
+          ${input.correlationId?.trim() || null},
+          ${prepared.target}::jsonb,
+          ${prepared.payload}::jsonb,
+          '{}'::jsonb,
+          ${params.context.accessSubject.type},
+          ${accessSubjectDatabaseId(params.context)}::uuid,
+          ${toPgTextArray(params.context.actor.kind === "service_account" ? params.context.actor.scopes : [])}::text[]
+        )
+        RETURNING ${commandColumns}
+      `;
+      if (!row) throw new Error("Mail maintenance command insert returned no row");
+      await tx`
+        INSERT INTO mail.activity_events (
+          mailbox_id, command_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
+        )
+        VALUES (
+          ${params.mailboxId}::uuid,
+          ${row.id}::uuid,
+          ${actor.kind},
+          ${actorDatabaseId(actor)}::uuid,
+          ${`command.${input.kind}`},
+          'requested',
+          'command',
+          ${row.id}::uuid,
+          ${{ correlationId: input.correlationId ?? null }}::jsonb
+        )
+      `;
+      await audit.record(
+        {
+          action: `mail.maintenance.${input.kind}.request`,
+          outcome: "allowed",
+          actor: auditActorFromRequest(params.context),
+          target: { type: "mailbox", id: params.mailboxId },
+          requestId: params.context.requestId,
+          metadata: { commandId: row.id, target: prepared.target },
+        },
+        tx,
+      );
+      return ok(mapCommand(row));
+    });
+    if (result.ok && params.enqueue !== false) await enqueueMailCommand(result.data.id, result.data.kind).catch(() => undefined);
+    return result;
+  } catch (error) {
+    if (isServiceError(error)) return fail(error);
+    return fail(err.internal("Failed to create mail maintenance command"));
+  }
+};
+
+export const createMailCommand = (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  input: MailCommandInput;
+  enqueue?: boolean;
+}): Promise<Result<MailCommand>> => {
+  const maintenance = maintenanceCommandInputSchema.safeParse(params.input);
+  return maintenance.success
+    ? createMaintenanceCommand({ ...params, input: maintenance.data })
+    : createActorCommand({ ...params, input: params.input as ActorCommandInput });
+};
 
 export const getCommand = async (context: MailRequestContext, mailboxId: string, commandId: string): Promise<Result<MailCommand>> => {
   const access = await resolveMailExecution({ mailboxId, operation: "actorRead", context });

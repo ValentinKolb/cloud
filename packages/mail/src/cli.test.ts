@@ -39,6 +39,7 @@ const mailCommand = (state: string) => ({
   selectedBindingId: null,
   rightsSnapshot: null,
   transportMetadata: {},
+  result: {},
   attempt: state === "queued" ? 0 : 1,
   lastError: state === "failed" ? "SMTP rejected the message" : null,
   createdAt: "2026-07-12T00:00:00.000Z",
@@ -133,6 +134,77 @@ test("command wait polls until a successful terminal state", async () => {
   expect(result.exitCode).toBe(0);
   expect(reads).toBe(2);
   expect(JSON.parse(result.stdout).state).toBe("confirmed");
+});
+
+test("status reads the aggregate operational health endpoint", async () => {
+  const server = withMailbox((request) =>
+    new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/health`
+      ? api({
+          mailboxId: MAILBOX_ID,
+          health: "active",
+          healthReason: null,
+          syncEnabled: true,
+          bindings: { total: 2, active: 1, degraded: 1, pending: 0, revoked: 0, lastVerifiedAt: null, rightsSources: { acl: 1 } },
+          discovery: { generation: 3, lastAt: null, activeFolders: 4, missingFolders: 1, ambiguousFolders: 0, subscribedFolders: 4 },
+          sync: { lastAt: null, lagSeconds: null, runningRuns: 0, failedRuns: 0, folderStates: { current: 4 } },
+          hydration: { complete: 20, pending: 2, failed: 1 },
+          commands: { states: { confirmed: 3 }, maintenanceQueued: 0 },
+          outbox: { states: {} },
+          search: { configuredBackend: "auto", pgTextsearchInstalled: false, bm25Ready: false },
+        })
+      : api({ message: "unexpected" }, { status: 500 }),
+  );
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "mail", "status", "--mailbox", MAILBOX_ID]);
+
+  expect(result.exitCode).toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({ mailboxId: MAILBOX_ID, bindings: { active: 1 }, discovery: { missingFolders: 1 } });
+});
+
+test("rediscover submits a typed durable maintenance command and can wait", async () => {
+  const bodies: unknown[] = [];
+  let reads = 0;
+  const server = withMailbox(async (request) => {
+    const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/commands`) {
+      const body = (await request.json()) as Record<string, unknown>;
+      bodies.push(body);
+      return api({ ...mailCommand("queued"), kind: body.kind });
+    }
+    if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/commands/${COMMAND_ID}`) {
+      reads += 1;
+      return api({ ...mailCommand("confirmed"), kind: "discover_folders", result: { bindings: [] } });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "rediscover",
+    "--mailbox",
+    MAILBOX_ID,
+    "--binding",
+    CONNECTION_ID,
+    "--idempotency-key",
+    "rediscovery-test",
+    "--wait",
+    "--timeout-seconds",
+    "2",
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(reads).toBe(1);
+  expect(bodies).toEqual([
+    {
+      kind: "discover_folders",
+      bindingId: CONNECTION_ID,
+      idempotencyKey: "rediscovery-test",
+    },
+  ]);
+  expect(JSON.parse(result.stdout)).toMatchObject({ kind: "discover_folders", state: "confirmed" });
 });
 
 test("command wait exits non-zero for a terminal failure", async () => {

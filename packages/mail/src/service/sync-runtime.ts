@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { logger } from "@valentinkolb/cloud/services";
 import { toPgTextArray } from "@valentinkolb/cloud/services/postgres";
-import { type JobCtx, job, mutex, scheduler } from "@valentinkolb/sync";
+import { type JobCtx, job, mutex, ratelimit, scheduler } from "@valentinkolb/sync";
 import { sql } from "bun";
+import { rediscoverProviderBinding, type BindingRediscoveryResult } from "./bindings";
 import { sha256Json } from "./canonical";
 import type { ConnectorEnvelope, FlagChange } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
@@ -10,6 +11,7 @@ import { resolveMailExecution } from "./execution";
 import { withLeaseHeartbeat } from "./lease-heartbeat";
 import { deleteAbandonedBlobUploads, deleteOrphanedBlobs } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
+import { isProviderAuthenticationFailure, providerErrorCode, providerErrorMessage } from "./provider-errors";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 
 const log = logger("mail:sync");
@@ -58,7 +60,22 @@ type SyncBatchResult = {
 };
 
 const syncMutex = mutex({ id: "mail:remote-resource-sync", defaultTtl: SYNC_LEASE_MS, retryCount: 0 });
+const mailboxWorkBudget = ratelimit({ id: "mail:mailbox-provider-work", limit: 300, windowSecs: 60 });
 type SyncLock = NonNullable<Awaited<ReturnType<typeof syncMutex.acquire>>>;
+
+const consumeMailboxWorkBudget = async (remoteResourceId: string): Promise<void> => {
+  const result = await mailboxWorkBudget.check(remoteResourceId);
+  if (!result.limited) return;
+  throw Object.assign(new Error("Mail provider work is temporarily rate limited"), {
+    code: "MAIL_RATE_LIMITED",
+    retryAfterMs: result.resetIn,
+  });
+};
+
+const retryAfterMs = (error: unknown, fallback: number): number => {
+  const value = Number((error as { retryAfterMs?: unknown } | null)?.retryAfterMs);
+  return Number.isFinite(value) && value > 0 ? Math.max(1_000, Math.min(value, 60_000)) : fallback;
+};
 
 const extendSyncLease = async (lock: SyncLock, phase: string): Promise<void> => {
   if (await syncMutex.extend(lock, SYNC_LEASE_MS)) return;
@@ -106,7 +123,7 @@ const normalizeSubject = (subject: string): string => {
   return value.slice(0, 2_000);
 };
 
-const claimFence = async (resourceId: string, bindingId: string, kind: string): Promise<FenceClaim> =>
+export const claimFence = async (resourceId: string, bindingId: string, kind: string): Promise<FenceClaim> =>
   sql.begin(async (tx) => {
     const [resource] = await tx<{ token: string | number; generation: string | number }[]>`
       UPDATE mail.remote_resources
@@ -524,17 +541,6 @@ const finishFailedRun = async (runId: string, code: string): Promise<void> => {
   `.catch(() => undefined);
 };
 
-const isAuthenticationFailure = (error: unknown, code: string): boolean => {
-  const value = error as { authenticationFailed?: unknown; responseCode?: unknown } | null;
-  return (
-    value?.authenticationFailed === true ||
-    code === "EAUTH" ||
-    code === "CREDENTIAL_EXPIRED" ||
-    code.includes("AUTHENTICATION") ||
-    code.includes("AUTH_FAILED")
-  );
-};
-
 const recordSyncFailure = async (params: {
   folderId: string;
   bindingId: string | null;
@@ -543,8 +549,8 @@ const recordSyncFailure = async (params: {
   error: unknown;
 }): Promise<void> => {
   const code = normalizeSyncErrorCode(params.error);
-  const authFailure = isAuthenticationFailure(params.error, code);
-  const message = (params.error instanceof Error ? params.error.message : "Mail synchronization failed").slice(0, 1_000);
+  const authFailure = isProviderAuthenticationFailure(params.error, code);
+  const message = providerErrorMessage(params.error, "Mail synchronization failed");
   await sql
     .begin(async (tx) => {
       const [folder] = await tx<{ remote_resource_id: string; mailbox_id: string }[]>`
@@ -654,6 +660,8 @@ const loadSyncFolder = async (folderId: string): Promise<FolderSyncRow | null> =
     JOIN mail.mailboxes m ON m.id = rr.mailbox_id
     WHERE f.id = ${folderId}::uuid
       AND f.selected_for_sync = true
+      AND f.discovery_state = 'active'
+      AND f.sync_status <> 'excluded'
       AND m.sync_enabled = true
       AND m.deleted_at IS NULL
   `;
@@ -770,7 +778,7 @@ const fetchReconcileStep = async (params: {
   return { low, high, uids };
 };
 
-const commitSyncBatch = async (params: {
+export const commitSyncBatch = async (params: {
   folder: FolderSyncRow;
   folderId: string;
   bindingId: string;
@@ -895,8 +903,26 @@ const commitSyncBatch = async (params: {
     await tx`
       UPDATE mail.mailboxes
       SET
-        health = ${params.cursor.backfillComplete ? "active" : "bootstrapping"},
-        health_reason = ${params.cursor.backfillComplete ? null : "Historical synchronization in progress"}
+        health = CASE
+          WHEN sync_enabled = false THEN 'paused'
+          WHEN EXISTS (
+            SELECT 1
+            FROM mail.provider_bindings binding
+            JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
+            WHERE resource.mailbox_id = ${params.folder.mailbox_id}::uuid AND binding.state = 'degraded'
+          ) THEN 'degraded'
+          ELSE ${params.cursor.backfillComplete ? "active" : "bootstrapping"}
+        END,
+        health_reason = CASE
+          WHEN sync_enabled = false THEN 'Synchronization paused by a mailbox administrator'
+          WHEN EXISTS (
+            SELECT 1
+            FROM mail.provider_bindings binding
+            JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
+            WHERE resource.mailbox_id = ${params.folder.mailbox_id}::uuid AND binding.state = 'degraded'
+          ) THEN 'One or more provider bindings require attention'
+          ELSE ${params.cursor.backfillComplete ? null : "Historical synchronization in progress"}
+        END
       WHERE id = ${params.folder.mailbox_id}::uuid
     `;
     await tx`
@@ -945,6 +971,7 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
         const refreshedFolder = await loadSyncFolder(folderId);
         if (!refreshedFolder) return { hasMore: false, imported: 0, flagsUpdated: 0, removed: 0 };
         Object.assign(folder, refreshedFolder);
+        await consumeMailboxWorkBudget(folder.remote_resource_id);
         const execution = await resolveMailExecution({
           mailboxId: folder.mailbox_id,
           operation: "backgroundSync",
@@ -1026,7 +1053,13 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
   } catch (error) {
     const code = normalizeSyncErrorCode(error);
     if (runId) await finishFailedRun(runId, code);
-    if (code !== "SYNC_LEASE_LOST" && code !== "SYNC_JOB_LEASE_LOST" && code !== "STALE_SYNC_FENCE" && code !== "STALE_SYNC_BINDING") {
+    if (
+      code !== "MAIL_RATE_LIMITED" &&
+      code !== "SYNC_LEASE_LOST" &&
+      code !== "SYNC_JOB_LEASE_LOST" &&
+      code !== "STALE_SYNC_FENCE" &&
+      code !== "STALE_SYNC_BINDING"
+    ) {
       await recordSyncFailure({
         folderId,
         bindingId: selectedBindingId,
@@ -1042,8 +1075,7 @@ const syncFolderBatch = async (folderId: string, jobHeartbeat: () => Promise<voi
 };
 
 const normalizeSyncErrorCode = (error: unknown): string => {
-  const code = (error as { code?: unknown } | null)?.code;
-  return typeof code === "string" && /^[A-Z0-9_]{1,80}$/.test(code) ? code : "MAIL_SYNC_FAILED";
+  return providerErrorCode(error, "MAIL_SYNC_FAILED");
 };
 
 const syncFolderJob = job<{ folderId: string }, SyncBatchResult>({
@@ -1051,6 +1083,10 @@ const syncFolderJob = job<{ folderId: string }, SyncBatchResult>({
   defaults: { leaseMs: 3 * 60_000, keyTtlMs: 24 * 60 * 60_000 },
   process: async ({ ctx }) => syncFolderBatch(ctx.input.folderId, () => ctx.heartbeat({ leaseMs: 3 * 60_000 })),
   after: async ({ ctx }) => {
+    if (ctx.error && normalizeSyncErrorCode(ctx.error) === "MAIL_RATE_LIMITED") {
+      ctx.reschedule({ delayMs: retryAfterMs(ctx.error, 5_000) });
+      return;
+    }
     if (ctx.error && ctx.failureCount < 5) {
       ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 5 * 60_000 }) });
       return;
@@ -1074,7 +1110,7 @@ const syncFolderJob = job<{ folderId: string }, SyncBatchResult>({
   },
 });
 
-const hydrateMessageBatch = async (ctx: JobCtx<{ messageId: string }>): Promise<{ hydrated: boolean }> => {
+export const hydrateMessageBatch = async (ctx: JobCtx<{ messageId: string }>): Promise<{ hydrated: boolean }> => {
   let activeClaim: { messageId: string; claimId: string } | null = null;
   return withLeaseHeartbeat({
     intervalMs: 60_000,
@@ -1094,12 +1130,21 @@ const hydrateMessageBatch = async (ctx: JobCtx<{ messageId: string }>): Promise<
         {
           mailbox_id: string;
           folder_id: string;
+          remote_resource_id: string;
         }[]
       >`
-        SELECT mc.mailbox_id, rmr.folder_id
+        SELECT mc.mailbox_id, rmr.folder_id, f.remote_resource_id
         FROM mail.message_contents mc
         JOIN mail.remote_message_refs rmr ON rmr.message_id = mc.id AND rmr.stale_at IS NULL
-        JOIN mail.folders f ON f.id = rmr.folder_id AND f.selected_for_sync = true
+        JOIN mail.folders f
+          ON f.id = rmr.folder_id
+         AND f.selected_for_sync = true
+         AND f.discovery_state = 'active'
+         AND f.sync_status <> 'excluded'
+        JOIN mail.mailboxes mailbox
+          ON mailbox.id = mc.mailbox_id
+         AND mailbox.sync_enabled = true
+         AND mailbox.deleted_at IS NULL
         WHERE mc.id = ${ctx.input.messageId}::uuid
           AND mc.hydration_status <> 'complete'
           AND mc.hydration_attempt < 5
@@ -1118,6 +1163,7 @@ const hydrateMessageBatch = async (ctx: JobCtx<{ messageId: string }>): Promise<
       const folder = execution.data.folders[message.folder_id];
       if (!folder) throw Object.assign(new Error("No hydration folder locator"), { code: "NO_FOLDER_LOCATOR" });
       const runtime = await loadResolvedRuntime(execution.data.connectionId, execution.data.secretRevision);
+      await consumeMailboxWorkBudget(message.remote_resource_id);
       const candidates = await sql<{ id: string; uid: string | number; uid_validity: string | number }[]>`
         SELECT mc.id, rmr.uid, rmr.uid_validity
         FROM mail.message_contents mc
@@ -1184,6 +1230,10 @@ const hydrationJob = job<{ messageId: string }, { hydrated: boolean }>({
   defaults: { leaseMs: 5 * 60_000, keyTtlMs: 24 * 60 * 60_000 },
   process: async ({ ctx }) => hydrateMessageBatch(ctx),
   after: async ({ ctx }) => {
+    if (ctx.error && normalizeSyncErrorCode(ctx.error) === "MAIL_RATE_LIMITED") {
+      ctx.reschedule({ delayMs: retryAfterMs(ctx.error, 10_000) });
+      return;
+    }
     if (ctx.error && ctx.failureCount < 5) {
       ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 10_000, maxMs: 10 * 60_000 }) });
       return;
@@ -1198,16 +1248,106 @@ const hydrationJob = job<{ messageId: string }, { hydrated: boolean }>({
   },
 });
 
+export const enqueueMessageHydration = async (messageId: string): Promise<void> => {
+  await hydrationJob.submit({ key: `message:${messageId}`, input: { messageId } });
+};
+
+export const executeBindingRediscovery = async (
+  bindingId: string,
+  allowCredentialRevision: boolean,
+  jobHeartbeat: () => Promise<void>,
+): Promise<BindingRediscoveryResult> => {
+  const [binding] = await sql<{ remote_resource_id: string }[]>`
+    SELECT remote_resource_id
+    FROM mail.provider_bindings
+    WHERE id = ${bindingId}::uuid
+      AND (state IN ('active', 'degraded') OR (${allowCredentialRevision} AND state = 'pending'))
+  `;
+  if (!binding) throw Object.assign(new Error("Provider binding is unavailable for rediscovery"), { code: "BINDING_UNAVAILABLE" });
+  const lock = await syncMutex.acquire(binding.remote_resource_id, SYNC_LEASE_MS);
+  if (!lock) throw Object.assign(new Error("Mail remote resource is busy"), { code: "SYNC_BUSY" });
+  try {
+    return await withLeaseHeartbeat({
+      intervalMs: 30_000,
+      heartbeat: async () => {
+        await extendSyncLease(lock, "during provider rediscovery");
+        await jobHeartbeat();
+      },
+      work: async () => {
+        await consumeMailboxWorkBudget(binding.remote_resource_id);
+        return rediscoverProviderBinding({ bindingId, allowCredentialRevision });
+      },
+    });
+  } finally {
+    await syncMutex.release(lock).catch(() => false);
+  }
+};
+
+const rediscoveryJob = job<{ bindingId: string; allowCredentialRevision: boolean }, BindingRediscoveryResult>({
+  id: "mail:rediscover-binding",
+  defaults: { leaseMs: 5 * 60_000, keyTtlMs: 24 * 60 * 60_000 },
+  process: ({ ctx }) =>
+    executeBindingRediscovery(ctx.input.bindingId, ctx.input.allowCredentialRevision, () => ctx.heartbeat({ leaseMs: 5 * 60_000 })),
+  after: ({ ctx }) => {
+    if (ctx.error && normalizeSyncErrorCode(ctx.error) === "MAIL_RATE_LIMITED") {
+      ctx.reschedule({ delayMs: retryAfterMs(ctx.error, 15_000) });
+      return;
+    }
+    if (ctx.error && ctx.failureCount < 5) {
+      ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 15_000, maxMs: 15 * 60_000 }) });
+      return;
+    }
+    if (ctx.error) {
+      log.error("Mail provider rediscovery exhausted retries", {
+        bindingId: ctx.input.bindingId,
+        failureCount: ctx.failureCount,
+        code: normalizeSyncErrorCode(ctx.error),
+      });
+    }
+  },
+});
+
 const mailScheduler = scheduler({ id: "mail" });
 let started = false;
 
-const submitDueWork = async (): Promise<{ folders: number; messages: number }> => {
+const submitDueWork = async (): Promise<{ bindings: number; folders: number; messages: number }> => {
+  const bindings = await sql<{ id: string }[]>`
+    SELECT binding.id
+    FROM mail.provider_bindings binding
+    JOIN mail.remote_resources resource ON resource.id = binding.remote_resource_id
+    JOIN mail.mailboxes mailbox ON mailbox.id = resource.mailbox_id
+    JOIN mail.provider_connections connection ON connection.id = binding.connection_id
+    WHERE binding.state IN ('active', 'degraded')
+      AND connection.status IN ('active', 'degraded')
+      AND connection.encrypted_secret IS NOT NULL
+      AND mailbox.sync_enabled = true
+      AND mailbox.deleted_at IS NULL
+      AND (
+        binding.last_verified_at IS NULL
+        OR binding.last_verified_at < now() - interval '15 minutes'
+      )
+      AND (
+        binding.last_error_code IS NULL
+        OR binding.updated_at < now() - interval '15 minutes'
+      )
+    ORDER BY binding.last_verified_at NULLS FIRST, binding.id
+    LIMIT 100
+  `;
+  for (const binding of bindings) {
+    await rediscoveryJob.submit({
+      key: `binding:${binding.id}`,
+      input: { bindingId: binding.id, allowCredentialRevision: false },
+    });
+  }
+
   const folders = await sql<{ id: string }[]>`
     SELECT f.id
     FROM mail.folders f
     JOIN mail.remote_resources rr ON rr.id = f.remote_resource_id
     JOIN mail.mailboxes m ON m.id = rr.mailbox_id
     WHERE f.selected_for_sync = true
+      AND f.discovery_state = 'active'
+      AND f.sync_status <> 'excluded'
       AND m.sync_enabled = true
       AND m.deleted_at IS NULL
       AND EXISTS (
@@ -1245,7 +1385,7 @@ const submitDueWork = async (): Promise<{ folders: number; messages: number }> =
   for (const message of messages) {
     await hydrationJob.submit({ key: `message:${message.id}`, input: { messageId: message.id } });
   }
-  return { folders: folders.length, messages: messages.length };
+  return { bindings: bindings.length, folders: folders.length, messages: messages.length };
 };
 
 export const enqueueMailboxSync = async (mailboxId: string): Promise<number> => {
@@ -1253,13 +1393,23 @@ export const enqueueMailboxSync = async (mailboxId: string): Promise<number> => 
     SELECT f.id
     FROM mail.folders f
     JOIN mail.remote_resources rr ON rr.id = f.remote_resource_id
-    WHERE rr.mailbox_id = ${mailboxId}::uuid AND f.selected_for_sync = true
+    JOIN mail.mailboxes m ON m.id = rr.mailbox_id
+    WHERE rr.mailbox_id = ${mailboxId}::uuid
+      AND f.selected_for_sync = true
+      AND f.discovery_state = 'active'
+      AND f.sync_status <> 'excluded'
+      AND m.sync_enabled = true
+      AND m.deleted_at IS NULL
     ORDER BY CASE f.role WHEN 'inbox' THEN 0 ELSE 1 END, f.id
   `;
   for (const folder of folders) {
     await syncFolderJob.submit({ key: `folder:${folder.id}`, input: { folderId: folder.id } });
   }
   return folders.length;
+};
+
+export const enqueueFolderSync = async (folderId: string): Promise<void> => {
+  await syncFolderJob.submit({ key: `folder:${folderId}`, input: { folderId } });
 };
 
 export const mailRuntime = {
@@ -1292,8 +1442,8 @@ export const mailRuntime = {
     started = true;
   },
   stop: async (): Promise<void> => {
-    if (!started) return;
-    await mailScheduler.stop();
+    if (started) await mailScheduler.stop();
+    rediscoveryJob.stop();
     syncFolderJob.stop();
     hydrationJob.stop();
     started = false;
