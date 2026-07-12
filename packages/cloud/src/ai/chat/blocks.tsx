@@ -12,6 +12,7 @@ import {
   isRecord,
   isSurveyToolName,
   jsonPreview,
+  memoryToolPresentation,
   toolBlockSummary,
 } from "./message-utils";
 import { AssistantMarkdownBlock, ChatUtilityDisclosure, ChatUtilityLine, PulseDots } from "./primitives";
@@ -212,6 +213,40 @@ function SurveyToolView(props: { turnId: string; block: ToolBlock }) {
   );
 }
 
+function MemoryToolView(props: { block: ToolBlock }) {
+  const presentation = () => memoryToolPresentation(props.block.args, props.block.result);
+  return (
+    <Show
+      when={props.block.status !== "running"}
+      fallback={<ChatUtilityLine meta={{ icon: "ti ti-brain", label: "Updating memory", tone: "ai" }} trailing={<PulseDots />} />}
+    >
+      <Show
+        when={presentation()}
+        fallback={
+          <ToolResultDisclosure
+            name="Memory"
+            toolName={props.block.name}
+            args={props.block.args}
+            result={props.block.result}
+            isError={Boolean(props.block.isError)}
+          />
+        }
+      >
+        {(item) => (
+          <ChatUtilityLine
+            meta={{
+              icon: `ti ${item().failed ? "ti-alert-circle" : "ti-brain"}`,
+              label: item().label,
+              description: item().description,
+              tone: item().failed ? "danger" : "ai",
+            }}
+          />
+        )}
+      </Show>
+    </Show>
+  );
+}
+
 function ToolBlockView(props: { turnId: string; block: ToolBlock }) {
   const status = () => props.block.status;
   return (
@@ -240,6 +275,9 @@ function ToolBlockView(props: { turnId: string; block: ToolBlock }) {
       </Match>
       <Match when={props.block.name === "web_extract" && !props.block.isError}>
         <WebExtractToolBlock block={props.block} />
+      </Match>
+      <Match when={props.block.name === "memory"}>
+        <MemoryToolView block={props.block} />
       </Match>
       <Match when={isCardToolName(props.block.name)}>
         <CloudCardBlock args={props.block.args} />

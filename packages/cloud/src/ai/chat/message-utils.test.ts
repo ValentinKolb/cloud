@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { LoopAggregate, Message, Usage } from "@valentinkolb/nessi";
 import type { AiStoredMessage } from "../types";
-import { latestLoopUsage, latestUsage, latestUsageSnapshot } from "./message-utils";
+import { latestLoopUsage, latestUsage, latestUsageSnapshot, memoryToolPresentation } from "./message-utils";
 
 const storedAssistant = (input: { usage: Usage; aggregate?: LoopAggregate }): AiStoredMessage => {
   const message: Message = {
@@ -73,5 +73,33 @@ describe("AI usage selectors", () => {
 
     expect(latestUsage(messages)).toEqual(requestUsage);
     expect(latestLoopUsage(messages)).toEqual(requestUsage);
+  });
+});
+
+describe("memory tool presentation", () => {
+  test("shows an added memory once without technical result fields", () => {
+    expect(
+      memoryToolPresentation(
+        { action: "add", content: "Valentin is in Reichardtsroth until Wednesday." },
+        { ok: true, message: "Remembered: [2026-07-11] Valentin is in Reichardtsroth until Wednesday." },
+      ),
+    ).toEqual({ label: "Remembered", description: "Valentin is in Reichardtsroth until Wednesday.", failed: false });
+  });
+
+  test("uses the affected entries for removal copy", () => {
+    expect(
+      memoryToolPresentation(
+        { action: "remove", content: "Reichardtsroth" },
+        { ok: true, message: "Forgot 2 memories: [2026-07-10] First visit. | [2026-07-11] Second visit." },
+      ),
+    ).toEqual({ label: "Forgot 2 memories", description: "First visit. · Second visit.", failed: false });
+  });
+
+  test("keeps failed updates visible", () => {
+    expect(memoryToolPresentation({ action: "add", content: "A fact" }, { ok: false, message: "Memory is full." })).toEqual({
+      label: "Memory not updated",
+      description: "Memory is full.",
+      failed: true,
+    });
   });
 });
