@@ -338,6 +338,7 @@ const GroupBySpecSchema = z.object({
   label: z.string().trim().min(1).max(120).optional(),
   format: FormatSpecSchema.optional(),
   direction: z.enum(["asc", "desc"]).optional(),
+  nullsFirst: z.boolean().optional(),
   /** date-field grouping bucket. Backend uses `date_trunc(<granularity>, …)`. */
   granularity: z.enum(["day", "week", "month", "quarter", "year"]).optional(),
 });
@@ -359,6 +360,7 @@ const GroupSortSpecSchema = z.object({
   fieldId: z.union([z.string().uuid(), z.literal("*")]),
   agg: GroupAggregateKindSchema,
   direction: z.enum(["asc", "desc"]).optional(),
+  nullsFirst: z.boolean().optional(),
 });
 export type GroupSortSpec = z.infer<typeof GroupSortSpecSchema>;
 

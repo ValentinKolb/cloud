@@ -194,6 +194,7 @@ export const resolveGroupedQueryPlanSort = (
   const formulaGroupSort: GroupSortSpec[] = [];
 
   for (const item of items) {
+    const nulls = item.nullsFirst === undefined ? {} : { nullsFirst: item.nullsFirst };
     const target = item.target;
     const implicitAggregateAlias =
       isQualifiedSortTarget(target) && !target.scope
@@ -209,13 +210,13 @@ export const resolveGroupedQueryPlanSort = (
       if (aggregate) {
         const agg = groupAggForDsl(aggregate.agg);
         if (isDiagnostic(agg)) return agg;
-        groupSort.push({ fieldId: aggregate.fieldId, agg, direction: item.direction });
+        groupSort.push({ fieldId: aggregate.fieldId, agg, direction: item.direction, ...nulls });
         continue;
       }
 
       const formulaAggregate = formulaAggregations.find((candidate) => normalizeRefKey(candidate.ref) === key);
       if (formulaAggregate) {
-        formulaGroupSort.push({ fieldId: formulaAggregate.id, agg: formulaAggregate.agg, direction: item.direction });
+        formulaGroupSort.push({ fieldId: formulaAggregate.id, agg: formulaAggregate.agg, direction: item.direction, ...nulls });
         continue;
       }
       if (fieldAliasId(scope, alias) || setHasAlias(scope.computedAliases, alias) || setHasAlias(scope.joinedAliases, alias)) {
@@ -232,6 +233,7 @@ export const resolveGroupedQueryPlanSort = (
     const groupItem = nextGroupBy.find((candidate) => candidate.fieldId === field.id);
     if (!groupItem) return diagnostic(`grouped sort field "${field.name}" must also be in group by`, target.span ?? item.span);
     groupItem.direction = item.direction;
+    if (item.nullsFirst !== undefined) groupItem.nullsFirst = item.nullsFirst;
   }
 
   return { groupBy: nextGroupBy, groupSort, formulaGroupSort };

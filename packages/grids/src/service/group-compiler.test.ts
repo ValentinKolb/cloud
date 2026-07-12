@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseFormula } from "../formula/parser";
+import { normalizedSql } from "../sql-test-utils";
 import { compileGroupQuery, isAggregatable, isGroupable } from "./group-compiler";
 import type { Field } from "./types";
 
@@ -140,6 +141,32 @@ describe("compileGroupQuery — basic shape", () => {
     });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.cursorable).toBe(false);
+  });
+
+  test("preserves explicit null ordering for group and aggregate sorts", () => {
+    const r = compileGroupQuery({
+      tableId,
+      groupBy: [{ fieldId: author.id, direction: "asc", nullsFirst: true }],
+      aggregations: [{ fieldId: amount.id, agg: "sum" }],
+      groupSort: [{ fieldId: amount.id, agg: "sum", direction: "desc", nullsFirst: true }],
+      fields,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(normalizedSql(r.query)).toContain(`ORDER BY "${amount.id}__sum" DESC NULLS FIRST, 1 ASC NULLS FIRST`);
+  });
+
+  test("continues after a null cursor when group keys use nulls first", () => {
+    const r = compileGroupQuery({
+      tableId,
+      groupBy: [{ fieldId: amount.id, direction: "asc", nullsFirst: true }],
+      aggregations: [{ fieldId: "*", agg: "count" }],
+      cursor: { keys: [null] },
+      fields,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(normalizedSql(r.query)).toContain('WHERE ((TRUE AND "gk_0" IS NOT NULL))');
   });
 
   test("compiles having predicates over aggregate aliases", () => {

@@ -506,14 +506,16 @@ const buildWhereClause = (params: CompileGroupParams): { ok: true; where: any } 
 const groupOrderPart = (g: ResolvedGroup, index: number, reverse: boolean): any => {
   const desc = g.spec.direction === "desc";
   const dir = reverse ? (desc ? sql`ASC` : sql`DESC`) : desc ? sql`DESC` : sql`ASC`;
-  const nulls = reverse ? sql`NULLS FIRST` : sql`NULLS LAST`;
+  const nullsFirst = reverse ? !g.spec.nullsFirst : g.spec.nullsFirst;
+  const nulls = nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`;
   return sql`${sql.unsafe(String(index + 1))} ${dir} ${nulls}`;
 };
 
 const aggregateOrderPart = (sort: GroupSortSpec, reverse: boolean): any => {
   const asc = sort.direction === "asc";
   const dir = reverse ? (asc ? sql`DESC` : sql`ASC`) : asc ? sql`ASC` : sql`DESC`;
-  const nulls = reverse ? sql`NULLS FIRST` : sql`NULLS LAST`;
+  const nullsFirst = reverse ? !sort.nullsFirst : sort.nullsFirst;
+  const nulls = nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`;
   return sql`${sql.unsafe(`"${assertSqlIdentifier(aggAliasFor(sort))}"`)} ${dir} ${nulls}`;
 };
 
@@ -525,11 +527,11 @@ const buildOrderBy = (groups: ResolvedGroup[], groupSort: GroupSortSpec[], rever
   return joinSql(parts);
 };
 
-const buildCursorHavingClause = (
+const buildCursorWhereClause = (
   cursor: CompileGroupParams["cursor"],
   groups: ResolvedGroup[],
-): { ok: true; havingClause: any } | { ok: false; error: string } => {
-  if (!cursor) return { ok: true, havingClause: sql`TRUE` };
+): { ok: true; whereClause: any } | { ok: false; error: string } => {
+  if (!cursor) return { ok: true, whereClause: sql`TRUE` };
   if (cursor.keys.length !== groups.length) {
     return {
       ok: false,
@@ -540,22 +542,29 @@ const buildCursorHavingClause = (
   const branches: any[] = [];
   for (let i = 0; i < groups.length; i++) {
     const group = groups[i]!;
+    const column = sql.unsafe(`"${groupAlias(i)}"`);
     const cursorVal = cursor.keys[i];
     const cmp = (group.spec.direction ?? "asc") === "desc" ? sql`<` : sql`>`;
     let prefix: any = sql`TRUE`;
 
     for (let j = 0; j < i; j++) {
-      const previousGroup = groups[j]!;
-      prefix = sql`${prefix} AND (${previousGroup.expr} IS NOT DISTINCT FROM ${cursor.keys[j]})`;
+      const previousColumn = sql.unsafe(`"${groupAlias(j)}"`);
+      prefix = sql`${prefix} AND (${previousColumn} IS NOT DISTINCT FROM ${cursor.keys[j]})`;
     }
 
-    const comp =
-      cursorVal === null || cursorVal === undefined ? sql`FALSE` : sql`((${group.expr} ${cmp} ${cursorVal}) OR ${group.expr} IS NULL)`;
+    const cursorIsNull = cursorVal === null || cursorVal === undefined;
+    const comp = cursorIsNull
+      ? group.spec.nullsFirst
+        ? sql`${column} IS NOT NULL`
+        : sql`FALSE`
+      : group.spec.nullsFirst
+        ? sql`${column} ${cmp} ${cursorVal}`
+        : sql`((${column} ${cmp} ${cursorVal}) OR ${column} IS NULL)`;
     branches.push(sql`(${prefix} AND ${comp})`);
   }
 
-  const havingClause = branches.reduce((acc, cur) => sql`${acc} OR ${cur}`);
-  return { ok: true, havingClause: sql`(${havingClause})` };
+  const whereClause = branches.reduce((acc, cur) => sql`${acc} OR ${cur}`);
+  return { ok: true, whereClause: sql`(${whereClause})` };
 };
 
 type CompileGroupParams = {
@@ -615,8 +624,8 @@ const buildGroupedSql = (
 ): { ok: true; query: any; cursorable: boolean } | { ok: false; error: string } => {
   const where = buildWhereClause(params);
   if (!where.ok) return where;
-  const cursorHaving = buildCursorHavingClause(params.cursor, groups);
-  if (!cursorHaving.ok) return cursorHaving;
+  const cursorWhere = buildCursorWhereClause(params.cursor, groups);
+  if (!cursorWhere.ok) return cursorWhere;
 
   const selectList = buildSelectList(groups, aggregations.aggExprs);
   const from = buildFromClause(groups);
@@ -626,13 +635,12 @@ const buildGroupedSql = (
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 1000);
   const offset = Math.min(Math.max(params.offset ?? 0, 0), 10_000);
   const fetchLimit = limit + 1;
-  const having = sql`(${cursorHaving.havingClause}) AND (${userHaving})`;
   const groupedQuery = sql`
     SELECT ${selectList}
     FROM ${from}
     WHERE ${where.where}
     GROUP BY ${groupByPositions}
-    HAVING ${having}
+    HAVING ${userHaving}
   `;
 
   const query = params.fromEnd
@@ -641,6 +649,7 @@ const buildGroupedSql = (
         FROM (
           SELECT *
           FROM (${groupedQuery}) grouped_tail
+          WHERE ${cursorWhere.whereClause}
           ORDER BY ${reverseOrderBy}
           LIMIT ${fetchLimit}
         ) grouped_tail_window
@@ -649,6 +658,7 @@ const buildGroupedSql = (
     : sql`
         SELECT *
         FROM (${groupedQuery}) grouped
+        WHERE ${cursorWhere.whereClause}
         ORDER BY ${orderBy}
         LIMIT ${fetchLimit}
         OFFSET ${offset}

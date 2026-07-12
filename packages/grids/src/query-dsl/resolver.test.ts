@@ -1220,6 +1220,26 @@ sort missing desc`),
     expect(result.plan.sqlSort).toBeUndefined();
   });
 
+  test("query plan preserves grouped null ordering", () => {
+    const result = resolveDslQueryToQueryPlan(
+      parseOk(`
+        group by ordered_at by month
+        aggregate sum(amount) as revenue
+        sort ordered_at asc nulls first, revenue desc nulls first
+      `),
+      ctx(),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.query.groupBy).toEqual([{ fieldId: orderedAtFieldId, granularity: "month", direction: "asc", nullsFirst: true }]);
+    expect(result.plan.query.groupSort).toEqual([{ fieldId: amountFieldId, agg: "sum", direction: "desc", nullsFirst: true }]);
+
+    const compiled = compileDslGroupedQueryPlanToSql(result.plan, { fieldsByTableId: ctx().fieldsByTableId });
+    expect(compiled.ok).toBe(true);
+    if (compiled.ok) expect(normalizedSql(compiled.query.sql)).toContain("DESC NULLS FIRST, 1 ASC NULLS FIRST");
+  });
+
   test("query plan rejects grouped sort targets that cannot be represented by grouped SQL", () => {
     const missingGroup = resolveDslQueryToQueryPlan(
       parseOk(`
@@ -1249,6 +1269,21 @@ sort missing desc`),
     if (!result.ok) return;
     expect(result.plan.query.groupSort).toBeUndefined();
     expect(result.plan.formulaGroupSort).toEqual([{ fieldId: "margin", agg: "sum", direction: "desc" }]);
+  });
+
+  test("query plan preserves grouped formula aggregate null ordering", () => {
+    const result = resolveDslQueryToQueryPlan(
+      parseOk(`
+        group by ordered_at by month
+        aggregate sum(formula(amount - cost)) as margin
+        sort margin desc nulls first
+      `),
+      ctx(),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.formulaGroupSort).toEqual([{ fieldId: "margin", agg: "sum", direction: "desc", nullsFirst: true }]);
   });
 
   test("query plan accepts relation-safe joins and joined select columns", () => {

@@ -92,10 +92,14 @@ const groupedSortToGql = (query: RecordQuery): ConvertResult | undefined => {
     if (!match) return unsupported(`group sort ${item.agg}(${item.fieldId}) needs a matching aggregation`);
     const alias = aggregationAlias(match);
     if (!alias.ok) return alias;
-    parts.push(`${alias.source} ${item.direction ?? "asc"}`);
+    const nulls = item.nullsFirst === undefined ? "" : item.nullsFirst ? " nulls first" : " nulls last";
+    parts.push(`${alias.source} ${item.direction ?? "asc"}${nulls}`);
   }
   for (const group of query.groupBy ?? []) {
-    if (group.direction) parts.push(`${gqlFieldRef(group.fieldId)} ${group.direction}`);
+    if (group.direction || group.nullsFirst !== undefined) {
+      const nulls = group.nullsFirst === undefined ? "" : group.nullsFirst ? " nulls first" : " nulls last";
+      parts.push(`${gqlFieldRef(group.fieldId)} ${group.direction ?? "asc"}${nulls}`);
+    }
   }
   const rowSort = sortToGql(query.sort);
   if (rowSort) {

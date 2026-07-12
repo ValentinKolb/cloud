@@ -238,6 +238,39 @@ describe("records SQL formula projection integration", () => {
     }
   });
 
+  postgresTest("group paginates forward from a nulls-first group key", async () => {
+    const fixture = await insertSqlFormulaFixture();
+    try {
+      await sql`
+        INSERT INTO grids.records (id, table_id, data, version)
+        VALUES (${uuid()}::uuid, ${fixture.tableId}::uuid, ${{ [fixture.quantityId]: "2.00" }}::jsonb, 1)
+      `;
+
+      const first = await group({
+        tableId: fixture.tableId,
+        groupBy: [{ fieldId: fixture.priceId, direction: "asc", nullsFirst: true }],
+        aggregations: [{ fieldId: "*", agg: "count" }],
+        limit: 1,
+      });
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      expect(first.data.buckets.map((bucket) => bucket.keys[0])).toEqual([null]);
+      expect(first.data.nextCursor).not.toBeNull();
+
+      const second = await group({
+        tableId: fixture.tableId,
+        groupBy: [{ fieldId: fixture.priceId, direction: "asc", nullsFirst: true }],
+        aggregations: [{ fieldId: "*", agg: "count" }],
+        cursor: first.data.nextCursor,
+        limit: 1,
+      });
+      expect(second.ok).toBe(true);
+      if (second.ok) expect(second.data.buckets.map((bucket) => bucket.keys[0])).toEqual([0.1]);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
   postgresTest("group aggregates SQL formula arguments and applies having to the formula alias", async () => {
     const fixture = await insertSqlFormulaFixture();
     try {

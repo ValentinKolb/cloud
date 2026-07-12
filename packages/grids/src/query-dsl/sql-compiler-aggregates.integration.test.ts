@@ -31,6 +31,33 @@ describe("Query DSL Postgres smoke — computed, labels, and aggregates", () => 
     }
   });
 
+  postgresTest("preserves explicit null ordering for group keys and aggregate aliases", async () => {
+    const fixture = await insertDslDbFixture();
+    try {
+      const groupKey = await preview(
+        fixture,
+        `
+          group by AMT01
+          aggregate count(*) as rows
+          sort AMT01 asc nulls first
+        `,
+      );
+      expect(groupKey.rows.map((row) => row.values.gk_0)).toEqual([null, "4", "12.5"]);
+
+      const aggregateAlias = await preview(
+        fixture,
+        `
+          group by STAT1
+          aggregate sum(AMT01) as revenue
+          sort revenue asc nulls first
+        `,
+      );
+      expect(aggregateAlias.rows.map((row) => row.values.gk_0)).toEqual(["Backlog", "Closed", "Open"]);
+    } finally {
+      await cleanupFixture(fixture.baseId);
+    }
+  });
+
   postgresTest("executes multi-select grouped explode semantics", async () => {
     const fixture = await insertDslDbFixture();
     try {

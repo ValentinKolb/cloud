@@ -318,19 +318,19 @@ include deleted`);
   test("round-trips grouped RecordQuery UI state through canonical GQL", () => {
     expect(
       canonicalUiQuery({
-        groupBy: [{ fieldId: orderedAtId, granularity: "month", direction: "desc" }],
+        groupBy: [{ fieldId: orderedAtId, granularity: "month", direction: "desc", nullsFirst: false }],
         aggregations: [
           { fieldId: "*" as const, agg: "count", label: "rows" },
           { fieldId: amountId, agg: "sum", label: "revenue" },
         ],
-        groupSort: [{ fieldId: amountId, agg: "sum", direction: "desc" }],
+        groupSort: [{ fieldId: amountId, agg: "sum", direction: "desc", nullsFirst: true }],
         deletedOnly: true,
         limit: 12,
       }),
     ).toBe(`from table {${orders.id}}
 group by {${orderedAtId}} by month
 aggregate count(*) as rows, sum({${amountId}}) as revenue
-sort revenue desc, {${orderedAtId}} desc
+sort revenue desc nulls first, {${orderedAtId}} desc nulls last
 limit 12
 deleted only`);
   });
