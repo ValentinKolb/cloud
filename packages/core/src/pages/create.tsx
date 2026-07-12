@@ -10,6 +10,7 @@ import loginPage from "./auth/page";
 import passwordResetPage from "./auth/password-reset/page";
 import { makeLegalPage } from "./legal/page-handler";
 import profilePage from "./me/page";
+import notificationsPage from "./me/notifications.page";
 import notFoundPage from "./NotFound";
 import cliInstaller from "../../../cloud-cli/scripts/install.sh" with { type: "text" };
 
@@ -36,6 +37,7 @@ export const createPagesRouter = (options?: { brandingPublicDir?: string }): Hon
     .get("/cli", (c) => c.body(cliInstaller, 200, { "Content-Type": "text/x-shellscript; charset=utf-8" }))
     // Profile
     .get("/me", auth.requireRole("authenticated", auth.redirectToLogin), ...profilePage)
+    .get("/me/notifications", auth.requireRole("authenticated", auth.redirectToLogin), ...notificationsPage)
     // Admin pages (admin only)
     .get("/admin", auth.requireRole("admin", auth.redirectToLogin), ...adminPage)
     .get("/admin/announcements", auth.requireRole("admin", auth.redirectToLogin), ...announcementsAdminPage)

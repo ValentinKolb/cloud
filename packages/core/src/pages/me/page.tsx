@@ -325,6 +325,18 @@ export default ssr<AuthContext>(async (c) => {
           <aside class="flex min-w-0 flex-col gap-4">
             <section class="paper p-5">
               <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">
+                <i class="ti ti-bell text-sm" />
+                Notifications
+              </h2>
+              <p class="mt-1 text-xs text-dimmed">Choose delivery channels and review recent outcomes.</p>
+              <a href="/me/notifications" class="btn-secondary btn-sm mt-4 inline-flex">
+                <i class="ti ti-settings" />
+                Manage notifications
+              </a>
+            </section>
+
+            <section class="paper p-5">
+              <h2 class="flex items-center gap-1.5 text-sm font-semibold text-primary">
                 <i class="ti ti-terminal-2 text-sm" />
                 Cloud CLI
               </h2>
