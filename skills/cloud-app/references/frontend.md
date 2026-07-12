@@ -316,10 +316,20 @@ the domain event. Keep browser payloads generic and put sensitive context behind
 the authenticated `targetHref`; the destination page must perform its normal
 permission check when opened.
 
+Logical event creation is idempotent, while provider delivery is at-least-once:
+a worker crash after provider acceptance can retry the same delivery. Channel
+drivers must pass the stable `event.id` to provider idempotency or collapse
+mechanisms where available. The built-in email driver derives a stable
+`Message-ID`, and Web Push derives a stable topic. Provider payloads remain
+encrypted only while a delivery can retry and are deleted after delivery,
+suppression, or terminal failure; bodyless event and attempt metadata remains
+available in notification history.
+
 Apps must not request browser permission directly. The central notification
 settings UI performs explicit opt-in, endpoint registration, and unsupported-
-browser handling. A visible Cloud page receives quiet in-app feedback; hidden
-or closed pages use the browser notification channel when available.
+browser handling. A visible Cloud page receives quiet in-app feedback over an
+authenticated live stream without requiring notification permission. Hidden or
+closed pages use Web Push when the user enabled it on that device.
 
 The legacy `notifications.send({ type: "email", ... })` and
 `notifications.sendToUser(...)` APIs remain operational for third-party apps,
@@ -352,7 +362,8 @@ const unregister = registerNotificationChannel(mobileDriver);
 
 The driver resolves a recipient's devices, creates the provider payload, and
 delivers it. The platform encrypts persisted payloads and keeps retry and
-delivery history generic. Register the driver once per process and call the
+delivery history generic. Register the same deployment driver once in every app
+process that can create notifications and in Core's delivery process; call the
 returned cleanup function during shutdown. Apps can then use `"mobile"` in
 `recommended` or `required` without importing the provider integration.
 

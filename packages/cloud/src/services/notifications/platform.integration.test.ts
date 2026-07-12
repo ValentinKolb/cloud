@@ -9,6 +9,7 @@ import { userNotifications } from "./user";
 
 declare module "../../contracts/notification-types" {
   interface NotificationChannelRegistry {
+    flaky: true;
     test: true;
   }
 }
@@ -51,10 +52,24 @@ describe("typed notification delivery integration", () => {
     `;
     const userId = rows[0]!.id;
     const delivered: unknown[] = [];
+    let flakyPreparation = true;
+    const flakyEventIds: string[] = [];
     const unregister = registerNotificationChannel({
       id: "test",
       resolveDestinations: async () => [{ key: "test-destination", label: "Test device", context: { token: "endpoint-secret" } }],
       createPayload: ({ presentation, destination }) => ({ presentation, destination: destination.context }),
+      deliver: async (payload) => {
+        delivered.push(payload);
+      },
+    });
+    const unregisterFlaky = registerNotificationChannel({
+      id: "flaky",
+      resolveDestinations: async () => [{ key: "flaky-destination", label: "Flaky device", context: {} }],
+      createPayload: ({ presentation, event }) => {
+        flakyEventIds.push(event.id);
+        if (flakyPreparation) throw new Error("Temporary preparation failure");
+        return presentation;
+      },
       deliver: async (payload) => {
         delivered.push(payload);
       },
@@ -84,6 +99,44 @@ describe("typed notification delivery integration", () => {
           data: z.object({ resourceId: z.string() }),
           render: ({ resourceId }) => ({ title: "Muted", body: `Resource ${resourceId}` }),
         }),
+        lazyEmail: notification({
+          recipient: "user",
+          label: "Lazy email",
+          description: "Email rendering must not affect another selected channel.",
+          delivery: { required: ["test"] },
+          data: z.object({ resourceId: z.string() }),
+          render: ({ resourceId }) => ({ title: "Lazy email", body: `Resource ${resourceId}` }),
+          email: () => {
+            throw new Error("Email renderer must stay lazy");
+          },
+        }),
+        foreground: notification({
+          recipient: "user",
+          label: "Foreground",
+          description: "Visible pages receive this without a Push endpoint.",
+          delivery: { recommended: ["browser"] },
+          data: z.object({ resourceId: z.string() }),
+          render: ({ resourceId }) => ({ title: "Foreground ready", targetHref: `/resources/${resourceId}` }),
+        }),
+        brokenEmail: notification({
+          recipient: "user",
+          label: "Broken email",
+          description: "Selected email preparation failures remain observable.",
+          delivery: { required: ["email"] },
+          data: z.object({}),
+          render: () => ({ title: "Broken email" }),
+          email: () => {
+            throw new Error("Broken email template");
+          },
+        }),
+        retriablePreparation: notification({
+          recipient: "user",
+          label: "Retriable preparation",
+          description: "Stable events can recover from temporary preparation failures.",
+          delivery: { required: ["flaky"] },
+          data: z.object({}),
+          render: () => ({ title: "Retriable preparation" }),
+        }),
       },
     });
     let legacyMessageId: string | null = null;
@@ -106,7 +159,7 @@ describe("typed notification delivery integration", () => {
       expect(duplicate.created).toBe(false);
       expect(delivered).toHaveLength(1);
 
-      const deliveryRows = await sql<{ payload_encrypted: string; status: string; attempt_count: number }[]>`
+      const deliveryRows = await sql<{ payload_encrypted: string | null; status: string; attempt_count: number }[]>`
         SELECT payload_encrypted, status, attempt_count
         FROM notifications.deliveries
         WHERE event_id = ${first.id}::uuid
@@ -114,8 +167,70 @@ describe("typed notification delivery integration", () => {
       expect(deliveryRows).toHaveLength(1);
       expect(deliveryRows[0]?.status).toBe("delivered");
       expect(deliveryRows[0]?.attempt_count).toBe(1);
-      expect(deliveryRows[0]?.payload_encrypted).not.toContain("resource-1");
-      expect(deliveryRows[0]?.payload_encrypted).not.toContain("endpoint-secret");
+      expect(deliveryRows[0]?.payload_encrypted).toBeNull();
+
+      const lazyEmail = await notifications.send(app.notifications.lazyEmail, {
+        recipient: { userId },
+        data: { resourceId: "resource-3" },
+        idempotencyKey: `lazy-email:${suffix}`,
+      });
+      expect(lazyEmail.status).toBe("delivered");
+
+      const liveAbort = new AbortController();
+      const cursor = (await notifications.live.latestCursor(userId)) ?? "0-0";
+      const liveIterator = notifications.live.events({ userId, after: cursor, signal: liveAbort.signal })[Symbol.asyncIterator]();
+      const nextLive = liveIterator.next();
+      const foreground = await notifications.send(app.notifications.foreground, {
+        recipient: { userId },
+        data: { resourceId: "resource-live" },
+        idempotencyKey: `foreground:${suffix}`,
+      });
+      const live = await Promise.race([
+        nextLive,
+        Bun.sleep(2_000).then(() => {
+          throw new Error("Timed out waiting for foreground notification");
+        }),
+      ]);
+      liveAbort.abort();
+      expect(foreground.status).toBe("suppressed");
+      expect(live.value?.data).toEqual({
+        type: "cloud-notification",
+        eventId: foreground.id,
+        title: "Foreground ready",
+        targetHref: "/resources/resource-live",
+      });
+
+      const brokenEmail = await notifications.send(app.notifications.brokenEmail, {
+        recipient: { userId },
+        data: {},
+        idempotencyKey: `broken-email:${suffix}`,
+      });
+      expect(brokenEmail).toEqual(
+        expect.objectContaining({
+          status: "error",
+          deliveries: [expect.objectContaining({ channel: "email", status: "failed", errorCode: "preparation_failed" })],
+        }),
+      );
+      const [brokenPayload] = await sql<{ payload_encrypted: string | null }[]>`
+        SELECT payload_encrypted FROM notifications.deliveries WHERE event_id = ${brokenEmail.id}::uuid
+      `;
+      expect(brokenPayload?.payload_encrypted).toBeNull();
+
+      const preparationKey = `retriable-preparation:${suffix}`;
+      const failedPreparation = await notifications.send(app.notifications.retriablePreparation, {
+        recipient: { userId },
+        data: {},
+        idempotencyKey: preparationKey,
+      });
+      expect(failedPreparation.status).toBe("error");
+      flakyPreparation = false;
+      const recoveredPreparation = await notifications.send(app.notifications.retriablePreparation, {
+        recipient: { userId },
+        data: {},
+        idempotencyKey: preparationKey,
+      });
+      expect(recoveredPreparation).toEqual(expect.objectContaining({ id: failedPreparation.id, created: false, status: "delivered" }));
+      expect(flakyEventIds).toEqual([failedPreparation.id, failedPreparation.id]);
 
       await registerNotificationDefinitions(app.meta.id, app.notifications);
       await sql`
@@ -175,6 +290,7 @@ describe("typed notification delivery integration", () => {
       ]);
     } finally {
       unregister();
+      unregisterFlaky();
       if (legacyMessageId) await sql`DELETE FROM notifications.messages WHERE id = ${legacyMessageId}::uuid`;
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
       await sql`DELETE FROM notifications.definitions WHERE app_id = 'notification-platform-test'`;

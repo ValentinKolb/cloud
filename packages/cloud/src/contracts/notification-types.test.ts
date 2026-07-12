@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { defineApp } from "../_internal/define-app";
-import { type AnyBoundNotificationDefinition, type NotificationSendInput, notification } from "./notification-types";
+import {
+  type AnyBoundNotificationDefinition,
+  isSafeNotificationTargetHref,
+  type NotificationSendInput,
+  notification,
+  validateNotificationTargetHref,
+} from "./notification-types";
 
 declare module "@valentinkolb/cloud/contracts/notifications" {
   interface NotificationChannelRegistry {
@@ -89,5 +95,12 @@ describe("notification definitions", () => {
         render: () => ({ title: "Invite" }),
       }),
     ).toThrow("must require the email channel");
+  });
+
+  test("accepts only canonical same-origin notification targets", () => {
+    expect(isSafeNotificationTargetHref("/app/assistant?conversation=one")).toBe(true);
+    expect(isSafeNotificationTargetHref("//evil.example")).toBe(false);
+    expect(isSafeNotificationTargetHref("/\\evil.example")).toBe(false);
+    expect(() => validateNotificationTargetHref("/app/../admin")).toThrow("canonical same-origin");
   });
 });

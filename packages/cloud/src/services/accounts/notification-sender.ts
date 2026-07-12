@@ -3,7 +3,7 @@ import type { TypedNotificationSendResult } from "../notifications/platform";
 export type AccountNotificationDeliveryResult = Pick<TypedNotificationSendResult, "id" | "status">;
 
 export type AccountsNotificationSender = {
-  sendLoginLink: (input: { userId: string; token: string; magicLink: string }) => Promise<AccountNotificationDeliveryResult>;
+  sendLoginLink: (input: { email: string; token: string; magicLink: string }) => Promise<AccountNotificationDeliveryResult>;
   sendFreeIpaWelcome: (input: {
     userId: string;
     uid: string;

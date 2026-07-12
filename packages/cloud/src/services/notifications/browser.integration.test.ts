@@ -17,6 +17,20 @@ const canUseNotificationDatabase = async (): Promise<boolean> => {
 };
 
 describe("browser notification endpoints", () => {
+  test("rejects private push endpoints before persistence", async () => {
+    await expect(
+      browserNotifications.registerEndpoint({
+        userId: crypto.randomUUID(),
+        subscription: {
+          endpoint: "https://127.0.0.1/push",
+          expirationTime: null,
+          keys: { p256dh: "p".repeat(65), auth: "a".repeat(24) },
+        },
+        label: "Unsafe device",
+      }),
+    ).rejects.toThrow("public HTTPS");
+  });
+
   test("encrypts subscriptions and atomically rebinds a browser to the latest user", async () => {
     if (!(await canUseNotificationDatabase())) return;
 

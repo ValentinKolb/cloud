@@ -88,6 +88,42 @@ export const migrate = async (): Promise<void> => {
       UNIQUE (definition_id, recipient_key, idempotency_key)
     )
   `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'notification_events_target_href_safe_check'
+          AND conrelid = 'notifications.events'::regclass
+      ) THEN
+        ALTER TABLE notifications.events
+        ADD CONSTRAINT notification_events_target_href_safe_check CHECK (
+          target_href IS NULL OR (
+            left(target_href, 1) = '/'
+            AND left(target_href, 2) <> '//'
+            AND strpos(target_href, chr(92)) = 0
+            AND target_href !~ '[[:cntrl:]]'
+          )
+        ) NOT VALID;
+      END IF;
+    END
+    $$
+  `.simple();
+  await sql`
+    UPDATE notifications.events
+    SET target_href = NULL
+    WHERE target_href IS NOT NULL
+      AND (
+        left(target_href, 1) <> '/'
+        OR left(target_href, 2) = '//'
+        OR strpos(target_href, chr(92)) > 0
+        OR target_href ~ '[[:cntrl:]]'
+      )
+  `.simple();
+  await sql`
+    ALTER TABLE notifications.events
+    VALIDATE CONSTRAINT notification_events_target_href_safe_check
+  `.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS notifications.deliveries (
@@ -97,7 +133,7 @@ export const migrate = async (): Promise<void> => {
       endpoint_id UUID REFERENCES notifications.endpoints(id) ON DELETE SET NULL,
       destination_key TEXT NOT NULL,
       destination_label TEXT NOT NULL,
-      payload_encrypted TEXT NOT NULL,
+      payload_encrypted TEXT,
       required BOOLEAN NOT NULL DEFAULT false,
       route_priority INTEGER,
       status TEXT NOT NULL DEFAULT 'deferred',
@@ -115,6 +151,62 @@ export const migrate = async (): Promise<void> => {
       CONSTRAINT notification_deliveries_attempt_count_check CHECK (attempt_count >= 0),
       UNIQUE (event_id, channel, destination_key)
     )
+  `.simple();
+  await sql`ALTER TABLE notifications.deliveries ALTER COLUMN payload_encrypted DROP NOT NULL`.simple();
+  await sql`
+    CREATE OR REPLACE FUNCTION notifications.redact_terminal_delivery_payload()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      IF NEW.status IN ('delivered', 'suppressed', 'failed') THEN
+        NEW.payload_encrypted = NULL;
+      END IF;
+      RETURN NEW;
+    END
+    $$
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgname = 'notification_deliveries_redact_terminal_payload'
+          AND tgrelid = 'notifications.deliveries'::regclass
+      ) THEN
+        CREATE TRIGGER notification_deliveries_redact_terminal_payload
+        BEFORE INSERT OR UPDATE OF status, payload_encrypted ON notifications.deliveries
+        FOR EACH ROW EXECUTE FUNCTION notifications.redact_terminal_delivery_payload();
+      END IF;
+    END
+    $$
+  `.simple();
+  await sql`ALTER TABLE notifications.deliveries DROP CONSTRAINT IF EXISTS notification_deliveries_payload_check`.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'notification_deliveries_payload_state_check'
+          AND conrelid = 'notifications.deliveries'::regclass
+      ) THEN
+        ALTER TABLE notifications.deliveries
+        ADD CONSTRAINT notification_deliveries_payload_state_check CHECK (
+          (status IN ('delivered', 'suppressed', 'failed') AND payload_encrypted IS NULL)
+          OR (status IN ('deferred', 'pending', 'sending') AND payload_encrypted IS NOT NULL)
+        ) NOT VALID;
+      END IF;
+    END
+    $$
+  `.simple();
+  await sql`
+    UPDATE notifications.deliveries
+    SET payload_encrypted = NULL, updated_at = now()
+    WHERE status IN ('delivered', 'suppressed', 'failed') AND payload_encrypted IS NOT NULL
+  `.simple();
+  await sql`
+    ALTER TABLE notifications.deliveries
+    VALIDATE CONSTRAINT notification_deliveries_payload_state_check
   `.simple();
 
   await sql`

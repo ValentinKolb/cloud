@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { sql } from "bun";
 import webpush from "web-push";
 import { z } from "zod";
+import { isSafeNotificationTargetHref } from "../../contracts/notification-types";
 import { type BrowserPushSubscription, BrowserPushSubscriptionSchema } from "../../contracts/user-notifications";
 import { decryptSecret, encryptSecret } from "../secrets";
 import { coreSettings } from "../settings/api";
 import { type NotificationDestination, registerNotificationChannel } from "./channels";
+import { sendPinnedWebPush } from "./web-push-transport";
 
 type EndpointRow = {
   id: string;
@@ -27,7 +29,7 @@ const BrowserDeliveryPayloadSchema = z.object({
   subscription: BrowserPushSubscriptionSchema,
   eventId: z.uuid(),
   title: z.string().min(1).max(200),
-  targetHref: z.string().startsWith("/").optional(),
+  targetHref: z.string().max(4_000).refine(isSafeNotificationTargetHref).optional(),
 });
 
 const BrowserDestinationContextSchema = z.object({
@@ -152,7 +154,7 @@ const browserDriver = {
     const payload: BrowserDeliveryPayload = BrowserDeliveryPayloadSchema.parse(value);
     await ensureWebPushConfigured();
     try {
-      await webpush.sendNotification(
+      await sendPinnedWebPush(
         payload.subscription,
         JSON.stringify({
           type: "cloud-notification",

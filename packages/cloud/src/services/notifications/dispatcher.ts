@@ -10,7 +10,7 @@ type DeliveryRow = {
   id: string;
   event_id: string;
   channel: string;
-  payload_encrypted: string;
+  payload_encrypted: string | null;
   required: boolean;
   route_priority: number | null;
   attempt_count: number;
@@ -33,7 +33,7 @@ const activateNextFallback = async (eventId: string): Promise<string[]> => {
     await sql`
       UPDATE notifications.deliveries
       SET status = 'suppressed', error_code = 'fallback_not_needed',
-          error_message = 'A preferred channel was delivered.', updated_at = now()
+          error_message = 'A preferred channel was delivered.', payload_encrypted = NULL, updated_at = now()
       WHERE event_id = ${eventId}::uuid AND required = false AND status = 'deferred'
     `;
     return [];
@@ -82,12 +82,15 @@ export const processNotificationDelivery = async (deliveryId: string): Promise<D
     const driver = getNotificationChannel(delivery.channel);
     if (!driver)
       throw Object.assign(new Error(`Notification channel "${delivery.channel}" is unavailable`), { code: "channel_unavailable" });
+    if (!delivery.payload_encrypted) {
+      throw Object.assign(new Error("Notification delivery payload is unavailable"), { code: "payload_missing", retryable: false });
+    }
     const payload = await decryptSecret(delivery.payload_encrypted);
     await driver.deliver(payload);
     await sql`
       UPDATE notifications.deliveries
       SET status = 'delivered', delivered_at = now(), next_attempt_at = NULL,
-          error_code = NULL, error_message = NULL, updated_at = now()
+          error_code = NULL, error_message = NULL, payload_encrypted = NULL, updated_at = now()
       WHERE id = ${delivery.id}::uuid
     `;
     const activatedIds = delivery.required ? [] : await activateNextFallback(delivery.event_id);
@@ -110,7 +113,7 @@ export const processNotificationDelivery = async (deliveryId: string): Promise<D
     await sql`
       UPDATE notifications.deliveries
       SET status = 'failed', next_attempt_at = NULL, error_code = ${code},
-          error_message = ${message}, updated_at = now()
+          error_message = ${message}, payload_encrypted = NULL, updated_at = now()
       WHERE id = ${delivery.id}::uuid
     `;
     const activatedIds = delivery.required ? [] : await activateNextFallback(delivery.event_id);

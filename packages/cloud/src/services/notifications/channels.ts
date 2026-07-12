@@ -56,6 +56,7 @@ type EmailPayload = {
   subject: string;
   content?: string;
   rawHtml?: string;
+  messageId?: string;
 };
 
 const parseEmailPayload = (value: unknown): EmailPayload => {
@@ -66,7 +67,8 @@ const parseEmailPayload = (value: unknown): EmailPayload => {
   }
   if (payload.content !== undefined && typeof payload.content !== "string") throw new Error("Invalid email notification payload");
   if (payload.rawHtml !== undefined && typeof payload.rawHtml !== "string") throw new Error("Invalid email notification payload");
-  return { to: payload.to, subject: payload.subject, content: payload.content, rawHtml: payload.rawHtml };
+  if (payload.messageId !== undefined && typeof payload.messageId !== "string") throw new Error("Invalid email notification payload");
+  return { to: payload.to, subject: payload.subject, content: payload.content, rawHtml: payload.rawHtml, messageId: payload.messageId };
 };
 
 const emailDriver: NotificationChannelDriver = {
@@ -76,7 +78,7 @@ const emailDriver: NotificationChannelDriver = {
     const email = normalizeEmail(recipient.email);
     return [{ key: emailKey(email), label: emailLabel(email), context: { email } }];
   },
-  createPayload: ({ presentation, email, destination }) => {
+  createPayload: ({ presentation, email, destination, event }) => {
     const context = destination.context as { email?: unknown };
     if (typeof context.email !== "string") throw new Error("Email destination is missing an address");
     return {
@@ -84,11 +86,16 @@ const emailDriver: NotificationChannelDriver = {
       subject: email?.subject ?? presentation.title,
       content: email?.content ?? presentation.body,
       rawHtml: email?.rawHtml,
+      messageId: `<cloud-notification-${event.id}@cloud.invalid>`,
     } satisfies EmailPayload;
   },
   deliver: async (value) => {
     const payload = parseEmailPayload(value);
-    await sendEmail(payload.to, payload.subject, { content: payload.content, rawHtml: payload.rawHtml });
+    await sendEmail(payload.to, payload.subject, {
+      content: payload.content,
+      rawHtml: payload.rawHtml,
+      messageId: payload.messageId,
+    });
   },
 };
 

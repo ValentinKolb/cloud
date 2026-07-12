@@ -15,6 +15,7 @@ describe("Accounts notification definitions", () => {
   });
 
   test("keeps account-access messages on required email", () => {
+    expect(app.notifications.loginLink.recipient).toBe("email");
     expect(app.notifications.loginLink.delivery?.required).toEqual(["email"]);
     expect(app.notifications.freeIpaWelcome.delivery?.required).toEqual(["email"]);
     expect(app.notifications.localWelcome.delivery?.required).toEqual(["email"]);

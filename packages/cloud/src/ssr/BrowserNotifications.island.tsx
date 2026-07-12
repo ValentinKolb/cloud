@@ -1,6 +1,7 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { notificationTargetMatchesLocation } from "../browser/notification-target";
 import { browserNotificationClient } from "../browser/notifications";
+import { isSafeNotificationTargetHref } from "../contracts/notification-types";
 
 type CloudNotificationMessage = {
   type: "cloud-notification";
@@ -16,8 +17,7 @@ const isNotificationMessage = (value: unknown): value is CloudNotificationMessag
     candidate.type === "cloud-notification" &&
     typeof candidate.eventId === "string" &&
     typeof candidate.title === "string" &&
-    (candidate.targetHref === undefined ||
-      (typeof candidate.targetHref === "string" && candidate.targetHref.startsWith("/") && !candidate.targetHref.startsWith("//")))
+    (candidate.targetHref === undefined || (typeof candidate.targetHref === "string" && isSafeNotificationTargetHref(candidate.targetHref)))
   );
 };
 
@@ -26,18 +26,54 @@ export default function BrowserNotifications() {
   const seen = new Set<string>();
 
   onMount(() => {
+    const receive = (value: unknown): boolean => {
+      if (!isNotificationMessage(value)) return false;
+      if (seen.has(value.eventId)) return true;
+      seen.add(value.eventId);
+      if (seen.size > 500) seen.delete(seen.values().next().value ?? "");
+      if (value.targetHref && notificationTargetMatchesLocation(value.targetHref, window.location.href)) return true;
+      setNotification(value);
+      return true;
+    };
+
     void browserNotificationClient.refreshExisting().catch((error) => {
       console.warn("[notifications] Failed to refresh the browser endpoint", error);
     });
 
     const onMessage = (event: MessageEvent<unknown>) => {
-      if (!isNotificationMessage(event.data) || seen.has(event.data.eventId)) return;
-      seen.add(event.data.eventId);
-      if (event.data.targetHref && notificationTargetMatchesLocation(event.data.targetHref, window.location.href)) return;
-      setNotification(event.data);
+      if (!receive(event.data)) return;
+      event.ports[0]?.postMessage({ received: true });
     };
     navigator.serviceWorker?.addEventListener("message", onMessage);
-    onCleanup(() => navigator.serviceWorker?.removeEventListener("message", onMessage));
+
+    let source: EventSource | null = null;
+    const connect = () => {
+      if (!("EventSource" in window) || document.visibilityState !== "visible" || source) return;
+      source = new EventSource("/api/me/notifications/events");
+      source.addEventListener("notification", (event) => {
+        if (!(event instanceof MessageEvent) || typeof event.data !== "string") return;
+        try {
+          receive(JSON.parse(event.data));
+        } catch {
+          // Ignore malformed live events; durable history remains available.
+        }
+      });
+    };
+    const syncVisibility = () => {
+      if (document.visibilityState === "visible") connect();
+      else {
+        source?.close();
+        source = null;
+      }
+    };
+    document.addEventListener("visibilitychange", syncVisibility);
+    connect();
+
+    onCleanup(() => {
+      navigator.serviceWorker?.removeEventListener("message", onMessage);
+      document.removeEventListener("visibilitychange", syncVisibility);
+      source?.close();
+    });
   });
 
   return (

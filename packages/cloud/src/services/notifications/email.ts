@@ -23,7 +23,11 @@ const getTransporter = async (): Promise<Transporter> => {
 const sanitizeContent = (content: string): string => sanitizeHtml(content, { allowedTags: [], allowedAttributes: {} });
 
 /** Send an email with the standard HTML template. */
-export const sendEmail = async (to: string, subject: string, opts: { content?: string; rawHtml?: string }): Promise<void> => {
+export const sendEmail = async (
+  to: string,
+  subject: string,
+  opts: { content?: string; rawHtml?: string; messageId?: string },
+): Promise<void> => {
   const rawAppUrl = await settings.get<string>("app.url");
   const appUrl = rawAppUrl.startsWith("http") ? rawAppUrl : `https://${rawAppUrl}`;
   const appName = await settings.get<string>("app.name");
@@ -44,6 +48,7 @@ export const sendEmail = async (to: string, subject: string, opts: { content?: s
     from: `"${appName}" <${emailFrom}>`,
     to,
     subject,
+    ...(opts.messageId ? { messageId: opts.messageId } : {}),
     html,
     ...(text ? { text } : {}),
   });

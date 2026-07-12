@@ -1,11 +1,12 @@
 import { sql } from "bun";
+import { isSafeNotificationTargetHref } from "../../contracts/notification-types";
+import type { MutationResult } from "../../contracts/shared";
 import type {
   NotificationDeliveryStatus,
   UserNotificationHistoryResponse,
   UserNotificationPreference,
   UserNotificationPreferencesResponse,
 } from "../../contracts/user-notifications";
-import type { MutationResult } from "../../contracts/shared";
 import { toPgTextArray } from "../postgres";
 import { listNotificationChannels } from "./channels";
 
@@ -193,7 +194,7 @@ const listHistory = async (config: {
         appId: row.app_id,
         label: row.label,
         title: row.title,
-        targetHref: row.target_href,
+        targetHref: row.target_href && isSafeNotificationTargetHref(row.target_href) ? row.target_href : null,
         channel: row.channel,
         destinationLabel: row.destination_label,
         required: row.required,

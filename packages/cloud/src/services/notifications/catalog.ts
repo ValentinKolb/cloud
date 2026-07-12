@@ -1,8 +1,17 @@
 import { sql } from "bun";
 import type { AnyBoundNotificationDefinition } from "../../contracts/notification-types";
+import { logger } from "../logging";
 import { toPgTextArray } from "../postgres";
 
 type NotificationCatalog = Readonly<Record<string, AnyBoundNotificationDefinition>>;
+
+const RETRY_MS = 5_000;
+const log = logger("notifications:catalog");
+
+const isSchemaUnavailable = (error: unknown): boolean => {
+  if (!error || typeof error !== "object" || !("code" in error)) return false;
+  return error.code === "42P01" || error.code === "3F000";
+};
 
 const upsertDefinition = async (definition: AnyBoundNotificationDefinition, db: typeof sql = sql): Promise<void> => {
   const recommended = toPgTextArray([...(definition.delivery?.recommended ?? [])]);
@@ -45,6 +54,76 @@ export const registerNotificationDefinitions = async (appId: string, definitions
       WHERE app_id = ${appId} AND NOT (id = ANY(${ids}::text[]))
     `;
   });
+};
+
+/** Keep app startup rollout-safe when Core has not expanded the schema yet. */
+export const startNotificationDefinitionRegistration = async (
+  appId: string,
+  definitions: NotificationCatalog,
+  options: {
+    onPermanentError?: (error: unknown) => void;
+    register?: (appId: string, definitions: NotificationCatalog) => Promise<void>;
+    retryMs?: number;
+  } = {},
+): Promise<() => void> => {
+  const register = options.register ?? registerNotificationDefinitions;
+  const retryMs = options.retryMs ?? RETRY_MS;
+  const onPermanentError =
+    options.onPermanentError ??
+    ((error: unknown) => {
+      const fatal = error instanceof Error ? error : new Error("Notification catalog registration failed permanently");
+      queueMicrotask(() => {
+        throw fatal;
+      });
+    });
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const schedule = () => {
+    if (stopped || timer) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      void attempt();
+    }, retryMs);
+    if (typeof timer === "object" && "unref" in timer) timer.unref();
+  };
+
+  const attempt = async (): Promise<void> => {
+    if (stopped) return;
+    try {
+      await register(appId, definitions);
+      log.info("Notification definitions registered after schema became available", { appId });
+    } catch (error) {
+      if (!isSchemaUnavailable(error)) {
+        stopped = true;
+        log.error("Notification definition registration failed permanently", {
+          appId,
+          error: error instanceof Error ? error.message : "Notification catalog registration failed",
+        });
+        onPermanentError(error);
+        return;
+      }
+      log.warn("Notification definition registration is waiting for Core schema", {
+        appId,
+        error: error instanceof Error ? error.message : "Notification catalog registration failed",
+      });
+      schedule();
+    }
+  };
+
+  try {
+    await register(appId, definitions);
+  } catch (error) {
+    if (!isSchemaUnavailable(error)) throw error;
+    log.warn("Notification schema is not available yet; registration will retry", { appId });
+    schedule();
+  }
+
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+  };
 };
 
 export const ensureNotificationDefinition = upsertDefinition;

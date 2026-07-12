@@ -91,11 +91,84 @@ const NotificationHistoryQuerySchema = z.object({
   perPage: z.coerce.number().int().min(1).max(100).optional().default(25),
   status: NotificationDeliveryStatusSchema.optional(),
 });
+const NotificationEventCursorQuerySchema = z.object({
+  after: z
+    .string()
+    .regex(/^\d+-\d+$/)
+    .max(80)
+    .optional(),
+});
 
 const app = new Hono<AuthContext>()
   .use(rateLimit())
   .use(auth.requireRole("authenticated"))
   .use(requireUserBackedActor)
+
+  .get(
+    "/notifications/events",
+    describeRoute({
+      tags: ["Me"],
+      summary: "Stream current user notification events",
+      description: "Best-effort foreground notification stream for visible authenticated Cloud pages.",
+      ...requiresAuth,
+      responses: {
+        200: {
+          description: "Server-sent notification events",
+          content: { "text/event-stream": { schema: { type: "string" } } },
+        },
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+      },
+    }),
+    v("query", NotificationEventCursorQuerySchema),
+    async (c) => {
+      const userId = c.get("user").id;
+      const queryCursor = c.req.valid("query").after;
+      const headerCursor = c.req.header("Last-Event-ID");
+      const requestedCursor = queryCursor ?? (headerCursor && /^\d+-\d+$/.test(headerCursor) ? headerCursor : undefined);
+      const encoder = new TextEncoder();
+      const abort = new AbortController();
+      let keepalive: ReturnType<typeof setInterval> | undefined;
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          const send = (event: string, data: unknown, id?: string) => {
+            controller.enqueue(encoder.encode(`${id ? `id: ${id}\n` : ""}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+          };
+          const cursor = requestedCursor ?? (await notifications.live.latestCursor(userId)) ?? "0-0";
+          send("ready", { cursor }, cursor);
+          keepalive = setInterval(() => send("ping", { at: new Date().toISOString() }), 8_000);
+          try {
+            for await (const event of notifications.live.events({ userId, after: cursor, signal: abort.signal })) {
+              if (abort.signal.aborted) break;
+              send("notification", event.data, event.cursor);
+            }
+          } catch (error) {
+            if (!abort.signal.aborted) {
+              send("error", { message: error instanceof Error ? error.message : "Notification event stream failed" });
+            }
+          } finally {
+            if (keepalive) clearInterval(keepalive);
+            try {
+              controller.close();
+            } catch {
+              // Client disconnects are normal for long-lived event streams.
+            }
+          }
+        },
+        cancel() {
+          abort.abort();
+          if (keepalive) clearInterval(keepalive);
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    },
+  )
 
   .get(
     "/activity",

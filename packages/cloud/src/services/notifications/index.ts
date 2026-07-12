@@ -6,6 +6,7 @@ import { logger } from "../logging";
 import { escapeLikePattern } from "../postgres";
 import { sendEmail } from "./email";
 import "./browser";
+import { notificationLive } from "./live";
 import { sendTypedNotification, type TypedNotificationSendResult } from "./platform";
 import { userNotifications } from "./user";
 
@@ -608,10 +609,9 @@ export const notifications = {
   sendAllPendingSystem,
   getStatusSummary,
   getSearchSummary,
+  live: notificationLive,
   user: userNotifications,
 };
-
-export { userNotifications } from "./user";
 
 export type {
   NotificationBatch,
@@ -622,3 +622,4 @@ export type {
   NotificationBatchStatus,
 } from "./batches";
 export { notificationBatches } from "./batches";
+export { userNotifications } from "./user";

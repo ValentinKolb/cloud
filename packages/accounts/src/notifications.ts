@@ -15,7 +15,7 @@ const applicationUrl = async (): Promise<string> => {
 
 export const NOTIFICATIONS = {
   loginLink: notification({
-    recipient: "user",
+    recipient: "email",
     label: "Administrative login links",
     description: "Required when an administrator sends a one-time sign-in link to a local account.",
     delivery: requiredEmail,
@@ -117,9 +117,9 @@ type AccountsNotificationDescriptors = BoundNotificationMap<"accounts", typeof N
 const fingerprint = (value: string): string => createHash("sha256").update(value).digest("hex");
 
 export const createAccountsNotificationSender = (definitions: AccountsNotificationDescriptors): AccountsNotificationSender => ({
-  sendLoginLink: ({ userId, token, magicLink }) =>
+  sendLoginLink: ({ email, token, magicLink }) =>
     notifications.send(definitions.loginLink, {
-      recipient: { userId },
+      recipient: { email },
       data: { token, magicLink },
       idempotencyKey: `login-link:${fingerprint(token)}`,
     }),

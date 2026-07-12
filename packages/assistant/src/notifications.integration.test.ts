@@ -93,7 +93,7 @@ describe("Assistant completion notifications", () => {
           idempotency_key: `turn:${directTurn.id}`,
         },
       ]);
-      const deliveries = await sql<{ channel: string; status: string; error_code: string | null; payload_encrypted: string }[]>`
+      const deliveries = await sql<{ channel: string; status: string; error_code: string | null; payload_encrypted: string | null }[]>`
         SELECT delivery.channel, delivery.status, delivery.error_code, delivery.payload_encrypted
         FROM notifications.deliveries delivery
         JOIN notifications.events event ON event.id = delivery.event_id
@@ -101,7 +101,7 @@ describe("Assistant completion notifications", () => {
           AND event.recipient_user_id = ${userId}::uuid
       `;
       expect(deliveries).toEqual([expect.objectContaining({ channel: "browser", status: "suppressed", error_code: "no_endpoint" })]);
-      expect(deliveries[0]?.payload_encrypted).not.toContain(direct.id);
+      expect(deliveries[0]?.payload_encrypted).toBeNull();
     } finally {
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
     }

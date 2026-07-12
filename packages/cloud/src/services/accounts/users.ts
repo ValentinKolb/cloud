@@ -12,7 +12,6 @@ import { buildRoles } from "./authz";
 import { buildBaseUser, resolveProviderProfile } from "./base-user";
 import { managedGroupIdsSubquery, managedGroupsNamesSubquery, recursiveGroupIdsSubquery, recursiveGroupNamesSubquery } from "./group-sql";
 import { buildIpaUserData, emptyIpaUserData, userIpaDataColumns, userIpaDataJoin } from "./ipa-data";
-import type { AccountsNotificationSender } from "./notification-sender";
 import {
   canPersistStoredAdmin,
   getDefaultAccountExpiry,
@@ -21,6 +20,7 @@ import {
   resolveEffectiveAdminState,
   resolveTargetAccountExpiry,
 } from "./model";
+import type { AccountsNotificationSender } from "./notification-sender";
 import { transitionIpaUserToLocal } from "./switching";
 
 export { clearAvatar, getAvatar, parseAvatarDataUrl, setAvatar } from "./avatar";
@@ -585,7 +585,7 @@ export const sendLoginLink = async (params: {
   const appUrl = rawAppUrl.startsWith("http") ? rawAppUrl : `https://${rawAppUrl}`;
   try {
     const delivery = await params.notificationSender.sendLoginLink({
-      userId: user.id,
+      email: user.mail,
       token,
       magicLink: createAuthLoginUrl(appUrl, { token }),
     });

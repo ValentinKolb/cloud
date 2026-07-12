@@ -10,6 +10,23 @@ export interface NotificationChannelRegistry {
 
 export type NotificationChannelId = Extract<keyof NotificationChannelRegistry, string>;
 
+const NOTIFICATION_TARGET_ORIGIN = "https://cloud.invalid";
+
+export const isSafeNotificationTargetHref = (value: string): value is `/${string}` => {
+  if (!value.startsWith("/") || value.startsWith("//") || /[\\\u0000-\u001f\u007f]/.test(value)) return false;
+  try {
+    const target = new URL(value, NOTIFICATION_TARGET_ORIGIN);
+    return target.origin === NOTIFICATION_TARGET_ORIGIN && `${target.pathname}${target.search}${target.hash}` === value;
+  } catch {
+    return false;
+  }
+};
+
+export const validateNotificationTargetHref = (value: string): `/${string}` => {
+  if (!isSafeNotificationTargetHref(value)) throw new Error("Notification targetHref must be a canonical same-origin absolute path");
+  return value;
+};
+
 export type NotificationPresentation = {
   title: string;
   body?: string;

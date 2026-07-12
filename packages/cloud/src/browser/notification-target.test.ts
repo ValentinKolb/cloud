@@ -16,5 +16,6 @@ describe("notificationTargetMatchesLocation", () => {
       notificationTargetMatchesLocation("/app/assistant?conversation=chat-1", "https://cloud.example/app/assistant?conversation=chat-2"),
     ).toBe(false);
     expect(notificationTargetMatchesLocation("https://other.example/app/assistant", "https://cloud.example/app/assistant")).toBe(false);
+    expect(notificationTargetMatchesLocation("/\\evil.example", "https://cloud.example/app/assistant")).toBe(false);
   });
 });

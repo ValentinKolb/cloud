@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isUnsafeNetworkAddress, isUnsafeNetworkHostname, networkAddressFamily, normalizeNetworkHostname } from "../shared/network-address";
 
 export const NotificationDeliveryStatusSchema = z.enum(["deferred", "pending", "sending", "delivered", "suppressed", "failed"]);
 export type NotificationDeliveryStatus = z.infer<typeof NotificationDeliveryStatusSchema>;
@@ -57,11 +58,28 @@ export const UserNotificationHistoryResponseSchema = z.object({
 });
 export type UserNotificationHistoryResponse = z.infer<typeof UserNotificationHistoryResponseSchema>;
 
+export const isSafeBrowserPushEndpoint = (value: string): boolean => {
+  try {
+    if (/[\\\u0000-\u001f\u007f]/.test(value)) return false;
+    const endpoint = new URL(value);
+    const hostname = normalizeNetworkHostname(endpoint.hostname);
+    const family = networkAddressFamily(hostname);
+    return (
+      endpoint.protocol === "https:" &&
+      !endpoint.username &&
+      !endpoint.password &&
+      (!endpoint.port || endpoint.port === "443") &&
+      !endpoint.hash &&
+      !isUnsafeNetworkHostname(hostname) &&
+      (family === null || !isUnsafeNetworkAddress(hostname))
+    );
+  } catch {
+    return false;
+  }
+};
+
 export const BrowserPushSubscriptionSchema = z.object({
-  endpoint: z
-    .url()
-    .max(4_000)
-    .refine((value) => value.startsWith("https://"), "Push endpoint must use HTTPS"),
+  endpoint: z.url().max(4_000).refine(isSafeBrowserPushEndpoint, "Push endpoint must use public HTTPS"),
   expirationTime: z.number().nonnegative().nullable().optional(),
   keys: z.object({
     p256dh: z.string().min(20).max(500),

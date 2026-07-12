@@ -17,7 +17,7 @@ import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
 import type { Role } from "../contracts/shared";
 import { auth } from "../server/middleware/auth";
 import { logger } from "../services/logging";
-import { registerNotificationDefinitions } from "../services/notifications/catalog";
+import { startNotificationDefinitionRegistration } from "../services/notifications/catalog";
 import { get, loadCache as loadSettingsCache, set } from "../services/settings";
 import { createSettingsAPI, type SettingsAPI } from "../services/settings/api";
 import { registerSettings, type SettingDef } from "../services/settings/defaults";
@@ -428,7 +428,7 @@ export const defineApp = <
       await startOpts.lifecycle.setup(cloudCtx);
     }
 
-    await registerNotificationDefinitions(meta.id, notifications);
+    const stopNotificationRegistration = await startNotificationDefinitionRegistration(meta.id, notifications);
 
     await loadSettingsCache();
 
@@ -446,6 +446,7 @@ export const defineApp = <
       try {
         if (startOpts.lifecycle?.stop) await startOpts.lifecycle.stop(cloudCtx);
       } catch {}
+      stopNotificationRegistration();
       await stopRuntimeWatcher();
       await heartbeat.stop();
     };
